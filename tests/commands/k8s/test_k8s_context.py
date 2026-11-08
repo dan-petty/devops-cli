@@ -9,6 +9,20 @@ from typer.testing import CliRunner
 
 from devops_cli.commands.k8s import app
 from tests.support.config_writes import written_keys
+from tests.support.fakes.keyring import FakeKeyring
+from tests.support.fakes.kubernetes import FakeCluster
+from tests.support.fakes.process import ProcessFake
+from tests.support.k8s_commands import (
+    answer_helm_version,
+    calls_starting,
+    install_kubectl_world,
+    minikube_running,
+    minikube_starts_on_demand,
+    minikube_stopped,
+    name_contexts,
+    stock_push_keyring,
+)
+from tests.support.tcp_probe import TcpProbe
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
@@ -28,45 +42,47 @@ def test_k8s_switch_context_dry_run() -> None:
     assert "minikube" in result.output
 
 
-def test_k8s_bootstrap_auto_start_failure() -> None:
-    from unittest.mock import MagicMock, patch
+def test_k8s_bootstrap_auto_start_failure(process_fake: ProcessFake) -> None:
+    minikube_stopped(process_fake)
 
-    with (
-        patch("devops_cli.commands.k8s._minikube_running", return_value=False),
-        patch("shutil.which", return_value=None),
-        patch(
-            "devops_cli.commands.k8s._run_cmd",
-            return_value=MagicMock(returncode=1, stdout="", stderr="error"),
-        ),
-    ):
-        result = runner.invoke(app, ["bootstrap", "--auto-start"])
-        assert result.exit_code == 1
-        assert "Failed to start minikube" in result.output
+    result = runner.invoke(app, ["bootstrap", "--auto-start"])
+
+    assert result.exit_code == 1
+    assert "Failed to start minikube" in result.output
+    assert calls_starting(process_fake, "minikube", "start") != []
 
 
-def test_k8s_bootstrap_no_auto_start() -> None:
-    from unittest.mock import patch
+def test_k8s_bootstrap_no_auto_start(process_fake: ProcessFake) -> None:
+    minikube_stopped(process_fake)
 
-    with patch("devops_cli.commands.k8s._minikube_running", return_value=False):
-        result = runner.invoke(app, ["bootstrap", "--no-auto-start"])
-        assert result.exit_code == 1
-        assert "minikube is not running" in result.output.lower()
+    result = runner.invoke(app, ["bootstrap", "--no-auto-start"])
+
+    assert result.exit_code == 1
+    assert "minikube is not running" in result.output.lower()
+    assert calls_starting(process_fake, "minikube", "start") == []
 
 
-def test_k8s_bootstrap_success(tmp_path: Path) -> None:
-    from unittest.mock import patch
-
+def test_k8s_bootstrap_success(
+    tmp_path: Path,
+    process_fake: ProcessFake,
+    cluster: FakeCluster,
+    keyring_store: FakeKeyring,
+    tcp_probe: TcpProbe,
+) -> None:
     manifest_dir = tmp_path / "k8s"
     manifest_dir.mkdir()
+    install_kubectl_world(process_fake)
+    stock_push_keyring(keyring_store)
+    minikube_running(process_fake)
 
-    with (
-        patch("devops_cli.commands.k8s._minikube_running", return_value=True),
-        patch("devops_cli.commands.k8s._run_cmd"),
-        patch("devops_cli.commands.k8s.deploy_stack") as mock_deploy,
-        patch("devops_cli.commands.k8s.networking.configure_urls") as mock_urls,
-    ):
-        result = runner.invoke(app, ["bootstrap", "--dir", str(manifest_dir), "--stack", "infra"])
-        assert (result.exit_code, mock_deploy.called, mock_urls.called) == (0, True, True)
+    result = runner.invoke(app, ["bootstrap", "--dir", str(manifest_dir), "--stack", "infra"])
+
+    assert (
+        result.exit_code,
+        calls_starting(process_fake, "minikube", "update-context") != [],
+        calls_starting(process_fake, "helm", "upgrade") != [],
+        calls_starting(process_fake, "minikube", "service") != [],
+    ) == (0, True, True, True)
 
 
 def test_k8s_apply_rejects_ssrf_and_private_metadata_urls() -> None:
@@ -210,116 +226,69 @@ def test_should_autostart_minikube(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_switch_context_minikube_autostarts_when_stopped(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, process_fake: ProcessFake
 ) -> None:
-    from unittest.mock import MagicMock, patch
-
     cfg_file = tmp_path / "config.yaml"
     cfg_file.write_text("k8s:\n  context: default\n", encoding="utf-8")
     monkeypatch.setenv("DEVOPS_CLI_CONFIG", str(cfg_file))
+    minikube_starts_on_demand(process_fake)
 
-    calls: list[list[str]] = []
+    result = runner.invoke(app, ["switch-context", "minikube"])
 
-    def mock_run_cmd(cmd: list[str], **kwargs: object) -> object:
-        calls.append(cmd)
-        if cmd[:2] == ["helm", "version"]:
-            return MagicMock(returncode=0, stdout="v3.17.0\n", stderr="")
-        return MagicMock(returncode=0, stdout="OK", stderr="")
-
-    def mock_minikube_running() -> bool:
-        return any(c[:2] == ["minikube", "start"] for c in calls)
-
-    with (
-        patch(
-            "devops_cli.commands.k8s.cluster_runtime._minikube_running",
-            side_effect=mock_minikube_running,
-        ),
-        patch(
-            "devops_cli.commands.k8s.cluster_context.runtime._minikube_running",
-            side_effect=mock_minikube_running,
-        ),
-        patch("devops_cli.commands.k8s.cluster_context.runtime._run_cmd", side_effect=mock_run_cmd),
-        patch("devops_cli.commands.k8s.cluster_runtime._run_cmd", side_effect=mock_run_cmd),
-        patch("shutil.which", return_value="/usr/bin/minikube"),
-    ):
-        result = runner.invoke(app, ["switch-context", "minikube"])
-        assert result.exit_code == 0
-        # Verify minikube was started
-        assert any(c[:2] == ["minikube", "start"] for c in calls)
-        assert any(c == ["kubectl", "config", "use-context", "minikube"] for c in calls)
+    assert result.exit_code == 0
+    assert calls_starting(process_fake, "minikube", "start") != []
+    assert calls_starting(process_fake, "kubectl", "config", "use-context") == [
+        ("kubectl", "config", "use-context", "minikube")
+    ]
 
 
 def test_switch_context_minikube_skips_start_when_already_running(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, process_fake: ProcessFake
 ) -> None:
-    from unittest.mock import MagicMock, patch
-
     cfg_file = tmp_path / "config.yaml"
     cfg_file.write_text("k8s:\n  context: default\n", encoding="utf-8")
     monkeypatch.setenv("DEVOPS_CLI_CONFIG", str(cfg_file))
+    minikube_running(process_fake)
 
-    calls: list[list[str]] = []
+    result = runner.invoke(app, ["switch-context", "minikube"])
 
-    def mock_run_cmd(cmd: list[str], **kwargs: object) -> object:
-        calls.append(cmd)
-        if cmd[:2] == ["helm", "version"]:
-            return MagicMock(returncode=0, stdout="v3.17.0\n", stderr="")
-        return MagicMock(returncode=0, stdout="OK", stderr="")
-
-    with (
-        patch("devops_cli.commands.k8s.cluster_runtime._minikube_running", return_value=True),
-        patch(
-            "devops_cli.commands.k8s.cluster_context.runtime._minikube_running", return_value=True
-        ),
-        patch("devops_cli.commands.k8s.cluster_context.runtime._run_cmd", side_effect=mock_run_cmd),
-    ):
-        result = runner.invoke(app, ["switch-context", "minikube"])
-        assert result.exit_code == 0
-        # Verify minikube start was NOT called
-        assert not any(c[:2] == ["minikube", "start"] for c in calls)
-        assert any(c == ["kubectl", "config", "use-context", "minikube"] for c in calls)
+    assert result.exit_code == 0
+    assert calls_starting(process_fake, "minikube", "start") == []
+    assert calls_starting(process_fake, "kubectl", "config", "use-context") == [
+        ("kubectl", "config", "use-context", "minikube")
+    ]
 
 
 def test_switch_context_other_cluster_does_not_start_minikube(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, isolate_data_dir: Path
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    isolate_data_dir: Path,
+    process_fake: ProcessFake,
 ) -> None:
     """The switch writes `k8s.context` alone into the config file."""
-    from unittest.mock import MagicMock, patch
-
     cfg_file = tmp_path / "config.yaml"
     cfg_file.write_text("k8s:\n  context: default\n", encoding="utf-8")
     monkeypatch.setenv("DEVOPS_CLI_CONFIG", str(cfg_file))
+    minikube_stopped(process_fake)
 
-    calls: list[list[str]] = []
+    result = runner.invoke(app, ["switch-context", "production-cluster"])
 
-    def mock_run_cmd(cmd: list[str], **kwargs: object) -> object:
-        calls.append(cmd)
-        if cmd[:2] == ["helm", "version"]:
-            return MagicMock(returncode=0, stdout="v3.17.0\n", stderr="")
-        return MagicMock(returncode=0, stdout="OK", stderr="")
-
-    with (
-        patch("devops_cli.commands.k8s.cluster_runtime._minikube_running", return_value=False),
-        patch(
-            "devops_cli.commands.k8s.cluster_context.runtime._minikube_running", return_value=False
-        ),
-        patch("devops_cli.commands.k8s.cluster_context.runtime._run_cmd", side_effect=mock_run_cmd),
-    ):
-        result = runner.invoke(app, ["switch-context", "production-cluster"])
-        assert result.exit_code == 0
-        # Verify minikube start was NOT called
-        assert not any(c[:2] == ["minikube", "start"] for c in calls)
-        assert any(c == ["kubectl", "config", "use-context", "production-cluster"] for c in calls)
+    assert result.exit_code == 0
+    assert calls_starting(process_fake, "minikube", "start") == []
+    assert calls_starting(process_fake, "kubectl", "config", "use-context") == [
+        ("kubectl", "config", "use-context", "production-cluster")
+    ]
     assert (cfg_file.read_text(encoding="utf-8"), written_keys(isolate_data_dir)) == (
         "k8s:\n  context: production-cluster\n",
         [["k8s.context"]],
     )
 
 
-def test_resolve_effective_context(monkeypatch: pytest.MonkeyPatch) -> None:
-    from unittest.mock import patch
-
+def test_resolve_effective_context(
+    monkeypatch: pytest.MonkeyPatch, isolate_devops_cli_config: Path
+) -> None:
     from devops_cli.commands.k8s.cluster_runtime import resolve_effective_context
+    from devops_cli.config.settings import reset_settings_cache
 
     # 1. Explicit context passed returns that context stripped
     assert resolve_effective_context("  custom-cluster  ") == "custom-cluster"
@@ -330,184 +299,142 @@ def test_resolve_effective_context(monkeypatch: pytest.MonkeyPatch) -> None:
     assert resolve_effective_context("") == "staging-cluster"
 
     # 3. Settings load failure returns None
-    with patch("devops_cli.config.settings.load_settings", side_effect=RuntimeError("disk error")):
-        assert resolve_effective_context(None) is None
+    monkeypatch.delenv("DEVOPS_CLI_K8S_CONTEXT")
+    isolate_devops_cli_config.write_text("k8s: [unclosed", encoding="utf-8")
+    reset_settings_cache()
+    assert resolve_effective_context(None) is None
 
 
 def test_should_autostart_minikube_fails_closed_on_config_error(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, isolate_devops_cli_config: Path
 ) -> None:
-    from unittest.mock import patch
-
     from devops_cli.commands.k8s.cluster_runtime import should_autostart_minikube
+    from devops_cli.config.settings import reset_settings_cache
 
     monkeypatch.delenv("DEVOPS_MINIKUBE_AUTOSTART", raising=False)
     monkeypatch.delenv("DEVOPS_K8S_AUTOSTART_MINIKUBE", raising=False)
+    isolate_devops_cli_config.write_text("k8s: [unclosed", encoding="utf-8")
+    reset_settings_cache()
 
-    with patch(
-        "devops_cli.config.settings.load_settings", side_effect=RuntimeError("corrupted yaml")
-    ):
-        assert should_autostart_minikube(target_context=None) is False
+    assert should_autostart_minikube(target_context=None) is False
 
 
-def test_switch_context_dry_run_does_not_probe_minikube() -> None:
-    from unittest.mock import patch
+def test_switch_context_dry_run_does_not_probe_minikube(process_fake: ProcessFake) -> None:
+    result = runner.invoke(app, ["switch-context", "minikube"], env={"DEVOPS_CLI_DRY_RUN": "true"})
 
-    with patch("devops_cli.commands.k8s.cluster_runtime._minikube_running") as mock_running:
-        result = runner.invoke(
-            app, ["switch-context", "minikube"], env={"DEVOPS_CLI_DRY_RUN": "true"}
-        )
-        assert result.exit_code == 0
-        mock_running.assert_not_called()
+    assert (result.exit_code, process_fake.calls) == (0, [])
 
 
 def test_switch_context_accepts_kubeconfig_names_and_rejects_injection(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, process_fake: ProcessFake
 ) -> None:
-    from unittest.mock import MagicMock, patch
-
     cfg_file = tmp_path / "config.yaml"
     cfg_file.write_text("k8s:\n  context: default\n", encoding="utf-8")
     monkeypatch.setenv("DEVOPS_CLI_CONFIG", str(cfg_file))
+    minikube_running(process_fake)
 
-    calls: list[list[str]] = []
+    # Valid complex context names: EKS ARN, GKE name with underscores, Kind with dashes, email
+    complex_names = [
+        "arn:aws:eks:us-east-1:123456789012:cluster/my-cluster",
+        "gke_project-123_us-central1_prod-cluster",
+        "admin@example.com",
+        "kind-local-cluster",
+    ]
+    for cname in complex_names:
+        result = runner.invoke(app, ["switch-context", cname])
+        assert result.exit_code == 0
+        assert ("kubectl", "config", "use-context", cname) in calls_starting(
+            process_fake, "kubectl", "config", "use-context"
+        )
 
-    def mock_run_cmd(cmd: list[str], **kwargs: object) -> object:
-        calls.append(cmd)
-        if cmd[:2] == ["helm", "version"]:
-            return MagicMock(returncode=0, stdout="v3.17.0\n", stderr="")
-        return MagicMock(returncode=0, stdout="OK", stderr="")
-
-    with (
-        patch("devops_cli.commands.k8s.cluster_runtime._minikube_running", return_value=True),
-        patch(
-            "devops_cli.commands.k8s.cluster_context.runtime._minikube_running", return_value=True
-        ),
-        patch("devops_cli.commands.k8s.cluster_context.runtime._run_cmd", side_effect=mock_run_cmd),
-    ):
-        # Valid complex context names: EKS ARN, GKE name with underscores, Kind with dashes, email
-        complex_names = [
-            "arn:aws:eks:us-east-1:123456789012:cluster/my-cluster",
-            "gke_project-123_us-central1_prod-cluster",
-            "admin@example.com",
-            "kind-local-cluster",
-        ]
-        for cname in complex_names:
-            result = runner.invoke(app, ["switch-context", cname])
-            assert result.exit_code == 0
-            assert any(c == ["kubectl", "config", "use-context", cname] for c in calls)
-
-        # Invalid context names with injection or empty strings should be rejected
-        bad_names = ["bad; rm -rf /", "cluster$(whoami)", "name with spaces", ""]
-        for bname in bad_names:
-            bad_res = runner.invoke(app, ["switch-context", bname])
-            assert bad_res.exit_code != 0
+    # Invalid context names with injection or empty strings should be rejected
+    switched = len(calls_starting(process_fake, "kubectl", "config", "use-context"))
+    bad_names = ["bad; rm -rf /", "cluster$(whoami)", "name with spaces", ""]
+    for bname in bad_names:
+        bad_res = runner.invoke(app, ["switch-context", bname])
+        assert bad_res.exit_code != 0
+    assert len(calls_starting(process_fake, "kubectl", "config", "use-context")) == switched
 
 
 def test_sync_configured_k8s_context_warning_on_save_error(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capfd: pytest.CaptureFixture[str]
 ) -> None:
-    from unittest.mock import patch
-
     from devops_cli.commands.k8s.cluster_context import _sync_configured_k8s_context
 
-    with (
-        patch(
-            "devops_cli.config.settings.save_settings", side_effect=OSError("read-only filesystem")
-        ),
-        patch("devops_cli.commands.k8s.cluster_context.print_warning") as mock_warn,
-    ):
-        _sync_configured_k8s_context("new-cluster")
-        assert mock_warn.called
-        assert "failed to persist" in mock_warn.call_args[0][0]
+    blocker = tmp_path / "not-a-directory"
+    blocker.write_text("", encoding="utf-8")
+    monkeypatch.setenv("DEVOPS_CLI_CONFIG", str(blocker / "config.yaml"))
+
+    _sync_configured_k8s_context("new-cluster")
+
+    assert "failed to persist" in capfd.readouterr().out
 
 
 def test_deploy_and_teardown_stack_use_effective_context(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    process_fake: ProcessFake,
+    cluster: FakeCluster,
 ) -> None:
-    from unittest.mock import MagicMock, patch
-
-    monkeypatch.setenv("DEVOPS_CLI_K8S_CONTEXT", "arn:aws:eks:us-east-1:123456789012:cluster/prod")
-
-    calls: list[list[str]] = []
-
-    def mock_run_cmd(cmd: list[str], **kwargs: object) -> object:
-        calls.append(cmd)
-        if cmd[:2] == ["helm", "version"]:
-            return MagicMock(returncode=0, stdout="v3.17.0\n", stderr="")
-        return MagicMock(returncode=0, stdout="OK", stderr="")
-
+    effective = "arn:aws:eks:us-east-1:123456789012:cluster/prod"
+    monkeypatch.setenv("DEVOPS_CLI_K8S_CONTEXT", effective)
+    name_contexts(cluster, effective)
+    answer_helm_version(process_fake)
     manifest_dir = tmp_path / "k8s"
     manifest_dir.mkdir()
 
-    with (
-        patch("devops_cli.commands.k8s.cluster_runtime._cluster_reachable", return_value=True),
-        patch("devops_cli.commands.k8s.stack_lifecycle.runtime._run_cmd", side_effect=mock_run_cmd),
-        patch("devops_cli.commands.k8s.stack_lifecycle.net.port_forward"),
-        patch("devops_cli.k8s.credentials.sync_k8s_credentials", return_value={}),
-        patch(
-            "devops_cli.commands.k8s.stack_lifecycle._is_cluster_argo_managed", return_value=False
-        ),
-    ):
-        # When context is None, deploy_stack resolves effective_context from settings
-        res_deploy = runner.invoke(
-            app, ["deploy-stack", "--k8s-dir", str(manifest_dir), "--no-wait", "--no-push-secrets"]
-        )
-        assert res_deploy.exit_code == 0
-        assert any(
-            "--context" in c and "arn:aws:eks:us-east-1:123456789012:cluster/prod" in c
-            for c in calls
-        )
-        assert any(
-            "--kube-context" in c and "arn:aws:eks:us-east-1:123456789012:cluster/prod" in c
-            for c in calls
-        )
+    # The `logging` stack stands in for the default `infra` stack: the credential sync of
+    # `infra` refuses an EKS ARN context (#4091).
+    # When context is None, deploy_stack resolves effective_context from settings
+    res_deploy = runner.invoke(
+        app,
+        ["deploy-stack", "--stack", "logging", "--k8s-dir", str(manifest_dir)]
+        + ["--no-wait", "--no-push-secrets"],
+    )
+    deployed = [call.argv for call in process_fake.calls]
+    assert res_deploy.exit_code == 0
+    assert any("--context" in argv and effective in argv for argv in deployed)
+    assert any("--kube-context" in argv and effective in argv for argv in deployed)
 
-        # Teardown stack also uses effective_context
-        calls.clear()
-        res_teardown = runner.invoke(app, ["teardown-stack", "--k8s-dir", str(manifest_dir)])
-        assert res_teardown.exit_code == 0
-        assert any(
-            "--kube-context" in c and "arn:aws:eks:us-east-1:123456789012:cluster/prod" in c
-            for c in calls
-        )
+    # Teardown stack also uses effective_context
+    process_fake.calls.clear()
+    res_teardown = runner.invoke(
+        app, ["teardown-stack", "--stack", "logging", "--k8s-dir", str(manifest_dir)]
+    )
+    assert res_teardown.exit_code == 0
+    assert any(
+        "--kube-context" in call.argv and effective in call.argv for call in process_fake.calls
+    )
 
 
-def test_sync_configured_k8s_context_masks_secrets() -> None:
-    from unittest.mock import patch
-
+def test_sync_configured_k8s_context_masks_secrets(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capfd: pytest.CaptureFixture[str]
+) -> None:
     from devops_cli.commands.k8s.cluster_context import _sync_configured_k8s_context
 
     secret_token = "ghp_secrettoken1234567890abcdefghijklmn"
-    with (
-        patch(
-            "devops_cli.config.settings.save_settings",
-            side_effect=OSError(f"Disk error with {secret_token}"),
-        ),
-        patch("devops_cli.commands.k8s.cluster_context.print_warning") as mock_warn,
-    ):
-        _sync_configured_k8s_context("new-cluster")
-        assert mock_warn.called
-        warn_msg = mock_warn.call_args[0][0]
-        assert secret_token not in warn_msg
-        assert "<masked-github-token>" in warn_msg
+    blocker = tmp_path / secret_token
+    blocker.write_text("", encoding="utf-8")
+    monkeypatch.setenv("DEVOPS_CLI_CONFIG", str(blocker / "config.yaml"))
+
+    _sync_configured_k8s_context("new-cluster")
+
+    warning = capfd.readouterr().out
+    assert "failed to persist" in warning
+    assert secret_token not in warning
+    assert "<masked-github-token>" in warning
 
 
 def test_switch_context_honors_minikube_autostart_disabled(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, process_fake: ProcessFake
 ) -> None:
-    from unittest.mock import patch
-
     monkeypatch.setenv("DEVOPS_MINIKUBE_AUTOSTART", "false")
-    with (
-        patch("devops_cli.commands.k8s.cluster_runtime._validate_kubeconfig_context_name"),
-        patch("devops_cli.commands.k8s.cluster_runtime._run_cmd"),
-        patch("devops_cli.commands.k8s.cluster_runtime._start_minikube") as mock_start,
-        patch("devops_cli.commands.k8s.cluster_context._sync_configured_k8s_context"),
-    ):
-        res = runner.invoke(app, ["switch-context", "minikube"])
-        assert res.exit_code == 0
-        mock_start.assert_not_called()
+    minikube_stopped(process_fake)
+
+    res = runner.invoke(app, ["switch-context", "minikube"])
+
+    assert res.exit_code == 0
+    assert calls_starting(process_fake, "minikube", "start") == []
 
 
 def test_k8s_run_cmd_kubeconfig_security(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -526,40 +453,25 @@ def test_k8s_run_cmd_kubeconfig_security(monkeypatch: pytest.MonkeyPatch) -> Non
 
 
 def test_switch_context_logs_service_realignment_failure(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    process_fake: ProcessFake,
+    cluster: FakeCluster,
 ) -> None:
     """A failed in-process client realignment is logged, not silently swallowed.
 
     The kubectl invocation is authoritative for the kubeconfig, so the command still
-    succeeds; the diagnostic must survive for troubleshooting.
+    succeeds; the diagnostic must survive for troubleshooting. The fake cluster names no
+    context `staging`, so it refuses the realignment as a kubeconfig without it does.
     """
     import logging
-    from unittest.mock import MagicMock, patch
-
-    from devops_cli.exceptions.k8s import KubernetesContextError
 
     cfg_file = tmp_path / "config.yaml"
     cfg_file.write_text("k8s:\n  context: default\n", encoding="utf-8")
     monkeypatch.setenv("DEVOPS_CLI_CONFIG", str(cfg_file))
 
-    mock_service = MagicMock()
-    mock_service.switch_context.side_effect = KubernetesContextError("apiserver unreachable")
-
-    with (
-        patch(
-            "devops_cli.commands.k8s.cluster_context.runtime._run_cmd",
-            return_value=MagicMock(returncode=0, stdout="OK", stderr=""),
-        ),
-        patch(
-            "devops_cli.commands.k8s.cluster_runtime._minikube_running",
-            return_value=True,
-        ),
-        patch(
-            "devops_cli.k8s.service.KubernetesService.get_instance",
-            return_value=mock_service,
-        ),
-        caplog.at_level(logging.WARNING, logger="devops_cli.commands.k8s.cluster_context"),
-    ):
+    with caplog.at_level(logging.WARNING):
         result = runner.invoke(app, ["switch-context", "staging"])
 
     assert result.exit_code == 0

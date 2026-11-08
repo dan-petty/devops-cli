@@ -2,8 +2,13 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+import json
+from collections.abc import Callable
+from pathlib import Path
+from typing import Any
+from urllib.parse import parse_qs, urlsplit
 
+import httpx2
 import pytest
 import yaml
 from typer.testing import CliRunner
@@ -16,7 +21,11 @@ from devops_cli.commands.k8s.stack_lifecycle import (
     MANIFESTS_BY_STACK,
 )
 from devops_cli.config.defaults import DEFAULT_K8S_DIR
+from devops_cli.dry_run import set_dry_run
+from tests.support.fakes.http import WebFake
 from tests.support.fakes.kubernetes import FakeCluster
+from tests.support.fakes.process import ProcessAnswer, ProcessFake
+from tests.support.k8s_commands import answer_helm_version
 from tests.support.paths import REPO_ROOT
 
 runner = CliRunner()
@@ -119,112 +128,124 @@ def test_monitoring_network_policy_alloy_egress_rules() -> None:
 
 def test_deploy_logging_stack_dry_run() -> None:
     """Verify deploy-stack --stack logging with dry run."""
-    with patch("devops_cli.commands.k8s.stack_lifecycle.is_dry_run", return_value=True):
-        result = runner.invoke(app, ["deploy-stack", "--stack", "logging", "--no-push-secrets"])
-        assert result.exit_code == 0
-        assert "deploy-stack" in result.output
-        assert "logging" in result.output
+    set_dry_run(True)
+    result = runner.invoke(app, ["deploy-stack", "--stack", "logging", "--no-push-secrets"])
+    assert result.exit_code == 0
+    assert "deploy-stack" in result.output
+    assert "logging" in result.output
 
 
 def test_teardown_logging_stack_dry_run() -> None:
     """Verify teardown-stack --stack logging with dry run."""
-    with patch("devops_cli.commands.k8s.stack_lifecycle.is_dry_run", return_value=True):
-        result = runner.invoke(app, ["teardown-stack", "--stack", "logging"])
-        assert result.exit_code == 0
-        assert "teardown-stack" in result.output
-        assert "logging" in result.output
+    set_dry_run(True)
+    result = runner.invoke(app, ["teardown-stack", "--stack", "logging"])
+    assert result.exit_code == 0
+    assert "teardown-stack" in result.output
+    assert "logging" in result.output
 
 
-def test_deploy_logging_stack_live() -> None:
+def test_deploy_logging_stack_live(cluster: FakeCluster, process_fake: ProcessFake) -> None:
     """Verify deploy-stack --stack logging execution."""
-    mock_proc = MagicMock(returncode=0, stdout="success", stderr="")
+    answer_helm_version(process_fake)
 
-    def _fake_run(cmd: list[str], **kwargs: object) -> MagicMock:
-        if cmd[:2] == ["helm", "version"]:
-            return MagicMock(returncode=0, stdout="v3.17.0\n", stderr="")
-        return mock_proc
+    result = runner.invoke(app, ["deploy-stack", "--stack", "logging", "--no-push-secrets"])
 
-    with (
-        patch("devops_cli.commands.k8s.shutil.which", return_value="/usr/local/bin/helm"),
-        patch("devops_cli.commands.k8s._cluster_reachable", return_value=True),
-        patch("devops_cli.commands.k8s._minikube_running", return_value=True),
-        patch("devops_cli.commands.k8s.run_subprocess", side_effect=_fake_run),
-        patch("devops_cli.commands.k8s._run_cmd", side_effect=_fake_run),
-        patch(
-            "devops_cli.commands.k8s.stack_lifecycle._is_cluster_argo_managed", return_value=False
-        ),
-    ):
-        result = runner.invoke(app, ["deploy-stack", "--stack", "logging", "--no-push-secrets"])
-        assert result.exit_code == 0
+    installed = [
+        call.argv[4]
+        for call in process_fake.calls
+        if call.argv[:3] == ("helm", "upgrade", "--install")
+    ]
+    assert (result.exit_code, installed) == (
+        0,
+        [release["name"] for release in HELM_RELEASES_BY_STACK["logging"]],
+    )
 
 
-def test_teardown_logging_stack_live() -> None:
+def test_teardown_logging_stack_live(cluster: FakeCluster, process_fake: ProcessFake) -> None:
     """Verify teardown-stack --stack logging execution."""
-    mock_proc = MagicMock(returncode=0, stdout="success", stderr="")
-    with (
-        patch("devops_cli.commands.k8s.shutil.which", return_value="/usr/local/bin/helm"),
-        patch("devops_cli.commands.k8s._cluster_reachable", return_value=True),
-        patch("devops_cli.commands.k8s._minikube_running", return_value=True),
-        patch("devops_cli.commands.k8s.run_subprocess", return_value=mock_proc),
-        patch("devops_cli.commands.k8s._run_cmd", return_value=mock_proc),
-        patch(
-            "devops_cli.commands.k8s.stack_lifecycle._is_cluster_argo_managed", return_value=False
-        ),
-    ):
-        result = runner.invoke(app, ["teardown-stack", "--stack", "logging"])
-        assert result.exit_code == 0
+    result = runner.invoke(app, ["teardown-stack", "--stack", "logging"])
+
+    removed = [
+        call.argv[2] for call in process_fake.calls if call.argv[:2] == ("helm", "uninstall")
+    ]
+    assert (result.exit_code, removed) == (
+        0,
+        [release["name"] for release in reversed(HELM_RELEASES_BY_STACK["logging"])],
+    )
 
 
-def test_k8s_logs_backward_compatibility() -> None:
+def test_k8s_logs_backward_compatibility(process_fake: ProcessFake) -> None:
     """Verify devops k8s logs <pod> continues to work as expected."""
-    mock_proc = MagicMock(returncode=0, stdout="pod logs output", stderr="")
-    with patch("devops_cli.commands.k8s._run_cmd", return_value=mock_proc) as mock_run:
-        result = runner.invoke(app, ["logs", "my-legacy-pod", "-n", "default", "--tail", "25"])
-        assert result.exit_code == 0
-        mock_run.assert_called_once()
+    process_fake.answer("kubectl logs", ProcessAnswer(stdout="pod logs output"))
+
+    result = runner.invoke(app, ["logs", "my-legacy-pod", "-n", "default", "--tail", "25"])
+
+    assert result.exit_code == 0
+    assert [call.argv[:3] for call in process_fake.calls] == [("kubectl", "logs", "my-legacy-pod")]
 
 
-def test_k8s_logs_logql_query_dispatch() -> None:
+def _serve_loki(web: WebFake, streams: list[dict[str, Any]] | None = None) -> None:
+    """Answer each Loki range query with `streams`, or with no stream."""
+    body = json.dumps({"data": {"result": streams or []}})
+    web.serve(lambda _request: httpx2.Response(200, text=body))
+
+
+def _loki_queries(web: WebFake) -> list[str]:
+    """The LogQL expression of each range query that reached Loki."""
+    return [
+        parse_qs(urlsplit(request.url).query)["query"][0]
+        for request in web.recorded
+        if urlsplit(request.url).path == "/loki/api/v1/query_range"
+    ]
+
+
+def test_k8s_logs_logql_query_dispatch(
+    config: Callable[..., Path], web: WebFake, process_fake: ProcessFake
+) -> None:
     """Verify devops k8s logs '{app=\"foo\"}' routes to LogQL query engine."""
-    with patch("devops_cli.k8s.logql.execute_logql_query") as mock_query:
-        mock_query.return_value = MagicMock(
-            source="mock",
-            entries=[],
-            duration_ms=5.0,
-        )
-        result = runner.invoke(
-            app,
-            ["logs", '{app="frontend"} |= "error"', "--since", "30m", "--limit", "20"],
-        )
-        assert result.exit_code == 0
-        mock_query.assert_called_once()
+    config(loki={"url": "http://example.com:3100"})
+    _serve_loki(web)
+
+    result = runner.invoke(
+        app,
+        ["logs", '{app="frontend"} |= "error"', "--since", "30m", "--limit", "20"],
+    )
+
+    sent = parse_qs(urlsplit(web.recorded[0].url).query)
+    assert (
+        result.exit_code,
+        _loki_queries(web),
+        sent["since"],
+        sent["limit"],
+        process_fake.calls,
+    ) == (0, ['{app="frontend"} |= "error"'], ["30m"], ["20"], [])
 
 
-def test_k8s_logs_subcommand_query_dispatch() -> None:
+def test_k8s_logs_subcommand_query_dispatch(
+    config: Callable[..., Path], web: WebFake, process_fake: ProcessFake
+) -> None:
     """Verify devops k8s logs query '{app=\"foo\"}' routes to LogQL query engine."""
-    with patch("devops_cli.k8s.logql.execute_logql_query") as mock_query:
-        mock_query.return_value = MagicMock(
-            source="mock",
-            entries=[],
-            duration_ms=5.0,
-        )
-        result = runner.invoke(
-            app,
-            ["logs", "query", '{app="backend"}', "--limit", "10"],
-        )
-        assert result.exit_code == 0
-        mock_query.assert_called_once()
+    config(loki={"url": "http://example.com:3100"})
+    _serve_loki(web)
+
+    result = runner.invoke(app, ["logs", "query", '{app="backend"}', "--limit", "10"])
+
+    assert (result.exit_code, _loki_queries(web), process_fake.calls) == (
+        0,
+        ['{app="backend"}'],
+        [],
+    )
 
 
-def test_k8s_logs_pod_named_tail_legacy() -> None:
+def test_k8s_logs_pod_named_tail_legacy(process_fake: ProcessFake) -> None:
     """Verify devops k8s logs tail without query argument treats tail as a pod name."""
-    mock_proc = MagicMock(returncode=0, stdout="logs from pod tail", stderr="")
-    with patch("devops_cli.commands.k8s._run_cmd", return_value=mock_proc) as mock_run:
-        result = runner.invoke(app, ["logs", "tail", "-n", "default"])
-        assert result.exit_code == 0
-        mock_run.assert_called_once()
-        cmd = mock_run.call_args[0][0]
-        assert "tail" in cmd
+    process_fake.answer("kubectl logs", ProcessAnswer(stdout="logs from pod tail"))
+
+    result = runner.invoke(app, ["logs", "tail", "-n", "default"])
+
+    assert result.exit_code == 0
+    assert len(process_fake.calls) == 1
+    assert "tail" in process_fake.calls[0].argv
 
 
 def test_k8s_logs_logql_rejects_follow() -> None:
@@ -241,33 +262,36 @@ def test_k8s_logs_empty_query_rejected() -> None:
     assert "LogQL query expression is required" in result.output
 
 
-def test_k8s_logs_escapes_rich_markup() -> None:
+def test_k8s_logs_escapes_rich_markup(config: Callable[..., Path], web: WebFake) -> None:
     """Verify log entries with Rich markup brackets are safely escaped in output."""
-    from devops_cli.k8s.logql import LogEntry, LogQueryResult, parse_logql_query
-
-    mock_result = LogQueryResult(
-        query=parse_logql_query('{app="web"}'),
-        entries=[
-            LogEntry(
-                timestamp="2026-09-10T12:00:00Z",
-                line="[bold red]critical payload syntax error[/bold red] <xml>",
-                stream_labels={"pod": "web-pod-1"},
-            )
+    config(loki={"url": "http://example.com:3100"})
+    _serve_loki(
+        web,
+        [
+            {
+                "stream": {"pod": "web-pod-1"},
+                "values": [
+                    [
+                        "1788950400000000000",
+                        "[bold red]critical payload syntax error[/bold red] <xml>",
+                    ]
+                ],
+            }
         ],
-        source="loki",
     )
-    with patch("devops_cli.k8s.logql.execute_logql_query", return_value=mock_result):
-        result = runner.invoke(app, ["logs", '{app="web"}'])
-        assert result.exit_code == 0
-        assert "[bold red]critical payload syntax error[/bold red]" in result.output
+
+    result = runner.invoke(app, ["logs", '{app="web"}'])
+
+    assert result.exit_code == 0
+    assert "[bold red]critical payload syntax error[/bold red]" in result.output
 
 
 def test_k8s_teardown_stack_case_insensitive() -> None:
     """Verify teardown-stack normalizes case-insensitive stack names."""
-    with patch("devops_cli.commands.k8s.stack_lifecycle.is_dry_run", return_value=True):
-        result = runner.invoke(app, ["teardown-stack", "--stack", "LOGGING"])
-        assert result.exit_code == 0
-        assert "teardown_k8s_stack" in result.output
+    set_dry_run(True)
+    result = runner.invoke(app, ["teardown-stack", "--stack", "LOGGING"])
+    assert result.exit_code == 0
+    assert "teardown_k8s_stack" in result.output
 
 
 def test_logging_stack_security_and_scoping() -> None:
@@ -326,7 +350,9 @@ def test_logging_stack_security_and_scoping() -> None:
 
 
 @pytest.mark.parametrize("follow", [False, True])
-def test_k8s_logs_native_streaming_framing_and_literals(follow: bool, cluster: FakeCluster) -> None:
+def test_k8s_logs_native_streaming_framing_and_literals(
+    follow: bool, cluster: FakeCluster, process_fake: ProcessFake
+) -> None:
     """Verify devops k8s logs writes each line via write_stdout without markup or wrapping."""
     cluster.core.answers["read_namespaced_pod_log"] = [
         b"a\nb",
@@ -339,38 +365,27 @@ def test_k8s_logs_native_streaming_framing_and_literals(follow: bool, cluster: F
     if follow:
         args.append("--follow")
 
-    with (
-        patch("devops_cli.commands.k8s._run_cmd") as mock_cmd,
-        patch("devops_cli.commands.k8s.run_subprocess") as mock_subproc,
-    ):
-        res = runner.invoke(app, args)
-        assert (
-            res.exit_code,
-            res.stdout,
-            mock_cmd.called,
-            mock_subproc.called,
-        ) == (
-            0,
-            f"a\nbc\nliteral [/bold] tags\n{'w' * 200}\n",
-            False,
-            False,
-        )
+    res = runner.invoke(app, args)
+
+    assert (res.exit_code, res.stdout, process_fake.calls) == (
+        0,
+        f"a\nbc\nliteral [/bold] tags\n{'w' * 200}\n",
+        [],
+    )
 
 
-def test_k8s_logs_mid_body_error_raises_without_fallback(cluster: FakeCluster) -> None:
+def test_k8s_logs_mid_body_error_raises_without_fallback(
+    cluster: FakeCluster, process_fake: ProcessFake
+) -> None:
     """Verify mid-body error in non-follow mode raises without fallback to kubectl."""
     cluster.core.answers["read_namespaced_pod_log"] = [
         b"head-line\n",
         RuntimeError("mid-stream failure"),
     ]
 
-    with (
-        patch("devops_cli.commands.k8s._run_cmd") as mock_cmd,
-        patch("devops_cli.commands.k8s.run_subprocess") as mock_subproc,
-    ):
-        res = runner.invoke(app, ["logs", "pod-1", "-n", "default"])
-        assert res.exit_code != 0
-        assert isinstance(res.exception, RuntimeError)
-        assert "head-line\n" in res.stdout
-        assert not mock_cmd.called
-        assert not mock_subproc.called
+    res = runner.invoke(app, ["logs", "pod-1", "-n", "default"])
+
+    assert res.exit_code != 0
+    assert isinstance(res.exception, RuntimeError)
+    assert "head-line\n" in res.stdout
+    assert process_fake.calls == []

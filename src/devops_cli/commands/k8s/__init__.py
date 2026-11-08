@@ -2,23 +2,6 @@
 
 from __future__ import annotations
 
-import shutil
-import sys
-import types
-from typing import Any
-
-from devops_cli.commands.k8s import (
-    cluster_context as _cluster_context,
-)
-from devops_cli.commands.k8s import (
-    cluster_runtime as _cluster_runtime,
-)
-from devops_cli.commands.k8s import (
-    networking as _networking,
-)
-from devops_cli.commands.k8s import (
-    stack_lifecycle as _stack_lifecycle,
-)
 from devops_cli.commands.k8s.bootstrap import bootstrap
 from devops_cli.commands.k8s.cluster_context import (
     apply,
@@ -29,16 +12,6 @@ from devops_cli.commands.k8s.cluster_context import (
     switch_context,
 )
 from devops_cli.commands.k8s.cluster_jobs import run_job
-from devops_cli.commands.k8s.cluster_runtime import (
-    _cluster_reachable,
-    _get_unready_nodes,
-    _k8s_clients,
-    _minikube_running,
-    _run_cmd,
-    _start_minikube,
-    _validate_k8s_identifier,
-    should_autostart_minikube,
-)
 from devops_cli.commands.k8s.cluster_secret_push import push_secrets
 from devops_cli.commands.k8s.crawl4ai_check import k8s_crawl4ai_check
 from devops_cli.commands.k8s.diagnostics import (
@@ -53,14 +26,6 @@ from devops_cli.commands.k8s.gpu_matrix import gpu_matrix_cmd
 from devops_cli.commands.k8s.image_pins import k8s_image_pins
 from devops_cli.commands.k8s.mattermost_bootstrap import bootstrap_mattermost
 from devops_cli.commands.k8s.networking import (
-    VALID_STACKS,
-    _detect_service_url,
-    _extract_first_node_ip,
-    _parse_minikube_service_url,
-    _resolve_accessible_url,
-    _resolve_k8s_node_port_url,
-    _resolve_stacks,
-    _verify_url_reachability,
     configure_urls,
     port_forward,
     port_forward_status,
@@ -77,14 +42,6 @@ from devops_cli.commands.k8s.security_audit import (
     validate_policy_cmd,
 )
 from devops_cli.commands.k8s.stack_lifecycle import (
-    _HELM_RELEASES,
-    _HELM_REPOS,
-    _HELM_REPOS_BY_STACK,
-    HELM_RELEASES_BY_STACK,
-    MANIFESTS_BY_STACK,
-    _bootstrap_openwebui_account,
-    _recover_stuck_helm_release,
-    _require_helm_version,
     bootstrap_openwebui,
     deploy_stack,
     sync_secrets,
@@ -97,7 +54,6 @@ from devops_cli.commands.k8s.tls_management import (
 from devops_cli.commands.k8s.tunnel import app as tunnel_app
 from devops_cli.commands.k8s.volume import app as volume_app
 from devops_cli.core.cli import new_typer
-from devops_cli.core.process import run_subprocess
 from devops_cli.lang import HELP
 
 app = new_typer(help=HELP.k8s.app, no_args_is_help=True)
@@ -144,127 +100,4 @@ app.add_typer(tunnel_app, name="tunnel", help=HELP.k8s.tunnel_app)
 app.add_typer(volume_app, name="volume", help=HELP.k8s.volume_app)
 
 
-__all__ = [
-    "HELM_RELEASES_BY_STACK",
-    "MANIFESTS_BY_STACK",
-    "VALID_STACKS",
-    "_HELM_RELEASES",
-    "_HELM_REPOS",
-    "_HELM_REPOS_BY_STACK",
-    "_bootstrap_openwebui_account",
-    "_cluster_reachable",
-    "_detect_service_url",
-    "_extract_first_node_ip",
-    "_get_unready_nodes",
-    "_k8s_clients",
-    "_minikube_running",
-    "_parse_minikube_service_url",
-    "_recover_stuck_helm_release",
-    "_require_helm_version",
-    "_resolve_accessible_url",
-    "_resolve_k8s_node_port_url",
-    "_resolve_stacks",
-    "_run_cmd",
-    "_start_minikube",
-    "_validate_k8s_identifier",
-    "_verify_url_reachability",
-    "app",
-    "apply",
-    "bootstrap",
-    "bootstrap_mattermost",
-    "bootstrap_openwebui",
-    "chaos_cmd",
-    "configure_urls",
-    "contexts",
-    "create_tls_secret",
-    "deploy_stack",
-    "diff_helm_cmd",
-    "doctor_cmd",
-    "enable_tls_stack",
-    "gpu_matrix_cmd",
-    "k8s_audit",
-    "k8s_check_deprecated",
-    "k8s_lint",
-    "k8s_validate",
-    "logs",
-    "ollama_app",
-    "pods_cmd",
-    "port_forward",
-    "push_secrets",
-    "rbac_audit",
-    "render",
-    "run_job",
-    "run_subprocess",
-    "security_stream_cmd",
-    "should_autostart_minikube",
-    "shutil",
-    "status",
-    "stream_logs_cmd",
-    "switch_context",
-    "sync_secrets",
-    "teardown_stack",
-    "validate_policy_cmd",
-    "volume_app",
-]
-
-
-_RUNTIME_ATTRS = {
-    "_run_cmd",
-    "_cluster_reachable",
-    "_minikube_running",
-    "_start_minikube",
-    "should_autostart_minikube",
-    "_k8s_clients",
-    "_get_unready_nodes",
-    "_validate_k8s_identifier",
-}
-_NETWORKING_ATTRS = {
-    "_detect_service_url",
-    "_resolve_accessible_url",
-    "_verify_url_reachability",
-    "_resolve_stacks",
-    "port_forward",
-    "configure_urls",
-}
-_STACK_ATTRS = {
-    "deploy_stack",
-    "bootstrap_openwebui",
-    "sync_secrets",
-    "teardown_stack",
-    "_bootstrap_openwebui_account",
-    "_recover_stuck_helm_release",
-    "_require_helm_version",
-}
-
-
-_PATCH_TARGET_MAP: dict[str, tuple[types.ModuleType, ...]] = {
-    "run_subprocess": (_cluster_runtime, _cluster_context, _networking, _stack_lifecycle),
-    "shutil": (_stack_lifecycle,),
-}
-
-
-def _forward_submodule_attr(name: str, value: Any) -> None:
-    targets = _PATCH_TARGET_MAP.get(name)
-    if targets is not None:
-        for mod in targets:
-            setattr(mod, name, value)
-        return
-    if name in _RUNTIME_ATTRS:
-        setattr(_cluster_runtime, name, value)
-        return
-    if name in _NETWORKING_ATTRS:
-        setattr(_networking, name, value)
-        return
-    if name in _STACK_ATTRS:
-        setattr(_stack_lifecycle, name, value)
-
-
-class _K8sModule(types.ModuleType):
-    """Custom module forwarding patched attributes to underlying submodules."""
-
-    def __setattr__(self, name: str, value: Any) -> None:
-        super().__setattr__(name, value)
-        _forward_submodule_attr(name, value)
-
-
-sys.modules[__name__].__class__ = _K8sModule
+__all__ = ["app"]

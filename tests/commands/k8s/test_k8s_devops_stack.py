@@ -13,6 +13,7 @@ from devops_cli.commands.k8s.stack_lifecycle import (
     MANIFESTS_BY_STACK,
 )
 from devops_cli.dry_run import set_dry_run
+from tests.support.fakes.process import ProcessFake
 from tests.support.paths import REPO_ROOT
 
 runner = CliRunner()
@@ -179,27 +180,21 @@ def test_deploy_stack_domain_option_in_dry_run(isolate_devops_cli_config: Path) 
         set_dry_run(False)
 
 
-def test_apply_single_manifest_renders_domain_template(tmp_path: Path) -> None:
+def test_apply_single_manifest_renders_domain_template(
+    tmp_path: Path, process_fake: ProcessFake
+) -> None:
     """Verify _apply_single_manifest renders domain placeholders via stdin."""
-    from unittest.mock import MagicMock, patch
-
     from devops_cli.commands.k8s.stack_lifecycle import _apply_single_manifest
 
     manifest = tmp_path / "test-ingress.yaml"
     manifest.write_text("host: hooks.${DOMAIN}\npath: /test\n", encoding="utf-8")
 
-    mock_run = MagicMock()
-    with patch("devops_cli.commands.k8s.stack_lifecycle.runtime._run_cmd", mock_run):
-        _apply_single_manifest(str(manifest), ["--context", "test-ctx"], domain="example.com")
+    _apply_single_manifest(str(manifest), ["--context", "test-ctx"], domain="example.com")
 
-    assert mock_run.call_count == 1
-    args, kwargs = mock_run.call_args
-    assert (
-        args[0],
-        kwargs.get("input"),
-        kwargs.get("check"),
-    ) == (
-        ["kubectl", "apply", "-f", "-", "--context", "test-ctx"],
-        "host: hooks.example.com\npath: /test\n",
-        False,
-    )
+    assert [(call.argv, call.stdin, call.check) for call in process_fake.calls] == [
+        (
+            ("kubectl", "apply", "-f", "-", "--context", "test-ctx"),
+            "host: hooks.example.com\npath: /test\n",
+            False,
+        )
+    ]

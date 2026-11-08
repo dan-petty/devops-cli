@@ -2,11 +2,30 @@
 
 from __future__ import annotations
 
-import subprocess
 from typing import Any
-from unittest.mock import patch
 
 from tests.support.fakes.kubernetes import FakeCluster, pod
+from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
+
+_LIST_OUTPUT = (
+    "NAME              ID            SIZE      MODIFIED\n"
+    "qwen3.8:27b       12345678      16 GB     2 days ago\n"
+    "llama3.1:70b      87654321      40 GB     3 days ago\n"
+)
+
+
+def _ollama_call(verb: str) -> Any:
+    """A matcher for the `ollama <verb>` that the prune command runs in a pod."""
+
+    def matches(call: ProcessCall) -> bool:
+        return call.argv[:1] == ("kubectl",) and "ollama" in call.argv and verb in call.argv
+
+    return matches
+
+
+def _ollama_calls(process_fake: ProcessFake, verb: str) -> list[tuple[str, ...]]:
+    """The argv of each `kubectl exec ... ollama <verb>` that the command started."""
+    return [call.argv for call in process_fake.calls if _ollama_call(verb)(call)]
 
 
 def _ollama_pod(
@@ -38,75 +57,53 @@ def test_dry_run_makes_no_cluster_call(cli: Any, cluster: FakeCluster) -> None:
     assert "ollama-24gib-embed-gpu1" in result.stdout
 
 
-def test_a_failed_ollama_list_stops_the_node(cli: Any, cluster: FakeCluster) -> None:
+def test_a_failed_ollama_list_stops_the_node(
+    cli: Any, cluster: FakeCluster, process_fake: ProcessFake
+) -> None:
     """Criterion: a node whose ollama list fails removes no model, is named, and exits non-zero."""
     cluster.core.answers["list_namespaced_pod"] = [
         _ollama_pod("ollama-48gib-fast-abcde", "node-control-plane", "fast")
     ]
+    process_fake.answer(
+        _ollama_call("list"), ProcessAnswer(returncode=1, stderr="connection refused")
+    )
 
-    def _mock_run(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
-        if "ollama" in cmd and "list" in cmd:
-            return subprocess.CompletedProcess(
-                cmd, returncode=1, stdout="", stderr="connection refused"
-            )
-        return subprocess.CompletedProcess(cmd, returncode=0, stdout="", stderr="")
-
-    with patch("devops_cli.commands.k8s.ollama._run_cmd", side_effect=_mock_run):
-        result = cli(["k8s", "ollama", "prune"])
+    result = cli(["k8s", "ollama", "prune"])
 
     assert result.exit_code != 0
     assert "node-control-plane" in result.stdout or "node-control-plane" in result.stderr
+    assert _ollama_calls(process_fake, "rm") == []
 
 
-def test_ollama_prune_plan(cli: Any, cluster: FakeCluster) -> None:
+def test_ollama_prune_plan(cli: Any, cluster: FakeCluster, process_fake: ProcessFake) -> None:
     """Criterion: --plan prints each node and the models it would remove without calling ollama rm."""
     cluster.core.answers["list_namespaced_pod"] = [
         _ollama_pod("ollama-48gib-fast-abcde", "node-control-plane", "fast")
     ]
 
-    list_output = "NAME              ID            SIZE      MODIFIED\nqwen3.8:27b       12345678      16 GB     2 days ago\nllama3.1:70b      87654321      40 GB     3 days ago\n"
+    process_fake.answer(_ollama_call("list"), ProcessAnswer(stdout=_LIST_OUTPUT))
 
-    executed_rm: list[list[str]] = []
-
-    def _mock_run(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
-        if "ollama" in cmd and "list" in cmd:
-            return subprocess.CompletedProcess(cmd, returncode=0, stdout=list_output, stderr="")
-        if "ollama" in cmd and "rm" in cmd:
-            executed_rm.append(cmd)
-            return subprocess.CompletedProcess(cmd, returncode=0, stdout="", stderr="")
-        return subprocess.CompletedProcess(cmd, returncode=0, stdout="", stderr="")
-
-    with patch("devops_cli.commands.k8s.ollama._run_cmd", side_effect=_mock_run):
-        result = cli(["k8s", "ollama", "prune", "--plan"])
+    result = cli(["k8s", "ollama", "prune", "--plan"])
 
     assert result.exit_code == 0
     assert "node-control-plane" in result.stdout
     assert "llama3.1:70b" in result.stdout
-    assert len(executed_rm) == 0
+    assert _ollama_calls(process_fake, "rm") == []
 
 
-def test_ollama_prune_executes_rm(cli: Any, cluster: FakeCluster) -> None:
+def test_ollama_prune_executes_rm(
+    cli: Any, cluster: FakeCluster, process_fake: ProcessFake
+) -> None:
     """Criterion: prune removes only the models not in keep set for each node."""
     cluster.core.answers["list_namespaced_pod"] = [
         _ollama_pod("ollama-48gib-fast-abcde", "node-control-plane", "fast")
     ]
 
-    list_output = "NAME              ID            SIZE      MODIFIED\nqwen3.8:27b       12345678      16 GB     2 days ago\nllama3.1:70b      87654321      40 GB     3 days ago\n"
+    process_fake.answer(_ollama_call("list"), ProcessAnswer(stdout=_LIST_OUTPUT))
 
-    executed_rm: list[list[str]] = []
-
-    def _mock_run(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
-        if "ollama" in cmd and "list" in cmd:
-            return subprocess.CompletedProcess(cmd, returncode=0, stdout=list_output, stderr="")
-        if "ollama" in cmd and "rm" in cmd:
-            executed_rm.append(cmd)
-            return subprocess.CompletedProcess(cmd, returncode=0, stdout="", stderr="")
-        return subprocess.CompletedProcess(cmd, returncode=0, stdout="", stderr="")
-
-    with patch("devops_cli.commands.k8s.ollama._run_cmd", side_effect=_mock_run):
-        result = cli(["k8s", "ollama", "prune"])
+    result = cli(["k8s", "ollama", "prune"])
 
     assert result.exit_code == 0
     assert "node-control-plane" in result.stdout
-    assert len(executed_rm) == 1
-    assert "llama3.1:70b" in executed_rm[0]
+    assert len(_ollama_calls(process_fake, "rm")) == 1
+    assert "llama3.1:70b" in _ollama_calls(process_fake, "rm")[0]

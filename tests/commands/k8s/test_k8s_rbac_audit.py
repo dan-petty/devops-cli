@@ -5,15 +5,13 @@ from __future__ import annotations
 import json
 import subprocess
 from typing import Any
-from unittest.mock import patch
 
 from typer.testing import CliRunner
 
 from devops_cli.commands.k8s import app
+from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
 
 runner = CliRunner()
-
-_RUN_CMD = "devops_cli.commands.k8s.cluster_runtime._run_cmd"
 
 
 def _binding(
@@ -53,16 +51,21 @@ _STOCK_BINDINGS = [
 
 
 def _kubectl(
-    bindings: list[dict[str, Any]], roles: list[dict[str, Any]], calls: list[list[str]]
-) -> Any:
-    """Stand in for `_run_cmd`, answering the binding and role reads with `List` documents."""
+    process_fake: ProcessFake, bindings: list[dict[str, Any]], roles: list[dict[str, Any]]
+) -> None:
+    """Make kubectl answer the binding and role reads with `List` documents."""
 
-    def fake_run_cmd(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
-        calls.append(list(cmd))
-        items = bindings if "clusterrolebindings,rolebindings" in cmd else roles
-        return subprocess.CompletedProcess(cmd, 0, json.dumps({"kind": "List", "items": items}), "")
+    def answer(call: ProcessCall) -> subprocess.CompletedProcess[str]:
+        items = bindings if "clusterrolebindings,rolebindings" in call.argv else roles
+        document = json.dumps({"kind": "List", "items": items})
+        return subprocess.CompletedProcess(list(call.argv), 0, document, "")
 
-    return fake_run_cmd
+    process_fake.answer(lambda _call: True, ProcessAnswer(side_effect=answer))
+
+
+def _calls(process_fake: ProcessFake) -> list[list[str]]:
+    """The argv of each program that the audit started."""
+    return [list(call.argv) for call in process_fake.calls]
 
 
 def test_k8s_rbac_audit_dry_run() -> None:
@@ -71,7 +74,9 @@ def test_k8s_rbac_audit_dry_run() -> None:
     assert "kubectl get" in result.output
 
 
-def test_rbac_audit_fails_a_service_account_bound_to_cluster_admin() -> None:
+def test_rbac_audit_fails_a_service_account_bound_to_cluster_admin(
+    process_fake: ProcessFake,
+) -> None:
     """A ServiceAccount outside kube-system holding cluster-admin is a failing finding."""
     ci_bot = _binding(
         "ClusterRoleBinding",
@@ -80,19 +85,18 @@ def test_rbac_audit_fails_a_service_account_bound_to_cluster_admin() -> None:
         "cluster-admin",
         [{"kind": "ServiceAccount", "name": "ci-bot", "namespace": "default"}],
     )
-    calls: list[list[str]] = []
-    with patch(_RUN_CMD, side_effect=_kubectl([*_STOCK_BINDINGS, ci_bot], _STOCK_ROLES, calls)):
-        result = runner.invoke(app, ["rbac-audit"])
+    _kubectl(process_fake, [*_STOCK_BINDINGS, ci_bot], _STOCK_ROLES)
+    result = runner.invoke(app, ["rbac-audit"])
 
     assert (result.exit_code, "ci-bot" in result.output, "FAIL" in result.output) == (1, True, True)
     assert ("PASS" in result.output, "system:masters" in result.output) == (False, False)
-    assert calls == [
+    assert _calls(process_fake) == [
         ["kubectl", "get", "clusterrolebindings,rolebindings", "-o", "json", "--all-namespaces"],
         ["kubectl", "get", "clusterroles,roles", "-o", "json", "--all-namespaces"],
     ]
 
 
-def test_rbac_audit_fails_a_wildcard_role_and_escapes_names() -> None:
+def test_rbac_audit_fails_a_wildcard_role_and_escapes_names(process_fake: ProcessFake) -> None:
     """A Role granting `*` to a user is a finding; cluster names are shown literally, not as markup."""
     roles = [
         *_STOCK_ROLES,
@@ -112,19 +116,20 @@ def test_rbac_audit_fails_a_wildcard_role_and_escapes_names() -> None:
             "team-a",
         ),
     ]
-    calls: list[list[str]] = []
-    with patch(_RUN_CMD, side_effect=_kubectl(bindings, roles, calls)):
-        result = runner.invoke(app, ["rbac-audit", "--namespace", "team-a"])
+    _kubectl(process_fake, bindings, roles)
+    result = runner.invoke(app, ["rbac-audit", "--namespace", "team-a"])
 
     assert (result.exit_code, "User/[red]eve" in result.output, "bob" in result.output) == (
         1,
         True,
         False,
     )
-    assert [call[-2:] for call in calls] == [["-n", "team-a"], ["-n", "team-a"]]
+    assert [call[-2:] for call in _calls(process_fake)] == [["-n", "team-a"], ["-n", "team-a"]]
 
 
-def test_rbac_audit_passes_a_cluster_with_only_system_and_scoped_grants() -> None:
+def test_rbac_audit_passes_a_cluster_with_only_system_and_scoped_grants(
+    process_fake: ProcessFake,
+) -> None:
     """System subjects and narrow roles pass, and the exit code says so."""
     bindings = [
         *_STOCK_BINDINGS,
@@ -144,8 +149,8 @@ def test_rbac_audit_passes_a_cluster_with_only_system_and_scoped_grants() -> Non
             "kube-system",
         ),
     ]
-    with patch(_RUN_CMD, side_effect=_kubectl(bindings, _STOCK_ROLES, [])):
-        result = runner.invoke(app, ["rbac-audit"])
+    _kubectl(process_fake, bindings, _STOCK_ROLES)
+    result = runner.invoke(app, ["rbac-audit"])
 
     assert (result.exit_code, "FAIL" in result.output, "3 binding" in result.output) == (
         0,
@@ -154,7 +159,9 @@ def test_rbac_audit_passes_a_cluster_with_only_system_and_scoped_grants() -> Non
     )
 
 
-def test_rbac_audit_does_not_excuse_the_groups_that_stand_for_everyone() -> None:
+def test_rbac_audit_does_not_excuse_the_groups_that_stand_for_everyone(
+    process_fake: ProcessFake,
+) -> None:
     """`system:authenticated` is every client: its `system:` prefix excuses nothing."""
     open_door = _binding(
         "ClusterRoleBinding",
@@ -168,8 +175,8 @@ def test_rbac_audit_does_not_excuse_the_groups_that_stand_for_everyone() -> None
     )
     # An aggregated ClusterRole with nothing aggregated yet is listed with `"rules": null`.
     edit = {"kind": "ClusterRole", "metadata": {"name": "edit"}, "rules": None}
-    with patch(_RUN_CMD, side_effect=_kubectl([open_door], [*_STOCK_ROLES, edit], [])):
-        result = runner.invoke(app, ["rbac-audit"])
+    _kubectl(process_fake, [open_door], [*_STOCK_ROLES, edit])
+    result = runner.invoke(app, ["rbac-audit"])
 
     assert (
         result.exit_code,
@@ -178,7 +185,9 @@ def test_rbac_audit_does_not_excuse_the_groups_that_stand_for_everyone() -> None
     ) == (1, True, False)
 
 
-def test_rbac_audit_reads_service_account_users_and_groups_as_service_accounts() -> None:
+def test_rbac_audit_reads_service_account_users_and_groups_as_service_accounts(
+    process_fake: ProcessFake,
+) -> None:
     """`User system:serviceaccount:<ns>:<name>` and `Group system:serviceaccounts:<ns>` are
     ServiceAccounts, so outside kube-system their `system:` prefix excuses nothing."""
     subjects = [
@@ -190,8 +199,8 @@ def test_rbac_audit_reads_service_account_users_and_groups_as_service_accounts()
     as_service_accounts = _binding(
         "ClusterRoleBinding", "sa-admins", "ClusterRole", "cluster-admin", subjects
     )
-    with patch(_RUN_CMD, side_effect=_kubectl([as_service_accounts], _STOCK_ROLES, [])):
-        result = runner.invoke(app, ["rbac-audit"])
+    _kubectl(process_fake, [as_service_accounts], _STOCK_ROLES)
+    result = runner.invoke(app, ["rbac-audit"])
 
     assert (
         result.exit_code,
@@ -202,7 +211,7 @@ def test_rbac_audit_reads_service_account_users_and_groups_as_service_accounts()
     ) == (1, 2, True, True, False)
 
 
-def test_rbac_audit_passes_the_stock_k3s_and_kubeadm_bindings() -> None:
+def test_rbac_audit_passes_the_stock_k3s_and_kubeadm_bindings(process_fake: ProcessFake) -> None:
     """The control-plane grants k3s and kubeadm create on every cluster pass, so a fresh cluster
     passes the audit; the same wildcard role granted to anyone else still fails."""
     roles = [
@@ -258,8 +267,8 @@ def test_rbac_audit_passes_the_stock_k3s_and_kubeadm_bindings() -> None:
             [{"kind": "Group", "name": "kubeadm:cluster-admins"}],
         ),
     ]
-    with patch(_RUN_CMD, side_effect=_kubectl(stock, roles, [])):
-        stock_result = runner.invoke(app, ["rbac-audit"])
+    _kubectl(process_fake, stock, roles)
+    stock_result = runner.invoke(app, ["rbac-audit"])
     look_alike = _binding(
         "ClusterRoleBinding",
         "look-alike",
@@ -267,19 +276,21 @@ def test_rbac_audit_passes_the_stock_k3s_and_kubeadm_bindings() -> None:
         "system:kubelet-api-admin",
         [{"kind": "Group", "name": "kube-apiserver"}],
     )
-    with patch(_RUN_CMD, side_effect=_kubectl([*stock, look_alike], roles, [])):
-        look_alike_result = runner.invoke(app, ["rbac-audit"])
+    _kubectl(process_fake, [*stock, look_alike], roles)
+    look_alike_result = runner.invoke(app, ["rbac-audit"])
 
     assert (stock_result.exit_code, "FAIL" in stock_result.output) == (0, False)
     assert (look_alike_result.exit_code, look_alike_result.output.count("FAIL")) == (1, 1)
     assert "Group/kube-apiserver" in look_alike_result.output
 
 
-def test_rbac_audit_that_cannot_read_the_cluster_fails_without_a_verdict() -> None:
+def test_rbac_audit_that_cannot_read_the_cluster_fails_without_a_verdict(
+    process_fake: ProcessFake,
+) -> None:
     """A kubectl that cannot read RBAC objects is an error and a non-zero exit, never a PASS."""
-    denied = subprocess.CompletedProcess(["kubectl"], 1, "", "Error from server (Forbidden): nope")
-    with patch(_RUN_CMD, return_value=denied):
-        result = runner.invoke(app, ["rbac-audit"])
+    denied = "Error from server (Forbidden): nope"
+    process_fake.answer(lambda _call: True, ProcessAnswer(returncode=1, stderr=denied))
+    result = runner.invoke(app, ["rbac-audit"])
 
     assert (result.exit_code, "Forbidden" in result.output, "PASS" in result.output) == (
         1,

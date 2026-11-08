@@ -474,3 +474,50 @@ def test_the_roadmap_tests_mirror_the_roadmap_subpackages() -> None:
         assert list(directory.glob("test_*.py")), package
         for snapshot in (directory / "__snapshots__").glob("*.ambr"):
             assert (directory / f"{snapshot.stem}.py").is_file(), snapshot.name
+
+
+# The command-test directories that patch no name inside devops-cli (#3769). A group of
+# `tests/commands/` joins this list when its pull request removes its last patch, and #1336 widens
+# the list to the whole directory.
+_PATCH_FREE_COMMAND_TEST_DIRECTORIES = ("tests/commands/k8s",)
+_PATCH_CALLS = frozenset({"patch", "setattr"})
+
+
+def _string_patches_of_devops_cli(source: str) -> list[int]:
+    """The lines of the `patch` and `setattr` calls of a test module whose first argument is a
+    string that names a module of devops-cli."""
+    return [
+        node.lineno
+        for node in ast.walk(ast.parse(source))
+        if isinstance(node, ast.Call)
+        and _called_name(node) in _PATCH_CALLS
+        and node.args
+        and isinstance(node.args[0], ast.Constant)
+        and isinstance(node.args[0].value, str)
+        and node.args[0].value.split(".")[0] == "devops_cli"
+    ]
+
+
+def test_command_tests_of_a_migrated_group_patch_no_devops_cli_name() -> None:
+    """No test of `tests/commands/k8s/` patches a name inside devops-cli: it reaches the edge
+    through the fake of that edge (#4086)."""
+    found = [
+        f"{path.relative_to(REPO_ROOT).as_posix()}:{line}"
+        for directory in _PATCH_FREE_COMMAND_TEST_DIRECTORIES
+        for path in sorted((REPO_ROOT / directory).glob("*.py"))
+        for line in _string_patches_of_devops_cli(path.read_text(encoding="utf-8"))
+    ]
+    assert found == []
+
+
+def test_the_patch_check_finds_a_string_patch_of_a_devops_cli_name() -> None:
+    """The check reads both spellings of a patch, and not a patch of the standard library."""
+    source = (
+        "from unittest.mock import patch\n"
+        "def test_one(monkeypatch):\n"
+        "    patch('devops_cli.commands.k8s._run_cmd')\n"
+        "    monkeypatch.setattr('devops_cli.config.settings.save_settings', None)\n"
+        "    patch('shutil.which')\n"
+    )
+
+    assert _string_patches_of_devops_cli(source) == [3, 4]

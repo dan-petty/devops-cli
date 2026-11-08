@@ -19,7 +19,6 @@ from __future__ import annotations
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
-from unittest.mock import patch
 
 import pytest
 import typer
@@ -32,13 +31,12 @@ from devops_cli.config.os_keyring import set_keyring_edge
 from devops_cli.config.settings import (
     QdrantConfig,
     Settings,
-    TelemetryConfig,
     dotted_set,
     get_qdrant_api_key,
 )
-from devops_cli.telemetry import tracer
 from tests.cluster_secret_fakes import APP_KEY, APP_KEY_ENTRY, FakeCluster
 from tests.support.fakes.keyring import FakeKeyring
+from tests.support.fakes.process import ProcessAnswer, ProcessFake
 from tests.support.paths import FIXTURES, REPO_ROOT
 
 _deploy_app = typer.Typer()
@@ -236,21 +234,13 @@ def test_dotted_set_routes_qdrant_api_key_to_keyring(keyring_store: FakeKeyring)
 
 
 @pytest.fixture
-def cluster(monkeypatch: pytest.MonkeyPatch) -> Iterator[FakeCluster]:
+def cluster(process_fake: ProcessFake, monkeypatch: pytest.MonkeyPatch) -> Iterator[FakeCluster]:
     monkeypatch.setenv("DEVOPS_CLI_TELEMETRY_ENABLED", "false")
-    # Each child's span would otherwise load the settings twice per test to learn the above.
-    monkeypatch.setattr(
-        tracer, "_resolve_telemetry_settings", lambda: TelemetryConfig(enabled=False)
-    )
     monkeypatch.setenv("K8S_CONTEXT", "test-ctx")
     monkeypatch.setenv("K8S_NAMESPACE", "test")
     fake = FakeCluster(namespaces={"llm", "cloudflared"})
-    with (
-        patch("devops_cli.core.process.subprocess.run", side_effect=fake),
-        patch("devops_cli.commands.k8s.cluster_runtime._cluster_reachable", return_value=True),
-        patch("devops_cli.k8s.credentials.sync_k8s_credentials", return_value={}),
-    ):
-        yield fake
+    process_fake.answer(lambda _call: True, ProcessAnswer(side_effect=fake))
+    yield fake
 
 
 @pytest.fixture
@@ -375,9 +365,8 @@ def test_the_qdrant_secret_helpers_are_gone() -> None:
     assert "fetch_qdrant_api_key" not in dir(credentials)
 
 
-def test_sync_k8s_credentials_reads_no_llm_secret() -> None:
+def test_sync_k8s_credentials_reads_no_llm_secret(process_fake: ProcessFake) -> None:
     from devops_cli.k8s.credentials import sync_k8s_credentials
 
-    with patch("devops_cli.k8s.credentials.fetch_secret_data") as fetch:
-        results = sync_k8s_credentials(stack="llm", save_to_keyring=False)
-    assert (results, fetch.call_count) == ({}, 0)
+    results = sync_k8s_credentials(stack="llm", save_to_keyring=False)
+    assert (results, process_fake.calls) == ({}, [])

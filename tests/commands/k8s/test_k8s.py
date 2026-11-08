@@ -2,50 +2,74 @@
 
 from __future__ import annotations
 
-import errno
 import json
-import os
-import socket
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock, patch
 
 import pytest
 import yaml
-from packaging.version import Version
 from typer.testing import CliRunner
 
 from devops_cli.commands.k8s import app
 from devops_cli.dry_run import set_dry_run
 from devops_cli.prometheus.promql import selectors, validate_promql
-from devops_cli.security.base import ScanOutcome
-from tests.support.fakes.process import ProcessAnswer, ProcessFake
+from tests.support.config_writes import written_keys
+from tests.support.fakes.clock import ClockFake
+from tests.support.fakes.keyring import FakeKeyring
+from tests.support.fakes.kubernetes import FakeCluster, api_exception, healthy_pod, node, service
+from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
+from tests.support.fakes.scanners import ScannerFake
+from tests.support.fakes.tool_executor import ToolAnswer
+from tests.support.k8s_commands import (
+    answer_helm_version,
+    argo_cd_manages_the_cluster,
+    calls_starting,
+    install_kubectl_world,
+    minikube_running,
+    minikube_stopped,
+    name_contexts,
+    stock_push_keyring,
+)
 from tests.support.k8s_tree import pinned_charts
 from tests.support.paths import FIXTURES, REPO_ROOT
+from tests.support.tcp_probe import TcpProbe
 
 runner = CliRunner()
 
 
-def _no_port_forward_listens(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Refuse every TCP probe at the stdlib socket edge, as a workstation with no port-forward
-    running does, so `configure-urls` falls back to its defaults."""
+_KUBE_LINTER_FINDING = json.dumps(
+    {
+        "Reports": [
+            {
+                "Check": "run-as-non-root",
+                "Diagnostic": {"Message": "Container running as root"},
+                "Remediation": "Set runAsNonRoot: true",
+                "Object": {"Metadata": {"FilePath": "deployment.yaml"}},
+            }
+        ]
+    }
+)
 
-    def refuse(address: tuple[str, int], *args: Any, **kwargs: Any) -> socket.socket:
-        raise ConnectionRefusedError(errno.ECONNREFUSED, os.strerror(errno.ECONNREFUSED))
 
-    monkeypatch.setattr(socket, "create_connection", refuse)
-
-
-def _mock_proc(
-    returncode: int = 0, stdout: str = "", stderr: str = ""
-) -> subprocess.CompletedProcess[str]:
-    return subprocess.CompletedProcess(
-        args=["kubectl"],
-        returncode=returncode,
-        stdout=stdout,
-        stderr=stderr,
-    )
+def _serve_infra_services(cluster: FakeCluster, address: str) -> None:
+    """Make the fake cluster serve the infra and LLM Services at `address`, each on a node port."""
+    names = [
+        ("argocd-server", "argocd"),
+        ("grafana", "monitoring"),
+        ("prometheus-server", "monitoring"),
+        ("tempo", "otel"),
+        ("pyroscope", "monitoring"),
+        ("ollama", "llm"),
+        ("open-webui", "llm"),
+        ("qdrant", "llm"),
+        ("valkey", "llm"),
+    ]
+    cluster.core.answers["list_namespaced_service"] = [
+        service(name, namespace, port=30000 + len(name), load_balancer=address)
+        for name, namespace in names
+    ]
 
 
 def test_k8s_contexts_dry_run() -> None:
@@ -103,14 +127,17 @@ def test_k8s_teardown_stack_dry_run() -> None:
         set_dry_run(False)
 
 
-@patch("devops_cli.commands.k8s._minikube_running", return_value=False)
 def test_k8s_bootstrap_fails_when_minikube_stopped_and_no_auto_start(
-    mock_running: MagicMock,
+    process_fake: ProcessFake,
 ) -> None:
     """k8s bootstrap --no-auto-start must fail when minikube is not running."""
+    minikube_stopped(process_fake)
+
     result = runner.invoke(app, ["bootstrap", "--no-auto-start"])
+
     assert result.exit_code == 1
     assert "minikube is not running" in result.output
+    assert calls_starting(process_fake, "minikube", "start") == []
 
 
 def test_k8s_configure_urls_dry_run() -> None:
@@ -124,80 +151,63 @@ def test_k8s_configure_urls_dry_run() -> None:
         set_dry_run(False)
 
 
-@patch("devops_cli.commands.k8s.networking.save_settings")
-@patch("devops_cli.commands.k8s._detect_service_url")
-@patch("devops_cli.commands.k8s._cluster_reachable", return_value=True)
-@patch("devops_cli.commands.k8s._minikube_running", return_value=True)
 def test_k8s_configure_urls_success(
-    mock_running: MagicMock,
-    mock_cluster: MagicMock,
-    mock_detect: MagicMock,
-    mock_save: MagicMock,
-    monkeypatch: pytest.MonkeyPatch,
+    cluster: FakeCluster,
+    process_fake: ProcessFake,
+    tcp_probe: TcpProbe,
+    isolate_data_dir: Path,
 ) -> None:
     """k8s configure-urls must query service URLs and update configuration."""
-    _no_port_forward_listens(monkeypatch)
+    _serve_infra_services(cluster, "192.0.2.49")
 
-    def fake_detect(service: str, ns: str, context: str | None = None) -> str | None:
-        return f"http://192.0.2.49:{30000 + len(service)}"
-
-    set_dry_run(False)
-    mock_detect.side_effect = fake_detect
     result = runner.invoke(app, ["configure-urls"])
-    assert (result.exit_code, "Configured Service Targets" in result.output, mock_save.called) == (
-        0,
-        True,
-        True,
-    )
+
+    assert (
+        result.exit_code,
+        "Configured Service Targets" in result.output,
+        written_keys(isolate_data_dir) != [],
+    ) == (0, True, True)
 
 
 # The keyring check comes first; it is not left to whichever backend an earlier test installed.
-@patch("devops_cli.commands.k8s.stack_lifecycle.require_keyring_for_push")
-@patch("devops_cli.commands.k8s._cluster_reachable", return_value=False)
 def test_k8s_deploy_stack_fails_when_cluster_unreachable(
-    mock_cluster: MagicMock, mock_keyring_check: MagicMock
+    process_fake: ProcessFake, keyring_store: FakeKeyring
 ) -> None:
     """k8s deploy-stack must fail gracefully when cluster is unreachable."""
-    set_dry_run(False)
+    process_fake.answer("kubectl cluster-info", ProcessAnswer(returncode=1))
+
     result = runner.invoke(app, ["deploy-stack", "--context", "local-k3s"])
+
     assert result.exit_code == 1
     assert "Kubernetes cluster is not reachable" in result.output
+    assert calls_starting(process_fake, "helm") == []
 
 
-@patch("devops_cli.commands.k8s.stack_lifecycle.require_keyring_for_push")
-@patch("devops_cli.commands.k8s._cluster_reachable", return_value=True)
 def test_deploy_stack_warns_on_kubectl_version_skew(
-    mock_reachable: MagicMock, mock_keyring: MagicMock
+    cluster: FakeCluster, process_fake: ProcessFake, keyring_store: FakeKeyring
 ) -> None:
     """deploy-stack warns when kubectl version skew exceeds one minor version."""
-    from devops_cli.k8s.service import KubernetesService
+    name_contexts(cluster, "local-k3s")
+    cluster.version.git_version = "v1.31.4+k3s1"
+    answer_helm_version(process_fake)
 
-    service = KubernetesService.get_instance()
-    service._set_cached("server_version:default", "v1.31.4+k3s1", ttl=60.0)
-    service._set_cached("server_version:local-k3s", "v1.31.4+k3s1", ttl=60.0)
+    res = runner.invoke(
+        app, ["deploy-stack", "--context", "local-k3s", "--no-push-secrets", "--no-wait"]
+    )
 
-    with patch("devops_cli.commands.k8s.stack_lifecycle._handle_argo_managed_deployment"):
-        with patch(
-            "devops_cli.commands.k8s.stack_lifecycle._is_cluster_argo_managed", return_value=True
-        ):
-            res = runner.invoke(
-                app, ["deploy-stack", "--context", "local-k3s", "--no-push-secrets"]
-            )
-            assert "1.37.1" in res.output
-            assert "1.31.4" in res.output or "v1.31.4" in res.output
-            assert "supported" in res.output or "skew" in res.output
+    assert "1.37.1" in res.output
+    assert "1.31.4" in res.output or "v1.31.4" in res.output
+    assert "supported" in res.output or "skew" in res.output
 
 
-@patch("devops_cli.commands.k8s._verify_url_reachability")
-def test_resolve_accessible_url_fallback(mock_verify: MagicMock) -> None:
+def test_resolve_accessible_url_fallback(tcp_probe: TcpProbe) -> None:
     """_resolve_accessible_url falls back to localhost when minikube IP is unreachable."""
-    from devops_cli.commands.k8s import _resolve_accessible_url
+    from devops_cli.commands.k8s.networking import _resolve_accessible_url
 
-    def fake_verify(url: str, timeout: float = 0.8) -> bool:
-        return "localhost" in url
+    tcp_probe.listen_where(lambda host, port: host == "localhost")
 
-    mock_verify.side_effect = fake_verify
     res = _resolve_accessible_url("http://192.0.2.49:30080")
+
     assert res == "http://localhost:30080"
 
 
@@ -322,46 +332,35 @@ def test_k8s_configure_urls_llm_dry_run() -> None:
         set_dry_run(False)
 
 
-def test_require_helm_version() -> None:
+def test_require_helm_version(process_fake: ProcessFake) -> None:
     """_require_helm_version requires Helm >= 3.17 and fails on older versions (#1438)."""
     from devops_cli.commands.k8s.stack_lifecycle import _require_helm_version
     from devops_cli.exceptions.k8s import KubernetesDeployError
 
-    with patch("devops_cli.commands.k8s.stack_lifecycle.runtime._run_cmd") as mock_cmd:
-        mock_cmd.return_value = _mock_proc(0, "v3.16.0\n")
-        with pytest.raises(KubernetesDeployError, match=r"3\.16\.0"):
-            _require_helm_version()
+    answer_helm_version(process_fake, "v3.16.0")
+    with pytest.raises(KubernetesDeployError, match=r"3\.16\.0"):
+        _require_helm_version()
 
-    with patch("devops_cli.commands.k8s.stack_lifecycle.runtime._run_cmd") as mock_cmd:
-        mock_cmd.return_value = _mock_proc(0, "v3.17.0\n")
-        ver = _require_helm_version()
-        assert str(ver) == "3.17.0"
+    answer_helm_version(process_fake, "v3.17.0")
+    ver = _require_helm_version()
+    assert str(ver) == "3.17.0"
 
-    with patch("devops_cli.commands.k8s.stack_lifecycle.runtime._run_cmd") as mock_cmd:
-        mock_cmd.return_value = _mock_proc(0, "v4.3.0\n")
-        ver = _require_helm_version()
-        assert ver.major >= 4
+    answer_helm_version(process_fake, "v4.3.0")
+    ver = _require_helm_version()
+    assert ver.major >= 4
 
 
-def test_helm_version_older_than_minimum_fails(process_fake: ProcessFake) -> None:
+def test_helm_version_older_than_minimum_fails(
+    process_fake: ProcessFake, cluster: FakeCluster, keyring_store: FakeKeyring
+) -> None:
     """deploy-stack fails with the version error when Helm is older than 3.17 (#1438)."""
-    process_fake.answer(
-        lambda call: "cluster-info" in call.argv or ("get" in call.argv and "nodes" in call.argv),
-        ProcessAnswer(returncode=0, stdout="node1 Ready\n"),
-    )
-    process_fake.answer(
-        lambda call: call.argv[:2] == ("helm", "version"),
-        ProcessAnswer(returncode=0, stdout="v3.16.2\n"),
-    )
-    with (
-        patch("devops_cli.commands.k8s._cluster_reachable", return_value=True),
-        patch("devops_cli.commands.k8s.stack_lifecycle.require_keyring_for_push"),
-        patch("devops_cli.commands.k8s.stack_lifecycle.push_for_stacks"),
-        patch("devops_cli.commands.k8s.stack_lifecycle._post_deploy_credentials"),
-    ):
-        res = runner.invoke(app, ["deploy-stack", "--stack", "infra", "--no-push-secrets"])
-        assert res.exit_code == 1
-        assert "3.16.2" in res.output
+    answer_helm_version(process_fake, "v3.16.2")
+
+    res = runner.invoke(app, ["deploy-stack", "--stack", "infra", "--no-push-secrets"])
+
+    assert res.exit_code == 1
+    assert "3.16.2" in res.output
+    assert calls_starting(process_fake, "helm", "upgrade") == []
 
 
 def test_build_helm_upgrade_cmd_carries_take_ownership() -> None:
@@ -403,21 +402,20 @@ def test_deploy_stack_installs_each_chart_at_the_version_that_its_application_pi
     assert (bool(installed), sorted(installed - pinned_charts())) == (True, [])
 
 
-def test_recover_stuck_helm_release_rolls_back_pending_upgrade() -> None:
+def test_recover_stuck_helm_release_rolls_back_pending_upgrade(
+    process_fake: ProcessFake,
+) -> None:
     """A pending-upgrade release is rolled back with helm rollback before upgrade (#1438)."""
     from devops_cli.commands.k8s.stack_lifecycle import _recover_stuck_helm_release
 
     status_json = json.dumps({"info": {"status": "pending-upgrade"}, "version": 2})
-    with patch("devops_cli.commands.k8s.stack_lifecycle.runtime._run_cmd") as mock_cmd:
-        mock_cmd.side_effect = [
-            _mock_proc(0, status_json),
-            _mock_proc(0, "Rollback was a success!"),
-        ]
-        _recover_stuck_helm_release("argocd", "argocd", context="test-ctx")
-        assert mock_cmd.call_count == 2
-        status_call = mock_cmd.call_args_list[0][0][0]
-        rollback_call = mock_cmd.call_args_list[1][0][0]
-        assert status_call == [
+    process_fake.answer("helm status", ProcessAnswer(stdout=status_json))
+    process_fake.answer("helm rollback", ProcessAnswer(stdout="Rollback was a success!"))
+
+    _recover_stuck_helm_release("argocd", "argocd", context="test-ctx")
+
+    assert [call.argv for call in process_fake.calls] == [
+        (
             "helm",
             "status",
             "argocd",
@@ -427,60 +425,58 @@ def test_recover_stuck_helm_release_rolls_back_pending_upgrade() -> None:
             "json",
             "--kube-context",
             "test-ctx",
-        ]
-        assert rollback_call == [
-            "helm",
-            "rollback",
-            "argocd",
-            "-n",
-            "argocd",
-            "--kube-context",
-            "test-ctx",
-        ]
+        ),
+        ("helm", "rollback", "argocd", "-n", "argocd", "--kube-context", "test-ctx"),
+    ]
 
 
-def test_recover_stuck_helm_release_rolls_back_pending_rollback() -> None:
+def test_recover_stuck_helm_release_rolls_back_pending_rollback(
+    process_fake: ProcessFake,
+) -> None:
     """A pending-rollback release is rolled back with helm rollback before upgrade (#1438)."""
     from devops_cli.commands.k8s.stack_lifecycle import _recover_stuck_helm_release
 
     status_json = json.dumps({"info": {"status": "pending-rollback"}, "version": 3})
-    with patch("devops_cli.commands.k8s.stack_lifecycle.runtime._run_cmd") as mock_cmd:
-        mock_cmd.side_effect = [
-            _mock_proc(0, status_json),
-            _mock_proc(0, "Rollback was a success!"),
-        ]
-        _recover_stuck_helm_release("argocd", "argocd")
-        assert mock_cmd.call_count == 2
-        assert mock_cmd.call_args_list[1][0][0] == ["helm", "rollback", "argocd", "-n", "argocd"]
+    process_fake.answer("helm status", ProcessAnswer(stdout=status_json))
+
+    _recover_stuck_helm_release("argocd", "argocd")
+
+    assert [call.argv for call in process_fake.calls][1:] == [
+        ("helm", "rollback", "argocd", "-n", "argocd")
+    ]
 
 
-def test_recover_stuck_helm_release_uninstalls_pending_install() -> None:
+def test_recover_stuck_helm_release_uninstalls_pending_install(
+    process_fake: ProcessFake,
+) -> None:
     """A pending-install release is uninstalled with helm uninstall before upgrade (#1438)."""
     from devops_cli.commands.k8s.stack_lifecycle import _recover_stuck_helm_release
 
     status_json = json.dumps({"info": {"status": "pending-install"}, "version": 1})
-    with patch("devops_cli.commands.k8s.stack_lifecycle.runtime._run_cmd") as mock_cmd:
-        mock_cmd.side_effect = [
-            _mock_proc(0, status_json),
-            _mock_proc(0, "release 'argocd' uninstalled"),
-        ]
-        _recover_stuck_helm_release("argocd", "argocd")
-        assert mock_cmd.call_count == 2
-        assert mock_cmd.call_args_list[1][0][0] == ["helm", "uninstall", "argocd", "-n", "argocd"]
+    process_fake.answer("helm status", ProcessAnswer(stdout=status_json))
+
+    _recover_stuck_helm_release("argocd", "argocd")
+
+    assert [call.argv for call in process_fake.calls][1:] == [
+        ("helm", "uninstall", "argocd", "-n", "argocd")
+    ]
 
 
-def test_recover_stuck_helm_release_deployed_does_nothing() -> None:
+def test_recover_stuck_helm_release_deployed_does_nothing(process_fake: ProcessFake) -> None:
     """A deployed release triggers neither rollback nor uninstall (#1438)."""
     from devops_cli.commands.k8s.stack_lifecycle import _recover_stuck_helm_release
 
     status_json = json.dumps({"info": {"status": "deployed"}, "version": 1})
-    with patch("devops_cli.commands.k8s.stack_lifecycle.runtime._run_cmd") as mock_cmd:
-        mock_cmd.return_value = _mock_proc(0, status_json)
-        _recover_stuck_helm_release("argocd", "argocd")
-        assert mock_cmd.call_count == 1
+    process_fake.answer("helm status", ProcessAnswer(stdout=status_json))
+
+    _recover_stuck_helm_release("argocd", "argocd")
+
+    assert process_fake.call_count == 1
 
 
-def test_teardown_stack_keeps_the_prometheus_operator_crds() -> None:
+def test_teardown_stack_keeps_the_prometheus_operator_crds(
+    cluster: FakeCluster, process_fake: ProcessFake
+) -> None:
     """teardown-stack uninstalls every other infra release but never the CRD release, whose
     uninstall would delete every ServiceMonitor in the cluster; the CRDs also carry Helm's keep
     policy against an uninstall by hand (#819)."""
@@ -490,25 +486,10 @@ def test_teardown_stack_keeps_the_prometheus_operator_crds() -> None:
     crd_values = yaml.safe_load(
         Path("k8s/monitoring/prometheus-operator-crds-values.yaml").read_text("utf-8")
     )
-    with (
-        patch(
-            "devops_cli.commands.k8s.stack_lifecycle.runtime._cluster_reachable",
-            return_value=True,
-        ),
-        patch(
-            "devops_cli.commands.k8s.stack_lifecycle.runtime._run_cmd",
-            return_value=_mock_proc(0),
-        ) as mock_run,
-        patch(
-            "devops_cli.commands.k8s.stack_lifecycle._is_cluster_argo_managed",
-            return_value=False,
-        ),
-    ):
-        result = runner.invoke(app, ["teardown-stack", "--stack", "infra"])
 
-    uninstalled = [
-        c.args[0][2] for c in mock_run.call_args_list if c.args[0][:2] == ["helm", "uninstall"]
-    ]
+    result = runner.invoke(app, ["teardown-stack", "--stack", "infra"])
+
+    uninstalled = [argv[2] for argv in calls_starting(process_fake, "helm", "uninstall")]
     assert (
         result.exit_code,
         "prometheus-operator-crds" in infra_names,
@@ -523,17 +504,10 @@ def test_teardown_stack_keeps_the_prometheus_operator_crds() -> None:
 
 
 def test_deploy_stack_with_process_fake_pending_upgrade_rolls_back(
-    process_fake: ProcessFake,
+    process_fake: ProcessFake, cluster: FakeCluster, keyring_store: FakeKeyring
 ) -> None:
     """When the process fake answers helm status with pending-upgrade, deploy-stack runs helm rollback before upgrade (#1438)."""
-    process_fake.answer(
-        lambda call: "cluster-info" in call.argv or ("get" in call.argv and "nodes" in call.argv),
-        ProcessAnswer(returncode=0, stdout="node1 Ready\n"),
-    )
-    process_fake.answer(
-        lambda call: call.argv[:2] == ("helm", "version"),
-        ProcessAnswer(returncode=0, stdout="v3.17.0\n"),
-    )
+    answer_helm_version(process_fake)
     process_fake.answer(
         lambda call: call.argv[:2] == ("helm", "repo"),
         ProcessAnswer(returncode=0, stdout="ok\n"),
@@ -554,17 +528,8 @@ def test_deploy_stack_with_process_fake_pending_upgrade_rolls_back(
         ProcessAnswer(returncode=0, stdout="Release installed\n"),
     )
 
-    with (
-        patch("devops_cli.commands.k8s._cluster_reachable", return_value=True),
-        patch("devops_cli.commands.k8s.stack_lifecycle.require_keyring_for_push"),
-        patch("devops_cli.commands.k8s.stack_lifecycle.push_for_stacks"),
-        patch("devops_cli.commands.k8s.port_forward"),
-        patch("devops_cli.k8s.credentials.sync_k8s_credentials", return_value={}),
-    ):
-        res = runner.invoke(
-            app, ["deploy-stack", "--stack", "infra", "--no-wait", "--no-push-secrets"]
-        )
-        assert res.exit_code == 0
+    res = runner.invoke(app, ["deploy-stack", "--stack", "infra", "--no-wait", "--no-push-secrets"])
+    assert res.exit_code == 0
 
     rollback_calls = [
         call.argv for call in process_fake.calls if call.argv[:2] == ("helm", "rollback")
@@ -593,17 +558,10 @@ def test_deploy_stack_with_process_fake_pending_upgrade_rolls_back(
 
 
 def test_deploy_stack_with_process_fake_pending_install_uninstalls(
-    process_fake: ProcessFake,
+    process_fake: ProcessFake, cluster: FakeCluster, keyring_store: FakeKeyring
 ) -> None:
     """When the process fake answers helm status with pending-install, deploy-stack runs helm uninstall (#1438)."""
-    process_fake.answer(
-        lambda call: "cluster-info" in call.argv or ("get" in call.argv and "nodes" in call.argv),
-        ProcessAnswer(returncode=0, stdout="node1 Ready\n"),
-    )
-    process_fake.answer(
-        lambda call: call.argv[:2] == ("helm", "version"),
-        ProcessAnswer(returncode=0, stdout="v3.17.0\n"),
-    )
+    answer_helm_version(process_fake)
     process_fake.answer(
         lambda call: call.argv[:2] == ("helm", "repo"),
         ProcessAnswer(returncode=0, stdout="ok\n"),
@@ -624,17 +582,8 @@ def test_deploy_stack_with_process_fake_pending_install_uninstalls(
         ProcessAnswer(returncode=0, stdout="Release installed\n"),
     )
 
-    with (
-        patch("devops_cli.commands.k8s._cluster_reachable", return_value=True),
-        patch("devops_cli.commands.k8s.stack_lifecycle.require_keyring_for_push"),
-        patch("devops_cli.commands.k8s.stack_lifecycle.push_for_stacks"),
-        patch("devops_cli.commands.k8s.port_forward"),
-        patch("devops_cli.k8s.credentials.sync_k8s_credentials", return_value={}),
-    ):
-        res = runner.invoke(
-            app, ["deploy-stack", "--stack", "infra", "--no-wait", "--no-push-secrets"]
-        )
-        assert res.exit_code == 0
+    res = runner.invoke(app, ["deploy-stack", "--stack", "infra", "--no-wait", "--no-push-secrets"])
+    assert res.exit_code == 0
 
     uninstall_calls = [
         call.argv for call in process_fake.calls if call.argv[:2] == ("helm", "uninstall")
@@ -655,298 +604,187 @@ def test_deploy_stack_with_process_fake_pending_install_uninstalls(
         assert "--take-ownership" in cmd
 
 
-def test_k8s_apply_and_logs() -> None:
+def test_k8s_apply_and_logs(process_fake: ProcessFake) -> None:
     """Verify k8s apply and logs commands."""
-    with patch("devops_cli.commands.k8s._run_cmd") as mock_run:
-        result = runner.invoke(app, ["apply", "k8s/infra.yaml", "--namespace", "default"])
-        assert result.exit_code == 0
-        mock_run.assert_called_once()
+    result = runner.invoke(app, ["apply", "k8s/infra.yaml", "--namespace", "default"])
+    assert result.exit_code == 0
+    assert len(process_fake.calls) == 1
 
-    with patch("devops_cli.commands.k8s._run_cmd") as mock_run:
-        result = runner.invoke(app, ["logs", "my-pod", "-n", "default", "--tail", "50"])
-        assert result.exit_code == 0
-        mock_run.assert_called_once()
+    process_fake.calls.clear()
+    result = runner.invoke(app, ["logs", "my-pod", "-n", "default", "--tail", "50"])
+    assert result.exit_code == 0
+    assert len(process_fake.calls) == 1
 
 
-def test_k8s_contexts_and_switch() -> None:
+def test_k8s_contexts_and_switch(cluster: FakeCluster, process_fake: ProcessFake) -> None:
     """Verify k8s contexts and switch-context commands."""
-    mock_config = MagicMock()
-    mock_config.list_kube_config_contexts.return_value = (
-        [{"name": "minikube", "context": {"cluster": "minikube", "user": "minikube"}}],
-        {"name": "minikube"},
-    )
-    with patch("devops_cli.commands.k8s._k8s_clients", return_value=(mock_config, MagicMock())):
-        result = runner.invoke(app, ["contexts"])
-        assert result.exit_code == 0
-        assert "minikube" in result.output
+    cluster.context_names[:] = ["minikube", "staging"]
+    cluster.current = "minikube"
+    result = runner.invoke(app, ["contexts"])
+    assert result.exit_code == 0
+    marked = [line for line in result.output.splitlines() if "●" in line]
+    assert len(marked) == 1
+    assert "minikube" in marked[0]
+    assert "staging" in result.output
 
-    with (
-        patch("devops_cli.commands.k8s._minikube_running", return_value=True),
-        patch("devops_cli.commands.k8s._run_cmd") as mock_run,
-    ):
-        result = runner.invoke(app, ["switch-context", "minikube"])
-        assert result.exit_code == 0
-        mock_run.assert_called_once()
+    minikube_running(process_fake)
+    result = runner.invoke(app, ["switch-context", "minikube"])
+    assert result.exit_code == 0
+    assert calls_starting(process_fake, "kubectl", "config", "use-context") == [
+        ("kubectl", "config", "use-context", "minikube")
+    ]
 
 
-def test_k8s_status() -> None:
+def test_k8s_status(cluster: FakeCluster) -> None:
     """Verify k8s status command with cluster nodes and pods."""
-    mock_config = MagicMock()
-    mock_client = MagicMock()
-    core_api = MagicMock()
-    node_mock = MagicMock()
-    node_mock.metadata.name = "node-1"
-    node_mock.metadata.labels = {}
-    node_mock.status.conditions = []
-    node_mock.status.node_info.kubelet_version = "v1.28.0"
-    core_api.list_node.return_value.items = [node_mock]
+    cluster.core.answers["list_node"] = [node("node-1", addresses={"InternalIP": "192.0.2.49"})]
+    cluster.core.answers["list_pod_for_all_namespaces"] = [healthy_pod("pod-1")]
 
-    pod_mock = MagicMock()
-    pod_mock.metadata.name = "pod-1"
-    pod_mock.metadata.namespace = "default"
-    pod_mock.status.phase = "Running"
-    pod_mock.status.container_statuses = []
-    core_api.list_pod_for_all_namespaces.return_value.items = [pod_mock]
-    mock_client.CoreV1Api.return_value = core_api
+    result = runner.invoke(app, ["status"])
 
-    with patch("devops_cli.commands.k8s._k8s_clients", return_value=(mock_config, mock_client)):
-        result = runner.invoke(app, ["status"])
-        assert result.exit_code == 0
-        assert "node-1" in result.output
+    assert result.exit_code == 0
+    assert "node-1" in result.output
 
 
-def test_k8s_bootstrap_and_stacks(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_k8s_bootstrap_and_stacks(
+    cluster: FakeCluster,
+    process_fake: ProcessFake,
+    keyring_store: FakeKeyring,
+    tcp_probe: TcpProbe,
+) -> None:
     """Verify k8s bootstrap, deploy-stack, and teardown-stack execution."""
-    _no_port_forward_listens(monkeypatch)
-    with (
-        patch("devops_cli.commands.k8s.shutil.which", return_value="/usr/local/bin/minikube"),
-        patch("devops_cli.commands.k8s._minikube_running", return_value=True),
-        patch("devops_cli.commands.k8s._cluster_reachable", return_value=True),
-        patch(
-            "devops_cli.commands.k8s.run_subprocess",
-            return_value=_mock_proc(0, "minikube is running"),
-        ),
-        patch("devops_cli.commands.k8s._run_cmd", return_value=_mock_proc(0, "success")),
-        patch(
-            "devops_cli.commands.k8s.stack_lifecycle._require_helm_version",
-            return_value=Version("3.17.0"),
-        ),
-        patch("devops_cli.commands.k8s.port_forward"),
-        patch(
-            "devops_cli.k8s.credentials.sync_k8s_credentials",
-            return_value={},
-        ),
-        patch("devops_cli.commands.k8s.stack_lifecycle.push_for_stacks") as mock_push,
-        patch("devops_cli.commands.k8s.stack_lifecycle.namespace_exists", return_value=False),
-        # Not left to whichever keyring backend an earlier test in this worker installed.
-        patch("devops_cli.commands.k8s.stack_lifecycle.require_keyring_for_push"),
-        patch(
-            "devops_cli.commands.k8s.stack_lifecycle._is_cluster_argo_managed", return_value=False
-        ),
-    ):
-        result = runner.invoke(app, ["bootstrap", "--no-auto-start", "--stack", "infra"])
-        # bootstrap keeps the push on: the base rows and the infra stack's.
-        assert (result.exit_code, mock_push.call_args.args[0]) == (0, ["base", "infra"])
+    world = install_kubectl_world(process_fake)
+    stock_push_keyring(keyring_store)
+    minikube_running(process_fake)
 
-    with (
-        patch("devops_cli.commands.k8s.shutil.which", return_value="/usr/local/bin/helm"),
-        patch("devops_cli.commands.k8s._cluster_reachable", return_value=True),
-        patch("devops_cli.commands.k8s._minikube_running", return_value=True),
-        patch(
-            "devops_cli.commands.k8s.run_subprocess",
-            return_value=_mock_proc(0, "success"),
-        ),
-        patch("devops_cli.commands.k8s._run_cmd", return_value=_mock_proc(0, "success")),
-        patch(
-            "devops_cli.commands.k8s.stack_lifecycle._require_helm_version",
-            return_value=Version("3.17.0"),
-        ),
-        patch("devops_cli.commands.k8s.port_forward"),
-        patch(
-            "devops_cli.k8s.credentials.sync_k8s_credentials",
-            return_value={},
-        ),
-        patch(
-            "devops_cli.commands.k8s.stack_lifecycle._is_cluster_argo_managed", return_value=False
-        ),
-    ):
-        result = runner.invoke(app, ["deploy-stack", "--stack", "infra", "--no-push-secrets"])
-        assert result.exit_code == 0
+    result = runner.invoke(app, ["bootstrap", "--no-auto-start", "--stack", "infra"])
+    # bootstrap keeps the push on: the base rows and the infra stack's.
+    pushed = [
+        f"{item['metadata']['namespace']}/{item['metadata']['name']}"
+        for item in world.applied_items()
+    ]
+    assert (result.exit_code, pushed) == (0, ["cloudflared/cloudflared-token"])
 
-    with (
-        patch("devops_cli.commands.k8s.shutil.which", return_value="/usr/local/bin/helm"),
-        patch("devops_cli.commands.k8s._cluster_reachable", return_value=True),
-        patch("devops_cli.commands.k8s._minikube_running", return_value=True),
-        patch(
-            "devops_cli.commands.k8s.run_subprocess",
-            return_value=_mock_proc(0, "success"),
-        ),
-        patch("devops_cli.commands.k8s._run_cmd", return_value=_mock_proc(0, "success")),
-        patch(
-            "devops_cli.commands.k8s.stack_lifecycle._is_cluster_argo_managed", return_value=False
-        ),
-    ):
-        result = runner.invoke(app, ["teardown-stack", "--stack", "infra"])
-        assert result.exit_code == 0
+    result = runner.invoke(app, ["deploy-stack", "--stack", "infra", "--no-push-secrets"])
+    assert result.exit_code == 0
+
+    result = runner.invoke(app, ["teardown-stack", "--stack", "infra"])
+    assert result.exit_code == 0
 
 
-def test_k8s_tls_secret_and_audit(tmp_path: Path) -> None:
+def test_k8s_tls_secret_and_audit(tmp_path: Path, process_fake: ProcessFake) -> None:
     """Verify create-tls-secret and enable-tls commands."""
     cert_file = tmp_path / "tls.crt"
     key_file = tmp_path / "tls.key"
     cert_file.write_text("cert", encoding="utf-8")
     key_file.write_text("key", encoding="utf-8")
 
-    with patch("devops_cli.commands.k8s._run_cmd", return_value=_mock_proc(0, "success")):
-        result = runner.invoke(
-            app,
-            [
-                "create-tls-secret",
-                "my-tls-secret",
-                "--cert",
-                str(cert_file),
-                "--key",
-                str(key_file),
-            ],
-        )
-        assert result.exit_code == 0
-
-    with patch("devops_cli.commands.k8s._run_cmd", return_value=_mock_proc(0, "success")):
-        result = runner.invoke(
-            app, ["enable-tls", "--stack", "all", "--tls-dir", str(tmp_path / "tls")]
-        )
-        assert result.exit_code == 0
-
-
-def test_k8s_security_tools_and_scans(tmp_path: Path) -> None:
-    """Verify lint, audit, check-deprecated, and validate commands."""
-    from devops_cli.ai.review_schema import Finding
-
-    mock_finding = Finding(
-        category="security",
-        severity="HIGH",
-        location="deployment.yaml:10",
-        title="Container running as root",
-        fix="Set runAsNonRoot: true",
+    result = runner.invoke(
+        app,
+        [
+            "create-tls-secret",
+            "my-tls-secret",
+            "--cert",
+            str(cert_file),
+            "--key",
+            str(key_file),
+        ],
     )
+    assert result.exit_code == 0
 
-    with patch(
-        "devops_cli.security.kubelinter.run_kubelinter_scan",
-        return_value=ScanOutcome("ran", [mock_finding]),
-    ):
-        res_lint = runner.invoke(app, ["lint", str(tmp_path)])
-        assert res_lint.exit_code == 1
-
-        res_lint_dry = runner.invoke(app, ["lint", str(tmp_path), "--dry-run"])
-        assert res_lint_dry.exit_code == 0
-
-    with patch(
-        "devops_cli.security.popeye.run_popeye_scan",
-        return_value=ScanOutcome("ran", [mock_finding]),
-    ):
-        res_audit = runner.invoke(app, ["audit"])
-        assert res_audit.exit_code == 0
-
-        res_audit_dry = runner.invoke(app, ["audit", "--dry-run"])
-        assert res_audit_dry.exit_code == 0
-
-    with patch("devops_cli.security.pluto.run_pluto_scan", return_value=[mock_finding]):
-        res_pluto = runner.invoke(app, ["check-deprecated", str(tmp_path)])
-        assert res_pluto.exit_code == 0
-
-        res_pluto_dry = runner.invoke(app, ["check-deprecated", str(tmp_path), "--dry-run"])
-        assert res_pluto_dry.exit_code == 0
-
-    with patch(
-        "devops_cli.security.kubeconform.run_kubeconform_validation",
-        return_value=ScanOutcome("ran", [mock_finding]),
-    ):
-        res_val = runner.invoke(app, ["validate", str(tmp_path)])
-        assert res_val.exit_code == 0
-
-        res_val_json = runner.invoke(app, ["validate", str(tmp_path), "--json"])
-        assert res_val_json.exit_code == 0
+    result = runner.invoke(
+        app, ["enable-tls", "--stack", "all", "--tls-dir", str(tmp_path / "tls")]
+    )
+    assert result.exit_code == 0
 
 
-def test_k8s_lint_exit_codes(tmp_path: Path) -> None:
+def test_k8s_security_tools_and_scans(tmp_path: Path, scanner_fake: ScannerFake) -> None:
+    """Verify lint, audit, check-deprecated, and validate commands."""
+    scanner_fake.script("kube-linter", ToolAnswer(exit_code=1, stdout=_KUBE_LINTER_FINDING))
+    res_lint = runner.invoke(app, ["lint", str(tmp_path)])
+    assert res_lint.exit_code == 1
+
+    res_lint_dry = runner.invoke(app, ["lint", str(tmp_path), "--dry-run"])
+    assert res_lint_dry.exit_code == 0
+
+    scanner_fake.script_run_with_findings("popeye")
+    res_audit = runner.invoke(app, ["audit"])
+    assert res_audit.exit_code == 0
+
+    res_audit_dry = runner.invoke(app, ["audit", "--dry-run"])
+    assert res_audit_dry.exit_code == 0
+
+    scanner_fake.script_run_with_findings("pluto", tree=tmp_path)
+    res_pluto = runner.invoke(app, ["check-deprecated", str(tmp_path)])
+    assert res_pluto.exit_code == 0
+
+    res_pluto_dry = runner.invoke(app, ["check-deprecated", str(tmp_path), "--dry-run"])
+    assert res_pluto_dry.exit_code == 0
+
+    scanner_fake.script_run_with_findings("kubeconform", tree=tmp_path)
+    res_val = runner.invoke(app, ["validate", str(tmp_path)])
+    assert res_val.exit_code == 0
+
+    res_val_json = runner.invoke(app, ["validate", str(tmp_path), "--json"])
+    assert res_val_json.exit_code == 0
+
+
+def test_k8s_lint_exit_codes(tmp_path: Path, scanner_fake: ScannerFake) -> None:
     """k8s lint exits 0 on a clean run, non-zero on findings and when kube-linter is unavailable."""
-    from devops_cli.ai.review_schema import Finding
-
     manifest = tmp_path / "deploy.yaml"
     manifest.write_text("apiVersion: apps/v1\nkind: Deployment\n", encoding="utf-8")
 
-    finding = Finding(
-        category="security",
-        severity="HIGH",
-        location="deploy.yaml:10",
-        title="use a fixed image tag",
-        fix="Set image to a fixed tag",
-    )
+    # An unavailable kube-linter fails: exit non-zero, says so, never reports a pass. The fake
+    # puts a scanner on PATH only when a test scripts it, so no kube-linter is installed yet.
+    res = runner.invoke(app, ["lint", str(manifest)])
+    assert res.exit_code == 1
+    assert "Kube-linter audit passed" not in res.output
+    assert "unavailable" in res.output
 
     # A clean run passes: exit 0, reports the audit passed.
-    with patch(
-        "devops_cli.security.kubelinter.run_kubelinter_scan",
-        return_value=ScanOutcome("ran", []),
-    ):
-        res = runner.invoke(app, ["lint", str(manifest)])
-        assert res.exit_code == 0
-        assert "Kube-linter audit passed" in res.output
+    scanner_fake.script("kube-linter", ToolAnswer(stdout=json.dumps({"Reports": []})))
+    res = runner.invoke(app, ["lint", str(manifest)])
+    assert res.exit_code == 0
+    assert "Kube-linter audit passed" in res.output
 
     # A run with findings fails: exit non-zero, never reports a pass.
-    with patch(
-        "devops_cli.security.kubelinter.run_kubelinter_scan",
-        return_value=ScanOutcome("ran", [finding]),
-    ):
-        res = runner.invoke(app, ["lint", str(manifest)])
-        assert res.exit_code == 1
-        assert "Kube-linter audit passed" not in res.output
-
-    # An unavailable kube-linter fails: exit non-zero, says so, never reports a pass.
-    with patch(
-        "devops_cli.security.kubelinter.run_kubelinter_scan",
-        return_value=ScanOutcome("unavailable", [], "Binary 'kube-linter' not found on PATH"),
-    ):
-        res = runner.invoke(app, ["lint", str(manifest)])
-        assert res.exit_code == 1
-        assert "Kube-linter audit passed" not in res.output
-        assert "unavailable" in res.output
+    scanner_fake.script("kube-linter", ToolAnswer(exit_code=1, stdout=_KUBE_LINTER_FINDING))
+    res = runner.invoke(app, ["lint", str(manifest)])
+    assert res.exit_code == 1
+    assert "Kube-linter audit passed" not in res.output
 
 
-def test_k8s_apply_logs_and_urls(tmp_path: Path) -> None:
+def test_k8s_apply_logs_and_urls(
+    tmp_path: Path, cluster: FakeCluster, process_fake: ProcessFake, tcp_probe: TcpProbe
+) -> None:
     """Verify apply, logs, and configure-urls commands."""
-    with patch("devops_cli.commands.k8s._run_cmd", return_value=_mock_proc(0, "applied")):
-        res_apply = runner.invoke(
-            app, ["apply", "deploy.yaml", "--dry-run", "--namespace", "test-ns"]
-        )
-        assert res_apply.exit_code == 0
+    process_fake.answer("kubectl apply", ProcessAnswer(stdout="applied"))
+    res_apply = runner.invoke(app, ["apply", "deploy.yaml", "--dry-run", "--namespace", "test-ns"])
+    assert res_apply.exit_code == 0
 
-        res_apply_real = runner.invoke(app, ["apply", "deploy.yaml", "--namespace", "test-ns"])
-        assert res_apply_real.exit_code == 0
+    res_apply_real = runner.invoke(app, ["apply", "deploy.yaml", "--namespace", "test-ns"])
+    assert res_apply_real.exit_code == 0
 
-    with patch("devops_cli.commands.k8s.run_subprocess", return_value=_mock_proc(0, "logs")):
-        res_logs_f = runner.invoke(
-            app, ["logs", "my-pod", "-c", "my-container", "-n", "test-ns", "--follow"]
-        )
-        assert res_logs_f.exit_code == 0
+    process_fake.answer("kubectl logs", ProcessAnswer(stdout="logs"))
+    res_logs_f = runner.invoke(
+        app, ["logs", "my-pod", "-c", "my-container", "-n", "test-ns", "--follow"]
+    )
+    assert res_logs_f.exit_code == 0
 
-    with (
-        patch("devops_cli.commands.k8s._cluster_reachable", return_value=True),
-        patch(
-            "devops_cli.commands.k8s._detect_service_url", return_value="http://192.0.2.49:30080"
-        ),
-        patch(
-            "devops_cli.commands.k8s._resolve_accessible_url", return_value="http://localhost:8080"
-        ),
-        patch("devops_cli.commands.k8s.networking.save_settings"),
-        patch("devops_cli.config.settings.save_settings"),
-    ):
-        res_urls = runner.invoke(app, ["configure-urls", "--stack", "infra"])
-        assert res_urls.exit_code == 0
+    _serve_infra_services(cluster, "192.0.2.49")
+    res_urls = runner.invoke(app, ["configure-urls", "--stack", "infra"])
+    assert res_urls.exit_code == 0
 
 
-def test_k8s_helpers_and_error_branches(tmp_path: Path) -> None:
+def test_k8s_helpers_and_error_branches(
+    tmp_path: Path,
+    process_fake: ProcessFake,
+    cluster: FakeCluster,
+    clock: ClockFake,
+    tcp_probe: TcpProbe,
+) -> None:
     """Verify k8s client error branches and URL detection helpers."""
-    from devops_cli.commands.k8s import (
+    from devops_cli.commands.k8s.networking import (
         _detect_service_url,
         _extract_first_node_ip,
         _parse_minikube_service_url,
@@ -977,22 +815,15 @@ def test_k8s_helpers_and_error_branches(tmp_path: Path) -> None:
     assert _extract_first_node_ip({}) is None
 
     # 3. _resolve_k8s_node_port_url
-    import json
-
     mock_nodes_json = json.dumps({"items": [node_data]})
-    with patch(
-        "devops_cli.commands.k8s.run_subprocess", return_value=_mock_proc(0, mock_nodes_json)
-    ):
-        url = _resolve_k8s_node_port_url([], 30080)
-        assert url == "http://192.0.2.49:30080"
+    process_fake.answer("kubectl get nodes", ProcessAnswer(stdout=mock_nodes_json))
+    url = _resolve_k8s_node_port_url([], 30080)
+    assert url == "http://192.0.2.49:30080"
 
     # 4. _detect_service_url with fallback
-    with patch(
-        "devops_cli.commands.k8s.run_subprocess",
-        return_value=_mock_proc(0, "http://192.0.2.49:31434"),
-    ):
-        res_svc = _detect_service_url("ollama", "llm")
-        assert res_svc == "http://192.0.2.49:31434"
+    process_fake.answer("minikube service", ProcessAnswer(stdout="http://192.0.2.49:31434"))
+    res_svc = _detect_service_url("ollama", "llm", context="minikube")
+    assert res_svc == "http://192.0.2.49:31434"
 
     # 5. create-tls-secret missing files
     res_missing_cert = runner.invoke(
@@ -1008,62 +839,44 @@ def test_k8s_helpers_and_error_branches(tmp_path: Path) -> None:
     )
     assert res_missing_cert.exit_code == 1
 
-    # 6. contexts failure
-    mock_cfg = MagicMock()
-    mock_cfg.list_kube_config_contexts.side_effect = Exception("No kubeconfig")
-    with patch("devops_cli.commands.k8s._k8s_clients", return_value=(mock_cfg, MagicMock())):
-        res_ctx_fail = runner.invoke(app, ["contexts"])
-        assert res_ctx_fail.exit_code == 1
+    # 6. status failure: the API server does not answer
+    cluster.unreachable()
+    res_stat_fail = runner.invoke(app, ["status"])
+    assert res_stat_fail.exit_code == 1
 
-    # 7. status failure
-    mock_client = MagicMock()
-    mock_client.CoreV1Api.side_effect = Exception("Cluster error")
-    with patch("devops_cli.commands.k8s._k8s_clients", return_value=(mock_cfg, mock_client)):
-        res_stat_fail = runner.invoke(app, ["status"])
-        assert res_stat_fail.exit_code == 1
-
-    # 8. port-forward command execution, recording its forwards under tmp_path rather than in
-    # the real state file of the directory the tests run from
-    from devops_cli.k8s.port_forward_daemon import PortForwardDaemonManager
-
-    with (
-        patch(
-            "devops_cli.k8s.port_forward_daemon.get_daemon_manager",
-            return_value=PortForwardDaemonManager(state_file=tmp_path / "port_forwards.json"),
-        ),
-        patch("devops_cli.commands.k8s._cluster_reachable", return_value=True),
-        patch("subprocess.Popen") as mock_popen,
-        patch("time.sleep"),
-        patch("devops_cli.commands.k8s.configure_urls"),
-    ):
-        res_pf = runner.invoke(app, ["port-forward", "--stack", "infra"])
-        assert res_pf.exit_code == 0
-        assert mock_popen.called
+    # 7. port-forward command execution, recording its forwards under the test's data directory
+    process_fake.calls.clear()
+    res_pf = runner.invoke(app, ["port-forward", "--stack", "infra"])
+    assert res_pf.exit_code == 0
+    assert calls_starting(process_fake, "kubectl", "port-forward") != []
 
 
-def test_k8s_extended_subcommands(tmp_path: Path) -> None:
+def test_k8s_contexts_fail_when_the_kubeconfig_is_unreadable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`contexts` exits 1 when no kubeconfig can be read."""
+    broken = tmp_path / "kubeconfig"
+    broken.write_text("contexts: [unclosed", encoding="utf-8")
+    monkeypatch.setenv("KUBECONFIG", str(broken))
+
+    res_ctx_fail = runner.invoke(app, ["contexts"])
+
+    assert res_ctx_fail.exit_code == 1
+
+
+def test_k8s_extended_subcommands(
+    tmp_path: Path, cluster: FakeCluster, process_fake: ProcessFake, scanner_fake: ScannerFake
+) -> None:
     """Verify switch-context, teardown-stack, enable-tls, check-deprecated, lint, audit, and validate."""
     # 1. switch-context
-    with (
-        patch("devops_cli.commands.k8s._minikube_running", return_value=True),
-        patch(
-            "devops_cli.commands.k8s.run_subprocess",
-            return_value=_mock_proc(0, "Switched to minikube"),
-        ),
-    ):
-        res_switch = runner.invoke(app, ["switch-context", "minikube"])
-        assert res_switch.exit_code == 0
+    cluster.context_names.append("minikube")
+    minikube_running(process_fake)
+    res_switch = runner.invoke(app, ["switch-context", "minikube"])
+    assert res_switch.exit_code == 0
 
     # 2. teardown-stack
-    with (
-        patch("devops_cli.commands.k8s._cluster_reachable", return_value=True),
-        patch("devops_cli.commands.k8s.run_subprocess", return_value=_mock_proc(0, "deleted")),
-        patch(
-            "devops_cli.commands.k8s.stack_lifecycle._is_cluster_argo_managed", return_value=False
-        ),
-    ):
-        res_td = runner.invoke(app, ["teardown-stack", "--stack", "infra"])
-        assert res_td.exit_code == 0
+    res_td = runner.invoke(app, ["teardown-stack", "--stack", "infra"])
+    assert res_td.exit_code == 0
 
     # 3. enable-tls
     tls_cert = tmp_path / "server.crt"
@@ -1071,55 +884,41 @@ def test_k8s_extended_subcommands(tmp_path: Path) -> None:
     tls_cert.write_text("CERT", encoding="utf-8")
     tls_key.write_text("KEY", encoding="utf-8")
 
-    with (
-        patch("devops_cli.commands.k8s._cluster_reachable", return_value=True),
-        patch(
-            "devops_cli.commands.k8s.run_subprocess", return_value=_mock_proc(0, "secret created")
-        ),
-    ):
-        res_tls = runner.invoke(
-            app,
-            [
-                "enable-tls",
-                "--stack",
-                "infra",
-                "--tls-dir",
-                str(tmp_path),
-            ],
-        )
-        assert res_tls.exit_code == 0
+    res_tls = runner.invoke(
+        app,
+        [
+            "enable-tls",
+            "--stack",
+            "infra",
+            "--tls-dir",
+            str(tmp_path),
+        ],
+    )
+    assert res_tls.exit_code == 0
 
     # 4. lint, audit, check-deprecated, validate
     manifest = tmp_path / "deploy.yaml"
     manifest.write_text("apiVersion: apps/v1\nkind: Deployment\n", encoding="utf-8")
+    scanner_fake.script("kube-linter", ToolAnswer(stdout=json.dumps({"Reports": []})))
+    scanner_fake.script("popeye", ToolAnswer(stdout=json.dumps({"popeye": {"sections": []}})))
+    scanner_fake.script("pluto", ToolAnswer(stdout=json.dumps({"items": []})))
+    scanner_fake.script("kubeconform", ToolAnswer(stdout=json.dumps({"resources": []})))
 
-    with (
-        patch(
-            "devops_cli.security.kubelinter.run_kubelinter_scan",
-            return_value=ScanOutcome("ran", []),
-        ),
-        patch("devops_cli.security.popeye.run_popeye_scan", return_value=ScanOutcome("ran", [])),
-        patch("devops_cli.security.pluto.run_pluto_scan", return_value=[]),
-        patch(
-            "devops_cli.security.kubeconform.run_kubeconform_validation",
-            return_value=ScanOutcome("ran", []),
-        ),
-    ):
-        res_lint = runner.invoke(app, ["lint", str(manifest)])
-        assert res_lint.exit_code == 0
+    res_lint = runner.invoke(app, ["lint", str(manifest)])
+    assert res_lint.exit_code == 0
 
-        res_audit = runner.invoke(app, ["audit"])
-        assert res_audit.exit_code == 0
+    res_audit = runner.invoke(app, ["audit"])
+    assert res_audit.exit_code == 0
 
-        res_depr = runner.invoke(app, ["check-deprecated", str(manifest)])
-        assert res_depr.exit_code == 0
+    res_depr = runner.invoke(app, ["check-deprecated", str(manifest)])
+    assert res_depr.exit_code == 0
 
-        res_val = runner.invoke(app, ["validate", str(manifest)])
-        assert res_val.exit_code == 0
+    res_val = runner.invoke(app, ["validate", str(manifest)])
+    assert res_val.exit_code == 0
 
 
-def test_k8s_service_url_helpers() -> None:
-    from devops_cli.commands.k8s import (
+def test_k8s_service_url_helpers(process_fake: ProcessFake, tcp_probe: TcpProbe) -> None:
+    from devops_cli.commands.k8s.networking import (
         _extract_first_node_ip,
         _parse_minikube_service_url,
         _resolve_accessible_url,
@@ -1148,36 +947,33 @@ def test_k8s_service_url_helpers() -> None:
 
     # 3. _resolve_k8s_node_port_url
     nodes_json = json.dumps({"items": [node_data_ext]})
-    with patch("devops_cli.commands.k8s.run_subprocess", return_value=_mock_proc(0, nodes_json)):
-        url = _resolve_k8s_node_port_url([], 30080)
-        assert url == "http://192.0.2.49:30080"
+    process_fake.answer("kubectl get nodes", ProcessAnswer(stdout=nodes_json))
+    url = _resolve_k8s_node_port_url([], 30080)
+    assert url == "http://192.0.2.49:30080"
 
     # 4. _verify_url_reachability
-    with patch("socket.create_connection", side_effect=OSError):
-        assert _verify_url_reachability("http://example.com:80") is False
+    assert _verify_url_reachability("http://example.com:80") is False
 
     # 5. _resolve_accessible_url
     assert _resolve_accessible_url(None) is None
-    with patch("devops_cli.commands.k8s._verify_url_reachability", return_value=True):
-        assert (
-            _resolve_accessible_url("http://192.0.2.49:3000", preferred_localhost_ports=[3000]),
-            _resolve_accessible_url("http://192.0.2.49:3000"),
-        ) == (
-            "http://192.0.2.49:3000",
-            "http://192.0.2.49:3000",
-        )
-    with patch(
-        "devops_cli.commands.k8s._verify_url_reachability",
-        side_effect=lambda url: "localhost" in url or "127.0.0.1" in url,
-    ):
-        assert (
-            _resolve_accessible_url("http://192.0.2.49:3000", preferred_localhost_ports=[3000])
-            == "http://localhost:3000"
-        )
+    tcp_probe.listen_where(lambda host, port: True)
+    assert (
+        _resolve_accessible_url("http://192.0.2.49:3000", preferred_localhost_ports=[3000]),
+        _resolve_accessible_url("http://192.0.2.49:3000"),
+    ) == (
+        "http://192.0.2.49:3000",
+        "http://192.0.2.49:3000",
+    )
+    tcp_probe.refuse_all()
+    tcp_probe.listen_where(lambda host, port: host in ("localhost", "127.0.0.1"))
+    assert (
+        _resolve_accessible_url("http://192.0.2.49:3000", preferred_localhost_ports=[3000])
+        == "http://localhost:3000"
+    )
 
 
 @pytest.mark.usefixtures("keyring_store")
-def test_k8s_bootstrap_openwebui() -> None:
+def test_k8s_bootstrap_openwebui(process_fake: ProcessFake) -> None:
     """Verify bootstrap-openwebui dry-run, success, and failure paths."""
     # Dry-run
     set_dry_run(True)
@@ -1188,90 +984,78 @@ def test_k8s_bootstrap_openwebui() -> None:
     finally:
         set_dry_run(False)
 
+    def open_webui_answers(created: str = "CREATED\n") -> None:
+        process_fake.reset()
+        process_fake.answer("kubectl get pods", ProcessAnswer(stdout="open-webui-0\n"))
+        process_fake.answer("kubectl exec", ProcessAnswer(stdout=created))
+
     # Success execution
-    with patch("devops_cli.commands.k8s._run_cmd") as mock_cmd:
-        mock_cmd.side_effect = [
-            _mock_proc(0, "open-webui-0\n"),
-            _mock_proc(0, "CREATED\n"),
-        ]
-        res_ok = runner.invoke(
-            app,
-            [
-                "bootstrap-openwebui",
-                "--email",
-                "admin@localhost",
-                "--password",
-                "admin123",
-                "--context",
-                "minikube",
-            ],
-        )
-        assert res_ok.exit_code == 0
-        assert "admin@localhost" in res_ok.output
+    open_webui_answers()
+    res_ok = runner.invoke(
+        app,
+        [
+            "bootstrap-openwebui",
+            "--email",
+            "admin@localhost",
+            "--password",
+            "admin123",
+            "--context",
+            "minikube",
+        ],
+    )
+    assert res_ok.exit_code == 0
+    assert "admin@localhost" in res_ok.output
 
     # Non-localhost email PII masking
-    with patch("devops_cli.commands.k8s._run_cmd") as mock_cmd:
-        mock_cmd.side_effect = [
-            _mock_proc(0, "open-webui-0\n"),
-            _mock_proc(0, "CREATED\n"),
-        ]
-        res_pii = runner.invoke(
-            app,
-            [
-                "bootstrap-openwebui",
-                "--email",
-                "developer@example.com",
-                "--password",
-                "admin123",
-            ],
-        )
-        assert res_pii.exit_code == 0
-        assert "de***@example.com" in res_pii.output
-        assert "developer@example.com" not in res_pii.output
+    open_webui_answers()
+    res_pii = runner.invoke(
+        app,
+        [
+            "bootstrap-openwebui",
+            "--email",
+            "developer@example.com",
+            "--password",
+            "admin123",
+        ],
+    )
+    assert res_pii.exit_code == 0
+    assert "de***@example.com" in res_pii.output
+    assert "developer@example.com" not in res_pii.output
 
     # Generated password when --password is omitted (masked by default)
-    with patch("devops_cli.commands.k8s._run_cmd") as mock_cmd:
-        mock_cmd.side_effect = [
-            _mock_proc(0, "open-webui-0\n"),
-            _mock_proc(0, "CREATED\n"),
-        ]
-        res_gen = runner.invoke(app, ["bootstrap-openwebui", "--email", "admin@localhost"])
-        assert res_gen.exit_code == 0
-        assert "Generated secure Open-WebUI admin password" in res_gen.output
-        assert "(use --show-password to reveal)" in res_gen.output
-        assert "admin123" not in res_gen.output
+    open_webui_answers()
+    res_gen = runner.invoke(app, ["bootstrap-openwebui", "--email", "admin@localhost"])
+    assert res_gen.exit_code == 0
+    assert "Generated secure Open-WebUI admin password" in res_gen.output
+    assert "(use --show-password to reveal)" in res_gen.output
+    assert "admin123" not in res_gen.output
 
     # Generated password with --show-password reveals in plain text
-    with patch("devops_cli.commands.k8s._run_cmd") as mock_cmd:
-        mock_cmd.side_effect = [
-            _mock_proc(0, "open-webui-0\n"),
-            _mock_proc(0, "CREATED\n"),
-        ]
-        res_show = runner.invoke(
-            app, ["bootstrap-openwebui", "--email", "admin@localhost", "--show-password"]
-        )
-        assert res_show.exit_code == 0
-        assert "Generated secure Open-WebUI admin password" in res_show.output
-        assert "(use --show-password to reveal)" not in res_show.output
+    open_webui_answers()
+    res_show = runner.invoke(
+        app, ["bootstrap-openwebui", "--email", "admin@localhost", "--show-password"]
+    )
+    assert res_show.exit_code == 0
+    assert "Generated secure Open-WebUI admin password" in res_show.output
+    assert "(use --show-password to reveal)" not in res_show.output
 
     # Rerun when account already exists does not claim to generate new password
-    with patch("devops_cli.commands.k8s._run_cmd") as mock_cmd:
-        mock_cmd.side_effect = [
-            _mock_proc(0, "open-webui-0\n"),
-            _mock_proc(0, "EXISTING\n"),
-        ]
-        res_exist = runner.invoke(app, ["bootstrap-openwebui", "--email", "admin@localhost"])
-        assert res_exist.exit_code == 0
-        assert "already initialized" in res_exist.output
-        assert "Generated secure Open-WebUI admin password" not in res_exist.output
+    open_webui_answers("EXISTING\n")
+    res_exist = runner.invoke(app, ["bootstrap-openwebui", "--email", "admin@localhost"])
+    assert res_exist.exit_code == 0
+    assert "already initialized" in res_exist.output
+    assert "Generated secure Open-WebUI admin password" not in res_exist.output
 
     # Pod not found failure
-    with patch("devops_cli.commands.k8s._run_cmd", return_value=_mock_proc(1, "")):
-        res_fail = runner.invoke(app, ["bootstrap-openwebui"])
-        assert res_fail.exit_code == 1
+    process_fake.reset()
+    process_fake.answer("kubectl get pods", ProcessAnswer(returncode=1))
+    res_fail = runner.invoke(app, ["bootstrap-openwebui"])
+    assert res_fail.exit_code == 1
 
 
-def test_k8s_deploy_stack_no_wait() -> None:
+def test_k8s_deploy_stack_no_wait(
+    cluster: FakeCluster, process_fake: ProcessFake, keyring_store: FakeKeyring
+) -> None:
     """Verify k8s deploy-stack with --no-wait omits --wait flag in helm upgrade command."""
     set_dry_run(True)
     try:
@@ -1281,68 +1065,30 @@ def test_k8s_deploy_stack_no_wait() -> None:
     finally:
         set_dry_run(False)
 
-    with (
-        patch("devops_cli.commands.k8s._cluster_reachable", return_value=True),
-        patch("devops_cli.commands.k8s._run_cmd") as mock_cmd,
-        patch("devops_cli.commands.k8s.stack_lifecycle._is_helm_v4_or_newer", return_value=True),
-        patch(
-            "devops_cli.commands.k8s.stack_lifecycle._require_helm_version",
-            return_value=Version("4.3.0"),
-        ),
-        patch("devops_cli.commands.k8s.port_forward"),
-        patch("devops_cli.k8s.credentials.sync_k8s_credentials", return_value={}),
-        patch(
-            "devops_cli.commands.k8s.stack_lifecycle._is_cluster_argo_managed", return_value=False
-        ),
-    ):
-        mock_cmd.return_value = _mock_proc(0, "")
-        res_exec = runner.invoke(
-            app, ["deploy-stack", "--stack", "infra", "--no-wait", "--no-push-secrets"]
-        )
-        helm_cmds = [
-            call_args[0][0]
-            for call_args in mock_cmd.call_args_list
-            if isinstance(call_args[0][0], list)
-            and "helm" in call_args[0][0]
-            and "upgrade" in call_args[0][0]
-        ]
-        assert len(helm_cmds) > 0
-        for cmd in helm_cmds:
-            assert "--wait" not in cmd
-            assert "--force-conflicts" in cmd
-            assert "--take-ownership" in cmd
+    answer_helm_version(process_fake, "v4.3.0")
+    res_exec = runner.invoke(
+        app, ["deploy-stack", "--stack", "infra", "--no-wait", "--no-push-secrets"]
+    )
+    helm_cmds = [list(argv) for argv in calls_starting(process_fake, "helm", "upgrade")]
+    assert res_exec.exit_code == 0
+    assert len(helm_cmds) > 0
+    for cmd in helm_cmds:
+        assert "--wait" not in cmd
+        assert "--force-conflicts" in cmd
+        assert "--take-ownership" in cmd
 
-    with (
-        patch("devops_cli.commands.k8s._cluster_reachable", return_value=True),
-        patch("devops_cli.commands.k8s._run_cmd") as mock_cmd,
-        patch("devops_cli.commands.k8s.stack_lifecycle._is_helm_v4_or_newer", return_value=False),
-        patch(
-            "devops_cli.commands.k8s.stack_lifecycle._require_helm_version",
-            return_value=Version("3.17.0"),
-        ),
-        patch("devops_cli.commands.k8s.port_forward"),
-        patch("devops_cli.k8s.credentials.sync_k8s_credentials", return_value={}),
-        patch(
-            "devops_cli.commands.k8s.stack_lifecycle._is_cluster_argo_managed", return_value=False
-        ),
-    ):
-        mock_cmd.return_value = _mock_proc(0, "")
-        res_exec = runner.invoke(
-            app, ["deploy-stack", "--stack", "infra", "--no-wait", "--no-push-secrets"]
-        )
-        assert res_exec.exit_code == 0
-        helm_cmds = [
-            call_args[0][0]
-            for call_args in mock_cmd.call_args_list
-            if isinstance(call_args[0][0], list)
-            and "helm" in call_args[0][0]
-            and "upgrade" in call_args[0][0]
-        ]
-        assert len(helm_cmds) > 0
-        for cmd in helm_cmds:
-            assert "--wait" not in cmd
-            assert "--force-conflicts" not in cmd
-            assert "--take-ownership" in cmd
+    process_fake.calls.clear()
+    answer_helm_version(process_fake, "v3.17.0")
+    res_exec = runner.invoke(
+        app, ["deploy-stack", "--stack", "infra", "--no-wait", "--no-push-secrets"]
+    )
+    assert res_exec.exit_code == 0
+    helm_cmds = [list(argv) for argv in calls_starting(process_fake, "helm", "upgrade")]
+    assert len(helm_cmds) > 0
+    for cmd in helm_cmds:
+        assert "--wait" not in cmd
+        assert "--force-conflicts" not in cmd
+        assert "--take-ownership" in cmd
 
 
 def test_k8s_workload_resource_limits_and_probes() -> None:
@@ -1659,36 +1405,34 @@ def test_bootstrap_openwebui_dry_run_masks_email(capsys: pytest.CaptureFixture[s
     assert "op***@example.com" in captured.out
 
 
-def test_is_helm_v4_or_newer_capability_detection() -> None:
+def test_is_helm_v4_or_newer_capability_detection(process_fake: ProcessFake) -> None:
     from devops_cli.commands.k8s.stack_lifecycle import _is_helm_v4_or_newer
 
+    def helm_says(stdout: str, returncode: int = 0) -> None:
+        process_fake.answer("helm version", ProcessAnswer(returncode=returncode, stdout=stdout))
+
     # Helm v4 returns True
-    with patch("devops_cli.commands.k8s.stack_lifecycle.runtime._run_cmd") as mock_cmd:
-        mock_cmd.return_value = MagicMock(returncode=0, stdout="v4.0.1\n")
-        assert _is_helm_v4_or_newer() is True
+    helm_says("v4.0.1\n")
+    assert _is_helm_v4_or_newer() is True
 
     # Helm v3 returns False
-    with patch("devops_cli.commands.k8s.stack_lifecycle.runtime._run_cmd") as mock_cmd:
-        mock_cmd.return_value = MagicMock(returncode=0, stdout="v3.16.2\n")
-        assert _is_helm_v4_or_newer() is False
+    helm_says("v3.16.2\n")
+    assert _is_helm_v4_or_newer() is False
 
     # Command failure returns False
-    with patch("devops_cli.commands.k8s.stack_lifecycle.runtime._run_cmd") as mock_cmd:
-        mock_cmd.return_value = MagicMock(returncode=1, stdout="")
-        assert _is_helm_v4_or_newer() is False
+    helm_says("", returncode=1)
+    assert _is_helm_v4_or_newer() is False
 
     # Empty stdout returns False
-    with patch("devops_cli.commands.k8s.stack_lifecycle.runtime._run_cmd") as mock_cmd:
-        mock_cmd.return_value = MagicMock(returncode=0, stdout="")
-        assert _is_helm_v4_or_newer() is False
+    helm_says("")
+    assert _is_helm_v4_or_newer() is False
 
     # Malformed output returns False
-    with patch("devops_cli.commands.k8s.stack_lifecycle.runtime._run_cmd") as mock_cmd:
-        mock_cmd.return_value = MagicMock(returncode=0, stdout="invalid-version\n")
-        assert _is_helm_v4_or_newer() is False
+    helm_says("invalid-version\n")
+    assert _is_helm_v4_or_newer() is False
 
 
-def test_extract_service_url_ingress_and_nodeport() -> None:
+def test_extract_service_url_ingress_and_nodeport(process_fake: ProcessFake) -> None:
     """Verify LoadBalancer ingress and NodePort extraction from service spec."""
     from devops_cli.commands.k8s.networking import _extract_service_ingress_or_nodeport
 
@@ -1701,11 +1445,11 @@ def test_extract_service_url_ingress_and_nodeport() -> None:
     nodeport_svc = {
         "spec": {"ports": [{"port": 80, "nodePort": 30080}]},
     }
-    with patch(
-        "devops_cli.commands.k8s.networking._resolve_k8s_node_port_url",
-        return_value="http://127.0.0.1:30080",
-    ):
-        url_nodeport = _extract_service_ingress_or_nodeport(nodeport_svc, [])
+    loopback_node = {"status": {"addresses": [{"type": "InternalIP", "address": "127.0.0.1"}]}}
+    process_fake.answer(
+        "kubectl get nodes", ProcessAnswer(stdout=json.dumps({"items": [loopback_node]}))
+    )
+    url_nodeport = _extract_service_ingress_or_nodeport(nodeport_svc, [])
 
     url_empty = _extract_service_ingress_or_nodeport({}, [])
 
@@ -1803,36 +1547,28 @@ def test_pyroscope_port_forward_and_proxy_targets() -> None:
     )
 
 
-def test_is_cluster_argo_managed() -> None:
+def test_is_cluster_argo_managed(cluster: FakeCluster) -> None:
     """_is_cluster_argo_managed probes Application 'cluster' in argocd namespace via ArgoCRDService."""
     from devops_cli.commands.k8s.stack_lifecycle import _is_cluster_argo_managed
-    from devops_cli.exceptions.argo import ArgoError, ArgoResourceNotFoundError
+    from devops_cli.exceptions.argo import ArgoError
 
-    mock_svc = MagicMock()
-    with patch(
-        "devops_cli.commands.k8s.stack_lifecycle.get_argo_crd_service", return_value=mock_svc
-    ):
-        mock_svc.get_resource.return_value = {"metadata": {"name": "cluster"}}
-        assert _is_cluster_argo_managed() is True
-        mock_svc.get_resource.assert_called_once_with("applications", "cluster", namespace="argocd")
+    # No Application 'cluster': the API answers 404
+    assert _is_cluster_argo_managed() is False
 
-    mock_svc = MagicMock()
-    with patch(
-        "devops_cli.commands.k8s.stack_lifecycle.get_argo_crd_service", return_value=mock_svc
-    ):
-        mock_svc.get_resource.side_effect = ArgoResourceNotFoundError(
-            "not found", resource="cluster"
-        )
-        assert _is_cluster_argo_managed() is False
+    argo_cd_manages_the_cluster(cluster)
+    cluster.custom_objects.calls.clear()
+    assert _is_cluster_argo_managed() is True
+    assert [
+        (name, kwargs["plural"], kwargs["name"], kwargs["namespace"])
+        for name, kwargs in cluster.custom_objects.calls
+    ] == [("get_namespaced_custom_object", "applications", "cluster", "argocd")]
 
-    mock_svc = MagicMock()
-    with patch(
-        "devops_cli.commands.k8s.stack_lifecycle.get_argo_crd_service", return_value=mock_svc
-    ):
-        mock_svc.get_resource.side_effect = ArgoError("apiserver 403 forbidden", resource="cluster")
-        with pytest.raises(ArgoError) as exc_info:
-            _is_cluster_argo_managed()
-        assert "403 forbidden" in str(exc_info.value)
+    cluster.custom_objects.fail(
+        "get_namespaced_custom_object", api_exception(403, "apiserver 403 forbidden")
+    )
+    with pytest.raises(ArgoError) as exc_info:
+        _is_cluster_argo_managed()
+    assert "403 forbidden" in str(exc_info.value)
 
 
 # The configured domain has to differ from the repository's placeholder, example.com, for a
@@ -1891,6 +1627,24 @@ def applications_repo(tmp_path: Path) -> Path:
     return repo
 
 
+type ClusterFactory = Callable[..., "_Cluster"]
+
+
+@pytest.fixture
+def make_cluster(
+    applications_repo: Path, process_fake: ProcessFake, cluster: FakeCluster
+) -> ClusterFactory:
+    """Build the kubectl and git stand-in around a reachable cluster, over the fake API."""
+
+    def make(**options: Any) -> _Cluster:
+        return _Cluster(applications_repo, process_fake, cluster, **options)
+
+    return make
+
+
+_SERVER_SIDE_APPLY = ["kubectl", "apply", "--server-side"]
+
+
 class _Cluster:
     """kubectl and git around a reachable cluster, Argo CD-managed unless `argo` is False.
 
@@ -1903,6 +1657,8 @@ class _Cluster:
     def __init__(
         self,
         repo: Path,
+        process_fake: ProcessFake,
+        api: FakeCluster,
         *,
         argo: bool = True,
         fail: str | None = None,
@@ -1915,17 +1671,14 @@ class _Cluster:
         self.fail = fail
         self.paths = paths or {}
         self.missing_crds = missing_crds
+        self.namespaces = {"llm", "cloudflared", "devops"}
+        process_fake.answer(lambda _call: True, ProcessAnswer(side_effect=self))
+        name_contexts(api, "minikube")
+        if argo:
+            argo_cd_manages_the_cluster(api)
 
-    def __call__(
-        self,
-        cmd: list[str],
-        *,
-        input: str | None = None,
-        check: bool = True,
-        capture: bool = False,
-        timeout: float = 0.0,
-        env: dict[str, str] | None = None,
-    ) -> subprocess.CompletedProcess[str]:
+    def __call__(self, call: ProcessCall) -> subprocess.CompletedProcess[str]:
+        cmd, input = list(call.argv), call.stdin if isinstance(call.stdin, str) else None
         self.calls.append((cmd, input))
         if cmd[0] == "git" or cmd[1] == "kustomize":
             return subprocess.run(cmd, input=input, capture_output=True, text=True, check=False)
@@ -1936,23 +1689,27 @@ class _Cluster:
             source = {"repoURL": self.repo.as_uri(), "targetRevision": "main", "path": path}
             return subprocess.CompletedProcess(cmd, 0, json.dumps({"spec": {"source": source}}), "")
         if cmd[1] == "api-resources":
-            if self.fail is not None and self.fail in cmd:
-                return subprocess.CompletedProcess(cmd, 1, "", "denied")
-            group = next(
-                (arg.split("=", 1)[1] for arg in cmd if arg.startswith("--api-group=")), None
-            )
-            lines = ["NAME SHORTNAMES APIVERSION NAMESPACED KIND"]
-            if group is None or group == "argoproj.io":
-                if "argoproj.io" not in self.missing_crds:
-                    lines.append(
-                        "workflowtemplates wft,wftmpl argoproj.io/v1alpha1 true WorkflowTemplate"
-                    )
-            if group is None or group == "monitoring.coreos.com":
-                if "monitoring.coreos.com" not in self.missing_crds:
-                    lines.append("servicemonitors monitoring.coreos.com/v1 true ServiceMonitor")
-            return subprocess.CompletedProcess(cmd, 0, "\n".join(lines) + "\n", "")
+            return self._api_resources(cmd)
+        if cmd[1:3] == ["get", "namespace"]:
+            found = f"namespace/{cmd[3]}\n" if cmd[3] in self.namespaces else ""
+            return subprocess.CompletedProcess(cmd, 0, found, "")
         failed = self.fail is not None and self.fail in cmd
         return subprocess.CompletedProcess(cmd, int(failed), "", "denied" if failed else "")
+
+    def _api_resources(self, cmd: list[str]) -> subprocess.CompletedProcess[str]:
+        """What `kubectl api-resources` lists: the kinds of the CRDs that the cluster serves."""
+        if self.fail is not None and self.fail in cmd:
+            return subprocess.CompletedProcess(cmd, 1, "", "denied")
+        group = next((arg.split("=", 1)[1] for arg in cmd if arg.startswith("--api-group=")), None)
+        lines = ["NAME SHORTNAMES APIVERSION NAMESPACED KIND"]
+        if group in (None, "argoproj.io") and "argoproj.io" not in self.missing_crds:
+            lines.append("workflowtemplates wft,wftmpl argoproj.io/v1alpha1 true WorkflowTemplate")
+        if (
+            group in (None, "monitoring.coreos.com")
+            and "monitoring.coreos.com" not in self.missing_crds
+        ):
+            lines.append("servicemonitors monitoring.coreos.com/v1 true ServiceMonitor")
+        return subprocess.CompletedProcess(cmd, 0, "\n".join(lines) + "\n", "")
 
     def writes(self) -> list[list[str]]:
         return [
@@ -1979,14 +1736,7 @@ def _configure_service(config_path: Path) -> None:
 
 def _deploy(cluster: _Cluster, *args: str, push: bool = False) -> Any:
     flag = "--push-secrets" if push else "--no-push-secrets"
-    with (
-        patch("devops_cli.commands.k8s.cluster_runtime._run_cmd", cluster),
-        patch(
-            "devops_cli.commands.k8s.stack_lifecycle._is_cluster_argo_managed",
-            return_value=cluster.argo,
-        ),
-    ):
-        return runner.invoke(app, ["deploy-stack", flag, *_CONTEXT, *args])
+    return runner.invoke(app, ["deploy-stack", flag, *_CONTEXT, *args])
 
 
 def _hosts(application: str, *pinned: tuple[str, str, str, list[str]]) -> list[str]:
@@ -2039,11 +1789,11 @@ _INGRESS_HOSTS = _hosts("ingress", ("Ingress", "chat", "llm", ["chat.example.com
 
 
 def test_deploy_stack_on_argo_cd_applies_the_config_map_and_sets_hosts_from_each_applications_revision(
-    isolate_devops_cli_config: Path, applications_repo: Path
+    isolate_devops_cli_config: Path, make_cluster: ClusterFactory
 ) -> None:
     """The hosts come from what the Applications render at their revision, not the checkout."""
     _configure_service(isolate_devops_cli_config)
-    cluster = _Cluster(applications_repo)
+    cluster = make_cluster()
     res = _deploy(cluster, "--stack", "devops", "--domain", _DOMAIN)
     config_map = yaml.safe_load(cluster.stdin_of(_APPLY_STDIN))
     service = yaml.safe_load(config_map["data"]["devops-cli.yaml"])["service"]
@@ -2061,7 +1811,7 @@ def test_deploy_stack_on_argo_cd_applies_the_config_map_and_sets_hosts_from_each
 
 
 def test_deploy_stack_leaves_the_service_digest_image_updater_set_on_application_devops(
-    isolate_devops_cli_config: Path, applications_repo: Path, tmp_path: Path
+    isolate_devops_cli_config: Path, make_cluster: ClusterFactory, tmp_path: Path
 ) -> None:
     """The host patch replaces `kustomize.patches` alone, so `kustomize.images` stays (#1485).
 
@@ -2069,7 +1819,7 @@ def test_deploy_stack_leaves_the_service_digest_image_updater_set_on_application
     that holds Image Updater's digest and an older host patch, as the API server would.
     """
     _configure_service(isolate_devops_cli_config)
-    cluster = _Cluster(applications_repo)
+    cluster = make_cluster()
     res = _deploy(cluster, "--stack", "devops", "--domain", _DOMAIN)
     sent = next(cmd for cmd in cluster.writes() if cmd[1:4] == ["patch", "application", "devops"])
     images = [f"ghcr.io/dan-petty/devops-cli/service:latest@sha256:{'0' * 64}"]
@@ -2102,15 +1852,16 @@ def test_deploy_stack_leaves_the_service_digest_image_updater_set_on_application
 
 
 def test_deploy_stack_stages_the_hosts_of_a_revision_before_it_merges(
-    applications_repo: Path,
+    make_cluster: ClusterFactory,
 ) -> None:
-    cluster = _Cluster(applications_repo)
+    cluster = make_cluster()
     res = _deploy(cluster, "--stack", "infra", "--domain", _DOMAIN, "--argocd-revision", "release")
     staged = _hosts("ingress", ("Ingress", "chat", "llm", ["chat.example.com", "ai.example.com"]))
     assert (res.exit_code, cluster.writes()) == (0, [staged])
 
 
 def test_deploy_stack_refuses_a_revision_with_no_placeholder_host_rather_than_clear_staged_hosts(
+    make_cluster: ClusterFactory,
     applications_repo: Path,
 ) -> None:
     """A revision whose hosts are already real (an older overlay) would leave an empty patch list."""
@@ -2118,7 +1869,7 @@ def test_deploy_stack_refuses_a_revision_with_no_placeholder_host_rather_than_cl
     _commit(
         applications_repo, {"k8s/ingress/routes.yaml": _ingress("chat", "llm", "chat.example.org")}
     )
-    cluster = _Cluster(applications_repo)
+    cluster = make_cluster()
     res = _deploy(cluster, "--stack", "infra", "--domain", _DOMAIN, "--argocd-revision", "pinned")
     assert (
         res.exit_code,
@@ -2131,14 +1882,16 @@ def test_deploy_stack_refuses_a_revision_with_no_placeholder_host_rather_than_cl
     )
 
 
-def test_deploy_stack_infra_on_argo_cd_sets_only_the_ingress_hosts(applications_repo: Path) -> None:
-    cluster = _Cluster(applications_repo)
+def test_deploy_stack_infra_on_argo_cd_sets_only_the_ingress_hosts(
+    make_cluster: ClusterFactory,
+) -> None:
+    cluster = make_cluster()
     res = _deploy(cluster, "--stack", "infra", "--domain", _DOMAIN)
     assert (res.exit_code, cluster.writes()) == (0, [_INGRESS_HOSTS])
 
 
-def test_deploy_stack_llm_on_argo_cd_changes_nothing_itself(applications_repo: Path) -> None:
-    cluster = _Cluster(applications_repo)
+def test_deploy_stack_llm_on_argo_cd_changes_nothing_itself(make_cluster: ClusterFactory) -> None:
+    cluster = make_cluster()
     res = _deploy(cluster, "--stack", "llm")
     assert (res.exit_code, cluster.writes(), "Argo CD manages the cluster" in res.output) == (
         0,
@@ -2148,27 +1901,21 @@ def test_deploy_stack_llm_on_argo_cd_changes_nothing_itself(applications_repo: P
 
 
 def test_native_deploy_stack_llm_applies_the_gateway_kustomization_after_the_secret_push(
-    applications_repo: Path,
+    make_cluster: ClusterFactory, keyring_store: FakeKeyring
 ) -> None:
     """Without Argo CD, deploy-stack applies the gateway with `kubectl apply -k k8s/llm/gateway`
     after it pushes the Secrets, so the gateway reads its master key at start. The ConfigMap that
     the kustomization generates from `config.yaml` and the Deployment that names it go in one
     apply, so a changed config rolls the gateway (#1929). The ServiceMonitor follows the charts."""
     gateway = str(Path("k8s", "llm", "gateway"))
-    cluster = _Cluster(applications_repo, argo=False)
-    with (
-        patch("devops_cli.commands.k8s.stack_lifecycle.require_keyring_for_push"),
-        patch(
-            "devops_cli.commands.k8s.stack_lifecycle.push_for_stacks",
-            side_effect=lambda stacks, ctx: cluster.calls.append((["<push>"], None)),
-        ),
-        patch("devops_cli.commands.k8s.stack_lifecycle.namespace_exists", return_value=False),
-    ):
-        res = _deploy(cluster, "--stack", "llm", "--k8s-dir", "k8s", push=True)
+    cluster = make_cluster(argo=False)
+    stock_push_keyring(keyring_store)
+    keyring_store.values["service_github_app_private_key"] = "app-private-key-value-0001"
+    res = _deploy(cluster, "--stack", "llm", "--k8s-dir", "k8s", push=True)
     steps = [
-        tuple(cmd[1:4]) if cmd[0] == "kubectl" else tuple(cmd)
+        ("<push>",) if cmd[:3] == _SERVER_SIDE_APPLY else tuple(cmd[1:4])
         for cmd, _ in cluster.calls
-        if cmd == ["<push>"] or (cmd[1:2] == ["apply"] and cmd[3].startswith(gateway))
+        if cmd[:3] == _SERVER_SIDE_APPLY or (cmd[1:2] == ["apply"] and cmd[3].startswith(gateway))
     ]
     assert (res.exit_code, steps) == (
         0,
@@ -2181,22 +1928,13 @@ def test_native_deploy_stack_llm_applies_the_gateway_kustomization_after_the_sec
 
 
 def test_native_teardown_stack_llm_deletes_the_gateway_kustomization(
-    applications_repo: Path,
+    make_cluster: ClusterFactory,
 ) -> None:
     """Without Argo CD, teardown-stack deletes the gateway with `kubectl delete -k`, as
     deploy-stack applies it, so the generated ConfigMap goes with the Deployment (#1929)."""
     gateway = str(Path("k8s", "llm", "gateway"))
-    cluster = _Cluster(applications_repo, argo=False)
-    with (
-        patch("devops_cli.commands.k8s.cluster_runtime._run_cmd", cluster),
-        patch(
-            "devops_cli.commands.k8s.stack_lifecycle._is_cluster_argo_managed",
-            return_value=False,
-        ),
-    ):
-        res = runner.invoke(
-            app, ["teardown-stack", "--stack", "llm", "--k8s-dir", "k8s", *_CONTEXT]
-        )
+    cluster = make_cluster(argo=False)
+    res = runner.invoke(app, ["teardown-stack", "--stack", "llm", "--k8s-dir", "k8s", *_CONTEXT])
     deletes = [
         tuple(cmd[1:4])
         for cmd in cluster.writes()
@@ -2212,21 +1950,12 @@ def test_native_teardown_stack_llm_deletes_the_gateway_kustomization(
 
 
 def test_teardown_stack_skips_post_helm_delete_when_crd_not_installed(
-    applications_repo: Path,
+    make_cluster: ClusterFactory,
 ) -> None:
     """When a post-Helm custom resource kind is not served, teardown-stack skips deleting it
     and warns (#1818)."""
-    cluster = _Cluster(applications_repo, argo=False, missing_crds=("argoproj.io",))
-    with (
-        patch("devops_cli.commands.k8s.cluster_runtime._run_cmd", cluster),
-        patch(
-            "devops_cli.commands.k8s.stack_lifecycle._is_cluster_argo_managed",
-            return_value=False,
-        ),
-    ):
-        res = runner.invoke(
-            app, ["teardown-stack", "--stack", "infra", "--k8s-dir", "k8s", *_CONTEXT]
-        )
+    cluster = make_cluster(argo=False, missing_crds=("argoproj.io",))
+    res = runner.invoke(app, ["teardown-stack", "--stack", "infra", "--k8s-dir", "k8s", *_CONTEXT])
     assert res.exit_code == 0
     assert (
         "Skipped workflowtemplate-version.yaml: the cluster does not serve kind "
@@ -2241,31 +1970,22 @@ def test_teardown_stack_skips_post_helm_delete_when_crd_not_installed(
 
 
 def test_deploy_stack_reports_post_helm_apply_failure_when_crd_not_installed(
-    applications_repo: Path,
+    make_cluster: ClusterFactory, keyring_store: FakeKeyring
 ) -> None:
     """When a post-Helm custom resource kind is not served, deploy-stack warns and skips applying it (#1818)."""
-    cluster = _Cluster(applications_repo, argo=False, missing_crds=("argoproj.io",))
-    with (
-        patch("devops_cli.commands.k8s.cluster_runtime._run_cmd", cluster),
-        patch(
-            "devops_cli.commands.k8s.stack_lifecycle._is_cluster_argo_managed",
-            return_value=False,
-        ),
-        patch("devops_cli.commands.k8s.stack_lifecycle._post_deploy_networking"),
-        patch("devops_cli.commands.k8s.stack_lifecycle._post_deploy_credentials"),
-    ):
-        res = runner.invoke(
-            app,
-            [
-                "deploy-stack",
-                "--stack",
-                "infra",
-                "--k8s-dir",
-                "k8s",
-                "--no-push-secrets",
-                *_CONTEXT,
-            ],
-        )
+    cluster = make_cluster(argo=False, missing_crds=("argoproj.io",))
+    res = runner.invoke(
+        app,
+        [
+            "deploy-stack",
+            "--stack",
+            "infra",
+            "--k8s-dir",
+            "k8s",
+            "--no-push-secrets",
+            *_CONTEXT,
+        ],
+    )
     assert res.exit_code == 0
     assert (
         "Failed to apply workflowtemplate-version.yaml: the cluster does not serve kind "
@@ -2280,21 +2000,23 @@ def test_deploy_stack_reports_post_helm_apply_failure_when_crd_not_installed(
 
 
 def test_deploy_stack_on_argo_cd_pushes_secrets_after_deriving_the_hosts_and_before_writing(
-    isolate_devops_cli_config: Path, applications_repo: Path
+    isolate_devops_cli_config: Path, make_cluster: ClusterFactory, keyring_store: FakeKeyring
 ) -> None:
     _configure_service(isolate_devops_cli_config)
-    cluster = _Cluster(applications_repo)
-    with (
-        patch("devops_cli.commands.k8s.stack_lifecycle.require_keyring_for_push") as keyring,
-        patch(
-            "devops_cli.commands.k8s.stack_lifecycle.push_for_stacks",
-            side_effect=lambda stacks, ctx: cluster.calls.append((["<push>"], None)),
-        ),
-        patch("devops_cli.commands.k8s.stack_lifecycle.namespace_exists", return_value=False),
-    ):
-        res = _deploy(cluster, "--stack", "devops", "--domain", _DOMAIN, push=True)
-    steps = [cmd[0] if cmd[0] in ("<push>", "git") else cmd[1] for cmd, _ in cluster.calls]
-    assert (res.exit_code, keyring.called, steps[steps.index("<push>") :]) == (
+    cluster = make_cluster()
+    stock_push_keyring(keyring_store)
+    keyring_store.values["service_github_app_private_key"] = "app-private-key-value-0001"
+    res = _deploy(cluster, "--stack", "devops", "--domain", _DOMAIN, push=True)
+    steps = [
+        "<push>" if cmd[:3] == _SERVER_SIDE_APPLY else cmd[0] if cmd[0] == "git" else cmd[1]
+        for cmd, _ in cluster.calls
+        if cmd[:3] == _SERVER_SIDE_APPLY or cmd[0] == "git" or cmd[1] in ("apply", "patch")
+    ]
+    assert (
+        res.exit_code,
+        keyring_store.secret_reads() != set(),
+        steps[steps.index("<push>") :],
+    ) == (
         0,
         True,
         ["<push>", "apply", "patch", "patch"],
@@ -2302,10 +2024,10 @@ def test_deploy_stack_on_argo_cd_pushes_secrets_after_deriving_the_hosts_and_bef
 
 
 def test_deploy_stack_fails_when_argo_cd_refuses_the_hosts(
-    isolate_devops_cli_config: Path, applications_repo: Path
+    isolate_devops_cli_config: Path, make_cluster: ClusterFactory
 ) -> None:
     _configure_service(isolate_devops_cli_config)
-    cluster = _Cluster(applications_repo, fail="ingress")
+    cluster = make_cluster(fail="ingress")
     res = _deploy(cluster, "--stack", "devops", "--domain", _DOMAIN)
     assert (res.exit_code, "Application 'ingress'" in res.output, "denied" in res.output) == (
         1,
@@ -2315,10 +2037,10 @@ def test_deploy_stack_fails_when_argo_cd_refuses_the_hosts(
 
 
 def test_deploy_stack_fails_when_the_cluster_refuses_the_config_map(
-    isolate_devops_cli_config: Path, applications_repo: Path
+    isolate_devops_cli_config: Path, make_cluster: ClusterFactory
 ) -> None:
     _configure_service(isolate_devops_cli_config)
-    cluster = _Cluster(applications_repo, fail="apply")
+    cluster = make_cluster(fail="apply")
     res = _deploy(cluster, "--stack", "devops", "--domain", _DOMAIN)
     assert (
         res.exit_code,
@@ -2328,38 +2050,38 @@ def test_deploy_stack_fails_when_the_cluster_refuses_the_config_map(
 
 
 def test_deploy_stack_writes_nothing_when_an_application_does_not_build_at_its_revision(
-    isolate_devops_cli_config: Path, applications_repo: Path
+    isolate_devops_cli_config: Path, make_cluster: ClusterFactory
 ) -> None:
     _configure_service(isolate_devops_cli_config)
-    cluster = _Cluster(applications_repo, paths={"ingress": "k8s/overlays/homelab/missing"})
+    cluster = make_cluster(paths={"ingress": "k8s/overlays/homelab/missing"})
     res = _deploy(cluster, "--stack", "devops", "--domain", _DOMAIN)
     assert (res.exit_code, cluster.writes(), "kubectl kustomize" in res.output) == (1, [], True)
 
 
 def test_deploy_stack_without_a_domain_writes_nothing_and_names_the_setting(
-    isolate_devops_cli_config: Path, applications_repo: Path, monkeypatch: pytest.MonkeyPatch
+    isolate_devops_cli_config: Path, make_cluster: ClusterFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     for name in ("DEVOPS_CLI_K8S_DOMAIN", "DEVOPS_CLI_DOMAIN", "DEVOPS_CLI_CLOUDFLARE_DOMAIN"):
         monkeypatch.delenv(name, raising=False)
     _configure_service(isolate_devops_cli_config)
-    cluster = _Cluster(applications_repo)
+    cluster = make_cluster()
     res = _deploy(cluster, "--stack", "devops")
     assert (res.exit_code, cluster.writes(), "k8s.domain" in res.output) == (1, [], True)
 
 
 def test_deploy_stack_without_service_repositories_writes_nothing_and_names_the_setting(
-    applications_repo: Path,
+    make_cluster: ClusterFactory,
 ) -> None:
-    cluster = _Cluster(applications_repo)
+    cluster = make_cluster()
     res = _deploy(cluster, "--stack", "devops", "--domain", _DOMAIN)
     assert (res.exit_code, cluster.calls, "service.repos" in res.output) == (1, [], True)
 
 
 def test_deploy_stack_on_a_native_cluster_applies_the_rendered_config_map_and_no_file_of_it(
-    isolate_devops_cli_config: Path, applications_repo: Path
+    isolate_devops_cli_config: Path, make_cluster: ClusterFactory
 ) -> None:
     _configure_service(isolate_devops_cli_config)
-    cluster = _Cluster(applications_repo, argo=False)
+    cluster = make_cluster(argo=False)
     res = _deploy(cluster, "--stack", "devops", "--domain", _DOMAIN)
     applied = cluster.writes()
     config_map = yaml.safe_load(cluster.stdin_of(_APPLY_STDIN))
@@ -2379,17 +2101,10 @@ def test_deploy_stack_on_a_native_cluster_applies_the_rendered_config_map_and_no
 
 
 def test_teardown_stack_devops_deletes_the_config_map_deploy_stack_rendered(
-    applications_repo: Path,
+    make_cluster: ClusterFactory,
 ) -> None:
-    cluster = _Cluster(applications_repo, argo=False)
-    with (
-        patch("devops_cli.commands.k8s.cluster_runtime._run_cmd", cluster),
-        patch(
-            "devops_cli.commands.k8s.stack_lifecycle._is_cluster_argo_managed",
-            return_value=False,
-        ),
-    ):
-        res = runner.invoke(app, ["teardown-stack", "--stack", "devops", *_CONTEXT])
+    cluster = make_cluster(argo=False)
+    res = runner.invoke(app, ["teardown-stack", "--stack", "devops", *_CONTEXT])
     delete = [
         "kubectl",
         "delete",
@@ -2403,10 +2118,10 @@ def test_teardown_stack_devops_deletes_the_config_map_deploy_stack_rendered(
 
 
 def test_deploy_stack_dry_run_reports_the_config_map_and_host_overrides_and_runs_nothing(
-    isolate_devops_cli_config: Path, applications_repo: Path
+    isolate_devops_cli_config: Path, make_cluster: ClusterFactory
 ) -> None:
     _configure_service(isolate_devops_cli_config)
-    cluster = _Cluster(applications_repo)
+    cluster = make_cluster()
     res = _deploy(cluster, "--stack", "devops", "--domain", _DOMAIN, "--dry-run")
     assert (
         res.exit_code,
@@ -2418,156 +2133,117 @@ def test_deploy_stack_dry_run_reports_the_config_map_and_host_overrides_and_runs
 
 
 def test_deploy_stack_dry_run_says_an_argo_cd_cluster_needs_a_domain_and_runs_nothing(
-    applications_repo: Path, monkeypatch: pytest.MonkeyPatch
+    make_cluster: ClusterFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     for name in ("DEVOPS_CLI_K8S_DOMAIN", "DEVOPS_CLI_DOMAIN", "DEVOPS_CLI_CLOUDFLARE_DOMAIN"):
         monkeypatch.delenv(name, raising=False)
-    cluster = _Cluster(applications_repo)
+    cluster = make_cluster()
     res = _deploy(cluster, "--stack", "infra", "--dry-run")
     assert (res.exit_code, cluster.calls, "no usable domain" in res.output) == (0, [], True)
 
 
 def test_deploy_stack_dry_run_refuses_like_the_deploy_without_service_repositories(
-    applications_repo: Path,
+    make_cluster: ClusterFactory,
 ) -> None:
-    cluster = _Cluster(applications_repo)
+    cluster = make_cluster()
     res = _deploy(cluster, "--stack", "devops", "--dry-run")
     assert (res.exit_code, cluster.calls, "service.repos" in res.output) == (1, [], True)
 
 
-def test_k8s_teardown_stack_when_argo_cd_managed() -> None:
+def test_k8s_teardown_stack_when_argo_cd_managed(
+    cluster: FakeCluster, process_fake: ProcessFake
+) -> None:
     """When Argo CD Application 'cluster' exists, teardown-stack exits 1."""
-    with (
-        patch("devops_cli.commands.k8s._cluster_reachable", return_value=True),
-        patch(
-            "devops_cli.commands.k8s.stack_lifecycle._is_cluster_argo_managed", return_value=True
-        ),
-        patch("devops_cli.commands.k8s._run_cmd") as mock_cmd,
-    ):
-        res = runner.invoke(app, ["teardown-stack", "--stack", "infra"])
-        assert (
-            res.exit_code,
-            "Argo CD manages the cluster" in res.output,
-            "Refusing teardown" in res.output,
-            mock_cmd.called,
-        ) == (1, True, True, False)
+    argo_cd_manages_the_cluster(cluster)
+
+    res = runner.invoke(app, ["teardown-stack", "--stack", "infra"])
+
+    assert (
+        res.exit_code,
+        "Argo CD manages the cluster" in res.output,
+        "Refusing teardown" in res.output,
+        calls_starting(process_fake, "helm"),
+    ) == (1, True, True, [])
 
 
-def test_k8s_teardown_stack_refuses_on_argo_check_error() -> None:
+def test_k8s_teardown_stack_refuses_on_argo_check_error(
+    cluster: FakeCluster, process_fake: ProcessFake
+) -> None:
     """When Argo CD Application check raises an API error (403, 500, timeout), teardown-stack refuses."""
-    from devops_cli.exceptions.argo import ArgoError
+    cluster.custom_objects.fail(
+        "get_namespaced_custom_object",
+        api_exception(403, "403 Forbidden: user cannot get applications.argoproj.io"),
+    )
 
-    with (
-        patch("devops_cli.commands.k8s._cluster_reachable", return_value=True),
-        patch(
-            "devops_cli.commands.k8s.stack_lifecycle._is_cluster_argo_managed",
-            side_effect=ArgoError("403 Forbidden: user cannot get applications.argoproj.io"),
-        ),
-        patch("devops_cli.commands.k8s._run_cmd") as mock_cmd,
-    ):
-        res = runner.invoke(app, ["teardown-stack", "--stack", "infra"])
-        assert res.exit_code == 1
-        assert "403 Forbidden" in res.output
-        assert "Refusing teardown" in res.output
-        assert mock_cmd.called is False
+    res = runner.invoke(app, ["teardown-stack", "--stack", "infra"])
+
+    assert res.exit_code == 1
+    assert "403 Forbidden" in res.output
+    assert "Refusing teardown" in res.output
+    assert calls_starting(process_fake, "helm") == []
 
 
-def test_k8s_teardown_stack_when_argo_not_managed_allows_teardown() -> None:
+def test_k8s_teardown_stack_when_argo_not_managed_allows_teardown(
+    cluster: FakeCluster, process_fake: ProcessFake
+) -> None:
     """When Argo CD Application returns 404, teardown-stack proceeds."""
-    with (
-        patch("devops_cli.commands.k8s._cluster_reachable", return_value=True),
-        patch(
-            "devops_cli.commands.k8s.stack_lifecycle._is_cluster_argo_managed",
-            return_value=False,
-        ),
-        patch("devops_cli.commands.k8s._run_cmd") as mock_cmd,
-        patch("devops_cli.commands.k8s.stack_lifecycle._delete_post_helm_paths"),
-    ):
-        mock_cmd.return_value = _mock_proc(0, "")
-        res = runner.invoke(app, ["teardown-stack", "--stack", "infra"])
-        assert res.exit_code == 0
-        assert "Refusing teardown" not in res.output
+    res = runner.invoke(app, ["teardown-stack", "--stack", "infra"])
+
+    assert res.exit_code == 0
+    assert "Refusing teardown" not in res.output
+    assert calls_starting(process_fake, "helm", "uninstall") != []
 
 
-def test_k8s_deploy_and_teardown_dry_run_makes_no_cluster_calls() -> None:
+def test_k8s_deploy_and_teardown_dry_run_makes_no_cluster_calls(
+    cluster: FakeCluster, process_fake: ProcessFake
+) -> None:
     """deploy-stack and teardown-stack under --dry-run invoke no kubectl or helm commands."""
-    with (
-        patch("devops_cli.commands.k8s._cluster_reachable") as mock_reach,
-        patch("devops_cli.commands.k8s.stack_lifecycle._is_cluster_argo_managed") as mock_argo,
-        patch("devops_cli.commands.k8s._run_cmd") as mock_cmd,
-        patch("devops_cli.commands.k8s.run_subprocess") as mock_sub,
-    ):
-        res_deploy = runner.invoke(app, ["deploy-stack", "--stack", "infra", "--dry-run"])
-        res_teardown = runner.invoke(app, ["teardown-stack", "--stack", "infra", "--dry-run"])
-        assert (
-            res_deploy.exit_code,
-            res_teardown.exit_code,
-            mock_reach.called,
-            mock_argo.called,
-            mock_cmd.called,
-            mock_sub.called,
-        ) == (0, 0, False, False, False, False)
+    res_deploy = runner.invoke(app, ["deploy-stack", "--stack", "infra", "--dry-run"])
+    res_teardown = runner.invoke(app, ["teardown-stack", "--stack", "infra", "--dry-run"])
+
+    assert (
+        res_deploy.exit_code,
+        res_teardown.exit_code,
+        process_fake.calls,
+        cluster.core.calls,
+        cluster.custom_objects.calls,
+        cluster.version.calls,
+    ) == (0, 0, [], [], [], [])
 
 
-def test_k8s_helm_upgrade_command_includes_pinned_version() -> None:
+def test_k8s_helm_upgrade_command_includes_pinned_version(
+    cluster: FakeCluster, process_fake: ProcessFake, keyring_store: FakeKeyring
+) -> None:
     """Helm upgrade commands built by deploy-stack include --version pinned flag."""
-    with (
-        patch("devops_cli.commands.k8s._cluster_reachable", return_value=True),
-        patch("devops_cli.commands.k8s._run_cmd") as mock_cmd,
-        patch(
-            "devops_cli.commands.k8s.stack_lifecycle._is_cluster_argo_managed", return_value=False
-        ),
-        patch(
-            "devops_cli.commands.k8s.stack_lifecycle._require_helm_version",
-            return_value=Version("3.17.0"),
-        ),
-        patch("devops_cli.commands.k8s.port_forward"),
-        patch("devops_cli.k8s.credentials.sync_k8s_credentials", return_value={}),
-    ):
-        mock_cmd.return_value = _mock_proc(0, "")
-        res = runner.invoke(app, ["deploy-stack", "--stack", "infra", "--no-push-secrets"])
-        assert res.exit_code == 0
-        helm_cmds = [
-            call_args[0][0]
-            for call_args in mock_cmd.call_args_list
-            if isinstance(call_args[0][0], list)
-            and "helm" in call_args[0][0]
-            and "upgrade" in call_args[0][0]
-        ]
-        assert len(helm_cmds) > 0
-        for cmd in helm_cmds:
-            assert "--version" in cmd
-            assert "--take-ownership" in cmd
+    answer_helm_version(process_fake)
+
+    res = runner.invoke(app, ["deploy-stack", "--stack", "infra", "--no-push-secrets"])
+
+    helm_cmds = [list(argv) for argv in calls_starting(process_fake, "helm", "upgrade")]
+    assert res.exit_code == 0
+    assert len(helm_cmds) > 0
+    for cmd in helm_cmds:
+        assert "--version" in cmd
+        assert "--take-ownership" in cmd
 
 
-def test_native_deploy_stack_infra_applies_the_monitoring_kustomization() -> None:
+def test_native_deploy_stack_infra_applies_the_monitoring_kustomization(
+    cluster: FakeCluster, process_fake: ProcessFake, keyring_store: FakeKeyring
+) -> None:
     """Without Argo CD, deploy-stack applies `monitoring` right after the root kustomization.
 
     The root leaves the `monitoring` kustomization to Argo CD's `monitoring` Application (#1279),
     so nothing else creates the namespace's perimeter (#913) or the Grafana dashboard ConfigMaps
     (#1297) on a natively deployed cluster.
     """
-    with (
-        patch("devops_cli.commands.k8s._cluster_reachable", return_value=True),
-        patch("devops_cli.commands.k8s._run_cmd") as mock_cmd,
-        patch(
-            "devops_cli.commands.k8s.stack_lifecycle._is_cluster_argo_managed", return_value=False
-        ),
-        patch(
-            "devops_cli.commands.k8s.stack_lifecycle._require_helm_version",
-            return_value=Version("3.17.0"),
-        ),
-        patch("devops_cli.commands.k8s.port_forward"),
-        patch("devops_cli.k8s.credentials.sync_k8s_credentials", return_value={}),
-    ):
-        mock_cmd.return_value = _mock_proc(0, "")
-        res = runner.invoke(
-            app, ["deploy-stack", "--stack", "infra", "--no-push-secrets", "--k8s-dir", "k8s"]
-        )
+    answer_helm_version(process_fake)
+
+    res = runner.invoke(
+        app, ["deploy-stack", "--stack", "infra", "--no-push-secrets", "--k8s-dir", "k8s"]
+    )
+
     kustomize_targets = [
-        Path(cmd[3])
-        for cmd in (call.args[0] for call in mock_cmd.call_args_list)
-        if cmd[:3] == ["kubectl", "apply", "-k"]
+        Path(argv[3]) for argv in calls_starting(process_fake, "kubectl", "apply", "-k")
     ]
     assert (res.exit_code, kustomize_targets) == (
         0,
@@ -2598,11 +2274,8 @@ def test_deploy_stack_dry_run_lists_the_kustomizations_its_stacks_apply(
 ) -> None:
     """The dry run names each kustomization the stacks apply after the root one (#1297)."""
     _configure_service(isolate_devops_cli_config)
-    with patch("devops_cli.commands.k8s.stack_lifecycle.render_dry_run_result") as render:
-        res = runner.invoke(
-            app, ["deploy-stack", "--stack", stack, "--k8s-dir", "k8s", "--dry-run"]
-        )
-    assert (res.exit_code, render.call_args.kwargs["details"].get("kustomizations")) == (
+    res = runner.invoke(app, ["deploy-stack", "--stack", stack, "--k8s-dir", "k8s", "--dry-run"])
+    assert (res.exit_code, _dry_run_details(res.output).get("kustomizations")) == (
         0,
         kustomizations,
     )
@@ -2616,30 +2289,18 @@ def test_deploy_stack_dry_run_lists_the_kustomizations_its_stacks_apply(
     ],
 )
 def test_teardown_stack_removes_the_monitoring_perimeter_with_its_namespace(
-    stack: str, removal: tuple[str, ...]
+    stack: str, removal: tuple[str, ...], cluster: FakeCluster, process_fake: ProcessFake
 ) -> None:
     """teardown-stack removes `monitoring-default-perimeter` with namespace `monitoring` (#913).
 
     `--stack all` deletes the root kustomization's objects, namespace `monitoring` among them, and
     `--stack infra` deletes that namespace; either takes the namespace's NetworkPolicy with it.
     """
-    with (
-        patch(
-            "devops_cli.commands.k8s.stack_lifecycle.runtime._cluster_reachable",
-            return_value=True,
-        ),
-        patch(
-            "devops_cli.commands.k8s.stack_lifecycle._is_cluster_argo_managed", return_value=False
-        ),
-        patch(
-            "devops_cli.commands.k8s.stack_lifecycle.runtime._run_cmd",
-            return_value=_mock_proc(0),
-        ) as mock_run,
-    ):
-        res = runner.invoke(
-            app, ["teardown-stack", "--stack", stack, "--k8s-dir", "k8s", *_CONTEXT]
-        )
-    commands = [tuple(call.args[0]) for call in mock_run.call_args_list]
+    name_contexts(cluster, "minikube")
+
+    res = runner.invoke(app, ["teardown-stack", "--stack", stack, "--k8s-dir", "k8s", *_CONTEXT])
+
+    commands = [call.argv for call in process_fake.calls]
     assert (res.exit_code, (*removal, *_CONTEXT) in commands) == (0, True)
 
 
@@ -2679,14 +2340,13 @@ def test_infra_dry_runs_list_the_argo_workflows_release_perimeter_and_template()
 
 
 def test_infra_stack_applies_the_perimeter_before_and_the_template_after_every_chart(
-    applications_repo: Path,
+    make_cluster: ClusterFactory, keyring_store: FakeKeyring
 ) -> None:
     """The WorkflowTemplate needs the CRD its chart installs, so it applies after every Helm
     release; the perimeter applies before them. The stack restarts no service: the `devops` stack
     owns the restart of `roadmap-service` (#1535)."""
-    cluster = _Cluster(applications_repo, argo=False)
-    with patch("devops_cli.k8s.credentials.sync_k8s_credentials", return_value={}):
-        res = _deploy(cluster, "--stack", "infra", "--k8s-dir", "k8s")
+    cluster = make_cluster(argo=False)
+    res = _deploy(cluster, "--stack", "infra", "--k8s-dir", "k8s")
     commands = [cmd for cmd, _ in cluster.calls]
     upgrades = [i for i, cmd in enumerate(commands) if cmd[:3] == ["helm", "upgrade", "--install"]]
     policy = commands.index(["kubectl", "apply", "-f", _ARGO_WORKFLOWS_POLICY, *_CONTEXT])
@@ -2700,21 +2360,12 @@ def test_infra_stack_applies_the_perimeter_before_and_the_template_after_every_c
 
 
 def test_infra_teardown_deletes_the_template_before_the_uninstalls_and_the_namespace_after(
-    applications_repo: Path,
+    make_cluster: ClusterFactory,
 ) -> None:
     """The template is deleted while the chart's CRD still serves it, and the namespace goes after
     the releases that live in it (#1535)."""
-    cluster = _Cluster(applications_repo, argo=False)
-    with (
-        patch("devops_cli.commands.k8s.cluster_runtime._run_cmd", cluster),
-        patch(
-            "devops_cli.commands.k8s.stack_lifecycle._is_cluster_argo_managed",
-            return_value=False,
-        ),
-    ):
-        res = runner.invoke(
-            app, ["teardown-stack", "--stack", "infra", "--k8s-dir", "k8s", *_CONTEXT]
-        )
+    cluster = make_cluster(argo=False)
+    res = runner.invoke(app, ["teardown-stack", "--stack", "infra", "--k8s-dir", "k8s", *_CONTEXT])
     commands = [cmd for cmd, _ in cluster.calls]
     uninstalls = [i for i, cmd in enumerate(commands) if cmd[:2] == ["helm", "uninstall"]]
     template = commands.index(
@@ -2730,92 +2381,50 @@ def test_infra_teardown_deletes_the_template_before_the_uninstalls_and_the_names
     )
 
 
-def test_llm_stack_applies_gateway_servicemonitor_after_helm_and_deletes_before_uninstall() -> None:
+def test_llm_stack_applies_gateway_servicemonitor_after_helm_and_deletes_before_uninstall(
+    cluster: FakeCluster, process_fake: ProcessFake, keyring_store: FakeKeyring
+) -> None:
     """deploy-stack --stack llm applies k8s/llm/gateway/servicemonitor.yaml after Helm releases,
     teardown-stack deletes it before Helm uninstalls, and both dry runs list it (#1367)."""
     monitor = str(Path("k8s", "llm", "gateway", "servicemonitor.yaml"))
     database = str(Path("k8s", "llm", "gateway-db.yaml"))
-    with (
-        patch("devops_cli.commands.k8s._cluster_reachable") as mock_reach,
-        patch("devops_cli.commands.k8s.stack_lifecycle._is_cluster_argo_managed") as mock_argo,
-        patch("devops_cli.commands.k8s._run_cmd") as mock_cmd,
-        patch("devops_cli.commands.k8s.run_subprocess") as mock_sub,
-    ):
-        deploy_dry = runner.invoke(
-            app, ["deploy-stack", "--stack", "llm", "--k8s-dir", "k8s", "--dry-run"]
-        )
-        teardown_dry = runner.invoke(
-            app, ["teardown-stack", "--stack", "llm", "--k8s-dir", "k8s", "--dry-run"]
-        )
-        assert (
-            deploy_dry.exit_code,
-            teardown_dry.exit_code,
-            _dry_run_details(deploy_dry.output).get("post_helm"),
-            _dry_run_details(teardown_dry.output).get("post_helm_deletes"),
-            mock_reach.called,
-            mock_argo.called,
-            mock_cmd.called,
-            mock_sub.called,
-        ) == (0, 0, [database, monitor], [monitor, database], False, False, False, False)
+    name_contexts(cluster, "minikube")
+    deploy_dry = runner.invoke(
+        app, ["deploy-stack", "--stack", "llm", "--k8s-dir", "k8s", "--dry-run"]
+    )
+    teardown_dry = runner.invoke(
+        app, ["teardown-stack", "--stack", "llm", "--k8s-dir", "k8s", "--dry-run"]
+    )
+    assert (
+        deploy_dry.exit_code,
+        teardown_dry.exit_code,
+        _dry_run_details(deploy_dry.output).get("post_helm"),
+        _dry_run_details(teardown_dry.output).get("post_helm_deletes"),
+        process_fake.calls,
+        cluster.core.calls,
+        cluster.custom_objects.calls,
+    ) == (0, 0, [database, monitor], [monitor, database], [], [], [])
 
-    def _llm_proc(cmd: list[str], *args: Any, **kwargs: Any) -> subprocess.CompletedProcess[str]:
-        if len(cmd) > 1 and cmd[1] == "api-resources":
-            return _mock_proc(0, "servicemonitors monitoring.coreos.com/v1 true ServiceMonitor\n")
-        return _mock_proc(0)
-
-    with (
-        patch(
-            "devops_cli.commands.k8s.stack_lifecycle.runtime._cluster_reachable",
-            return_value=True,
-        ),
-        patch(
-            "devops_cli.commands.k8s.stack_lifecycle._is_cluster_argo_managed", return_value=False
-        ),
-        patch("devops_cli.commands.k8s.stack_lifecycle._bootstrap_openwebui_account"),
-        patch(
-            "devops_cli.commands.k8s.stack_lifecycle._require_helm_version",
-            return_value=Version("3.17.0"),
-        ),
-        patch(
-            "devops_cli.commands.k8s.stack_lifecycle.runtime._run_cmd",
-            side_effect=_llm_proc,
-        ) as deploy_run,
-    ):
-        res_deploy = runner.invoke(
-            app,
-            [
-                "deploy-stack",
-                "--stack",
-                "llm",
-                "--no-push-secrets",
-                "--k8s-dir",
-                "k8s",
-                *_CONTEXT,
-            ],
-        )
-    deploy_cmds = [call.args[0] for call in deploy_run.call_args_list]
+    answer_helm_version(process_fake)
+    process_fake.answer(
+        "kubectl api-resources",
+        ProcessAnswer(stdout="servicemonitors monitoring.coreos.com/v1 true ServiceMonitor\n"),
+    )
+    res_deploy = runner.invoke(
+        app,
+        ["deploy-stack", "--stack", "llm", "--no-push-secrets", "--k8s-dir", "k8s", *_CONTEXT],
+    )
+    deploy_cmds = [list(call.argv) for call in process_fake.calls]
     helm_upgrade_indices = [
         idx for idx, cmd in enumerate(deploy_cmds) if cmd[:3] == ["helm", "upgrade", "--install"]
     ]
     monitor_apply_idx = deploy_cmds.index(["kubectl", "apply", "-f", monitor, *_CONTEXT])
 
-    with (
-        patch(
-            "devops_cli.commands.k8s.stack_lifecycle.runtime._cluster_reachable",
-            return_value=True,
-        ),
-        patch(
-            "devops_cli.commands.k8s.stack_lifecycle._is_cluster_argo_managed", return_value=False
-        ),
-        patch(
-            "devops_cli.commands.k8s.stack_lifecycle.runtime._run_cmd",
-            side_effect=_llm_proc,
-        ) as teardown_run,
-    ):
-        res_teardown = runner.invoke(
-            app, ["teardown-stack", "--stack", "llm", "--k8s-dir", "k8s", *_CONTEXT]
-        )
-    teardown_cmds = [call.args[0] for call in teardown_run.call_args_list]
+    process_fake.calls.clear()
+    res_teardown = runner.invoke(
+        app, ["teardown-stack", "--stack", "llm", "--k8s-dir", "k8s", *_CONTEXT]
+    )
+    teardown_cmds = [list(call.argv) for call in process_fake.calls]
     helm_uninstall_indices = [
         idx for idx, cmd in enumerate(teardown_cmds) if cmd[:2] == ["helm", "uninstall"]
     ]
@@ -2835,12 +2444,10 @@ def test_llm_stack_applies_gateway_servicemonitor_after_helm_and_deletes_before_
         _delete_post_helm_paths,
     )
 
-    with patch(
-        "devops_cli.commands.k8s.stack_lifecycle.runtime._run_cmd", return_value=_mock_proc(0)
-    ) as dir_run:
-        _apply_post_helm_paths([Path("k8s", "mattermost")], list(_CONTEXT))
-        _delete_post_helm_paths([Path("k8s", "mattermost")], list(_CONTEXT))
-    assert [call.args[0] for call in dir_run.call_args_list] == [
+    process_fake.calls.clear()
+    _apply_post_helm_paths([Path("k8s", "mattermost")], list(_CONTEXT))
+    _delete_post_helm_paths([Path("k8s", "mattermost")], list(_CONTEXT))
+    assert [list(call.argv) for call in process_fake.calls] == [
         ["kubectl", "apply", "-k", str(Path("k8s", "mattermost")), *_CONTEXT],
         [
             "kubectl",
@@ -2853,58 +2460,44 @@ def test_llm_stack_applies_gateway_servicemonitor_after_helm_and_deletes_before_
     ]
 
 
-def test_k8s_pods_table_builder() -> None:
+def test_k8s_pods_table_builder(cluster: FakeCluster) -> None:
     import datetime
 
     from devops_cli.commands.k8s.diagnostics import _build_pods_table
     from devops_cli.output import format_timestamp_age
-    from tests.support.fakes.kubernetes import healthy_pod
 
     now_iso = datetime.datetime.now(datetime.UTC).isoformat()
     assert format_timestamp_age(now_iso) != "—"
     assert format_timestamp_age("invalid-timestamp") == "—"
 
-    mock_pod = healthy_pod("web-123")
+    cluster.core.answers["list_namespaced_pod"] = [healthy_pod("web-123")]
+    cluster.core.answers["list_pod_for_all_namespaces"] = [healthy_pod("web-123")]
 
-    mock_v1 = MagicMock()
-    mock_v1.list_namespaced_pod.return_value = MagicMock(items=[mock_pod])
-    mock_v1.list_pod_for_all_namespaces.return_value = MagicMock(items=[mock_pod])
+    table = _build_pods_table("default", label_selector=None, all_namespaces=False)
+    assert table.row_count == 1
 
-    with (
-        patch("kubernetes.config.load_incluster_config", side_effect=Exception("No cluster")),
-        patch("kubernetes.config.load_kube_config"),
-        patch("kubernetes.client.CoreV1Api", return_value=mock_v1),
-    ):
-        table = _build_pods_table("default", label_selector=None, all_namespaces=False)
-        assert table.row_count == 1
-
-        table_all = _build_pods_table(None, label_selector="app=web", all_namespaces=True)
-        assert table_all.row_count == 1
+    table_all = _build_pods_table(None, label_selector="app=web", all_namespaces=True)
+    assert table_all.row_count == 1
 
 
-def test_build_pods_table_masks_credentials_in_exceptions() -> None:
+def test_build_pods_table_masks_credentials_in_exceptions(cluster: FakeCluster) -> None:
     from devops_cli.commands.k8s.diagnostics import _build_pods_table
 
-    with patch(
-        "kubernetes.config.load_kube_config",
-        side_effect=RuntimeError("Token secret_token_xyz123 failed"),
-    ):
-        table = _build_pods_table("default", None, False)
-        rendered = str(table.rows)
-        assert "secret_token_xyz123" not in rendered
+    cluster.core.fail("list_namespaced_pod", RuntimeError("Token secret_token_xyz123 failed"))
+
+    table = _build_pods_table("default", None, False)
+
+    rendered = str(table.rows)
+    assert "secret_token_xyz123" not in rendered
 
 
-def test_the_dashboard_and_k8s_pods_show_the_same_status_and_ready(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_the_dashboard_and_k8s_pods_show_the_same_status_and_ready(cluster: FakeCluster) -> None:
     """Two answers for one pod would be worse than either; both now come from one port."""
     import devops_cli.ui.data_providers as data_providers
     from devops_cli.commands.k8s.diagnostics import _build_pods_table
-    from devops_cli.k8s.service import KubernetesService
     from devops_cli.output import Text
     from devops_cli.ui.projections import k8s_rows
     from tests.support.fakes.kubernetes import (
-        FakeCoreV1,
         crashlooping_pod,
         healthy_pod,
         pod,
@@ -2930,17 +2523,12 @@ def test_the_dashboard_and_k8s_pods_show_the_same_status_and_ready(
             ],
         ),
     ]
-    monkeypatch.setattr(data_providers, "_get_k8s_client", lambda: FakeCoreV1(pods=mixed_pods))
-    monkeypatch.setattr(data_providers, "_k8s_context_name", lambda: "lab")
+    cluster.core.answers["list_pod_for_all_namespaces"] = mixed_pods
     dashboard = [
         (_plain(row[2]), _plain(row[3])) for row in k8s_rows(data_providers.fetch_k8s_status())
     ]
 
-    service = MagicMock()
-    service.list_pods.return_value = mixed_pods
-
-    with patch.object(KubernetesService, "get_instance", return_value=service):
-        table = _build_pods_table(None, None, all_namespaces=True)
+    table = _build_pods_table(None, None, all_namespaces=True)
     cli_table = [(_plain(row[2]), _plain(row[3])) for row in table.rows]
     assert (dashboard, cli_table) == (
         [
@@ -2954,37 +2542,34 @@ def test_the_dashboard_and_k8s_pods_show_the_same_status_and_ready(
     )
 
 
-def test_k8s_pods_colours_a_status_by_health_not_by_phase() -> None:
+def test_k8s_pods_colours_a_status_by_health_not_by_phase(cluster: FakeCluster) -> None:
     """A crashlooping pod in phase Running was printed green."""
     from devops_cli.commands.k8s.diagnostics import _build_pods_table
-    from devops_cli.k8s.service import KubernetesService
     from tests.support.fakes.kubernetes import crashlooping_pod, healthy_pod
 
-    service = MagicMock()
-    service.list_pods.return_value = [healthy_pod("api-0"), crashlooping_pod("exporter-0")]
+    cluster.core.answers["list_pod_for_all_namespaces"] = [
+        healthy_pod("api-0"),
+        crashlooping_pod("exporter-0"),
+    ]
 
-    with patch.object(KubernetesService, "get_instance", return_value=service):
-        table = _build_pods_table(None, None, all_namespaces=True)
+    table = _build_pods_table(None, None, all_namespaces=True)
+
     assert [row[2] for row in table.rows] == [
         "[green]Running[/green]",
         "[red]CrashLoopBackOff[/red]",
     ]
 
 
-def test_watching_pods_prints_the_reason_a_container_gives() -> None:
+def test_watching_pods_prints_the_reason_a_container_gives(cluster: FakeCluster) -> None:
     """`devops k8s pods --watch` printed the phase, Running, for a crashlooping pod."""
+    from kubernetes import client as k8s_client
+
     from devops_cli.commands.k8s import app as k8s_app
-    from devops_cli.k8s.service import KubernetesService
     from tests.support.fakes.kubernetes import crashlooping_pod
 
-    watcher = MagicMock()
-    watcher.stream.return_value = [{"type": "MODIFIED", "object": crashlooping_pod("exporter-0")}]
-    service = MagicMock()
-    service.load_config.return_value = True
+    wire_pod = k8s_client.ApiClient().sanitize_for_serialization(crashlooping_pod("exporter-0"))
+    cluster.core.watch_events = [{"type": "MODIFIED", "object": wire_pod}]
 
-    with (
-        patch("kubernetes.watch.Watch", return_value=watcher),
-        patch.object(KubernetesService, "get_instance", return_value=service),
-    ):
-        result = runner.invoke(k8s_app, ["pods", "--watch", "-A"])
+    result = runner.invoke(k8s_app, ["pods", "--watch", "-A"])
+
     assert (result.exit_code, "default/exporter-0 (CrashLoopBackOff)" in result.output) == (0, True)
