@@ -37,7 +37,7 @@ Kind: documents. Reads: `k8s/README.md`, `docs/roadmap/stage.md`, `docs/ROADMAP_
 
 - [x] 4.1 In `k8s/README.md`, add a row for `RoadmapServiceRowSuspended` to the alert table and name it in the Roadmap service section. Change item 11 (the retry time, the class as the cause, and the removal of `service-failures.json` for a rollback to an older image), item 12 (the label `class` and the new gauge) and item 17 (the labels of the gauge). Fix the text of `docs/roadmap/stage.md` and `docs/ROADMAP_WORKFLOW.md` only where their wait text is wrong
   - Verification: `$ uv run devops ci test tests/prometheus/test_k8s_monitoring_alerting.py`
-- [ ] 4.2 Check the change and the specs
+- [x] 4.2 Check the change and the specs
   - Verification: `$ uv run devops openspec check`
 
 ## Criteria
