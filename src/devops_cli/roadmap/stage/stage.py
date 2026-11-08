@@ -157,6 +157,7 @@ from devops_cli.roadmap.refine.refine import (
 )
 from devops_cli.roadmap.refine.refine_investigation import task_window
 from devops_cli.roadmap.stage.stage_change import (
+    CHANGE_TASK,
     MeasuredGroup,
     StageGroup,
     StageProposal,
@@ -192,6 +193,15 @@ from devops_cli.roadmap.stage.stage_overlap import (
 )
 from devops_cli.roadmap.stage.stage_paths import StagedTree
 from devops_cli.roadmap.stage.stage_pending import PendingStage, orphan_mark
+from devops_cli.roadmap.stage.stage_plan_record import (
+    StagePlanRecord,
+    delete_plan_record,
+    plan_key,
+    plan_record_path,
+    prompt_version,
+    read_plan_record,
+    write_plan_record,
+)
 from devops_cli.roadmap.stage.stage_probe import blocked_by, probe_premise
 from devops_cli.roadmap.stage.stage_references import reference_files
 from devops_cli.roadmap.stage.stage_registry import matches, registry_table
@@ -230,7 +240,11 @@ from devops_cli.roadmap.stores.store import (
 )
 from devops_cli.roadmap.trust import is_approved, is_trusted
 from devops_cli.security.sanitizer import mask_secrets, redact_text
-from devops_cli.telemetry.instruments import ROADMAP_STAGE_TOTAL, emit
+from devops_cli.telemetry.instruments import (
+    ROADMAP_STAGE_PLAN_RECORD_TOTAL,
+    ROADMAP_STAGE_TOTAL,
+    emit,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -678,7 +692,6 @@ def select_stageable(
 
 # ── The plan of one item ──────────────────────────────────────────────────────
 
-_CHANGE_TASK: Final[str] = "roadmap_stage_change.md"
 # The model window is shared by the reply, the body of the item and the repository context. A cap
 # is the smaller of its fixed size and this share of the window: a larger window gives no larger
 # cap, so the first plan request leaves room below the limit of the tools (#3477).
@@ -847,6 +860,30 @@ class StageClient(Protocol):
     ) -> M: ...
 
 
+@dataclass(frozen=True)
+class PlanFiles:
+    """Where the planner keeps the plan of each item, and what the key of a plan names (#4064): the
+    repository (the folder of the files), the model name and the toolset name. The prompt version
+    is the hash of the prompt texts."""
+
+    repo: str
+    model: str
+    toolset: str
+
+    def path(self, number: int) -> Path:
+        return plan_record_path(self.repo, number)
+
+    def key(self, item: Item) -> str:
+        return plan_key(
+            number=item.number,
+            title=item.title,
+            body=item.body,
+            model=self.model,
+            toolset=self.toolset,
+            prompt_version=prompt_version(self.toolset),
+        )
+
+
 class _Planner:
     """Plans the change of each item with one model client, one checkout and one budget."""
 
@@ -870,8 +907,10 @@ class _Planner:
         open_creates: Callable[[], Mapping[str, int]] | None = None,
         traces: list[RunTrace] | None = None,
         rejected: Mapping[int, str] | None = None,
+        plan_files: PlanFiles | None = None,
     ) -> None:
         self._client = client
+        self._plan_files = plan_files
         self._toolbox = toolbox
         self._verifier = verifier
         self._verify_window = verify_window
@@ -916,10 +955,19 @@ class _Planner:
         planner calls at most without a verifier, five with one, and three calls of the verifier."""
         self._split_asked = False
         self._traces.clear()
-        request = self._request(target)
-        if self._dependency is not None:
-            return self._dependency
-        outcome = self._gated(target, request)
+        kept, key = self._kept(target)
+        if kept is None:
+            request = self._request(target)
+            if self._dependency is not None:
+                return self._dependency
+        else:
+            # The kept request holds what the gates read; the gates run again on the current
+            # commit (#4064).
+            request = kept.request
+            self._dependency = None
+        outcome = self._gated(target, request, first=None if kept is None else kept.proposal)
+        if isinstance(outcome, StagedChange) and key is not None:
+            self._keep(target, key, request, outcome.proposal, kept)
         verifier = self._verifier
         if isinstance(outcome, StagedChange) and verifier is not None:
             outcome = self._verified(target, request, outcome, verifier)
@@ -927,9 +975,46 @@ class _Planner:
             return replace(outcome, trace=RunTrace.combined(self._traces))
         return outcome
 
-    def _gated(self, target: StageTarget, request: StageRequest) -> StagedChange | OverBudget:
-        """The change that passes the checks, with one return of a refused reply."""
-        proposal = self._ask(StageProposal, _CHANGE_TASK, request.for_model())
+    def _kept(self, target: StageTarget) -> tuple[StagePlanRecord | None, str | None]:
+        """The kept plan of the item and its key, (None, None) for a run that keeps no file. A
+        file of another key goes at once, so a plan that then fails leaves no stale file. The
+        counter tells a hit from a miss (#4064)."""
+        files = self._plan_files
+        if files is None:
+            return None, None
+        path, key = files.path(target.item.number), files.key(target.item)
+        kept = read_plan_record(path, key)
+        if kept is None:
+            delete_plan_record(path)
+        emit(ROADMAP_STAGE_PLAN_RECORD_TOTAL, 1, {"result": "miss" if kept is None else "hit"})
+        return kept, key
+
+    def _keep(
+        self,
+        target: StageTarget,
+        key: str,
+        request: StageRequest,
+        proposal: StageProposal,
+        kept: StagePlanRecord | None,
+    ) -> None:
+        """Write the plan that passed the checks, before the review: a failed review leaves the
+        file, and the rerun asks the planner nothing. A hit whose plan the checks did not change
+        leaves the file as it is."""
+        files = self._plan_files
+        if files is None or (kept is not None and kept.proposal == proposal):
+            return
+        write_plan_record(
+            files.path(target.item.number),
+            StagePlanRecord(key=key, proposal=proposal, request=request),
+        )
+        emit(ROADMAP_STAGE_PLAN_RECORD_TOTAL, 1, {"result": "written"})
+
+    def _gated(
+        self, target: StageTarget, request: StageRequest, *, first: StageProposal | None = None
+    ) -> StagedChange | OverBudget:
+        """The change that passes the checks, with one return of a refused reply. `first` is a kept
+        plan that stands for the first reply of the model."""
+        proposal = first or self._ask(StageProposal, CHANGE_TASK, request.for_model())
         outcome = self._settle(target, proposal, request)
         if isinstance(outcome, _Refused):
             again = {
@@ -937,7 +1022,7 @@ class _Planner:
                 "previous": outcome.reply.model_dump(),
                 "problem": outcome.problem,
             }
-            proposal = self._ask(StageProposal, _CHANGE_TASK, again)
+            proposal = self._ask(StageProposal, CHANGE_TASK, again)
             outcome = self._settle(target, proposal, request)
         if isinstance(outcome, _Refused):
             message = MESSAGES.roadmap.stage_invalid.format(problem=outcome.problem)
@@ -984,7 +1069,7 @@ class _Planner:
             "previous": change.proposal.model_dump(),
             "problem": return_problem(open_),
         }
-        revised = self._ask(StageProposal, _CHANGE_TASK, again)
+        revised = self._ask(StageProposal, CHANGE_TASK, again)
         outcome = self._settle(target, revised, request)
         if isinstance(outcome, _Refused):
             message = MESSAGES.roadmap.stage_invalid.format(problem=outcome.problem)
@@ -1600,6 +1685,9 @@ def plan_stage(
             toolbox=toolbox,
             verifier=verifier,
             repo=repo,
+            plan_files=PlanFiles(
+                repo, settings.ai.for_task("stage").model, settings.roadmap.stage.toolset
+            ),
             open_creates=creators,
             rejected={
                 **{found.number: stage_comment_text(found.comment) for found in rejections.found},
@@ -1628,6 +1716,7 @@ def _planner_of(
     repo: str | None = None,
     open_creates: Callable[[], Mapping[str, int]] | None = None,
     rejected: Mapping[int, str] | None = None,
+    plan_files: PlanFiles | None = None,
 ) -> _Planner:
     """The planner for the checkout at `sha`: it reads the tracked files, the capabilities and the
     context window of the `stage` task once. With a `toolbox` model, a plan run calls the
@@ -1675,6 +1764,7 @@ def _planner_of(
         open_creates=open_creates,
         traces=traces,
         rejected=rejected,
+        plan_files=plan_files,
     )
 
 
@@ -2271,6 +2361,8 @@ class StageWriter:
         moved = _moved_for(self._source, self._sha, change)
         now = self._now or datetime.now(UTC)
         _stage_one(self._store, self._repo, self._source, self._sha, change, moved, now)
+        # The item is staged, so its plan has no more use. A failed write raised above and kept it.
+        delete_plan_record(plan_record_path(self._repo, change.target.item.number))
 
     @contextmanager
     def _recording(self, planned: Iterable[StageFailure]) -> Iterator[None]:

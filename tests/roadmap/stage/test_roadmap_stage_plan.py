@@ -57,6 +57,7 @@ from devops_cli.roadmap.stage.stage_change import (
 )
 from devops_cli.roadmap.stage.stage_criteria import StageCriterion
 from devops_cli.roadmap.stage.stage_paths import StagedTree
+from devops_cli.roadmap.stage.stage_plan_record import delete_plan_record, plan_record_path
 from devops_cli.roadmap.stage.stage_references import reference_answer, reference_files
 from devops_cli.roadmap.stage.stage_registry import RegistryCount
 from devops_cli.roadmap.stage.stage_toolbox import ToolboxClient, ToolboxModel
@@ -2636,7 +2637,10 @@ def test_a_plan_reading_absent_model_field_retries_once_or_fails(
     plan = _plan(store, stage_repo)
     assert len(plan.ready) == 1
 
-    # Two replies keep the gap -> ends with RoadmapStageError and no ready change
+    # Two replies keep the gap -> ends with RoadmapStageError and no ready change. The first run
+    # kept its plan as a file (#4064): a second run with the same input would read it and send the
+    # planner no request, so the file goes before the second run.
+    delete_plan_record(plan_record_path(STAGE_REPO, item))
     model_fake.calls.clear()
     model_fake.answer(proposal_bad, proposal_bad)
     plan_failed = _plan(store, stage_repo)

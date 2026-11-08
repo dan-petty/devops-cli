@@ -106,9 +106,20 @@ Refine reads the comment as `stage_return`, because it is a comment of the stage
 
 | Flag | What the run does |
 | :--- | :--- |
-| `--plan` (the default) | Reads GitHub and calls the model. It prints the changes that `--confirm` writes. It writes nothing. |
-| `--confirm` | Plans as `--plan` does, and makes the writes in git and on GitHub for each item as soon as the item is planned. |
+| `--plan` (the default) | Reads GitHub and calls the model. It prints the changes that `--confirm` writes. It makes no GitHub write and no git write, and keeps each plan that passes the checks as one local file (see [The kept plan](#the-kept-plan)). |
+| `--confirm` | Plans as `--plan` does (it reads a kept plan file when the key matches), and makes the writes in git and on GitHub for each item as soon as the item is planned. |
 | `--dry-run` | Makes no request. It prints the requests and the git commands that a run makes, with placeholders. |
+
+## The kept plan
+
+The job keeps the plan of an item that passes the checks as the file `roadmap/stage/<owner>/<repo>/<number>.json` in the data directory. On the Service, that directory is on the volume `roadmap-service-home`. A runner pod without that volume finds no file, so each of its runs asks the planner.
+
+- **The key.** The file holds a key: the sha256 of the item number, the title, the two hashes of the body (the text of a person and the refine section), the model name of the task `stage`, the toolset name and the prompt version. The prompt version is the sha256 of the texts of the prompts of the planner. The staged commit is not in the key.
+- **A hit.** When the key is the same, the job sends the planner no request. It takes the kept plan as the first reply, and the checks and the model review run again on the current staged commit. If the new commit makes the checks refuse the plan, the plan goes back to the planner once, as a refused reply does.
+- **A miss.** When the key is new, the job deletes the old file at once and asks the planner. The plan is written after it passes the checks and before the review, so a failed review leaves the file for the next run.
+- **The end.** The job deletes the file when the item is staged. A write that fails keeps it. The golden set (`devops roadmap eval stage`) keeps no file.
+- **An unreadable file.** A file that is not JSON, or that does not match the record, fails the item with an error that names the file. Remove the file, and the next run asks the planner.
+- **The counter.** `devops_cli_roadmap_stage_plan_record_total` has the label `result` with 3 values: `hit`, `miss` and `written`. A miss that plans adds 1 to `miss` and 1 to `written`. The hit rate is `hit` divided by `hit` plus `miss`. Nobody has measured it yet.
 
 ## Where the rules are
 

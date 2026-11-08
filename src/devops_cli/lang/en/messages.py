@@ -3290,6 +3290,10 @@ class RoadmapMessages:
     stage_left_archived: str = "Its change is archived on {branch}: the folder `{folder}` is there."
     # The files of the change that the stage job writes, and what its checks find wrong (#2654).
     stage_invalid: str = "The change fails its checks, also after a second try: {problem}"
+    stage_plan_record_unreadable: str = (
+        "The plan file {path} can't be read ({reason}). Remove it: the next run then asks the "
+        "planner for a new plan."
+    )
     stage_closing: str = (
         "The title or the body of the pull request has the closing keyword {keyword} before an "
         "issue reference. A pull request that plans an item closes no issue."

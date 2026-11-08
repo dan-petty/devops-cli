@@ -51,8 +51,8 @@ from devops_cli.roadmap.tool_metrics import end_run, start_run
 if TYPE_CHECKING:
     from devops_cli.roadmap.stage.stage import StageClient
 
-_TOOLS_TASK = "roadmap_stage_tools.md"
-_EXTENDED_TOOLS_TASK = "roadmap_stage_tools_extended.md"
+TOOLS_TASK = "roadmap_stage_tools.md"
+EXTENDED_TOOLS_TASK = "roadmap_stage_tools_extended.md"
 # The schemas that one agent run with the tools answers, a plan (#3037) and a verification (#3039),
 # with the job row of each in the metrics of the tool calls (`row` label, #3240). The rows differ,
 # so the reads of the verifier do not hide a tool that the planner does not use.
@@ -106,9 +106,9 @@ class ToolboxClient:
         self._tools = StageTools(
             source=source, sha=sha, openspec=openspec, toolset=chosen, github=github
         )
-        self._instructions = load_task_prompt(_TOOLS_TASK)
+        self._instructions = load_task_prompt(TOOLS_TASK)
         if chosen == "extended":
-            self._instructions += f"\n\n{load_task_prompt(_EXTENDED_TOOLS_TASK)}"
+            self._instructions += f"\n\n{load_task_prompt(EXTENDED_TOOLS_TASK)}"
         self._window = window
         self._toolset = chosen
         self._tool_names = tuple(tool.name for tool in self._tools.tools())

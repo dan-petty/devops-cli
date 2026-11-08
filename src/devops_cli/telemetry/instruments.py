@@ -308,6 +308,15 @@ ROADMAP_STAGE_TOTAL = Instrument(
     "group over the budget, failed for an item that failed in the plan or in the writes, and "
     "skipped for an item the job left out with a reason. A plan with no write counts nothing",
 )
+ROADMAP_STAGE_PLAN_RECORD_TOTAL = Instrument(
+    "devops_cli_roadmap_stage_plan_record_total",
+    InstrumentKind.COUNTER,
+    "1",
+    "Uses of the plan file of the stage job, by result: hit for a plan that the job read from the "
+    "file and so sent the planner no request, miss for an item with no file of its key, and "
+    "written for a plan that the job wrote to the file. A miss that plans adds one to miss and one "
+    "to written. The hit rate is hit divided by the sum of hit and miss",
+)
 ROADMAP_TOOL_CALLS_TOTAL = Instrument(
     "devops_cli_roadmap_tool_calls_total",
     InstrumentKind.COUNTER,
@@ -598,6 +607,7 @@ INSTRUMENTS: tuple[Instrument, ...] = (
     ROADMAP_ALTERNATIVES_OLDEST_CHECK_AGE,
     ROADMAP_ALTERNATIVES_SEARCHES,
     ROADMAP_PAGE_FETCHES_TOTAL,
+    ROADMAP_STAGE_PLAN_RECORD_TOTAL,
     ROADMAP_STAGE_TOTAL,
     ROADMAP_TOOL_CALLS_TOTAL,
     ROADMAP_TOOL_ANSWER_CHARS,
@@ -741,6 +751,7 @@ __all__ = [
     "ROADMAP_PAGE_FETCHES_TOTAL",
     "ROADMAP_REFINE_COMMENTS_CAPPED_TOTAL",
     "ROADMAP_ROW_SECONDS",
+    "ROADMAP_STAGE_PLAN_RECORD_TOTAL",
     "ROADMAP_STAGE_TOTAL",
     "ROADMAP_TOOL_ANSWER_CHARS",
     "ROADMAP_TOOL_CALLS_PER_RUN",
