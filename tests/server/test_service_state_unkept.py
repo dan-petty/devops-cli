@@ -19,7 +19,6 @@ from devops_cli.config.constants import (
     CONST_SERVICE_BUDGET_FILENAME,
     CONST_SERVICE_FAILURES_FILENAME,
     CONST_SERVICE_HALT_FILENAME,
-    CONST_SERVICE_METRIC_STATE_UNKEPT,
 )
 from devops_cli.exceptions import RoadmapRunError
 from devops_cli.roadmap.run import FailureLedger
@@ -30,6 +29,8 @@ from devops_cli.telemetry.tracer import reset_tracer
 REPO = "example-org/repo1"
 NOW = datetime(2026, 11, 8, 12, tzinfo=UTC)
 RECORDS = ("budget", "halt", "ledger")
+STATE_UNKEPT = "devops_cli_service_state_unkept"
+"""The name of the gauge on the Service's /metrics, pinned as the alert and the dashboards read it."""
 
 
 @pytest.fixture(autouse=True)
@@ -49,9 +50,7 @@ def _refused(_: Exception) -> bool:
 def _series() -> dict[str, float]:
     """The series of the gauge that exist, by `record`: a record never written has none."""
     found = {
-        record: GLOBAL_METRICS.registry.get_sample_value(
-            CONST_SERVICE_METRIC_STATE_UNKEPT, {"record": record}
-        )
+        record: GLOBAL_METRICS.registry.get_sample_value(STATE_UNKEPT, {"record": record})
         for record in RECORDS
     }
     return {record: value for record, value in found.items() if value is not None}
