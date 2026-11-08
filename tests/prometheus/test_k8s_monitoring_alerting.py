@@ -136,6 +136,9 @@ SERVED_SERIES = frozenset(
         "kube_deployment_status_replicas_available",
         "kube_deployment_status_replicas_unavailable",
         "kube_pod_container_status_restarts_total",
+        # The memory limit and the working set of the roadmap Service's container (#4116).
+        "kube_pod_container_resource_limits",
+        "container_memory_working_set_bytes",
         # Not in the chart's default allow list: `metricsTuning.includeMetrics` keeps it (#1817).
         "kube_ingress_path",
         # The kubelet, scraped by k8s-monitoring (its default allow list), reports these only for
@@ -347,6 +350,7 @@ def test_the_baseline_rule_set() -> None:
         ("RoadmapServiceItemStuck", "warning"),
         ("RoadmapServiceJobsFailing", "warning"),
         ("RoadmapServiceLaneStalled", "warning"),
+        ("RoadmapServiceMemoryNearLimit", "warning"),
         ("RoadmapServiceModelRequestsHigh", "warning"),
         ("RoadmapServiceRestarted", "warning"),
         ("RoadmapServiceSelfDeliveriesHigh", "warning"),
@@ -924,6 +928,16 @@ ROADMAP_SERVICE_RULES = [
         "warning",
     ),
     (
+        "RoadmapServiceMemoryNearLimit",
+        "max by (namespace, pod) (container_memory_working_set_bytes"
+        '{namespace="devops", pod=~"roadmap-service-.+", container="service"})'
+        " / max by (namespace, pod) (kube_pod_container_resource_limits"
+        '{namespace="devops", pod=~"roadmap-service-.+", container="service", resource="memory"})'
+        " > 0.85",
+        "10m",
+        "warning",
+    ),
+    (
         "RoadmapServiceUnavailable",
         "max by (namespace, deployment) (kube_deployment_status_replicas_unavailable"
         '{namespace="devops", deployment="roadmap-service"}) > 0',
@@ -1152,8 +1166,8 @@ def test_both_paths_name_the_roadmap_service_job() -> None:
 
 
 def test_the_roadmap_service_rules_read_kube_state_metrics_that_the_chart_keeps() -> None:
-    """The restart and replica series are in the chart's default allow list or in
-    `metricsTuning.includeMetrics`, so they reach Prometheus (#2472)."""
+    """The restart, replica and memory limit series are in the chart's default allow list or in
+    `metricsTuning.includeMetrics`, so they reach Prometheus (#2472, #4116)."""
     allow_list = yaml.safe_load(KUBE_STATE_METRICS_ALLOW_LIST.read_text(encoding="utf-8"))
     tuning = _yaml(K8S_MONITORING_VALUES)["clusterMetrics"]["kube-state-metrics"]["metricsTuning"]
     kept = re.compile("|".join([*allow_list["metrics"], *tuning["includeMetrics"]]))
@@ -1163,7 +1177,7 @@ def test_the_roadmap_service_rules_read_kube_state_metrics_that_the_chart_keeps(
         for selector in selectors(rule["expr"])
         if (selector.metric or "").startswith("kube_")
     }
-    assert (len(metrics), sorted(m for m in metrics if not kept.fullmatch(m))) == (3, [])
+    assert (len(metrics), sorted(m for m in metrics if not kept.fullmatch(m))) == (4, [])
 
 
 def test_the_otel_collector_rules_warn_after_15_minutes_and_name_no_node() -> None:
