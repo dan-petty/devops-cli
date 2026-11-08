@@ -9,13 +9,13 @@ Reads: `src/devops_cli/roadmap/stage/stage.py`, `src/devops_cli/roadmap/stage/st
 - [x] 1.2 In `_Planner._settle` in `src/devops_cli/roadmap/stage/stage.py`, replace the hand-made list of five gates after a split with a call to `check_proposal` on the split proposal. Pass the arguments of the first pass: the tree with the files of the split, the search evidence recorded for the new groups, and the constants of the new plan texts. Remove the imports that no code uses
   - Verification: `$ uv run devops ci test tests/roadmap/stage/test_roadmap_stage_split_gates.py` passes
 - [x] 1.3 Run the tests of the stage job that the change can touch and the check of the hand-made list
-  - Verification: `$ ! git grep -n 'path_problems(asked.groups' src/devops_cli/roadmap/stage/stage.py`
+  - Verification: `$ ! git grep -n path_problems src/devops_cli/roadmap/stage/stage.py`
 
 ## Criteria
 
 - Group 1: A scripted split that brings back a trigger path with no replay task, a What Changes path that no group lists, a move with a missing module of the prefix, or a missing registry place SHALL go back to the model with the problem of the gate that refuses it, and on the unchanged code the planner accepts each of the four plans.
 - Group 1: For each scripted split, `check_gates` SHALL show problems under exactly one gate name.
-- Group 1: `src/devops_cli/roadmap/stage/stage.py` SHALL hold no call of `path_problems(asked.groups`.
+- Group 1: `src/devops_cli/roadmap/stage/stage.py` SHALL hold no call of `path_problems`.
 
 ## Workflow follow-up
 
