@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.88.0](https://github.com/dan-petty/devops-cli/compare/v0.87.2...v0.88.0) (2026-11-08)
+
+
+### Features
+
+* **k8s:** add the searxng-check command ([#4136](https://github.com/dan-petty/devops-cli/issues/4136)) ([682d206](https://github.com/dan-petty/devops-cli/commit/682d2060dce4928a370201416e1e29a017046da3))
+
 ## [0.87.2](https://github.com/dan-petty/devops-cli/compare/v0.87.1...v0.87.2) (2026-11-08)
 
 
