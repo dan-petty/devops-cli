@@ -3,6 +3,17 @@
 # file. The file keeps only the engines that need no key. The scraping engines of Google, Bing,
 # Brave, Startpage, Mojeek and Qwant were suspended by their upstream sites in October 2026
 # (SearXNG issues 6866 and 6819), and the keyed Brave engine is not used, so none of them is kept.
+# The pod logs two lines at start, and both are harmless:
+# - ERROR "X-Forwarded-For nor X-Real-IP header is set!" comes from `log_error_only_once` in
+#   searx/botdetection/trusted_proxies.py. It shows once, because the roadmap Service sends no proxy
+#   header, and `server.limiter: false` means that no code uses the client address.
+# - WARNING "missing config file: /etc/searxng/limiter.toml" comes from `Config.from_toml` in
+#   searx/botdetection/config.py. `limiter.initialize` reads the config even with the limiter off,
+#   and a missing file leaves the defaults. No limiter.toml is mounted.
+# `request_timeout` stays at 5.0: the live measure of 2026-11-07 showed no timeout of duckduckgo in
+# 20 queries, and the 95th percentile of the successful requests is 4.7 s or less for every engine.
+# `pypi` is not kept: pypi.org serves a Client Challenge page to a scraper, and the engine returned
+# no hit in the live check.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -20,7 +31,6 @@ data:
           - duckduckgo
           - wikipedia
           - github
-          - pypi
           - stackoverflow
           - askubuntu
           - superuser

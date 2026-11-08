@@ -34,7 +34,7 @@ The settings SHALL set `server.limiter`, `server.public_instance` and `server.im
 - **THEN** the three server switches are false and `json` is in `search.formats`
 
 ### Requirement: The settings keep only engines that need no key
-The settings SHALL keep, with `use_default_settings` and `engines.keep_only`, the engines `duckduckgo`, `wikipedia`, `github`, `pypi`, `stackoverflow`, `askubuntu`, `superuser`, `arxiv`, `mdn` and `docker hub`, and no other. They SHALL keep none of `brave`, `braveapi`, `google`, `bing`, `startpage`, `mojeek` and `qwant`. Every kept name SHALL be an engine name in the default settings of the pinned image.
+The settings SHALL keep, with `use_default_settings` and `engines.keep_only`, the engines `duckduckgo`, `wikipedia`, `github`, `stackoverflow`, `askubuntu`, `superuser`, `arxiv`, `mdn` and `docker hub`, and no other. They SHALL keep none of `brave`, `braveapi`, `google`, `bing`, `startpage`, `mojeek` and `qwant`. Every kept name SHALL be an engine name in the default settings of the pinned image.
 
 #### Scenario: A suspended engine is kept
 - **WHEN** a test reads `keep_only` and the engine names file of the pinned image
@@ -43,6 +43,20 @@ The settings SHALL keep, with `use_default_settings` and `engines.keep_only`, th
 #### Scenario: A bump leaves the names file behind
 - **WHEN** a test compares the tag in the first line of the names file with the tag of the Deployment
 - **THEN** the tags are the same
+
+### Requirement: The settings keep no engine that never answers
+The settings SHALL keep no engine that `tests/fixtures/searxng/engines_that_never_answer.txt` lists. Each line of that file SHALL give a date and a reason.
+
+#### Scenario: An engine that never answers is kept
+- **WHEN** a test reads `keep_only` and `tests/fixtures/searxng/engines_that_never_answer.txt`
+- **THEN** no kept name is in that file, the first name in that file is `pypi`, each line has a date and a reason, and every name is an engine of the default settings
+
+### Requirement: The README lists the kept engines
+The list of engines in `k8s/README.md` SHALL name the same engines as `keep_only`.
+
+#### Scenario: The README lists other engines than the settings
+- **WHEN** a test reads the sentence "The engines." of `k8s/README.md` and `keep_only`
+- **THEN** the names in backticks in the sentence equal the names in `keep_only`
 
 ### Requirement: Only the roadmap Service calls the pod
 NetworkPolicy `searxng-perimeter` SHALL admit ingress to the pod only from the pods labeled `app.kubernetes.io/name: roadmap-service`, on TCP 8080. No Ingress, Traefik route or tunnel entry SHALL name the service. No NetworkPolicy of namespace `devops` but `searxng-clients` SHALL allow egress to port 8080.
@@ -71,3 +85,10 @@ The Renovate configuration SHALL hold a rule for the image whose pull request te
 #### Scenario: The note is missing
 - **WHEN** a test reads `.github/renovate.json`
 - **THEN** one rule matches the image and its note names both checks
+
+### Requirement: The ConfigMap explains the two log lines of the start
+The file `k8s/devops/searxng/configmap.yaml` SHALL hold a comment, outside the text of `settings.yml`, that names the ERROR "X-Forwarded-For nor X-Real-IP header is set!" with its source `searx/botdetection/trusted_proxies.py`, and the WARNING for a missing `limiter.toml` with its source `searx/botdetection/config.py`, and that says both are harmless with the limiter off.
+
+#### Scenario: The comment is missing
+- **WHEN** a test reads the text of `k8s/devops/searxng/configmap.yaml`
+- **THEN** the text names `X-Forwarded-For`, `searx/botdetection/trusted_proxies.py`, `limiter.toml`, `searx/botdetection/config.py` and the word "harmless"
