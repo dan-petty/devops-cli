@@ -1903,9 +1903,14 @@ def _changed(title: str, *paths: str) -> StageGroup:
     """A group that changes only `paths`: a behavior group when one is source code, else an other
     group that a command proves. Each group states its own work, as a plan states the work of a
     task once (#3456)."""
+    implementation = (
+        f"Update `test_sample` for the {title.lower()} change"
+        if all(path.startswith("tests/") for path in paths)
+        else f"Keep the {title.lower()} comment in `src/devops_cli/sample.py`"
+    )
     update: dict[str, Any] = {
         "title": title,
-        "implementation": f"Keep the {title.lower()} comment in `src/devops_cli/sample.py`",
+        "implementation": implementation,
         "changes": list(paths),
         "creates": [],
         "creates_lines": {},

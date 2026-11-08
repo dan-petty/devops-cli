@@ -1332,6 +1332,35 @@ def _matched_security_trigger(proposal: StageProposal) -> str | None:
     return None
 
 
+# A test function in a code span: starts with `test_`, with optional parentheses (#3433).
+_TEST_FUNCTION: Final[re.Pattern[str]] = re.compile(r"^test_\w*(\(\))?$")
+
+
+def _is_test_function_span(span: str) -> bool:
+    """Whether `span` names a test function: its last segment, after the last `::` when it holds
+    one, starts with `test_`, with optional parentheses (#3433)."""
+    segment = span.strip().rsplit("::", 1)[-1]
+    return bool(_TEST_FUNCTION.match(segment))
+
+
+def _test_only_group_problems(proposal: StageProposal) -> list[str]:
+    """What is wrong with an `other` group that changes only tests (#3433): its implementation must
+    name the test function that it updates in a code span."""
+    problems: list[str] = []
+    for group in proposal.groups:
+        if (
+            group.kind is GroupKind.OTHER
+            and group.changes
+            and all(
+                p.startswith("tests/") and not p.startswith("tests/fixtures/")
+                for p in group.changes
+            )
+        ):
+            if not any(_is_test_function_span(span) for span in code_spans(group.implementation)):
+                problems.append(MESSAGES.roadmap.stage_problem_test_only.format(title=group.title))
+    return problems
+
+
 def _security_problems(proposal: StageProposal) -> list[str]:
     """One problem when `proposal` matches a security trigger and has no security text (#3247)."""
     trigger = _matched_security_trigger(proposal)
@@ -1348,15 +1377,16 @@ def content_problems(proposal: StageProposal, probes: Sequence[str] = ()) -> lis
     (#3456), a plan that builds its own code and gives no cost of tokens and time in
     `existing_tool`, a plan that adds a rule of the plan check and gives no test that accepts
     its own plan (#3404), a plan that changes a planner prompt and cites no prompt-rule test
-    (#3347), and a plan that matches a security trigger with no security text (#3247). The replay
-    (`stage_eval_gates`) and the job both call this through `check_proposal`, so one rule set
-    judges both."""
+    (#3347), a test-only `other` group that names no test function (#3433), and a plan that matches
+    a security trigger with no security text (#3247). The replay (`stage_eval_gates`) and the job
+    both call this through `check_proposal`, so one rule set judges both."""
     texts = MESSAGES.roadmap
     problems = [p for field, text in _plan_texts(proposal) for p in _text_problems(field, text)]
     problems.extend(_message_file_problems(proposal))
     problems.extend(_duplicate_task_problems(proposal))
     problems.extend(_self_acceptance_problems(proposal))
     problems.extend(_prompt_rule_problems(proposal))
+    problems.extend(_test_only_group_problems(proposal))
     problems.extend(_security_problems(proposal))
     lines = [_squash(line) for line in probes if line.strip()]
     if lines:

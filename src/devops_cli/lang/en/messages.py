@@ -3661,6 +3661,11 @@ class RoadmapMessages:
         "The plan matches the security trigger `{trigger}` and has no security text. Add a "
         "non-blank `## Security` section to `design.md`."
     )
+    # An other group that changes only tests names the test function that it updates (#3433).
+    stage_problem_test_only: str = (
+        "The group '{title}' changes only tests, and its implementation names no test function in "
+        "a code span. Name the test function that the group updates in a code span, or remove the group."
+    )
     # A plan states the work of each task once: a duplicate task spends the budget of the group on
     # no change (#3456).
     stage_group_one: str = "group {first}"
