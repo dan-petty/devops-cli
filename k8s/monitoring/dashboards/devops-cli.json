@@ -1899,12 +1899,57 @@
       ]
     },
     {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "1 while the Service could not write a state record (budget, halt or ledger) to its disk, else 0. The record then lives in memory only, and a restart loses it. The alert RoadmapServiceStateUnkept needs a value above 0 for 15 minutes.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "drawStyle": "line"
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 136
+      },
+      "id": 53,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "title": "Service Unkept State Records",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "max by (record) (last_over_time(devops_cli_service_state_unkept{job=~\"$job\"}[5m]))",
+          "legendFormat": "{{record}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
       "collapsed": false,
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 136
+        "y": 144
       },
       "id": 49,
       "title": "Alternatives Check",
@@ -1932,7 +1977,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 137
+        "y": 145
       },
       "id": 50,
       "options": {
@@ -1977,7 +2022,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 137
+        "y": 145
       },
       "id": 51,
       "options": {
@@ -2022,7 +2067,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 137
+        "y": 145
       },
       "id": 52,
       "options": {

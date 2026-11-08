@@ -204,6 +204,7 @@ SERVED_SERIES = frozenset(
         CONST_SERVICE_METRIC_IDENTITY_REFUSED,
         CONST_SERVICE_METRIC_JOBS,
         CONST_SERVICE_METRIC_JOB_START_TIMESTAMP,
+        "devops_cli_service_state_unkept",
         CONST_SERVICE_METRIC_WEBHOOK_DELIVERIES,
         AI_REQUESTS_TOTAL.name,
         # The page fetches of the Service through Crawl4AI (#3893).
@@ -349,6 +350,7 @@ def test_the_baseline_rule_set() -> None:
         ("RoadmapServiceModelRequestsHigh", "warning"),
         ("RoadmapServiceRestarted", "warning"),
         ("RoadmapServiceSelfDeliveriesHigh", "warning"),
+        ("RoadmapServiceStateUnkept", "warning"),
         ("RoadmapServiceToolUnused", "warning"),
         ("RoadmapServiceUnavailable", "warning"),
         ("RoadmapServiceWebSearchRefused", "warning"),
@@ -944,6 +946,12 @@ ROADMAP_SERVICE_RULES = [
         + _window_count('devops_cli_ai_requests_total{job="roadmap-service", cached!="true"}', "1h")
         + " ) > 352",
         "0m",
+        "warning",
+    ),
+    (
+        "RoadmapServiceStateUnkept",
+        'max by (record) (devops_cli_service_state_unkept{job="roadmap-service"}) > 0',
+        "15m",
         "warning",
     ),
 ]

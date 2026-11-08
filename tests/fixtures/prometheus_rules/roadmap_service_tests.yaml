@@ -501,3 +501,52 @@ tests:
         exp_samples:
           - labels: '{}'
             value: 5.034090909090909
+
+  # A state record that the Service could not write (#4048). The gauge is 1 while the last write of
+  # the record failed and 0 after the next good write. The rule waits 15 minutes, so a fault that
+  # the next write repairs does not alert.
+  - name: A record that stays unwritten for 15 minutes fires with its name; a repaired record and another job do not count
+    interval: 1m
+    input_series:
+      - series: 'devops_cli_service_state_unkept{job="roadmap-service", record="ledger"}'
+        values: '0x5 1x40'
+      - series: 'devops_cli_service_state_unkept{job="roadmap-service", record="budget"}'
+        values: '0x5 1x5 0x35'
+      - series: 'devops_cli_service_state_unkept{job="roadmap-service", record="halt"}'
+        values: '0x45'
+      - series: 'devops_cli_service_state_unkept{job="devops-cli", record="halt"}'
+        values: '1x45'
+      - series: 'devops_cli_service_state_unkept{job="kubernetes-pods", record="halt"}'
+        values: '1x45'
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: RoadmapServiceStateUnkept
+        exp_alerts: []
+      - eval_time: 30m
+        alertname: RoadmapServiceStateUnkept
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              record: ledger
+            exp_annotations:
+              summary: "The roadmap Service could not write its ledger record"
+              description: "The roadmap Service could not write its ledger record to its volume, so a restart loses what the record holds. The Service goes on with memory only. Check the free space and the permissions of the volume, and the log line that starts with Could not write (k8s/README.md, Roadmap service)."
+      - eval_time: 44m
+        alertname: RoadmapServiceStateUnkept
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              record: ledger
+            exp_annotations:
+              summary: "The roadmap Service could not write its ledger record"
+              description: "The roadmap Service could not write its ledger record to its volume, so a restart loses what the record holds. The Service goes on with memory only. Check the free space and the permissions of the volume, and the log line that starts with Could not write (k8s/README.md, Roadmap service)."
+
+  - name: A record that is written again before 15 minutes pass stays quiet
+    interval: 1m
+    input_series:
+      - series: 'devops_cli_service_state_unkept{job="roadmap-service", record="budget"}'
+        values: '0x5 1x10 0x30'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: RoadmapServiceStateUnkept
+        exp_alerts: []

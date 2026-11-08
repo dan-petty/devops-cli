@@ -84,6 +84,7 @@ SERVICE_SERIES: dict[str, InstrumentKind] = {
     CONST_SERVICE_METRIC_JOB_SUSPENDED: InstrumentKind.GAUGE,
     CONST_SERVICE_METRIC_JOBS: InstrumentKind.COUNTER,
     CONST_SERVICE_METRIC_QUEUE_DEPTH: InstrumentKind.GAUGE,
+    "devops_cli_service_state_unkept": InstrumentKind.GAUGE,
     CONST_SERVICE_METRIC_TRIGGERS: InstrumentKind.COUNTER,
     CONST_SERVICE_METRIC_WEBHOOK_DELIVERIES: InstrumentKind.COUNTER,
 }
