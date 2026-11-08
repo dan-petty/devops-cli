@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.92.1](https://github.com/dan-petty/devops-cli/compare/v0.92.0...v0.92.1) (2026-11-08)
+
+
+### Bug Fixes
+
+* **roadmap:** refuse feasibility claims the run did not make ([#4170](https://github.com/dan-petty/devops-cli/issues/4170)) ([6512c9e](https://github.com/dan-petty/devops-cli/commit/6512c9e8173c2f1afab7416aaa9bf2122c8dca08))
+
 ## [0.92.0](https://github.com/dan-petty/devops-cli/compare/v0.91.0...v0.92.0) (2026-11-08)
 
 
