@@ -1,0 +1,8 @@
+# Tasks
+
+## 1. Derive the stage golden set counts and test a temporary set
+
+Reads: `tests/roadmap/stage/test_roadmap_stage_eval_cases.py`, `src/devops_cli/roadmap/stage/stage_eval_cases.py`. Changes: `tests/roadmap/stage/test_roadmap_stage_eval_cases.py`.
+
+- [ ] 1.1 In `tests/roadmap/stage/test_roadmap_stage_eval_cases.py`, add the module-level helper `check_case_counts(cases: list[StageCase], intended: frozenset[int]) -> None`. The helper builds the reviewed pulls as a frozenset and the good cases as a list, asserts that `sorted(intended - reviewed) == []` with a message that names the missing pulls, asserts that `sorted(reviewed - intended) == []` with a message that names the pulls outside the intended set, and asserts `len(cases) == len(intended) + len(good)`. Replace the body of `test_the_set_holds_the_49_plans_and_five_good_ones` with `check_case_counts(cases, EVALUATED_PULLS)`, rename it to `test_the_set_holds_the_reviewed_plans_and_the_good_ones`, and delete the literals 54, 5 and 49 and the `assert len(EVALUATED_PULLS) == 49` line. Add `test_one_more_case_is_accepted_when_the_intended_set_holds_its_pull(cases: list[StageCase], tmp_path: Path) -> None`: copy `REPO_ROOT / CASES_DIRECTORY` to `tmp_path / "stage"` with `shutil.copytree`, pick one case whose verdict is not `Verdict.GOOD`, copy its folder to `tmp_path / "stage" / "9999-a-new-reviewed-case"`, set `pull` to 9999 in that copy of `case.json` with `json`, load the set with `load_cases(tmp_path / "stage")`, and call `check_case_counts(loaded, EVALUATED_PULLS | {9999})`
+  - Verification: `$ uv run devops ci test tests/roadmap/stage/test_roadmap_stage_eval_cases.py` passes
