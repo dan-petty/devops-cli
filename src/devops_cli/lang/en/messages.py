@@ -3504,6 +3504,7 @@ class RoadmapMessages:
             "model_correction": "the change fails its checks",
             "validate": "the openspec binary is on PATH",
             "delete_failed": "GitHub refuses the pull request",
+            "orphan_pulls": "the round removes the pushed branch of an orphan draft",
             "close_pull": "only the identity of the session wrote to the branch",
             "delete_branch": "only the identity of the session wrote to the branch",
             "plan_state": "the record of an open New or Ready item holds a staged pull request",

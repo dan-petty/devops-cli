@@ -3526,6 +3526,9 @@ CONST_ROADMAP_STAGE_COMMENT_MARKERS: Final[tuple[str, ...]] = (
     CONST_ROADMAP_STAGE_COMMENT_MARKER,
     CONST_ROADMAP_STAGE_REJECTED_MARKER,
 )
+# The age at which the stage job judges its intent mark `stage.pending` (#4051): a mark younger
+# than this is left alone, since another run can be in the middle of its publish.
+CONST_ROADMAP_STAGE_ORPHAN_AGE_SECONDS: Final[int] = 3600
 # The comment marker of `devops roadmap retitle` (#3486).
 CONST_ROADMAP_RETITLE_COMMENT_MARKER: Final[str] = "<!-- devops roadmap retitle -->"
 # The marker of every roadmap job's comment: a comment that holds none of them is a person's.

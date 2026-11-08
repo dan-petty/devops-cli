@@ -322,7 +322,8 @@ def test_phase_order_removals_and_rejections_of_unselected_items_come_before_the
         ("comment", 2, "rejected"),
         ("field", 2),
         ("plan", 3),
-        ("marks", 3),
+        ("marks", 3),  # the intent mark, before the push
+        ("marks", 3),  # the record, after the draft
         ("comment", 3, "staged"),
     ]
 

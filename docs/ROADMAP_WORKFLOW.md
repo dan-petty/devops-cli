@@ -122,6 +122,7 @@ These are all the keys of the job record, by the job that writes them:
 | Stage | `stage.groups`, `stage.needs_split`, `stage.file_cap` | The task groups with their size, the group over the budget, and the cap of that measure |
 | Stage | `stage.ready` | The plan pull request that the Service has seen leave the draft state |
 | Stage | `stage.needs_fix` | The plan pull request that the Service told about the label `plan/needs-fix` |
+| Stage | `stage.pending` | The intent mark of the stage job, as JSON with the branch name and the time. The job writes it before the push and clears it with the record after the draft. An open Item with the mark, a pushed branch and no `stage.pr` is an orphan: a round at least 1 hour later closes its draft, deletes its branch and clears the record, unless another author wrote to the branch |
 | Stage | `stage.text_hash` | The hash of the text of the Item that the plan came from |
 | Stage | `stage.rejected` | A plan that a person rejected, as JSON. It holds the pull request, the time of the close, the files that the reason names, and the text hash. The job leaves the Item out until the text or one of those files changes. A staged plan clears it |
 | Stage | `stage.failed_at`, `stage.failed_error` | When the last plan or write of the Item failed and the class of its error. The job leaves the Item out for `roadmap.stage.retry_hours` hours; a staged Item or an Item stopped on the budget clears both |
