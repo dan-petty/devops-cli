@@ -1,9 +1,12 @@
+import os
 import platform
+import time
 from pathlib import Path
 
 import pytest
 from typer.testing import CliRunner
 
+from devops_cli.ci.cache import resolve_coverage_index_path
 from devops_cli.commands.ci import app, get_check_specs
 from devops_cli.dry_run import is_dry_run
 from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
@@ -57,12 +60,9 @@ def test_ci_coverage_dry_run(recorder: list[list[str]]) -> None:
     assert "--cov=src" in res.stdout
 
 
-def test_ci_coverage_build_index_dry_run(
-    recorder: list[list[str]], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_ci_coverage_build_index_dry_run(recorder: list[list[str]], ci_root: Path) -> None:
     """devops ci coverage --build-index --dry-run plans the index run and writes no index."""
-    index_file = tmp_path / "coverage_index.json"
-    monkeypatch.setattr("devops_cli.ci.cache.resolve_coverage_index_path", lambda _root: index_file)
+    index_file = resolve_coverage_index_path(ci_root)
     res = runner.invoke(app, ["coverage", "--build-index", "--dry-run"])
     assert (res.exit_code, len(recorder), index_file.exists(), is_dry_run()) == (
         0,
@@ -115,16 +115,14 @@ def test_ci_run_command_dry_run(recorder: list[list[str]]) -> None:
     assert ("✓ pass" in res.stdout, "CI Summary" in res.stdout) == (False, False)
 
 
-def test_ci_dry_run_unlinks_nothing(
-    recorder: list[list[str]], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_ci_dry_run_unlinks_nothing(recorder: list[list[str]], ci_root: Path) -> None:
     """devops ci --dry-run and devops ci run --dry-run unlink no coverage files."""
-    monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
-    monkeypatch.setattr("devops_cli.commands.ci._get_project_root", lambda: tmp_path)
-    cov_worker = tmp_path / ".coverage.sample"
-    cov_xml = tmp_path / "coverage.xml"
+    cov_worker = ci_root / ".coverage.sample"
+    cov_xml = ci_root / "coverage.xml"
     cov_worker.write_text("worker data")
     cov_xml.write_text("<xml/>")
+    two_hours_ago = time.time() - 7200
+    os.utime(cov_worker, (two_hours_ago, two_hours_ago))
 
     res_ci = runner.invoke(app, ["--dry-run"])
     res_run = runner.invoke(app, ["run", "--dry-run"])
@@ -138,7 +136,8 @@ def test_ci_dry_run_unlinks_nothing(
     ) == (0, 0, True, True, 0)
 
 
-def test_ci_live_control(recorder: list[list[str]], tmp_path: Path) -> None:
+@pytest.mark.usefixtures("ci_root")
+def test_ci_live_control(recorder: list[list[str]]) -> None:
     """Without --dry-run, devops ci lint and devops ci --no-cache execute subprocesses."""
     res_lint = runner.invoke(app, ["lint"])
     assert (res_lint.exit_code, len(recorder)) == (0, 1)

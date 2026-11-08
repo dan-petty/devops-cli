@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import re
+import shlex
 from pathlib import Path
 
 from devops_cli.config.constants import CONST_SLOW_WORKSPACE_FSTYPES
+from devops_cli.core.repo import is_stale_linked_worktree
+from devops_cli.lang import MESSAGES
 
 _PROC_MOUNTS = Path("/proc/mounts")
 _MOUNT_ESCAPE = re.compile(r"\\([0-7]{3})")
@@ -38,6 +41,20 @@ def slow_mount_fstype(path: Path, mounts_text: str | None = None) -> str | None:
         if inside and len(point) > len(best_point):
             best_point, best_type = point, fields[2]
     return best_type if best_type in CONST_SLOW_WORKSPACE_FSTYPES else None
+
+
+def gate_root_warnings(root: Path, mounts_text: str | None = None) -> list[str]:
+    """The warnings the gate gives for the tree it checks, in order: a linked worktree whose
+    repository no longer knows it, and a workspace on a slow host-folder share (`mounts_text`
+    stands for /proc/mounts)."""
+    warnings: list[str] = []
+    if is_stale_linked_worktree(root):
+        warnings.append(
+            MESSAGES.ci.gate_root_stale.format(root=root, root_arg=shlex.quote(str(root)))
+        )
+    if fstype := slow_mount_fstype(root, mounts_text):
+        warnings.append(MESSAGES.ci.gate_root_slow_mount.format(root=root, fstype=fstype))
+    return warnings
 
 
 def slowest_tests(pytest_output: str) -> list[str]:

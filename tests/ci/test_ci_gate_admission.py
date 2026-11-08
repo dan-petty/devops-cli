@@ -97,6 +97,7 @@ def held_slot(
         held.release()
 
 
+@pytest.mark.usefixtures("ci_root")
 def test_a_gate_with_a_heavy_check_waits_for_a_free_slot(
     held_slot: HeldSlot, started: Started
 ) -> None:
@@ -110,6 +111,7 @@ def test_a_gate_with_a_heavy_check_waits_for_a_free_slot(
     assert "process 4321 in /work/w-1111" in result.output
 
 
+@pytest.mark.usefixtures("ci_root")
 def test_the_wait_is_recorded_and_is_not_part_of_the_gate_time(
     held_slot: HeldSlot, otlp: FakeCollector
 ) -> None:
@@ -122,6 +124,7 @@ def test_the_wait_is_recorded_and_is_not_part_of_the_gate_time(
     assert f"Total Elapsed: {format_duration(0.0)}" in result.output
 
 
+@pytest.mark.usefixtures("ci_root")
 def test_a_gate_with_only_light_checks_takes_no_slot(held_slot: HeldSlot, started: Started) -> None:
     result = runner.invoke(app, ["--only", "lint,format", "--check", "--no-cache"])
 

@@ -17,34 +17,41 @@ import tomllib
 from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any, cast
-from unittest.mock import patch
 
 import pytest
 import typer
 from packaging.requirements import Requirement
 from typer.testing import CliRunner
 
+from devops_cli.ci.cache import (
+    compute_workspace_fingerprint,
+    get_ci_cache,
+    resolve_ci_cache_path,
+)
+from devops_cli.ci.diagnostics import gate_root_warnings
 from devops_cli.commands import ci as ci_module
 from devops_cli.commands.ci import (
-    CheckResult,
-    CheckSpec,
     app,
     get_check_spec,
     get_check_specs,
     resolve_selected_specs,
     resolve_step_rows,
 )
-from devops_cli.config.constants import CONST_BANDIT_INI_NAME, CONST_EXIT_CANCELLED
+from devops_cli.config.constants import (
+    CONST_BANDIT_INI_NAME,
+    CONST_CI_TEST_BUDGET_SECONDS,
+    CONST_EXIT_CANCELLED,
+)
 from devops_cli.config.defaults import (
     DEFAULT_CI_BANDIT_NICENESS,
     DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
 )
-from devops_cli.core import process as process_module
-from devops_cli.core.process import run_subprocess
-from devops_cli.core.repo import find_top_level_repo_root
+from devops_cli.core.process import prepare_tool_cmd, run_subprocess
+from devops_cli.core.repo import find_top_level_repo_root, find_worktree_root
 from devops_cli.lang import MESSAGES
-from tests.support.fakes.git import GitFake
-from tests.support.fakes.process import ProcessAnswer, ProcessFake
+from devops_cli.output import format_duration
+from tests.support.fakes.clock import ClockFake
+from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
 from tests.support.hung_children import (
     fake_program,
     hung_with_grandchild,
@@ -62,17 +69,24 @@ pytestmark = pytest.mark.usefixtures("refuse_nested_test_runs")
 
 runner = CliRunner()
 
+_NO_SUCH_PID = 99999999
+"""A process id above the highest one Linux gives, so no live worker holds a file named by it."""
 
-def test_ci_audit_command(monkeypatch) -> None:
-    called = []
 
-    def mock_run(cmd, *args, **kwargs):
-        called.append(cmd)
-        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
+def _make_old(path: Path) -> None:
+    """Age a worker data file past the minute in which the gate leaves a file alone."""
+    two_hours_ago = time.time() - 7200
+    os.utime(path, (two_hours_ago, two_hours_ago))
 
-    monkeypatch.setattr("subprocess.run", mock_run)
 
+def _started(process_fake: ProcessFake) -> list[list[str]]:
+    """The argument list of each program the command started, in order."""
+    return [list(call.argv) for call in process_fake.calls]
+
+
+def test_ci_audit_command(process_fake: ProcessFake) -> None:
     result = runner.invoke(app, ["audit"])
+    called = _started(process_fake)
     assert result.exit_code == 0
     assert [cmd[0] for cmd in called] == ["uv", "npm", "npm"]
     assert any("uv" in c and "audit" in c for c in called)
@@ -107,20 +121,17 @@ def test_the_audit_check_audits_uv_and_the_lockfile_of_each_node_tool_without_a_
 
 @pytest.mark.parametrize("failing", ["uv", "npm"])
 def test_the_audit_command_fails_when_either_audit_fails_and_still_runs_the_other(
-    monkeypatch: pytest.MonkeyPatch, failing: str
+    process_fake: ProcessFake, failing: str
 ) -> None:
     """A vulnerable pin fails the command, and a vulnerable Python dependency does not hide it."""
-    called: list[str] = []
-
-    def run(cmd: list[str], *args: object, **kwargs: object) -> subprocess.CompletedProcess[str]:
-        called.append(cmd[0])
-        return subprocess.CompletedProcess(cmd, 1 if cmd[0] == failing else 0, "", "")
-
-    monkeypatch.setattr("subprocess.run", run)
+    process_fake.answer(failing, ProcessAnswer(returncode=1))
 
     result = runner.invoke(app, ["audit"])
 
-    assert (result.exit_code, called) == (1, ["uv", "npm", "npm"])
+    assert (result.exit_code, [argv[0] for argv in _started(process_fake)]) == (
+        1,
+        ["uv", "npm", "npm"],
+    )
 
 
 _NPM_AUDIT_READINGS = [
@@ -152,6 +163,7 @@ def test_the_audit_command_says_whether_npm_audit_found_vulnerabilities_or_could
 
 
 @pytest.mark.parametrize(("recording", "reported", "not_reported"), _NPM_AUDIT_READINGS)
+@pytest.mark.usefixtures("ci_root")
 def test_the_gate_row_of_the_audit_check_reads_npm_audit_as_the_audit_command_does(
     process_fake: ProcessFake, recording: str, reported: str, not_reported: str
 ) -> None:
@@ -165,91 +177,60 @@ def test_the_gate_row_of_the_audit_check_reads_npm_audit_as_the_audit_command_do
     assert (result.exit_code, reported in said, not_reported in said) == (1, True, False)
 
 
-def test_the_audit_command_plans_both_audits_in_a_dry_run(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_the_audit_command_plans_both_audits_in_a_dry_run(process_fake: ProcessFake) -> None:
     """`--dry-run` lists both commands as one plan and starts neither."""
-    monkeypatch.setattr("subprocess.run", lambda *args, **kwargs: pytest.fail("started a process"))
-
     result = runner.invoke(app, ["audit", "--dry-run"])
 
     assert (
         result.exit_code,
         "1. uv --preview-features" in result.output,
         "2. npm audit" in result.output,
+        process_fake.calls,
     ) == (
         0,
         True,
         True,
+        [],
     )
 
 
-@pytest.mark.asyncio
-async def test_a_check_with_two_commands_runs_both_and_fails_when_either_fails() -> None:
+@pytest.mark.usefixtures("ci_root")
+def test_a_check_with_two_commands_runs_both_and_fails_when_either_fails(
+    process_fake: ProcessFake,
+) -> None:
     """The gate's row passes only when every command of its check exits 0, and reports the output
     of all of them in the order they ran."""
-    import contextlib
 
-    ran: list[list[str]] = []
+    def scans(target: str) -> Callable[[ProcessCall], bool]:
+        return lambda call: "-r" in call.argv and call.argv[call.argv.index("-r") + 1] == target
 
-    @contextlib.contextmanager
-    def dummy_span(*a: Any, **kw: Any) -> Any:
-        yield
-
-    async def run(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
-        ran.append(cmd)
-        return subprocess.CompletedProcess(
-            cmd, 1 if cmd[0] == "npm" else 0, f"{cmd[0]} out\n", f"{cmd[0]} err\n"
-        )
-
-    with (
-        patch("devops_cli.commands.ci.trace_span", side_effect=dummy_span),
-        patch("devops_cli.core.process.run_subprocess_async", side_effect=run),
-        patch("devops_cli.commands.ci.print_muted"),
-    ):
-        result = await ci_module._execute_check_async(
-            CheckSpec(
-                name="pair",
-                display_title="pair",
-                cmd=["uv", "one"],
-                also_cmds=[["npm", "two"]],
-                span_name="ci.step.pair",
-                metric_step="pair",
-            )
-        )
-
-    assert (result.passed, result.stdout, result.stderr, [cmd[0] for cmd in ran]) == (
-        False,
-        "uv out\nnpm out\n",
-        "uv err\nnpm err\n",
-        ["uv", "npm"],
+    process_fake.answer(
+        scans("src"), ProcessAnswer(returncode=0, stdout="src out\n", stderr="src err\n")
+    )
+    process_fake.answer(
+        scans("tests"), ProcessAnswer(returncode=1, stdout="tests out\n", stderr="tests err\n")
     )
 
+    result = runner.invoke(app, ["--only", "security", "--check", "--no-cache"])
 
-def test_ci_coverage_command(monkeypatch) -> None:
-    called = []
+    said = " ".join(result.output.split())
+    assert (
+        result.exit_code,
+        [argv[argv.index("-r") + 1] for argv in _started(process_fake) if "-r" in argv],
+        "src out tests out src err tests err" in said,
+    ) == (1, ["src", "tests"], True)
 
-    def mock_run(cmd, *args, **kwargs):
-        called.append(cmd)
-        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
 
-    monkeypatch.setattr("subprocess.run", mock_run)
-
+def test_ci_coverage_command(process_fake: ProcessFake) -> None:
     result = runner.invoke(app, ["coverage", "--html"])
+    called = _started(process_fake)
     assert result.exit_code == 0
     assert any("--cov=src" in c and "--cov-report=html" in c for c in called)
 
 
-def test_ci_security_command(monkeypatch) -> None:
-    called = []
-
-    def mock_run(cmd, *args, **kwargs):
-        called.append(cmd)
-        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
-
-    monkeypatch.setattr("subprocess.run", mock_run)
-
+def test_ci_security_command(process_fake: ProcessFake) -> None:
     result = runner.invoke(app, ["security", "-s", "high"])
+    called = _started(process_fake)
     bandit_runs = [c[c.index("bandit") :] for c in called if "bandit" in c]
     assert (result.exit_code, bandit_runs) == (
         0,
@@ -260,17 +241,16 @@ def test_ci_security_command(monkeypatch) -> None:
     )
 
 
-def test_the_gate_starts_bandit_below_the_test_row_s_priority(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+@pytest.mark.usefixtures("ci_root")
+def test_the_gate_starts_bandit_below_the_test_row_s_priority(process_fake: ProcessFake) -> None:
     """The test row is the full gate's critical path, so the gate starts Bandit, which runs beside
     its workers, under `nice`, and the test row at normal priority (#1725). `devops ci security`
     runs the same row (`test_subcommand_dispatches_exact_table_row_cmd`)."""
-    spawns = record_spawns(monkeypatch)
-    for row in ("security", "test"):
-        asyncio.run(ci_module._execute_check_async(get_check_spec(row)))
+    runner.invoke(app, ["--only", "security,test", "--check", "--no-cache"])
 
-    *gate_security, gate_test = (spawn.argv for spawn in spawns)
+    started = _started(process_fake)
+    gate_security = [argv for argv in started if "bandit" in argv]
+    gate_test = next(argv for argv in started if "pytest" in argv)
     niced = ["nice", "-n", str(DEFAULT_CI_BANDIT_NICENESS)]
     assert (
         [argv[argv.index("run") + 1 : argv.index("bandit")] for argv in gate_security],
@@ -310,38 +290,22 @@ def test_bandit_s_config_skips_only_the_low_rules_that_need_no_decision() -> Non
     ]
 
 
-def test_ci_security_runs_every_command_of_its_row(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_ci_security_runs_every_command_of_its_row(process_fake: ProcessFake) -> None:
     """`devops ci security` runs both Bandit runs of the row, and the second after a failed
     first, so one run shows every finding (#1538)."""
-    executed: list[list[str]] = []
-
-    def mock_run(cmd: list[str], *a: Any, **kw: Any) -> subprocess.CompletedProcess[str]:
-        executed.append(cmd)
-        return subprocess.CompletedProcess(cmd, 1, "", "")
-
-    monkeypatch.setattr(subprocess, "run", mock_run)
-    monkeypatch.setattr(ci_module, "run_subprocess", mock_run)
+    process_fake.answer("uv", ProcessAnswer(returncode=1))
 
     result = runner.invoke(app, ["security"])
-    expected = [ci_module._with_uv_preview(cmd) for cmd in get_check_spec("security").commands]
-    assert (result.exit_code, [c for c in executed if "bandit" in c]) == (1, expected)
-
-
-def test_ci_actionlint_command(monkeypatch) -> None:
-    called = []
-
-    def mock_run(cmd, *args, **kwargs):
-        called.append(cmd)
-        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
-
-    monkeypatch.setattr("subprocess.run", mock_run)
-    monkeypatch.setattr(
-        shutil,
-        "which",
-        lambda name: "/usr/local/bin/actionlint" if name == "actionlint" else None,
+    expected = [prepare_tool_cmd(cmd) for cmd in get_check_spec("security").commands]
+    assert (result.exit_code, [c for c in _started(process_fake) if "bandit" in c]) == (
+        1,
+        expected,
     )
 
+
+def test_ci_actionlint_command(process_fake: ProcessFake) -> None:
     result = runner.invoke(app, ["actionlint"])
+    called = _started(process_fake)
     assert result.exit_code == 0
     assert any("actionlint" in c for c in called)
 
@@ -354,58 +318,35 @@ def test_ci_actionlint_not_on_path(monkeypatch) -> None:
     assert "devcontainer" in result.output
 
 
-def test_ci_lint_command(monkeypatch) -> None:
-    called = []
-
-    def mock_run(cmd, *args, **kwargs):
-        called.append(cmd)
-        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
-
-    monkeypatch.setattr("subprocess.run", mock_run)
-
+def test_ci_lint_command(process_fake: ProcessFake) -> None:
     # By default, lint applies autofixes
     result = runner.invoke(app, ["lint"])
     assert result.exit_code == 0
-    assert any("ruff" in c and "check" in c and "--fix" in c for c in called)
+    assert any("ruff" in c and "check" in c and "--fix" in c for c in _started(process_fake))
 
     # With --check, lint verifies without applying fixes
-    called.clear()
+    process_fake.reset()
     result_check = runner.invoke(app, ["lint", "--check"])
     assert result_check.exit_code == 0
-    assert any("ruff" in c and "check" in c and "--fix" not in c for c in called)
+    assert any("ruff" in c and "check" in c and "--fix" not in c for c in _started(process_fake))
 
 
-def test_ci_format_command(monkeypatch) -> None:
-    called = []
-
-    def mock_run(cmd, *args, **kwargs):
-        called.append(cmd)
-        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
-
-    monkeypatch.setattr("subprocess.run", mock_run)
-
+def test_ci_format_command(process_fake: ProcessFake) -> None:
     # By default, format formats in-place
     result = runner.invoke(app, ["format"])
     assert result.exit_code == 0
-    assert any("ruff" in c and "format" in c and "--check" not in c for c in called)
+    assert any("ruff" in c and "format" in c and "--check" not in c for c in _started(process_fake))
 
     # With --check, format verifies without modifying
-    called.clear()
+    process_fake.reset()
     result_check = runner.invoke(app, ["format", "--check"])
     assert result_check.exit_code == 0
-    assert any("ruff" in c and "format" in c and "--check" in c for c in called)
+    assert any("ruff" in c and "format" in c and "--check" in c for c in _started(process_fake))
 
 
-def test_ci_typecheck_command(monkeypatch) -> None:
-    called = []
-
-    def mock_run(cmd, *args, **kwargs):
-        called.append(cmd)
-        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
-
-    monkeypatch.setattr("subprocess.run", mock_run)
-
+def test_ci_typecheck_command(process_fake: ProcessFake) -> None:
     result = runner.invoke(app, ["typecheck"])
+    called = _started(process_fake)
     assert result.exit_code == 0
     assert any("mypy" in c and "--python-version" in c and "3.14" in c for c in called)
 
@@ -418,30 +359,16 @@ def test_ci_test_command(monkeypatch) -> None:
     assert any("pytest" in s.argv and "-v" in s.argv and "-k" in s.argv for s in spawns)
 
 
-def test_ci_docs_command(monkeypatch) -> None:
-    called = []
-
-    def mock_run(cmd, *args, **kwargs):
-        called.append(cmd)
-        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
-
-    monkeypatch.setattr("subprocess.run", mock_run)
-
+def test_ci_docs_command(process_fake: ProcessFake) -> None:
     result = runner.invoke(app, ["docs"])
+    called = _started(process_fake)
     assert result.exit_code == 0
     assert any("devops" in c and "docs" in c and "check" in c for c in called)
 
 
-def test_ci_uv_check_command(monkeypatch) -> None:
-    called = []
-
-    def mock_run(cmd, *args, **kwargs):
-        called.append(cmd)
-        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
-
-    monkeypatch.setattr("subprocess.run", mock_run)
-
+def test_ci_uv_check_command(process_fake: ProcessFake) -> None:
     result = runner.invoke(app, ["uv-check"])
+    called = _started(process_fake)
     assert (result.exit_code, any("uv" in c and "check" in c for c in called)) == (0, True)
 
 
@@ -459,16 +386,9 @@ def test_ci_uv_check_type_checks_with_the_ty_the_lockfile_pins() -> None:
     assert len(locked) == 1
 
 
-def test_ci_lockfile_command(monkeypatch) -> None:
-    called = []
-
-    def mock_run(cmd, *args, **kwargs):
-        called.append(cmd)
-        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
-
-    monkeypatch.setattr("subprocess.run", mock_run)
-
+def test_ci_lockfile_command(process_fake: ProcessFake) -> None:
     result = runner.invoke(app, ["lockfile"])
+    called = _started(process_fake)
     assert (result.exit_code, any("lock" in c and "--check" in c for c in called)) == (0, True)
 
 
@@ -500,42 +420,23 @@ def test_the_git_row_records_the_transcripts_again_with_the_real_git() -> None:
     assert spec.heavy is False
 
 
-def test_ci_outdated_command(monkeypatch) -> None:
-    called = []
-
-    def mock_run(cmd, *args, **kwargs):
-        called.append(cmd)
-        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
-
-    monkeypatch.setattr("subprocess.run", mock_run)
-
+def test_ci_outdated_command(process_fake: ProcessFake) -> None:
     result = runner.invoke(app, ["outdated"])
+    called = _started(process_fake)
     assert (result.exit_code, any("tree" in c and "--outdated" in c for c in called)) == (0, True)
 
 
-def test_ci_test_settings_command(monkeypatch: pytest.MonkeyPatch) -> None:
-    called = []
-
-    def mock_run(
-        cmd: list[str], *args: object, **kwargs: object
-    ) -> subprocess.CompletedProcess[str]:
-        called.append(cmd)
-        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
-
-    monkeypatch.setattr("subprocess.run", mock_run)
-
+def test_ci_test_settings_command(process_fake: ProcessFake) -> None:
     result = runner.invoke(app, ["test-settings"])
+    called = _started(process_fake)
     assert (result.exit_code, any("check_test_settings" in " ".join(c) for c in called)) == (
         0,
         True,
     )
 
 
-def test_ci_uv_check_and_lockfile_failures(monkeypatch) -> None:
-    def mock_run_fail(cmd, *args, **kwargs):
-        return subprocess.CompletedProcess(args=cmd, returncode=1, stdout="", stderr="failed")
-
-    monkeypatch.setattr("subprocess.run", mock_run_fail)
+def test_ci_uv_check_and_lockfile_failures(process_fake: ProcessFake) -> None:
+    process_fake.answer(lambda call: True, ProcessAnswer(returncode=1, stderr="failed"))
 
     res_uv = runner.invoke(app, ["uv-check"])
     res_lock = runner.invoke(app, ["lockfile"])
@@ -561,47 +462,10 @@ def test_ci_python_version_check_failure(monkeypatch) -> None:
     assert "Strict Python 3.14+ requirement failed" in res_settings.output
 
 
-def _make_ci_git_fake(root: Path) -> GitFake:
-    fake = GitFake(root)
-    fake.answer(
-        lambda call: "rev-parse" in call.argv, ProcessAnswer(returncode=0, stdout="deadbeef\n")
-    )
-    fake.answer(lambda call: "ls-files" in call.argv, ProcessAnswer(returncode=0, stdout=""))
-    fake.answer(lambda call: "status" in call.argv, ProcessAnswer(returncode=0, stdout=""))
-    fake.answer(lambda call: "hash-object" in call.argv, ProcessAnswer(returncode=0, stdout=""))
-    return fake
-
-
-def test_ci_all_checks_includes_audit_coverage_and_security() -> None:
-    called: list[list[str]] = []
-
-    async def mock_exec(spec: CheckSpec | str, *args: Any, **kwargs: Any) -> CheckResult:
-        if isinstance(spec, CheckSpec):
-            name = spec.name
-            display_title = spec.display_title
-            cmd = spec.cmd
-        else:
-            name = spec
-            display_title = args[0] if args else kwargs.get("display_title", spec)
-            cmd = args[1] if len(args) > 1 else kwargs.get("cmd", [])
-        called.append(cmd)
-        return CheckResult(
-            name=name,
-            display_title=display_title,
-            passed=True,
-            duration_seconds=0.01,
-        )
-
-    fake = _make_ci_git_fake(REPO_ROOT)
-    process_module.set_process_runner(fake)
-    try:
-        with (
-            patch("devops_cli.commands.ci._execute_check_async", side_effect=mock_exec),
-            patch("devops_cli.docs.generator.DocGenerator.check_docs", return_value=(True, [])),
-        ):
-            result = runner.invoke(app, ["--no-cache"])
-    finally:
-        process_module.reset_process_runner()
+@pytest.mark.usefixtures("ci_root", "ci_head")
+def test_ci_all_checks_includes_audit_coverage_and_security(process_fake: ProcessFake) -> None:
+    result = runner.invoke(app, ["--no-cache"])
+    called = _started(process_fake)
 
     assert result.exit_code == 0
     assert "audit" in result.output
@@ -623,36 +487,10 @@ def test_ci_all_checks_includes_audit_coverage_and_security() -> None:
     ) == (True, True, True, True, True, True, True, True)
 
 
-def test_ci_all_checks_with_check_flag() -> None:
-    called: list[list[str]] = []
-
-    async def mock_exec(spec: CheckSpec | str, *args: Any, **kwargs: Any) -> CheckResult:
-        if isinstance(spec, CheckSpec):
-            name = spec.name
-            display_title = spec.display_title
-            cmd = spec.cmd
-        else:
-            name = spec
-            display_title = args[0] if args else kwargs.get("display_title", spec)
-            cmd = args[1] if len(args) > 1 else kwargs.get("cmd", [])
-        called.append(cmd)
-        return CheckResult(
-            name=name,
-            display_title=display_title,
-            passed=True,
-            duration_seconds=0.01,
-        )
-
-    fake = _make_ci_git_fake(REPO_ROOT)
-    process_module.set_process_runner(fake)
-    try:
-        with (
-            patch("devops_cli.commands.ci._execute_check_async", side_effect=mock_exec),
-            patch("devops_cli.docs.generator.DocGenerator.check_docs", return_value=(True, [])),
-        ):
-            result = runner.invoke(app, ["--check", "--no-cache"])
-    finally:
-        process_module.reset_process_runner()
+@pytest.mark.usefixtures("ci_root", "ci_head")
+def test_ci_all_checks_with_check_flag(process_fake: ProcessFake) -> None:
+    result = runner.invoke(app, ["--check", "--no-cache"])
+    called = _started(process_fake)
 
     assert result.exit_code == 0
     # In check-only mode, in-place format_fix and lint_fix are not run
@@ -664,243 +502,152 @@ def test_ci_all_checks_with_check_flag() -> None:
     assert len(format_or_lint_fixes) == 0
 
 
-def test_ci_failure_branches_and_filters() -> None:
+def test_ci_failure_branches_and_filters(process_fake: ProcessFake) -> None:
     """Verify non-zero returncode handling for each check."""
-    mock_fail_proc = subprocess.CompletedProcess(
-        args=["uv"], returncode=1, stdout="", stderr="failed"
-    )
-    with patch("devops_cli.commands.ci.run_subprocess", return_value=mock_fail_proc):
-        res_audit_fail = runner.invoke(app, ["audit"])
-        res_sec_fail = runner.invoke(app, ["security"])
-        res_lint_fail = runner.invoke(app, ["lint"])
-        res_type_fail = runner.invoke(app, ["typecheck"])
-        res_doc_fail = runner.invoke(app, ["docs"])
-        res_uv_check_fail = runner.invoke(app, ["uv-check"])
-        res_lockfile_fail = runner.invoke(app, ["lockfile"])
-        assert (
-            res_audit_fail.exit_code,
-            res_sec_fail.exit_code,
-            res_lint_fail.exit_code,
-            res_type_fail.exit_code,
-            res_doc_fail.exit_code,
-            res_uv_check_fail.exit_code,
-            res_lockfile_fail.exit_code,
-        ) == (1, 1, 1, 1, 1, 1, 1)
+    process_fake.answer(lambda call: True, ProcessAnswer(returncode=1, stderr="failed"))
+    res_audit_fail = runner.invoke(app, ["audit"])
+    res_sec_fail = runner.invoke(app, ["security"])
+    res_lint_fail = runner.invoke(app, ["lint"])
+    res_type_fail = runner.invoke(app, ["typecheck"])
+    res_doc_fail = runner.invoke(app, ["docs"])
+    res_uv_check_fail = runner.invoke(app, ["uv-check"])
+    res_lockfile_fail = runner.invoke(app, ["lockfile"])
+    assert (
+        res_audit_fail.exit_code,
+        res_sec_fail.exit_code,
+        res_lint_fail.exit_code,
+        res_type_fail.exit_code,
+        res_doc_fail.exit_code,
+        res_uv_check_fail.exit_code,
+        res_lockfile_fail.exit_code,
+    ) == (1, 1, 1, 1, 1, 1, 1)
 
 
-def test_ci_additional_subcommands(monkeypatch) -> None:
+@pytest.mark.usefixtures("ci_root", "ci_head")
+def test_ci_additional_subcommands(process_fake: ProcessFake) -> None:
     """Verify ci run, ci test, ci format --fix, and ci version."""
-    called = []
-
-    def mock_run(cmd, *args, **kwargs):
-        called.append(cmd)
-        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
-
-    # 1. test subcommand, whose pytest starts through asyncio in a session of its own
-    spawns = record_spawns(monkeypatch)
+    # 1. test subcommand, whose pytest starts in a session of its own
     res_test = runner.invoke(app, ["test", "-n", "2"])
     assert res_test.exit_code == 0
-    assert any("pytest" in s.argv and "-n" in s.argv for s in spawns)
-
-    monkeypatch.setattr("subprocess.run", mock_run)
+    assert any("pytest" in argv and "-n" in argv for argv in _started(process_fake))
 
     # 2. format --fix
+    process_fake.reset()
     res_fmt_fix = runner.invoke(app, ["format", "--fix"])
     assert res_fmt_fix.exit_code == 0
-    assert any("ruff" in c and "format" in c and "--check" not in c for c in called)
+    assert any("ruff" in c and "format" in c and "--check" not in c for c in _started(process_fake))
 
     # 3. docs subcommand
     res_docs = runner.invoke(app, ["docs"])
     assert res_docs.exit_code == 0
 
     # 4. run subcommand with --fix
-    with (
-        patch(
-            "devops_cli.commands.ci._execute_check_async",
-            return_value=CheckResult(
-                name="mock",
-                display_title="Mock",
-                passed=True,
-                duration_seconds=0.01,
-            ),
-        ),
-        patch("devops_cli.docs.generator.DocGenerator.check_docs", return_value=(True, [])),
-    ):
-        res_run_fix = runner.invoke(app, ["run", "--fix"])
-        assert res_run_fix.exit_code == 0
+    process_fake.reset()
+    res_run_fix = runner.invoke(app, ["run", "--fix"])
+    assert res_run_fix.exit_code == 0
+    assert any("generate" in c for c in _started(process_fake))
 
 
-def test_ci_helpers_and_edge_cases(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Verify _run_all_checks, _print_failures, _clean_coverage_artifacts, and option parsing."""
-    from devops_cli.commands.ci import (
-        CheckResult,
-        _clean_coverage_artifacts,
-        _print_failures,
-        _print_summary,
-        _run_all_checks,
-    )
-
-    # 1. _clean_coverage_artifacts
-    cov_file = tmp_path / ".coverage.test1"
+def test_ci_helpers_and_edge_cases(ci_root: Path, process_fake: ProcessFake) -> None:
+    """Verify the gate's clean-up, its failure and summary output, and option parsing."""
+    # 1. the gate removes the worker data files of an earlier run from its own root
+    cov_file = ci_root / ".coverage.test1"
     cov_file.write_text("test", encoding="utf-8")
-    with patch("devops_cli.commands.ci._get_project_root", return_value=tmp_path):
-        _clean_coverage_artifacts(force=True)
-        assert not cov_file.exists()
+    _make_old(cov_file)
+    runner.invoke(app, ["--only", "lint", "--check", "--no-cache"])
+    assert not cov_file.exists()
 
-    # 2. _print_failures and _print_summary
-    results = [
-        CheckResult(
-            name="test",
-            display_title="Unit Tests",
-            passed=False,
-            duration_seconds=1.5,
-            stdout="AssertionError in test_x",
-            stderr="Traceback...",
-        ),
-        CheckResult(
-            name="lint",
-            display_title="Ruff Lint",
-            passed=True,
-            duration_seconds=0.5,
-        ),
-    ]
-    _print_failures(results)
-    _print_summary(results, total_elapsed=2.0)
+    # 2. a failed check prints its title and output, and the summary follows
+    process_fake.answer(
+        ("uv", "--preview-features", "malware-check,check-command", "run", "pytest"),
+        ProcessAnswer(returncode=1, stdout="AssertionError in test_x", stderr="Traceback..."),
+    )
+    res_failed = runner.invoke(app, ["--only", "test,lint", "--check", "--no-cache"])
+    said = " ".join(res_failed.output.split())
+    assert (
+        res_failed.exit_code,
+        MESSAGES.ci.pytest_coverage in said,
+        "AssertionError in test_x" in said,
+        "Traceback..." in said,
+        "Total Elapsed:" in said,
+    ) == (1, True, True, True, True)
 
-    # 3. _run_all_checks synchronous execution
-    with patch(
-        "devops_cli.commands.ci._execute_check_async",
-        return_value=CheckResult(
-            name="mock_check",
-            display_title="Mock",
-            passed=True,
-            duration_seconds=0.1,
-        ),
-    ):
-        summary_results = _run_all_checks(lint_fix=False, format_fix=False)
-        assert len(summary_results) >= 1
+    # 3. the run command executes every check and gives one status
+    process_fake.reset()
+    res_run = runner.invoke(app, ["run", "--no-fix"])
+    assert (res_run.exit_code, len(process_fake.calls) >= 1) == (0, True)
 
     # 4. test command with invalid -k filter
     res_bad_k = runner.invoke(app, ["test", "-k", "-invalid"])
     assert res_bad_k.exit_code == 1
 
     # 5. security with low and medium severity
-    called = []
+    process_fake.reset()
+    res_sec_low = runner.invoke(app, ["security", "-s", "low"])
+    assert res_sec_low.exit_code == 0
+    assert any(c[-2:] == ["--severity-level", "low"] for c in _started(process_fake))
 
-    def mock_run(cmd, *args, **kwargs):
-        called.append(cmd)
-        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
+    res_sec_med = runner.invoke(app, ["security", "-s", "medium"])
+    assert res_sec_med.exit_code == 0
+    assert any(c[-2:] == ["--severity-level", "medium"] for c in _started(process_fake))
 
-    spawns = record_spawns(monkeypatch)
-    with patch("devops_cli.commands.ci.run_subprocess", side_effect=mock_run):
-        res_sec_low = runner.invoke(app, ["security", "-s", "low"])
-        assert res_sec_low.exit_code == 0
-        assert any(c[-2:] == ["--severity-level", "low"] for c in called)
+    # test with -x and -v
+    res_test_xv = runner.invoke(app, ["test", "-x", "-v"])
+    assert res_test_xv.exit_code == 0
+    assert any("-x" in argv and "-v" in argv for argv in _started(process_fake))
 
-        res_sec_med = runner.invoke(app, ["security", "-s", "medium"])
-        assert res_sec_med.exit_code == 0
-        assert any(c[-2:] == ["--severity-level", "medium"] for c in called)
-
-        # test with -x and -v
-        res_test_xv = runner.invoke(app, ["test", "-x", "-v"])
-        assert res_test_xv.exit_code == 0
-        assert any("-x" in s.argv and "-v" in s.argv for s in spawns)
-
-        # coverage default options
-        res_cov = runner.invoke(app, ["coverage"])
-        assert res_cov.exit_code == 0
+    # coverage default options
+    res_cov = runner.invoke(app, ["coverage"])
+    assert res_cov.exit_code == 0
 
 
-def test_ci_clean_coverage_and_extended_options(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Verify _clean_coverage_artifacts, coverage --html, and run command."""
-    from devops_cli.commands.ci import _clean_coverage_artifacts
-
-    # 1. _clean_coverage_artifacts
-    fake_data = tmp_path / ".data"
+def test_ci_clean_coverage_and_extended_options(ci_root: Path, process_fake: ProcessFake) -> None:
+    """Verify the clean-up of worker data files, coverage --html, and the docs fix."""
+    # 1. the gate removes the worker data files under .data/ of an earlier run
+    fake_data = ci_root / ".data"
     fake_data.mkdir(parents=True, exist_ok=True)
     fake_cov = fake_data / ".coverage.sample"
     fake_cov.write_text("sample", encoding="utf-8")
-    with patch("devops_cli.commands.ci._get_project_root", return_value=tmp_path):
-        _clean_coverage_artifacts(force=True)
-        assert not fake_cov.exists()
+    _make_old(fake_cov)
+    runner.invoke(app, ["--only", "lint", "--check", "--no-cache"])
+    assert not fake_cov.exists()
 
     # 2. coverage --html
-    called = []
+    process_fake.reset()
+    res_cov_html = runner.invoke(app, ["coverage", "--html"])
+    assert res_cov_html.exit_code == 0
+    assert any("--cov-report=html" in c for c in _started(process_fake))
 
-    def mock_run(cmd, *args, **kwargs):
-        called.append(cmd)
-        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
+    res_test_k = runner.invoke(app, ["test", "-k", "unit_test"])
+    assert res_test_k.exit_code == 0
+    assert any("-k" in argv and "unit_test" in argv for argv in _started(process_fake))
 
-    spawns = record_spawns(monkeypatch)
-    with patch("devops_cli.commands.ci.run_subprocess", side_effect=mock_run):
-        res_cov_html = runner.invoke(app, ["coverage", "--html"])
-        assert res_cov_html.exit_code == 0
-        assert any("--cov-report=html" in c for c in called)
-
-        res_test_k = runner.invoke(app, ["test", "-k", "unit_test"])
-        assert res_test_k.exit_code == 0
-        assert any("-k" in s.argv and "unit_test" in s.argv for s in spawns)
-
-        # docs with --fix
-        called.clear()
-        res_docs_fix = runner.invoke(app, ["docs", "--fix"])
-        assert res_docs_fix.exit_code == 0
-        assert any("generate" in c for c in called)
-        assert any("check" in c for c in called)
+    # docs with --fix
+    process_fake.reset()
+    res_docs_fix = runner.invoke(app, ["docs", "--fix"])
+    assert res_docs_fix.exit_code == 0
+    assert any("generate" in c for c in _started(process_fake))
+    assert any("check" in c for c in _started(process_fake))
 
 
-def test_ci_run_docs_fix_when_needed() -> None:
+@pytest.mark.usefixtures("ci_root", "ci_head")
+def test_ci_run_docs_fix_when_needed(process_fake: ProcessFake) -> None:
     """Verify that CI fix pipeline triggers doc generation when docs check fails."""
-    import asyncio
+    result = runner.invoke(app, ["run", "--fix"])
 
-    from devops_cli.commands.ci import CheckResult, _run_all_checks_async
-
-    called_cmds = []
-
-    async def mock_execute(spec: CheckSpec | str, *args: Any, **kwargs: Any) -> CheckResult:
-        if isinstance(spec, CheckSpec):
-            name = spec.name
-            title = spec.display_title
-            cmd = spec.cmd
-            if kwargs.get("apply_fix") and spec.fix_cmd:
-                called_cmds.append(spec.fix_cmd)
-        else:
-            name = spec
-            title = args[0] if args else kwargs.get("display_title", spec)
-            cmd = args[1] if len(args) > 1 else kwargs.get("cmd", [])
-        called_cmds.append(cmd)
-        return CheckResult(
-            name=name,
-            display_title=title,
-            passed=True,
-            duration_seconds=0.01,
-        )
-
-    with (
-        patch("devops_cli.commands.ci._execute_check_async", side_effect=mock_execute),
-        patch(
-            "devops_cli.docs.generator.DocGenerator.check_docs",
-            return_value=(False, ["Out of sync"]),
-        ),
-    ):
-        results = asyncio.run(_run_all_checks_async(lint_fix=True, format_fix=True, docs_fix=True))
-        assert any("generate" in cmd for cmd in called_cmds)
-        assert any(r.name == "docs" for r in results)
+    called = _started(process_fake)
+    assert result.exit_code == 0
+    assert any("generate" in cmd for cmd in called)
+    assert "docs" in result.output
 
 
 def test_gate_test_step_argv_is_unchanged() -> None:
     """Verify that the gate's test step argv remains unchanged and does not pass --cov-context."""
-    from devops_cli.commands.ci import _resolve_pytest_cmd, get_check_spec
-
     spec = get_check_spec("test")
     assert (
-        spec.cmd,
         "--cov-context=test" in spec.cmd,
         any("COVERAGE_CORE" in c for c in spec.cmd),
     ) == (
-        _resolve_pytest_cmd(),
         False,
         False,
     )
@@ -912,9 +659,7 @@ def test_the_gate_test_row_writes_the_term_report_and_no_xml_report() -> None:
     Only CI's changed-line coverage step reads coverage.xml, and it writes the file itself from
     the combined data, so the gate spends no serial report pass on it.
     """
-    from devops_cli.commands.ci import _resolve_pytest_cmd
-
-    cmd = _resolve_pytest_cmd()
+    cmd = get_check_spec("test").cmd
     assert (
         "--cov=src" in cmd,
         "--cov-report=term-missing" in cmd,
@@ -1649,18 +1394,11 @@ def test_service_image_smoke_test_parity() -> None:
     ) == (True, True, True, True)
 
 
-def test_pytest_worker_arguments_consistency() -> None:
-    """Verify bare pytest gate row and _build_test_cmd without explicit -n carry no worker args."""
-    from devops_cli.commands.ci import _build_test_cmd, _resolve_pytest_cmd
-
-    gate_cmd = _resolve_pytest_cmd()
-    cli_test_cmd = _build_test_cmd(
-        numprocesses=None,
-        verbose=False,
-        k=None,
-        x=False,
-        targets=None,
-    )
+def test_pytest_worker_arguments_consistency(ci_root: Path, process_fake: ProcessFake) -> None:
+    """Verify bare pytest gate row and `devops ci test` without explicit -n carry no worker args."""
+    gate_cmd = get_check_spec("test").cmd
+    result = runner.invoke(app, ["test", "--repeat", "0"])
+    cli_test_cmd = next(argv for argv in _started(process_fake) if "pytest" in argv)
 
     gate_worker_args = [
         arg
@@ -1673,165 +1411,105 @@ def test_pytest_worker_arguments_consistency() -> None:
         if arg in ("-n", "--numprocesses") or arg.startswith("--maxprocesses")
     ]
 
-    assert (gate_worker_args, cli_worker_args) == ([], [])
+    assert (result.exit_code, gate_worker_args, cli_worker_args) == (0, [], [])
 
 
-def test_coverage_row_carries_no_duplicated_duration() -> None:
-    """Verify virtual coverage check carries 0.0s duration and does not duplicate test step duration."""
-    from devops_cli.commands.ci import (
-        CheckResult,
-        _assemble_ci_results,
-        get_check_spec,
+@pytest.mark.usefixtures("ci_root")
+def test_coverage_row_carries_no_duplicated_duration(process_fake: ProcessFake) -> None:
+    """Verify virtual coverage check carries no duration and does not duplicate test step duration."""
+    result = runner.invoke(app, ["--only", "lint,test", "--check", "--no-cache"])
+
+    rows = [line.split() for line in result.output.splitlines()]
+    assert (result.exit_code, ["coverage", "✓", "pass", "-"] in rows) == (0, True)
+
+
+@pytest.mark.usefixtures("ci_root")
+def test_a_check_passes_when_its_command_exits_zero_and_fails_when_it_does_not(
+    process_fake: ProcessFake,
+) -> None:
+    """Verify a check run reports the exit code of its command, with the output of a failure."""
+    process_fake.answer(
+        lambda call: "ruff" in call.argv, ProcessAnswer(returncode=0, stdout="success output")
     )
-
-    py_res = CheckResult(
-        name="python",
-        display_title="Python Check",
-        passed=True,
-        duration_seconds=0.01,
+    res_ok = runner.invoke(app, ["--only", "lint", "--check", "--no-cache"])
+    process_fake.answer(
+        lambda call: "ruff" in call.argv, ProcessAnswer(returncode=1, stderr="failure output")
     )
-    test_res = CheckResult(
-        name="test",
-        display_title="Pytest Suite",
-        passed=True,
-        duration_seconds=12.5,
-    )
-    test_spec = get_check_spec("test")
+    res_fail = runner.invoke(app, ["--only", "lint", "--check", "--no-cache"])
 
-    assembled = _assemble_ci_results(
-        py_result=py_res,
-        selected_specs=[test_spec],
-        raw_results=[test_res],
-    )
-
-    cov_res = next(r for r in assembled if r.name == "coverage")
-    total_duration = sum(r.duration_seconds for r in assembled)
-
-    assert (cov_res.duration_seconds, total_duration) == (
-        0.0,
-        py_res.duration_seconds + test_res.duration_seconds,
-    )
+    assert (
+        res_ok.exit_code,
+        "✓ pass" in res_ok.output,
+        "failure output" in res_ok.output,
+        res_fail.exit_code,
+        "✗ fail" in res_fail.output,
+        "failure output" in res_fail.output,
+    ) == (0, True, False, 1, True, True)
 
 
-@pytest.mark.asyncio
-async def test_execute_check_async_success_and_failure() -> None:
-    """Verify asynchronous check execution with process isolation and metrics."""
-    import contextlib
-    from unittest.mock import AsyncMock, MagicMock
-
-    from devops_cli.commands.ci import _execute_check_async
-
-    mock_proc_ok = MagicMock(returncode=0, stdout="success output", stderr="")
-    mock_proc_fail = MagicMock(returncode=1, stdout="", stderr="failure output")
-
-    @contextlib.contextmanager
-    def dummy_span(*a: Any, **kw: Any) -> Any:
-        yield
-
-    with (
-        patch("devops_cli.commands.ci.trace_span", side_effect=dummy_span),
-        patch(
-            "devops_cli.core.process.run_subprocess_async", new=AsyncMock(return_value=mock_proc_ok)
-        ),
-        patch("devops_cli.commands.ci.print_muted"),
-    ):
-        res_ok = await _execute_check_async(
-            "test_step", "Test Step", ["echo", "hello"], "span.test", "metric.test"
-        )
-
-    with (
-        patch("devops_cli.commands.ci.trace_span", side_effect=dummy_span),
-        patch(
-            "devops_cli.core.process.run_subprocess_async",
-            new=AsyncMock(return_value=mock_proc_fail),
-        ),
-        patch("devops_cli.commands.ci.print_muted"),
-    ):
-        res_fail = await _execute_check_async(
-            "test_step", "Test Step", ["uv", "run", "fake"], "span.test", "metric.test"
-        )
-
-    assert (res_ok.passed, res_ok.name, res_fail.passed, res_fail.name) == (
-        True,
-        "test_step",
-        False,
-        "test_step",
-    )
+def _cached_verdict(root: Path, *, fix: bool = False, check: bool = True) -> bool:
+    """Whether the gate cache holds a passing verdict for the tree at `root` as it stands now."""
+    options = {"fix": fix, "check": check}
+    fingerprint = compute_workspace_fingerprint(root=root, options=options)
+    assert fingerprint is not None
+    return get_ci_cache(fingerprint=fingerprint[0], options=options, root=root) is not None
 
 
-def test_try_save_ci_cache_and_handle_results(tmp_path: Path) -> None:
+def test_a_passing_gate_records_its_verdict_and_a_failing_gate_clears_it(
+    ci_root: Path, ci_head: ProcessFake
+) -> None:
     """Verify CI cache save and result handling logic."""
-    import typer
+    passed = runner.invoke(app, ["--check"])
+    recorded = _cached_verdict(ci_root)
 
-    from devops_cli.commands.ci import CheckResult, _handle_ci_results, _try_save_ci_cache
+    ci_head.answer(lambda call: "ruff" in call.argv, ProcessAnswer(returncode=1))
+    failed = runner.invoke(app, ["--check", "--no-cache"])
 
-    results = [CheckResult(name="t", display_title="T", passed=True, duration_seconds=1.0)]
-    with (
-        patch("devops_cli.ci.cache.compute_workspace_fingerprint", return_value=("fp", "sha")),
-        patch("devops_cli.ci.cache.save_ci_cache") as mock_save,
-    ):
-        _try_save_ci_cache(tmp_path, results, {"fix": True})
-        assert mock_save.call_count == 1
-
-    with (
-        patch("devops_cli.commands.ci._try_save_ci_cache") as mock_try_save,
-        patch("devops_cli.commands.ci.is_dry_run", return_value=False),
-    ):
-        _handle_ci_results(results, root=tmp_path, ci_options={})
-        assert mock_try_save.call_count == 1
-
-    fail_results = [CheckResult(name="t", display_title="T", passed=False, duration_seconds=1.0)]
-    with (
-        patch("devops_cli.ci.cache.clear_ci_cache") as mock_clear,
-        pytest.raises(typer.Exit) as raised,
-    ):
-        _handle_ci_results(fail_results, root=tmp_path, ci_options={})
-        assert mock_clear.call_count == 1
-    assert raised.value.exit_code is not None
+    assert (passed.exit_code, recorded, failed.exit_code, _cached_verdict(ci_root)) == (
+        0,
+        True,
+        1,
+        False,
+    )
 
 
-def test_a_no_cache_run_still_records_its_result(tmp_path: Path) -> None:
+def test_a_no_cache_run_still_records_its_result(ci_root: Path, ci_head: ProcessFake) -> None:
     """`--no-cache` decides whether an existing entry may be trusted, not whether a fresh
     one is worth keeping.
 
     The run has done the full work and proved the tree. Discarding that made the next
     ordinary run repeat all of it, so a single `--no-cache` cost two full runs.
     """
-    from devops_cli.commands.ci import CheckResult, _handle_ci_results
+    result = runner.invoke(app, ["--check", "--no-cache"])
 
-    results = [CheckResult(name="t", display_title="T", passed=True, duration_seconds=1.0)]
-    with (
-        patch("devops_cli.commands.ci._try_save_ci_cache") as mock_save,
-        patch("devops_cli.commands.ci.is_dry_run", return_value=False),
-    ):
-        _handle_ci_results(results, root=tmp_path, ci_options={})
-    assert mock_save.call_count == 1
+    assert (result.exit_code, _cached_verdict(ci_root)) == (0, True)
 
 
-def test_a_no_cache_run_does_not_read_an_existing_entry(tmp_path: Path) -> None:
+def test_a_no_cache_run_does_not_read_an_existing_entry(
+    ci_root: Path, ci_head: ProcessFake
+) -> None:
     """Recording a result must not turn `--no-cache` back into a cached run."""
-    from devops_cli.commands.ci import _try_fast_cached_ci
+    runner.invoke(app, ["--check"])
+    ci_head.calls.clear()
 
-    with patch("devops_cli.commands.ci._try_get_ci_cache") as mock_get:
-        hit = _try_fast_cached_ci(tmp_path, {}, cache=False, force=False)
-    assert (hit, mock_get.called) == (False, False)
+    result = runner.invoke(app, ["--check", "--no-cache"])
+
+    assert (
+        result.exit_code,
+        MESSAGES.ci.cache_hit in " ".join(result.output.split()),
+        any("ruff" in call.argv for call in ci_head.calls),
+    ) == (0, False, True)
 
 
-def test_a_dry_run_records_nothing(tmp_path: Path) -> None:
+def test_a_dry_run_records_nothing(ci_root: Path, ci_head: ProcessFake) -> None:
     """A preview has not run the checks, so it has no verdict to record."""
-    from devops_cli.commands.ci import CheckResult, _handle_ci_results
+    result = runner.invoke(app, ["--check", "--dry-run"])
 
-    results = [CheckResult(name="t", display_title="T", passed=True, duration_seconds=1.0)]
-    with (
-        patch("devops_cli.commands.ci._try_save_ci_cache") as mock_save,
-        patch("devops_cli.commands.ci.is_dry_run", return_value=True),
-    ):
-        _handle_ci_results(results, root=tmp_path, ci_options={})
-    assert not mock_save.called
+    assert (result.exit_code, resolve_ci_cache_path(ci_root).is_file()) == (0, False)
 
 
 def test_gate_checks_nested_worktree_not_main_checkout(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, ci_head: ProcessFake
 ) -> None:
     """A gate run from a nested linked worktree checks that worktree, not the main checkout (#582).
 
@@ -1839,8 +1517,6 @@ def test_gate_checks_nested_worktree_not_main_checkout(
     only in the main checkout passes the gate. The resolved root is also printed in the header,
     and a passing run caches its verdict under that root.
     """
-    from devops_cli.commands.ci import _get_project_root
-
     main = tmp_path / "main_repo"
     main.mkdir(parents=True, exist_ok=True)
     (main / ".git").mkdir(parents=True, exist_ok=True)
@@ -1869,57 +1545,44 @@ def test_gate_checks_nested_worktree_not_main_checkout(
 
     # 1. Project root resolution
     monkeypatch.chdir(nested_wt)
-    assert (_get_project_root(), find_top_level_repo_root(nested_wt)) == (
+    assert (find_worktree_root(), find_top_level_repo_root(nested_wt)) == (
         nested_wt.resolve(),
         main.resolve(),
     )
 
     called_cwds: list[Path] = []
 
-    async def mock_run_async(cmd, cwd=None, **kwargs):
-        cwd_path = Path(cwd) if cwd else Path.cwd()
+    def check_the_tree(call: ProcessCall) -> ProcessAnswer:
+        cwd_path = Path(call.cwd) if call.cwd else Path.cwd()
         called_cwds.append(cwd_path)
         has_error = (cwd_path / "src" / "error.py").exists()
-        return subprocess.CompletedProcess(
-            args=cmd,
+        return ProcessAnswer(
             returncode=1 if has_error else 0,
             stdout="" if not has_error else "SyntaxError: invalid syntax",
-            stderr="",
         )
 
-    saved_roots: list[Path] = []
+    ci_head.answer(lambda call: call.argv[0] != "git", check_the_tree)
 
-    def record_saved_root(root: Path, *_args: object, **_kwargs: object) -> None:
-        saved_roots.append(root)
+    # 2. Error present ONLY in the worktree fails the gate
+    (nested_wt / "src" / "error.py").write_text("def broken(:\n", encoding="utf-8")
+    res_wt_fail = runner.invoke(app, ["--no-cache"])
+    assert res_wt_fail.exit_code != 0
+    assert str(nested_wt.resolve()) in "".join(res_wt_fail.output.split())
+    assert all(c == nested_wt.resolve() for c in called_cwds)
 
-    monkeypatch.setattr("devops_cli.core.process.run_subprocess_async", mock_run_async)
-    monkeypatch.setattr("devops_cli.commands.ci._verify_python_314_environment", lambda: True)
-    monkeypatch.setattr("devops_cli.commands.ci._try_save_ci_cache", record_saved_root)
+    # 3. Error present ONLY in the main checkout passes the gate when run from the worktree
+    (nested_wt / "src" / "error.py").unlink()
+    (main / "src" / "error.py").write_text("def broken(:\n", encoding="utf-8")
+    called_cwds.clear()
 
-    fake = _make_ci_git_fake(nested_wt)
-    process_module.set_process_runner(fake)
-    try:
-        # 2. Error present ONLY in the worktree fails the gate
-        (nested_wt / "src" / "error.py").write_text("def broken(:\n", encoding="utf-8")
-        res_wt_fail = runner.invoke(app, ["--no-cache"])
-        assert res_wt_fail.exit_code != 0
-        assert str(nested_wt.resolve()) in res_wt_fail.output
-        assert all(c == nested_wt.resolve() for c in called_cwds)
-
-        # 3. Error present ONLY in the main checkout passes the gate when run from the worktree
-        (nested_wt / "src" / "error.py").unlink()
-        (main / "src" / "error.py").write_text("def broken(:\n", encoding="utf-8")
-        called_cwds.clear()
-
-        res_wt_pass = runner.invoke(app, ["--no-cache"])
-        assert (
-            res_wt_pass.exit_code,
-            str(nested_wt.resolve()) in "".join(res_wt_pass.output.split()),
-            set(called_cwds),
-            saved_roots,
-        ) == (0, True, {nested_wt.resolve()}, [nested_wt.resolve()])
-    finally:
-        process_module.reset_process_runner()
+    res_wt_pass = runner.invoke(app, ["--no-cache"])
+    assert (
+        res_wt_pass.exit_code,
+        str(nested_wt.resolve()) in "".join(res_wt_pass.output.split()),
+        set(called_cwds),
+        resolve_ci_cache_path(nested_wt).is_file(),
+        resolve_ci_cache_path(main).is_file(),
+    ) == (0, True, {nested_wt.resolve()}, True, False)
 
 
 # #582: from a worktree nested under `<checkout>/.claude/worktrees/`, single checks, the cached
@@ -1930,18 +1593,20 @@ def test_gate_checks_nested_worktree_not_main_checkout(
 _UNUSED_IMPORT = "import os\n"
 
 
-def _lint_from(worktree: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[int, list[Path]]:
-    """Run `devops ci lint --check` with real ruff from `worktree`; the exit code and cwds."""
+def _lint_from(
+    worktree: Path, monkeypatch: pytest.MonkeyPatch, process_fake: ProcessFake
+) -> tuple[int, list[Path]]:
+    """Run `devops ci lint --check` from `worktree`, where ruff finds an error in the directory
+    that holds `broken.py`; the exit code and the directories the lint ran in."""
     cwds: list[Path] = []
 
-    def run_ruff_directly(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
-        cwds.append(Path(kwargs["cwd"]))
-        rest = cmd[cmd.index("ruff") + 1 :]
-        return run_subprocess([sys.executable, "-m", "ruff", *rest], **kwargs)
+    def ruff_reads_its_directory(call: ProcessCall) -> ProcessAnswer:
+        cwds.append(Path(call.cwd))
+        return ProcessAnswer(returncode=1 if (Path(call.cwd) / "broken.py").exists() else 0)
 
+    process_fake.answer(lambda call: "ruff" in call.argv, ruff_reads_its_directory)
     monkeypatch.chdir(worktree)
-    with patch.object(ci_module, "run_subprocess", run_ruff_directly):
-        result = runner.invoke(ci_module.app, ["lint", "--check"])
+    result = runner.invoke(app, ["lint", "--check"])
     return result.exit_code, cwds
 
 
@@ -1974,146 +1639,116 @@ def nested_worktree(tmp_path: Path) -> tuple[Path, Path]:
     return main, nested
 
 
-@pytest.mark.live("python")
 def test_lint_fails_on_an_error_only_the_worktree_has(
-    nested_worktree: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+    nested_worktree: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch, process_fake: ProcessFake
 ) -> None:
     """Verify a broken worktree fails the gate although the main checkout is clean."""
     _, nested = nested_worktree
     (nested / "broken.py").write_text(_UNUSED_IMPORT, encoding="utf-8")
 
-    exit_code, cwds = _lint_from(nested, monkeypatch)
+    exit_code, cwds = _lint_from(nested, monkeypatch, process_fake)
 
     assert (exit_code, set(cwds)) == (1, {nested.resolve()})
 
 
-@pytest.mark.live("python")
 def test_lint_ignores_an_error_only_the_main_checkout_has(
-    nested_worktree: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+    nested_worktree: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch, process_fake: ProcessFake
 ) -> None:
     """Verify a clean worktree passes the gate although the main checkout is broken."""
     main, nested = nested_worktree
     (main / "broken.py").write_text(_UNUSED_IMPORT, encoding="utf-8")
 
-    exit_code, cwds = _lint_from(nested, monkeypatch)
+    exit_code, cwds = _lint_from(nested, monkeypatch, process_fake)
 
     assert (exit_code, set(cwds)) == (0, {nested.resolve()})
 
 
-def _gate_from_the_cache(worktree: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, list[Any]]:
-    """Run `devops ci --check` from `worktree` with a cache hit; the roots and messages seen."""
-    seen: dict[str, list[Any]] = {"cache_roots": [], "info": [], "warnings": []}
-
-    def cache_hit(root: Path, *_args: Any, **_kwargs: Any) -> bool:
-        seen["cache_roots"].append(root)
-        return True
-
+def _gate_from_the_cache(
+    worktree: Path, monkeypatch: pytest.MonkeyPatch, process_fake: ProcessFake
+) -> tuple[str, list[ProcessCall]]:
+    """Run `devops ci --check` from `worktree` twice, the second time on the verdict the first
+    recorded; what the second run printed and the programs it started."""
     monkeypatch.chdir(worktree)
-    monkeypatch.setattr(ci_module, "_try_fast_cached_ci", cache_hit)
-    monkeypatch.setattr(
-        ci_module, "print_info", lambda message, **_kw: seen["info"].append(message)
-    )
-    monkeypatch.setattr(
-        ci_module,
-        "print_warning",
-        lambda message, **_kw: seen["warnings"].append(message),
-        raising=False,
-    )
-    fake = _make_ci_git_fake(worktree)
-    process_module.set_process_runner(fake)
-    try:
-        result = runner.invoke(ci_module.app, ["--check"])
-    finally:
-        process_module.reset_process_runner()
+    runner.invoke(app, ["--check"])
+    started = len(process_fake.calls)
+    result = runner.invoke(app, ["--check"])
     assert result.exit_code == 0
-    return seen
+    return " ".join(result.output.split()), process_fake.calls[started:]
 
 
 def test_a_cached_gate_verdict_names_the_worktree(
-    nested_worktree: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+    nested_worktree: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch, ci_head: ProcessFake
 ) -> None:
     """Verify a cache hit is looked up for, and announced with, the worktree's root."""
     _, nested = nested_worktree
 
-    seen = _gate_from_the_cache(nested, monkeypatch)
+    said, started = _gate_from_the_cache(nested, monkeypatch, ci_head)
 
     assert (
-        seen["cache_roots"],
-        MESSAGES.ci.gate_root.format(root=nested.resolve()) in seen["info"],
-        seen["warnings"],
-    ) == ([nested.resolve()], True, [])
+        " ".join(MESSAGES.ci.cache_hit.split()) in said,
+        " ".join(MESSAGES.ci.gate_root.format(root=nested.resolve()).split()) in said,
+        [call.argv[0] for call in started if call.argv[0] != "git"],
+        " ".join(_stale_warning(nested).split()) in said,
+    ) == (True, True, [], False)
 
 
 def test_the_gate_warns_from_a_workspace_on_a_slow_host_share(
-    nested_worktree: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+    nested_worktree: tuple[Path, Path],
 ) -> None:
     """Verify the gate names a 9p host-share workspace as the reason its checks run slowly."""
     _, nested = nested_worktree
-    monkeypatch.setattr("devops_cli.ci.diagnostics.slow_mount_fstype", lambda _root: "9p")
+    mounts = f"drvfs {nested.resolve().parent} 9p rw,noatime 0 0\n"
 
-    seen = _gate_from_the_cache(nested, monkeypatch)
-
-    assert seen["warnings"] == [
+    assert gate_root_warnings(nested.resolve(), mounts) == [
         MESSAGES.ci.gate_root_slow_mount.format(root=nested.resolve(), fstype="9p")
     ]
 
 
-def _budget_output(duration: float, monkeypatch: pytest.MonkeyPatch) -> dict[str, list[str]]:
-    """Run the budget check over a test step of `duration` seconds; the messages it printed."""
-    seen: dict[str, list[str]] = {"warnings": [], "muted": []}
-    monkeypatch.setattr(
-        ci_module, "print_warning", lambda msg, **_kw: seen["warnings"].append(msg), raising=False
-    )
-    monkeypatch.setattr(
-        ci_module, "print_muted", lambda msg, **_kw: seen["muted"].append(msg), raising=False
-    )
+def _budget_output(duration: float, process_fake: ProcessFake, clock: ClockFake) -> str:
+    """Run the gate with a test step of `duration` seconds; what it printed, on one line."""
     report = (
         "=== slowest 10 durations ===\n"
         "120.22s call     tests/test_secops.py::test_trivy_dry_run\n"
         "\n"
         "=== 6250 passed ===\n"
     )
-    ci_module._warn_when_over_budget(
-        [
-            CheckResult(name="lint", display_title="lint", passed=True, duration_seconds=900.0),
-            CheckResult(
-                name="test",
-                display_title="tests",
-                passed=True,
-                duration_seconds=duration,
-                stdout=report,
-            ),
-        ]
+    process_fake.answer(
+        lambda call: "ruff" in call.argv and "check" in call.argv, ProcessAnswer(delay=900.0)
     )
-    return seen
+    process_fake.answer(
+        lambda call: "pytest" in call.argv, ProcessAnswer(stdout=report, delay=duration)
+    )
+    result = runner.invoke(app, ["--only", "lint,test", "--check", "--no-cache"])
+    assert result.exit_code == 0
+    return " ".join(result.output.split())
 
 
-def test_a_test_step_over_budget_names_the_slowest_tests(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.usefixtures("ci_root")
+def test_a_test_step_over_budget_names_the_slowest_tests(
+    process_fake: ProcessFake, clock: ClockFake
+) -> None:
     """Verify a test step over the budget warns and lists pytest's slowest tests."""
-    from devops_cli.config.constants import CONST_CI_TEST_BUDGET_SECONDS
-    from devops_cli.output import format_duration
+    said = _budget_output(CONST_CI_TEST_BUDGET_SECONDS + 1, process_fake, clock)
 
-    seen = _budget_output(CONST_CI_TEST_BUDGET_SECONDS + 1, monkeypatch)
-
-    assert seen == {
-        "warnings": [
-            MESSAGES.ci.test_budget_exceeded.format(
-                duration=format_duration(CONST_CI_TEST_BUDGET_SECONDS + 1),
-                budget=format_duration(CONST_CI_TEST_BUDGET_SECONDS),
-            )
-        ],
-        "muted": ["  120.22s call     tests/test_secops.py::test_trivy_dry_run"],
-    }
+    warning = MESSAGES.ci.test_budget_exceeded.format(
+        duration=format_duration(CONST_CI_TEST_BUDGET_SECONDS + 1),
+        budget=format_duration(CONST_CI_TEST_BUDGET_SECONDS),
+    )
+    assert (
+        " ".join(warning.split()) in said,
+        "120.22s call tests/test_secops.py::test_trivy_dry_run" in said,
+    ) == (True, True)
 
 
-def test_a_test_step_within_budget_is_quiet(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.usefixtures("ci_root")
+def test_a_test_step_within_budget_is_quiet(process_fake: ProcessFake, clock: ClockFake) -> None:
     """Verify a test step inside the budget prints nothing, whatever other checks took."""
-    from devops_cli.config.constants import CONST_CI_TEST_BUDGET_SECONDS
+    said = _budget_output(CONST_CI_TEST_BUDGET_SECONDS, process_fake, clock)
 
-    assert _budget_output(CONST_CI_TEST_BUDGET_SECONDS, monkeypatch) == {
-        "warnings": [],
-        "muted": [],
-    }
+    assert (
+        "Slowest tests:" in said,
+        "120.22s call" in said,
+    ) == (False, False)
 
 
 def _stale_warning(worktree: Path) -> str:
@@ -2123,23 +1758,25 @@ def _stale_warning(worktree: Path) -> str:
 
 
 def test_the_gate_warns_from_a_stale_worktree(
-    nested_worktree: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+    nested_worktree: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch, ci_head: ProcessFake
 ) -> None:
     """Verify a worktree whose git directory was pruned is checked itself, with a warning."""
     main, nested = nested_worktree
     shutil.rmtree(main / ".git" / "worktrees" / "wt")
 
-    seen = _gate_from_the_cache(nested, monkeypatch)
+    said, started = _gate_from_the_cache(nested, monkeypatch, ci_head)
 
-    assert (seen["cache_roots"], seen["warnings"]) == (
-        [nested.resolve()],
-        [_stale_warning(nested)],
-    )
+    assert (
+        " ".join(MESSAGES.ci.gate_root.format(root=nested.resolve()).split()) in said,
+        " ".join(_stale_warning(nested).split()) in said,
+        [call.argv[0] for call in started if call.argv[0] != "git"],
+    ) == (True, True, [])
 
 
 def test_the_stale_worktree_warning_repairs_a_worktree_whose_checkout_moved(
     nested_worktree: tuple[Path, Path],
     monkeypatch: pytest.MonkeyPatch,
+    ci_head: ProcessFake,
 ) -> None:
     """Verify the repair command the gate's warning gives, pasted into a shell in the main
     checkout as it says, reconnects a nested worktree that moved along with its main
@@ -2147,28 +1784,24 @@ def test_the_stale_worktree_warning_repairs_a_worktree_whose_checkout_moved(
     main, _ = nested_worktree
     moved = main.rename(main.with_name("moved checkout; $HOME"))
     nested = moved / ".claude" / "worktrees" / "wt"
-    warnings = _gate_from_the_cache(nested, monkeypatch)["warnings"]
-    commands = [re.findall(r"`(git worktree repair\b[^`]*)`", warning) for warning in warnings]
+    monkeypatch.chdir(nested)
+    result = runner.invoke(app, ["--check"])
+    commands = re.findall(r"`(git worktree repair\b[^`]*)`", " ".join(result.output.split()))
 
     for command in commands:
-        cmd = shlex.split(command[0])[1:]
+        cmd = shlex.split(command)[1:]
         if len(cmd) >= 3 and cmd[0] == "worktree" and cmd[1] == "repair":
             target = Path(cmd[2])
             wt_git = moved / ".git" / "worktrees" / target.name
             (target / ".git").write_text(f"gitdir: {wt_git}\n", encoding="utf-8")
             (wt_git / "gitdir").write_text(f"{target / '.git'}\n", encoding="utf-8")
 
-    fake = _make_ci_git_fake(nested)
-    process_module.set_process_runner(fake)
-    try:
-        worktree_git = run_subprocess(["git", "-C", str(nested), "status"], check=False)
-    finally:
-        process_module.reset_process_runner()
+    worktree_git = run_subprocess(["git", "-C", str(nested), "status"], check=False)
     assert (len(commands), worktree_git.returncode) == (1, 0)
 
 
 def test_staged_sources_select_the_worktrees_tests(
-    nested_worktree: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+    nested_worktree: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch, process_fake: ProcessFake
 ) -> None:
     """Verify `devops ci test <file>`, as the changed-tests hook runs it, names the worktree
     and maps a worktree-only source onto the worktree's tests."""
@@ -2179,29 +1812,21 @@ def test_staged_sources_select_the_worktrees_tests(
     (nested / "tests" / "test_widget.py").write_text("def test_size() -> None: ...\n")
     (main / "tests").mkdir()
     (main / "tests" / "test_other.py").write_text("def test_other() -> None: ...\n")
-    calls: list[tuple[list[str], Path]] = []
-
-    def record(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
-        calls.append((cmd, Path(kwargs["cwd"])))
-        return subprocess.CompletedProcess(cmd, 0, "", "")
-
-    messages: list[str] = []
     monkeypatch.chdir(nested)
-    monkeypatch.setattr(ci_module, "print_info", lambda message, **_kw: messages.append(message))
-    spawns = record_spawns(monkeypatch)
-    with patch.object(ci_module, "run_subprocess", record):
-        result = runner.invoke(ci_module.app, ["test", "src/pkg/widget.py"])
-    calls.extend((spawn.argv, Path(spawn.kwargs["cwd"])) for spawn in spawns)
 
+    result = runner.invoke(app, ["test", "src/pkg/widget.py"])
+
+    runs = [call for call in process_fake.calls if "pytest" in call.argv]
     assert (
         result.exit_code,
-        [("tests/test_widget.py" in cmd, cwd) for cmd, cwd in calls],
-        MESSAGES.ci.gate_root.format(root=nested.resolve()) in messages,
+        [("tests/test_widget.py" in call.argv, call.cwd) for call in runs],
+        " ".join(MESSAGES.ci.gate_root.format(root=nested.resolve()).split())
+        in " ".join(result.output.split()),
     ) == (0, [(True, nested.resolve())], True)
 
 
 def test_the_gate_header_prints_a_bracketed_root_literally(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, ci_head: ProcessFake
 ) -> None:
     """Verify square brackets in the checked root are printed, not parsed as markup."""
     main = tmp_path / "main"
@@ -2218,80 +1843,82 @@ def test_the_gate_header_prints_a_bracketed_root_literally(
     (wt_git / "commondir").write_text("../..\n", encoding="utf-8")
     (wt_git / "HEAD").write_text("ref: refs/heads/bracketed\n", encoding="utf-8")
     monkeypatch.chdir(bracketed)
-    monkeypatch.setattr(ci_module, "_try_fast_cached_ci", lambda *_a, **_kw: True)
 
-    fake = _make_ci_git_fake(bracketed)
-    process_module.set_process_runner(fake)
-    try:
-        result = runner.invoke(ci_module.app, ["--check"])
-    finally:
-        process_module.reset_process_runner()
+    result = runner.invoke(app, ["--check"])
 
     assert (result.exit_code, "[bold]wt" in "".join(result.output.split())) == (0, True)
 
 
 def test_a_single_check_warns_from_a_stale_worktree(
-    nested_worktree: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+    nested_worktree: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch, process_fake: ProcessFake
 ) -> None:
     """Verify `devops ci lint` from a pruned worktree names it and warns that git fails there."""
     main, nested = nested_worktree
     shutil.rmtree(main / ".git" / "worktrees" / "wt")
-    cwds: list[Path] = []
-    warnings: list[str] = []
-
-    def record(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
-        cwds.append(Path(kwargs["cwd"]))
-        return subprocess.CompletedProcess(cmd, 0, "", "")
-
     monkeypatch.chdir(nested)
-    monkeypatch.setattr(
-        ci_module, "print_warning", lambda message, **_kw: warnings.append(message), raising=False
-    )
-    with patch.object(ci_module, "run_subprocess", record):
-        result = runner.invoke(ci_module.app, ["lint", "--check"])
 
-    assert (result.exit_code, cwds, warnings) == (
-        0,
-        [nested.resolve()],
-        [_stale_warning(nested)],
-    )
+    result = runner.invoke(app, ["lint", "--check"])
+
+    said = " ".join(result.output.split())
+    assert (
+        result.exit_code,
+        [call.cwd for call in process_fake.calls],
+        said.count(" ".join(_stale_warning(nested).split())),
+    ) == (0, [nested.resolve()], 1)
 
 
 def test_coverage_clean_up_follows_the_directory_the_gate_runs_in(
-    nested_worktree: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+    nested_worktree: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch, process_fake: ProcessFake
 ) -> None:
-    """Verify a process that imported the gate elsewhere, such as the in-process MCP server,
-    cleans the worktree it now runs in and leaves the checkout around it alone."""
+    """Verify a gate that runs in a nested worktree cleans the worktree it runs in and leaves
+    the checkout around it alone."""
     main, nested = nested_worktree
     for tree in (main, nested):
         (tree / ".coverage.worker").write_text("", encoding="utf-8")
+        _make_old(tree / ".coverage.worker")
     monkeypatch.chdir(nested)
 
-    ci_module._clean_coverage_artifacts(force=True)
+    runner.invoke(app, ["--only", "lint", "--check", "--no-cache"])
 
     assert [(tree / ".coverage.worker").exists() for tree in (main, nested)] == [True, False]
 
 
-def test_the_coverage_clean_up_keeps_the_combined_data_file(tmp_path: Path) -> None:
+def test_the_coverage_clean_up_keeps_the_files_of_a_live_worker_and_a_fresh_file(
+    ci_root: Path, process_fake: ProcessFake
+) -> None:
+    """Verify the clean-up leaves a worker data file named by the pid of a running process, and a
+    file written in the last minute, which a run in progress may still be writing."""
+    live = ci_root / f".coverage.host.pid{os.getpid()}.Xabcdef"
+    fresh = ci_root / ".coverage.fresh"
+    for path in (live, fresh):
+        path.write_text("", encoding="utf-8")
+    _make_old(live)
+
+    runner.invoke(app, ["--only", "lint", "--check", "--no-cache"])
+
+    assert (live.exists(), fresh.exists()) == (True, True)
+
+
+def test_the_coverage_clean_up_keeps_the_combined_data_file(
+    ci_root: Path, process_fake: ProcessFake
+) -> None:
     """Verify the clean-up removes the worker data files and keeps the combined data (#1743).
 
     `devops ci coverage --build-index` and CI's `coverage xml` read the combined
     `.data/.coverage` after the gate, so the clean-up must not remove it, whatever its age.
     """
-    data = tmp_path / ".data"
+    data = ci_root / ".data"
     data.mkdir(exist_ok=True)
     combined = data / ".coverage"
     workers = [
-        data / ".coverage.host.pid4242.Xabcdef",
-        tmp_path / ".coverage.host.pid4243.Xabcdeg",
+        data / f".coverage.host.pid{_NO_SUCH_PID}.Xabcdef",
+        ci_root / f".coverage.host.pid{_NO_SUCH_PID}.Xabcdeg",
     ]
     for path in (combined, *workers):
         path.write_text("", encoding="utf-8")
-    two_hours_ago = time.time() - 7200
-    os.utime(combined, (two_hours_ago, two_hours_ago))
+        _make_old(path)
 
-    with patch("devops_cli.commands.ci._get_project_root", return_value=tmp_path):
-        ci_module._clean_coverage_artifacts(force=True)
+    runner.invoke(app, ["--only", "lint", "--check", "--no-cache"])
 
     assert (combined.exists(), [path.exists() for path in workers]) == (True, [False, False])
 
@@ -2304,48 +1931,37 @@ def test_a_single_checks_help_does_not_name_the_gate_root(
     the gate-root header or the stale-worktree warning."""
     main, nested = nested_worktree
     shutil.rmtree(main / ".git" / "worktrees" / "wt")
-    announced: list[str] = []
     monkeypatch.chdir(nested)
-    monkeypatch.setattr(ci_module, "print_info", lambda message, **_kw: announced.append(message))
-    monkeypatch.setattr(
-        ci_module, "print_warning", lambda message, **_kw: announced.append(message), raising=False
-    )
 
-    result = runner.invoke(ci_module.app, [check, "--help"])
+    result = runner.invoke(app, [check, "--help"])
 
-    assert (result.exit_code, "Usage:" in result.output, announced) == (0, True, [])
-
-
-def _refuse_to_start(what: str) -> Callable[..., Any]:
-    """A double of `asyncio.create_subprocess_exec` that fails the test if anything starts."""
-
-    async def refuse(*argv: Any, **_kwargs: Any) -> Any:
-        raise AssertionError(f"no tests match, yet {what} started: {argv[:6]}")
-
-    return refuse
+    said = " ".join(result.output.split())
+    assert (
+        result.exit_code,
+        "Usage:" in result.output,
+        " ".join(MESSAGES.ci.gate_root.format(root=nested.resolve()).split()) in said,
+        " ".join(_stale_warning(nested).split()) in said,
+    ) == (0, True, False, False)
 
 
 def test_help_after_the_separator_is_a_path_and_the_check_names_its_root(
-    nested_worktree: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+    nested_worktree: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch, process_fake: ProcessFake
 ) -> None:
     """Verify `devops ci test -- --help`, where `--help` follows `--` and so is a path rather
     than the help option, runs the check instead of printing help, and names the gate root. The
     path is not there, so the run is refused and names it (#2868)."""
     _, nested = nested_worktree
-    announced: list[str] = []
     monkeypatch.chdir(nested)
-    monkeypatch.setattr(ci_module, "print_info", lambda message, **_kw: announced.append(message))
-    monkeypatch.setattr(
-        asyncio, "create_subprocess_exec", _refuse_to_start("a run in a session of its own")
-    )
-    with patch.object(ci_module, "run_subprocess", side_effect=AssertionError("no tests match")):
-        result = runner.invoke(ci_module.app, ["test", "--", "--help"])
+
+    result = runner.invoke(app, ["test", "--", "--help"])
 
     assert (
         result.exit_code,
         "Usage:" in result.output,
-        MESSAGES.ci.gate_root.format(root=nested.resolve()) in announced,
-    ) == (1, False, True)
+        " ".join(MESSAGES.ci.gate_root.format(root=nested.resolve()).split())
+        in " ".join(result.output.split()),
+        process_fake.calls,
+    ) == (1, False, True, [])
 
 
 @pytest.mark.parametrize(
@@ -2369,23 +1985,9 @@ def test_help_after_the_separator_is_a_path_and_the_check_names_its_root(
     ],
 )
 def test_subcommand_dispatches_exact_table_row_cmd(
-    subcmd: str, expected_row: str, monkeypatch: pytest.MonkeyPatch
+    subcmd: str, expected_row: str, process_fake: ProcessFake
 ) -> None:
     """Verify each CLI subcommand executes the exact check argv defined in the check table."""
-    executed_cmds: list[list[str]] = []
-
-    def mock_run(cmd: list[str], *a: Any, **kw: Any) -> subprocess.CompletedProcess[str]:
-        executed_cmds.append(cmd)
-        return subprocess.CompletedProcess(cmd, 0, "", "")
-
-    monkeypatch.setattr(subprocess, "run", mock_run)
-    monkeypatch.setattr(ci_module, "run_subprocess", mock_run)
-    monkeypatch.setattr(
-        shutil,
-        "which",
-        lambda name: "/usr/local/bin/actionlint" if name == "actionlint" else None,
-    )
-
     spec = get_check_spec(expected_row)
     args = [subcmd]
     if subcmd in ("lint", "format"):
@@ -2394,7 +1996,7 @@ def test_subcommand_dispatches_exact_table_row_cmd(
     spec_cmd = list(spec.cmd)
     if spec_cmd and spec_cmd[0] == "uv" and "--preview-features" not in spec_cmd:
         spec_cmd[1:1] = ["--preview-features", "malware-check,check-command"]
-    assert (result.exit_code, any(c == spec_cmd for c in executed_cmds)) == (0, True)
+    assert (result.exit_code, any(c == spec_cmd for c in _started(process_fake))) == (0, True)
 
 
 @pytest.mark.parametrize(
@@ -2406,18 +2008,9 @@ def test_subcommand_dispatches_exact_table_row_cmd(
     ],
 )
 def test_subcommand_dispatches_exact_table_row_fix_cmd(
-    subcmd: str, flag: str | None, expected_row: str, monkeypatch: pytest.MonkeyPatch
+    subcmd: str, flag: str | None, expected_row: str, process_fake: ProcessFake
 ) -> None:
     """Verify CLI subcommands in fix mode execute the exact fix argv defined in the check table."""
-    executed_cmds: list[list[str]] = []
-
-    def mock_run(cmd: list[str], *a: Any, **kw: Any) -> subprocess.CompletedProcess[str]:
-        executed_cmds.append(cmd)
-        return subprocess.CompletedProcess(cmd, 0, "", "")
-
-    monkeypatch.setattr(subprocess, "run", mock_run)
-    monkeypatch.setattr(ci_module, "run_subprocess", mock_run)
-
     spec = get_check_spec(expected_row)
     args = [subcmd]
     if flag:
@@ -2427,7 +2020,7 @@ def test_subcommand_dispatches_exact_table_row_fix_cmd(
     spec_fix_cmd = list(spec.fix_cmd)
     if spec_fix_cmd and spec_fix_cmd[0] == "uv" and "--preview-features" not in spec_fix_cmd:
         spec_fix_cmd[1:1] = ["--preview-features", "malware-check,check-command"]
-    assert (result.exit_code, any(c == spec_fix_cmd for c in executed_cmds)) == (0, True)
+    assert (result.exit_code, any(c == spec_fix_cmd for c in _started(process_fake))) == (0, True)
 
 
 def test_coverage_subcommand_maps_to_test_row() -> None:
@@ -2435,43 +2028,24 @@ def test_coverage_subcommand_maps_to_test_row() -> None:
     assert resolve_step_rows("devops ci coverage") == ["test"]
 
 
-@pytest.mark.asyncio
-async def test_ci_fix_execution_order() -> None:
+@pytest.mark.usefixtures("ci_root")
+def test_ci_fix_execution_order(process_fake: ProcessFake) -> None:
     """Verify in-place fixes run in strict sequence: format, then lint, before checks."""
-    execution_order: list[str] = []
+    result = runner.invoke(app, ["--no-cache"])
 
-    async def mock_execute(spec: CheckSpec | str, *args: Any, **kwargs: Any) -> CheckResult:
-        name = spec.name if isinstance(spec, CheckSpec) else spec
-        apply_fix = kwargs.get("apply_fix", False)
-        if apply_fix and isinstance(spec, CheckSpec) and spec.fix_cmd:
-            execution_order.append(f"{name}_fix")
-        execution_order.append(name)
-        return CheckResult(
-            name=name,
-            display_title=name,
-            passed=True,
-            duration_seconds=0.01,
-        )
+    started = _started(process_fake)
 
-    with (
-        patch("devops_cli.commands.ci._execute_check_async", side_effect=mock_execute),
-        patch("devops_cli.commands.ci._verify_python_314_environment", return_value=True),
-    ):
-        await ci_module._run_all_checks_async(lint_fix=True, format_fix=True, docs_fix=True)
-
-    format_fix_idx = execution_order.index("format_fix")
-    lint_fix_idx = execution_order.index("lint_fix")
-    lint_check_idx = execution_order.index("lint")
-    format_check_idx = execution_order.index("format")
-    docs_fix_idx = execution_order.index("docs_fix")
-    docs_check_idx = execution_order.index("docs")
+    def at(row: str, *, fix: bool = False) -> int:
+        spec = get_check_spec(row)
+        return started.index(prepare_tool_cmd((spec.fix_cmd if fix else spec.cmd) or []))
 
     assert (
-        format_fix_idx < lint_fix_idx,
-        lint_fix_idx < lint_check_idx,
-        lint_fix_idx < format_check_idx,
-        docs_fix_idx < docs_check_idx,
-    ) == (True, True, True, True)
+        result.exit_code,
+        at("format", fix=True) < at("lint", fix=True),
+        at("lint", fix=True) < at("lint"),
+        at("lint", fix=True) < at("format"),
+        at("docs", fix=True) < at("docs"),
+    ) == (0, True, True, True, True)
 
 
 def test_ci_selection_only_and_skip_options() -> None:
@@ -2519,100 +2093,55 @@ def test_ci_cli_runner_only_and_skip_validation() -> None:
     ) == (2, True, 2, True, 2, True)
 
 
-@pytest.mark.asyncio
-async def test_ci_single_row_streaming_capture_output() -> None:
+@pytest.mark.usefixtures("ci_root")
+def test_ci_single_row_streaming_capture_output(process_fake: ProcessFake) -> None:
     """Verify single-row run sets capture_output=False for live streaming, while multi-row sets capture_output=True."""
-    captured_flags: list[bool] = []
+    runner.invoke(app, ["--only", "lint", "--check", "--no-cache"])
+    single_row_flag = [call.capture_output for call in process_fake.calls]
 
-    async def mock_execute(spec: CheckSpec | str, *args: Any, **kwargs: Any) -> CheckResult:
-        captured_flags.append(kwargs.get("capture_output", True))
-        name = spec.name if isinstance(spec, CheckSpec) else spec
-        return CheckResult(name=name, display_title=name, passed=True, duration_seconds=0.01)
+    process_fake.reset()
+    runner.invoke(app, ["--only", "lint,format", "--check", "--no-cache"])
+    multi_row_flags = [call.capture_output for call in process_fake.calls]
 
-    with (
-        patch("devops_cli.commands.ci._execute_check_async", side_effect=mock_execute),
-        patch("devops_cli.commands.ci._verify_python_314_environment", return_value=True),
-    ):
-        await ci_module._run_all_checks_async(specs=[get_check_spec("lint")])
-        single_row_flag = captured_flags.copy()
-
-        captured_flags.clear()
-        await ci_module._run_all_checks_async(
-            specs=[get_check_spec("lint"), get_check_spec("format")]
-        )
-        multi_row_flags = captured_flags.copy()
-
-    assert (single_row_flag, multi_row_flags) == ([False], [True, True])
+    assert (set(single_row_flag), set(multi_row_flags)) == ({False}, {True})
 
 
-@pytest.mark.asyncio
-async def test_execute_check_async_timeout_expired() -> None:
-    """Verify TimeoutExpired turns into structured failed CheckResult."""
-    import contextlib
+@pytest.mark.usefixtures("ci_root")
+def test_a_check_that_times_out_fails_and_says_so(process_fake: ProcessFake) -> None:
+    """Verify TimeoutExpired turns into a failed check that names its timeout."""
+    process_fake.answer(
+        lambda call: "ruff" in call.argv,
+        ProcessAnswer(side_effect=subprocess.TimeoutExpired(cmd=["ruff"], timeout=12.5)),
+    )
 
-    @contextlib.contextmanager
-    def dummy_span(*a: Any, **kw: Any) -> Any:
-        yield
+    result = runner.invoke(app, ["--only", "lint", "--check", "--no-cache"])
 
-    async def mock_subprocess_async(*a: Any, **kw: Any) -> Any:
-        raise subprocess.TimeoutExpired(cmd=["test_cmd"], timeout=12.5)
-
-    with (
-        patch("devops_cli.commands.ci.trace_span", side_effect=dummy_span),
-        patch("devops_cli.core.process.run_subprocess_async", side_effect=mock_subprocess_async),
-        patch("devops_cli.commands.ci.print_muted"),
-    ):
-        spec = CheckSpec(
-            name="slow_gate",
-            display_title="Slow Gate",
-            cmd=["sleep", "99"],
-            span_name="ci.step.slow_gate",
-            metric_step="slow_gate",
-        )
-        res = await ci_module._execute_check_async(spec, timeout=12.5)
-
+    said = " ".join(result.output.split())
     assert (
-        res.passed,
-        res.name,
-        res.timed_out,
-        res.timeout_seconds,
-        "timed out" in res.stderr.lower(),
-    ) == (False, "slow_gate", True, 12.5, True)
+        result.exit_code,
+        "fail (timed out after 12.5s)" in said,
+        "Check 'lint' timed out after 12.5s." in said,
+    ) == (1, True, True)
 
 
-def test_ci_narrowed_runs_isolate_cache(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_ci_narrowed_runs_isolate_cache(ci_root: Path, ci_head: ProcessFake) -> None:
     """Verify --only and --skip runs neither read nor populate the gate cache."""
-    cache_read = False
-    cache_written = False
+    only = runner.invoke(app, ["--only", "lint", "--check"])
+    skip = runner.invoke(app, ["--skip", "test", "--check"])
+    left_nothing = not _cached_verdict(ci_root)
 
-    def mock_try_fast(*a: Any, **kw: Any) -> bool:
-        nonlocal cache_read
-        cache_read = True
-        return False
+    runner.invoke(app, ["--check"])
+    ci_head.calls.clear()
+    narrowed = runner.invoke(app, ["--only", "lint", "--check"])
+    ran_again = any("ruff" in call.argv for call in ci_head.calls)
 
-    def mock_save_cache(*a: Any, **kw: Any) -> None:
-        nonlocal cache_written
-        cache_written = True
-
-    async def mock_run_async(*a: Any, **kw: Any) -> list[CheckResult]:
-        return [CheckResult(name="lint", display_title="Lint", passed=True, duration_seconds=0.01)]
-
-    monkeypatch.setattr(ci_module, "_try_fast_cached_ci", mock_try_fast)
-    monkeypatch.setattr(ci_module, "_try_save_ci_cache", mock_save_cache)
-    monkeypatch.setattr(ci_module, "_run_all_checks_async", mock_run_async)
-    monkeypatch.setattr(ci_module, "_clean_coverage_artifacts", lambda **kw: None)
-
-    cache_read = False
-    cache_written = False
-    result_only = runner.invoke(app, ["--only", "lint", "--check", "--no-cache"])
-    only_state = (result_only.exit_code, cache_read, cache_written)
-
-    cache_read = False
-    cache_written = False
-    result_skip = runner.invoke(app, ["--skip", "test", "--check", "--no-cache"])
-    skip_state = (result_skip.exit_code, cache_read, cache_written)
-
-    assert (only_state, skip_state) == ((0, False, False), (0, False, False))
+    assert (only.exit_code, skip.exit_code, left_nothing, narrowed.exit_code, ran_again) == (
+        0,
+        0,
+        True,
+        0,
+        True,
+    )
 
 
 def _collect_ci_workflow_run_steps(workflow_data: dict[str, Any]) -> list[tuple[str, str, str]]:
@@ -3082,7 +2611,7 @@ def test_a_second_ctrl_c_just_after_the_stop_sends_its_sigint_cannot_skip_the_si
     child records no SIGTERM after the second Ctrl-C."""
     signals = tmp_path / "signals"
     real_spawn = asyncio.create_subprocess_exec
-    real_signal_group = process_module._signal_process_group
+    real_killpg = os.killpg
     interrupted: list[bool] = []
 
     with watching(tmp_path / "pids") as watch:
@@ -3099,20 +2628,17 @@ def test_a_second_ctrl_c_just_after_the_stop_sends_its_sigint_cannot_skip_the_si
             monkeypatch.setattr(proc, "communicate", communicate)
             return proc
 
-        def second_ctrl_c_once_the_child_has_the_sigint(pgid: int, sig: int) -> bool:
-            sent = real_signal_group(pgid, sig)
+        def second_ctrl_c_once_the_child_has_the_sigint(pgid: int, sig: int) -> None:
+            real_killpg(pgid, sig)
             if sig == signal.SIGINT:
                 interrupted.append(
                     wait_until(lambda: signals.is_file() and "int" in signals.read_text())
                 )
                 mark_second_signal(signals)
                 signal.raise_signal(signal.SIGINT)
-            return sent
 
         monkeypatch.setattr(asyncio, "create_subprocess_exec", spawn_then_ctrl_c)
-        monkeypatch.setattr(
-            process_module, "_signal_process_group", second_ctrl_c_once_the_child_has_the_sigint
-        )
+        monkeypatch.setattr(os, "killpg", second_ctrl_c_once_the_child_has_the_sigint)
         hung = hung_with_grandchild(watch.pid_file, records_stop_signals(signals))
         # A KeyboardInterrupt that escapes would end the whole session, so the test catches it.
         try:
