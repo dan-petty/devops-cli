@@ -352,6 +352,23 @@ def test_body_with_marks_an_alternatives_plan_lists_one_patch_for_the_block_and_
     ) == ([f"api repos/{REPO}/issues/7", "issue patch", "api -X POST"], [["body"]])
 
 
+def test_an_alternatives_plan_lists_the_comment_for_a_first_or_changed_check() -> None:
+    """The write of a check is planned for every check. The comment is planned with the condition
+    that the check is a first one, or that its verdict or its tool differs from the record
+    (#4054). A dry run makes no request, so the plan cannot know which case an item is."""
+    from devops_cli.roadmap.request_plan import alternatives_requests
+
+    _, writes = alternatives_requests(REPO, item=7)
+    texts = MESSAGES.roadmap
+
+    comment = writes[-1]
+    assert (_shape(comment), comment.condition) == (
+        "api -X POST",
+        f"{texts.plan_conditions['check_on']} and {texts.plan_conditions['check_changed']}",
+    )
+    assert all(texts.plan_conditions["check_changed"] not in w.condition for w in writes[:-1])
+
+
 def test_no_roadmap_plan_lists_a_request_to_a_project_board() -> None:
     """Every job's plan: intake, a refine round, a refine of one item and a return. No request
     is a `gh project` command, names `projectV2` or reads `.github/roadmap.toml` (ADR 0016)."""
