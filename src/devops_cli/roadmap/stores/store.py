@@ -896,9 +896,11 @@ class RoadmapStore(Protocol):
         value: str | None,
         *,
         marks: Mapping[Any, str | None] | None = None,
+        body: str | None = None,
     ) -> None:
         """Set or clear the field's label family on the Item's issue, and record the value, with
-        `marks` set or cleared, in its job record, in one write.
+        `marks` set or cleared, in its job record, in one write. When `body` is given, it
+        replaces the text before the record block in the same write.
 
         A value that is not one of the field's values, an issue that is not this repository's,
         or a field someone changed since the store read the Item, unless the issue already
@@ -907,9 +909,12 @@ class RoadmapStore(Protocol):
         write.
         """
 
-    def set_marks(self, item: Item, marks: Mapping[Any, str | None]) -> None:
+    def set_marks(
+        self, item: Item, marks: Mapping[Any, str | None], *, body: str | None = None
+    ) -> None:
         """Set or clear a job's marks in the Item's job record in one write, changing none of
-        its fields. It raises like `set_field` before the store changes anything."""
+        its fields. When `body` is given, it replaces the text before the record block in the
+        same write. It raises like `set_field` before the store changes anything."""
 
     def issues(self) -> list[IssueRecord]:
         """Every issue of the repository, open and closed, Item or not; never pull requests."""

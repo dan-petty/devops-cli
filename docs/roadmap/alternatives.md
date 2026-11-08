@@ -40,11 +40,10 @@ An item of the type `test`, `docs`, `refactor`, `chore`, `ci` or `perf`, and a `
 
 ## What a check writes
 
-With `--confirm`, a check does three things:
+With `--confirm`, a check does these things:
 
-1. It posts one comment.
-2. It replaces the block `devops-roadmap-alternatives` in the body of the item.
-3. It records the check in the job record.
+1. It replaces the block `devops-roadmap-alternatives` in the body of the item and records the check in the job record. One request writes both, so a stop never leaves the new block without the record of the check.
+2. It posts one comment, in a separate request after the write.
 
 A check changes no label and closes no issue. A person decides what a tool means for the item.
 

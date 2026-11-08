@@ -7,7 +7,7 @@ from __future__ import annotations
 import json
 import logging
 import traceback
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -34,6 +34,7 @@ from devops_cli.roadmap.run import (
     build_stub_table,
     run_due_jobs,
 )
+from devops_cli.roadmap.stores.store import Item, ItemField
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.roadmap_refine import (
     GATEWAY_ATTEMPTS,
@@ -333,15 +334,22 @@ def test_a_failed_item_does_not_hide_the_items_a_refine_round_set_ready(
 
 
 class _StopsOnBody(InMemoryRoadmapStore):
-    """A store whose write of the body of issue `stopped` fails as the request budget fails it
+    """A store whose write of the body of issue `stopped`, with its Status or marks, fails as the request budget fails it
     when the Service is stopping (#2753)."""
 
     stopped = 0
 
-    def write_issue_body(self, number: int, body: str) -> None:
-        if number == self.stopped:
+    def set_field(self, item: Item, field: ItemField, value: str | None, **options: Any) -> None:
+        if item.number == self.stopped and options.get("body") is not None:
             raise stop_error()
-        super().write_issue_body(number, body)
+        super().set_field(item, field, value, **options)
+
+    def set_marks(
+        self, item: Item, marks: Mapping[Any, str | None], *, body: str | None = None
+    ) -> None:
+        if item.number == self.stopped and body is not None:
+            raise stop_error()
+        super().set_marks(item, marks, body=body)
 
 
 def test_a_stop_of_the_service_keeps_the_items_whose_model_call_failed(

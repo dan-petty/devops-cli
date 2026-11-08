@@ -2952,20 +2952,21 @@ def _apply_refined(store: RoadmapStore, r: RefinedItem) -> RefineApplied:
     if deferred is None:
         return RefineApplied()
 
-    # Write body
-    store.write_issue_body(r.item.number, r.new_body)
-
     marks = _refine_marks(r, deferred)
 
     # Status change & marks: a Ready item refine finds not ready goes back to New (#1515)
     readied = 0
     if r.is_ready:
-        store.set_field(r.item, ItemField.STATUS, CONST_ROADMAP_STATUS_READY, marks=marks)
+        store.set_field(
+            r.item, ItemField.STATUS, CONST_ROADMAP_STATUS_READY, marks=marks, body=r.new_body
+        )
         readied = 1
     elif r.item.status == CONST_ROADMAP_STATUS_READY:
-        store.set_field(r.item, ItemField.STATUS, CONST_ROADMAP_STATUS_NEW, marks=marks)
+        store.set_field(
+            r.item, ItemField.STATUS, CONST_ROADMAP_STATUS_NEW, marks=marks, body=r.new_body
+        )
     else:
-        store.set_marks(r.item, marks)
+        store.set_marks(r.item, marks, body=r.new_body)
 
     # Comment
     comments = 0

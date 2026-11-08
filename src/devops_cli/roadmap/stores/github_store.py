@@ -787,6 +787,7 @@ class GitHubRoadmapStore(RoadmapStore):
         value: str | None,
         *,
         marks: Mapping[Any, str | None] | None = None,
+        body: str | None = None,
     ) -> None:
         """Replace the field's label family and record the value, with `marks`, in one `PATCH`
         of the issue, after one read of it. The value joins the job record the issue holds at
@@ -801,15 +802,19 @@ class GitHubRoadmapStore(RoadmapStore):
             read = self._written.get((item.number, field), item.field_value(field))
             require_unchanged(f"#{item.number}", field, read, now, value, operation)
             labels = relabeled(issue.label_names, field, value)
-            self._edit_issue(issue, labels=labels, changes={field: value, **(marks or {})})
+            self._edit_issue(
+                issue, labels=labels, changes={field: value, **(marks or {})}, text=body
+            )
             self._written[(item.number, field)] = value
 
-    def set_marks(self, item: Item, marks: Mapping[Any, str | None]) -> None:
+    def set_marks(
+        self, item: Item, marks: Mapping[Any, str | None], *, body: str | None = None
+    ) -> None:
         """Set or clear a job's marks in the Item's job record, as its issue holds it now, in
         one `PATCH` of the body after one read of the issue."""
         with _JOB_RECORD_LOCK:
             issue = self._require_issue(item.number, "roadmap.item.set_marks")
-            self._edit_issue(issue, changes=marks)
+            self._edit_issue(issue, changes=marks, text=body)
 
     # ── Issues ──
 
@@ -1074,10 +1079,12 @@ class GitHubRoadmapStore(RoadmapStore):
         *,
         changes: Mapping[Any, str | None],
         labels: Sequence[str] | None = None,
+        text: str | None = None,
     ) -> None:
         """One `PATCH` of `issue`: `labels` when given, and its body with the record block it
         holds, `changes` made."""
         body, held = issue.split()
+        body = body if text is None else text
         block = encode_job_record(held, changes)
         self._send_edit(issue.number, issue_edit(labels=labels, body=with_record(body, block)))
 

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import logging
 import subprocess
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -32,7 +32,7 @@ from devops_cli.roadmap.refine.refine import (
     apply_refine,
     plan_refine,
 )
-from devops_cli.roadmap.stores.store import IssueRecord, ItemField, RefineRecordKey
+from devops_cli.roadmap.stores.store import IssueRecord, Item, ItemField, RefineRecordKey
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
@@ -95,7 +95,7 @@ def git_repo(tmp_path: Path) -> Path:
 
 class _Store(InMemoryRoadmapStore):
     """The in-memory roadmap, keeping the order of the issues it creates and the bodies it
-    writes, and refusing the creation of an issue whose number is in `refuse_creation`."""
+    writes (a body goes with the Status or the marks of its item, in one write), and refusing the creation of an issue whose number is in `refuse_creation`."""
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
@@ -110,9 +110,17 @@ class _Store(InMemoryRoadmapStore):
         self.order.append(f"create {title}")
         return super().create_issue(title, body, labels=labels)
 
-    def write_issue_body(self, number: int, body: str) -> None:
-        self.order.append(f"body #{number}")
-        super().write_issue_body(number, body)
+    def set_field(self, item: Item, field: ItemField, value: str | None, **options: Any) -> None:
+        if options.get("body") is not None:
+            self.order.append(f"body #{item.number}")
+        super().set_field(item, field, value, **options)
+
+    def set_marks(
+        self, item: Item, marks: Mapping[Any, str | None], *, body: str | None = None
+    ) -> None:
+        if body is not None:
+            self.order.append(f"body #{item.number}")
+        super().set_marks(item, marks, body=body)
 
 
 @pytest.fixture

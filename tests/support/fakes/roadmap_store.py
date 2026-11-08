@@ -787,10 +787,12 @@ class InMemoryRoadmapStore(RoadmapStore):
         value: str | None,
         *,
         marks: Mapping[Any, str | None] | None = None,
+        body: str | None = None,
     ) -> None:
         """Replace the field's label family on the Item's issue and, as a job, record the value
-        and `marks` in its record block, in one step. `job_writes` keeps the field's entry, then
-        one entry for each mark. A job's write of a field a person changed since raises."""
+        and `marks` in its record block, in one step; with `body`, the same step writes the body
+        too. `job_writes` keeps the body's entry, the field's entry, then one entry for each mark.
+        A job's write of a field a person changed since raises."""
         operation = "roadmap.item.set_field"
         require_value(field, value, operation)
         issue = self._require_issue(item.number, operation)
@@ -799,18 +801,23 @@ class InMemoryRoadmapStore(RoadmapStore):
             read = self._written.get((item.number, field), item.field_value(field))
             require_unchanged(f"#{item.number}", field, read, now, value, operation)
         changes = {field: value, **(marks or {})}
-        self._relabel(issue, relabeled(issue.labels, field, value), changes)
+        self._relabel(issue, relabeled(issue.labels, field, value), changes, body)
         self._written[(item.number, field)] = value
+        self._log_body(item.number, body)
         self._log("set_field", item.number, field.value, value)
         for mark, marked in (marks or {}).items():
             self._log("set_mark", item.number, mark.value, marked)
 
     @_write
-    def set_marks(self, item: Item, marks: Mapping[Any, str | None]) -> None:
+    def set_marks(
+        self, item: Item, marks: Mapping[Any, str | None], *, body: str | None = None
+    ) -> None:
         """Set or clear a job's marks in the Item's job record; a person's view keeps no record.
-        `job_writes` keeps one entry for each mark."""
+        With `body`, the same step writes the body too. `job_writes` keeps the body's entry, then
+        one entry for each mark."""
         issue = self._require_issue(item.number, "roadmap.item.set_marks")
-        self._relabel(issue, issue.labels, marks)
+        self._relabel(issue, issue.labels, marks, body)
+        self._log_body(item.number, body)
         for mark, value in marks.items():
             self._log("set_mark", item.number, mark.value, value)
 
@@ -843,13 +850,18 @@ class InMemoryRoadmapStore(RoadmapStore):
         issue: IssueRecord,
         labels: tuple[str, ...],
         changes: Mapping[Any, str | None] | None = None,
+        body: str | None = None,
     ) -> None:
-        """Write `labels` to the issue and, as a job, `changes` to its record block, recording a
-        `labeled` or `unlabeled` change for each label added or removed."""
+        """Write `labels` to the issue and, as a job, `changes` to its record block, and `body` as
+        the text before the block when given, recording a `labeled` or `unlabeled` change for
+        each label added or removed."""
         update: dict[str, Any] = {"labels": labels}
-        if changes and self._writes_job_record:
-            body, _ = split_record(issue.body, issue=f"#{issue.number}")
-            update["body"] = with_record(body, self._block(issue, changes))
+        recorded = changes if self._writes_job_record else None
+        if recorded or body is not None:
+            held, _ = split_record(issue.body, issue=f"#{issue.number}")
+            update["body"] = with_record(
+                held if body is None else body, self._block(issue, recorded)
+            )
         self._update_issue(issue, **update)
         for label in labels:
             if label not in issue.labels:
@@ -903,6 +915,11 @@ class InMemoryRoadmapStore(RoadmapStore):
                 details={"number": number},
             )
         return issue
+
+    def _log_body(self, number: int, body: str | None) -> None:
+        """Log the body a combined write carried, as `write_issue_body` logs its own."""
+        if body is not None:
+            self._log("write_issue_body", number, value=body)
 
     def _log(
         self,

@@ -152,7 +152,7 @@ def test_a_write_that_fails_costs_the_other_items_nothing_and_the_round_logs_its
 ) -> None:
     store = InMemoryRoadmapStore(repo=REPO)
     first, second, third = _seed_three(store)
-    store.fail_write(write="write_issue_body", item=second)
+    store.fail_write(write="set_field", item=second)
     model_fake.answer(_READY)
 
     with caplog.at_level(logging.INFO, logger="devops_cli.roadmap.refine.refine"):
