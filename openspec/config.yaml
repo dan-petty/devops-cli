@@ -14,6 +14,8 @@ rules:
       State whether the change fits one pull request.
     - >-
       A change that alters no behavior a consumer observes (tests, CI workflows, documentation, a refactor that keeps behavior) has no spec delta and sets skip_specs: true in its .openspec.yaml. A devops command, option or message, a manifest and a service's behavior are observable: they carry a delta. Say why in What Changes.
+    - >-
+      A claim about every member of a set, or a new guard over a set, gives a count from a tool of the plan run or from a probe line; when no tool can count the set, say that the count is unverified, make the census command the `verify` of the first group, and decide each member as removed, restricted, or allowlisted with a reason; a count above zero for a claim of no members narrows the claim or names the follow-up issue; the set is the set that the issue names, and not the set of its examples.
   specs:
     - >-
       Run openspec list --specs first and reuse a capability. The delta that creates a capability starts with a "## Purpose" section of at least 50 characters, so archive never writes TBD. A capability that another active change creates is extended with ADDED requirements and no Purpose of its own.

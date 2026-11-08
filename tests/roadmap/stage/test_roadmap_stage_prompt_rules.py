@@ -454,6 +454,10 @@ _SHARED = [
         "`! git grep -n <name> src/ tests/` (a command that exits 0 when it finds nothing)",
     ),
     (
+        "openspec/config.yaml",
+        "gives a count from a tool of the plan run or from a probe line",
+    ),
+    (
         "docs/TESTING.md",
         "`! git grep -n <name> src/ tests/` (a command that exits 0 when it finds nothing)",
     ),
@@ -556,3 +560,38 @@ def test_the_stage_prompt_requires_citation_of_staged_constant_values() -> None:
         "and its value, as `feasibility` quotes the probe lines, and give no new name to the "
         "bound of a constant that the staged tree defines."
     ) in prompt
+
+
+# ── Count of a claimed set (#3304) ────────────────────────────────────────────
+
+
+def test_the_prompt_asks_for_a_count_of_a_claimed_set() -> None:
+    prompt = load_task_prompt("roadmap_stage_change.md")
+
+    assert "gives a count from a tool of the plan run or from a probe line" in prompt
+    assert "the count is unverified" in prompt
+    assert "census command" in prompt
+    assert "`verify` of the first group" in prompt
+    assert "removed, restricted, or allowlisted with a reason" in prompt
+    assert "a member with no decision" in prompt
+    assert "narrows the claim" in prompt
+    assert "follow-up issue" in prompt
+    assert "the set that the issue names" in prompt
+    assert "not the set of its examples" in prompt
+
+
+def test_the_plan_check_refuses_no_word_of_a_requirement_text() -> None:
+    proposal = make_stage_proposal()
+    req = (
+        proposal.specs[0]
+        .added[0]
+        .model_copy(update={"text": "Every caller SHALL pass a valid configuration."})
+    )
+    spec = proposal.specs[0].model_copy(update={"added": [req]})
+    proposal_with_every = proposal.model_copy(update={"specs": [spec]})
+    problems = check_proposal(
+        proposal_with_every,
+        known=[s.capability for s in proposal.specs],
+        tree=StagedTree(proposal.groups[0].changes),
+    )
+    assert not any("every" in p.lower() for p in problems)
