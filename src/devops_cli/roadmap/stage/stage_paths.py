@@ -277,7 +277,7 @@ def caller_problems(groups: Sequence[StageGroup], tree: StagedTree) -> list[str]
     return problems
 
 
-def path_problems(groups: Sequence[StageGroup], tree: StagedTree) -> list[str]:
+def path_problems(groups: Sequence[StageGroup], tree: StagedTree, *, change: str = "") -> list[str]:
     """One sentence for each path, named in `groups`, that `tree` lacks and that no group up to
     the one that names it creates. A path is named once, at its first place. When a later group
     creates the path, the sentence names that group too."""
@@ -285,6 +285,7 @@ def path_problems(groups: Sequence[StageGroup], tree: StagedTree) -> list[str]:
     created: set[str] = set()
     reported: set[str] = set()
     problems: list[str] = []
+    own_folder = posixpath.normpath(f"{_CHANGES_DIRECTORY}/{change}") if change else None
     for number, group in enumerate(groups, start=1):
         for path in group.creates:
             created |= {path, *_folders_of(path)}
@@ -293,14 +294,50 @@ def path_problems(groups: Sequence[StageGroup], tree: StagedTree) -> list[str]:
         for written in change_folder_paths([*group.changes, *group.creates]):
             if written in reported:
                 continue
+            if own_folder and (written == own_folder or written.startswith(f"{own_folder}/")):
+                continue
             reported.add(written)
             problems.append(MESSAGES.roadmap.stage_bad_change_path.format(path=written))
         for place, named in _named(group, tree):
             path = named.rstrip("/")
+            if own_folder and (path == own_folder or path.startswith(f"{own_folder}/")):
+                continue
             exists = tree.has_folder(path) if named.endswith("/") else tree.has(path)
             if path in reported or path in created or exists:
                 continue
             reported.add(path)
             problems.append(_problem(number, place, path, tree, creators.get(path)))
     problems.extend(caller_problems(groups, tree))
+    return problems
+
+
+def _is_own_change(path: str, own_folder: str) -> bool:
+    norm = posixpath.normpath(path)
+    return norm == own_folder or norm.startswith(f"{own_folder}/")
+
+
+def own_change_problems(groups: Sequence[StageGroup], change: str = "") -> list[str]:
+    """The problems when a group's changes or tasks name paths of the plan's own change folder."""
+    if not change:
+        return []
+    own_folder = posixpath.normpath(f"{_CHANGES_DIRECTORY}/{change}")
+    problems: list[str] = []
+    seen_changes: set[str] = set()
+    seen_tasks: set[tuple[int, str]] = set()
+
+    for number, group in enumerate(groups, start=1):
+        for path in group.changes:
+            if path not in seen_changes and _is_own_change(path, own_folder):
+                seen_changes.add(path)
+                problems.append(
+                    MESSAGES.roadmap.stage_own_change_changes.format(path=path, change=change)
+                )
+        for text in (group.test, group.implementation, group.documentation, group.process):
+            for span in code_spans(text or ""):
+                key = (number, span)
+                if key not in seen_tasks and _is_own_change(span, own_folder):
+                    seen_tasks.add(key)
+                    problems.append(
+                        MESSAGES.roadmap.stage_own_change_task.format(group=number, path=span)
+                    )
     return problems

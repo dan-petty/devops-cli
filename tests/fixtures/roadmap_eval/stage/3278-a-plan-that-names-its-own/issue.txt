@@ -1,0 +1,93 @@
+## Problem Description
+
+`k8s/logging/loki-values.yaml` sets `deploymentMode: SingleBinary`. In the `grafana-community/loki` chart, `SingleBinary` is the deprecated name of `Monolithic` since chart 12.0.0. The `values.schema.json` of chart 20.0.2 says "Monolithic (deprecated: SingleBinary)", and the Loki upgrade guide "Upgrade from the Loki Helm chart to the Community Helm chart" (section "11.x to 12.0") tells users to change the value. The chart still accepts the old name, so the render does not change today.
+
+The chart also renders ServiceAccount `loki-memcached`, because `memcached.enabled` is `true` by default. `chunksCache` and `resultsCache` are off, so no memcached pod uses that ServiceAccount.
+
+The change for #1632 moved Loki to `grafana-community/loki` 20.0.2. It did not change these keys, because a parallel change edits the same values file.
+
+## Reproduction Steps
+
+1. Run `helm template loki grafana-community/loki --version 20.0.2 -n logging -f k8s/logging/loki-values.yaml`.
+2. The output holds `kind: ServiceAccount` with `name: loki-memcached`.
+3. Read `deploymentMode` in the chart's `values.schema.json`: `SingleBinary` is a deprecated name.
+
+## Expected vs Actual Behavior
+
+- Expected: the values use the current name `Monolithic`, and the render holds no object that nothing uses.
+- Actual: the values use the deprecated name, and the render holds an unused ServiceAccount.
+
+## Proposed change
+
+- Set `deploymentMode: Monolithic` and change the comment above `read`, `write` and `backend` to the new name.
+- Make `_loki_mode` in `tests/test_k8s_local_path_placement.py` accept `Monolithic` only.
+- Set `memcached.enabled: false`, and confirm with `helm template` that the only change in the render is the removed ServiceAccount.
+
+
+Source: https://github.com/dan-petty/devops-cli/issues/1632
+
+<!-- devops-roadmap-refine:start -->
+<!-- checked-at: sha=c6a837d3afd274c647de87f3c093dacd2125c50f -->
+## Proposed design
+
+### Problem statement
+The Loki Helm values file uses the deprecated name SingleBinary for the deployment mode. The grafana-community/loki chart renamed it to Monolithic in version 12.0.0. The values file also renders an unused ServiceAccount loki-memcached because memcached.enabled defaults to true, while chunksCache and resultsCache are both off. This change sets the current name and removes the unused ServiceAccount.
+
+### Acceptance criteria
+
+### Requirement: deploymentMode uses the current name
+The values file SHALL set deploymentMode to Monolithic.
+
+#### Scenario: values file holds the current name
+- **WHEN** k8s/logging/loki-values.yaml is read
+- **THEN** deploymentMode is Monolithic and no line holds SingleBinary as a value
+
+### Requirement: comments use the current name
+Every comment in the values file that names the deployment mode SHALL use Monolithic.
+
+#### Scenario: no comment holds the old name
+- **WHEN** k8s/logging/loki-values.yaml is read
+- **THEN** no comment line contains the word SingleBinary
+
+### Requirement: memcached is disabled
+The values file SHALL set memcached.enabled to false.
+
+#### Scenario: memcached key is present and false
+- **WHEN** k8s/logging/loki-values.yaml is read
+- **THEN** memcached.enabled is false
+
+### Requirement: render holds no unused ServiceAccount
+The helm template output SHALL contain no ServiceAccount named loki-memcached.
+
+#### Scenario: render has no loki-memcached
+- **WHEN** helm template loki grafana-community/loki --version 20.0.2 -n logging -f k8s/logging/loki-values.yaml is run
+- **THEN** the output holds no document with kind ServiceAccount and name loki-memcached
+
+### Requirement: test accepts only Monolithic
+The function _loki_mode SHALL accept Monolithic and reject SingleBinary.
+
+#### Scenario: test fails on the old name
+- **WHEN** _loki_mode is called with a values dict whose deploymentMode is SingleBinary
+- **THEN** the function raises pytest.fail
+
+### Existing Tool Considered
+No check has run. The change edits values for the existing grafana-community/loki Helm chart, which already supports Monolithic as the deployment mode and memcached.enabled: false. No new tool or library is needed. The written cost is editing two files (k8s/logging/loki-values.yaml and tests/test_k8s_local_path_placement.py) and verifying with helm template.
+
+### Key questions
+- **What is the current name of the deployment mode in grafana-community/loki chart 20.0.2?**: Monolithic. The chart's values.schema.json says Monolithic (deprecated: SingleBinary), and the upgrade guide for 11.x to 12.0 tells users to change the value. [sources: openspec/changes/archive/2026-10-28-1632-loki-grafana-community-chart/design.md:46, k8s/logging/loki-values.yaml:6]
+- **Should _loki_mode accept only Monolithic or both Monolithic and SingleBinary?**: Only Monolithic. The body's proposed change says to make _loki_mode accept Monolithic only. The project should use the current name and not keep the deprecated alias. (best practice) [sources: openspec/changes/archive/2026-10-28-1632-loki-grafana-community-chart/design.md:54, tests/test_k8s_local_path_placement.py:62]
+  - Chosen: Accept only Monolithic. The body's proposed change states this. The project should use the current name and drop the deprecated alias so a future chart that removes SingleBinary does not break the test.
+  - Rejected: Accept both Monolithic and SingleBinary. The chart still accepts the old name for backward compatibility. However, the project controls its own values file and should not depend on a deprecated alias.
+- **Does disabling memcached.enabled remove any other rendered resource?**: No. chunksCache and resultsCache are both false, so no pod uses the memcached ServiceAccount. The only rendered resource removed is the ServiceAccount loki-memcached. [sources: k8s/logging/loki-values.yaml:94, k8s/logging/loki-values.yaml:97]
+
+### Fit
+Fits in one pull request.
+
+### Suspected block
+None.
+
+### Dependencies
+None.
+<!-- devops-roadmap-refine:end -->
+
+<!-- devops-roadmap-record {"Effort": "Low", "Owner": null, "Priority": "P3-Low", "Status": "In Review", "Value": "Low", "implement.branch": "fix/2441-loki-values-name-the-monolithic-deployment", "implement.failure": null, "implement.job": "devops-cli-runner-20261103-100320-094d", "implement.job_digest": "sha256:ef0d0ace3359daaf57e2bb1904dd131a16eca5fd52c54ffdcfeb5cf25f2c41f8", "implement.job_state": "succeeded", "implement.spend": "{\"requests\": 44, \"input_tokens\": 1431685, \"output_tokens\": 7446}", "implement.stopped": null, "refine.alternatives_asked": null, "refine.block_paths": null, "refine.blocked_by": null, "refine.body_hash": "3ed83ff0470f5cf2bcbec2732336e3ddf40c0f1b0db9f16656f8fc5400b2b184", "refine.failed_body_hash": null, "refine.needs_split": "false", "refine.next_step": "ready", "refine.section_hash": "5940a34d77597387da60515dde64d900f976d4cca0da809c956c1432bd945456", "stage.branch": null, "stage.failed_at": null, "stage.failed_error": null, "stage.file_cap": null, "stage.groups": null, "stage.needs_fix": null, "stage.needs_split": null, "stage.pr": null, "stage.ready": null, "stage.rejected": null, "stage.sha": null, "stage.text_hash": null} -->

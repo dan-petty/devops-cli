@@ -1,0 +1,16 @@
+{
+  "tracked": [
+    "k8s/logging/loki-values.yaml",
+    "openspec/changes/archive/2026-10-28-1632-loki-grafana-community-chart/design.md",
+    "openspec/changes/archive/2026-10-28-1632-loki-grafana-community-chart/proposal.md",
+    "openspec/specs/loki-release-pin/spec.md",
+    "tests/commands/k8s/test_k8s.py",
+    "tests/core/test_k8s_local_path_placement.py",
+    "tests/support/k8s_tree.py"
+  ],
+  "capabilities": [
+    "loki-release-pin"
+  ],
+  "search_evidence": {},
+  "constants": []
+}

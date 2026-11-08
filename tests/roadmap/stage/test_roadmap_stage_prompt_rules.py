@@ -595,3 +595,27 @@ def test_the_plan_check_refuses_no_word_of_a_requirement_text() -> None:
         tree=StagedTree(proposal.groups[0].changes),
     )
     assert not any("every" in p.lower() for p in problems)
+
+
+# ── Refuse a self-named or untested plan (#3321) ──────────────────────────────
+
+
+def test_the_stage_prompt_refuses_the_own_change_folder() -> None:
+    prompt = load_task_prompt("roadmap_stage_change.md")
+
+    assert "plan's own change folder" in prompt
+    assert "refuses a group or a task that names the own change folder" in prompt
+
+
+def test_the_stage_prompt_requires_behavior_test_for_scenario_code() -> None:
+    prompt = load_task_prompt("roadmap_stage_change.md")
+
+    assert "behavior test that names it in `test` or `verify`" in prompt
+    assert "refuses a scenario that names code with no behavior test" in prompt
+
+
+def test_the_stage_prompt_requires_coverage_of_quoted_references() -> None:
+    prompt = load_task_prompt("roadmap_stage_change.md")
+
+    assert "quotes a `References to` search answer" in prompt
+    assert "refuses a file from a quoted search that no group or decision covers" in prompt

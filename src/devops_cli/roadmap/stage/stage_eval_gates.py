@@ -43,6 +43,7 @@ from devops_cli.roadmap.stage.stage_change import (
     StageDecision,
     StageGroup,
     StageProposal,
+    StageRejection,
     StageSpec,
     check_proposal,
     content_problems,
@@ -80,6 +81,7 @@ class PlanUnderTest:
     search_evidence: Mapping[str, Sequence[str]] = field(default_factory=dict)
     registry: Sequence[RegistryCount] | None = None
     constants: Mapping[str, int] = field(default_factory=dict)
+    change: str = ""
 
     @classmethod
     def of_case(
@@ -94,6 +96,7 @@ class PlanUnderTest:
         specs = [spec for raw in case.plan["specs"] if (spec := _spec_of(raw, problems))]
         criteria = [StageCriterion.model_validate(raw) for raw in case.plan.get("criteria", [])]
         decisions = [StageDecision.model_validate(raw) for raw in case.plan.get("decisions", [])]
+        rejected = [StageRejection.model_validate(raw) for raw in case.plan.get("rejected", [])]
         proposal = StageProposal.model_construct(
             **{
                 **case.plan,
@@ -101,6 +104,7 @@ class PlanUnderTest:
                 "groups": groups,
                 "criteria": criteria,
                 "decisions": decisions,
+                "rejected": rejected,
             }
         )
         return cls(
@@ -113,6 +117,7 @@ class PlanUnderTest:
             search_evidence=case.facts.search_evidence,
             registry=registry,
             constants=dict(case.facts.constants),
+            change=case.change,
         )
 
     @classmethod
@@ -172,6 +177,7 @@ def _path_gate(plan: PlanUnderTest) -> list[str]:
         plan.proposal,
         plan.known,
         plan.tree,
+        change=plan.change,
         requirements=plan.requirements,
         search_evidence=plan.search_evidence or None,
         registry=plan.registry,

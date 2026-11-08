@@ -61,15 +61,23 @@ from devops_cli.roadmap.stage.stage_criteria import (
     criterion_problems,
 )
 from devops_cli.roadmap.stage.stage_form import form_problems, search_problems
-from devops_cli.roadmap.stage.stage_move import move_prefix_problems, move_verify_problems
-from devops_cli.roadmap.stage.stage_paths import StagedTree, change_folder_paths, path_problems
+from devops_cli.roadmap.stage.stage_move import (
+    move_prefix_problems,
+    move_verify_problems,
+)
+from devops_cli.roadmap.stage.stage_paths import (
+    StagedTree,
+    change_folder_paths,
+    own_change_problems,
+    path_problems,
+)
 from devops_cli.roadmap.stage.stage_registry import (
     RegistryCount,
     matches,
     missing_test_paths,
     registry_table,
 )
-from devops_cli.roadmap.step_files import named_files, packed_file, parse_task_groups
+from devops_cli.roadmap.step_files import code_spans, named_files, packed_file, parse_task_groups
 from devops_cli.roadmap.step_rules import rules_sections
 
 if TYPE_CHECKING:
@@ -115,11 +123,26 @@ _REQUIREMENT_WORDS: Final[frozenset[str]] = frozenset({"SHALL", "MUST"})
 _WORD_PUNCTUATION: Final[str] = ".,;:()"
 # GitHub closes the issue that follows one of these words in the body of a pull request.
 _CLOSING_KEYWORDS: Final[frozenset[str]] = frozenset(
-    {"close", "closes", "closed", "fix", "fixes", "fixed", "resolve", "resolves", "resolved"}
+    {
+        "close",
+        "closes",
+        "closed",
+        "fix",
+        "fixes",
+        "fixed",
+        "resolve",
+        "resolves",
+        "resolved",
+    }
 )
 # A change whose every path starts with one of these has no spec delta: tests, workflows, documents
 # and plans are not behavior a consumer observes (#3013).
-_NO_SPEC_PREFIXES: Final[tuple[str, ...]] = ("tests/", ".github/workflows/", "docs/", "openspec/")
+_NO_SPEC_PREFIXES: Final[tuple[str, ...]] = (
+    "tests/",
+    ".github/workflows/",
+    "docs/",
+    "openspec/",
+)
 _NO_SPEC_PREFIXES_TEXT: Final[str] = (
     f"{', '.join(_NO_SPEC_PREFIXES[:-1])} or {_NO_SPEC_PREFIXES[-1]}"
 )
@@ -127,7 +150,10 @@ _TESTS_DIRECTORY: Final[str] = "tests/"
 _SOURCE_DIRECTORY: Final[str] = "src/"
 # A group that changes a path under one of these ends its documents task with the step that
 # regenerates the documents (#3226).
-_REGENERATE_PREFIXES: Final[tuple[str, ...]] = ("src/devops_cli/commands/", "src/devops_cli/lang/")
+_REGENERATE_PREFIXES: Final[tuple[str, ...]] = (
+    "src/devops_cli/commands/",
+    "src/devops_cli/lang/",
+)
 # A word names a path when it ends in a dot and letters, as a root document such as SECURITY.md
 # does (#3226).
 _PATH_SUFFIX: Final[re.Pattern[str]] = re.compile(r"\.[A-Za-z]+$")
@@ -290,11 +316,15 @@ def _block_free(text: str) -> str:
 # A text of a task group: at least one character once the whitespace around it is stripped, and on
 # one line in `tasks.md`.
 Text = Annotated[
-    str, StringConstraints(strip_whitespace=True, min_length=1), AfterValidator(_one_line)
+    str,
+    StringConstraints(strip_whitespace=True, min_length=1),
+    AfterValidator(_one_line),
 ]
 # A command: on one line, with its spaces kept.
 Command = Annotated[
-    str, StringConstraints(strip_whitespace=True, min_length=1), AfterValidator(_join_lines)
+    str,
+    StringConstraints(strip_whitespace=True, min_length=1),
+    AfterValidator(_join_lines),
 ]
 # A text of a file of the change that is not a task: on one line, and at the start of a line only
 # when it starts with no block syntax.
@@ -327,7 +357,9 @@ Sentence = Annotated[
 
 # The steps of a manual check: at least one character, and on one line in `tasks.md`.
 Process = Annotated[
-    str, StringConstraints(strip_whitespace=True, min_length=1), AfterValidator(_one_line)
+    str,
+    StringConstraints(strip_whitespace=True, min_length=1),
+    AfterValidator(_one_line),
 ]
 
 
@@ -496,7 +528,10 @@ def _other_problems(group: StageGroup) -> list[str]:
     found = (
         (group.test is not None, texts.stage_kind_other_test),
         (group.verify is None and group.process is None, texts.stage_kind_no_check),
-        (group.verify is not None and group.process is not None, texts.stage_kind_two_checks),
+        (
+            group.verify is not None and group.process is not None,
+            texts.stage_kind_two_checks,
+        ),
     )
     return [text.format(title=group.title) for broken, text in found if broken]
 
@@ -673,7 +708,9 @@ def _stale_command_problems(spec: StageSpec, texts: Mapping[str, str]) -> list[s
     ]
     problems.extend(
         messages.stage_problem_stale_command_text.format(
-            requirement=requirement.name.strip(), capability=spec.capability, command=name
+            requirement=requirement.name.strip(),
+            capability=spec.capability,
+            command=name,
         )
         for requirement in spec.modified
         for name in removed
@@ -711,6 +748,139 @@ def _delta_problems(
     return problems
 
 
+_SCENARIO_COMMAND_WORDS: Final[frozenset[str]] = frozenset(
+    {
+        "helm",
+        "git",
+        "kubectl",
+        "uv",
+        "devops",
+        "tofu",
+        "terraform",
+        "gh",
+        "openspec",
+        "pytest",
+        "ruff",
+        "mypy",
+    }
+)
+
+_CODE_IDENTIFIER: Final[re.Pattern[str]] = re.compile(
+    r"^(?:[A-Za-z_][A-Za-z0-9_]*\.)*[A-Za-z_][A-Za-z0-9_]*$"
+)
+
+
+def _is_scenario_command(span: str) -> bool:
+    words = span.split()
+    return len(words) > 1 and words[0] in _SCENARIO_COMMAND_WORDS
+
+
+def _is_code_identifier(span: str) -> bool:
+    if span.startswith("devops_cli_") or span.endswith("_") or span.isupper():
+        return False
+    return bool(_CODE_IDENTIFIER.match(span)) and ("." in span or "_" in span)
+
+
+def _scenario_problems(
+    specs: Sequence[StageSpec],
+    groups: Sequence[StageGroup],
+    tree: StagedTree,
+) -> list[str]:
+    """The problems of spec scenarios that name code without a behavior test (#3321)."""
+    behavior_groups = [g for g in groups if g.kind == GroupKind.BEHAVIOR]
+    behavior_tests = [g.test for g in behavior_groups if g.test]
+    behavior_verifies = [g.verify for g in behavior_groups if g.verify]
+    problems: list[str] = []
+
+    for spec in specs:
+        for req in (*spec.added, *spec.modified):
+            for scenario in req.scenarios:
+                spans = [*code_spans(scenario.when), *code_spans(scenario.then)]
+                if any(_is_scenario_command(span) for span in spans):
+                    continue
+                code_spans_in_scenario = [
+                    span
+                    for span in spans
+                    if tree.as_path(span) is not None or _is_code_identifier(span)
+                ]
+                if not code_spans_in_scenario:
+                    continue
+                satisfied = any(
+                    any(code in test for test in behavior_tests)
+                    or (
+                        tree.as_path(code) is not None
+                        and any(code in verify for verify in behavior_verifies)
+                    )
+                    for code in code_spans_in_scenario
+                )
+                if not satisfied:
+                    problems.append(
+                        MESSAGES.roadmap.stage_scenario_untested_code.format(
+                            scenario=scenario.name, code=code_spans_in_scenario[0]
+                        )
+                    )
+    return problems
+
+
+_REFERENCE_HEADER: Final[re.Pattern[str]] = re.compile(
+    r"References to\s+['\"].+?['\"]:\s*files\s+\d+,\s*lines\s+\d+", re.IGNORECASE
+)
+_REFERENCE_FILE_LINE: Final[re.Pattern[str]] = re.compile(
+    r"^(?P<path>[\w./-]+):\s*\d+\s*\((?:line|lines)\s+[^)]+\)"
+)
+_ARCHIVE_PREFIX: Final[str] = "openspec/changes/archive/"
+
+
+def _extract_reference_paths(texts: Sequence[str]) -> list[str]:
+    """The file paths listed in quoted `References to` search blocks."""
+    quoted: list[str] = []
+    in_block = False
+    for text in texts:
+        for raw_line in text.splitlines():
+            line = raw_line.strip()
+            if _REFERENCE_HEADER.search(line):
+                in_block = True
+                continue
+            if not in_block:
+                continue
+            match = _REFERENCE_FILE_LINE.match(line)
+            if match:
+                path = match.group("path")
+                if not path.startswith(_ARCHIVE_PREFIX):
+                    quoted.append(path)
+            elif line and not line.startswith("Files left out:"):
+                in_block = False
+    return quoted
+
+
+def _reference_problems(proposal: StageProposal) -> list[str]:
+    """One problem for each file that a quoted `References to` search lists and no task or
+    decision covers (#3321)."""
+    texts = (*proposal.feasibility, proposal.why, *proposal.what_changes)
+    quoted_paths = _extract_reference_paths(texts)
+    if not quoted_paths:
+        return []
+
+    covered_paths = {p for g in proposal.groups for p in (*g.changes, *g.creates)}
+    decision_texts = [
+        f"{d['decision'] if isinstance(d, dict) else d.decision} {d['reason'] if isinstance(d, dict) else d.reason}"
+        for d in proposal.decisions
+    ] + [
+        f"{r['alternative'] if isinstance(r, dict) else r.alternative} {r['evidence'] if isinstance(r, dict) else r.evidence}"
+        for r in proposal.rejected
+    ]
+
+    problems: list[str] = []
+    seen: set[str] = set()
+    for path in quoted_paths:
+        if path not in seen and path not in covered_paths:
+            seen.add(path)
+            if not any(path in d_text for d_text in decision_texts):
+                problems.append(MESSAGES.roadmap.stage_reference_uncovered_file.format(path=path))
+
+    return problems
+
+
 def _text_problems(field: str, text: str) -> list[str]:
     """The problems of one text of the plan: too short for a sentence, or a placeholder word."""
     texts = MESSAGES.roadmap
@@ -729,7 +899,11 @@ def _text_problems(field: str, text: str) -> list[str]:
 
 def _scenario_texts(scenario: Any) -> list[str]:
     if isinstance(scenario, dict):
-        return [scenario.get("name", ""), scenario.get("when", ""), scenario.get("then", "")]
+        return [
+            scenario.get("name", ""),
+            scenario.get("when", ""),
+            scenario.get("then", ""),
+        ]
     return [
         getattr(scenario, "name", ""),
         getattr(scenario, "when", ""),
@@ -1157,6 +1331,7 @@ def check_gates(
     known: Collection[str],
     tree: StagedTree,
     *,
+    change: str = "",
     requirements: Mapping[str, Collection[str]] | None = None,
     requirement_texts: Mapping[str, Mapping[str, str]] | None = None,
     issue_body: str = "",
@@ -1172,15 +1347,18 @@ def check_gates(
     name of the gate. Every gate has a key, and a gate that finds nothing has an empty list. The
     keys follow the order of `ProposalGate`. The arguments are those of `check_proposal`."""
     return {
-        ProposalGate.SPEC_DELTA: _delta_problems(
-            proposal, known, requirements or {}, requirement_texts
-        ),
+        ProposalGate.SPEC_DELTA: [
+            *_delta_problems(proposal, known, requirements or {}, requirement_texts),
+            *_scenario_problems(proposal.specs, proposal.groups, tree),
+        ],
         ProposalGate.CONTENT: content_problems(proposal, probes),
         ProposalGate.CITATION: _plan_citation_problems(proposal, read_text),
         ProposalGate.FORM: form_problems(proposal.groups),
         ProposalGate.EVAL_REPLAY: eval_replay_problems(proposal.groups),
         ProposalGate.PATHS: [
-            *path_problems(proposal.groups, tree),
+            *path_problems(proposal.groups, tree, change=change),
+            *own_change_problems(proposal.groups, change),
+            *_reference_problems(proposal),
             *_stale_test_path_problems(proposal, tree, read_text),
         ],
         ProposalGate.WHAT_CHANGES: _what_changes_problems(proposal, tree),
@@ -1205,6 +1383,7 @@ def check_proposal(
     known: Collection[str],
     tree: StagedTree,
     *,
+    change: str = "",
     requirements: Mapping[str, Collection[str]] | None = None,
     requirement_texts: Mapping[str, Mapping[str, str]] | None = None,
     issue_body: str = "",
@@ -1239,6 +1418,7 @@ def check_proposal(
         proposal,
         known,
         tree,
+        change=change,
         requirements=requirements,
         requirement_texts=requirement_texts,
         issue_body=issue_body,

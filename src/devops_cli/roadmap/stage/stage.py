@@ -1122,7 +1122,9 @@ class _Planner:
     ) -> StagedChange | OverBudget | _Refused:
         """The outcome for one reply: a change, a stop on the budget, or the problem that sends
         the reply back."""
-        problems = self._problems(proposal, self._tree_of(target, proposal), request)
+        problems = self._problems(
+            proposal, self._tree_of(target, proposal), request, change=target.change
+        )
         if problems:
             return _Refused(" ".join(problems), proposal)
         title = staging_title(target.item.number, proposal.summary)
@@ -1135,7 +1137,9 @@ class _Planner:
         if asked is not proposal:
             # The split gave new groups, and the model can bring back a fault that only one gate
             # refuses. Every gate of the first reply judges the split too.
-            problems = self._problems(asked, self._tree.with_files(files), request)
+            problems = self._problems(
+                asked, self._tree.with_files(files), request, change=target.change
+            )
             if problems:
                 return _Refused(" ".join(problems), asked)
         proposal = asked
@@ -1160,7 +1164,12 @@ class _Planner:
         )
 
     def _problems(
-        self, proposal: StageProposal, tree: StagedTree, request: StageRequest
+        self,
+        proposal: StageProposal,
+        tree: StagedTree,
+        request: StageRequest,
+        *,
+        change: str = "",
     ) -> list[str]:
         """The problems that every gate finds in one reply: the first one and a split of it."""
         evidence = (
@@ -1169,6 +1178,7 @@ class _Planner:
         constants = staged_constants(self._source, self._sha, candidate_names(plan_texts(proposal)))
         return check_proposal(
             proposal,
+            change=change,
             **gate_arguments(
                 request,
                 tree,
