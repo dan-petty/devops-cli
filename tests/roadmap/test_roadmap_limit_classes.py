@@ -200,6 +200,10 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
         "kept",
         "planner calls that repair one plan; it bounds the cost of a plan that the review returns",
     ),
+    "CONST_ROADMAP_STAGE_ORPHAN_AGE_SECONDS": (
+        "kept",
+        "the age of a pending mark before the stage job judges it; a younger mark can belong to a run that still pushes",
+    ),
     "CONST_ROADMAP_VERIFY_RECALL_FLOOR": (
         "other",
         "the recall that the verify eval must reach; a score bar, not a limit of a job",
