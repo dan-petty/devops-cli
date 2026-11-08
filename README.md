@@ -231,6 +231,15 @@ Docker Hub does not count against the anonymous allowance of the network's publi
 Exits 1, before it resolves an image, when an image has no digest and the latest tag or no tag,
 unless Image Updater moves it. Exits 1 when a registry does not hold an image or refuses the
 read. The CI job `image-pins` runs the check on a pull request that changes k8s/. |
+|  | `devops k8s crawl4ai-check [OPTIONS]` | Check that the Crawl4AI service refuses internal targets. It sends each of five routes
+(/md, /html, /screenshot, /pdf and /llm) to each of five internal targets (the metadata
+address, localhost, the Kubernetes API, the service itself and the roadmap Service) with the
+token of the keyring, through a local port-forward, and sends each route once without the
+token. It also tries a connect to the metadata address and to a private ClusterIP from a
+throwaway pod that carries the label of the service, so the NetworkPolicy applies to it.
+Run it at each bump of the image digest. The token never appears in the output. Exits 1 when
+a target is served, a request without the token is not refused, or the pod opens a
+connection. |
 |  | `devops k8s create-tls-secret [OPTIONS] <secret_name>` | Create or update a kubernetes.io/tls secret from certificate and private key files. |
 |  | `devops k8s enable-tls [OPTIONS]` | Generate Homelab certificates and apply TLS secrets across Kubernetes cluster namespaces. |
 |  | `devops k8s validate [OPTIONS] <manifest_path>` | Validate Kubernetes YAML manifests against OpenAPI schemas using Kubeconform. |

@@ -1280,6 +1280,30 @@ devops k8s image-pins [OPTIONS] <root>
 |---|---|---|---|
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
+### `devops k8s crawl4ai-check`
+
+**Check that the Crawl4AI service refuses internal targets. It sends each of five routes
+(/md, /html, /screenshot, /pdf and /llm) to each of five internal targets (the metadata
+address, localhost, the Kubernetes API, the service itself and the roadmap Service) with the
+token of the keyring, through a local port-forward, and sends each route once without the
+token. It also tries a connect to the metadata address and to a private ClusterIP from a
+throwaway pod that carries the label of the service, so the NetworkPolicy applies to it.
+Run it at each bump of the image digest. The token never appears in the output. Exits 1 when
+a target is served, a request without the token is not refused, or the pod opens a
+connection.**
+
+```bash
+devops k8s crawl4ai-check [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--local-port` | `integer` | `11236` | Local port of the kubectl port-forward to Service crawl4ai. Use a port that no program holds. |
+| `--context` | `string` | - | Kubernetes cluster context name. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
 ### `devops k8s create-tls-secret`
 
 **Create or update a kubernetes.io/tls secret from certificate and private key files.**
