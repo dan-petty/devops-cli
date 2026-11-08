@@ -22,10 +22,10 @@ See proposal.md for the scope (#4088, group 4 of #3769). The other command group
 - **Why**: the behavior under test is the same: the command reports what the code returned, and the code sends the normalized IP.
 - **Rejected**: keep the double for these three tests. The patch is what this item removes.
 
-### 4. `test_tls_commands_mocked` is renamed
-- **Decision**: the test is now `test_tls_ca_cert_and_inspect_commands_read_each_others_files`. It runs `tls ca`, `tls cert` and `tls inspect` on the files each step writes.
-- **Why**: the old name says that the crypto functions are mocked. They are not now, and a name that says the opposite of the code is wrong.
-- **Rejected**: keep the name. A name that says the crypto is mocked misleads the reader of a test that runs it.
+### 4. Three tests lose "mocked" from their names
+- **Decision**: `test_tls_commands_mocked` is now `test_tls_ca_cert_and_inspect_commands_read_each_others_files`. It runs `tls ca`, `tls cert` and `tls inspect` on the files each step writes. `test_telemetry_status_live_mocked` and `test_telemetry_test_live_mocked` are now `test_telemetry_status_live` and `test_telemetry_test_live`. They use the `otlp` collector fake.
+- **Why**: the old names say that a function is mocked. It is not now, and a name that says the opposite of the code is wrong.
+- **Rejected**: keep the names. A name that says "mocked" misleads the reader of a test that runs the real code.
 
 ### 5. Some patches and one private import stay out of this change
 - **Decision**: `test_mcp_serve_stdio_and_sse.py` (5), and the private `_validate_vault_path` import of four unchanged vault tests, stay for another change.

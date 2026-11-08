@@ -33,7 +33,7 @@ from devops_cli.exceptions.valkey import (
     ValkeyConnectionError,
     ValkeyTimeoutError,
 )
-from devops_cli.valkey.client import ValkeyClient
+from devops_cli.valkey.client import ValkeyClient, resolve_valkey_client
 from devops_cli.valkey.endpoint import ValkeyEndpoint, parse_valkey_url
 from tests.support.certificates import LocalCa
 from tests.support.config_writes import written_keys
@@ -73,11 +73,7 @@ class TestValkeyClientDestination:
     def test_valkey_protocol_is_satisfied_by_valkey_client(
         self, valkey_client: ValkeyClient, keyring_store: Any
     ) -> None:
-        from devops_cli.valkey.client import (
-            ValkeyProtocol,
-            reset_valkey_client,
-            resolve_valkey_client,
-        )
+        from devops_cli.valkey.client import ValkeyProtocol, reset_valkey_client
 
         assert isinstance(valkey_client, ValkeyProtocol)
         valkey_client.set("proto_key", "proto_val")
@@ -106,9 +102,7 @@ class TestValkeyClientDestination:
             reset_valkey_client()
 
     def test_valkey_fixture(self, valkey: ValkeyClient, keyring_store: Any) -> None:
-        from devops_cli.commands.valkey import _resolve_client
-
-        client = _resolve_client()
+        client = resolve_valkey_client()
         assert client is valkey
         assert client.ping() is True
 

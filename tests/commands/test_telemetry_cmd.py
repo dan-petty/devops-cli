@@ -37,7 +37,7 @@ def test_telemetry_test_dry_run() -> None:
         set_dry_run(False)
 
 
-def test_telemetry_status_live_mocked(cli: Any, otlp: FakeCollector) -> None:
+def test_telemetry_status_live(cli: Any, otlp: FakeCollector) -> None:
     """devops telemetry status displays formatted table."""
     otlp.answer(200)
 
@@ -49,7 +49,7 @@ def test_telemetry_status_live_mocked(cli: Any, otlp: FakeCollector) -> None:
     assert "Connected" in result.output
 
 
-def test_telemetry_test_live_mocked(cli: Any, otlp: FakeCollector) -> None:
+def test_telemetry_test_live(cli: Any, otlp: FakeCollector) -> None:
     """devops telemetry test emits span and prints confirmation."""
     result = cli("telemetry", "test", "--name", "custom_test_span")
 
