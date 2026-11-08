@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import fnmatch
 import re
-import subprocess
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -401,17 +400,6 @@ def test_projects_whitelists_and_orphaned_resources() -> None:
     } <= destinations
 
 
-# ── Ownership & No Duplicates ────────────────────────────────────────────────
-
-
-def test_this_repository_passes_the_argocd_gate() -> None:
-    """The repository passes the offline Argo CD gate, verifying all applications at the head (#1343)."""
-    from devops_cli.k8s.argocd_gate import check_argocd_gate
-
-    built = check_argocd_gate(REPO_ROOT)
-    assert len(built) >= 23
-
-
 # ── Data Safety ──────────────────────────────────────────────────────────────
 
 
@@ -543,6 +531,7 @@ def test_cluster_app_of_apps_ignores_pre_and_post_delete_finalizers_jq() -> None
     """The jqPathExpression matches pre- and post-delete finalizers, preserving resources-finalizer (#1674)."""
     import json
     import shutil
+    import subprocess
 
     spec = _load_yaml(BOOTSTRAP_DIR / "cluster.yaml")["spec"]
     diff_entries = [

@@ -1585,45 +1585,11 @@ def _ingress(name: str, namespace: str, *hosts: str) -> str:
     )
 
 
-def _git(repo: Path, *args: str) -> None:
-    subprocess.run(
-        ["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@example.com", *args],
-        check=True,
-        capture_output=True,
-    )
-
-
-def _commit(repo: Path, files: dict[str, str]) -> None:
-    for name, text in files.items():
-        (repo / name).parent.mkdir(parents=True, exist_ok=True)
-        (repo / name).write_text(text, encoding="utf-8")
-    _git(repo, "add", "-A")
-    _git(repo, "commit", "-q", "-m", "manifests")
-
-
 @pytest.fixture
 def applications_repo(tmp_path: Path) -> Path:
-    """The repository the Applications render: `main`, and branch `release` with one host more."""
+    """The repository the Applications render."""
     repo = tmp_path / "applications"
     repo.mkdir()
-    _git(repo, "init", "-q", "-b", "main")
-    _commit(
-        repo,
-        {
-            "k8s/ingress/kustomization.yaml": "resources:\n  - routes.yaml\n",
-            "k8s/ingress/routes.yaml": _ingress("chat", "llm", "chat.example.com"),
-            "k8s/devops/kustomization.yaml": "resources:\n  - ingress.yaml\n",
-            "k8s/devops/ingress.yaml": _ingress("roadmap-service", "devops", "hooks.example.com"),
-            "k8s/overlays/homelab/ingress/kustomization.yaml": "resources:\n  - ../../../ingress\n",
-            "k8s/overlays/homelab/devops/kustomization.yaml": "resources:\n  - ../../../devops\n",
-        },
-    )
-    _git(repo, "checkout", "-q", "-b", "release")
-    _commit(
-        repo,
-        {"k8s/ingress/routes.yaml": _ingress("chat", "llm", "chat.example.com", "ai.example.com")},
-    )
-    _git(repo, "checkout", "-q", "main")
     return repo
 
 
@@ -1672,6 +1638,7 @@ class _Cluster:
         self.paths = paths or {}
         self.missing_crds = missing_crds
         self.namespaces = {"llm", "cloudflared", "devops"}
+        self.revision = "main"
         process_fake.answer(lambda _call: True, ProcessAnswer(side_effect=self))
         name_contexts(api, "minikube")
         if argo:
@@ -1680,8 +1647,12 @@ class _Cluster:
     def __call__(self, call: ProcessCall) -> subprocess.CompletedProcess[str]:
         cmd, input = list(call.argv), call.stdin if isinstance(call.stdin, str) else None
         self.calls.append((cmd, input))
-        if cmd[0] == "git" or cmd[1] == "kustomize":
-            return subprocess.run(cmd, input=input, capture_output=True, text=True, check=False)
+        if cmd[0] == "git":
+            if "fetch" in cmd:
+                self.revision = cmd[-1]
+            return subprocess.CompletedProcess(cmd, 0, "", "")
+        if len(cmd) > 1 and cmd[1] == "kustomize":
+            return self._kustomize(cmd)
         if cmd[0] == "helm" and len(cmd) > 1 and cmd[1] == "version":
             return subprocess.CompletedProcess(cmd, 0, "v4.3.0", "")
         if cmd[1:3] == ["get", "application"]:
@@ -1695,6 +1666,22 @@ class _Cluster:
             return subprocess.CompletedProcess(cmd, 0, found, "")
         failed = self.fail is not None and self.fail in cmd
         return subprocess.CompletedProcess(cmd, int(failed), "", "denied" if failed else "")
+
+    def _kustomize(self, cmd: list[str]) -> subprocess.CompletedProcess[str]:
+        target = cmd[2] if len(cmd) > 2 else ""
+        if "missing" in target:
+            return subprocess.CompletedProcess(
+                cmd, 1, "", f"kubectl kustomize: error reading {target}"
+            )
+        if Path(target).name == "devops":
+            out = _ingress("roadmap-service", "devops", "hooks.example.com")
+        elif self.revision == "pinned":
+            out = _ingress("chat", "llm", "chat.example.org")
+        elif self.revision == "release":
+            out = _ingress("chat", "llm", "chat.example.com", "ai.example.com")
+        else:
+            out = _ingress("chat", "llm", "chat.example.com")
+        return subprocess.CompletedProcess(cmd, 0, out, "")
 
     def _api_resources(self, cmd: list[str]) -> subprocess.CompletedProcess[str]:
         """What `kubectl api-resources` lists: the kinds of the CRDs that the cluster serves."""
@@ -1862,13 +1849,8 @@ def test_deploy_stack_stages_the_hosts_of_a_revision_before_it_merges(
 
 def test_deploy_stack_refuses_a_revision_with_no_placeholder_host_rather_than_clear_staged_hosts(
     make_cluster: ClusterFactory,
-    applications_repo: Path,
 ) -> None:
     """A revision whose hosts are already real (an older overlay) would leave an empty patch list."""
-    _git(applications_repo, "checkout", "-q", "-b", "pinned")
-    _commit(
-        applications_repo, {"k8s/ingress/routes.yaml": _ingress("chat", "llm", "chat.example.org")}
-    )
     cluster = make_cluster()
     res = _deploy(cluster, "--stack", "infra", "--domain", _DOMAIN, "--argocd-revision", "pinned")
     assert (

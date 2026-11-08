@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import io
 import subprocess
+import tarfile
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
@@ -12,17 +14,41 @@ import yaml
 
 from devops_cli.exceptions.k8s import ArgoCDGateError
 from devops_cli.k8s.argocd_gate import check_argocd_gate
+from tests.support.fakes.git import GitFake
+from tests.support.fakes.process import ProcessAnswer, ProcessCall
 
 
-def _git_run(cwd: Path, *args: str) -> str:
-    res = subprocess.run(
-        ["git", *args],
-        cwd=cwd,
-        check=True,
-        capture_output=True,
-        text=True,
+@pytest.fixture(autouse=True)
+def _stub_git(git_fake: GitFake) -> GitFake:
+    git_fake.answer(
+        lambda call: "config" in call.argv and "remote.origin.url" in call.argv,
+        ProcessAnswer(returncode=1, stdout="", stderr=""),
     )
-    return res.stdout.strip()
+
+    def _handle_kubectl(call: ProcessCall) -> subprocess.CompletedProcess[str]:
+        target = Path(call.argv[2])
+        kust_file = target / "kustomization.yaml"
+        if kust_file.exists():
+            data = yaml.safe_load(kust_file.read_text(encoding="utf-8")) or {}
+            parts = []
+            for r in data.get("resources", []):
+                rf = target / r
+                if not rf.exists():
+                    return subprocess.CompletedProcess(
+                        list(call.argv),
+                        1,
+                        "",
+                        f"kubectl kustomize: error reading {rf}: no such file or directory",
+                    )
+                parts.append(rf.read_text(encoding="utf-8"))
+            return subprocess.CompletedProcess(list(call.argv), 0, "\n---\n".join(parts), "")
+        return subprocess.CompletedProcess(list(call.argv), 1, "", f"no kustomization at {target}")
+
+    git_fake.answer(
+        lambda call: len(call.argv) > 1 and call.argv[1] == "kustomize",
+        ProcessAnswer(side_effect=_handle_kubectl),
+    )
+    return git_fake
 
 
 def _write_app(
@@ -283,12 +309,11 @@ def test_a_missing_kubectl_fails_naming_devops_install_tools(tmp_path: Path) -> 
     assert "devops install-tools --tool kubectl" in err
 
 
-def test_a_file_in_working_tree_but_not_in_commit_does_not_reach_the_build(tmp_path: Path) -> None:
+def test_a_file_in_working_tree_but_not_in_commit_does_not_reach_the_build(
+    tmp_path: Path, git_fake: GitFake
+) -> None:
     repo = tmp_path / "repo"
     repo.mkdir()
-    _git_run(repo, "init", "--quiet")
-    _git_run(repo, "config", "user.name", "Tester")
-    _git_run(repo, "config", "user.email", "test@example.com")
 
     _write_app(repo, "tested-app", path="k8s/tested-app")
     app_dir = repo / "k8s" / "tested-app"
@@ -300,13 +325,30 @@ def test_a_file_in_working_tree_but_not_in_commit_does_not_reach_the_build(tmp_p
         "  - uncommitted.yaml\n",
         encoding="utf-8",
     )
-    _git_run(repo, "add", "-A")
-    _git_run(repo, "commit", "--quiet", "-m", "init commit")
+
+    tar_buf = io.BytesIO()
+    with tarfile.open(fileobj=tar_buf, mode="w") as tar:
+        for p in repo.rglob("*"):
+            if p.is_file():
+                tar.add(p, arcname=str(p.relative_to(repo)))
+    tar_bytes = tar_buf.getvalue()
 
     # Now create uncommitted.yaml in the working tree only:
     (app_dir / "uncommitted.yaml").write_text(
         "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: uncommitted-cm\n",
         encoding="utf-8",
+    )
+
+    git_fake.answer(
+        lambda call: "archive" in call.argv,
+        ProcessAnswer(
+            side_effect=lambda call: subprocess.CompletedProcess[Any](
+                list(call.argv),
+                0,
+                tar_bytes,
+                "",
+            )
+        ),
     )
 
     # Building from HEAD via git archive will not see uncommitted.yaml:
