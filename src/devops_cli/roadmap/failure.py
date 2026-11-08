@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Mapping
+from datetime import timedelta
 from enum import StrEnum
 from types import MappingProxyType
 from typing import Final, NamedTuple
@@ -137,6 +138,31 @@ CLASS_BY_EXCEPTION: Final[tuple[tuple[type[DevOpsCLIError], FailureClass], ...]]
     (ToolExecutionError, FailureClass.CI_INFRA),
     (DevOpsCLIError, FailureClass.CI_INFRA),
 )
+
+
+# The wait of a failed stage item before the stage job takes it again, for each class that
+# `CLASS_BY_EXCEPTION` gives (#4060). A provider or an infrastructure error is often short, so it
+# waits 1 hour. A parser error or a refused plan waits 6 hours, as one fixed wait did before. An
+# item that changed while the job worked waits for no time: the next round reads it again.
+RETRY_AFTER: Final[Mapping[FailureClass, timedelta]] = MappingProxyType(
+    {
+        FailureClass.PROVIDER: timedelta(hours=1),
+        FailureClass.PARSER: timedelta(hours=6),
+        FailureClass.PLAN_DEFECT: timedelta(hours=6),
+        FailureClass.CI_INFRA: timedelta(hours=1),
+        FailureClass.HEAD_MOVED: timedelta(0),
+    }
+)
+
+
+def retry_after(recorded: str | None) -> timedelta:
+    """The wait for the class `recorded`, a value as the stage record holds it. A record with no
+    class (written before #4056), or with a value that is no class that has a wait, waits as
+    `ci_infra`, so a stale record never stops an item for good and never raises."""
+    try:
+        return RETRY_AFTER[FailureClass(recorded or "")]
+    except KeyError, ValueError:
+        return RETRY_AFTER[FailureClass.CI_INFRA]
 
 
 def failure_class_of(exc: DevOpsCLIError) -> FailureClass:

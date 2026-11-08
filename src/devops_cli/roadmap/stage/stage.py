@@ -18,7 +18,7 @@ It also leaves out an item that an agent or a person claimed with an `owner/*` l
 (`worktree_add.issue_holder`, which also counts a stray local branch of the new name with a commit that `origin` lacks), an item whose plan a person rejected until its text or a file that the reason names changes (`stage_rejected`, #3503), an item whose plan is already on the default branch or whose
 change is archived there (`planned.read_planned_changes`, one read of the tree for the round), an
 item whose title gives no branch name or whose summary is over `SUMMARY_MAX_CHARS` units (#3369), an item whose text looks like a secret, an item whose last plan or write failed less than
-`roadmap.stage.retry_hours` hours ago (its record holds `stage.failed_at`,
+the wait of its failure class ago (`RETRY_AFTER`; its record holds `stage.failed_at`,
 `stage.failed_error`, `stage.failed_step` and `stage.failed_class`, #3493, #4056), and an item whose
 record holds `stage.needs_split` made with the file cap of now (`stage.file_cap`): a stop under
 another measure does not count. A run takes at most `--limit`
@@ -77,7 +77,7 @@ import shutil
 from collections.abc import Callable, Collection, Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime
 from enum import StrEnum
 from functools import cache, partial
 from pathlib import Path
@@ -136,7 +136,7 @@ from devops_cli.roadmap.claim import claimed_by
 from devops_cli.roadmap.clone_git import branch_authors, default_branch, git
 from devops_cli.roadmap.commit_title import commit_summary, commit_type
 from devops_cli.roadmap.digest_clears import has_digest_clear
-from devops_cli.roadmap.failure import FailureClass, StepName, failure_class_of
+from devops_cli.roadmap.failure import FailureClass, StepName, failure_class_of, retry_after
 from devops_cli.roadmap.planned import (
     PlannedChanges,
     open_plan_creates,
@@ -432,7 +432,6 @@ class _Judge:
         planned: PlannedChanges,
         queue: PlannedQueue,
         now: datetime,
-        retry: timedelta,
         rejected: Mapping[int, RejectedPlan],
     ) -> None:
         self._store = store
@@ -440,7 +439,6 @@ class _Judge:
         self._planned = planned
         self._queue = queue
         self._now = now
-        self._retry = retry
         self._rejected_now = rejected
 
     def reason(self, item: Item, *, named: bool) -> str | None:
@@ -563,7 +561,7 @@ class _Judge:
         )
 
     def _failed_lately(self, item: Item) -> str | None:
-        """The last plan or write of the item failed less than the retry delay ago (#3493). The
+        """The last plan or write of the item failed less than the wait of its failure class ago (#3493). The
         job takes the other items and takes this one again when the delay has passed. A record
         whose time is no time holds the item for no time."""
         recorded = item.job_record.get(StageRecordKey.FAILED_AT)
@@ -574,7 +572,7 @@ class _Judge:
         except ValueError:
             logger.warning("The failure time recorded on #%d is not a time.", item.number)
             return None
-        until = failed_at + self._retry
+        until = failed_at + retry_after(item.job_record.get(StageRecordKey.FAILED_CLASS))
         if until <= self._now:
             return None
         return MESSAGES.roadmap.stage_left_failed_lately.format(
@@ -649,19 +647,17 @@ def select_stageable(
     the change folders of the default branch (#2714). With `item_number` the filter and the limit
     do not apply. `probe` is the issue that `walk_named` judges also after the limit. With
     `planned_limit` Planned items or more, the job takes only a P0 or P1 item (#3487, #3692). An
-    item that failed less than `roadmap.stage.retry_hours` hours before `now` waits (#3493). An
+    item that failed less than the wait of its failure class before `now` waits (#3493, #4060). An
     item whose plan a person rejected waits for a change of its text or of a file that the reason
     names; `rejected` holds the rejections of this run that the record does not hold yet (#3503).
     """
     opened = _open_items(store)
-    retry = timedelta(hours=load_settings().roadmap.stage.retry_hours)
     judge = _Judge(
         store,
         holder_of,
         planned,
         PlannedQueue(planned_count(opened), planned_limit),
         now or datetime.now(UTC),
-        retry,
         rejected or {},
     )
     if item_number is not None:
@@ -1491,7 +1487,7 @@ def plan_stage(
     the read-only tools review each plan after the checks (#3153, #3039); without one, the job makes
     no review call, as the golden-set run of the planner does. With `why`, the plan also lists the
     open items that the filter does not name (#2911). An item that failed less than
-    `roadmap.stage.retry_hours` hours before `now` is left out, unless `item_number` names it
+    the wait of its failure class before `now` is left out, unless `item_number` names it
     (#3493).
     """
     checkout = Path(source)
@@ -2082,8 +2078,8 @@ def _return_blocked(store: RoadmapStore, blocked: Blocked) -> None:
 
 def _record_failures(store: RoadmapStore, failures: Sequence[StageFailure], now: datetime) -> None:
     """Record each failure in the job record of its item: the time, the type of the error (#3493),
-    the step and the failure class (#4056), in one write. The item waits for the retry delay, and the job goes on with the others. A write
-    that fails here is no failure of an item: it ends the run, and the round counts it."""
+    the step and the failure class (#4056), in one write. The item waits for the wait of its class, and the job goes on with the others. A
+    write that fails here is no failure of an item: it ends the run, and the round counts it."""
     for failure in failures:
         if failure.item is not None:
             store.set_marks(
@@ -2108,7 +2104,7 @@ class StageWriter:
     moved paths of the item just before its publish. A write that fails stops its item, and the
     others go on; rejected GitHub credentials stop the run. Each item that failed, in the plan or
     in a write, gets the time and the error class in its job record, and the job leaves it for
-    `roadmap.stage.retry_hours` hours (#3493). The stop of the Service stops the run too, but it is
+    the wait of its failure class (#3493, #4060). The stop of the Service stops the run too, but it is
     no failed item: the failures before it are recorded, and the run ends with the stop (#2753).
     """
 
@@ -2385,7 +2381,7 @@ def raise_for_failed(failures: Sequence[StageFailure], *, summary: str | None = 
 def raise_for_failed_round(plan: StagePlan, applied: StageApplied) -> None:
     """Fail the row's round only when it tried items and handled none: no item was staged, stopped
     on the budget (#3493). An item that failed while another was handled is
-    recorded in its own job record and waits for `roadmap.stage.retry_hours` hours, so it does not
+    recorded in its own job record and waits for the wait of its failure class, so it does not
     count against the repository. A round that tried no item does not fail."""
     if applied.staged or applied.stopped:
         return
