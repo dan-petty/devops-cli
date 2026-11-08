@@ -1,12 +1,16 @@
 """The replay of the golden set through the gates of the stage job (#3028).
 
 The replay of the whole set runs here, offline. It fails when a gate stops refusing a known-bad
-plan, and a `good` plan must pass every gate.
+plan, and a `good` plan must pass every gate. The module replays the set once and gives each case
+its own item, so a narrowed run stays inside the budget of AGENTS.md rule 5 (#4079).
 """
 
 from __future__ import annotations
 
+import inspect
+import sys
 from pathlib import Path
+from typing import Final
 
 import pytest
 
@@ -25,6 +29,7 @@ from devops_cli.roadmap.stage.stage_eval_gates import (
     PENDING_GATES,
     DefectStatus,
     PlanUnderTest,
+    ReplayReport,
     gate_for,
     replay_all,
     replay_case,
@@ -33,19 +38,60 @@ from devops_cli.roadmap.stage.stage_eval_gates import (
 from devops_cli.roadmap.stage.stage_registry import RegistryCount
 from tests.support.paths import REPO_ROOT
 
+# The cases load once, at the import, so that `parametrize` gives each case its own item.
+CASES: Final[list[StageCase]] = load_cases(REPO_ROOT / CASES_DIRECTORY)
+# The shape tests read this module's own source, so they spell the whole-set replay in parts: a
+# search for the whole text would find the shape test's own line (#4079).
+_WHOLE_SET_REPLAY = "replay" + "_all(CASES)"
+_MODULE_FIXTURE = '@pytest.fixture(scope="module")'
+
 
 @pytest.fixture(scope="module")
 def cases() -> list[StageCase]:
-    return load_cases(REPO_ROOT / CASES_DIRECTORY)
+    return CASES
+
+
+@pytest.fixture(scope="module")
+def report() -> ReplayReport:
+    """The replay of the whole set, computed once for the module (#4079)."""
+    return replay_all(CASES)
+
+
+@pytest.mark.parametrize("case", CASES, ids=lambda case: case.name)
+def test_the_replay_of_each_case_passes(report: ReplayReport, case: StageCase) -> None:
+    """The replay of one case of the set: a gate still refuses each known-bad plan, and a good
+    plan passes every gate. One item per case, so a failure names the case (#4079)."""
+    replay = next(found for found in report.replays if found.case.name == case.name)
+
+    assert (len(replay.outcomes), replay.failures) == (len(case.defects), [])
+
+
+def test_the_whole_set_replays_once_in_the_module_scoped_fixture() -> None:
+    """Six whole-set replays made a narrowed run exceed the budget, so the set replays once, in a
+    fixture that the module shares (#4079)."""
+    source = inspect.getsource(sys.modules[__name__])
+    body = source.partition(_MODULE_FIXTURE + "\ndef report(")[2].partition("\n\n\n")[0]
+
+    assert (source.count(_WHOLE_SET_REPLAY), _WHOLE_SET_REPLAY in body) == (1, True)
+
+
+def test_the_parametrize_mark_holds_the_loaded_cases() -> None:
+    """Each case of the set is an item of its own, so xdist can distribute the cases and a
+    failure names the case (#4079)."""
+    marks = [
+        mark
+        for mark in test_the_replay_of_each_case_passes.pytestmark
+        if mark.name == "parametrize"
+    ]
+
+    assert [mark.args for mark in marks] == [("case", CASES)]
 
 
 def _first_with(cases: list[StageCase], gate: GateName) -> StageCase:
     return next(case for case in cases if any(d.gate is gate and d.paths for d in case.defects))
 
 
-def test_every_gate_still_refuses_every_known_bad_plan_it_must(cases: list[StageCase]) -> None:
-    report = replay_all(cases)
-
+def test_every_gate_still_refuses_every_known_bad_plan_it_must(report: ReplayReport) -> None:
     assert report.failures == []
     assert {total.gate.name: (total.known > 0, total.missed) for total in report.totals()} == {
         GateName.PATHS: (True, 0),
@@ -56,9 +102,7 @@ def test_every_gate_still_refuses_every_known_bad_plan_it_must(cases: list[Stage
     }
 
 
-def test_each_good_plan_passes_every_gate(cases: list[StageCase]) -> None:
-    report = replay_all(cases)
-
+def test_each_good_plan_passes_every_gate(report: ReplayReport) -> None:
     assert report.good() == (5, 5)
     assert all(not r.refused for r in report.replays if r.case.verdict is Verdict.GOOD)
 
@@ -110,10 +154,8 @@ def test_the_plan_under_test_holds_the_registry_of_its_case(cases: list[StageCas
 
 
 def test_no_defect_waits_for_a_gate_once_the_gates_of_3012_to_3017_are_built(
-    cases: list[StageCase],
+    cases: list[StageCase], report: ReplayReport
 ) -> None:
-    report = replay_all(cases)
-
     assert PENDING_GATES == {}
     assert report.count(DefectStatus.PENDING) == {}
     assert report.count(DefectStatus.STALE) == {}
@@ -144,12 +186,10 @@ def test_a_defect_of_a_type_that_waited_for_a_gate_is_judged_or_says_why_not(
 
 
 def test_the_counts_of_each_type_are_the_baseline_that_a_change_of_a_gate_beats(
-    cases: list[StageCase],
+    report: ReplayReport,
 ) -> None:
     """The caught and unjudged defects of each type that waited for a gate (#3208). A change that
     lets a gate judge more defects raises the first number and lowers the second."""
-    report = replay_all(cases)
-
     counts = {t.type: (t.caught, t.missed, t.unjudged) for t in report.by_type()}
 
     assert counts[DefectType.MISSING_PATH] == (36, 0, 0)
@@ -234,9 +274,10 @@ def test_the_kind_gate_gives_the_message_of_the_schema_for_a_group_with_no_sourc
 def test_the_replay_runs_the_check_of_the_job_so_a_spec_rule_that_refuses_all_fails_it(
     cases: list[StageCase], monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    good = [case for case in cases if case.verdict is Verdict.GOOD]
     monkeypatch.setattr(stage_change, "_spec_problems", lambda _spec, _known: ["A spec is wrong."])
 
-    report = replay_all(cases)
+    report = replay_all(good)
 
     assert any("a good plan is refused by the gate paths" in f for f in report.failures)
 
@@ -450,9 +491,12 @@ def test_a_rule_of_the_check_that_stops_refusing_fails_the_replay_of_its_defects
     cases: list[StageCase], monkeypatch: pytest.MonkeyPatch, rule: str, kind: DefectType
 ) -> None:
     caught = {d.gate for c in cases for d in c.defects if d.type is kind}
+    # Only a case that holds a defect of the kind shows that the rule stopped refusing it, so this
+    # test replays those cases, and the whole set stays the fixture's one replay (#4079).
+    holding = [case for case in cases if kind in case.defect_types()]
     monkeypatch.setattr(stage_change, rule, lambda *_: [] if rule == "form_problems" else False)
 
-    report = replay_all(cases)
+    report = replay_all(holding)
 
     assert GateName.PATHS in caught
     assert any(f"no longer refuses the {kind} defect" in failure for failure in report.failures)

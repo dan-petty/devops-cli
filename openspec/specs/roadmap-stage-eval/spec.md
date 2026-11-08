@@ -290,3 +290,14 @@ The golden set SHALL hold a case whose plan adds a field to `StageProposal` and 
 #### Scenario: A plan that names the reply key
 - **WHEN** The replay runs the gates on a `good` case whose plan adds a field to `StageProposal` and changes the prompt with the reply key.
 - **THEN** The `prompt_keys` gate finds no problem, and the replay reports no failure.
+
+### Requirement: The replay of the golden set runs once per test module
+The eval gate test module SHALL compute the replay of the golden set once in a module-scoped fixture, and SHALL give each case of the set its own parametrized test item.
+
+#### Scenario: One item for each case
+- **WHEN** A test reads the parametrize mark of the case test in the eval gate test module
+- **THEN** The mark's values are the list that load_cases returns, so pytest collects one item for each case.
+
+#### Scenario: The report tests share one replay
+- **WHEN** A test reads the source of the eval gate test module
+- **THEN** The whole-set replay_all call sits in the module-scoped fixture, and no report test calls replay_all itself.
