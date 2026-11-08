@@ -891,6 +891,55 @@ def test_the_session_keeps_the_etags_of_its_latest_reads_only(
     assert _conditions(github_api) == [None, None, None, _ETAG]
 
 
+_KIB = 1024
+
+
+def _diff_answer(size: int, etag: str) -> httpx2.Response:
+    """A pull request's diff of `size` bytes, carrying `etag`."""
+    return github_text("+" * size, media_type=CONST_GITHUB_DIFF_MEDIA_TYPE, headers={"etag": etag})
+
+
+def test_the_session_keeps_the_answers_of_its_latest_reads_within_the_byte_budget(
+    github_api: GitHubApiFake, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The store of answers is bounded by bytes as well as by count (#4116): past
+    `DEFAULT_GH_SESSION_ETAG_CACHE_BYTES`, the answers read longest ago are dropped and read in
+    full again, and the newest answer stays.
+
+    Eight diffs of 300 KiB are 2.4 MiB; with a budget of 1 MiB the store holds the newest three
+    at most. `raising=False`: the base tree has no byte budget, so the replay of this test on
+    the base fails on the answers kept, not on the missing name.
+    """
+    monkeypatch.setattr(
+        session_transport, "DEFAULT_GH_SESSION_ETAG_CACHE_BYTES", 1024 * _KIB, raising=False
+    )
+    paths = [f"/repos/example-org/app/pulls/{number}" for number in range(8)]
+    for number, path in enumerate(paths):
+        github_api.route("GET", path, _diff_answer(300 * _KIB, f'"{number}"'))
+    session = get_github_session()
+    for path in (*paths, paths[0], paths[-1]):
+        session.rest("GET", path, accept=CONST_GITHUB_DIFF_MEDIA_TYPE)
+    sent = _conditions(github_api)
+    assert (sent[-2], sent[-1]) == (None, '"7"')
+
+
+def test_an_answer_larger_than_the_byte_budget_is_returned_and_not_stored(
+    github_api: GitHubApiFake, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """One answer past the whole budget comes back to the caller with no error, and the next GET
+    of its URL is not conditional (#4116). `raising=False` as in the test above."""
+    monkeypatch.setattr(
+        session_transport, "DEFAULT_GH_SESSION_ETAG_CACHE_BYTES", 256 * _KIB, raising=False
+    )
+    path = "/repos/example-org/app/pulls/1"
+    github_api.route("GET", path, _diff_answer(512 * _KIB, '"1"'))
+    session = get_github_session()
+    answers = [
+        len(session.rest("GET", path, accept=CONST_GITHUB_DIFF_MEDIA_TYPE)) for _ in range(2)
+    ]
+    assert (answers, _conditions(github_api)) == ([512 * _KIB] * 2, [None, None])
+
+
 def test_a_page_answered_from_its_etag_keeps_its_next_link_and_the_last_page_is_read_in_full(
     github_api: GitHubApiFake,
 ) -> None:

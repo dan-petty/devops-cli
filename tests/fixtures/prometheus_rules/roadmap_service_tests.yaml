@@ -247,6 +247,36 @@ tests:
               summary: "The roadmap Service container in roadmap-service-7d9f8b6c5-x2x4z restarted"
               description: "The restart count of container service of pod devops/roadmap-service-7d9f8b6c5-x2x4z increased by 1 in the last hour (k8s/README.md, Roadmap service)."
 
+  - name: The memory near the limit fires after 10 minutes; another namespace or container does not count
+    interval: 1m
+    input_series:
+      - series: 'container_memory_working_set_bytes{namespace="devops", pod="roadmap-service-7d9f8b6c5-x2x4z", container="service"}'
+        values: '800000000x5 900000000x30'
+      - series: 'kube_pod_container_resource_limits{namespace="devops", pod="roadmap-service-7d9f8b6c5-x2x4z", container="service", resource="memory"}'
+        values: '1000000000x40'
+      - series: 'container_memory_working_set_bytes{namespace="devops", pod="roadmap-service-7d9f8b6c5-x2x4z", container="sidecar"}'
+        values: '990000000x40'
+      - series: 'kube_pod_container_resource_limits{namespace="devops", pod="roadmap-service-7d9f8b6c5-x2x4z", container="sidecar", resource="memory"}'
+        values: '1000000000x40'
+      - series: 'container_memory_working_set_bytes{namespace="llm", pod="llm-gateway-5c9d7f8b6-q7w8e", container="service"}'
+        values: '990000000x40'
+      - series: 'kube_pod_container_resource_limits{namespace="llm", pod="llm-gateway-5c9d7f8b6-q7w8e", container="service", resource="memory"}'
+        values: '1000000000x40'
+    alert_rule_test:
+      - eval_time: 12m
+        alertname: RoadmapServiceMemoryNearLimit
+        exp_alerts: []
+      - eval_time: 25m
+        alertname: RoadmapServiceMemoryNearLimit
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              namespace: devops
+              pod: roadmap-service-7d9f8b6c5-x2x4z
+            exp_annotations:
+              summary: "The roadmap Service container in roadmap-service-7d9f8b6c5-x2x4z uses 90% of its memory limit"
+              description: "The working set of container service of pod devops/roadmap-service-7d9f8b6c5-x2x4z has been above 85% of its memory limit for 10 minutes, and the kernel kills the container at 100% (k8s/README.md, Roadmap service)."
+
   - name: An unavailable replica fires after 10 minutes; another deployment does not count
     interval: 1m
     input_series:

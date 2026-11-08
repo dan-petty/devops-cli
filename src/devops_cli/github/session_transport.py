@@ -26,7 +26,8 @@ lock may be held through another thread's quota refresh. What still fails is rai
 `github.error_classifier` names for it.
 
 A GET is conditional (#983): gidgethub keeps each GET's answer with its ETag in the transport's
-bounded LRU store, `DEFAULT_GH_SESSION_ETAG_CACHE_SIZE` answers in memory, and sends the next GET
+bounded LRU store, `DEFAULT_GH_SESSION_ETAG_CACHE_SIZE` answers and `DEFAULT_GH_SESSION_ETAG_CACHE_BYTES`
+bytes in memory, and sends the next GET
 of that URL with `If-None-Match`; a 304 gives back the stored answer. Each attempt, a 304 too, is
 still paced and charged by `_request`, retried by the same hook and sent through the same origin
 hook, and a stored page is still checked by `listed_items`. Every GET's answer is handed out as a
@@ -43,6 +44,7 @@ stored answers.
 from __future__ import annotations
 
 import copy
+import json
 import logging
 import weakref
 from collections.abc import Awaitable, Callable, Mapping
@@ -75,6 +77,7 @@ from devops_cli.config.defaults import (
     DEFAULT_GH_MAX_RETRIES,
     DEFAULT_GH_SERVER_ERROR_RETRY_FLOOR_SECONDS,
     DEFAULT_GH_SESSION_CONNECT_TIMEOUT_SECONDS,
+    DEFAULT_GH_SESSION_ETAG_CACHE_BYTES,
     DEFAULT_GH_SESSION_ETAG_CACHE_SIZE,
 )
 from devops_cli.core.process import GitHubIdentity
@@ -122,6 +125,38 @@ _LITERAL_PATH: Final = str.maketrans(
 # What gidgethub stores for a GET it may send again conditionally: the answer's ETag, its
 # Last-Modified, its decoded body, and the `rel="next"` link it carried.
 type StoredAnswer = tuple[str | None, str | None, Any, str | None]
+
+
+def _answer_bytes(answer: StoredAnswer) -> int:
+    """The size of one stored answer: the length of its text, or of its encoded JSON for a
+    decoded value (#4116). A diff has no size bound on GitHub's side, so the count of answers
+    alone does not bound the memory of the store."""
+    body = answer[2]
+    if body is None:
+        return 0
+    if isinstance(body, str):
+        return len(body)
+    return len(json.dumps(body, separators=(",", ":")))
+
+
+class _AnswerStore(LRUCache[str, StoredAnswer]):
+    """The LRU store of a session's answers, bounded by bytes and by count (#4116).
+
+    Each answer counts at least `budget // DEFAULT_GH_SESSION_ETAG_CACHE_SIZE` bytes, so the count
+    bound holds too. The answer read longest ago goes first. An answer larger than the whole
+    budget is not stored: `LRUCache` refuses it with a `ValueError`, and the read that got it
+    must still return it.
+    """
+
+    def __init__(self, budget: int) -> None:
+        floor = budget // DEFAULT_GH_SESSION_ETAG_CACHE_SIZE
+        super().__init__(maxsize=budget, getsizeof=lambda answer: max(_answer_bytes(answer), floor))
+
+    def __setitem__(self, key: str, value: StoredAnswer) -> None:
+        try:
+            super().__setitem__(key, value)
+        except ValueError:
+            self.pop(key, None)
 
 
 def _origin_text(origin: httpx2.Origin) -> str:
@@ -269,9 +304,7 @@ class SessionGitHubAPI(GitHubAPI):
     with the identity's token."""
 
     def __init__(self, client: httpx2.AsyncClient, identity: GitHubIdentity) -> None:
-        self._stored: LRUCache[str, StoredAnswer] = LRUCache(
-            maxsize=DEFAULT_GH_SESSION_ETAG_CACHE_SIZE
-        )
+        self._stored = _AnswerStore(DEFAULT_GH_SESSION_ETAG_CACHE_BYTES)
         super().__init__(
             client,
             CONST_GITHUB_USER_AGENT,
