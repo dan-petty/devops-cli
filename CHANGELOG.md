@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.91.0](https://github.com/dan-petty/devops-cli/compare/v0.90.1...v0.91.0) (2026-11-08)
+
+
+### Features
+
+* **roadmap:** keep the gated stage plan as a file ([#4167](https://github.com/dan-petty/devops-cli/issues/4167)) ([a59f6fc](https://github.com/dan-petty/devops-cli/commit/a59f6fc7ea41737c42871f69f80e3f3a4980bbf2))
+* **roadmap:** refuse a plan that reads an absent model field ([#4164](https://github.com/dan-petty/devops-cli/issues/4164)) ([3181b22](https://github.com/dan-petty/devops-cli/commit/3181b2258d499ae44066c41539269e91f3faa2b2))
+* **roadmap:** require a move plan to cover each reference ([#4166](https://github.com/dan-petty/devops-cli/issues/4166)) ([c3cf983](https://github.com/dan-petty/devops-cli/commit/c3cf983efeb2c9b423cd7b5e841fac3b64fd1913))
+
+
+### Bug Fixes
+
+* **roadmap:** runner agent sleeps in polling loop during test ([#4162](https://github.com/dan-petty/devops-cli/issues/4162)) ([ac22a60](https://github.com/dan-petty/devops-cli/commit/ac22a60924394b7706cec34a0ac862eb65e50aa7))
+* **roadmap:** stage includes perimeter tests for network policies ([#4158](https://github.com/dan-petty/devops-cli/issues/4158)) ([b9c88de](https://github.com/dan-petty/devops-cli/commit/b9c88de50b05ba257467b9c9e532d380b1d637a8))
+
 ## [0.90.1](https://github.com/dan-petty/devops-cli/compare/v0.90.0...v0.90.1) (2026-11-08)
 
 
