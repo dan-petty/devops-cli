@@ -744,6 +744,21 @@ serverFiles:
             annotations:
               summary: "The roadmap Service container in {{ $labels.pod }} restarted"
               description: 'The restart count of container {{ $labels.container }} of pod {{ $labels.namespace }}/{{ $labels.pod }} increased by {{ printf "%.0f" $value }} in the last hour (k8s/README.md, Roadmap service).'
+          # The kernel kills the container at its memory limit, and RoadmapServiceRestarted fires
+          # only after that. The working set grew 100 to 150 MiB each hour before the kill (#4116).
+          # The two series come from the kubelet and kube-state-metrics, so max by drops their
+          # other labels and the division matches on namespace and pod.
+          - alert: RoadmapServiceMemoryNearLimit
+            expr: >-
+              max by (namespace, pod) (container_memory_working_set_bytes{namespace="devops", pod=~"roadmap-service-.+", container="service"})
+              / max by (namespace, pod) (kube_pod_container_resource_limits{namespace="devops", pod=~"roadmap-service-.+", container="service", resource="memory"})
+              > 0.85
+            for: 10m
+            labels:
+              severity: warning
+            annotations:
+              summary: 'The roadmap Service container in {{ $labels.pod }} uses {{ $value | humanizePercentage }} of its memory limit'
+              description: 'The working set of container service of pod {{ $labels.namespace }}/{{ $labels.pod }} has been above 85% of its memory limit for 10 minutes, and the kernel kills the container at 100% (k8s/README.md, Roadmap service).'
           # The Recreate strategy stops the old pod before it starts the new one, so a rollout
           # has no available replica for a few minutes.
           - alert: RoadmapServiceUnavailable

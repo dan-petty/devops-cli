@@ -34,6 +34,7 @@ from devops_cli.config.defaults import (
     DEFAULT_OTEL_COUNTER_AMOUNT,
     DEFAULT_OTEL_DRAIN_TIMEOUT_SECONDS,
     DEFAULT_OTEL_ENDPOINT,
+    DEFAULT_OTEL_EXPORT_QUEUE_MAX_PAYLOADS,
     DEFAULT_OTEL_SHUTDOWN_TIMEOUT_MS,
     DEFAULT_OTEL_TEST_TIMEOUT,
     DEFAULT_OTEL_WARNING_INTERVAL_SECONDS,
@@ -857,6 +858,11 @@ class OTelTelemetryClient:
         self._pending: set[Future[None]] = set()
         self.export_failures = 0
         self.export_successes = 0
+        # Payloads that wait for an export thread, or run in one, are capped: a collector that
+        # does not answer must not grow the queue without end (#4116). A payload without a free
+        # slot is dropped and counted here.
+        self._export_slots = threading.BoundedSemaphore(DEFAULT_OTEL_EXPORT_QUEUE_MAX_PAYLOADS)
+        self.export_dropped = 0
         self.last_export_error = ""
 
         # Cache pre-computed resource attributes for zero-allocation reuse across all spans and metrics
@@ -1323,13 +1329,29 @@ class OTelTelemetryClient:
 
         if not self.enabled or in_dry_run_invocation():
             return
+        if not self._export_slots.acquire(blocking=False):
+            self.export_dropped += 1
+            if self.export_dropped == 1:
+                logger.warning(
+                    "The OTel export queue is full: the collector at %s does not answer in time, "
+                    "so payloads are dropped",
+                    self.endpoint,
+                )
+            return
         try:
             executor = self._get_executor()
             future = executor.submit(self._send_payload_sync, path, payload)
-            self._pending.add(future)
-            future.add_done_callback(self._pending.discard)
         except Exception as exc:
+            self._export_slots.release()
             logger.debug("Failed submitting OTel payload to executor: %s", exc)
+            return
+        self._pending.add(future)
+        future.add_done_callback(self._export_done)
+
+    def _export_done(self, future: Future[None]) -> None:
+        """Forget an export that ended, and give its slot back."""
+        self._pending.discard(future)
+        self._export_slots.release()
 
     def _flush_sdk_metrics(self) -> None:
         """Collect buffered SDK metrics and queue one OTLP /v1/metrics export."""

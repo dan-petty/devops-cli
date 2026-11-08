@@ -541,6 +541,10 @@ DEFAULT_OTEL_TEST_TIMEOUT: float = 1.0
 DEFAULT_OTEL_SHUTDOWN_TIMEOUT_MS: int = 50
 # Longest a command's exit waits for telemetry exports still in flight.
 DEFAULT_OTEL_DRAIN_TIMEOUT_SECONDS: float = 1.0
+# The most export payloads that wait for the two export threads of one client (#4116). A collector
+# that answers slowly for hours would else leave every payload in an unbounded queue. A payload
+# past the cap is dropped and counted in `export_dropped`.
+DEFAULT_OTEL_EXPORT_QUEUE_MAX_PAYLOADS: int = 256
 # How often an interactive user is told, per endpoint, that telemetry exports fail.
 DEFAULT_OTEL_WARNING_INTERVAL_SECONDS: int = 86400
 DEFAULT_TELEMETRY_TEST_NAME: str = "devops-cli.manual_test"
@@ -769,6 +773,11 @@ DEFAULT_GH_REST_PER_PAGE: int = 100
 # page that links none is not kept. A roadmap poll's listings and a PR monitor's reads fit well
 # inside it, and the URL read longest ago goes first.
 DEFAULT_GH_SESSION_ETAG_CACHE_SIZE: int = 64
+# The most bytes the same store holds (#4116). A diff has no size bound, so the count alone left
+# the memory of the roadmap Service unbounded: the text of an answer, or of its encoded JSON, is
+# counted once when it is stored. An answer above the whole budget is returned and not stored. A
+# quarter of the memory request of the Service container.
+DEFAULT_GH_SESSION_ETAG_CACHE_BYTES: int = 64 * 1024 * 1024
 # Board reads page GraphQL's `ProjectV2.items` this many items at a time, its largest page (#1125).
 DEFAULT_GH_PROJECT_ITEM_PAGE_SIZE: int = 100
 # A board read stops before a page, and refuses before it starts, while GraphQL reports fewer

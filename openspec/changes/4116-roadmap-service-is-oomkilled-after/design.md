@@ -7,7 +7,7 @@ The Service runs one worker for each lane of each repository in one process. The
 ## Decisions
 
 - **The session store is bounded by bytes and by count.** `LRUCache(maxsize=DEFAULT_GH_SESSION_ETAG_CACHE_BYTES, getsizeof=<size of one stored answer>)`, with the count bound kept. The size of an answer is the length of its text or bytes body, or of its encoded JSON for a decoded value. The size is counted once, when the answer is stored. An answer above the whole budget is returned and not stored, because `LRUCache` raises `ValueError` for it. The default budget is 64 MiB, a quarter of the memory request of the container.
-- **The export queue is capped with a semaphore.** `_send_payload` takes a slot before it submits a payload, and the done callback of the future gives it back. When no slot is free, the payload is dropped and `export_dropped` grows by one. A drop is a counter and a debug log line, and it is no error, because telemetry must not stop a command.
+- **The export queue is capped with a semaphore.** `_send_payload` takes a slot before it submits a payload, and the done callback of the future gives it back. When no slot is free, the payload is dropped and `export_dropped` grows by one. A drop is a counter and one warning log line at the first drop, and it is no error, because telemetry must not stop a command.
 - **The alert reads cAdvisor and kube-state-metrics.** The expression is the one of the issue. It divides the working set by the limit for the container `service` of the pods of the roadmap Service, and it waits 10 minutes.
 - **The test measures the heap with `MemoryProfiler`.** It compares the heap after round 10 with the heap after round 200 and names the allocation sites that grew.
 
