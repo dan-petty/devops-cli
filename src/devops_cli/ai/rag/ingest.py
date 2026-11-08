@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import shutil
+import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -23,7 +24,11 @@ from devops_cli.exceptions import (
 )
 from devops_cli.exceptions.ai import RagIngestError
 from devops_cli.output.file_writer import write_json_file
-from devops_cli.telemetry.instruments import RAG_INGEST_RUNS_TOTAL, emit
+from devops_cli.telemetry.instruments import (
+    RAG_INGEST_LAST_SUCCESS_TIMESTAMP,
+    RAG_INGEST_RUNS_TOTAL,
+    emit,
+)
 from devops_cli.telemetry.metrics import GLOBAL_METRICS
 from devops_cli.telemetry.tracer import trace_span
 
@@ -377,6 +382,8 @@ def run_ingest_pass(
                     settings=settings,
                 )
                 results.append(res)
+                now_ts = time.time()
+                emit(RAG_INGEST_LAST_SUCCESS_TIMESTAMP, now_ts, {"repo": repo})
                 GLOBAL_METRICS.increment_counter(
                     "devops_cli_rag_ingest_runs_total",
                     value=1.0,

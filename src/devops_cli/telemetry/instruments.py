@@ -468,6 +468,12 @@ RAG_INGEST_RUNS_TOTAL = Instrument(
     "1",
     "RAG repository ingestion runs, by repo and result: success or error",
 )
+RAG_INGEST_LAST_SUCCESS_TIMESTAMP = Instrument(
+    "devops_cli_rag_ingest_last_success_timestamp_seconds",
+    InstrumentKind.GAUGE,
+    "s",
+    "Timestamp of the last successful RAG repository ingestion run, by repo",
+)
 VULNERABILITY_LOOKUPS_TOTAL = Instrument(
     "devops_cli_vulnerability_lookups_total",
     InstrumentKind.COUNTER,
@@ -649,6 +655,7 @@ INSTRUMENTS: tuple[Instrument, ...] = (
     RAG_INVESTIGATIONS_TOTAL,
     RAG_STOPS_TOTAL,
     RAG_INGEST_RUNS_TOTAL,
+    RAG_INGEST_LAST_SUCCESS_TIMESTAMP,
     VULNERABILITY_LOOKUPS_TOTAL,
     THREAT_INTEL_LOOKUPS_TOTAL,
     PROJECT_RELEASES,
@@ -756,6 +763,7 @@ __all__ = [
     "RAG_DRIFT_SCORE",
     "RAG_EMBEDDING_BATCH_RESIZES_TOTAL",
     "RAG_EMBEDDING_BATCH_SIZE",
+    "RAG_INGEST_LAST_SUCCESS_TIMESTAMP",
     "RAG_INGEST_RUNS_TOTAL",
     "RAG_INVESTIGATIONS_TOTAL",
     "RAG_POINTS",

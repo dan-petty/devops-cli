@@ -1,0 +1,14 @@
+apiVersion: argoproj.io/v1alpha1
+kind: CronWorkflow
+metadata:
+  name: rag-ingest
+  namespace: devops
+  labels:
+    app.kubernetes.io/name: rag-ingest
+    app.kubernetes.io/part-of: devops-cli-stack
+spec:
+  schedule: "*/3 * * * *"
+  concurrencyPolicy: Forbid
+  workflowSpec:
+    workflowTemplateRef:
+      name: rag-ingest

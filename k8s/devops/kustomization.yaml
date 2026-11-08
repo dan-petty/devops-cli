@@ -5,6 +5,9 @@ resources:
 - cronjob.yaml
 - cronjob-runner.yaml
 - networkpolicy.yaml
+- networkpolicy-rag-ingest.yaml
+- workflowtemplate-rag-ingest.yaml
+- cronworkflow-rag-ingest.yaml
 - crawl4ai
 - searxng
 - roadmap-service

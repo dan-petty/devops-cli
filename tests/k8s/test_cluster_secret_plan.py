@@ -338,6 +338,15 @@ def test_table_holds_each_secret_entry_with_its_source_and_restarts() -> None:
             ("deployment/roadmap-service",),
         ),
         (
+            "devops/qdrant-api-key",
+            "api-key",
+            "devops",
+            True,
+            SecretGenerator("urlsafe", 32),
+            "llm/qdrant-api-key api-key",
+            (),
+        ),
+        (
             "monitoring/grafana-admin",
             "admin-user",
             "infra",

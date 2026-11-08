@@ -44,6 +44,7 @@ from devops_cli.telemetry.instruments import (
     CRAWL4AI_FETCHES_TOTAL,
     GITHUB_REQUESTS_TOTAL,
     GITHUB_THROTTLE_WAIT,
+    RAG_INGEST_LAST_SUCCESS_TIMESTAMP,
     RESEARCH_OPEN_FINDINGS,
     ROADMAP_ALTERNATIVES_UNCHECKED_ITEMS,
     ROADMAP_ITEM_AGE,
@@ -230,6 +231,8 @@ SERVED_SERIES = frozenset(
         # The calls of the stage planner's tools, and its plan runs (#3240).
         ROADMAP_TOOL_CALLS_PER_RUN.name,
         ROADMAP_TOOL_CALLS_TOTAL.name,
+        # Freshness of the in-cluster RAG ingest runs (#1653).
+        RAG_INGEST_LAST_SUCCESS_TIMESTAMP.name,
     }
 )
 SEVERITIES = frozenset({"critical", "warning"})
@@ -346,6 +349,7 @@ def test_the_baseline_rule_set() -> None:
         ("PrometheusSizeLimitCutHistory", "warning"),
         ("PrometheusStorageNearClaim", "warning"),
         ("PyroscopeQueryErrors", "warning"),
+        ("RagIngestBehind", "warning"),
         ("ResearchCriticalFindings", "critical"),
         ("RoadmapServiceAlternativesNotSearching", "warning"),
         ("RoadmapServiceGitHubRequestsHigh", "warning"),

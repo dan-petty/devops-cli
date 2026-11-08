@@ -691,3 +691,48 @@ def test_run_ingest_pass_catches_repo_failure(
 
     with pytest.raises(RagIngestError, match="RAG ingestion failed for repositories: owner/bad"):
         run_ingest_pass(settings=settings, indexer=indexer)
+
+
+def test_run_ingest_pass_updates_last_success_timestamp(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from devops_cli.ai.rag.ingest import IngestResult
+    from devops_cli.telemetry.instruments import RAG_INGEST_LAST_SUCCESS_TIMESTAMP
+
+    settings = Settings.model_validate(
+        {
+            "service": {"repos": ["owner/repo"]},
+            "ai": {"rag": {"data_dir": str(tmp_path)}},
+            "qdrant": {"url": "http://localhost:6333"},
+        }
+    )
+
+    emitted: list[tuple[Any, float, dict[str, str]]] = []
+    monkeypatch.setattr(
+        "devops_cli.ai.rag.ingest.emit",
+        lambda inst, val, labels: emitted.append((inst, val, labels)),
+    )
+
+    monkeypatch.setattr(
+        "devops_cli.ai.rag.ingest.ingest_repository",
+        lambda repo, **kwargs: IngestResult(
+            repo=repo, head="abc", branch="main", visibility="public", success=True
+        ),
+    )
+    indexer = WorkspaceIndexer(
+        qdrant=cast(Any, FakeQdrantClient()),
+        embedder=FixedVectorEngine(),
+        cache_dir=tmp_path,
+    )
+
+    results = run_ingest_pass(settings=settings, indexer=indexer)
+    assert len(results) == 1
+    found = [
+        (val, labels)
+        for inst, val, labels in emitted
+        if inst.name == RAG_INGEST_LAST_SUCCESS_TIMESTAMP.name
+    ]
+    assert len(found) == 1
+    val, labels = found[0]
+    assert val > 0
+    assert labels == {"repo": "owner/repo"}

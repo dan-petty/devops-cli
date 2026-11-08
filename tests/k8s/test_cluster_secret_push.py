@@ -249,6 +249,7 @@ def test_apply_is_one_server_side_apply_of_a_list_on_stdin(
                 APP_KEY_ENTRY,
                 "DEVOPS_CLI_VALKEY_PASSWORD",
             ],
+            "devops/qdrant-api-key": ["api-key"],
         },
         [],
         {"devops-cli"},
@@ -367,6 +368,7 @@ def test_the_devops_api_key_is_adopted_from_the_gateway_secret_never_generated(
             "service_github_app_private_key": APP_KEY,
             "crawl4ai_api_token": CRAWL4AI_TOKEN,
             "searxng_secret_key": SEARXNG_SECRET,
+            "qdrant_api_key": "qdrant-keyring-value-0001",
         },
     )
     cluster.add_secret("llm", "llm-gateway-secrets", {"master-key": "sk-live-gateway-0001"})
@@ -560,6 +562,7 @@ def test_stack_devops_reads_the_app_key_gateway_key_and_webhook_secrets_and_runs
             "mattermost_command_token",
             "crawl4ai_api_token",
             "searxng_secret_key",
+            "qdrant_api_key",
         },
         [],
         APP_KEY,
