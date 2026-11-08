@@ -181,6 +181,39 @@ def test_missing_directory_inside_folder_is_removed_without_a_read(
     assert new_dir.is_dir()
 
 
+def test_json_report_lists_each_kept_worktree_with_its_reason(
+    cli: Cli, repo: Path, git: Git, tmp_path: Path, managed: Path, github_api: GitHubApiFake
+) -> None:
+    outside = tmp_path / "wt_outside"
+    _worktree(git, repo, "fix/2100-other", outside)
+    ignored = managed / "w-2101"
+    _worktree(git, repo, "fix/2101-old", ignored, gitignore="*.log\n")
+    (ignored / "keep.log").write_text("hours of work\n", encoding="utf-8")
+
+    result = _add(cli, repo, "--json")
+
+    kept = {item["path"]: item for item in json.loads(result.stdout)["kept"]}
+    assert result.exit_code == 0, result.output
+    assert set(kept) == {str(outside), str(ignored)}
+    assert kept[str(outside)]["reason"] == OUTSIDE
+    assert "ignored" in kept[str(ignored)]["reason"]
+    assert github_api.requested == []
+
+
+def test_worktree_whose_status_fails_is_kept(
+    cli: Cli, repo: Path, git: Git, managed: Path, github_api: GitHubApiFake, new_dir: Path
+) -> None:
+    broken = managed / "w-2100"
+    _merged(github_api, _worktree(git, repo, "fix/2100-old", broken))
+    (broken / ".git").write_text("not a gitdir file\n", encoding="utf-8")
+
+    result = _add(cli, repo)
+
+    assert result.exit_code == 0, result.output
+    assert (broken.is_dir(), github_api.requested, new_dir.is_dir()) == (True, [], True)
+    assert "git status failed" in _said(result)
+
+
 def test_the_dry_run_lists_a_read_only_for_a_worktree_inside_the_folder(
     cli: Cli, repo: Path, git: Git, tmp_path: Path, managed: Path, github_api: GitHubApiFake
 ) -> None:

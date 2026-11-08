@@ -7,7 +7,7 @@
 ## What Changes
 
 - Limit the `add` reclaim to the worktrees under the folder that `add` manages: the resolved `agent/worktrees` folder of the data directory. The filter is in `reclaim_merged_worktrees`. A worktree outside the folder is kept, with no GitHub read, and a prunable record whose directory is missing and outside the folder is kept too.
-- Keep a worktree under the folder when a file that `.gitignore` hides is present. `inventory_worktrees` gets an `include_ignored` option that counts the `!!` entries of `git status --porcelain --ignored -z`. Only the reclaim sets it.
+- Keep a worktree under the folder when a file that `.gitignore` hides is present. The new function `count_ignored_paths` counts the `!!` entries of `git status --porcelain --ignored -z`. Only the reclaim calls it.
 - Name each worktree that the reclaim leaves, with the reason (`outside the managed folder`, or the count of ignored paths), in the table output and in a `kept` list of the JSON report.
 - Keep the removal rules inside the folder: the branch is merged, the worktree is clean and not locked, and it is not the current directory. The reclaim has no `--force` path.
 - Leave `devops repos worktrees prune` unchanged. It keeps its scope, and it does not check ignored files.
@@ -28,7 +28,7 @@ None.
 
 ## Impact
 
-- Code: `src/devops_cli/git/worktree_add.py`, `src/devops_cli/git/worktree_inventory.py`, `src/devops_cli/commands/repos.py`, `src/devops_cli/lang/en/messages.py`
+- Code: `src/devops_cli/git/worktree_add.py`, `src/devops_cli/git/worktree_inventory.py`, `src/devops_cli/commands/repos.py`, `src/devops_cli/lang/en/messages.py`, `src/devops_cli/config/constants.py`
 - Documents: `CONTRIBUTING.md`
 - Tests: `tests/git/test_repos_worktrees_reclaim_scope.py` (new), `tests/git/test_repos_worktrees_reclaim.py`, `tests/git/conftest.py` (new)
 
