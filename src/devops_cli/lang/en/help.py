@@ -1663,6 +1663,15 @@ class RoadmapCommandHelp:
     )
     release_arg: str = "The issue or item number to release."
     release_confirm: str = "Make the write to GitHub: remove the owner label."
+    onboard: str = (
+        "Check one repository against the roadmap prerequisites and create missing labels. "
+        "Details: docs/roadmap/onboard.md."
+    )
+    onboard_confirm: str = "Create missing labels and print human steps."
+    onboard_plan: str = "Check prerequisites, print the rows, and write nothing."
+    onboard_dry_run: str = (
+        "Make no request: print the requests that a run makes, in order, with placeholders."
+    )
 
 
 @dataclass(frozen=True)

@@ -207,6 +207,19 @@ def route_merge_base(api: GitHubApiFake, repo: str, base: str, head: str, sha: s
     )
 
 
+def route_installation_repositories(api: GitHubApiFake, repos: Sequence[str]) -> None:
+    """Answer the read of the App's installation repositories with `repos`."""
+    repositories = [
+        {"full_name": repo, "name": repo.split("/")[-1], "owner": {"login": repo.split("/")[0]}}
+        for repo in repos
+    ]
+    api.route(
+        "GET",
+        "/installation/repositories",
+        github_json({"total_count": len(repositories), "repositories": repositories}),
+    )
+
+
 class PacedClock:
     """The `time` module as the rate limiter reads it, except that a pause is recorded in `paced`
     instead of slept, so a test paces without waiting and nothing else's sleep changes."""

@@ -4274,6 +4274,7 @@ class RoadmapMessages:
             "add_sub_issue": "add {subject} as a sub-issue of {parent}",
             "create_issue": "open an issue for {subject}",
             "close": "close {subject} with the reason {reason}",
+            "create_label": "create label {label}",
         }
     )
     # The requests of a dry run that no `gh` command makes (#2650).
@@ -4320,6 +4321,7 @@ class RoadmapMessages:
                 "the run leaves the item: a person changed its title, its plan pull request has "
                 "no usable title, or the model gave no summary that passes the title form"
             ),
+            "as_app": "the process acts as the GitHub App",
         }
     )
     plan_repeat: dict[str, str] = field(
@@ -4350,8 +4352,16 @@ class RoadmapMessages:
             "open_plan": "for each open item with a change folder, once a run",
             "implement_item": "for each item the run implements, up to the limit",
             "implement_group": "for each task group that has an unticked task",
+            "missing_label": "for each declared label that the repository lacks",
         }
     )
+    # `devops roadmap onboard` (#1359).
+    onboard_title: str = "# Onboard for {repo}"
+    onboard_plain_note: str = (
+        "Onboard without a mode flag runs as --plan: it reads GitHub and writes "
+        "nothing. --dry-run makes no request."
+    )
+    onboard_not_readable_count: str = "Not readable rows: {count}."
     # `devops roadmap repair` (#3478).
     repair_title: str = "# Repair for {repo}"
     repair_line: str = "- #{number} {title}: {cause}"
