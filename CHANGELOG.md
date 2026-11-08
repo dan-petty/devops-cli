@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.86.0](https://github.com/dan-petty/devops-cli/compare/v0.85.0...v0.86.0) (2026-11-08)
+
+
+### Features
+
+* **roadmap:** add a set count to every-member plan claims ([#4089](https://github.com/dan-petty/devops-cli/issues/4089)) ([ab74843](https://github.com/dan-petty/devops-cli/commit/ab7484304fa1070d27cef40d3d6b5ad8a802f16b))
+
 ## [0.85.0](https://github.com/dan-petty/devops-cli/compare/v0.84.1...v0.85.0) (2026-11-07)
 
 
