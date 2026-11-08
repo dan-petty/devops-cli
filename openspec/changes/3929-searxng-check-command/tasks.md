@@ -38,11 +38,11 @@ Kind: documents. Reads: `k8s/README.md`, `docs/commands/k8s.md`. Changes: `k8s/R
 
 ## 5. The reply fixture of the pinned image
 
-Kind: other. Reads: `tests/ai/test_web_search_searxng.py`, `tests/fixtures/searxng/search_reply.json`. Changes: `tests/k8s/test_searxng_check.py`, `tests/fixtures/searxng/search_reply.json`, `tests/fixtures/searxng/search_reply_image.txt` (new).
+Kind: other. Reads: `tests/ai/test_web_search_searxng.py`, `tests/fixtures/searxng/search_reply.json`. Changes: `tests/k8s/test_searxng_check.py`, `tests/ai/test_web_search_searxng.py`, `tests/fixtures/searxng/search_reply.json`, `tests/fixtures/searxng/search_reply_image.txt` (new).
 
-- [ ] 5.1 Run `uv run devops k8s searxng-check` once against the cluster through a port-forward, and save one `json-general` reply of the pinned image as `tests/fixtures/searxng/search_reply.json`, with each private value masked. Write `SEARXNG_IMAGE` into `tests/fixtures/searxng/search_reply_image.txt`
+- [x] 5.1 Run `uv run devops k8s searxng-check` once against the cluster through a port-forward, and save one live reply of the pinned image (the `it` row, cut to its first three hits, because the `general` row gave one hit while duckduckgo answered CAPTCHA) as `tests/fixtures/searxng/search_reply.json`, with each private value masked. Write `SEARXNG_IMAGE` into `tests/fixtures/searxng/search_reply_image.txt`
   - Verification: `$ uv run devops ci test tests/ai/test_web_search_searxng.py` passes
-- [ ] 5.2 Add a test to `tests/k8s/test_searxng_check.py` that the fixture holds the seven reply keys, no engine of `OFF_ENGINES`, and that the file next to it holds `SEARXNG_IMAGE`
+- [x] 5.2 Add a test to `tests/k8s/test_searxng_check.py` that the fixture holds the seven reply keys, no engine of `OFF_ENGINES`, and that the file next to it holds `SEARXNG_IMAGE`
   - Verification: `$ uv run devops ci test tests/k8s/test_searxng_check.py` passes
 
 ## Workflow follow-up

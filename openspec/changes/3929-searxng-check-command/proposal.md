@@ -40,7 +40,7 @@ None.
 ## Impact
 
 - Code: `src/devops_cli/commands/k8s/searxng_check.py` (new), `src/devops_cli/commands/k8s/__init__.py`, `src/devops_cli/k8s/searxng_check.py` (new), `src/devops_cli/lang/en/messages.py`, `src/devops_cli/lang/en/help.py`, `src/devops_cli/config/defaults.py`
-- Tests: `tests/k8s/test_searxng_check.py` (new), `tests/commands/k8s/test_k8s_searxng_check.py` (new), `tests/support/kubectl_calls.py`, `tests/commands/k8s/test_k8s_crawl4ai_check.py`, `tests/gate/k8s_checks/devops_runtime.py`, `tests/invariants/test_k8s_searxng.py`, `tests/fixtures/searxng/search_reply.json`
+- Tests: `tests/k8s/test_searxng_check.py` (new), `tests/commands/k8s/test_k8s_searxng_check.py` (new), `tests/support/kubectl_calls.py`, `tests/commands/k8s/test_k8s_crawl4ai_check.py`, `tests/gate/k8s_checks/devops_runtime.py`, `tests/invariants/test_k8s_searxng.py`, `tests/ai/test_web_search_searxng.py`, `tests/fixtures/searxng/search_reply.json`, `tests/fixtures/searxng/search_reply_image.txt` (new)
 - Documents: `k8s/README.md`, `docs/commands/k8s.md`, `docs/CLI_REFERENCE.md`, `README.md`
 
 ## Feasibility

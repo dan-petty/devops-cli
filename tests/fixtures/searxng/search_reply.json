@@ -1,53 +1,107 @@
 {
-  "query": "pydantic ai agents",
-  "number_of_results": 0,
+  "query": "python",
   "results": [
     {
-      "url": "https://example.com/pydantic-ai",
-      "title": "Pydantic AI",
-      "content": "Agents for Python.",
-      "engine": "duckduckgo",
-      "parsed_url": ["https", "example.com", "/pydantic-ai", "", "", ""],
+      "url": "https://developer.mozilla.org/en-US/docs/Glossary/Python",
+      "title": "Python",
+      "content": "Python is a high-level general-purpose programming language. It uses a multi-paradigm approach, meaning it supports procedural, object-oriented, and some functional programming constructs.",
+      "engine": "mdn",
       "template": "default.html",
-      "engines": ["duckduckgo", "wikipedia"],
-      "positions": [1, 2],
-      "score": 9.0,
-      "category": "general",
-      "thumbnail": null,
-      "publishedDate": null
-    },
-    {
-      "url": "https://example.com/ruff",
-      "title": "Ruff",
-      "content": "A linter.",
-      "engine": "github",
-      "parsed_url": ["https", "example.com", "/ruff", "", "", ""],
-      "template": "default.html",
-      "engines": ["github"],
-      "positions": [1],
-      "score": 3.0,
-      "category": "it",
-      "thumbnail": null,
-      "publishedDate": null
-    },
-    {
-      "url": "https://example.com/mypy",
-      "title": "Mypy",
-      "content": "A type checker.",
-      "engine": "pypi",
-      "parsed_url": ["https", "example.com", "/mypy", "", "", ""],
-      "template": "default.html",
-      "engines": ["pypi"],
-      "positions": [1],
+      "parsed_url": [
+        "https",
+        "developer.mozilla.org",
+        "/en-US/docs/Glossary/Python",
+        "",
+        "",
+        ""
+      ],
+      "img_src": "",
+      "thumbnail": "",
+      "priority": "",
+      "engines": [
+        "mdn"
+      ],
+      "positions": [
+        1
+      ],
       "score": 1.0,
       "category": "it",
-      "thumbnail": null,
-      "publishedDate": null
+      "publishedDate": null,
+      "iframe_src": null
+    },
+    {
+      "url": "https://developer.mozilla.org/en-US/docs/Learn_web_development/Extensions/Server-side/Django",
+      "title": "Django Web Framework (Python)",
+      "content": "Django is an extremely popular and fully featured server-side web framework, written in Python. This module shows you why Django is one of the most popular web server frameworks, how to set up a development environment, and how to start using it to create your own web applications.",
+      "engine": "mdn",
+      "template": "default.html",
+      "parsed_url": [
+        "https",
+        "developer.mozilla.org",
+        "/en-US/docs/Learn_web_development/Extensions/Server-side/Django",
+        "",
+        "",
+        ""
+      ],
+      "img_src": "",
+      "thumbnail": "",
+      "priority": "",
+      "engines": [
+        "mdn"
+      ],
+      "positions": [
+        2
+      ],
+      "score": 0.5,
+      "category": "it",
+      "publishedDate": null,
+      "iframe_src": null
+    },
+    {
+      "url": "https://developer.mozilla.org/en-US/docs/Web/API/Document_Object_Model",
+      "title": "Document Object Model (DOM)",
+      "content": "The Document Object Model (DOM) connects web pages to scripts or programming languages by representing the structure of a document—such as the HTML representing a web page—in memory. Usually it refers to JavaScript, even though modeling HTML, SVG, or XML documents as objects are not part of the core JavaScript language.",
+      "engine": "mdn",
+      "template": "default.html",
+      "parsed_url": [
+        "https",
+        "developer.mozilla.org",
+        "/en-US/docs/Web/API/Document_Object_Model",
+        "",
+        "",
+        ""
+      ],
+      "img_src": "",
+      "thumbnail": "",
+      "priority": "",
+      "engines": [
+        "mdn"
+      ],
+      "positions": [
+        3
+      ],
+      "score": 0.3333333333333333,
+      "category": "it",
+      "publishedDate": null,
+      "iframe_src": null
     }
   ],
   "answers": [],
   "corrections": [],
   "infoboxes": [],
   "suggestions": [],
-  "unresponsive_engines": []
+  "unresponsive_engines": [
+    [
+      "askubuntu",
+      "too many requests"
+    ],
+    [
+      "stackoverflow",
+      "too many requests"
+    ],
+    [
+      "superuser",
+      "too many requests"
+    ]
+  ]
 }

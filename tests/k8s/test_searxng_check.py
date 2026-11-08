@@ -17,6 +17,7 @@ import pytest
 
 from devops_cli.k8s import searxng_check, service_probe
 from devops_cli.k8s.searxng_check import OFF_ENGINES, REPLY_KEYS, SEARXNG_IMAGE, reply_problems
+from tests.support.paths import FIXTURES
 
 _KEYS = (
     "answers",
@@ -154,3 +155,18 @@ def test_the_check_uses_the_probe_code_that_crawl4ai_check_uses() -> None:
         searxng_check.plan_probe_from_pod is service_probe.plan_probe_from_pod,
         searxng_check.service_cluster_ip is service_probe.service_cluster_ip,
     ) == (True, True, True)
+
+
+def test_the_saved_reply_is_a_live_reply_of_the_pinned_image_that_the_check_passes() -> None:
+    """`search_reply.json` is a reply that the pinned image gave to `devops k8s searxng-check`
+    (the first hits of the `it` row), and the file next to it names that image. A bump of the
+    digest fails here until a person saves a new reply."""
+    folder = FIXTURES / "searxng"
+    saved = (folder / "search_reply.json").read_bytes()
+    image = (folder / "search_reply_image.txt").read_text(encoding="utf-8").strip()
+
+    assert (image, sorted(json.loads(saved)), reply_problems(200, saved)) == (
+        SEARXNG_IMAGE,
+        sorted(REPLY_KEYS),
+        [],
+    )
