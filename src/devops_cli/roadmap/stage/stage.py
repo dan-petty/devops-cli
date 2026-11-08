@@ -198,6 +198,7 @@ from devops_cli.roadmap.stage.stage_rejected import (
     recorded_rejection,
     staged_plans,
 )
+from devops_cli.roadmap.stage.stage_request import StageRequest, gate_arguments
 from devops_cli.roadmap.stage.stage_specs import BaseSpec, read_base_specs
 from devops_cli.roadmap.stage.stage_split import ask_split
 from devops_cli.roadmap.stage.stage_toolbox import ToolboxClient, ToolboxModel, review
@@ -890,19 +891,14 @@ class _Planner:
         self._specs_on_demand = bool(getattr(client, "reads_specs", False))
         # Whether the model split the groups of the item in hand: it does so once for each item.
         self._split_asked = False
-        # The lines of the premise probe of the item in hand, for the quote rule of `feasibility`.
-        self._probe_lines: tuple[str, ...] = ()
         # The read of the open plans that create a path (#3418), and the dependency that the
         # probe of the item in hand found, which the run returns without a model call.
         self._open_creates = open_creates
         # The reason of a rejected plan, by issue number, for the request (#3503).
         self._rejected = rejected or {}
         self._dependency: Blocked | None = None
-        # The open pull requests that overlap the paths of the item in hand, and the files that
-        # hold a cited metric (#3252). The gate reads the overlaps.
-        self._overlaps: tuple[Overlap, ...] = ()
+        # The number of GraphQL requests that read the open pull requests of the item in hand.
         self._pull_requests = 0
-        self._metric_senders: dict[str, tuple[str, ...]] = {}
 
     def plan(self, target: StageTarget) -> StagedChange | OverBudget | Blocked:
         """The change of `target`, or the group that stops it. A reply the checks refuse goes back
@@ -923,18 +919,18 @@ class _Planner:
             return replace(outcome, trace=RunTrace.combined(self._traces))
         return outcome
 
-    def _gated(self, target: StageTarget, request: Mapping[str, Any]) -> StagedChange | OverBudget:
+    def _gated(self, target: StageTarget, request: StageRequest) -> StagedChange | OverBudget:
         """The change that passes the checks, with one return of a refused reply."""
-        proposal = self._ask(StageProposal, _CHANGE_TASK, request)
-        outcome = self._settle(target, proposal)
+        proposal = self._ask(StageProposal, _CHANGE_TASK, request.for_model())
+        outcome = self._settle(target, proposal, request)
         if isinstance(outcome, _Refused):
             again = {
-                **request,
+                **request.for_model(),
                 "previous": outcome.reply.model_dump(),
                 "problem": outcome.problem,
             }
             proposal = self._ask(StageProposal, _CHANGE_TASK, again)
-            outcome = self._settle(target, proposal)
+            outcome = self._settle(target, proposal, request)
         if isinstance(outcome, _Refused):
             message = MESSAGES.roadmap.stage_invalid.format(problem=outcome.problem)
             raise _stage_error(message, target)
@@ -943,7 +939,7 @@ class _Planner:
     def _verified(
         self,
         target: StageTarget,
-        request: Mapping[str, Any],
+        request: StageRequest,
         change: StagedChange,
         verifier: ToolboxClient,
     ) -> StagedChange | OverBudget:
@@ -969,19 +965,19 @@ class _Planner:
     def _repaired(
         self,
         target: StageTarget,
-        request: Mapping[str, Any],
+        request: StageRequest,
         change: StagedChange,
         open_: Sequence[Finding],
     ) -> StagedChange | OverBudget:
         """The plan of one repair round: the planner gets the plan and each open finding of the
         review, and its revision passes the checks or stops the item."""
         again = {
-            **request,
+            **request.for_model(),
             "previous": change.proposal.model_dump(),
             "problem": return_problem(open_),
         }
         revised = self._ask(StageProposal, _CHANGE_TASK, again)
-        outcome = self._settle(target, revised)
+        outcome = self._settle(target, revised, request)
         if isinstance(outcome, _Refused):
             message = MESSAGES.roadmap.stage_invalid.format(problem=outcome.problem)
             raise _stage_error(message, target)
@@ -1007,7 +1003,9 @@ class _Planner:
         findings, given = review(verifier, self._input_of(target, change))
         return findings, returning(findings, given), open_findings(findings, given)
 
-    def _request(self, target: StageTarget) -> dict[str, Any]:
+    def _request(self, target: StageTarget) -> StageRequest:
+        """The request for one item: what the model reads and what the gates need. The open plans
+        that create a path are read here, once for the run (#4046)."""
         item = target.item
         context = collect_context(
             self._source,
@@ -1022,33 +1020,30 @@ class _Planner:
         if matched:
             lines = [f"- {entry.path} ({entry.declaring_path}:{entry.line})" for entry in matched]
             context = f"{context}\n\n### Registry places\n\n" + "\n".join(lines)
-        request: dict[str, Any] = {
-            "number": item.number,
-            "title": item.title,
-            "body": truncate_to_token_limit(
+        pulls, senders = self._read_overlaps(item.body)
+        probe = probe_premise(self._source, self._sha, item.body)
+        self._dependency = self._dependency_of(target, probe.missing)
+        return StageRequest(
+            number=item.number,
+            title=item.title,
+            body=truncate_to_token_limit(
                 item.body,
                 min(CONST_ROADMAP_STAGE_BODY_MAX_TOKENS, self._window // _WINDOW_SHARE_BODY),
             ),
-            "context": context,
-            "capabilities": self._capabilities(),
-            "budget": self._budget,
-        }
-        if item.number in self._rejected:
-            request["rejected_plan"] = self._rejected[item.number]
-        self._read_overlaps(item.body)
-        if self._overlaps:
-            request["overlaps"] = [overlap.entry() for overlap in self._overlaps]
-        if self._metric_senders:
-            request["metric_senders"] = {
-                name: list(files) for name, files in self._metric_senders.items()
-            }
-        probe = probe_premise(self._source, self._sha, item.body)
-        # The checks of the reply read the same lines as the model (#3200): `feasibility` quotes one.
-        self._probe_lines = probe.lines
-        self._dependency = self._dependency_of(target, probe.missing)
-        if probe.text:
-            request["probes"] = probe.text
-        return request
+            context=context,
+            capabilities=self._capabilities(),
+            budget=self._budget,
+            rejected_plan=self._rejected.get(item.number),
+            overlaps=[overlap.entry() for overlap in pulls] or None,
+            metric_senders={name: list(files) for name, files in senders.items()} or None,
+            probes=probe.text or None,
+            issue_body=item.body,
+            # The checks of the reply read the same lines as the model (#3200): `feasibility`
+            # quotes one.
+            probe_lines=probe.lines,
+            overlap_pulls=pulls,
+            creators=dict(self._creators()),
+        )
 
     def _dependency_of(self, target: StageTarget, missing: Sequence[str]) -> Blocked | None:
         """The open item whose plan creates a cited path that the staging commit lacks, or None
@@ -1070,11 +1065,11 @@ class _Planner:
             return names
         return [self._specs[name].request_entry(name) for name in names]
 
-    def _read_overlaps(self, body: str) -> None:
+    def _read_overlaps(self, body: str) -> tuple[tuple[Overlap, ...], Mapping[str, Sequence[str]]]:
         """Read the open pull requests whose files meet the paths that `body` cites, and the files
         that hold each metric name that `body` cites (#3252). A failed read adds no entry and
         never stops the item."""
-        self._overlaps = ()
+        pulls: tuple[Overlap, ...] = ()
         self._pull_requests = 0
         cited = set(self._tree.paths_in(body))
         for span in code_spans(body):
@@ -1086,10 +1081,11 @@ class _Planner:
                 read = None
             if read is not None:
                 self._pull_requests = read.requests
-                self._overlaps = overlaps(read.pulls, cited)
-        self._metric_senders = (
+                pulls = overlaps(read.pulls, cited)
+        senders = (
             metric_senders(cited_instruments(body), self._grep) if self._grep is not None else {}
         )
+        return pulls, senders
 
     def _ask[M: BaseModel](self, schema: type[M], task: str, request: Mapping[str, Any]) -> M:
         return self._client.chat_structured(
@@ -1114,11 +1110,11 @@ class _Planner:
             return _Refused(" ".join(lines), proposal)
 
     def _settle(
-        self, target: StageTarget, proposal: StageProposal
+        self, target: StageTarget, proposal: StageProposal, request: StageRequest
     ) -> StagedChange | OverBudget | _Refused:
         """The outcome for one reply: a change, a stop on the budget, or the problem that sends
         the reply back."""
-        problems = self._problems(target, proposal, self._tree_of(target, proposal))
+        problems = self._problems(proposal, self._tree_of(target, proposal), request)
         if problems:
             return _Refused(" ".join(problems), proposal)
         title = staging_title(target.item.number, proposal.summary)
@@ -1131,7 +1127,7 @@ class _Planner:
         if asked is not proposal:
             # The split gave new groups, and the model can bring back a fault that only one gate
             # refuses. Every gate of the first reply judges the split too.
-            problems = self._problems(target, asked, self._tree.with_files(files))
+            problems = self._problems(asked, self._tree.with_files(files), request)
             if problems:
                 return _Refused(" ".join(problems), asked)
         proposal = asked
@@ -1156,7 +1152,7 @@ class _Planner:
         )
 
     def _problems(
-        self, target: StageTarget, proposal: StageProposal, tree: StagedTree
+        self, proposal: StageProposal, tree: StagedTree, request: StageRequest
     ) -> list[str]:
         """The problems that every gate finds in one reply: the first one and a split of it."""
         evidence = (
@@ -1165,20 +1161,19 @@ class _Planner:
         constants = staged_constants(self._source, self._sha, candidate_names(plan_texts(proposal)))
         return check_proposal(
             proposal,
-            self._known,
-            tree,
-            requirements=self._requirements,
-            requirement_texts=self._requirement_texts,
-            issue_body=target.item.body,
-            probes=self._probe_lines,
-            overlaps=self._overlaps,
-            search_evidence=evidence,
-            plan_creates=self._creators(),
-            # The citation rule reads the staged commit, the one the probe and the model read
-            # (#3422), and never the working tree.
-            read_text=partial(_read_staged_file, self._source, self._sha),
-            registry=registry_table(self._source),
-            constants=constants,
+            **gate_arguments(
+                request,
+                tree,
+                known=self._known,
+                requirements=self._requirements,
+                requirement_texts=self._requirement_texts,
+                search_evidence=evidence,
+                # The citation rule reads the staged commit, the one the probe and the model read
+                # (#3422), and never the working tree.
+                read_text=partial(_read_staged_file, self._source, self._sha),
+                registry=registry_table(self._source),
+                constants=constants,
+            ),
         )
 
     def _creators(self) -> Mapping[str, int]:

@@ -11,7 +11,6 @@ import time
 from typing import TYPE_CHECKING, Any
 
 import pytest
-from devops_cli.roadmap.stage.stage_request import GATE_ONLY_FIELDS, StageRequest, gate_arguments
 from pydantic import ValidationError
 
 from devops_cli.github.rate_limiter import get_github_rate_limiter
@@ -19,6 +18,7 @@ from devops_cli.roadmap.stage.stage import parse_filters, plan_stage
 from devops_cli.roadmap.stage.stage_change import ProposalGate, check_gates, check_proposal
 from devops_cli.roadmap.stage.stage_overlap import Overlap
 from devops_cli.roadmap.stage.stage_paths import StagedTree
+from devops_cli.roadmap.stage.stage_request import GATE_ONLY_FIELDS, StageRequest, gate_arguments
 from tests.support.builders import make_stage_proposal
 from tests.support.fakes.github import github_json
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
@@ -317,7 +317,7 @@ def test_gates_from_request_pass_the_keyword_inputs_through() -> None:
     assert arguments["known"] == KNOWN
     assert arguments["tree"] is TREE
     assert arguments["requirements"] == {"comment-thread": {"Keep"}}
-    assert arguments["read_text"] is texts.get
+    assert arguments["read_text"] == texts.get
     assert arguments["constants"] == {"CONST_PANEL_LIMIT": 3}
 
 
