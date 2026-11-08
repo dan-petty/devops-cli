@@ -579,7 +579,7 @@ def _run_stage_adapter(
     """Run the stage job as `devops roadmap stage --confirm` runs it, with the filter, the limit
     and the step budget of the settings: stage the Ready items they name in the job's clone and
     count each item by its result (#2659). An item that failed is recorded in its job record and
-    waits for `roadmap.stage.retry_hours` hours; the job fails, once the others are written, only
+    waits for the wait of its failure class (`RETRY_AFTER`); the job fails, once the others are written, only
     when it tried items and handled none (#3493). A failure that no item explains, such as an
     outage, ends the run at once. Each item is written when it is planned, so a stop of the
     Service loses at most the item in progress (#4034)."""

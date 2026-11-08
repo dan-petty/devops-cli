@@ -8,6 +8,7 @@ pull request in that issue. The others are the messages that the job itself writ
 
 from __future__ import annotations
 
+from datetime import timedelta
 from pathlib import Path
 from typing import NamedTuple
 
@@ -754,6 +755,29 @@ def test_class_by_exception_uses_only_classes_of_the_taxonomy_and_each_type_once
 
     assert (len(types), len(set(types))) == (len(types), len(types))
     assert {klass for _, klass in failure_module.CLASS_BY_EXCEPTION} <= set(FailureClass)
+
+
+def test_retry_after_has_a_key_for_each_class_of_class_by_exception_and_no_other() -> None:
+    assert set(failure_module.RETRY_AFTER) == {
+        klass for _, klass in failure_module.CLASS_BY_EXCEPTION
+    }
+
+
+def test_retry_after_gives_each_class_its_wait() -> None:
+    assert {
+        klass: wait.total_seconds() / 3600 for klass, wait in failure_module.RETRY_AFTER.items()
+    } == {
+        FailureClass.PROVIDER: 1,
+        FailureClass.PARSER: 6,
+        FailureClass.PLAN_DEFECT: 6,
+        FailureClass.CI_INFRA: 1,
+        FailureClass.HEAD_MOVED: 0,
+    }
+
+
+def test_retry_after_is_a_table_that_no_caller_can_change() -> None:
+    with pytest.raises(TypeError, match="does not support item assignment"):
+        failure_module.RETRY_AFTER[FailureClass.PROVIDER] = timedelta(0)  # type: ignore[index]
 
 
 def test_step_name_holds_the_plan_and_the_apply_step() -> None:

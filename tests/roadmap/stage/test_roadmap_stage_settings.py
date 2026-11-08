@@ -68,6 +68,18 @@ def test_a_config_file_and_a_variable_set_the_limit_and_the_filter(
     )
 
 
+def test_a_config_file_that_still_names_retry_hours_loads_and_the_setting_is_gone(
+    config: Callable[..., Path],
+) -> None:
+    """The wait of a failed item follows its failure class (#4060). A stale key is ignored."""
+    config(roadmap={"stage": {"retry_hours": 2}})
+
+    loaded = settings.load_settings().roadmap.stage
+
+    assert "retry_hours" not in type(loaded).model_fields
+    assert not hasattr(loaded, "retry_hours")
+
+
 def test_a_config_file_sets_the_filter_as_a_list(config: Callable[..., Path]) -> None:
     config(roadmap={"stage": {"filter": ["status=ready", "effort=small"]}})
 

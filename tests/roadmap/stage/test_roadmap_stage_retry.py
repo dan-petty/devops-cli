@@ -6,7 +6,6 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from devops_cli.config.defaults import DEFAULT_ROADMAP_STAGE_RETRY_HOURS
 from devops_cli.exceptions import RoadmapStageError
 from devops_cli.roadmap import failure as failure_module
 from devops_cli.roadmap.explain import JobVerdict, explain_item
@@ -29,7 +28,8 @@ from tests.support.roadmap_stage import STAGE_REPO, apply_stage, seed_stageable
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
 NOW = datetime(2026, 11, 4, 12, 0, tzinfo=UTC)
-RETRY = timedelta(hours=DEFAULT_ROADMAP_STAGE_RETRY_HOURS)
+# A record with no class waits as `ci_infra` (#4060); `_fail` writes no class.
+RETRY = timedelta(hours=1)
 NO_PLANS = PlannedChanges("main", {}, {})
 
 

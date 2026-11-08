@@ -214,10 +214,6 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
         "setting",
         "open Planned items at which the stage job plans only P0 and P1 items; already a setting",
     ),
-    "DEFAULT_ROADMAP_STAGE_RETRY_HOURS": (
-        "other",
-        "the wait before a failed stage item is tried again",
-    ),
     # ── Alternatives ──────────────────────────────────────────────────────────────────────
     "CONST_ROADMAP_ALTERNATIVES_MAX_SEARCHES": ("raised", "was 3; web searches of one item"),
     "CONST_ROADMAP_ALTERNATIVES_MAX_FACT_READS": (
