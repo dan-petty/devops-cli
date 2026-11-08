@@ -54,6 +54,16 @@ def test_a_plan_with_no_dependency_reads_as_no_entry() -> None:
     assert read_change(_files(make_stage_proposal())).dependencies == []
 
 
+def test_the_reader_reads_the_security_section() -> None:
+    original = make_stage_proposal(security="The egress rule is required for logging.")
+
+    assert read_change(_files(original)).security == "The egress rule is required for logging."
+
+
+def test_a_plan_with_no_security_reads_as_empty_text() -> None:
+    assert read_change(_files(make_stage_proposal())).security == ""
+
+
 def test_a_change_folder_with_no_criteria_section_reads_back_with_no_criterion() -> None:
     files = _files(make_stage_proposal())
     tasks = files[f"openspec/changes/{CHANGE}/tasks.md"]

@@ -231,7 +231,7 @@ def recorded_tests(checks: Sequence[WeakenedCheck]) -> frozenset[str]:
     return frozenset(name for entry in checks for name in _RECORDED_TEST.findall(entry.check))
 
 
-def _design(text: str) -> tuple[list[StageDecision], list[StageRejection]]:
+def _design(text: str) -> tuple[list[StageDecision], list[StageRejection], str]:
     decisions = [
         StageDecision(decision=name, reason=reason)
         for name, reason in _named_bullets(_section(text, "Decisions"))
@@ -240,7 +240,8 @@ def _design(text: str) -> tuple[list[StageDecision], list[StageRejection]]:
         StageRejection(alternative=name, evidence=reason)
         for name, reason in _named_bullets(_section(text, "Rejected alternatives"))
     ]
-    return decisions, rejected
+    security = _one_line(_section(text, "Security"))
+    return decisions, rejected, security
 
 
 def _spans(text: str) -> list[tuple[str, str]]:
@@ -476,7 +477,7 @@ def read_change(files: Mapping[str, str]) -> StageProposal:
     root = _header(files)
     proposal_md = files[f"{root}/{_PROPOSAL}"]
     why, what_changes, feasibility, existing_tool = _proposal(proposal_md)
-    decisions, rejected = _design(files[f"{root}/{_DESIGN}"])
+    decisions, rejected, security = _design(files[f"{root}/{_DESIGN}"])
     groups = [_read_group(group) for group in parse_task_groups(files[f"{root}/{_TASKS}"])]
     specs = [
         _spec(path, text)
@@ -499,6 +500,7 @@ def read_change(files: Mapping[str, str]) -> StageProposal:
             groups=groups,
             criteria=criteria,
             dependencies=_bullets(_section(proposal_md, "Dependencies")),
+            security=security,
             weakened_checks=weakened_checks(proposal_md),
         )
     except ValidationError as exc:
