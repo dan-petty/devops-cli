@@ -13,7 +13,17 @@ from typing import NamedTuple
 
 import pytest
 
+from devops_cli.ai.client.models import AIClientError, StructuredOutputValidationError
+from devops_cli.exceptions import (
+    DevOpsCLIError,
+    GitHubOperationError,
+    GitOperationError,
+    RoadmapStageError,
+    ToolExecutionError,
+)
+from devops_cli.exceptions.roadmap import RoadmapItemChangedError
 from devops_cli.lang import MESSAGES
+from devops_cli.roadmap import failure as failure_module
 from devops_cli.roadmap.failure import (
     ACTION_BY_CLASS,
     FailureAction,
@@ -687,3 +697,71 @@ def test_a_staged_item_with_an_open_finding_is_a_failed_attempt_not_a_staged_pla
     )
 
     assert results == {1: StageResult.FAILED}
+
+
+class _CustomAIError(AIClientError):
+    """A subclass that the table has no entry for."""
+
+
+class _CustomGitError(GitOperationError):
+    """A subclass that the table has no entry for."""
+
+
+@pytest.mark.parametrize(
+    ("exc", "expected"),
+    [
+        (RoadmapItemChangedError("the item changed"), FailureClass.HEAD_MOVED),
+        (StructuredOutputValidationError("no schema fits"), FailureClass.PARSER),
+        (AIClientError("the provider is down"), FailureClass.PROVIDER),
+        (RoadmapStageError("a plan broke a rule"), FailureClass.PLAN_DEFECT),
+        (GitHubOperationError("the write failed"), FailureClass.CI_INFRA),
+        (GitOperationError("the push failed"), FailureClass.CI_INFRA),
+        (ToolExecutionError("the tool failed"), FailureClass.CI_INFRA),
+        (DevOpsCLIError("any other error"), FailureClass.CI_INFRA),
+    ],
+    ids=lambda value: type(value).__name__ if isinstance(value, Exception) else value.value,
+)
+def test_class_by_exception_gives_each_mapped_exception_its_class(
+    exc: DevOpsCLIError, expected: FailureClass
+) -> None:
+    assert failure_module.failure_class_of(exc) is expected
+
+
+def test_class_by_exception_puts_a_type_before_each_parent_it_is_a_subclass_of() -> None:
+    types = [exception_type for exception_type, _ in failure_module.CLASS_BY_EXCEPTION]
+
+    for index, exception_type in enumerate(types):
+        assert not any(
+            issubclass(types[later], exception_type) for later in range(index + 1, len(types))
+        )
+
+
+def test_class_by_exception_ends_with_the_base_error_so_that_every_error_has_a_class() -> None:
+    last_type, last_class = failure_module.CLASS_BY_EXCEPTION[-1]
+
+    assert (last_type, last_class) == (DevOpsCLIError, FailureClass.CI_INFRA)
+
+
+def test_class_by_exception_gives_a_subclass_with_no_entry_the_class_of_its_parent() -> None:
+    assert (
+        failure_module.failure_class_of(_CustomAIError("custom")),
+        failure_module.failure_class_of(_CustomGitError("custom")),
+    ) == (FailureClass.PROVIDER, FailureClass.CI_INFRA)
+
+
+def test_class_by_exception_uses_only_classes_of_the_taxonomy_and_each_type_once() -> None:
+    types = [exception_type for exception_type, _ in failure_module.CLASS_BY_EXCEPTION]
+
+    assert (len(types), len(set(types))) == (len(types), len(types))
+    assert {klass for _, klass in failure_module.CLASS_BY_EXCEPTION} <= set(FailureClass)
+
+
+def test_step_name_holds_the_plan_and_the_apply_step() -> None:
+    assert [step.value for step in failure_module.StepName] == ["plan", "apply"]
+
+
+def test_step_name_values_are_unique_one_word_strings() -> None:
+    values = [step.value for step in failure_module.StepName]
+
+    assert len(values) == len(set(values))
+    assert all(value.isalpha() and value == value.lower() for value in values)
