@@ -8,7 +8,6 @@ fixture, and a histogram point is read as (attributes, count, sum).
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import pytest
@@ -21,10 +20,12 @@ from devops_cli.roadmap.run import (
     JobRow,
     run_due_jobs,
 )
+from tests.support.paths import REPO_ROOT
 from tests.support.roadmap_run import NOW, OPENED, POLL_KEY, REPO, SimulatedGit
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+    from pathlib import Path
 
     from tests.support.fakes.clock import ClockFake
     from tests.support.fakes.otlp import FakeCollector
@@ -261,7 +262,7 @@ def test_the_row_seconds_instrument_is_declared_and_documented() -> None:
     from devops_cli.telemetry.instruments import INSTRUMENTS, InstrumentKind
 
     declared = {instrument.name: instrument for instrument in INSTRUMENTS}
-    documented = (Path(__file__).parents[2] / "docs" / "TELEMETRY.md").read_text(encoding="utf-8")
+    documented = (REPO_ROOT / "docs" / "TELEMETRY.md").read_text(encoding="utf-8")
 
     assert (
         ROW_SECONDS in declared
