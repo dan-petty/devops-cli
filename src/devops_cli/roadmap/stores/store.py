@@ -235,6 +235,7 @@ class StageRecordKey(StrEnum):
     FAILED_ERROR = "stage.failed_error"
     TEXT_HASH = "stage.text_hash"
     REJECTED = "stage.rejected"
+    PENDING = "stage.pending"
 
 
 class ImplementRecordKey(StrEnum):
