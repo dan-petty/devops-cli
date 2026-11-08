@@ -160,7 +160,6 @@ from devops_cli.roadmap.stage.stage_change import (
     StageProposal,
     check_proposal,
     closing_keyword_in,
-    creates_problems,
     measure_groups,
     plan_texts,
     pull_request_body,
@@ -171,12 +170,9 @@ from devops_cli.roadmap.stage.stage_change import (
     write_change_files,
 )
 from devops_cli.roadmap.stage.stage_constants import candidate_names, staged_constants
-from devops_cli.roadmap.stage.stage_criteria import criterion_problems
 from devops_cli.roadmap.stage.stage_filter import split_filter_entry
 from devops_cli.roadmap.stage.stage_form import (
-    form_problems,
     record_search_evidence,
-    search_problems,
 )
 from devops_cli.roadmap.stage.stage_github import StageGitHub
 from devops_cli.roadmap.stage.stage_moved import MovedPath, moved_paths
@@ -190,7 +186,7 @@ from devops_cli.roadmap.stage.stage_overlap import (
     overlaps,
     session_pull_reads,
 )
-from devops_cli.roadmap.stage.stage_paths import StagedTree, path_problems
+from devops_cli.roadmap.stage.stage_paths import StagedTree
 from devops_cli.roadmap.stage.stage_probe import blocked_by, probe_premise
 from devops_cli.roadmap.stage.stage_registry import matches, registry_table
 from devops_cli.roadmap.stage.stage_rejected import (
@@ -1122,27 +1118,7 @@ class _Planner:
     ) -> StagedChange | OverBudget | _Refused:
         """The outcome for one reply: a change, a stop on the budget, or the problem that sends
         the reply back."""
-        evidence = (
-            record_search_evidence(proposal.groups, self._grep) if self._grep is not None else None
-        )
-        constants = staged_constants(self._source, self._sha, candidate_names(plan_texts(proposal)))
-        problems = check_proposal(
-            proposal,
-            self._known,
-            self._tree_of(target, proposal),
-            requirements=self._requirements,
-            requirement_texts=self._requirement_texts,
-            issue_body=target.item.body,
-            probes=self._probe_lines,
-            overlaps=self._overlaps,
-            search_evidence=evidence,
-            plan_creates=self._creators(),
-            # The citation rule reads the staged commit, the one the probe and the model read
-            # (#3422), and never the working tree.
-            read_text=partial(_read_staged_file, self._source, self._sha),
-            registry=registry_table(self._source),
-            constants=constants,
-        )
+        problems = self._problems(target, proposal, self._tree_of(target, proposal))
         if problems:
             return _Refused(" ".join(problems), proposal)
         title = staging_title(target.item.number, proposal.summary)
@@ -1153,19 +1129,9 @@ class _Planner:
             return body
         asked, files, measured = self._fit(target, proposal)
         if asked is not proposal:
-            # The split gave new groups, and the model can bring old paths back with them.
-            problems = form_problems(asked.groups)
-            problems.extend(path_problems(asked.groups, self._tree.with_files(files)))
-            problems.extend(
-                search_problems(
-                    asked.groups,
-                    record_search_evidence(asked.groups, self._grep)
-                    if self._grep is not None
-                    else None,
-                )
-            )
-            problems.extend(criterion_problems(asked.criteria, target.item.body, len(asked.groups)))
-            problems.extend(creates_problems(asked.groups, self._creators()))
+            # The split gave new groups, and the model can bring back a fault that only one gate
+            # refuses. Every gate of the first reply judges the split too.
+            problems = self._problems(target, asked, self._tree.with_files(files))
             if problems:
                 return _Refused(" ".join(problems), asked)
         proposal = asked
@@ -1187,6 +1153,32 @@ class _Planner:
             self._budget,
             proposal,
             pulls_requests=self._pull_requests,
+        )
+
+    def _problems(
+        self, target: StageTarget, proposal: StageProposal, tree: StagedTree
+    ) -> list[str]:
+        """The problems that every gate finds in one reply: the first one and a split of it."""
+        evidence = (
+            record_search_evidence(proposal.groups, self._grep) if self._grep is not None else None
+        )
+        constants = staged_constants(self._source, self._sha, candidate_names(plan_texts(proposal)))
+        return check_proposal(
+            proposal,
+            self._known,
+            tree,
+            requirements=self._requirements,
+            requirement_texts=self._requirement_texts,
+            issue_body=target.item.body,
+            probes=self._probe_lines,
+            overlaps=self._overlaps,
+            search_evidence=evidence,
+            plan_creates=self._creators(),
+            # The citation rule reads the staged commit, the one the probe and the model read
+            # (#3422), and never the working tree.
+            read_text=partial(_read_staged_file, self._source, self._sha),
+            registry=registry_table(self._source),
+            constants=constants,
         )
 
     def _creators(self) -> Mapping[str, int]:
