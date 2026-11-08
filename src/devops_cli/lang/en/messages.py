@@ -709,6 +709,26 @@ class K8sMessages:
     )
     image_pins_local: str = "Only the cluster or this host reaches the registry of these images, so they are not resolved: {images}"
     image_pins_dry_run: str = "Each image that the renders name is then resolved with this request: HEAD https://<registry>/v2/<repository>/manifests/<reference>"
+    crawl4ai_check_token_missing: str = (
+        "The keyring holds no entry crawl4ai_api_token. Store the token once with 'devops config "
+        "set crawl4ai.api_token'. The check sent no request."
+    )
+    crawl4ai_check_passed: str = (
+        "Crawl4AI refused all {internal} requests for internal targets and all {open} requests "
+        "without the token, and a pod with its label opens no connection to the {destinations} "
+        "destinations. The check was written for the image {image}."
+    )
+    crawl4ai_check_failed: str = (
+        "{count} check(s) of the Crawl4AI service failed: {detail}. The service serves a target "
+        "that it must refuse, or a control is missing. Do not fix this in code: file the "
+        "evidence upstream and as a comment on issue #3884."
+    )
+    crawl4ai_check_failed_requests: str = "{count} request(s) with the token were not refused"
+    crawl4ai_check_failed_open: str = "{count} request(s) without the token were not refused"
+    crawl4ai_check_failed_pod: str = "the pod opened a connection to {roles}"
+    crawl4ai_check_dry_run: str = (
+        "A dry run sends no request and starts no process. The calls above run in this order."
+    )
     rbac_audit_passed: str = (
         "RBAC audit passed: no broad or wildcard role granted to a non-system subject "
         "in {bindings} binding(s)."
@@ -816,6 +836,9 @@ class K8sMessages:
     table_title_kube_linter: str = "Kube-Linter Manifest Security Checks"
     table_title_popeye: str = "Popeye Cluster Health Sanitizer Audit"
     table_title_pluto: str = "Pluto Deprecated Kubernetes API Version Audit"
+    table_title_crawl4ai_internal: str = "Crawl4AI: requests with the token for internal targets"
+    table_title_crawl4ai_open: str = "Crawl4AI: requests without the token"
+    table_title_crawl4ai_pod: str = "Pod with the label of the service: connects"
     table_title_image_pins: str = "Image Pins of the Argo CD Applications"
     table_title_kubeconform: str = "Kubeconform Strict Schema Validation"
     table_title_nodes: str = "Nodes"

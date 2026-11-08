@@ -125,6 +125,23 @@ class K8sErrorMessages:
     tunnel_context_unread: str = (
         "The kubeconfig context {context} gives no cluster, user or CA data to copy."
     )
+    probe_pod_failed: str = "The probe pod {pod} failed at step {step}: {detail}"
+    probe_exec_failed: str = (
+        "The probe for {role} did not run in pod {pod} (exit code {code}): {detail}. This is no "
+        "evidence about the policy."
+    )
+    probe_pod_not_deleted: str = (
+        "The probe pod {pod} was not deleted: {detail}. Delete it with: "
+        "kubectl delete pod {pod} -n {namespace}"
+    )
+    probe_cluster_ip: str = "The ClusterIP of Service {service} cannot be read: {detail}"
+    probe_forward_exited: str = (
+        "kubectl port-forward to Service {service} stopped with exit code {code} before the "
+        "service answered."
+    )
+    probe_forward_silent: str = (
+        "Service {service} did not answer {path} through the forward in {seconds:g} s."
+    )
     volume_not_orphaned_phase: str = (
         "PersistentVolume '{name}' phase is '{phase}' (must be Released or Failed)."
     )

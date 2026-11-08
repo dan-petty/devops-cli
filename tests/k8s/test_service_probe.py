@@ -13,9 +13,9 @@ import json
 from typing import Any
 
 import pytest
-from devops_cli.k8s.service_probe import PodProbeRow, PodTarget, probe_from_pod
 
 from devops_cli.exceptions.k8s import ServiceProbeError
+from devops_cli.k8s.service_probe import PodProbeRow, PodTarget, probe_from_pod
 from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
 from tests.support.kubectl_calls import (
     after_separator,

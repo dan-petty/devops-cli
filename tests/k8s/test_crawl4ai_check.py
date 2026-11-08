@@ -10,6 +10,7 @@ from __future__ import annotations
 import re
 
 import pytest
+
 from devops_cli.k8s.crawl4ai_check import CRAWL4AI_IMAGE, is_refusal
 
 _BLOCKED = b'{"detail":"URL blocked (SSRF protection): URL blocked"}'

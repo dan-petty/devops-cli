@@ -7,8 +7,8 @@ import subprocess
 from pathlib import Path
 
 import yaml
-from devops_cli.k8s.crawl4ai_check import CRAWL4AI_IMAGE
 
+from devops_cli.k8s.crawl4ai_check import CRAWL4AI_IMAGE
 from tests.support.paths import REPO_ROOT
 
 K8S_DIR = REPO_ROOT / "k8s"

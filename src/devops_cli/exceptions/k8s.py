@@ -47,6 +47,13 @@ class ImagePinError(KubernetesError):
     error_code = "K8S_IMAGE_PIN_ERROR"
 
 
+class ServiceProbeError(KubernetesError):
+    """Raised when `devops k8s crawl4ai-check` cannot probe a service: the forward, the throwaway pod
+    or the probe fails, or a check fails (#3894)."""
+
+    error_code = "K8S_SERVICE_PROBE_ERROR"
+
+
 class ArgoCDGateError(KubernetesError):
     """Raised when an Argo CD application fails offline build, value, or placeholder validation (#1343)."""
 

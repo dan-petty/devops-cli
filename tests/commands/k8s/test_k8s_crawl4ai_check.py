@@ -20,6 +20,7 @@ from urllib.parse import unquote, urlsplit
 import httpx2
 import pytest
 
+from tests.support.fakes.clock import ClockFake
 from tests.support.fakes.http import RecordedRequest, WebFake
 from tests.support.fakes.keyring import FakeKeyring
 from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
@@ -126,7 +127,7 @@ def service(web: WebFake) -> _Service:
 
 @pytest.fixture
 def cluster(
-    service: _Service, process_fake: ProcessFake, keyring_store: FakeKeyring
+    service: _Service, process_fake: ProcessFake, keyring_store: FakeKeyring, clock: ClockFake
 ) -> ProcessFake:
     """A cluster that blocks the pod, a service that refuses each internal target, a running
     forward, the token in the keyring and a ClusterIP for the Service of the roadmap."""
