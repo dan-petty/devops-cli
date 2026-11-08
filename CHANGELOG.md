@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.92.0](https://github.com/dan-petty/devops-cli/compare/v0.91.0...v0.92.0) (2026-11-08)
+
+
+### Features
+
+* **roadmap:** refine and intake keep a failure class and wait ([#4171](https://github.com/dan-petty/devops-cli/issues/4171)) ([ad75f99](https://github.com/dan-petty/devops-cli/commit/ad75f99f8b671a73fe6f65ef0b7ec1aba83310d3))
+
+
+### Bug Fixes
+
+* **roadmap:** refuse a plan group that only reacts to a possible failure ([#4168](https://github.com/dan-petty/devops-cli/issues/4168)) ([7ce8001](https://github.com/dan-petty/devops-cli/commit/7ce8001a9e05e2a0c787d5f228ae479a6087e940))
+
 ## [0.91.0](https://github.com/dan-petty/devops-cli/compare/v0.90.1...v0.91.0) (2026-11-08)
 
 
