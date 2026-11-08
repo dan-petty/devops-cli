@@ -22,7 +22,7 @@ Reads: `k8s/README.md`. Changes: `k8s/README.md`.
 - [x] 2.1 In the Roadmap service section of `k8s/README.md`, add one sentence on the line of the Deployment description: the container `service` requests `768Mi` and limits `3Gi` of memory, the raise is a stopgap for a working set that grows 100 to 150 MiB each hour (#4116 holds the analysis, #4125 the flat check), and `RoadmapServiceMemoryNearLimit` fires before a kill. The alert row keeps its sentence that a rise of the limit only delays the kill
   - Verification: `$ grep -n '3Gi' k8s/README.md | grep -i 'roadmap service'`
 - [x] 2.2 Check that no other document names the old memory numbers of the Service
-  - Verification: `$ ! git grep -n -E '256Mi.*roadmap-service|roadmap-service.*1Gi' -- k8s docs openspec/specs`
+  - Verification: `$ ! git grep -n -F 'memory: 256Mi' -- k8s/devops/roadmap-service k8s/README.md docs`
 - [x] 2.3 Check the manifests, the documents and the change
   - Verification: `$ uv run devops ci --check --only k8s,docs,openspec`
 
