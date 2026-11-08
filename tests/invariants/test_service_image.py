@@ -14,6 +14,7 @@ from packaging.version import Version
 from tests.support.dockerfile import env_of as _env_of
 from tests.support.dockerfile import stages as _stages
 from tests.support.paths import REPO_ROOT
+from tests.support.trivyignore import trivyignore_problems as _trivyignore_problems
 
 # A gh release URL, wherever it stands in the Dockerfile text: bare, in quotes or after `=`. Its
 # path after `releases/` stops at white space, a quote or a backslash.
@@ -24,9 +25,6 @@ GH_RELEASE_DOWNLOAD_PATH = re.compile(r"download/(?P<tag>[^/]+)/(?P<asset>[^/]+)
 # gh v2.102.1 is the first GitHub CLI release that cli/cli builds with Go 1.27.2 or later
 # (`toolchain go1.27.3` in its go.mod) and with golang.org/x/net v0.60.0 (#1492).
 GH_FIRST_SAFE_VERSION = Version("2.102.1")
-
-# The `exp:` field of a `.trivyignore` entry, in the form that Trivy parses: `exp:YYYY-MM-DD`.
-TRIVYIGNORE_EXP = re.compile(r"exp:(?P<day>\d{4}-\d{2}-\d{2})")
 
 # The HIGH Go findings that Trivy reports in gh v2.102.0 (Go 1.27.1, golang.org/x/net v0.58.0).
 # Go 1.27.2 and golang.org/x/net v0.60.0 fix them, so the pinned gh build does not have them.
@@ -142,37 +140,6 @@ def test_trivyignore_ignores_no_go_finding_that_the_pinned_gh_fixes() -> None:
     }
 
     assert ignored & GH_GO_FINDINGS_FIXED_IN_THE_PIN == set()
-
-
-def _trivyignore_problems(text: str, today: date) -> list[str]:
-    """Return one problem for each entry of a `.trivyignore` text that breaks the file's rule.
-
-    The header of the file says that a pinned finding records a reason and an expiration date. An
-    entry needs a comment line right above it (the reason) and an `exp:YYYY-MM-DD` field that is
-    after `today`: Trivy stops to apply an entry on the day of its date, and it skips an entry
-    whose date it cannot parse.
-    """
-    problems: list[str] = []
-    has_reason = False
-    for number, raw in enumerate(text.splitlines(), start=1):
-        line = raw.strip()
-        if line.startswith("#"):
-            has_reason = True
-            continue
-        if not line:
-            has_reason = False
-            continue
-        entry, *fields = line.split()
-        if not has_reason:
-            problems.append(f"line {number}: {entry} has no reason in the comment above it")
-        has_reason = False
-        exps = [field for field in fields if field.startswith("exp:")]
-        match = TRIVYIGNORE_EXP.fullmatch(exps[0]) if exps else None
-        if match is None:
-            problems.append(f"line {number}: {entry} has no exp:YYYY-MM-DD date")
-        elif date.fromisoformat(match["day"]) <= today:
-            problems.append(f"line {number}: {entry} expired on {match['day']}")
-    return problems
 
 
 def test_trivyignore_entry_with_a_reason_and_a_future_exp_date_has_no_problem() -> None:

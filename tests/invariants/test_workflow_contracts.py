@@ -472,6 +472,7 @@ def test_every_trivy_scan_runs_the_trivy_tools_lock_pins() -> None:
     ] == [
         ("ci.yml", "service-image", pinned),
         ("ci.yml", "runner-image", pinned),
+        ("ci.yml", "mcp-server-image", pinned),
         ("ci.yml", "third-party-image-scan", pinned),
         ("release.yml", "service-image", pinned),
         ("release.yml", "runner-image", pinned),
