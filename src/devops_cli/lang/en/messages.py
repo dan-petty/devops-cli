@@ -2319,11 +2319,15 @@ class RoadmapMessages:
             "split": "The item waits for a person to split it. {details}",
             "blocked": "The item waits for {details} to close.",
             "edit": "The item waits for a body edit. {details}",
-            "retry": "The refine job failed. The next round tries again. {details}",
+            "retry": "The refine round failed. The next round tries again. {details}",
             "failed": "The refine job failed. A body edit makes refine try again. {details}",
             "ready": "The item waits. {details}",
             "none": "{details}",
         }
+    )
+    refine_failed_lately: str = (
+        "The model call failed with the class {failure_class}. Refine takes the item again after "
+        "{until} UTC."
     )
     refine_held_closed: str = "The issue is closed: refine changes only open items."
     # Why a refine round leaves an item that an account that the jobs do not trust opened

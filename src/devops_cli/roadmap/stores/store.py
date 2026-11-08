@@ -148,7 +148,9 @@ class RefineRecordKey(StrEnum):
     reads the comments of an item that waits records what they gave: the count of comments the
     issue listing carried, the time of refine's last comment, and the issues and paths that the
     text of the wait names, comma separated. A later round reads the comments again only when the
-    count moved (#3667)."""
+    count moved (#3667). A round whose model call failed records the time, the step and the class
+    of the failure, so the next round leaves the item out until the wait of the class passes
+    (#4061)."""
 
     BODY_HASH = "refine.body_hash"
     SECTION_HASH = "refine.section_hash"
@@ -168,6 +170,9 @@ class RefineRecordKey(StrEnum):
     COMMENTS_SEEN = "refine.comments_seen"
     COMMENTED_AT = "refine.commented_at"
     WAIT_REFS = "refine.wait_refs"
+    FAILED_AT = "refine.failed_at"
+    FAILED_STEP = "refine.failed_step"
+    FAILED_CLASS = "refine.failed_class"
 
 
 class JudgeVerdict(StrEnum):
