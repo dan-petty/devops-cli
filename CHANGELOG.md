@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.93.0](https://github.com/dan-petty/devops-cli/compare/v0.92.1...v0.93.0) (2026-11-08)
+
+
+### Features
+
+* **roadmap:** retry a suspended row after its failure-class wait ([#4175](https://github.com/dan-petty/devops-cli/issues/4175)) ([b5254d7](https://github.com/dan-petty/devops-cli/commit/b5254d7a9ac40144269944bbecca5dd7186dd257)), closes [#4065](https://github.com/dan-petty/devops-cli/issues/4065)
+* **telemetry:** send stage step seconds and gate refusal counts ([#4176](https://github.com/dan-petty/devops-cli/issues/4176)) ([a6ddc30](https://github.com/dan-petty/devops-cli/commit/a6ddc3015931a3fe8dd3e7ecd5fa999ca6540e1a))
+
 ## [0.92.1](https://github.com/dan-petty/devops-cli/compare/v0.92.0...v0.92.1) (2026-11-08)
 
 
