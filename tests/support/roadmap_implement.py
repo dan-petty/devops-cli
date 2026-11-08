@@ -391,6 +391,13 @@ class PullFake:
             f"/repos/{STAGE_REPO}/issues/{PULL}/comments",
             github_json({"id": 1}, status=201),
         )
+        api.route("PATCH", f"/repos/{STAGE_REPO}/issues/comments/1", github_json({"id": 1}))
+        self.comments()
+
+    def comments(self, *comments: dict[str, Any]) -> None:
+        """The comments that the pull request holds when the job lists them (#4070). None at first."""
+        listing = f"/repos/{STAGE_REPO}/issues/{PULL}/comments?per_page=100"
+        self.api.route("GET", listing, github_json(list(comments)))
 
     def _answer(self, route: str, answer: ProcessAnswer) -> None:
         self.gh.answer(lambda call, key=route: key in " ".join(call.argv), answer)
