@@ -65,9 +65,9 @@ from devops_cli.roadmap.stage.stage_registry import RegistryCount, registry_tabl
 @dataclass(frozen=True)
 class PlanUnderTest:
     """A plan as the gates judge it: the proposal, the problems the schema found in it, the names
-    of the capabilities that have a spec, and the files that exist when the change is written. A
-    reply that the job accepted has no schema problem, since the client sends a reply that breaks
-    the schema back before the checks."""
+    of the capabilities that have a spec, the files that exist when the change is written, and the
+    tests that each changed manifest reaches (#3972). A reply that the job accepted has no schema
+    problem, since the client sends a reply that breaks the schema back before the checks."""
 
     proposal: StageProposal
     schema_problems: tuple[str, ...]
@@ -81,6 +81,9 @@ class PlanUnderTest:
     # The paths that each negative-search literal matched before the change. An empty mapping
     # records no search, as the cases recorded before #3410 do.
     search_evidence: Mapping[str, Sequence[str]] = field(default_factory=dict)
+    # The tests that each changed manifest reaches. An empty mapping records no reference, as the
+    # cases recorded before #3972 do.
+    manifest_references: Mapping[str, Sequence[str]] = field(default_factory=dict)
     registry: Sequence[RegistryCount] | None = None
     constants: Mapping[str, int] = field(default_factory=dict)
     models: Mapping[str, tuple[str, tuple[str, ...]]] = field(default_factory=dict)
@@ -118,6 +121,7 @@ class PlanUnderTest:
             issue_body=case.issue_body,
             mapped="criteria" in case.plan,
             search_evidence=case.facts.search_evidence,
+            manifest_references=case.facts.manifest_references,
             registry=registry,
             constants=dict(case.facts.constants),
             models=dict(case.facts.models),
@@ -180,11 +184,11 @@ class Gate:
 
 
 def _path_gate(plan: PlanUnderTest) -> list[str]:
-    """The checks of the job on a plan (`check_proposal`): the path rule, the rules of the spec
-    delta, which refuse a spec delta that the changed paths do not need (#3013), and the form of
-    the `verify` commands and of the new test files (#3015). A recorded case holds the names of the
-    capabilities and no requirement names, so a replay of a case does not judge a duplicate
-    requirement."""
+    """The checks of the job on a plan (`check_proposal`): the path rule, which also reads the
+    tests that each changed manifest reaches (#3972), the rules of the spec delta, which refuse a
+    spec delta that the changed paths do not need (#3013), and the form of the `verify` commands
+    and of the new test files (#3015). A recorded case holds the names of the capabilities and no
+    requirement names, so a replay of a case does not judge a duplicate requirement."""
     return check_proposal(
         plan.proposal,
         plan.known,
@@ -195,6 +199,7 @@ def _path_gate(plan: PlanUnderTest) -> list[str]:
         registry=plan.registry,
         constants=plan.constants,
         models=plan.models,
+        manifest_references=plan.manifest_references or None,
     )
 
 
