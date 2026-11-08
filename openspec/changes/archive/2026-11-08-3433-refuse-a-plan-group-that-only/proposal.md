@@ -26,20 +26,20 @@ None.
 
 ## Impact
 
-- Code: `src/devops_cli/roadmap/stage_change.py`, `src/devops_cli/lang/en/messages.py`
+- Code: `src/devops_cli/roadmap/stage/stage_change.py`, `src/devops_cli/lang/en/messages.py`
 - Documents: `src/devops_cli/ai/tasks/roadmap_stage_change.md`
-- Tests: `tests/roadmap/test_roadmap_stage_content.py`, `tests/roadmap/test_roadmap_stage_prompt_rules.py`
+- Tests: `tests/roadmap/stage/test_roadmap_stage_content.py`, `tests/roadmap/stage/test_roadmap_stage_prompt_rules.py`
 
 ## Feasibility
 
-- The probe confirms the cited stage module: The path `src/devops_cli/roadmap/stage_change.py` is a file of the staging commit.
-- The probe confirms the cited test: The path `tests/roadmap/test_roadmap_stage_content.py` is a file of the staging commit.
-- The probe confirms the prompt test: The path `tests/roadmap/test_roadmap_stage_prompt_rules.py` is a file of the staging commit.
+- The probe confirms the cited stage module: The path `src/devops_cli/roadmap/stage/stage_change.py` is a file of the staging commit.
+- The probe confirms the cited test: The path `tests/roadmap/stage/test_roadmap_stage_content.py` is a file of the staging commit.
+- The probe confirms the prompt test: The path `tests/roadmap/stage/test_roadmap_stage_prompt_rules.py` is a file of the staging commit.
 - The probe confirms the cited prompt: The path `src/devops_cli/ai/tasks/roadmap_stage_change.md` is a file of the staging commit.
-- The probe confirms the cited implement step: The path `src/devops_cli/roadmap/implement_step.py` is a file of the staging commit, and the context shows `_stage` is called only there.
-- The context code of the stage module shows `content_problems(proposal, probes)` and `check_proposal` calling it, and the caller map lists `src/devops_cli/roadmap/stage_eval_gates.py` beside it, so one rule reaches the stage job and the replay.
-- The context shows that `tests/roadmap/test_roadmap_stage_content.py` and `tests/roadmap/test_roadmap_stage_plan.py` call `content_problems`, so the new cases go in the content test and run offline with no model, no cluster and no network.
-- The first checks of the implementation are `uv run devops ci test tests/roadmap/test_roadmap_stage_content.py tests/roadmap/test_roadmap_stage_plan.py`, then `uv run devops ci test tests/roadmap/test_roadmap_stage_prompt_rules.py`, then `uv run devops roadmap eval stage --replay`, then `uv run devops openspec check`.
+- The probe confirms the cited implement step: The path `src/devops_cli/roadmap/implement/implement_step.py` is a file of the staging commit, and the context shows `_stage` is called only there.
+- The context code of the stage module shows `content_problems(proposal, probes)` and `check_proposal` calling it, and the caller map lists `src/devops_cli/roadmap/stage/stage_eval_gates.py` beside it, so one rule reaches the stage job and the replay.
+- The context shows that `tests/roadmap/stage/test_roadmap_stage_content.py` and `tests/roadmap/stage/test_roadmap_stage_plan.py` call `content_problems`, so the new cases go in the content test and run offline with no model, no cluster and no network.
+- The first checks of the implementation are `uv run devops ci test tests/roadmap/stage/test_roadmap_stage_content.py tests/roadmap/stage/test_roadmap_stage_plan.py`, then `uv run devops ci test tests/roadmap/stage/test_roadmap_stage_prompt_rules.py`, then `uv run devops roadmap eval stage --replay`, then `uv run devops openspec check`.
 - The rule at `docs/ROADMAP_WORKFLOW.md` asks a change of the stage prompt or a check of the stage job to state the before and after counts, and a change of the prompt to state the score of the same model. This change does both, and the workflow follow-up names the person who runs the model.
 
 ## Existing Tool Considered
