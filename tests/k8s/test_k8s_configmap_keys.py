@@ -13,9 +13,9 @@ from typing import Any
 
 import pytest
 import yaml
-from devops_cli.config.setting_keys import unknown_setting_keys
 from pydantic import ValidationError
 
+from devops_cli.config.setting_keys import unknown_setting_keys
 from devops_cli.config.settings import GitHubAppConfig, ServiceConfig, Settings
 from devops_cli.k8s.configmap import render_active_devops_configmap
 from tests.support.paths import REPO_ROOT

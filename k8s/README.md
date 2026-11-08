@@ -777,6 +777,8 @@ kubectl -n devops get cm devops-cli-config -o jsonpath='{.data.devops-cli\.yaml}
 kubectl -n devops rollout restart deployment/roadmap-service
 ```
 
+A change that removes, renames or tightens a setting that `k8s/devops/configmap.example.yaml` or the live ConfigMap names says in its OpenSpec proposal and in a comment on its pull request how the live ConfigMap changes first: apply the ConfigMap with `deploy-stack`, then let the image roll. Git does not hold the live ConfigMap, so a test cannot read it. `deploy-stack` loads its rendering into `Settings` before it applies it, and `tests/k8s/test_k8s_configmap_keys.py` fails if the example names a key that no setting declares.
+
 Then do these checks, and do them again every 15 minutes for the first 2 hours. If a check fails, do the stop switch. If an alert of the rule group `roadmap-service` or `roadmap-service-webhooks` fires, do what its row in Alerts says. Select each series of the Service with `job="roadmap-service"`, as the alert rules do.
 
 1. The pod runs: `kubectl -n devops get pod -l app.kubernetes.io/name=roadmap-service` shows one pod `Running`, with no restart and no `OOMKilled`.
