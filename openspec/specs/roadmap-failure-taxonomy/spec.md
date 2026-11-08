@@ -129,11 +129,11 @@ The module `failure.py` SHALL hold the tuple `CLASS_BY_EXCEPTION` of (exception 
 - **THEN** the class is the class of its parent
 
 ### Requirement: A step has a name
-The module `failure.py` SHALL hold `StepName`, a string enum whose values are the steps that the stage records: `plan` and `apply`. The values SHALL be unique one-word strings.
+The module `failure.py` SHALL hold `StepName`, a string enum whose values are the steps that the jobs record: `plan` and `apply` (stage), `investigate` (refine) and `place` (intake). The values SHALL be unique one-word strings.
 
 #### Scenario: The step names
 - **WHEN** a test reads the values of `StepName`
-- **THEN** it finds `plan` and `apply`, each once, and each one word
+- **THEN** it finds `plan`, `apply`, `investigate` and `place`, each once, and each one word
 
 ### Requirement: A failure class has a wait
 The module `failure.py` SHALL hold the read-only mapping `RETRY_AFTER` from each class that `CLASS_BY_EXCEPTION` gives to a `timedelta`: `provider` 1 hour, `parser` 6 hours, `plan_defect` 6 hours, `ci_infra` 1 hour and `head_moved` 0. The keys of `RETRY_AFTER` SHALL be exactly the classes of `CLASS_BY_EXCEPTION`, and no value SHALL be `None`.

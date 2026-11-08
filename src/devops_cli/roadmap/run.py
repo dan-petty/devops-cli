@@ -439,17 +439,27 @@ def _outcome_of_failure(exc: Exception) -> JobOutcome:
 
 
 def _apply_round(
-    store: RoadmapStore, plan: IntakePlan, *, repo_dir: Path, now: datetime
+    store: RoadmapStore,
+    plan: IntakePlan,
+    *,
+    record: IntakeRecord,
+    record_path: Path,
+    repo_dir: Path,
+    now: datetime,
 ) -> JobOutcome:
     """Apply `plan`, stamp `refine_due` when intake placed a critical fix or a P0 item (#1540),
-    and then fail the round if a placement failed: the stamp is written first, so a failure of
-    another candidate does not lose it (#4042)."""
+    keep the failed placements in the intake record (#4061), and then fail the round if a
+    placement failed: the stamp and the record are written first, so a failure of another
+    candidate does not lose them (#4042)."""
     applied = apply_intake(store, plan) if plan.has_writes else IntakeApplied()
     placed_p0 = applied.placed_critical_or_p0 > 0
     if placed_p0:
         _record_success(
             repo_dir / CONST_ROADMAP_RUN_STATE_FILENAME, CONST_ROADMAP_REFINE_DUE_STAMP, now
         )
+    settled = record.settled(plan, applied, now)
+    if settled != record:
+        _write_intake_record(record_path, settled)
     raise_for_failed_placements(applied)
     return JobOutcome(placed_critical_or_p0=placed_p0)
 
@@ -479,9 +489,14 @@ def _run_intake_adapter(
         model=model or build_intake_model(),
         limit=limit,
         waiting=record.waiting,
+        failed=record.failed,
+        now=now,
     )
-    _write_intake_record(record_path, record.after(plan, now))
-    return _apply_round(store, plan, repo_dir=repo_dir, now=now)
+    after = record.after(plan, now)
+    _write_intake_record(record_path, after)
+    return _apply_round(
+        store, plan, record=after, record_path=record_path, repo_dir=repo_dir, now=now
+    )
 
 
 @dataclass(frozen=True)
@@ -517,11 +532,15 @@ def _intake_one(
         model=model or build_intake_model(),
         issues=(delivery.number,),
         waiting=record.waiting,
+        failed=record.failed,
+        now=now,
     )
     merged = record.merged(plan, now)
     if merged != record:
         _write_intake_record(record_path, merged)
-    return _apply_round(store, plan, repo_dir=repo_dir, now=now)
+    return _apply_round(
+        store, plan, record=merged, record_path=record_path, repo_dir=repo_dir, now=now
+    )
 
 
 def _job_clone(job: str, clone_path: Path | None) -> Path:

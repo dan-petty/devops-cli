@@ -87,7 +87,8 @@ def test_a_failed_placement_is_decided_again_after_the_fresh_candidates_and_its_
 ) -> None:
     """A round whose first placement fails at its first gh write still places the other four
     and fails the job (#1443). The record is written before any placement, so the next round
-    decides the fresh candidates first, then the failed one, and none of the four again (#1360)."""
+    decides the fresh candidates and none of the four again (#1360). The failed one waits for the
+    1 hour of its class and is decided again after it (#4061)."""
     store, _, titles = make_candidates(7)
     model = IntakeModel()
     table = intake_table(model, [])
@@ -98,10 +99,14 @@ def test_a_failed_placement_is_decided_again_after_the_fresh_candidates_and_its_
     placed = tuple(store.item(number) is not None for number in range(1, 6))
     asked = len(model.asked)
     poll_round(store, tmp_path, now=NOW + timedelta(minutes=5), table=table)
-    assert (store.writes[:1], placed, tuple(model.asked[asked:])) == (
+    held = tuple(model.asked[asked:])
+    asked = len(model.asked)
+    poll_round(store, tmp_path, now=NOW + timedelta(minutes=65), table=table)
+    assert (store.writes[:1], placed, held, tuple(model.asked[asked:])) == (
         ["label_issue"],
         (False, True, True, True, True),
-        (*titles[5:], titles[0]),
+        tuple(titles[5:]),
+        (titles[0],),
     )
 
 

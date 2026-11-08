@@ -79,10 +79,14 @@ class FailureClass(StrEnum):
 
 class StepName(StrEnum):
     """The step of a job that failed. The stage job records `plan` and `apply` with the class of
-    the failure (#4056). A job that records a step adds a member here."""
+    the failure (#4056), refine records `investigate` (the model call that reads the item), and
+    intake records `place` (the write of a candidate to the roadmap) (#4061). A job that records a
+    step adds a member here."""
 
     PLAN = "plan"
     APPLY = "apply"
+    INVESTIGATE = "investigate"
+    PLACE = "place"
 
 
 class FailureAction(StrEnum):

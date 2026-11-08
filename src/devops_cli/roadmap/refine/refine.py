@@ -184,6 +184,7 @@ from devops_cli.roadmap.body_hash import (
     hash_text,
     is_unchanged,
 )
+from devops_cli.roadmap.failure import FailureClass, StepName, failure_class_of, retry_after
 from devops_cli.roadmap.intake.intake import (
     IntakePlan,
     NewCandidate,
@@ -453,10 +454,15 @@ class RefineFailure:
     `placeholder` is set when each violation of the last reply is a placeholder text (#3478). That
     is a fault of the model, not of the item: apply records nothing for it, and the round does not
     fail for it (`raise_for_failed_items`).
+
+    `failure_class` is the class of the error by the one table (`failure_class_of`). Apply records
+    it with the step and the time, and the selection leaves the item out until the wait of that
+    class has passed (#4061).
     """
 
     item: Item
     error: str
+    failure_class: FailureClass
     violations: int = 0
     item_caused: bool = False
     placeholder: bool = False
@@ -471,6 +477,7 @@ class RefineFailure:
         return cls(
             item=item,
             error=type(exc).__name__,
+            failure_class=failure_class_of(exc),
             violations=violations,
             item_caused=not placeholder
             and isinstance(exc, StructuredOutputValidationError | ReplyRejectedError),
@@ -2018,6 +2025,37 @@ def _comment_cap(item: Item, comments: Sequence[IssueComment]) -> WaitingItem | 
     )
 
 
+def _failed_lately(item: Item, now: datetime) -> WaitingItem | None:
+    """The wait of an item whose last model call failed less than the wait of its failure class
+    ago (#4061), or None when the wait is over. The step is `retry`, and the detail gives the time
+    after which the next round takes the item. A failure that the text of the item caused ends its
+    wait with a body edit: the record holds the hash of the body it was about. A record whose time
+    is no time holds the item for no time, and a record with no class or an unknown class waits as
+    `ci_infra` (`retry_after`)."""
+    recorded = item.job_record.get(RefineRecordKey.FAILED_AT)
+    if not recorded:
+        return None
+    try:
+        failed_at = datetime.fromisoformat(recorded)
+    except ValueError:
+        logger.warning("The failure time recorded on #%d is not a time.", item.number)
+        return None
+    if failed_at.tzinfo is None:
+        failed_at = failed_at.replace(tzinfo=UTC)
+    failed_body = item.job_record.get(RefineRecordKey.FAILED_BODY_HASH)
+    if failed_body is not None and body_hashes(item.body)[0] != failed_body:
+        return None
+    klass = item.job_record.get(RefineRecordKey.FAILED_CLASS)
+    until = failed_at + retry_after(klass)
+    if until <= now:
+        return None
+    detail = MESSAGES.roadmap.refine_failed_lately.format(
+        failure_class=klass or FailureClass.CI_INFRA.value,
+        until=until.astimezone(UTC).strftime("%Y-%m-%d %H:%M"),
+    )
+    return WaitingItem(item, NextStep.RETRY, (detail,))
+
+
 @dataclass
 class _Selection:
     """The items one selection takes, and those it leaves with their next step. It reads the
@@ -2036,7 +2074,8 @@ class _Selection:
         return self.comments[number]
 
     def consider(self, item: Item) -> None:
-        """Take `item` unless an account that the jobs do not trust opened it (#2478), its wait
+        """Take `item` unless an account that the jobs do not trust opened it (#2478), its model call
+        failed less than the wait of the failure class ago (#4061), its wait
         is not over, a person edited its section (#1515), or refine wrote its cap of comments on
         it in the last 24 hours (#2475)."""
         outside = _outside_author(item)
@@ -2046,6 +2085,10 @@ class _Selection:
                 for comment in self.comments_on(item.number)
             )
             self.waiting.append(replace(outside, notice=not told))
+            return
+        failed_lately = _failed_lately(item, datetime.now(UTC))
+        if failed_lately is not None:
+            self.waiting.append(failed_lately)
             return
         if is_unchanged(item, item.body) and not _needs_second_look(item):
             waits = _still_waiting(self.store, item, self.comments_on)
@@ -2664,7 +2707,7 @@ def plan_refine(
     has_writes = (
         waiting_writes
         or any(r.skip_reason is None or r.record_only for r in refined)
-        or any(failure.item_caused for failure in failed)
+        or any(not failure.placeholder for failure in failed)
     )
     return RefinePlan(
         repo=repo,
@@ -2779,15 +2822,40 @@ def _without_verdict(item: Item) -> JobRecord:
     return {RefineRecordKey.JUDGE: None} if RefineRecordKey.JUDGE in item.job_record else {}
 
 
+def _failed_marks(failure: RefineFailure) -> JobRecord:
+    """The marks that tell the next round when and how the model call of `failure` failed: the
+    time, the step and the class, which sets the wait (#4061)."""
+    return {
+        RefineRecordKey.FAILED_AT: datetime.now(UTC).isoformat(),
+        RefineRecordKey.FAILED_STEP: StepName.INVESTIGATE.value,
+        RefineRecordKey.FAILED_CLASS: failure.failure_class.value,
+    }
+
+
+def _clear_failed_marks(item: Item) -> JobRecord:
+    """The marks that clear the time, the step and the class of a failed model call, for the keys
+    that the record of `item` holds (#4061)."""
+    keys = (RefineRecordKey.FAILED_AT, RefineRecordKey.FAILED_STEP, RefineRecordKey.FAILED_CLASS)
+    return {key: None for key in keys if key in item.job_record}
+
+
 def _record_failure(store: RoadmapStore, failure: RefineFailure) -> None:
-    """Record a failure the item's own text caused: the first records the body it was about, and
-    a second on the same body settles the item as unchanged, like the size guard (#1526)."""
+    """Record a failed model call, but not a placeholder reply (#3478). The record holds the time,
+    the step and the class, so the next round waits (#4061). When the item's own text caused the
+    failure, the first one records the body it was about in the same write, and a second on the
+    same body settles the item as unchanged, like the size guard, and clears the wait: only an
+    edit of the body ends that wait (#1526)."""
     item = failure.item
+    if not failure.item_caused:
+        store.set_marks(item, _failed_marks(failure))
+        return
     body_hash, section_hash = body_hashes(item.body)
     if not _body_unchanged_since_read(store, item.number, body_hash):
         return
     if item.job_record.get(RefineRecordKey.FAILED_BODY_HASH) != body_hash:
-        store.set_marks(item, {RefineRecordKey.FAILED_BODY_HASH: body_hash})
+        store.set_marks(
+            item, {RefineRecordKey.FAILED_BODY_HASH: body_hash, **_failed_marks(failure)}
+        )
         return
     store.set_marks(
         item,
@@ -2796,6 +2864,7 @@ def _record_failure(store: RoadmapStore, failure: RefineFailure) -> None:
             RefineRecordKey.SECTION_HASH: section_hash,
             RefineRecordKey.FAILED_BODY_HASH: None,
             RefineRecordKey.NEXT_STEP: NextStep.EDIT.value,
+            **_clear_failed_marks(item),
             **_without_verdict(item),
         },
     )
@@ -2803,11 +2872,15 @@ def _record_failure(store: RoadmapStore, failure: RefineFailure) -> None:
 
 def _failure_marks(item: Item, failure: JobFailure | None, tries: int) -> JobRecord:
     """The marks of a round's job failure: the count of tries, the failed checks and the last
-    error, or the clear of those that the record holds when the round did not fail (#3632)."""
+    error, or the clear of those that the record holds when the round did not fail (#3632). A
+    round with a result made its model call, so it clears the time, the step and the class of an
+    earlier failed call (#4061)."""
+    cleared = _clear_failed_marks(item)
     if failure is None:
         keys = (RefineRecordKey.TRIES, RefineRecordKey.FAILED_CHECK, RefineRecordKey.FAILURE)
-        return {key: None for key in keys if key in item.job_record}
+        return {**{key: None for key in keys if key in item.job_record}, **cleared}
     return {
+        **cleared,
         RefineRecordKey.TRIES: str(tries),
         RefineRecordKey.FAILED_CHECK: ",".join(failure.checks),
         RefineRecordKey.FAILURE: failure.error,
@@ -2987,7 +3060,7 @@ def _apply_result(store: RoadmapStore, result: RefinedItem | RefineFailure) -> R
     own text caused (#3631)."""
     if isinstance(result, RefinedItem):
         return _apply_refined(store, result)
-    if result.item_caused:
+    if not result.placeholder:
         _record_failure(store, result)
     return RefineApplied()
 

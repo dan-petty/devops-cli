@@ -780,8 +780,13 @@ def test_retry_after_is_a_table_that_no_caller_can_change() -> None:
         failure_module.RETRY_AFTER[FailureClass.PROVIDER] = timedelta(0)  # type: ignore[index]
 
 
-def test_step_name_holds_the_plan_and_the_apply_step() -> None:
-    assert [step.value for step in failure_module.StepName] == ["plan", "apply"]
+def test_step_name_holds_the_step_of_each_job_that_records_one() -> None:
+    assert [step.value for step in failure_module.StepName] == [
+        "plan",
+        "apply",
+        "investigate",
+        "place",
+    ]
 
 
 def test_step_name_values_are_unique_one_word_strings() -> None:
