@@ -371,6 +371,15 @@ ROADMAP_CLAIM_AGE = Instrument(
     "Age of the oldest claim on an open roadmap item, by repo. The age is the time since the "
     "owner label was set. Zero when no open item holds a claim",
 )
+ROADMAP_ROW_SECONDS = Instrument(
+    "devops_cli_roadmap_row_seconds",
+    InstrumentKind.HISTOGRAM,
+    "s",
+    "Seconds that a roadmap row took to run, one sample for each run, by repo, row and result: "
+    "success, error or stopped. A row that is not due, that the failure ledger suspends, or "
+    "that a clone failure keeps from running adds no sample. One repository adds at most 33 "
+    "series: 11 rows and 3 results",
+)
 EMBEDDING_CACHE_LOOKUPS_TOTAL = Instrument(
     "devops_cli_embedding_cache_lookups_total",
     InstrumentKind.COUNTER,
@@ -597,6 +606,7 @@ INSTRUMENTS: tuple[Instrument, ...] = (
     ROADMAP_ITEM_AGE,
     ROADMAP_OLDEST_ITEM,
     ROADMAP_CLAIM_AGE,
+    ROADMAP_ROW_SECONDS,
     EMBEDDING_CACHE_LOOKUPS_TOTAL,
     EMBEDDING_CACHE_SIZE,
     RAG_EMBEDDING_BATCH_SIZE,
@@ -730,6 +740,7 @@ __all__ = [
     "ROADMAP_OLDEST_ITEM",
     "ROADMAP_PAGE_FETCHES_TOTAL",
     "ROADMAP_REFINE_COMMENTS_CAPPED_TOTAL",
+    "ROADMAP_ROW_SECONDS",
     "ROADMAP_STAGE_TOTAL",
     "ROADMAP_TOOL_ANSWER_CHARS",
     "ROADMAP_TOOL_CALLS_PER_RUN",
