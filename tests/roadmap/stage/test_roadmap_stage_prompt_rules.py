@@ -648,3 +648,14 @@ def test_the_stage_prompt_states_move_verification() -> None:
     assert "old dotted prefix" in prompt
     assert "single module" in prompt
     assert "single-module literal is refused" in prompt
+
+
+# ── One exact change and failing test (#3433) ─────────────────────────────────
+
+
+def test_the_stage_prompt_requires_one_exact_change_and_failing_test() -> None:
+    prompt = load_task_prompt("roadmap_stage_change.md")
+
+    assert "A group gives one exact change" in prompt
+    assert "names the failing test that the change updates in a code span" in prompt
+    assert "A group never fixes a test only if it breaks" in prompt
