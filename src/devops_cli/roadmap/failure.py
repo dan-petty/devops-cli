@@ -40,6 +40,15 @@ from enum import StrEnum
 from types import MappingProxyType
 from typing import Final, NamedTuple
 
+from devops_cli.ai.client.models import AIClientError, StructuredOutputValidationError
+from devops_cli.exceptions import (
+    DevOpsCLIError,
+    GitHubOperationError,
+    GitOperationError,
+    RoadmapItemChangedError,
+    RoadmapStageError,
+    ToolExecutionError,
+)
 from devops_cli.lang import MESSAGES
 
 
@@ -65,6 +74,14 @@ class FailureClass(StrEnum):
     READ_ONLY_PATH = "read_only_path"
     LIMIT_REACHED = "limit_reached"
     OUTSIDE_PLAN = "outside_plan"
+
+
+class StepName(StrEnum):
+    """The step of a job that failed. The stage job records `plan` and `apply` with the class of
+    the failure (#4056). A job that records a step adds a member here."""
+
+    PLAN = "plan"
+    APPLY = "apply"
 
 
 class FailureAction(StrEnum):
@@ -104,6 +121,30 @@ ACTION_BY_CLASS: Final[Mapping[FailureClass, FailureAction]] = MappingProxyType(
         FailureClass.OUTSIDE_PLAN: FailureAction.WAIT,
     }
 )
+
+
+# The class of an exception, read by `isinstance` from the first entry that matches (#4056). The
+# order is the order of the match: a type comes before each parent that it is a subclass of, and
+# `DevOpsCLIError` is last, so every error of the project has a class. An item that changed while
+# the job worked is `head_moved`: the next round reads it again and no person must act.
+CLASS_BY_EXCEPTION: Final[tuple[tuple[type[DevOpsCLIError], FailureClass], ...]] = (
+    (RoadmapItemChangedError, FailureClass.HEAD_MOVED),
+    (StructuredOutputValidationError, FailureClass.PARSER),
+    (AIClientError, FailureClass.PROVIDER),
+    (RoadmapStageError, FailureClass.PLAN_DEFECT),
+    (GitHubOperationError, FailureClass.CI_INFRA),
+    (GitOperationError, FailureClass.CI_INFRA),
+    (ToolExecutionError, FailureClass.CI_INFRA),
+    (DevOpsCLIError, FailureClass.CI_INFRA),
+)
+
+
+def failure_class_of(exc: DevOpsCLIError) -> FailureClass:
+    """The class of `exc`, from the first entry of `CLASS_BY_EXCEPTION` that it is an instance of.
+    Pure: it reads the type, never the text."""
+    return next(
+        klass for exception_type, klass in CLASS_BY_EXCEPTION if isinstance(exc, exception_type)
+    )
 
 
 class FailureEvidence(NamedTuple):
@@ -314,11 +355,14 @@ def failure_lines(
 
 __all__ = [
     "ACTION_BY_CLASS",
+    "CLASS_BY_EXCEPTION",
     "FailureAction",
     "FailureClass",
     "FailureEvidence",
+    "StepName",
     "action_for",
     "classify_failure",
+    "failure_class_of",
     "failure_lines",
     "left_action",
 ]

@@ -17,6 +17,8 @@ from devops_cli.config.defaults import DEFAULT_ROADMAP_STAGE_STEP_TOKENS
 from devops_cli.exceptions import GitHubOperationError, ended_by_stop
 from devops_cli.github.rate_limiter import get_github_rate_limiter
 from devops_cli.lang import MESSAGES
+from devops_cli.roadmap import failure as failure_module
+from devops_cli.roadmap.failure import FailureClass
 from devops_cli.roadmap.stage.stage import (
     StageApplied,
     StageFailure,
@@ -424,7 +426,16 @@ def test_a_stop_of_the_service_records_the_failures_that_the_plan_found(
     item = store.item(failed)
     assert item is not None
     plan = _stuck_stage(stage_repo, model_fake, store)
-    planned = replace(plan, failed=(StageFailure(failed, item.title, "AIClientError", "", item),))
+    failure = StageFailure(
+        failed,
+        item.title,
+        "AIClientError",
+        "",
+        item,
+        failure_class=FailureClass.PROVIDER,
+        step=failure_module.StepName.PLAN,
+    )
+    planned = replace(plan, failed=(failure,))
 
     with pytest.raises(exceptions.ServiceStoppingError) as raised:
         apply_stage(store, planned, source=stage_repo.clone, now=NOW)

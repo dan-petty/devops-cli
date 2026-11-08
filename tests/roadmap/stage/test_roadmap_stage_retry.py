@@ -8,7 +8,9 @@ import pytest
 
 from devops_cli.config.defaults import DEFAULT_ROADMAP_STAGE_RETRY_HOURS
 from devops_cli.exceptions import RoadmapStageError
+from devops_cli.roadmap import failure as failure_module
 from devops_cli.roadmap.explain import JobVerdict, explain_item
+from devops_cli.roadmap.failure import FailureClass
 from devops_cli.roadmap.implement.implement import parse_implement_filters
 from devops_cli.roadmap.planned import PlannedChanges
 from devops_cli.roadmap.stage.stage import (
@@ -74,7 +76,17 @@ def test_a_failed_item_is_recorded_with_its_error_class_and_time(
     assert item is not None
     plan = StagePlan(
         STAGE_REPO,
-        failed=(StageFailure(number, item.title, "StructuredOutputValidationError", "", item),),
+        failed=(
+            StageFailure(
+                number,
+                item.title,
+                "StructuredOutputValidationError",
+                "",
+                item,
+                failure_class=FailureClass.PARSER,
+                step=failure_module.StepName.PLAN,
+            ),
+        ),
     )
 
     applied = apply_stage(store, plan, source=".", now=NOW)
@@ -169,7 +181,14 @@ def test_explain_reports_an_item_that_the_job_holds_from_the_record_on_github(
 
 
 def _failed_plan() -> StagePlan:
-    return StagePlan(STAGE_REPO, failed=(StageFailure(1, "fix(roadmap): a", "AIClientError"),))
+    failure = StageFailure(
+        1,
+        "fix(roadmap): a",
+        "AIClientError",
+        failure_class=FailureClass.PROVIDER,
+        step=failure_module.StepName.PLAN,
+    )
+    return StagePlan(STAGE_REPO, failed=(failure,))
 
 
 def _raised(plan: StagePlan, applied: StageApplied) -> list[int] | None:
@@ -191,7 +210,14 @@ def test_a_round_with_a_failed_item_and_a_handled_item_does_not_fail() -> None:
 
 
 def test_a_round_that_tried_items_and_handled_none_fails_naming_them() -> None:
-    applied = StageApplied(failed=(StageFailure(2, "fix(roadmap): b", "GitHubOperationError"),))
+    failure = StageFailure(
+        2,
+        "fix(roadmap): b",
+        "GitHubOperationError",
+        failure_class=FailureClass.CI_INFRA,
+        step=failure_module.StepName.APPLY,
+    )
+    applied = StageApplied(failed=(failure,))
 
     assert _raised(_failed_plan(), applied) == [1, 2]
 
