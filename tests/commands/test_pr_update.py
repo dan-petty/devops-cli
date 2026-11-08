@@ -5,17 +5,16 @@ from __future__ import annotations
 import json
 import time
 from collections.abc import Callable
-from typing import Any
-from unittest.mock import MagicMock
+from typing import TYPE_CHECKING, Any
 
 import pytest
 from typer.testing import CliRunner
 
 from devops_cli.ai.mcp.server import pr_update
-from devops_cli.commands.pr import (
-    _execute_update_branch,
-    _process_candidate_pr_row,
-    app,
+from devops_cli.commands.pr import app
+from devops_cli.config.defaults import (
+    DEFAULT_PR_UPDATE_HEAD_POLL_ATTEMPTS,
+    DEFAULT_PR_UPDATE_HEAD_POLL_INTERVAL_SECONDS,
 )
 from devops_cli.core.process import PlannedRequest
 from devops_cli.github.branch_update import (
@@ -27,6 +26,61 @@ from devops_cli.github.branch_update import (
 )
 from devops_cli.lang import MESSAGES
 from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
+
+if TYPE_CHECKING:
+    from tests.support.fakes.clock import ClockFake
+    from tests.support.fakes.mcp_dispatcher import DispatcherFake
+
+
+def _pr(sha: str = "old", head_repo: str = "owner/repo") -> str:
+    """Pull request 42 as the REST API gives it."""
+    return json.dumps(
+        {
+            "head": {"ref": "feat/my-branch", "sha": sha, "repo": {"full_name": head_repo}},
+            "base": {"ref": "main"},
+        }
+    )
+
+
+def _answer_reads_of_pr_42(fake: ProcessFake, *shas: str, head_repo: str = "owner/repo") -> None:
+    """Answer each read of pull request 42 with the next head SHA; the last one repeats."""
+    heads = shas or ("old",)
+    reads: list[str] = []
+
+    def answer(call: ProcessCall) -> ProcessAnswer:
+        reads.append(call.argv[-1])
+        return ProcessAnswer(stdout=_pr(heads[min(len(reads), len(heads)) - 1], head_repo))
+
+    fake.answer(["gh", "api", "repos/owner/repo/pulls/42"], answer)
+
+
+def _updates(fake: ProcessFake) -> list[tuple[str, ...]]:
+    """Each update-branch request the fake saw."""
+    return [call.argv for call in fake.calls if "update-branch" in " ".join(call.argv)]
+
+
+def _dispatches(fake: ProcessFake) -> list[tuple[str, ...]]:
+    """Each workflow dispatch the fake saw."""
+    return [call.argv for call in fake.calls if "dispatches" in " ".join(call.argv)]
+
+
+def _candidates(*numbers: int, draft: tuple[int, ...] = ()) -> str:
+    """`gh pr list` output for open pull requests `numbers`."""
+    return json.dumps(
+        [
+            {
+                "number": n,
+                "headRefName": f"feat/{n}",
+                "baseRefName": "main",
+                "isDraft": n in draft,
+            }
+            for n in numbers
+        ]
+    )
+
+
+PUT_42 = ["gh", "api", "-X", "PUT", "repos/owner/repo/pulls/42/update-branch"]
+POST_DISPATCH = ["gh", "api", "-X", "POST", "repos/owner/repo/actions/workflows/ci.yml/dispatches"]
 
 
 def test_build_update_branch_cmd() -> None:
@@ -64,165 +118,93 @@ def test_parse_update_error() -> None:
     )
 
 
-def test_execute_update_branch(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_execute_update_branch(gh_edge: ProcessFake) -> None:
     """Test execution of update branch command on success and failure."""
-    mock_success = MagicMock(returncode=0, stdout='{"message": "Updating branch"}', stderr="")
-    monkeypatch.setattr("devops_cli.commands.pr.run_gh", lambda *args, **kwargs: mock_success)
-    success, _msg = _execute_update_branch(["gh", "api"])
-
-    mock_fail = MagicMock(
-        returncode=1,
-        stdout="",
-        stderr=json.dumps({"message": "Merge conflict between base and head"}),
-    )
-    monkeypatch.setattr("devops_cli.commands.pr.run_gh", lambda *args, **kwargs: mock_fail)
-    failed, fail_msg = _execute_update_branch(["gh", "api"])
-
-    assert (success, failed, "Merge conflict" in fail_msg) == (
-        True,
-        False,
-        True,
-    )
-
-
-def test_process_candidate_pr_row(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Test processing draft and active pull request table rows."""
-    draft_pr = {
-        "number": 10,
-        "headRefName": "feat/draft",
-        "baseRefName": "main",
-        "isDraft": True,
-    }
-    active_pr = {
-        "number": 11,
-        "headRefName": "feat/active",
-        "baseRefName": "main",
-        "isDraft": False,
-    }
-
-    monkeypatch.setattr(
-        "devops_cli.commands.pr._update_single_pr",
-        lambda *args, **kwargs: (True, "Updated"),
-    )
-
-    draft_row = _process_candidate_pr_row(draft_pr, repo=None, dry_run=False)
-    active_row = _process_candidate_pr_row(active_pr, repo=None, dry_run=False)
-
-    assert (
-        draft_row,
-        active_row,
-    ) == (
-        ["#10", "feat/draft", "main", "[dim]draft (skipped)[/dim]"],
-        ["#11", "feat/active", "main", "[green]✓ updated[/green]"],
-    )
-
-
-def test_update_single_pr_cli_success(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Test CLI devops pr update for a single PR succeeding."""
     runner = CliRunner()
-    dispatch_calls: list[list[str]] = []
-    sleep_calls: list[float] = []
+    _answer_reads_of_pr_42(gh_edge)
+    gh_edge.answer(PUT_42, ProcessAnswer(stdout='{"message": "Updating branch"}'))
+    success = runner.invoke(app, ["update", "42", "--repo", "owner/repo"])
 
-    monkeypatch.setattr("devops_cli.commands.pr.check_binary", lambda *args, **kwargs: True)
-    monkeypatch.setattr(
-        "devops_cli.commands.pr._shown_pr",
-        lambda *args, **kwargs: {
-            "head": {"ref": "feat/my-branch"},
-            "base": {"ref": "main"},
-        },
-    )
-    monkeypatch.setattr(
-        "devops_cli.commands.pr._execute_update_branch",
-        lambda *args, **kwargs: (True, "Updated"),
-    )
-    monkeypatch.setattr("devops_cli.commands.pr.time.sleep", lambda s: sleep_calls.append(s))
-    monkeypatch.setattr(
-        "devops_cli.commands.pr.run_gh",
-        lambda cmd, *args, **kwargs: dispatch_calls.append(cmd) or MagicMock(returncode=0),
-    )
-
-    result = runner.invoke(app, ["update", "42", "--repo", "owner/repo"])
-    assert (
-        result.exit_code,
-        len(dispatch_calls),
-        len(sleep_calls),
-        "Successfully updated branch for PR #42" in result.stdout,
-    ) == (0, 0, 0, True)
-
-
-def test_update_single_pr_cli_dry_run(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Test CLI devops pr update with --dry-run bypassing remote API call."""
-    runner = CliRunner()
-    execute_called: list[bool] = []
-    fetch_called: list[bool] = []
-    monkeypatch.setattr("devops_cli.commands.pr.check_binary", lambda *args, **kwargs: True)
-    monkeypatch.setattr(
-        "devops_cli.commands.pr._shown_pr",
-        lambda *args, **kwargs: (
-            fetch_called.append(True)
-            or {
-                "head": {"ref": "feat/my-branch"},
-                "base": {"ref": "main"},
-            }
+    gh_edge.answer(
+        PUT_42,
+        ProcessAnswer(
+            returncode=1, stderr=json.dumps({"message": "Merge conflict between base and head"})
         ),
     )
+    failed = runner.invoke(app, ["update", "42", "--repo", "owner/repo"])
 
-    def _mock_execute(*args: Any, **kwargs: Any) -> tuple[bool, str]:
-        execute_called.append(True)
-        return True, "Updated"
+    assert (
+        success.exit_code,
+        failed.exit_code,
+        "Merge conflict" in failed.output,
+    ) == (0, 1, True)
 
-    monkeypatch.setattr("devops_cli.commands.pr._execute_update_branch", _mock_execute)
 
-    result = runner.invoke(app, ["update", "42", "--repo", "owner/repo", "--dry-run"])
+def test_process_candidate_pr_row(gh_edge: ProcessFake) -> None:
+    """Test processing draft and active pull request table rows."""
+    gh_edge.answer(["gh", "pr", "list"], ProcessAnswer(stdout=_candidates(10, 11, draft=(10,))))
+    gh_edge.answer(
+        ["gh", "api", "repos/owner/repo/pulls/11"],
+        ProcessAnswer(stdout=_pr()),
+    )
+    gh_edge.answer(["gh", "api", "-X", "PUT"], ProcessAnswer(stdout="{}"))
+
+    result = CliRunner().invoke(app, ["update", "--all", "--repo", "owner/repo"])
+
+    rows = {n: next(x for x in result.output.splitlines() if n in x) for n in ("#10", "#11")}
+    assert (result.exit_code, "draft (skipped)" in rows["#10"], "updated" in rows["#11"]) == (
+        0,
+        True,
+        True,
+    )
+
+
+def test_update_single_pr_cli_success(gh_edge: ProcessFake, clock: ClockFake) -> None:
+    """Test CLI devops pr update for a single PR succeeding."""
+    _answer_reads_of_pr_42(gh_edge)
+    gh_edge.answer(PUT_42, ProcessAnswer(stdout='{"message": "Updating branch"}'))
+
+    result = CliRunner().invoke(app, ["update", "42", "--repo", "owner/repo"])
     assert (
         result.exit_code,
-        len(execute_called),
-        len(fetch_called),
+        len(_updates(gh_edge)),
+        len(_dispatches(gh_edge)),
+        DEFAULT_PR_UPDATE_HEAD_POLL_INTERVAL_SECONDS in clock.waits,
+        "Successfully updated branch for PR #42" in result.stdout,
+    ) == (0, 1, 0, False, True)
+
+
+def test_update_single_pr_cli_dry_run(process_fake: ProcessFake) -> None:
+    """Test CLI devops pr update with --dry-run bypassing remote API call."""
+    result = CliRunner().invoke(app, ["update", "42", "--repo", "owner/repo", "--dry-run"])
+    assert (
+        result.exit_code,
+        len(process_fake.calls),
         "[dry-run]" in result.output,
-    ) == (0, 0, 0, True)
+    ) == (0, 0, True)
 
 
-def test_update_single_pr_cli_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_update_single_pr_cli_failure(gh_edge: ProcessFake) -> None:
     """Test CLI devops pr update failure exiting with status 1."""
-    runner = CliRunner()
-    monkeypatch.setattr("devops_cli.commands.pr.check_binary", lambda *args, **kwargs: True)
-    monkeypatch.setattr(
-        "devops_cli.commands.pr._shown_pr",
-        lambda *args, **kwargs: {
-            "head": {"ref": "feat/my-branch"},
-            "base": {"ref": "main"},
-        },
-    )
-    monkeypatch.setattr(
-        "devops_cli.commands.pr._execute_update_branch",
-        lambda *args, **kwargs: (False, "merge conflict"),
+    _answer_reads_of_pr_42(gh_edge)
+    gh_edge.answer(
+        PUT_42, ProcessAnswer(returncode=1, stderr=json.dumps({"message": "merge conflict"}))
     )
 
-    result = runner.invoke(app, ["update", "42", "--repo", "owner/repo"])
+    result = CliRunner().invoke(app, ["update", "42", "--repo", "owner/repo"])
     assert (
         result.exit_code,
         "Failed to update PR #42" in result.output,
     ) == (1, True)
 
 
-def test_update_all_prs_cli(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_update_all_prs_cli(gh_edge: ProcessFake) -> None:
     """Test CLI devops pr update --all batch processing."""
-    runner = CliRunner()
-    candidate_prs = [
-        {"number": 201, "headRefName": "feat/a", "baseRefName": "main", "isDraft": False},
-        {"number": 202, "headRefName": "feat/b", "baseRefName": "main", "isDraft": True},
-    ]
-    monkeypatch.setattr("devops_cli.commands.pr.check_binary", lambda *args, **kwargs: True)
-    monkeypatch.setattr(
-        "devops_cli.commands.pr._fetch_open_prs",
-        lambda *args, **kwargs: candidate_prs,
-    )
-    monkeypatch.setattr(
-        "devops_cli.commands.pr._update_single_pr",
-        lambda num, **kwargs: (True, "Updated"),
-    )
+    gh_edge.answer(["gh", "pr", "list"], ProcessAnswer(stdout=_candidates(201, 202, draft=(202,))))
+    gh_edge.answer(["gh", "api", "repos/owner/repo/pulls/201"], ProcessAnswer(stdout=_pr()))
+    gh_edge.answer(["gh", "api", "-X", "PUT"], ProcessAnswer(stdout="{}"))
 
-    result = runner.invoke(app, ["update", "--all", "--repo", "owner/repo"])
+    result = CliRunner().invoke(app, ["update", "--all", "--repo", "owner/repo"])
     assert (
         result.exit_code,
         "Pull Request Branch Update Summary" in result.stdout,
@@ -231,27 +213,17 @@ def test_update_all_prs_cli(monkeypatch: pytest.MonkeyPatch) -> None:
     ) == (0, True, True, True)
 
 
-def test_update_missing_args(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_update_missing_args(process_fake: ProcessFake) -> None:
     """Test CLI devops pr update without PR number or --all exits with error."""
-    runner = CliRunner()
-    monkeypatch.setattr("devops_cli.commands.pr.check_binary", lambda *args, **kwargs: True)
-    result = runner.invoke(app, ["update"])
+    result = CliRunner().invoke(app, ["update"])
     assert (
         result.exit_code,
         "Please specify a PR number or use --all" in result.output,
     ) == (1, True)
 
 
-def test_mcp_pr_update(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_mcp_pr_update(mcp_dispatcher: DispatcherFake) -> None:
     """Test FastMCP pr_update tool command assembly."""
-    captured_cmds: list[list[str]] = []
-
-    def mock_run_mcp_cmd(cmd: list[str], **kwargs: Any) -> str:
-        captured_cmds.append(cmd)
-        return "OK"
-
-    monkeypatch.setattr("devops_cli.ai.mcp.server._run_mcp_cmd", mock_run_mcp_cmd)
-
     res = pr_update(
         number=55,
         repo="owner/repo",
@@ -259,7 +231,7 @@ def test_mcp_pr_update(monkeypatch: pytest.MonkeyPatch) -> None:
         dry_run=True,
     )
 
-    expected_cmd = [
+    expected_cmd = (
         "uv",
         "run",
         "devops",
@@ -271,8 +243,8 @@ def test_mcp_pr_update(monkeypatch: pytest.MonkeyPatch) -> None:
         "--expected-head-sha",
         "sha123",
         "--dry-run",
-    ]
-    assert (res, captured_cmds) == ("OK", [expected_cmd])
+    )
+    assert (res, [call.argv for call in mcp_dispatcher.calls]) == ("Success", [expected_cmd])
 
 
 def test_sort_prs_oldest_first() -> None:
@@ -291,40 +263,20 @@ def test_sort_prs_oldest_first() -> None:
     assert numbers == [573, 574, 575, 576, 577]
 
 
-def test_update_all_prs_runs_oldest_first(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_update_all_prs_runs_oldest_first(gh_edge: ProcessFake) -> None:
     """Verify devops pr update --all processes candidates in oldest-first order."""
-    runner = CliRunner()
     # Provide descending PR numbers matching gh pr list default order
-    descending_prs = [
-        {"number": 577, "headRefName": "feat/c", "baseRefName": "main", "isDraft": False},
-        {"number": 576, "headRefName": "feat/b", "baseRefName": "main", "isDraft": False},
-        {"number": 573, "headRefName": "feat/a", "baseRefName": "main", "isDraft": False},
-    ]
-    updated_order: list[int] = []
+    gh_edge.answer(["gh", "pr", "list"], ProcessAnswer(stdout=_candidates(577, 576, 573)))
+    gh_edge.answer(["gh", "api", "-X", "PUT"], ProcessAnswer(stdout="{}"))
+    gh_edge.answer(["gh", "api", "repos/owner/repo/pulls"], ProcessAnswer(stdout=_pr()))
 
-    monkeypatch.setattr("devops_cli.commands.pr.check_binary", lambda *args, **kwargs: True)
-    monkeypatch.setattr(
-        "devops_cli.commands.pr._fetch_open_prs",
-        lambda *args, **kwargs: descending_prs,
-    )
-
-    def mock_update(num: int, **kwargs: Any) -> tuple[bool, str]:
-        updated_order.append(num)
-        return True, "Updated"
-
-    monkeypatch.setattr("devops_cli.commands.pr._update_single_pr", mock_update)
-
-    res = runner.invoke(app, ["update", "--all", "--repo", "owner/repo"])
+    res = CliRunner().invoke(app, ["update", "--all", "--repo", "owner/repo"])
+    updated_order = [int(argv[-1].split("/")[-2]) for argv in _updates(gh_edge)]
     assert (res.exit_code, updated_order) == (0, [573, 576, 577])
 
 
-def test_fetch_open_prs_sorts_oldest_first() -> None:
-    """Verify _fetch_open_prs sorts gh pr list output in oldest-first order."""
-    import json
-    from unittest.mock import MagicMock, patch
-
-    from devops_cli.commands.pr import _fetch_open_prs
-
+def test_fetch_open_prs_sorts_oldest_first(gh_edge: ProcessFake) -> None:
+    """Verify `update --all` sorts gh pr list output in oldest-first order."""
     raw_output = json.dumps(
         [
             {"number": 300, "headRefName": "feat/3", "baseRefName": "main", "isDraft": False},
@@ -332,11 +284,12 @@ def test_fetch_open_prs_sorts_oldest_first() -> None:
             {"number": 200, "headRefName": "feat/2", "baseRefName": "main", "isDraft": False},
         ]
     )
-    mock_proc = MagicMock(returncode=0, stdout=raw_output)
-    with patch("devops_cli.commands.pr.run_gh", return_value=mock_proc):
-        prs = _fetch_open_prs("owner/repo", "main")
-        numbers = [p["number"] for p in prs]
-        assert numbers == [100, 200, 300]
+    gh_edge.answer(["gh", "pr", "list"], ProcessAnswer(stdout=raw_output))
+    gh_edge.answer(["gh", "api", "-X", "PUT"], ProcessAnswer(stdout="{}"))
+    gh_edge.answer(["gh", "api", "repos/owner/repo/pulls"], ProcessAnswer(stdout=_pr()))
+    CliRunner().invoke(app, ["update", "--all", "--repo", "owner/repo", "--base", "main"])
+    numbers = [int(argv[-1].split("/")[-2]) for argv in _updates(gh_edge)]
+    assert numbers == [100, 200, 300]
 
 
 @pytest.mark.parametrize(
@@ -345,19 +298,15 @@ def test_fetch_open_prs_sorts_oldest_first() -> None:
     ids=["any-base", "one-base"],
 )
 def test_update_all_lists_only_the_current_accounts_open_prs(
-    base: str | None, filtered: list[str]
+    base: str | None, filtered: list[str], gh_edge: ProcessFake
 ) -> None:
     """`--all` lists the open PRs that gh's own account wrote, so a PR that a bot or another
     person owns, such as the one release-please writes, is never updated."""
-    from unittest.mock import patch
-
-    from devops_cli.commands.pr import _fetch_open_prs
-
-    with patch(
-        "devops_cli.commands.pr.run_gh", return_value=MagicMock(returncode=0, stdout="[]")
-    ) as gh:
-        _fetch_open_prs("owner/repo", base)
-    listed = gh.call_args.args[0]
+    gh_edge.answer(["gh", "pr", "list"], ProcessAnswer(stdout="[]"))
+    CliRunner().invoke(
+        app, ["update", "--all", "--repo", "owner/repo", *(["--base", base] if base else [])]
+    )
+    listed = list(gh_edge.calls[0].argv)
     planned = list(plan_update_all_prs("owner/repo", base)[0].argv)
     assert (listed[:7], listed[-2:] if base else [], planned) == (
         ["gh", "pr", "list", "--state", "open", "--author", "@me"],
@@ -380,230 +329,116 @@ def test_build_dispatch_ci_cmd() -> None:
     ]
 
 
-def test_update_single_pr_cli_dispatch_ci_success(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_update_single_pr_cli_dispatch_ci_success(gh_edge: ProcessFake, clock: ClockFake) -> None:
     """Test CLI devops pr update --dispatch-ci dispatches CI on head SHA change."""
-    runner = CliRunner()
-    calls: list[dict[str, Any]] = []
-    fetch_count = [0]
-    sleep_calls: list[float] = []
+    _answer_reads_of_pr_42(gh_edge, "old", "new")
+    gh_edge.answer(PUT_42, ProcessAnswer(stdout="{}"))
+    gh_edge.answer(POST_DISPATCH, ProcessAnswer())
 
-    def mock_fetch(*args: Any, **kwargs: Any) -> dict[str, Any]:
-        fetch_count[0] += 1
-        sha = "old" if fetch_count[0] == 1 else "new"
-        return {
-            "head": {"ref": "feat/my-branch", "sha": sha, "repo": {"full_name": "owner/repo"}},
-            "base": {"ref": "main"},
-        }
-
-    monkeypatch.setattr("devops_cli.commands.pr.check_binary", lambda *args, **kwargs: True)
-    monkeypatch.setattr("devops_cli.commands.pr._shown_pr", mock_fetch)
-    monkeypatch.setattr(
-        "devops_cli.commands.pr._execute_update_branch",
-        lambda *args, **kwargs: (True, "Updated"),
-    )
-    monkeypatch.setattr("devops_cli.commands.pr.time.sleep", lambda s: sleep_calls.append(s))
-    monkeypatch.setattr(
-        "devops_cli.commands.pr.run_gh",
-        lambda cmd, *args, **kwargs: calls.append({"cmd": cmd}) or MagicMock(returncode=0),
-    )
-
-    result = runner.invoke(app, ["update", "42", "--repo", "owner/repo", "--dispatch-ci"])
+    result = CliRunner().invoke(app, ["update", "42", "--repo", "owner/repo", "--dispatch-ci"])
     assert (
         result.exit_code,
-        len(calls),
-        calls[0]["cmd"],
+        _dispatches(gh_edge),
         "Dispatched ci.yml" in result.stdout or "dispatched" in result.stdout.lower(),
     ) == (
         0,
-        1,
         [
-            "gh",
-            "api",
-            "-X",
-            "POST",
-            "repos/owner/repo/actions/workflows/ci.yml/dispatches",
-            "-f",
-            "ref=feat/my-branch",
+            (
+                "gh",
+                "api",
+                "-X",
+                "POST",
+                "repos/owner/repo/actions/workflows/ci.yml/dispatches",
+                "-f",
+                "ref=feat/my-branch",
+            )
         ],
         True,
     )
 
 
-def test_update_single_pr_cli_head_sha_unchanged(monkeypatch: pytest.MonkeyPatch) -> None:
-    """When head.sha never changes, sleep is called at most attempts times, no dispatch, exits 1."""
-    from devops_cli.config.defaults import (
-        DEFAULT_PR_UPDATE_HEAD_POLL_ATTEMPTS,
-        DEFAULT_PR_UPDATE_HEAD_POLL_INTERVAL_SECONDS,
-    )
+def test_update_single_pr_cli_head_sha_unchanged(gh_edge: ProcessFake, clock: ClockFake) -> None:
+    """When head.sha never changes, the poll waits at most attempts times, no dispatch, exits 1."""
+    _answer_reads_of_pr_42(gh_edge, "unchanged_sha")
+    gh_edge.answer(PUT_42, ProcessAnswer(stdout="{}"))
 
-    runner = CliRunner()
-    calls: list[list[str]] = []
-    sleep_calls: list[float] = []
-
-    monkeypatch.setattr("devops_cli.commands.pr.check_binary", lambda *args, **kwargs: True)
-    monkeypatch.setattr(
-        "devops_cli.commands.pr._shown_pr",
-        lambda *args, **kwargs: {
-            "head": {
-                "ref": "feat/my-branch",
-                "sha": "unchanged_sha",
-                "repo": {"full_name": "owner/repo"},
-            },
-            "base": {"ref": "main"},
-        },
-    )
-    monkeypatch.setattr(
-        "devops_cli.commands.pr._execute_update_branch",
-        lambda *args, **kwargs: (True, "Updated"),
-    )
-    monkeypatch.setattr("devops_cli.commands.pr.time.sleep", lambda s: sleep_calls.append(s))
-    monkeypatch.setattr(
-        "devops_cli.commands.pr.run_gh",
-        lambda cmd, *args, **kwargs: calls.append(cmd) or MagicMock(returncode=0),
-    )
-
-    result = runner.invoke(app, ["update", "42", "--repo", "owner/repo", "--dispatch-ci"])
+    result = CliRunner().invoke(app, ["update", "42", "--repo", "owner/repo", "--dispatch-ci"])
+    polls = [w for w in clock.waits if w == DEFAULT_PR_UPDATE_HEAD_POLL_INTERVAL_SECONDS]
     assert (
         result.exit_code,
-        len(calls),
-        len(sleep_calls) <= DEFAULT_PR_UPDATE_HEAD_POLL_ATTEMPTS,
-        all(s == DEFAULT_PR_UPDATE_HEAD_POLL_INTERVAL_SECONDS for s in sleep_calls),
+        len(_dispatches(gh_edge)),
+        len(polls) <= DEFAULT_PR_UPDATE_HEAD_POLL_ATTEMPTS,
+        len(polls) > 0,
         "did not change" in result.output,
     ) == (1, 0, True, True, True)
 
 
-def test_update_single_pr_cli_fork_head(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_update_single_pr_cli_fork_head(gh_edge: ProcessFake, clock: ClockFake) -> None:
     """When head.repo is a fork, no poll, no dispatch, output names fork, exits 0."""
-    runner = CliRunner()
-    calls: list[list[str]] = []
-    sleep_calls: list[float] = []
+    _answer_reads_of_pr_42(gh_edge, "fork_sha", head_repo="other/repo")
+    gh_edge.answer(PUT_42, ProcessAnswer(stdout="{}"))
 
-    monkeypatch.setattr("devops_cli.commands.pr.check_binary", lambda *args, **kwargs: True)
-    monkeypatch.setattr(
-        "devops_cli.commands.pr._shown_pr",
-        lambda *args, **kwargs: {
-            "head": {
-                "ref": "feat/my-branch",
-                "sha": "fork_sha",
-                "repo": {"full_name": "other/repo"},
-            },
-            "base": {"ref": "main"},
-        },
-    )
-    monkeypatch.setattr(
-        "devops_cli.commands.pr._execute_update_branch",
-        lambda *args, **kwargs: (True, "Updated"),
-    )
-    monkeypatch.setattr("devops_cli.commands.pr.time.sleep", lambda s: sleep_calls.append(s))
-    monkeypatch.setattr(
-        "devops_cli.commands.pr.run_gh",
-        lambda cmd, *args, **kwargs: calls.append(cmd) or MagicMock(returncode=0),
-    )
-
-    result = runner.invoke(app, ["update", "42", "--repo", "owner/repo", "--dispatch-ci"])
+    result = CliRunner().invoke(app, ["update", "42", "--repo", "owner/repo", "--dispatch-ci"])
     assert (
         result.exit_code,
-        len(calls),
-        len(sleep_calls),
+        len(_dispatches(gh_edge)),
+        DEFAULT_PR_UPDATE_HEAD_POLL_INTERVAL_SECONDS in clock.waits,
         "other/repo" in result.output,
-    ) == (0, 0, 0, True)
+    ) == (0, 0, False, True)
 
 
-def test_update_single_pr_cli_dispatch_failed(monkeypatch: pytest.MonkeyPatch) -> None:
-    """When dispatch run_gh returns non-zero, output carries parsed API error and exits 1."""
-    runner = CliRunner()
-    fetch_count = [0]
-
-    def mock_fetch(*args: Any, **kwargs: Any) -> dict[str, Any]:
-        fetch_count[0] += 1
-        sha = "old" if fetch_count[0] == 1 else "new"
-        return {
-            "head": {"ref": "feat/my-branch", "sha": sha, "repo": {"full_name": "owner/repo"}},
-            "base": {"ref": "main"},
-        }
-
-    monkeypatch.setattr("devops_cli.commands.pr.check_binary", lambda *args, **kwargs: True)
-    monkeypatch.setattr("devops_cli.commands.pr._shown_pr", mock_fetch)
-    monkeypatch.setattr(
-        "devops_cli.commands.pr._execute_update_branch",
-        lambda *args, **kwargs: (True, "Updated"),
-    )
-    monkeypatch.setattr("devops_cli.commands.pr.time.sleep", lambda s: None)
-    monkeypatch.setattr(
-        "devops_cli.commands.pr.run_gh",
-        lambda *args, **kwargs: MagicMock(
-            returncode=1,
-            stdout="",
-            stderr=json.dumps({"message": "Workflow not found"}),
-        ),
+def test_update_single_pr_cli_dispatch_failed(gh_edge: ProcessFake, clock: ClockFake) -> None:
+    """When the dispatch returns non-zero, output carries parsed API error and exits 1."""
+    _answer_reads_of_pr_42(gh_edge, "old", "new")
+    gh_edge.answer(PUT_42, ProcessAnswer(stdout="{}"))
+    gh_edge.answer(
+        POST_DISPATCH,
+        ProcessAnswer(returncode=1, stderr=json.dumps({"message": "Workflow not found"})),
     )
 
-    result = runner.invoke(app, ["update", "42", "--repo", "owner/repo", "--dispatch-ci"])
+    result = CliRunner().invoke(app, ["update", "42", "--repo", "owner/repo", "--dispatch-ci"])
     assert (
         result.exit_code,
         "Workflow not found" in result.output,
     ) == (1, True)
 
 
-def test_update_single_pr_cli_dispatch_ci_dry_run(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_update_single_pr_cli_dispatch_ci_dry_run(
+    process_fake: ProcessFake, clock: ClockFake
+) -> None:
     """update 42 --repo owner/repo --dispatch-ci --dry-run: no poll, no sleep, no dispatch."""
-    runner = CliRunner()
-    calls: list[list[str]] = []
-    sleep_calls: list[float] = []
-    fetch_calls: list[bool] = []
-
-    monkeypatch.setattr("devops_cli.commands.pr.check_binary", lambda *args, **kwargs: True)
-    monkeypatch.setattr(
-        "devops_cli.commands.pr._shown_pr",
-        lambda *args, **kwargs: fetch_calls.append(True) or {},
-    )
-    monkeypatch.setattr("devops_cli.commands.pr.time.sleep", lambda s: sleep_calls.append(s))
-    monkeypatch.setattr(
-        "devops_cli.commands.pr.run_gh",
-        lambda cmd, *args, **kwargs: calls.append(cmd) or MagicMock(returncode=0),
-    )
-
-    result = runner.invoke(
+    result = CliRunner().invoke(
         app, ["update", "42", "--repo", "owner/repo", "--dispatch-ci", "--dry-run"]
     )
     assert (
         result.exit_code,
-        len(calls),
-        len(sleep_calls),
-        len(fetch_calls),
+        len(process_fake.calls),
+        clock.waits,
         "[dry-run]" in result.output,
-    ) == (0, 0, 0, 0, True)
+    ) == (0, 0, [], True)
 
 
-def test_update_all_prs_cli_dispatch_ci(monkeypatch: pytest.MonkeyPatch) -> None:
-    """update --all --repo owner/repo --dispatch-ci calls _update_single_pr with dispatch_ci=True."""
-    runner = CliRunner()
-    candidate_prs = [
-        {"number": 201, "headRefName": "feat/a", "baseRefName": "main", "isDraft": False},
-        {"number": 202, "headRefName": "feat/b", "baseRefName": "main", "isDraft": True},
-    ]
-    dispatched_args: list[dict[str, Any]] = []
-
-    monkeypatch.setattr("devops_cli.commands.pr.check_binary", lambda *args, **kwargs: True)
-    monkeypatch.setattr(
-        "devops_cli.commands.pr._fetch_open_prs",
-        lambda *args, **kwargs: candidate_prs,
+def test_update_all_prs_cli_dispatch_ci(gh_edge: ProcessFake, clock: ClockFake) -> None:
+    """update --all --repo owner/repo --dispatch-ci dispatches CI for each pull request it updates."""
+    gh_edge.answer(["gh", "pr", "list"], ProcessAnswer(stdout=_candidates(201, 202, draft=(202,))))
+    reads = iter(["old", "new"])
+    gh_edge.answer(
+        ["gh", "api", "repos/owner/repo/pulls/201"],
+        lambda call: ProcessAnswer(stdout=_pr(next(reads, "new"))),
+    )
+    gh_edge.answer(["gh", "api", "-X", "PUT"], ProcessAnswer(stdout="{}"))
+    gh_edge.answer(
+        ["gh", "api", "-X", "POST", "repos/owner/repo/actions/workflows/ci.yml/dispatches"],
+        ProcessAnswer(),
     )
 
-    def mock_update(num: int, **kwargs: Any) -> tuple[bool, str]:
-        dispatched_args.append({"num": num, "kwargs": kwargs})
-        return True, "dispatched"
-
-    monkeypatch.setattr("devops_cli.commands.pr._update_single_pr", mock_update)
-
-    result = runner.invoke(app, ["update", "--all", "--repo", "owner/repo", "--dispatch-ci"])
+    result = CliRunner().invoke(app, ["update", "--all", "--repo", "owner/repo", "--dispatch-ci"])
     assert (
         result.exit_code,
-        len(dispatched_args),
-        dispatched_args[0]["kwargs"].get("dispatch_ci"),
+        len(_dispatches(gh_edge)),
         "dispatched" in result.stdout,
         "draft (skipped)" in result.stdout,
-    ) == (0, 1, True, True, True)
+    ) == (0, 1, True, True)
 
 
 def _rate_limit_answer(call: ProcessCall) -> ProcessAnswer:

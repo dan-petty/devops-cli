@@ -10,7 +10,7 @@ import json
 import socket
 import subprocess
 from collections.abc import Callable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
 from typer.testing import CliRunner
@@ -38,6 +38,9 @@ from devops_cli.commands.pr import (
 from devops_cli.dry_run import get_dry_run_class
 from devops_cli.main import app
 from tests.support.paths import FIXTURES
+
+if TYPE_CHECKING:
+    from tests.support.fakes.process import ProcessFake
 
 runner = CliRunner()
 
@@ -117,9 +120,9 @@ def test_commands_execute_zero_external_requests_under_dry_run(
     _callback: Callable[..., Any],
     argv: list[str],
     monkeypatch: pytest.MonkeyPatch,
+    process_fake: ProcessFake,
 ) -> None:
     """Under --dry-run and devops --dry-run <cmd>, commands make zero external calls and print planned requests."""
-    monkeypatch.setattr("devops_cli.commands.pr._require_gh_cli", lambda: None)
 
     def refuse(*_args: Any, **_kwargs: Any) -> Any:
         raise AssertionError(f"A dry run of '{name}' attempted an external request")
@@ -127,9 +130,6 @@ def test_commands_execute_zero_external_requests_under_dry_run(
     monkeypatch.setattr(socket, "socket", refuse)
     monkeypatch.setattr(subprocess, "Popen", refuse)
     monkeypatch.setattr(subprocess, "run", refuse)
-    monkeypatch.setattr("devops_cli.github.rate_limiter.run_gh", refuse)
-    monkeypatch.setattr("devops_cli.commands.pr.run_gh", refuse)
-    monkeypatch.setattr("devops_cli.core.process.run_subprocess", refuse)
 
     # 1. devops <command> --dry-run
     res1 = runner.invoke(app, [*argv, "--dry-run"])
@@ -149,10 +149,14 @@ def test_commands_execute_zero_external_requests_under_dry_run(
         f"Output of '--dry-run {name}' missing planned requests: {res2.output}"
     )
 
+    # 3. Neither run started a program
+    assert process_fake.calls == []
 
-def test_pr_commands_dry_run_json_output(monkeypatch: pytest.MonkeyPatch) -> None:
+
+def test_pr_commands_dry_run_json_output(
+    monkeypatch: pytest.MonkeyPatch, process_fake: ProcessFake
+) -> None:
     """Commands supporting json return structured output with dry_run: true and requests."""
-    monkeypatch.setattr("devops_cli.commands.pr._require_gh_cli", lambda: None)
 
     def refuse(*_args: Any, **_kwargs: Any) -> Any:
         raise AssertionError("A dry run attempted an external request")
@@ -160,8 +164,6 @@ def test_pr_commands_dry_run_json_output(monkeypatch: pytest.MonkeyPatch) -> Non
     monkeypatch.setattr(socket, "socket", refuse)
     monkeypatch.setattr(subprocess, "Popen", refuse)
     monkeypatch.setattr(subprocess, "run", refuse)
-    monkeypatch.setattr("devops_cli.github.rate_limiter.run_gh", refuse)
-    monkeypatch.setattr("devops_cli.commands.pr.run_gh", refuse)
 
     # 1. pr monitor --format json --dry-run
     res_mon = runner.invoke(
