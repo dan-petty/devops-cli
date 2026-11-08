@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.90.0](https://github.com/dan-petty/devops-cli/compare/v0.89.0...v0.90.0) (2026-11-08)
+
+
+### Features
+
+* **roadmap:** accept a plan referencing valid DefectType members ([#4160](https://github.com/dan-petty/devops-cli/issues/4160)) ([1ba265e](https://github.com/dan-petty/devops-cli/commit/1ba265e1a0dc2f6ab1626ae3c77eba31f4e10003))
+* **roadmap:** gate a plan that adds a StageProposal field ([#4159](https://github.com/dan-petty/devops-cli/issues/4159)) ([4dfb18c](https://github.com/dan-petty/devops-cli/commit/4dfb18c92163ae808c6bc7a10dfbf4c5b548e183))
+* **roadmap:** refuse a self-named or untested plan ([#4157](https://github.com/dan-petty/devops-cli/issues/4157)) ([9fd8d45](https://github.com/dan-petty/devops-cli/commit/9fd8d45ca48c63451a8a890d12228e281475a089))
+* **roadmap:** stage retry time follows the failure class ([#4156](https://github.com/dan-petty/devops-cli/issues/4156)) ([6701e27](https://github.com/dan-petty/devops-cli/commit/6701e279066b0f0ad1ee7be0a6145bc9f982396b))
+
 ## [0.89.0](https://github.com/dan-petty/devops-cli/compare/v0.88.1...v0.89.0) (2026-11-08)
 
 
