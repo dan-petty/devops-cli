@@ -2420,13 +2420,14 @@ class RoadmapMessages:
     alternatives_reason_skip_only: str = (
         "the reply gives the verdict not-applicable, which the job sets for a skip class only"
     )
-    alternatives_reason_no_search: str = "the reply gives a verdict with no search"
+    alternatives_reason_no_search: str = "the reply gives a verdict with no answered search"
     alternatives_reason_job_verdict: str = (
         "the reply gives the verdict {verdict}, which the job sets and the model cannot give"
     )
     alternatives_retry_search: str = (
         "Call search_web at least once before you reply. The job refuses a verdict that follows "
-        "no search. Give the verdict none when the search finds no tool."
+        "no answered search. A search that fails does not count: search again. Give the verdict "
+        "none when an answered search finds no tool."
     )
     alternatives_retry_verdict: str = (
         "The verdict {verdict} is set by the job. Give the verdict covers, partly or none. "

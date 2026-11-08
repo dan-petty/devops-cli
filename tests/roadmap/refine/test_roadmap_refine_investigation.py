@@ -1104,7 +1104,7 @@ def test_a_web_search_adds_each_http_url_it_returns_and_cuts_its_answer(
     web.content(_FIRECRAWL_URL, json.dumps({"success": True, "data": {"web": found}}).encode())
     cited: set[str] = set()
 
-    answer = cited_web_search("gitleaks", cited, results=5)
+    answer = cited_web_search("gitleaks", cited, results=5).text
 
     assert (answer, cited) == (
         "Gitleaks\nhttps://example.com/gitleaks\nScans.",
@@ -1118,7 +1118,7 @@ def test_a_refused_query_answers_as_text_and_sends_no_request(
 ) -> None:
     cited: set[str] = set()
 
-    answer = cited_web_search("why does 192.168.49.2 refuse", cited, results=5)
+    answer = cited_web_search("why does 192.168.49.2 refuse", cited, results=5).text
 
     assert (answer, cited, web.sent) == (
         "The search was refused: the query holds a private address.",
@@ -1130,6 +1130,6 @@ def test_a_refused_query_answers_as_text_and_sends_no_request(
 def test_a_failed_web_search_answers_as_text(web: WebFake, firecrawl_only: None) -> None:
     cited: set[str] = set()
 
-    answer = cited_web_search("gitleaks", cited, results=5)
+    answer = cited_web_search("gitleaks", cited, results=5).text
 
     assert (answer, cited) == ("The search failed: no provider answered.", set())
