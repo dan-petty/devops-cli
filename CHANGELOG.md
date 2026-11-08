@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.96.0](https://github.com/dan-petty/devops-cli/compare/v0.95.0...v0.96.0) (2026-11-08)
+
+
+### Features
+
+* **roadmap:** evaluate a research toolset with web search ([#4190](https://github.com/dan-petty/devops-cli/issues/4190)) ([9fcf057](https://github.com/dan-petty/devops-cli/commit/9fcf0572b39a352dbec8cf0e23f37cc6622c9aed))
+* **roadmap:** let a job call the tools of the MCP server ([#4191](https://github.com/dan-petty/devops-cli/issues/4191)) ([8e33f63](https://github.com/dan-petty/devops-cli/commit/8e33f6384e1af758e1f15ad8d7278191450cf9b3))
+* **roadmap:** push each passed group and withdraw it on a return ([#4188](https://github.com/dan-petty/devops-cli/issues/4188)) ([a7c6cb7](https://github.com/dan-petty/devops-cli/commit/a7c6cb7abcd67f8691ee1480f3ce6228b4ee87ab))
+
+
+### Bug Fixes
+
+* **ci:** the pytest step of devops ci exceeds the 5-minute budget ([#4189](https://github.com/dan-petty/devops-cli/issues/4189)) ([1b8cf80](https://github.com/dan-petty/devops-cli/commit/1b8cf80ed7de1d9eb9bb8f139d3896e9c9c02697))
+
 ## [0.95.0](https://github.com/dan-petty/devops-cli/compare/v0.94.0...v0.95.0) (2026-11-08)
 
 
