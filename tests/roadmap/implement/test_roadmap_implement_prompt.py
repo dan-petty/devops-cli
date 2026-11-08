@@ -183,3 +183,15 @@ def test_the_prompt_promises_no_extra_turn_for_a_tick_and_says_the_job_ticks_the
     assert "one more turn that asks only for the ticks" not in prompt
     assert "Your step is not done until every task of your group is ticked" not in prompt
     assert "The job ticks every task of your group when the exit checks of the group pass" in prompt
+
+
+def test_the_prompt_says_a_shell_call_returns_when_its_command_ends() -> None:
+    """The runner harness waits for each command, so an agent polling with sleep or tail wastes
+    budget and keeps the pod alive (#4079)."""
+    prompt = load_task_prompt(PROMPT)
+
+    assert "A shell call returns when its command ends." in prompt
+    assert "`sleep`" in prompt
+    assert "`time.sleep`" in prompt
+    assert "repeated `tail`" in prompt
+    assert "forbidden" in prompt
