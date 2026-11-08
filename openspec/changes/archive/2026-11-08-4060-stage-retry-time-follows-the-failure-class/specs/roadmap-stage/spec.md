@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: A failed item waits for the retry delay
-The job SHALL leave an item out of the selection until the wait of its failure class has passed since `stage.failed_at`, and SHALL take the other items in the same round. The wait SHALL be `RETRY_AFTER` of the class in `stage.failed_class`, and the job SHALL NOT store the time it waits until. A record with no class, or with a class that is no failure class, SHALL wait as `ci_infra`. `--item` SHALL take the item it names. A failure time that is no time SHALL hold the item for no time. No setting SHALL change the wait.
+The job SHALL leave an item out of the selection until the `RETRY_AFTER` wait of the class in `stage.failed_class` has passed since `stage.failed_at`, and SHALL take the other items in the same round. A missing or unknown class SHALL wait as `ci_infra`. `--item` SHALL take the item it names. A failure time that is no time SHALL hold the item for no time. No setting SHALL change the wait, and the job SHALL NOT store the time it waits until.
 
 #### Scenario: The delay has not passed
 - **WHEN** the item failed 59 minutes ago with the class `provider`

@@ -1753,19 +1753,39 @@ When the plan or a write of an item fails, the job SHALL record the time (`stage
 - **THEN** the job record of the item holds neither key afterwards
 
 ### Requirement: A failed item waits for the retry delay
-The job SHALL leave an item out of the selection until `roadmap.stage.retry_hours` hours (at least 1, default 6) have passed since `stage.failed_at`, and SHALL take the other items in the same round. `--item` SHALL take the item it names. A failure time that is no time SHALL hold the item for no time.
+The job SHALL leave an item out of the selection until the `RETRY_AFTER` wait of the class in `stage.failed_class` has passed since `stage.failed_at`, and SHALL take the other items in the same round. A missing or unknown class SHALL wait as `ci_infra`. `--item` SHALL take the item it names. A failure time that is no time SHALL hold the item for no time. No setting SHALL change the wait, and the job SHALL NOT store the time it waits until.
 
 #### Scenario: The delay has not passed
-- **WHEN** the item failed 5 hours and 59 minutes ago and the delay is 6 hours
+- **WHEN** the item failed 59 minutes ago with the class `provider`
 - **THEN** the job leaves the item out and takes the next item
 
 #### Scenario: The delay has passed
-- **WHEN** the item failed 6 hours ago and the delay is 6 hours
+- **WHEN** the item failed 1 hour ago with the class `provider`
 - **THEN** the job takes the item again
+
+#### Scenario: A refused plan waits longer
+- **WHEN** the item failed 1 hour ago with the class `plan_defect`
+- **THEN** the job leaves the item out, and takes it again 6 hours after the failure
+
+#### Scenario: An item that changed does not wait
+- **WHEN** the item failed with the class `head_moved`
+- **THEN** the job takes the item in the next round
+
+#### Scenario: A record with no class
+- **WHEN** the job record holds `stage.failed_at` of 59 minutes ago and no `stage.failed_class`
+- **THEN** the job leaves the item out, and takes it 1 hour after the failure
+
+#### Scenario: A class that is unknown
+- **WHEN** the job record holds a `stage.failed_class` that is no failure class
+- **THEN** the item waits as `ci_infra` and the selection does not fail
 
 #### Scenario: A person names the item
 - **WHEN** the item failed 1 minute ago and a run names it with `--item`
 - **THEN** the job takes the item
+
+#### Scenario: A stale setting
+- **WHEN** a config file still holds `roadmap.stage.retry_hours`
+- **THEN** the settings load without error and the stage settings hold no such field
 
 ### Requirement: The row fails only when no item was handled
 The stage row SHALL fail a round with the items that failed only when the round tried at least one item and staged or stopped on the budget none of them. A round in which one item failed and another was handled SHALL succeed. A round that tried no item SHALL succeed. An error that belongs to no item, such as a failed read of the repository, SHALL fail the round.
