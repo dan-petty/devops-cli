@@ -25,6 +25,7 @@ from tests.support.fakes.http import RecordedRequest, WebFake
 from tests.support.fakes.keyring import FakeKeyring
 from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
 from tests.support.kubectl_calls import (
+    RunningForward,
     context_of,
     flag,
     kubectl_calls,
@@ -55,15 +56,6 @@ _ROLES = {
     "<roadmap-service>": "roadmap-service.devops.svc",
 }
 _METADATA_ADDRESSES = ("169.254.169.254",)
-
-
-class _RunningForward:
-    """The `kubectl port-forward` child while it runs. Its pid is one that no process holds."""
-
-    pid = -1
-
-    def poll(self) -> int | None:
-        return None
 
 
 def _route(request: RecordedRequest) -> str:
@@ -132,7 +124,7 @@ def cluster(
     """A cluster that blocks the pod, a service that refuses each internal target, a running
     forward, the token in the keyring and a ClusterIP for the Service of the roadmap."""
     keyring_store.set_password("devops-cli", "crawl4ai_api_token", _TOKEN)
-    process_fake.answer(lambda call: call.detached, ProcessAnswer(process=_RunningForward()))
+    process_fake.answer(lambda call: call.detached, ProcessAnswer(process=RunningForward()))
     process_fake.answer(
         lambda call: call.argv[:1] == ("kubectl",) and "get" in call.argv,
         ProcessAnswer(stdout=_CLUSTER_IP),
