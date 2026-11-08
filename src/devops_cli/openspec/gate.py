@@ -27,10 +27,12 @@ from enum import StrEnum
 from pathlib import Path
 
 from devops_cli.config.constants import (
+    CONST_OPENSPEC_CHANGES_DIR,
     CONST_OPENSPEC_CONFIG_FILENAME,
     CONST_OPENSPEC_DIR,
     CONST_OPENSPEC_INSTRUCTION_ARTIFACTS,
     CONST_OPENSPEC_PROBE_CHANGE,
+    CONST_OPENSPEC_SCAFFOLD_MARKER,
 )
 from devops_cli.exceptions import ToolExecutionError
 from devops_cli.lang import MESSAGES
@@ -50,6 +52,7 @@ class GateCheck(StrEnum):
     SKILLS = "skills"
     INSTRUCTIONS = "instructions"
     OVERLAP = "overlap"
+    SCAFFOLD = "scaffold"
 
 
 @dataclass(frozen=True)
@@ -127,8 +130,36 @@ def _overlap_findings(tool: OpenSpecTool, root: Path, changes: list[str]) -> lis
     ]
 
 
+def _scaffold_findings(root: Path) -> list[GateFinding]:
+    """Check 6: no active change file holds the scaffold marker."""
+    changes_dir = root / CONST_OPENSPEC_CHANGES_DIR
+    if not changes_dir.is_dir():
+        return []
+    findings: list[GateFinding] = []
+    for change_path in sorted(changes_dir.iterdir()):
+        if not change_path.is_dir() or change_path.name == "archive":
+            continue
+        for file_path in sorted(change_path.rglob("*")):
+            if not file_path.is_file():
+                continue
+            try:
+                content = file_path.read_text(encoding="utf-8")
+            except UnicodeDecodeError, OSError:
+                continue
+            lines = content.splitlines()
+            if any(line.strip().endswith(CONST_OPENSPEC_SCAFFOLD_MARKER) for line in lines):
+                rel = file_path.relative_to(root).as_posix()
+                findings.append(
+                    GateFinding(
+                        GateCheck.SCAFFOLD,
+                        MESSAGES.openspec.scaffold_marker_present.format(path=rel),
+                    )
+                )
+    return findings
+
+
 def check_openspec(root: Path) -> list[GateFinding]:
-    """Every problem the five checks find in the checkout at `root`; none when it is sound. A
+    """Every problem the checks find in the checkout at `root`; none when it is sound. A
     checkout with no `openspec/config.yaml` has nothing to check, and that is the one problem.
 
     Raises `DependencyError` naming the install command when `openspec` is not on PATH.
@@ -143,4 +174,5 @@ def check_openspec(root: Path) -> list[GateFinding]:
             *_skill_findings(tool, root),
             *_instruction_findings(tool, root),
             *_overlap_findings(tool, root, changes),
+            *_scaffold_findings(root),
         ]

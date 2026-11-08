@@ -465,6 +465,9 @@ class OpenSpecMessages:
         "{path} is missing: it carries the planning conventions every agent reads through "
         "`openspec instructions`."
     )
+    scaffold_marker_present: str = (
+        "{path} still holds the scaffold marker: replace every line that needs author input."
+    )
     regenerated: str = "Regenerated the OpenSpec skills under the isolated custom profile."
     archived: str = "Archived {change}. Every spec and change validates."
     archive_failed: str = (
@@ -473,6 +476,16 @@ class OpenSpecMessages:
     archive_left_invalid: str = (
         "{command} failed with exit code {code}. The archive is applied. Fix the specs that the "
         "tool names above. Then run `uv run devops openspec check`. Do not run the archive again."
+    )
+    change_folder_exists: str = "The change folder {path} already exists."
+    new_dry_run_needs_title: str = "--dry-run requires --title so it makes no external request."
+    new_dry_run_output: str = "Would create {folder} on branch {branch}."
+    new_next_steps: str = (
+        "Created {folder} on branch {branch}.\n\n"
+        "Next steps:\n"
+        "  Branch:  {branch}\n"
+        "  Checks:  uv run devops ci\n"
+        "  Archive: uv run devops openspec archive {change}"
     )
 
 

@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from devops_cli.config.constants import CONST_OPENSPEC_SCAFFOLD_MARKER
 from devops_cli.exceptions import DependencyError
 from devops_cli.openspec.gate import GateCheck, GateFinding, check_openspec
 from tests.support.fakes.openspec import OpenSpecFake
@@ -303,3 +304,37 @@ def test_a_missing_configuration_is_the_one_problem_and_nothing_is_run(
         ],
         [],
     )
+
+
+def test_a_change_holding_scaffold_marker_fails_the_gate(openspec_fake: OpenSpecFake) -> None:
+    """An unfilled scaffold fails the check with GateCheck.SCAFFOLD naming the file."""
+    tree = openspec_fake.tree("empty")
+    change_folder = tree / "openspec/changes/3203-test-change"
+    change_folder.mkdir(parents=True)
+    proposal = change_folder / "proposal.md"
+    proposal.write_text(f"Replace this line {CONST_OPENSPEC_SCAFFOLD_MARKER}\n", encoding="utf-8")
+
+    findings = check_openspec(tree)
+    assert any(
+        f.check == GateCheck.SCAFFOLD
+        and "openspec/changes/3203-test-change/proposal.md" in f.detail
+        for f in findings
+    )
+
+
+def test_project_skills_pass_the_gate(openspec_fake: OpenSpecFake) -> None:
+    """Extra project skills under .claude/skills and .agents/skills pass the gate."""
+    tree = openspec_fake.tree("empty")
+    _write_skill(
+        tree,
+        ".claude/skills/devops-openspec-new/SKILL.md",
+        "---\nname: devops-openspec-new\ndescription: test\n---\nRun devops openspec new\n",
+    )
+    _write_skill(
+        tree,
+        ".agents/skills/devops-openspec-new/SKILL.md",
+        "---\nname: devops-openspec-new\ndescription: test\n---\nRun devops openspec new\n",
+    )
+
+    findings = check_openspec(tree)
+    assert findings == []

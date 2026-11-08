@@ -164,6 +164,16 @@ class OpenSpecFake:
         self.calls.append(OpenSpecCall(arguments, cwd, env))
         if arguments in self._scripted and self._scripted[arguments] is None:
             raise subprocess.TimeoutExpired(argv, kwargs.get("timeout", 0))
+        if len(arguments) == 3 and arguments[:2] == ("new", "change"):
+            change_dir = cwd / "openspec/changes" / arguments[2]
+            change_dir.mkdir(parents=True, exist_ok=True)
+            (change_dir / ".openspec.yaml").write_text(
+                "schema: spec-driven\ncreated: 2026-11-08\n", encoding="utf-8"
+            )
+            as_text = any(kwargs.get(key) for key in ("text", "universal_newlines", "encoding"))
+            return subprocess.CompletedProcess(
+                argv, 0, "" if as_text else b"", "" if as_text else b""
+            )
         recorded = self._recorded(arguments)
         if arguments == ("update", "--force"):
             self._update(cwd)

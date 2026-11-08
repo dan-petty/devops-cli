@@ -15,7 +15,7 @@ import pytest
 import yaml
 
 from devops_cli.config.constants import CONST_BRANCH_SLUG_PATTERN, CONST_BRANCH_TYPES
-from devops_cli.git.branch_form import issue_of_branch, parse_branch
+from devops_cli.git.branch_form import parse_branch, slug_from_title
 from tests.support.paths import REPO_ROOT
 
 
@@ -58,4 +58,19 @@ def test_a_branch_gives_its_type_issue_and_slug() -> None:
 @pytest.mark.parametrize("branch", [None, "main", "feat/2657", "wip/2657-x", "feat/2657-Bad"])
 def test_a_branch_that_breaks_the_form_has_no_parts(branch: str | None) -> None:
     assert parse_branch(branch) is None
-    assert issue_of_branch(branch) is None
+
+
+def test_slug_from_title_derives_valid_slug() -> None:
+    assert (
+        slug_from_title("feat(openspec): scaffold the change folder")
+        == "scaffold-the-change-folder"
+    )
+    assert slug_from_title("fix: bug description") == "bug-description"
+    assert slug_from_title("chore(deps): update uv and python") == "update-uv-and-python"
+
+
+def test_slug_from_title_fails_on_empty_or_non_ascii_summary() -> None:
+    with pytest.raises(ValueError, match="Cannot derive a valid slug"):
+        slug_from_title("feat:")
+    with pytest.raises(ValueError, match="Cannot derive a valid slug"):
+        slug_from_title("::: ???")

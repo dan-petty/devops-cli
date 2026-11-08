@@ -81,6 +81,7 @@ secrets/
 .claude/skills/*
 !.claude/skills/openspec-*/
 !.claude/skills/new-scaffold/
+!.claude/skills/devops-openspec-new/
 
 # mutmut's copy of the tree, mutated by `devops ci mutate`; `rm -rf mutants` resets it
 /mutants/

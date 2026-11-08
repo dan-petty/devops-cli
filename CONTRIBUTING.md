@@ -58,7 +58,7 @@ The container has a limit of 8192 processes and threads (`--pids-limit=8192` in 
    ```bash
    uv run devops ci test <test-file>
    ```
-   To start a new command or a new test file in project form, run `uv run devops new command <group> <command>` or `uv run devops new test <module>`. The skill [`new-scaffold`](.claude/skills/new-scaffold/SKILL.md) ([agents copy](.agents/skills/new-scaffold/SKILL.md)) gives the steps.
+   To start a new command or a new test file in project form, run `uv run devops new command <group> <command>` or `uv run devops new test <module>`. The skill [`new-scaffold`](.claude/skills/new-scaffold/SKILL.md) ([agents copy](.agents/skills/new-scaffold/SKILL.md)) gives the steps. To scaffold the OpenSpec change folder of an issue in project form, run `uv run devops openspec new <issue>`. The skill [`devops-openspec-new`](.claude/skills/devops-openspec-new/SKILL.md) ([agents copy](.agents/skills/devops-openspec-new/SKILL.md)) gives the steps.
 2. **Implement Feature Code**:
    Write concise, well-factored code in `src/devops_cli/` to satisfy the tests.
 3. **Verify Fast Local Loop**:

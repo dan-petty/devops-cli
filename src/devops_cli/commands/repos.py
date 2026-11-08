@@ -30,7 +30,7 @@ from devops_cli.dry_run import is_dry_run
 from devops_cli.dry_run.decorator import dry_run_class
 from devops_cli.dry_run.requests import PlannedRequest, render_request_plan
 from devops_cli.exceptions import DevOpsCLIError, GitOperationError
-from devops_cli.git.branch_form import is_valid_slug
+from devops_cli.git.branch_form import is_valid_slug, slug_from_title
 from devops_cli.git.git_plans import (
     plan_clone,
     plan_clone_org,
@@ -65,6 +65,7 @@ from devops_cli.output import (
 )
 from devops_cli.output.serialization import emit_serialized, resolve_format
 from devops_cli.roadmap.claim import claim_as_agent, claim_request_lines
+from devops_cli.roadmap.commit_title import commit_type
 from devops_cli.security.sanitizer import mask_secrets
 
 app = new_typer(help=HELP.repos.app, no_args_is_help=True)
@@ -553,6 +554,32 @@ def _render_add_report(report: Any) -> None:
     )
 
 
+def _resolve_branch_from_title(
+    title: str, branch_type: str | None, slug: str | None
+) -> tuple[str, str]:
+    derived_type = commit_type(title)
+    if derived_type is None:
+        raise typer.BadParameter(
+            f"Title {title!r} has no Conventional Commit type.",
+            param_hint="--title",
+        )
+    try:
+        derived_slug = slug_from_title(title)
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc), param_hint="--title") from exc
+    if branch_type is not None and branch_type != derived_type:
+        raise typer.BadParameter(
+            f"Title {title!r} derives type {derived_type!r}, but --type {branch_type!r} was given.",
+            param_hint="--type",
+        )
+    if slug is not None and slug != derived_slug:
+        raise typer.BadParameter(
+            f"Title {title!r} derives slug {derived_slug!r}, but --slug {slug!r} was given.",
+            param_hint="--slug",
+        )
+    return derived_type, derived_slug
+
+
 @worktrees_app.command("add")
 def worktrees_add(
     issue: Annotated[
@@ -566,6 +593,10 @@ def worktrees_add(
     slug: Annotated[
         str | None,
         typer.Option("--slug", help=HELP.repos.worktrees_add_slug),
+    ] = None,
+    title: Annotated[
+        str | None,
+        typer.Option("--title", help=HELP.options.title),
     ] = None,
     repo_dir: Annotated[
         Path | None,
@@ -598,6 +629,8 @@ def worktrees_add(
     worktree on it and takes --type and --slug from it. After the worktree exists, the command
     claims the issue for an agent with the label owner/agent. It only warns if the claim fails.
     """
+    if title is not None:
+        branch_type, slug = _resolve_branch_from_title(title, branch_type, slug)
     is_plan = dry_run or is_dry_run()
     if is_plan and (branch_type is None or slug is None):
         raise typer.BadParameter(MESSAGES.repos.worktrees_add_dry_run_needs_options)

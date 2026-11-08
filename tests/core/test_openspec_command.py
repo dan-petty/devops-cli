@@ -232,10 +232,10 @@ def test_archive_in_a_dry_run_executes_as_no_external_request(
 
 
 def test_the_commands_are_registered_under_openspec(cli: Cli) -> None:
-    """`devops openspec --help` lists all three commands, each as the first word of a row."""
+    """`devops openspec --help` lists all four commands, each as the first word of a row."""
     result = cli("openspec", "--help")
 
     assert (result.exit_code, sorted(re.findall(r"^│ (\w+) ", result.output, re.MULTILINE))) == (
         0,
-        ["archive", "check", "regenerate"],
+        ["archive", "check", "new", "regenerate"],
     )

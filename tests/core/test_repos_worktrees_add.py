@@ -983,3 +983,54 @@ def test_add_worktree_starts_the_branch_at_the_given_base(
 
     assert (report.status, report.branch) == ("created", STAGED)
     assert _git_out(standard_dir, "rev-parse", "HEAD").stdout.strip() == base
+
+
+def test_worktrees_add_derives_branch_from_title_in_dry_run(cli: Cli, repo: Path) -> None:
+    result = cli(
+        "repos",
+        "worktrees",
+        "add",
+        "3203",
+        "--title",
+        "feat(openspec): scaffold the change folder",
+        "--dry-run",
+        "--repo-dir",
+        str(repo),
+        "--no-reclaim",
+    )
+
+    assert result.exit_code == 0, result.output
+    said = _said(result)
+    assert "feat/3203-scaffold-the-change-folder" in said
+
+
+def test_worktrees_add_refuses_type_or_slug_differing_from_title(cli: Cli, repo: Path) -> None:
+    bad_type = cli(
+        "repos",
+        "worktrees",
+        "add",
+        "3203",
+        "--title",
+        "feat(openspec): scaffold the change folder",
+        "--type",
+        "fix",
+        "--repo-dir",
+        str(repo),
+        "--no-reclaim",
+    )
+    assert bad_type.exit_code != 0
+
+    bad_slug = cli(
+        "repos",
+        "worktrees",
+        "add",
+        "3203",
+        "--title",
+        "feat(openspec): scaffold the change folder",
+        "--slug",
+        "other-slug",
+        "--repo-dir",
+        str(repo),
+        "--no-reclaim",
+    )
+    assert bad_slug.exit_code != 0
