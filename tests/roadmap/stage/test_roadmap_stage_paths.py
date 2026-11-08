@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from functools import partial
 from pathlib import Path
 
 import pytest
@@ -9,6 +10,7 @@ from pydantic import ValidationError
 
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.stage.stage_change import GroupKind, StageGroup
+from devops_cli.roadmap.stage.stage_overlap import grep_at
 from devops_cli.roadmap.stage.stage_paths import StagedTree, path_problems
 from tests.support.builders import make_stage_proposal
 
@@ -601,3 +603,56 @@ def test_caller_check_skipped_when_tree_has_no_checkout() -> None:
     problems = path_problems([group], tree)
 
     assert not any("check_proposal" in p for p in problems)
+
+
+# ── A plan that changes a manifest names the tests that reference it (#3972) ─
+
+
+MANIFEST = "k8s/logging/networkpolicy.yaml"
+MANIFEST_TEST = "tests/k8s/test_logging_policy.py"
+FOLDER_ONLY_TEST = "tests/k8s/test_logging_only.py"
+
+
+def _manifest_checkout(root: Path) -> Path:
+    """A checkout that holds the logging perimeter and two tests of it: one that names the manifest
+    and the folder in separate strings, and one that names the folder alone."""
+    (root / "k8s" / "logging").mkdir(parents=True, exist_ok=True)
+    (root / MANIFEST).write_text("kind: NetworkPolicy\n", encoding="utf-8")
+    (root / "tests" / "k8s").mkdir(parents=True, exist_ok=True)
+    (root / MANIFEST_TEST).write_text(
+        'MANIFEST = "networkpolicy.yaml"\nNAMESPACE = "logging"\n', encoding="utf-8"
+    )
+    (root / FOLDER_ONLY_TEST).write_text('NAMESPACE = "logging"\n', encoding="utf-8")
+    _git_checkout(root)
+    return root
+
+
+def _manifest_group(*changes: str) -> StageGroup:
+    """A group that changes the paths of a manifest plan, and names no other file."""
+    return _group(
+        reads=[],
+        changes=list(changes),
+        implementation="Change the logging perimeter",
+        verify="uv run devops ci docs",
+    )
+
+
+def test_the_record_names_the_test_that_builds_the_path_from_its_parts(tmp_path: Path) -> None:
+    # Imported here: the base commit has neither function, and a module-level import would stop the
+    # module at collection, before any assertion runs.
+    from devops_cli.roadmap.stage.stage_paths import (
+        missing_reference_problems,
+        record_test_references,
+    )
+
+    root = _manifest_checkout(tmp_path)
+    search = partial(grep_at, root, "HEAD", operation="test")
+
+    references = record_test_references([_manifest_group(MANIFEST)], search)
+
+    assert references == {MANIFEST: (MANIFEST_TEST,)}
+    (problem,) = missing_reference_problems([_manifest_group(MANIFEST)], references)
+    assert f"`{MANIFEST}`" in problem
+    assert f"`{MANIFEST_TEST}`" in problem
+    assert "`Changes:`" in problem
+    assert missing_reference_problems([_manifest_group(MANIFEST, MANIFEST_TEST)], references) == []

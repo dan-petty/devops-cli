@@ -3818,6 +3818,11 @@ class RoadmapMessages:
     stage_problem_missing_caller: str = (
         "The plan changes `{function}` and leaves out `{path}`, which calls it."
     )
+    stage_problem_missing_perimeter_test: str = (
+        "The plan changes `{path}` and leaves out `{test}`, a test that references the manifest. "
+        "Add the test to the `Changes:` line of the group that changes the manifest: the "
+        "implement job cannot edit a test outside that list."
+    )
     stage_problem_constant_mismatch: str = (
         "{constant} is {staged} in the staged tree, but the plan says {plan}."
     )
