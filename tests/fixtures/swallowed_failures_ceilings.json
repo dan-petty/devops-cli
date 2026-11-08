@@ -95,7 +95,7 @@
   "src/devops_cli/k8s/service_proxy.py": 1,
   "src/devops_cli/output/console.py": 1,
   "src/devops_cli/review/fingerprint.py": 1,
-  "src/devops_cli/roadmap/run.py": 4,
+  "src/devops_cli/roadmap/run.py": 1,
   "src/devops_cli/sandbox/engine.py": 2,
   "src/devops_cli/sandbox/host.py": 1,
   "src/devops_cli/sandbox/logs.py": 1,

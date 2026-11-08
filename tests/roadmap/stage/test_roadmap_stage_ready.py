@@ -404,7 +404,14 @@ def test_the_row_follows_implement_on_the_status_lane_needs_no_clone_and_is_due_
         STAGE_READY_ROW.first_run_due,
         STAGE_READY_ROW.interval,
     ) == (
-        ["metrics", "implement", "stage_ready", "release_comments"],
+        [
+            "metrics",
+            "implement",
+            "stage_ready",
+            "release_comments",
+            "github_status",
+            "cloudflare_status",
+        ],
         False,
         False,
         True,

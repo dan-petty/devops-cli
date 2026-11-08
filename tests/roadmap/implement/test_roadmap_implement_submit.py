@@ -142,7 +142,14 @@ def test_the_row_follows_metrics_on_the_status_lane_runs_on_a_clone_and_is_due_e
         IMPLEMENT_ROW.first_run_due,
         IMPLEMENT_ROW.interval,
     ) == (
-        ["metrics", "implement", "stage_ready", "release_comments"],
+        [
+            "metrics",
+            "implement",
+            "stage_ready",
+            "release_comments",
+            "github_status",
+            "cloudflare_status",
+        ],
         False,
         True,
         True,

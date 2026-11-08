@@ -1,8 +1,8 @@
 """Roadmap job evaluation, scheduling, checkout management, and execution.
 
-The due table runs the status lane's rows, metrics, implement, stage_ready and release_comments,
-before the model lane's, intake, refine, retitle, stage and alternatives, so a burst of candidates never
-holds back the metrics (#1360), and a slow model never holds back the implement or stage_ready row
+The due table runs the status lane's rows, metrics, implement, stage_ready, release_comments,
+github_status and cloudflare_status, before the model lane's, intake, refine, retitle, stage and
+alternatives, so a burst of candidates never holds back the metrics (#1360), and a slow model never holds back the implement or stage_ready row
 (#2757, #2865). The row stage_ready marks a green stage draft pull request ready. The row
 release_comments comments the version, and the time it runs, on the issues of a release (#2917).
 `devops roadmap run` runs the whole table in one round. The Service runs each lane in its own worker and its own clone
@@ -693,42 +693,44 @@ def _run_metrics_adapter(
     **_: Any,
 ) -> JobOutcome:
     """Collect the project metrics, walking the version tags of the job's clone of `repo` and
-    counting the Items of `store`, and the GitHub and Cloudflare status, into OTLP
-    (#1358). The Items also give the age of the oldest Item of each state, which only this row
-    asks for (#2919). A failed collection or status read is logged and skipped; a missing clone
-    fails the job."""
+    counting the Items of `store`, into OTLP (#1358). The Items also give the age of the oldest
+    Item of each state, which only this row asks for (#2919). A failed collection and a
+    missing clone fail the row (#4052); the status pages have rows of their own."""
     from devops_cli.github.metrics import (
         collect_project_metrics_report,
         emit_project_metrics_telemetry,
     )
+
+    clone = _job_clone("metrics", clone_path)
+    report = collect_project_metrics_report(
+        root=clone, repo=repo or None, store=store, item_ages=True
+    )
+    emit_project_metrics_telemetry(report)
+    return JobOutcome()
+
+
+def _run_github_status_adapter(**_: Any) -> JobOutcome:
+    """Read the GitHub status page and send its gauge into OTLP (#4052). The row needs no clone.
+    A read that fails raises `ServiceStatusError`, so this row fails and no other row does."""
     from devops_cli.telemetry.service_status import (
         emit_service_status_telemetry,
-        fetch_cloudflare_status,
         fetch_github_status,
     )
 
-    clone = _job_clone("metrics", clone_path)
-    try:
-        target_repo = repo or None
-        report = collect_project_metrics_report(
-            root=clone, repo=target_repo, store=store, item_ages=True
-        )
-        emit_project_metrics_telemetry(report)
-    except Exception as exc:
-        logger.warning("Project metrics collection failed for %s: %s", repo, exc)
+    emit_service_status_telemetry(fetch_github_status(), "github")
+    return JobOutcome()
 
-    try:
-        gh_status = fetch_github_status()
-        emit_service_status_telemetry(gh_status, "github")
-    except Exception as exc:
-        logger.warning("GitHub service status collection failed: %s", exc)
 
-    try:
-        cf_status = fetch_cloudflare_status()
-        emit_service_status_telemetry(cf_status, "cloudflare")
-    except Exception as exc:
-        logger.warning("Cloudflare service status collection failed: %s", exc)
+def _run_cloudflare_status_adapter(**_: Any) -> JobOutcome:
+    """Read the Cloudflare status page and send its gauge into OTLP (#4052). The row needs no
+    clone. A read that fails raises `ServiceStatusError`, so this row fails and no other row
+    does."""
+    from devops_cli.telemetry.service_status import (
+        emit_service_status_telemetry,
+        fetch_cloudflare_status,
+    )
 
+    emit_service_status_telemetry(fetch_cloudflare_status(), "cloudflare")
     return JobOutcome()
 
 
@@ -759,14 +761,28 @@ STATUS_LANE_ROWS: tuple[JobRow, ...] = (
         runner=_run_release_comments_adapter,
         first_run_due=True,
     ),
+    JobRow(
+        name="github_status",
+        interval=timedelta(minutes=DEFAULT_ROADMAP_METRICS_INTERVAL_MINUTES),
+        runner=_run_github_status_adapter,
+        first_run_due=True,
+    ),
+    JobRow(
+        name="cloudflare_status",
+        interval=timedelta(minutes=DEFAULT_ROADMAP_METRICS_INTERVAL_MINUTES),
+        runner=_run_cloudflare_status_adapter,
+        first_run_due=True,
+    ),
 )
 """The rows that call no model: the one that refreshes the metrics, the one that submits the
 implement Job, which only talks to the Kubernetes API and GitHub, and the one that marks a green
 stage pull request ready, which only talks to GitHub, and the one that comments a release on its
-issues, which talks to GitHub, the registry and the Kubernetes API. The model runs in the Job, so a model-lane
+issues, which talks to GitHub, the registry and the Kubernetes API, and the two that read the GitHub
+and the Cloudflare status page, one row each, so a failed read fails its own row (#4052). The model runs in the Job, so a model-lane
 round that is still running never delays the rows (#2757, #2865). `stage_ready` follows
 `implement`, so a Staged item with a green draft gets its Job first, and the row leaves a pull
-request that a Job works on alone. `release_comments` comes last: it waits for no other row."""
+request that a Job works on alone. `release_comments` and the two status reads come last: they
+wait for no other row, and a slow status page delays no other row."""
 
 TRIAGE_LANE_ROWS: tuple[JobRow, ...] = (
     JobRow(
@@ -888,7 +904,8 @@ def build_stub_table(
     include_retitle: bool | None = None,
 ) -> tuple[JobRow, ...]:
     """The due table's rows, in its order, each running `runners`' stub for its job: metrics,
-    implement, stage_ready, release_comments, intake, refine, retitle, stage and alternatives.
+    implement, stage_ready, release_comments, github_status, cloudflare_status, intake, refine,
+    retitle, stage and alternatives.
     Intake is always in; the others are added when asked for or given a stub."""
     r = runners or {}
     add_retitle = include_retitle if include_retitle is not None else ("retitle" in r)
@@ -915,6 +932,8 @@ def build_stub_table(
         "implement": add_implement,
         "stage_ready": add_stage_ready,
         "release_comments": add_release_comments,
+        "github_status": "github_status" in r,
+        "cloudflare_status": "cloudflare_status" in r,
         "alternatives": add_alternatives,
     }
     return tuple(

@@ -14,14 +14,11 @@ import pytest
 
 from devops_cli.config.constants import (
     CONST_GITHUB_APP_PRIVATE_KEY_ENV,
-    CONST_URL_CLOUDFLARE_STATUS_SUMMARY,
-    CONST_URL_GITHUB_STATUS_SUMMARY,
 )
 from devops_cli.config.defaults import DEFAULT_ROADMAP_METRICS_INTERVAL_MINUTES
 from devops_cli.github.session import reset_github_session
 from devops_cli.roadmap.run import (
     DEFAULT_DUE_TABLE,
-    JobOutcome,
     run_due_jobs,
 )
 from devops_cli.roadmap.stores.store import (
@@ -58,11 +55,6 @@ pytestmark = pytest.mark.usefixtures("keyring_store")
 
 # ── The metrics job ───────────────────────────────────────────────────────────
 
-STATUS_PAGE = {
-    "page": {"id": "page", "name": "Status", "url": "https://example.com"},
-    "status": {"indicator": "none", "description": "All Systems Operational"},
-}
-
 
 def test_the_metrics_job_walks_the_version_tags_of_its_own_clone(
     git_fake: GitFake,
@@ -77,15 +69,13 @@ def test_the_metrics_job_walks_the_version_tags_of_its_own_clone(
     """The default table's metrics row clones the repository and walks its version tags there,
     not in the working directory, which in the Service is no git repository (#1358). The gauge
     reads the remote's two past tags, and the job counts the open item of the store it was given
-    (#2263). It logs no warning, so every GitHub and status read it made was answered."""
+    (#2263). It logs no warning, so every GitHub read it made was answered."""
     row = next(row for row in DEFAULT_DUE_TABLE if row.name == "metrics")
     remote = bare_remote(tmp_path)
     for tag in ("v0.1.0", "v0.2.0"):
         git_in(remote, "tag", tag, "main")
     github = GitHubFake(REPO, milestones=[{"number": 26, "title": PLANNED, "state": "open"}])
     github.install(git_fake)
-    for url in (CONST_URL_GITHUB_STATUS_SUMMARY, CONST_URL_CLOUDFLARE_STATUS_SUMMARY):
-        web.page(url, json.dumps(STATUS_PAGE))
     web.page(
         f"{API}/user",
         json.dumps({"login": "test-bot"}),
@@ -137,8 +127,6 @@ def test_the_metrics_row_sends_the_age_of_a_blocked_item_and_logs_no_collection_
     clone.mkdir()
     (clone / ".git").mkdir()
     GitHubFake(REPO).install(process_fake)
-    for url in (CONST_URL_GITHUB_STATUS_SUMMARY, CONST_URL_CLOUDFLARE_STATUS_SUMMARY):
-        web.page(url, json.dumps(STATUS_PAGE))
     number = seeded_store.seed_issue("blocked item", fields=PLACED)
     blocked = seeded_store.item(number)
     assert blocked is not None
@@ -168,41 +156,6 @@ def test_the_metrics_row_sends_the_age_of_a_blocked_item_and_logs_no_collection_
     ) == (REPO, True, float(number), 0.0, [])
 
 
-def test_a_failed_metrics_collection_or_status_read_is_logged_and_the_job_goes_on(
-    git_fake: GitFake,
-    seeded_store: InMemoryRoadmapStore,
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    caplog: pytest.LogCaptureFixture,
-    web: WebFake,
-    git_sim: SimulatedGit,
-) -> None:
-    """GitHub answers a milestone the report cannot count, and neither status page answers:
-    each failure is a WARNING from the job, which still returns its outcome."""
-    clone = tmp_path / "clone"
-    clone.mkdir()
-    (clone / ".git").mkdir()
-    milestone = {"number": 26, "title": PLANNED, "state": "open", "open_issues": None}
-    GitHubFake(REPO, milestones=[milestone]).install(git_fake)
-    with caplog.at_level(logging.WARNING):
-        outcome = run_metrics_adapter(store=seeded_store, repo=REPO, clone_path=clone)
-    job = [r.getMessage() for r in caplog.records if r.name == "devops_cli.roadmap.run"]
-    status_pages = {CONST_URL_GITHUB_STATUS_SUMMARY, CONST_URL_CLOUDFLARE_STATUS_SUMMARY}
-    assert (
-        outcome,
-        [message.partition(":")[0] for message in job],
-        status_pages <= set(web.requested),
-    ) == (
-        JobOutcome(),
-        [
-            f"Project metrics collection failed for {REPO}",
-            "GitHub service status collection failed",
-            "Cloudflare service status collection failed",
-        ],
-        True,
-    )
-
-
 def test_the_metrics_job_of_the_app_asks_no_traffic_endpoint(
     config: Callable[..., Path],
     git_fake: GitFake,
@@ -230,8 +183,6 @@ def test_the_metrics_job_of_the_app_asks_no_traffic_endpoint(
     )
     monkeypatch.setenv(CONST_GITHUB_APP_PRIVATE_KEY_ENV, "app-key")
     reset_github_session()
-    for url in (CONST_URL_GITHUB_STATUS_SUMMARY, CONST_URL_CLOUDFLARE_STATUS_SUMMARY):
-        web.page(url, json.dumps(STATUS_PAGE))
     with caplog.at_level(logging.WARNING):
         run_metrics_adapter(store=seeded_store, repo=REPO, clone_path=clone)
     assert (

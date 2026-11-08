@@ -234,6 +234,8 @@ def test_the_implement_row_is_due_on_the_status_lane_by_its_interval_and_by_no_h
         "metrics": NOW - timedelta(minutes=1),
         "stage_ready": NOW - timedelta(minutes=1),
         "release_comments": NOW - timedelta(minutes=1),
+        "github_status": NOW - timedelta(minutes=1),
+        "cloudflare_status": NOW - timedelta(minutes=1),
     }
     first = ran({POLL_KEY: 1})
     too_soon = ran({POLL_KEY: 1}, **fresh, implement=NOW - timedelta(minutes=6, seconds=59))
@@ -241,7 +243,14 @@ def test_the_implement_row_is_due_on_the_status_lane_by_its_interval_and_by_no_h
     hinted = ran({OPENED: 1}, **fresh, implement=NOW - timedelta(minutes=2))
 
     assert (first, too_soon, seven_minutes, hinted) == (
-        ("metrics", "implement", "stage_ready", "release_comments"),
+        (
+            "metrics",
+            "implement",
+            "stage_ready",
+            "release_comments",
+            "github_status",
+            "cloudflare_status",
+        ),
         (),
         ("implement",),
         (),
@@ -288,7 +297,14 @@ def test_each_lanes_success_stays_in_schedule_json_when_their_rounds_interleave(
         now=NOW,
     )
     assert (ran, read_schedule(tmp_path)) == (
-        ("metrics", "implement", "stage_ready", "release_comments"),
+        (
+            "metrics",
+            "implement",
+            "stage_ready",
+            "release_comments",
+            "github_status",
+            "cloudflare_status",
+        ),
         {
             "intake": later.isoformat(),
             "refine": later.isoformat(),
@@ -299,6 +315,8 @@ def test_each_lanes_success_stays_in_schedule_json_when_their_rounds_interleave(
             "implement": NOW.isoformat(),
             "stage_ready": NOW.isoformat(),
             "release_comments": NOW.isoformat(),
+            "github_status": NOW.isoformat(),
+            "cloudflare_status": NOW.isoformat(),
         },
     )
 
