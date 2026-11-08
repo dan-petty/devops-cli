@@ -789,6 +789,9 @@ def test_step_name_holds_the_step_of_each_job_that_records_one() -> None:
         "select",
         "gate",
         "review",
+        "checks",
+        "publish",
+        "watch",
     ]
 
 
