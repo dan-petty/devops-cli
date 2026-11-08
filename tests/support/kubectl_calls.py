@@ -8,6 +8,16 @@ from collections.abc import Sequence
 from tests.support.fakes.process import ProcessFake
 
 
+class RunningForward:
+    """The `kubectl port-forward` child while it runs. Its pid is one that no process holds, so a
+    stop of the forward signals nothing real."""
+
+    pid = -1
+
+    def poll(self) -> int | None:
+        return None
+
+
 def without_context(argv: Sequence[str]) -> list[str]:
     """`argv` without its `--context` flag and the value of the flag."""
     kept: list[str] = []

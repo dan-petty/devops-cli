@@ -35,6 +35,7 @@ from devops_cli.k8s.service_probe import (
     forward_argv,
     plan_probe_from_pod,
     probe_from_pod,
+    read_capped,
     service_cluster_ip,
 )
 
@@ -129,15 +130,6 @@ class RequestRow:
     refused: bool
 
 
-def _read_capped(response: httpx2.Response) -> bytes:
-    body = bytearray()
-    for chunk in response.iter_bytes():
-        body += chunk
-        if len(body) > DEFAULT_CRAWL4AI_MAX_REPLY_BYTES:
-            break
-    return bytes(body)
-
-
 def _send(
     client: httpx2.Client, base_url: str, route: Route, url: str, headers: dict[str, str]
 ) -> tuple[int, bytes]:
@@ -159,7 +151,7 @@ def _send(
         )
     response = client.send(request, stream=True)
     try:
-        return response.status_code, _read_capped(response)
+        return response.status_code, read_capped(response, DEFAULT_CRAWL4AI_MAX_REPLY_BYTES)
     finally:
         response.close()
 

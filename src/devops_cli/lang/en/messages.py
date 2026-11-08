@@ -729,6 +729,19 @@ class K8sMessages:
     crawl4ai_check_dry_run: str = (
         "A dry run sends no request and starts no process. The calls above run in this order."
     )
+    searxng_check_passed: str = (
+        "All {rows} search rows of SearXNG passed, and the pods open no connection to the "
+        "{destinations} destinations. The check was written for the image {image}."
+    )
+    searxng_check_failed: str = (
+        "{count} check(s) of the SearXNG service failed: {detail}. Do not fix this in code: "
+        "file the evidence as an issue, and set the settings or the image to match."
+    )
+    searxng_check_failed_rows: str = "the search rows {rows} failed"
+    searxng_check_failed_pod: str = "the pods opened these connections: {connects}"
+    searxng_check_dry_run: str = (
+        "A dry run sends no request and starts no process. The calls above run in this order."
+    )
     rbac_audit_passed: str = (
         "RBAC audit passed: no broad or wildcard role granted to a non-system subject "
         "in {bindings} binding(s)."
@@ -839,6 +852,8 @@ class K8sMessages:
     table_title_crawl4ai_internal: str = "Crawl4AI: requests with the token for internal targets"
     table_title_crawl4ai_open: str = "Crawl4AI: requests without the token"
     table_title_crawl4ai_pod: str = "Pod with the label of the service: connects"
+    table_title_searxng_search: str = "SearXNG: search requests with format=json"
+    table_title_searxng_pod: str = "SearXNG: connects from throwaway pods"
     table_title_image_pins: str = "Image Pins of the Argo CD Applications"
     table_title_kubeconform: str = "Kubeconform Strict Schema Validation"
     table_title_nodes: str = "Nodes"

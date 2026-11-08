@@ -240,6 +240,15 @@ throwaway pod that carries the label of the service, so the NetworkPolicy applie
 Run it at each bump of the image digest. The token never appears in the output. Exits 1 when
 a target is served, a request without the token is not refused, or the pod opens a
 connection. |
+|  | `devops k8s searxng-check [OPTIONS]` | Check the points of the SearXNG service that a bump of the image digest can change. It sends
+six search requests with format=json through a local port-forward: one for each category of
+the provider, a query that starts with ! and names an engine that is off, a query that starts
+with !! (the redirect is recorded and never followed), and a category that no kept engine
+serves. It judges the keys of each reply, the hits, and the engines that must stay off. It
+also tries three connects from two throwaway pods, so the NetworkPolicy applies to them: a
+pod that is not a client of the service to port 8080, and a pod with the label of the service
+to the metadata address and to a private ClusterIP. Run it at each bump of the image digest.
+Exits 1 when a row fails or a pod opens a connection. |
 |  | `devops k8s create-tls-secret [OPTIONS] <secret_name>` | Create or update a kubernetes.io/tls secret from certificate and private key files. |
 |  | `devops k8s enable-tls [OPTIONS]` | Generate Homelab certificates and apply TLS secrets across Kubernetes cluster namespaces. |
 |  | `devops k8s validate [OPTIONS] <manifest_path>` | Validate Kubernetes YAML manifests against OpenAPI schemas using Kubeconform. |

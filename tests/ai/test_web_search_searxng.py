@@ -38,9 +38,32 @@ _SERVICE = "http://searxng.devops.svc.cluster.local:8080"
 _SERVICE_ADDRESS = "10.0.0.5"
 _QUERY = "private roadmap query"
 _FROM_FIXTURE = [
-    SearchHit("https://example.com/pydantic-ai", "Pydantic AI", "Agents for Python.", "searxng"),
-    SearchHit("https://example.com/ruff", "Ruff", "A linter.", "searxng"),
-    SearchHit("https://example.com/mypy", "Mypy", "A type checker.", "searxng"),
+    SearchHit(
+        "https://developer.mozilla.org/en-US/docs/Glossary/Python",
+        "Python",
+        "Python is a high-level general-purpose programming language. It uses a multi-paradigm "
+        "approach, meaning it supports procedural, object-oriented, and some functional "
+        "programming constructs.",
+        "searxng",
+    ),
+    SearchHit(
+        "https://developer.mozilla.org/en-US/docs/Learn_web_development/Extensions/Server-side/Django",
+        "Django Web Framework (Python)",
+        "Django is an extremely popular and fully featured server-side web framework, written in "
+        "Python. This module shows you why Django is one of the most popular web server "
+        "frameworks, how to set up a development environment, and how to start using it to "
+        "create your own web applications.",
+        "searxng",
+    ),
+    SearchHit(
+        "https://developer.mozilla.org/en-US/docs/Web/API/Document_Object_Model",
+        "Document Object Model (DOM)",
+        "The Document Object Model (DOM) connects web pages to scripts or programming languages "
+        "by representing the structure of a document\u2014such as the HTML representing a web "
+        "page\u2014in memory. Usually it refers to JavaScript, even though modeling HTML, SVG, or "
+        "XML documents as objects are not part of the core JavaScript language.",
+        "searxng",
+    ),
 ]
 _DUCKDUCKGO = "https://html.duckduckgo.com/html/"
 

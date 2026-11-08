@@ -609,6 +609,11 @@ DEFAULT_CRAWL4AI_CHECK_LOCAL_PORT: int = 11236
 # Seconds that one request of the check may take. A refusal is fast; a slow reply is a failure.
 DEFAULT_CRAWL4AI_CHECK_TIMEOUT_SECONDS: float = 30.0
 
+# ── SearXNG Check Defaults (`devops k8s searxng-check`, #3929) ──────────────────
+# Local port of the `kubectl port-forward` to Service `searxng`. It differs from the port 8080 that a
+# person may forward for `search.searxng_url`, so the check never meets a forward of a person.
+DEFAULT_SEARXNG_CHECK_LOCAL_PORT: int = 8081
+
 # ── Service Probe Defaults (throwaway pod and port-forward of `devops_cli.k8s.service_probe`) ──
 # Seconds that a forward has to answer its health route before the check stops.
 DEFAULT_SERVICE_FORWARD_WAIT_SECONDS: float = 30.0

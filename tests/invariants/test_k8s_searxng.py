@@ -13,6 +13,7 @@ import yaml
 from devops_cli.commands.k8s.stack_lifecycle import MANIFESTS_BY_STACK
 from devops_cli.k8s.cluster_secrets import CLUSTER_SECRETS
 from devops_cli.k8s.image_pins import names_latest
+from devops_cli.k8s.searxng_check import OFF_ENGINES
 from tests.support.k8s_tree import K8S, manifests, pod_spec
 from tests.support.paths import REPO_ROOT
 
@@ -29,10 +30,6 @@ DEAD_ENGINE_LINE = re.compile(r"^(?P<name>[^#]+?) # \d{4}-\d{2}-\d{2}: \S.*$")
 IMAGE_PATTERN = re.compile(
     r"^docker\.io/searxng/searxng:(?P<tag>\d{4}\.\d+\.\d+-[0-9a-f]{7,9})@sha256:[0-9a-f]{64}$"
 )
-# The scraping engines that the upstream sites suspended in October 2026 (SearXNG issues 6866 and
-# 6819), and the keyed Brave engine, which the owner dropped on 2026-11-07. A name here is a name
-# of the default settings.yml, and a prefix: `brave` also covers `brave.news`.
-FORBIDDEN_ENGINES = ("brave", "braveapi", "google", "bing", "startpage", "mojeek", "qwant")
 # The pod root, not a path of this host, and the IPv4 wildcard address that the pod binds.
 _POD_ROOT = PurePosixPath("/")
 BIND_ALL_IPV4 = str(ipaddress.IPv4Address(0))
@@ -320,7 +317,7 @@ def test_the_settings_keep_none_of_the_suspended_or_keyed_engines() -> None:
     named = {name.split(".")[0].split(" ")[0] for name in kept}
     declared = [engine["name"] for engine in settings.get("engines", [])]
 
-    assert (sorted(named & set(FORBIDDEN_ENGINES)), declared) == ([], [])
+    assert (sorted(named & set(OFF_ENGINES)), declared) == ([], [])
 
 
 def test_every_kept_engine_exists_in_the_default_settings_of_the_pinned_image() -> None:
@@ -334,7 +331,7 @@ def test_the_names_file_holds_the_forbidden_engines_so_the_check_above_means_som
     engines would pass for any list if the names file were empty."""
     names = _default_engine_names()
 
-    assert sorted(name for name in FORBIDDEN_ENGINES if name not in names) == []
+    assert sorted(name for name in OFF_ENGINES if name not in names) == []
 
 
 def test_every_file_of_the_service_is_in_both_kustomizations_and_the_deploy_stack() -> None:
