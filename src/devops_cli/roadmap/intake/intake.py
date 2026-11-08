@@ -138,6 +138,7 @@ from devops_cli.exceptions.security import SecurityError
 from devops_cli.exceptions.validation import ValidationError
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.commit_title import commit_scope, commit_summary, commit_type
+from devops_cli.roadmap.failure import FailureClass, StepName, failure_class_of, retry_after
 from devops_cli.roadmap.intake.intake_model import (
     IntakeModel,
     ModelEvidence,
@@ -367,7 +368,8 @@ class IntakePlan:
     With a `limit`, `left` holds the candidates the run left for a later one, in the order a
     later run takes them, and `fresh_left` whether a fresh one is among them: never decided, or
     edited since it was. A run over `issues` with a `waiting` record sets `others_fresh` when a
-    candidate it was not asked for is fresh.
+    candidate it was not asked for is fresh. `held` holds the candidates the run left out because
+    their last placement failed less than the wait of the failure class ago (#4061).
 
     A dry run (`dry_run`) made no request, so it has no decision: `requests` holds the reads
     and model calls a run makes, in order, and `writes` those `--confirm` adds.
@@ -379,6 +381,7 @@ class IntakePlan:
     left: tuple[int, ...] = ()
     fresh_left: bool = False
     others_fresh: bool = False
+    held: tuple[int, ...] = ()
     spend: Spend | None = None
     dry_run: bool = False
     requests: tuple[PlannedRequest, ...] = ()
@@ -393,11 +396,12 @@ class IntakePlan:
 class PlacementFailure:
     """A candidate intake skipped because one of its writes failed: its issue number, None for
     a new candidate never filed, its title and the error: its class and its masked text
-    (#1443, #3651)."""
+    (#1443, #3651), and `failure_class`, the class of the error by the one table (#4061)."""
 
     number: int | None
     title: str
     error: str
+    failure_class: FailureClass
 
     @property
     def name(self) -> str:
@@ -439,29 +443,48 @@ class Waiting(BaseModel):
     decided_at: datetime
 
 
+class Failed(BaseModel):
+    """A candidate whose last placement failed (#4061): the step, the class of the failure, the
+    count of failures in a row, and when the last one was. The wait of the class
+    (`retry_after`) runs from `failed_at`."""
+
+    model_config = ConfigDict(frozen=True)
+
+    step: StepName
+    failure_class: FailureClass
+    count: int
+    failed_at: datetime
+
+
 class IntakeRecord(BaseModel):
     """What the Service's intake keeps between rounds (#1360): each candidate it decided that is
-    still one, by number, and whether a fresh candidate is left, which makes intake due at the
-    next poll."""
+    still one, by number, whether a fresh candidate is left, which makes intake due at the
+    next poll, and each candidate whose placement failed, which intake leaves out until the wait
+    of the failure class has passed (#4061). A record file from before `failed` loads with none."""
 
     model_config = ConfigDict(frozen=True)
 
     pending: bool = False
     waiting: dict[int, Waiting] = Field(default_factory=dict)
+    failed: dict[int, Failed] = Field(default_factory=dict)
 
     def after(self, plan: IntakePlan, now: datetime) -> IntakeRecord:
         """The record once `plan`'s candidates are decided, at `now`: those it decided, placed
-        or not, and those it left that waited before. A candidate that is one no more drops out
-        at the next run, which no longer lists it; one whose placement raised is decided again
-        after the fresh ones, unless that placement had already written to it, which makes it
-        fresh once."""
+        or not, and those it left or held that waited before. A candidate that is one no more
+        drops out at the next run, which no longer lists it; one whose placement raised is decided
+        again after the fresh ones, unless that placement had already written to it, which makes
+        it fresh once. The failures of the candidates that the plan names stay, and the others
+        drop out."""
         decided = {
             decision.subject.number: Waiting(updated_at=decision.subject.updated_at, decided_at=now)
             for decision in plan.decisions
             if decision.subject.number is not None
         }
-        kept = {number: self.waiting[number] for number in plan.left if number in self.waiting}
-        return IntakeRecord(pending=plan.fresh_left, waiting=kept | decided)
+        kept_waiting = (*plan.left, *plan.held)
+        kept = {number: self.waiting[number] for number in kept_waiting if number in self.waiting}
+        known = {*decided, *kept_waiting}
+        failed = {number: entry for number, entry in self.failed.items() if number in known}
+        return IntakeRecord(pending=plan.fresh_left, waiting=kept | decided, failed=failed)
 
     def merged(self, plan: IntakePlan, now: datetime) -> IntakeRecord:
         """The record once a scoped run decided `plan`'s candidates, at `now` (ADR 0017): it adds
@@ -474,8 +497,28 @@ class IntakeRecord(BaseModel):
             if decision.subject.number is not None
         }
         return IntakeRecord(
-            pending=self.pending or plan.others_fresh, waiting={**self.waiting, **decided}
+            pending=self.pending or plan.others_fresh,
+            waiting={**self.waiting, **decided},
+            failed=self.failed,
         )
+
+    def settled(self, plan: IntakePlan, applied: IntakeApplied, now: datetime) -> IntakeRecord:
+        """The record once `plan` is applied (#4061): a candidate that the plan decided has no
+        failure any more, and each placement that failed adds one with the count of the failures
+        in a row plus 1. A failure of an issue that has no number (a new candidate) has no entry."""
+        decided = {decision.subject.number for decision in plan.decisions}
+        failed = {number: entry for number, entry in self.failed.items() if number not in decided}
+        for failure in applied.failed:
+            if failure.number is None:
+                continue
+            before = self.failed.get(failure.number)
+            failed[failure.number] = Failed(
+                step=StepName.PLACE,
+                failure_class=failure.failure_class,
+                count=(before.count if before else 0) + 1,
+                failed_at=now,
+            )
+        return IntakeRecord(pending=self.pending, waiting=self.waiting, failed=failed)
 
 
 class _InvalidProposal(ValueError):
@@ -625,6 +668,22 @@ def _subjects(
     chosen = [subject for subject in found if subject.number in issues]
     others = [subject for subject in found if subject.number not in issues]
     return chosen, tuple(sorted(set(issues) - {subject.number for subject in chosen})), others
+
+
+def _held(
+    subjects: Sequence[Subject], failed: Mapping[int, Failed], now: datetime | None
+) -> tuple[int, ...]:
+    """The numbers of the candidates whose placement failed less than the wait of the failure
+    class before `now` (#4061). The wait comes from the one table (`retry_after`)."""
+    if now is None:
+        return ()
+    return tuple(
+        subject.number
+        for subject in subjects
+        if subject.number in failed
+        and failed[subject.number].failed_at + retry_after(failed[subject.number].failure_class)
+        > now
+    )
 
 
 def _fresh(subject: Subject, waiting: Mapping[int, Waiting]) -> bool:
@@ -1191,10 +1250,14 @@ def plan_intake(
     new: NewCandidate | None = None,
     limit: int | None = None,
     waiting: Mapping[int, Waiting] | None = None,
+    failed: Mapping[int, Failed] | None = None,
+    now: datetime | None = None,
 ) -> IntakePlan:
     """Decide every candidate of `repo`, whose roadmap `store` reads, or only `issues`, or only
     the `new` candidate, writing nothing; with `limit`, at most that many, fresh ones first, by
-    what `waiting` says was decided before.
+    what `waiting` says was decided before. A candidate whose placement failed, by `failed`, less
+    than the wait of its failure class before `now` is left out before any model call, and its
+    number is in `held` (#4061).
 
     A `new` candidate whose text looks like it holds a secret raises `SecurityError` first.
     """
@@ -1210,6 +1273,9 @@ def plan_intake(
         items={item.number: item for item in select_items(listed)},
     )
     subjects, missing, others = _subjects(run, issues, new)
+    held = _held(subjects, failed or {}, now)
+    subjects = [subject for subject in subjects if subject.number not in held]
+    others = [subject for subject in others if subject.number not in held]
     queue = _Queue(subjects, (), False) if limit is None else _queue(subjects, waiting or {}, limit)
     decisions = tuple(_Planner(run, agent_candidates=new is not None).decide_all(queue.decided))
     return IntakePlan(
@@ -1219,6 +1285,7 @@ def plan_intake(
         left=queue.left,
         fresh_left=queue.fresh_left,
         others_fresh=waiting is not None and any(_fresh(other, waiting) for other in others),
+        held=held,
     )
 
 
@@ -1313,7 +1380,12 @@ def _failed_placement(subject: Subject, exc: GitHubOperationError) -> PlacementF
     """Record `subject` as skipped for its failed write, with the error's class and its masked,
     bounded text: the status code and the message of GitHub (#3651)."""
     reason = redact_text(str(exc))[:CONST_MAX_ERROR_DETAIL_LENGTH]
-    failure = PlacementFailure(subject.number, subject.title, f"{type(exc).__name__}: {reason}")
+    failure = PlacementFailure(
+        subject.number,
+        subject.title,
+        f"{type(exc).__name__}: {reason}",
+        failure_class_of(exc),
+    )
     logger.warning(MESSAGES.roadmap.intake_skipped.format(name=failure.name, error=failure.error))
     return failure
 
