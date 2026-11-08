@@ -183,12 +183,14 @@ class RunLimit(StrEnum):
 @dataclass(frozen=True)
 class ToolCallRecord:
     """One tool call of a run: the tool, its argument as JSON, masked and cut, how the call ended,
-    and the characters of its answer, after the cut of the tool (None for a call with no answer)."""
+    the characters of its answer, after the cut of the tool (None for a call with no answer), and
+    its timeout in seconds when bounded (#3221)."""
 
     name: str
     argument: str
     outcome: ToolOutcome = ToolOutcome.OK
     chars: int | None = None
+    timeout: float | None = None
 
 
 @dataclass
@@ -272,13 +274,14 @@ class RunTrace:
         for part in reply.parts:
             if isinstance(part, ToolCallPart) and part.tool_name in tools:
                 argument = bounded_text(argument_json(part))
-                outcome, chars = _outcome_of(answers.get(part.tool_call_id))
+                outcome, chars, timeout = _outcome_of(answers.get(part.tool_call_id))
                 self.tool_calls.append(
                     ToolCallRecord(
                         part.tool_name,
                         argument[:CONST_ROADMAP_RUN_TRACE_ARGUMENT_CHARS],
                         outcome,
                         chars,
+                        timeout=timeout,
                     )
                 )
 
@@ -300,16 +303,29 @@ def _answers(messages: Sequence[ModelMessage]) -> dict[str, ToolReturnPart | Ret
     }
 
 
-def _outcome_of(answer: ToolReturnPart | RetryPromptPart | None) -> tuple[ToolOutcome, int | None]:
-    """How a tool call ended, and the characters of its answer, or None for a call with no answer.
-    The answer is the text that the model read, after the cut of the tool. The tool sets its
-    outcome with `empty_answer` and `error_answer`. A call with no return of the tool is an error."""
+def _outcome_of(
+    answer: ToolReturnPart | RetryPromptPart | None,
+) -> tuple[ToolOutcome, int | None, float | None]:
+    """How a tool call ended, the characters of its answer, and its timeout in seconds (None for a
+    call with no answer or timeout). The answer is the text that the model read, after the cut of
+    the tool. The tool sets its outcome with `empty_answer` and `error_answer`, or in a metadata
+    dict. A call with no return of the tool is an error."""
     if not isinstance(answer, ToolReturnPart) or answer.outcome != "success":
-        return ToolOutcome.ERROR, None
+        return ToolOutcome.ERROR, None, None
     text = answer.model_response_str()
     if isinstance(answer.metadata, ToolOutcome):
-        return answer.metadata, len(text)
-    return (ToolOutcome.OK if text.strip() else ToolOutcome.EMPTY), len(text)
+        return answer.metadata, len(text), None
+    if isinstance(answer.metadata, Mapping):
+        meta_outcome = answer.metadata.get("outcome")
+        outcome = (
+            meta_outcome
+            if isinstance(meta_outcome, ToolOutcome)
+            else (ToolOutcome.OK if text.strip() else ToolOutcome.EMPTY)
+        )
+        timeout_val = answer.metadata.get("timeout")
+        timeout = float(timeout_val) if isinstance(timeout_val, (int, float)) else None
+        return outcome, len(text), timeout
+    return (ToolOutcome.OK if text.strip() else ToolOutcome.EMPTY), len(text), None
 
 
 def record_run_spend(

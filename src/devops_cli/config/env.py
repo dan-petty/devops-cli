@@ -156,6 +156,16 @@ CREDENTIALS: tuple[Credential, ...] = (
         "request, and refuses to start without (stored in OS keyring)",
     ),
     Credential(
+        "mcp.stage_token",
+        "Bearer token for the stage job MCP client to connect to the MCP server's planning role "
+        "(stored in OS keyring)",
+    ),
+    Credential(
+        "mcp.implement_token",
+        "Bearer token for the implement job MCP client to connect to the MCP server's implementation role "
+        "(stored in OS keyring)",
+    ),
+    Credential(
         "mattermost.command_token",
         "Mattermost slash command token for the /roadmap command (stored in OS keyring)",
     ),
