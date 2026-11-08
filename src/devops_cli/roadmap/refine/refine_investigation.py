@@ -425,6 +425,35 @@ def _broke_the_output_rules(messages: Sequence[ModelMessage], tools: Collection[
     return not any(call.tool_name in tools for call in calls)
 
 
+def _toolset_names(toolsets: Sequence[Any] | None) -> set[str]:
+    """The names of tools exposed by `toolsets`."""
+    if not toolsets:
+        return set()
+    names: set[str] = set()
+    for ts in toolsets:
+        names.update(getattr(ts, "tool_names", ()))
+    return names
+
+
+def _stopped_outcome(
+    stopped: UsageLimitExceeded | UnexpectedModelBehavior,
+    messages: Sequence[ModelMessage],
+    tool_names: Collection[str],
+    limits_hit: list[RunLimit],
+) -> InvestigationStopped:
+    """The result when an investigation ends early from a usage limit or model behavior."""
+    if isinstance(stopped, UsageLimitExceeded) and not limits_hit:
+        limits_hit.append(RunLimit.CALLS)
+    schema_broken = isinstance(stopped, UnexpectedModelBehavior) and _broke_the_output_rules(
+        messages, tool_names
+    )
+    return InvestigationStopped(
+        type(stopped).__name__,
+        run_error_message(stopped),
+        schema_broken=schema_broken,
+    )
+
+
 def investigate[T: BaseModel](
     model: Any,
     instructions: str,
@@ -433,6 +462,7 @@ def investigate[T: BaseModel](
     output_type: type[T],
     output_check: Callable[[T], str | None] | None = None,
     *,
+    toolsets: Sequence[Any] | None = None,
     limits: UsageLimits | None = None,
     output_retries: int | None = None,
     trace: RunTrace | None = None,
@@ -463,6 +493,7 @@ def investigate[T: BaseModel](
         output_type=output_type,
         instructions=instructions,
         tools=function_tools,
+        toolsets=toolsets,
         retries={
             "tools": CONST_ROADMAP_REFINE_INVESTIGATION_RETRIES,
             "output": CONST_ROADMAP_REFINE_INVESTIGATION_RETRIES
@@ -477,23 +508,13 @@ def investigate[T: BaseModel](
         request_limit=CONST_ROADMAP_REFINE_INVESTIGATION_MAX_REQUESTS,
         tool_calls_limit=CONST_ROADMAP_REFINE_INVESTIGATION_MAX_TOOL_CALLS,
     )
-    tool_names = {tool.name for tool in function_tools}
+    tool_names = {tool.name for tool in function_tools} | _toolset_names(toolsets)
     started = time.monotonic()
     with capture_run_messages() as messages:
         try:
             result = agent.run_sync(request, usage_limits=limits, event_stream_handler=drain_events)
         except (UsageLimitExceeded, UnexpectedModelBehavior) as stopped:
-            # The hook takes the tools away before the requests run out, so a hard stop with no
-            # earlier limit is one reply with more calls than the budget had left. The message of
-            # the error is not read.
-            if isinstance(stopped, UsageLimitExceeded) and not limits_hit:
-                limits_hit.append(RunLimit.CALLS)
-            return InvestigationStopped(
-                type(stopped).__name__,
-                run_error_message(stopped),
-                schema_broken=isinstance(stopped, UnexpectedModelBehavior)
-                and _broke_the_output_rules(messages, tool_names),
-            )
+            return _stopped_outcome(stopped, messages, tool_names, limits_hit)
         except ModelAPIError as exc:
             # Raised outside this handler, so a logged traceback holds no reply text.
             error = model_call_error(exc, "The investigation's")
@@ -501,13 +522,15 @@ def investigate[T: BaseModel](
             return result.output
         finally:
             if trace is not None:
+                all_tools = tool_names | _toolset_names(toolsets)
                 trace.absorb(
                     messages,
-                    tools=tool_names,
+                    tools=all_tools,
                     offered=offered,
                     limit=limits_hit[0] if limits_hit else None,
                 )
             record_run_spend(model, messages, time.monotonic() - started, stage="analysis")
+    raise error
     raise error
 
 

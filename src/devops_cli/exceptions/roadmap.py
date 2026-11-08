@@ -251,3 +251,22 @@ class RoadmapIntakeError(DevOpsCLIError):
             message,
             details={"failed_items": list(self.failed_items), **(details or {})},
         )
+
+
+class RoadmapMcpUnavailableError(DevOpsCLIError):
+    """Raised when the MCP server is unavailable at job start (#3221)."""
+
+    error_code = "ROADMAP_MCP_UNAVAILABLE"
+
+    def __init__(
+        self,
+        url: str,
+        message: str | None = None,
+        *,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        self.url = url
+        super().__init__(
+            message or f"MCP server at '{url}' is unavailable.",
+            details={"url": url, **(details or {})},
+        )

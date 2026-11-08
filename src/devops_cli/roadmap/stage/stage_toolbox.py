@@ -35,6 +35,7 @@ from devops_cli.exceptions.roadmap import RoadmapStageError
 from devops_cli.lang import MESSAGES
 from devops_cli.openspec.tool import OpenSpecTool
 from devops_cli.roadmap.agent_run import RunLimit, RunTrace
+from devops_cli.roadmap.mcp import ROLE_PLANNING, RoadmapMcpToolset, build_roadmap_mcp_toolset
 from devops_cli.roadmap.refine.refine_investigation import InvestigationStopped, investigate
 from devops_cli.roadmap.stage.stage_change import StageProposal
 from devops_cli.roadmap.stage.stage_github import StageGitHub
@@ -100,10 +101,12 @@ class ToolboxClient:
         toolset: StageToolset | None = None,
         github: StageGitHub | None = None,
         traces: list[RunTrace] | None = None,
+        mcp_toolset: RoadmapMcpToolset | None = None,
     ) -> None:
         self._model = model
         self._inner = inner
-        chosen = toolset or load_settings().roadmap.stage.toolset
+        settings = load_settings()
+        chosen = toolset or settings.roadmap.stage.toolset
         self._tools = StageTools(
             source=source, sha=sha, openspec=openspec, toolset=chosen, github=github
         )
@@ -115,6 +118,11 @@ class ToolboxClient:
         self._window = window
         self._toolset = chosen
         self._tool_names = tuple(tool.name for tool in self._tools.tools())
+        self._mcp_toolset: RoadmapMcpToolset | None = mcp_toolset
+        if self._mcp_toolset is None and settings.roadmap.stage.mcp:
+            self._mcp_toolset = build_roadmap_mcp_toolset(
+                ROLE_PLANNING, local_tool_names=self._tool_names, settings=settings
+            )
         # A caller that wants the runs of two clients in one order passes one list to both (#3039).
         self.traces: list[RunTrace] = [] if traces is None else traces
         problem = self._tools.checkout_problem()
@@ -146,12 +154,14 @@ class ToolboxClient:
         start_run(self._tool_names, row=row, toolset=self._toolset)
         finished = False
         try:
+            toolsets = [self._mcp_toolset] if self._mcp_toolset is not None else None
             result = investigate(
                 self._model,
                 instructions,
                 prompt,
                 self._tools,
                 schema,
+                toolsets=toolsets,
                 limits=UsageLimits(
                     request_limit=CONST_ROADMAP_STAGE_MAX_REQUESTS,
                     tool_calls_limit=CONST_ROADMAP_STAGE_TOOL_MAX_CALLS,

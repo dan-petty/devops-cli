@@ -35,6 +35,12 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_STAGE_TOOL_MAX_CALLS,
 )
 from devops_cli.config.defaults import StageToolset
+from devops_cli.config.settings import (
+    RoadmapConfig,
+    RoadmapMcpConfig,
+    RoadmapStageConfig,
+    Settings,
+)
 from devops_cli.exceptions.roadmap import RoadmapStageError
 from devops_cli.roadmap.agent_run import RunLimit, RunTrace, ToolCallRecord, ToolOutcome
 from devops_cli.roadmap.stage.stage_change import StageProposal, StageSplit
@@ -791,3 +797,25 @@ def test_a_run_that_fails_on_a_model_call_counts_its_calls_and_observes_no_run(
         {(a["tool"], a["outcome"]): value for a, value in points if value},
         len(points),
     ) == ([], {("read_file", "ok"): 1.0}, len(_TOOLS))
+
+
+def test_toolbox_client_initializes_mcp_when_stage_mcp_enabled(
+    checkout: tuple[Path, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source, sha = checkout
+    monkeypatch.setenv("DEVOPS_CLI_MCP_STAGE_TOKEN", "fake-token")
+    settings = Settings(
+        roadmap=RoadmapConfig(
+            mcp=RoadmapMcpConfig(url="http://mcp-server:8000"),
+            stage=RoadmapStageConfig(mcp=True),
+        )
+    )
+    monkeypatch.setattr("devops_cli.roadmap.stage.stage_toolbox.load_settings", lambda: settings)
+    client = ToolboxClient(
+        Script(_PLAN).model(),
+        _Inner(),
+        source,
+        sha,
+    )
+    assert client._mcp_toolset._target_url == "http://mcp-server:8000/planning/mcp"
+    assert client._mcp_toolset._timeout_seconds == 30.0

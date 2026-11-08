@@ -115,6 +115,7 @@ from devops_cli.config.defaults import (
     DEFAULT_ROADMAP_IMPLEMENT_STEP_TOKEN_BUDGET,
     DEFAULT_ROADMAP_INBOX_DRAFT_DAYS,
     DEFAULT_ROADMAP_INBOX_WAIT_DAYS,
+    DEFAULT_ROADMAP_MCP_TIMEOUT_SECONDS,
     DEFAULT_ROADMAP_STAGE_FILTER,
     DEFAULT_ROADMAP_STAGE_LIMIT,
     DEFAULT_ROADMAP_STAGE_PLANNED_LIMIT,
@@ -924,6 +925,10 @@ class RoadmapStageConfig(BaseModel):
         description="The tools of a plan run of the stage job: `base` is the nine read-only tools that read the staged commit, `extended` adds `references`, `read_issue` and `find_issues`, and `research` adds `search_web`. The GitHub tools read issues and pull requests of the repository on GitHub, with the token of the Service and no other permission",
         default=DEFAULT_ROADMAP_STAGE_TOOLSET,
     )
+    mcp: Annotated[bool, Variable()] = Field(
+        description="Whether the stage job adds the remote tools of its role from the MCP server",
+        default=False,
+    )
 
     @field_validator("filter")
     @classmethod
@@ -1027,6 +1032,10 @@ class RoadmapImplementConfig(BaseModel):
         description="The memory limit of every runner Job that the Service creates, as a whole number of Gi such as `8Gi`. The memory request follows the size of the plan (2Gi or 6Gi), and this limit is the burst class above it. It must not be below the largest request, 6Gi, and it must fit the smallest node of the cluster: a Job that bursts past the node memory starves the other pods",
         default=DEFAULT_ROADMAP_IMPLEMENT_MAX_MEMORY_LIMIT,
         pattern=r"^[1-9][0-9]*Gi$",
+    )
+    mcp: Annotated[bool, Variable()] = Field(
+        description="Whether the implement job adds the remote tools of its role from the MCP server",
+        default=False,
     )
 
     @field_validator("max_memory_limit")
@@ -1220,6 +1229,20 @@ class RoadmapInboxConfig(BaseModel):
     )
 
 
+class RoadmapMcpConfig(BaseModel):
+    model_config = ConfigDict(extra="ignore", validate_assignment=True, hide_input_in_errors=True)
+
+    url: Annotated[str | None, Variable()] = Field(
+        description="The base URL of the remote role-scoped MCP server",
+        default=None,
+    )
+    timeout_seconds: Annotated[float, Variable()] = Field(
+        description="The timeout in seconds for a remote MCP tool call",
+        default=DEFAULT_ROADMAP_MCP_TIMEOUT_SECONDS,
+        gt=0,
+    )
+
+
 class RoadmapConfig(BaseModel):
     model_config = ConfigDict(extra="ignore", validate_assignment=True, hide_input_in_errors=True)
 
@@ -1227,6 +1250,7 @@ class RoadmapConfig(BaseModel):
     stage: RoadmapStageConfig = Field(default_factory=RoadmapStageConfig)
     implement: RoadmapImplementConfig = Field(default_factory=RoadmapImplementConfig)
     inbox: RoadmapInboxConfig = Field(default_factory=RoadmapInboxConfig)
+    mcp: RoadmapMcpConfig = Field(default_factory=RoadmapMcpConfig)
 
 
 class DataConfig(BaseModel):
@@ -1985,6 +2009,18 @@ def get_service_webhook_secrets(settings: Settings) -> str | None:
 def get_mcp_token(settings: Settings) -> str | None:
     """Resolve the bearer token of the streamable HTTP transport of `devops mcp serve`."""
     return _resolve("mcp.token", settings)
+
+
+def get_mcp_stage_token(settings: Settings | None = None) -> str | None:
+    """Resolve the bearer token of the stage job MCP client."""
+    active_settings = settings or load_settings()
+    return _resolve("mcp.stage_token", active_settings)
+
+
+def get_mcp_implement_token(settings: Settings | None = None) -> str | None:
+    """Resolve the bearer token of the implement job MCP client."""
+    active_settings = settings or load_settings()
+    return _resolve("mcp.implement_token", active_settings)
 
 
 def get_firecrawl_api_key(settings: Settings | None = None) -> str | None:

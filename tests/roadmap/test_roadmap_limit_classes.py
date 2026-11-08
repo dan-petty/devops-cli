@@ -363,6 +363,10 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
     ),
     "DEFAULT_ROADMAP_IMPLEMENT_COMMAND_TIMEOUT_SECONDS": ("setting", "was 900"),
     "DEFAULT_ROADMAP_IMPLEMENT_MONITOR_TIMEOUT_SECONDS": ("setting", "was 1800"),
+    "DEFAULT_ROADMAP_MCP_TIMEOUT_SECONDS": (
+        "setting",
+        "the time a remote MCP tool call can run before timing out",
+    ),
     "DEFAULT_ROADMAP_IMPLEMENT_DEADLINE_STALL_SECONDS": (
         "setting",
         "was 2400; above the longest silent wait (the watch of 3600 s) by 600 s",

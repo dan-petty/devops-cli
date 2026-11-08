@@ -34,7 +34,7 @@ from datetime import datetime
 from enum import StrEnum
 from http import HTTPStatus
 from pathlib import Path, PurePosixPath
-from typing import TYPE_CHECKING, Any, Protocol, cast
+from typing import TYPE_CHECKING, Any, Final, Protocol, cast
 
 from platformdirs import user_cache_dir
 from pydantic import BaseModel, ConfigDict
@@ -59,6 +59,7 @@ from pydantic_ai.messages import (
     UserPromptPart,
 )
 from pydantic_ai.settings import ModelSettings
+from pydantic_ai.toolsets import AbstractToolset
 from pydantic_ai.usage import RunUsage, UsageLimits
 from pydantic_ai_harness.compaction import ClearToolResults, WarnNearLimits
 from pydantic_ai_harness.shell import Shell
@@ -140,6 +141,7 @@ from devops_cli.roadmap.implement.implement_test_names import lost_since, unreco
 from devops_cli.roadmap.implement.implement_tool_log import ToolCallLog
 from devops_cli.roadmap.implement.implement_trace import ImplementTrace
 from devops_cli.roadmap.implement.implement_wip import WipCommit, WipKeeper, restore_sources
+from devops_cli.roadmap.mcp import ROLE_IMPLEMENTATION, build_roadmap_mcp_toolset
 from devops_cli.roadmap.step_commit import step_commit_title
 from devops_cli.roadmap.step_files import (
     CHECKBOXES,
@@ -529,6 +531,11 @@ def _tier_for_attempt(
     return tiers[min(attempt, len(tiers) - 1)], min(attempt, len(tiers) - 1)
 
 
+IMPLEMENT_LOCAL_TOOL_NAMES: Final[frozenset[str]] = frozenset(
+    {"read_file", "write_file", "edit_file", "list_files", "grep", "shell"}
+)
+
+
 def build_agent(
     model: Any,
     source: Path,
@@ -537,6 +544,8 @@ def build_agent(
     home: Path,
     log: ToolCallLog,
     budget: StepBudget,
+    *,
+    mcp_toolset: AbstractToolset[Any] | None = None,
 ) -> Agent[None, str]:
     """The agent of a step: `Coder` on a local workspace at `source`, whose shell runs with the
     scratch `home`, the hint that a refusal of the shell adds (#2773), and the hooks of `log` for its
@@ -552,9 +561,11 @@ def build_agent(
     tuned = cast(
         AbstractCapability[None], coder.visit_and_replace(lambda leaf: _tune(leaf, window, home))
     )
+    toolsets = [mcp_toolset] if mcp_toolset is not None else None
     return Agent(
         model,
         output_type=str,
+        toolsets=toolsets,
         retries={"tools": CONST_ROADMAP_IMPLEMENT_TOOL_RETRIES},
         model_settings=ModelSettings(
             max_tokens=output_cap(window),
@@ -1693,6 +1704,7 @@ def _attempt(
     tier_health: Callable[[Sequence[str]], Mapping[str, bool]],
     limits: StepBudget,
     trace: ImplementTrace | None = None,
+    mcp_toolset: AbstractToolset[Any] | None = None,
 ) -> StepOutcome:
     """Run the agent one tier at a time, then judge the exit and commit. A failed check or a
     hook gets an extra turn while one of the `roadmap.implement.repair_rounds` rounds is
@@ -1702,7 +1714,14 @@ def _attempt(
     round, and discards the checkout of the failed attempt, back to the last `wip:` commit of the
     keeper (#3060, #3054). Each attempt is an event of the `trace`, and the agent stops before a
     request when `limits` is spent."""
-    budget = load_settings().roadmap.implement.repair_rounds
+    settings = load_settings()
+    budget = settings.roadmap.implement.repair_rounds
+    if mcp_toolset is None and settings.roadmap.implement.mcp:
+        mcp_toolset = build_roadmap_mcp_toolset(
+            ROLE_IMPLEMENTATION,
+            local_tool_names=IMPLEMENT_LOCAL_TOOL_NAMES,
+            settings=settings,
+        )
     rounds = 0
     number = 1
     rounds_spent = False
@@ -1719,7 +1738,14 @@ def _attempt(
                 tried.append(tier)
             tier_model = model_for_tier(tier) if model_for_tier is not None and tier else model
             agent = build_agent(
-                tier_model, source, inputs.instructions, window, Path(home), log, limits
+                tier_model,
+                source,
+                inputs.instructions,
+                window,
+                Path(home),
+                log,
+                limits,
+                mcp_toolset=mcp_toolset,
             )
             log.fail_to_pass = None
             log.verified.clear()
@@ -1857,6 +1883,7 @@ def run_step(
     keep: bool = True,
     spend: ItemSpend | None = None,
     recorded_tests: frozenset[str] = frozenset(),
+    mcp_toolset: AbstractToolset[Any] | None = None,
 ) -> StepOutcome:
     """Run group `group` of item `item` in the checkout `source`, with the pydantic-ai `model`.
 
@@ -1912,6 +1939,7 @@ def run_step(
             tier_health=tier_health or _gateway_tier_health,
             limits=StepBudget(spend),
             trace=trace,
+            mcp_toolset=mcp_toolset,
         )
         done = outcome.status is StepStatus.DONE
         return outcome

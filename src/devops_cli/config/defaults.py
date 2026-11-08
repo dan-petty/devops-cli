@@ -832,6 +832,8 @@ DEFAULT_ROADMAP_ALTERNATIVES_INTERVAL_MINUTES: int = 719
 # The PyPI JSON API reads of a package (`{name}` is one URL path segment) and its timeout.
 DEFAULT_PYPI_PACKAGE_URL: str = "https://pypi.org/pypi/{name}/json"
 DEFAULT_PYPI_TIMEOUT_SECONDS: float = 10.0
+# The timeout of one remote MCP tool call (#3221).
+DEFAULT_ROADMAP_MCP_TIMEOUT_SECONDS: float = 30.0
 # The most items one stage run takes (#2654).
 DEFAULT_ROADMAP_STAGE_LIMIT: int = 3
 # The most Planned items before the stage job plans only P0 and P1 items (#3487, #3692). The

@@ -73,7 +73,7 @@ def test_config_audit_keys_json_output() -> None:
         "keys" in data,
         "is_compliant" in data,
         len(data["keys"]),
-    ) == (True, True, True, 24)
+    ) == (True, True, True, 26)
 
     keys = {k["key"] for k in data["keys"]}
     assert (
@@ -97,7 +97,11 @@ def test_config_audit_keys_json_output() -> None:
         "mattermost.deploys_hook" in keys,
         "mattermost.command_token" in keys,
         "crawl4ai.api_token" in keys,
+        "mcp.stage_token" in keys,
+        "mcp.implement_token" in keys,
     ) == (
+        True,
+        True,
         True,
         True,
         True,
