@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.87.0](https://github.com/dan-petty/devops-cli/compare/v0.86.0...v0.87.0) (2026-11-08)
+
+
+### Features
+
+* **k8s:** add k8s crawl4ai-check command ([#4108](https://github.com/dan-petty/devops-cli/issues/4108)) ([32e247f](https://github.com/dan-petty/devops-cli/commit/32e247f7ddef79dcb7a24a7d2f120fcdc475504c))
+
+
+### Bug Fixes
+
+* **repos:** keep unmanaged and ignored-data worktrees in add reclaim ([#4106](https://github.com/dan-petty/devops-cli/issues/4106)) ([8978d56](https://github.com/dan-petty/devops-cli/commit/8978d56becf852c95c3f3e7fb80a9b5cb23cf40e))
+* **roadmap:** check a split plan of the stage with every gate ([#4109](https://github.com/dan-petty/devops-cli/issues/4109)) ([768dbd3](https://github.com/dan-petty/devops-cli/commit/768dbd3a77791de1b4ef55f8e123f2731eb3c237))
+* **roadmap:** count only answered searches in alternatives ([#4101](https://github.com/dan-petty/devops-cli/issues/4101)) ([b34fe0e](https://github.com/dan-petty/devops-cli/commit/b34fe0e5218c33b2dbca18cbfdeb42f6913d015a))
+* **roadmap:** keep a round alive on item-changed; fail on bad schedule ([#4102](https://github.com/dan-petty/devops-cli/issues/4102)) ([9231dc3](https://github.com/dan-petty/devops-cli/commit/9231dc3a036cf761c610c2597c27e2d9a9bf851e))
+
 ## [0.86.0](https://github.com/dan-petty/devops-cli/compare/v0.85.0...v0.86.0) (2026-11-08)
 
 
