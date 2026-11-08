@@ -161,8 +161,9 @@ from devops_cli.roadmap.stage.stage_change import (
     MeasuredGroup,
     StageGroup,
     StageProposal,
-    check_proposal,
+    check_gates,
     closing_keyword_in,
+    joined_problems,
     measure_groups,
     moved_modules,
     plan_texts,
@@ -230,6 +231,7 @@ from devops_cli.roadmap.stage.stage_verify import (
     returning,
 )
 from devops_cli.roadmap.step_files import code_spans
+from devops_cli.roadmap.step_metrics import observe_step
 from devops_cli.roadmap.stores.store import (
     GitHubState,
     Item,
@@ -241,12 +243,16 @@ from devops_cli.roadmap.stores.store import (
 from devops_cli.roadmap.trust import is_approved, is_trusted
 from devops_cli.security.sanitizer import mask_secrets, redact_text
 from devops_cli.telemetry.instruments import (
+    ROADMAP_STAGE_GATE_REFUSALS_TOTAL,
     ROADMAP_STAGE_PLAN_RECORD_TOTAL,
     ROADMAP_STAGE_TOTAL,
     emit,
 )
 
 logger = logging.getLogger(__name__)
+
+# The row of the step seconds that this job sends (#4066).
+_ROW = "stage"
 
 # ── The filter ────────────────────────────────────────────────────────────────
 
@@ -1100,7 +1106,8 @@ class _Planner:
     ) -> tuple[list[Finding], list[Finding], list[Finding]]:
         """The findings of the model review of `change`, those that return the plan, and those
         that are open."""
-        findings, given = review(verifier, self._input_of(target, change))
+        with observe_step(self._pull_repo, _ROW, StepName.REVIEW):
+            findings, given = review(verifier, self._input_of(target, change))
         return findings, returning(findings, given), open_findings(findings, given)
 
     def _request(self, target: StageTarget) -> StageRequest:
@@ -1188,12 +1195,13 @@ class _Planner:
         return pulls, senders
 
     def _ask[M: BaseModel](self, schema: type[M], task: str, request: Mapping[str, Any]) -> M:
-        return self._client.chat_structured(
-            load_task_prompt(task),
-            json.dumps(request, ensure_ascii=False, indent=1),
-            schema,
-            max_retries=_REPLY_RETURNS,
-        )
+        with observe_step(self._pull_repo, _ROW, StepName.PLAN):
+            return self._client.chat_structured(
+                load_task_prompt(task),
+                json.dumps(request, ensure_ascii=False, indent=1),
+                schema,
+                max_retries=_REPLY_RETURNS,
+            )
 
     def _plan_body(
         self, target: StageTarget, title: str, proposal: StageProposal
@@ -1291,7 +1299,20 @@ class _Planner:
         models: Mapping[str, tuple[str, Sequence[str]]] | None = None,
         trace: TraceFacts | None = None,
     ) -> list[str]:
-        """The problems that every gate finds in one reply: the first one and a split of it."""
+        """The problems that every gate finds in one reply: the first one and a split of it. Each
+        gate with a problem adds 1 to the refusal counter of the job (#4066)."""
+        with observe_step(self._pull_repo, _ROW, StepName.GATE):
+            return self._gate_problems(proposal, tree, request, change=change, models=models)
+
+    def _gate_problems(
+        self,
+        proposal: StageProposal,
+        tree: StagedTree,
+        request: StageRequest,
+        *,
+        change: str,
+        models: Mapping[str, tuple[str, Sequence[str]]] | None,
+    ) -> list[str]:
         evidence = (
             record_search_evidence(proposal.groups, self._grep) if self._grep is not None else None
         )
@@ -1301,7 +1322,7 @@ class _Planner:
         )
         constants = staged_constants(self._source, self._sha, candidate_names(plan_texts(proposal)))
         references = self._probe_references(proposal.groups)
-        return check_proposal(
+        found = check_gates(
             proposal,
             change=change,
             **gate_arguments(
@@ -1322,6 +1343,15 @@ class _Planner:
                 trace=trace,
             ),
         )
+        if self._pull_repo:
+            for gate, problems in found.items():
+                if problems:
+                    emit(
+                        ROADMAP_STAGE_GATE_REFUSALS_TOTAL,
+                        1,
+                        {"repo": self._pull_repo, "gate": gate.value},
+                    )
+        return joined_problems(found)
 
     def _probe_references(self, groups: Sequence[StageGroup]) -> list[str]:
         """The files of the staged commit that hold the old path or the dotted name of each moved
@@ -1655,19 +1685,20 @@ def plan_stage(
     heads = read_remote_heads(checkout)
     planned = read_planned_changes(checkout, operation=_GIT_OPERATION)
     rejections = _rejections(store, repo, checkout, heads, planned, item_number)
-    sha, heads, planned, selection = read_stage_selection(
-        store,
-        repo=repo,
-        source=checkout,
-        filters=filters,
-        limit=limit or settings.roadmap.stage.limit,
-        planned_limit=settings.roadmap.stage.planned_limit,
-        item_number=item_number,
-        heads=_heads_after(heads, rejections.found),
-        planned=planned,
-        now=now,
-        rejected={found.number: found.plan for found in rejections.found},
-    )
+    with observe_step(repo, _ROW, StepName.SELECT):
+        sha, heads, planned, selection = read_stage_selection(
+            store,
+            repo=repo,
+            source=checkout,
+            filters=filters,
+            limit=limit or settings.roadmap.stage.limit,
+            planned_limit=settings.roadmap.stage.planned_limit,
+            item_number=item_number,
+            heads=_heads_after(heads, rejections.found),
+            planned=planned,
+            now=now,
+            rejected={found.number: found.plan for found in rejections.found},
+        )
     budget = step_tokens or settings.roadmap.stage.step_tokens
     removals, kept = _reconcile(store, checkout, heads)
     orphans, orphans_kept = _orphans(store, checkout, heads, now or datetime.now(UTC))
@@ -2379,9 +2410,10 @@ class StageWriter:
             )
 
     def _stage(self, change: StagedChange) -> None:
-        moved = _moved_for(self._source, self._sha, change)
-        now = self._now or datetime.now(UTC)
-        _stage_one(self._store, self._repo, self._source, self._sha, change, moved, now)
+        with observe_step(self._repo, _ROW, StepName.APPLY):
+            moved = _moved_for(self._source, self._sha, change)
+            now = self._now or datetime.now(UTC)
+            _stage_one(self._store, self._repo, self._source, self._sha, change, moved, now)
         # The item is staged, so its plan has no more use. A failed write raised above and kept it.
         delete_plan_record(plan_record_path(self._repo, change.target.item.number))
 

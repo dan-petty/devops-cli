@@ -1677,6 +1677,11 @@ def check_proposal(
         manifest_references=manifest_references,
         trace=trace,
     )
+    return joined_problems(found)
+
+
+def joined_problems(found: Mapping[ProposalGate, Sequence[str]]) -> list[str]:
+    """The problems of `check_gates` in one list, in the order of the gates."""
     return [problem for problems in found.values() for problem in problems]
 
 
