@@ -717,3 +717,58 @@ def test_design_file_renders_unchanged_reference_path_kind_and_reason() -> None:
     assert path in design_text
     assert kind in design_text
     assert reason in design_text
+
+
+# ── Test-only other group (#3433) ─────────────────────────────────────────────
+
+
+def _test_only_group(**updates: Any) -> StageGroup:
+    defaults: dict[str, Any] = {
+        "title": "Keep the roadmap stage tests green",
+        "kind": GroupKind.OTHER,
+        "test": None,
+        "changes": ["tests/roadmap/stage/test_roadmap_stage_content.py"],
+        "creates": [],
+        "creates_lines": {},
+        "implementation": "Run the test suite and fix the test if it breaks.",
+        "verify": "uv run devops ci test tests/roadmap/stage/test_roadmap_stage_content.py",
+    }
+    return _group(**(defaults | updates))
+
+
+def test_a_test_only_other_group_with_no_named_test_is_refused() -> None:
+    group = _test_only_group()
+    problems = content_problems(make_stage_proposal(groups=[group]))
+
+    assert len(problems) == 1
+    assert "Keep the roadmap stage tests green" in problems[0]
+
+
+def test_a_test_only_other_group_with_a_named_test_is_accepted() -> None:
+    group = _test_only_group(
+        implementation="Update `test_conditional_group` for the new rule.",
+    )
+
+    assert content_problems(make_stage_proposal(groups=[group])) == []
+
+
+def test_a_test_only_other_group_with_a_named_test_after_a_path_is_accepted() -> None:
+    group = _test_only_group(
+        implementation=(
+            "Update `tests/roadmap/stage/test_roadmap_stage_content.py::test_conditional_group`."
+        ),
+    )
+
+    assert content_problems(make_stage_proposal(groups=[group])) == []
+
+
+def test_an_other_group_with_a_source_path_and_no_named_test_is_accepted() -> None:
+    group = _test_only_group(
+        changes=[
+            "tests/roadmap/stage/test_roadmap_stage_content.py",
+            "src/devops_cli/roadmap/stage/stage_change.py",
+        ],
+        implementation="Update the stage change module and its test suite.",
+    )
+
+    assert content_problems(make_stage_proposal(groups=[group])) == []

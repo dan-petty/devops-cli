@@ -56,6 +56,8 @@ def _plan(*changes: str, creates: tuple[str, ...] = (), verify: str | None = Non
     sourced = any(path.startswith("src/") for path in changes)
     if not sourced:
         update |= {"kind": "other", "test": None}
+        if all(path.startswith("tests/") for path in changes):
+            update["implementation"] = "Update `test_stage` for the changes."
     elif PLAN_CHECK_FILE in changes:
         # A plan that changes the plan check gives the test that accepts its own plan (#3404).
         update["test"] = f"{base['test']}, and the plan's own {SELF_ACCEPTANCE}"
