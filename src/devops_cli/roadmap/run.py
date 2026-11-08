@@ -617,7 +617,7 @@ def _run_stage_adapter(
         writer=writer,
     )
     applied = writer.applied()
-    emit_stage_results(plan, applied)
+    emit_stage_results(plan, applied, repo=repo)
     synced = (
         sync_statuses(store, repo=repo, planned=plan.planned) if plan.planned is not None else None
     )

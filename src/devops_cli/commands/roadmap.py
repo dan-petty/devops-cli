@@ -422,7 +422,7 @@ def stage_cmd(
     failures = list(plan.failed)
     if writer is not None:
         applied = writer.applied()
-        emit_stage_results(plan, applied)
+        emit_stage_results(plan, applied, repo=target)
         print_success(
             MESSAGES.roadmap.stage_applied.format(
                 staged=len(applied.staged),

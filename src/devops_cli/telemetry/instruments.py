@@ -303,7 +303,7 @@ ROADMAP_STAGE_TOTAL = Instrument(
     "devops_cli_roadmap_stage_total",
     InstrumentKind.COUNTER,
     "1",
-    "Items that a stage round handled, one count for each item, by result: staged for an item "
+    "Items that a stage round handled, one count for each item, by repository and result: staged for an item "
     "written as a branch and a draft pull request, needs_split for an item stopped on a task "
     "group over the budget, failed for an item that failed in the plan or in the writes, and "
     "skipped for an item the job left out with a reason. A plan with no write counts nothing",

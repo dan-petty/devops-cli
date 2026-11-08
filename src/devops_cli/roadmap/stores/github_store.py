@@ -786,7 +786,7 @@ class GitHubRoadmapStore(RoadmapStore):
         field: ItemField,
         value: str | None,
         *,
-        marks: Mapping[Any, str | None] | None = None,
+        marks: Mapping[Any, str | int | None] | None = None,
         body: str | None = None,
     ) -> None:
         """Replace the field's label family and record the value, with `marks`, in one `PATCH`
@@ -808,7 +808,7 @@ class GitHubRoadmapStore(RoadmapStore):
             self._written[(item.number, field)] = value
 
     def set_marks(
-        self, item: Item, marks: Mapping[Any, str | None], *, body: str | None = None
+        self, item: Item, marks: Mapping[Any, str | int | None], *, body: str | None = None
     ) -> None:
         """Set or clear a job's marks in the Item's job record, as its issue holds it now, in
         one `PATCH` of the body after one read of the issue."""
@@ -1077,7 +1077,7 @@ class GitHubRoadmapStore(RoadmapStore):
         self,
         issue: _IssuePayload,
         *,
-        changes: Mapping[Any, str | None],
+        changes: Mapping[Any, str | int | None],
         labels: Sequence[str] | None = None,
         text: str | None = None,
     ) -> None:

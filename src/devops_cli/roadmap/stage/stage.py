@@ -2467,11 +2467,11 @@ def stage_results(plan: StagePlan, applied: StageApplied) -> dict[int, StageResu
     return results
 
 
-def emit_stage_results(plan: StagePlan, applied: StageApplied) -> None:
-    """Add 1 to `devops_cli_roadmap_stage_total` for each item of a run that wrote, by its result
-    (#2659). A plan with no write counts nothing."""
+def emit_stage_results(plan: StagePlan, applied: StageApplied, repo: str = "") -> None:
+    """Add 1 to `devops_cli_roadmap_stage_total` for each item of a run that wrote, by repository
+    and result (#2659, #3069). A plan with no write counts nothing."""
     for result in stage_results(plan, applied).values():
-        emit(ROADMAP_STAGE_TOTAL, 1, {"result": result.value})
+        emit(ROADMAP_STAGE_TOTAL, 1, {"result": result.value, "repo": repo})
 
 
 # ── The report ────────────────────────────────────────────────────────────────

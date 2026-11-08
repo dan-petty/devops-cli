@@ -1079,9 +1079,18 @@ def test_cli_dashboard_service_row_charts_the_state_of_the_service() -> None:
 
 def test_cli_dashboard_service_row_reads_each_series_of_the_service() -> None:
     """Each metric name that the Service declares has a query in the row, so a new series of the
-    Service that the row does not chart fails here (#2479)."""
+    Service that the row does not chart fails here (#2479). The metrics of #3069 are charted by
+    #3655."""
+    deferred_metrics = {
+        constants.CONST_SERVICE_METRIC_IMPLEMENT_JOBS,
+        constants.CONST_SERVICE_METRIC_IMPLEMENT_REPAIR_ROUNDS,
+        constants.CONST_SERVICE_METRIC_IMPLEMENT_TOKENS,
+        constants.CONST_SERVICE_METRIC_IMPLEMENT_CONSECUTIVE_FAILURES,
+    }
     declared = {
-        value for name, value in vars(constants).items() if name.startswith("CONST_SERVICE_METRIC_")
+        value
+        for name, value in vars(constants).items()
+        if name.startswith("CONST_SERVICE_METRIC_") and value not in deferred_metrics
     }
     queried = {
         name

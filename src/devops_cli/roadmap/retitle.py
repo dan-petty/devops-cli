@@ -192,7 +192,7 @@ class RetitlePlan:
 def skip_hash(item: Item) -> str:
     """The hash of what the decision for `item` reads: its title, its body and its `stage.pr`
     mark. The body of an Item holds no record block, so the write of the mark leaves it as it is."""
-    recorded = item.job_record.get(StageRecordKey.PR) or ""
+    recorded = str(item.job_record.get(StageRecordKey.PR) or "")
     return hash_text("\0".join((item.title, item.body, recorded)))
 
 

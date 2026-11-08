@@ -313,6 +313,10 @@ A stage round, whether the Service or the command runs it, SHALL add 1 to `devop
 - **WHEN** `devops roadmap stage --plan` runs
 - **THEN** the counter has no point
 
+#### Scenario: A staged item carries its repository
+- **WHEN** A stage round counts a staged item for repository `owner/repo`.
+- **THEN** The series `devops_cli_roadmap_stage_total{repo="owner/repo",result="staged"}` increases by one and no `devops_cli_roadmap_pipeline_plans_total` series exists.
+
 ### Requirement: A round reads the plans on the default branch once
 A round SHALL fetch the default branch and read the tree of `origin/<default branch>` with one `git ls-tree` of `openspec/changes/` and `openspec/changes/archive/`, before it selects an item. A read that fails SHALL fail the run with the reason of git and stage no item.
 
