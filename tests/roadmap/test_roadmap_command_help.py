@@ -40,3 +40,14 @@ def test_the_help_of_a_job_command_names_a_page_that_exists(command: str) -> Non
 
     assert page in COMMANDS[command]
     assert (REPO_ROOT / page).is_file()
+
+
+def test_the_help_and_the_page_of_stage_plan_say_one_local_file_and_no_github_write() -> None:
+    page = (REPO_ROOT / "docs/roadmap/stage.md").read_text(encoding="utf-8")
+    row = next(line for line in page.splitlines() if line.startswith("| `--plan`"))
+
+    for text in (HELP.roadmap.stage_plan, row):
+        assert "one local file" in text
+        assert "no GitHub write" in text
+        assert "writes nothing" not in text
+        assert "write nothing" not in text
