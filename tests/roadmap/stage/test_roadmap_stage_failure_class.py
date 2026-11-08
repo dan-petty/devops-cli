@@ -100,11 +100,12 @@ def _two_items(
         ".github/labels.yml",
         '- name: "type/docs"\n  color: "0075ca"\n- name: "scope/openspec"\n  color: "0e8a16"\n',
     )
-    pulls = []
     for title, branch in zip(TITLES, BRANCHES, strict=True):
         seed_stageable(store, title)
         openspec.script_sequence(validate_args(branch), (0, VALID_REPORT))
-        pulls.append(store.seed_pull("staging PR", head_ref=f"fix/{branch}", draft=True))
+    pulls = [
+        store.seed_pull("staging PR", head_ref=f"fix/{branch}", draft=True) for branch in BRANCHES
+    ]
     api.route(
         "POST",
         PULLS,
