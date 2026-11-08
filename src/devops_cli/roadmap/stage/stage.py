@@ -187,6 +187,7 @@ from devops_cli.roadmap.stage.stage_overlap import (
     session_pull_reads,
 )
 from devops_cli.roadmap.stage.stage_paths import StagedTree
+from devops_cli.roadmap.stage.stage_pending import PendingStage, orphan_mark
 from devops_cli.roadmap.stage.stage_probe import blocked_by, probe_premise
 from devops_cli.roadmap.stage.stage_registry import matches, registry_table
 from devops_cli.roadmap.stage.stage_rejected import (
@@ -755,12 +756,15 @@ class StageFailure:
 @dataclass(frozen=True)
 class Removal:
     """The staged branch of a closed item that only the session's identity wrote to: the job
-    closes its draft pull request and deletes it, or, when `gone`, only clears the record."""
+    closes its draft pull request and deletes it, or, when `gone`, only clears the record. With
+    `orphan`, the item is open and holds the intent mark of the job and no pull request (#4051):
+    the writer finds the draft by its branch."""
 
     item: Item
     branch: str
     pull: int | None
     gone: bool = False
+    orphan: bool = False
 
     @property
     def number(self) -> int:
@@ -1323,6 +1327,30 @@ def _reconcile(
     return tuple(removals), tuple(kept)
 
 
+def _orphans(
+    store: RoadmapStore, source: Path, remote_heads: str, now: datetime
+) -> tuple[tuple[Removal, ...], tuple[KeptBranch, ...]]:
+    """Judge the orphan of each open item that holds the intent mark `stage.pending` and no
+    pull request, when the mark is old enough (#4051). The branch is the one the mark names. It is
+    removed when it is gone or every commit past the default branch is the clone identity's, else
+    kept. A pushed branch with no mark is never judged."""
+    pushed = set(remote_branches(remote_heads))
+    removals: list[Removal] = []
+    kept: list[KeptBranch] = []
+    for item in store.items():
+        if (pending := orphan_mark(item, now)) is None:
+            continue
+        branch = pending.branch
+        if branch not in pushed:
+            removals.append(Removal(item, branch, None, gone=True, orphan=True))
+        elif (foreign := _foreign_commits(source, branch)) == 0:
+            removals.append(Removal(item, branch, None, orphan=True))
+        else:
+            reason = MESSAGES.roadmap.stage_kept_reason.format(count=foreign)
+            kept.append(KeptBranch(item.number, branch, reason))
+    return tuple(removals), tuple(kept)
+
+
 class Rejections(NamedTuple):
     """The plans that a person closed with no merge, the staged branches that the job keeps for
     them, and the items whose plan pull request could not be read."""
@@ -1477,14 +1505,15 @@ def plan_stage(
     )
     budget = step_tokens or settings.roadmap.stage.step_tokens
     removals, kept = _reconcile(store, checkout, heads)
+    orphans, orphans_kept = _orphans(store, checkout, heads, now or datetime.now(UTC))
     unmatched = unmatched_items(store, filters) if why and item_number is None else ()
     plan = StagePlan(
         repo,
         sha,
         budget,
         left_out=selection.left_out,
-        removals=removals,
-        kept=(*kept, *rejections.kept),
+        removals=(*removals, *orphans),
+        kept=(*kept, *orphans_kept, *rejections.kept),
         planned=planned,
         unmatched=unmatched,
         failed=tuple(_write_failure(f.item, f.error) for f in rejections.failures),
@@ -1858,13 +1887,19 @@ def _stage_one(
     base: str,
     change: StagedChange,
     moved: Sequence[MovedPath],
+    now: datetime,
 ) -> None:
     """Make the branch, the commit, the push and the draft of one item, then record them and
     post the one comment. The branch starts at the staged commit `base` (#3301). The Status of the
     item stays as it is. `moved` is the named paths that the default branch changed after `base`
-    (#3309)."""
+    (#3309). The intent mark `stage.pending` goes first, before the push, so that a later round
+    finds the branch if the record write fails or the worker dies (#4051); the record clears it."""
     target = change.target
     with _worktree(source, target, base) as path:
+        store.set_marks(
+            target.item,
+            {StageRecordKey.PENDING: PendingStage(branch=target.branch, time=now).record},
+        )
         sha = _commit_and_push(path, change)
         pull = _open_pull(repo, source, change)
     store.set_marks(
@@ -1880,6 +1915,7 @@ def _stage_one(
             StageRecordKey.FAILED_AT: None,
             StageRecordKey.FAILED_ERROR: None,
             StageRecordKey.REJECTED: None,
+            StageRecordKey.PENDING: None,
         },
     )
     label_note = _label_pull(store, pull.number, change.title)
@@ -2082,12 +2118,10 @@ class StageWriter:
         and the failures that `plan` holds. A rejection of a selected item waits for its plan."""
         self._repo, self._sha = plan.repo, plan.sha
         self._rejections = {r.number: r for r in plan.rejections if r.number in selected}
+        drafts = cache(self._draft_heads)
         with self._recording(plan.failed):
             write_each(
-                [
-                    (r.item, partial(_remove_staged, self._store, plan.repo, self._source, r))
-                    for r in plan.removals
-                ],
+                [(r.item, partial(self._remove, plan.repo, r, drafts)) for r in plan.removals],
                 self._removed,
                 self._failed,
             )
@@ -2103,6 +2137,20 @@ class StageWriter:
                 self._rejected,
                 self._failed,
             )
+
+    def _draft_heads(self) -> dict[str, int]:
+        """The number of the open pull request of each head branch: one read for the round."""
+        drafts: dict[str, int] = {}
+        for pull in self._store.open_pulls():
+            drafts.setdefault(pull.head_ref, pull.number)
+        return drafts
+
+    def _remove(self, repo: str, removal: Removal, drafts: Callable[[], Mapping[str, int]]) -> None:
+        """Remove a staged branch. The draft of an orphan is not in the record, so it is found by
+        its head branch in the one read of the open pull requests (#4051)."""
+        if removal.orphan and not removal.gone:
+            removal = replace(removal, pull=drafts().get(removal.branch))
+        _remove_staged(self._store, repo, self._source, removal)
 
     def settle(
         self, target: StageTarget, result: StagedChange | OverBudget | Blocked | StageFailure
@@ -2137,7 +2185,8 @@ class StageWriter:
 
     def _stage(self, change: StagedChange) -> None:
         moved = _moved_for(self._source, self._sha, change)
-        _stage_one(self._store, self._repo, self._source, self._sha, change, moved)
+        now = self._now or datetime.now(UTC)
+        _stage_one(self._store, self._repo, self._source, self._sha, change, moved, now)
 
     @contextmanager
     def _recording(self, planned: Iterable[StageFailure]) -> Iterator[None]:

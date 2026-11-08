@@ -653,6 +653,7 @@ def stage_requests(
             repeat=rep["open_plan"],
         ),
         git("fetch_branch", clone, "fetch", "-q", "origin", branch, repeat=each_closed),
+        *within(store.open_pulls(), cond["orphan_pulls"]),
         *within(store.comments_on(_p("item")), cond["rejected_reason"], repeat=each_item),
         PlannedRequest("model", req["model_change"], repeat=each_item),
         PlannedRequest(
@@ -708,6 +709,7 @@ def stage_requests(
             "<staged commit>",
             repeat=each_item,
         ),
+        *within(store.set_marks(_p("item")), repeat=each_item),
         git("commit", tree, "add", "--", f"openspec/changes/{change}", repeat=each_item),
         git("commit", tree, "commit", "-q", "-m", _p("title"), repeat=each_item),
         git("push", tree, "push", "-q", "-u", "origin", branch, repeat=each_item),

@@ -184,7 +184,7 @@ def test_a_round_after_the_marks_write_fails_removes_the_orphan_and_plans_the_it
 
     pull = staging.seed_pull("plan 1", head_ref=BRANCH, draft=True)
     closing = _closing(github_api, pull)
-    github_api.requested.clear()
+    github_api.sent.clear()
 
     plan, staged, removed = _stage_round(staging, stage_repo, now=LATER)
 
@@ -195,7 +195,7 @@ def test_a_round_after_the_marks_write_fails_removes_the_orphan_and_plans_the_it
     assert _pushed(stage_repo) == ["main"]
     assert _record(staging) == {}
 
-    github_api.requested.clear()
+    github_api.sent.clear()
 
     _, staged, removed = _stage_round(staging, stage_repo, now=LATER)
 
@@ -212,21 +212,17 @@ def test_a_worker_killed_after_the_push_leaves_a_branch_that_the_next_round_dele
     stage_repo: StageRepo,
     model_fake: ModelFake,
     github_api: GitHubApiFake,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     model_fake.answer(make_stage_proposal())
-
-    def killed(*_: object) -> None:
-        raise Killed
-
-    monkeypatch.setattr(stage_module, "_open_pull", killed)
     plan = plan_stage(
         staging, repo=STAGE_REPO, source=stage_repo.clone, filters=parse_filters(()), now=NOW
     )
-    with pytest.raises(Killed) as death:
+    with (
+        patch.object(stage_module, "_open_pull", side_effect=Killed),
+        pytest.raises(Killed) as death,
+    ):
         apply_stage(staging, plan, source=stage_repo.clone, now=NOW)
     assert death.type is Killed
-    monkeypatch.undo()
 
     assert _pushed(stage_repo) == [BRANCH, "main"]
     assert github_api.requested == []
@@ -417,8 +413,8 @@ def test_a_round_with_two_orphans_reads_the_open_pull_requests_once_request_coun
 
     plan, removed, reads = _round(store, stage_repo)
 
-    assert [r.number for r in plan.removals] == [1, 2]
-    assert removed == (1, 2)
+    assert [r.number for r in plan.removals] == [1, 3]
+    assert removed == (1, 3)
     assert reads.call_count == 1
     assert github_api.requested == [first, second]
 

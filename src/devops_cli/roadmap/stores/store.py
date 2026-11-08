@@ -221,7 +221,10 @@ class StageRecordKey(StrEnum):
     or stops it on the budget. `stage.text_hash` is the hash of the text that the plan came from
     (#3503). When a person closes the plan pull request with no merge, the job clears every key and
     records the rejection in `stage.rejected` as JSON (#3503): the pull request, the hash of the
-    text that the plan came from, the time of the close and the files that the reason names."""
+    text that the plan came from, the time of the close and the files that the reason names. The
+    job writes `stage.pending`, the branch name and the time as JSON, before it pushes the branch
+    and clears it in the record after the draft (#4051): an open item with the mark, a pushed
+    branch and no `stage.pr` is an orphan that a later round removes."""
 
     BRANCH = "stage.branch"
     PR = "stage.pr"

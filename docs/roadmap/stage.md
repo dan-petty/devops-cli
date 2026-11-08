@@ -78,6 +78,18 @@ The reply of the planner has no key to say that the premise of the issue is fals
 
 Each run also removes the draft and the branch of a closed item, when only the identity of the session wrote to them.
 
+## The orphan draft of a failed write
+
+The job writes the intent mark `stage.pending` before it pushes the branch of an item. The mark is JSON with the branch name and the time. The write of the record after the draft clears it. When that write fails, or the worker dies between the push and the record, the item keeps the mark and has a pushed branch and a draft but no `stage.pr`. This is an orphan.
+
+In each run the job judges an open item that holds the mark and no `stage.pr`. A mark younger than 1 hour is left alone, because another run can be in the middle of its publish. For an older mark the job does these things:
+
+- When the branch of the mark is gone, it clears the record of the item.
+- When only the identity of the session wrote to the branch, it closes the draft pull request that has this branch as its head, deletes the branch and clears the record. The job finds the draft with one read of the open pull requests for the round. It makes this read only when it has a pushed branch to remove. The next round plans the item again.
+- When a commit past the default branch has another author, it keeps the branch, and the plan lists it.
+
+A pushed branch with no mark is never an orphan, because a person or another agent can own it. A retitle between the failure and the next round does not matter, because the job uses the branch of the mark and not the slug of the title. A closed item that holds the mark is not judged. A bad value of the mark counts as no mark.
+
 ## A plan that a person rejected
 
 A person rejects a plan when they close its pull request with no merge. The reason stays on the closed pull request, so the stage job copies it to the issue. In each run the job reads the plan pull request of each staged item. A staged item is an open New or Ready item that holds `stage.pr` and has no plan on the default branch. With `--item` the job reads the pull request of that item only. For a pull request that is closed and not merged, the job does these things in order:
