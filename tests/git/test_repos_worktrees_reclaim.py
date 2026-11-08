@@ -33,26 +33,9 @@ PULLS_PATH = "/repos/example-org/app/commits/{sha}/pulls?per_page=100"
 
 
 @pytest.fixture
-def repo(tmp_path: Path, git: Git) -> Path:
-    """A repository with one commit on main, pushed to a bare `origin` at `example-org/app.git`."""
-    bare = tmp_path / "example-org" / "app.git"
-    bare.mkdir(parents=True)
-    git(bare, "init", "--bare", "-b", "main")
-    work = tmp_path / "repo"
-    work.mkdir()
-    git(work, "init", "-b", "main")
-    (work / "file.txt").write_text("base\n", encoding="utf-8")
-    git(work, "add", "file.txt")
-    git(work, "commit", "-m", "init")
-    git(work, "remote", "add", "origin", str(bare))
-    git(work, "push", "origin", "main")
-    return work
-
-
-@pytest.fixture
-def new_dir(isolate_data_dir: Path) -> Path:
+def new_dir(managed: Path) -> Path:
     """Where the worktree of issue 2345 goes."""
-    return isolate_data_dir / "agent" / "worktrees" / "w-2345"
+    return managed / "w-2345"
 
 
 def _worktree(git: Git, repo: Path, branch: str, path: Path) -> str:
@@ -99,9 +82,9 @@ def _add(cli: Cli, repo: Path, *extra: str, issue: int = 2345) -> Any:
 
 
 def test_add_removes_a_merged_worktree_and_creates_the_new_one(
-    cli: Cli, repo: Path, git: Git, tmp_path: Path, github_api: GitHubApiFake, new_dir: Path
+    cli: Cli, repo: Path, git: Git, managed: Path, github_api: GitHubApiFake, new_dir: Path
 ) -> None:
-    merged = tmp_path / "wt_merged"
+    merged = managed / "wt_merged"
     tip = _worktree(git, repo, "fix/2100-old", merged)
     request = _merged(github_api, tip)
     size = _directory_bytes(merged)
@@ -119,9 +102,9 @@ def test_add_removes_a_merged_worktree_and_creates_the_new_one(
 
 
 def test_the_table_output_names_each_removed_worktree_with_its_size(
-    cli: Cli, repo: Path, git: Git, tmp_path: Path, github_api: GitHubApiFake
+    cli: Cli, repo: Path, git: Git, managed: Path, github_api: GitHubApiFake
 ) -> None:
-    merged = tmp_path / "wt_merged"
+    merged = managed / "wt_merged"
     _merged(github_api, _worktree(git, repo, "fix/2100-old", merged))
     shown = format_bytes(_directory_bytes(merged))
 
@@ -137,11 +120,11 @@ def test_a_merged_worktree_no_longer_holds_its_issue(
     cli: Cli,
     repo: Path,
     git: Git,
-    tmp_path: Path,
+    managed: Path,
     github_api: GitHubApiFake,
     isolate_data_dir: Path,
 ) -> None:
-    merged = tmp_path / "wt_merged"
+    merged = managed / "wt_merged"
     _merged(github_api, _worktree(git, repo, "chore/2344-old", merged))
 
     result = _add(cli, repo, issue=2344)
@@ -152,9 +135,9 @@ def test_a_merged_worktree_no_longer_holds_its_issue(
 
 
 def test_a_dirty_a_locked_and_an_unmerged_worktree_stay(
-    cli: Cli, repo: Path, git: Git, tmp_path: Path, github_api: GitHubApiFake, new_dir: Path
+    cli: Cli, repo: Path, git: Git, managed: Path, github_api: GitHubApiFake, new_dir: Path
 ) -> None:
-    dirty, locked, unmerged = (tmp_path / name for name in ("wt_dirty", "wt_locked", "wt_unmerged"))
+    dirty, locked, unmerged = (managed / name for name in ("wt_dirty", "wt_locked", "wt_unmerged"))
     _worktree(git, repo, "fix/2101-dirty", dirty)
     (dirty / "scratch.txt").write_text("wip\n", encoding="utf-8")
     _worktree(git, repo, "fix/2102-locked", locked)
@@ -172,9 +155,9 @@ def test_a_dirty_a_locked_and_an_unmerged_worktree_stay(
 
 
 def test_no_reclaim_keeps_the_merged_worktree_reads_nothing_and_refuses_its_issue(
-    cli: Cli, repo: Path, git: Git, tmp_path: Path, github_api: GitHubApiFake
+    cli: Cli, repo: Path, git: Git, managed: Path, github_api: GitHubApiFake
 ) -> None:
-    merged = tmp_path / "wt_merged"
+    merged = managed / "wt_merged"
     _merged(github_api, _worktree(git, repo, "chore/2344-old", merged))
 
     result = _add(cli, repo, "--no-reclaim", issue=2344)
@@ -184,9 +167,9 @@ def test_no_reclaim_keeps_the_merged_worktree_reads_nothing_and_refuses_its_issu
 
 
 def test_a_failed_read_becomes_a_reason_and_the_worktree_is_created(
-    cli: Cli, repo: Path, git: Git, tmp_path: Path, github_api: GitHubApiFake, new_dir: Path
+    cli: Cli, repo: Path, git: Git, managed: Path, github_api: GitHubApiFake, new_dir: Path
 ) -> None:
-    unread = tmp_path / "wt_unread"
+    unread = managed / "wt_unread"
     _worktree(git, repo, "fix/2100-unread", unread)
 
     result = _add(cli, repo, "--json")
@@ -198,9 +181,9 @@ def test_a_failed_read_becomes_a_reason_and_the_worktree_is_created(
 
 
 def test_a_failed_read_is_said_once_in_the_table_output(
-    cli: Cli, repo: Path, git: Git, tmp_path: Path, github_api: GitHubApiFake, new_dir: Path
+    cli: Cli, repo: Path, git: Git, managed: Path, github_api: GitHubApiFake, new_dir: Path
 ) -> None:
-    _worktree(git, repo, "fix/2100-unread", tmp_path / "wt_unread")
+    _worktree(git, repo, "fix/2100-unread", managed / "wt_unread")
 
     result = _add(cli, repo)
 
@@ -210,9 +193,9 @@ def test_a_failed_read_is_said_once_in_the_table_output(
 
 
 def test_the_dry_run_lists_the_reads_of_the_reclaim_and_removes_nothing(
-    cli: Cli, repo: Path, git: Git, tmp_path: Path, github_api: GitHubApiFake, new_dir: Path
+    cli: Cli, repo: Path, git: Git, managed: Path, github_api: GitHubApiFake, new_dir: Path
 ) -> None:
-    merged = tmp_path / "wt_merged"
+    merged = managed / "wt_merged"
     tip = _worktree(git, repo, "fix/2100-old", merged)
 
     result = _add(cli, repo, "--dry-run", "--json")
@@ -229,12 +212,12 @@ def test_the_worktree_of_the_current_directory_is_kept(
     cli: Cli,
     repo: Path,
     git: Git,
-    tmp_path: Path,
+    managed: Path,
     github_api: GitHubApiFake,
     new_dir: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    merged = tmp_path / "wt_merged"
+    merged = managed / "wt_merged"
     _merged(github_api, _worktree(git, repo, "fix/2100-old", merged))
     monkeypatch.chdir(merged)
 
@@ -250,13 +233,13 @@ def test_add_succeeds_when_merged_worktree_file_is_deleted_during_reclaim(
     cli: Cli,
     repo: Path,
     git: Git,
-    tmp_path: Path,
+    managed: Path,
     github_api: GitHubApiFake,
     new_dir: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Worktrees add succeeds when a file in a merged worktree is deleted during reclaim."""
-    merged = tmp_path / "wt_merged"
+    merged = managed / "wt_merged"
     tip = _worktree(git, repo, "fix/2100-old", merged)
     _merged(github_api, tip)
 
@@ -276,7 +259,7 @@ def test_add_succeeds_when_merged_worktree_file_is_deleted_during_reclaim(
 
 
 def test_prune_reports_a_parallel_removed_worktree_as_removed(
-    repo: Path, git: Git, tmp_path: Path, github_api: GitHubApiFake
+    repo: Path, git: Git, managed: Path, github_api: GitHubApiFake
 ) -> None:
     """A worktree that a parallel run already removed is reported as removed, not failed (#2408).
 
@@ -285,7 +268,7 @@ def test_prune_reports_a_parallel_removed_worktree_as_removed(
     with `is not a working tree`; the run reports it as `removed`, so it counts as done, not as a
     failed reclaim.
     """
-    merged = tmp_path / "wt_merged"
+    merged = managed / "wt_merged"
     request = _merged(github_api, _worktree(git, repo, "fix/2100-old", merged))
     entries = inventory_worktrees(repo)
     git(repo, "worktree", "remove", str(merged))
@@ -302,14 +285,14 @@ def test_add_says_nothing_of_a_failed_reclaim_when_a_parallel_run_removed_the_wo
     cli: Cli,
     repo: Path,
     git: Git,
-    tmp_path: Path,
+    managed: Path,
     github_api: GitHubApiFake,
     new_dir: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """When a run in parallel removes a merged worktree while `add` reclaims, `add` reports it as
     removed, not as a failed reclaim, and creates the new worktree (#2408)."""
-    merged = tmp_path / "wt_merged"
+    merged = managed / "wt_merged"
     _merged(github_api, _worktree(git, repo, "fix/2100-old", merged))
     real_lstat = os.lstat
 
