@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.90.1](https://github.com/dan-petty/devops-cli/compare/v0.90.0...v0.90.1) (2026-11-08)
+
+
+### Performance Improvements
+
+* **ci:** measure coverage and branch cost ([#4163](https://github.com/dan-petty/devops-cli/issues/4163)) ([447f024](https://github.com/dan-petty/devops-cli/commit/447f0247ac1706365bb59ef56bf0bc4a6ae036f6))
+
 ## [0.90.0](https://github.com/dan-petty/devops-cli/compare/v0.89.0...v0.90.0) (2026-11-08)
 
 
