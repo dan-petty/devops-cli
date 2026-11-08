@@ -25,6 +25,13 @@ Kind: documents. Reads: `k8s/README.md`. Changes: `k8s/README.md`.
 - [x] 3.1 Add the row `RoadmapServiceStateUnkept` to the alert table of the section Roadmap service in `k8s/README.md`, next to the row `RoadmapServiceWebSearchRefused`. Say that the gauge lives in the memory of the process and a restart clears it. Name `devops_cli_service_state_unkept` in item 12 of the list of the Service
   - Verification: `$ uv run devops ci test tests/prometheus/test_k8s_monitoring_alerting.py`
 
+## 4. Chart the gauge on the dashboard
+
+Kind: manifest. Reads: `k8s/monitoring/dashboards/devops-cli.json`, `tests/grafana/test_grafana_dashboards.py`. Changes: `k8s/monitoring/dashboards/devops-cli.json`, `tests/grafana/test_grafana_dashboards.py`.
+
+- [x] 4.1 Add the panel "Service Unkept State Records" to the row "Roadmap Service" of `devops-cli.json` (it reads `max by (record)` of the gauge, below the row of four panels; the row "Alternatives Check" moves down 8 rows). The test of the row lists the panel, and the test that each `CONST_SERVICE_METRIC_` name has a query in the row passes
+  - Verification: `$ uv run devops ci test tests/grafana/test_grafana_dashboards.py` passes
+
 ## Workflow follow-up
 
 - Pending a person: review the diff in tuicr (tuicr -r <base>..HEAD).
