@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.94.0](https://github.com/dan-petty/devops-cli/compare/v0.93.0...v0.94.0) (2026-11-08)
+
+
+### Features
+
+* **k8s:** add an Argo workflow to keep the RAG index current ([#4180](https://github.com/dan-petty/devops-cli/issues/4180)) ([d2203ce](https://github.com/dan-petty/devops-cli/commit/d2203cecd529523aba3db18f3cd29041efd16fcd))
+* **roadmap:** onboard checks a repository for the roadmap jobs ([#4179](https://github.com/dan-petty/devops-cli/issues/4179)) ([f134e77](https://github.com/dan-petty/devops-cli/commit/f134e77b2d10ce7b3072c41a375165bb90875235))
+
 ## [0.93.0](https://github.com/dan-petty/devops-cli/compare/v0.92.1...v0.93.0) (2026-11-08)
 
 
