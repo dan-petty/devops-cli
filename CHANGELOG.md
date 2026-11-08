@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.87.1](https://github.com/dan-petty/devops-cli/compare/v0.87.0...v0.87.1) (2026-11-08)
+
+
+### Bug Fixes
+
+* **k8s:** keep only the SearXNG engines that answer ([#4121](https://github.com/dan-petty/devops-cli/issues/4121)) ([a0d827b](https://github.com/dan-petty/devops-cli/commit/a0d827b22f6ad723f7a0020a84f45a1f8da7d0bb))
+
 ## [0.87.0](https://github.com/dan-petty/devops-cli/compare/v0.86.0...v0.87.0) (2026-11-08)
 
 
