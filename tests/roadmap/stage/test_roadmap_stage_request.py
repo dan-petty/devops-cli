@@ -321,6 +321,17 @@ def test_gates_from_request_pass_the_keyword_inputs_through() -> None:
     assert arguments["constants"] == {"CONST_PANEL_LIMIT": 3}
 
 
+def test_gates_from_request_pass_the_manifest_references_through() -> None:
+    """The tests that each changed manifest reaches reach the `paths` gate (#3972)."""
+    references = {
+        "k8s/logging/networkpolicy.yaml": ("tests/commands/k8s/test_k8s_logging_stack.py",)
+    }
+
+    arguments = gate_arguments(_request(), TREE, known=KNOWN, manifest_references=references)
+
+    assert arguments["manifest_references"] == references
+
+
 def test_a_request_round_trips_through_json_so_a_gate_runs_again_from_a_file() -> None:
     request = _request()
 

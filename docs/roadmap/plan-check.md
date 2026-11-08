@@ -25,6 +25,11 @@ commit, whatever the working tree of the checkout holds.
 
 - The stage gates: `check_proposal` and `validate_change`. The command reports each problem with
   the file and the words of the stage job.
+- The tests of a changed manifest (#3972): a plan that changes a YAML manifest under `k8s/` names
+  each test file that references the manifest. A test file references a manifest when it holds the
+  file name of the manifest and the name of its folder, because the test builds the path from those
+  parts. The `paths` gate refuses the plan that leaves a test out and names the test, because the
+  implement job cannot edit a test outside the `Changes:` list of its group.
 - The read: the reader reports each change file that it cannot read, each task group that the
   model refuses, each criterion that the model refuses (such as `Group 0`) and each
   `Verification:` command that the implement step cannot run, as a `read` problem. It never ends in a traceback.
@@ -100,8 +105,9 @@ A plan or a pull request that adds a gate to the stage job gives two results bef
 
 `plan-recheck` judges less than the stage job: it gives the gates no premise probe, no open pull
 request, no recorded search and no plan of another open item, and it measures no group. A gate that
-needs one of these has no hits in `plan-recheck`. [The plan-recheck page](plan-recheck.md) lists
-the rest.
+needs one of these has no hits in `plan-recheck`. The rule of a changed manifest needs a search, and
+the command runs it at the ref that it judges, so a manifest plan gets the same refusal there. [The
+plan-recheck page](plan-recheck.md) lists the rest.
 
 ## Where the rules are
 

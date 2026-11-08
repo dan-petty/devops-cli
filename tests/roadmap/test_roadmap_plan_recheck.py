@@ -439,3 +439,50 @@ def test_a_folder_that_the_reader_refuses_is_not_read_and_the_run_goes_on(
     assert "new-plan 2-keep-the-last-comment" in on_branch
     assert "Results: ok 2, rewrite 0, new-plan 1, delivered 0, cleanup 0." in on_branch
     assert _branch_json(recheck)["not_read"] == ["2-keep-the-last-comment"]
+
+
+def test_test_search_finds_tests_and_caches_result(stage_repo: StageRepo) -> None:
+    from devops_cli.roadmap.plan_recheck import _grep_tests, _test_search
+
+    stage_repo.track({"tests/k8s/test_policy.py": "networkpolicy.yaml\n"})
+    search = _test_search(stage_repo.clone, "HEAD")
+    assert search("networkpolicy.yaml") == ("tests/k8s/test_policy.py",)
+    assert search("networkpolicy.yaml") == ("tests/k8s/test_policy.py",)
+    assert search("nonexistent_pattern") == ()
+    assert _grep_tests(stage_repo.clone, "NONEXISTENT_REF", "pattern") == ()
+
+
+def test_manifest_plan_omitting_perimeter_test_is_refused_by_paths_gate(
+    stage_repo: StageRepo, tool: OpenSpecTool
+) -> None:
+    manifest = "k8s/logging/networkpolicy.yaml"
+    test_file = "tests/k8s/test_logging.py"
+    stock = make_stage_proposal()
+    group = stock.groups[0]
+    proposal_omits = make_stage_proposal(
+        groups=[
+            group.model_copy(
+                update={
+                    "kind": "other",
+                    "changes": [manifest],
+                    "creates": [],
+                    "creates_lines": {},
+                    "test": None,
+                    "verify": "uv run pytest tests/k8s/test_logging.py",
+                }
+            )
+        ]
+    )
+    stage_repo.track(
+        {
+            **_plan(1, proposal_omits),
+            manifest: "kind: NetworkPolicy\n",
+            test_file: 'MANIFEST = "networkpolicy.yaml"\nNAMESPACE = "logging"\n',
+        }
+    )
+    recheck = recheck_plans(stage_repo.clone, _store(count=1), tool=tool)
+    (record,) = recheck.records
+    paths_refusals = [r for r in record.refusals if r.gate == "paths"]
+    assert len(paths_refusals) == 1
+    assert "networkpolicy.yaml" in paths_refusals[0].message
+    assert "tests/k8s/test_logging.py" in paths_refusals[0].message

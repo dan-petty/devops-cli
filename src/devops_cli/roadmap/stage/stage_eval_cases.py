@@ -158,12 +158,14 @@ class Scores(_Record):
 
 class CaseFacts(_Record):
     """What the gates need of the tree at the staging commit: the tracked files that matter, the
-    capabilities the plan names that have a spec, and the paths that each negative-search literal
-    of the plan matched before the change."""
+    capabilities the plan names that have a spec, the paths that each negative-search literal
+    of the plan matched before the change, and the tests that each changed manifest reaches
+    (#3972)."""
 
     tracked: tuple[str, ...]
     capabilities: tuple[str, ...]
     search_evidence: Mapping[str, tuple[str, ...]] = Field(default_factory=dict)
+    manifest_references: Mapping[str, tuple[str, ...]] = Field(default_factory=dict)
     constants: tuple[tuple[str, int], ...] = ()
     models: Mapping[str, tuple[str, tuple[str, ...]]] = Field(default_factory=dict)
 

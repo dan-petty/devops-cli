@@ -74,6 +74,7 @@ def gate_arguments(
     constants: Mapping[str, int] | None = None,
     references: Sequence[str] = (),
     models: Mapping[str, tuple[str, Sequence[str]]] | None = None,
+    manifest_references: Mapping[str, Sequence[str]] | None = None,
 ) -> dict[str, Any]:
     """The keyword arguments of `check_proposal` and `check_gates` after the proposal. The request
     gives the inputs that the item fixes; the other inputs depend on the commit and on the
@@ -93,4 +94,5 @@ def gate_arguments(
         "constants": constants,
         "references": references,
         "models": models,
+        "manifest_references": manifest_references,
     }

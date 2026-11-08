@@ -30,7 +30,7 @@ None.
 
 - Code: `src/devops_cli/roadmap/stage/stage_paths.py`, `src/devops_cli/lang/en/messages.py`, `src/devops_cli/roadmap/stage/stage_change.py`, `src/devops_cli/roadmap/plan_recheck.py`, `src/devops_cli/roadmap/stage/stage.py`, `src/devops_cli/roadmap/stage/stage_request.py`, `src/devops_cli/roadmap/stage/stage_eval_cases.py`, `src/devops_cli/roadmap/stage/stage_eval_gates.py`
 - Documents: `docs/ROADMAP_WORKFLOW.md`, `docs/roadmap/plan-check.md`
-- Tests: `tests/roadmap/stage/test_roadmap_stage_paths.py`, `tests/roadmap/stage/test_roadmap_stage_eval_gates.py`, `tests/roadmap/stage/test_roadmap_stage_request.py`, `tests/roadmap/stage/test_roadmap_stage_self_acceptance.py`
+- Tests: `tests/roadmap/stage/test_roadmap_stage_paths.py`, `tests/roadmap/stage/test_roadmap_stage_eval_gates.py`, `tests/roadmap/stage/test_roadmap_stage_request.py`, `tests/roadmap/stage/test_roadmap_stage_self_acceptance.py`, `tests/roadmap/test_roadmap_plan_recheck.py`
 
 ## Feasibility
 

@@ -3154,7 +3154,6 @@ The stage prompt SHALL name a quoted target, a logger name and a snapshot file a
 #### Scenario: The prompt tells a planner to narrow a search that leaves files out
 - **WHEN** The stage prompt is read.
 - **THEN** It tells the planner to search a narrower name when the `references` answer leaves files out.
-
 ### Requirement: A read of a model attribute that the model lacks is refused
 The stage proposal check SHALL refuse a plan that names an attribute that the Pydantic model of the staged commit does not define, and SHALL name the reference and the module of the model in the problem.
 
@@ -3188,7 +3187,6 @@ The stage proposal check SHALL return a problem that names the module of a model
 #### Scenario: A second reply with the same gap stops the item
 - **WHEN** The first and the second reply both read `PullStatus.labels` and both omit `src/devops_cli/github/client.py` from `changes`.
 - **THEN** The stage job records a failure of the item with `RoadmapStageError`, and the plan holds no ready change.
-
 ### Requirement: A plan that passes the gates is kept as a file
 The planner SHALL write the plan that passes the gates, with its `StageRequest`, to the file `roadmap/stage/<owner>/<repo>/<number>.json` under the data directory, atomically, before the model review. The file SHALL hold a key: the sha256 of the item number, the hash of its title, the hashes of its body from `body_hashes`, the model name of the task `stage`, the name of the toolset and the prompt version. The prompt version SHALL be the sha256 of the texts of the prompts that the planner reads.
 
@@ -3241,3 +3239,25 @@ The planner SHALL add 1 to `devops_cli_roadmap_stage_plan_record_total` with the
 #### Scenario: A miss, a write and a hit
 - **WHEN** the job plans an item twice with the same input
 - **THEN** the counter has 1 point for `miss`, 1 for `written` and 1 for `hit`
+### Requirement: A manifest plan names the tests that reference it
+The stage job SHALL refuse a plan that changes a YAML manifest under `k8s/` and lists no test file that references that manifest, because the implement job cannot edit a test outside the `Changes:` list of the plan.
+
+#### Scenario: The plan of the logging egress rule omits the logging test
+- **WHEN** the plan changes `k8s/logging/networkpolicy.yaml`, the job records `tests/commands/k8s/test_k8s_logging_stack.py` as a reference to it, and the plan lists no such test
+- **THEN** the problem names `k8s/logging/networkpolicy.yaml` and `tests/commands/k8s/test_k8s_logging_stack.py`, and it asks for the test in `Changes:`
+
+#### Scenario: The plan of the logging egress rule names the logging test
+- **WHEN** the plan changes `k8s/logging/networkpolicy.yaml` and lists `tests/commands/k8s/test_k8s_logging_stack.py`
+- **THEN** the path gate reports no problem that names either path
+
+#### Scenario: The test builds the manifest path from its parts
+- **WHEN** a test file holds the literals `logging` and `networkpolicy.yaml` in separate strings
+- **THEN** the record names that test as a reference to `k8s/logging/networkpolicy.yaml`
+
+#### Scenario: The test holds only the folder name
+- **WHEN** a test file holds `logging` but not `networkpolicy.yaml`
+- **THEN** the record names no reference to `k8s/logging/networkpolicy.yaml` for that file
+
+#### Scenario: The job records no reference
+- **WHEN** the gate gets no record, as a replay of a case with none does
+- **THEN** the check reports no missing reference

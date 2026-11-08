@@ -16,6 +16,13 @@ it is a search pattern or a fixture that a test writes at run time (`ruff.toml`)
 step accepts a name that holds no file as a file it creates. A label such as `status/blocked`, a
 dotted name, an option, a URL or a placeholder is no path either, and the check leaves it alone.
 `reads` and `changes` list paths by definition, so the check keeps them strict.
+
+A plan that changes a YAML manifest of `k8s/` also names every test that references it (#3972).
+`record_test_references` reads that record from the search of the job, and
+`missing_reference_problems` refuses the plan that leaves a test of the record out of `changes`: a
+test builds the path of a manifest from the file name and the name of its folder, so a test
+references the manifest when it holds both names. The implement job cannot edit a test outside its
+`Changes:` list, so a plan that leaves the test out would loop.
 """
 
 from __future__ import annotations
@@ -24,7 +31,7 @@ import posixpath
 import re
 import shlex
 from collections import defaultdict
-from collections.abc import Iterable, Iterator, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from enum import StrEnum
 from fnmatch import fnmatchcase
 from glob import has_magic
@@ -53,6 +60,13 @@ _WORD: Final[re.Pattern[str]] = re.compile(r"[\w.@+-]+(?:/[\w.@+-]+)*/?")
 _PARENT_DIRECTORY: Final[str] = ".."
 # The folder the stage job writes: a group never changes or creates a path in it.
 _CHANGES_DIRECTORY: Final[str] = "openspec/changes"
+# The manifests that a plan changes, and the tests that reference them (#3972).
+_MANIFEST_TOP: Final[str] = "k8s/"
+_MANIFEST_SUFFIX: Final[str] = ".yaml"
+_TESTS_TOP: Final[str] = "tests/"
+# The name forms of a test module. A fixture under `tests/` holds the names of a manifest too, and
+# it asserts on nothing, so the record names no fixture.
+_TEST_MODULE_PATTERNS: Final[tuple[str, ...]] = ("test_*.py", "*_test.py")
 
 
 class _Place(StrEnum):
@@ -277,10 +291,80 @@ def caller_problems(groups: Sequence[StageGroup], tree: StagedTree) -> list[str]
     return problems
 
 
-def path_problems(groups: Sequence[StageGroup], tree: StagedTree, *, change: str = "") -> list[str]:
+def _manifest(path: str) -> PurePosixPath | None:
+    """The manifest that `path` names, or None when it is no YAML manifest of `k8s/`."""
+    manifest = PurePosixPath(path)
+    if path.startswith(_MANIFEST_TOP) and manifest.suffix == _MANIFEST_SUFFIX:
+        return manifest
+    return None
+
+
+def _is_test_module(path: str) -> bool:
+    """Whether `path` is a test module under `tests/`."""
+    name = PurePosixPath(path).name
+    return path.startswith(_TESTS_TOP) and any(
+        fnmatchcase(name, pattern) for pattern in _TEST_MODULE_PATTERNS
+    )
+
+
+def record_test_references(
+    groups: Sequence[StageGroup], search: Callable[[str], Sequence[str]]
+) -> dict[str, tuple[str, ...]]:
+    """The tests under `tests/` that reference each YAML manifest of `k8s/` that `groups` change,
+    keyed by the manifest path. A test references a manifest when it holds the file name of the
+    manifest and the name of its folder: a test builds the path from its parts, so it holds no
+    full-path string (#3972). `search` gives the files that hold a literal, as `git grep` does, and
+    it runs once for each literal, so a manifest of a name that another manifest shares costs no
+    second search."""
+    found: dict[str, frozenset[str]] = {}
+
+    def holders(literal: str) -> frozenset[str]:
+        if literal not in found:
+            found[literal] = frozenset(search(literal))
+        return found[literal]
+
+    references: dict[str, tuple[str, ...]] = {}
+    for path in sorted({path for group in groups for path in group.changes}):
+        manifest = _manifest(path)
+        if manifest is None:
+            continue
+        tests = {test for test in holders(manifest.name) if _is_test_module(test)} & holders(
+            manifest.parent.name
+        )
+        if tests:
+            references[path] = tuple(sorted(tests))
+    return references
+
+
+def missing_reference_problems(
+    groups: Sequence[StageGroup], references: Mapping[str, Sequence[str]]
+) -> list[str]:
+    """One sentence for each test of `references` that no group lists in `changes`, for a manifest
+    that a group changes. A plan that leaves out a test of its manifest cannot edit it, and the
+    implement job stops (#3972)."""
+    changed = {path for group in groups for path in group.changes}
+    texts = MESSAGES.roadmap
+    return [
+        texts.stage_problem_missing_perimeter_test.format(path=manifest, test=test)
+        for manifest, tests in references.items()
+        if manifest in changed
+        for test in tests
+        if test not in changed
+    ]
+
+
+def path_problems(
+    groups: Sequence[StageGroup],
+    tree: StagedTree,
+    references: Mapping[str, Sequence[str]] | None = None,
+    *,
+    change: str = "",
+) -> list[str]:
     """One sentence for each path, named in `groups`, that `tree` lacks and that no group up to
     the one that names it creates. A path is named once, at its first place. When a later group
-    creates the path, the sentence names that group too."""
+    creates the path, the sentence names that group too. `references` is the record of the tests
+    that each changed manifest reaches; None means the caller recorded no reference, so the check
+    judges no test of a manifest."""
     creators = _first_creators(groups)
     created: set[str] = set()
     reported: set[str] = set()
@@ -308,6 +392,8 @@ def path_problems(groups: Sequence[StageGroup], tree: StagedTree, *, change: str
             reported.add(path)
             problems.append(_problem(number, place, path, tree, creators.get(path)))
     problems.extend(caller_problems(groups, tree))
+    if references is not None:
+        problems.extend(missing_reference_problems(groups, references))
     return problems
 
 

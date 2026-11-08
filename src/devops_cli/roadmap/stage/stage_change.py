@@ -1467,6 +1467,7 @@ def check_gates(
     constants: Mapping[str, int] | None = None,
     references: Sequence[str] = (),
     models: Mapping[str, tuple[str, Sequence[str]]] | None = None,
+    manifest_references: Mapping[str, Sequence[str]] | None = None,
 ) -> dict[ProposalGate, list[str]]:
     """What each gate of `check_proposal` finds wrong in `proposal`, one sentence each, under the
     name of the gate. Every gate has a key, and a gate that finds nothing has an empty list. The
@@ -1481,7 +1482,7 @@ def check_gates(
         ProposalGate.FORM: form_problems(proposal.groups),
         ProposalGate.EVAL_REPLAY: eval_replay_problems(proposal.groups),
         ProposalGate.PATHS: [
-            *path_problems(proposal.groups, tree, change=change),
+            *path_problems(proposal.groups, tree, manifest_references, change=change),
             *own_change_problems(proposal.groups, change),
             *_reference_problems(proposal),
             *_move_reference_problems(proposal, references),
@@ -1523,6 +1524,7 @@ def check_proposal(
     constants: Mapping[str, int] | None = None,
     references: Sequence[str] = (),
     models: Mapping[str, tuple[str, Sequence[str]]] | None = None,
+    manifest_references: Mapping[str, Sequence[str]] | None = None,
 ) -> list[str]:
     """What the rules of `openspec/config.yaml` and the files of the commit find wrong in
     `proposal`, one sentence each. `known` holds the names of the capabilities under
@@ -1541,8 +1543,10 @@ def check_proposal(
     maps each path that the plan of an open item creates to that item's number (#3418). `read_text`
     returns the text of a cited file at the staged commit, or None when the commit holds no such
     file: the stage job passes the reader of its checkout and commit, and a check with none judges
-    no citation (#3422). The problems are those of `check_gates`, joined in the order of the
-    gates."""
+    no citation (#3422). `manifest_references` maps each changed YAML manifest of `k8s/` to the
+    tests that reference it: the job records it from its checkout, the replay reads it from its
+    case, and a caller that gives none judges no test of a manifest (#3972). The problems are
+    those of `check_gates`, joined in the order of the gates."""
     found = check_gates(
         proposal,
         known,
@@ -1560,6 +1564,7 @@ def check_proposal(
         constants=constants,
         references=references,
         models=models,
+        manifest_references=manifest_references,
     )
     return [problem for problems in found.values() for problem in problems]
 
