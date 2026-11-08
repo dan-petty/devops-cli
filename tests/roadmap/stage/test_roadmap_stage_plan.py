@@ -52,10 +52,12 @@ from devops_cli.roadmap.stage.stage_change import (
     closing_keyword_in,
     content_problems,
     measure_groups,
+    moved_modules,
     render_change,
 )
 from devops_cli.roadmap.stage.stage_criteria import StageCriterion
 from devops_cli.roadmap.stage.stage_paths import StagedTree
+from devops_cli.roadmap.stage.stage_references import reference_answer, reference_files
 from devops_cli.roadmap.stage.stage_registry import RegistryCount
 from devops_cli.roadmap.stage.stage_toolbox import ToolboxClient, ToolboxModel
 from devops_cli.roadmap.stage.stage_validate import validate_change
@@ -2512,3 +2514,60 @@ def test_check_proposal_refuses_a_plan_number_differing_from_a_constant() -> Non
     )
     proposal_task = make_stage_proposal(groups=[group_40])
     assert check_proposal(proposal_task, ["comment-thread"], SAMPLE_TREE, constants=constants) == []
+
+
+# ── Reference probe and move derivation (#3373) ──────────────────────────────
+
+
+def test_reference_files_returns_every_path_with_no_cap() -> None:
+    sha = "abcdef1"
+    files = [f"src/devops_cli/pkg/mod_{i}.py" for i in range(70)]
+    output = "\n".join(f"{sha}:{path}:1:target" for path in files)
+
+    # reference_answer caps at 60 files
+    answer = reference_answer("target", output, sha)
+    assert "Files left out: 10" in answer.return_value
+
+    # reference_files returns all 70 files
+    probed = reference_files(output, sha)
+    assert len(probed) == 70
+    assert probed == files
+
+
+def test_moved_modules_derives_old_path_and_dotted_name_and_skips_tests_and_conftest() -> None:
+    group = StageGroup.model_validate(
+        {
+            "title": "Move module",
+            "kind": "behavior",
+            "reads": [],
+            "changes": [
+                "src/devops_cli/roadmap/store.py",
+                "tests/roadmap/test_store.py",
+                "src/devops_cli/conftest.py",
+                "src/devops_cli/roadmap/db/store.py",
+                "tests/roadmap/db/test_store.py",
+            ],
+            "creates": [
+                "src/devops_cli/roadmap/db/store.py",
+                "tests/roadmap/db/test_store.py",
+            ],
+            "creates_lines": {
+                "src/devops_cli/roadmap/db/store.py": 50,
+                "tests/roadmap/db/test_store.py": 50,
+            },
+            "test": "Write test in `tests/roadmap/db/test_store.py`",
+            "implementation": "Move store module",
+            "verify": "uv run devops ci test tests/roadmap/db/test_store.py",
+        }
+    )
+
+    moved = moved_modules([group])
+    assert moved == [("src/devops_cli/roadmap/store.py", "devops_cli.roadmap.store")]
+
+
+def test_check_proposal_refuses_probed_path_that_no_group_changes() -> None:
+    path = "tests/roadmap/test_x.py"
+    proposal = make_stage_proposal()
+
+    problems = check_proposal(proposal, ["comment-thread"], SAMPLE_TREE, references=[path])
+    assert any(path in p for p in problems)

@@ -83,6 +83,18 @@ def reference_answer(name: str, output: str, sha: str) -> ToolReturn:
     return ok_answer(_answer(header, grouped, found, kept))
 
 
+def reference_files(output: str, sha: str) -> list[str]:
+    """The path of each file in the output of `git grep -n` on the commit `sha`, with no cap."""
+    found: list[str] = []
+    seen: set[str] = set()
+    for raw in output.splitlines():
+        match = _MATCH.match(raw.removeprefix(f"{sha}:"))
+        if match is not None and match["path"] not in seen:
+            seen.add(match["path"])
+            found.append(match["path"])
+    return found
+
+
 def _answer(
     header: str, grouped: dict[str, list[str]], found: dict[str, list[int]], kept: set[str]
 ) -> str:

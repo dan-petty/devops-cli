@@ -72,6 +72,7 @@ def gate_arguments(
     read_text: Callable[[str], str | None] | None = None,
     registry: Sequence[RegistryCount] | None = None,
     constants: Mapping[str, int] | None = None,
+    references: Sequence[str] = (),
 ) -> dict[str, Any]:
     """The keyword arguments of `check_proposal` and `check_gates` after the proposal. The request
     gives the inputs that the item fixes; the other inputs depend on the commit and on the
@@ -89,4 +90,5 @@ def gate_arguments(
         "read_text": read_text,
         "registry": registry,
         "constants": constants,
+        "references": references,
     }

@@ -158,10 +158,12 @@ from devops_cli.roadmap.refine.refine import (
 from devops_cli.roadmap.refine.refine_investigation import task_window
 from devops_cli.roadmap.stage.stage_change import (
     MeasuredGroup,
+    StageGroup,
     StageProposal,
     check_proposal,
     closing_keyword_in,
     measure_groups,
+    moved_modules,
     plan_texts,
     pull_request_body,
     render_change,
@@ -190,6 +192,7 @@ from devops_cli.roadmap.stage.stage_overlap import (
 from devops_cli.roadmap.stage.stage_paths import StagedTree
 from devops_cli.roadmap.stage.stage_pending import PendingStage, orphan_mark
 from devops_cli.roadmap.stage.stage_probe import blocked_by, probe_premise
+from devops_cli.roadmap.stage.stage_references import reference_files
 from devops_cli.roadmap.stage.stage_registry import matches, registry_table
 from devops_cli.roadmap.stage.stage_rejected import (
     ReadFailure,
@@ -1172,6 +1175,7 @@ class _Planner:
             record_search_evidence(proposal.groups, self._grep) if self._grep is not None else None
         )
         constants = staged_constants(self._source, self._sha, candidate_names(plan_texts(proposal)))
+        references = self._probe_references(proposal.groups)
         return check_proposal(
             proposal,
             change=change,
@@ -1187,8 +1191,25 @@ class _Planner:
                 read_text=partial(_read_staged_file, self._source, self._sha),
                 registry=registry_table(self._source),
                 constants=constants,
+                references=references,
             ),
         )
+
+    def _probe_references(self, groups: Sequence[StageGroup]) -> list[str]:
+        """The files of the staged commit that hold the old path or the dotted name of each moved
+        module (#3373)."""
+        moved = moved_modules(groups)
+        if not moved:
+            return []
+        hits: list[str] = []
+        seen: set[str] = set()
+        for old_path, dotted_name in moved:
+            for term in (old_path, dotted_name):
+                for path in _probe_reference_files(self._source, self._sha, term):
+                    if path not in seen:
+                        seen.add(path)
+                        hits.append(path)
+        return hits
 
     def _creators(self) -> Mapping[str, int]:
         """The paths that the plans of open items create, each with its item (#3418). The job
@@ -1702,6 +1723,17 @@ def _read_staged_file(source: Path, sha: str, path: str) -> str | None:
     whose lines can differ from that commit."""
     shown, content = git_result(source, "show", f"{sha}:{path}")
     return content if shown == 0 else None
+
+
+def _probe_reference_files(source: Path, sha: str, name: str) -> list[str]:
+    """The files of the staged commit that hold `name` from `git grep` with no cap (#3373)."""
+    try:
+        output = git(
+            source, "grep", "-n", "-I", "-F", "-e", name, sha, "--", operation=_GIT_OPERATION
+        )
+    except GitOperationError:
+        return []
+    return reference_files(output, sha)
 
 
 def _move_clone(checkout: Path, sha: str) -> None:
