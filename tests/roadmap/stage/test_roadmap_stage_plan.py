@@ -778,6 +778,43 @@ def test_a_spec_delta_goes_with_an_observable_change() -> None:
     assert check_proposal(make_stage_proposal(), ["comment-thread"], SAMPLE_TREE) == []
 
 
+def test_a_plan_that_names_a_defect_type_member_passes() -> None:
+    group = (
+        make_stage_proposal()
+        .groups[0]
+        .model_copy(
+            update={
+                "changes": [
+                    "src/devops_cli/roadmap/stage_eval_cases.py",
+                    "tests/roadmap/stage/test_roadmap_stage_eval_cases.py",
+                ],
+                "reads": [
+                    "src/devops_cli/roadmap/stage_eval_cases.py",
+                    "tests/roadmap/stage/test_roadmap_stage_eval_cases.py",
+                ],
+                "creates": [],
+                "creates_lines": {},
+                "test": "test_a_plan_names_defect_type_prompt_key_missing DefectType.PROMPT_KEY_MISSING",
+                "implementation": "Update `src/devops_cli/roadmap/stage_eval_cases.py` to add `DefectType.PROMPT_KEY_MISSING`.",
+                "verify": "uv run devops ci test tests/roadmap/stage/test_roadmap_stage_eval_cases.py",
+            }
+        )
+    )
+    tree = StagedTree(
+        (
+            "src/devops_cli/roadmap/stage_eval_cases.py",
+            "tests/roadmap/stage/test_roadmap_stage_eval_cases.py",
+        )
+    )
+    proposal = make_stage_proposal(
+        what_changes=[
+            "Add `DefectType.PROMPT_KEY_MISSING` to `src/devops_cli/roadmap/stage_eval_cases.py`."
+        ],
+        groups=[group],
+    )
+    assert check_proposal(proposal, ["comment-thread"], tree) == []
+
+
 def test_a_task_that_names_a_message_needs_the_message_file() -> None:
     group = (
         make_stage_proposal()

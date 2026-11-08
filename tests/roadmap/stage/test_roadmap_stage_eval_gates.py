@@ -58,8 +58,16 @@ def test_every_gate_still_refuses_every_known_bad_plan_it_must(cases: list[Stage
 def test_each_good_plan_passes_every_gate(cases: list[StageCase]) -> None:
     report = replay_all(cases)
 
-    assert report.good() == (4, 4)
+    assert report.good() == (5, 5)
     assert all(not r.refused for r in report.replays if r.case.verdict is Verdict.GOOD)
+
+
+def test_the_incident_case_of_pull_3305_is_loaded_and_accepted(cases: list[StageCase]) -> None:
+    case = next((c for c in cases if c.issue == 3264 and c.pull == 3305), None)
+    assert case is not None
+    assert any("kind: placeholder" in note for note in case.notes)
+    report = replay_all([case])
+    assert report.failures == []
 
 
 def test_the_replay_reads_the_registry_table_once(

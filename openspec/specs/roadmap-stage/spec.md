@@ -3064,3 +3064,10 @@ When the stage job records a failure in the job record of an item, it SHALL writ
 #### Scenario: An archived plan is skipped
 - **WHEN** `feasibility` lists `openspec/changes/archive/2026-10-24-1000-old/proposal.md` in a quoted `References to` answer.
 - **THEN** `check_proposal` returns no reference problem.
+
+### Requirement: A plan that names a defect type member passes
+`check_proposal` MUST NOT return a problem for a plan that names a `DefectType` member, including a member that the plan adds.
+
+#### Scenario: A plan adds a member and names it
+- **WHEN** `check_proposal` runs on a valid plan whose group changes `src/devops_cli/roadmap/stage_eval_cases.py` and whose test text names `DefectType.PROMPT_KEY_MISSING`
+- **THEN** `check_proposal` returns an empty list

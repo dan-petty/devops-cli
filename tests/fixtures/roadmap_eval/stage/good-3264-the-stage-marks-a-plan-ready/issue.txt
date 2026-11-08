@@ -1,0 +1,126 @@
+## Problem
+
+The model verification pass (#3182) finds real defects and posts them in the stage comment, but the plan pull request is still staged non-draft and goes to review as if clean. Evidence from the plan fixes of 2026-11-02:
+
+- #3194 (plan for #3032): the model pass flagged the "x" placeholders in the stage comment, yet the pull request was staged non-draft.
+- #3205 (plan for #3076): the model review's two real findings (`spec_delta_wrong`, and a dry-run test with no work) stay open in the committed plan.
+- #3174 (plan for #2947): a plan with a single group titled `placeholder` ended up non-draft; the step that took it out of draft was not verified.
+- Earlier: #3158, #3167, #3175 and others staged with "x" or "placeholder" text (7 of 41 plans reviewed).
+
+The stage ready row (`stage_ready`) marks a green plan pull request ready by design (a plan PR is non-draft). So today, "green" means only that the form gates and CI passed, and not that the model review found nothing.
+
+## Proposed change
+
+1. When the verification pass returns a finding that has a quote in the input and a kind from its list (`missing_path`, `false_premise`, `ignores_existing_code`, `spec_delta_wrong`, a placeholder), the stage keeps the plan pull request a DRAFT, adds a label (for example `plan/needs-fix`) and puts the findings at the top of the comment.
+2. The ready row refuses to mark a plan pull request ready while a finding is open. A person (or a later stage round that clears the finding) removes the label.
+3. A plan with an open finding does not count as a staged plan for the Service's round budget (it counts as a failed attempt in the failure taxonomy, class `plan_defect`).
+4. Do not lower a gate: this adds a stop, it removes none.
+
+## Acceptance criteria
+
+1. A test with a fake client that returns a placeholder finding shows that the plan pull request is opened as a draft with the label and the findings in the comment.
+2. A test shows that a plan with no finding is staged as today.
+3. A test shows that the ready row refuses a plan with an open finding, and states why.
+4. The golden-set replay includes #3194 or #3174 as a case.
+
+Related: #3182, #3200, #3170, #3255.
+
+<!-- devops-roadmap-refine:start -->
+<!-- checked-at: sha=760f2cb8c39b415c44c0f7d4d2d91269708b452a -->
+## Proposed design
+
+### Problem statement
+The stage marks a plan pull request ready even when the model verification pass reports a real defect. This fix adds an open-finding stop. It keeps the plan in draft, applies plan/needs-fix, puts the findings first in the comment, and records the item as a failed attempt. It does not lower any gate.
+
+### Acceptance criteria
+
+### Requirement: Open finding keeps the plan draft
+When the verification pass returns a finding with a quote and a listed kind, the stage SHALL keep the plan pull request in draft, apply the plan/needs-fix label, and put the findings at the top of the stage comment.
+
+#### Scenario: Placeholder finding from a fake client
+- **WHEN** The fake client returns a placeholder finding with a quote that is in the input.
+- **THEN** The plan pull request is a draft, has the plan/needs-fix label, and its comment starts with the finding text.
+
+### Requirement: Clean plan stages as today
+When the verification pass returns no open finding, the stage SHALL follow the current staging path without the plan/needs-fix label.
+
+#### Scenario: Verification returns no finding
+- **WHEN** The fake client returns no finding with a quote and a listed kind.
+- **THEN** The stage opens the plan pull request as today, applies no plan/needs-fix label, and the ready row can mark it ready after checks pass.
+
+### Requirement: Ready row refuses an open finding
+The ready row SHALL refuse to mark a plan pull request ready while the plan/needs-fix label is present and SHALL state why in its comment.
+
+#### Scenario: Plan carries the open-finding label
+- **WHEN** The plan pull request has the plan/needs-fix label and its checks have passed.
+- **THEN** The ready row leaves the pull request in draft and posts a comment that names the open finding label as the reason.
+
+### Requirement: Open finding counts as plan_defect
+A plan with an open finding SHALL not count as a staged plan for the Service round budget and SHALL count as a failed attempt with failure class plan_defect.
+
+#### Scenario: Round budget sees a plan with an open finding
+- **WHEN** The Service counts the round after the stage records an open finding.
+- **THEN** The round budget does not count the plan as staged, and the failure record has class plan_defect.
+
+### Requirement: No existing gate is lowered
+The change MUST add the open-finding stop without removing, weakening or bypassing any existing gate.
+
+#### Scenario: Existing form gate still fails
+- **WHEN** A plan with an open finding also fails an existing form gate.
+- **THEN** The existing form gate still stops the item, and the open-finding stop does not replace its failure.
+
+### Requirement: Golden-set replay includes a reported case
+The golden-set replay SHALL include #3194 or #3174 as a recorded case for the open-finding stop.
+
+#### Scenario: Replay runs the recorded case
+- **WHEN** The golden-set replay runs the case from #3194 or #3174.
+- **THEN** The replay reports the case and its placeholder finding, and the test suite checks the expected result.
+
+### Existing Tool Considered
+No alternatives check has run. No open, maintained tool or library covers this need: the change modifies this repository's own roadmap staging and ready-row workflow. The written cost is about 12,000 tokens to build, keep and fix the change, and about 1-2 days elapsed.
+
+### Key questions
+- **How does the stage detect an open finding?**: The stage treats a verification finding as open when it has a quote in the input and a kind from missing_path, false_premise, ignores_existing_code, spec_delta_wrong, or a placeholder. (best practice) [sources: docs/roadmap/stage.md:41, src/devops_cli/roadmap/stage_verify.py, src/devops_cli/roadmap/stage.py]
+  - Chosen: Use the verification result. The pass already returns findings with quotes and kinds, so the stage needs no second model.
+  - Rejected: Parse the plan text. Text parsing is brittle and can miss the anchor that the finding carries.
+  - Rejected: Ask a person for each finding. This delays every plan and defeats the automatic stop.
+- **Which label marks an open finding?**: Use the plan/needs-fix label. (best practice) [sources: CONTEXT.md, docs/roadmap/stage.md]
+  - Chosen: plan/needs-fix. The body proposes this name, and the plan/ prefix keeps it separate from status labels.
+  - Rejected: plan/defect. It is less direct and does not name the required action.
+  - Rejected: status/blocked. The status family holds item state, and a plan defect is not a roadmap block.
+- **How does the ready row detect an open finding?**: The ready row checks for the plan/needs-fix label. It does not parse the stage comment. (best practice) [sources: CONTEXT.md, docs/roadmap/stage.md]
+  - Chosen: Check the label. A label is a stable, queryable marker, and a person can remove it.
+  - Rejected: Parse the comment. Comment text changes and has no machine-readable contract.
+  - Rejected: Check the draft state only. A draft alone cannot tell a new plan from a plan with an open finding.
+- **How is an open finding cleared?**: A later stage round removes plan/needs-fix when verification returns no open finding. A person may also remove the label. (best practice) [sources: docs/roadmap/stage.md, CONTEXT.md]
+  - Chosen: Stage round or person. This keeps the automatic path moving and lets a person override a stale label.
+  - Rejected: Only a person. This adds a person wait to every corrected plan.
+  - Rejected: Never automatic. A corrected plan would stay blocked forever.
+- **How does an open finding count in the Service round budget and failure taxonomy?**: The plan does not count as staged for the round budget. It counts as a failed attempt with class plan_defect. (best practice) [sources: src/devops_cli/roadmap/failure.py, tests/roadmap/test_roadmap_failure.py, CONTEXT.md]
+  - Chosen: Count as plan_defect. This records the real cause and stops the round from treating the plan as staged.
+  - Rejected: Count as staged. This hides the defect and spends the round budget on a bad plan.
+  - Rejected: Do not count at all. This loses the failure signal.
+- **Which case goes into the golden-set replay?**: Add #3174 as the recorded case because its single group titled placeholder gives a deterministic placeholder finding. Add #3194 too when its fixture is available. (best practice) [sources: docs/ROADMAP_WORKFLOW.md, tests/roadmap/test_roadmap_stage_eval_run.py, src/devops_cli/roadmap/stage_eval_cases.py]
+  - Chosen: #3174. The placeholder group is a clear, offline case.
+  - Rejected: #3194. It is also valid, but its x placeholders are less specific than the named group.
+  - Rejected: Both cases. The acceptance criterion asks for one, and a second case adds fixture work without a new gate.
+- **Does the change keep the existing gates?**: Yes. The change adds a stop after the existing form gates and CI; it does not remove or weaken a gate. (best practice) [sources: docs/adr/0004-ci-is-the-authoritative-gate.md, docs/roadmap/stage.md:41]
+  - Chosen: Add a stop. This meets the issue and keeps the current gate contract.
+  - Rejected: Replace a gate. This would lower the gate and break ADR 0004.
+  - Rejected: Relax CI. CI remains the authoritative merge gate.
+- **Where do the findings appear in the stage comment?**: Open findings go at the top of the stage comment, before the tool-call and token report. (best practice) [sources: docs/roadmap/stage.md, CONTEXT.md]
+  - Chosen: Top of the comment. The reviewer sees the defect before the metrics.
+  - Rejected: Bottom of the comment. The defect is easy to miss.
+  - Rejected: Separate comment. It splits the record and adds comment noise.
+
+### Fit
+Fits in one pull request.
+
+### Suspected block
+None.
+
+### Dependencies
+None.
+<!-- devops-roadmap-refine:end -->
+
+<!-- devops-roadmap-record {"Effort": "Medium", "Priority": "P2-Medium", "Status": "In Review", "Value": "Medium", "refine.alternatives_asked": null, "refine.block_paths": null, "refine.blocked_by": null, "refine.body_hash": "391e4da347751ada8b811601c97fb3792283eb6ec5a79f8f2a02974abafc1a9b", "refine.failed_body_hash": null, "refine.needs_split": "false", "refine.next_step": "ready", "refine.section_hash": "ebe54e4981540acea52dad2917aa1cd8a579ddee52a476b73a0fba26d4257b05", "stage.branch": null, "stage.file_cap": null, "stage.groups": null, "stage.needs_split": null, "stage.pr": null, "stage.ready": null, "stage.sha": null} -->

@@ -1,0 +1,23 @@
+{
+ "issue": 3264,
+ "pull": 3305,
+ "change": "3264-the-stage-marks-a-plan-ready",
+ "merge_commit": "7229a7d37162c5b5b8389218f4cefcded5ed3a2a",
+ "base_commit": "ce4e32741aec507c2a76decdd7fa57bf7e280748",
+ "title": "docs(openspec): plan #3264 keep a plan with an open finding in draft",
+ "verdict": "good",
+ "scores": {
+  "premise_ok": 4,
+  "fidelity": 4,
+  "task_quality": 4,
+  "rule_compliance": 4,
+  "accuracy": 4
+ },
+ "state": "merged",
+ "summary": "The plan of this case is the merged plan of pull request #3305. The authoring run claimed a `kind: placeholder` finding, which contradicts `DefectType`. The merged plan has no such defect and is accepted by every gate.",
+ "notes": [
+  "During plan authoring the run claimed a `kind: placeholder` finding, which does not exist in `DefectType`. The merged plan fixed this and has no defect.",
+  "The scores are set by hand. No review scored this plan."
+ ],
+ "defects": []
+}
