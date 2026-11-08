@@ -155,7 +155,8 @@ def test_a_candidate_that_waits_is_neither_fresh_nor_a_reason_to_poll(tmp_path: 
 
     _round(store, repo_dir, model, NOW + 30 * MINUTE)
 
-    assert _record(repo_dir).pending is False
+    record = _record(repo_dir)
+    assert (record.pending, list(record.failed)) == (False, [FAILED])
 
 
 def test_the_webhook_update_records_a_failure_and_honors_the_wait(tmp_path: Path) -> None:

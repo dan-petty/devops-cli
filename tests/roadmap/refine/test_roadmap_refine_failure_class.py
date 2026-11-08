@@ -249,12 +249,13 @@ def test_a_body_edit_ends_the_wait_after_a_failure_that_the_text_caused(
     (first,) = seed_new_items(store, ("P1-High",))
     scripted_gateway({first: SCHEMA_MISS})
     refine_round(store, git_repo)
+    recorded = _marks(store, first)[2]
     clock.shift(HOUR)
     store.as_actor("alice").write_issue_body(first, "Body P1-High, edited")
 
     plan = plan_refine(store, repo=REPO, source=git_repo)
 
-    assert [failure.item.number for failure in plan.failed_items] == [first]
+    assert (recorded, [failure.item.number for failure in plan.failed_items]) == ("parser", [first])
 
 
 @pytest.mark.parametrize(
