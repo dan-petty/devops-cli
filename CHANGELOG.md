@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.87.2](https://github.com/dan-petty/devops-cli/compare/v0.87.1...v0.87.2) (2026-11-08)
+
+
+### Bug Fixes
+
+* **k8s:** check example ConfigMap keys are settings ([7935fba](https://github.com/dan-petty/devops-cli/commit/7935fbaa0e1418d1c2b0764092486c2e9d832b6e))
+* **k8s:** check example ConfigMap keys are settings ([#4134](https://github.com/dan-petty/devops-cli/issues/4134)) ([7935fba](https://github.com/dan-petty/devops-cli/commit/7935fbaa0e1418d1c2b0764092486c2e9d832b6e))
+* **roadmap:** write the body with the marks in one request ([#4130](https://github.com/dan-petty/devops-cli/issues/4130)) ([9504170](https://github.com/dan-petty/devops-cli/commit/9504170bdfa56272eccfb86cb7dbec35623b6869))
+* **service:** show a state record the Service could not write ([#4128](https://github.com/dan-petty/devops-cli/issues/4128)) ([cd2ebda](https://github.com/dan-petty/devops-cli/commit/cd2ebdae820fd07011574d44e1f6a7d3403286a3)), closes [#4048](https://github.com/dan-petty/devops-cli/issues/4048)
+
+
+### Code Refactoring
+
+* **roadmap:** type the stage planner request ([#4124](https://github.com/dan-petty/devops-cli/issues/4124)) ([d83491e](https://github.com/dan-petty/devops-cli/commit/d83491eabb456069c1076c43e70e97927d3c1f2d))
+
 ## [0.87.1](https://github.com/dan-petty/devops-cli/compare/v0.87.0...v0.87.1) (2026-11-08)
 
 
