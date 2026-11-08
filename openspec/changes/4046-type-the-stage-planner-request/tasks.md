@@ -10,7 +10,7 @@ Reads: `src/devops_cli/roadmap/stage/stage.py`, `src/devops_cli/roadmap/stage/st
   - Verification: `$ uv run devops ci test tests/roadmap/stage/test_roadmap_stage_request.py` passes
 - [x] 1.3 In `src/devops_cli/roadmap/stage/stage.py`, make `_Planner._request` return a `StageRequest` with the gate inputs, send `request.for_model()` from `_ask`, `_gated`, `_verified` and `_repaired`, and make `_problems` call `gate_arguments`. Delete the planner fields that the request replaces and the untyped dictionary
   - Verification: `$ uv run devops ci test tests/roadmap/stage` passes
-  - Verification: `$ ! grep -n 'request: dict\[str, Any\]' src/devops_cli/roadmap/stage/stage.py`
+  - Verification: `$ ! git grep -n 'request: dict' -- src/devops_cli/roadmap/stage/stage.py`
 
 ## 2. Document the new module
 
@@ -24,7 +24,7 @@ Reads: `docs/roadmap/package-layout.md`. Changes: `docs/roadmap/package-layout.m
 - Group 1: `uv run pytest tests/roadmap/stage/test_roadmap_stage_request.py -k model_json_unchanged` - for a fixed item, the JSON sent to the model equals the golden dict of today. The gate-only fields are not in it.
 - Group 1: `uv run pytest tests/roadmap/stage/test_roadmap_stage_request.py -k gates_from_request` - `check_proposal` gives the same problems when its arguments come from a `StageRequest` alone, with no `_Planner` object.
 - Group 1: `uv run pytest tests/roadmap/stage/test_roadmap_stage_request.py -k forbid_extra` - an unknown key in `StageRequest` raises a validation error.
-- Group 1: `! grep -n 'request: dict\[str, Any\]' src/devops_cli/roadmap/stage/stage.py` - the untyped request is gone.
+- Group 1: `! git grep -n 'request: dict' -- src/devops_cli/roadmap/stage/stage.py` - the untyped request is gone.
 
 ## Workflow follow-up
 
