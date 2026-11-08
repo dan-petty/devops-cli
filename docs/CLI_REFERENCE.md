@@ -171,8 +171,9 @@ devops repos worktrees status [OPTIONS]
 
 Create the worktree of an issue on \<type\>/\<issue\>-\<slug\> at the fetched origin/main.
 
-The command first removes the worktrees of merged pull requests, as prune --confirm does,
-because a merged worktree still holds its issue. Then it refuses an issue that a worktree,
+The command first removes the worktrees of merged pull requests under the agent worktrees
+folder, as prune --confirm does, because a merged worktree still holds its issue. It keeps
+a worktree outside that folder and a worktree that holds ignored files, and names each. Then it refuses an issue that a worktree,
 the standard directory or a pushed branch of origin already holds. A pushed branch whose
 commits past origin/main all have the App as author is a staged branch: the command adds the
 worktree on it and takes --type and --slug from it. After the worktree exists, the command
@@ -1277,6 +1278,30 @@ devops k8s image-pins [OPTIONS] <root>
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+### `devops k8s crawl4ai-check`
+
+**Check that the Crawl4AI service refuses internal targets. It sends each of five routes
+(/md, /html, /screenshot, /pdf and /llm) to each of five internal targets (the metadata
+address, localhost, the Kubernetes API, the service itself and the roadmap Service) with the
+token of the keyring, through a local port-forward, and sends each route once without the
+token. It also tries a connect to the metadata address and to a private ClusterIP from a
+throwaway pod that carries the label of the service, so the NetworkPolicy applies to it.
+Run it at each bump of the image digest. The token never appears in the output. Exits 1 when
+a target is served, a request without the token is not refused, or the pod opens a
+connection.**
+
+```bash
+devops k8s crawl4ai-check [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--local-port` | `integer` | `11236` | Local port of the kubectl port-forward to Service crawl4ai. Use a port that no program holds. |
+| `--context` | `string` | - | Kubernetes cluster context name. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops k8s create-tls-secret`

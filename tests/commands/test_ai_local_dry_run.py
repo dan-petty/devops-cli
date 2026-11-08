@@ -84,7 +84,7 @@ LOCAL_AI_COMMANDS: list[tuple[str, Any, list[str]]] = [
 
 
 @pytest.fixture(autouse=True)
-def guard_external_calls(monkeypatch: pytest.MonkeyPatch) -> None:
+def guard_external_calls(monkeypatch: pytest.MonkeyPatch, keyring_store: Any) -> None:
     """Ensure no real socket, subprocess, or HTTP call executes during dry-run tests."""
     real_run = subprocess.run
     real_popen = subprocess.Popen
@@ -123,8 +123,6 @@ def guard_external_calls(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(subprocess, "check_output", _block_check_output)
     monkeypatch.setattr(httpx2.Client, "send", _block_httpx)
     monkeypatch.setattr(httpx2.HTTPTransport, "handle_request", _block_httpx)
-    monkeypatch.setattr("devops_cli.config.os_keyring.has_keyring_secret", lambda _: False)
-    monkeypatch.setattr("devops_cli.commands.ai.has_keyring_secret", lambda _: False)
 
 
 def test_dry_run_classes_decorated() -> None:

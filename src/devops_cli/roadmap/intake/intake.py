@@ -133,7 +133,7 @@ from devops_cli.exceptions.git import (
     GitHubRateLimitError,
     GitHubUnauthenticatedError,
 )
-from devops_cli.exceptions.roadmap import RoadmapIntakeError
+from devops_cli.exceptions.roadmap import RoadmapIntakeError, RoadmapItemChangedError
 from devops_cli.exceptions.security import SecurityError
 from devops_cli.exceptions.validation import ValidationError
 from devops_cli.lang import MESSAGES
@@ -409,10 +409,12 @@ class PlacementFailure:
 
 @dataclass(frozen=True)
 class IntakeApplied:
-    """What a run wrote: items placed, and the issues it filed. `failed` names each candidate
+    """What a run wrote: items placed, and the issues it filed. `placed_critical_or_p0` counts
+    the placements with a critical or P0 Priority (#1540, #4042). `failed` names each candidate
     a failed write made it skip (#1443)."""
 
     placed: int = 0
+    placed_critical_or_p0: int = 0
     filed: tuple[int, ...] = ()
     failed: tuple[PlacementFailure, ...] = ()
 
@@ -1300,7 +1302,11 @@ def _apply_decision(store: RoadmapStore, decision: IntakeDecision) -> IntakeAppl
     if decision.outcome is not Outcome.PLACE:
         return IntakeApplied()
     number = _apply_placement(store, decision)
-    return IntakeApplied(placed=1, filed=() if decision.subject.number else (number,))
+    return IntakeApplied(
+        placed=1,
+        placed_critical_or_p0=int(decision.priority in CONST_ROADMAP_P0_PRIORITIES),
+        filed=() if decision.subject.number else (number,),
+    )
 
 
 def _failed_placement(subject: Subject, exc: GitHubOperationError) -> PlacementFailure:
@@ -1317,9 +1323,10 @@ def apply_intake(
     plan: IntakePlan,
 ) -> IntakeApplied:
     """Make the plan's writes, one candidate at a time. A candidate whose write fails is
-    skipped and named in `failed`, and the others are still written (#1443). A rate limit or a
-    token GitHub refuses stops the round, since every later write would be refused too
-    (#983)."""
+    skipped and named in `failed`, and the others are still written (#1443). An Item that a
+    person changed since the plan is refused before any write: it is no failure, the next plan
+    decides the candidate again (#4042). A rate limit or a token GitHub refuses stops the round,
+    since every later write would be refused too (#983)."""
     written: list[IntakeApplied] = []
     failed: list[PlacementFailure] = []
     for decision in plan.decisions:
@@ -1327,10 +1334,13 @@ def apply_intake(
             written.append(_apply_decision(store, decision))
         except GitHubRateLimitError, GitHubUnauthenticatedError:
             raise
+        except RoadmapItemChangedError:
+            logger.info(MESSAGES.roadmap.intake_item_changed.format(name=decision.subject.name))
         except GitHubOperationError as exc:
             failed.append(_failed_placement(decision.subject, exc))
     return IntakeApplied(
         placed=sum(each.placed for each in written),
+        placed_critical_or_p0=sum(each.placed_critical_or_p0 for each in written),
         filed=tuple(number for each in written for number in each.filed),
         failed=tuple(failed),
     )

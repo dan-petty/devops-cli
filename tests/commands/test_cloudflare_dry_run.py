@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import socket
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -28,7 +29,6 @@ from devops_cli.commands.cloudflare import (
     tunnel_routes,
     tunnel_sync,
 )
-from devops_cli.config.settings import Settings
 from devops_cli.dry_run import get_dry_run_class
 from devops_cli.main import app
 
@@ -126,22 +126,19 @@ def block_external_calls(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture(autouse=True)
-def mock_cloudflare_settings(monkeypatch: pytest.MonkeyPatch) -> None:
+def mock_cloudflare_settings(
+    config: Callable[..., Path], monkeypatch: pytest.MonkeyPatch, keyring_store: Any
+) -> None:
     """Provide dummy settings so dry-run commands do not fail on missing tokens or domain."""
-    dummy_settings = Settings()
-    dummy_settings.cloudflare.account_id = "test-account-id"
-    dummy_settings.cloudflare.zone_id = "test-zone-id"
-    dummy_settings.cloudflare.domain = "example.com"
-    dummy_settings.cloudflare.tunnel = "test-tunnel-id"
-
-    monkeypatch.setattr(
-        "devops_cli.commands.cloudflare.load_settings",
-        lambda: dummy_settings,
+    config(
+        cloudflare={
+            "account_id": "test-account-id",
+            "zone_id": "test-zone-id",
+            "domain": "example.com",
+            "tunnel": "test-tunnel-id",
+        }
     )
-    monkeypatch.setattr(
-        "devops_cli.commands.cloudflare.get_cloudflare_api_token",
-        lambda _s: "test-token",
-    )
+    monkeypatch.setenv("DEVOPS_CLI_CLOUDFLARE_API_TOKEN", "test-token")
 
 
 def test_command_dry_run_class_declarations() -> None:

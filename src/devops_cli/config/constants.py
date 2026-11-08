@@ -1351,6 +1351,7 @@ CONST_GIT_NAME_STATUS_CHANGE_TYPES: Final[dict[str, str]] = {
 CONST_GIT_NAME_STATUS_TWO_PATH_LETTERS: Final[frozenset[str]] = frozenset({"C", "R"})
 CONST_GIT_WORKTREE_PREFIX: Final[str] = "worktree "
 CONST_GIT_HEAD_PREFIX: Final[str] = "HEAD "
+CONST_GIT_IGNORED_PREFIX: Final[str] = "!! "
 CONST_GIT_BRANCH_PREFIX: Final[str] = "branch "
 CONST_GIT_LOCKED_TOKEN: Final[str] = "locked"
 CONST_GIT_PRUNABLE_TOKEN: Final[str] = "prunable"
@@ -2940,6 +2941,10 @@ CONST_CLOUD_METADATA_IPV4: Final[frozenset[ipaddress.IPv4Address]] = frozenset(
         "192.0.0.192",  # Oracle Cloud (Classic)
         "169.254.42.42",  # Scaleway
     )
+)
+# The metadata address that every major cloud answers on. `devops k8s crawl4ai-check` aims at it.
+CONST_CLOUD_METADATA_PRIMARY_IPV4: Final[ipaddress.IPv4Address] = ipaddress.IPv4Address(
+    "169.254.169.254"
 )
 CONST_CLOUD_METADATA_IPV6: Final[frozenset[ipaddress.IPv6Address]] = frozenset(
     ipaddress.IPv6Address(ip)

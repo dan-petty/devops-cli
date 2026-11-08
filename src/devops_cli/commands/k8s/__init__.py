@@ -13,6 +13,7 @@ from devops_cli.commands.k8s.cluster_context import (
 )
 from devops_cli.commands.k8s.cluster_jobs import run_job
 from devops_cli.commands.k8s.cluster_secret_push import push_secrets
+from devops_cli.commands.k8s.crawl4ai_check import k8s_crawl4ai_check
 from devops_cli.commands.k8s.diagnostics import (
     chaos_cmd,
     diff_helm_cmd,
@@ -82,6 +83,7 @@ app.command("lint")(k8s_lint)
 app.command("audit")(k8s_audit)
 app.command("check-deprecated")(k8s_check_deprecated)
 app.command("image-pins")(k8s_image_pins)
+app.command("crawl4ai-check")(k8s_crawl4ai_check)
 app.command("create-tls-secret")(create_tls_secret)
 app.command("enable-tls")(enable_tls_stack)
 app.command("validate")(k8s_validate)

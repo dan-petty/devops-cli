@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
-import subprocess
 from pathlib import Path
-from typing import Any
 
 import pytest
 from typer.testing import CliRunner
@@ -15,15 +13,16 @@ from devops_cli.commands.ci import app as ci_app
 from devops_cli.commands.ci import get_check_spec
 from devops_cli.core.coverage_index import INDEX_FORMAT_VERSION, load_index
 from tests.support.fakes.git import GitFake
-from tests.support.fakes.process import ProcessAnswer, ProcessCall
+from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
 
 runner = CliRunner()
 
 
-def _make_git_repo(tmp_path: Path, git_fake: GitFake) -> Path:
-    """Initialize a miniature repository layout with source and test files."""
+def _make_git_repo(tmp_path: Path, git_fake: GitFake, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Initialize a miniature repository layout with source and test files, the current directory."""
     import hashlib
 
+    monkeypatch.chdir(tmp_path)
     (tmp_path / ".git").mkdir(parents=True, exist_ok=True)
     (tmp_path / ".git" / "HEAD").write_text("ref: refs/heads/main\n", encoding="utf-8")
 
@@ -102,23 +101,11 @@ def _write_minimal_coverage_db(db_path: Path, src_abs: Path, test_rel: str) -> N
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def test_coverage_build_index_runs_exact_argv_and_ctrace_env(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+@pytest.mark.usefixtures("ci_root")
+def test_coverage_build_index_runs_exact_argv_and_ctrace_env(process_fake: ProcessFake) -> None:
     """--build-index appends --cov-context=test and passes COVERAGE_CORE=ctrace to run_subprocess."""
-    executed: list[tuple[list[str], dict[str, str] | None]] = []
-
-    def mock_run_subprocess(
-        cmd: list[str], *args: Any, env: dict[str, str] | None = None, **kwargs: Any
-    ) -> subprocess.CompletedProcess[str]:
-        executed.append((cmd, env))
-        return subprocess.CompletedProcess(cmd, 0, "", "")
-
-    monkeypatch.setattr("devops_cli.commands.ci._get_project_root", lambda: tmp_path)
-    monkeypatch.setattr("devops_cli.commands.ci.run_subprocess", mock_run_subprocess)
-    monkeypatch.setattr("devops_cli.ci.cache.compute_worktree_blob_hashes", lambda root: {})
-
     result = runner.invoke(ci_app, ["coverage", "--build-index"])
+    executed = [(list(call.argv), call.env) for call in process_fake.calls if "pytest" in call.argv]
 
     base_spec = get_check_spec("test")
     expected_cmd = list(base_spec.cmd)
@@ -139,22 +126,13 @@ def test_coverage_build_index_runs_exact_argv_and_ctrace_env(
     )
 
 
+@pytest.mark.usefixtures("ci_root")
 def test_coverage_without_build_index_preserves_standard_argv_and_env(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    process_fake: ProcessFake,
 ) -> None:
     """Plain devops ci coverage does not pass --cov-context or COVERAGE_CORE."""
-    executed: list[tuple[list[str], dict[str, str] | None]] = []
-
-    def mock_run_subprocess(
-        cmd: list[str], *args: Any, env: dict[str, str] | None = None, **kwargs: Any
-    ) -> subprocess.CompletedProcess[str]:
-        executed.append((cmd, env))
-        return subprocess.CompletedProcess(cmd, 0, "", "")
-
-    monkeypatch.setattr("devops_cli.commands.ci._get_project_root", lambda: tmp_path)
-    monkeypatch.setattr("devops_cli.commands.ci.run_subprocess", mock_run_subprocess)
-
     result = runner.invoke(ci_app, ["coverage"])
+    executed = [(list(call.argv), call.env) for call in process_fake.calls if "pytest" in call.argv]
 
     base_spec = get_check_spec("test")
     expected_cmd = list(base_spec.cmd)
@@ -183,17 +161,16 @@ def test_build_index_saves_index_after_passing_clean_run(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, git_fake: GitFake
 ) -> None:
     """A passing run on an unmodified tree builds and writes the reverse coverage index."""
-    repo = _make_git_repo(tmp_path, git_fake)
+    repo = _make_git_repo(tmp_path, git_fake, monkeypatch)
     coverage_db = repo / ".data" / ".coverage"
 
-    def mock_run(cmd: list[str], *a: Any, **kw: Any) -> bool:
+    def pytest_writes_coverage(call: ProcessCall) -> ProcessAnswer:
         _write_minimal_coverage_db(
             coverage_db, repo / "src" / "devops_cli" / "a.py", "tests/test_a.py"
         )
-        return True
+        return ProcessAnswer(returncode=0)
 
-    monkeypatch.setattr("devops_cli.commands.ci._get_project_root", lambda: repo)
-    monkeypatch.setattr("devops_cli.commands.ci._run", mock_run)
+    git_fake.answer(lambda call: "pytest" in call.argv, pytest_writes_coverage)
 
     result = runner.invoke(ci_app, ["coverage", "--build-index"])
 
@@ -216,13 +193,8 @@ def test_build_index_saves_nothing_on_failed_run(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, git_fake: GitFake
 ) -> None:
     """A failing test run saves nothing and exits with a nonzero status code."""
-    repo = _make_git_repo(tmp_path, git_fake)
-
-    def mock_run(cmd: list[str], *a: Any, **kw: Any) -> bool:
-        return False
-
-    monkeypatch.setattr("devops_cli.commands.ci._get_project_root", lambda: repo)
-    monkeypatch.setattr("devops_cli.commands.ci._run", mock_run)
+    repo = _make_git_repo(tmp_path, git_fake, monkeypatch)
+    git_fake.answer(lambda call: "pytest" in call.argv, ProcessAnswer(returncode=1))
 
     result = runner.invoke(ci_app, ["coverage", "--build-index"])
 
@@ -234,19 +206,18 @@ def test_build_index_saves_nothing_and_exits_1_when_tree_changes(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, git_fake: GitFake
 ) -> None:
     """When a tracked source file changes during the run, save nothing and exit 1."""
-    repo = _make_git_repo(tmp_path, git_fake)
+    repo = _make_git_repo(tmp_path, git_fake, monkeypatch)
     coverage_db = repo / ".data" / ".coverage"
 
-    def mock_run_with_mutation(cmd: list[str], *a: Any, **kw: Any) -> bool:
+    def pytest_changes_the_tree(call: ProcessCall) -> ProcessAnswer:
         _write_minimal_coverage_db(
             coverage_db, repo / "src" / "devops_cli" / "a.py", "tests/test_a.py"
         )
         # Mutate tracked source file during execution
         (repo / "src" / "devops_cli" / "a.py").write_text("A = 999\n", encoding="utf-8")
-        return True
+        return ProcessAnswer(returncode=0)
 
-    monkeypatch.setattr("devops_cli.commands.ci._get_project_root", lambda: repo)
-    monkeypatch.setattr("devops_cli.commands.ci._run", mock_run_with_mutation)
+    git_fake.answer(lambda call: "pytest" in call.argv, pytest_changes_the_tree)
 
     result = runner.invoke(ci_app, ["coverage", "--build-index"])
 

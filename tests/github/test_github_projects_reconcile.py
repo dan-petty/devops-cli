@@ -170,26 +170,7 @@ def _wire(
     state: str = "open",
     preset_quota: bool = True,
 ) -> None:
-    limiter = get_github_rate_limiter()
-    if preset_quota:
-        limiter.update_quota(
-            "graphql", remaining=fake.server.remaining, limit=5000, reset_epoch=4_102_444_800.0
-        )
-    limiter.update_quota("core", remaining=5000, limit=5000, reset_epoch=4_102_444_800.0)
-
-    def gh_side_effect(call: ProcessCall) -> subprocess.CompletedProcess[str]:
-        return fake(list(call.argv))
-
-    process_fake.answer(
-        lambda call: bool(call.argv and call.argv[0] == "gh"),
-        ProcessAnswer(side_effect=gh_side_effect),
-    )
-
-    for s in ("open", "closed", "all"):
-        issues = [item for item in fake.issues if s == "all" or item["state"] == s]
-        pulls = [item for item in fake.pulls if s == "all" or item["state"] == s]
-        github_api.route("GET", f"/repos/{REPO}/issues?state={s}&per_page=100", github_json(issues))
-        github_api.route("GET", f"/repos/{REPO}/pulls?state={s}&per_page=100", github_json(pulls))
+    fake.install(process_fake, github_api, preset_quota=preset_quota)
 
 
 def _reconcile(

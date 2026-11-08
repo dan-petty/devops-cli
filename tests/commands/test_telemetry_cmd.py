@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from unittest.mock import patch
+from typing import Any
 
 from typer.testing import CliRunner
 
 from devops_cli.commands.telemetry import app
 from devops_cli.dry_run import set_dry_run
+from tests.support.fakes.otlp import FakeCollector
 
 runner = CliRunner()
 
@@ -36,28 +37,25 @@ def test_telemetry_test_dry_run() -> None:
         set_dry_run(False)
 
 
-def test_telemetry_status_live_mocked() -> None:
+def test_telemetry_status_live(cli: Any, otlp: FakeCollector) -> None:
     """devops telemetry status displays formatted table."""
-    with patch(
-        "devops_cli.telemetry.tracer.OTelTelemetryClient.test_connection",
-        return_value=(True, "HTTP 200 OK", 5.2),
-    ):
-        result = runner.invoke(app, ["status"])
-        assert result.exit_code == 0
-        assert "OpenTelemetry Observability Status" in result.output
-        assert "OTLP Endpoint" in result.output
-        assert "Connected" in result.output
+    otlp.answer(200)
+
+    result = cli("telemetry", "status")
+
+    assert result.exit_code == 0
+    assert "OpenTelemetry Observability Status" in result.output
+    assert "OTLP Endpoint" in result.output
+    assert "Connected" in result.output
 
 
-def test_telemetry_test_live_mocked() -> None:
+def test_telemetry_test_live(cli: Any, otlp: FakeCollector) -> None:
     """devops telemetry test emits span and prints confirmation."""
-    with patch(
-        "devops_cli.telemetry.tracer.OTelTelemetryClient._send_payload",
-        return_value=None,
-    ):
-        result = runner.invoke(app, ["test", "--name", "custom_test_span"])
-        assert result.exit_code == 0
-        assert "Test span emitted successfully" in result.output
+    result = cli("telemetry", "test", "--name", "custom_test_span")
+
+    assert result.exit_code == 0
+    assert "Test span emitted successfully" in result.output
+    assert "custom_test_span" in [span.name for span in otlp.spans]
 
 
 def test_telemetry_open_ui() -> None:

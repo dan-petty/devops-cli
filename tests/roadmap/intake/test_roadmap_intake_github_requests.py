@@ -119,8 +119,8 @@ def test_a_candidate_with_status_and_value_labels_gets_only_effort_and_priority(
 def test_a_priority_a_person_sets_between_the_plan_and_its_write_stays() -> None:
     """A person labels the candidate `priority/p1-high` between `plan_intake` and
     `apply_intake`. The Priority write sees the change and refuses before it writes, so the
-    person's Priority stays, the job record claims none, and the run names the candidate as
-    failed (ADR 0002)."""
+    person's Priority stays, the job record claims none, and the run counts no failure: the
+    candidate stays a candidate (ADR 0002, #4042)."""
     github, store = on_github()
     github.seed_issue(1, "feat: issue one", labels=("type/feature",))
     _, apply = intake_on_github(store, FakeModel())
@@ -128,17 +128,17 @@ def test_a_priority_a_person_sets_between_the_plan_and_its_write_stays() -> None
     applied = apply()
     assert (
         applied.placed,
-        [(failure.number, failure.error.partition(":")[0]) for failure in applied.failed],
+        applied.failed,
         [label for label in github.labels(1) if label.startswith("priority/")],
         "Priority" in _record(github, 1),
-    ) == (0, [(1, "RoadmapItemChangedError")], ["priority/p1-high"], False)
+    ) == (0, (), ["priority/p1-high"], False)
 
 
 def test_a_value_a_person_sets_between_the_plan_and_its_write_stays_and_the_next_run_finishes() -> (
     None
 ):
     """A person labels the candidate `value/high` between the plan and the writes: the Value
-    write refuses, so the candidate keeps the person's Value and no Priority. The next run
+    write refuses without a failure, so the candidate keeps the person's Value and no Priority. The next run
     finds it a candidate again and writes only Effort, its reason comment, which gives no
     Value, and Priority. The job record claims no Value (#1404, ADR 0002)."""
     github, store = on_github()
@@ -151,14 +151,14 @@ def test_a_value_a_person_sets_between_the_plan_and_its_write_stays_and_the_next
     second = apply_again()
     comments = github.comments.get(1, [])
     assert (
-        [(failure.number, failure.error.partition(":")[0]) for failure in first.failed],
+        first.failed,
         second.placed,
         github.labels(1),
         _record(github, 1),
         len(comments),
         "- Value:" in comments[0],
     ) == (
-        [(1, "RoadmapItemChangedError")],
+        (),
         1,
         ["type/feature", "value/high", "status/new", "effort/low", "priority/p2-medium"],
         {"Effort": "Low", "Priority": "P2-Medium", "Status": "New"},

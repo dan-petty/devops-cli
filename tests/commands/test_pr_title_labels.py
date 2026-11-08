@@ -7,20 +7,20 @@ the labels file and the pull request are in the in-memory roadmap.
 from __future__ import annotations
 
 import json
-from collections.abc import Iterator
 from datetime import UTC, datetime
 from typing import Any
-from unittest.mock import MagicMock, patch
 
 import pytest
 from typer.testing import CliRunner
 
 from devops_cli.commands.pr import app
-from devops_cli.core.process import PlannedProcessResult
+from devops_cli.core.process import get_process_runner
 from devops_cli.dry_run.state import set_dry_run
 from devops_cli.exceptions.git import GitHubOperationError
 from devops_cli.roadmap.stores.store import ChangeKind
+from tests.support.fakes.process import ProcessAnswer, ProcessFake
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
+from tests.support.gh_process import answer_gh, gh_argv, mentions
 
 REPO = "example/roadmap"
 LABELS_PATH = ".github/labels.yml"
@@ -76,11 +76,36 @@ def runner() -> CliRunner:
     return CliRunner()
 
 
-@pytest.fixture
-def status() -> Iterator[MagicMock]:
-    """The write of the Status (#2717), which tests/test_pr_status.py holds."""
-    with patch("devops_cli.commands.pr.set_delivered_status") as record:
-        yield record
+NO_CLOSING_ISSUES = json.dumps(
+    {
+        "data": {
+            "repository": {
+                "pullRequest": {"closingIssuesReferences": {"totalCount": 0, "nodes": []}}
+            }
+        }
+    }
+)
+
+
+@pytest.fixture(autouse=True)
+def status(gh_edge: ProcessFake) -> ProcessFake:
+    """gh, which answers `pr create` with a pull request URL and the read of the issues a pull
+    request closes with none: the write of the Status (#2717) is held by
+    tests/commands/test_pr_status.py. The fixture returns the fake, for the cases that count the
+    reads."""
+    gh_edge.answer(["gh", "pr", "create"], ProcessAnswer(stdout=PULL))
+    gh_edge.answer(mentions("closingIssuesReferences"), ProcessAnswer(stdout=NO_CLOSING_ISSUES))
+    return gh_edge
+
+
+def _status_reads(gh: ProcessFake) -> list[str]:
+    """The pull requests whose closing issues were read to set a Status, in order."""
+    return [
+        arg.removeprefix("number=")
+        for argv in gh_argv(gh)
+        for arg in argv
+        if arg.startswith("number=") and any("closingIssuesReferences" in a for a in argv)
+    ]
 
 
 @pytest.fixture
@@ -100,16 +125,17 @@ def _labeled(roadmap: InMemoryRoadmapStore) -> set[tuple[int, str | None]]:
     }
 
 
-def _create(runner: CliRunner, title: str, *args: str) -> tuple[Any, MagicMock]:
-    gh = MagicMock(return_value=MagicMock(returncode=0, stdout=PULL, stderr=""))
-    with (
-        patch("shutil.which", return_value="/usr/bin/gh"),
-        patch("devops_cli.commands.pr.run_gh", gh),
-    ):
-        return (
-            runner.invoke(app, ["create", "--title", title, "--body", BODY, "--repo", REPO, *args]),
-            gh,
-        )
+def _create(runner: CliRunner, title: str, *args: str) -> tuple[Any, list[list[str]]]:
+    """Run `devops pr create` and return the result and the `gh` commands it sent that are no read
+    of the closing issues."""
+    result = runner.invoke(app, ["create", "--title", title, "--body", BODY, "--repo", REPO, *args])
+    gh = get_process_runner()
+    sent = [
+        ["gh", *argv]
+        for argv in gh_argv(gh)  # type: ignore[arg-type]
+        if not any("closingIssuesReferences" in a for a in argv)
+    ]
+    return result, sent
 
 
 @pytest.mark.usefixtures("status")
@@ -128,7 +154,7 @@ def test_create_gives_the_pull_request_the_labels_of_its_title(
         result.exit_code,
         _labeled(roadmap_store),
         "warning" in result.output.lower(),
-        gh.call_count,
+        len(gh),
     ) == (0, {(pull, label) for label in labels}, False, 1)
 
 
@@ -149,7 +175,7 @@ def test_a_scope_with_no_declared_label_opens_nothing_and_names_the_label(
     result, gh = _create(runner, "fix(zzz-unknown): a title")
     assert (
         result.exit_code,
-        gh.call_count,
+        len(gh),
         _labeled(roadmap_store),
         "scope/zzz-unknown" in result.stderr,
         LABELS_PATH in result.stderr,
@@ -161,16 +187,9 @@ def test_a_scope_with_no_declared_label_opens_nothing_and_names_the_label(
 def test_a_refused_label_exits_1_names_it_and_leaves_the_pull_request(
     runner: CliRunner, roadmap_store: InMemoryRoadmapStore, pull: int
 ) -> None:
-    add = roadmap_store.label_issue
-
-    def refuse_the_type(number: int, label: str) -> None:
-        if label == "type/bug":
-            raise GitHubOperationError("HTTP 422")
-        add(number, label)
-
-    with patch.object(roadmap_store, "label_issue", side_effect=refuse_the_type):
-        result, gh = _create(runner, "fix(ai): a title")
-    commands = [call.args[0][:3] for call in gh.call_args_list]
+    roadmap_store.fail_write(write="label_issue", error=GitHubOperationError("HTTP 422"))
+    result, gh = _create(runner, "fix(ai): a title")
+    commands = [argv[:3] for argv in gh]
     assert (
         result.exit_code,
         "pull/1" in result.output or "#1" in result.output,
@@ -187,67 +206,54 @@ def test_a_refused_label_exits_1_names_it_and_leaves_the_pull_request(
     "text", [None, "not: a list of label specs"], ids=["missing", "unreadable"]
 )
 def test_a_labels_file_that_is_missing_or_unreadable_opens_nothing_and_names_the_file(
-    runner: CliRunner, roadmap_store: InMemoryRoadmapStore, status: MagicMock, text: str | None
+    runner: CliRunner, roadmap_store: InMemoryRoadmapStore, status: ProcessFake, text: str | None
 ) -> None:
     if text is not None:
         roadmap_store.seed_file(LABELS_PATH, text, ref="feat/other")
     result, gh = _create(runner, "fix(ai): a title", "--base", "feat/other")
     assert (
         result.exit_code,
-        gh.call_count,
+        len(gh),
         LABELS_PATH in result.stderr,
         _labeled(roadmap_store),
-        status.call_count,
+        len(_status_reads(status)),
     ) == (1, 0, True, set(), 0)
 
 
 def test_the_status_is_set_when_a_label_is_refused(
-    runner: CliRunner, roadmap_store: InMemoryRoadmapStore, pull: int, status: MagicMock
+    runner: CliRunner, roadmap_store: InMemoryRoadmapStore, pull: int, status: ProcessFake
 ) -> None:
-    with patch.object(roadmap_store, "label_issue", side_effect=GitHubOperationError("HTTP 502")):
-        result, _ = _create(runner, "fix(ai): a title")
-    assert (result.exit_code, status.call_args.args) == (1, (REPO, pull, "In Progress"))
+    roadmap_store.fail_write(write="label_issue", error=GitHubOperationError("HTTP 502"))
+    result, _ = _create(runner, "fix(ai): a title")
+    assert (result.exit_code, _status_reads(status)) == (1, [str(pull)])
 
 
 def test_create_exits_1_and_names_pull_request_when_label_issue_unauthenticated(
-    runner: CliRunner, roadmap_store: InMemoryRoadmapStore, pull: int, status: MagicMock
+    runner: CliRunner, roadmap_store: InMemoryRoadmapStore, pull: int, status: ProcessFake
 ) -> None:
     from devops_cli.exceptions.git import GitHubUnauthenticatedError
 
-    with patch.object(
-        roadmap_store, "label_issue", side_effect=GitHubUnauthenticatedError("bad token")
-    ):
-        result, _ = _create(runner, "fix(ai): a title")
+    roadmap_store.fail_write(write="label_issue", error=GitHubUnauthenticatedError("bad token"))
+    result, _ = _create(runner, "fix(ai): a title")
     assert result.exit_code == 1
     assert f"#{pull}" in result.stderr
 
 
 @pytest.mark.usefixtures("status")
 def test_the_rest_fallback_gives_the_labels_too(
-    runner: CliRunner, roadmap_store: InMemoryRoadmapStore, pull: int
+    runner: CliRunner, roadmap_store: InMemoryRoadmapStore, pull: int, status: ProcessFake
 ) -> None:
     created = {"number": pull, "html_url": "https://example.com/org/repo/pull/1"}
-    replies = {
-        "pr create": MagicMock(returncode=1, stdout="", stderr="GraphQL: rate limit"),
-        "pulls?head=": MagicMock(returncode=0, stdout="[]", stderr=""),
-        "repos/example/roadmap/pulls -f": MagicMock(returncode=0, stdout=json.dumps(created)),
-        "repos/example/roadmap": MagicMock(
-            returncode=0, stdout=json.dumps({"default_branch": "m"})
-        ),
-    }
-
-    def gh(args: list[str], **_: object) -> MagicMock:
-        sent = " ".join(args)
-        return replies[max((key for key in replies if key in sent), key=len)]
-
-    with (
-        patch("shutil.which", return_value="/usr/bin/gh"),
-        patch("devops_cli.commands.pr._detect_current_branch", return_value="fix/x"),
-        patch("devops_cli.commands.pr.run_gh", side_effect=gh),
-    ):
-        result = runner.invoke(
-            app, ["create", "--title", "fix(ai): a title", "--body", BODY, "--repo", REPO]
-        )
+    status.answer(["git", "branch", "--show-current"], ProcessAnswer(stdout="fix/x\n"))
+    answer_gh(status, "pr", "create", returncode=1, stderr="GraphQL: the query failed")
+    status.answer(mentions("pulls?head="), ProcessAnswer(stdout="[]"))
+    status.answer(
+        mentions(f"repos/{REPO}/pulls", "title="), ProcessAnswer(stdout=json.dumps(created))
+    )
+    status.answer(["gh", "api", f"repos/{REPO}"], ProcessAnswer(stdout='{"default_branch": "m"}'))
+    result = runner.invoke(
+        app, ["create", "--title", "fix(ai): a title", "--body", BODY, "--repo", REPO]
+    )
     assert (result.exit_code, _labeled(roadmap_store)) == (
         0,
         {(pull, "type/bug"), (pull, "scope/ai")},
@@ -271,22 +277,17 @@ def test_a_dry_run_reads_no_label_file_and_adds_no_label(
     runner: CliRunner,
     roadmap_store: InMemoryRoadmapStore,
     roadmap_store_repos: list[str],
-    status: MagicMock,
+    status: ProcessFake,
 ) -> None:
     set_dry_run(True)
-    planned = PlannedProcessResult(method="gh", argv=("gh", "pr", "create"))
-    with (
-        patch("shutil.which", return_value="/usr/bin/gh"),
-        patch("devops_cli.commands.pr.run_gh", return_value=planned),
-    ):
-        result = runner.invoke(
-            app, ["create", "--title", "fix(ai): a title", "--body", BODY, "--repo", REPO]
-        )
-    assert (result.exit_code, roadmap_store_repos, _labeled(roadmap_store), status.call_count) == (
+    result = runner.invoke(
+        app, ["create", "--title", "fix(ai): a title", "--body", BODY, "--repo", REPO]
+    )
+    assert (result.exit_code, roadmap_store_repos, _labeled(roadmap_store), status.calls) == (
         0,
         [],
         set(),
-        0,
+        [],
     )
 
 
@@ -294,25 +295,20 @@ def test_a_dry_run_lists_the_label_requests_of_the_title(
     runner: CliRunner, roadmap_store_repos: list[str]
 ) -> None:
     set_dry_run(True)
-    planned = PlannedProcessResult(method="gh", argv=("gh", "pr", "create"))
-    with (
-        patch("shutil.which", return_value="/usr/bin/gh"),
-        patch("devops_cli.commands.pr.run_gh", return_value=planned),
-    ):
-        result = runner.invoke(
-            app,
-            [
-                "create",
-                "--title",
-                "fix(ai): a title",
-                "--body",
-                BODY,
-                "--repo",
-                REPO,
-                "--base",
-                "feat/base",
-            ],
-        )
+    result = runner.invoke(
+        app,
+        [
+            "create",
+            "--title",
+            "fix(ai): a title",
+            "--body",
+            BODY,
+            "--repo",
+            REPO,
+            "--base",
+            "feat/base",
+        ],
+    )
     lines = result.stdout.splitlines()
     assert (result.exit_code, roadmap_store_repos) == (0, [])
     assert [
@@ -345,7 +341,7 @@ def test_labels_file_declares_scope_git() -> None:
 
 @pytest.mark.usefixtures("status")
 def test_a_title_with_git_scope_gets_the_scope_git_label(
-    runner: CliRunner, roadmap_store: InMemoryRoadmapStore, status: MagicMock
+    runner: CliRunner, roadmap_store: InMemoryRoadmapStore, status: ProcessFake
 ) -> None:
     """A PR whose title scope is git receives scope/git when declared (#2800)."""
     from tests.support.paths import REPO_ROOT

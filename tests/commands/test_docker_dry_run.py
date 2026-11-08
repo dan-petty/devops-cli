@@ -6,6 +6,7 @@ returns the requests that the real run would make.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -37,6 +38,8 @@ from devops_cli.commands.docker import (
 )
 from devops_cli.dry_run import get_dry_run_class
 from devops_cli.main import app
+from tests.support.fakes.docker_engine import DockerEngineFake
+from tests.support.fakes.process import ProcessFake
 
 runner = CliRunner()
 
@@ -54,18 +57,13 @@ DOCKER_REQUEST_PLAN_COMMANDS = [
 
 
 @pytest.fixture
-def block_docker_and_subprocesses(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Ensure no Docker client or subprocess call is made during dry run."""
-
-    def _fail_engine(*args: Any, **kwargs: Any) -> Any:
-        raise AssertionError(f"Docker engine accessed during dry-run: {args} {kwargs}")
-
-    def _fail_subprocess(*args: Any, **kwargs: Any) -> Any:
-        raise AssertionError(f"Subprocess call attempted during dry-run: {args} {kwargs}")
-
-    monkeypatch.setattr("devops_cli.commands.docker._engine", _fail_engine)
-    monkeypatch.setattr("subprocess.run", _fail_subprocess)
-    monkeypatch.setattr("subprocess.Popen", _fail_subprocess)
+def block_docker_and_subprocesses(
+    docker_daemon: DockerEngineFake, process_fake: ProcessFake
+) -> Iterator[None]:
+    """Fail the test when a dry run reaches the Docker engine or starts a program."""
+    yield
+    assert (docker_daemon.calls, docker_daemon.factory_params) == ([], [])
+    assert process_fake.calls == []
 
 
 @pytest.mark.parametrize("name,callback,_argv", DOCKER_REQUEST_PLAN_COMMANDS)

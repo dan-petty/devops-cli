@@ -602,6 +602,23 @@ DEFAULT_PAGE_TEXT_MAX_CHARS: int = 100_000
 # up to 4 bytes of UTF-8, and the JSON frame adds a little.
 DEFAULT_CRAWL4AI_MAX_REPLY_BYTES: int = 2 * 1024 * 1024  # 2 MiB
 
+# ── Crawl4AI Check Defaults (`devops k8s crawl4ai-check`, #3894) ────────────────
+# Local port of the `kubectl port-forward` to Service `crawl4ai`. It differs from the port 11235
+# that the README gives for `devops ai fetch-page`, so the check never meets a forward of a person.
+DEFAULT_CRAWL4AI_CHECK_LOCAL_PORT: int = 11236
+# Seconds that one request of the check may take. A refusal is fast; a slow reply is a failure.
+DEFAULT_CRAWL4AI_CHECK_TIMEOUT_SECONDS: float = 30.0
+
+# ── Service Probe Defaults (throwaway pod and port-forward of `devops_cli.k8s.service_probe`) ──
+# Seconds that a forward has to answer its health route before the check stops.
+DEFAULT_SERVICE_FORWARD_WAIT_SECONDS: float = 30.0
+DEFAULT_SERVICE_FORWARD_POLL_SECONDS: float = 0.5
+# Seconds that a throwaway pod has to reach the phase Running, and seconds that one TCP probe waits.
+DEFAULT_PROBE_POD_START_SECONDS: int = 120
+DEFAULT_PROBE_CONNECT_SECONDS: int = 3
+# The pod stops itself after this time, so a pod that `kubectl delete` missed does not stay.
+DEFAULT_PROBE_POD_LIFETIME_SECONDS: int = 600
+
 DEFAULT_SIGNATURE_BODY: str = "..."
 DEFAULT_TOOL_INTERFACE_FORMAT: Literal["python", "markdown"] = "python"
 DEFAULT_PROJECT_VERSION: str = "0.1.0"

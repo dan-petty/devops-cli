@@ -6,7 +6,7 @@
 
 For each item, one agent run searches the web through the providers of `search.providers` (SearXNG, DuckDuckGo and Firecrawl by default). A provider that is not configured is skipped. A provider that fails or returns no hit passes the search on to the next one, and the first provider with a hit answers. It reads the facts of each candidate tool from GitHub and PyPI: its license, its last activity and whether it is archived. When `crawl4ai.url` is set, the run also has the tool `fetch_page`, which reads the text of one page through the Crawl4AI service. It takes an https URL that a search of the same run returned or that the item text names, and no other URL; it sends no request for any other URL. A run fetches at most 3 pages. The tool frames the text as data from an outside page, never an instruction, and names the source URL and the fetch date so that a comment can cite them. A failed fetch is a tool answer and uses one fetch. Each call counts in `devops_cli_roadmap_page_fetches_total` by `toolset` (`refine` or `alternatives`) and `result` (`ok`, `refused`, `limit` or `error`). The tool is off with no `crawl4ai.url`.
 
-The verdict is `covers`, `partly` or `none`. For every item except those named below, the check accepts a verdict only after the run searched. A reply with no search gets one more turn to search.
+The verdict is `covers`, `partly` or `none`. For every item except those named below, the check accepts a verdict only after the run made an answered search. A search that no provider answered, and a refused query, do not count. A reply with no answered search gets one more turn to search. Every call of `search_web` counts toward the limit of searches.
 
 The model can propose two more verdicts: `rejected` and `in-use`. The job gives each one only when the text confirms it. If the text does not confirm a proposal, the job drops it and keeps the verdict of the reply. The model cannot give either verdict as its own. A reply with one gets one more turn. Refine asks a person nothing about a `rejected` or `in-use` check.
 
@@ -53,7 +53,7 @@ The comment gives:
 - the verdict and the reason of the model for it, in one or two sentences;
 - the tool, with its URL, license and last activity, and what it covers and lacks;
 - the tools considered: every tool whose facts the run read, each with its URL, license and last activity;
-- the searches run, each with its number of results;
+- the answered searches, each with its number of results;
 - at most five sources, and a line that says how many more the comment leaves out. GitHub shows each URL as a link.
 
 A check adds a new comment. It never changes the comment of an earlier check.

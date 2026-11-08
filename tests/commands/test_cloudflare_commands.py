@@ -2,42 +2,94 @@
 
 from __future__ import annotations
 
+import json
+from collections.abc import Callable, Mapping
+from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock, patch
 
 import httpx2
 import pytest
-from typer.testing import CliRunner
 
 from devops_cli.cloudflare.client import CloudflareClient
-from devops_cli.commands.cloudflare import app
-from devops_cli.config.settings import Settings
 from devops_cli.exceptions.cloudflare import CloudflareAPIError, CloudflareAuthError
-from devops_cli.models.cloudflare import (
-    CloudflareAccessApplication,
-    CloudflareAccessPolicy,
-    CloudflareDNSRecord,
-    CloudflareTokenStatus,
-    CloudflareTunnelConfig,
-    CloudflareTunnelIngressRule,
-    CloudflareZone,
-)
 from tests.support.fakes.dial import record_connects
 from tests.support.fakes.dns import DnsFake
-from tests.support.fakes.http import WebFake
+from tests.support.fakes.http import RecordedRequest, WebFake
 
-runner = CliRunner()
+API_PATH = "/client/v4"
+ACCOUNT = "test-account-123"
+ZONE = "test-zone-456"
+TUNNEL_ID = "a40935f3-b56c-4a96-a7a5-a409ff330b0a"
+APPS = f"/accounts/{ACCOUNT}/access/apps"
+MANAGED = "Managed by devops-cli"
+
+
+def envelope(result: Any) -> dict[str, Any]:
+    """The body that the Cloudflare API v4 wraps around every result."""
+    return {"success": True, "result": result}
+
+
+def created(identifier: str) -> Callable[[httpx2.Request], httpx2.Response]:
+    """An answer that echoes the posted body as a new object with the given id."""
+
+    def answer(request: httpx2.Request) -> httpx2.Response:
+        return httpx2.Response(
+            200, json=envelope({**json.loads(request.content), "id": identifier})
+        )
+
+    return answer
+
+
+def echo_configuration(request: httpx2.Request) -> httpx2.Response:
+    """The answer of the API to a PUT of a tunnel configuration: the stored configuration."""
+    config = json.loads(request.content)["config"]
+    return httpx2.Response(200, json=envelope({"config": config, "version": 2}))
+
+
+def cloudflare_api(web: WebFake, routes: Mapping[tuple[str, str], Any]) -> None:
+    """Serve `routes` as the Cloudflare API v4: a (method, path) pair answers with its result in
+    the API's envelope, or with the response that a callable gives. A path with no route answers
+    404, so a request the test did not expect fails the test."""
+
+    def serve(request: httpx2.Request) -> httpx2.Response:
+        path = request.url.path.removeprefix(API_PATH)
+        if (key := (request.method, path)) not in routes:
+            message = f"{request.method} {path} is not served"
+            return httpx2.Response(404, json={"success": False, "errors": [{"message": message}]})
+        answer = routes[key]
+        return answer(request) if callable(answer) else httpx2.Response(200, json=envelope(answer))
+
+    web.serve(serve)
+
+
+def sent(web: WebFake, method: str) -> list[RecordedRequest]:
+    """The requests of one method that the API received, in order."""
+    return [request for request in web.recorded if request.method == method]
+
+
+def deleted_ids(web: WebFake) -> list[str]:
+    """The record IDs a command deleted, in order."""
+    return [request.url.rsplit("/", 1)[1] for request in sent(web, "DELETE")]
 
 
 @pytest.fixture
-def mock_settings() -> Settings:
-    """Settings fixture with standardized dummy hostnames."""
-    s = Settings()
-    s.cloudflare.domain = "example.com"
-    s.cloudflare.tunnel = "homelab"
-    s.cloudflare.account_id = "test-account-123"
-    s.cloudflare.zone_id = "test-zone-456"
-    return s
+def cloudflare_zone(
+    config: Callable[..., Path],
+    monkeypatch: pytest.MonkeyPatch,
+    keyring_store: Any,
+    web: WebFake,
+) -> WebFake:
+    """The settings of a zone with standardized dummy hostnames, an API token, and the web fake."""
+    config(
+        cloudflare={
+            "domain": "example.com",
+            "tunnel": "homelab",
+            "account_id": ACCOUNT,
+            "zone_id": ZONE,
+        }
+    )
+    monkeypatch.setenv("DEVOPS_CLI_CLOUDFLARE_API_TOKEN", "cf-test")
+    return web
 
 
 def test_cloudflare_client_verify_token_success(web: WebFake) -> None:
@@ -125,319 +177,333 @@ def test_cloudflare_client_resolve_tunnel_id_passthrough_uuid() -> None:
     assert client.resolve_tunnel_id(uuid_str) == uuid_str
 
 
-def test_cloudflare_client_sync_dns_records() -> None:
+def test_cloudflare_client_sync_dns_records(web: WebFake) -> None:
     """Verify DNS record synchronization creates and leaves unchanged records."""
     client = CloudflareClient(token="test-token", zone_id="zone-123")
-    existing_rec = CloudflareDNSRecord(
-        id="rec-1",
-        type="CNAME",
-        name="example.com",
-        content="target.cfargotunnel.com",
-        proxied=True,
+    existing_rec = {
+        "id": "rec-1",
+        "type": "CNAME",
+        "name": "example.com",
+        "content": "target.cfargotunnel.com",
+        "proxied": True,
+    }
+    cloudflare_api(
+        web,
+        {
+            ("GET", "/zones/zone-123/dns_records"): [existing_rec],
+            ("POST", "/zones/zone-123/dns_records"): created("rec-2"),
+        },
     )
 
-    with (
-        patch.object(client, "list_dns_records", return_value=[existing_rec]),
-        patch.object(client, "create_dns_record") as mock_create,
-    ):
-        summary = client.sync_dns_records(
-            domain="example.com",
-            tunnel_id_or_cname="target.cfargotunnel.com",
-            subdomains=["@", "chat"],
-        )
-        assert (summary.get("example.com"), summary.get("chat.example.com")) == (
-            "unchanged",
-            "created",
-        )
-        assert mock_create.call_count == 1
+    summary = client.sync_dns_records(
+        domain="example.com",
+        tunnel_id_or_cname="target.cfargotunnel.com",
+        subdomains=["@", "chat"],
+    )
+
+    assert (summary.get("example.com"), summary.get("chat.example.com")) == (
+        "unchanged",
+        "created",
+    )
+    assert [request.json["name"] for request in sent(web, "POST")] == ["chat.example.com"]
 
 
-def test_cloudflare_client_sync_tunnel_routes() -> None:
+def test_cloudflare_client_sync_tunnel_routes(web: WebFake) -> None:
     """Verify tunnel routes synchronization includes routes and catch-all 404."""
     client = CloudflareClient(token="test-token", account_id="acc-1")
-    dummy_config = CloudflareTunnelConfig(
-        tunnel_id="tunnel-1",
-        ingress=[
-            CloudflareTunnelIngressRule(hostname="example.com", service="http://traefik:80"),
-            CloudflareTunnelIngressRule(service="http_status:404"),
-        ],
+    configurations = f"/accounts/acc-1/cfd_tunnel/{TUNNEL_ID}/configurations"
+    cloudflare_api(
+        web,
+        {
+            ("GET", configurations): {"config": {"ingress": []}},
+            ("PUT", configurations): echo_configuration,
+        },
     )
 
-    with (
-        patch.object(client, "resolve_tunnel_id", return_value="tunnel-1"),
-        patch.object(client, "_request", return_value={"config": {"ingress": []}}),
-        patch.object(
-            client, "update_tunnel_configuration", return_value=dummy_config
-        ) as mock_update,
-    ):
-        cfg = client.sync_tunnel_routes(
-            tunnel_id="tunnel-1",
-            domain="example.com",
-            service="http://traefik:80",
-            subdomains=["@"],
-        )
-        assert (len(cfg.ingress), cfg.ingress[-1].service) == (2, "http_status:404")
-        assert mock_update.call_count == 1
+    cfg = client.sync_tunnel_routes(
+        tunnel_id=TUNNEL_ID,
+        domain="example.com",
+        service="http://traefik:80",
+        subdomains=["@"],
+    )
+
+    assert (len(cfg.ingress), cfg.ingress[-1].service) == (2, "http_status:404")
+    assert len(sent(web, "PUT")) == 1
 
 
-def test_cli_cloudflare_status_command(mock_settings: Settings) -> None:
+def test_cli_cloudflare_status_command(cli: Callable[..., Any], cloudflare_zone: WebFake) -> None:
     """Verify devops cloudflare status command output."""
-    mock_client = MagicMock()
-    mock_client.account_id = "test-account-123"
-    mock_client.zone_id = "test-zone-456"
-    mock_client.verify_token.return_value = CloudflareTokenStatus(id="token-1", status="active")
-    mock_client.get_zone.return_value = CloudflareZone(
-        id="test-zone-456",
-        name="example.com",
-        status="active",
-        name_servers=["ns1", "ns2"],
+    cloudflare_api(
+        cloudflare_zone,
+        {
+            ("GET", "/user/tokens/verify"): {"id": "token-1", "status": "active"},
+            ("GET", f"/zones/{ZONE}"): {
+                "id": ZONE,
+                "name": "example.com",
+                "status": "active",
+                "name_servers": ["ns1", "ns2"],
+            },
+        },
     )
 
-    with (
-        patch("devops_cli.commands.cloudflare.load_settings", return_value=mock_settings),
-        patch("devops_cli.commands.cloudflare._resolve_client", return_value=mock_client),
-    ):
-        result = runner.invoke(app, ["status"])
-        assert (result.exit_code, "active" in result.output, "example.com" in result.output) == (
-            0,
-            True,
-            True,
-        )
+    result = cli("cloudflare", "status")
+
+    assert (result.exit_code, "active" in result.output, "example.com" in result.output) == (
+        0,
+        True,
+        True,
+    )
 
 
-def test_cli_cloudflare_status_json_output(mock_settings: Settings) -> None:
+def test_cli_cloudflare_status_json_output(
+    cli: Callable[..., Any], cloudflare_zone: WebFake
+) -> None:
     """Verify devops cloudflare status --json output."""
-    mock_client = MagicMock()
-    mock_client.account_id = "test-account-123"
-    mock_client.zone_id = "test-zone-456"
-    mock_client.verify_token.return_value = CloudflareTokenStatus(id="token-1", status="active")
-    mock_client.get_zone.return_value = CloudflareZone(
-        id="test-zone-456",
-        name="example.com",
-        status="active",
-        name_servers=["ns1", "ns2"],
+    cloudflare_api(
+        cloudflare_zone,
+        {
+            ("GET", "/user/tokens/verify"): {"id": "token-1", "status": "active"},
+            ("GET", f"/zones/{ZONE}"): {
+                "id": ZONE,
+                "name": "example.com",
+                "status": "active",
+                "name_servers": ["ns1", "ns2"],
+            },
+        },
     )
 
-    with (
-        patch("devops_cli.commands.cloudflare.load_settings", return_value=mock_settings),
-        patch("devops_cli.commands.cloudflare._resolve_client", return_value=mock_client),
-    ):
-        result = runner.invoke(app, ["status", "--json"])
-        assert (result.exit_code, '"status": "active"' in result.output) == (0, True)
+    result = cli("cloudflare", "status", "--json")
+
+    assert (result.exit_code, '"status": "active"' in result.output) == (0, True)
 
 
-def test_cli_cloudflare_dns_list(mock_settings: Settings) -> None:
+def test_cli_cloudflare_dns_list(cli: Callable[..., Any], cloudflare_zone: WebFake) -> None:
     """Verify devops cloudflare dns list command."""
-    mock_client = MagicMock()
-    mock_client.zone_id = "test-zone-456"
-    mock_client.list_dns_records.return_value = [
-        CloudflareDNSRecord(
-            id="rec-1",
-            type="CNAME",
-            name="example.com",
-            content="target.cfargotunnel.com",
-            proxied=True,
-            ttl=1,
-        )
-    ]
+    record = {
+        "id": "rec-1",
+        "type": "CNAME",
+        "name": "example.com",
+        "content": "target.cfargotunnel.com",
+        "proxied": True,
+        "ttl": 1,
+    }
+    cloudflare_api(cloudflare_zone, {("GET", f"/zones/{ZONE}/dns_records"): [record]})
 
-    with (
-        patch("devops_cli.commands.cloudflare.load_settings", return_value=mock_settings),
-        patch("devops_cli.commands.cloudflare._resolve_client", return_value=mock_client),
-    ):
-        result = runner.invoke(app, ["dns", "list"])
-        assert (
-            result.exit_code,
-            "example.com" in result.output,
-            "target.cfargotunnel.com" in result.output,
-        ) == (
-            0,
-            True,
-            True,
-        )
+    result = cli("cloudflare", "dns", "list")
 
-
-def test_cli_cloudflare_dns_sync_dry_run(mock_settings: Settings) -> None:
-    """Verify devops cloudflare dns sync --dry-run output."""
-    with patch("devops_cli.commands.cloudflare.load_settings", return_value=mock_settings):
-        result = runner.invoke(app, ["dns", "sync", "--dry-run", "--subdomains", "@,chat"])
-        assert (result.exit_code, "DRY RUN" in result.output, "example.com" in result.output) == (
-            0,
-            True,
-            True,
-        )
-
-
-def test_cli_cloudflare_tunnel_routes(mock_settings: Settings) -> None:
-    """Verify devops cloudflare tunnel routes command."""
-    mock_client = MagicMock()
-    mock_client.get_tunnel_configuration.return_value = CloudflareTunnelConfig(
-        tunnel_id="homelab",
-        ingress=[
-            CloudflareTunnelIngressRule(hostname="example.com", service="http://traefik:80"),
-            CloudflareTunnelIngressRule(service="http_status:404"),
-        ],
+    assert (
+        result.exit_code,
+        "example.com" in result.output,
+        "target.cfargotunnel.com" in result.output,
+    ) == (
+        0,
+        True,
+        True,
     )
 
-    with (
-        patch("devops_cli.commands.cloudflare.load_settings", return_value=mock_settings),
-        patch("devops_cli.commands.cloudflare._resolve_client", return_value=mock_client),
-    ):
-        result = runner.invoke(app, ["tunnel", "routes"])
-        assert (
-            result.exit_code,
-            "http://traefik:80" in result.output,
-            "http_status:404" in result.output,
-        ) == (
-            0,
-            True,
-            True,
-        )
+
+def test_cli_cloudflare_dns_sync_dry_run(cli: Callable[..., Any], cloudflare_zone: WebFake) -> None:
+    """Verify devops cloudflare dns sync --dry-run output."""
+    result = cli("cloudflare", "dns", "sync", "--dry-run", "--subdomains", "@,chat")
+
+    assert (result.exit_code, "DRY RUN" in result.output, "example.com" in result.output) == (
+        0,
+        True,
+        True,
+    )
 
 
-def test_cli_cloudflare_tunnel_sync_dry_run(mock_settings: Settings) -> None:
+def test_cli_cloudflare_tunnel_routes(cli: Callable[..., Any], cloudflare_zone: WebFake) -> None:
+    """Verify devops cloudflare tunnel routes command."""
+    cloudflare_api(
+        cloudflare_zone,
+        {
+            ("GET", f"/accounts/{ACCOUNT}/cfd_tunnel"): [{"id": TUNNEL_ID, "name": "homelab"}],
+            ("GET", f"/accounts/{ACCOUNT}/cfd_tunnel/{TUNNEL_ID}/configurations"): {
+                "config": {
+                    "ingress": [
+                        {"hostname": "example.com", "service": "http://traefik:80"},
+                        {"service": "http_status:404"},
+                    ]
+                }
+            },
+        },
+    )
+
+    result = cli("cloudflare", "tunnel", "routes")
+
+    assert (
+        result.exit_code,
+        "http://traefik:80" in result.output,
+        "http_status:404" in result.output,
+    ) == (
+        0,
+        True,
+        True,
+    )
+
+
+def test_cli_cloudflare_tunnel_sync_dry_run(
+    cli: Callable[..., Any], cloudflare_zone: WebFake
+) -> None:
     """Verify devops cloudflare tunnel sync --dry-run output."""
-    with patch("devops_cli.commands.cloudflare.load_settings", return_value=mock_settings):
-        result = runner.invoke(app, ["tunnel", "sync", "--dry-run", "--subdomains", "@,chat"])
-        assert (
-            result.exit_code,
-            "DRY RUN" in result.output,
-            "http_status:404" in result.output,
-        ) == (
-            0,
-            True,
-            True,
-        )
+    result = cli("cloudflare", "tunnel", "sync", "--dry-run", "--subdomains", "@,chat")
+
+    assert (
+        result.exit_code,
+        "DRY RUN" in result.output,
+        "http_status:404" in result.output,
+    ) == (
+        0,
+        True,
+        True,
+    )
 
 
-def test_cli_cloudflare_missing_token_error() -> None:
+def test_cli_cloudflare_missing_token_error(
+    cli: Callable[..., Any], keyring_store: Any, web: WebFake
+) -> None:
     """Verify error message when token is not configured."""
-    empty_settings = Settings()
-    with (
-        patch("devops_cli.commands.cloudflare.load_settings", return_value=empty_settings),
-        patch("devops_cli.commands.cloudflare.get_cloudflare_api_token", return_value=None),
-    ):
-        result = runner.invoke(app, ["status"])
-        assert (result.exit_code, "API token is not configured" in result.output) == (1, True)
+    result = cli("cloudflare", "status")
+
+    assert (result.exit_code, "API token is not configured" in result.output, web.sent) == (
+        1,
+        True,
+        [],
+    )
 
 
-def test_cli_cloudflare_dns_delete_dry_run(mock_settings: Settings) -> None:
+def test_cli_cloudflare_dns_delete_dry_run(
+    cli: Callable[..., Any], cloudflare_zone: WebFake
+) -> None:
     """Verify devops cloudflare dns delete --dry-run output."""
-    mock_client = MagicMock()
-    with (
-        patch("devops_cli.commands.cloudflare.load_settings", return_value=mock_settings),
-        patch("devops_cli.commands.cloudflare._resolve_client", return_value=mock_client),
-    ):
-        result = runner.invoke(app, ["dns", "delete", "--dry-run", "example.com"])
-        assert (
-            result.exit_code,
-            "DRY RUN" in result.output,
-            "DELETE" in result.output,
-            mock_client.list_dns_records.called,
-            mock_client.delete_dns_record.called,
-        ) == (0, True, True, False, False)
+    result = cli("cloudflare", "dns", "delete", "--dry-run", "example.com")
+
+    assert (
+        result.exit_code,
+        "DRY RUN" in result.output,
+        "DELETE" in result.output,
+        cloudflare_zone.sent,
+    ) == (0, True, True, [])
 
 
-def test_cli_cloudflare_dns_delete_success(mock_settings: Settings) -> None:
+def test_cli_cloudflare_dns_delete_success(
+    cli: Callable[..., Any], cloudflare_zone: WebFake
+) -> None:
     """Verify devops cloudflare dns delete successfully deletes matched records."""
-    mock_client = MagicMock()
-    mock_client.list_dns_records.return_value = [
-        CloudflareDNSRecord(
-            id="rec-1",
-            type="CNAME",
-            name="example.com",
-            content="target.cfargotunnel.com",
-            proxied=True,
-            ttl=1,
-            comment="Managed by devops-cli",
-        )
-    ]
-    with (
-        patch("devops_cli.commands.cloudflare.load_settings", return_value=mock_settings),
-        patch("devops_cli.commands.cloudflare._resolve_client", return_value=mock_client),
-    ):
-        result = runner.invoke(app, ["dns", "delete", "example.com"])
-        assert (
-            result.exit_code,
-            "Deleted" in result.output,
-            mock_client.delete_dns_record.call_count,
-        ) == (0, True, 1)
+    record = {
+        "id": "rec-1",
+        "type": "CNAME",
+        "name": "example.com",
+        "content": "target.cfargotunnel.com",
+        "proxied": True,
+        "ttl": 1,
+        "comment": MANAGED,
+    }
+    cloudflare_api(
+        cloudflare_zone,
+        {
+            ("GET", f"/zones/{ZONE}/dns_records"): [record],
+            ("DELETE", f"/zones/{ZONE}/dns_records/rec-1"): {"id": "rec-1"},
+        },
+    )
+
+    result = cli("cloudflare", "dns", "delete", "example.com")
+
+    assert (result.exit_code, "Deleted" in result.output, deleted_ids(cloudflare_zone)) == (
+        0,
+        True,
+        ["rec-1"],
+    )
 
 
-def _deleted_ids(client: MagicMock) -> list[str]:
-    """The record IDs a command passed to `delete_dns_record`, in order."""
-    return [call.args[0] for call in client.delete_dns_record.call_args_list]
-
-
-def test_cli_cloudflare_dns_delete_passes_force_to_the_matching(mock_settings: Settings) -> None:
+def test_cli_cloudflare_dns_delete_passes_force_to_the_matching(
+    cli: Callable[..., Any], cloudflare_zone: WebFake
+) -> None:
     """Verify --force reaches the matching: only it deletes a record devops-cli does not manage."""
-    mock_client = MagicMock()
-    mock_client.list_dns_records.return_value = [
-        CloudflareDNSRecord(
-            id="rec-unmanaged",
-            type="CNAME",
-            name="example.com",
-            content="target.cfargotunnel.com",
-            comment=None,
-        )
-    ]
-    with (
-        patch("devops_cli.commands.cloudflare.load_settings", return_value=mock_settings),
-        patch("devops_cli.commands.cloudflare._resolve_client", return_value=mock_client),
-    ):
-        safe = runner.invoke(app, ["dns", "delete", "example.com"])
-        deletes_after_safe = mock_client.delete_dns_record.call_count
-        forced = runner.invoke(app, ["dns", "delete", "--force", "example.com"])
+    record = {
+        "id": "rec-unmanaged",
+        "type": "CNAME",
+        "name": "example.com",
+        "content": "target.cfargotunnel.com",
+        "comment": None,
+    }
+    cloudflare_api(
+        cloudflare_zone,
+        {
+            ("GET", f"/zones/{ZONE}/dns_records"): [record],
+            ("DELETE", f"/zones/{ZONE}/dns_records/rec-unmanaged"): {"id": "rec-unmanaged"},
+        },
+    )
+
+    safe = cli("cloudflare", "dns", "delete", "example.com")
+    deletes_after_safe = deleted_ids(cloudflare_zone)
+    forced = cli("cloudflare", "dns", "delete", "--force", "example.com")
 
     assert (
         safe.exit_code,
         deletes_after_safe,
         forced.exit_code,
-        _deleted_ids(mock_client),
-    ) == (0, 0, 0, ["rec-unmanaged"])
+        deleted_ids(cloudflare_zone),
+    ) == (0, [], 0, ["rec-unmanaged"])
 
 
-def test_cli_cloudflare_dns_delete_passes_type_to_the_matching(mock_settings: Settings) -> None:
+def test_cli_cloudflare_dns_delete_passes_type_to_the_matching(
+    cli: Callable[..., Any], cloudflare_zone: WebFake
+) -> None:
     """Verify --type reaches the matching: only the record of that type is deleted."""
-    mock_client = MagicMock()
-    mock_client.list_dns_records.return_value = [
-        CloudflareDNSRecord(
-            id=record_id,
-            type=record_type,
-            name="example.com",
-            content="target.cfargotunnel.com",
-            comment="Managed by devops-cli",
-        )
+    records = [
+        {
+            "id": record_id,
+            "type": record_type,
+            "name": "example.com",
+            "content": "target.cfargotunnel.com",
+            "comment": MANAGED,
+        }
         for record_id, record_type in (("rec-cname", "CNAME"), ("rec-a", "A"))
     ]
-    with (
-        patch("devops_cli.commands.cloudflare.load_settings", return_value=mock_settings),
-        patch("devops_cli.commands.cloudflare._resolve_client", return_value=mock_client),
-    ):
-        result = runner.invoke(app, ["dns", "delete", "--type", "A", "example.com"])
+    cloudflare_api(
+        cloudflare_zone,
+        {
+            ("GET", f"/zones/{ZONE}/dns_records"): records,
+            ("DELETE", f"/zones/{ZONE}/dns_records/rec-a"): {"id": "rec-a"},
+        },
+    )
 
-    assert (result.exit_code, _deleted_ids(mock_client)) == (0, ["rec-a"])
+    result = cli("cloudflare", "dns", "delete", "--type", "A", "example.com")
+
+    assert (result.exit_code, deleted_ids(cloudflare_zone)) == (0, ["rec-a"])
 
 
-def test_cloudflare_client_list_dns_records_pagination() -> None:
+def test_cloudflare_client_list_dns_records_pagination(web: WebFake) -> None:
     """Verify list_dns_records pages through all results when total_pages > 1."""
     client = CloudflareClient(token="test-token", zone_id="zone-1")
-    page1 = (
-        [{"id": "rec-1", "type": "A", "name": "a.example.com", "content": "1.2.3.4"}],
-        {"total_pages": 2, "page": 1, "per_page": 1},
-    )
-    page2 = (
-        [{"id": "rec-2", "type": "A", "name": "b.example.com", "content": "1.2.3.5"}],
-        {"total_pages": 2, "page": 2, "per_page": 1},
-    )
-    with patch.object(client, "_request", side_effect=[page1, page2]):
-        records = client.list_dns_records()
+    pages = {
+        1: (
+            [{"id": "rec-1", "type": "A", "name": "a.example.com", "content": "1.2.3.4"}],
+            {"total_pages": 2, "page": 1, "per_page": 1},
+        ),
+        2: (
+            [{"id": "rec-2", "type": "A", "name": "b.example.com", "content": "1.2.3.5"}],
+            {"total_pages": 2, "page": 2, "per_page": 1},
+        ),
+    }
+
+    def serve_page(request: httpx2.Request) -> httpx2.Response:
+        result, info = pages[int(request.url.params["page"])]
+        return httpx2.Response(200, json={**envelope(result), "result_info": info})
+
+    cloudflare_api(web, {("GET", "/zones/zone-1/dns_records"): serve_page})
+
+    records = client.list_dns_records()
+
     assert (len(records), records[0].id, records[1].id) == (2, "rec-1", "rec-2")
 
 
-def test_cloudflare_client_sync_tunnel_routes_preserves_rules() -> None:
+def test_cloudflare_client_sync_tunnel_routes_preserves_rules(web: WebFake) -> None:
     """Verify sync_tunnel_routes preserves custom rules and catch-all 404."""
     client = CloudflareClient(token="test-token", account_id="acc-1")
+    configurations = f"/accounts/acc-1/cfd_tunnel/{TUNNEL_ID}/configurations"
     existing_cfg = {
         "config": {
             "warp-routing": {"enabled": True},
@@ -447,35 +513,27 @@ def test_cloudflare_client_sync_tunnel_routes_preserves_rules() -> None:
             ],
         }
     }
-    dummy_result = CloudflareTunnelConfig(
-        tunnel_id="tunnel-1",
-        ingress=[
-            CloudflareTunnelIngressRule(
-                hostname="custom.example.com", service="http://custom:8080"
-            ),
-            CloudflareTunnelIngressRule(hostname="example.com", service="http://traefik:80"),
-            CloudflareTunnelIngressRule(service="http_status:404"),
-        ],
+    cloudflare_api(
+        web,
+        {("GET", configurations): existing_cfg, ("PUT", configurations): echo_configuration},
     )
-    with (
-        patch.object(client, "resolve_tunnel_id", return_value="tunnel-1"),
-        patch.object(client, "_request", return_value=existing_cfg),
-        patch.object(
-            client, "update_tunnel_configuration", return_value=dummy_result
-        ) as mock_update,
-    ):
-        cfg = client.sync_tunnel_routes(
-            tunnel_id="tunnel-1",
-            domain="example.com",
-            service="http://traefik:80",
-            subdomains=["@"],
-        )
-    assert (len(cfg.ingress), mock_update.call_count) == (3, 1)
+
+    cfg = client.sync_tunnel_routes(
+        tunnel_id=TUNNEL_ID,
+        domain="example.com",
+        service="http://traefik:80",
+        subdomains=["@"],
+    )
+
+    assert (len(cfg.ingress), len(sent(web, "PUT"))) == (3, 1)
 
 
-def test_cloudflare_client_sync_tunnel_routes_preserves_origin_request_and_warp_routing() -> None:
+def test_cloudflare_client_sync_tunnel_routes_preserves_origin_request_and_warp_routing(
+    web: WebFake,
+) -> None:
     """Verify sync_tunnel_routes PUT payload preserves originRequest, custom catch-all, and warp-routing."""
     client = CloudflareClient(token="test-token", account_id="acc-1")
+    configurations = f"/accounts/acc-1/cfd_tunnel/{TUNNEL_ID}/configurations"
     existing_cfg = {
         "config": {
             "warp-routing": {"enabled": True},
@@ -492,30 +550,20 @@ def test_cloudflare_client_sync_tunnel_routes_preserves_origin_request_and_warp_
             ],
         }
     }
-    requests_sent: list[tuple[str, str, Any]] = []
+    cloudflare_api(
+        web,
+        {("GET", configurations): existing_cfg, ("PUT", configurations): echo_configuration},
+    )
 
-    def fake_request(method: str, path: str, **kwargs: Any) -> Any:
-        requests_sent.append((method, path, kwargs.get("json_data")))
-        if method == "GET":
-            return existing_cfg
-        return {
-            "config": kwargs.get("json_data", {}).get("config", {}),
-            "version": 2,
-        }
+    client.sync_tunnel_routes(
+        tunnel_id=TUNNEL_ID,
+        domain="example.com",
+        service="http://traefik:80",
+        subdomains=["@"],
+    )
 
-    with (
-        patch.object(client, "resolve_tunnel_id", return_value="tunnel-1"),
-        patch.object(client, "_request", side_effect=fake_request),
-    ):
-        client.sync_tunnel_routes(
-            tunnel_id="tunnel-1",
-            domain="example.com",
-            service="http://traefik:80",
-            subdomains=["@"],
-        )
-
-    put_calls = [c for c in requests_sent if c[0] == "PUT"]
-    put_body = put_calls[0][2] if put_calls else {}
+    put_calls = sent(web, "PUT")
+    put_body = put_calls[0].json if put_calls else {}
     expected_put = {
         "config": {
             "warp-routing": {"enabled": True},
@@ -557,11 +605,12 @@ def test_cloudflare_client_sync_tunnel_routes_preserves_origin_request_and_warp_
     ids=["under-a-wildcard", "under-the-nearest-wildcard", "no-wildcard"],
 )
 def test_a_new_hostname_goes_before_the_wildcard_cloudflared_would_match_it_to(
-    existing: list[str], subdomain: str, order: list[str | None]
+    web: WebFake, existing: list[str], subdomain: str, order: list[str | None]
 ) -> None:
     """cloudflared takes the first rule whose hostname matches, and `*.example.com` matches any
     name ending in `.example.com`: a host added after it would never be reached (#1595)."""
     client = CloudflareClient(token="test-token", account_id="acc-1")
+    configurations = f"/accounts/acc-1/cfd_tunnel/{TUNNEL_ID}/configurations"
     current = {
         "config": {
             "ingress": [
@@ -570,73 +619,84 @@ def test_a_new_hostname_goes_before_the_wildcard_cloudflared_would_match_it_to(
             ]
         }
     }
-    sent: list[Any] = []
+    cloudflare_api(
+        web,
+        {("GET", configurations): current, ("PUT", configurations): echo_configuration},
+    )
 
-    def fake_request(method: str, path: str, **kwargs: Any) -> Any:
-        if method == "GET":
-            return current
-        sent.append(kwargs["json_data"]["config"]["ingress"])
-        return {"config": kwargs["json_data"]["config"], "version": 2}
+    client.sync_tunnel_routes(
+        tunnel_id=TUNNEL_ID,
+        domain="example.com",
+        service="tcp://kubernetes.default.svc.cluster.local:443",
+        subdomains=[subdomain],
+    )
 
-    with (
-        patch.object(client, "resolve_tunnel_id", return_value="tunnel-1"),
-        patch.object(client, "_request", side_effect=fake_request),
-    ):
-        client.sync_tunnel_routes(
-            tunnel_id="tunnel-1",
-            domain="example.com",
-            service="tcp://kubernetes.default.svc.cluster.local:443",
-            subdomains=[subdomain],
-        )
-
-    assert [rule.get("hostname") for rule in sent[0]] == order
+    (put,) = sent(web, "PUT")
+    assert [rule.get("hostname") for rule in put.json["config"]["ingress"]] == order
 
 
-def test_cloudflare_tunnel_sync_aborts_on_get_failure(mock_settings: Settings) -> None:
+def test_cloudflare_tunnel_sync_aborts_on_get_failure(
+    cli: Callable[..., Any], cloudflare_zone: WebFake
+) -> None:
     """When GET of current tunnel config fails, sync raises an error and sends no PUT request."""
-    mock_client = MagicMock()
-    mock_client.sync_tunnel_routes.side_effect = CloudflareAPIError("Failed reading tunnel config")
-    with (
-        patch("devops_cli.commands.cloudflare.load_settings", return_value=mock_settings),
-        patch("devops_cli.commands.cloudflare._resolve_client", return_value=mock_client),
-    ):
-        result = runner.invoke(app, ["tunnel", "sync"])
-        assert (
-            result.exit_code != 0,
-            mock_client.update_tunnel_configuration.called,
-            "Failed reading tunnel config" in result.output,
-        ) == (True, False, True)
+    configurations = f"/accounts/{ACCOUNT}/cfd_tunnel/{TUNNEL_ID}/configurations"
+    failure = httpx2.Response(
+        400, json={"success": False, "errors": [{"message": "Failed reading tunnel config"}]}
+    )
+    cloudflare_api(
+        cloudflare_zone,
+        {
+            ("GET", f"/accounts/{ACCOUNT}/cfd_tunnel"): [{"id": TUNNEL_ID, "name": "homelab"}],
+            ("GET", configurations): lambda request: failure,
+        },
+    )
+
+    result = cli("cloudflare", "tunnel", "sync")
+
+    assert (
+        result.exit_code != 0,
+        sent(cloudflare_zone, "PUT"),
+        "Failed reading tunnel config" in result.output,
+    ) == (True, [], True)
 
 
-def test_cloudflare_client_sync_tunnel_routes_aborts_on_get_failure() -> None:
+def test_cloudflare_client_sync_tunnel_routes_aborts_on_get_failure(web: WebFake) -> None:
     """CloudflareClient.sync_tunnel_routes raises CloudflareAPIError on GET failure and does not call PUT."""
     client = CloudflareClient(token="test-token", account_id="acc-1")
-    with (
-        patch.object(client, "resolve_tunnel_id", return_value="tunnel-1"),
-        patch.object(client, "_request", side_effect=CloudflareAPIError("Network timeout")),
-        patch.object(client, "update_tunnel_configuration") as mock_update,
-    ):
-        with pytest.raises(CloudflareAPIError, match="Network timeout"):
-            client.sync_tunnel_routes(tunnel_id="tunnel-1", domain="example.com")
-        assert mock_update.called is False
+    failure = httpx2.Response(
+        400, json={"success": False, "errors": [{"message": "Network timeout"}]}
+    )
+    cloudflare_api(
+        web,
+        {
+            ("GET", f"/accounts/acc-1/cfd_tunnel/{TUNNEL_ID}/configurations"): lambda request: (
+                failure
+            )
+        },
+    )
+
+    with pytest.raises(CloudflareAPIError, match="Network timeout"):
+        client.sync_tunnel_routes(tunnel_id=TUNNEL_ID, domain="example.com")
+
+    assert sent(web, "PUT") == []
 
 
 def test_cloudflare_tunnel_sync_dry_run_makes_no_network_requests(
-    mock_settings: Settings, web: WebFake
+    cli: Callable[..., Any], cloudflare_zone: WebFake
 ) -> None:
     """--dry-run makes zero network requests (neither GET nor PUT) and prints planned requests."""
-    with patch("devops_cli.commands.cloudflare.load_settings", return_value=mock_settings):
-        result = runner.invoke(app, ["tunnel", "sync", "--dry-run", "--subdomains", "@,chat"])
-        assert (
-            result.exit_code,
-            len(web.sent),
-            "GET" in result.output,
-            "PUT" in result.output,
-            "accounts/test-account-123/cfd_tunnel" in result.output,
-        ) == (0, 0, True, True, True)
+    result = cli("cloudflare", "tunnel", "sync", "--dry-run", "--subdomains", "@,chat")
+
+    assert (
+        result.exit_code,
+        len(cloudflare_zone.sent),
+        "GET" in result.output,
+        "PUT" in result.output,
+        "accounts/test-account-123/cfd_tunnel" in result.output,
+    ) == (0, 0, True, True, True)
 
 
-def test_cloudflare_client_resolve_tunnel_id_filters_deleted_tunnels() -> None:
+def test_cloudflare_client_resolve_tunnel_id_filters_deleted_tunnels(web: WebFake) -> None:
     """resolve_tunnel_id excludes tunnels matching deleted-tunnel criteria."""
     client = CloudflareClient(token="test-token", account_id="acc-1")
     tunnels_resp = [
@@ -659,24 +719,25 @@ def test_cloudflare_client_resolve_tunnel_id_filters_deleted_tunnels() -> None:
             "is_deleted": False,
         },
     ]
-    with patch.object(client, "_request", return_value=tunnels_resp):
-        resolved = client.resolve_tunnel_id("my-tunnel")
-        assert resolved == "active-uuid-3"
+    cloudflare_api(web, {("GET", "/accounts/acc-1/cfd_tunnel"): tunnels_resp})
+
+    resolved = client.resolve_tunnel_id("my-tunnel")
+
+    assert resolved == "active-uuid-3"
 
 
-def test_cli_cloudflare_dns_delete_not_found(mock_settings: Settings) -> None:
+def test_cli_cloudflare_dns_delete_not_found(
+    cli: Callable[..., Any], cloudflare_zone: WebFake
+) -> None:
     """Verify devops cloudflare dns delete when record is not found."""
-    mock_client = MagicMock()
-    mock_client.list_dns_records.return_value = []
-    with (
-        patch("devops_cli.commands.cloudflare.load_settings", return_value=mock_settings),
-        patch("devops_cli.commands.cloudflare._resolve_client", return_value=mock_client),
-    ):
-        result = runner.invoke(app, ["dns", "delete", "example.com"])
-        assert (
-            result.exit_code,
-            "Records not found: example.com" in result.output,
-        ) == (0, True)
+    cloudflare_api(cloudflare_zone, {("GET", f"/zones/{ZONE}/dns_records"): []})
+
+    result = cli("cloudflare", "dns", "delete", "example.com")
+
+    assert (
+        result.exit_code,
+        "Records not found: example.com" in result.output,
+    ) == (0, True)
 
 
 def test_cloudflare_client_list_access_applications(web: WebFake) -> None:
@@ -702,247 +763,244 @@ def test_cloudflare_client_list_access_applications(web: WebFake) -> None:
 def test_cloudflare_client_sync_access_application(web: WebFake) -> None:
     """Verify synchronizing an Access application creates app and policy."""
     client = CloudflareClient(token="test-token", account_id="acc-1")
-    dummy_app = CloudflareAccessApplication(
-        id="app-1",
-        name="Homelab Ingress",
+    cloudflare_api(
+        web,
+        {
+            ("GET", "/accounts/acc-1/access/apps"): [],
+            ("POST", "/accounts/acc-1/access/apps"): created("app-1"),
+            ("GET", "/accounts/acc-1/access/apps/app-1/policies"): [],
+            ("POST", "/accounts/acc-1/access/apps/app-1/policies"): created("pol-1"),
+        },
+    )
+
+    res = client.sync_access_application(
         domain="example.com",
+        allowed_emails=["user@example.com"],
     )
-    dummy_policy = CloudflareAccessPolicy(
-        id="pol-1",
-        name="Allow homelab authorized emails",
-        decision="allow",
-        include=[{"email": "user@example.com"}],
+
+    assert (res.get("app_id"), res.get("app_action"), res.get("policy_id")) == (
+        "app-1",
+        "created",
+        "pol-1",
     )
-    with (
-        patch.object(client, "list_access_applications", return_value=[]),
-        patch.object(client, "create_access_application", return_value=dummy_app),
-        patch.object(client, "create_or_update_access_policy", return_value=dummy_policy),
-    ):
-        res = client.sync_access_application(
-            domain="example.com",
-            allowed_emails=["user@example.com"],
-        )
-        assert (res.get("app_id"), res.get("app_action"), res.get("policy_id")) == (
-            "app-1",
-            "created",
-            "pol-1",
-        )
+    assert [request.json["domain"] for request in sent(web, "POST")[:1]] == ["example.com"]
 
 
-def test_cli_cloudflare_access_status(mock_settings: Settings) -> None:
+def test_cli_cloudflare_access_status(cli: Callable[..., Any], cloudflare_zone: WebFake) -> None:
     """Verify devops cloudflare access status command."""
-    mock_client = MagicMock()
-    mock_client.list_access_applications.return_value = [
-        CloudflareAccessApplication(
-            id="app-1",
-            name="Homelab Ingress",
-            domain="example.com",
-            session_duration="24h",
-        )
-    ]
-    with (
-        patch("devops_cli.commands.cloudflare.load_settings", return_value=mock_settings),
-        patch("devops_cli.commands.cloudflare._resolve_client", return_value=mock_client),
-    ):
-        result = runner.invoke(app, ["access", "status"])
-        assert (
-            result.exit_code,
-            "Homelab Ingress" in result.output,
-            "example.com" in result.output,
-        ) == (0, True, True)
-
-
-def test_cli_cloudflare_access_sync_dry_run(mock_settings: Settings) -> None:
-    """Verify devops cloudflare access sync --dry-run command."""
-    mock_settings.cloudflare.access.allowed_emails = ["admin@example.com"]
-    with patch("devops_cli.commands.cloudflare.load_settings", return_value=mock_settings):
-        result = runner.invoke(app, ["access", "sync", "--dry-run"])
-        assert (
-            result.exit_code,
-            "DRY RUN" in result.output,
-            "admin@example.com" in result.output,
-        ) == (0, True, True)
-
-
-def test_cli_cloudflare_access_sync_success(mock_settings: Settings) -> None:
-    """Verify devops cloudflare access sync successfully syncs application."""
-    mock_settings.cloudflare.access.allowed_emails = ["admin@example.com"]
-    mock_client = MagicMock()
-    mock_client.sync_access_application.return_value = {
-        "app_id": "app-1",
-        "app_name": "Homelab Ingress",
+    application = {
+        "id": "app-1",
+        "name": "Homelab Ingress",
         "domain": "example.com",
-        "app_action": "created",
-        "policy_id": "pol-1",
-        "allowed_emails": ["admin@example.com"],
+        "session_duration": "24h",
     }
-    with (
-        patch("devops_cli.commands.cloudflare.load_settings", return_value=mock_settings),
-        patch("devops_cli.commands.cloudflare._resolve_client", return_value=mock_client),
-    ):
-        result = runner.invoke(app, ["access", "sync"])
-        assert (
-            result.exit_code,
-            "Configured Cloudflare Access application" in result.output,
-            mock_client.sync_access_application.call_count,
-        ) == (0, True, 1)
+    cloudflare_api(cloudflare_zone, {("GET", APPS): [application]})
 
-
-def test_normalize_ip_cidr_variants() -> None:
-    """Verify IP normalization converts addresses and networks to CIDR notation."""
-    from devops_cli.cloudflare.client import _normalize_ip_cidr
-    from devops_cli.exceptions.cloudflare import CloudflareAPIError
+    result = cli("cloudflare", "access", "status")
 
     assert (
-        _normalize_ip_cidr("198.51.100.1"),
-        _normalize_ip_cidr("198.51.100.0/24"),
-        _normalize_ip_cidr("2001:db8::1"),
-        _normalize_ip_cidr("2001:DB8::1"),
-    ) == (
+        result.exit_code,
+        "Homelab Ingress" in result.output,
+        "example.com" in result.output,
+    ) == (0, True, True)
+
+
+def test_cli_cloudflare_access_sync_dry_run(
+    cli: Callable[..., Any], cloudflare_zone: WebFake, config: Callable[..., Path]
+) -> None:
+    """Verify devops cloudflare access sync --dry-run command."""
+    config(cloudflare={"access": {"allowed_emails": ["admin@example.com"]}})
+
+    result = cli("cloudflare", "access", "sync", "--dry-run")
+
+    assert (
+        result.exit_code,
+        "DRY RUN" in result.output,
+        "admin@example.com" in result.output,
+    ) == (0, True, True)
+
+
+def test_cli_cloudflare_access_sync_success(
+    cli: Callable[..., Any], cloudflare_zone: WebFake, config: Callable[..., Path]
+) -> None:
+    """Verify devops cloudflare access sync successfully syncs application."""
+    config(cloudflare={"access": {"allowed_emails": ["admin@example.com"]}})
+    cloudflare_api(
+        cloudflare_zone,
+        {
+            ("GET", APPS): [],
+            ("POST", APPS): created("app-1"),
+            ("GET", f"{APPS}/app-1/policies"): [],
+            ("POST", f"{APPS}/app-1/policies"): created("pol-1"),
+        },
+    )
+
+    result = cli("cloudflare", "access", "sync")
+
+    assert (
+        result.exit_code,
+        "Configured Cloudflare Access application" in result.output,
+        [request.url.rsplit("/", 3)[-1] for request in sent(cloudflare_zone, "POST")],
+    ) == (0, True, ["apps", "policies"])
+
+
+def test_normalize_ip_cidr_variants(web: WebFake) -> None:
+    """Verify IP normalization converts addresses and networks to CIDR notation."""
+    client = CloudflareClient(token="test-token", account_id="acc-1")
+    policies = "/accounts/acc-1/access/apps/app-1/policies"
+    cloudflare_api(web, {("GET", policies): [], ("POST", policies): created("pol-1")})
+
+    client.create_or_update_access_policy(
+        app_id="app-1",
+        name="bypass",
+        bypass_ips=["198.51.100.1", "198.51.100.0/24", "2001:db8::1", "2001:DB8::1"],
+        decision="bypass",
+    )
+
+    assert [rule["ip"]["ip"] for rule in sent(web, "POST")[0].json["include"]] == [
         "198.51.100.1/32",
         "198.51.100.0/24",
         "2001:db8::1/128",
         "2001:db8::1/128",
-    )
-    with pytest.raises(CloudflareAPIError) as raised:
-        _normalize_ip_cidr("not-an-ip")
-    assert raised.value.error_code == "CLOUDFLARE_API_ERROR"
-    with pytest.raises(CloudflareAPIError) as raised:
-        _normalize_ip_cidr("fe80::1%eth0/128")
-    assert raised.value.error_code == "CLOUDFLARE_API_ERROR"
+    ]
+    for invalid in ("not-an-ip", "fe80::1%eth0/128"):
+        with pytest.raises(CloudflareAPIError) as raised:
+            client.create_or_update_access_policy(
+                app_id="app-1", name="bypass", bypass_ips=[invalid], decision="bypass"
+            )
+        assert raised.value.error_code == "CLOUDFLARE_API_ERROR"
+    assert len(sent(web, "POST")) == 1
 
 
-def test_cloudflare_client_sync_access_with_bypass_ips() -> None:
+def test_cloudflare_client_sync_access_with_bypass_ips(web: WebFake) -> None:
     """Verify synchronizing an Access application creates bypass policy for homelab IP."""
     client = CloudflareClient(token="test-token", account_id="acc-1")
-    dummy_app = CloudflareAccessApplication(
-        id="app-1",
-        name="Homelab Ingress",
+    policies = "/accounts/acc-1/access/apps/app-1/policies"
+    ids = {"Allow homelab authorized emails": "pol-allow", "homelab-public-ip-bypass": "pol-bypass"}
+
+    def create_policy(request: httpx2.Request) -> httpx2.Response:
+        body = json.loads(request.content)
+        return httpx2.Response(200, json=envelope({**body, "id": ids[body["name"]]}))
+
+    existing_app = {"id": "app-1", "name": "Homelab Ingress", "domain": "example.com"}
+    cloudflare_api(
+        web,
+        {
+            ("GET", "/accounts/acc-1/access/apps"): [existing_app],
+            ("GET", policies): [],
+            ("POST", policies): create_policy,
+        },
+    )
+
+    res = client.sync_access_application(
         domain="example.com",
+        allowed_emails=["user@example.com"],
+        bypass_ips=["198.51.100.1"],
     )
-    dummy_allow = CloudflareAccessPolicy(
-        id="pol-allow",
-        name="Allow homelab authorized emails",
-        decision="allow",
-        include=[{"email": {"email": "user@example.com"}}],
+
+    assert (
+        res.get("app_id"),
+        res.get("app_action"),
+        res.get("policy_id"),
+        res.get("bypass_policy_id"),
+        res.get("bypass_ips"),
+        len(sent(web, "POST")),
+    ) == (
+        "app-1",
+        "existing",
+        "pol-allow",
+        "pol-bypass",
+        ["198.51.100.1"],
+        2,
     )
-    dummy_bypass = CloudflareAccessPolicy(
-        id="pol-bypass",
-        name="homelab-public-ip-bypass",
-        decision="bypass",
-        include=[{"ip": {"ip": "198.51.100.1/32"}}],
-    )
-    with (
-        patch.object(client, "list_access_applications", return_value=[dummy_app]),
-        patch.object(
-            client,
-            "create_or_update_access_policy",
-            side_effect=[dummy_allow, dummy_bypass],
-        ) as mock_policy,
-    ):
-        res = client.sync_access_application(
-            domain="example.com",
-            allowed_emails=["user@example.com"],
-            bypass_ips=["198.51.100.1"],
-        )
-        assert (
-            res.get("app_id"),
-            res.get("app_action"),
-            res.get("policy_id"),
-            res.get("bypass_policy_id"),
-            res.get("bypass_ips"),
-            mock_policy.call_count,
-        ) == (
-            "app-1",
-            "existing",
-            "pol-allow",
-            "pol-bypass",
-            ["198.51.100.1"],
-            2,
-        )
 
 
-def test_cli_cloudflare_access_sync_with_bypass_ips(mock_settings: Settings) -> None:
+def test_cli_cloudflare_access_sync_with_bypass_ips(
+    cli: Callable[..., Any], cloudflare_zone: WebFake, config: Callable[..., Path]
+) -> None:
     """Verify CLI access sync propagates --bypass-ips and displays bypass output."""
-    mock_settings.cloudflare.access.allowed_emails = ["admin@example.com"]
-    mock_client = MagicMock()
-    mock_client.sync_access_application.return_value = {
-        "app_id": "app-1",
-        "app_name": "Homelab Ingress",
-        "domain": "example.com",
-        "app_action": "created",
-        "policy_id": "pol-1",
-        "allowed_emails": ["admin@example.com"],
-        "bypass_ips": ["198.51.100.1/32"],
-        "bypass_policy_id": "pol-bypass-1",
-    }
-    with (
-        patch("devops_cli.commands.cloudflare.load_settings", return_value=mock_settings),
-        patch("devops_cli.commands.cloudflare._resolve_client", return_value=mock_client),
-    ):
-        result = runner.invoke(app, ["access", "sync", "--bypass-ips", "198.51.100.1"])
-        assert (
-            result.exit_code,
-            "Public IP bypass: 198.51.100.1/32" in result.output,
-            "homelab-public-ip-bypass" in result.output,
-            mock_client.sync_access_application.call_count,
-        ) == (0, True, True, 1)
+    config(cloudflare={"access": {"allowed_emails": ["admin@example.com"]}})
+    cloudflare_api(
+        cloudflare_zone,
+        {
+            ("GET", APPS): [],
+            ("POST", APPS): created("app-1"),
+            ("GET", f"{APPS}/app-1/policies"): [],
+            ("POST", f"{APPS}/app-1/policies"): created("pol-bypass-1"),
+        },
+    )
 
+    result = cli("cloudflare", "access", "sync", "--bypass-ips", "198.51.100.1")
 
-def test_cli_cloudflare_access_sync_settings_bypass_ip(mock_settings: Settings) -> None:
-    """Verify CLI access sync resolves bypass IP from settings.cloudflare.public_ip_bypass."""
-    mock_settings.cloudflare.access.allowed_emails = ["admin@example.com"]
-    mock_settings.cloudflare.public_ip_bypass = "198.51.100.5"
-    mock_client = MagicMock()
-    mock_client.sync_access_application.return_value = {
-        "app_id": "app-1",
-        "app_name": "Homelab Ingress",
-        "domain": "example.com",
-        "app_action": "existing",
-        "policy_id": "pol-1",
-        "allowed_emails": ["admin@example.com"],
-        "bypass_ips": ["198.51.100.5/32"],
-        "bypass_policy_id": "pol-bypass-2",
-    }
-    with (
-        patch("devops_cli.commands.cloudflare.load_settings", return_value=mock_settings),
-        patch("devops_cli.commands.cloudflare._resolve_client", return_value=mock_client),
-    ):
-        result = runner.invoke(app, ["access", "sync"])
-        assert (
-            result.exit_code,
-            mock_client.sync_access_application.call_args.kwargs.get("bypass_ips"),
-        ) == (0, ["198.51.100.5"])
-
-
-def test_cli_cloudflare_access_policies(mock_settings: Settings) -> None:
-    """Verify devops cloudflare access policies lists application policies."""
-    mock_client = MagicMock()
-    mock_client.get_access_policies.return_value = [
-        CloudflareAccessPolicy(
-            id="989871c6-c652-45c6-b8f0-b56e761afc35",
-            name="homelab-public-ip-bypass",
-            decision="bypass",
-            include=[{"ip": {"ip": "198.51.100.1/32"}}],
-        ),
-        CloudflareAccessPolicy(
-            id="pol-allow",
-            name="Allow homelab authorized emails",
-            decision="allow",
-            include=[{"email": {"email": "user@example.com"}}],
-        ),
+    bypass = [
+        request.json["include"]
+        for request in sent(cloudflare_zone, "POST")
+        if request.json.get("decision") == "bypass"
     ]
-    with (
-        patch("devops_cli.commands.cloudflare.load_settings", return_value=mock_settings),
-        patch("devops_cli.commands.cloudflare._resolve_client", return_value=mock_client),
-    ):
-        result = runner.invoke(app, ["access", "policies", "app-123"])
-        assert (
-            result.exit_code,
-            "homelab-public-ip-bypass" in result.output,
-            "bypass" in result.output,
-            "Allow homelab authorized emails" in result.output,
-        ) == (0, True, True, True)
+    assert (
+        result.exit_code,
+        "Public IP bypass: 198.51.100.1" in result.output,
+        "homelab-public-ip-bypass" in result.output,
+        bypass,
+    ) == (0, True, True, [[{"ip": {"ip": "198.51.100.1/32"}}]])
+
+
+def test_cli_cloudflare_access_sync_settings_bypass_ip(
+    cli: Callable[..., Any], cloudflare_zone: WebFake, config: Callable[..., Path]
+) -> None:
+    """Verify CLI access sync resolves bypass IP from settings.cloudflare.public_ip_bypass."""
+    config(
+        cloudflare={
+            "access": {"allowed_emails": ["admin@example.com"]},
+            "public_ip_bypass": "198.51.100.5",
+        }
+    )
+    application = {"id": "app-1", "name": "Homelab Ingress", "domain": "example.com"}
+    cloudflare_api(
+        cloudflare_zone,
+        {
+            ("GET", APPS): [application],
+            ("GET", f"{APPS}/app-1/policies"): [],
+            ("POST", f"{APPS}/app-1/policies"): created("pol-bypass-2"),
+        },
+    )
+
+    result = cli("cloudflare", "access", "sync")
+
+    bypass = [
+        request.json["include"]
+        for request in sent(cloudflare_zone, "POST")
+        if request.json.get("decision") == "bypass"
+    ]
+    assert (result.exit_code, bypass) == (0, [[{"ip": {"ip": "198.51.100.5/32"}}]])
+
+
+def test_cli_cloudflare_access_policies(cli: Callable[..., Any], cloudflare_zone: WebFake) -> None:
+    """Verify devops cloudflare access policies lists application policies."""
+    policies = [
+        {
+            "id": "989871c6-c652-45c6-b8f0-b56e761afc35",
+            "name": "homelab-public-ip-bypass",
+            "decision": "bypass",
+            "include": [{"ip": {"ip": "198.51.100.1/32"}}],
+        },
+        {
+            "id": "pol-allow",
+            "name": "Allow homelab authorized emails",
+            "decision": "allow",
+            "include": [{"email": {"email": "user@example.com"}}],
+        },
+    ]
+    cloudflare_api(cloudflare_zone, {("GET", f"{APPS}/app-123/policies"): policies})
+
+    result = cli("cloudflare", "access", "policies", "app-123")
+
+    assert (
+        result.exit_code,
+        "homelab-public-ip-bypass" in result.output,
+        "bypass" in result.output,
+        "Allow homelab authorized emails" in result.output,
+    ) == (0, True, True, True)
 
 
 def test_cloudflare_client_sync_access_application_finds_page_two_app(web: WebFake) -> None:

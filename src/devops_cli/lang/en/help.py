@@ -462,6 +462,7 @@ class K8sCommandHelp:
     bind_address: str = "Local address to bind for port-forwarding."
     lint_target: str = "Target K8s manifest file or directory to lint."
     pluto_target: str = "Target manifest file or directory to scan for deprecated APIs."
+    crawl4ai_check_local_port: str = "Local port of the kubectl port-forward to Service crawl4ai. Use a port that no program holds."
     image_pins_root: str = "Repository root whose Argo CD Applications in k8s/argocd/ are rendered."
     rbac_namespace: str = (
         "Audit only this namespace's RoleBindings and Roles; ClusterRoleBindings are always read."

@@ -567,6 +567,10 @@ class RepoMessages:
     worktrees_add_took_over: str = (
         "Took over the staged branch {branch} in worktree {path}. Commits by the App: {commits}."
     )
+    worktrees_add_kept_outside: str = "outside the managed folder"
+    worktrees_add_kept_ignored: str = "has ignored files (paths that .gitignore hides: {count})"
+    worktrees_add_kept_ignored_unknown: str = "ignored files are unknown (git status failed)"
+    worktrees_add_kept_line: str = "kept {path}: {reason}"
     worktrees_add_not_reclaimed: str = "Merged worktrees were not reclaimed: {reason}"
     worktrees_add_claimed: str = "Claimed #{issue} for an agent."
     worktrees_add_not_claimed: str = "#{issue} is not claimed for an agent: {reason}"
@@ -705,6 +709,26 @@ class K8sMessages:
     )
     image_pins_local: str = "Only the cluster or this host reaches the registry of these images, so they are not resolved: {images}"
     image_pins_dry_run: str = "Each image that the renders name is then resolved with this request: HEAD https://<registry>/v2/<repository>/manifests/<reference>"
+    crawl4ai_check_token_missing: str = (
+        "The keyring holds no entry crawl4ai_api_token. Store the token once with 'devops config "
+        "set crawl4ai.api_token'. The check sent no request."
+    )
+    crawl4ai_check_passed: str = (
+        "Crawl4AI refused all {internal} requests for internal targets and all {open} requests "
+        "without the token, and a pod with its label opens no connection to the {destinations} "
+        "destinations. The check was written for the image {image}."
+    )
+    crawl4ai_check_failed: str = (
+        "{count} check(s) of the Crawl4AI service failed: {detail}. The service serves a target "
+        "that it must refuse, or a control is missing. Do not fix this in code: file the "
+        "evidence upstream and as a comment on issue #3884."
+    )
+    crawl4ai_check_failed_requests: str = "{count} request(s) with the token were not refused"
+    crawl4ai_check_failed_open: str = "{count} request(s) without the token were not refused"
+    crawl4ai_check_failed_pod: str = "the pod opened a connection to {roles}"
+    crawl4ai_check_dry_run: str = (
+        "A dry run sends no request and starts no process. The calls above run in this order."
+    )
     rbac_audit_passed: str = (
         "RBAC audit passed: no broad or wildcard role granted to a non-system subject "
         "in {bindings} binding(s)."
@@ -812,6 +836,9 @@ class K8sMessages:
     table_title_kube_linter: str = "Kube-Linter Manifest Security Checks"
     table_title_popeye: str = "Popeye Cluster Health Sanitizer Audit"
     table_title_pluto: str = "Pluto Deprecated Kubernetes API Version Audit"
+    table_title_crawl4ai_internal: str = "Crawl4AI: requests with the token for internal targets"
+    table_title_crawl4ai_open: str = "Crawl4AI: requests without the token"
+    table_title_crawl4ai_pod: str = "Pod with the label of the service: connects"
     table_title_image_pins: str = "Image Pins of the Argo CD Applications"
     table_title_kubeconform: str = "Kubeconform Strict Schema Validation"
     table_title_nodes: str = "Nodes"
@@ -2420,13 +2447,14 @@ class RoadmapMessages:
     alternatives_reason_skip_only: str = (
         "the reply gives the verdict not-applicable, which the job sets for a skip class only"
     )
-    alternatives_reason_no_search: str = "the reply gives a verdict with no search"
+    alternatives_reason_no_search: str = "the reply gives a verdict with no answered search"
     alternatives_reason_job_verdict: str = (
         "the reply gives the verdict {verdict}, which the job sets and the model cannot give"
     )
     alternatives_retry_search: str = (
         "Call search_web at least once before you reply. The job refuses a verdict that follows "
-        "no search. Give the verdict none when the search finds no tool."
+        "no answered search. A search that fails does not count: search again. Give the verdict "
+        "none when an answered search finds no tool."
     )
     alternatives_retry_verdict: str = (
         "The verdict {verdict} is set by the job. Give the verdict covers, partly or none. "
@@ -4553,6 +4581,10 @@ class RoadmapMessages:
         "the writes failed for {count} candidate(s), and intake skipped them after writing the "
         "others; the next run tries them again: {items}"
     )
+    intake_item_changed: str = (
+        "Intake did not place {name}: a person changed its Item since the plan, so nothing was "
+        "written. The next run decides it again."
+    )
     intake_failed_item: str = "{name} ({error})"
     intake_failed_new: str = '"{title}"'
     triage_awaiting_intake: str = (
@@ -4588,6 +4620,10 @@ class RoadmapMessages:
         "The intake record {path} can't be read ({reason}), so intake does not run. Repair it, "
         "or remove it: the next intake then starts a new record and takes every candidate as "
         "never decided."
+    )
+    run_schedule_unreadable: str = (
+        "The schedule {path} can't be read ({reason}), so no job runs. Repair it, or remove it: "
+        "the next poll then takes every job as never run."
     )
     intake_issue_or_title: str = (
         "Pass --issue for existing issues, or --title and --body-file for a new candidate, "

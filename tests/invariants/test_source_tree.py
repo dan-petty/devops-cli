@@ -217,11 +217,9 @@ def test_no_mock_imports_in_src(parsed_source_trees: ParsedTreeMap) -> None:
     assert _mock_imports_in_src(parsed_source_trees) == []
 
 
-# Product code that changes its behavior when a test runs is an accommodation (#1333). The two
-# reads of `PYTEST_CURRENT_TEST` in `commands/ci.py` are the last; the ceiling goes to zero with
-# them, and a read added anywhere fails.
+# Product code that changes its behavior when a test runs is an accommodation (#1333). No module
+# under `src/` reads `PYTEST_CURRENT_TEST`.
 _PYTEST_CURRENT_TEST = "PYTEST_CURRENT_TEST"
-_PYTEST_CURRENT_TEST_CEILING = 2
 
 
 def _pytest_current_test_reads(trees: ParsedTreeMap) -> list[str]:
@@ -234,11 +232,12 @@ def _pytest_current_test_reads(trees: ParsedTreeMap) -> list[str]:
     )
 
 
-def test_product_code_reads_pytest_current_test_no_more_than_its_ceiling(
+def test_product_code_never_reads_pytest_current_test(
     parsed_source_trees: ParsedTreeMap,
 ) -> None:
-    """The count of reads of `PYTEST_CURRENT_TEST` in `src/` only goes down (#1333)."""
-    assert len(_pytest_current_test_reads(parsed_source_trees)) <= _PYTEST_CURRENT_TEST_CEILING
+    """No module under `src/` names `PYTEST_CURRENT_TEST`, so none changes its behavior when a
+    test runs (#1333)."""
+    assert _pytest_current_test_reads(parsed_source_trees) == []
 
 
 def _function_identity_checks(trees: ParsedTreeMap) -> list[str]:

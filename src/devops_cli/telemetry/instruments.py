@@ -284,9 +284,9 @@ ROADMAP_ALTERNATIVES_SEARCHES = Instrument(
     "devops_cli_roadmap_alternatives_searches",
     InstrumentKind.HISTOGRAM,
     "1",
-    "Web searches that the tools ran for one alternatives check, by verdict. One observation for "
-    "each check that the alternatives job writes. A search that a provider refused counts. A check "
-    "that the job skips for its item class runs no search and observes 0",
+    "Web searches that a provider answered for one alternatives check, by verdict. One observation "
+    "for each check that the alternatives job writes. A search that no provider answered does not "
+    "count. A check that the job skips for its item class runs no search and observes 0",
 )
 ROADMAP_PAGE_FETCHES_TOTAL = Instrument(
     "devops_cli_roadmap_page_fetches_total",

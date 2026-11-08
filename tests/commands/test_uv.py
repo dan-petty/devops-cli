@@ -2,81 +2,82 @@
 
 from __future__ import annotations
 
-import subprocess
 from pathlib import Path
 from typing import Any
-from unittest.mock import patch
 
 import pytest
-from typer.testing import CliRunner
 
-from devops_cli.commands.uv import _get_project_root
-from devops_cli.commands.uv import app as uv_app
 from tests.support.fakes.git import GitFake
-from tests.support.fakes.process import ProcessFake
+from tests.support.fakes.process import ProcessAnswer, ProcessFake
 
-runner = CliRunner()
-
-
-def _mock_proc(
-    returncode: int = 0, stdout: str = "", stderr: str = ""
-) -> subprocess.CompletedProcess[str]:
-    return subprocess.CompletedProcess(
-        args=["uv"],
-        returncode=returncode,
-        stdout=stdout,
-        stderr=stderr,
-    )
+_UV = "uv --preview-features malware-check,check-command"
 
 
-def test_uv_commands(tmp_path: Path) -> None:
+def _project(directory: Path, python_version: str | None = None) -> Path:
+    """Make `directory` a project root, with a `.python-version` file when given a version."""
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / "pyproject.toml").write_text('[project]\nname = "demo"\n', encoding="utf-8")
+    if python_version is not None:
+        (directory / ".python-version").write_text(f"{python_version}\n", encoding="utf-8")
+    return directory
+
+
+def test_uv_commands(cli: Any, process_fake: ProcessFake) -> None:
     """Verify uv sync, lock, and python-install subcommands."""
-    with patch("devops_cli.commands.uv.run_subprocess", return_value=_mock_proc(0)):
-        res_sync = runner.invoke(uv_app, ["sync", "--frozen"])
-        assert res_sync.exit_code == 0
+    res_sync = cli(["uv", "sync", "--frozen"])
+    assert res_sync.exit_code == 0
 
-        res_lock = runner.invoke(uv_app, ["lock", "--upgrade"])
-        assert res_lock.exit_code == 0
+    res_lock = cli(["uv", "lock", "--upgrade"])
+    assert res_lock.exit_code == 0
 
-        res_py = runner.invoke(uv_app, ["python-install", "--version", "3.14.0"])
-        assert res_py.exit_code == 0
+    res_py = cli(["uv", "python-install", "--version", "3.14.0"])
+    assert res_py.exit_code == 0
 
-        # uv run with args
-        res_run = runner.invoke(uv_app, ["run", "pytest", "-q"])
-        assert res_run.exit_code == 0
+    # uv run with args
+    res_run = cli(["uv", "run", "pytest", "-q"])
+    assert res_run.exit_code == 0
+
+    assert [" ".join(call.argv) for call in process_fake.calls] == [
+        f"{_UV} sync --frozen",
+        f"{_UV} lock --upgrade",
+        f"{_UV} python install 3.14.0",
+        f"{_UV} run pytest -q",
+    ]
 
 
-def test_uv_python_install_and_run_edge_cases(tmp_path: Path) -> None:
+def test_uv_python_install_and_run_edge_cases(
+    tmp_path: Path,
+    cli: Any,
+    process_fake: ProcessFake,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Verify uv python-install from .python-version, invalid version, and uv run errors."""
+    with_version = _project(tmp_path / "with-version", "3.14.10")
+    empty_dir = _project(tmp_path / "empty")
 
     # 1. uv run missing args
-    res_no_args = runner.invoke(uv_app, ["run"])
+    res_no_args = cli(["uv", "run"])
     assert res_no_args.exit_code == 1
 
     # 2. python-install from .python-version file
-    (tmp_path / ".python-version").write_text("3.14.10\n", encoding="utf-8")
-    with (
-        patch("devops_cli.commands.uv._get_project_root", return_value=tmp_path),
-        patch("devops_cli.commands.uv.run_subprocess", return_value=_mock_proc(0)),
-    ):
-        res_pv = runner.invoke(uv_app, ["python-install"])
-        assert res_pv.exit_code == 0
+    monkeypatch.chdir(with_version)
+    res_pv = cli(["uv", "python-install"])
+    assert res_pv.exit_code == 0
+    assert [" ".join(call.argv) for call in process_fake.calls] == [f"{_UV} python install 3.14.10"]
 
     # 3. python-install without version or .python-version
-    empty_dir = tmp_path / "empty"
-    empty_dir.mkdir()
-    with patch("devops_cli.commands.uv._get_project_root", return_value=empty_dir):
-        res_err = runner.invoke(uv_app, ["python-install"])
-        assert res_err.exit_code == 1
+    monkeypatch.chdir(empty_dir)
+    res_err = cli(["uv", "python-install"])
+    assert res_err.exit_code == 1
 
     # 4. python-install invalid version format
-    res_bad = runner.invoke(uv_app, ["python-install", "--version", "bad$$version"])
+    res_bad = cli(["uv", "python-install", "--version", "bad$$version"])
     assert res_bad.exit_code == 1
 
     # 5. Non-zero exit from subprocess
-    with patch("devops_cli.commands.uv.run_subprocess", return_value=_mock_proc(2)):
-        res_fail = runner.invoke(uv_app, ["sync"])
-        assert res_fail.exit_code == 2
+    process_fake.answer("uv", ProcessAnswer(returncode=2))
+    res_fail = cli(["uv", "sync"])
+    assert res_fail.exit_code == 2
 
 
 @pytest.fixture
@@ -112,13 +113,18 @@ def test_uv_operates_on_a_nested_worktree(
     nested_worktree: tuple[Path, Path],
     monkeypatch: pytest.MonkeyPatch,
     git_fake: GitFake,
+    cli: Any,
+    process_fake: ProcessFake,
 ) -> None:
     """Verify `devops uv` from a worktree under `.claude/worktrees/` syncs and locks that
     worktree's own project, not the checkout around it (#582)."""
     _, nested = nested_worktree
     monkeypatch.chdir(nested)
 
-    assert _get_project_root() == nested.resolve()
+    results = [cli(["uv", "sync"]), cli(["uv", "lock"])]
+
+    assert [result.exit_code for result in results] == [0, 0]
+    assert [call.cwd for call in process_fake.calls] == [nested.resolve()] * 2
 
 
 # =============================================================================
@@ -131,9 +137,6 @@ def _plan_lines(output: str) -> list[str]:
     import re
 
     return [line.split(". ", 1)[1] for line in output.splitlines() if re.match(r"^\s*\d+\. ", line)]
-
-
-_UV = "uv --preview-features malware-check,check-command"
 
 
 @pytest.mark.parametrize(
@@ -170,12 +173,14 @@ def test_uv_dry_run_lists_the_one_uv_command(
 
 
 def test_uv_python_install_dry_run_reads_the_python_version_file(
-    tmp_path: Path, cli: Any, process_fake: ProcessFake
+    tmp_path: Path,
+    cli: Any,
+    process_fake: ProcessFake,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Without `--version`, the plan holds the version of `.python-version`."""
-    (tmp_path / ".python-version").write_text("3.14.10\n", encoding="utf-8")
-    with patch("devops_cli.commands.uv._get_project_root", return_value=tmp_path):
-        result = cli(["uv", "python-install", "--dry-run"])
+    monkeypatch.chdir(_project(tmp_path / "project", "3.14.10"))
+    result = cli(["uv", "python-install", "--dry-run"])
 
     assert result.exit_code == 0, result.output
     assert _plan_lines(result.output) == [f"{_UV} python install 3.14.10"]

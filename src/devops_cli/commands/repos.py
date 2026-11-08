@@ -451,6 +451,11 @@ def _render_prune_item(item: Any) -> None:
         print_info(f"{item.status} {item.path} ({detail})", prefix=False)
     elif item.status == "refused":
         print_warning(f"refused {item.path}: {item.reason}", prefix=False)
+    elif item.status == "kept":
+        print_info(
+            MESSAGES.repos.worktrees_add_kept_line.format(path=item.path, reason=item.reason),
+            prefix=False,
+        )
     else:
         print_error(f"failed to remove {item.path}: {item.reason}", prefix=False)
 
@@ -585,8 +590,9 @@ def worktrees_add(
 ) -> None:
     """Create the worktree of an issue on <type>/<issue>-<slug> at the fetched origin/main.
 
-    The command first removes the worktrees of merged pull requests, as prune --confirm does,
-    because a merged worktree still holds its issue. Then it refuses an issue that a worktree,
+    The command first removes the worktrees of merged pull requests under the agent worktrees
+    folder, as prune --confirm does, because a merged worktree still holds its issue. It keeps
+    a worktree outside that folder and a worktree that holds ignored files, and names each. Then it refuses an issue that a worktree,
     the standard directory or a pushed branch of origin already holds. A pushed branch whose
     commits past origin/main all have the App as author is a staged branch: the command adds the
     worktree on it and takes --type and --slug from it. After the worktree exists, the command
@@ -611,7 +617,7 @@ def worktrees_add(
     reclaimed = reclaim_merged_worktrees(root, dry_run=is_plan) if reclaim else ReclaimResult()
     if resolved == CONST_OUTPUT_FORMAT_TABLE:
         # Each removal is shown before a later refusal can hide it.
-        for item in reclaimed.removed:
+        for item in [*reclaimed.removed, *reclaimed.kept]:
             _render_prune_item(item)
     report = _claimed(
         add_worktree(

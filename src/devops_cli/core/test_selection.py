@@ -10,6 +10,7 @@ whereas missing the one test that covers a change gives a false green.
 from __future__ import annotations
 
 import ast
+import os
 import re
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -317,6 +318,46 @@ def is_test_module(path: Path | str) -> bool:
     return (
         named.name.startswith(CONST_TEST_FILE_PREFIX) and named.suffix == CONST_PYTHON_FILE_SUFFIX
     )
+
+
+def directory_modules(directory: str, root: Path) -> list[str]:
+    """The files a directory argument stands for, as sorted repo-relative paths: the test modules
+    inside a directory of tests/, and the Python modules inside a directory of src/, at any depth.
+    The list is empty for a directory elsewhere, and for one that holds no such file (#2868)."""
+    tree = next(iter(Path(os.path.normpath(directory)).parts), "")
+    if tree not in (CONST_SOURCE_ROOT_DIR, CONST_TESTS_ROOT_DIR):
+        return []
+    found = (root / directory).rglob(f"*{CONST_PYTHON_FILE_SUFFIX}")
+    return sorted(
+        file.relative_to(root).as_posix()
+        for file in found
+        if file.is_file() and (tree == CONST_SOURCE_ROOT_DIR or is_test_module(file))
+    )
+
+
+def shard_test_files(shard: int, shards: int, root: Path) -> list[str]:
+    """The sorted repo-relative paths of the test modules of shard `shard` of `shards` (#2371).
+
+    The modules go one by one, heaviest first (most lines, then path), to the shard with the fewest
+    lines so far, and a tie goes to the lower shard. The split reads only the tree, so every runner
+    computes the same lists and no stored data can go out of date.
+    """
+
+    def line_count(module: str) -> int:
+        with (root / module).open("rb") as handle:
+            return sum(1 for _ in handle)
+
+    weighted = sorted(
+        ((line_count(module), module) for module in directory_modules(CONST_TESTS_ROOT_DIR, root)),
+        key=lambda item: (-item[0], item[1]),
+    )
+    weights = [0] * shards
+    parts: list[list[str]] = [[] for _ in range(shards)]
+    for lines, module in weighted:
+        lightest = weights.index(min(weights))
+        weights[lightest] += lines
+        parts[lightest].append(module)
+    return sorted(parts[shard - 1])
 
 
 def forces_full_run(path: str, imports: SuiteImports) -> bool:
