@@ -389,6 +389,27 @@ ROADMAP_ROW_SECONDS = Instrument(
     "that a clone failure keeps from running adds no sample. One repository adds at most 33 "
     "series: 11 rows and 3 results",
 )
+ROADMAP_STEP_SECONDS = Instrument(
+    "devops_cli_roadmap_step_seconds",
+    InstrumentKind.HISTOGRAM,
+    "s",
+    "Seconds that one step of a roadmap job took, one sample for each call of the step, by repo, "
+    "row, step and result: ok or error. The labels are those of devops_cli_roadmap_row_seconds "
+    "with a step, and the implement row sends its steps with the same labels (#4067). The stage "
+    "row sends select, plan, gate, review and apply. A refused reply adds a second plan sample "
+    "and a second gate sample, so a sample is one call and not one item. A gate that finds a "
+    "problem has the result ok. A job with no review model adds no review sample. One "
+    "repository adds at most 10 series for the stage row: 5 steps and 2 results",
+)
+ROADMAP_STAGE_GATE_REFUSALS_TOTAL = Instrument(
+    "devops_cli_roadmap_stage_gate_refusals_total",
+    InstrumentKind.COUNTER,
+    "1",
+    "Replies of the stage model that a gate found a problem in, one count for each gate that "
+    "found at least one problem in a reply, by repo and gate. A reply that two gates refuse adds "
+    "1 to each. The gates run again on the reply that answers a problem, so the count is of "
+    "refused replies and not of refused items. One repository adds 16 series, one for each gate",
+)
 EMBEDDING_CACHE_LOOKUPS_TOTAL = Instrument(
     "devops_cli_embedding_cache_lookups_total",
     InstrumentKind.COUNTER,
@@ -617,6 +638,8 @@ INSTRUMENTS: tuple[Instrument, ...] = (
     ROADMAP_OLDEST_ITEM,
     ROADMAP_CLAIM_AGE,
     ROADMAP_ROW_SECONDS,
+    ROADMAP_STEP_SECONDS,
+    ROADMAP_STAGE_GATE_REFUSALS_TOTAL,
     EMBEDDING_CACHE_LOOKUPS_TOTAL,
     EMBEDDING_CACHE_SIZE,
     RAG_EMBEDDING_BATCH_SIZE,
@@ -751,8 +774,10 @@ __all__ = [
     "ROADMAP_PAGE_FETCHES_TOTAL",
     "ROADMAP_REFINE_COMMENTS_CAPPED_TOTAL",
     "ROADMAP_ROW_SECONDS",
+    "ROADMAP_STAGE_GATE_REFUSALS_TOTAL",
     "ROADMAP_STAGE_PLAN_RECORD_TOTAL",
     "ROADMAP_STAGE_TOTAL",
+    "ROADMAP_STEP_SECONDS",
     "ROADMAP_TOOL_ANSWER_CHARS",
     "ROADMAP_TOOL_CALLS_PER_RUN",
     "ROADMAP_TOOL_CALLS_TOTAL",
