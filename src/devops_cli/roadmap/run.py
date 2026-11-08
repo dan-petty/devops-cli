@@ -53,7 +53,6 @@ from devops_cli.config.constants import (
     CONST_GIT_CLI,
     CONST_ROADMAP_INTAKE_BATCH_KEYS,
     CONST_ROADMAP_INTAKE_RECORD_FILENAME,
-    CONST_ROADMAP_P0_PRIORITIES,
     CONST_ROADMAP_REFINE_DUE_STAMP,
     CONST_ROADMAP_RUN_CLONE_DIRNAME,
     CONST_ROADMAP_RUN_MODEL_CLONE_DIRNAME,
@@ -117,7 +116,6 @@ from devops_cli.roadmap.intake.intake import (
     IntakeApplied,
     IntakePlan,
     IntakeRecord,
-    Outcome,
     apply_intake,
     plan_intake,
     raise_for_failed_placements,
@@ -230,25 +228,24 @@ def _resolve_data_dir(data_dir: Path | str | None = None) -> Path:
     return path
 
 
+_Schedule = TypeAdapter(dict[str, datetime])
+
+
 def _read_schedule(schedule_path: Path) -> dict[str, datetime]:
-    """Read the last successful run time for each job from schedule.json."""
+    """Read the last successful run time for each job from schedule.json. A missing file is a
+    first run and reads as empty; one that exists and can't be read raises, naming it and the
+    remedy, since an empty read would make every row due at once (#4042)."""
     if not schedule_path.is_file():
         return {}
     try:
-        data = json.loads(schedule_path.read_text(encoding="utf-8"))
-        if not isinstance(data, dict):
-            return {}
-        schedule: dict[str, datetime] = {}
-        for key, val in data.items():
-            if isinstance(val, str):
-                try:
-                    dt = datetime.fromisoformat(val)
-                    schedule[key] = dt if dt.tzinfo else dt.replace(tzinfo=UTC)
-                except ValueError:
-                    continue
-        return schedule
-    except OSError, json.JSONDecodeError:
-        return {}
+        stamps = _Schedule.validate_json(schedule_path.read_text(encoding="utf-8"), strict=True)
+    except (OSError, MalformedRecordError) as exc:
+        reason = str(exc).splitlines()[0][:200]
+        raise RoadmapRunError(
+            MESSAGES.roadmap.run_schedule_unreadable.format(path=schedule_path, reason=reason),
+            details={"path": str(schedule_path)[:256]},
+        ) from exc
+    return {job: at if at.tzinfo else at.replace(tzinfo=UTC) for job, at in stamps.items()}
 
 
 def _write_schedule(schedule_path: Path, schedule: Mapping[str, datetime]) -> None:
@@ -438,13 +435,20 @@ def _outcome_of_failure(exc: Exception) -> JobOutcome:
     return JobOutcome()
 
 
-def _places_critical_or_p0(plan: IntakePlan) -> bool:
-    """Whether intake placed a critical fix or a P0 item (#1540). A round with a failed
-    placement fails before it judges this."""
-    return any(
-        decision.outcome is Outcome.PLACE and decision.priority in CONST_ROADMAP_P0_PRIORITIES
-        for decision in plan.decisions
-    )
+def _apply_round(
+    store: RoadmapStore, plan: IntakePlan, *, repo_dir: Path, now: datetime
+) -> JobOutcome:
+    """Apply `plan`, stamp `refine_due` when intake placed a critical fix or a P0 item (#1540),
+    and then fail the round if a placement failed: the stamp is written first, so a failure of
+    another candidate does not lose it (#4042)."""
+    applied = apply_intake(store, plan) if plan.has_writes else IntakeApplied()
+    placed_p0 = applied.placed_critical_or_p0 > 0
+    if placed_p0:
+        _record_success(
+            repo_dir / CONST_ROADMAP_RUN_STATE_FILENAME, CONST_ROADMAP_REFINE_DUE_STAMP, now
+        )
+    raise_for_failed_placements(applied)
+    return JobOutcome(placed_critical_or_p0=placed_p0)
 
 
 def _run_intake_adapter(
@@ -474,15 +478,7 @@ def _run_intake_adapter(
         waiting=record.waiting,
     )
     _write_intake_record(record_path, record.after(plan, now))
-    applied = apply_intake(store, plan) if plan.has_writes else IntakeApplied()
-    if plan.has_writes:
-        raise_for_failed_placements(applied)
-    placed_p0 = _places_critical_or_p0(plan)
-    if placed_p0:
-        _record_success(
-            repo_dir / CONST_ROADMAP_RUN_STATE_FILENAME, CONST_ROADMAP_REFINE_DUE_STAMP, now
-        )
-    return JobOutcome(placed_critical_or_p0=placed_p0)
+    return _apply_round(store, plan, repo_dir=repo_dir, now=now)
 
 
 @dataclass(frozen=True)
@@ -522,15 +518,7 @@ def _intake_one(
     merged = record.merged(plan, now)
     if merged != record:
         _write_intake_record(record_path, merged)
-    applied = apply_intake(store, plan) if plan.has_writes else IntakeApplied()
-    if plan.has_writes:
-        raise_for_failed_placements(applied)
-    placed_p0 = _places_critical_or_p0(plan)
-    if placed_p0:
-        _record_success(
-            repo_dir / CONST_ROADMAP_RUN_STATE_FILENAME, CONST_ROADMAP_REFINE_DUE_STAMP, now
-        )
-    return JobOutcome(placed_critical_or_p0=placed_p0)
+    return _apply_round(store, plan, repo_dir=repo_dir, now=now)
 
 
 def _job_clone(job: str, clone_path: Path | None) -> Path:

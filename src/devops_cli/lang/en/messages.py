@@ -4554,6 +4554,10 @@ class RoadmapMessages:
         "the writes failed for {count} candidate(s), and intake skipped them after writing the "
         "others; the next run tries them again: {items}"
     )
+    intake_item_changed: str = (
+        "Intake did not place {name}: a person changed its Item since the plan, so nothing was "
+        "written. The next run decides it again."
+    )
     intake_failed_item: str = "{name} ({error})"
     intake_failed_new: str = '"{title}"'
     triage_awaiting_intake: str = (
@@ -4589,6 +4593,10 @@ class RoadmapMessages:
         "The intake record {path} can't be read ({reason}), so intake does not run. Repair it, "
         "or remove it: the next intake then starts a new record and takes every candidate as "
         "never decided."
+    )
+    run_schedule_unreadable: str = (
+        "The schedule {path} can't be read ({reason}), so no job runs. Repair it, or remove it: "
+        "the next poll then takes every job as never run."
     )
     intake_issue_or_title: str = (
         "Pass --issue for existing issues, or --title and --body-file for a new candidate, "
