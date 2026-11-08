@@ -53,7 +53,7 @@ devops roadmap refine [OPTIONS]
 
 ## `devops roadmap alternatives`
 
-**Check open items for an open, maintained tool or library that already covers their need. A check writes a body block, and it posts a comment for a first check or a changed result. A person decides what the tool means for the item. Details: docs/roadmap/alternatives.md.**
+**Check open items for an open, maintained tool or library that already covers their need. A check writes a body block and posts a comment for a first check or a changed result, and a person decides what the tool means for the item. Details: docs/roadmap/alternatives.md.**
 
 ```bash
 devops roadmap alternatives [OPTIONS]

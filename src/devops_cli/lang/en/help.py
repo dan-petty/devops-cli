@@ -1362,7 +1362,7 @@ class RoadmapCommandHelp:
     refine_dry_run: str = "Make no request and change no git ref: print what refine would plan and run, with placeholders."
     alternatives: str = (
         "Check open items for an open, maintained tool or library that already covers their need. "
-        "A check writes a body block, and it posts a comment for a first check or a changed result. A person decides what the tool means for the item. "
+        "A check writes a body block and posts a comment for a first check or a changed result, and a person decides what the tool means for the item. "
         "Details: docs/roadmap/alternatives.md."
     )
     alternatives_item: str = (
