@@ -11,6 +11,7 @@ Validates:
 from __future__ import annotations
 
 import shutil
+import socket
 from collections.abc import Callable
 from pathlib import Path
 
@@ -270,6 +271,31 @@ def test_verify_url_reachability_failure(tcp_probe: TcpProbe) -> None:
     """Connection failure returns False cleanly."""
     assert _verify_url_reachability("http://example.com:8080") is False
     assert tcp_probe.probed == [("example.com", 8080)]
+
+
+def test_verify_url_reachability_probes_port_80_when_the_url_names_no_port(
+    tcp_probe: TcpProbe,
+) -> None:
+    """A URL with no port is probed on the HTTP port."""
+    tcp_probe.listen("example.com", 80)
+
+    assert _verify_url_reachability("http://example.com") is True
+    assert tcp_probe.probed == [("example.com", 80)]
+
+
+def test_tcp_probe_accepts_only_an_address_a_test_made_listen(tcp_probe: TcpProbe) -> None:
+    """The fake refuses each probe, accepts a listening address and records every probe."""
+    tcp_probe.listen("example.com", 8080)
+
+    with socket.create_connection(("example.com", 8080)):
+        pass
+    with pytest.raises(ConnectionRefusedError, match="refused"):
+        socket.create_connection(("example.com", 9090))
+    tcp_probe.refuse_all()
+    with pytest.raises(ConnectionRefusedError, match="refused"):
+        socket.create_connection(("example.com", 8080))
+
+    assert tcp_probe.probed == [("example.com", 8080), ("example.com", 9090), ("example.com", 8080)]
 
 
 def test_check_preferred_ports_reachable(tcp_probe: TcpProbe) -> None:

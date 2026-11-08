@@ -383,6 +383,8 @@ def test_deploy_and_teardown_stack_use_effective_context(
     manifest_dir = tmp_path / "k8s"
     manifest_dir.mkdir()
 
+    # The `logging` stack stands in for the default `infra` stack: the credential sync of
+    # `infra` refuses an EKS ARN context (#4091).
     # When context is None, deploy_stack resolves effective_context from settings
     res_deploy = runner.invoke(
         app,

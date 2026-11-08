@@ -5,12 +5,13 @@ from __future__ import annotations
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock
 
 from typer.testing import CliRunner
 
 from devops_cli.commands.k8s import app as k8s_app
+from devops_cli.config.constants import CONST_K8S_ALL_STACKS
 from devops_cli.k8s.service_proxy import discover_service
+from tests.support.config_writes import written_keys
 from tests.support.fakes.http import WebFake
 from tests.support.fakes.kubernetes import FakeCluster, api_exception, service
 
@@ -107,17 +108,17 @@ def test_a_failed_listing_returns_nothing(cluster: FakeCluster) -> None:
 # =============================================================================
 
 
-def test_proxy_mode_skips_components_that_are_not_installed(cluster: FakeCluster) -> None:
+def test_proxy_mode_skips_components_that_are_not_installed(
+    cluster: FakeCluster, isolate_data_dir: Path
+) -> None:
     """A partial stack configures what exists rather than failing outright."""
-    from devops_cli.commands.k8s.networking import _configure_proxy_urls
-
     _listing(cluster)
-    configured: dict[str, str] = {}
-    settings = MagicMock()
 
-    _configure_proxy_urls(None, settings, configured, ["infra", "llm"])
+    result = runner.invoke(
+        k8s_app, ["configure-urls", "--addressing", "proxy", "--stack", CONST_K8S_ALL_STACKS]
+    )
 
-    assert (configured, settings.mock_calls) == ({}, [])
+    assert (result.exit_code, written_keys(isolate_data_dir)) == (0, [])
 
 
 def test_an_unknown_addressing_mode_is_rejected() -> None:
