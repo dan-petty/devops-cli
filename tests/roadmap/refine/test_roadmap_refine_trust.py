@@ -12,10 +12,12 @@ from __future__ import annotations
 import json
 import subprocess
 from collections.abc import Callable
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 import pytest
+import time_machine
 
 from devops_cli.ai.client.models import StructuredOutputValidationError
 from devops_cli.config.constants import (
@@ -343,8 +345,10 @@ def test_an_item_that_a_round_records_with_no_review_loses_its_approval_failing_
     _edit_outside_the_section(store, number)
     failing = _Proposer(StructuredOutputValidationError("never valid", violations=2))
 
-    _round(store, git_repo, failing, verifier)
-    _round(store, git_repo, failing, verifier)
+    with time_machine.travel(datetime(2026, 11, 8, 12, 0, tzinfo=UTC), tick=False) as clock:
+        _round(store, git_repo, failing, verifier)
+        clock.shift(timedelta(hours=6))
+        _round(store, git_repo, failing, verifier)
 
     assert (
         _approved(store, number),

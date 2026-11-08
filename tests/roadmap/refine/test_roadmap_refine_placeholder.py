@@ -22,6 +22,7 @@ from pydantic import ValidationError
 from devops_cli.ai.client.models import StructuredOutputValidationError
 from devops_cli.exceptions import RoadmapRefineError
 from devops_cli.roadmap import run
+from devops_cli.roadmap.failure import FailureClass
 from devops_cli.roadmap.pull_form import PLACEHOLDER_ERROR_TYPE
 from devops_cli.roadmap.refine.refine import (
     RefineFailure,
@@ -229,6 +230,7 @@ def _failure(item: Any, *, placeholder: bool, caused: bool = False) -> RefineFai
     return RefineFailure(
         item=item,
         error="StructuredOutputValidationError" if placeholder else "AIClientError",
+        failure_class=FailureClass.PARSER if placeholder else FailureClass.PROVIDER,
         violations=1,
         item_caused=caused,
         placeholder=placeholder,
