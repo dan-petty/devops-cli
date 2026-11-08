@@ -11,11 +11,9 @@ import pytest
 import typer
 from typer.testing import CliRunner
 
-from devops_cli.commands.pipeline import app as pipeline_app
 from devops_cli.commands.pipeline import run_pipeline_cmd
-from devops_cli.commands.test_cmd import app as app_test_cli
 from devops_cli.config.commands import build_dagger_cmd, build_k6_cmd
-from tests.support.fakes.process import ProcessFake
+from tests.support.fakes.process import ProcessAnswer, ProcessFake
 
 runner = CliRunner()
 
@@ -60,15 +58,12 @@ def test_test_load_runs_the_request_of_its_plan(
     assert [" ".join(call.argv) for call in process_fake.calls] == planned
 
 
-@patch("shutil.which", return_value="/usr/local/bin/k6")
-@patch("devops_cli.commands.test_cmd.run_subprocess")
-def test_test_load_live(mock_run: MagicMock, mock_which: MagicMock, tmp_path: Path) -> None:
-    mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+def test_test_load_live(tmp_path: Path, cli: Any, process_fake: ProcessFake) -> None:
     script = tmp_path / "smoke.js"
     script.write_text("export default function() {}")
-    result = runner.invoke(app_test_cli, ["load", str(script), "--vus", "5", "--duration", "5s"])
+    result = cli(["test", "load", str(script), "--vus", "5", "--duration", "5s"])
     assert result.exit_code == 0
-    assert mock_run.called
+    assert [call.argv[0] for call in process_fake.calls] == ["k6"]
 
 
 @pytest.mark.parametrize("flag_first", [True, False])
@@ -102,27 +97,22 @@ def test_pipeline_runs_the_request_of_its_plan(
     assert [" ".join(call.argv) for call in process_fake.calls] == planned
 
 
-@patch("shutil.which", return_value="/usr/local/bin/dagger")
-@patch("devops_cli.commands.pipeline.run_subprocess")
-def test_pipeline_run_live(mock_run: MagicMock, mock_which: MagicMock, tmp_path: Path) -> None:
-    mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
-    result = runner.invoke(pipeline_app, [str(tmp_path), "--function", "build"])
+def test_pipeline_run_live(tmp_path: Path, cli: Any, process_fake: ProcessFake) -> None:
+    result = cli(["pipeline", str(tmp_path), "--function", "build"])
     assert result.exit_code == 0
-    assert mock_run.called
+    assert [call.argv[0] for call in process_fake.calls] == ["dagger"]
 
 
 @patch("shutil.which", return_value=None)
-def test_pipeline_run_missing_dagger(mock_which: MagicMock, tmp_path: Path) -> None:
-    result = runner.invoke(pipeline_app, [str(tmp_path)])
+def test_pipeline_run_missing_dagger(mock_which: MagicMock, tmp_path: Path, cli: Any) -> None:
+    result = cli(["pipeline", str(tmp_path)])
     assert result.exit_code == 1
     assert "Dagger CLI binary not found" in result.output
 
 
-@patch("shutil.which", return_value="/usr/local/bin/dagger")
-@patch("devops_cli.commands.pipeline.run_subprocess")
-def test_pipeline_run_failure(mock_run: MagicMock, mock_which: MagicMock, tmp_path: Path) -> None:
-    mock_run.return_value = MagicMock(returncode=2, stdout="", stderr="")
-    result = runner.invoke(pipeline_app, [str(tmp_path)])
+def test_pipeline_run_failure(tmp_path: Path, cli: Any, process_fake: ProcessFake) -> None:
+    process_fake.answer("dagger", ProcessAnswer(returncode=2))
+    result = cli(["pipeline", str(tmp_path)])
     assert result.exit_code == 2
     assert "Pipeline execution failed with exit code 2" in result.output
 

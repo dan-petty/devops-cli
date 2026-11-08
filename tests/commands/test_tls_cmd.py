@@ -3,17 +3,14 @@
 from __future__ import annotations
 
 import re
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock, patch
 
 import pytest
 from typer.testing import CliRunner
 
 from devops_cli.commands.tls import app
 from devops_cli.crypto.tls_certificates import generate_ca_certificate, generate_server_certificate
-from devops_cli.models.tls import CertificateInfo
 from tests.support.fakes.process import ProcessAnswer, ProcessFake
 
 runner = CliRunner()
@@ -88,117 +85,85 @@ def test_tls_inspect_and_verify_command(tmp_path: Path) -> None:
     assert "Verified:" in verify_res.output
 
 
-def test_tls_commands_mocked(tmp_path: Path) -> None:
-    """Verify tls ca, cert, and inspect commands with mock crypto functions."""
+def test_tls_ca_cert_and_inspect_commands_read_each_others_files(tmp_path: Path, cli: Any) -> None:
+    """Verify tls ca, cert, and inspect commands chain through the files they write."""
     ca_cert = tmp_path / "ca.crt"
     ca_key = tmp_path / "ca.key"
-    srv_cert = tmp_path / "srv.crt"
-    srv_key = tmp_path / "srv.key"
+    srv_cert = tmp_path / "tls.crt"
 
-    mock_info = CertificateInfo(
-        subject={"CN": "example.com"},
-        issuer={"CN": "Test CA"},
-        not_before=datetime.now(UTC),
-        not_after=datetime.now(UTC),
-        sans_dns=["example.com"],
-        serial_number="12345",
-        signature_algorithm="sha256WithRSAEncryption",
-        is_ca=False,
+    res_ca = cli("tls", "ca", "--output-dir", str(tmp_path))
+    assert res_ca.exit_code == 0
+    assert (ca_cert.exists(), ca_key.exists()) == (True, True)
+
+    res_cert = cli(
+        "tls",
+        "cert",
+        "--common-name",
+        "example.com",
+        "--ca-cert",
+        str(ca_cert),
+        "--ca-key",
+        str(ca_key),
+        "--output-dir",
+        str(tmp_path),
     )
+    assert res_cert.exit_code == 0
+    assert srv_cert.exists()
 
-    with (
-        patch(
-            "devops_cli.commands.tls.generate_ca_certificate",
-            return_value=(ca_cert, ca_key),
-        ),
-        patch(
-            "devops_cli.commands.tls.generate_server_certificate",
-            return_value=(srv_cert, srv_key, srv_cert),
-        ),
-        patch("devops_cli.commands.tls.inspect_certificate", return_value=mock_info),
-    ):
-        res_ca = runner.invoke(app, ["ca", "--output-dir", str(tmp_path)])
-        assert res_ca.exit_code == 0
-
-        res_cert = runner.invoke(
-            app,
-            [
-                "cert",
-                "--common-name",
-                "example.com",
-                "--ca-cert",
-                str(ca_cert),
-                "--ca-key",
-                str(ca_key),
-                "--output-dir",
-                str(tmp_path),
-            ],
-        )
-        assert res_cert.exit_code == 0
-
-        srv_cert.write_text(
-            "-----BEGIN CERTIFICATE-----\n-----END CERTIFICATE-----", encoding="utf-8"
-        )
-        res_insp = runner.invoke(app, ["inspect", str(srv_cert)])
-        assert res_insp.exit_code == 0
+    res_insp = cli("tls", "inspect", str(srv_cert))
+    assert res_insp.exit_code == 0
+    assert "example.com" in res_insp.output
 
 
-def test_tls_verification_failures(tmp_path: Path) -> None:
+def test_tls_verification_failures(tmp_path: Path, cli: Any) -> None:
     """Verify the error branches of tls verify."""
     # Missing cert
-    res_no_cert = runner.invoke(
-        app, ["verify", "/nonexistent/cert.crt", "--ca-cert", "/nonexistent/ca.crt"]
-    )
+    res_no_cert = cli("tls", "verify", "/nonexistent/cert.crt", "--ca-cert", "/nonexistent/ca.crt")
     assert res_no_cert.exit_code == 1
 
     # Missing CA
     cert_file = tmp_path / "valid.crt"
     cert_file.touch()
-    res_no_ca = runner.invoke(app, ["verify", str(cert_file), "--ca-cert", "/nonexistent/ca.crt"])
+    res_no_ca = cli("tls", "verify", str(cert_file), "--ca-cert", "/nonexistent/ca.crt")
     assert res_no_ca.exit_code == 1
 
-    # Failed verification
-    ca_file = tmp_path / "fake_ca.crt"
-    ca_file.touch()
-    with patch("devops_cli.commands.tls.verify_certificate", return_value=False):
-        res_fail = runner.invoke(app, ["verify", str(cert_file), "--ca-cert", str(ca_file)])
-        assert res_fail.exit_code == 1
+    # Failed verification: the certificate came from another authority
+    ca_cert, ca_key = generate_ca_certificate(output_dir=tmp_path / "issuer")
+    other_ca_cert, _other_key = generate_ca_certificate(output_dir=tmp_path / "other")
+    srv_cert, _, _ = generate_server_certificate(
+        common_name="example.com",
+        ca_cert_path=ca_cert,
+        ca_key_path=ca_key,
+        output_dir=tmp_path / "issuer",
+    )
+    res_fail = cli("tls", "verify", str(srv_cert), "--ca-cert", str(other_ca_cert))
+    assert res_fail.exit_code == 1
 
 
-def test_tls_enable_k8s_execution(tmp_path: Path) -> None:
+def test_tls_enable_k8s_execution(tmp_path: Path, cli: Any, process_fake: ProcessFake) -> None:
     """Verify devops tls enable-k8s non-dry-run subprocess execution."""
     cert_file = tmp_path / "tls.crt"
     key_file = tmp_path / "tls.key"
     cert_file.touch()
     key_file.touch()
 
-    mock_proc_ok = MagicMock(returncode=0, stderr="")
-    mock_proc_fail = MagicMock(returncode=1, stderr="PermissionDenied")
-
     # Both namespace exists & secret creates successfully
-    with patch("devops_cli.commands.tls.run_subprocess", return_value=mock_proc_ok):
-        res_ok = runner.invoke(
-            app, ["enable-k8s", "--tls-dir", str(tmp_path), "--namespace", "default"]
-        )
-        assert res_ok.exit_code == 0
-        assert "Created" in res_ok.output
+    res_ok = cli("tls", "enable-k8s", "--tls-dir", str(tmp_path), "--namespace", "default")
+    assert res_ok.exit_code == 0
+    assert "Created" in res_ok.output
 
     # Create fails
-    def mock_subprocess_selective(cmd, *args, **kwargs):
-        if "create" in cmd and "secret" in cmd:
-            return mock_proc_fail
-        return mock_proc_ok
-
-    with patch("devops_cli.commands.tls.run_subprocess", side_effect=mock_subprocess_selective):
-        res_fail = runner.invoke(
-            app, ["enable-k8s", "--tls-dir", str(tmp_path), "--namespace", "default"]
-        )
-        assert res_fail.exit_code == 0
-        assert "Failed" in res_fail.output
+    process_fake.answer(
+        lambda call: "create" in call.argv and "secret" in call.argv,
+        ProcessAnswer(returncode=1, stderr="PermissionDenied"),
+    )
+    res_fail = cli("tls", "enable-k8s", "--tls-dir", str(tmp_path), "--namespace", "default")
+    assert res_fail.exit_code == 0
+    assert "Failed" in res_fail.output
 
 
 def test_tls_enable_k8s_leaves_the_live_secret_when_the_new_one_is_rejected(
-    tmp_path: Path,
+    tmp_path: Path, cli: Any, process_fake: ProcessFake
 ) -> None:
     """`devops tls enable-k8s` never deletes a secret it cannot replace (#961).
 
@@ -207,20 +172,14 @@ def test_tls_enable_k8s_leaves_the_live_secret_when_the_new_one_is_rejected(
     """
     (tmp_path / "tls.crt").write_text("certificate", encoding="utf-8")
     (tmp_path / "tls.key").write_text("rotated key", encoding="utf-8")
-    calls: list[list[str]] = []
+    process_fake.answer(
+        lambda call: {"create", "secret", "tls"} <= set(call.argv),
+        ProcessAnswer(returncode=1, stderr="tls: private key does not match"),
+    )
 
-    def kubectl(cmd: list[str], **kwargs: object) -> MagicMock:
-        calls.append(cmd)
-        if {"create", "secret", "tls"} <= set(cmd):
-            return MagicMock(returncode=1, stdout="", stderr="tls: private key does not match")
-        return MagicMock(returncode=0, stdout="", stderr="")
+    result = cli("tls", "enable-k8s", "--tls-dir", str(tmp_path), "--namespace", "web")
 
-    with patch("devops_cli.commands.tls.run_subprocess", side_effect=kubectl):
-        result = runner.invoke(
-            app, ["enable-k8s", "--tls-dir", str(tmp_path), "--namespace", "web"]
-        )
-
-    changes = [cmd for cmd in calls if {"delete", "apply"} & set(cmd)]
+    changes = [call.argv for call in process_fake.calls if {"delete", "apply"} & set(call.argv)]
     assert (result.exit_code, changes, "private key does not match" in result.output) == (
         0,
         [],
@@ -228,26 +187,33 @@ def test_tls_enable_k8s_leaves_the_live_secret_when_the_new_one_is_rejected(
     )
 
 
-def test_tls_enable_k8s_applies_the_rendered_secret_over_the_live_one(tmp_path: Path) -> None:
+def test_tls_enable_k8s_applies_the_rendered_secret_over_the_live_one(
+    tmp_path: Path, cli: Any, process_fake: ProcessFake
+) -> None:
     """`devops tls enable-k8s` renders each secret client-side, then applies it (#961)."""
     cert_path, key_path = tmp_path / "tls.crt", tmp_path / "tls.key"
     cert_path.write_text("certificate", encoding="utf-8")
     key_path.write_text("key", encoding="utf-8")
-    calls: list[tuple[list[str], object]] = []
+    process_fake.answer(
+        lambda call: "--dry-run=client" in call.argv, ProcessAnswer(stdout="kind: Secret\n")
+    )
 
-    def kubectl(cmd: list[str], **kwargs: object) -> MagicMock:
-        calls.append((cmd, kwargs.get("input")))
-        rendered = "kind: Secret\n" if "--dry-run=client" in cmd else ""
-        return MagicMock(returncode=0, stdout=rendered, stderr="")
+    result = cli(
+        "tls",
+        "enable-k8s",
+        "--tls-dir",
+        str(tmp_path),
+        "--namespace",
+        "web",
+        "--secret-name",
+        "web-tls",
+    )
 
-    with patch("devops_cli.commands.tls.run_subprocess", side_effect=kubectl):
-        result = runner.invoke(
-            app,
-            ["enable-k8s", "--tls-dir", str(tmp_path), "--namespace", "web"]
-            + ["--secret-name", "web-tls"],
-        )
-
-    assert (result.exit_code, calls[1:], "Created" in result.output) == (
+    assert (
+        result.exit_code,
+        [(list(call.argv), call.stdin) for call in process_fake.calls[1:]],
+        "Created" in result.output,
+    ) == (
         0,
         [
             (
