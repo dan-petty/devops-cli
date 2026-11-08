@@ -1,0 +1,33 @@
+{
+ "issue": 3076,
+ "pull": 3205,
+ "change": "3076-a-run-console-follow-a-run",
+ "merge_commit": "0000000000000000000000000000000000000000",
+ "base_commit": "0000000000000000000000000000000000000000",
+ "title": "docs(openspec): plan #3076 plan the roadmap follow console",
+ "verdict": "reject",
+ "scores": {
+  "premise_ok": 1,
+  "fidelity": 4,
+  "task_quality": 4,
+  "rule_compliance": 3,
+  "accuracy": 3
+ },
+ "state": "closed",
+ "summary": "The plan of pull request #3205 claims in feasibility that the run read src/devops_cli/commands/roadmap.py, but the trace of the run records no tool calls.",
+ "notes": [
+  "The pull request was never merged. The case reads no commit: base_commit and merge_commit are NO_COMMIT.",
+  "The plan claims a read of src/devops_cli/commands/roadmap.py in feasibility while its run trace made no calls."
+ ],
+ "defects": [
+  {
+   "type": "false_premise",
+   "severity": "blocker",
+   "where": "proposal.md, Feasibility",
+   "problem": "Feasibility claims that the run read `src/devops_cli/commands/roadmap.py`, but the run trace records no tool calls.",
+   "evidence": "proposal.md of PR #3205: `read_file` on `src/devops_cli/commands/roadmap.py` showed the `inbox` and `explain` command bodies.",
+   "gate": "paths",
+   "message": "src/devops_cli/commands/roadmap.py"
+  }
+ ]
+}

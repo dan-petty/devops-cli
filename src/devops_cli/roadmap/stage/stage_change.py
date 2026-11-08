@@ -44,6 +44,7 @@ from devops_cli.core.paths import safe_resolve_subpath
 from devops_cli.exceptions.roadmap import RoadmapStageError
 from devops_cli.git.branch_form import is_valid_slug
 from devops_cli.lang import MESSAGES
+from devops_cli.roadmap.agent_run import TraceFacts
 from devops_cli.roadmap.commit_title import commit_scope
 from devops_cli.roadmap.pull_form import (
     SUMMARY_MAX_CHARS as SUMMARY_MAX_CHARS,
@@ -79,6 +80,7 @@ from devops_cli.roadmap.stage.stage_registry import (
 )
 from devops_cli.roadmap.step_files import code_spans, named_files, packed_file, parse_task_groups
 from devops_cli.roadmap.step_rules import rules_sections
+from devops_cli.roadmap.tools import HOLDER_STAGE_EXTENDED, tool_names
 
 if TYPE_CHECKING:
     from devops_cli.roadmap.stage.stage_overlap import Overlap
@@ -1400,6 +1402,80 @@ def content_problems(proposal: StageProposal, probes: Sequence[str] = ()) -> lis
     return problems
 
 
+_NEGATION: Final[re.Pattern[str]] = re.compile(
+    r"\b(?:not|never|no|without|neither|nor)\b", re.IGNORECASE
+)
+_READ_WORD: Final[re.Pattern[str]] = re.compile(
+    r"\b(?:read|reads|reading|ran|read_file)\b", re.IGNORECASE
+)
+_PATH_EXTENSIONS: Final[tuple[str, ...]] = (
+    ".py",
+    ".md",
+    ".yaml",
+    ".yml",
+    ".json",
+    ".txt",
+    ".toml",
+    ".sh",
+    ".rst",
+)
+
+
+def _is_path_span(span: str) -> bool:
+    """Whether `span` looks like a file or directory path in the repository."""
+    return "/" in span or any(span.endswith(ext) for ext in _PATH_EXTENSIONS)
+
+
+def _uncalled_path(
+    sentence: str, spans: Sequence[tuple[int, str]], stage_tools: set[str], trace: TraceFacts
+) -> str | None:
+    """The first uncalled path cited in `sentence`, or None when negated or all called."""
+    read_match = _READ_WORD.search(sentence)
+    if read_match is None or _NEGATION.search(sentence[: read_match.end()]):
+        return None
+    for _pos, span in spans:
+        if span not in stage_tools and _is_path_span(span):
+            return span if span not in trace.paths else None
+    return None
+
+
+def _uncalled_tool(
+    sentence: str, spans: Sequence[tuple[int, str]], stage_tools: set[str], trace: TraceFacts
+) -> str | None:
+    """The first uncalled tool cited in `sentence`, or None when negated or called."""
+    for start_pos, span in spans:
+        if span in stage_tools:
+            if not _NEGATION.search(sentence[:start_pos]) and span not in trace.tools:
+                return span
+    return None
+
+
+def _sentence_trace_problem(sentence: str, stage_tools: set[str], trace: TraceFacts) -> str | None:
+    """A trace problem in `sentence`, or None when the sentence makes no uncalled claim."""
+    spans = [
+        (m.start(), m.group(1).strip()) for m in _CODE_SPAN.finditer(sentence) if m.group(1).strip()
+    ]
+    if path := _uncalled_path(sentence, spans, stage_tools, trace):
+        return MESSAGES.roadmap.stage_problem_trace_path.format(path=path)
+    if tool := _uncalled_tool(sentence, spans, stage_tools, trace):
+        return MESSAGES.roadmap.stage_problem_trace_tool.format(tool=tool)
+    return None
+
+
+def _trace_problems(proposal: StageProposal, trace: TraceFacts | None) -> list[str]:
+    """What is wrong with the claims of `proposal.feasibility` compared to `trace` (#3266)."""
+    if trace is None:
+        return []
+    stage_tools = set(tool_names(HOLDER_STAGE_EXTENDED))
+    problems: list[str] = []
+    for line in proposal.feasibility:
+        sentences = (s.strip() for s in re.split(r"(?<=[.!?])\s+", line) if s.strip())
+        for sentence in sentences:
+            if problem := _sentence_trace_problem(sentence, stage_tools, trace):
+                problems.append(problem)
+    return problems
+
+
 class ProposalGate(StrEnum):
     """The name of each gate of `check_proposal` (#3498). A gate finds one type of problem in a
     plan, and the name tells a person which rule refused a plan. `devops roadmap plan-recheck`
@@ -1422,6 +1498,7 @@ class ProposalGate(StrEnum):
     CREATES = "creates"
     REGISTRY = "registry"
     CONSTANTS = "constants"
+    TRACE = "trace"
 
 
 def _proposal_all_texts(proposal: StageProposal) -> list[str]:
@@ -1498,6 +1575,7 @@ def check_gates(
     references: Sequence[str] = (),
     models: Mapping[str, tuple[str, Sequence[str]]] | None = None,
     manifest_references: Mapping[str, Sequence[str]] | None = None,
+    trace: TraceFacts | None = None,
 ) -> dict[ProposalGate, list[str]]:
     """What each gate of `check_proposal` finds wrong in `proposal`, one sentence each, under the
     name of the gate. Every gate has a key, and a gate that finds nothing has an empty list. The
@@ -1533,6 +1611,7 @@ def check_gates(
             registry if registry is not None else registry_table(Path.cwd()),
         ),
         ProposalGate.CONSTANTS: constant_problems(plan_texts(proposal), constants or {}),
+        ProposalGate.TRACE: _trace_problems(proposal, trace),
     }
 
 
@@ -1555,6 +1634,7 @@ def check_proposal(
     references: Sequence[str] = (),
     models: Mapping[str, tuple[str, Sequence[str]]] | None = None,
     manifest_references: Mapping[str, Sequence[str]] | None = None,
+    trace: TraceFacts | None = None,
 ) -> list[str]:
     """What the rules of `openspec/config.yaml` and the files of the commit find wrong in
     `proposal`, one sentence each. `known` holds the names of the capabilities under
@@ -1595,6 +1675,7 @@ def check_proposal(
         references=references,
         models=models,
         manifest_references=manifest_references,
+        trace=trace,
     )
     return [problem for problems in found.values() for problem in problems]
 

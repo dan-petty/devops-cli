@@ -40,6 +40,7 @@ from typing import Any, Final
 from pydantic import ValidationError
 
 from devops_cli.lang import MESSAGES
+from devops_cli.roadmap.agent_run import TraceFacts
 from devops_cli.roadmap.stage.stage_change import (
     GroupKind,
     StageDecision,
@@ -88,6 +89,7 @@ class PlanUnderTest:
     constants: Mapping[str, int] = field(default_factory=dict)
     models: Mapping[str, tuple[str, tuple[str, ...]]] = field(default_factory=dict)
     change: str = ""
+    trace: TraceFacts | None = None
 
     @classmethod
     def of_case(
@@ -113,6 +115,14 @@ class PlanUnderTest:
                 "rejected": rejected,
             }
         )
+        trace = (
+            TraceFacts(
+                tools=frozenset(case.facts.trace.tools),
+                paths=frozenset(case.facts.trace.paths),
+            )
+            if case.facts.trace is not None
+            else None
+        )
         return cls(
             proposal,
             tuple(problems),
@@ -126,6 +136,7 @@ class PlanUnderTest:
             constants=dict(case.facts.constants),
             models=dict(case.facts.models),
             change=case.change,
+            trace=trace,
         )
 
     @classmethod
@@ -200,6 +211,7 @@ def _path_gate(plan: PlanUnderTest) -> list[str]:
         constants=plan.constants,
         models=plan.models,
         manifest_references=plan.manifest_references or None,
+        trace=plan.trace,
     )
 
 

@@ -156,6 +156,13 @@ class Scores(_Record):
     accuracy: int
 
 
+class TraceFact(_Record):
+    """The tools the run called and the paths it read, recorded for the replay."""
+
+    tools: tuple[str, ...] = ()
+    paths: tuple[str, ...] = ()
+
+
 class CaseFacts(_Record):
     """What the gates need of the tree at the staging commit: the tracked files that matter, the
     capabilities the plan names that have a spec, the paths that each negative-search literal
@@ -168,6 +175,7 @@ class CaseFacts(_Record):
     manifest_references: Mapping[str, tuple[str, ...]] = Field(default_factory=dict)
     constants: tuple[tuple[str, int], ...] = ()
     models: Mapping[str, tuple[str, tuple[str, ...]]] = Field(default_factory=dict)
+    trace: TraceFact | None = None
 
 
 class StageCase(_Record):
@@ -230,13 +238,17 @@ def _read_case(folder: Path) -> StageCase:
     `ConfigurationError` that names the folder."""
     try:
         meta: dict[str, Any] = json.loads((folder / _CASE_FILE).read_text(encoding="utf-8"))
+        facts: dict[str, Any] = json.loads((folder / _FACTS_FILE).read_text(encoding="utf-8"))
+        trace_file = folder / "trace.json"
+        if trace_file.is_file() and "trace" not in facts:
+            facts["trace"] = json.loads(trace_file.read_text(encoding="utf-8"))
         return StageCase.model_validate(
             {
                 **meta,
                 "name": folder.name,
                 "issue_body": (folder / _ISSUE_FILE).read_text(encoding="utf-8"),
                 "plan": json.loads((folder / _PLAN_FILE).read_text(encoding="utf-8")),
-                "facts": json.loads((folder / _FACTS_FILE).read_text(encoding="utf-8")),
+                "facts": facts,
             }
         )
     except (OSError, ValueError, ValidationError) as exc:

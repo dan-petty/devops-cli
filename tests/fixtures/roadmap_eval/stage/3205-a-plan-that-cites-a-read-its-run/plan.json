@@ -1,0 +1,263 @@
+{
+ "summary": "plan the roadmap follow console",
+ "pull_request_body": "Plan #3076: add `devops roadmap follow `. A person sees what a running roadmap Job does only through `kubectl logs` and one comment at the end. `explain` says why an item is taken, not what the Job does. The plan adds a read-only console. It prints the live trace of the current run from the Job pod log, and the recorded history of past runs from the job record in the issue body. It sends one GitHub request for the issue body and none for the live part. It masks secrets with the masker of the log lines, and renders the rows with the PR comment table renderer, so the shape cannot drift. `inbox` and `explain` print the follow command for each item. No open tool covers the need: the Kubernetes client reads pod logs; the parser, the rows and the masking are project code.",
+ "why": "A person learns what a roadmap Job did from `kubectl logs` and one comment at the end, so a running Job is opaque. #3076 asks for one command that shows the live trace of the current run and the history of past runs.",
+ "what_changes": [
+  "Add `devops roadmap follow <issue>` in `src/devops_cli/commands/roadmap.py`, which prints the live trace of the Job pod and the recorded history of past runs.",
+  "Add `src/devops_cli/roadmap/follow.py`: it reads the pod log through the Kubernetes client, parses the job record of the issue body, and builds the rows.",
+  "Render every row with the PR comment table renderer, so the header and the column order equal those of the PR comment table.",
+  "Mask every value with the masker that the log lines already use, before it is printed.",
+  "Print the follow command for each item in the output of `devops roadmap inbox` and `devops roadmap explain`.",
+  "Document the command in `docs/roadmap/follow.md`, in `docs/ROADMAP_WORKFLOW.md` and in the CLI reference.",
+  "The change carries a spec delta for the new capability `roadmap-follow`, because a devops command and its output are observable."
+ ],
+ "skip_specs": false,
+ "feasibility": [
+  "`probes` shows that the cited identifiers exist: `inbox` is defined at src/devops_cli/commands/roadmap.py:813: inbox = read_inbox(store, repo=target, now=datetime.now(UTC))",
+  "`probes` shows the inbox help text: `inbox` is defined at src/devops_cli/lang/en/help.py:1495: inbox: str = (",
+  "`probes` shows the explain help text: `explain` is defined at src/devops_cli/lang/en/help.py:1429: explain: str = (",
+  "`probes` shows that `follow` is an option of other groups today and no roadmap command: `follow` is defined at src/devops_cli/commands/argo.py:677 and at src/devops_cli/commands/k8s/cluster_context.py:404. The issue asks for a command to create, so no path was removed.",
+  "`read_file` on `src/devops_cli/commands/roadmap.py` showed the `inbox` and `explain` command bodies that the change extends with the follow line.",
+  "`read_file` on `src/devops_cli/roadmap/inbox.py` and `src/devops_cli/roadmap/explain.py` showed that each builds its rows in one place, so the follow line joins that seam.",
+  "`search_code` found the PR comment table renderer and the log-line masker, which the change reuses instead of adding a second of either.",
+  "First checks against the real system: `uv run devops roadmap follow 3076` against a cluster that holds the runner Job of the item, then `uv run devops ci test tests/roadmap/test_roadmap_follow.py` and `openspec validate --strict`."
+ ],
+ "existing_tool": "The Kubernetes Python client (`kubernetes`) is the open, maintained library that reads pod logs and pod state, and `devops_cli.k8s` already wraps it. It covers no job-record parser, no trace rows and no masking, so the change adds about 6,000 tokens of new code, about 1,500 tokens for each later fix, and about one day of work. It deletes no internal code.",
+ "builds_own": false,
+ "decisions": [
+  {
+   "decision": "Read the live trace from the Job pod log through the Kubernetes client.",
+   "reason": "The runner is a pod and its log already holds each step, tool call, check result and attempt (CONTEXT.md, Runner). The live part therefore sends no GitHub request."
+  },
+  {
+   "decision": "Read the history of past runs from the hidden job record of the issue body, with one GitHub request.",
+   "reason": "docs/adr/0001-github-is-the-roadmap-source.md says the issue body holds the job record, and docs/ROADMAP_WORKFLOW.md lists its keys by job."
+  },
+  {
+   "decision": "Render every row with the PR comment table renderer.",
+   "reason": "The issue asks for the shape of the PR comment table, and one renderer cannot drift from it."
+  },
+  {
+   "decision": "Mask each value with the masker that the log lines already use.",
+   "reason": "The `secret-masking` capability holds the rules, and a second masker can miss a value that the first one catches."
+  },
+  {
+   "decision": "Print the follow command in the existing inbox and explain output.",
+   "reason": "The issue asks both commands to link to follow, and each already builds its rows in one place."
+  }
+ ],
+ "rejected": [
+  {
+   "alternative": "Read the live trace from GitHub issue comments.",
+   "evidence": "The issue states that the live part sends no GitHub request, and docs/ROADMAP_WORKFLOW.md shows that the runner writes its comment when the Job ends."
+  },
+  {
+   "alternative": "Read the history from a local trace file or an external database.",
+   "evidence": "CONTEXT.md, Runner: the Service runs in a cluster and the Job pod shares no local file; docs/adr/0001-github-is-the-roadmap-source.md keeps the record in the issue body with no database."
+  },
+  {
+   "alternative": "Add a second table renderer for the follow output.",
+   "evidence": "The acceptance criteria of #3076 require the header and the column order of the PR comment table, and a second renderer drifts from it."
+  },
+  {
+   "alternative": "Add a new secret masker for follow.",
+   "evidence": "The `secret-masking` capability already states the rules that the log lines use, so a second masker can miss a value that the first one catches."
+  }
+ ],
+ "specs": [
+  {
+   "capability": "roadmap-follow",
+   "purpose": "How `devops roadmap follow` shows what a roadmap Job does: the live trace of the running Job from its pod log, the recorded history of past runs from the job record of the issue body, the GitHub requests it sends, the table it prints and the secrets it masks.",
+   "added": [
+    {
+     "name": "The command shows a running Job and a finished Job",
+     "text": "The `devops roadmap follow` command SHALL print the live trace of a running Job and the recorded history of finished Jobs.",
+     "scenarios": [
+      {
+       "name": "Running Job",
+       "when": "A person runs `devops roadmap follow` for an issue whose runner Job runs.",
+       "then": "The command prints the steps, the tool calls, the check results and the attempts that the pod log holds."
+      },
+      {
+       "name": "Finished Job",
+       "when": "A person runs `devops roadmap follow` for an issue whose runner Job has ended.",
+       "then": "The command prints the rows that the job record of the issue body holds."
+      }
+     ]
+    },
+    {
+     "name": "The command sends at most one GitHub request for the history",
+     "text": "The command MUST send at most one GitHub request for the history and MUST send no GitHub request for the live trace.",
+     "scenarios": [
+      {
+       "name": "Live trace reads the pod",
+       "when": "A person runs `devops roadmap follow` while the Job runs.",
+       "then": "The command reads the pod log and sends one GitHub request for the issue body."
+      }
+     ]
+    },
+    {
+     "name": "The output has the shape of the PR comment table",
+     "text": "The command SHALL print its rows with the header and the column order of the PR comment table.",
+     "scenarios": [
+      {
+       "name": "Header and columns",
+       "when": "The command prints a trace or a history.",
+       "then": "The header and the column order equal those of the PR comment table."
+      }
+     ]
+    },
+    {
+     "name": "The output masks secrets",
+     "text": "The command MUST mask each value with the rules that the log lines use before it prints the value.",
+     "scenarios": [
+      {
+       "name": "Secret in a pod log line",
+       "when": "The pod log holds a value that the log masking rules mark as a secret.",
+       "then": "The command prints the masked value and not the secret."
+      }
+     ]
+    },
+    {
+     "name": "The inbox and explain output names the follow command",
+     "text": "The `devops roadmap inbox` and `devops roadmap explain` commands SHALL print the follow command for each item that they list.",
+     "scenarios": [
+      {
+       "name": "Inbox and explain rows",
+       "when": "A person runs `devops roadmap inbox` or `devops roadmap explain` for an item.",
+       "then": "The output holds the follow command for that item."
+      }
+     ]
+    }
+   ],
+   "modified": []
+  }
+ ],
+ "groups": [
+  {
+   "title": "Build the follow rows from the pod log and the job record",
+   "kind": "behavior",
+   "reads": [
+    "src/devops_cli/roadmap/inbox.py",
+    "src/devops_cli/roadmap/explain.py",
+    "src/devops_cli/roadmap/implement.py",
+    "docs/ROADMAP_WORKFLOW.md"
+   ],
+   "changes": [
+    "src/devops_cli/roadmap/follow.py",
+    "tests/roadmap/test_roadmap_follow.py"
+   ],
+   "creates": [
+    "src/devops_cli/roadmap/follow.py",
+    "tests/roadmap/test_roadmap_follow.py"
+   ],
+   "creates_lines": {
+    "src/devops_cli/roadmap/follow.py": 1,
+    "tests/roadmap/test_roadmap_follow.py": 1
+   },
+   "test": "Write `tests/roadmap/test_roadmap_follow.py` first: a fake pod log with a step line, a tool call, a check result and an attempt, and a fake issue body with a job record, each produce rows; a log line with a secret produces a masked row; and the count of GitHub reads stays at one",
+   "implementation": "Add `src/devops_cli/roadmap/follow.py`. `read_live_rows` reads the pod log of the runner Job through the Kubernetes client and parses the step, tool call, check and attempt lines. `read_history_rows` parses the job record of the issue body. `read_follow` builds both row lists, masks each value with the masker of the log lines, and sends at most one GitHub request for the issue body",
+   "documentation": null,
+   "verify": "uv run devops ci test tests/roadmap/test_roadmap_follow.py",
+   "process": null
+  },
+  {
+   "title": "Add the follow command and its table",
+   "kind": "behavior",
+   "reads": [
+    "src/devops_cli/commands/roadmap.py",
+    "src/devops_cli/roadmap/follow.py",
+    "src/devops_cli/lang/en/help.py"
+   ],
+   "changes": [
+    "src/devops_cli/commands/roadmap.py",
+    "src/devops_cli/lang/en/help.py",
+    "src/devops_cli/roadmap/follow.py",
+    "tests/roadmap/test_roadmap_follow_command.py"
+   ],
+   "creates": [
+    "tests/roadmap/test_roadmap_follow_command.py"
+   ],
+   "creates_lines": {
+    "tests/roadmap/test_roadmap_follow_command.py": 1
+   },
+   "test": "Write `tests/roadmap/test_roadmap_follow_command.py` first: the command prints the header of the PR comment table in its column order, and a `--dry-run` lists its reads and sends none",
+   "implementation": "Add the `follow` command to `src/devops_cli/commands/roadmap.py`. It takes the issue number, calls `read_follow`, and prints the rows with the PR comment table renderer. Add the `follow` help text to `src/devops_cli/lang/en/help.py`, which names the live part and the one GitHub request",
+   "documentation": null,
+   "verify": "uv run devops ci test tests/roadmap/test_roadmap_follow_command.py",
+   "process": null
+  },
+  {
+   "title": "Link follow from the inbox and explain output",
+   "kind": "behavior",
+   "reads": [
+    "src/devops_cli/roadmap/inbox.py",
+    "src/devops_cli/roadmap/explain.py",
+    "tests/roadmap/test_roadmap_inbox_command.py",
+    "tests/roadmap/test_roadmap_explain_command.py"
+   ],
+   "changes": [
+    "src/devops_cli/roadmap/inbox.py",
+    "src/devops_cli/roadmap/explain.py",
+    "tests/roadmap/test_roadmap_inbox_command.py",
+    "tests/roadmap/test_roadmap_explain_command.py"
+   ],
+   "creates": [],
+   "creates_lines": {},
+   "test": "Extend `tests/roadmap/test_roadmap_inbox_command.py` and `tests/roadmap/test_roadmap_explain_command.py` first: each output holds `devops roadmap follow <number>` for the item that it lists",
+   "implementation": "Add the follow line to each row that `src/devops_cli/roadmap/inbox.py` and `src/devops_cli/roadmap/explain.py` build. The line names the command and the issue number",
+   "documentation": null,
+   "verify": "uv run devops ci test tests/roadmap/test_roadmap_inbox_command.py tests/roadmap/test_roadmap_explain_command.py",
+   "process": null
+  },
+  {
+   "title": "Document the follow command",
+   "kind": "other",
+   "reads": [
+    "docs/ROADMAP_WORKFLOW.md",
+    "docs/roadmap/inbox.md"
+   ],
+   "changes": [
+    "docs/roadmap/follow.md",
+    "docs/ROADMAP_WORKFLOW.md",
+    "docs/CLI_REFERENCE.md"
+   ],
+   "creates": [
+    "docs/roadmap/follow.md"
+   ],
+   "creates_lines": {
+    "docs/roadmap/follow.md": 1
+   },
+   "test": null,
+   "implementation": "Add `docs/roadmap/follow.md`: what the command prints, the live part from the pod log, the one GitHub request for the job record, the table shape and the masking. Name the command in the notes of `docs/ROADMAP_WORKFLOW.md` beside `explain` and `inbox`, and add its row to `docs/CLI_REFERENCE.md`",
+   "documentation": "docs/roadmap/follow.md, run `uv run devops docs generate --sync-readme`",
+   "verify": "uv run devops ci docs",
+   "process": null
+  }
+ ],
+ "criteria": [
+  {
+   "criterion": "`follow` works for a running Job and for a finished one.",
+   "group": 1,
+   "reason": null
+  },
+  {
+   "criterion": "It reads at most a stated number of GitHub requests and none for the live part (it reads the pod).",
+   "group": 1,
+   "reason": null
+  },
+  {
+   "criterion": "The output is in the same shape as the PR comment table.",
+   "group": 2,
+   "reason": null
+  },
+  {
+   "criterion": "It masks secrets like the log lines do.",
+   "group": 1,
+   "reason": null
+  }
+ ],
+ "dependencies": [],
+ "security": "",
+ "weakened_checks": []
+}

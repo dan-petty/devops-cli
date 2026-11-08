@@ -54,6 +54,7 @@ _DOCUMENTS = {
     "AGENTS.md": _AGENTS,
     "CONTRIBUTING.md": _CONTRIBUTING,
     "docs/TESTING.md": _TESTING,
+    "docs/roadmap/stage.md": (REPO_ROOT / "docs" / "roadmap" / "stage.md").read_text("utf-8"),
     "openspec/config.yaml": _CONFIG,
 }
 # The largest issue number that the title has to hold with its lead.
@@ -469,6 +470,11 @@ _SHARED = [
         "an edit of tests only, or data",
     ),
     ("docs/TESTING.md", "mirrors the package"),
+    (
+        "docs/roadmap/stage.md",
+        "`Feasibility` cites only the tools and the paths that this run used, and a premise that "
+        "the run did not check is written as `not checked`, never as read or ran.",
+    ),
 ]
 
 

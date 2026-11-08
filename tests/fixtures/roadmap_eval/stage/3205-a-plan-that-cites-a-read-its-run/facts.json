@@ -1,0 +1,17 @@
+{
+ "tracked": [
+  "src/devops_cli/commands/roadmap.py",
+  "src/devops_cli/roadmap/inbox.py",
+  "src/devops_cli/roadmap/explain.py",
+  "src/devops_cli/roadmap/implement.py",
+  "src/devops_cli/lang/en/help.py",
+  "docs/ROADMAP_WORKFLOW.md",
+  "docs/roadmap/inbox.md",
+  "docs/CLI_REFERENCE.md",
+  "tests/roadmap/test_roadmap_inbox_command.py",
+  "tests/roadmap/test_roadmap_explain_command.py"
+ ],
+ "capabilities": [
+  "roadmap-follow"
+ ]
+}

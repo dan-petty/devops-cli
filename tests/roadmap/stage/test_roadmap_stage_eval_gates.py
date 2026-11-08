@@ -24,6 +24,11 @@ from devops_cli.roadmap.stage.stage_eval_cases import (
     Verdict,
     load_cases,
 )
+
+try:
+    from devops_cli.roadmap.stage.stage_eval_cases import TraceFact
+except ImportError:
+    TraceFact = None  # type: ignore[misc,assignment]
 from devops_cli.roadmap.stage.stage_eval_gates import (
     GATES,
     PENDING_GATES,
@@ -232,7 +237,7 @@ def test_the_counts_of_each_type_are_the_baseline_that_a_change_of_a_gate_beats(
     assert counts[DefectType.VERIFY_FORM] == (6, 0, 12)
     assert counts[DefectType.TASK_ORDER] == (1, 0, 8)
     assert counts[DefectType.IGNORES_EXISTING_CODE] == (0, 0, 23)
-    assert report.judged() == (76, 313)
+    assert report.judged() == (77, 314)
 
 
 def test_the_judged_share_counts_the_caught_and_the_missed_and_not_the_rest(
@@ -754,3 +759,59 @@ def test_the_prompt_keys_gate_accepts_a_plan_changing_stage_change_without_addin
     }
     plan = PlanUnderTest.of_case(good.model_copy(update={"plan": {**good.plan, "groups": [group]}}))
     assert run_gates(plan)[GateName.PROMPT_KEYS] == []
+
+
+def test_path_gate_refuses_when_facts_record_a_zero_call_trace_and_plan_claims_read(
+    cases: list[StageCase],
+) -> None:
+    assert TraceFact is not None, "TraceFact is required"
+    good = next(case for case in cases if case.verdict is Verdict.GOOD)
+    claimed_path = "src/devops_cli/commands/roadmap.py"
+    plan_with_claim = {
+        **good.plan,
+        "feasibility": [f"I read `{claimed_path}` to confirm the command."],
+    }
+    tracked = (*good.facts.tracked, claimed_path)
+
+    # Case with zero-call trace: gate fires and refuses the plan.
+    zero_case = good.model_copy(
+        update={
+            "plan": plan_with_claim,
+            "facts": good.facts.model_copy(
+                update={
+                    "tracked": tracked,
+                    "trace": TraceFact(tools=(), paths=()),
+                }
+            ),
+        }
+    )
+    plan_zero = PlanUnderTest.of_case(zero_case)
+    problems_zero = run_gates(plan_zero)[GateName.PATHS]
+    assert any(claimed_path in problem for problem in problems_zero)
+
+    # Case with trace is None: gate passes.
+    none_case = good.model_copy(
+        update={
+            "plan": plan_with_claim,
+            "facts": good.facts.model_copy(update={"tracked": tracked, "trace": None}),
+        }
+    )
+    plan_none = PlanUnderTest.of_case(none_case)
+    problems_none = run_gates(plan_none)[GateName.PATHS]
+    assert not any(claimed_path in problem for problem in problems_none)
+
+    # Case with matching call: gate passes.
+    call_case = good.model_copy(
+        update={
+            "plan": plan_with_claim,
+            "facts": good.facts.model_copy(
+                update={
+                    "tracked": tracked,
+                    "trace": TraceFact(tools=("read_file",), paths=(claimed_path,)),
+                }
+            ),
+        }
+    )
+    plan_call = PlanUnderTest.of_case(call_case)
+    problems_call = run_gates(plan_call)[GateName.PATHS]
+    assert not any(claimed_path in problem for problem in problems_call)

@@ -4,6 +4,7 @@ replies of a run, under the stage of the task that served it."""
 from __future__ import annotations
 
 import contextlib
+import json
 import sqlite3
 from collections.abc import Sequence
 from typing import Any
@@ -35,11 +36,17 @@ from devops_cli.config.constants import (
 )
 from devops_cli.roadmap.agent_run import (
     RunTrace,
+    ToolCallRecord,
     bounded_text,
     model_call_error,
     record_run_spend,
     run_error_message,
 )
+
+try:
+    from devops_cli.roadmap.agent_run import TraceFacts
+except ImportError:
+    TraceFacts = None  # type: ignore[misc,assignment]
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
@@ -89,14 +96,27 @@ def test_a_run_with_no_reply_makes_no_record(spend_ledger: SpendLedger) -> None:
     ("raised", "kind", "status", "timed_out"),
     [
         (ModelHTTPError(504, "model", "MODEL-TEXT"), AIClientError, 504, False),
-        (ModelTimeoutError("model", "timed out", body="MODEL-TEXT"), AIClientError, None, True),
-        (ModelAPIError("model", "failed", body="MODEL-TEXT"), AIClientError, None, False),
+        (
+            ModelTimeoutError("model", "timed out", body="MODEL-TEXT"),
+            AIClientError,
+            None,
+            True,
+        ),
+        (
+            ModelAPIError("model", "failed", body="MODEL-TEXT"),
+            AIClientError,
+            None,
+            False,
+        ),
         (ModelHTTPError(401, "model", "MODEL-TEXT"), AICredentialsError, None, False),
     ],
     ids=["status", "timeout", "neither", "refused-key"],
 )
 def test_a_failed_model_call_keeps_its_status_or_timeout_and_none_of_its_text(
-    raised: ModelAPIError, kind: type[AIClientError], status: int | None, timed_out: bool
+    raised: ModelAPIError,
+    kind: type[AIClientError],
+    status: int | None,
+    timed_out: bool,
 ) -> None:
     error = model_call_error(raised, "The step's")
 
@@ -116,7 +136,10 @@ TOKEN = "ghp_" + "a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8"
     [
         ("Exceeded maximum output retries (3)", "Exceeded maximum output retries (3)"),
         ("First line\ninput_value=MODEL-TEXT", "First line"),
-        (f"The reply held {TOKEN} in it.", "The reply held <masked-github-token> in it."),
+        (
+            f"The reply held {TOKEN} in it.",
+            "The reply held <masked-github-token> in it.",
+        ),
         (
             "Function tool calls must have unique `tool_call_id` values; "
             "duplicate `tool_call_id`s: ['MODEL-ID']",
@@ -133,7 +156,16 @@ TOKEN = "ghp_" + "a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8"
         ("a\x1b[2J\x00\x08\x7fb", "a[2Jb"),
         ("", ""),
     ],
-    ids=["fixed", "first-line", "secret", "tool-call-id", "tool-name", "repr", "control", "empty"],
+    ids=[
+        "fixed",
+        "first-line",
+        "secret",
+        "tool-call-id",
+        "tool-name",
+        "repr",
+        "control",
+        "empty",
+    ],
 )
 def test_the_message_of_a_stopped_run_keeps_its_fixed_description_only(
     message: str, logged: str
@@ -219,7 +251,11 @@ def test_a_trace_masks_the_value_of_an_argument_by_its_name() -> None:
             1,
             ToolCallPart(
                 "call_api",
-                {"path": "/v1/a", "api_key": "opaque-value", "nested": {"password": "hunter2"}},
+                {
+                    "path": "/v1/a",
+                    "api_key": "opaque-value",
+                    "nested": {"password": "hunter2"},
+                },
             ),
             ToolCallPart("call_api", '{"bearer": "opaque-value", "path": "/v1/b"}'),
         ),
@@ -270,3 +306,27 @@ def test_a_trace_of_no_reply_is_empty() -> None:
     trace.absorb([ModelRequest(parts=[UserPromptPart("go")])], tools=set())
 
     assert (trace.tool_calls, trace.requests, trace.violations) == ([], 0, 0)
+
+
+def test_trace_facts_from_a_trace_with_calls() -> None:
+    assert TraceFacts is not None, "TraceFacts is required"
+    path = "src/devops_cli/roadmap/agent_run.py"
+    trace = RunTrace(
+        tool_calls=[
+            ToolCallRecord("read_file", json.dumps({"path": path})),
+            ToolCallRecord("search_code", json.dumps({"pattern": "needle"})),
+        ]
+    )
+
+    facts = TraceFacts.of(trace)
+
+    assert facts.tools == frozenset({"read_file", "search_code"})
+    assert facts.paths == frozenset({path})
+
+
+def test_trace_facts_from_a_zero_call_trace() -> None:
+    assert TraceFacts is not None, "TraceFacts is required"
+    facts = TraceFacts.of(RunTrace())
+
+    assert facts.tools == frozenset()
+    assert facts.paths == frozenset()

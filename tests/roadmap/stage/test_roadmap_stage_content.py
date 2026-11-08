@@ -12,6 +12,10 @@ from typing import Any
 import pytest
 from pydantic import ValidationError
 
+try:
+    from devops_cli.roadmap.agent_run import TraceFacts
+except ImportError:
+    TraceFacts = None  # type: ignore[misc,assignment]
 from devops_cli.roadmap.stage.stage_change import (
     PLAN_FIELD_MIN_CHARS,
     GroupKind,
@@ -772,3 +776,88 @@ def test_an_other_group_with_a_source_path_and_no_named_test_is_accepted() -> No
     )
 
     assert content_problems(make_stage_proposal(groups=[group])) == []
+
+
+def test_a_feasibility_line_that_claims_a_read_without_trace_call_is_refused() -> None:
+    agent_run = "src/devops_cli/roadmap/agent_run.py"
+    plan = make_stage_proposal(feasibility=[f"The run read `{agent_run}` to check the premise."])
+    trace = TraceFacts() if TraceFacts is not None else None
+
+    problems = _check(plan, trace=trace)
+
+    assert len(problems) == 1
+    assert agent_run in problems[0]
+
+
+def test_a_feasibility_line_that_claims_a_read_with_trace_call_passes() -> None:
+    agent_run = "src/devops_cli/roadmap/agent_run.py"
+    plan = make_stage_proposal(feasibility=[f"The run read `{agent_run}` to check the premise."])
+    trace = (
+        TraceFacts(tools=frozenset({"read_file"}), paths=frozenset({agent_run}))
+        if TraceFacts is not None
+        else None
+    )
+
+    assert _check(plan, trace=trace) == []
+
+
+def test_a_feasibility_line_that_names_an_uncalled_toolbox_tool_is_refused() -> None:
+    plan = make_stage_proposal(feasibility=["The run called `search_code` on the repository."])
+    trace = TraceFacts() if TraceFacts is not None else None
+
+    problems = _check(plan, trace=trace)
+
+    assert len(problems) == 1
+    assert "search_code" in problems[0]
+
+
+def test_a_feasibility_line_that_negates_a_read_passes() -> None:
+    agent_run = "src/devops_cli/roadmap/agent_run.py"
+    plan = make_stage_proposal(
+        feasibility=[f"The run did not read `{agent_run}` because of no tools."]
+    )
+    trace = TraceFacts() if TraceFacts is not None else None
+
+    assert _check(plan, trace=trace) == []
+
+
+def test_a_feasibility_line_with_no_trace_facts_passes() -> None:
+    agent_run = "src/devops_cli/roadmap/agent_run.py"
+    plan = make_stage_proposal(feasibility=[f"The run read `{agent_run}` to check the premise."])
+
+    assert _check(plan, trace=None) == []
+
+
+def test_content_problems_accepts_this_plans_own_proposal() -> None:
+    sample = make_stage_proposal()
+    group = sample.groups[0].model_copy(
+        update={
+            "title": "Refuse an unsupported feasibility claim in the gates",
+            "kind": GroupKind.BEHAVIOR,
+            "changes": [PLAN_CHECK_FILE, MESSAGES_FILE],
+            "creates": [],
+            "creates_lines": {},
+            "verify": "uv run devops ci test tests/roadmap/stage/test_roadmap_stage_content.py",
+            "test": (
+                "Write a test that builds this plan's own `StageProposal` and asserts that "
+                "`content_problems` returns no problem for it"
+            ),
+        }
+    )
+    plan = make_stage_proposal(
+        summary="Refuse feasibility claims the run did not make",
+        why=(
+            "Issue #3266: the stage job accepts a plan whose Feasibility section cites a tool read "
+            "that the run never made."
+        ),
+        what_changes=[
+            f"`{PLAN_CHECK_FILE}` gains the trace check.",
+            f"`{MESSAGES_FILE}` gains the messages of the check.",
+        ],
+        existing_tool=(
+            "No open tool covers the check: about 80k tokens to build, 20k tokens to keep and "
+            "about 4 hours of elapsed time."
+        ),
+        groups=[group],
+    )
+    assert content_problems(plan) == []
