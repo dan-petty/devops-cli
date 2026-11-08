@@ -1,0 +1,13 @@
+{
+ "tracked": [
+  "src/devops_cli/roadmap/stage/stage_change.py",
+  "src/devops_cli/roadmap/stage/stage_form.py",
+  "src/devops_cli/roadmap/stage/stage_paths.py",
+  "src/devops_cli/roadmap/stage/stage_criteria.py",
+  "src/devops_cli/roadmap/stage/stage_eval_gates.py",
+  "tests/roadmap/stage/test_roadmap_stage_form.py"
+ ],
+ "capabilities": [
+  "roadmap-stage"
+ ]
+}

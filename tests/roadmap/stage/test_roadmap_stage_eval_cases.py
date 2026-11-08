@@ -37,11 +37,13 @@ from tests.support.paths import REPO_ROOT
 # is the same plan without the group that adds the field of the case, so that the group that adds
 # the case of a move of the stage modules changes only test files and delivers nothing (#3448).
 # Pull request 3278 is the plan of PR #3278 (for #2441) with own-change, scenario code, and reference defects (#3321).
+# The case of #3328 is the plan before the prompt-key gate exists: a group adds a field to
+# StageProposal and no group changes roadmap_stage_change.md.
 EVALUATED_PULLS = frozenset(
     {2975, 2976, 2977, 2978, 2979, 2980, 2981, 2982, 2983, 2984, 2985, 2986, 2987, 2988, 2989}
     | {2990, 2991, 2992, 2993, 2994, 2995, 2996, 2997, 2998, 2999, 3001, 3002}
     | {2719, 2761, 2766, 2857, 2858, 2859, 2870, 2958, 2971, 2972}
-    | {3167, 3173, 3174, 3278, 3331, 3378, 3411, 3435, 3247}
+    | {3167, 3173, 3174, 3278, 3328, 3331, 3378, 3411, 3435, 3247}
 )
 SHA_LENGTH = 40
 FULL_HASH = re.compile(r"[0-9a-f]{40}")
@@ -52,12 +54,12 @@ def cases() -> list[StageCase]:
     return load_cases(REPO_ROOT / CASES_DIRECTORY)
 
 
-def test_the_set_holds_the_46_plans_and_five_good_ones(cases: list[StageCase]) -> None:
+def test_the_set_holds_the_47_plans_and_five_good_ones(cases: list[StageCase]) -> None:
     reviewed = {case.pull for case in cases if case.verdict is not Verdict.GOOD}
     good = [case for case in cases if case.verdict is Verdict.GOOD]
 
-    assert (frozenset(reviewed), len(cases), len(good)) == (EVALUATED_PULLS, 51, 5)
-    assert len(EVALUATED_PULLS) == 46
+    assert (frozenset(reviewed), len(cases), len(good)) == (EVALUATED_PULLS, 52, 5)
+    assert len(EVALUATED_PULLS) == 47
 
 
 def test_a_good_case_is_the_twin_of_a_reviewed_case_and_has_no_defect(

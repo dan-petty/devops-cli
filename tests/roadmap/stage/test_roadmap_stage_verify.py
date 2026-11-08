@@ -27,6 +27,7 @@ from devops_cli.roadmap.stage.stage_verify import (
     OPEN_TYPES,
     PLAN_NEEDS_FIX_LABEL,
     RETURN_TYPES,
+    VERIFY_TYPES,
     Finding,
     Verification,
     VerificationInput,
@@ -79,7 +80,8 @@ def test_the_prompt_names_the_nine_types_and_no_other() -> None:
 
     named = set(re.findall(r"`([a-z_]+)`", line))
 
-    assert named == {kind.value for kind in DefectType}
+    assert len(VERIFY_TYPES) == 9
+    assert named == {kind.value for kind in VERIFY_TYPES}
 
 
 def test_the_missing_path_type_names_a_needed_file_that_the_plan_does_not_change() -> None:
@@ -97,6 +99,19 @@ def test_a_finding_with_a_type_outside_the_nine_is_refused() -> None:
     with pytest.raises(ValidationError, match="type"):
         Verification.model_validate(
             {"findings": [{"type": "style", "where": "x", "problem": "y", "quote": ""}]}
+        )
+    with pytest.raises(ValidationError, match="type"):
+        Verification.model_validate(
+            {
+                "findings": [
+                    {
+                        "type": DefectType.PROMPT_KEY_MISSING.value,
+                        "where": "x",
+                        "problem": "y",
+                        "quote": "",
+                    }
+                ]
+            }
         )
 
 

@@ -3637,6 +3637,12 @@ class RoadmapMessages:
         "A group changes `{path}`, and does not list `{test}` in `reads` or `changes` or verify it. "
         "List `{test}` in `reads` or `changes`, and give a `verify` command that names `{test}`."
     )
+    # A plan that adds a field to StageProposal updates the prompt reply keys (#3328).
+    stage_problem_prompt_key: str = (
+        "A group adds the field `{field}` to `StageProposal`, and no group updates `{path}` with "
+        "the reply key. Add a group that changes `{path}` and lists the reply key bullet and its "
+        "rule."
+    )
     # A plan that names a security trigger has non-blank security text in design.md (#3247).
     stage_problem_security: str = (
         "The plan matches the security trigger `{trigger}` and has no security text. Add a "

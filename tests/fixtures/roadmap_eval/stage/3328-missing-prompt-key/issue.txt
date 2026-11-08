@@ -1,0 +1,20 @@
+## Problem
+
+`StageProposal` in `src/devops_cli/roadmap/stage_change.py` defines the model reply schema for staging plans.
+
+`test_the_top_level_keys_of_the_reply_are_the_fields_of_the_proposal` in `tests/roadmap/test_roadmap_stage_prompt_rules.py` asserts that every field in `StageProposal.model_fields` matches a `- `<name>`:` bullet in `src/devops_cli/ai/tasks/roadmap_stage_change.md` under "The reply has these keys and no other".
+
+When a plan proposes adding a field to `StageProposal` (for example `dependencies` in #3252), the staging planner often adds the behavior rule but forgets the matching reply key bullet. When an agent implements the change, the prompt test fails immediately.
+
+The stage check does not verify that plans modifying `StageProposal` include the prompt reply key update in their tasks.
+
+## Proposed change
+
+1. In `src/devops_cli/roadmap/stage_eval_gates.py` or `stage_specs.py`, add a check when a plan touches `StageProposal` in `stage_change.py`.
+2. When a plan adds a field to `StageProposal`, require the plan tasks to include updating `src/devops_cli/ai/tasks/roadmap_stage_change.md` with the new reply key bullet.
+3. Add a test in `tests/roadmap/test_roadmap_stage_prompt_rules.py` or `test_roadmap_stage_plan.py` asserting that plans adding a `StageProposal` field must schedule updating the prompt keys.
+
+## Acceptance criteria
+
+1. A test asserts that a plan adding a field to `StageProposal` without updating the prompt reply keys is refused with an informative message.
+2. A plan adding a field to `StageProposal` that specifies both the prompt key bullet and the prompt rule passes the check.

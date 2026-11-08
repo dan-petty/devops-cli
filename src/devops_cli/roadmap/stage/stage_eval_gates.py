@@ -30,6 +30,7 @@ plan, when a gate refuses a `good` plan, and when a defect waits for a gate that
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -38,6 +39,7 @@ from typing import Any, Final
 
 from pydantic import ValidationError
 
+from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.stage.stage_change import (
     GroupKind,
     StageDecision,
@@ -205,11 +207,96 @@ def _kind_gate(plan: PlanUnderTest) -> list[str]:
     return list(plan.schema_problems)
 
 
+PROMPT_CHANGE_FILE: Final[str] = "src/devops_cli/ai/tasks/roadmap_stage_change.md"
+STAGE_CHANGE_FILE: Final[str] = "src/devops_cli/roadmap/stage/stage_change.py"
+_LEGACY_STAGE_CHANGE_FILE: Final[str] = "src/devops_cli/roadmap/stage_change.py"
+_STAGE_CHANGE_FILES: Final[frozenset[str]] = frozenset(
+    {STAGE_CHANGE_FILE, _LEGACY_STAGE_CHANGE_FILE}
+)
+_FIELD_STOP_WORDS: Final[frozenset[str]] = frozenset(
+    {
+        "a",
+        "an",
+        "the",
+        "new",
+        "this",
+        "that",
+        "each",
+        "one",
+        "all",
+        "its",
+        "to",
+        "of",
+        "in",
+        "on",
+        "for",
+        "with",
+        "and",
+        "or",
+        "add",
+        "adds",
+        "added",
+    }
+)
+
+
+def _field_name(text: str) -> str | None:
+    for pattern in (
+        r"\bfield\s+[`'\"]?([a-z_][a-z0-9_]*)[`'\"]?",
+        r"[`'\"]?([a-z_][a-z0-9_]*)[`'\"]?\s+field\b",
+    ):
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match and match.group(1).lower() not in _FIELD_STOP_WORDS:
+            return match.group(1)
+    return None
+
+
+def _adds_stage_proposal_field(group: StageGroup) -> str | None:
+    if not any(p in _STAGE_CHANGE_FILES or p.endswith("stage_change.py") for p in group.changes):
+        return None
+    text = " ".join(filter(None, (group.title, group.implementation, group.documentation)))
+    if "StageProposal" in text and re.search(r"\bfields?\b", text, re.IGNORECASE):
+        return _field_name(text) or "field"
+    return None
+
+
+def _updates_prompt(group: StageGroup, field: str) -> bool:
+    if not any(
+        p == PROMPT_CHANGE_FILE or p.endswith("roadmap_stage_change.md") for p in group.changes
+    ):
+        return False
+    text = " ".join(
+        filter(
+            None,
+            (group.title, group.test, group.implementation, group.documentation, group.verify),
+        )
+    )
+    has_rule = "rule" in text.lower()
+    has_key = field in text if field != "field" else ("reply key" in text.lower() or "- `" in text)
+    return has_rule and has_key
+
+
+def _prompt_key_gate(plan: PlanUnderTest) -> list[str]:
+    """The prompt keys rule (#3328): a plan that adds a field to `StageProposal` must update the
+    reply keys and rule in `roadmap_stage_change.md`."""
+    field: str | None = None
+    for group in plan.proposal.groups:
+        if found := _adds_stage_proposal_field(group):
+            field = found
+            break
+    if field is None:
+        return []
+    if any(_updates_prompt(group, field) for group in plan.proposal.groups):
+        return []
+    return [MESSAGES.roadmap.stage_problem_prompt_key.format(field=field, path=PROMPT_CHANGE_FILE)]
+
+
 GATES: Final[tuple[Gate, ...]] = (
     Gate(GateName.PATHS, "#3010", DefectType.MISSING_PATH, _path_gate),
     Gate(GateName.KIND, "#3005", DefectType.CONTRIVED_TEST, _kind_gate),
     Gate(GateName.CRITERIA, "#3019", DefectType.CRITERION_DROPPED, _criteria_gate),
     Gate(GateName.CONTENT, "#3200", DefectType.OTHER, _content_gate),
+    Gate(GateName.PROMPT_KEYS, "#3328", DefectType.PROMPT_KEY_MISSING, _prompt_key_gate),
 )
 # The gates that are not built yet, by the type of defect they will catch, with the issue that
 # plans each. #3012, #3013, #3015 and #3017 built theirs, and the replay judged the defects of
