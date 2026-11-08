@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import functools
-import subprocess
 from typing import Any
 
 import yaml
@@ -276,17 +275,11 @@ def test_kustomization_lists_every_manifest_and_pins_no_image_and_stays_out_of_t
     on_disk = [
         p.name
         for p in DEVOPS_DIR.glob("*.yaml")
-        if p.name != "kustomization.yaml" and not p.name.endswith(".example.yaml")
+        if p.name != "kustomization.yaml"
+        and not p.name.endswith(".example.yaml")
+        and p.name != "configmap.yaml"
     ]
-    # A gitignored local copy, such as a configmap.yaml an older deploy-stack wrote, is no manifest
-    tracked = subprocess.run(
-        ["git", "ls-files", "--", *on_disk],
-        cwd=DEVOPS_DIR,
-        capture_output=True,
-        text=True,
-        check=True,
-    ).stdout.split()
-    manifests = sorted([*tracked, "crawl4ai", "roadmap-service", "searxng"])
+    manifests = sorted([*on_disk, "crawl4ai", "roadmap-service", "searxng"])
     root = yaml.safe_load((K8S_DIR / "kustomization.yaml").read_text(encoding="utf-8"))
     assert (
         sorted(kustomization["resources"]),

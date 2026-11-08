@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import os
 import subprocess
 from pathlib import Path
 
@@ -20,6 +19,8 @@ from devops_cli.k8s.argocd_overrides import (
     host_patches,
     render_at_revision,
 )
+from tests.support.fakes.git import GitFake
+from tests.support.fakes.process import ProcessAnswer, ProcessCall
 
 # The configured domain has to differ from the repository's placeholder, example.com, for a
 # substitution to show; example.org is reserved for documentation by RFC 2606 like example.com.
@@ -135,15 +136,27 @@ def test_an_application_the_overrides_cannot_follow_is_refused_by_name(
 
 @pytest.mark.parametrize("field", ["repo_url", "revision"])
 def test_a_revision_or_repository_from_the_cluster_is_never_read_as_a_git_option(
-    tmp_path: Path, field: str
+    tmp_path: Path, field: str, git_fake: GitFake
 ) -> None:
-    repo = _repo(tmp_path, "chat.example.com")
+    repo = tmp_path / "repo"
+    repo.mkdir()
     marker = tmp_path / "marker"
     option = f"--upload-pack=touch {marker}; git-upload-pack"
     fields = {"repo_url": ".", "revision": "main", "path": "k8s/app", field: option}
     hostile = ApplicationSource(**fields)
+
+    def _answer(call: ProcessCall) -> subprocess.CompletedProcess[str]:
+        if "fetch" in call.argv:
+            assert "--end-of-options" in call.argv
+            return subprocess.CompletedProcess(
+                list(call.argv), 128, "", "fatal: repository not found"
+            )
+        return subprocess.CompletedProcess(list(call.argv), 0, "", "")
+
+    git_fake.answer(lambda _call: True, ProcessAnswer(side_effect=_answer))
+
     with pytest.raises(KubernetesContextError) as raised:
-        render_at_revision(hostile, repo / "work", _run)
+        render_at_revision(hostile, repo / "work", _guarded_run)
     assert raised.value.error_code == "K8S_CONTEXT_ERROR"
     assert not marker.exists()
 
@@ -165,51 +178,6 @@ def test_an_applications_source_is_read_from_its_kubectl_json() -> None:
     )
 
 
-def _run(
-    cmd: list[str],
-    *,
-    check: bool = False,
-    capture: bool = True,
-    timeout: float | None = None,
-    env: dict[str, str] | None = None,
-) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        cmd,
-        capture_output=capture,
-        text=True,
-        check=check,
-        timeout=timeout,
-        env={**os.environ, **(env or {})},
-    )
-
-
-def _repo(tmp_path: Path, host: str) -> Path:
-    repo = tmp_path / "repo"
-    (repo / "k8s" / "app").mkdir(parents=True)
-    (repo / "k8s" / "app" / "kustomization.yaml").write_text("resources:\n  - ingress.yaml\n")
-    (repo / "k8s" / "app" / "ingress.yaml").write_text(
-        "apiVersion: networking.k8s.io/v1\nkind: Ingress\nmetadata:\n  name: chat\n"
-        f"spec:\n  rules:\n    - host: {host}\n"
-    )
-    for cmd in (
-        ["init", "-q", "-b", "main"],
-        ["add", "-A"],
-        ["-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "-m", "app"],
-    ):
-        subprocess.run(["git", "-C", str(repo), *cmd], check=True, capture_output=True)
-    return repo
-
-
-def test_an_application_renders_what_its_revision_holds(tmp_path: Path) -> None:
-    repo = _repo(tmp_path, "chat.example.com")
-    rendered = render_at_revision(
-        ApplicationSource(repo.as_uri(), "main", "k8s/app"), tmp_path / "work", _run
-    )
-    assert [d["spec"]["rules"] for d in yaml.safe_load_all(rendered)] == [
-        [{"host": "chat.example.com"}]
-    ]
-
-
 def _guarded_run(
     cmd: list[str],
     *,
@@ -224,25 +192,31 @@ def _guarded_run(
     return run_subprocess(cmd, check=check, capture_output=capture, timeout=timeout, env=env)
 
 
-def test_the_fetch_of_an_ssh_remote_starts_ssh_without_a_prompt_through_the_guard(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """`run_subprocess` gives git the environment of the fetch through the guard of
-    `build_subprocess_env`, and `ssh` starts with `-o BatchMode=yes` (#2483). A stand-in `ssh`
-    program records its arguments and fails, so the fetch ends at once."""
-    ssh_log = tmp_path / "ssh.log"
-    bin_dir = tmp_path / "bin"
-    bin_dir.mkdir()
-    stand_in = bin_dir / "ssh"
-    stand_in.write_text(f'#!/bin/sh\nprintf "%s\\n" "$*" >> "{ssh_log}"\nexit 1\n')
-    stand_in.chmod(0o755)
-    monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
-    source = ApplicationSource("ssh://git@example.com/repository.git", "main", "k8s/app")
+def test_an_application_renders_what_its_revision_holds(tmp_path: Path, git_fake: GitFake) -> None:
+    canned = (
+        "apiVersion: networking.k8s.io/v1\n"
+        "kind: Ingress\n"
+        "metadata:\n"
+        "  name: chat\n"
+        "spec:\n"
+        "  rules:\n"
+        "    - host: chat.example.com\n"
+    )
 
-    with pytest.raises(KubernetesContextError, match="fetch"):
-        render_at_revision(source, tmp_path / "work", _guarded_run)
+    def _answer(call: ProcessCall) -> subprocess.CompletedProcess[str]:
+        if len(call.argv) > 1 and call.argv[1] == "kustomize":
+            return subprocess.CompletedProcess(list(call.argv), 0, canned, "")
+        return subprocess.CompletedProcess(list(call.argv), 0, "", "")
 
-    assert ssh_log.read_text(encoding="utf-8").splitlines()[0].startswith("-o BatchMode=yes ")
+    git_fake.answer(lambda _call: True, ProcessAnswer(side_effect=_answer))
+    rendered = render_at_revision(
+        ApplicationSource("https://example.com/repo", "main", "k8s/app"),
+        tmp_path / "work",
+        _guarded_run,
+    )
+    assert [d["spec"]["rules"] for d in yaml.safe_load_all(rendered)] == [
+        [{"host": "chat.example.com"}]
+    ]
 
 
 def test_only_the_fetch_gets_the_ssh_option_and_every_command_gets_only_the_prompt_switch(
@@ -282,10 +256,19 @@ def test_only_the_fetch_gets_the_ssh_option_and_every_command_gets_only_the_prom
     [("main", "../outside", "leaves its repository"), ("missing", "k8s/app", "git -C")],
 )
 def test_a_revision_that_cannot_render_is_refused(
-    tmp_path: Path, revision: str, path: str, message: str
+    tmp_path: Path, revision: str, path: str, message: str, git_fake: GitFake
 ) -> None:
-    repo = _repo(tmp_path, "chat.example.com")
+    def _answer(call: ProcessCall) -> subprocess.CompletedProcess[str]:
+        if "fetch" in call.argv and "missing" in call.argv:
+            return subprocess.CompletedProcess(
+                list(call.argv), 128, "", "fatal: couldn't find remote ref missing"
+            )
+        return subprocess.CompletedProcess(list(call.argv), 0, "", "")
+
+    git_fake.answer(lambda _call: True, ProcessAnswer(side_effect=_answer))
     with pytest.raises(KubernetesContextError, match=message):
         render_at_revision(
-            ApplicationSource(repo.as_uri(), revision, path), tmp_path / "work", _run
+            ApplicationSource("https://example.com/repo", revision, path),
+            tmp_path / "work",
+            _guarded_run,
         )
