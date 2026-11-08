@@ -677,12 +677,15 @@ def _held(
     class before `now` (#4061). The wait comes from the one table (`retry_after`)."""
     if now is None:
         return ()
-    return tuple(
-        subject.number
+    waits = (
+        (subject.number, failed[subject.number])
         for subject in subjects
-        if subject.number in failed
-        and failed[subject.number].failed_at + retry_after(failed[subject.number].failure_class)
-        > now
+        if subject.number is not None and subject.number in failed
+    )
+    return tuple(
+        number
+        for number, entry in waits
+        if entry.failed_at + retry_after(entry.failure_class) > now
     )
 
 
@@ -1521,6 +1524,7 @@ def render_intake(plan: IntakePlan, *, repo: str) -> str:
 
 __all__ = [
     "CandidateOutcome",
+    "Failed",
     "Filer",
     "IntakeApplied",
     "IntakeDecision",

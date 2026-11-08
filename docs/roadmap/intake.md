@@ -39,6 +39,12 @@ To keep an issue off the roadmap, close it as not planned:
 devops gh issues close <number> --reason not-planned
 ```
 
+## A failed write
+
+A write of GitHub can fail for one candidate, for example with a status 502. Intake skips that candidate, places the others, and then the run fails and names it.
+
+The Service keeps the failure in its intake record, beside `schedule.json`, and not in the job record of the issue. The issue is a candidate, not an item, so it gets no mark. The record holds the step (`place`), the failure class (`ci_infra` for an error of GitHub), the count of failures in a row and the time of the last one. The next rounds leave the candidate out until the wait of the class has passed (`RETRY_AFTER` in `roadmap/failure.py`: 1 hour for `ci_infra`). They make no triage call and no embedding call for it, and the candidate does not make intake due. After the wait, intake decides the candidate again. A candidate that is placed, closed or no candidate any more loses its entry. A change that a person made to the Item while the job worked is no failure and leaves no entry. A webhook update of the issue keeps the wait, and `devops roadmap intake` keeps no record, so it waits for nothing.
+
 ## The three modes
 
 | Flag | What the run does |

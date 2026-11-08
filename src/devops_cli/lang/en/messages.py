@@ -4630,9 +4630,7 @@ class RoadmapMessages:
     )
     intake_applied: str = "Intake placed {placed} item(s)."
     intake_filed: str = "Filed #{number}."
-    intake_skipped: str = (
-        "Intake skipped {name}: its writes failed, and the next run tries it again: {error}"
-    )
+    intake_skipped: str = "Intake skipped {name}: its writes failed, and a run after the wait of its failure class tries it again: {error}"
     intake_failed: str = (
         "the writes failed for {count} candidate(s), and intake skipped them after writing the "
         "others; the next run tries them again: {items}"
