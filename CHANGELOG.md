@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.89.0](https://github.com/dan-petty/devops-cli/compare/v0.88.1...v0.89.0) (2026-11-08)
+
+
+### Features
+
+* **roadmap:** record the failure class and step of a stage item ([e017776](https://github.com/dan-petty/devops-cli/commit/e017776cf59f03670d91f9d849e415dd966edd23))
+* **roadmap:** record the failure class and step of a stage item ([#4153](https://github.com/dan-petty/devops-cli/issues/4153)) ([e017776](https://github.com/dan-petty/devops-cli/commit/e017776cf59f03670d91f9d849e415dd966edd23))
+* **telemetry:** measure the seconds of each Service row ([#4150](https://github.com/dan-petty/devops-cli/issues/4150)) ([aa772d6](https://github.com/dan-petty/devops-cli/commit/aa772d6ee12ae6bb288da548f81275ad93e8b4d6))
+
+
+### Bug Fixes
+
+* **k8s:** raise the roadmap service memory to 768Mi and 3Gi ([#4154](https://github.com/dan-petty/devops-cli/issues/4154)) ([5c9fb88](https://github.com/dan-petty/devops-cli/commit/5c9fb88e0badaf1b538def4c43fee12096354606))
+
 ## [0.88.1](https://github.com/dan-petty/devops-cli/compare/v0.88.0...v0.88.1) (2026-11-08)
 
 
