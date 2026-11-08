@@ -52,6 +52,7 @@ def test_every_gate_still_refuses_every_known_bad_plan_it_must(cases: list[Stage
         GateName.KIND: (True, 0),
         GateName.CRITERIA: (False, 0),
         GateName.CONTENT: (True, 0),
+        GateName.PROMPT_KEYS: (True, 0),
     }
 
 
@@ -144,7 +145,7 @@ def test_the_counts_of_each_type_are_the_baseline_that_a_change_of_a_gate_beats(
     assert counts[DefectType.VERIFY_FORM] == (6, 0, 12)
     assert counts[DefectType.TASK_ORDER] == (1, 0, 8)
     assert counts[DefectType.IGNORES_EXISTING_CODE] == (0, 0, 23)
-    assert report.judged() == (74, 311)
+    assert report.judged() == (75, 312)
 
 
 def test_the_judged_share_counts_the_caught_and_the_missed_and_not_the_rest(
@@ -561,3 +562,104 @@ def test_the_replay_passes_recorded_constants(cases: list[StageCase]) -> None:
         "SUMMARY_MAX_CHARS is 60 in the staged tree, but the plan says 40." in p
         for p in replay_constants.problems[GateName.PATHS]
     )
+
+
+def test_the_prompt_keys_gate_catches_the_prompt_key_missing_type() -> None:
+    assert gate_for(DefectType.PROMPT_KEY_MISSING) is GateName.PROMPT_KEYS
+    assert GateName.PROMPT_KEYS in {gate.name for gate in GATES}
+
+
+def test_the_prompt_keys_gate_refuses_a_plan_that_adds_a_field_without_prompt_reply_key(
+    cases: list[StageCase],
+) -> None:
+    good = next(case for case in cases if case.verdict is Verdict.GOOD)
+    group = {
+        **good.groups[0],
+        "changes": ["src/devops_cli/roadmap/stage/stage_change.py"],
+        "implementation": "Add the `dependencies` field to `StageProposal`.",
+    }
+    plan = PlanUnderTest.of_case(good.model_copy(update={"plan": {**good.plan, "groups": [group]}}))
+
+    problems = run_gates(plan)[GateName.PROMPT_KEYS]
+
+    assert problems
+    assert "src/devops_cli/ai/tasks/roadmap_stage_change.md" in problems[0]
+    assert "dependencies" in problems[0]
+
+
+def test_the_prompt_keys_gate_accepts_a_plan_when_prompt_key_and_rule_are_updated(
+    cases: list[StageCase],
+) -> None:
+    good = next(case for case in cases if case.verdict is Verdict.GOOD)
+    group1 = {
+        **good.groups[0],
+        "changes": ["src/devops_cli/roadmap/stage/stage_change.py"],
+        "implementation": "Add the `dependencies` field to `StageProposal`.",
+    }
+    group2 = {
+        **good.groups[0],
+        "changes": ["src/devops_cli/ai/tasks/roadmap_stage_change.md"],
+        "implementation": "Update `src/devops_cli/ai/tasks/roadmap_stage_change.md` with the `dependencies` reply key bullet and its rule.",
+    }
+    plan = PlanUnderTest.of_case(
+        good.model_copy(update={"plan": {**good.plan, "groups": [group1, group2]}})
+    )
+
+    assert run_gates(plan)[GateName.PROMPT_KEYS] == []
+
+
+def test_the_prompt_keys_gate_refuses_when_rule_is_missing_in_prompt_update(
+    cases: list[StageCase],
+) -> None:
+    good = next(case for case in cases if case.verdict is Verdict.GOOD)
+    group1 = {
+        **good.groups[0],
+        "changes": ["src/devops_cli/roadmap/stage/stage_change.py"],
+        "implementation": "Add field `dependencies` to `StageProposal`.",
+    }
+    group2 = {
+        **good.groups[0],
+        "changes": ["src/devops_cli/ai/tasks/roadmap_stage_change.md"],
+        "implementation": "Update `src/devops_cli/ai/tasks/roadmap_stage_change.md` with the `dependencies` reply key bullet.",
+    }
+    plan = PlanUnderTest.of_case(
+        good.model_copy(update={"plan": {**good.plan, "groups": [group1, group2]}})
+    )
+
+    problems = run_gates(plan)[GateName.PROMPT_KEYS]
+    assert problems
+    assert "dependencies" in problems[0]
+
+
+def test_the_prompt_keys_gate_handles_generic_field_wording(
+    cases: list[StageCase],
+) -> None:
+    good = next(case for case in cases if case.verdict is Verdict.GOOD)
+    group1 = {
+        **good.groups[0],
+        "changes": ["src/devops_cli/roadmap/stage/stage_change.py"],
+        "implementation": "Add a new field to `StageProposal`.",
+    }
+    group2 = {
+        **good.groups[0],
+        "changes": ["src/devops_cli/ai/tasks/roadmap_stage_change.md"],
+        "implementation": "Update `src/devops_cli/ai/tasks/roadmap_stage_change.md` with the reply key bullet and its rule.",
+    }
+    plan = PlanUnderTest.of_case(
+        good.model_copy(update={"plan": {**good.plan, "groups": [group1, group2]}})
+    )
+
+    assert run_gates(plan)[GateName.PROMPT_KEYS] == []
+
+
+def test_the_prompt_keys_gate_accepts_a_plan_changing_stage_change_without_adding_field(
+    cases: list[StageCase],
+) -> None:
+    good = next(case for case in cases if case.verdict is Verdict.GOOD)
+    group = {
+        **good.groups[0],
+        "changes": ["src/devops_cli/roadmap/stage/stage_change.py"],
+        "implementation": "Refactor helper methods in `src/devops_cli/roadmap/stage/stage_change.py`.",
+    }
+    plan = PlanUnderTest.of_case(good.model_copy(update={"plan": {**good.plan, "groups": [group]}}))
+    assert run_gates(plan)[GateName.PROMPT_KEYS] == []

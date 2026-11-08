@@ -28,7 +28,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from pydantic_ai.messages import ModelRequest, UserPromptPart
 
 from devops_cli.ai.context_budget import truncate_to_token_limit
@@ -75,6 +75,11 @@ OPEN_TYPES: Final[frozenset[DefectType]] = RETURN_TYPES | {
     DefectType.SPEC_DELTA_WRONG,
     DefectType.CRITERION_DROPPED,
 }
+# The nine types that the verification prompt and reply schema name.
+VERIFY_TYPES: Final[frozenset[DefectType]] = OPEN_TYPES | {
+    DefectType.CONTRIVED_TEST,
+    DefectType.OTHER,
+}
 # The label of a plan pull request with an open finding (#3264).
 PLAN_NEEDS_FIX_LABEL: Final[str] = "plan/needs-fix"
 # The keys of a group of the plan that name files.
@@ -91,6 +96,13 @@ class Finding(BaseModel):
     where: str = Field(min_length=1)
     problem: str = Field(min_length=1)
     quote: str = ""
+
+    @field_validator("type")
+    @classmethod
+    def _check_type(cls, value: DefectType) -> DefectType:
+        if value not in VERIFY_TYPES:
+            raise ValueError(f"type must be one of {sorted(k.value for k in VERIFY_TYPES)}")
+        return value
 
 
 class Verification(BaseModel):

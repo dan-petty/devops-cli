@@ -91,6 +91,7 @@ class DefectType(StrEnum):
     IGNORES_EXISTING_CODE = "ignores_existing_code"
     CONTRIVED_TEST = "contrived_test"
     OTHER = "other"
+    PROMPT_KEY_MISSING = "prompt_key_missing"
 
 
 class GateName(StrEnum):
@@ -101,6 +102,7 @@ class GateName(StrEnum):
     KIND = "kind"
     CRITERIA = "criteria"
     CONTENT = "content"
+    PROMPT_KEYS = "prompt_keys"
     PENDING = "pending"
     NONE = "none"
 

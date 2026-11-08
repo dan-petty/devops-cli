@@ -1,0 +1,33 @@
+{
+ "issue": 3328,
+ "pull": 3328,
+ "title": "feat(roadmap): gate a plan that adds a StageProposal field",
+ "change": "3328-missing-prompt-key",
+ "merge_commit": "0000000000000000000000000000000000000000",
+ "base_commit": "0000000000000000000000000000000000000000",
+ "verdict": "needs-fix",
+ "scores": {
+  "premise_ok": 5,
+  "fidelity": 4,
+  "task_quality": 3,
+  "rule_compliance": 3,
+  "accuracy": 3
+ },
+ "state": "open",
+ "summary": "The plan adds a field to `StageProposal` in `src/devops_cli/roadmap/stage/stage_change.py` and no group updates `src/devops_cli/ai/tasks/roadmap_stage_change.md` with the new reply key.",
+ "notes": [
+  "The plan is one of this change before the gate of #3328 exists: its one group adds a field to `StageProposal` and holds no prompt update task.",
+  "The change was never merged as this plan, so `pull`, `merge_commit` and `base_commit` hold the issue number and two placeholders: the case reads no commit, and the facts hold the files of its tree."
+ ],
+ "defects": [
+  {
+   "type": "prompt_key_missing",
+   "severity": "major",
+   "where": "tasks.md, group 1",
+   "problem": "The plan adds the `dependencies` field to `StageProposal` in `src/devops_cli/roadmap/stage/stage_change.py` and no group updates `src/devops_cli/ai/tasks/roadmap_stage_change.md` with the reply key.",
+   "evidence": "The group lists `src/devops_cli/roadmap/stage/stage_change.py` in `changes`, and no group updates `src/devops_cli/ai/tasks/roadmap_stage_change.md`.",
+   "gate": "prompt_keys",
+   "message": "src/devops_cli/ai/tasks/roadmap_stage_change.md"
+  }
+ ]
+}

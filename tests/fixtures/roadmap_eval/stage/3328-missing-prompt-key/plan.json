@@ -1,0 +1,69 @@
+{
+ "summary": "gate a plan that adds a StageProposal field",
+ "pull_request_body": "The plan adds a field to `StageProposal` and holds no task that updates the prompt reply keys. The case records the plan before the gate of #3328 exists.",
+ "why": "Issue #3328: plans that add a field to `StageProposal` reach implementation without updating the prompt reply keys.",
+ "what_changes": [
+  "Add the prompt keys gate to `src/devops_cli/roadmap/stage/stage_eval_gates.py`.",
+  "Add the tests of the gate to `tests/roadmap/stage/test_roadmap_stage_eval_gates.py`."
+ ],
+ "skip_specs": false,
+ "feasibility": [
+  "`check_proposal` of `src/devops_cli/roadmap/stage/stage_change.py` runs in the stage job and in the replay, so one rule judges both."
+ ],
+ "existing_tool": "The change adds a deterministic gate to the stage job, which already checks plans offline, so no second check appears.",
+ "builds_own": false,
+ "decisions": [
+  {
+   "decision": "Run the gate in the stage gate set",
+   "reason": "The stage job and the replay both call it, so one code path gives one answer."
+  }
+ ],
+ "rejected": [
+  {
+   "alternative": "Check prompt only in prompt test",
+   "evidence": "The prompt test runs after implementation, which is too late to catch a staging defect."
+  }
+ ],
+ "specs": [
+  {
+   "capability": "roadmap-stage",
+   "purpose": null,
+   "added": [
+    {
+     "name": "Prompt key gate",
+     "text": "The stage job SHALL refuse a plan that adds a field to `StageProposal` without updating prompt reply keys.",
+     "scenarios": [
+      {
+       "name": "Missing prompt key",
+       "when": "A plan adds a field to `StageProposal` and no group changes the prompt file.",
+       "then": "The gate refuses the plan."
+      }
+     ]
+    }
+   ],
+   "modified": []
+  }
+ ],
+ "groups": [
+  {
+   "title": "Add the dependencies field to StageProposal",
+   "kind": "behavior",
+   "reads": [
+    "src/devops_cli/roadmap/stage/stage_change.py",
+    "src/devops_cli/roadmap/stage/stage_eval_gates.py"
+   ],
+   "changes": [
+    "src/devops_cli/roadmap/stage/stage_change.py",
+    "tests/roadmap/stage/test_roadmap_stage_form.py"
+   ],
+   "creates": [],
+   "creates_lines": {},
+   "test": "Build a `StageProposal` and assert that `content_problems` returns no problem",
+   "implementation": "Add the `dependencies` field to `StageProposal`.",
+   "documentation": null,
+   "verify": "uv run devops ci test tests/roadmap/stage/test_roadmap_stage_form.py",
+   "process": null
+  }
+ ],
+ "dependencies": []
+}
