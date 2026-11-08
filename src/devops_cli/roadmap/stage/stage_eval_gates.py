@@ -83,6 +83,7 @@ class PlanUnderTest:
     search_evidence: Mapping[str, Sequence[str]] = field(default_factory=dict)
     registry: Sequence[RegistryCount] | None = None
     constants: Mapping[str, int] = field(default_factory=dict)
+    models: Mapping[str, tuple[str, tuple[str, ...]]] = field(default_factory=dict)
     change: str = ""
 
     @classmethod
@@ -119,6 +120,7 @@ class PlanUnderTest:
             search_evidence=case.facts.search_evidence,
             registry=registry,
             constants=dict(case.facts.constants),
+            models=dict(case.facts.models),
             change=case.change,
         )
 
@@ -130,11 +132,19 @@ class PlanUnderTest:
         known: Collection[str],
         requirements: Mapping[str, Collection[str]] | None = None,
         issue_body: str = "",
+        models: Mapping[str, tuple[str, tuple[str, ...]]] | None = None,
     ) -> PlanUnderTest:
         """The plan of a reply that passed the schema, with the tree it was staged on, the
         requirement names of the base spec of each capability, and the body of the issue."""
         return cls(
-            proposal, (), frozenset(known), tree, requirements or {}, issue_body, mapped=True
+            proposal,
+            (),
+            frozenset(known),
+            tree,
+            requirements or {},
+            issue_body,
+            mapped=True,
+            models=models or {},
         )
 
 
@@ -184,6 +194,7 @@ def _path_gate(plan: PlanUnderTest) -> list[str]:
         search_evidence=plan.search_evidence or None,
         registry=plan.registry,
         constants=plan.constants,
+        models=plan.models,
     )
 
 

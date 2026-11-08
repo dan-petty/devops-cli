@@ -1,0 +1,36 @@
+{
+ "issue": 3344,
+ "pull": 3344,
+ "title": "feat(roadmap): refuse a plan that reads an absent model field",
+ "change": "3344-a-plan-that-reads-an-absent-field",
+ "merge_commit": "0000000000000000000000000000000000000000",
+ "base_commit": "0000000000000000000000000000000000000000",
+ "verdict": "needs-fix",
+ "scores": {
+  "premise_ok": 5,
+  "fidelity": 4,
+  "task_quality": 4,
+  "rule_compliance": 4,
+  "accuracy": 3
+ },
+ "state": "open",
+ "summary": "The proposal reads `PullStatus.labels` when `PullStatus` has no such field and the group does not list `src/devops_cli/github/client.py` in `changes`.",
+ "notes": [
+  "The plan is based on the proposal of #3264 reading PullStatus.labels without adding the defining module to changes.",
+  "The change was never merged as this plan, so pull, merge_commit and base_commit hold the issue number and two placeholders: the case reads no commit, and the facts hold the files of its tree."
+ ],
+ "defects": [
+  {
+   "type": "missing_path",
+   "severity": "major",
+   "where": "tasks.md, group 3",
+   "problem": "The plan reads PullStatus.labels, and PullStatus does not define that field. The plan must add src/devops_cli/github/client.py to changes.",
+   "evidence": "Group 3 implementation reads PullStatus.labels, and src/devops_cli/github/client.py is omitted from changes.",
+   "gate": "paths",
+   "paths": [
+    "src/devops_cli/github/client.py"
+   ],
+   "message": "PullStatus.labels"
+  }
+ ]
+}

@@ -1,0 +1,316 @@
+{
+ "summary": "keep a plan with an open finding in draft",
+ "pull_request_body": "The model verification pass finds real defects in a staged plan, yet the plan pull request still goes to review as if it were clean. The stage now keeps such a plan in draft, applies the label `plan/needs-fix`, and puts the open findings at the top of the stage comment. The row `stage_ready` refuses to mark that pull request ready and says why. A plan with an open finding does not count as staged in the round budget: it counts as a failed attempt of class `plan_defect`. The golden set records #3174 as a case of the new stop. No existing gate is removed or weakened.",
+ "why": "The stage job marks a plan pull request ready when the form gates and CI pass, so a plan whose own model review found a real defect still goes to review as if clean (#3264). The Service's round budget also counts such a plan as staged.",
+ "what_changes": [
+  "The stage keeps a plan pull request in draft when the verification pass returns an open finding, applies the label `plan/needs-fix`, and puts the findings at the top of the stage comment.",
+  "The row `stage_ready` refuses to mark a plan pull request ready while `plan/needs-fix` is present, and comments the reason.",
+  "A plan with an open finding counts as a failed attempt of class `plan_defect` and not as a staged plan in the round budget.",
+  "The golden set gains a case recorded from #3174, replayed by the existing `devops roadmap eval stage` command.",
+  "The documentation of the stage job and the roadmap workflow states the open-finding stop."
+ ],
+ "skip_specs": false,
+ "feasibility": [
+  "The premise holds: the docstring of `src/devops_cli/roadmap/stage.py` says \"A finding of the type `missing_path`, `false_premise` or `ignores_existing_code` that quotes its evidence sends the plan back to the planner once; every other finding goes into the comment of the item. The review never merges and never marks a draft ready.\"",
+  "`docs/roadmap/stage.md` line 41 confirms it: \"Every other finding goes into the comment, and the draft still opens.\"",
+  "The probe `stage_ready` is defined at tests/roadmap/test_roadmap_run.py:882: `stage_ready=recent,` so the row already exists and a refusal there changes existing code.",
+  "`read_file` on `src/devops_cli/roadmap/stage_verify.py` shows `Finding` with `type: DefectType` and the quote check of `returning`; the stage already holds the data that the open-finding stop needs, so no new model call is added. `PullStatus` in `src/devops_cli/github/client.py` adds `labels` so `stage_ready` inspects PR labels.",
+  "`src/devops_cli/roadmap/failure.py` is the caller of `plan_defect` and `tests/roadmap/test_roadmap_failure.py` tests it, so the budget change reuses that class.",
+  "First checks against the real system: `uv run devops ci test tests/roadmap/test_roadmap_stage_verify.py`, `uv run devops ci test tests/roadmap/test_roadmap_stage_verification.py`, `uv run devops ci test tests/roadmap/test_roadmap_run.py`, `uv run devops openspec check`."
+ ],
+ "existing_tool": "No open, maintained tool or library covers this need: the change modifies this repository's own roadmap stage job and `stage_ready` row. It reuses `stage_verify.Finding`, `stage_verify.returning` and `roadmap.failure` instead of new code, which keeps the cost at about 6,000 tokens to build, keep and fix, and about half a day elapsed.",
+ "builds_own": false,
+ "decisions": [
+  {
+   "decision": "Detect an open finding from the result of the verification pass, not from the plan text.",
+   "reason": "The pass already returns each finding with a quote and a `type: DefectType`, and `returning` already checks the quote against the input, so the stage needs no second model and no text parse."
+  },
+  {
+   "decision": "Treat a finding as open when its type is one of the four returning defect types (`missing_path`, `false_premise`, `ignores_existing_code`, `spec_delta_wrong`) or reports a placeholder.",
+   "reason": "The verification pass classifies findings into `DefectType`; open findings match these defect types or identify placeholder artifacts with evidence quotes."
+  },
+  {
+   "decision": "Mark an open finding with the label `plan/needs-fix`.",
+   "reason": "A label is a stable, queryable marker that a person can remove, and the `plan/` prefix keeps it apart from the `status/*` and `priority/*` families that hold item state."
+  },
+  {
+   "decision": "Decide the refusal of `stage_ready` from the label, not from the comment text.",
+   "reason": "Comment text has no machine-readable contract, and the label survives an edit of the comment."
+  },
+  {
+   "decision": "Clear the label on a later stage round that returns no open finding.",
+   "reason": "A corrected plan then moves on with no person in the loop, and a person can still remove a stale label by hand."
+  },
+  {
+   "decision": "Record the item as a failed attempt of class `plan_defect` and not as staged.",
+   "reason": "`plan_defect` already exists in `src/devops_cli/roadmap/failure.py`, so the round budget names the real cause and spends no budget on a bad plan."
+  },
+  {
+   "decision": "Put the open findings first in the stage comment, ahead of the plan-run report.",
+   "reason": "The reviewer sees the defect before the tool-call and token metrics."
+  },
+  {
+   "decision": "Add a case recorded from #3174 to the golden set with the defect type `other` and the gate `none`, because no gate of the replay judges the open-finding stop.",
+   "reason": "`DefectType` of `src/devops_cli/roadmap/stage_eval_cases.py` holds no placeholder type, and a defect for a gate that does not exist yet is listed and not failed."
+  }
+ ],
+ "rejected": [
+  {
+   "alternative": "Parse the plan text for `x` or `placeholder` to find a defect.",
+   "evidence": "`docs/roadmap/stage.md` line 41 and the docstring of `src/devops_cli/roadmap/stage.py` show that the verification pass already returns findings with a quote and a kind; a text parse would miss the anchor and duplicate the pass."
+  },
+  {
+   "alternative": "Add a placeholder value to `DefectType` of `src/devops_cli/roadmap/stage_eval_cases.py` and a gate that refuses it.",
+   "evidence": "`src/devops_cli/roadmap/stage_eval_cases.py` holds `DefectType` and `GateName` only, and `tests/roadmap/test_roadmap_stage_eval_run.py` holds the set of defect types; the open-finding stop reads the verification result of a model, which the replay makes no call to, so a replay gate could not refuse it."
+  },
+  {
+   "alternative": "Mark the finding with `status/blocked`.",
+   "evidence": "CONTEXT.md says the Status family holds item state and that a Blocked item waits on something outside the roadmap, which is not a plan defect."
+  },
+  {
+   "alternative": "Check only the draft state in `stage_ready`.",
+   "evidence": "The stage opens every plan as a draft, so the draft state cannot tell a new plan from a plan with an open finding."
+  },
+  {
+   "alternative": "Keep every finding as a comment only, as today.",
+   "evidence": "The issue records #3194 and #3174 staged non-draft with placeholder text, so a comment alone does not stop the pull request."
+  },
+  {
+   "alternative": "Replace or relax a form gate to make the stop cheap.",
+   "evidence": "`docs/adr/0004-ci-is-the-authoritative-gate.md` makes CI the merge gate, and the issue forbids lowering a gate."
+  }
+ ],
+ "specs": [
+  {
+   "capability": "roadmap-stage",
+   "purpose": null,
+   "added": [],
+   "modified": [
+    {
+     "name": "An open finding keeps the plan in draft",
+     "text": "When the verification pass returns a finding with a quote in the input and an open defect type (`missing_path`, `false_premise`, `ignores_existing_code`, `spec_delta_wrong` or a placeholder), the stage SHALL keep the plan pull request in draft, apply the label `plan/needs-fix`, and put the findings at the top of the stage comment.",
+     "scenarios": [
+      {
+       "name": "Placeholder finding from a fake client",
+       "when": "The fake client returns a placeholder finding with a quote that is in the input.",
+       "then": "The plan pull request is a draft, has the `plan/needs-fix` label, and its comment starts with the finding text."
+      },
+      {
+       "name": "Finding with no quote in the input",
+       "when": "The client returns a finding whose quote does not match the input.",
+       "then": "The finding is ignored and the plan stages normally."
+      }
+     ]
+    },
+    {
+     "name": "A plan with an open finding is a failed attempt",
+     "text": "A plan with an open finding SHALL count as a failed attempt of class `plan_defect` in the failure taxonomy and SHALL NOT count as staged in the Service round budget.",
+     "scenarios": [
+      {
+       "name": "Round budget sees an open finding",
+       "when": "A plan produces an open finding during staging.",
+       "then": "The round budget counts no staged plan and records the attempt as failed."
+      },
+      {
+       "name": "Outcome mapping",
+       "when": "The stage records a failed attempt with open findings.",
+       "then": "The failure taxonomy classifies it under `plan_defect`."
+      }
+     ]
+    },
+    {
+     "name": "The Service marks a green stage pull request ready",
+     "text": "The row `stage_ready` SHALL NOT mark a plan pull request ready while the label `plan/needs-fix` is present, and SHALL post a comment stating that reason once.",
+     "scenarios": [
+      {
+       "name": "Draft with plan/needs-fix label",
+       "when": "The checks pass and the pull request holds `plan/needs-fix`.",
+       "then": "The pull request stays draft and the row comments the refusal reason."
+      },
+      {
+       "name": "Clean draft pull request",
+       "when": "The checks pass and `plan/needs-fix` is absent.",
+       "then": "The row marks the pull request ready."
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "capability": "roadmap-stage-eval",
+   "purpose": null,
+   "added": [
+    {
+     "name": "The golden set holds a case of the open-finding stop",
+     "text": "The golden set SHALL hold a case recorded from #3174 whose plan carries a single group titled `placeholder`, and the replay SHALL report that case with its defect.",
+     "scenarios": [
+      {
+       "name": "The replay runs the recorded case",
+       "when": "The replay runs the case recorded from #3174.",
+       "then": "The report lists the case with its placeholder group, and the test asserts the expected result."
+      }
+     ]
+    }
+   ],
+   "modified": []
+  }
+ ],
+ "groups": [
+  {
+   "title": "Classify the findings of the verification pass",
+   "kind": "behavior",
+   "reads": [
+    "src/devops_cli/roadmap/stage_verify.py",
+    "tests/roadmap/test_roadmap_stage_verify.py"
+   ],
+   "changes": [
+    "src/devops_cli/roadmap/stage_verify.py",
+    "tests/roadmap/test_roadmap_stage_verify.py"
+   ],
+   "creates": [],
+   "creates_lines": {},
+   "test": "In tests/roadmap/test_roadmap_stage_verify.py, assert that a finding whose quote is in the input and whose type is missing_path, false_premise, ignores_existing_code, spec_delta_wrong or reports a placeholder is open, and that a finding with no quote in the input or an unlisted type is not open",
+   "implementation": "Add open_findings(findings, given) to src/devops_cli/roadmap/stage_verify.py: it returns the findings that have a quote in the input and match the open defect types, and it reuses the quote check of returning. Give the label name one constant PLAN_NEEDS_FIX_LABEL in the same module",
+   "documentation": null,
+   "verify": "uv run devops ci test tests/roadmap/test_roadmap_stage_verify.py",
+   "process": null
+  },
+  {
+   "title": "Keep a plan with an open finding in draft",
+   "kind": "behavior",
+   "reads": [
+    "src/devops_cli/roadmap/stage.py",
+    "src/devops_cli/roadmap/stage_verify.py",
+    "src/devops_cli/roadmap/stage_github.py",
+    "tests/roadmap/test_roadmap_stage_verification.py"
+   ],
+   "changes": [
+    "src/devops_cli/roadmap/stage.py",
+    "tests/roadmap/test_roadmap_stage_verification.py"
+   ],
+   "creates": [],
+   "creates_lines": {},
+   "test": "In tests/roadmap/test_roadmap_stage_verification.py, with a fake client that returns a placeholder finding, assert that the staged change carries the open findings, that _stage_one applies plan/needs-fix, and that _notes puts the findings first; and assert that a client that returns no open finding applies no label",
+   "implementation": "Carry the open findings on StagedChange beside findings. In _stage_one, apply plan/needs-fix to the created pull request when the open findings are not empty, and remove it when they are empty. In _notes, render the findings section before the plan-run report",
+   "documentation": null,
+   "verify": "uv run devops ci test tests/roadmap/test_roadmap_stage_verification.py",
+   "process": null
+  },
+  {
+   "title": "Refuse to mark a plan with an open finding ready",
+   "kind": "behavior",
+   "reads": [
+    "src/devops_cli/roadmap/stage_ready.py",
+    "src/devops_cli/roadmap/stage_verify.py",
+    "src/devops_cli/github/client.py",
+    "tests/roadmap/test_roadmap_run.py"
+   ],
+   "changes": [
+    "src/devops_cli/roadmap/stage_ready.py",
+    "tests/roadmap/test_roadmap_run.py"
+   ],
+   "creates": [],
+   "creates_lines": {},
+   "test": "In tests/roadmap/test_roadmap_run.py, assert that the row makes no mark and posts a comment that names plan/needs-fix when the pull request holds the label, and that it marks the pull request when the label is absent",
+   "implementation": "In the decision function of the stage_ready row, read PullStatus.labels of the pull request with the checks and return the refusal with a comment that names the label when plan/needs-fix is present. Keep the single function that decides and the single function that marks",
+   "documentation": null,
+   "verify": "uv run devops ci test tests/roadmap/test_roadmap_run.py",
+   "process": null
+  },
+  {
+   "title": "Count a plan with an open finding as plan_defect",
+   "kind": "behavior",
+   "reads": [
+    "src/devops_cli/roadmap/failure.py",
+    "src/devops_cli/roadmap/stage.py",
+    "tests/roadmap/test_roadmap_failure.py"
+   ],
+   "changes": [
+    "src/devops_cli/roadmap/stage.py",
+    "src/devops_cli/roadmap/failure.py",
+    "tests/roadmap/test_roadmap_failure.py"
+   ],
+   "creates": [],
+   "creates_lines": {},
+   "test": "In tests/roadmap/test_roadmap_failure.py, assert that the classifier maps an open finding of the stage to the class plan_defect, and that an item with an open finding is not counted as staged",
+   "implementation": "Map an open finding of the stage to the existing class plan_defect in the classifier of src/devops_cli/roadmap/failure.py, and report the item of a plan with an open finding as a failed attempt in stage_results of src/devops_cli/roadmap/stage.py so the round counts no staged plan",
+   "documentation": null,
+   "verify": "uv run devops ci test tests/roadmap/test_roadmap_failure.py",
+   "process": null
+  },
+  {
+   "title": "Record the #3174 case in the golden set",
+   "kind": "other",
+   "reads": [
+    "src/devops_cli/roadmap/stage_eval_cases.py",
+    "tests/roadmap/test_roadmap_stage_eval_run.py"
+   ],
+   "changes": [
+    "tests/fixtures/roadmap_eval/stage/3174-placeholder-plan/case.json",
+    "tests/fixtures/roadmap_eval/stage/3174-placeholder-plan/issue.txt",
+    "tests/fixtures/roadmap_eval/stage/3174-placeholder-plan/plan.json",
+    "tests/fixtures/roadmap_eval/stage/3174-placeholder-plan/facts.json",
+    "tests/roadmap/test_roadmap_stage_eval_run.py"
+   ],
+   "creates": [
+    "tests/fixtures/roadmap_eval/stage/3174-placeholder-plan/case.json",
+    "tests/fixtures/roadmap_eval/stage/3174-placeholder-plan/issue.txt",
+    "tests/fixtures/roadmap_eval/stage/3174-placeholder-plan/plan.json",
+    "tests/fixtures/roadmap_eval/stage/3174-placeholder-plan/facts.json"
+   ],
+   "creates_lines": {
+    "tests/fixtures/roadmap_eval/stage/3174-placeholder-plan/case.json": 1,
+    "tests/fixtures/roadmap_eval/stage/3174-placeholder-plan/issue.txt": 1,
+    "tests/fixtures/roadmap_eval/stage/3174-placeholder-plan/plan.json": 1,
+    "tests/fixtures/roadmap_eval/stage/3174-placeholder-plan/facts.json": 1
+   },
+   "test": null,
+   "implementation": "Write the case folder from the plan of #3174: its issue text, its recorded plan with the single group titled placeholder, the tracked files that the gates need, and a case.json whose defect has the type other and the gate none, because no replay gate judges the open-finding stop. Extend the replay test so the report lists the case and its placeholder group",
+   "documentation": null,
+   "verify": "uv run devops ci test tests/roadmap/test_roadmap_stage_eval_run.py",
+   "process": null
+  },
+  {
+   "title": "Document the open-finding stop",
+   "kind": "other",
+   "reads": [
+    "docs/roadmap/stage.md",
+    "docs/ROADMAP_WORKFLOW.md"
+   ],
+   "changes": [
+    "docs/roadmap/stage.md",
+    "docs/ROADMAP_WORKFLOW.md"
+   ],
+   "creates": [],
+   "creates_lines": {},
+   "test": null,
+   "implementation": "State in docs/roadmap/stage.md that an open finding keeps the plan in draft with plan/needs-fix and the findings first in the comment, and that the row stage_ready refuses that pull request. State in docs/ROADMAP_WORKFLOW.md that such a plan counts as a failed attempt of class plan_defect",
+   "documentation": "Update docs/roadmap/stage.md, and run uv run devops docs generate --sync-readme",
+   "verify": "uv run devops ci docs",
+   "process": null
+  }
+ ],
+ "criteria": [
+  {
+   "criterion": "A test with a fake client that returns a placeholder finding shows that the plan pull request is opened as a draft with the label and the findings in the comment.",
+   "group": 2,
+   "reason": null
+  },
+  {
+   "criterion": "A test shows that a plan with no finding is staged as today.",
+   "group": 2,
+   "reason": null
+  },
+  {
+   "criterion": "A test shows that the ready row refuses a plan with an open finding, and states why.",
+   "group": 3,
+   "reason": null
+  },
+  {
+   "criterion": "The golden-set replay includes #3194 or #3174 as a case.",
+   "group": 5,
+   "reason": null
+  }
+ ],
+ "dependencies": []
+}
