@@ -18,8 +18,8 @@ It also leaves out an item that an agent or a person claimed with an `owner/*` l
 (`worktree_add.issue_holder`, which also counts a stray local branch of the new name with a commit that `origin` lacks), an item whose plan a person rejected until its text or a file that the reason names changes (`stage_rejected`, #3503), an item whose plan is already on the default branch or whose
 change is archived there (`planned.read_planned_changes`, one read of the tree for the round), an
 item whose title gives no branch name or whose summary is over `SUMMARY_MAX_CHARS` units (#3369), an item whose text looks like a secret, an item whose last plan or write failed less than
-`roadmap.stage.retry_hours` hours ago (its record holds `stage.failed_at` and
-`stage.failed_error`, #3493), and an item whose
+`roadmap.stage.retry_hours` hours ago (its record holds `stage.failed_at`,
+`stage.failed_error`, `stage.failed_step` and `stage.failed_class`, #3493, #4056), and an item whose
 record holds `stage.needs_split` made with the file cap of now (`stage.file_cap`): a stop under
 another measure does not count. A run takes at most `--limit`
 items, highest priority first. `--item` takes the one item it names when that item is open and
@@ -136,6 +136,7 @@ from devops_cli.roadmap.claim import claimed_by
 from devops_cli.roadmap.clone_git import branch_authors, default_branch, git
 from devops_cli.roadmap.commit_title import commit_summary, commit_type
 from devops_cli.roadmap.digest_clears import has_digest_clear
+from devops_cli.roadmap.failure import FailureClass, StepName, failure_class_of
 from devops_cli.roadmap.planned import (
     PlannedChanges,
     open_plan_creates,
@@ -744,13 +745,16 @@ class Blocked:
 class StageFailure:
     """An item the job could not plan or write: the class of the error and why, never the model's
     text. `item` is the item itself, when the job read it, so that the job records the failure in
-    the job record of the item (#3493)."""
+    the job record of the item (#3493). `failure_class` comes from the type of the error, and
+    `step` names the step that failed (#4056)."""
 
     number: int
     title: str
     error: str
     reason: str = ""
     item: Item | None = field(default=None, compare=False, repr=False)
+    failure_class: FailureClass = field(kw_only=True)
+    step: StepName = field(kw_only=True)
 
 
 @dataclass(frozen=True)
@@ -1255,7 +1259,13 @@ def _failure_of(
     else:
         reason = mask_secrets(str(exc))
     return StageFailure(
-        target.item.number, target.item.title, type(exc).__name__, reason, target.item
+        target.item.number,
+        target.item.title,
+        type(exc).__name__,
+        reason,
+        target.item,
+        failure_class=failure_class_of(exc),
+        step=StepName.PLAN,
     )
 
 
@@ -1914,6 +1924,8 @@ def _stage_one(
             StageRecordKey.FILE_CAP: None,
             StageRecordKey.FAILED_AT: None,
             StageRecordKey.FAILED_ERROR: None,
+            StageRecordKey.FAILED_STEP: None,
+            StageRecordKey.FAILED_CLASS: None,
             StageRecordKey.REJECTED: None,
             StageRecordKey.PENDING: None,
         },
@@ -1962,13 +1974,23 @@ def _stop_on_budget(store: RoadmapStore, stopped: OverBudget) -> None:
             StageRecordKey.GROUPS: _groups_recorded(stopped.groups),
             StageRecordKey.FAILED_AT: None,
             StageRecordKey.FAILED_ERROR: None,
+            StageRecordKey.FAILED_STEP: None,
+            StageRecordKey.FAILED_CLASS: None,
         },
     )
 
 
 def _write_failure(item: Item, exc: DevOpsCLIError) -> StageFailure:
     """The failure of a write: the error's class and its message, credentials masked."""
-    return StageFailure(item.number, item.title, type(exc).__name__, mask_secrets(str(exc)), item)
+    return StageFailure(
+        item.number,
+        item.title,
+        type(exc).__name__,
+        mask_secrets(str(exc)),
+        item,
+        failure_class=failure_class_of(exc),
+        step=StepName.APPLY,
+    )
 
 
 def _remove_staged(store: RoadmapStore, repo: str, source: Path, removal: Removal) -> None:
@@ -2059,8 +2081,8 @@ def _return_blocked(store: RoadmapStore, blocked: Blocked) -> None:
 
 
 def _record_failures(store: RoadmapStore, failures: Sequence[StageFailure], now: datetime) -> None:
-    """Record each failure in the job record of its item: the time and the class of the error
-    (#3493). The item waits for the retry delay, and the job goes on with the others. A write
+    """Record each failure in the job record of its item: the time, the type of the error (#3493),
+    the step and the failure class (#4056), in one write. The item waits for the retry delay, and the job goes on with the others. A write
     that fails here is no failure of an item: it ends the run, and the round counts it."""
     for failure in failures:
         if failure.item is not None:
@@ -2069,6 +2091,8 @@ def _record_failures(store: RoadmapStore, failures: Sequence[StageFailure], now:
                 {
                     StageRecordKey.FAILED_AT: now.isoformat(),
                     StageRecordKey.FAILED_ERROR: failure.error,
+                    StageRecordKey.FAILED_STEP: failure.step.value,
+                    StageRecordKey.FAILED_CLASS: failure.failure_class.value,
                 },
             )
 

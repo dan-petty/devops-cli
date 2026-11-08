@@ -217,8 +217,10 @@ class StageRecordKey(StrEnum):
     Service records `stage.ready`, the number of the draft pull request that it has seen leave the
     draft state (#2865), and `stage.needs_fix`, the number of the draft that it told about the
     label `plan/needs-fix` (#3264). When the last plan or write of the item failed, the record
-    holds the time of the failure and the class of its error (#3493), until a run stages the item
-    or stops it on the budget. `stage.text_hash` is the hash of the text that the plan came from
+    holds the time of the failure and the type of its error (#3493), the step that failed
+    (`stage.failed_step`, `plan` or `apply`) and the failure class (`stage.failed_class`, a
+    `FailureClass` value from the type of the error, #4056), until a run stages the item or stops
+    it on the budget. `stage.text_hash` is the hash of the text that the plan came from
     (#3503). When a person closes the plan pull request with no merge, the job clears every key and
     records the rejection in `stage.rejected` as JSON (#3503): the pull request, the hash of the
     text that the plan came from, the time of the close and the files that the reason names. The
@@ -236,6 +238,8 @@ class StageRecordKey(StrEnum):
     NEEDS_FIX = "stage.needs_fix"
     FAILED_AT = "stage.failed_at"
     FAILED_ERROR = "stage.failed_error"
+    FAILED_STEP = "stage.failed_step"
+    FAILED_CLASS = "stage.failed_class"
     TEXT_HASH = "stage.text_hash"
     REJECTED = "stage.rejected"
     PENDING = "stage.pending"

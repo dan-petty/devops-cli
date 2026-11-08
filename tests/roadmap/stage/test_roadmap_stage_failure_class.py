@@ -226,9 +226,10 @@ def test_a_write_that_fails_records_its_class_and_the_step_apply(
     error: Exception,
     expected: tuple[str, str],
 ) -> None:
-    store = _two_items(_WriteRefused(repo=STAGE_REPO), openspec_fake, github_api)
+    store = _WriteRefused(repo=STAGE_REPO)
     store.refused = 2
     store.error = error
+    _two_items(store, openspec_fake, github_api)
     _plan_answers(model_fake)
 
     _round(store, stage_repo)
@@ -259,7 +260,7 @@ def test_a_staged_item_clears_the_four_keys_of_its_failure(
 ) -> None:
     store = _two_items(InMemoryRoadmapStore(repo=STAGE_REPO), openspec_fake, github_api)
     _seed_failure(store, 1)
-    _plan_answers(model_fake, pull_request_body="Plans #1")
+    _plan_answers(model_fake)
 
     _round(store, stage_repo)
 
@@ -268,7 +269,10 @@ def test_a_staged_item_clears_the_four_keys_of_its_failure(
 
 
 def test_an_item_stopped_on_the_budget_clears_the_four_keys_of_its_failure(
-    stage_repo: StageRepo, model_fake: ModelFake, github_api: GitHubApiFake
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    github_api: GitHubApiFake,
+    openspec_fake: OpenSpecFake,
 ) -> None:
     store = InMemoryRoadmapStore(repo=STAGE_REPO)
     number = seed_stageable(store)
