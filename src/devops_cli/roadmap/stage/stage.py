@@ -1302,7 +1302,9 @@ class _Planner:
         """The problems that every gate finds in one reply: the first one and a split of it. Each
         gate with a problem adds 1 to the refusal counter of the job (#4066)."""
         with observe_step(self._pull_repo, _ROW, StepName.GATE):
-            return self._gate_problems(proposal, tree, request, change=change, models=models)
+            return self._gate_problems(
+                proposal, tree, request, change=change, models=models, trace=trace
+            )
 
     def _gate_problems(
         self,
@@ -1312,6 +1314,7 @@ class _Planner:
         *,
         change: str,
         models: Mapping[str, tuple[str, Sequence[str]]] | None,
+        trace: TraceFacts | None,
     ) -> list[str]:
         evidence = (
             record_search_evidence(proposal.groups, self._grep) if self._grep is not None else None

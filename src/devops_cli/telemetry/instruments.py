@@ -408,7 +408,7 @@ ROADMAP_STAGE_GATE_REFUSALS_TOTAL = Instrument(
     "Replies of the stage model that a gate found a problem in, one count for each gate that "
     "found at least one problem in a reply, by repo and gate. A reply that two gates refuse adds "
     "1 to each. The gates run again on the reply that answers a problem, so the count is of "
-    "refused replies and not of refused items. One repository adds 15 series, one for each gate",
+    "refused replies and not of refused items. One repository adds 16 series, one for each gate",
 )
 EMBEDDING_CACHE_LOOKUPS_TOTAL = Instrument(
     "devops_cli_embedding_cache_lookups_total",

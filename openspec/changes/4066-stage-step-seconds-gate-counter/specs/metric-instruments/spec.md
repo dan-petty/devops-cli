@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: The step seconds histogram and the gate refusal counter are declared and documented
-`INSTRUMENTS` SHALL hold the histogram `devops_cli_roadmap_step_seconds` (unit `s`, attributes `repo`, `row`, `step`, `result`) and the counter `devops_cli_roadmap_stage_gate_refusals_total` (unit `1`, attributes `repo`, `gate`). `docs/TELEMETRY.md` SHALL list both. One repository SHALL add at most 10 series to the histogram for the stage row (5 steps, 2 results) and 15 to the counter (one for each `ProposalGate`). The buckets SHALL add none.
+`INSTRUMENTS` SHALL hold the histogram `devops_cli_roadmap_step_seconds` (unit `s`, attributes `repo`, `row`, `step`, `result`) and the counter `devops_cli_roadmap_stage_gate_refusals_total` (unit `1`, attributes `repo`, `gate`). `docs/TELEMETRY.md` SHALL list both. One repository SHALL add at most 10 series to the histogram for the stage row (5 steps, 2 results) and 16 to the counter (one for each `ProposalGate`). The buckets SHALL add none.
 
 #### Scenario: The registry and the document list both instruments
 - **WHEN** a test reads `INSTRUMENTS` and `docs/TELEMETRY.md`

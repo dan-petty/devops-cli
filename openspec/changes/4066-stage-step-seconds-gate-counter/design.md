@@ -16,7 +16,7 @@
 - **A refusal is not an error.** `_problems` returns a list of problems, and the gate sample has the result `ok`. The result is `error` only when the gate code raises.
 - **`_problems` calls `check_gates` and joins the lists.** The counter adds 1 for each gate with a non-empty list, in the order of `ProposalGate`, under the label `gate`. The join keeps the order that `check_proposal` uses, so the text of a refusal does not change. Only the stage job counts: the callers in `implement/implement.py` and `roadmap/plan_check.py` call `check_proposal` and send nothing. A gate with no problem adds no zero point.
 - **`StepName` gains `SELECT`, `GATE` and `REVIEW` after `PLACE`.** They are metric labels. A failed review or gate still records the step `plan` in the ledger (`_failure_of`), so the stored string set does not change and no persisted file gets a field.
-- **The series counts are in the text of the instruments.** The histogram text says "at most 10 series" (1 repository x 1 row x 5 steps x 2 results) for the stage row, and the counter text says "15 series" (1 repository x 15 gates). `docs/TELEMETRY.md` is generated from those texts.
+- **The series counts are in the text of the instruments.** The histogram text says "at most 10 series" (1 repository x 1 row x 5 steps x 2 results) for the stage row, and the counter text says "16 series" (1 repository x 16 gates). `docs/TELEMETRY.md` is generated from those texts.
 
 ## Rejected Alternatives
 
