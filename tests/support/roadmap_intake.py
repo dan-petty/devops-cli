@@ -164,7 +164,9 @@ class Roadmap:
     def run(self, model: FakeModel, **options: Any) -> list[JobWrite]:
         """Apply a plan as the CLI and the Service do: every candidate, then the failures."""
         before = len(self.store.job_writes())
-        raise_for_failed_placements(apply_intake(self.store, self.plan(model, **options)))
+        raise_for_failed_placements(
+            apply_intake(self.store, self.plan(model, **options), repo=REPO)
+        )
         return self.store.job_writes()[before:]
 
 
@@ -341,4 +343,4 @@ def intake_on_github(
     store: GitHubRoadmapStore, model: FakeModel, **options: Any
 ) -> tuple[IntakePlan, Any]:
     plan = plan_intake(store, repo=REPO, model=model, **options)
-    return plan, lambda: apply_intake(store, plan)
+    return plan, lambda: apply_intake(store, plan, repo=REPO)

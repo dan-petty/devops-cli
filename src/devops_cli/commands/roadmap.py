@@ -218,7 +218,7 @@ def _intake(
         print_info(MESSAGES.roadmap.intake_preview)
         return
     with _exit_on_failure("Intake stopped part-way; run it again to finish"):
-        applied = apply_intake(store, plan)
+        applied = apply_intake(store, plan, repo=target)
     print_success(MESSAGES.roadmap.intake_applied.format(placed=applied.placed))
     for number in applied.filed:
         print_info(MESSAGES.roadmap.intake_filed.format(number=number))

@@ -82,7 +82,8 @@ class StepName(StrEnum):
     the failure (#4056), refine records `investigate` (the model call that reads the item), and
     intake records `place` (the write of a candidate to the roadmap) (#4061). `select`, `gate` and
     `review` are labels of the step seconds of the stage job (#4066): a failed gate or review is
-    still recorded with the step `plan`. A job that records or times a step adds a member here."""
+    still recorded with the step `plan`. `checks`, `publish` and `watch` are labels of the step
+    seconds of the implement job (#4067). A job that records or times a step adds a member here."""
 
     PLAN = "plan"
     APPLY = "apply"
@@ -91,6 +92,9 @@ class StepName(StrEnum):
     SELECT = "select"
     GATE = "gate"
     REVIEW = "review"
+    CHECKS = "checks"
+    PUBLISH = "publish"
+    WATCH = "watch"
 
 
 class FailureAction(StrEnum):

@@ -92,7 +92,7 @@ def test_every_agent_issue_filed_outside_intake_is_placed(roadmap: Roadmap) -> N
     ]
     model = FakeModel(proposals={"fix: outside": {"type": "type/bug", "priority": "P1-High"}})
     plan = roadmap.plan(model)
-    apply_intake(roadmap.store, plan)
+    apply_intake(roadmap.store, plan, repo=REPO)
     assert (
         [(d.subject.number, d.outcome) for d in plan.decisions],
         [roadmap.fields(number)[:2] for number in issues],

@@ -129,11 +129,12 @@ The module `failure.py` SHALL hold the tuple `CLASS_BY_EXCEPTION` of (exception 
 - **THEN** the class is the class of its parent
 
 ### Requirement: A step has a name
-The module `failure.py` SHALL hold `StepName`, a string enum whose values are the steps that the jobs name: `plan` and `apply` (stage), `investigate` (refine), `place` (intake), and `select`, `gate` and `review` (the other steps of the stage round, which only the metric `devops_cli_roadmap_step_seconds` names). A failed job SHALL record only a step that it records today; a stored step SHALL stay a string that `StepName` reads. The values SHALL be unique one-word strings.
+The module `failure.py` SHALL hold `StepName`, a string enum of the steps that the jobs name: `plan`, `apply`, `investigate`, `place`, and the steps that only the metric `devops_cli_roadmap_step_seconds` names. A failed job SHALL record only a step that it records today. A stored step SHALL stay a string that `StepName` reads. The values SHALL be unique one-word strings.
 
 #### Scenario: The step names
 - **WHEN** a test reads the values of `StepName`
-- **THEN** it finds `plan`, `apply`, `investigate`, `place`, `select`, `gate` and `review`, each once, and each one word
+- **THEN** it finds `plan`, `apply`, `investigate`, `place`, `select`, `gate`, `review`, `checks`, `publish` and `watch`, each once, and each one word
+- **AND** only the metric names `select`, `gate`, `review`, `checks`, `publish` and `watch`
 
 #### Scenario: An old record
 - **WHEN** a record of a failed stage item holds the step `plan` written before the new members existed

@@ -53,7 +53,7 @@ def test_item_changed_for_one_candidate_places_the_others_and_ends_the_round_wit
     plan = roadmap.plan(FakeModel())
 
     with caplog.at_level(logging.INFO, logger=INTAKE_LOGGER):
-        applied = apply_intake(roadmap.store, plan)
+        applied = apply_intake(roadmap.store, plan, repo=REPO)
 
     lines = [r for r in caplog.records if r.name == INTAKE_LOGGER and f"#{changed}" in r.message]
     again = roadmap.plan(FakeModel())

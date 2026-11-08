@@ -123,6 +123,7 @@ from devops_cli.roadmap.intake.intake import (
     apply_intake,
     plan_intake,
     raise_for_failed_placements,
+    start_candidate_counts,
 )
 
 # `refine` imports pydantic_ai. The Python 3.14 import lock deadlocks when two worker threads
@@ -447,6 +448,7 @@ def _apply_round(
     *,
     record: IntakeRecord,
     record_path: Path,
+    repo: str,
     repo_dir: Path,
     now: datetime,
 ) -> JobOutcome:
@@ -454,7 +456,8 @@ def _apply_round(
     keep the failed placements in the intake record (#4061), and then fail the round if a
     placement failed: the stamp and the record are written first, so a failure of another
     candidate does not lose them (#4042)."""
-    applied = apply_intake(store, plan) if plan.has_writes else IntakeApplied()
+    start_candidate_counts(repo)
+    applied = apply_intake(store, plan, repo=repo) if plan.has_writes else IntakeApplied()
     placed_p0 = applied.placed_critical_or_p0 > 0
     if placed_p0:
         _record_success(
@@ -498,7 +501,7 @@ def _run_intake_adapter(
     after = record.after(plan, now)
     _write_intake_record(record_path, after)
     return _apply_round(
-        store, plan, record=after, record_path=record_path, repo_dir=repo_dir, now=now
+        store, plan, record=after, record_path=record_path, repo=repo, repo_dir=repo_dir, now=now
     )
 
 
@@ -542,7 +545,13 @@ def _intake_one(
     if merged != record:
         _write_intake_record(record_path, merged)
     return _apply_round(
-        store, plan, record=merged, record_path=record_path, repo_dir=repo_dir, now=now
+        store,
+        plan,
+        record=merged,
+        record_path=record_path,
+        repo=delivery.repo,
+        repo_dir=repo_dir,
+        now=now,
     )
 
 

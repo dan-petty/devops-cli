@@ -100,6 +100,7 @@ from devops_cli.roadmap.failure import (
     FailureAction,
     FailureClass,
     FailureEvidence,
+    StepName,
     classify_failure,
     failure_lines,
     left_action,
@@ -122,6 +123,7 @@ from devops_cli.roadmap.implement.implement_pull import (
     ChangeFacts,
     Draft,
     DraftKind,
+    Watch,
     WatchKind,
     draft_readiness,
     failed_log,
@@ -175,6 +177,7 @@ from devops_cli.roadmap.stage.stage_paths import StagedTree, path_problems
 from devops_cli.roadmap.stage.stage_split import ask_split
 from devops_cli.roadmap.status_sync import StatusFacts, derive_status
 from devops_cli.roadmap.step_files import TaskGroup, parse_task_groups, section_text
+from devops_cli.roadmap.step_metrics import observe_implement
 from devops_cli.roadmap.stores.store import ImplementRecordKey, Item, ItemField, RoadmapStore
 from devops_cli.roadmap.title_labels import title_labels
 from devops_cli.security.sanitizer import mask_secrets
@@ -1069,11 +1072,13 @@ class _ItemRun:
         tip yet: its first push publishes the branch. The number of the pull request."""
         self.step = MESSAGES.roadmap.implement_step_names["push"]
         self._sync()
-        self._scoped_checks()
+        with observe_implement(self.repo, StepName.CHECKS):
+            self._scoped_checks()
         self.step = MESSAGES.roadmap.implement_step_names["push"]
-        if self.pull is None:
-            return self._publish()
-        self._push_with_lease()
+        with observe_implement(self.repo, StepName.PUBLISH):
+            if self.pull is None:
+                return self._publish()
+            self._push_with_lease()
         return self.pull
 
     def _scoped_run(self) -> ScopedResult | None:
@@ -1378,17 +1383,25 @@ class _ItemRun:
         round stops the item."""
         self.step = MESSAGES.roadmap.implement_step_names["checks"]
         budget = load_settings().roadmap.implement.repair_rounds
-        watch = watch_pull(self.repo, pull, self._head())
+        watch = self._watch(pull)
         rounds = 0
         for _round in range(budget):
             if watch.kind is not WatchKind.FAILED or watch.check is None:
                 break
             self._repair_after_push(pull, watch.check)
             rounds += 1
-            watch = watch_pull(self.repo, pull, self._head())
+            watch = self._watch(pull)
         if watch.kind is not WatchKind.READY:
             name = watch.check.name if watch.check is not None else ""
             raise _StopError(self.step, watch.reason, check=name, repair_rounds=rounds)
+
+    def _watch(self, pull: int) -> Watch:
+        """One watch of the checks, timed as the step `watch`. Any result but ready is an error."""
+        with observe_implement(self.repo, StepName.WATCH) as timer:
+            watch = watch_pull(self.repo, pull, self._head())
+            if watch.kind is not WatchKind.READY:
+                timer.fail()
+        return watch
 
     def _repair_after_push(self, pull: int, check: PRCheckItem) -> None:
         """One repair round for the failed check `check` of the pull request: a fix step, the push

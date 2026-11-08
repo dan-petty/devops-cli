@@ -335,8 +335,8 @@ def test_step_names_the_step_values_are_members_of_step_name_and_no_other_value_
     assert (sent <= members, STAGE_STEPS <= members, sent >= STAGE_STEPS) == (True, True, True)
 
 
-def test_step_names_the_new_steps_are_one_word_and_come_after_the_steps_that_exist() -> None:
-    assert [step.value for step in StepName][-3:] == ["select", "gate", "review"]
+def test_step_names_the_stage_steps_come_after_the_steps_that_exist() -> None:
+    assert [step.value for step in StepName][4:7] == ["select", "gate", "review"]
 
 
 # ── The gate refusals ─────────────────────────────────────────────────────────

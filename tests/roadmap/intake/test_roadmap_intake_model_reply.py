@@ -113,7 +113,7 @@ def test_a_model_answer_that_fails_validation_skips_only_its_candidate(roadmap: 
     garbled = roadmap.issue("feat: garbled")
     fine = roadmap.issue("feat: fine")
     plan = plan_intake(roadmap.store, repo=REPO, model=model)
-    apply_intake(roadmap.store, plan)
+    apply_intake(roadmap.store, plan, repo=REPO)
     skipped = plan.decisions[0]
     assert (
         [d.outcome for d in plan.decisions],
@@ -131,7 +131,7 @@ def test_an_off_list_proposal_skips_its_candidate_after_one_model_call(roadmap: 
     model = FakeModel(proposals={"A bad type": {"type": "type/perf"}})
 
     plan = roadmap.plan(model)
-    apply_intake(roadmap.store, plan)
+    apply_intake(roadmap.store, plan, repo=REPO)
 
     (decision,) = plan.decisions
     assert (

@@ -170,6 +170,7 @@ from devops_cli.roadmap.title_labels import (
     title_labels,
 )
 from devops_cli.security.sanitizer import redact_text
+from devops_cli.telemetry.instruments import ROADMAP_INTAKE_CANDIDATES_TOTAL, emit
 
 logger = logging.getLogger(__name__)
 
@@ -1378,6 +1379,37 @@ def _apply_decision(store: RoadmapStore, decision: IntakeDecision) -> IntakeAppl
     )
 
 
+class CandidateResult(StrEnum):
+    """The result of one candidate in `devops_cli_roadmap_intake_candidates_total` (#4067). A
+    candidate that intake places and that the model flags as a possible duplicate is `duplicate`:
+    the verdict only flags, and intake still places it."""
+
+    PLACED = "placed"
+    DUPLICATE = "duplicate"
+    SKIPPED = "skipped"
+    FAILED = "failed"
+
+
+def start_candidate_counts(repo: str) -> None:
+    """Add 0 for each result of `repo`, so the four series exist before the first candidate and a
+    rate or an increase query finds them."""
+    for result in CandidateResult:
+        emit(ROADMAP_INTAKE_CANDIDATES_TOTAL, 0, {"repo": repo, "result": result.value})
+
+
+def _count_candidate(repo: str, result: CandidateResult) -> None:
+    emit(ROADMAP_INTAKE_CANDIDATES_TOTAL, 1, {"repo": repo, "result": result.value})
+
+
+def _written_result(decision: IntakeDecision) -> CandidateResult:
+    """The result of a candidate whose writes were made: skipped when intake decided to skip it."""
+    if decision.outcome is not Outcome.PLACE:
+        return CandidateResult.SKIPPED
+    if decision.possible_duplicate is not None:
+        return CandidateResult.DUPLICATE
+    return CandidateResult.PLACED
+
+
 def _failed_placement(subject: Subject, exc: GitHubOperationError) -> PlacementFailure:
     """Record `subject` as skipped for its failed write, with the error's class and its masked,
     bounded text: the status code and the message of GitHub (#3651)."""
@@ -1395,12 +1427,16 @@ def _failed_placement(subject: Subject, exc: GitHubOperationError) -> PlacementF
 def apply_intake(
     store: RoadmapStore,
     plan: IntakePlan,
+    *,
+    repo: str,
 ) -> IntakeApplied:
     """Make the plan's writes, one candidate at a time. A candidate whose write fails is
     skipped and named in `failed`, and the others are still written (#1443). An Item that a
     person changed since the plan is refused before any write: it is no failure, the next plan
     decides the candidate again (#4042). A rate limit or a token GitHub refuses stops the round,
-    since every later write would be refused too (#983)."""
+    since every later write would be refused too (#983). Each candidate adds 1 to
+    `devops_cli_roadmap_intake_candidates_total` for `repo` under its result (#4067); the
+    candidate whose write ends the round counts nothing."""
     written: list[IntakeApplied] = []
     failed: list[PlacementFailure] = []
     for decision in plan.decisions:
@@ -1410,8 +1446,12 @@ def apply_intake(
             raise
         except RoadmapItemChangedError:
             logger.info(MESSAGES.roadmap.intake_item_changed.format(name=decision.subject.name))
+            _count_candidate(repo, CandidateResult.SKIPPED)
         except GitHubOperationError as exc:
             failed.append(_failed_placement(decision.subject, exc))
+            _count_candidate(repo, CandidateResult.FAILED)
+        else:
+            _count_candidate(repo, _written_result(decision))
     return IntakeApplied(
         placed=sum(each.placed for each in written),
         placed_critical_or_p0=sum(each.placed_critical_or_p0 for each in written),
@@ -1450,7 +1490,7 @@ def intake_candidate(
     run filed for it."""
     plan = plan_intake(store, repo=repo, model=model, ref=ref, new=candidate)
     (decision,) = plan.decisions
-    applied = apply_intake(store, plan) if confirm else None
+    applied = apply_intake(store, plan, repo=repo) if confirm else None
     if applied is not None:
         raise_for_failed_placements(applied)
     number = applied.filed[0] if applied and applied.filed else None
