@@ -43,7 +43,7 @@ An item of the type `test`, `docs`, `refactor`, `chore`, `ci` or `perf`, and a `
 With `--confirm`, a check does these things:
 
 1. It replaces the block `devops-roadmap-alternatives` in the body of the item and records the check in the job record. One request writes both, so a stop never leaves the new block without the record of the check.
-2. It posts one comment, in a separate request after the write.
+2. It posts one comment, in a separate request after the write, for a first check and for a recheck whose verdict or tool differs from the record of the earlier check. A recheck with the same verdict and the same tool posts no comment: the thread shows only changes. Its block holds the new date, and its record holds the new check time.
 
 A check changes no label and closes no issue. A person decides what a tool means for the item.
 
@@ -55,7 +55,7 @@ The comment gives:
 - the answered searches, each with its number of results;
 - at most five sources, and a line that says how many more the comment leaves out. GitHub shows each URL as a link.
 
-A check adds a new comment. It never changes the comment of an earlier check.
+A check that posts a comment adds a new one. It never changes the comment of an earlier check.
 
 ## Which items a run takes
 
@@ -82,7 +82,7 @@ The command exits 1 only when it tried items and checked none.
 | Flag | What the run does |
 | :--- | :--- |
 | `--plan` (the default) | Runs the checks and prints them. It writes nothing. |
-| `--confirm` | Writes each check to GitHub as soon as the item is checked: its comment, its body block and its job record. |
+| `--confirm` | Writes each check to GitHub as soon as the item is checked: its body block, its job record and, for a first or changed result, its comment. |
 | `--dry-run` | Makes no request. It prints the requests that a run makes, with placeholders. |
 
 ## Where the rules are

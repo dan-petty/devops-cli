@@ -1167,6 +1167,17 @@ def _unchanged_since_read(store: RoadmapStore, check: Check) -> bool:
     return False
 
 
+def _result_changed(check: Check) -> bool:
+    """Whether `check` is the first check of its item, or gives another verdict or another tool than
+    the record of the earlier check (#4054). A tool and no tool are different results."""
+    record = check.item.job_record
+    recorded_verdict = record.get(AlternativesRecordKey.VERDICT)
+    if not recorded_verdict:
+        return True
+    tool = check.tool.url if check.tool else None
+    return recorded_verdict != check.verdict.value or record.get(AlternativesRecordKey.TOOL) != tool
+
+
 class AlternativesWriter:
     """The writes of one alternatives round, made when each item is checked (#4034).
 
@@ -1181,7 +1192,9 @@ class AlternativesWriter:
         self.written = 0
 
     def settle(self, outcome: Check | CheckFailure) -> None:
-        """Write the result of one item. A check is counted in
+        """Write the result of one item. The block and the marks are written for every check. The
+        comment is posted only for a first check and for a check whose verdict or tool differs from
+        the record (#4054). A check is counted in
         `devops_cli_roadmap_alternatives_total` by its verdict, and its searches in
         `devops_cli_roadmap_alternatives_searches` (#2950). A failure is recorded in the job record
         of its item: the time and the class of the error."""
@@ -1197,6 +1210,7 @@ class AlternativesWriter:
         if not _unchanged_since_read(self._store, outcome):
             return
         number = outcome.item.number
+        changed = _result_changed(outcome)
         self._store.set_marks(
             outcome.item,
             {
@@ -1209,7 +1223,8 @@ class AlternativesWriter:
             },
             body=outcome.new_body,
         )
-        self._store.comment(number, outcome.comment)
+        if changed:
+            self._store.comment(number, outcome.comment)
         emit(ROADMAP_ALTERNATIVES_TOTAL, 1, {"verdict": outcome.verdict.value})
         emit(
             ROADMAP_ALTERNATIVES_SEARCHES,
