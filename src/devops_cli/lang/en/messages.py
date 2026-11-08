@@ -3579,6 +3579,19 @@ class RoadmapMessages:
         "`{path}` is the change folder or a path under it. A task group must not change or "
         "create `openspec/changes` or a path under it."
     )
+    stage_own_change_changes: str = (
+        "`{path}` is under `{change}`. A task group must not change files of its own change."
+    )
+    stage_own_change_task: str = (
+        "Group {group} names `{path}` in a task. A task must not name a path of the "
+        "plan's own change folder."
+    )
+    stage_scenario_untested_code: str = (
+        "Scenario '{scenario}' names `{code}` with no behavior test."
+    )
+    stage_reference_uncovered_file: str = (
+        "The quoted search lists `{path}`. Add a task group or a design decision for it."
+    )
     stage_bad_capability: str = (
         "'{capability}' is not a name. Use lowercase letters and digits joined by single hyphens."
     )

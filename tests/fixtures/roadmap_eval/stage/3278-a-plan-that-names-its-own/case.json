@@ -1,0 +1,52 @@
+{
+  "issue": 2441,
+  "pull": 3278,
+  "title": "fix(k8s): name the Loki deployment mode Monolithic",
+  "change": "2441-loki-monolithic-mode-and-no-memcached-service-account",
+  "merge_commit": "75e2858e6262dcf9dcd957dbe2aa8f3620690cca",
+  "base_commit": "d895bae23de6127636baf60ce756b84498390ac6",
+  "verdict": "needs-fix",
+  "scores": {
+    "premise_ok": 5,
+    "fidelity": 4,
+    "task_quality": 3,
+    "rule_compliance": 2,
+    "accuracy": 4
+  },
+  "state": "closed",
+  "summary": "The plan in PR #3278 (for #2441) held three defects that no gate refused: group 3 writes files under its own change folder; a spec scenario names `_loki_mode` with no behavior test; and `tests/commands/k8s/test_k8s.py` from a quoted search was left uncovered.",
+  "notes": [
+    "The plan was staged in pull request #3278 and closed with no merge."
+  ],
+  "defects": [
+    {
+      "type": "missing_path",
+      "severity": "blocker",
+      "where": "tasks.md, group 3",
+      "problem": "Group 3 task 3.1 names the change folder in its implementation. The change folder is written by the stage job, not by a task of the plan.",
+      "evidence": "Group 3 task 3.1 names `openspec/changes/2441-loki-monolithic-mode-and-no-memcached-service-account/`.",
+      "gate": "paths",
+      "message": "own change"
+    },
+    {
+      "type": "missing_path",
+      "severity": "major",
+      "where": "specs/loki-release-pin/spec.md",
+      "problem": "A spec scenario names `_loki_mode` in a code span, and no behavior group tests it.",
+      "evidence": "Scenario 'the claim test accepts only the current mode' names `_loki_mode`, and no behavior group tests it.",
+      "gate": "paths",
+      "message": "_loki_mode"
+    },
+    {
+      "type": "missing_path",
+      "severity": "major",
+      "where": "proposal.md, Feasibility",
+      "problem": "The quoted search lists `tests/commands/k8s/test_k8s.py` and no task group or design decision covers it.",
+      "evidence": "Feasibility quotes `References to 'SingleBinary'` listing `tests/commands/k8s/test_k8s.py`, but neither changes nor decisions cover it.",
+      "gate": "paths",
+      "paths": [
+        "tests/commands/k8s/test_k8s.py"
+      ]
+    }
+  ]
+}

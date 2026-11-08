@@ -1,0 +1,154 @@
+{
+  "summary": "name the Loki deployment mode Monolithic",
+  "pull_request_body": "Plans #2441.\n\n`k8s/logging/loki-values.yaml` names the deprecated deployment mode `SingleBinary`, which chart `grafana-community/loki` 12.0.0 renamed to `Monolithic`, and it leaves `memcached.enabled` on, so the chart renders a ServiceAccount that nothing uses (#2441).",
+  "why": "`k8s/logging/loki-values.yaml` names the deprecated deployment mode `SingleBinary`, which chart `grafana-community/loki` 12.0.0 renamed to `Monolithic`, and it leaves `memcached.enabled` on, so the chart renders a ServiceAccount that nothing uses (#2441).",
+  "what_changes": [
+    "`k8s/logging/loki-values.yaml` sets `deploymentMode: Monolithic`.",
+    "The three comments of `k8s/logging/loki-values.yaml` that name the deployment mode say `Monolithic`.",
+    "`k8s/logging/loki-values.yaml` sets `memcached.enabled: false`, so the chart renders no `loki-memcached` ServiceAccount.",
+    "`_loki_mode` in `tests/core/test_k8s_local_path_placement.py` accepts `Monolithic` only and fails on any other name.",
+    "The change carries a spec delta because a Helm values manifest is observable: `loki-release-pin` gains the current mode name and the unused ServiceAccount rule.",
+    "The change fits one pull request."
+  ],
+  "skip_specs": false,
+  "feasibility": [
+    "read_file `tests/core/test_k8s_local_path_placement.py` lines 1-140 showed `_loki_mode` at line 62 with `if mode not in (\"Monolithic\", \"SingleBinary\"):` and `value_at(values, \"deploymentMode\", \"Monolithic\")` at line 69, and the docstring at lines 63-64 that names `SingleBinary` as the old name.",
+    "References to 'SingleBinary': files 4, lines 9.\nk8s/logging/loki-values.yaml: 4 (lines 1, 6, 100, 115)\ntests/core/test_k8s_local_path_placement.py: 2 (lines 64, 70)\ntests/commands/k8s/test_k8s.py: 1 (line 1771)\nopenspec/changes/archive/2026-10-28-1632-loki-grafana-community-chart/design.md: 2 (lines 46, 54)",
+    "The issue cites `tests/test_k8s_local_path_placement.py`. The probe says commit 513bb31f deleted or renamed it, and the file now lives at `tests/core/test_k8s_local_path_placement.py`, which holds `_loki_mode`. The work is done at that path; the premise of the issue holds.",
+    "list_files `k8s/logging` showed `k8s/logging/kustomization.yaml`, `k8s/logging/loki-values.yaml` and `networkpolicy.yaml`, so the values file is the one place to edit.",
+    "The first check on the real system: `helm template loki grafana-community/loki --version 20.0.2 -n logging -f k8s/logging/loki-values.yaml`, then confirm the output holds no `kind: ServiceAccount` with `name: loki-memcached` and no other change against the same command on the base commit.",
+    "The second check: `uv run devops ci test tests/core/test_k8s_local_path_placement.py`, which reads the values files and renders no chart.",
+    "The third check: `uv run devops ci test tests/commands/k8s/test_k8s.py`, which holds the Loki retention checks."
+  ],
+  "existing_tool": "The open, maintained `grafana-community/loki` Helm chart (version 20.0.2) covers the need: it documents `Monolithic` as the current name of the deployment mode and `memcached.enabled: false` as the way to render no memcached ServiceAccount. The change builds no code of its own, so there is no build, upkeep or fix cost beyond editing one values file and one test function, and no internal code is deleted.",
+  "builds_own": false,
+  "decisions": [
+    {
+      "decision": "Edit the values at `k8s/logging/loki-values.yaml` and the test at `tests/core/test_k8s_local_path_placement.py`, the path that holds `_loki_mode` today.",
+      "reason": "The probe reports that commit 513bb31f renamed `tests/test_k8s_local_path_placement.py`, and the file at the new path holds the function the issue names."
+    },
+    {
+      "decision": "Set `deploymentMode: Monolithic` and name `Monolithic` in each comment of the file that names the mode.",
+      "reason": "The chart renamed the mode in 12.0.0 and keeps `SingleBinary` only as a deprecated alias, so the values name the current mode."
+    },
+    {
+      "decision": "`_loki_mode` accepts `Monolithic` only and fails on every other name.",
+      "reason": "The repository controls its own values file, so the test holds the one name that the chart documents and fails when a later chart drops the alias."
+    },
+    {
+      "decision": "Set `memcached.enabled: false` rather than leave the chart default.",
+      "reason": "`chunksCache` and `resultsCache` are off, so the rendered ServiceAccount `loki-memcached` has no pod and the values say so."
+    },
+    {
+      "decision": "Keep the archived change `2026-10-28-1632-loki-grafana-community-chart` and its text as it is.",
+      "reason": "An archive records a merged change; `references` shows its design.md lines 46 and 54 describe what that change did, not what the repository holds now."
+    }
+  ],
+  "rejected": [
+    {
+      "alternative": "Accept both `Monolithic` and `SingleBinary` in `_loki_mode`, as the chart does.",
+      "evidence": "`tests/core/test_k8s_local_path_placement.py` line 70 currently reads `if mode not in (\"Monolithic\", \"SingleBinary\"):`, and the issue asks for `Monolithic` only; a test that keeps the alias fails to hold the values file when the chart drops it."
+    },
+    {
+      "alternative": "Delete `loki-ingress` or other Loki objects in this change.",
+      "evidence": "`k8s/logging` holds only `kustomization.yaml`, `loki-values.yaml` and `networkpolicy.yaml`, and the issue asks for two value keys and one test function."
+    },
+    {
+      "alternative": "Add a new test module that reads the values file for the two keys.",
+      "evidence": "`_loki_mode` in `tests/core/test_k8s_local_path_placement.py` already reads `deploymentMode` from the values file through `value_at`, so a second reader copies it."
+    }
+  ],
+  "specs": [
+    {
+      "capability": "loki-release-pin",
+      "purpose": null,
+      "added": [
+        {
+          "name": "The Loki values name the deployment mode that the chart documents",
+          "text": "The Loki values SHALL set `deploymentMode` to `Monolithic`, and each comment of the values file that names the deployment mode SHALL name `Monolithic`.",
+          "scenarios": [
+            {
+              "name": "the values file names the current mode",
+              "when": "`k8s/logging/loki-values.yaml` is read",
+              "then": "`deploymentMode` is `Monolithic` and no line holds `SingleBinary`"
+            },
+            {
+              "name": "the claim test accepts only the current mode",
+              "when": "`_loki_mode` in `tests/core/test_k8s_local_path_placement.py` gets a values dict whose `deploymentMode` is `SingleBinary`",
+              "then": "the function calls `pytest.fail`"
+            }
+          ]
+        },
+        {
+          "name": "The Loki values render no ServiceAccount that no pod uses",
+          "text": "The Loki values SHALL set `memcached.enabled` to `false` while `chunksCache` and `resultsCache` are off, so the chart renders no `loki-memcached` ServiceAccount.",
+          "scenarios": [
+            {
+              "name": "the values turn the memcached objects off",
+              "when": "`k8s/logging/loki-values.yaml` is read",
+              "then": "`memcached.enabled` is `false`, and `chunksCache.enabled` and `resultsCache.enabled` are `false`"
+            }
+          ]
+        }
+      ],
+      "modified": []
+    }
+  ],
+  "groups": [
+    {
+      "title": "Name the current Loki deployment mode in the values and turn memcached off",
+      "kind": "other",
+      "reads": [
+        "k8s/logging/loki-values.yaml",
+        "tests/core/test_k8s_local_path_placement.py"
+      ],
+      "changes": [
+        "k8s/logging/loki-values.yaml"
+      ],
+      "creates": [],
+      "creates_lines": {},
+      "test": null,
+      "implementation": "In `k8s/logging/loki-values.yaml` set `deploymentMode: Monolithic`. Change the first line comment and the comments above `sidecar` and `read` to say `Monolithic` instead of `SingleBinary`. Add a `memcached:` block with `enabled: false` beside the `chunksCache` and `resultsCache` blocks, with a comment that says no memcached pod uses the ServiceAccount that the chart renders by default. Change no other key",
+      "documentation": null,
+      "verify": "uv run devops ci test tests/core/test_k8s_local_path_placement.py",
+      "process": null
+    },
+    {
+      "title": "Make the Loki claim test accept Monolithic only",
+      "kind": "other",
+      "reads": [
+        "tests/core/test_k8s_local_path_placement.py",
+        "tests/support/k8s_tree.py",
+        "k8s/logging/loki-values.yaml"
+      ],
+      "changes": [
+        "tests/core/test_k8s_local_path_placement.py"
+      ],
+      "creates": [],
+      "creates_lines": {},
+      "test": null,
+      "implementation": "In `_loki_mode` in `tests/core/test_k8s_local_path_placement.py`, accept `Monolithic` only: fail when `deploymentMode` is anything else, including `SingleBinary`. Rewrite the docstring to say that `Monolithic` is the mode of the grafana-community chart and that the other modes run write and backend StatefulSets whose claims the table does not name. Keep the `singleBinary.persistence.enabled` read and the rest of the module unchanged",
+      "documentation": null,
+      "verify": "uv run devops ci test tests/core/test_k8s_local_path_placement.py",
+      "process": null
+    },
+    {
+      "title": "Write the change folder and archive it",
+      "kind": "other",
+      "reads": [
+        "openspec/specs/loki-release-pin/spec.md",
+        "openspec/changes/archive/2026-10-28-1632-loki-grafana-community-chart/proposal.md"
+      ],
+      "changes": [
+        "k8s/logging/loki-values.yaml"
+      ],
+      "creates": [],
+      "creates_lines": {},
+      "test": null,
+      "implementation": "Write the proposal, design, tasks and the `loki-release-pin` spec delta of the change in `openspec/changes/2441-loki-monolithic-mode-and-no-memcached-service-account/`, with the two added requirements and their scenarios. Tick each task as its group lands, and archive the folder into `openspec/changes/archive/` in the last commit",
+      "documentation": null,
+      "verify": "uv run devops openspec check",
+      "process": null
+    }
+  ]
+}
