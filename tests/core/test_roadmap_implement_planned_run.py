@@ -84,13 +84,17 @@ def test_two_groups_make_a_new_branch_a_draft_a_closing_body_and_a_ready_pull_re
     )
 
 
-def test_the_branch_is_pushed_once_with_upstream_and_the_clone_keeps_no_branch_or_worktree(
+def test_the_branch_is_published_once_with_upstream_and_the_clone_keeps_no_branch_or_worktree(
     planned_world: JobWorld,
 ) -> None:
     planned_world.run(two_groups())
 
     pushes = [call.argv[4:] for call in planned_world.programs.calls if call.argv[3:4] == ("push",)]
-    assert pushes == [("-u", "origin", BRANCH)]
+    # The first checkpoint (#3677) publishes the branch. The final push holds a lease on its tip.
+    assert len(pushes) == 2
+    assert pushes[0] == ("-u", "origin", BRANCH)
+    assert pushes[1][0].startswith(f"--force-with-lease={BRANCH}:")
+    assert pushes[1][1:] == ("origin", BRANCH)
     assert planned_world.repo.git("worktree", "list").count("\n") == 0
     assert planned_world.repo.git("branch", "--format=%(refname:short)") == "main"
 
@@ -104,9 +108,11 @@ def test_a_check_that_fails_once_gets_a_fix_step_and_a_push_with_a_lease_on_the_
 
     pushes = [call.argv[4:] for call in planned_world.programs.calls if call.argv[3:4] == ("push",)]
     first_tip = planned_world.repo.origin_git("rev-parse", f"{BRANCH}~1")
-    assert (applied.ready, len(pushes)) == ((1,), 2)
+    # The checkpoint publishes the branch, the final push follows, and the fix gets its own push.
+    assert (applied.ready, len(pushes)) == ((1,), 3)
     assert pushes[0] == ("-u", "origin", BRANCH)
-    assert pushes[1] == (f"--force-with-lease={BRANCH}:{first_tip}", "origin", BRANCH)
+    assert pushes[1][0].startswith(f"--force-with-lease={BRANCH}:")
+    assert pushes[2] == (f"--force-with-lease={BRANCH}:{first_tip}", "origin", BRANCH)
     assert len(planned_world.sent("POST", "pulls")) == 1
 
 

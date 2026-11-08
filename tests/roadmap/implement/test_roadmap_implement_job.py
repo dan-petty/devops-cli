@@ -506,10 +506,15 @@ def test_the_push_runs_in_the_worktree_with_a_lease_and_leaves_no_worktree_behin
 
     pushes = [call for call in job_world.programs.calls if call.argv[3:4] == ("push",)]
     tip = job_world.repo.origin_git("rev-parse", BRANCH)
-    assert len(pushes) == 1
+    # The checkpoint of group 1 at the boundary of group 2 (#3677), then the final push, which
+    # holds its lease on the tip that the checkpoint pushed.
+    assert len(pushes) == 2
     assert pushes[0].argv[1] == "-C"
     assert pushes[0].argv[2] != str(job_world.repo.clone)
     assert pushes[0].argv[4:] == (f"--force-with-lease={BRANCH}:{before}", "origin", BRANCH)
+    checkpoint = pushes[1].argv[4].removeprefix(f"--force-with-lease={BRANCH}:")
+    assert checkpoint != before
+    assert (pushes[1].argv[5:], tip != checkpoint) == (("origin", BRANCH), True)
     assert tip != before
     assert job_world.repo.git("branch", "--show-current") == "main"
     assert job_world.repo.git("worktree", "list").count("\n") == 0
@@ -1134,7 +1139,11 @@ def test_a_claim_made_while_the_last_group_runs_ends_the_job_before_the_push(
 
     (comment,) = job_world.issue_comments()
     assert (applied.yielded, applied.ready, len(script.seen)) == ((1,), (), 4)
-    assert (job_world.origin_log(), job_world.pull.ready_calls) == (["fix(roadmap): plan"], [])
+    # Group 1 stays on the branch: the boundary of group 2 pushed it before the claim came (#3677).
+    assert (job_world.origin_log(), job_world.pull.ready_calls) == (
+        ["fix(roadmap): plan", "fix(roadmap): The first group (#1)"],
+        [],
+    )
     assert "end of the last group" in comment
 
 
@@ -1177,7 +1186,7 @@ def test_a_claim_made_while_the_docs_are_generated_ends_the_job_before_the_push(
 
     (comment,) = job_world.issue_comments()
     assert (applied.yielded, applied.ready, job_world.pull.ready_calls) == ((1,), (), [])
-    assert job_world.origin_log() == ["fix(roadmap): plan"]
+    assert job_world.origin_log() == ["fix(roadmap): plan", "fix(roadmap): The first group (#1)"]
     assert "the end of the last group" in comment
 
 
@@ -1194,11 +1203,13 @@ def test_a_claim_made_while_a_group_runs_beats_the_stop_of_that_group(
     (comment,) = world.issue_comments()
     status, record = _item(world)
     assert (applied.yielded, applied.stopped, applied.failed) == ((1,), (), ())
+    # The checkpoint of group 1 stays on the branch. A Planned item keeps the draft that it opened.
     if world_name == "job_world":
-        assert world.origin_log() == ["fix(roadmap): plan"]
+        assert world.origin_log() == ["fix(roadmap): plan", "fix(roadmap): The first group (#1)"]
+        assert world.sent("POST", "pulls") == []
     else:
-        assert world.repo.origin_git("branch", "--list", BRANCH) == ""
-    assert not any(r.method == "POST" for r in world.api.sent)
+        assert world.origin_log() == ["fix(roadmap): The first group (#1)"]
+        assert len(world.sent("POST", "pulls")) == 1
     assert (record.get("implement.stopped"), _owner(world)) == (None, ["owner/human"])
     assert status != "Ready"
     assert "human claimed the item" in comment
