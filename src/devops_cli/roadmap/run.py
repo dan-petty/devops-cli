@@ -86,6 +86,7 @@ from devops_cli.config.defaults import (
     DEFAULT_SERVICE_MAX_FAILED_ROUNDS,
 )
 from devops_cli.config.settings import load_settings
+from devops_cli.core import clock
 from devops_cli.core.paths import (
     is_forbidden_system_path,
     safe_resolve_subpath,
@@ -153,6 +154,7 @@ from devops_cli.server.service import (
     keep_state_record,
     read_state_record,
 )
+from devops_cli.telemetry.instruments import ROADMAP_ROW_SECONDS, emit
 from devops_cli.telemetry.metrics import GLOBAL_METRICS
 
 if TYPE_CHECKING:
@@ -1309,6 +1311,19 @@ def _count_job(repo: str, lane: str | None, row: str, result: str) -> None:
         )
 
 
+def _observe_row(repo: str, row: str, started: float | None, result: str) -> None:
+    """Send the seconds that a row ran, since `started` on the monotonic clock, under its
+    repository, row and result (#4058). The run of the command line sends it too. A row that
+    failed before its runner started, such as in its clone, has no `started` and sends nothing."""
+    if started is None:
+        return
+    emit(
+        ROADMAP_ROW_SECONDS,
+        clock.monotonic() - started,
+        {"repo": repo, "row": row, "result": result},
+    )
+
+
 def _execute_due_rows(
     rows: Sequence[JobRow],
     initially_due: Mapping[str, bool],
@@ -1354,10 +1369,12 @@ def _execute_due_rows(
             _count_job(repo, lane, row.name, _failed_result(clone_error))
             continue
 
+        started: float | None = None
         try:
             if row.needs_clone and clone_path is None:
                 clone_path = ensure_checkout(repo, base_data, remote_url, clone_dirname)
 
+            started = clock.monotonic()
             with request_scope(row=row.name):
                 outcome = row.runner(
                     store=store,
@@ -1373,9 +1390,11 @@ def _execute_due_rows(
             _record_success(schedule_path, row.name, current_time)
             failures.succeeded(repo, row.name)
             _count_job(repo, lane, row.name, CONST_SERVICE_JOB_RESULT_SUCCESS)
+            _observe_row(repo, row.name, started, CONST_SERVICE_JOB_RESULT_SUCCESS)
         except Exception as exc:
             failed_jobs.append(row.name)
             _count_job(repo, lane, row.name, _failed_result(exc))
+            _observe_row(repo, row.name, started, _failed_result(exc))
             outcomes[row.name] = _outcome_of_failure(exc)
             _count_failure(failures, repo, row.name, inputs[row.name], exc)
             if row.needs_clone and clone_path is None:
