@@ -21,6 +21,7 @@ from devops_cli.config.constants import (
     CONST_GIT_BRANCH_PREFIX,
     CONST_GIT_DETACHED_TOKEN,
     CONST_GIT_HEAD_PREFIX,
+    CONST_GIT_IGNORED_PREFIX,
     CONST_GIT_LOCKED_TOKEN,
     CONST_GIT_MAIN_BRANCH,
     CONST_GIT_NAME_STATUS_TWO_PATH_LETTERS,
@@ -221,6 +222,31 @@ def count_dirty_paths(worktree_dir: Path) -> int | None:
         else:
             idx += 1
     return count
+
+
+def count_ignored_paths(worktree_dir: Path) -> int | None:
+    """Count the paths that `.gitignore` hides, via git status --porcelain --ignored -z.
+
+    `git status` prints none of them without `--ignored`, so `count_dirty_paths` counts a worktree
+    that holds only ignored data as clean, and `git worktree remove` deletes that data (#4092). A
+    directory that is gone holds none, so it counts 0. None means `git status` failed.
+    """
+    if not worktree_dir.is_dir():
+        return 0
+    proc = run_subprocess(
+        ["git", "-C", str(worktree_dir), "status", "--porcelain", "--ignored", "-z"],
+        check=False,
+        quiet=True,
+        local_read=True,
+    )
+    if proc.returncode != 0:
+        return None
+    raw = (
+        proc.stdout.decode("utf-8", errors="surrogateescape")
+        if isinstance(proc.stdout, bytes)
+        else proc.stdout
+    )
+    return sum(1 for token in raw.split("\0") if token.startswith(CONST_GIT_IGNORED_PREFIX))
 
 
 def _resolve_base_ref(repo_root: Path, preferred: str) -> str | None:

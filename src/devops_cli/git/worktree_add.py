@@ -45,7 +45,9 @@ from devops_cli.git.branch_authors import LOG_FORMAT, person_authors
 from devops_cli.git.branch_form import BranchParts, branch_name, issue_of_branch, parse_branch
 from devops_cli.git.worktree_inventory import (
     CONST_REFS_HEADS_PREFIX,
+    WorktreeEntry,
     WorktreePruneItem,
+    count_ignored_paths,
     git_message,
     inventory_worktrees,
     list_worktree_infos,
@@ -61,10 +63,12 @@ logger = logging.getLogger(__name__)
 
 
 class ReclaimResult(BaseModel):
-    """What the reclaim of merged worktrees did: the worktrees it removed, the GitHub reads that
-    a dry run lists, and the reason it removed nothing when it could not run."""
+    """What the reclaim of merged worktrees did: the worktrees it removed, the worktrees it kept
+    for a reason of scope (`kept`: outside the managed folder, or holding ignored files), the
+    GitHub reads that a dry run lists, and the reason it removed nothing when it could not run."""
 
     removed: list[WorktreePruneItem] = Field(default_factory=list)
+    kept: list[WorktreePruneItem] = Field(default_factory=list)
     requests: list[str] = Field(default_factory=list)
     error: str | None = None
 
@@ -72,7 +76,7 @@ class ReclaimResult(BaseModel):
 class WorktreeAddReport(BaseModel):
     """What `add` did, or with `dry_run` what it would do. `requests` holds the requests and
     commands that a dry run lists, and is empty after a real run. `commits` is the number of commits
-    by the App on a branch that the run took over. `reclaimed` and `reclaim_error`
+    by the App on a branch that the run took over. `reclaimed`, `kept` and `reclaim_error`
     are the result of the reclaim of merged worktrees that comes first. `claimed` says that the
     command claimed the issue for an agent, and `claim_error` is why it did not (#2910); the
     command sets both, and `add_worktree` claims nothing."""
@@ -84,20 +88,21 @@ class WorktreeAddReport(BaseModel):
     commits: int = 0
     requests: list[str] = Field(default_factory=list)
     reclaimed: list[WorktreePruneItem] = Field(default_factory=list)
+    kept: list[WorktreePruneItem] = Field(default_factory=list)
     reclaim_error: str | None = None
     claimed: bool = False
     claim_error: str | None = None
 
 
+def managed_folder(repo_root: Path) -> Path:
+    """The folder that `add` manages: the agent worktrees directory of the data directory, which
+    every worktree of the repository shares."""
+    return resolve_data_path(load_settings().data.dir / CONST_AGENT_WORKTREES_SUBPATH, repo_root)
+
+
 def worktree_directory(issue: int, repo_root: Path) -> Path:
-    """The standard directory of the worktree of `issue`: `w-<issue>` under the agent worktrees
-    directory of the data directory, which every worktree of the repository shares."""
-    return resolve_data_path(
-        load_settings().data.dir
-        / CONST_AGENT_WORKTREES_SUBPATH
-        / f"{CONST_AGENT_WORKTREE_PREFIX}{issue}",
-        repo_root,
-    )
+    """The standard directory of the worktree of `issue`: `w-<issue>` under the managed folder."""
+    return managed_folder(repo_root) / f"{CONST_AGENT_WORKTREE_PREFIX}{issue}"
 
 
 def _failure(message: str) -> GitOperationError:
@@ -206,27 +211,64 @@ def _run(argv: list[str]) -> str:
     return proc.stdout
 
 
-def reclaim_merged_worktrees(repo_root: Path, *, dry_run: bool = False) -> ReclaimResult:
-    """Remove the worktrees that `prune --confirm` removes: clean, not locked, not the current
-    directory, and at the head of a merged pull request (#2338).
+def _kept(entry: WorktreeEntry, reason: str) -> WorktreePruneItem:
+    return WorktreePruneItem(path=entry.path, status="kept", reason=reason)
 
-    A merged worktree still holds its issue, so `add` runs this before it looks for a holder. The
-    reclaim is housekeeping and never stops the work after it: when the pull requests cannot be
-    read, nothing is removed (`prune_worktrees` decides every worktree before it removes one) and
-    the reason comes back in `error`. A dry run lists the GitHub reads and removes nothing.
+
+def _split_by_scope(
+    entries: list[WorktreeEntry], folder: Path
+) -> tuple[list[WorktreeEntry], list[WorktreePruneItem]]:
+    """The worktrees that the reclaim may remove, and the ones it keeps without a GitHub read.
+
+    A worktree outside `folder` is kept, also when its directory is gone. Inside `folder`, a
+    worktree that holds a path which `.gitignore` hides is kept: `git worktree remove` deletes
+    that data, and `git status` does not show it as a change. The main worktree is no candidate
+    and is named nowhere.
+    """
+    messages = MESSAGES.repos
+    inside: list[WorktreeEntry] = []
+    kept: list[WorktreePruneItem] = []
+    for entry in entries:
+        if entry.is_main:
+            continue
+        if not Path(entry.path).resolve().is_relative_to(folder):
+            kept.append(_kept(entry, messages.worktrees_add_kept_outside))
+        elif (ignored := count_ignored_paths(Path(entry.path))) is None:
+            kept.append(_kept(entry, messages.worktrees_add_kept_ignored_unknown))
+        elif ignored:
+            kept.append(_kept(entry, messages.worktrees_add_kept_ignored.format(count=ignored)))
+        else:
+            inside.append(entry)
+    return inside, kept
+
+
+def reclaim_merged_worktrees(repo_root: Path, *, dry_run: bool = False) -> ReclaimResult:
+    """Remove the worktrees that `prune --confirm` removes and that `add` manages: under the
+    managed folder, clean, with no ignored file, not locked, not the current directory, and at the
+    head of a merged pull request (#2338, #4092).
+
+    A worktree outside the managed folder belongs to another tool or agent, so the reclaim keeps
+    it and reads no pull request for it. It never forces a removal. A merged worktree still holds
+    its issue, so `add` runs this before it looks for a holder. The reclaim is housekeeping and
+    never stops the work after it: when the pull requests cannot be read, nothing is removed
+    (`prune_worktrees` decides every worktree before it removes one) and the reason comes back in
+    `error`. A dry run lists the GitHub reads and removes nothing.
     """
     _require_origin(repo_root)
     repo = get_repo_origin_name(repo_root)
-    entries = inventory_worktrees(repo_root)
+    entries, kept = _split_by_scope(
+        inventory_worktrees(repo_root), managed_folder(repo_root).resolve()
+    )
     if dry_run:
-        return ReclaimResult(requests=plan_prune(entries, repo=repo).requests)
+        return ReclaimResult(kept=kept, requests=plan_prune(entries, repo=repo).requests)
     try:
         report = prune_worktrees(repo_root, entries, repo=repo, confirm=True)
     except DevOpsCLIError as exc:
-        return ReclaimResult(error=str(exc))
+        return ReclaimResult(kept=kept, error=str(exc))
     failed = [f"{item.path}: {item.reason}" for item in report.items if item.status == "failed"]
     return ReclaimResult(
         removed=[item for item in report.items if item.status == "removed"],
+        kept=kept,
         error="; ".join(failed) or None,
     )
 
@@ -357,6 +399,7 @@ def _take_over(
         status="took over",
         commits=len(authors),
         reclaimed=reclaim.removed,
+        kept=reclaim.kept,
         reclaim_error=reclaim.error,
     )
 
@@ -381,6 +424,7 @@ def _create(
         path=str(directory),
         status="created",
         reclaimed=reclaim.removed,
+        kept=reclaim.kept,
         reclaim_error=reclaim.error,
     )
 
@@ -434,6 +478,7 @@ def add_worktree(
             status="would create",
             requests=[*reclaim.requests, *(request.line() for request in planned)],
             reclaimed=reclaim.removed,
+            kept=reclaim.kept,
             reclaim_error=reclaim.error,
         )
     heads = _run([*_git(repo_root), "ls-remote", "--heads", CONST_GIT_REMOTE_ORIGIN])

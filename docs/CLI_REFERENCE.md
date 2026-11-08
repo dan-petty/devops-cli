@@ -171,8 +171,9 @@ devops repos worktrees status [OPTIONS]
 
 Create the worktree of an issue on \<type\>/\<issue\>-\<slug\> at the fetched origin/main.
 
-The command first removes the worktrees of merged pull requests, as prune --confirm does,
-because a merged worktree still holds its issue. Then it refuses an issue that a worktree,
+The command first removes the worktrees of merged pull requests under the agent worktrees
+folder, as prune --confirm does, because a merged worktree still holds its issue. It keeps
+a worktree outside that folder and a worktree that holds ignored files, and names each. Then it refuses an issue that a worktree,
 the standard directory or a pushed branch of origin already holds. A pushed branch whose
 commits past origin/main all have the App as author is a staged branch: the command adds the
 worktree on it and takes --type and --slug from it. After the worktree exists, the command
