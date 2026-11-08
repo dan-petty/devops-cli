@@ -77,7 +77,9 @@ def _write_halt(record: Path) -> None:
 
 
 def _write_ledger(record: Path) -> None:
-    FailureLedger(record=record).failed(REPO, "stage", "input", "AIClientError")
+    FailureLedger(record=record).failed(
+        REPO, "stage", "input", "provider", datetime(2026, 11, 8, tzinfo=UTC)
+    )
 
 
 WRITERS = {
@@ -134,7 +136,7 @@ def test_a_ledger_write_error_sets_the_gauge_for_the_ledger_record(tmp_path: Pat
     record = _blocked(tmp_path, CONST_SERVICE_FAILURES_FILENAME)
     ledger = FailureLedger(record=record)
 
-    rounds = ledger.failed(REPO, "stage", "input", "AIClientError")
+    rounds = ledger.failed(REPO, "stage", "input", "provider", datetime(2026, 11, 8, tzinfo=UTC))
     failed = _series()
     _repair(tmp_path)
     ledger.succeeded(REPO, "stage")

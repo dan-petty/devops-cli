@@ -615,7 +615,7 @@ def _failing_table(calls: list[str]) -> Any:
     return build_stub_table({"intake": broken})
 
 
-_CAUSE = "GitHubOperationError"
+_CAUSE = "ci_infra"
 _POLL = {("poll", "", ""): 1}
 _WEBHOOK = {("webhook", "issues", "opened"): 1}
 
@@ -660,14 +660,14 @@ def test_a_job_that_failed_its_limit_of_rounds_does_not_run_until_its_input_chan
 
 def test_a_success_clears_the_record_of_failed_rounds() -> None:
     ledger = FailureLedger(limit=2)
-    ledger.failed(REPO_A, "intake", "a", _CAUSE)
+    ledger.failed(REPO_A, "intake", "a", _CAUSE, START)
     ledger.succeeded(REPO_A, "intake")
-    ledger.failed(REPO_A, "intake", "a", _CAUSE)
-    assert not ledger.suspended(REPO_A, "intake", "a")
-    ledger.failed(REPO_A, "intake", "a", _CAUSE)
-    assert ledger.suspended(REPO_A, "intake", "a")
-    assert not ledger.suspended(REPO_A, "intake", "b")
-    assert not ledger.suspended(REPO_B, "intake", "a")
+    ledger.failed(REPO_A, "intake", "a", _CAUSE, START)
+    assert not ledger.suspended(REPO_A, "intake", "a", START)
+    ledger.failed(REPO_A, "intake", "a", _CAUSE, START)
+    assert ledger.suspended(REPO_A, "intake", "a", START)
+    assert not ledger.suspended(REPO_A, "intake", "b", START)
+    assert not ledger.suspended(REPO_B, "intake", "a", START)
 
 
 # ── A stop is not a failed round (#2753) ───────────────────────────────────────────────────
@@ -783,34 +783,35 @@ def test_the_line_that_suspends_a_row_names_the_cause_of_each_round(
         rounds.fail(tmp_path)
 
     (line,) = [r.getMessage() for r in caplog.records if "rounds in a row" in r.getMessage()]
-    assert "(causes: GitHubOperationError, RoadmapRefineError, GitHubOperationError)" in line
+    assert "(causes: ci_infra, ci_infra, ci_infra)" in line
 
 
 def test_a_round_that_an_earlier_process_counted_keeps_its_cause(tmp_path: Path) -> None:
     record = tmp_path / CONST_SERVICE_FAILURES_FILENAME
     before = FailureLedger(record=record)
     for _ in range(2):
-        before.failed(REPO_A, "intake", "a", _CAUSE)
+        before.failed(REPO_A, "intake", "a", _CAUSE, START)
 
     after = FailureLedger(record=record)
-    after.failed(REPO_A, "intake", "a", "RoadmapRefineError")
+    after.failed(REPO_A, "intake", "a", "RoadmapRefineError", START)
 
     assert after.causes(REPO_A, "intake") == (_CAUSE, _CAUSE, "RoadmapRefineError")
 
 
 def test_a_failure_on_new_input_starts_the_causes_again_and_a_success_clears_them() -> None:
     ledger = FailureLedger(limit=2)
-    ledger.failed(REPO_A, "intake", "a", "GitHubOperationError")
-    ledger.failed(REPO_A, "intake", "a", "GitHubOperationError")
-    ledger.failed(REPO_A, "intake", "b", "RoadmapRefineError")
+    ledger.failed(REPO_A, "intake", "a", "GitHubOperationError", START)
+    ledger.failed(REPO_A, "intake", "a", "GitHubOperationError", START)
+    ledger.failed(REPO_A, "intake", "b", "RoadmapRefineError", START)
     new_input = ledger.causes(REPO_A, "intake")
     ledger.succeeded(REPO_A, "intake")
 
     assert (new_input, ledger.causes(REPO_A, "intake")) == (("RoadmapRefineError",), ())
 
 
-_KEPT_RECORD = TypeAdapter(list[tuple[str, str, int, str, list[str]]])
-"""The type of the entries that the ledger writes: the causes are the fifth field (#3493)."""
+_KEPT_RECORD = TypeAdapter(list[tuple[str, str, int, str, list[str], str | None]])
+"""The type of the entries that the ledger writes: the causes are the fifth field (#3493), and the
+time of the next probe round is the sixth (#4065)."""
 
 
 def test_the_failure_file_of_an_earlier_version_loads_and_the_ledger_writes_causes(
@@ -820,13 +821,19 @@ def test_the_failure_file_of_an_earlier_version_loads_and_the_ledger_writes_caus
     record.write_text(json.dumps([[REPO_A, "refine", 3, "abc"]]), encoding="utf-8")
 
     kept = FailureLedger(record=record)
-    assert kept.suspended(REPO_A, "refine", "abc")
-    assert _gauge(CONST_SERVICE_METRIC_JOB_SUSPENDED, {"repo": REPO_A, "row": "refine"}) == 1
+    assert kept.suspended(REPO_A, "refine", "abc", START)
+    assert (
+        _gauge(
+            CONST_SERVICE_METRIC_JOB_SUSPENDED,
+            {"repo": REPO_A, "row": "refine", "class": "unknown"},
+        )
+        == 1
+    )
 
-    kept.failed(REPO_B, "implement", "x", "ServiceStoppingError")
+    kept.failed(REPO_B, "implement", "x", "ServiceStoppingError", START)
     assert _KEPT_RECORD.validate_json(record.read_bytes()) == [
-        (REPO_A, "refine", 3, "abc", []),
-        (REPO_B, "implement", 1, "x", ["ServiceStoppingError"]),
+        (REPO_A, "refine", 3, "abc", [], None),
+        (REPO_B, "implement", 1, "x", ["ServiceStoppingError"], None),
     ]
 
 
@@ -928,7 +935,9 @@ def _gauge(name: str, labels: dict[str, str] | None = None) -> float:
 
 
 def _suspended_metric() -> float:
-    return _gauge(CONST_SERVICE_METRIC_JOB_SUSPENDED, {"repo": REPO_A, "row": "intake"})
+    return _gauge(
+        CONST_SERVICE_METRIC_JOB_SUSPENDED, {"repo": REPO_A, "row": "intake", "class": "ci_infra"}
+    )
 
 
 def _budget_report() -> tuple[float, float, float]:
@@ -971,7 +980,7 @@ def test_a_job_reports_its_suspension_until_new_input_or_a_success_ends_it() -> 
     ledger = FailureLedger(limit=2)
     seen: list[float] = []
     for current in ("a", "a", "b", "b"):
-        ledger.failed(REPO_A, "intake", current, _CAUSE)
+        ledger.failed(REPO_A, "intake", current, _CAUSE, START)
         seen.append(_suspended_metric())
     ledger.succeeded(REPO_A, "intake")
     seen.append(_suspended_metric())

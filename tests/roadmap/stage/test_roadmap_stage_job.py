@@ -310,7 +310,7 @@ def test_three_rounds_that_fail_one_item_while_another_stages_do_not_suspend_the
 
     assert (
         outcomes,
-        ledger.suspended(STAGE_REPO, "stage", "any"),
+        ledger.suspended(STAGE_REPO, "stage", "any", FIRST_ROUND),
         ledger.causes(STAGE_REPO, "stage"),
     ) == (
         ["ok"] * 3,
@@ -339,7 +339,7 @@ def test_three_rounds_that_try_items_and_plan_none_suspend_the_row(
     outcomes = _rounds(store, stage_repo, ledger, tmp_path, 3, monkeypatch)
 
     assert outcomes == ["RoadmapRunError"] * 3
-    assert ledger.causes(STAGE_REPO, "stage") == ("RoadmapStageError",) * 3
+    assert ledger.causes(STAGE_REPO, "stage") == ("plan_defect",) * 3
     assert ledger.limit == 3
 
 
@@ -361,7 +361,7 @@ def test_three_rounds_that_fail_outside_any_item_suspend_the_row(
     outcomes = _rounds(store, stage_repo, ledger, tmp_path, 3, monkeypatch)
 
     assert outcomes == ["RoadmapRunError"] * 3
-    assert ledger.causes(STAGE_REPO, "stage") == ("GitOperationError",) * 3
+    assert ledger.causes(STAGE_REPO, "stage") == ("ci_infra",) * 3
 
 
 NEW_MODULE = "src/devops_cli/roadmap/stage_constants.py"

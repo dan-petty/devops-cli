@@ -580,3 +580,65 @@ tests:
       - eval_time: 30m
         alertname: RoadmapServiceStateUnkept
         exp_alerts: []
+
+  # A row that stays suspended (#4065). The gauge is 1 while a row waits for its retry time or for
+  # new input, by `repo`, `row` and `class`, and 0 after the row runs again. The rule waits 3
+  # hours, so a wait of the longest class that a probe round ends (6 hours) alerts once, and a short
+  # outage that the first probe round ends does not.
+  - name: A row that stays suspended for 3 hours fires with its class; a row that runs again and another job do not count
+    interval: 1m
+    input_series:
+      - series: 'devops_cli_service_job_suspended{job="roadmap-service", repo="example/app", row="intake", class="provider"}'
+        values: '0x5 1x300'
+      - series: 'devops_cli_service_job_suspended{job="roadmap-service", repo="example/app", row="stage", class="parser"}'
+        values: '0x5 1x60 0x240'
+      - series: 'devops_cli_service_job_suspended{job="devops-cli", repo="example/app", row="intake", class="provider"}'
+        values: '1x305'
+      - series: 'devops_cli_service_job_suspended{job="kubernetes-pods", repo="example/app", row="intake", class="provider"}'
+        values: '1x305'
+    alert_rule_test:
+      - eval_time: 3h
+        alertname: RoadmapServiceRowSuspended
+        exp_alerts: []
+      - eval_time: 200m
+        alertname: RoadmapServiceRowSuspended
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              repo: example/app
+              row: intake
+              class: provider
+            exp_annotations:
+              summary: "The row intake of example/app stays suspended after a provider failure"
+              description: "The roadmap Service did not run the row intake of example/app for 3 hours, because it failed 3 rounds in a row with the failure class provider. The row runs one probe round when its retry time comes, or at once when its input changes. The gauge devops_cli_service_job_retry_after_seconds shows the seconds before the next probe round (k8s/README.md, Roadmap service)."
+      - eval_time: 300m
+        alertname: RoadmapServiceRowSuspended
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              repo: example/app
+              row: intake
+              class: provider
+            exp_annotations:
+              summary: "The row intake of example/app stays suspended after a provider failure"
+              description: "The roadmap Service did not run the row intake of example/app for 3 hours, because it failed 3 rounds in a row with the failure class provider. The row runs one probe round when its retry time comes, or at once when its input changes. The gauge devops_cli_service_job_retry_after_seconds shows the seconds before the next probe round (k8s/README.md, Roadmap service)."
+
+  - name: A row whose class changes keeps one alert, for the class that is 1
+    interval: 1m
+    input_series:
+      - series: 'devops_cli_service_job_suspended{job="roadmap-service", repo="example/app", row="intake", class="provider"}'
+        values: '0x5 1x60 0x240'
+      - series: 'devops_cli_service_job_suspended{job="roadmap-service", repo="example/app", row="intake", class="ci_infra"}'
+        values: '0x65 1x240'
+    alert_rule_test:
+      - eval_time: 300m
+        alertname: RoadmapServiceRowSuspended
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              repo: example/app
+              row: intake
+              class: ci_infra
+            exp_annotations:
+              summary: "The row intake of example/app stays suspended after a ci_infra failure"
+              description: "The roadmap Service did not run the row intake of example/app for 3 hours, because it failed 3 rounds in a row with the failure class ci_infra. The row runs one probe round when its retry time comes, or at once when its input changes. The gauge devops_cli_service_job_retry_after_seconds shows the seconds before the next probe round (k8s/README.md, Roadmap service)."

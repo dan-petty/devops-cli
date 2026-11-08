@@ -1070,6 +1070,10 @@ def test_cli_dashboard_service_row_charts_the_state_of_the_service() -> None:
         "Service Unkept State Records": [
             f"max by (record) (last_over_time(devops_cli_service_state_unkept{selector}[5m]))"
         ],
+        "Service Retry After Seconds": [
+            "max by (repo, row, class) "
+            f"(last_over_time(devops_cli_service_job_retry_after_seconds{selector}[5m]))"
+        ],
     }
 
 

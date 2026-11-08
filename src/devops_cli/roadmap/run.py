@@ -66,6 +66,7 @@ from devops_cli.config.constants import (
     CONST_SERVICE_LANE_MODEL,
     CONST_SERVICE_LANE_STATUS,
     CONST_SERVICE_LANE_TRIAGE,
+    CONST_SERVICE_METRIC_JOB_RETRY_AFTER_SECONDS,
     CONST_SERVICE_METRIC_JOB_SUSPENDED,
     CONST_SERVICE_METRIC_JOBS,
     CONST_SERVICE_SOURCE_POLL,
@@ -94,6 +95,7 @@ from devops_cli.core.paths import (
 )
 from devops_cli.core.process import run_subprocess
 from devops_cli.exceptions import (
+    DevOpsCLIError,
     GitOperationError,
     RoadmapRefineError,
     RoadmapRunError,
@@ -112,6 +114,7 @@ from devops_cli.roadmap.alternatives import (
     raise_for_failed_checks,
     record_coverage,
 )
+from devops_cli.roadmap.failure import FailureClass, failure_class_of, retry_after
 from devops_cli.roadmap.implement.implement_submit import run_implement_round
 from devops_cli.roadmap.intake.intake import (
     IntakeApplied,
@@ -1062,28 +1065,40 @@ def _simulate_dry_run(rows: Sequence[JobRow], initially_due: Mapping[str, bool])
     return tuple(due_list)
 
 
-_FailedRounds = TypeAdapter(list[tuple[str, str, int, str, list[str]] | tuple[str, str, int, str]])
+_FailedRounds = TypeAdapter(
+    list[
+        tuple[str, str, int, str, list[str], datetime | None]
+        | tuple[str, str, int, str, list[str]]
+        | tuple[str, str, int, str]
+    ]
+)
 """A ledger record: each repository and job with the rounds it failed in a row, the input of the
-last and the class of each round's error. A record written before the causes (#3493) holds
-entries of four fields; their causes read as `unknown`."""
-_KeptRounds = TypeAdapter(list[tuple[str, str, int, str, list[str]]])
-"""The record that the ledger writes: each entry holds its causes."""
+last, the class of each round's error and the time of the next probe round (#4065). A record
+written before the retry time holds entries of five fields, and one written before the causes
+(#3493) holds entries of four; both load with no retry time, so they keep the rule of the input
+digest, and the causes of the second read as `unknown`."""
+_KeptRounds = TypeAdapter(list[tuple[str, str, int, str, list[str], datetime | None]])
+"""The record that the ledger writes: each entry holds its causes and its retry time."""
 
 
 class FailureLedger:
     """How many rounds in a row each roadmap job failed, and the input it failed on (#2161).
 
-    A job that fails `limit` rounds in a row does not run again until its input is not the one it
-    failed on: a webhook trigger, a change to an item the job reads, or a comment of a person
-    (#2754). A poll alone brings no new input, so a failing job stops costing GitHub requests at
-    every round. A success clears the job's record. With a `record`, the ledger is kept in that
-    file at each change and read back when the ledger is made, so a restart of the Service keeps
-    it (#2474). The Service's /metrics shows each job that failed its limit of rounds in a row
-    (#2475).
+    A job that fails `limit` rounds in a row does not run until its input is not the one it
+    failed on, or until its retry time (#4065). New input is a webhook trigger, a change to an
+    item the job reads, or a comment of a person (#2754). The retry time is the time of the last
+    failed round plus `RETRY_AFTER` of the failure class of that round: after it, the job runs one
+    probe round. A failed probe round sets a new retry time, and a success clears the job's
+    record. A poll alone brings no new input, so a failing job costs one round for each wait and
+    not one for each round. With a `record`, the ledger is kept in that file at each change and
+    read back when the ledger is made, so a restart of the Service keeps it (#2474). The Service's
+    /metrics shows each job that failed its limit of rounds in a row, with the class of its last
+    failure (#2475).
 
-    The ledger also holds the cause of each failed round, the class of its error, for the log
-    line that suspends a job. The record keeps the causes, so a restart does not make them
-    `unknown` (#3493). A record from before the causes loads, with its causes `unknown`.
+    The ledger also holds the cause of each failed round: the value of its failure class, for the
+    log line that suspends a job. The record keeps the causes, so a restart does not make them
+    `unknown` (#3493). A record from before the causes or before the retry time loads, and its
+    entry keeps the rule of the input digest alone.
     """
 
     def __init__(
@@ -1093,14 +1108,15 @@ class FailureLedger:
         self._record = record
         self._lock = threading.Lock()
         kept = [] if record is None else read_state_record(record, _FailedRounds, [])
-        self._failed: dict[tuple[str, str], tuple[int, str]] = {
-            (repo, job): (rounds, failed_on) for repo, job, rounds, failed_on, *_ in kept
-        }
-        self._causes: dict[tuple[str, str], deque[str]] = {
-            (repo, job): deque(causes[0][-limit:], maxlen=limit)
-            for repo, job, _, _, *causes in kept
-            if causes
-        }
+        self._failed: dict[tuple[str, str], tuple[int, str, datetime | None]] = {}
+        self._causes: dict[tuple[str, str], deque[str]] = {}
+        for entry in kept:
+            repo, job, rounds, failed_on = entry[:4]
+            retry_at = entry[5] if len(entry) == 6 else None
+            self._failed[(repo, job)] = (rounds, failed_on, retry_at)
+            if len(entry) >= 5:
+                self._causes[(repo, job)] = deque(entry[4][-limit:], maxlen=limit)
+        self._labels: dict[tuple[str, str], str] = {}
         for repo, job in self._failed:
             self._report_locked(repo, job)
 
@@ -1109,38 +1125,51 @@ class FailureLedger:
         """How many failed rounds in a row suspend a job."""
         return self._limit
 
-    def suspended(self, repo: str, job: str, current: str) -> bool:
-        """Whether `job` failed `limit` rounds in a row on this same input."""
+    def suspended(self, repo: str, job: str, current: str, now: datetime) -> bool:
+        """Whether `job` failed `limit` rounds in a row on this same input and `now` is before its
+        retry time. An entry with no retry time is suspended until its input changes."""
         with self._lock:
-            rounds, failed_on = self._failed.get((repo, job), (0, None))
-            return rounds >= self._limit and failed_on == current
+            rounds, failed_on, retry_at = self._failed.get((repo, job), (0, None, None))
+            if rounds < self._limit or failed_on != current:
+                return False
+            if retry_at is None:
+                return True
+            self._report_locked(repo, job, now)
+            return now < retry_at
 
     def holds_failure(self, repo: str, job: str) -> bool:
         """Whether `job` failed a round that no success has cleared since."""
         with self._lock:
             return (repo, job) in self._failed
 
-    def failed(self, repo: str, job: str, current: str, cause: str) -> int:
-        """Count a failed round on `current` with its `cause`; the rounds in a row, which
-        restart at 1 when the input is not the one of the last failure."""
+    def retry_at(self, repo: str, job: str) -> datetime | None:
+        """The time of the next probe round of `job`, or None when it has none."""
         with self._lock:
-            rounds, failed_on = self._failed.get((repo, job), (0, None))
+            return self._failed.get((repo, job), (0, None, None))[2]
+
+    def failed(self, repo: str, job: str, current: str, cause: str, now: datetime) -> int:
+        """Count a failed round at `now` on `current` with its `cause`, the value of its failure
+        class; the rounds in a row, which restart at 1 when the input is not the one of the last
+        failure. From the limit on, the retry time is `now` plus the wait of the class."""
+        with self._lock:
+            rounds, failed_on, _ = self._failed.get((repo, job), (0, None, None))
             rounds = rounds + 1 if failed_on == current or rounds < self._limit else 1
-            self._failed[(repo, job)] = (rounds, current)
+            retry_at = now + retry_after(cause) if rounds >= self._limit else None
+            self._failed[(repo, job)] = (rounds, current, retry_at)
             causes = self._causes.get((repo, job), deque(maxlen=self._limit))
             if rounds == 1:
                 causes.clear()
             causes.append(cause)
             self._causes[(repo, job)] = causes
             self._keep_locked()
-            self._report_locked(repo, job)
+            self._report_locked(repo, job, now)
             return rounds
 
     def causes(self, repo: str, job: str) -> tuple[str, ...]:
         """The cause of each of the last rounds in a row that `job` failed, oldest first. A round
         that a process before the last restart counted has the cause `unknown`."""
         with self._lock:
-            rounds, _ = self._failed.get((repo, job), (0, None))
+            rounds, _, _ = self._failed.get((repo, job), (0, None, None))
             known = tuple(self._causes.get((repo, job), ()))
             return (CONST_SERVICE_CAUSE_UNKNOWN,) * (min(rounds, self._limit) - len(known)) + known
 
@@ -1152,22 +1181,50 @@ class FailureLedger:
                 self._keep_locked()
                 self._report_locked(repo, job)
 
-    def _report_locked(self, repo: str, job: str) -> None:
-        """Show on the Service's /metrics whether `job` failed its limit of rounds in a row; the
-        caller holds the lock, or the ledger is still being made."""
-        rounds, _ = self._failed.get((repo, job), (0, None))
+    def _class_label_locked(self, repo: str, job: str) -> str:
+        """The failure class of the last round of `job` as the `class` label of its gauges: the
+        last cause when it is a class, else `unknown`; the caller holds the lock."""
+        known = self._causes.get((repo, job))
+        last = known[-1] if known else CONST_SERVICE_CAUSE_UNKNOWN
+        try:
+            return FailureClass(last).value
+        except ValueError:
+            return CONST_SERVICE_CAUSE_UNKNOWN
+
+    def _report_locked(self, repo: str, job: str, now: datetime | None = None) -> None:
+        """Show on the Service's /metrics whether `job` failed its limit of rounds in a row, with
+        the class of its last failure, and the seconds before its next probe round as of `now`
+        (0 without `now`, or without a retry time). The series of the class that the job had
+        before is set to 0, as the metrics hold no call that removes a series. The caller holds
+        the lock, or the ledger is still being made."""
+        key = (repo, job)
+        entry = self._failed.get(key)
+        before = self._labels.get(key)
+        label = None if entry is None else self._class_label_locked(repo, job)
+        if before is not None and before != label:
+            self._set_gauges(repo, job, before, 0.0, 0.0)
+        if entry is None or label is None:
+            self._labels.pop(key, None)
+            return
+        rounds, _, retry_at = entry
+        seconds = 0.0 if retry_at is None or now is None else (retry_at - now).total_seconds()
+        self._labels[key] = label
+        self._set_gauges(repo, job, label, 1.0 if rounds >= self._limit else 0.0, max(0.0, seconds))
+
+    @staticmethod
+    def _set_gauges(repo: str, job: str, label: str, suspended: float, seconds: float) -> None:
+        labels = {"repo": repo, "row": job, "class": label}
+        GLOBAL_METRICS.set_gauge(CONST_SERVICE_METRIC_JOB_SUSPENDED, suspended, labels=labels)
         GLOBAL_METRICS.set_gauge(
-            CONST_SERVICE_METRIC_JOB_SUSPENDED,
-            1.0 if rounds >= self._limit else 0.0,
-            labels={"repo": repo, "row": job},
+            CONST_SERVICE_METRIC_JOB_RETRY_AFTER_SECONDS, seconds, labels=labels
         )
 
     def _keep_locked(self) -> None:
         """Write the ledger to its record, if it has one; the caller holds the lock."""
         if self._record is not None:
             kept = [
-                (repo, job, *entry, list(self._causes.get((repo, job), ())))
-                for (repo, job), entry in self._failed.items()
+                (repo, job, rounds, failed_on, list(self._causes.get((repo, job), ())), retry_at)
+                for (repo, job), (rounds, failed_on, retry_at) in self._failed.items()
             ]
             keep_state_record(
                 self._record, StateRecord.LEDGER, _KeptRounds.dump_python(kept, mode="json")
@@ -1280,16 +1337,30 @@ def _person_comment_stamps(
 
 
 def _count_failure(
-    failures: FailureLedger, repo: str, job: str, current: str, exc: BaseException
+    failures: FailureLedger,
+    repo: str,
+    job: str,
+    current: str,
+    exc: BaseException,
+    now: datetime,
 ) -> None:
-    """Count a failed round of `job`, and log once when it reaches the limit. A round that the
-    stop of the Service ends is not at fault, so it leaves the count as it was (#2753)."""
+    """Count a failed round of `job` at `now`, and log once when it reaches the limit. A round
+    that the stop of the Service ends is not at fault, so it leaves the count as it was (#2753).
+    The cause is the value of the failure class of `exc`. An error that is no `DevOpsCLIError`
+    is `ci_infra`, as `retry_after` reads an unknown record (#4065)."""
     if ended_by_stop(exc):
         return
-    rounds = failures.failed(repo, job, current, type(exc).__name__)
-    if rounds == failures.limit:
+    klass = failure_class_of(exc) if isinstance(exc, DevOpsCLIError) else FailureClass.CI_INFRA
+    rounds = failures.failed(repo, job, current, klass.value, now)
+    retry_at = failures.retry_at(repo, job)
+    if rounds == failures.limit and retry_at is not None:
         message = MESSAGES.serve.job_suspended.format(
-            job=job, repo=repo, rounds=rounds, causes=", ".join(failures.causes(repo, job))
+            job=job,
+            repo=repo,
+            rounds=rounds,
+            causes=", ".join(failures.causes(repo, job)),
+            failure_class=klass.value,
+            retry_at=retry_at.isoformat(),
         )
         logger.warning(message, extra={"repo": repo})
 
@@ -1379,7 +1450,7 @@ def _execute_due_rows(
         is_due = initially_due[row.name] or (
             row.cross_job_predicate is not None and row.cross_job_predicate(outcomes)
         )
-        if not is_due or failures.suspended(repo, row.name, inputs[row.name]):
+        if not is_due or failures.suspended(repo, row.name, inputs[row.name], current_time):
             continue
 
         if row.needs_clone and clone_error is not None:
@@ -1415,7 +1486,7 @@ def _execute_due_rows(
             _count_job(repo, lane, row.name, _failed_result(exc))
             _observe_row(repo, row.name, started, _failed_result(exc))
             outcomes[row.name] = _outcome_of_failure(exc)
-            _count_failure(failures, repo, row.name, inputs[row.name], exc)
+            _count_failure(failures, repo, row.name, inputs[row.name], exc, current_time)
             if row.needs_clone and clone_path is None:
                 clone_error = exc
                 clone_jobs.append(row.name)

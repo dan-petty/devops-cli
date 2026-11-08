@@ -1944,6 +1944,51 @@
       ]
     },
     {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "The seconds before a suspended row runs its next probe round, as of its last failed round or check, by repository, row and failure class; 0 when the row has no retry time (#4065). The alert RoadmapServiceRowSuspended needs the row to stay suspended for 3 hours.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "drawStyle": "line"
+          },
+          "unit": "s"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 136
+      },
+      "id": 54,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "title": "Service Retry After Seconds",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "max by (repo, row, class) (last_over_time(devops_cli_service_job_retry_after_seconds{job=~\"$job\"}[5m]))",
+          "legendFormat": "{{repo}} {{row}} {{class}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
       "collapsed": false,
       "gridPos": {
         "h": 1,

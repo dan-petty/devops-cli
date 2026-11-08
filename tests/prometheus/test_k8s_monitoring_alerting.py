@@ -32,7 +32,9 @@ from devops_cli.config.constants import (
     CONST_K8S_TEMPLATE_DOMAIN_PLACEHOLDER,
     CONST_SERVICE_METRIC_BUDGET_LIMIT,
     CONST_SERVICE_METRIC_IDENTITY_REFUSED,
+    CONST_SERVICE_METRIC_JOB_RETRY_AFTER_SECONDS,
     CONST_SERVICE_METRIC_JOB_START_TIMESTAMP,
+    CONST_SERVICE_METRIC_JOB_SUSPENDED,
     CONST_SERVICE_METRIC_JOBS,
     CONST_SERVICE_METRIC_WEBHOOK_DELIVERIES,
 )
@@ -207,6 +209,9 @@ SERVED_SERIES = frozenset(
         CONST_SERVICE_METRIC_IDENTITY_REFUSED,
         CONST_SERVICE_METRIC_JOBS,
         CONST_SERVICE_METRIC_JOB_START_TIMESTAMP,
+        # The suspended rows and the seconds before each runs again (#4065).
+        CONST_SERVICE_METRIC_JOB_SUSPENDED,
+        CONST_SERVICE_METRIC_JOB_RETRY_AFTER_SECONDS,
         "devops_cli_service_state_unkept",
         CONST_SERVICE_METRIC_WEBHOOK_DELIVERIES,
         AI_REQUESTS_TOTAL.name,
@@ -353,6 +358,7 @@ def test_the_baseline_rule_set() -> None:
         ("RoadmapServiceMemoryNearLimit", "warning"),
         ("RoadmapServiceModelRequestsHigh", "warning"),
         ("RoadmapServiceRestarted", "warning"),
+        ("RoadmapServiceRowSuspended", "warning"),
         ("RoadmapServiceSelfDeliveriesHigh", "warning"),
         ("RoadmapServiceStateUnkept", "warning"),
         ("RoadmapServiceToolUnused", "warning"),
@@ -966,6 +972,12 @@ ROADMAP_SERVICE_RULES = [
         "RoadmapServiceStateUnkept",
         'max by (record) (devops_cli_service_state_unkept{job="roadmap-service"}) > 0',
         "15m",
+        "warning",
+    ),
+    (
+        "RoadmapServiceRowSuspended",
+        'max by (repo, row, class) (devops_cli_service_job_suspended{job="roadmap-service"}) > 0',
+        "3h",
         "warning",
     ),
 ]

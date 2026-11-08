@@ -815,6 +815,18 @@ serverFiles:
             annotations:
               summary: "The roadmap Service could not write its {{ $labels.record }} record"
               description: "The roadmap Service could not write its {{ $labels.record }} record to its volume, so a restart loses what the record holds. The Service goes on with memory only. Check the free space and the permissions of the volume, and the log line that starts with Could not write (k8s/README.md, Roadmap service)."
+          # A row that failed its limit of rounds in a row waits for its retry time or for new input
+          # (#4065). The gauge is 1 while it waits, by repo, row and class, and the series of an old
+          # class is set to 0. The rule waits 3 hours: a wait of 1 hour that the first probe round
+          # ends does not alert, and a row that fails probe rounds, or waits 6 hours, does.
+          - alert: RoadmapServiceRowSuspended
+            expr: max by (repo, row, class) (devops_cli_service_job_suspended{job="roadmap-service"}) > 0
+            for: 3h
+            labels:
+              severity: warning
+            annotations:
+              summary: "The row {{ $labels.row }} of {{ $labels.repo }} stays suspended after a {{ $labels.class }} failure"
+              description: "The roadmap Service did not run the row {{ $labels.row }} of {{ $labels.repo }} for 3 hours, because it failed 3 rounds in a row with the failure class {{ $labels.class }}. The row runs one probe round when its retry time comes, or at once when its input changes. The gauge devops_cli_service_job_retry_after_seconds shows the seconds before the next probe round (k8s/README.md, Roadmap service)."
       # The webhook route of the roadmap Service (#2476), in a group apart from roadmap-service.
       # The route counts each delivery that it refuses under outcome="rejected": unsigned, signed
       # with no secret of a managed repository, too large, not JSON, or without its event name or
