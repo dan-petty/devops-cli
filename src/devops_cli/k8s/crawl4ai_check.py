@@ -62,7 +62,7 @@ _REFUSAL_STATUSES = (400, 403)
 
 ROLE_METADATA = "<metadata>"
 ROLE_PRIVATE_CLUSTER_IP = "<private-cluster-ip>"
-NO_TOKEN = "(no token)"
+CREDENTIAL_LABEL_NONE = "(no token)"
 
 
 @dataclass(frozen=True)
@@ -197,7 +197,7 @@ def send_without_token(client: httpx2.Client, base_url: str) -> Iterator[Request
             client,
             base_url,
             route,
-            NO_TOKEN,
+            CREDENTIAL_LABEL_NONE,
             _PUBLIC_PAGE,
             headers,
             lambda status, _body: status in _REFUSALS_WITHOUT_TOKEN,
@@ -234,7 +234,7 @@ def plan_check(local_port: int, context: str | None = None) -> list[PlannedReque
             target=f"svc/{SERVICE}",
             argv=tuple(forward_argv(SERVICE, NAMESPACE, SERVICE_PORT, local_port, context)),
         ),
-        PlannedRequest(method="GET", target=f"{HEALTH_PATH} {NO_TOKEN}"),
+        PlannedRequest(method="GET", target=f"{HEALTH_PATH} {CREDENTIAL_LABEL_NONE}"),
     ]
     plan.extend(
         PlannedRequest(method=route.method, target=f"{route.name} {role}")
@@ -242,7 +242,8 @@ def plan_check(local_port: int, context: str | None = None) -> list[PlannedReque
         for role in internal_targets()
     )
     plan.extend(
-        PlannedRequest(method=route.method, target=f"{route.name} {NO_TOKEN}") for route in ROUTES
+        PlannedRequest(method=route.method, target=f"{route.name} {CREDENTIAL_LABEL_NONE}")
+        for route in ROUTES
     )
     plan.append(PlannedRequest(method="kubectl get service", target=_ROADMAP_SERVICE))
     plan.extend(
