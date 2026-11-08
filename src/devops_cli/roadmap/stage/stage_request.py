@@ -73,6 +73,7 @@ def gate_arguments(
     registry: Sequence[RegistryCount] | None = None,
     constants: Mapping[str, int] | None = None,
     references: Sequence[str] = (),
+    models: Mapping[str, tuple[str, Sequence[str]]] | None = None,
 ) -> dict[str, Any]:
     """The keyword arguments of `check_proposal` and `check_gates` after the proposal. The request
     gives the inputs that the item fixes; the other inputs depend on the commit and on the
@@ -91,4 +92,5 @@ def gate_arguments(
         "registry": registry,
         "constants": constants,
         "references": references,
+        "models": models,
     }

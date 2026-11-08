@@ -1,0 +1,30 @@
+{
+ "tracked": [
+  "src/devops_cli/roadmap/stage_verify.py",
+  "tests/roadmap/test_roadmap_stage_verify.py",
+  "src/devops_cli/roadmap/stage.py",
+  "src/devops_cli/roadmap/stage_github.py",
+  "tests/roadmap/test_roadmap_stage_verification.py",
+  "src/devops_cli/roadmap/stage_ready.py",
+  "src/devops_cli/github/client.py",
+  "tests/roadmap/test_roadmap_run.py",
+  "src/devops_cli/roadmap/failure.py",
+  "tests/roadmap/test_roadmap_failure.py",
+  "src/devops_cli/roadmap/stage_eval_cases.py",
+  "tests/roadmap/test_roadmap_stage_eval_run.py",
+  "docs/roadmap/stage.md",
+  "docs/ROADMAP_WORKFLOW.md"
+ ],
+ "capabilities": [
+  "roadmap-stage",
+  "roadmap-stage-eval"
+ ],
+ "models": {
+  "PullStatus": [
+   "src/devops_cli/github/client.py",
+   [
+    "state"
+   ]
+  ]
+ }
+}

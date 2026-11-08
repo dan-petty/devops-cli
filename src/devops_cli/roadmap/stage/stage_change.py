@@ -19,7 +19,7 @@ import ast
 import re
 import string
 import unicodedata
-from collections.abc import Callable, Collection, Mapping, Sequence
+from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date
 from enum import StrEnum
@@ -1390,6 +1390,61 @@ class ProposalGate(StrEnum):
     CONSTANTS = "constants"
 
 
+def _proposal_all_texts(proposal: StageProposal) -> list[str]:
+    """All texts of `proposal` that describe plan changes and design (#3344)."""
+    texts = plan_texts(proposal)
+    for group in proposal.groups:
+        texts.extend(
+            filter(
+                None,
+                (group.title, group.test, group.implementation, group.documentation, group.verify),
+            )
+        )
+    return texts
+
+
+def _attribute_references(text: str) -> Iterator[tuple[str, str]]:
+    """Each `Class.attribute` pair found in `text` (#3344)."""
+    for match in re.finditer(r"\b([A-Za-z_]\w*)\.([A-Za-z_]\w*)\b", text):
+        yield match.group(1), match.group(2)
+
+
+def _missing_attribute_problem(
+    cls_name: str,
+    attr_name: str,
+    models: Mapping[str, tuple[str, Sequence[str]]],
+    all_changes: Collection[str],
+) -> str | None:
+    """A problem when `cls_name.attr_name` is absent and its file is not in changes (#3344)."""
+    entry = models.get(cls_name)
+    if entry is None:
+        return None
+    path, fields = entry
+    if attr_name in fields or path in all_changes:
+        return None
+    ref = f"{cls_name}.{attr_name}"
+    return MESSAGES.roadmap.stage_problem_model_attribute.format(reference=ref, path=path)
+
+
+def model_problems(
+    proposal: StageProposal,
+    models: Mapping[str, tuple[str, Sequence[str]]] | None,
+) -> list[str]:
+    """What the plan reads from a model that does not define the field (#3344)."""
+    if not models:
+        return []
+    all_changes = {p for g in proposal.groups for p in g.changes}
+    problems: list[str] = []
+    seen: set[str] = set()
+    for text in _proposal_all_texts(proposal):
+        for cls_name, attr_name in _attribute_references(text):
+            problem = _missing_attribute_problem(cls_name, attr_name, models, all_changes)
+            if problem and problem not in seen:
+                seen.add(problem)
+                problems.append(problem)
+    return problems
+
+
 def check_gates(
     proposal: StageProposal,
     known: Collection[str],
@@ -1407,6 +1462,7 @@ def check_gates(
     registry: Sequence[RegistryCount] | None = None,
     constants: Mapping[str, int] | None = None,
     references: Sequence[str] = (),
+    models: Mapping[str, tuple[str, Sequence[str]]] | None = None,
 ) -> dict[ProposalGate, list[str]]:
     """What each gate of `check_proposal` finds wrong in `proposal`, one sentence each, under the
     name of the gate. Every gate has a key, and a gate that finds nothing has an empty list. The
@@ -1426,6 +1482,7 @@ def check_gates(
             *_reference_problems(proposal),
             *_move_reference_problems(proposal, references),
             *_stale_test_path_problems(proposal, tree, read_text),
+            *model_problems(proposal, models),
         ],
         ProposalGate.WHAT_CHANGES: _what_changes_problems(proposal, tree),
         ProposalGate.MOVE_PREFIX: move_prefix_problems(proposal.groups, tree),
@@ -1461,6 +1518,7 @@ def check_proposal(
     registry: Sequence[RegistryCount] | None = None,
     constants: Mapping[str, int] | None = None,
     references: Sequence[str] = (),
+    models: Mapping[str, tuple[str, Sequence[str]]] | None = None,
 ) -> list[str]:
     """What the rules of `openspec/config.yaml` and the files of the commit find wrong in
     `proposal`, one sentence each. `known` holds the names of the capabilities under
@@ -1497,6 +1555,7 @@ def check_proposal(
         registry=registry,
         constants=constants,
         references=references,
+        models=models,
     )
     return [problem for problems in found.values() for problem in problems]
 

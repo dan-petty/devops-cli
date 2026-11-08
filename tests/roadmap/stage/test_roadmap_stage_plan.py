@@ -2571,3 +2571,77 @@ def test_check_proposal_refuses_probed_path_that_no_group_changes() -> None:
 
     problems = check_proposal(proposal, ["comment-thread"], SAMPLE_TREE, references=[path])
     assert any(path in p for p in problems)
+
+
+def test_check_proposal_model_attributes() -> None:
+    tree = StagedTree(["src/devops_cli/sample.py", "src/devops_cli/github/client.py"])
+    models = {"PullStatus": ("src/devops_cli/github/client.py", ("state", "head_sha"))}
+    group_labels = (
+        make_stage_proposal()
+        .groups[0]
+        .model_copy(update={"implementation": "Read `PullStatus.labels` to check labels."})
+    )
+    proposal_labels = make_stage_proposal(groups=[group_labels])
+    problems = check_proposal(proposal_labels, ["comment-thread"], tree, models=models)
+    assert len(problems) == 1
+    assert "PullStatus.labels" in problems[0]
+    assert "src/devops_cli/github/client.py" in problems[0]
+
+    # The same plan with that module in changes returns no problem
+    group_with_client = group_labels.model_copy(
+        update={"changes": [*group_labels.changes, "src/devops_cli/github/client.py"]}
+    )
+    proposal_with_client = make_stage_proposal(groups=[group_with_client])
+    assert check_proposal(proposal_with_client, ["comment-thread"], tree, models=models) == []
+
+    # A group that names PullStatus.state returns no problem
+    group_state = (
+        make_stage_proposal()
+        .groups[0]
+        .model_copy(update={"implementation": "Read `PullStatus.state` to check state."})
+    )
+    proposal_state = make_stage_proposal(groups=[group_state])
+    assert check_proposal(proposal_state, ["comment-thread"], tree, models=models) == []
+
+    # A call with no models returns no problem
+    assert check_proposal(proposal_labels, ["comment-thread"], tree) == []
+
+
+@pytest.mark.usefixtures("openspec")
+def test_a_plan_reading_absent_model_field_retries_once_or_fails(
+    store: InMemoryRoadmapStore,
+    item: int,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+) -> None:
+    stage_repo.track(
+        {
+            "src/devops_cli/github/client.py": (
+                "from pydantic import BaseModel\n\n"
+                "class PullStatus(BaseModel):\n"
+                "    state: str\n"
+                "    head_sha: str\n"
+            )
+        }
+    )
+    group_bad = (
+        make_stage_proposal()
+        .groups[0]
+        .model_copy(update={"implementation": "Read `PullStatus.labels` here."})
+    )
+    proposal_bad = make_stage_proposal(groups=[group_bad])
+
+    # First reply keeps the gap, second reply is the sample proposal -> succeeds
+    model_fake.answer(proposal_bad, make_stage_proposal())
+    plan = _plan(store, stage_repo)
+    assert len(plan.ready) == 1
+
+    # Two replies keep the gap -> ends with RoadmapStageError and no ready change
+    model_fake.calls.clear()
+    model_fake.answer(proposal_bad, proposal_bad)
+    plan_failed = _plan(store, stage_repo)
+    assert plan_failed.ready == ()
+    (failure,) = plan_failed.failed
+    assert (failure.number, failure.error) == (item, "RoadmapStageError")
+    assert "PullStatus.labels" in failure.reason
+    assert "src/devops_cli/github/client.py" in failure.reason

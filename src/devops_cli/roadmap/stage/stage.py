@@ -178,6 +178,7 @@ from devops_cli.roadmap.stage.stage_form import (
     record_search_evidence,
 )
 from devops_cli.roadmap.stage.stage_github import StageGitHub
+from devops_cli.roadmap.stage.stage_models import model_fields, referenced_classes
 from devops_cli.roadmap.stage.stage_moved import MovedPath, moved_paths
 from devops_cli.roadmap.stage.stage_overlap import (
     Overlap,
@@ -1121,8 +1122,23 @@ class _Planner:
     ) -> StagedChange | OverBudget | _Refused:
         """The outcome for one reply: a change, a stop on the budget, or the problem that sends
         the reply back."""
+        texts = [
+            *plan_texts(proposal),
+            *(
+                t
+                for g in proposal.groups
+                for t in (g.title, g.test, g.implementation, g.documentation, g.verify)
+                if t
+            ),
+        ]
+        referenced = referenced_classes(texts)
+        models = model_fields(self._source, self._sha, referenced)
         problems = self._problems(
-            proposal, self._tree_of(target, proposal), request, change=target.change
+            proposal,
+            self._tree_of(target, proposal),
+            request,
+            change=target.change,
+            models=models,
         )
         if problems:
             return _Refused(" ".join(problems), proposal)
@@ -1137,7 +1153,11 @@ class _Planner:
             # The split gave new groups, and the model can bring back a fault that only one gate
             # refuses. Every gate of the first reply judges the split too.
             problems = self._problems(
-                asked, self._tree.with_files(files), request, change=target.change
+                asked,
+                self._tree.with_files(files),
+                request,
+                change=target.change,
+                models=models,
             )
             if problems:
                 return _Refused(" ".join(problems), asked)
@@ -1169,6 +1189,7 @@ class _Planner:
         request: StageRequest,
         *,
         change: str = "",
+        models: Mapping[str, tuple[str, Sequence[str]]] | None = None,
     ) -> list[str]:
         """The problems that every gate finds in one reply: the first one and a split of it."""
         evidence = (
@@ -1192,6 +1213,7 @@ class _Planner:
                 registry=registry_table(self._source),
                 constants=constants,
                 references=references,
+                models=models,
             ),
         )
 

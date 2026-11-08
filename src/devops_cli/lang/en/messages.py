@@ -3715,6 +3715,10 @@ class RoadmapMessages:
         "the group that creates it list it in `creates`. In a change folder, add the ` (new)` "
         "mark to the path on the `Changes:` line of `tasks.md`. {hint}"
     )
+    stage_problem_model_attribute: str = (
+        "The plan reads `{reference}`, but `{path}` defines no such field. "
+        "Add `{path}` to a group's `changes`."
+    )
     stage_problem_verify: str = (
         "Group {group} gives the `verify` command `{command}`. A `verify` command starts with "
         "`uv run devops`, such as `uv run devops ci test tests/roadmap/test_feature.py`, or is a "
