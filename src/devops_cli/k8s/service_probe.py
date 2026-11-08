@@ -9,8 +9,7 @@ Two methods test what a NetworkPolicy and a service allow, and both are independ
   of the workload applies to it, tries a TCP connect to each target from inside the pod, and
   deletes the pod. A connect that fails means that the policy blocks the destination.
 
-The module knows no service name. `devops k8s crawl4ai-check` uses it, and the SearXNG check of
-#3929 reuses it.
+The module knows no service name. `devops k8s crawl4ai-check` and `devops k8s searxng-check` (#3929) use it.
 
 The pod must pass two checks of the cluster:
 
@@ -106,6 +105,16 @@ def kubectl_argv(
 def _kubectl(argv: list[str]) -> tuple[int, str, str]:
     result = run_subprocess(argv, timeout=_KUBECTL_TIMEOUT_SECONDS, quiet=True)
     return result.returncode, result.stdout or "", result.stderr or ""
+
+
+def read_capped(response: httpx2.Response, limit: int) -> bytes:
+    """The body of a streamed reply, cut once it passes `limit` bytes."""
+    body = bytearray()
+    for chunk in response.iter_bytes():
+        body += chunk
+        if len(body) > limit:
+            break
+    return bytes(body)
 
 
 def _label_selector(labels: Mapping[str, str]) -> str:

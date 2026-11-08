@@ -9,6 +9,7 @@ from pathlib import Path
 import yaml
 
 from devops_cli.k8s.crawl4ai_check import CRAWL4AI_IMAGE
+from devops_cli.k8s.searxng_check import SEARXNG_IMAGE
 from tests.support.paths import REPO_ROOT
 
 K8S_DIR = REPO_ROOT / "k8s"
@@ -66,10 +67,16 @@ def check_both_workloads_run_the_digest_image_updater_sets_and_pull_it_only_when
         "image, then set CRAWL4AI_IMAGE in src/devops_cli/k8s/crawl4ai_check.py."
     )
     containers.discard(crawl4ai)
-    # Deployment `searxng` pins a third-party image by tag and digest (#3924).
+    # Deployment `searxng` pins a third-party image by tag and digest (#3924). `devops k8s
+    # searxng-check` names the image it was written for (#3929), so a bump fails here until a
+    # person runs the command against the new image and sets the constant.
     searxng = next(c for c in containers if c[1] == "searxng")
     assert searxng[0] == "Deployment"
-    assert searxng[2].startswith("docker.io/searxng/searxng:")
+    assert searxng[2] == SEARXNG_IMAGE, (
+        f"k8s/devops/searxng/deployment.yaml pins {searxng[2]}, but `devops k8s searxng-check` "
+        f"was written for {SEARXNG_IMAGE}. Run `uv run devops k8s searxng-check` against the new "
+        "image, then set SEARXNG_IMAGE in src/devops_cli/k8s/searxng_check.py."
+    )
     containers.discard(searxng)
     assert containers == {
         ("CronJob", "devops-cli", f"{service}:latest@{digest}", "IfNotPresent"),

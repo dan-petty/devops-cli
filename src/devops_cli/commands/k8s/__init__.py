@@ -33,6 +33,7 @@ from devops_cli.commands.k8s.networking import (
     service_url,
 )
 from devops_cli.commands.k8s.ollama import app as ollama_app
+from devops_cli.commands.k8s.searxng_check import k8s_searxng_check
 from devops_cli.commands.k8s.security_audit import (
     k8s_audit,
     k8s_check_deprecated,
@@ -84,6 +85,7 @@ app.command("audit")(k8s_audit)
 app.command("check-deprecated")(k8s_check_deprecated)
 app.command("image-pins")(k8s_image_pins)
 app.command("crawl4ai-check")(k8s_crawl4ai_check)
+app.command("searxng-check")(k8s_searxng_check)
 app.command("create-tls-secret")(create_tls_secret)
 app.command("enable-tls")(enable_tls_stack)
 app.command("validate")(k8s_validate)

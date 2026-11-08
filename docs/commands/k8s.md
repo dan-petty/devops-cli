@@ -557,6 +557,32 @@ devops k8s crawl4ai-check [OPTIONS]
 
 ---
 
+## `devops k8s searxng-check`
+
+**Check the points of the SearXNG service that a bump of the image digest can change. It sends
+six search requests with format=json through a local port-forward: one for each category of
+the provider, a query that starts with ! and names an engine that is off, a query that starts
+with !! (the redirect is recorded and never followed), and a category that no kept engine
+serves. It judges the keys of each reply, the hits, and the engines that must stay off. It
+also tries three connects from two throwaway pods, so the NetworkPolicy applies to them: a
+pod that is not a client of the service to port 8080, and a pod with the label of the service
+to the metadata address and to a private ClusterIP. Run it at each bump of the image digest.
+Exits 1 when a row fails or a pod opens a connection.**
+
+```bash
+devops k8s searxng-check [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--local-port` | `integer` | `8081` | Local port of the kubectl port-forward to Service searxng. Use a port that no program holds. |
+| `--context` | `string` | - | Kubernetes cluster context name. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+---
+
 ## `devops k8s create-tls-secret`
 
 **Create or update a kubernetes.io/tls secret from certificate and private key files.**

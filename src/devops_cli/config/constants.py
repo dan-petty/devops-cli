@@ -2945,7 +2945,7 @@ CONST_CLOUD_METADATA_IPV4: Final[frozenset[ipaddress.IPv4Address]] = frozenset(
         "169.254.42.42",  # Scaleway
     )
 )
-# The metadata address that every major cloud answers on. `devops k8s crawl4ai-check` aims at it.
+# The metadata address that every major cloud answers on. `devops k8s crawl4ai-check` and `devops k8s searxng-check` aim at it.
 CONST_CLOUD_METADATA_PRIMARY_IPV4: Final[ipaddress.IPv4Address] = ipaddress.IPv4Address(
     "169.254.169.254"
 )

@@ -48,8 +48,8 @@ class ImagePinError(KubernetesError):
 
 
 class ServiceProbeError(KubernetesError):
-    """Raised when `devops k8s crawl4ai-check` cannot probe a service: the forward, the throwaway pod
-    or the probe fails, or a check fails (#3894)."""
+    """Raised when `devops k8s crawl4ai-check` or `devops k8s searxng-check` cannot probe a service:
+    the forward, the throwaway pod or the probe fails, or a check fails (#3894, #3929)."""
 
     error_code = "K8S_SERVICE_PROBE_ERROR"
 

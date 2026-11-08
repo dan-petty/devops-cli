@@ -14,9 +14,9 @@ import re
 from typing import Any
 
 import pytest
-from devops_cli.k8s.searxng_check import OFF_ENGINES, REPLY_KEYS, SEARXNG_IMAGE, reply_problems
 
 from devops_cli.k8s import searxng_check, service_probe
+from devops_cli.k8s.searxng_check import OFF_ENGINES, REPLY_KEYS, SEARXNG_IMAGE, reply_problems
 
 _KEYS = (
     "answers",
