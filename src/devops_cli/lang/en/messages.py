@@ -3592,6 +3592,11 @@ class RoadmapMessages:
     stage_reference_uncovered_file: str = (
         "The quoted search lists `{path}`. Add a task group or a design decision for it."
     )
+    stage_problem_reference_uncovered: str = (
+        "The move plan leaves out `{path}`. Add a task group that changes it or mark it "
+        "unchanged with a reason."
+    )
+    stage_reference_no_reason: str = "The reference `{path}` is unchanged, but gives no reason."
     stage_bad_capability: str = (
         "'{capability}' is not a name. Use lowercase letters and digits joined by single hyphens."
     )

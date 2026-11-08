@@ -407,6 +407,21 @@ class StageRejection(_Reply):
     evidence: Line
 
 
+class StageReference(_Reply):
+    """A reference hit for a moved module (#3373)."""
+
+    path: str
+    kind: Line = ""
+    unchanged: bool = False
+    reason: Line = ""
+
+    @model_validator(mode="after")
+    def _unchanged_has_reason(self) -> Self:
+        if self.unchanged and not (self.reason and self.reason.strip()):
+            raise ValueError(MESSAGES.roadmap.stage_reference_no_reason.format(path=self.path))
+        return self
+
+
 class GroupKind(StrEnum):
     """What a task group does. `behavior` adds or changes what the code does: its work starts with
     a failing test. `manifest` creates or changes a rule file, a dashboard file or a case file: its
@@ -581,6 +596,7 @@ class StageProposal(_Reply):
     groups: list[StageGroup] = Field(min_length=1)
     criteria: list[StageCriterion] = Field(default_factory=list)
     dependencies: list[Line] = Field(default_factory=list)
+    references: list[StageReference] = Field(default_factory=list)
     security: Line = ""
     # The plan reader fills this list from `## Weakened checks` of `proposal.md` (#3490). The reply
     # schema does not show it: `render_change` writes no such section, so a key in a reply is lost.
@@ -878,6 +894,54 @@ def _reference_problems(proposal: StageProposal) -> list[str]:
             if not any(path in d_text for d_text in decision_texts):
                 problems.append(MESSAGES.roadmap.stage_reference_uncovered_file.format(path=path))
 
+    return problems
+
+
+def moved_modules(groups: Sequence[StageGroup]) -> list[tuple[str, str]]:
+    """The old path and the dotted name of each Python module that a group moves (#3373).
+
+    A group moves a module when its `changes` holds the old `.py` path and its `creates` holds a
+    new path. It skips a test module and `conftest.py`."""
+    moved: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    for group in groups:
+        if not group.creates:
+            continue
+        creates_set = set(group.creates)
+        for old in group.changes:
+            if old in creates_set:
+                continue
+            pure = PurePosixPath(old)
+            if (
+                pure.suffix != ".py"
+                or pure.name.startswith("test_")
+                or pure.name == "conftest.py"
+                or old.startswith(("tests/", "test/"))
+                or "/tests/" in old
+            ):
+                continue
+            if old in seen:
+                continue
+            seen.add(old)
+            stripped = old.removeprefix("src/").removesuffix(".py")
+            dotted = stripped.replace("/", ".")
+            moved.append((old, dotted))
+    return moved
+
+
+def _move_reference_problems(proposal: StageProposal, references: Sequence[str]) -> list[str]:
+    """One problem for each probed reference of a moved module that no group changes and that the
+    reply does not mark unchanged (#3373)."""
+    if not references:
+        return []
+    changed = {path for group in proposal.groups for path in group.changes}
+    unchanged = {ref.path for ref in proposal.references if ref.unchanged}
+    problems: list[str] = []
+    seen: set[str] = set()
+    for path in references:
+        if path not in seen and path not in changed and path not in unchanged:
+            seen.add(path)
+            problems.append(MESSAGES.roadmap.stage_problem_reference_uncovered.format(path=path))
     return problems
 
 
@@ -1342,6 +1406,7 @@ def check_gates(
     read_text: Callable[[str], str | None] | None = None,
     registry: Sequence[RegistryCount] | None = None,
     constants: Mapping[str, int] | None = None,
+    references: Sequence[str] = (),
 ) -> dict[ProposalGate, list[str]]:
     """What each gate of `check_proposal` finds wrong in `proposal`, one sentence each, under the
     name of the gate. Every gate has a key, and a gate that finds nothing has an empty list. The
@@ -1359,6 +1424,7 @@ def check_gates(
             *path_problems(proposal.groups, tree, change=change),
             *own_change_problems(proposal.groups, change),
             *_reference_problems(proposal),
+            *_move_reference_problems(proposal, references),
             *_stale_test_path_problems(proposal, tree, read_text),
         ],
         ProposalGate.WHAT_CHANGES: _what_changes_problems(proposal, tree),
@@ -1394,6 +1460,7 @@ def check_proposal(
     read_text: Callable[[str], str | None] | None = None,
     registry: Sequence[RegistryCount] | None = None,
     constants: Mapping[str, int] | None = None,
+    references: Sequence[str] = (),
 ) -> list[str]:
     """What the rules of `openspec/config.yaml` and the files of the commit find wrong in
     `proposal`, one sentence each. `known` holds the names of the capabilities under
@@ -1429,6 +1496,7 @@ def check_proposal(
         read_text=read_text,
         registry=registry,
         constants=constants,
+        references=references,
     )
     return [problem for problems in found.values() for problem in problems]
 
@@ -1632,6 +1700,12 @@ def _design_file(proposal: StageProposal) -> str:
         f"# Design\n\n## Decisions\n\n{decisions or texts.stage_none}\n\n"
         f"## Rejected alternatives\n\n{rejected or texts.stage_none}\n"
     )
+    unchanged = [ref for ref in proposal.references if ref.unchanged]
+    if unchanged:
+        references = _bullets(
+            [f"`{ref.path}` ({ref.kind}): {ref.reason.strip()}" for ref in unchanged]
+        )
+        content += f"\n## Unchanged references\n\n{references}\n"
     if proposal.security.strip():
         content += f"\n## Security\n\n{proposal.security.strip()}\n"
     return content

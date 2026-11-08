@@ -27,6 +27,7 @@ from devops_cli.roadmap.stage.stage_change import (
     StageDecision,
     StageGroup,
     StageProposal,
+    StageReference,
     StageRejection,
     StageRequirement,
     StageScenario,
@@ -106,6 +107,7 @@ def test_the_top_level_keys_of_the_reply_are_the_fields_of_the_proposal() -> Non
         StageRequirement,
         StageScenario,
         StageCriterion,
+        StageReference,
     ],
 )
 def test_each_list_of_keys_of_the_reply_is_the_fields_of_a_model(model: type[BaseModel]) -> None:
@@ -619,3 +621,30 @@ def test_the_stage_prompt_requires_coverage_of_quoted_references() -> None:
 
     assert "quotes a `References to` search answer" in prompt
     assert "refuses a file from a quoted search that no group or decision covers" in prompt
+
+
+# ── References to a moved module (#3373) ─────────────────────────────────────
+
+
+def test_the_stage_prompt_names_references_of_a_moved_module() -> None:
+    prompt = load_task_prompt("roadmap_stage_change.md")
+
+    assert "quoted target" in prompt
+    assert "logger name" in prompt
+    assert "snapshot file" in prompt
+    assert "`references`" in prompt
+    assert "old module path" in prompt
+    assert "dotted name" in prompt
+    assert "Search a narrower name when the `references` answer leaves files out" in prompt
+
+
+def test_the_stage_prompt_states_move_verification() -> None:
+    prompt = load_task_prompt("roadmap_stage_change.md")
+
+    assert "! git grep" in prompt
+    assert "old dotted name" in prompt
+    assert "src/" in prompt
+    assert "tests/" in prompt
+    assert "old dotted prefix" in prompt
+    assert "single module" in prompt
+    assert "single-module literal is refused" in prompt

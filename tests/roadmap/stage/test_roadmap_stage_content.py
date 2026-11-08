@@ -6,6 +6,7 @@ option that an added requirement removes (#3287)."""
 
 from __future__ import annotations
 
+from datetime import date
 from typing import Any
 
 import pytest
@@ -16,8 +17,10 @@ from devops_cli.roadmap.stage.stage_change import (
     GroupKind,
     StageGroup,
     StageProposal,
+    StageReference,
     check_proposal,
     content_problems,
+    render_change,
     staging_title,
 )
 from devops_cli.roadmap.stage.stage_eval_cases import DefectType, GateName
@@ -668,3 +671,49 @@ def test_the_plan_check_accepts_the_plan_of_this_change() -> None:
     )
 
     assert content_problems(plan) == []
+
+
+# ── Reference coverage and unchanged references (#3373) ──────────────────────
+
+
+def test_check_proposal_refuses_uncovered_reference_and_accepts_changed() -> None:
+    path = "tests/roadmap/test_x.py"
+    tree = TREE.with_files([path])
+    proposal = make_stage_proposal()
+
+    # Uncovered probed reference is refused
+    problems = check_proposal(proposal, ["comment-thread"], tree, references=[path])
+    assert any(path in p for p in problems)
+
+    # When a group changes that path, it is accepted
+    group = proposal.groups[0].model_copy(update={"changes": [*proposal.groups[0].changes, path]})
+    plan_with_change = make_stage_proposal(groups=[group])
+    assert check_proposal(plan_with_change, ["comment-thread"], tree, references=[path]) == []
+
+    # When marked unchanged with a reason, it is accepted
+    ref = StageReference(
+        path=path, kind="snapshot file", unchanged=True, reason="Legacy snapshot format kept."
+    )
+    plan_with_ref = make_stage_proposal(references=[ref])
+    assert check_proposal(plan_with_ref, ["comment-thread"], tree, references=[path]) == []
+
+
+def test_schema_refuses_unchanged_reference_with_no_reason() -> None:
+    path = "tests/roadmap/test_x.py"
+    with pytest.raises(ValidationError, match=path):
+        StageReference(path=path, kind="snapshot file", unchanged=True, reason="")
+
+
+def test_design_file_renders_unchanged_reference_path_kind_and_reason() -> None:
+    path = "tests/snapshots/roadmap/test_x.ambr"
+    kind = "snapshot file"
+    reason = "Snapshot stays keyed by old path."
+    ref = StageReference(path=path, kind=kind, unchanged=True, reason=reason)
+    plan = make_stage_proposal(references=[ref])
+
+    files = render_change("3373-a-move-plan", plan, ["comment-thread"], created=date(2026, 11, 8))
+    design_text = files["openspec/changes/3373-a-move-plan/design.md"]
+
+    assert path in design_text
+    assert kind in design_text
+    assert reason in design_text
