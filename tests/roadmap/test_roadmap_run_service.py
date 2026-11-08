@@ -90,7 +90,14 @@ def test_service_wiring(
             (REPO, MODEL_LANE_ROWS, CONST_ROADMAP_RUN_MODEL_CLONE_DIRNAME),
         ],
         [
-            ["metrics", "implement", "stage_ready", "release_comments"],
+            [
+                "metrics",
+                "implement",
+                "stage_ready",
+                "release_comments",
+                "github_status",
+                "cloudflare_status",
+            ],
             ["intake"],
             ["refine", "retitle", "stage", "alternatives"],
         ],

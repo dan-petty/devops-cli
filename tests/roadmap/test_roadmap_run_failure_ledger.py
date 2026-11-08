@@ -149,6 +149,13 @@ def test_a_suspended_implement_row_runs_again_on_a_later_poll_round_when_the_fau
 
     assert (same_hour, later, len(calls)) == (
         ("stage_ready",),
-        ("metrics", "implement", "stage_ready", "release_comments"),
+        (
+            "metrics",
+            "implement",
+            "stage_ready",
+            "release_comments",
+            "github_status",
+            "cloudflare_status",
+        ),
         4,
     )

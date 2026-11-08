@@ -500,7 +500,16 @@ def roadmap_bot(web: WebFake) -> None:
     )
 
 
-DEFAULT_JOB_NAMES = ("metrics", "implement", "stage_ready", "release_comments", "intake", "refine")
+DEFAULT_JOB_NAMES = (
+    "metrics",
+    "implement",
+    "stage_ready",
+    "release_comments",
+    "github_status",
+    "cloudflare_status",
+    "intake",
+    "refine",
+)
 
 
 POLL = TriggerBatch(repo=REPO, counts={POLL_KEY: 1}, first_at=NOW, last_at=NOW)
