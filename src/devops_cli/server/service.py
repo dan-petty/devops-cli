@@ -12,6 +12,7 @@ from collections import deque
 from collections.abc import AsyncIterator, Callable, Coroutine, Mapping, Sequence
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
+from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
@@ -35,6 +36,7 @@ from devops_cli.config.constants import (
     CONST_SERVICE_METRIC_JOB_SECONDS,
     CONST_SERVICE_METRIC_JOB_START_TIMESTAMP,
     CONST_SERVICE_METRIC_QUEUE_DEPTH,
+    CONST_SERVICE_METRIC_STATE_UNKEPT,
     CONST_SERVICE_METRIC_TRIGGERS,
     CONST_SERVICE_PROBE_PATHS,
     CONST_SERVICE_SOURCE_POLL,
@@ -155,9 +157,20 @@ def read_state_record[T](record: Path, adapter: TypeAdapter[T], empty: T) -> T:
         ) from exc
 
 
-def keep_state_record(record: Path, payload: object) -> None:
+class StateRecord(StrEnum):
+    """The state records that the Service keeps on its volume: the value is the label `record` of
+    the gauge `devops_cli_service_state_unkept` (#4048)."""
+
+    BUDGET = "budget"
+    HALT = "halt"
+    LEDGER = "ledger"
+
+
+def keep_state_record(record: Path, kind: StateRecord, payload: object) -> None:
     """Write `payload` to `record` atomically. A record that cannot be written is one error log
-    line: the Service goes on with what it holds in memory, which a restart does not keep."""
+    line: the Service goes on with what it holds in memory, which a restart does not keep. The
+    gauge `devops_cli_service_state_unkept` of `kind` is 1 after a write error and 0 after the
+    next write that works (#4048)."""
     from devops_cli.output.file_writer import write_json_file
 
     try:
@@ -166,6 +179,10 @@ def keep_state_record(record: Path, payload: object) -> None:
         logger.error(
             MESSAGES.serve.state_unkept.format(record=record, kind=type(exc).__name__, error=exc)
         )
+        unkept = 1.0
+    else:
+        unkept = 0.0
+    GLOBAL_METRICS.set_gauge(CONST_SERVICE_METRIC_STATE_UNKEPT, unkept, labels={"record": kind})
 
 
 def _report_spent(spent: int) -> None:
@@ -229,7 +246,7 @@ class RequestBudget:
                     spent += 1
                     if self._record is not None:
                         kept = _RequestsSent.dump_python(list(self._sent), mode="json")
-                        keep_state_record(self._record, kept)
+                        keep_state_record(self._record, StateRecord.BUDGET, kept)
                     break
                 wait = (self._sent[0][0] + self._window - self._clock()).total_seconds()
             _report_spent(spent)
@@ -257,7 +274,7 @@ class RequestBudget:
                 spent -= 1
                 if self._record is not None:
                     kept = _RequestsSent.dump_python(list(self._sent), mode="json")
-                    keep_state_record(self._record, kept)
+                    keep_state_record(self._record, StateRecord.BUDGET, kept)
         _report_spent(spent)
 
     def close(self) -> None:
@@ -383,7 +400,7 @@ class RoundPause:
                     "kind": type(exc).__name__,
                     "at": self._clock().isoformat(),
                 }
-                keep_state_record(self._halt_record, halt)
+                keep_state_record(self._halt_record, StateRecord.HALT, halt)
 
     def after(self, exc: Exception, repo: str) -> None:
         """Hold every round until the time `exc`, the error of `repo`'s round, names, and log

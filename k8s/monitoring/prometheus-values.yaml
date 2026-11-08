@@ -788,6 +788,18 @@ serverFiles:
             annotations:
               summary: 'The roadmap Service sent {{ printf "%.0f" $value }} model requests in the last hour'
               description: "The roadmap Service sent more than 352 model requests in one hour (k8s/README.md, Roadmap service)."
+          # The Service keeps three records on its volume: the budget, the halt and the failure ledger.
+          # A write error is one log line, and the Service goes on with memory only (#2474). The gauge is
+          # 1 after a write error and 0 after the next good write, by record (#4048). The rule waits 15
+          # minutes, so a fault that the next write repairs does not alert.
+          - alert: RoadmapServiceStateUnkept
+            expr: max by (record) (devops_cli_service_state_unkept{job="roadmap-service"}) > 0
+            for: 15m
+            labels:
+              severity: warning
+            annotations:
+              summary: "The roadmap Service could not write its {{ $labels.record }} record"
+              description: "The roadmap Service could not write its {{ $labels.record }} record to its volume, so a restart loses what the record holds. The Service goes on with memory only. Check the free space and the permissions of the volume, and the log line that starts with Could not write (k8s/README.md, Roadmap service)."
       # The webhook route of the roadmap Service (#2476), in a group apart from roadmap-service.
       # The route counts each delivery that it refuses under outcome="rejected": unsigned, signed
       # with no secret of a managed repository, too large, not JSON, or without its event name or

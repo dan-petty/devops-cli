@@ -148,6 +148,7 @@ from devops_cli.roadmap.trust import is_person_comment
 from devops_cli.security.sanitizer import mask_secrets
 from devops_cli.server.service import (
     LaneJob,
+    StateRecord,
     TriggerBatch,
     keep_state_record,
     read_state_record,
@@ -1128,7 +1129,9 @@ class FailureLedger:
                 (repo, job, *entry, list(self._causes.get((repo, job), ())))
                 for (repo, job), entry in self._failed.items()
             ]
-            keep_state_record(self._record, _KeptRounds.dump_python(kept, mode="json"))
+            keep_state_record(
+                self._record, StateRecord.LEDGER, _KeptRounds.dump_python(kept, mode="json")
+            )
 
 
 def service_state_dir(data_dir: Path | str | None = None) -> Path:
