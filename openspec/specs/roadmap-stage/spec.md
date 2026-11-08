@@ -814,7 +814,7 @@ The job SHALL list each finding that does not return the plan in the comment tha
 - **THEN** the comment holds no findings section
 
 ### Requirement: Refuse a spec delta that the changed paths do not need
-`check_proposal` SHALL refuse a proposal with `skip_specs: false` when every path of every group's `changes` starts with `tests/`, `.github/workflows/`, `docs/` or `openspec/`.
+`check_proposal` SHALL refuse a proposal with `skip_specs: false` when every path of every group's `changes` is under `tests/`, `.github/workflows/`, `docs/`, `openspec/` or `src/devops_cli/ai/knowledge_base/`, or is a markdown document outside `src/`.
 
 #### Scenario: Every changed path is a test, CI, document or plan path
 - **WHEN** A proposal has `skip_specs: false` and every `changes` path starts with `tests/`, `.github/workflows/`, `docs/` or `openspec/`
@@ -823,6 +823,22 @@ The job SHALL list each finding that does not return the plan in the comment tha
 #### Scenario: One changed path is source code
 - **WHEN** A proposal has `skip_specs: false` and one `changes` path starts with `src/`
 - **THEN** `check_proposal` returns no problem about the spec delta
+
+#### Scenario: Root documents with a delta
+- **WHEN** A plan changes only `SECURITY.md` and `CONTRIBUTING.md` and gives a spec delta
+- **THEN** `check_proposal` reports that these paths need no spec delta
+
+#### Scenario: Knowledge-base file and test path with a delta
+- **WHEN** A plan changes only `src/devops_cli/ai/knowledge_base/example.md` and a path under `tests/`, and gives a spec delta
+- **THEN** `check_proposal` reports that these paths need no spec delta
+
+#### Scenario: Knowledge-base file and test path without a delta
+- **WHEN** A plan changes only `src/devops_cli/ai/knowledge_base/example.md` and a path under `tests/`, and sets `skip_specs: true`
+- **THEN** `check_proposal` reports no problem about a spec delta
+
+#### Scenario: Task prompt with a delta
+- **WHEN** A plan changes only `src/devops_cli/ai/tasks/roadmap_stage_change.md` and gives a spec delta
+- **THEN** `check_proposal` reports no problem about a spec delta
 
 ### Requirement: Refuse an added requirement that the base spec already has
 `check_proposal` SHALL refuse an ADDED requirement whose name equals the name of a requirement in the base spec of that capability.
@@ -3188,6 +3204,7 @@ The stage proposal check SHALL return a problem that names the module of a model
 #### Scenario: A second reply with the same gap stops the item
 - **WHEN** The first and the second reply both read `PullStatus.labels` and both omit `src/devops_cli/github/client.py` from `changes`.
 - **THEN** The stage job records a failure of the item with `RoadmapStageError`, and the plan holds no ready change.
+
 ### Requirement: A plan that passes the gates is kept as a file
 The planner SHALL write the plan that passes the gates, with its `StageRequest`, to the file `roadmap/stage/<owner>/<repo>/<number>.json` under the data directory, atomically, before the model review. The file SHALL hold a key: the sha256 of the item number, the hash of its title, the hashes of its body from `body_hashes`, the model name of the task `stage`, the name of the toolset and the prompt version. The prompt version SHALL be the sha256 of the texts of the prompts that the planner reads.
 

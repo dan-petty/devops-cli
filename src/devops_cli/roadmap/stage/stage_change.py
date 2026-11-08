@@ -138,12 +138,13 @@ _CLOSING_KEYWORDS: Final[frozenset[str]] = frozenset(
     }
 )
 # A change whose every path starts with one of these has no spec delta: tests, workflows, documents
-# and plans are not behavior a consumer observes (#3013).
+# and plans are not behavior a consumer observes (#3013, #3212).
 _NO_SPEC_PREFIXES: Final[tuple[str, ...]] = (
     "tests/",
     ".github/workflows/",
     "docs/",
     "openspec/",
+    "src/devops_cli/ai/knowledge_base/",
 )
 _NO_SPEC_PREFIXES_TEXT: Final[str] = (
     f"{', '.join(_NO_SPEC_PREFIXES[:-1])} or {_NO_SPEC_PREFIXES[-1]}"
@@ -663,12 +664,18 @@ def _spec_problems(spec: StageSpec, known: Collection[str]) -> list[str]:
     return problems
 
 
+def _is_no_spec_path(path: str) -> bool:
+    """Whether `path` needs no spec delta: a prefix in `_NO_SPEC_PREFIXES` or a document at the
+    root outside `src/` (#3013, #3212)."""
+    return path.startswith(_NO_SPEC_PREFIXES) or (
+        path.endswith(_DOCUMENT_SUFFIX) and not path.startswith(_SOURCE_DIRECTORY)
+    )
+
+
 def _needs_no_spec(proposal: StageProposal) -> bool:
     """Whether every path of `changes`, in every group, is a test, a workflow, a document or a
-    plan: a change that no consumer observes (#3013)."""
-    return all(
-        path.startswith(_NO_SPEC_PREFIXES) for group in proposal.groups for path in group.changes
-    )
+    plan: a change that no consumer observes (#3013, #3212)."""
+    return all(_is_no_spec_path(path) for group in proposal.groups for path in group.changes)
 
 
 def _duplicate_problems(spec: StageSpec, requirements: Mapping[str, Collection[str]]) -> list[str]:

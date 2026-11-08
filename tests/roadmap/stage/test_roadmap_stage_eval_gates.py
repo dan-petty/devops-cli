@@ -53,6 +53,7 @@ _MODULE_FIXTURE = '@pytest.fixture(scope="module")'
 
 @pytest.fixture(scope="module")
 def cases() -> list[StageCase]:
+    """The golden set cases, loaded from disk for replay (#3212)."""
     return CASES
 
 
@@ -233,11 +234,11 @@ def test_the_counts_of_each_type_are_the_baseline_that_a_change_of_a_gate_beats(
     counts = {t.type: (t.caught, t.missed, t.unjudged) for t in report.by_type()}
 
     assert counts[DefectType.MISSING_PATH] == (36, 0, 0)
-    assert counts[DefectType.SPEC_DELTA_WRONG] == (5, 0, 20)
+    assert counts[DefectType.SPEC_DELTA_WRONG] == (6, 0, 19)
     assert counts[DefectType.VERIFY_FORM] == (6, 0, 12)
     assert counts[DefectType.TASK_ORDER] == (1, 0, 8)
     assert counts[DefectType.IGNORES_EXISTING_CODE] == (0, 0, 23)
-    assert report.judged() == (77, 314)
+    assert report.judged() == (78, 314)
 
 
 def test_the_judged_share_counts_the_caught_and_the_missed_and_not_the_rest(
@@ -405,6 +406,22 @@ def test_the_replay_of_the_plan_of_2977_is_refused_for_the_spec_delta_of_a_tests
     assert any(
         "every path in `changes` is under tests/" in problem
         for problem in replay.problems[GateName.PATHS]
+    )
+    assert replay.failures == []
+
+
+def test_the_replay_of_the_plan_of_2526_is_refused_for_the_spec_delta_of_a_root_documents_change(
+    cases: list[StageCase],
+) -> None:
+    case = next(c for c in cases if c.issue == 2526)
+    delta = next(d for d in case.defects if d.type is DefectType.SPEC_DELTA_WRONG)
+
+    replay = replay_case(case)
+
+    assert delta.gate is GateName.PATHS
+    assert next(o.status for o in replay.outcomes if o.defect is delta) is DefectStatus.CAUGHT
+    assert any(
+        "These paths need no spec delta" in problem for problem in replay.problems[GateName.PATHS]
     )
     assert replay.failures == []
 

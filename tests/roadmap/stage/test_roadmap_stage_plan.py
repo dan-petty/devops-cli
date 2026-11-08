@@ -1895,7 +1895,8 @@ NO_SPEC_PATHS = (
 )
 NO_SPEC_PROBLEM = (
     "skip_specs is false, and every path in `changes` is under tests/, .github/workflows/, "
-    "docs/ or openspec/. These paths need no spec delta. Set skip_specs to true and give no specs."
+    "docs/, openspec/ or src/devops_cli/ai/knowledge_base/. These paths need no spec delta. Set "
+    "skip_specs to true and give no specs."
 )
 
 

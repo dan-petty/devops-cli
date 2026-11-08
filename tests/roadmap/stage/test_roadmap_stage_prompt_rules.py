@@ -323,9 +323,92 @@ def test_the_check_refuses_a_spec_delta_for_each_path_that_it_names(prefix: str)
     assert any("spec delta" in problem for problem in _delta_plan(f"{prefix}sample.md"))
 
 
-@pytest.mark.parametrize("path", ["src/devops_cli/sample.py", "k8s/sample.yaml", "README.md"])
+@pytest.mark.parametrize(
+    "path", ["src/devops_cli/sample.py", "k8s/sample.yaml", "src/devops_cli/ai/tasks/sample.md"]
+)
 def test_the_check_wants_a_spec_delta_for_a_path_outside_the_list(path: str) -> None:
     assert not any("spec delta" in problem for problem in _delta_plan(path))
+
+
+def test_the_check_refuses_a_spec_delta_for_root_documents() -> None:
+    group = StageGroup.model_validate(
+        {
+            "title": "Edit documents",
+            "kind": "other",
+            "changes": ["SECURITY.md", "CONTRIBUTING.md"],
+            "implementation": "Edit root documents",
+            "process": "Read the documents",
+        }
+    )
+    proposal = make_stage_proposal(groups=[group], skip_specs=False)
+    problems = check_proposal(
+        proposal,
+        [],
+        StagedTree(["SECURITY.md", "CONTRIBUTING.md", "src/devops_cli/sample.py"]),
+    )
+    assert any("These paths need no spec delta" in problem for problem in problems)
+
+
+def test_the_check_refuses_a_spec_delta_for_knowledge_base_manual_and_tests() -> None:
+    group = StageGroup.model_validate(
+        {
+            "title": "Edit manual and test",
+            "kind": "other",
+            "changes": [
+                "src/devops_cli/ai/knowledge_base/example.md",
+                "tests/roadmap/test_sample.py",
+            ],
+            "implementation": "Edit files",
+            "process": "Read files",
+        }
+    )
+    proposal = make_stage_proposal(groups=[group], skip_specs=False)
+    problems = check_proposal(
+        proposal,
+        [],
+        StagedTree(
+            [
+                "src/devops_cli/ai/knowledge_base/example.md",
+                "tests/roadmap/test_sample.py",
+                "src/devops_cli/sample.py",
+            ]
+        ),
+    )
+    assert any("These paths need no spec delta" in problem for problem in problems)
+
+
+def test_the_check_accepts_skip_specs_for_knowledge_base_manual_and_tests() -> None:
+    group = StageGroup.model_validate(
+        {
+            "title": "Edit manual and test",
+            "kind": "other",
+            "changes": [
+                "src/devops_cli/ai/knowledge_base/example.md",
+                "tests/roadmap/test_sample.py",
+            ],
+            "implementation": "Edit files",
+            "process": "Read files",
+        }
+    )
+    proposal = make_stage_proposal(groups=[group], skip_specs=True, specs=[])
+    problems = check_proposal(
+        proposal,
+        [],
+        StagedTree(
+            [
+                "src/devops_cli/ai/knowledge_base/example.md",
+                "tests/roadmap/test_sample.py",
+                "src/devops_cli/sample.py",
+            ]
+        ),
+    )
+    assert not any("spec delta" in problem for problem in problems)
+
+
+def test_the_check_accepts_a_spec_delta_for_task_prompt_under_src() -> None:
+    path = "src/devops_cli/ai/tasks/roadmap_stage_change.md"
+    problems = _delta_plan(path)
+    assert not any("These paths need no spec delta" in problem for problem in problems)
 
 
 # ── The commands of `verify` ──────────────────────────────────────────────────
