@@ -1569,6 +1569,9 @@ CONST_SERVICE_METRIC_BUDGET_HOLDS: Final[str] = "devops_cli_service_budget_holds
 # 1 while a job of a repository failed its limit of rounds in a row and waits for new input, else
 # 0, by `repo` and `row` (#2475). The label is `row`, not `job`, which is the scrape's label.
 CONST_SERVICE_METRIC_JOB_SUSPENDED: Final[str] = "devops_cli_service_job_suspended"
+# 1 while the Service could not write a state record on its last try, else 0, by `record`: `budget`,
+# `halt` or `ledger` (#4048). The gauge lives in the memory of the process, so a restart clears it.
+CONST_SERVICE_METRIC_STATE_UNKEPT: Final[str] = "devops_cli_service_state_unkept"
 # Counts the stops of the implement job by failure `class` (#3065). The Service counts when a round
 # reports the Job that ended, because the pod of a runner Job is not scraped.
 CONST_SERVICE_METRIC_IMPLEMENT_FAILURES: Final[str] = "devops_cli_service_implement_failures_total"
