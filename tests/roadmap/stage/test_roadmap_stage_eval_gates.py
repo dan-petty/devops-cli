@@ -153,6 +153,41 @@ def test_the_plan_under_test_holds_the_registry_of_its_case(cases: list[StageCas
     assert plan.registry is table
 
 
+MANIFEST = "k8s/logging/networkpolicy.yaml"
+MANIFEST_TEST = "tests/commands/k8s/test_k8s_logging_stack.py"
+
+
+def test_the_plan_under_test_holds_the_manifest_references_of_its_case(
+    cases: list[StageCase],
+) -> None:
+    good = next(c for c in cases if c.verdict is Verdict.GOOD)
+    facts = good.facts.model_copy(update={"manifest_references": {MANIFEST: (MANIFEST_TEST,)}})
+
+    plan = PlanUnderTest.of_case(good.model_copy(update={"facts": facts}))
+
+    assert plan.manifest_references == {MANIFEST: (MANIFEST_TEST,)}
+
+
+def test_the_paths_gate_refuses_a_manifest_plan_that_omits_its_test(
+    cases: list[StageCase],
+) -> None:
+    """A case that records the tests of a changed manifest judges the same rule as the job
+    (#3972)."""
+    good = next(c for c in cases if c.verdict is Verdict.GOOD)
+    facts = good.facts.model_copy(
+        update={
+            "tracked": (*good.facts.tracked, MANIFEST),
+            "manifest_references": {MANIFEST: (MANIFEST_TEST,)},
+        }
+    )
+    group = {**good.groups[0], "changes": [MANIFEST, *good.groups[0]["changes"]]}
+    case = good.model_copy(update={"facts": facts, "plan": {**good.plan, "groups": [group]}})
+
+    problems = run_gates(PlanUnderTest.of_case(case))[GateName.PATHS]
+
+    assert any(MANIFEST_TEST in problem for problem in problems)
+
+
 def test_no_defect_waits_for_a_gate_once_the_gates_of_3012_to_3017_are_built(
     cases: list[StageCase], report: ReplayReport
 ) -> None:

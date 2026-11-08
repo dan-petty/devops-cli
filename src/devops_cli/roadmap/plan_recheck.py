@@ -26,23 +26,26 @@ result of the default branch. A refusal on a merged plan is a case to review: it
 false refusal, and only a person decides which.
 
 The pass judges less than the stage job. It gives `check_gates` no `probes`, `overlaps`,
-`search_evidence` or `plan_creates`. It does not measure the groups, scan the files for secrets or
-check the staging title, and it calls no model. It judges the plan on the tree of the default
-branch or of the branch, and not on the commit that the job staged. So a plan that it accepts can
-still fail the job.
+`search_evidence` or `plan_creates`. It records the tests that each changed manifest reaches from a
+search at the ref, so a merged manifest plan gets the refusal of a staged one (#3972). It does not
+measure the groups, scan the files for secrets or check the staging title, and it calls no model.
+It judges the plan on the tree of the default branch or of the branch, and not on the commit that
+the job staged. So a plan that it accepts can still fail the job.
 """
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 from typing import Final
 
 from devops_cli.config.constants import CONST_OPENSPEC_CHANGES_DIR
+from devops_cli.exceptions.git import GitOperationError
 from devops_cli.lang import MESSAGES
 from devops_cli.openspec.tool import OpenSpecTool
+from devops_cli.roadmap.clone_git import git
 from devops_cli.roadmap.plan_read import (
     PlanReadError,
     created_paths,
@@ -54,7 +57,7 @@ from devops_cli.roadmap.plan_read import (
 from devops_cli.roadmap.plan_rewrite import PlanRewrite, rewrite_plan
 from devops_cli.roadmap.planned import PlannedChanges, planned_changes_at, read_planned_changes
 from devops_cli.roadmap.stage.stage_change import check_gates
-from devops_cli.roadmap.stage.stage_paths import StagedTree
+from devops_cli.roadmap.stage.stage_paths import StagedTree, record_test_references
 from devops_cli.roadmap.stage.stage_validate import validate_change
 from devops_cli.roadmap.step_files import parse_task_groups
 from devops_cli.roadmap.stores.store import GitHubState, Item, RoadmapStore
@@ -240,6 +243,7 @@ class _Pass:
     open_items: dict[int, Item]
     closed: frozenset[int]
     tool: OpenSpecTool
+    test_search: Callable[[str], Sequence[str]]
 
 
 def _refused(
@@ -253,6 +257,41 @@ def _refused(
         readable=readable,
         verified=verified,
     )
+
+
+def _test_search(source: Path, rev: str) -> Callable[[str], Sequence[str]]:
+    """The search of the tests at `rev` that hold a literal: one `git grep -l -F` over `tests`. A
+    literal that no test holds, and a failed read, gives no file. The record of a manifest plan
+    reads it (#3972)."""
+    cache: dict[str, tuple[str, ...]] = {}
+
+    def search(literal: str) -> Sequence[str]:
+        if literal not in cache:
+            cache[literal] = _grep_tests(source, rev, literal)
+        return cache[literal]
+
+    return search
+
+
+def _grep_tests(source: Path, rev: str, literal: str) -> tuple[str, ...]:
+    """The tests at `rev` that hold `literal`, sorted."""
+    try:
+        listing = git(
+            source,
+            "grep",
+            "-l",
+            "-F",
+            "-e",
+            literal,
+            rev,
+            "--",
+            "tests",
+            operation=GIT_OPERATION,
+        )
+    except GitOperationError:
+        return ()
+    prefix = f"{rev}:"
+    return tuple(sorted({line.removeprefix(prefix) for line in listing.splitlines() if line}))
 
 
 def _reads(files: dict[str, str], root: str) -> bool:
@@ -303,6 +342,7 @@ def _record(shared: _Pass, issue: int, folder: str) -> PlanRecord:
         shared.tree,
         requirements=shared.requirements,
         issue_body=held.body if held is not None else "",
+        manifest_references=record_test_references(proposal.groups, shared.test_search),
     )
     refusals = [
         Refusal(folder, gate.value, problem)
@@ -351,6 +391,7 @@ def _judge(
         open_items=open_items,
         closed=closed,
         tool=tool,
+        test_search=_test_search(source, rev),
     )
     return tuple(_record(shared, issue, folder) for issue, folder in sorted(planned.active.items()))
 
