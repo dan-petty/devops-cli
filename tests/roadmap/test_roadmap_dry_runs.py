@@ -316,6 +316,42 @@ def test_a_field_write_plans_one_read_of_its_issue_and_one_patch() -> None:
     )
 
 
+def test_body_with_marks_a_refine_plan_lists_one_patch_for_the_body_the_labels_and_the_record() -> (
+    None
+):
+    """A refined item costs one read of its issue and one `PATCH` that carries its body, its
+    labels and its job record, in a round and for `--item`. The plan lists no separate write of
+    the body (#4049)."""
+    from devops_cli.roadmap.request_plan import refine_requests
+
+    _, round_writes = refine_requests(REPO, None)
+    _, item_writes = refine_requests(REPO, None, item=7)
+
+    def result(writes: tuple[PlannedRequest, ...]) -> tuple[list[str], list[str]]:
+        planned = [r for r in writes if not r.condition and "issue" in " ".join(r.argv)]
+        patch = next(r for r in planned if _shape(r) == "issue patch")
+        return [_shape(r) for r in planned], sorted(json.loads(patch.stdin or "{}"))
+
+    assert (result(round_writes), result(item_writes)) == (
+        ([f"api repos/{REPO}/issues/<item>", "issue patch"], ["body", "labels"]),
+        ([f"api repos/{REPO}/issues/7", "issue patch"], ["body", "labels"]),
+    )
+
+
+def test_body_with_marks_an_alternatives_plan_lists_one_patch_for_the_block_and_the_marks() -> None:
+    """A check costs one read of its issue, one `PATCH` that carries its new body and its marks,
+    and one comment. The plan lists no separate write of the body (#4049)."""
+    from devops_cli.roadmap.request_plan import alternatives_requests
+
+    _, writes = alternatives_requests(REPO, item=7)
+
+    patches = [r for r in writes if _shape(r) == "issue patch"]
+    assert (
+        [_shape(r) for r in writes],
+        [sorted(json.loads(r.stdin or "{}")) for r in patches],
+    ) == ([f"api repos/{REPO}/issues/7", "issue patch", "api -X POST"], [["body"]])
+
+
 def test_no_roadmap_plan_lists_a_request_to_a_project_board() -> None:
     """Every job's plan: intake, a refine round, a refine of one item and a return. No request
     is a `gh project` command, names `projectV2` or reads `.github/roadmap.toml` (ADR 0016)."""

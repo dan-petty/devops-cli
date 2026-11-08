@@ -144,9 +144,9 @@ class _Journal(InMemoryRoadmapStore):
         self.events.append(("comment", number, kind))
         super().comment(number, body)
 
-    def set_marks(self, item: Any, marks: Any) -> None:
+    def set_marks(self, item: Any, marks: Any, *, body: str | None = None) -> None:
         self.events.append(("marks", item.number))
-        super().set_marks(item, marks)
+        super().set_marks(item, marks, body=body)
 
     def set_field(self, item: Any, field: ItemField, value: str | None, **options: Any) -> None:
         self.events.append(("field", item.number))
