@@ -313,6 +313,10 @@ A stage round, whether the Service or the command runs it, SHALL add 1 to `devop
 - **WHEN** `devops roadmap stage --plan` runs
 - **THEN** the counter has no point
 
+#### Scenario: A staged item carries its repository
+- **WHEN** A stage round counts a staged item for repository `owner/repo`.
+- **THEN** The series `devops_cli_roadmap_stage_total{repo="owner/repo",result="staged"}` increases by one and no `devops_cli_roadmap_pipeline_plans_total` series exists.
+
 ### Requirement: A round reads the plans on the default branch once
 A round SHALL fetch the default branch and read the tree of `origin/<default branch>` with one `git ls-tree` of `openspec/changes/` and `openspec/changes/archive/`, before it selects an item. A read that fails SHALL fail the run with the reason of git and stage no item.
 
@@ -3188,6 +3192,7 @@ The stage proposal check SHALL return a problem that names the module of a model
 #### Scenario: A second reply with the same gap stops the item
 - **WHEN** The first and the second reply both read `PullStatus.labels` and both omit `src/devops_cli/github/client.py` from `changes`.
 - **THEN** The stage job records a failure of the item with `RoadmapStageError`, and the plan holds no ready change.
+
 ### Requirement: A plan that passes the gates is kept as a file
 The planner SHALL write the plan that passes the gates, with its `StageRequest`, to the file `roadmap/stage/<owner>/<repo>/<number>.json` under the data directory, atomically, before the model review. The file SHALL hold a key: the sha256 of the item number, the hash of its title, the hashes of its body from `body_hashes`, the model name of the task `stage`, the name of the toolset and the prompt version. The prompt version SHALL be the sha256 of the texts of the prompts that the planner reads.
 

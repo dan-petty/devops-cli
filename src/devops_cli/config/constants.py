@@ -1580,6 +1580,18 @@ CONST_SERVICE_METRIC_STATE_UNKEPT: Final[str] = "devops_cli_service_state_unkept
 # Counts the stops of the implement job by failure `class` (#3065). The Service counts when a round
 # reports the Job that ended, because the pod of a runner Job is not scraped.
 CONST_SERVICE_METRIC_IMPLEMENT_FAILURES: Final[str] = "devops_cli_service_implement_failures_total"
+# Counts the runner Jobs that the implement row reports, by `repo`, `item_class` and `result` (#3069).
+CONST_SERVICE_METRIC_IMPLEMENT_JOBS: Final[str] = "devops_cli_service_implement_jobs_total"
+# Counts the repair rounds of reported implement steps, by `repo` and `item_class` (#3069).
+CONST_SERVICE_METRIC_IMPLEMENT_REPAIR_ROUNDS: Final[str] = (
+    "devops_cli_service_implement_repair_rounds_total"
+)
+# Counts the tokens of reported runner Jobs, by `repo` and `item_class` (#3069).
+CONST_SERVICE_METRIC_IMPLEMENT_TOKENS: Final[str] = "devops_cli_service_implement_tokens_total"
+# Consecutive stops of the same failure class in a row, by `repo` and `class` (#3069).
+CONST_SERVICE_METRIC_IMPLEMENT_CONSECUTIVE_FAILURES: Final[str] = (
+    "devops_cli_service_implement_consecutive_failures"
+)
 # Counts chat commands handled through the webhook router by `command` and `result` (#1395).
 CONST_SERVICE_METRIC_CHAT_COMMANDS: Final[str] = "devops_cli_service_chat_commands_total"
 # The `command` label of the chat command that the webhook router counts, and its `result` values:
@@ -1598,6 +1610,7 @@ CONST_SERVICE_BUDGET_WINDOW_SECONDS: Final[int] = 3600
 CONST_SERVICE_HALT_FILENAME: Final[str] = "service-halt.json"
 CONST_SERVICE_BUDGET_FILENAME: Final[str] = "service-budget.json"
 CONST_SERVICE_FAILURES_FILENAME: Final[str] = "service-failures.json"
+CONST_SERVICE_CONSECUTIVE_FAILURES_FILENAME: Final[str] = "service-consecutive-failures.json"
 # The cause the log line that suspends a job gives for a failed round that an earlier process
 # counted: the file keeps the count and not the cause (#2753).
 CONST_SERVICE_CAUSE_UNKNOWN: Final[str] = "unknown"

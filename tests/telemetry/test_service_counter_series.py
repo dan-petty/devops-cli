@@ -10,11 +10,15 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from devops_cli.config.constants import (
+    CONST_BRANCH_TYPES,
     CONST_ROADMAP_WEBHOOK_EVENTS,
     CONST_SERVICE_EVENT_OTHER,
     CONST_SERVICE_METRIC_BUDGET_HOLDS,
     CONST_SERVICE_METRIC_CHAT_COMMANDS,
     CONST_SERVICE_METRIC_IMPLEMENT_FAILURES,
+    CONST_SERVICE_METRIC_IMPLEMENT_JOBS,
+    CONST_SERVICE_METRIC_IMPLEMENT_REPAIR_ROUNDS,
+    CONST_SERVICE_METRIC_IMPLEMENT_TOKENS,
     CONST_SERVICE_METRIC_JOBS,
     CONST_SERVICE_METRIC_TRIGGERS,
     CONST_SERVICE_METRIC_WEBHOOK_DELIVERIES,
@@ -80,6 +84,36 @@ def test_each_failure_class_exists_at_zero_for_each_repository() -> None:
     }
 
     assert {key: series.get(key) for key in expected} == expected
+
+
+def test_implement_jobs_counter_exists_at_zero_for_each_item_class_and_result() -> None:
+    _manager(REPOS)
+
+    series = _series(CONST_SERVICE_METRIC_IMPLEMENT_JOBS)
+    results = ("succeeded", "failed", "gone")
+    expected = {
+        frozenset({("repo", repo), ("item_class", item_class), ("result", result)}): 0.0
+        for repo in REPOS
+        for item_class in CONST_BRANCH_TYPES
+        for result in results
+    }
+
+    assert {key: series.get(key) for key in expected} == expected
+
+
+def test_implement_repair_rounds_and_tokens_counters_exist_at_zero_for_each_item_class() -> None:
+    _manager(REPOS)
+
+    repair_series = _series(CONST_SERVICE_METRIC_IMPLEMENT_REPAIR_ROUNDS)
+    token_series = _series(CONST_SERVICE_METRIC_IMPLEMENT_TOKENS)
+    expected = {
+        frozenset({("repo", repo), ("item_class", item_class)}): 0.0
+        for repo in REPOS
+        for item_class in CONST_BRANCH_TYPES
+    }
+
+    assert {key: repair_series.get(key) for key in expected} == expected
+    assert {key: token_series.get(key) for key in expected} == expected
 
 
 def test_repo_label_holds_only_service_repos() -> None:

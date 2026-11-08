@@ -127,6 +127,29 @@ def test_a_round_stages_the_items_the_settings_name_and_counts_each_once(
     assert _counted(otlp) == [("staged", 1.0)]
 
 
+def test_stage_total_metric_carries_repo_attribute(
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    github_api: GitHubApiFake,
+    monkeypatch: pytest.MonkeyPatch,
+    otlp: FakeCollector,
+) -> None:
+    github_api.route("POST", f"/repos/{STAGE_REPO}/pulls", OPENED)
+    seed_stageable(store)
+    no_findings(model_fake)
+    model_fake.answer(make_stage_proposal())
+
+    _round(store, stage_repo)
+
+    points = otlp.points(ROADMAP_STAGE_TOTAL.name)
+    assert len(points) == 1
+    attrs, value = points[0]
+    assert attrs["repo"] == STAGE_REPO
+    assert attrs["result"] == "staged"
+    assert value == 1.0
+
+
 def test_a_round_plans_with_the_model_of_the_stage_task_as_a_toolbox_model(
     store: InMemoryRoadmapStore,
     stage_repo: StageRepo,

@@ -10,6 +10,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 
 from devops_cli.config.constants import (
+    CONST_BRANCH_TYPES,
     CONST_SERVICE_CHAT_COMMAND_ROADMAP,
     CONST_SERVICE_CHAT_RESULT_ERROR,
     CONST_SERVICE_CHAT_RESULT_STATUS,
@@ -24,6 +25,9 @@ from devops_cli.config.constants import (
     CONST_SERVICE_METRIC_BUDGET_HOLDS,
     CONST_SERVICE_METRIC_CHAT_COMMANDS,
     CONST_SERVICE_METRIC_IMPLEMENT_FAILURES,
+    CONST_SERVICE_METRIC_IMPLEMENT_JOBS,
+    CONST_SERVICE_METRIC_IMPLEMENT_REPAIR_ROUNDS,
+    CONST_SERVICE_METRIC_IMPLEMENT_TOKENS,
     CONST_SERVICE_METRIC_JOB_SECONDS,
     CONST_SERVICE_METRIC_JOBS,
     CONST_SERVICE_METRIC_TRIGGERS,
@@ -72,6 +76,31 @@ def prime_service_counters(repos: Iterable[str]) -> None:
     GLOBAL_METRICS.prime_counter(
         CONST_SERVICE_METRIC_IMPLEMENT_FAILURES,
         ({"class": klass.value, "repo": repo} for klass in FailureClass for repo in repo_names),
+    )
+    GLOBAL_METRICS.prime_counter(
+        CONST_SERVICE_METRIC_IMPLEMENT_JOBS,
+        (
+            {"repo": repo, "item_class": item_class, "result": result}
+            for repo in repo_names
+            for item_class in CONST_BRANCH_TYPES
+            for result in ("succeeded", "failed", "gone")
+        ),
+    )
+    GLOBAL_METRICS.prime_counter(
+        CONST_SERVICE_METRIC_IMPLEMENT_REPAIR_ROUNDS,
+        (
+            {"repo": repo, "item_class": item_class}
+            for repo in repo_names
+            for item_class in CONST_BRANCH_TYPES
+        ),
+    )
+    GLOBAL_METRICS.prime_counter(
+        CONST_SERVICE_METRIC_IMPLEMENT_TOKENS,
+        (
+            {"repo": repo, "item_class": item_class}
+            for repo in repo_names
+            for item_class in CONST_BRANCH_TYPES
+        ),
     )
     GLOBAL_METRICS.prime_counter(
         CONST_SERVICE_METRIC_JOBS,

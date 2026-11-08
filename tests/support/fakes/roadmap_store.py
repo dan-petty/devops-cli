@@ -786,7 +786,7 @@ class InMemoryRoadmapStore(RoadmapStore):
         field: ItemField,
         value: str | None,
         *,
-        marks: Mapping[Any, str | None] | None = None,
+        marks: Mapping[Any, str | int | None] | None = None,
         body: str | None = None,
     ) -> None:
         """Replace the field's label family on the Item's issue and, as a job, record the value
@@ -810,7 +810,7 @@ class InMemoryRoadmapStore(RoadmapStore):
 
     @_write
     def set_marks(
-        self, item: Item, marks: Mapping[Any, str | None], *, body: str | None = None
+        self, item: Item, marks: Mapping[Any, str | int | None], *, body: str | None = None
     ) -> None:
         """Set or clear a job's marks in the Item's job record; a person's view keeps no record.
         With `body`, the same step writes the body too. `job_writes` keeps the body's entry, then

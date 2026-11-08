@@ -20,7 +20,13 @@ import yaml
 from kubernetes.client.rest import ApiException
 from markdown_it import MarkdownIt
 
-from devops_cli.config.constants import CONST_SERVICE_METRIC_IMPLEMENT_FAILURES
+from devops_cli.config.constants import (
+    CONST_SERVICE_METRIC_IMPLEMENT_CONSECUTIVE_FAILURES,
+    CONST_SERVICE_METRIC_IMPLEMENT_FAILURES,
+    CONST_SERVICE_METRIC_IMPLEMENT_JOBS,
+    CONST_SERVICE_METRIC_IMPLEMENT_REPAIR_ROUNDS,
+    CONST_SERVICE_METRIC_IMPLEMENT_TOKENS,
+)
 from devops_cli.config.env import setting_variables
 from devops_cli.exceptions.k8s import ClusterJobError
 from devops_cli.lang import MESSAGES
@@ -510,6 +516,38 @@ def _failures(failure_class: str, repo: str = STAGE_REPO) -> float:
     """The count of the Service's counter of failures for `failure_class` in `repo` (#3495)."""
     return GLOBAL_METRICS.get_counter(
         CONST_SERVICE_METRIC_IMPLEMENT_FAILURES, labels={"class": failure_class, "repo": repo}
+    )
+
+
+def _implement_jobs(item_class: str, result: str, repo: str = STAGE_REPO) -> float:
+    """The count of runner Jobs reported with `item_class` and `result` in `repo` (#3069)."""
+    return GLOBAL_METRICS.get_counter(
+        CONST_SERVICE_METRIC_IMPLEMENT_JOBS,
+        labels={"repo": repo, "item_class": item_class, "result": result},
+    )
+
+
+def _repair_rounds_count(item_class: str, repo: str = STAGE_REPO) -> float:
+    """The count of repair rounds for `item_class` in `repo` (#3069)."""
+    return GLOBAL_METRICS.get_counter(
+        CONST_SERVICE_METRIC_IMPLEMENT_REPAIR_ROUNDS,
+        labels={"repo": repo, "item_class": item_class},
+    )
+
+
+def _tokens_count(item_class: str, repo: str = STAGE_REPO) -> float:
+    """The count of tokens for `item_class` in `repo` (#3069)."""
+    return GLOBAL_METRICS.get_counter(
+        CONST_SERVICE_METRIC_IMPLEMENT_TOKENS,
+        labels={"repo": repo, "item_class": item_class},
+    )
+
+
+def _consecutive_failures_count(failure_class: str, repo: str = STAGE_REPO) -> float:
+    """The consecutive failures gauge for `failure_class` in `repo` (#3069)."""
+    return GLOBAL_METRICS.get_gauge(
+        CONST_SERVICE_METRIC_IMPLEMENT_CONSECUTIVE_FAILURES,
+        labels={"repo": repo, "class": failure_class},
     )
 
 
@@ -1393,3 +1431,80 @@ def test_a_round_that_creates_a_job_for_a_medium_effort_item_logs_the_fallback_p
     assert (len(_creates(kube)), _record(store, number)["implement.job"] is not None) == (1, True)
     assert "The round selected an item in effort pass medium." in caplog.messages
     assert "The round uses the fallback pass." in caplog.messages
+
+
+def test_job_reporting_emits_pipeline_outcome_metrics_and_repair_rounds_and_tokens(
+    store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake, kube: FakeCluster
+) -> None:
+    number = seed_staged(store, title="fix(roadmap): test outcome metrics")
+    _round(store, staged_repo)
+
+    item = store.item(number)
+    assert item is not None
+    store.set_marks(
+        item,
+        {
+            ImplementRecordKey.REPAIR_ROUNDS: 3,
+            ImplementRecordKey.SPEND: '{"input_tokens": 1200, "output_tokens": 300}',
+        },
+    )
+    _end(kube, "Complete")
+
+    before_jobs = _implement_jobs("fix", "succeeded")
+    before_repairs = _repair_rounds_count("fix")
+    before_tokens = _tokens_count("fix")
+
+    _round(store, staged_repo)
+
+    assert _implement_jobs("fix", "succeeded") - before_jobs == 1
+    assert _repair_rounds_count("fix") - before_repairs == 3
+    assert _tokens_count("fix") - before_tokens == 1500
+
+
+def test_job_reporting_handles_invalid_or_zero_repair_rounds_and_spend(
+    store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake, kube: FakeCluster
+) -> None:
+    number = seed_staged(store, title="fix(roadmap): invalid values")
+    _round(store, staged_repo)
+
+    item = store.item(number)
+    assert item is not None
+    store.set_marks(
+        item,
+        {
+            ImplementRecordKey.REPAIR_ROUNDS: "invalid",
+            ImplementRecordKey.SPEND: "{invalid json",
+        },
+    )
+    _end(kube, "Complete")
+    before_repairs = _repair_rounds_count("fix")
+    before_tokens = _tokens_count("fix")
+    _round(store, staged_repo)
+
+    assert _repair_rounds_count("fix") - before_repairs == 0
+    assert _tokens_count("fix") - before_tokens == 0
+
+
+def test_job_reporting_updates_and_resets_consecutive_failures_gauge(
+    store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake, kube: FakeCluster
+) -> None:
+    # First item fails with "parser"
+    n1 = seed_staged(store)
+    _round(store, staged_repo)
+    store.set_field(
+        _held(store, n1),
+        ItemField.STATUS,
+        "Blocked",
+        marks={ImplementRecordKey.STOPPED: "group 1", ImplementRecordKey.FAILURE: "parser"},
+    )
+    _end(kube, "Failed")
+    _round(store, staged_repo)
+    assert _consecutive_failures_count("parser") == 1
+
+    # Second item succeeds and resets "parser" to 0
+    push_staged_branch(staged_repo, number=2)
+    seed_staged(store, pull=SECOND_PULL)
+    _round(store, staged_repo)
+    _end(kube, "Complete", index=1)
+    _round(store, staged_repo)
+    assert _consecutive_failures_count("parser") == 0

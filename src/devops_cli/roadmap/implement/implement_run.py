@@ -561,13 +561,14 @@ class _ItemRun:
             }
         )
 
-    def _record(self, **marks: str) -> None:
+    def _record(self, **marks: str | int | None) -> None:
         keys = {
             "group": ImplementRecordKey.GROUP,
             "sha": ImplementRecordKey.SHA,
             "spend": ImplementRecordKey.SPEND,
+            "repair_rounds": ImplementRecordKey.REPAIR_ROUNDS,
         }
-        written: dict[Any, str | None] = {keys[name]: value for name, value in marks.items()}
+        written: dict[Any, str | int | None] = {keys[name]: value for name, value in marks.items()}
         if "group" in marks:
             written[ImplementRecordKey.WIP] = None
             self.wip = None
@@ -997,7 +998,11 @@ class _ItemRun:
                         return
                     continue
                 raise _stopped_by(self.step, outcome)
-            self._record(group=str(group.number), sha=outcome.commit)
+            self._record(
+                group=str(group.number),
+                sha=outcome.commit,
+                repair_rounds=sum(o.repair_rounds for o in self.outcomes),
+            )
 
     def _keep(self, commit: WipCommit) -> None:
         """Take note of a `wip:` commit of the step (#3054). When tasks are left, push it and
@@ -1451,11 +1456,12 @@ class _ItemRun:
             raise _StopError(self.step, readiness.reason)
 
         mark_ready(self.repo, pull)
-        marks: dict[Any, str | None] = {
+        marks: dict[Any, str | int | None] = {
             ImplementRecordKey.SHA: head,
             ImplementRecordKey.PR: str(pull),
             ImplementRecordKey.SPEND: self._spend(),
             ImplementRecordKey.TRACE: self.trace.encode(),
+            ImplementRecordKey.REPAIR_ROUNDS: sum(o.repair_rounds for o in self.outcomes),
         }
         self.store.set_field(
             self._fresh(), ItemField.STATUS, CONST_ROADMAP_STATUS_IN_REVIEW, marks=marks
@@ -1561,7 +1567,7 @@ class _ItemRun:
                 note=note,
             ),
         )
-        marks: dict[Any, str | None] = {
+        marks: dict[Any, str | int | None] = {
             ImplementRecordKey.STOPPED: stop.step,
             ImplementRecordKey.FAILURE: klass.value,
             ImplementRecordKey.CHECK: check or None,
@@ -1571,6 +1577,8 @@ class _ItemRun:
             else None,
             ImplementRecordKey.SPEND: self._spend(),
             ImplementRecordKey.TRACE: self.trace.encode(),
+            ImplementRecordKey.REPAIR_ROUNDS: sum(o.repair_rounds for o in self.outcomes)
+            + stop.repair_rounds,
         }
         if self.pull is not None:
             marks[ImplementRecordKey.PR] = str(self.pull)

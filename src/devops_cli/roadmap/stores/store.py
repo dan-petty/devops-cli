@@ -283,6 +283,7 @@ class ImplementRecordKey(StrEnum):
     DIGEST_CLEARS = "implement.digest_clears"
     DIGEST_CLEAR_COMMENTED_AT = "implement.digest_clear_commented_at"
     CONTINUATIONS = "implement.continuations"
+    REPAIR_ROUNDS = "implement.repair_rounds"
 
 
 class RetitleRecordKey(StrEnum):
@@ -656,7 +657,13 @@ def decode_job_record(held: Mapping[str, Any], *, issue: str = "an issue") -> Jo
     """The keys of a record block this version knows. A key another version writes is left out
     here and kept by every write (`encode_job_record`); a known key whose value is not text or
     null is left out, with a warning."""
-    known = {key: value for key, value in held.items() if key in _JOB_RECORD_KEYS}
+    converted = {
+        key: str(value)
+        if key == ImplementRecordKey.REPAIR_ROUNDS.value and isinstance(value, int)
+        else value
+        for key, value in held.items()
+    }
+    known = {key: value for key, value in converted.items() if key in _JOB_RECORD_KEYS}
     try:
         return _JOB_RECORD.validate_python(known)
     except MalformedRecordError:
@@ -666,10 +673,19 @@ def decode_job_record(held: Mapping[str, Any], *, issue: str = "an issue") -> Jo
         )
 
 
-def encode_job_record(held: Mapping[str, Any], changes: Mapping[Any, str | None]) -> str:
+def encode_job_record(held: Mapping[str, Any], changes: Mapping[Any, str | int | None]) -> str:
     """The record block for `held`, the JSON object the issue's block holds now, with `changes`
     made. Each `>` is escaped, so no value ends the comment."""
-    merged = dict(held) | {str(key): value for key, value in changes.items()}
+    merged = dict(held) | {
+        str(key): (
+            int(value)
+            if str(key) == ImplementRecordKey.REPAIR_ROUNDS.value
+            and value is not None
+            and str(value).isdigit()
+            else value
+        )
+        for key, value in changes.items()
+    }
     text = json.dumps(merged, sort_keys=True).replace(">", "\\u003e")
     return f"<!-- {CONST_ROADMAP_RECORD_MARKER} {text} -->"
 
@@ -908,7 +924,7 @@ class RoadmapStore(Protocol):
         field: ItemField,
         value: str | None,
         *,
-        marks: Mapping[Any, str | None] | None = None,
+        marks: Mapping[Any, str | int | None] | None = None,
         body: str | None = None,
     ) -> None:
         """Set or clear the field's label family on the Item's issue, and record the value, with
@@ -923,7 +939,7 @@ class RoadmapStore(Protocol):
         """
 
     def set_marks(
-        self, item: Item, marks: Mapping[Any, str | None], *, body: str | None = None
+        self, item: Item, marks: Mapping[Any, str | int | None], *, body: str | None = None
     ) -> None:
         """Set or clear a job's marks in the Item's job record in one write, changing none of
         its fields. When `body` is given, it replaces the text before the record block in the

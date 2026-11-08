@@ -9,9 +9,21 @@ from pathlib import Path
 
 import pytest
 
+from devops_cli.config.constants import (
+    CONST_SERVICE_CONSECUTIVE_FAILURES_FILENAME,
+    CONST_SERVICE_METRIC_IMPLEMENT_CONSECUTIVE_FAILURES,
+    CONST_SERVICE_METRIC_IMPLEMENT_JOBS,
+    CONST_SERVICE_METRIC_IMPLEMENT_REPAIR_ROUNDS,
+    CONST_SERVICE_METRIC_IMPLEMENT_TOKENS,
+)
 from devops_cli.config.settings import load_settings
 from devops_cli.roadmap.stage.stage import parse_filters
-from devops_cli.roadmap.stores.store import ImplementRecordKey, ItemField, decode_job_record
+from devops_cli.roadmap.stores.store import (
+    ImplementRecordKey,
+    ItemField,
+    decode_job_record,
+    encode_job_record,
+)
 from tests.support.builders import make_item
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 
@@ -54,6 +66,7 @@ def test_a_record_block_from_a_person_edit_is_decoded_with_the_implement_keys() 
         "implement.branch": "fix/4-z",
         "implement.pr": "4",
         "implement.trace": '{"events": [], "dropped": 0}',
+        "implement.repair_rounds": 2,
         "other.job": "kept",
     }
 
@@ -62,7 +75,25 @@ def test_a_record_block_from_a_person_edit_is_decoded_with_the_implement_keys() 
         ImplementRecordKey.BRANCH: "fix/4-z",
         ImplementRecordKey.PR: "4",
         ImplementRecordKey.TRACE: '{"events": [], "dropped": 0}',
+        ImplementRecordKey.REPAIR_ROUNDS: "2",
     }
+    encoded = encode_job_record({}, {ImplementRecordKey.REPAIR_ROUNDS: 2})
+    assert '"implement.repair_rounds": 2' in encoded
+
+
+def test_implement_metric_constants_and_record_keys() -> None:
+    assert ImplementRecordKey.REPAIR_ROUNDS.value == "implement.repair_rounds"
+    assert CONST_SERVICE_METRIC_IMPLEMENT_JOBS == "devops_cli_service_implement_jobs_total"
+    assert (
+        CONST_SERVICE_METRIC_IMPLEMENT_REPAIR_ROUNDS
+        == "devops_cli_service_implement_repair_rounds_total"
+    )
+    assert CONST_SERVICE_METRIC_IMPLEMENT_TOKENS == "devops_cli_service_implement_tokens_total"
+    assert (
+        CONST_SERVICE_METRIC_IMPLEMENT_CONSECUTIVE_FAILURES
+        == "devops_cli_service_implement_consecutive_failures"
+    )
+    assert CONST_SERVICE_CONSECUTIVE_FAILURES_FILENAME == "service-consecutive-failures.json"
 
 
 def test_the_job_runs_no_step_unless_the_setting_says_it_is_in_a_runner(

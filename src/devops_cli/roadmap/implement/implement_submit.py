@@ -53,6 +53,7 @@ round: the failures come back in `SubmitResult.status_failed` for the row to rai
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -72,6 +73,9 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_STATUS_PLANNED,
     CONST_ROADMAP_STATUS_READY,
     CONST_SERVICE_METRIC_IMPLEMENT_FAILURES,
+    CONST_SERVICE_METRIC_IMPLEMENT_JOBS,
+    CONST_SERVICE_METRIC_IMPLEMENT_REPAIR_ROUNDS,
+    CONST_SERVICE_METRIC_IMPLEMENT_TOKENS,
 )
 from devops_cli.config.defaults import DEFAULT_ROADMAP_IMPLEMENT_LIMIT
 from devops_cli.config.env import setting_variables
@@ -81,6 +85,7 @@ from devops_cli.k8s.cluster_job import RUNNER_TEMPLATE, image_digest, job_name, 
 from devops_cli.k8s.cluster_job_api import ClusterJob, ClusterJobs, JobState
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.claim import claimed_by, service_claim, service_release
+from devops_cli.roadmap.commit_title import commit_type
 from devops_cli.roadmap.failure import (
     FailureClass,
     FailureEvidence,
@@ -88,6 +93,7 @@ from devops_cli.roadmap.failure import (
     failure_lines,
 )
 from devops_cli.roadmap.fence import code_fence
+from devops_cli.roadmap.implement.consecutive_failures import get_consecutive_failures
 from devops_cli.roadmap.implement.implement import (
     GIT_OPERATION,
     ImplementTarget,
@@ -272,11 +278,54 @@ def _report(
                 ImplementRecordKey.FAILURE: failure.value,
             },
         )
+    _emit_implement_metrics(repo, item, state, failure)
+
+
+def _emit_implement_metrics(
+    repo: str, item: Item, state: str, failure: FailureClass | None
+) -> None:
+    item_class = commit_type(item.title) or "chore"
+    GLOBAL_METRICS.increment_counter(
+        CONST_SERVICE_METRIC_IMPLEMENT_JOBS,
+        labels={"repo": repo, "item_class": item_class, "result": state},
+    )
+    repair_rounds_raw = _record(item, ImplementRecordKey.REPAIR_ROUNDS)
+    if repair_rounds_raw is not None:
+        try:
+            repair_rounds = int(repair_rounds_raw)
+            if repair_rounds > 0:
+                GLOBAL_METRICS.increment_counter(
+                    CONST_SERVICE_METRIC_IMPLEMENT_REPAIR_ROUNDS,
+                    repair_rounds,
+                    labels={"repo": repo, "item_class": item_class},
+                )
+        except ValueError, TypeError:
+            pass
+    spend_raw = _record(item, ImplementRecordKey.SPEND)
+    if spend_raw:
+        try:
+            spend_data = json.loads(str(spend_raw))
+            if isinstance(spend_data, dict):
+                tokens = int(spend_data.get("input_tokens", 0)) + int(
+                    spend_data.get("output_tokens", 0)
+                )
+                if tokens > 0:
+                    GLOBAL_METRICS.increment_counter(
+                        CONST_SERVICE_METRIC_IMPLEMENT_TOKENS,
+                        tokens,
+                        labels={"repo": repo, "item_class": item_class},
+                    )
+        except json.JSONDecodeError, ValueError, TypeError:
+            pass
+    tracker = get_consecutive_failures()
     if failure is not None:
         GLOBAL_METRICS.increment_counter(
             CONST_SERVICE_METRIC_IMPLEMENT_FAILURES,
             labels={"class": failure.value, "repo": repo},
         )
+        tracker.failed(repo, failure.value)
+    else:
+        tracker.delivered(repo)
 
 
 def _report_ended(
