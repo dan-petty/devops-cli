@@ -39,3 +39,29 @@ devops openspec archive <change>
 | `<change>` | `string` | Yes | Name of the change folder under openspec/changes, as \<issue\>-\<slug\>. |
 
 ---
+
+## `devops openspec new`
+
+**Create an OpenSpec change folder in project form for an issue.**
+
+```bash
+devops openspec new [OPTIONS] <issue>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<issue>` | `integer` | Yes | Issue number to scaffold. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--title`, `-t` | `string` | - | Issue title: Conventional Commit type and summary. |
+| `--paths`, `-p` | `string` | - | File or directory path the change touches (repeatable). |
+| `--capability`, `-c` | `string` | - | Capability name and optional requirement, as CAPABILITY[:REQUIREMENT] (repeatable). |
+| `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+---

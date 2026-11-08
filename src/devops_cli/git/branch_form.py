@@ -8,11 +8,13 @@ branch that breaks it, and `tests/test_branch_form.py` fails when the types or t
 from __future__ import annotations
 
 import re
-from typing import NamedTuple
+import unicodedata
+from typing import Final, NamedTuple
 
 from devops_cli.config.constants import CONST_BRANCH_SLUG_PATTERN, CONST_BRANCH_TYPES
 
 _SLUG = re.compile(CONST_BRANCH_SLUG_PATTERN)
+_SLUG_WORDS: Final[int] = 6
 _BRANCH = re.compile(
     rf"(?P<type>{'|'.join(CONST_BRANCH_TYPES)})/(?P<issue>[0-9]+)-(?P<slug>"
     rf"{CONST_BRANCH_SLUG_PATTERN})"
@@ -30,6 +32,23 @@ class BranchParts(NamedTuple):
 def is_valid_slug(slug: str) -> bool:
     """Whether `slug` is lowercase letters and digits joined by single hyphens."""
     return _SLUG.fullmatch(slug) is not None
+
+
+def slug_from_title(title: str, *, max_words: int = _SLUG_WORDS) -> str:
+    """Derive the branch or change slug from an issue title.
+
+    Removes the Conventional Commit prefix, lowercases, folds to ASCII, joins words with one
+    hyphen, and verifies that the result matches the branch slug pattern.
+    """
+    summary = title.partition(":")[2] if ":" in title else title
+    normalized = (
+        unicodedata.normalize("NFKD", summary).encode("ascii", "ignore").decode("ascii").lower()
+    )
+    words = "".join(ch if ch.isalnum() else " " for ch in normalized).split()
+    slug = "-".join(words[:max_words])
+    if not is_valid_slug(slug):
+        raise ValueError(f"Cannot derive a valid slug from title: {title!r}")
+    return slug
 
 
 def branch_name(issue: int, type_: str, slug: str) -> str:

@@ -156,6 +156,7 @@ devops repos worktrees add [OPTIONS] <issue>
 |---|---|---|---|
 | `--type` | `string` | - | The type of the branch: a type of release-please-config.json. Needed unless origin holds a staged branch for the issue; then it must equal the type of that branch. |
 | `--slug` | `string` | - | The slug of the branch: lowercase letters and digits joined by single hyphens. Needed unless origin holds a staged branch for the issue; then it must equal the slug of that branch. |
+| `--title` | `string` | - | Title for the item or entity. |
 | `--repo-dir`, `-r` | `path` | - | Repository root directory. |
 | `--reclaim` / `--no-reclaim` | `boolean` | `True` | First remove the worktrees of merged pull requests, as prune --confirm does. --no-reclaim skips this. |
 | `--dry-run`, `-n` | `boolean` | - | Preview execution plan without mutating external state. |

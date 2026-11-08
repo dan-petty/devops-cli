@@ -5083,6 +5083,15 @@ CONST_OPENSPEC_PROBE_CHANGE: Final[str] = "gate-probe"
 CONST_OPENSPEC_REWRITING_OPERATIONS: Final[frozenset[str]] = frozenset(
     {"MODIFIED", "REMOVED", "RENAMED"}
 )
+# The marker in scaffolded lines that an author must replace before merging.
+CONST_OPENSPEC_SCAFFOLD_MARKER: Final[str] = "<!-- devops-openspec-new: replace -->"
+# The path prefixes considered non-observable when deciding skip_specs.
+CONST_OPENSPEC_NON_OBSERVABLE_PREFIXES: Final[tuple[str, ...]] = (
+    "tests/",
+    "docs/",
+    "openspec/",
+    ".github/workflows/",
+)
 # The function names that count as presence checks in test assertions. A test that asserts
 # only presence or compares a presence call with a boolean literal in a tuple certifies
 # an object exists without verifying its values or behavior (#851).

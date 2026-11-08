@@ -195,6 +195,7 @@ devops repos worktrees add [OPTIONS] <issue>
 |---|---|---|---|
 | `--type` | `string` | - | The type of the branch: a type of release-please-config.json. Needed unless origin holds a staged branch for the issue; then it must equal the type of that branch. |
 | `--slug` | `string` | - | The slug of the branch: lowercase letters and digits joined by single hyphens. Needed unless origin holds a staged branch for the issue; then it must equal the slug of that branch. |
+| `--title` | `string` | - | Title for the item or entity. |
 | `--repo-dir`, `-r` | `path` | - | Repository root directory. |
 | `--reclaim` / `--no-reclaim` | `boolean` | `True` | First remove the worktrees of merged pull requests, as prune --confirm does. --no-reclaim skips this. |
 | `--dry-run`, `-n` | `boolean` | - | Preview execution plan without mutating external state. |
@@ -747,6 +748,30 @@ devops openspec archive <change>
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `<change>` | `string` | Yes | Name of the change folder under openspec/changes, as \<issue\>-\<slug\>. |
+
+### `devops openspec new`
+
+**Create an OpenSpec change folder in project form for an issue.**
+
+```bash
+devops openspec new [OPTIONS] <issue>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<issue>` | `integer` | Yes | Issue number to scaffold. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--title`, `-t` | `string` | - | Issue title: Conventional Commit type and summary. |
+| `--paths`, `-p` | `string` | - | File or directory path the change touches (repeatable). |
+| `--capability`, `-c` | `string` | - | Capability name and optional requirement, as CAPABILITY[:REQUIREMENT] (repeatable). |
+| `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 

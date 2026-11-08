@@ -2005,6 +2005,13 @@ class OpenSpecCommandHelp:
         "exits 1 when a run fails. A failed archive skips the validation."
     )
     archive_change: str = "Name of the change folder under openspec/changes, as <issue>-<slug>."
+    new: str = "Create an OpenSpec change folder in project form for an issue."
+    new_issue: str = "Issue number to scaffold."
+    new_title: str = "Issue title: Conventional Commit type and summary."
+    new_paths: str = "File or directory path the change touches (repeatable)."
+    new_capability: str = (
+        "Capability name and optional requirement, as CAPABILITY[:REQUIREMENT] (repeatable)."
+    )
 
 
 @dataclass(frozen=True)

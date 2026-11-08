@@ -42,7 +42,13 @@ from devops_cli.dry_run.requests import PlannedRequest
 from devops_cli.exceptions.base import DevOpsCLIError
 from devops_cli.exceptions.git import GitOperationError
 from devops_cli.git.branch_authors import LOG_FORMAT, person_authors
-from devops_cli.git.branch_form import BranchParts, branch_name, issue_of_branch, parse_branch
+from devops_cli.git.branch_form import (
+    BranchParts,
+    branch_name,
+    issue_of_branch,
+    parse_branch,
+    slug_from_title,
+)
 from devops_cli.git.worktree_inventory import (
     CONST_REFS_HEADS_PREFIX,
     WorktreeEntry,
@@ -55,6 +61,7 @@ from devops_cli.git.worktree_inventory import (
     prune_worktrees,
 )
 from devops_cli.lang import MESSAGES
+from devops_cli.roadmap.commit_title import commit_type
 from devops_cli.security.sanitizer import mask_secrets
 
 _OPERATION = "worktrees add"
@@ -440,8 +447,9 @@ def add_worktree(
     repo_root: Path,
     *,
     issue: int,
-    type_: str | None,
-    slug: str | None,
+    type_: str | None = None,
+    slug: str | None = None,
+    title: str | None = None,
     dry_run: bool = False,
     reclaim: ReclaimResult | None = None,
     base: str | None = None,
@@ -460,6 +468,21 @@ def add_worktree(
     local worktrees only and lists the four commands. `reclaim` is the result of
     `reclaim_merged_worktrees`, which the caller ran first; it goes into the report.
     """
+    if title is not None:
+        derived_type = commit_type(title)
+        if derived_type is None:
+            raise GitOperationError(f"Title {title!r} has no Conventional Commit type.")
+        derived_slug = slug_from_title(title)
+        if type_ is not None and type_ != derived_type:
+            raise GitOperationError(
+                f"Title {title!r} derives type {derived_type!r}, but type {type_!r} was given."
+            )
+        if slug is not None and slug != derived_slug:
+            raise GitOperationError(
+                f"Title {title!r} derives slug {derived_slug!r}, but slug {slug!r} was given."
+            )
+        type_ = derived_type
+        slug = derived_slug
     reclaim = reclaim or ReclaimResult()
     directory = worktree_directory(issue, repo_root)
     _require_origin(repo_root)
