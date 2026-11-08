@@ -9,6 +9,7 @@ from typing import Any
 
 import pytest
 import yaml
+from kubernetes.utils.quantity import parse_quantity
 
 from devops_cli.config.constants import WebhookExposure
 from devops_cli.config.settings import Settings
@@ -23,6 +24,14 @@ DEVOPS_DIR = K8S_DIR / "devops"
 ROADMAP_SERVICE_DIR = DEVOPS_DIR / "roadmap-service"
 # The metric families that the deployed Traefik serves, with their label names (#1136).
 TRAEFIK_FAMILIES = FIXTURES / "metrics" / "traefik.yaml"
+MIB = 1024**2
+# The working set of container `service` on 2026-11-08 (container_memory_working_set_bytes):
+# it starts near 460 MiB and grows 100 to 150 MiB each hour, until the kernel kills the container.
+# The leak itself is #4116 and its 6-hour flat check is #4125. The limit is a stopgap that gives the
+# alert RoadmapServiceMemoryNearLimit time to fire before a kill.
+WORKING_SET_START_BYTES = 460 * MIB
+WORKING_SET_GROWTH_BYTES_PER_HOUR = 150 * MIB
+HOURS_TO_RUN_BEFORE_A_KILL = 10
 
 
 @functools.cache
@@ -73,6 +82,25 @@ def test_deployment_spec_and_container() -> None:
         True,
         "roadmap-service",
         150,
+    )
+
+
+def test_deployment_memory_is_sized_for_the_observed_growth() -> None:
+    resources = _container()["resources"]
+    limit = parse_quantity(resources["limits"]["memory"])
+    needed = (
+        WORKING_SET_START_BYTES + HOURS_TO_RUN_BEFORE_A_KILL * WORKING_SET_GROWTH_BYTES_PER_HOUR
+    )
+
+    assert (
+        resources["requests"]["memory"],
+        resources["limits"]["memory"],
+        resources["requests"]["cpu"],
+        resources["limits"]["cpu"],
+    ) == ("768Mi", "3Gi", "100m", "1")
+    assert limit >= needed, (
+        f"The memory limit {limit // MIB} MiB is below {needed // MIB} MiB, the working set after "
+        f"{HOURS_TO_RUN_BEFORE_A_KILL} hours of growth. Fix the leak (#4116) before you cut the limit."
     )
 
 

@@ -107,13 +107,17 @@ spec:
               port: 8000
             initialDelaySeconds: 5
             periodSeconds: 10
+          # The memory limit is a stopgap (#4149). The working set grows 100 to
+          # 150 MiB each hour from about 460 MiB, so 1Gi killed the pod after
+          # about 4 hours. #4116 holds the analysis of the leak. #4125 is the
+          # open 6-hour flat check. Revisit the limit when the working set is flat.
           resources:
             requests:
               cpu: 100m
-              memory: 256Mi
+              memory: 768Mi
             limits:
               cpu: "1"
-              memory: 1Gi
+              memory: 3Gi
       volumes:
         - name: tmp
           emptyDir: {}
