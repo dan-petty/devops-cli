@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING, Any, cast
 import pytest
 
 from devops_cli.ai.client.models import AIClientError
+from devops_cli.core import clock as clock_seam
 from devops_cli.roadmap.failure import FailureClass, StepName
 from devops_cli.roadmap.stage.stage import (
     StagePlan,
@@ -52,7 +53,6 @@ from tests.support.scripted_model import Script
 if TYPE_CHECKING:
     from devops_cli.roadmap.planned import PlannedChanges
     from devops_cli.roadmap.stage.stage import StageClient
-    from tests.support.fakes.clock import ClockFake
     from tests.support.fakes.github import GitHubApiFake
     from tests.support.fakes.model import ModelFake
     from tests.support.fakes.openspec import OpenSpecFake
@@ -102,7 +102,30 @@ def opened_pull(github_api: Any) -> None:
     cast("GitHubApiFake", github_api).route("POST", PULLS, OPENED)
 
 
-def _taking(clock: ClockFake, seconds: float, answer: Any) -> Any:
+class StepClock:
+    """The monotonic reading of the clock seam, moved only by the test.
+
+    The wall clock stays as it is, so the pacing of a GitHub request and the quota of the fake API
+    see no passing time, and a step holds exactly the seconds that the test gave it."""
+
+    def __init__(self) -> None:
+        self._now = 0.0
+
+    def monotonic(self) -> float:
+        return self._now
+
+    def shift(self, seconds: float) -> None:
+        self._now += seconds
+
+
+@pytest.fixture
+def clock(monkeypatch: pytest.MonkeyPatch) -> StepClock:
+    fake = StepClock()
+    monkeypatch.setattr(clock_seam, "monotonic", fake.monotonic)
+    return fake
+
+
+def _taking(clock: StepClock, seconds: float, answer: Any) -> Any:
     """An answer of the model fake that takes `seconds` on the fake clock and then gives `answer`."""
 
     def give(_prompt: str) -> Any:
@@ -164,7 +187,7 @@ def test_step_label_a_stage_round_emits_a_sample_for_select_plan_gate_review_and
     store: InMemoryRoadmapStore,
     stage_repo: StageRepo,
     model_fake: ModelFake,
-    clock: ClockFake,
+    clock: StepClock,
     otlp: FakeCollector,
 ) -> None:
     """One round that plans, reviews and writes one item sends a sample for each of the five steps
@@ -178,19 +201,13 @@ def test_step_label_a_stage_round_emits_a_sample_for_select_plan_gate_review_and
 
     apply_stage(store, _plan(store, stage_repo, verifier=verifier), source=stage_repo.clone)
 
-    steps = _by_step(otlp)
-    assert {key: count for key, (count, _) in steps.items()} == {
-        ("select", "ok"): 1,
-        ("plan", "ok"): 1,
-        ("gate", "ok"): 1,
-        ("review", "ok"): 1,
-        ("apply", "ok"): 1,
+    assert _by_step(otlp) == {
+        ("select", "ok"): (1, 0.0),
+        ("plan", "ok"): (1, PLAN_SECONDS),
+        ("gate", "ok"): (1, 0.0),
+        ("review", "ok"): (1, REVIEW_SECONDS),
+        ("apply", "ok"): (1, 0.0),
     }
-    # Code that waits through the clock seam, such as the pacing of a GitHub request, also moves
-    # the fake clock, so a step holds at least the seconds that the test gave it.
-    assert steps[("plan", "ok")][1] >= PLAN_SECONDS
-    assert steps[("review", "ok")][1] >= REVIEW_SECONDS
-    assert all(total >= 0.0 for _, total in steps.values())
 
 
 def test_step_label_a_round_with_no_verifier_sends_no_review_sample(
@@ -232,7 +249,7 @@ def test_step_label_a_step_that_raises_sends_its_sample_with_the_result_error(
     store: InMemoryRoadmapStore,
     stage_repo: StageRepo,
     model_fake: ModelFake,
-    clock: ClockFake,
+    clock: StepClock,
     otlp: FakeCollector,
 ) -> None:
     """The planner call fails after 3 s. Its sample has the result `error` and the seconds up to
