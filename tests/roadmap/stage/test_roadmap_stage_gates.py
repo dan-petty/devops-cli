@@ -3,6 +3,14 @@
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+from typing import Any
+
+import pytest
+
+from devops_cli.roadmap.agent_run import RunTrace, ToolCallRecord
+from devops_cli.roadmap.stage.stage import RoadmapStageError, StageTarget, _Planner, _Refused
 from devops_cli.roadmap.stage.stage_change import (
     STAGE_EVAL_REPLAY,
     ProposalGate,
@@ -11,6 +19,10 @@ from devops_cli.roadmap.stage.stage_change import (
     check_proposal,
 )
 from devops_cli.roadmap.stage.stage_paths import StagedTree
+from devops_cli.roadmap.stage.stage_request import StageRequest
+from devops_cli.roadmap.stage.stage_specs import BaseSpec
+from devops_cli.roadmap.stage.stage_toolbox import ToolboxClient
+from devops_cli.roadmap.stores.store import Item
 from tests.support.builders import make_stage_proposal
 
 TREE_FILES = ["src/devops_cli/sample.py"]
@@ -83,3 +95,77 @@ def test_a_stale_citation_is_a_problem_of_the_gate_citation() -> None:
     found = check_gates(plan, KNOWN, TREE, read_text={"src/sample.py": "x\n\n\ndef f():\n"}.get)
 
     assert [gate for gate, problems in found.items() if problems] == [ProposalGate.CITATION]
+
+
+class _FakeToolboxClient(ToolboxClient):
+    def __init__(self, proposal: StageProposal, trace: RunTrace) -> None:
+        self._proposal = proposal
+        self._trace = trace
+        self.traces: list[RunTrace] = [trace]
+
+    def chat_structured(
+        self, system: str, prompt: str, schema: type[Any], *, max_retries: int
+    ) -> Any:
+        self.traces.append(self._trace)
+        return self._proposal
+
+
+def test_planner_gates_proposal_with_trace_facts() -> None:
+    path = "src/devops_cli/roadmap/agent_run.py"
+    proposal = make_stage_proposal(feasibility=[f"The run read `{path}` to confirm the facts."])
+    item = Item(
+        number=1,
+        title="feat: sample",
+        url="https://example.com/1",
+        body="",
+    )
+    target = StageTarget(item, "feat", "sample")
+    request = StageRequest(
+        number=1,
+        title="feat: sample",
+        body="",
+        context="",
+        capabilities=["comment-thread"],
+        budget=20000,
+    )
+    tree = StagedTree([*TREE_FILES, path])
+    specs = {"comment-thread": BaseSpec(purpose="Defines thread comments.", requirements=())}
+
+    # Calls read the path: proposal passes the gate.
+    call_trace = RunTrace(tool_calls=[ToolCallRecord("read_file", json.dumps({"path": path}))])
+    client_with_calls = _FakeToolboxClient(proposal, call_trace)
+    planner_with_calls = _Planner(
+        client=client_with_calls,
+        source=Path("."),
+        sha="",
+        specs=specs,
+        tree=tree,
+        budget=20000,
+        window=100000,
+        tool=None,
+    )
+    settled = planner_with_calls._settle(
+        target, proposal, request, trace=planner_with_calls._trace_facts()
+    )
+    assert not isinstance(settled, _Refused)
+
+    # Zero-call trace: refused with problem that names the path.
+    zero_trace = RunTrace()
+    client_zero = _FakeToolboxClient(proposal, zero_trace)
+    planner_zero = _Planner(
+        client=client_zero,
+        source=Path("."),
+        sha="",
+        specs=specs,
+        tree=tree,
+        budget=20000,
+        window=100000,
+        tool=None,
+    )
+    refused = planner_zero._settle(target, proposal, request, trace=planner_zero._trace_facts())
+    assert isinstance(refused, _Refused)
+    assert path in refused.problem
+
+    with pytest.raises(RoadmapStageError) as exc_info:
+        planner_zero._gated(target, request)
+    assert path in str(exc_info.value)

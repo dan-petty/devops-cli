@@ -334,11 +334,50 @@ def record_run_spend(
     )
 
 
+def _paths_in_argument(argument: str) -> set[str]:
+    """The path, directory and paths string values of `argument` when JSON."""
+    try:
+        data = json.loads(argument)
+    except json.JSONDecodeError, TypeError:
+        return set()
+    if not isinstance(data, dict):
+        return set()
+    found: set[str] = set()
+    for key in ("path", "directory", "paths"):
+        val = data.get(key)
+        if isinstance(val, str):
+            found.add(val)
+        elif isinstance(val, (list, tuple)):
+            found.update(item for item in val if isinstance(item, str))
+    return found
+
+
+@dataclass(frozen=True)
+class TraceFacts:
+    """The tools and the paths of a run trace (#3266)."""
+
+    tools: frozenset[str] = frozenset()
+    paths: frozenset[str] = frozenset()
+
+    @classmethod
+    def of(cls, trace: RunTrace) -> TraceFacts:
+        """The tool names and the path, directory and paths values of each tool call argument that
+        parses as a JSON object. A value that is no string, and an argument that is no JSON object,
+        adds nothing. The method never raises."""
+        tools: set[str] = set()
+        paths: set[str] = set()
+        for call in trace.tool_calls:
+            tools.add(call.name)
+            paths.update(_paths_in_argument(call.argument))
+        return cls(tools=frozenset(tools), paths=frozenset(paths))
+
+
 __all__ = [
     "RunLimit",
     "RunTrace",
     "ToolCallRecord",
     "ToolOutcome",
+    "TraceFacts",
     "argument_json",
     "body_error_text",
     "bounded_text",

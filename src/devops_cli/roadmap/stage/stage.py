@@ -130,7 +130,7 @@ from devops_cli.github.client import CreatedPull
 from devops_cli.github.session import get_github_session
 from devops_cli.lang import MESSAGES
 from devops_cli.openspec.tool import OpenSpecTool, isolated_openspec
-from devops_cli.roadmap.agent_run import RunTrace
+from devops_cli.roadmap.agent_run import RunTrace, TraceFacts
 from devops_cli.roadmap.body_hash import body_hashes
 from devops_cli.roadmap.claim import claimed_by
 from devops_cli.roadmap.clone_git import branch_authors, default_branch, git
@@ -911,7 +911,7 @@ class _Planner:
     ) -> None:
         self._client = client
         self._plan_files = plan_files
-        self._toolbox = toolbox
+        self._toolbox = toolbox or (client if isinstance(client, ToolboxClient) else None)
         self._verifier = verifier
         self._verify_window = verify_window
         # The runs of the planner and of the verifier, in order, for the comment (#3039).
@@ -975,6 +975,13 @@ class _Planner:
             return replace(outcome, trace=RunTrace.combined(self._traces))
         return outcome
 
+    def _trace_facts(self) -> TraceFacts | None:
+        """The facts of the last agent run, or None when no toolbox client ran."""
+        if not isinstance(self._client, ToolboxClient):
+            return None
+        traces = getattr(self._toolbox, "traces", None)
+        return TraceFacts.of(traces[-1]) if traces else None
+
     def _kept(self, target: StageTarget) -> tuple[StagePlanRecord | None, str | None]:
         """The kept plan of the item and its key, (None, None) for a run that keeps no file. A
         file of another key goes at once, so a plan that then fails leaves no stale file. The
@@ -1015,7 +1022,7 @@ class _Planner:
         """The change that passes the checks, with one return of a refused reply. `first` is a kept
         plan that stands for the first reply of the model."""
         proposal = first or self._ask(StageProposal, CHANGE_TASK, request.for_model())
-        outcome = self._settle(target, proposal, request)
+        outcome = self._settle(target, proposal, request, trace=self._trace_facts())
         if isinstance(outcome, _Refused):
             again = {
                 **request.for_model(),
@@ -1023,7 +1030,7 @@ class _Planner:
                 "problem": outcome.problem,
             }
             proposal = self._ask(StageProposal, CHANGE_TASK, again)
-            outcome = self._settle(target, proposal, request)
+            outcome = self._settle(target, proposal, request, trace=self._trace_facts())
         if isinstance(outcome, _Refused):
             message = MESSAGES.roadmap.stage_invalid.format(problem=outcome.problem)
             raise _stage_error(message, target)
@@ -1070,7 +1077,7 @@ class _Planner:
             "problem": return_problem(open_),
         }
         revised = self._ask(StageProposal, CHANGE_TASK, again)
-        outcome = self._settle(target, revised, request)
+        outcome = self._settle(target, revised, request, trace=self._trace_facts())
         if isinstance(outcome, _Refused):
             message = MESSAGES.roadmap.stage_invalid.format(problem=outcome.problem)
             raise _stage_error(message, target)
@@ -1203,7 +1210,12 @@ class _Planner:
             return _Refused(" ".join(lines), proposal)
 
     def _settle(
-        self, target: StageTarget, proposal: StageProposal, request: StageRequest
+        self,
+        target: StageTarget,
+        proposal: StageProposal,
+        request: StageRequest,
+        *,
+        trace: TraceFacts | None = None,
     ) -> StagedChange | OverBudget | _Refused:
         """The outcome for one reply: a change, a stop on the budget, or the problem that sends
         the reply back."""
@@ -1224,6 +1236,7 @@ class _Planner:
             request,
             change=target.change,
             models=models,
+            trace=trace,
         )
         if problems:
             return _Refused(" ".join(problems), proposal)
@@ -1243,6 +1256,7 @@ class _Planner:
                 request,
                 change=target.change,
                 models=models,
+                trace=trace,
             )
             if problems:
                 return _Refused(" ".join(problems), asked)
@@ -1275,6 +1289,7 @@ class _Planner:
         *,
         change: str = "",
         models: Mapping[str, tuple[str, Sequence[str]]] | None = None,
+        trace: TraceFacts | None = None,
     ) -> list[str]:
         """The problems that every gate finds in one reply: the first one and a split of it."""
         evidence = (
@@ -1304,6 +1319,7 @@ class _Planner:
                 constants=constants,
                 references=references,
                 models=models,
+                trace=trace,
             ),
         )
 

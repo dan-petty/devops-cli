@@ -1,0 +1,143 @@
+### What happened
+
+A person learns what a Job did from `kubectl logs` and from one comment at the end. `devops roadmap explain` says why an item is or is not taken, not what a running Job does.
+
+### What should happen
+
+- `devops roadmap follow <issue>` shows the live trace of the current run (steps, tool calls, check results, attempts) and the history of past runs, from the job record, the Job pod and the trace (A3). The `inbox` and `explain` commands link to it.
+
+### Acceptance criteria
+
+- [ ] `follow` works for a running Job and for a finished one.
+- [ ] It reads at most a stated number of GitHub requests and none for the live part (it reads the pod).
+- [ ] The output is in the same shape as the PR comment table.
+- [ ] It masks secrets like the log lines do.
+
+Related: tracker for this set (filed with it), #2908 (issue workflow), #2867 (draft PR evaluator), #3005 (task kind), #3010 to #3015 (plan gates), #2919 (stuck-item metrics), #2953 (Ollama parser).
+
+
+
+<!-- devops-roadmap-alternatives:start -->
+Alternatives check of 2026-11-04: partly.
+Tool: kubernetes-client/python (https://github.com/kubernetes-client/python), Apache-2.0, last activity 2026-11-04, maintained.
+<!-- devops-roadmap-alternatives:end -->
+
+<!-- devops-roadmap-refine:start -->
+<!-- checked-at: sha=75d3ce8877d44f0f5c45697e6f4866766b44b79e -->
+## Proposed design
+
+### Problem statement
+A person cannot see what a running roadmap Job does. The person reads `kubectl logs` and one final comment on the issue. This change adds `devops roadmap follow <issue>`. The command shows the live trace of the current run and the recorded history of past runs in one table. The command waits on #3032 and #3199.
+
+### Acceptance criteria
+
+### Requirement: Live trace and recorded history
+`devops roadmap follow <issue>` SHALL print the live trace of a running runner Job and the recorded history of past runs.
+
+#### Scenario: A running Job and a finished run
+- **WHEN** A test runs `follow` for an item whose runner Job is running, then for an item whose run has finished, with a fake Kubernetes client and a fake roadmap store.
+- **THEN** The first output holds the live steps, tool calls, check results and attempts, and the second output holds one row for each recorded run.
+
+### Requirement: GitHub request budget
+The command MUST send one GitHub request, which reads the issue body, and MUST send no other GitHub request.
+
+#### Scenario: The live trace reads the pod log
+- **WHEN** A test runs `follow` while the runner Job runs, with a counting fake GitHub client.
+- **THEN** The run sends one request, which reads the issue body, and reads the live trace through the Kubernetes client.
+
+### Requirement: Pod of the current run
+The command SHALL find the pod of the current run from `implement.job` in the job record.
+
+#### Scenario: A record names a runner Job
+- **WHEN** A test gives a job record whose `implement.job` names a Job that has one pod.
+- **THEN** The command reads the log of that pod and of no other pod.
+
+### Requirement: An item with no run
+The command SHALL state that an item with no recorded run has never run, and MUST send no Kubernetes request for it.
+
+#### Scenario: An item with no job record facts
+- **WHEN** A test runs `follow` for an item whose job record holds no `implement.job` and no run facts.
+- **THEN** The command prints one line that names the item as never run and makes no Kubernetes request.
+
+### Requirement: Pull request comment table shape
+The command SHALL print the trace and the history in the table shape of the pull request comment.
+
+#### Scenario: Header and column order
+- **WHEN** A test renders one trace and one history with the renderer that #3199 adds.
+- **THEN** The header line and the column order equal the ones of the pull request comment table.
+
+### Requirement: Secret masking
+The command MUST mask each value that the log masking rules mark as a secret.
+
+#### Scenario: A secret in the pod log
+- **WHEN** A test feeds a pod log line that holds a value of the masking rules.
+- **THEN** The output holds the masked value and not the secret.
+
+### Requirement: Links from inbox and explain
+`devops roadmap inbox` and `devops roadmap explain` SHALL print `devops roadmap follow <number>` for each item.
+
+#### Scenario: Inbox and explain output
+- **WHEN** A test runs `inbox` and `explain` on a fixture item.
+- **THEN** Each item line holds the follow command with that item's number.
+
+### Requirement: The documentation states the request limit
+The CLI reference SHALL state the number of GitHub requests that `follow` sends.
+
+#### Scenario: The docs check
+- **WHEN** A test runs `devops docs check`.
+- **THEN** The check passes and the `follow` entry states one GitHub request.
+
+### Requirement: The caller's access to the pod log
+The CLI reference SHALL state that `follow` uses the caller's kubeconfig and needs `get` and `list` on pods and `get` on `pods/log`.
+
+#### Scenario: The RBAC entry
+- **WHEN** A test reads the `follow` entry of the CLI reference.
+- **THEN** The entry names the kubeconfig and the three permissions.
+
+### Existing Tool Considered
+kubernetes-client/python (``https://github.com/kubernetes-client/python``), Apache-2.0, last activity 2026-11-04, maintained. It covers the live read of the Job pod log and the list of the pods of `implement.job`, and it sends no GitHub request for the live part. It lacks the read of the job record from the issue body and the history rows of past runs, the pull request comment table shape and column order, the masking of secrets with the runner's rules, the `follow` command, the links from `inbox` and `explain`, the no-run case and the request budget. The project builds those parts at about 6,000 tokens to build, 1,500 tokens for each later fix, and about 1 day.
+
+### Key questions
+- **What must land before `follow` can show the live trace and the history of past runs?**: Wait for #3032, which records the runs, and #3199, which defines the pull request comment table. The job record holds the trace of the last run only, and a finished pod lives 24 hours. A parser of the free pod log is no substitute. (best practice) [sources: src/devops_cli/roadmap/implement_trace.py, src/devops_cli/roadmap/implement_run.py, src/devops_cli/roadmap/store.py, docs/ROADMAP_WORKFLOW.md]
+  - Chosen: Wait for #3032 and #3199. They record the runs and fix the table shape, so one renderer serves the live output and the history.
+  - Rejected: Parse the free pod log now. Most lines are free notes, so a parser reads notes as steps, checks and attempts.
+  - Rejected: Add a separate history store now. It duplicates #3032 and adds a second source of run history.
+- **How does `follow` read the live log of the current runner Job?**: Use kubernetes-client/python through the existing cluster Job API. List the pod of `implement.job` and read its log. Read no GitHub data for the live part. (best practice) [sources: src/devops_cli/k8s/cluster_job_api.py, docs/ROADMAP_WORKFLOW.md]
+  - Chosen: kubernetes-client/python. It is open, maintained, and the repository already reads pod logs with it.
+  - Rejected: kubectl or stern. It adds a second process and a second log format.
+  - Rejected: A local trace file. The runner pod shares no local file with the workstation.
+- **Which access does `follow` use to read `pods/log`?**: Use the caller's kubeconfig. Document that the caller needs `get` and `list` on pods and `get` on `pods/log`. The role of `roadmap-service` grants no person's account. (best practice) [sources: k8s/devops/roadmap-service/role.yaml, docs/ROADMAP_WORKFLOW.md]
+  - Chosen: The caller's kubeconfig. The command runs on a workstation and must not need the Service account.
+  - Rejected: The roadmap-service token. A workstation command cannot use the Service account token.
+  - Rejected: No live log. The issue needs the live trace.
+- **How does `follow` mask secrets?**: Reuse `mask_secrets` from `security/sanitizer.py` on every line of the pod log and on every text of the job record. Add no second masker. (best practice) [sources: src/devops_cli/security/sanitizer.py, openspec/specs/roadmap-implement-step/spec.md]
+  - Chosen: Reuse `mask_secrets`. The runner already masks its log lines with this function.
+  - Rejected: A new masker. A second masker can miss a value that the runner masker catches.
+  - Rejected: No masking. The output would show a secret.
+- **What is the GitHub request budget of `follow`?**: One request reads the issue body. The live part reads the pod log and sends no GitHub request. (best practice) [sources: docs/adr/0001-github-is-the-roadmap-source.md, docs/ROADMAP_WORKFLOW.md]
+  - Chosen: One request for the issue body. The body holds the job record, the history and `implement.job`.
+  - Rejected: Two requests for the issue and its comments. The comments are not the history.
+  - Rejected: No request. The command cannot read the job record without a request.
+- **How does `follow` render the trace and the history?**: Reuse the pull request comment renderer and its column order after #3199 adds that table. Add no second table renderer. (best practice) [sources: src/devops_cli/roadmap/implement_trace.py, src/devops_cli/lang/en/messages.py]
+  - Chosen: Reuse the #3199 table renderer. The issue requires the same shape, and one renderer cannot drift from itself.
+  - Rejected: Copy the current bullet list. The issue requires a table, and no table exists.
+  - Rejected: Add a new table renderer now. It can drift from the #3199 table.
+- **Where do `inbox` and `explain` get the follow command text?**: Add one helper in `src/devops_cli/roadmap/` that formats `devops roadmap follow <number>`. `inbox` and `explain` call it, so each command prints the same text. (best practice) [sources: src/devops_cli/roadmap/inbox.py, src/devops_cli/roadmap/explain.py, src/devops_cli/commands/roadmap.py]
+  - Chosen: One helper. Each command prints the same text, and a change touches one place.
+  - Rejected: Inline text in each command. Two copies can drift.
+- **How does `follow` treat an item with no recorded run?**: Read the job record first. Print one line that names the item as never run, and make no Kubernetes request. (best practice) [sources: src/devops_cli/roadmap/store.py, docs/ROADMAP_WORKFLOW.md]
+  - Chosen: State never run and stop. No Job means no pod to read.
+  - Rejected: List every pod in namespace devops. It can name the pod of another item.
+  - Rejected: Fail with an error. The issue asks for a clear state.
+
+### Fit
+Fits in one pull request.
+
+### Suspected block
+None.
+
+### Dependencies
+#3032, #3199
+<!-- devops-roadmap-refine:end -->
+
+<!-- devops-roadmap-record {"Effort": "Medium", "Priority": "P2-Medium", "Status": "Ready", "Value": "Medium", "alternatives.body_hash": "bb10376b5a4dd25ca543cea1517d5bdac040485d781e352d295680d13125016c", "alternatives.checked_at": "2026-11-04T14:55:07.804669+00:00", "alternatives.failed_at": null, "alternatives.failed_error": null, "alternatives.tool": "https://github.com/kubernetes-client/python", "alternatives.verdict": "partly", "refine.alternatives_asked": null, "refine.block_paths": null, "refine.blocked_by": null, "refine.body_hash": "bb10376b5a4dd25ca543cea1517d5bdac040485d781e352d295680d13125016c", "refine.capped_after": "2026-11-06T05:51:15+00:00", "refine.failed_body_hash": null, "refine.needs_split": "false", "refine.next_step": "ready", "refine.returned_body_hash": null, "refine.section_hash": "6532e5164acba330ff47293f0c77b0dd3847483c48af289ec3c046cb8cac6f89", "stage.branch": null, "stage.failed_at": "2026-11-08T15:01:15.521252+00:00", "stage.failed_class": "plan_defect", "stage.failed_error": "RoadmapStageError", "stage.failed_step": "plan", "stage.file_cap": null, "stage.groups": null, "stage.needs_fix": null, "stage.needs_split": null, "stage.pr": null, "stage.ready": null, "stage.rejected": "{\"pull\":3205,\"text_hash\":\"bb10376b5a4dd25ca543cea1517d5bdac040485d781e352d295680d13125016c\",\"closed_at\":\"2026-11-02T20:23:23Z\",\"paths\":[\"0.47.0\",\"AGENTS.md\",\"commands/roadmap.py\",\"implement_shell_policy.py\",\"lang/en/messages.py\"]}", "stage.sha": null, "stage.text_hash": null} -->

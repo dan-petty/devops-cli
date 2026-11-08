@@ -3835,6 +3835,12 @@ class RoadmapMessages:
     stage_problem_constant_mismatch: str = (
         "{constant} is {staged} in the staged tree, but the plan says {plan}."
     )
+    stage_problem_trace_tool: str = (
+        "The Feasibility section names the tool `{tool}`, but the run did not call it."
+    )
+    stage_problem_trace_path: str = (
+        "The Feasibility section states that `{path}` was read, but the run did not read it."
+    )
     stage_path_same_name: str = "These files have the same name: {names}."
     stage_path_no_same_name: str = "No file has this name."
     stage_path_places: dict[str, str] = field(

@@ -17,6 +17,7 @@ from devops_cli.roadmap.stage.stage_overlap import Overlap
 if TYPE_CHECKING:
     from collections.abc import Callable, Collection, Mapping, Sequence
 
+    from devops_cli.roadmap.agent_run import TraceFacts
     from devops_cli.roadmap.stage.stage_paths import StagedTree
     from devops_cli.roadmap.stage.stage_registry import RegistryCount
 
@@ -75,6 +76,7 @@ def gate_arguments(
     references: Sequence[str] = (),
     models: Mapping[str, tuple[str, Sequence[str]]] | None = None,
     manifest_references: Mapping[str, Sequence[str]] | None = None,
+    trace: TraceFacts | None = None,
 ) -> dict[str, Any]:
     """The keyword arguments of `check_proposal` and `check_gates` after the proposal. The request
     gives the inputs that the item fixes; the other inputs depend on the commit and on the
@@ -95,4 +97,5 @@ def gate_arguments(
         "references": references,
         "models": models,
         "manifest_references": manifest_references,
+        "trace": trace,
     }
