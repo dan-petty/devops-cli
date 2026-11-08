@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.88.1](https://github.com/dan-petty/devops-cli/compare/v0.88.0...v0.88.1) (2026-11-08)
+
+
+### Bug Fixes
+
+* **roadmap:** fail a status read in its own row ([#4143](https://github.com/dan-petty/devops-cli/issues/4143)) ([7c6821e](https://github.com/dan-petty/devops-cli/commit/7c6821e6b74fd669ddb50a8065b1b485bb9e6811))
+* **roadmap:** post the alternatives comment only on a change ([#4139](https://github.com/dan-petty/devops-cli/issues/4139)) ([e99e92d](https://github.com/dan-petty/devops-cli/commit/e99e92daf39d343795c4f90e49565d4eda72b1bb))
+* **roadmap:** remove the orphan draft of a failed stage marks write ([#4142](https://github.com/dan-petty/devops-cli/issues/4142)) ([5f7ff52](https://github.com/dan-petty/devops-cli/commit/5f7ff524c7da58756181349504fd72cfbf7d26b3))
+* **service:** bound Service session answers and export queue ([#4140](https://github.com/dan-petty/devops-cli/issues/4140)) ([8620c7b](https://github.com/dan-petty/devops-cli/commit/8620c7b82f364c75b4e149b65ea2034ad1e2897f))
+
 ## [0.88.0](https://github.com/dan-petty/devops-cli/compare/v0.87.2...v0.88.0) (2026-11-08)
 
 
