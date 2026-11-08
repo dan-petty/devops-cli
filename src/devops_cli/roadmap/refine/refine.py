@@ -2948,13 +2948,15 @@ def _tell_outside_authors(store: RoadmapStore, plan: RefinePlan) -> int:
     return len(told)
 
 
-def _file_deferrals(store: RoadmapStore, refined: RefinedItem) -> tuple[int, ...] | None:
+def _file_deferrals(
+    store: RoadmapStore, refined: RefinedItem, *, repo: str
+) -> tuple[int, ...] | None:
     """File the deferred parts of `refined` through intake, and return the numbers of every part
     of the item, the recorded ones first. When a part is not filed, record the numbers that are,
     log a warning and return None, so the item keeps its body and its Status (#2423)."""
     numbers = _recorded_numbers(refined.item)
     for deferral in refined.deferred:
-        applied = apply_intake(store, deferral.plan)
+        applied = apply_intake(store, deferral.plan, repo=repo)
         (decision,) = deferral.plan.decisions
         number = applied.filed[0] if applied.filed else decision.subject.number
         if applied.failed or not applied.placed or number is None:
@@ -3007,7 +3009,7 @@ def _refine_marks(r: RefinedItem, deferred: Sequence[int]) -> JobRecord:
     return marks
 
 
-def _apply_refined(store: RoadmapStore, r: RefinedItem) -> RefineApplied:
+def _apply_refined(store: RoadmapStore, r: RefinedItem, *, repo: str) -> RefineApplied:
     """Write the result of one item: its body, marks, Status and comment, or only the record of
     an item too big to refine or whose job failed. The counts are zero for an item that refine
     leaves as it is."""
@@ -3021,7 +3023,7 @@ def _apply_refined(store: RoadmapStore, r: RefinedItem) -> RefineApplied:
 
     # The deferred parts are filed first: an item whose parts are not all filed is not set
     # Ready, and the next round files the rest (#2423)
-    deferred = _file_deferrals(store, r) if r.deferred else ()
+    deferred = _file_deferrals(store, r, repo=repo) if r.deferred else ()
     if deferred is None:
         return RefineApplied()
 
@@ -3055,11 +3057,13 @@ def _apply_refined(store: RoadmapStore, r: RefinedItem) -> RefineApplied:
     )
 
 
-def _apply_result(store: RoadmapStore, result: RefinedItem | RefineFailure) -> RefineApplied:
+def _apply_result(
+    store: RoadmapStore, result: RefinedItem | RefineFailure, *, repo: str
+) -> RefineApplied:
     """Write the result of one item: a refinement, or the record of a failure that the item's
     own text caused (#3631)."""
     if isinstance(result, RefinedItem):
-        return _apply_refined(store, result)
+        return _apply_refined(store, result, repo=repo)
     if not result.placeholder:
         _record_failure(store, result)
     return RefineApplied()
@@ -3080,9 +3084,9 @@ def apply_refine(store: RoadmapStore, plan: RefinePlan) -> RefineApplied:
     comment that the cap on refine's comments stopped."""
     applied = RefineApplied()
     for refined in plan.refined_items:
-        applied += _apply_result(store, refined)
+        applied += _apply_result(store, refined, repo=plan.repo)
     for failure in plan.failed_items:
-        applied += _apply_result(store, failure)
+        applied += _apply_result(store, failure, repo=plan.repo)
     return applied + RefineApplied(comments_posted=_apply_waiting(store, plan))
 
 
@@ -3120,7 +3124,7 @@ class RefineWriter:
         if isinstance(result, RefineFailure):
             self._failures.append(result)
         try:
-            applied = _apply_result(self._store, result)
+            applied = _apply_result(self._store, result, repo=self._repo)
         except GitHubUnauthenticatedError, ServiceStoppingError:
             raise
         except DevOpsCLIError as exc:

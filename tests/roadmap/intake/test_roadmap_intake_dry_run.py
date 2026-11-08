@@ -164,7 +164,7 @@ def test_a_dry_runs_requests_follow_the_order_a_run_makes_them(roadmap: Roadmap,
     store: Any = Recorded(roadmap.store, ran)
     model: Any = Recorded(FakeModel(proposals={title: REGRESSION}), ran)
     plan = plan_intake(store, repo=REPO, model=model, issues=issues, new=candidate)
-    apply_intake(store, plan)
+    apply_intake(store, plan, repo=REPO)
     planned = _operations(dry_run_intake(REPO, issues=issues, new=candidate))
     assert (plan.decisions[0].priority, _in_order(ran, planned)) == ("P0-Critical", True), (
         ran,

@@ -395,11 +395,27 @@ ROADMAP_STEP_SECONDS = Instrument(
     "s",
     "Seconds that one step of a roadmap job took, one sample for each call of the step, by repo, "
     "row, step and result: ok or error. The labels are those of devops_cli_roadmap_row_seconds "
-    "with a step, and the implement row sends its steps with the same labels (#4067). The stage "
-    "row sends select, plan, gate, review and apply. A refused reply adds a second plan sample "
-    "and a second gate sample, so a sample is one call and not one item. A gate that finds a "
-    "problem has the result ok. A job with no review model adds no review sample. One "
-    "repository adds at most 10 series for the stage row: 5 steps and 2 results",
+    "with a step. The stage row sends select, plan, gate, review and apply. The implement row "
+    "sends checks, publish and watch with the same labels (#4067): checks is one call of the "
+    "scoped checks with its fix rounds, publish is the push of the branch with the scoped checks "
+    "left out, and watch is one watch of the checks of the pull request, with the result error "
+    "when a check failed. The push of a stop is not timed. A refused reply adds a second plan "
+    "sample and a second gate sample, so a sample is one call and not one item. A gate that "
+    "finds a problem has the result ok. A job with no review model adds no review sample. One "
+    "repository adds at most 10 series for the stage row (5 steps and 2 results) and 6 series "
+    "for the implement row (3 steps and 2 results): 16 series. The histogram buckets add none",
+)
+ROADMAP_INTAKE_CANDIDATES_TOTAL = Instrument(
+    "devops_cli_roadmap_intake_candidates_total",
+    InstrumentKind.COUNTER,
+    "1",
+    "Candidates that an intake round decided, one count for each candidate, by repo and result: "
+    "placed, duplicate, skipped or failed. A candidate that is placed and that the model flags as "
+    "a possible duplicate counts as duplicate and not as placed: intake still places it. A "
+    "candidate whose item a person changed since the plan counts as skipped, and the next plan "
+    "decides it again. A candidate whose write failed counts as failed. A rate limit or an "
+    "authentication error ends the round, and the candidates after it count nothing. The round "
+    "sends 0 for the four results before its first candidate. One repository adds 4 series",
 )
 ROADMAP_STAGE_GATE_REFUSALS_TOTAL = Instrument(
     "devops_cli_roadmap_stage_gate_refusals_total",
@@ -645,6 +661,7 @@ INSTRUMENTS: tuple[Instrument, ...] = (
     ROADMAP_CLAIM_AGE,
     ROADMAP_ROW_SECONDS,
     ROADMAP_STEP_SECONDS,
+    ROADMAP_INTAKE_CANDIDATES_TOTAL,
     ROADMAP_STAGE_GATE_REFUSALS_TOTAL,
     EMBEDDING_CACHE_LOOKUPS_TOTAL,
     EMBEDDING_CACHE_SIZE,
@@ -777,6 +794,7 @@ __all__ = [
     "ROADMAP_ALTERNATIVES_TOTAL",
     "ROADMAP_ALTERNATIVES_UNCHECKED_ITEMS",
     "ROADMAP_CLAIM_AGE",
+    "ROADMAP_INTAKE_CANDIDATES_TOTAL",
     "ROADMAP_ITEM_AGE",
     "ROADMAP_OLDEST_ITEM",
     "ROADMAP_PAGE_FETCHES_TOTAL",

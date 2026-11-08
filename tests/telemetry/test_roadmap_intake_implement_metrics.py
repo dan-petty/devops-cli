@@ -80,8 +80,9 @@ Sample = tuple[dict[str, Any], int, float]
 
 
 def _outcomes(otlp: FakeCollector) -> dict[str, float]:
-    """The sum of the counter for each `result`, after a check that every point holds the labels
-    `repo` and `result` and no other, and that the repository is the one of the round."""
+    """The sum of the counter for each `result` that has a point, after a check that every point
+    holds the labels `repo` and `result` and no other, and that the repository is the one of the
+    round. A call of `apply_intake` sends the results it counts; the zeros come from the round."""
     points = otlp.points(INTAKE_CANDIDATES)
     assert {tuple(sorted(attrs)) for attrs, _ in points} <= {("repo", "result")}
     assert {attrs["repo"] for attrs, _ in points} <= {REPO}
@@ -140,7 +141,7 @@ def test_intake_outcome_a_possible_duplicate_is_placed_and_counts_once_as_duplic
         "New",
         True,
     )
-    assert _outcomes(otlp) == {"placed": 0.0, "duplicate": 1.0, "skipped": 0.0, "failed": 0.0}
+    assert _outcomes(otlp) == {"duplicate": 1.0}
 
 
 def test_intake_outcome_an_item_a_person_changed_counts_as_skipped_and_not_as_failed(
@@ -160,7 +161,7 @@ def test_intake_outcome_an_item_a_person_changed_counts_as_skipped_and_not_as_fa
     applied = apply_intake(roadmap.store, plan, repo=REPO)
 
     assert (applied.placed, applied.failed, roadmap.fields(first)[0]) == (1, (), "New")
-    assert _outcomes(otlp) == {"placed": 1.0, "duplicate": 0.0, "skipped": 1.0, "failed": 0.0}
+    assert _outcomes(otlp) == {"placed": 1.0, "skipped": 1.0}
 
 
 def test_intake_outcome_a_rate_limit_ends_the_round_and_counts_the_candidates_that_were_written(
@@ -179,7 +180,7 @@ def test_intake_outcome_a_rate_limit_ends_the_round_and_counts_the_candidates_th
     with pytest.raises(GitHubRateLimitError, match="No requests are left"):
         apply_intake(roadmap.store, plan, repo=REPO)
 
-    assert _outcomes(otlp) == {"placed": 1.0, "duplicate": 0.0, "skipped": 0.0, "failed": 0.0}
+    assert _outcomes(otlp) == {"placed": 1.0}
 
 
 def test_intake_outcome_the_failed_count_matches_the_failed_placements_of_the_error(
@@ -195,7 +196,7 @@ def test_intake_outcome_the_failed_count_matches_the_failed_placements_of_the_er
     with pytest.raises(RoadmapIntakeError) as raised:
         raise_for_failed_placements(applied)
 
-    assert raised.value.failed_items == [failing]
+    assert list(raised.value.failed_items) == [failing]
     assert _outcomes(otlp)["failed"] == float(len(applied.failed))
 
 

@@ -62,7 +62,7 @@ def test_an_injected_candidate_writes_only_its_own_fields_label_and_comment(
     plan = roadmap.plan(model)
     report = " ".join(render_intake(plan, repo=REPO).split())
     before = len(roadmap.store.job_writes())
-    apply_intake(roadmap.store, plan)
+    apply_intake(roadmap.store, plan, repo=REPO)
     writes = roadmap.store.job_writes()[before:]
     allowed = {"label_issue", "set_field", "comment"}
     (comment,) = roadmap.comments(number)

@@ -210,7 +210,7 @@ def test_a_related_item_the_model_names_is_reported_and_linked_from_the_reason_c
     answer = {"related_to": umbrella, "related_reason": "it is the umbrella item."}
     model = FakeModel(proposals={"perf(tests): the invariant tests share one parse": answer})
     plan = roadmap.plan(model)
-    apply_intake(roadmap.store, plan)
+    apply_intake(roadmap.store, plan, repo=REPO)
     related = f"#{umbrella}, which asks for a different change. `it is the umbrella item.`"
     (comment,) = roadmap.comments(number)
     assert (
@@ -303,7 +303,7 @@ def test_candidate_matching_only_done_item_is_filed_with_reference_in_body(
     plan = plan_intake(roadmap.store, repo=REPO, model=model, new=candidate)
     (decision,) = plan.decisions
     assert decision.outcome is Outcome.PLACE
-    applied = apply_intake(roadmap.store, plan)
+    applied = apply_intake(roadmap.store, plan, repo=REPO)
     (filed_number,) = applied.filed
     filed_issue = next(i for i in roadmap.store.issues() if i.number == filed_number)
     assert (f"regression of #{done}" in filed_issue.body, "shipped in" in filed_issue.body) == (
@@ -329,7 +329,7 @@ def test_candidate_matching_open_item_is_filed_as_its_possible_duplicate(roadmap
     )
     plan = plan_intake(roadmap.store, repo=REPO, model=model, new=candidate)
     (decision,) = plan.decisions
-    applied = apply_intake(roadmap.store, plan)
+    applied = apply_intake(roadmap.store, plan, repo=REPO)
     assert (decision.outcome, decision.possible_duplicate, len(applied.filed)) == (
         Outcome.PLACE,
         open_item,
@@ -355,7 +355,7 @@ def test_candidate_matching_item_closed_as_not_planned_is_filed_as_its_possible_
     )
     plan = plan_intake(roadmap.store, repo=REPO, model=model, new=candidate)
     (decision,) = plan.decisions
-    applied = apply_intake(roadmap.store, plan)
+    applied = apply_intake(roadmap.store, plan, repo=REPO)
     assert (decision.outcome, decision.possible_duplicate, len(applied.filed)) == (
         Outcome.PLACE,
         not_planned,
