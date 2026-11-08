@@ -489,6 +489,8 @@ class _ItemRun:
     pull: int | None = field(init=False)
     last_comment_mark: _Mark = field(default=_NOTHING_YET, init=False)
     returned: bool = False
+    checkpoints_off: bool = False
+    passed: bool = False
     # The last `wip:` commit of the group that runs (#3054), or None.
     wip: WipCommit | None = None
     # The time at which the run of the item began, for the time limit of the item (#3053).
@@ -633,6 +635,8 @@ class _ItemRun:
         }
         if self.pull is not None:
             marks[ImplementRecordKey.PR] = str(self.pull)
+        if not self.target.item.job_record.get(ImplementRecordKey.BASE):
+            marks[ImplementRecordKey.BASE] = self._base()
         if self.target.retry:
             marks[ImplementRecordKey.STOPPED] = None
             marks[ImplementRecordKey.FAILURE] = None
@@ -644,6 +648,13 @@ class _ItemRun:
         )
         self._sync(push_on_conflict=False)
         self._install_hooks()
+
+    def _base(self) -> str:
+        if self.target.pull is None and not self._git(
+            "ls-remote", "--heads", "origin", self.branch
+        ):
+            return "new"
+        return self._git("rev-parse", f"origin/{self.branch}")
 
     def _hooks_config(self) -> Path | None:
         """The configuration of the hooks as the default branch has it, or None when it has none.
@@ -738,6 +749,7 @@ class _ItemRun:
 
     def _return_to_new(self, template: str, evidence: str) -> None:
         """Return the item to New with a comment of `template`, and clear the record of the run."""
+        self._withdraw()
         evidence = mask_secrets(evidence.strip())[:CONST_ROADMAP_IMPLEMENT_REASON_CHARS]
         comment = template.format(marker=CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER, evidence=evidence)
         apply_return(self.store, plan_return(self.store, self.number, comment, self.repo))
@@ -749,6 +761,7 @@ class _ItemRun:
                 ImplementRecordKey.WIP: None,
                 ImplementRecordKey.BRANCH: None,
                 ImplementRecordKey.PR: None,
+                ImplementRecordKey.BASE: None,
             },
         )
         self.returned = True
@@ -970,6 +983,7 @@ class _ItemRun:
             )
             if self._check_premise(group):
                 return
+            self._checkpoint()
             try:
                 outcome = run_step(
                     self.store,
@@ -1006,6 +1020,41 @@ class _ItemRun:
                 sha=outcome.commit,
                 repair_rounds=sum(o.repair_rounds for o in self.outcomes),
             )
+            self.passed = True
+
+    def _checkpoint(self) -> None:
+        """Push the groups that passed in this run, so that a killed runner loses none (#3677).
+        A failed push goes to the log, and the run makes no more checkpoint pushes."""
+        if self.checkpoints_off or not self.passed:
+            return
+        if failed := self._push_passed():
+            self.checkpoints_off = True
+            print_muted(failed.strip(), to_stderr=True, safe=True)
+
+    def _withdraw(self) -> None:
+        """Take the groups that the checkpoints pushed off the item branch, before a return to New
+        (#3677). A Staged item gets the tip of `implement.base` back; a Planned item loses its
+        branch and its draft. Both pushes carry a lease on the tip that the job saw, so a push of a
+        person stays. A push that fails stops the item as Blocked and returns nothing."""
+        base = self._fresh().job_record.get(ImplementRecordKey.BASE)
+        if not base:
+            return
+        try:
+            if base == "new" and not self._git("ls-remote", "--heads", "origin", self.branch):
+                return
+            tip = self._git("rev-parse", f"origin/{self.branch}")
+            lease = f"--force-with-lease={self.branch}:{tip}"
+            if base == "new":
+                self._git("push", lease, "origin", "--delete", self.branch)
+                if self.pull is not None:
+                    get_github_session().client.close_pull(self.repo, self.pull)
+            elif tip != base:
+                self._git("push", lease, "origin", f"{base}:refs/heads/{self.branch}")
+        except (GitOperationError, DevOpsCLIError) as exc:
+            reason = MESSAGES.roadmap.implement_stop_withdraw_failed.format(
+                branch=self.branch, output=mask_secrets(str(exc))
+            )
+            raise _StopError(self.step, reason, push=False) from exc
 
     def _keep(self, commit: WipCommit) -> None:
         """Take note of a `wip:` commit of the step (#3054). When tasks are left, push it and
@@ -1475,6 +1524,7 @@ class _ItemRun:
             ImplementRecordKey.SPEND: self._spend(),
             ImplementRecordKey.TRACE: self.trace.encode(),
             ImplementRecordKey.REPAIR_ROUNDS: sum(o.repair_rounds for o in self.outcomes),
+            ImplementRecordKey.BASE: None,
         }
         self.store.set_field(
             self._fresh(), ItemField.STATUS, CONST_ROADMAP_STATUS_IN_REVIEW, marks=marks
