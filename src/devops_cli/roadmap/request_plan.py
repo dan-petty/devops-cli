@@ -518,7 +518,7 @@ def alternatives_requests(
     writes = within(
         [
             *store.set_marks(subject),
-            *store.comment(subject),
+            *within(store.comment(subject), cond["check_changed"]),
         ],
         cond["check_on"],
         each_item,

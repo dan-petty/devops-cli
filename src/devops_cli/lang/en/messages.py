@@ -4235,6 +4235,10 @@ class RoadmapMessages:
             "posted": "the change posts a comment",
             "job_drafts": "the pull request is an open draft of a job",
             "check_on": "the repository is public and a search provider is configured",
+            "check_changed": (
+                "the check is the first one of the item, or its verdict or its tool differs "
+                "from the record of the earlier check"
+            ),
             "adr_read": "the run checks an item that is no skip class",
             "issues_unread": "the run has not read every issue yet",
             "labels_differ": "the labels of the repository differ from .github/labels.yml",

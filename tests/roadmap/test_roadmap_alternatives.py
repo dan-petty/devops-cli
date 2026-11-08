@@ -157,6 +157,19 @@ def _mark_checked(
     )
 
 
+def _rechecked(store: InMemoryRoadmapStore, numbers: list[int]) -> list[int]:
+    """The items among `numbers` that a check wrote since the mark of `_mark_checked(days=40)`. A
+    recheck with the same result posts no comment (#4054), so the record shows it, not a comment."""
+    rechecked = []
+    for number in numbers:
+        item = store.item(number)
+        assert item is not None
+        checked_at = item.job_record.get(AlternativesRecordKey.CHECKED_AT)
+        if checked_at and datetime.fromisoformat(checked_at) > _days_ago(1):
+            rechecked.append(number)
+    return rechecked
+
+
 def _mark_failed(
     store: InMemoryRoadmapStore, number: int, *, days: int, error: str = "AIClientError"
 ) -> None:
@@ -2624,7 +2637,7 @@ def test_the_row_checks_at_most_the_limit_of_the_setting_and_the_command_uses_it
     assert (
         [c.item.number for c in planned.checks],
         [c.item.number for c in explicit.checks],
-        [n for n in numbers if store.comments_on(n)],
+        _rechecked(store, numbers),
     ) == (numbers[:2], numbers[:3], numbers[:2])
 
 
@@ -2685,7 +2698,7 @@ def test_the_row_checks_the_limit_when_every_item_has_a_check(
 
     _alternatives_row().runner(store=store, repo=REPO)
 
-    assert len([n for n in numbers if store.comments_on(n)]) == 5
+    assert len(_rechecked(store, numbers)) == 5
 
 
 def test_an_explicit_limit_replaces_the_first_pass_limit(
@@ -2823,7 +2836,7 @@ def test_the_commands_limit_option_has_no_default_of_its_own(
 
     result = CliRunner().invoke(roadmap_app, ["alternatives", "--repo", REPO, "--confirm"])
 
-    assert (result.exit_code, [n for n in numbers if roadmap_store.comments_on(n)]) == (
+    assert (result.exit_code, _rechecked(roadmap_store, numbers)) == (
         0,
         numbers[:1],
     )
