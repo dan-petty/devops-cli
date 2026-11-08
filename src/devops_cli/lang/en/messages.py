@@ -3007,6 +3007,9 @@ class RoadmapMessages:
     implement_stop_merged: str = "The pull request was merged or closed while the job ran."
     implement_stop_ready_failed: str = "`gh pr ready` failed.\n{output}"
     implement_stop_error: str = "{error}: {message}"
+    implement_stop_withdraw_failed: str = (
+        "The job could not withdraw the pushed groups of the branch `{branch}`: {output}"
+    )
     implement_stop_push_failed: str = "\nThe push of the commits that passed failed too.\n{output}"
     implement_comment_stopped: str = (
         "{marker}\nStopped at {step}.\n\n{check}{failure}\n\n{table}\n\nReason:\n\n{reason}\n\n"

@@ -173,7 +173,8 @@ def test_the_scoped_checks_run_in_the_worktree_after_the_last_commit_and_before_
 
     commands = _commands(job_world)
     rebase = max(i for i, text in enumerate(commands) if " rebase " in f" {text} ")
-    push = next(i for i, text in enumerate(commands) if " push " in f" {text} ")
+    # The checkpoint of group 1 comes before the scoped checks (#3677). The last push is the final one.
+    push = max(i for i, text in enumerate(commands) if " push " in f" {text} ")
     order = [_position(job_world, PRE_PUSH), _position(job_world, STATIC)]
     order.append(max(i for i, text in enumerate(commands) if text.startswith(TESTS)))
     assert rebase < order[0] < order[1] < order[2] < push
@@ -192,7 +193,7 @@ def test_the_tests_get_the_test_modules_that_cover_the_changed_sources(
     assert not any("src/" in text for text in _commands(job_world) if "ci test" in text)
 
 
-def test_an_ast_grep_violation_is_repaired_before_the_first_push(job_world: JobWorld) -> None:
+def test_an_ast_grep_violation_is_repaired_before_the_final_push(job_world: JobWorld) -> None:
     _fails_until(job_world, STATIC, RULE, times=1)
     script = two_groups(*_fix(1))
 
@@ -203,7 +204,9 @@ def test_an_ast_grep_violation_is_repaired_before_the_first_push(job_world: JobW
         "docs(openspec): archive the change (#1)",
         "fix(roadmap): Make check static pass (#1)",
     ]
-    assert len(_git_push(job_world)) == 1
+    assert (
+        len(_git_push(job_world)) == 2
+    )  # the checkpoint of group 1, then the push of the end or the stop
     assert _count(job_world, STATIC) == 2
     fix_prompt = next(str(getattr(p, "content", "")) for p in script.seen[4][-1].parts)
     assert "ast-grep scan....Failed" in fix_prompt
@@ -235,7 +238,9 @@ def test_a_check_that_no_fix_repairs_stops_the_item_and_keeps_the_work_of_both_g
         "scoped checks",
     )
     _assert_kept(job_world)
-    assert len(_git_push(job_world)) == 1
+    assert (
+        len(_git_push(job_world)) == 2
+    )  # the checkpoint of group 1, then the push of the end or the stop
     assert _count(job_world, PRE_PUSH) == 4
     assert any("ruff-check....Failed" in c for c in job_world.issue_comments())
     assert job_world.pull.ready_calls == []
@@ -281,7 +286,9 @@ def test_a_fix_step_that_stops_in_the_scoped_checks_keeps_the_work_of_both_group
         "fix",
     )
     _assert_kept(job_world)
-    assert len(_git_push(job_world)) == 1
+    assert (
+        len(_git_push(job_world)) == 2
+    )  # the checkpoint of group 1, then the push of the end or the stop
 
 
 def test_a_fix_step_that_spends_a_budget_keeps_the_work_and_names_the_action_left(

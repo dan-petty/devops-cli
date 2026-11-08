@@ -237,6 +237,12 @@ def staged_tasks() -> str:
 
 
 @pytest.fixture
+def planned_tasks() -> str:
+    """The `tasks.md` that `main` holds for a Planned item. A test module overrides it."""
+    return TASKS
+
+
+@pytest.fixture
 def staged_files() -> dict[str, str]:
     """The files that the staged branch adds besides its change folder. A test module overrides it."""
     return {}
@@ -623,6 +629,7 @@ def job_world(
 def planned_world(
     stage_repo: StageRepo,
     app_slug: None,
+    planned_tasks: str,
     github_api_and_gh: tuple[GitHubApiFake, ProcessFake],
     config: Callable[..., Path],
     clock: ClockFake,
@@ -631,7 +638,7 @@ def planned_world(
 ) -> JobWorld:
     """The job in a runner with a Planned item: the change is on `main`, and no branch and no
     pull request exist."""
-    merge_plan(stage_repo)
+    merge_plan(stage_repo, tasks=planned_tasks)
     return _world(
         stage_repo, github_api_and_gh, config, clock, roadmap_store, monkeypatch, planned=True
     )

@@ -263,7 +263,10 @@ class ImplementRecordKey(StrEnum):
     (#3481); a clear of a stop does not remove them. The Service also keeps the count of the Jobs
     that it started to continue a run that ended without a result (#3721). `implement.wip` holds
     the work in progress that a step kept (#3054): its group, the tasks done, the tasks of the
-    group and the last commit, as JSON. The job removes it when the group passes."""
+    group and the last commit, as JSON. The job removes it when the group passes. `implement.base`
+    holds where the item branch stood before the job pushed a checkpoint (#3677): the sha of the
+    branch for a Staged item, `new` for a Planned item. The job writes it once, and clears it at
+    ready and at a return to New."""
 
     GROUP = "implement.group"
     SHA = "implement.sha"
@@ -275,6 +278,7 @@ class ImplementRecordKey(StrEnum):
     CHECK_LOG = "implement.check_log"
     CONFLICT = "implement.conflict"
     WIP = "implement.wip"
+    BASE = "implement.base"
     SPEND = "implement.spend"
     TRACE = "implement.trace"
     JOB = "implement.job"

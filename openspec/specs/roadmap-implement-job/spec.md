@@ -228,7 +228,7 @@ The job SHALL cut the reason of a stop to `CONST_ROADMAP_IMPLEMENT_REASON_CHARS`
 - **THEN** the comment holds the first `CONST_ROADMAP_IMPLEMENT_REASON_CHARS` characters of the reason
 
 ### Requirement: The job record
-The job SHALL keep `implement.group` (the last group that passed), `implement.sha` (the commit it ended on), `implement.branch` (the branch of the pull request), `implement.pr` (the pull request), `implement.stopped`, `implement.spend` and `implement.trace` in the job record of the item. The spend SHALL be the requests, input tokens and output tokens of every step the job ran.
+The job SHALL keep `implement.group` (the last group that passed), `implement.sha` (the commit it ended on), `implement.branch` (the branch of the pull request), `implement.pr` (the pull request), `implement.base`, `implement.stopped`, `implement.spend` and `implement.trace` in the job record of the item. The spend SHALL be the requests, input tokens and output tokens of every step the job ran.
 
 #### Scenario: Spend
 - **WHEN** two steps used 3 and 4 requests
@@ -241,6 +241,17 @@ The job SHALL keep `implement.group` (the last group that passed), `implement.sh
 #### Scenario: The trace
 - **WHEN** the job takes an item to a ready pull request
 - **THEN** the record holds `implement.trace` with the events of the steps, the scoped checks and the commands of the job
+
+### Requirement: The job record keeps the base that a withdraw restores
+The job SHALL write `implement.base` once, in the write that sets the Status In Progress, and keep an existing value. The value SHALL be the sha of `origin/<branch>` for a Staged item and `new` for a Planned item. The job SHALL clear `implement.base` when it marks the pull request ready and when it returns the item to New.
+
+#### Scenario: The base of a Staged item and of a Planned item
+- **WHEN** the job starts a Staged item and a Planned item
+- **THEN** the record of the Staged item holds the sha of its branch on `origin`, and the record of the Planned item holds `new`
+
+#### Scenario: The base is kept by a second Job and cleared at ready
+- **WHEN** a first Job is killed after two groups, a second Job takes the item, and the second Job marks the pull request ready
+- **THEN** the second Job sees the base of the first Job, and the record holds no `implement.base` after the ready mark
 
 ### Requirement: A dry run makes no request
 `--dry-run` SHALL make no request, SHALL return the plan type marked as a dry run, and SHALL list the reads and the writes of a run in order.
@@ -609,7 +620,7 @@ Before the first step of an item, the job SHALL run `pre-commit install-hooks` i
 - **THEN** no step runs, no model request is made, the item is stopped with the step `hooks`, and the reason holds the output
 
 ### Requirement: The job runs the scoped checks before it pushes
-After the final rebase and before the push, the job SHALL run, in this order, the `pre-push` stage of the hooks over the commits past the default branch, `devops ci --check --only constructs,docs,openspec`, and `devops ci test` with test modules. It SHALL run each outside the agent shell and without a GitHub token. The job SHALL push a finished item only after all of them pass.
+After the final rebase and before the push, the job SHALL run, in this order, the `pre-push` stage of the hooks over the commits past the default branch, `devops ci --check --only constructs,docs,openspec`, and `devops ci test` with test modules. It SHALL run each outside the agent shell and without a GitHub token. The job SHALL push a finished item only after all of them pass, except for a checkpoint.
 
 #### Scenario: All checks pass
 - **WHEN** an item changes `src/devops_cli/shout.py`, a test module imports it, and every scoped check exits 0
@@ -622,6 +633,10 @@ After the final rebase and before the push, the job SHALL run, in this order, th
 #### Scenario: The pre-push stage runs
 - **WHEN** the job runs the scoped checks
 - **THEN** one call is `pre-commit run --hook-stage pre-push --from-ref origin/main --to-ref HEAD` in the worktree
+
+#### Scenario: A checkpoint comes before the scoped checks
+- **WHEN** group 1 of two groups passes its step, and the job reaches the boundary of group 2
+- **THEN** `origin` holds the commit of group 1 before any scoped check runs, and the final push still follows only after the scoped checks pass
 
 ### Requirement: The scoped tests check stays small
 The test modules of the scoped tests check SHALL be those that the selector of `devops ci test` picks for the changed Python files of `src/` and `tests/`. The job SHALL run no test command when no test covers the change. It SHALL run only the changed test modules when the selection holds more than `CONST_ROADMAP_IMPLEMENT_SCOPED_TEST_MODULES` modules. The comment on the pull request SHALL say so.
@@ -972,19 +987,38 @@ The comment of the job on the pull request SHALL show one line for each applied 
 - **THEN** the pull request gets a comment with the line of the amendment
 
 ### Requirement: A false premise returns the item to New
-When a step stops with a `premise` request whose evidence is not empty, the job SHALL return the item to New through `apply_return`, with a comment that holds the evidence masked and cut. It SHALL push nothing, SHALL remove its worktree, and SHALL clear `implement.group`, `implement.sha`, `implement.branch` and `implement.pr`. It SHALL NOT set `implement.stopped`.
+When a step stops with a `premise` request whose evidence is not empty, the job SHALL return the item to New through `apply_return`, with a comment that holds the evidence masked and cut. Before it returns the item, it SHALL withdraw the checkpoints that it pushed, as the requirement on the withdraw says. A return SHALL remove the worktree and SHALL clear `implement.group`, `implement.sha`, `implement.branch`, `implement.pr` and `implement.base`. It SHALL NOT set `implement.stopped`.
 
 #### Scenario: A false premise on a Planned item
 - **WHEN** the first step of a Planned item ends with a `premise` request and evidence
 - **THEN** the Status is New, the comment holds the evidence, `origin` has no branch for the item, no worktree is left, and the record has no `implement.stopped`
 
+#### Scenario: A false premise on a Planned item after a checkpoint
+- **WHEN** groups 1 and 2 of a Planned item passed, the checkpoints opened one draft pull request, and the step of group 3 ends with a `premise` request and evidence
+- **THEN** the Status is New, `origin` has no branch for the item, the draft pull request is closed, and the record holds no `implement.base`
+
 #### Scenario: A false premise on a Staged item
 - **WHEN** the step of group 2 of a Staged item ends with a `premise` request, and group 1 passed in this run
-- **THEN** the Status is New, `origin` holds the staged branch at the commit it had before the run, and `implement.group` is cleared
+- **THEN** the Status is New, `origin` holds the staged branch at the commit it had before the run, and `implement.group` and `implement.base` are cleared
 
 #### Scenario: A premise request with no evidence
 - **WHEN** the `premise` request has an empty `evidence`
 - **THEN** the item is stopped as a question and its Status is Blocked
+
+### Requirement: A return withdraws the checkpoints first
+Before the job returns an item to New, it SHALL withdraw the checkpoints that it pushed. For a Staged item, the withdraw SHALL push the sha of `implement.base` back to the item branch with a lease on the last tip that the job pushed. For a Planned item, the withdraw SHALL delete the item branch with the same lease and close the recorded draft pull request, and SHALL do nothing when `origin` holds no item branch. A withdraw that fails SHALL stop the item as Blocked and SHALL NOT return it.
+
+#### Scenario: A person pushed after the last checkpoint
+- **WHEN** a person pushes to the item branch after a checkpoint, and a `premise` request with evidence follows
+- **THEN** the lease of the withdraw fails, the item is Blocked and is not returned, and the push of the person stays on the branch
+
+#### Scenario: A withdraw that fails
+- **WHEN** the push of the withdraw fails with an error that is not a failed lease
+- **THEN** the item is Blocked and is not returned, and `origin` keeps the checkpoints
+
+#### Scenario: A withdraw after a refused draft
+- **WHEN** GitHub refused the draft of a Planned item at its first checkpoint, and a `premise` request with evidence follows
+- **THEN** the withdraw finds no branch on `origin` and does nothing, and the Status is New
 
 ### Requirement: A group over the limit of the step is split once for each item
 When the inputs of a group measure more than the limit of the step, the job SHALL ask the split step of the stage job for the groups that replace it, once for each item. It SHALL write them in place of the group, number the later groups after them, give the lines of `## Criteria` the new numbers with the same criterion text, add an amendment bullet, commit, and run the new groups. A new group over the limit, or a second group over the limit in the same item, SHALL stop the item.
@@ -1115,7 +1149,7 @@ The comment of the job on the pull request SHALL name each step that the job ski
 - **THEN** the comment names no skipped step
 
 ### Requirement: The job pushes the work in progress of a step
-After each `wip:` commit of a step that leaves a task of the group unticked, the job SHALL push the item branch to `origin` with the push of a stop (a push with a lease, or the publish of a Planned item). A `wip:` commit that ticks the last task SHALL wait for the push of the stop or of the end of the run. A push that fails SHALL NOT stop the step.
+After each `wip:` commit of a step that leaves a task of the group unticked, the job SHALL push the item branch to `origin` with the push of a stop (a push with a lease, or the publish of a Planned item). A `wip:` commit that ticks the last task SHALL wait for the next checkpoint, the push of the stop or the push of the end of the run. A push that fails SHALL NOT stop the step.
 
 #### Scenario: A step is killed after three of five tasks
 - **WHEN** a step ticks three of five tasks in three separate tool calls, each verification passes, and the model then fails
@@ -1430,6 +1464,10 @@ Before the job runs a behavior group, the job SHALL check each guard or check id
 - **WHEN** A group whose kind is not behavior has a task that says to add the name `_delivery_title`, which the branch tip defines
 - **THEN** The job returns no item to New and runs the group.
 
+#### Scenario: The guard premise fails after a checkpoint
+- **WHEN** groups 1 and 2 passed and were pushed as checkpoints, and a behavior group 3 adds a guard that the branch tip defines
+- **THEN** the job runs no step for group 3, withdraws the checkpoints as for a `premise` request, and returns the item to New
+
 ### Requirement: One shared definition lookup reports a definition at a commit
 The stage job and the implement job SHALL use the definition lookup of `src/devops_cli/roadmap/premise.py`: `definition_lines` returns the lines that define an identifier at a commit, and `defines` reports whether that list is not empty.
 
@@ -1562,3 +1600,40 @@ The roadmap Service SHALL record the integer repair-round count of each implemen
 #### Scenario: A step with repair rounds is recorded
 - **WHEN** An implement step ends with two repair rounds.
 - **THEN** The item job record holds the integer `2` for the step's repair-round count.
+
+### Requirement: The job checkpoints each passed group on the item branch
+At each group boundary, after the claim check and the premise check and before the step of the group, the job SHALL push the item branch with the push of a stop (a push with a lease, or the publish of a Planned item), when a group passed in this run. The end boundary SHALL push nothing: only the final push, which follows the scoped checks, pushes after the last group.
+
+#### Scenario: A runner is killed after two of four groups
+- **WHEN** an item has four groups of one task each, and the runner is killed in group 3
+- **THEN** `origin` holds the item branch with the commits of groups 1 and 2
+
+#### Scenario: A second Job runs only the groups that are left
+- **WHEN** a first Job is killed after two of four groups, and a second Job takes the item
+- **THEN** the second Job runs groups 3 and 4 only, and the item reaches ready
+
+#### Scenario: The first boundary pushes nothing
+- **WHEN** the job reaches the boundary of group 1
+- **THEN** the job makes no checkpoint push
+
+#### Scenario: The end boundary pushes nothing
+- **WHEN** all four groups pass
+- **THEN** the job made one push at each of the boundaries of groups 2, 3 and 4, and one final push, and no push at the end boundary
+
+### Requirement: A Planned item gets its draft at the first checkpoint
+The first checkpoint of a Planned item SHALL publish the branch and open the draft pull request. A later Job SHALL take the branch as a Staged item. GitHub SHALL be asked for the draft once when it refuses it, and the run SHALL make no more checkpoint pushes after the refusal.
+
+#### Scenario: A Planned item is killed after two of four groups
+- **WHEN** a Planned item has four groups of one task each, and the runner is killed in group 3
+- **THEN** `origin` holds the item branch with the commits of groups 1 and 2, and GitHub received one request to open a draft pull request
+
+#### Scenario: GitHub refuses the draft
+- **WHEN** GitHub refuses the draft at the first checkpoint of a Planned item
+- **THEN** the job asked for the draft once, `origin` holds no item branch, the run makes no more checkpoint pushes, and the final push stops the item as it does without a checkpoint
+
+### Requirement: A failed checkpoint does not stop the run
+A checkpoint push that fails SHALL NOT stop the run. The job SHALL log the failure, SHALL make no more checkpoint pushes in the run, and SHALL still make the final push.
+
+#### Scenario: A checkpoint push fails
+- **WHEN** the push at the boundary of group 2 fails
+- **THEN** the run goes on, makes no checkpoint push at the boundaries of groups 3 and 4, and makes the final push
