@@ -182,6 +182,46 @@ Every new test follows these rules. Some of them name a path, fixture or check t
 - The coverage floor is 85% of the lines and branches of `src/` (`fail_under` in `pyproject.toml`). The aggregate CI job keeps `.data/coverage.xml` as an artifact for 7 days. A pull request must also cover 90% of its changed lines: the `Changed-Line Coverage` step of `ci.yml` fails below that.
 - A line that no public behaviour reaches is dead code. It is deleted, not covered by a test that reaches past the public interface.
 
+### Coverage cost
+
+- The test suite measures coverage cost across four gate configurations: `no coverage` (pytest with `--durations=10`), line coverage (`--cov=src --cov-report=`), line and branch coverage (`--cov=src --cov-report= --cov-branch`), and line coverage with the legacy C tracer (`--cov=src --cov-report=` with `COVERAGE_CORE=ctrace`).
+- Measurements run on shard 1 of 4 (263 test files, 5,126 tests) pinned to 4 CPUs (`taskset -c 0-3`) on 4 parallel workers (`-n 4`) with no idle-host gate. Three interleaved rounds record CPU time (user and system seconds), wall time, and system load before each run.
+
+| Round | Configuration | CPU (s) | Wall (s) | Load |
+| :--- | :--- | :--- | :--- | :--- |
+| 1 | `no coverage` | 877.4 | 255.4 | 7.28 |
+| 1 | `--cov=src --cov-report=` | 1734.4 | 551.6 | 10.21 |
+| 1 | `--cov=src --cov-report= --cov-branch` | 1812.5 | 574.8 | 10.45 |
+| 1 | `COVERAGE_CORE=ctrace` | 2195.4 | 685.3 | 9.50 |
+| 2 | `no coverage` | 881.2 | 258.1 | 8.14 |
+| 2 | `--cov=src --cov-report=` | 1729.8 | 548.3 | 11.05 |
+| 2 | `--cov=src --cov-report= --cov-branch` | 1805.3 | 571.2 | 9.92 |
+| 2 | `COVERAGE_CORE=ctrace` | 2188.7 | 681.9 | 10.30 |
+| 3 | `no coverage` | 875.9 | 254.7 | 9.05 |
+| 3 | `--cov=src --cov-report=` | 1738.1 | 554.0 | 9.87 |
+| 3 | `--cov=src --cov-report= --cov-branch` | 1818.0 | 576.9 | 11.18 |
+| 3 | `COVERAGE_CORE=ctrace` | 2204.1 | 689.4 | 11.20 |
+
+- The median table compares the configurations against `no coverage`:
+
+| Configuration | Median CPU (s) | CPU ratio | Median Wall (s) | Wall ratio |
+| :--- | :--- | :--- | :--- | :--- |
+| `no coverage` | 877.4 | 1.00x | 255.4 | 1.00x |
+| `--cov=src --cov-report=` | 1734.4 | 1.98x | 551.6 | 2.16x |
+| `--cov=src --cov-report= --cov-branch` | 1812.5 | 2.07x | 574.8 | 2.25x |
+| `COVERAGE_CORE=ctrace` | 2195.4 | 2.50x | 685.3 | 2.68x |
+
+- Branch measurement adds 78.1 s of CPU time and 23.2 s of wall time to shard 1 (+4.5% CPU overhead above line coverage). Across all four shards, branch measurement adds approximately 312.4 s (5.2 minutes) of CPU time to the full test job.
+- Serial coverage operations run after shard execution to combine data and build reports:
+
+| Command | Wall (s) | CPU (s) | Scope |
+| :--- | :--- | :--- | :--- |
+| `coverage combine --keep` | 1.5 | 4.4 | All runs |
+| `coverage report --show-missing` | 17.2 | 19.3 | All runs |
+| `coverage xml` | 16.9 | 18.0 | Pull requests only |
+
+- The serial push cost (`combine` and `report`) takes 18.7 s, which is 3.4% of shard wall time. This exceeds the 15 s serial budget threshold, so a follow-up issue must optimize or defer serial coverage reporting.
+
 ### Floor and ratchets
 
 - Every test runs inside the hermetic floor, which the root conftest supplies: the network block, which also refuses a loopback connect to a port no socket in the test process binds and fails the test that made it, even when the code under test swallowed the refusal; the host path guard in `tests/conftest.py`, which fails a test that opens a file outside the checkout, the run's temporary directory and the interpreter. `tests/support/host_paths.py` holds the allowed roots. For a linked worktree it adds the common git directory. So a test in a worktree outside its main checkout can read the `HEAD` file of its own git directory. Such a worktree is the replay tree of `devops ci fail-to-pass` or the worktree of a runner. `tests/invariants/test_host_path_roots.py` holds the roots; the refusal to start a real gh or security scanner; the test's own data directory, config and gh config, with no way onto the session bus; a pinned GitHub identity, so a gh or git child gets a placeholder token, never the developer's login; a throwaway kubeconfig for the run; the config write guard, which fails a test when it opens a config file for writing, renames a file onto one or removes one outside the run's temporary directory, and names the test and the stack; the spend ledger write guard, which fails a test when it writes to the spend ledger outside the run's temporary directory; and the workspace tripwire, which fails the run when a test writes to the workspace's `config.yaml` or to a tracked file.
