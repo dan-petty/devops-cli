@@ -3416,6 +3416,8 @@ class RoadmapMessages:
         "\n\nThe `openspec` binary was not on PATH, so `openspec validate` did not run. The "
         "OpenSpec gate of CI judges the change."
     )
+    stage_comment_warnings: str = "\n\nWarnings:\n{warnings}"
+    stage_problem_unhandled_test_reference: str = "{path}: unhandled reference to {name!r}."
     stage_comment_over_budget: str = (
         '{marker}\nThe stage job stopped. The inputs of the step of the task group "{title}" '
         "hold {tokens} tokens, over the budget of {budget} tokens, also after the model split "
