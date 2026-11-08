@@ -6,9 +6,11 @@ plan, and a `good` plan must pass every gate.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
-from devops_cli.roadmap.stage import stage_change
+from devops_cli.roadmap.stage import stage_change, stage_eval_gates
 from devops_cli.roadmap.stage.stage_eval_cases import (
     CASES_DIRECTORY,
     CaseFacts,
@@ -28,6 +30,7 @@ from devops_cli.roadmap.stage.stage_eval_gates import (
     replay_case,
     run_gates,
 )
+from devops_cli.roadmap.stage.stage_registry import RegistryCount
 from tests.support.paths import REPO_ROOT
 
 
@@ -57,6 +60,32 @@ def test_each_good_plan_passes_every_gate(cases: list[StageCase]) -> None:
 
     assert report.good() == (4, 4)
     assert all(not r.refused for r in report.replays if r.case.verdict is Verdict.GOOD)
+
+
+def test_the_replay_reads_the_registry_table_once(
+    cases: list[StageCase], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The replay reads the table once for the whole set, and gives it to every case (#4057)."""
+    roots: list[Path] = []
+
+    def counted(root: Path) -> tuple[RegistryCount, ...]:
+        roots.append(root)
+        return ()
+
+    monkeypatch.setattr(stage_eval_gates, "registry_table", counted)
+
+    replay_all(cases[:2])
+
+    assert len(roots) == 1
+
+
+def test_the_plan_under_test_holds_the_registry_of_its_case(cases: list[StageCase]) -> None:
+    case = next(c for c in cases if c.verdict is Verdict.GOOD)
+    table = (RegistryCount(kind="swallow", token="pass", path="tests/example.py"),)
+
+    plan = PlanUnderTest.of_case(case, registry=table)
+
+    assert plan.registry is table
 
 
 def test_no_defect_waits_for_a_gate_once_the_gates_of_3012_to_3017_are_built(

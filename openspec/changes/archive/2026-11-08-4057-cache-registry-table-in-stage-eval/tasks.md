@@ -4,7 +4,7 @@
 
 Reads: `src/devops_cli/roadmap/stage/stage_eval_gates.py`, `src/devops_cli/roadmap/stage/stage_registry.py`, `tests/roadmap/stage/test_roadmap_stage_eval_gates.py`. Changes: `tests/roadmap/stage/test_roadmap_stage_eval_gates.py`.
 
-- [ ] 1.1 Add two tests to `tests/roadmap/stage/test_roadmap_stage_eval_gates.py`. `test_the_replay_reads_the_registry_table_once` uses `monkeypatch.setattr` to replace `registry_table` on the replay module with a counter that returns an empty table, replays the first two cases of the `cases` fixture through `replay_all`, and asserts that the counter reads one. `test_the_plan_under_test_holds_the_registry_of_its_case` builds `PlanUnderTest.of_case(case, registry=table)` with a one-entry `RegistryCount` and asserts that `plan.registry` is that table. Change no source file
+- [x] 1.1 Add two tests to `tests/roadmap/stage/test_roadmap_stage_eval_gates.py`. `test_the_replay_reads_the_registry_table_once` uses `monkeypatch.setattr` to replace `registry_table` on the replay module with a counter that returns an empty table, replays the first two cases of the `cases` fixture through `replay_all`, and asserts that the counter reads one. `test_the_plan_under_test_holds_the_registry_of_its_case` builds `PlanUnderTest.of_case(case, registry=table)` with a one-entry `RegistryCount` and asserts that `plan.registry` is that table. Change no source file
   - Verification: `$ uv run devops ci test tests/roadmap/stage/test_roadmap_stage_eval_gates.py` passes
 
 ## Criteria
