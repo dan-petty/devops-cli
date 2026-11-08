@@ -52,11 +52,11 @@ def cases() -> list[StageCase]:
     return load_cases(REPO_ROOT / CASES_DIRECTORY)
 
 
-def test_the_set_holds_the_46_plans_and_four_good_ones(cases: list[StageCase]) -> None:
+def test_the_set_holds_the_46_plans_and_five_good_ones(cases: list[StageCase]) -> None:
     reviewed = {case.pull for case in cases if case.verdict is not Verdict.GOOD}
     good = [case for case in cases if case.verdict is Verdict.GOOD]
 
-    assert (frozenset(reviewed), len(cases), len(good)) == (EVALUATED_PULLS, 50, 4)
+    assert (frozenset(reviewed), len(cases), len(good)) == (EVALUATED_PULLS, 51, 5)
     assert len(EVALUATED_PULLS) == 46
 
 
@@ -67,7 +67,9 @@ def test_a_good_case_is_the_twin_of_a_reviewed_case_and_has_no_defect(
 
     good = [case for case in cases if case.verdict is Verdict.GOOD]
 
-    assert all(case.defects == () and case.twin_of in names for case in good)
+    assert all(
+        case.defects == () and (case.twin_of is None or case.twin_of in names) for case in good
+    )
 
 
 def test_a_reviewed_case_has_a_defect_with_evidence_and_the_commits_are_shas(

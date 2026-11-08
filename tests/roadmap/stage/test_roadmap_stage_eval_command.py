@@ -75,12 +75,12 @@ def test_the_replay_exits_0_and_lists_what_each_gate_caught(cli: Cli) -> None:
     result = _eval(cli, "--replay")
 
     assert result.exit_code == 0, result.output
-    assert "replay through the gates: 50 case(s), 4 good" in result.output
+    assert "replay through the gates: 51 case(s), 5 good" in result.output
     assert "paths    #3010" in result.output
     assert "spec_delta_wrong" in result.output
     assert "Defects that a gate judges: 74 of 311 (24%)." in result.output
     assert "Defects that wait for a gate" not in result.output
-    assert "Good plans that every gate accepts: 4 of 4." in result.output
+    assert "Good plans that every gate accepts: 5 of 5." in result.output
     assert "Result: every gate refuses what it must refuse." in result.output
 
 
