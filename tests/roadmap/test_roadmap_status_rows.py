@@ -214,7 +214,8 @@ def test_ledger_per_row_three_failed_cloudflare_reads_suspend_only_that_row(
     reloaded = FailureLedger(record=record)
     suspended: dict[str, Any] = {
         row: GLOBAL_METRICS.get_gauge_value(
-            CONST_SERVICE_METRIC_JOB_SUSPENDED, labels={"repo": REPO, "row": row}
+            CONST_SERVICE_METRIC_JOB_SUSPENDED,
+            labels={"repo": REPO, "row": row, "class": "ci_infra"},
         )
         for row in STATUS_ROW_NAMES
     }

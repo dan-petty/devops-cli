@@ -62,7 +62,7 @@ def test_a_ledger_record_with_an_implement_entry_loads_and_keeps_the_row_suspend
         assert raised.value.error_code == "DEVOPS_CLI_ERROR"
     kept = json.loads(record.read_text(encoding="utf-8"))
     GLOBAL_METRICS.reset()
-    suspended_labels = {"repo": REPO, "row": "implement"}
+    suspended_labels = {"repo": REPO, "row": "implement", "class": "ci_infra"}
 
     # A restart: a new ledger reads the record, and the round of the same input runs no row.
     round_of(NOW + timedelta(minutes=10))
@@ -81,8 +81,8 @@ def test_the_ledger_record_holds_the_causes_and_a_restart_loads_them(tmp_path: P
     """The causes of the failed rounds survive a restart of the Service (#3493)."""
     record = tmp_path / CONST_SERVICE_FAILURES_FILENAME
     ledger = FailureLedger(record=record)
-    ledger.failed(REPO, "stage", "input", "AIClientError")
-    ledger.failed(REPO, "stage", "input", "RoadmapStageError")
+    ledger.failed(REPO, "stage", "input", "provider", NOW)
+    ledger.failed(REPO, "stage", "input", "plan_defect", NOW)
 
     reloaded = FailureLedger(record=record)
 
@@ -90,8 +90,8 @@ def test_the_ledger_record_holds_the_causes_and_a_restart_loads_them(tmp_path: P
         json.loads(record.read_text(encoding="utf-8")),
         reloaded.causes(REPO, "stage"),
     ) == (
-        [[REPO, "stage", 2, "input", ["AIClientError", "RoadmapStageError"]]],
-        ("AIClientError", "RoadmapStageError"),
+        [[REPO, "stage", 2, "input", ["provider", "plan_defect"], None]],
+        ("provider", "plan_defect"),
     )
 
 
@@ -103,12 +103,12 @@ def test_a_ledger_record_in_the_old_format_loads_with_unknown_causes(tmp_path: P
 
     ledger = FailureLedger(record=record)
 
-    assert (ledger.suspended(REPO, "stage", "input"), ledger.causes(REPO, "stage")) == (
+    assert (ledger.suspended(REPO, "stage", "input", NOW), ledger.causes(REPO, "stage")) == (
         True,
         ("unknown",) * 3,
     )
-    ledger.failed(REPO, "stage", "other", "AIClientError")
-    assert FailureLedger(record=record).causes(REPO, "stage") == ("AIClientError",)
+    ledger.failed(REPO, "stage", "other", "provider", NOW)
+    assert FailureLedger(record=record).causes(REPO, "stage") == ("provider",)
 
 
 def test_a_suspended_implement_row_runs_again_on_a_later_poll_round_when_the_fault_is_fixed(

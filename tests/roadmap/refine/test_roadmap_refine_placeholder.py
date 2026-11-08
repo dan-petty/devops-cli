@@ -288,8 +288,8 @@ def test_a_placeholder_failure_three_rounds_in_a_row_does_not_suspend_the_refine
                 ledger.succeeded(REPO, "refine")
         return ledger
 
-    assert not rounds(placeholder).suspended(REPO, "refine", "input")
-    assert rounds(timeout).suspended(REPO, "refine", "input")
+    assert not rounds(placeholder).suspended(REPO, "refine", "input", NOW)
+    assert rounds(timeout).suspended(REPO, "refine", "input", NOW)
 
 
 def test_the_error_of_a_reply_that_held_only_placeholders_names_the_error_type() -> None:

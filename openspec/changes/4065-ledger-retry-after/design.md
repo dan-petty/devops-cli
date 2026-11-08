@@ -1,0 +1,25 @@
+# Design
+
+## Decisions
+
+- **One table, reused.** The ledger reads the wait with `retry_after(cause)` from `roadmap/failure.py`. It adds no table and no setting. A person who wants another wait changes `RETRY_AFTER`.
+- **The ledger stores the time, not the class alone.** The entry holds `retry_after`, a time. The refine and intake records of #4061 store the failure time and add the wait at read time, so a change of the table applies to old entries. The ledger stores the sum because the issue asks for it, and because the entry without the field must mean "keep the old rule". A change of `RETRY_AFTER` then applies to the next failure only. The wait is at most 6 hours and the next failure of the row writes a new time, so the stale value is short-lived.
+- **The ledger gets the time of the round from the caller.** `failed(repo, job, current, cause, now)` and `suspended(repo, job, current, now)`. `_execute_due_rows` already has `current_time`, and tests set it. No clock inside the ledger, so a test needs no patch of the clock.
+- **The retry time is set from the last failure.** A round at or past the limit sets `retry_after = now + retry_after(cause)`. A round below the limit sets none. When the class changes between two failures on one digest, the class of the last failure decides the wait.
+- **`now >= retry_after` is not suspended.** A class with a wait of zero (`head_moved`) runs again at the next round, as the table says. The issue says that `head_moved` has no entry; the table has `timedelta(0)`. The design uses the table as it is and adds no "no entry" branch.
+- **The probe round is the normal path.** After the time, `suspended` answers False and `_execute_due_rows` runs the row. If it fails on the same digest, `failed` gives rounds + 1 (the count is not capped) and a new time. If it succeeds, `succeeded` clears the entry. No new state and no flag for "half open".
+- **The cause is the class value.** `_count_failure` passes `failure_class_of(exc).value` for a `DevOpsCLIError` and `FailureClass.CI_INFRA.value` for another exception. The ledger stores the string as it gets it. A string that is no class (an old entry) reads as `unknown` on the gauge and as `ci_infra` in `retry_after()`, which is the rule of that function.
+- **The class label of the gauge is the class of the last cause.** For a row with causes, `class` is the last cause when it is a class, else `unknown`. The ledger keeps in memory the label that it last reported for each row. When the label changes, or the entry clears, the ledger sets the series of the old label to 0 before it sets the new one. `GLOBAL_METRICS` cannot remove a series, so the old series stays at 0.
+- **The seconds gauge is the seconds left as of the last failure or check.** `failed` sets it to the full wait; `suspended` sets it to `max(0, retry_after - now)` for an entry with a time; `succeeded` and a clear set it to 0. An entry with no time reads 0. A loaded entry sets 0 until the first check of its row. The gauge is a hint for a person; the alert reads the suspended gauge, which a load sets at once.
+- **The alert reads the suspended gauge.** `max by (repo, row, class) (...) > 0` for 3 hours. The 3 hours are longer than the wait of `provider` and `ci_infra` (1 hour), so a short outage that the first probe round ends does not alert, and a row that fails several probe rounds, or waits 6 hours, does. A rule over the seconds gauge would fire on every suspension, so it is not used.
+- **Old file.** `_FailedRounds` gets the 6-field entry as a third member; `_KeptRounds` writes six fields. An entry of 4 or 5 fields loads with no time and keeps the digest rule, and the first change of the ledger rewrites the file in the 6-field form.
+
+## Rejected alternatives
+
+- **pybreaker with a custom file storage.** Rejected for the four reasons in the proposal (no file storage, the digest rule is a second state, `CircuitBreakerError` changes the control flow of `_execute_due_rows`, and one `reset_timeout` cannot follow the class).
+- **The hour in the digest of the triage lane.** It retries each hour with no class and no probe, and it hides the real input from the digest. Rejected as the issue says.
+- **A second table of waits for the ledger.** It would drift from `RETRY_AFTER`. Rejected: one table.
+- **A `lane` label on the gauges.** `FailureLedger` keys by repository and row and has no lane; no series has one. Row names are unique in the table, so the row names the lane. Rejected: it would need a new field in the ledger for no gain.
+- **A doubling wait for a failed probe round.** A second rule must agree with `RETRY_AFTER`, and an outage that ends late would wait far longer than its class says. Rejected: the same wait again.
+- **Remove the old series from the metrics registry.** `GLOBAL_METRICS` has no call for it, and a new call is code for one gauge. Rejected: set the old series to 0.
+- **A shim that writes the 5-field form for the older image.** The project keeps no backward compatibility before 1.0.0. Rejected: the rollback needs the file removed.

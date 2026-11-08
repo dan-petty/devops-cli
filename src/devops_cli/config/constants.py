@@ -1569,6 +1569,11 @@ CONST_SERVICE_METRIC_BUDGET_HOLDS: Final[str] = "devops_cli_service_budget_holds
 # 1 while a job of a repository failed its limit of rounds in a row and waits for new input, else
 # 0, by `repo` and `row` (#2475). The label is `row`, not `job`, which is the scrape's label.
 CONST_SERVICE_METRIC_JOB_SUSPENDED: Final[str] = "devops_cli_service_job_suspended"
+# The seconds before a suspended row runs its next probe round, by `repo`, `row` and `class`, as of
+# the last failure or check of the row; 0 when the row has no retry time (#4065).
+CONST_SERVICE_METRIC_JOB_RETRY_AFTER_SECONDS: Final[str] = (
+    "devops_cli_service_job_retry_after_seconds"
+)
 # 1 while the last write of a state record that the Service keeps on its volume failed, else 0, by
 # `record`: `budget`, `halt` or `ledger` (#4048). The first write of a record creates its series.
 CONST_SERVICE_METRIC_STATE_UNKEPT: Final[str] = "devops_cli_service_state_unkept"
