@@ -13,9 +13,9 @@ Reads: `src/devops_cli/roadmap/stage/stage_paths.py`, `src/devops_cli/lang/en/me
 
 Reads: `src/devops_cli/roadmap/stage/stage_paths.py`, `src/devops_cli/roadmap/stage/stage_change.py`, `src/devops_cli/roadmap/plan_recheck.py`, `tests/roadmap/stage/test_roadmap_stage_paths.py`, `tests/support/builders.py`. Changes: `src/devops_cli/roadmap/stage/stage_change.py`, `src/devops_cli/roadmap/plan_recheck.py`, `tests/roadmap/stage/test_roadmap_stage_paths.py`.
 
-- [ ] 2.1 In `tests/roadmap/stage/test_roadmap_stage_paths.py`, write `test_a_manifest_plan_that_omits_its_test_is_refused` first: `check_gates` gives one `paths` problem for a group that changes `k8s/logging/networkpolicy.yaml` when the record names `tests/commands/k8s/test_k8s_logging_stack.py` and the plan lists only the manifest, and gives none once the group lists the test too
+- [x] 2.1 In `tests/roadmap/stage/test_roadmap_stage_paths.py`, write `test_a_manifest_plan_that_omits_its_test_is_refused` first: `check_gates` gives one `paths` problem for a group that changes `k8s/logging/networkpolicy.yaml` when the record names `tests/commands/k8s/test_k8s_logging_stack.py` and the plan lists only the manifest, and gives none once the group lists the test too
   - Verification: `$ uv run devops ci test tests/roadmap/stage/test_roadmap_stage_paths.py` fails on the base
-- [ ] 2.2 Add the keyword `manifest_references` to `check_gates` and `check_proposal` in `src/devops_cli/roadmap/stage/stage_change.py`, and pass it to the `paths` gate as the argument of `missing_reference_problems`. Pass the record in `_record` of `src/devops_cli/roadmap/plan_recheck.py`, recorded with `record_test_references` and a search that runs `git grep -l -F` over `tests` at `shared.rev` in `shared.source`
+- [x] 2.2 Add the keyword `manifest_references` to `check_gates` and `check_proposal` in `src/devops_cli/roadmap/stage/stage_change.py`, and pass it to the `paths` gate as the argument of `missing_reference_problems`. Pass the record in `_record` of `src/devops_cli/roadmap/plan_recheck.py`, recorded with `record_test_references` and a search that runs `git grep -l -F` over `tests` at `shared.rev` in `shared.source`
   - Verification: `$ uv run devops ci test tests/roadmap/stage/test_roadmap_stage_paths.py` passes
 
 ## 3. Record the references in the job and the replay

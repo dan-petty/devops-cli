@@ -9,7 +9,12 @@ import pytest
 from pydantic import ValidationError
 
 from devops_cli.lang import MESSAGES
-from devops_cli.roadmap.stage.stage_change import GroupKind, StageGroup
+from devops_cli.roadmap.stage.stage_change import (
+    GroupKind,
+    ProposalGate,
+    StageGroup,
+    check_gates,
+)
 from devops_cli.roadmap.stage.stage_overlap import grep_at
 from devops_cli.roadmap.stage.stage_paths import StagedTree, path_problems
 from tests.support.builders import make_stage_proposal
@@ -656,3 +661,30 @@ def test_the_record_names_the_test_that_builds_the_path_from_its_parts(tmp_path:
     assert f"`{MANIFEST_TEST}`" in problem
     assert "`Changes:`" in problem
     assert missing_reference_problems([_manifest_group(MANIFEST, MANIFEST_TEST)], references) == []
+
+
+KNOWN = ["comment-thread"]
+
+
+def test_a_manifest_plan_that_omits_its_test_is_refused() -> None:
+    tree = StagedTree([*TREE.files, MANIFEST, MANIFEST_TEST])
+    references = {MANIFEST: (MANIFEST_TEST,)}
+
+    omitted = check_gates(
+        make_stage_proposal(groups=[_manifest_group(MANIFEST)]),
+        KNOWN,
+        tree,
+        manifest_references=references,
+    )
+    listed = check_gates(
+        make_stage_proposal(groups=[_manifest_group(MANIFEST, MANIFEST_TEST)]),
+        KNOWN,
+        tree,
+        manifest_references=references,
+    )
+
+    (problem,) = omitted[ProposalGate.PATHS]
+    assert problem == MESSAGES.roadmap.stage_problem_missing_perimeter_test.format(
+        path=MANIFEST, test=MANIFEST_TEST
+    )
+    assert listed[ProposalGate.PATHS] == []
