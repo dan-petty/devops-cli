@@ -25,7 +25,7 @@ Kind: behavior. Reads: `src/devops_cli/config/settings.py`, `src/devops_cli/conf
 Kind: documents. Reads: `docs/ROADMAP_WORKFLOW.md`, `docs/roadmap/stage.md`, `k8s/README.md`, `openspec/specs/roadmap-stage/spec.md`, `openspec/specs/roadmap-explain/spec.md`. Changes: `docs/ROADMAP_WORKFLOW.md`, `docs/roadmap/stage.md`, `docs/CONFIGURATION.md`, `k8s/README.md`, `src/devops_cli/roadmap/stage/stage.py`, `src/devops_cli/roadmap/run.py`.
 
 - [x] 3.1 Replace the retry hours with the wait of the failure class in `docs/ROADMAP_WORKFLOW.md`, `docs/roadmap/stage.md`, item 15 of the Roadmap service list in `k8s/README.md`, and the comments of `src/devops_cli/roadmap/stage/stage.py` and `src/devops_cli/roadmap/run.py`. Regenerate `docs/CONFIGURATION.md` with `uv run devops docs generate --sync-readme`
-  - Verification: `$ ! grep -rIiq 'retry_hours' src docs k8s README.md && uv run devops docs generate --check`
+  - Verification: `$ ! git grep -iq retry_hours -- src docs k8s README.md` passes and `$ uv run devops docs generate --check` exits 0
 - [x] 3.2 Check the change and the specs
   - Verification: `$ uv run devops openspec check`
 
