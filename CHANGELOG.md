@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.95.0](https://github.com/dan-petty/devops-cli/compare/v0.94.0...v0.95.0) (2026-11-08)
+
+
+### Features
+
+* **k8s:** deploy the MCP server for the roadmap jobs ([#4182](https://github.com/dan-petty/devops-cli/issues/4182)) ([0232651](https://github.com/dan-petty/devops-cli/commit/0232651a6e35ab35bab07f56dff191d3b3f43d94))
+* **openspec:** scaffold the change folder of an issue to project form ([#4184](https://github.com/dan-petty/devops-cli/issues/4184)) ([2dea272](https://github.com/dan-petty/devops-cli/commit/2dea272e8a8d5a5c7629c8f1d447cc4251eb2985))
+* **roadmap:** metrics for the pipeline outcomes ([#4185](https://github.com/dan-petty/devops-cli/issues/4185)) ([229865a](https://github.com/dan-petty/devops-cli/commit/229865abca01a8d8905440c7554580c58b980038))
+* **telemetry:** count intake outcomes and time implement steps ([#4187](https://github.com/dan-petty/devops-cli/issues/4187)) ([ebec71d](https://github.com/dan-petty/devops-cli/commit/ebec71de0bad77e69cc8dbae48b13e6d85080a3e))
+
+
+### Bug Fixes
+
+* **roadmap:** refuse a spec delta on root documents ([#4183](https://github.com/dan-petty/devops-cli/issues/4183)) ([9529f54](https://github.com/dan-petty/devops-cli/commit/9529f54c7eef48d91d8063149dbe6ebbe86af0b0))
+
 ## [0.94.0](https://github.com/dan-petty/devops-cli/compare/v0.93.0...v0.94.0) (2026-11-08)
 
 
