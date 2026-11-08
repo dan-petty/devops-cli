@@ -154,7 +154,7 @@ def test_rate_limit_in_the_write_of_check_two_ends_the_round_and_keeps_check_one
 ) -> None:
     model = _Model(monkeypatch)
     store.fail_write(
-        write="write_issue_body",
+        write="set_marks",
         item=2,
         error=GitHubRateLimitError("No requests are left.", operation="roadmap.write"),
     )
