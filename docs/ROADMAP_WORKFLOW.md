@@ -375,6 +375,8 @@ The runner Job runs the checks that a person runs in the devcontainer, from the 
 
 Tests hold the drift: each local hook runs a tool that the runner image holds, each scoped row is a row of `devops ci`, and the branches of the Job pass the branch-name hook.
 
+A change that removes, renames or tightens a setting that `k8s/devops/configmap.example.yaml` or the live ConfigMap names says in its OpenSpec proposal and in a comment on its pull request how the live ConfigMap changes first ([Go-live check](../k8s/README.md#go-live-check)).
+
 ## Measure the implement job
 
 The implement job has a baseline score. The command that gives it calls a model through the gateway, so it runs on demand and is no part of `devops ci`.
