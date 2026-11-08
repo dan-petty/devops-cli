@@ -11,12 +11,14 @@ Reads: `src/devops_cli/roadmap/stage/stage_paths.py`, `src/devops_cli/lang/en/me
 
 ## 2. Refuse a manifest plan that omits its reference
 
-Reads: `src/devops_cli/roadmap/stage/stage_paths.py`, `src/devops_cli/roadmap/stage/stage_change.py`, `src/devops_cli/roadmap/plan_recheck.py`, `tests/roadmap/stage/test_roadmap_stage_paths.py`, `tests/support/builders.py`. Changes: `src/devops_cli/roadmap/stage/stage_change.py`, `src/devops_cli/roadmap/plan_recheck.py`, `tests/roadmap/stage/test_roadmap_stage_paths.py`.
+Reads: `src/devops_cli/roadmap/stage/stage_paths.py`, `src/devops_cli/roadmap/stage/stage_change.py`, `src/devops_cli/roadmap/plan_recheck.py`, `tests/roadmap/stage/test_roadmap_stage_paths.py`, `tests/support/builders.py`, `tests/roadmap/test_roadmap_plan_recheck.py`. Changes: `src/devops_cli/roadmap/stage/stage_change.py`, `src/devops_cli/roadmap/plan_recheck.py`, `tests/roadmap/stage/test_roadmap_stage_paths.py`, `tests/roadmap/test_roadmap_plan_recheck.py`.
 
 - [x] 2.1 In `tests/roadmap/stage/test_roadmap_stage_paths.py`, write `test_a_manifest_plan_that_omits_its_test_is_refused` first: `check_gates` gives one `paths` problem for a group that changes `k8s/logging/networkpolicy.yaml` when the record names `tests/commands/k8s/test_k8s_logging_stack.py` and the plan lists only the manifest, and gives none once the group lists the test too
   - Verification: `$ uv run devops ci test tests/roadmap/stage/test_roadmap_stage_paths.py` fails on the base
 - [x] 2.2 Add the keyword `manifest_references` to `check_gates` and `check_proposal` in `src/devops_cli/roadmap/stage/stage_change.py`, and pass it to the `paths` gate as the argument of `missing_reference_problems`. Pass the record in `_record` of `src/devops_cli/roadmap/plan_recheck.py`, recorded with `record_test_references` and a search that runs `git grep -l -F` over `tests` at `shared.rev` in `shared.source`
   - Verification: `$ uv run devops ci test tests/roadmap/stage/test_roadmap_stage_paths.py` passes
+- [x] 2.3 In `tests/roadmap/test_roadmap_plan_recheck.py`, cover `_test_search` caching and `recheck_plans` with a manifest plan: `test_test_search_finds_tests_and_caches_result` and `test_manifest_plan_omitting_perimeter_test_is_refused_by_paths_gate`
+  - Verification: `$ uv run devops ci test tests/roadmap/test_roadmap_plan_recheck.py` passes
 
 ## 3. Record the references in the job and the replay
 
