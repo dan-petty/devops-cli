@@ -18,6 +18,14 @@ from tests.support.paths import REPO_ROOT
 
 SEARXNG_DIR = K8S / "devops" / "searxng"
 ENGINE_NAMES = REPO_ROOT / "tests" / "fixtures" / "searxng" / "default_engine_names.txt"
+DEAD_ENGINES = REPO_ROOT / "tests" / "fixtures" / "searxng" / "engines_that_never_answer.txt"
+K8S_README = K8S / "README.md"
+# The sentence of the README that lists the kept engines, each name in backticks.
+README_ENGINES = re.compile(
+    r"\*\*The engines\.\*\* `keep_only` in `searxng-settings` keeps \w+ engines? that need no key: (?P<names>[^.]+)\."
+)
+# One line of the dead-engines file: the name, then `# <date>: <reason>`.
+DEAD_ENGINE_LINE = re.compile(r"^(?P<name>[^#]+?) # \d{4}-\d{2}-\d{2}: \S.*$")
 IMAGE_PATTERN = re.compile(
     r"^docker\.io/searxng/searxng:(?P<tag>\d{4}\.\d+\.\d+-[0-9a-f]{7,9})@sha256:[0-9a-f]{64}$"
 )
@@ -243,7 +251,6 @@ def test_the_settings_keep_only_engines_that_need_no_key() -> None:
         "duckduckgo",
         "wikipedia",
         "github",
-        "pypi",
         "stackoverflow",
         "askubuntu",
         "superuser",
@@ -251,6 +258,58 @@ def test_the_settings_keep_only_engines_that_need_no_key() -> None:
         "mdn",
         "docker hub",
     ]
+
+
+def _dead_engine_names() -> list[str]:
+    lines = DEAD_ENGINES.read_text(encoding="utf-8").splitlines()
+    return [line.partition(" # ")[0] for line in lines if line]
+
+
+def test_the_settings_keep_no_engine_that_never_answers() -> None:
+    """An engine that gets a challenge page from its site returns no hit and no error, so it only
+    costs a request. The file lists each such engine, so a bump or an edit cannot bring one back."""
+    kept = _settings()["use_default_settings"]["engines"]["keep_only"]
+
+    assert sorted(set(kept) & set(_dead_engine_names())) == []
+
+
+def test_the_dead_engines_file_gives_a_date_and_a_reason_for_real_engines() -> None:
+    """The file begins with `pypi`, and each line has a date and a reason. A name that is not an
+    engine of the default settings would make the test above pass for any list."""
+    lines = [line for line in DEAD_ENGINES.read_text(encoding="utf-8").splitlines() if line]
+    names = _dead_engine_names()
+
+    assert (
+        names[:1],
+        [line for line in lines if not DEAD_ENGINE_LINE.match(line)],
+        sorted(set(names) - _default_engine_names()),
+    ) == (["pypi"], [], [])
+
+
+def test_the_readme_lists_the_engines_that_the_settings_keep() -> None:
+    """The README names the kept engines in one sentence. An edit of `keep_only` that leaves the
+    sentence behind fails here."""
+    kept = _settings()["use_default_settings"]["engines"]["keep_only"]
+    match = README_ENGINES.search(K8S_README.read_text(encoding="utf-8"))
+    assert match is not None
+
+    assert sorted(re.findall(r"`([^`]+)`", match["names"])) == sorted(kept)
+
+
+def test_the_configmap_says_why_the_two_log_lines_of_the_start_are_harmless() -> None:
+    """The pod logs an ERROR for a missing proxy header and a WARNING for a missing `limiter.toml`.
+    Neither matters with the limiter off, and a comment in the file names the source of each, so a
+    reader does not chase them or mount a `limiter.toml` to hide them."""
+    text = (SEARXNG_DIR / "configmap.yaml").read_text(encoding="utf-8")
+    needles = (
+        "X-Forwarded-For",
+        "searx/botdetection/trusted_proxies.py",
+        "limiter.toml",
+        "searx/botdetection/config.py",
+        "harmless",
+    )
+
+    assert [needle for needle in needles if needle not in text] == []
 
 
 def test_the_settings_keep_none_of_the_suspended_or_keyed_engines() -> None:
