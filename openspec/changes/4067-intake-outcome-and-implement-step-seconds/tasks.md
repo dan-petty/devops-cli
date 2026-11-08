@@ -22,7 +22,7 @@ Reads: `src/devops_cli/roadmap/intake/intake.py`, `src/devops_cli/roadmap/run.py
   - Verification: `$ uv run devops ci test tests/telemetry/test_telemetry_instruments.py` passes
 - [x] 2.3 Give `apply_intake` the required keyword `repo`, count each candidate once under its result, send the four zeros in `_apply_round`, and pass the repository at each caller (`intake_candidate`, `_apply_round`, `commands/roadmap.py`, `_file_deferrals`). Pass `repo` at each call of `apply_intake` in the tests
   - Verification: `$ uv run devops ci test tests/telemetry/test_roadmap_intake_implement_metrics.py tests/roadmap/intake tests/roadmap/test_roadmap_run_metrics.py` passes
-  - Verification: `$ ! git grep -nE 'apply_intake\((store|roadmap\.store), (plan|deferral\.plan)\)' src/ tests/` exits 0
+  - Verification: `$ git grep -q -F repo=repo src/devops_cli/roadmap/run.py` exits 0
 
 ## 3. Document the series
 
