@@ -28,10 +28,10 @@ See proposal.md for the motivation and the counts (#4086, group 1 of #3769). The
 
 ### 4. A deploy test scripts the world of kubectl once
 
-- **Decision**: a test that pushes Secrets installs `KubectlWorld` (`tests/cluster_secret_fakes.py`) as the answer of `process_fake`. It answers `helm version`, the namespaces, the Secrets and the server-side apply. A test that pushes nothing uses `--no-push-secrets` and answers only `helm version`. The Argo CD state is an Application object in `cluster.custom_objects`, so `_is_cluster_argo_managed` runs for real.
+- **Decision**: a test that pushes Secrets installs a `FakeCluster` of `tests/cluster_secret_fakes.py` as the answer of `process_fake`. `tests/support/k8s_commands.py` imports it as `KubectlWorld`. It answers `helm version`, the namespaces, the Secrets and the server-side apply. A test that pushes nothing uses `--no-push-secrets` and answers only `helm version`. The Argo CD state is an Application object in `cluster.custom_objects`, so `_is_cluster_argo_managed` runs for real.
 - **Alternative considered**: keep the patches of `push_for_stacks` and `require_keyring_for_push`.
   - *Rejected*: they are the patches that this item removes, and they hid the order of the push against the other writes. The new tests read that order from the recorded calls.
 
 ### 5. The tests of a private helper stay
 
-- **Decision**: a test of a private function of `commands/k8s/` (for example `_parse_minikube_service_url`) keeps its import. Its edges go to the fakes. Moving the logic into a domain package would change what the test checks, and it is another item.
+- **Decision**: a test of a private function of `commands/k8s/` (for example `_parse_minikube_service_url`) keeps its import. Its edges go to the fakes. Moving the logic into a domain package would change what the test checks.

@@ -23,12 +23,15 @@ The tree at `origin/main` 74ba76b8 holds these facts. They were counted again, b
 - `tests/commands/k8s/test_k8s.py` keeps every test. The tests of the pods table and of `devops k8s pods --watch` also lose their patches of `KubernetesService.get_instance`, of the Kubernetes SDK and of the private names of `ui/data_providers.py`.
 - Tests that changed, and why:
   - `test_k8s_contexts_and_switch` and `test_k8s_logs_logql_query_dispatch` now check the marked active context and the `since` and `limit` of the Loki query. The mutations of these two lines survived the old assertions.
-  - `test_deploy_and_teardown_stack_use_effective_context` deploys the `logging` stack. The old test hid a defect of the `infra` stack with a patch of `sync_k8s_credentials` (#4091).
+  - `test_deploy_and_teardown_stack_use_effective_context` deploys the `logging` stack. The old test hid a defect of the `infra` stack with a patch of `sync_k8s_credentials` (the defect in the Feasibility section).
   - `test_k8s_helpers_and_error_branches` lost its case of an unreadable kubeconfig to the new test `test_k8s_contexts_fail_when_the_kubeconfig_is_unreadable`. A test cannot read the real kubeconfig source and the `cluster` fake together.
   - The two tests of `_k8s_clients` are deleted with the function.
 - Deleted: the plan folder `openspec/changes/1323-k8s-commands-edge-fakes`. Its issue closed with only the plan merged, its tasks name fixtures that do not exist (`fake_cluster`), and this change does its test and `_K8sModule` parts.
 - No ceiling file counts string patches of `devops_cli` names, so no ceiling goes down. `tests/invariants/test_source_tree.py` gets a test that holds `tests/commands/k8s/` to zero string patches of a `devops_cli` name, so a patch cannot return. A group joins its list when it removes its last patch. #1336 owns the ban for the whole of `tests/commands`.
-- This change alters no behavior a consumer observes. The commands, their options and their messages are the same. It has no spec delta, and `skip_specs: true` is set.
+- Two commands change in small ways, because they now read through `KubernetesService` like the other commands of the group:
+  - `devops k8s status` resolves the configured Kubernetes context before the kubeconfig current context, and it caches the node list. Its failure text reads "Failed to query cluster: Failed to query cluster nodes: ...", with two prefixes.
+  - `devops k8s contexts` reads the `KUBECONFIG` paths through the service.
+- The other commands, their options and their messages are the same. The change has no spec delta, and `skip_specs: true` is set.
 - This change fits one pull request. The other three groups of #3769 are other issues.
 
 ## Impact
@@ -46,8 +49,8 @@ Checked on `origin/main` 74ba76b8, 2026-11-07. The premise of #3769 holds for th
 - `process_fake` answers `kubectl cluster-info` with success when a test scripts nothing, so a test that needs an unreachable cluster scripts `kubectl cluster-info` with exit code 1, and `cluster.unreachable()` for the API.
 - `uv run python -c "import devops_cli.commands.k8s"` finds `app` after `_K8sModule` is gone, and `rg -n "commands\.k8s\.[A-Za-z_]+\"" tests` finds no patch of the package namespace outside this group. The other tests patch the submodules, so the forwarding class served this group alone.
 - Mutation check, run on the product code and restored: the Helm minimum version check, the Helm `uninstall` of a pending install, the `Running` check of Minikube, the check of an unreachable cluster, the Argo CD check, the start of the port-forward child, the active context mark, the flags of the post-deploy networking, the loopback fallback of a service URL, the domain render of a manifest, the node read of `status`, the model removal of `ollama prune`, the `since` of a Loki query and the Argo CD refusal of `teardown-stack` each fail a migrated test.
-- The migration found one defect, and the old patch hid it: `fetch_secret_data` checks a kubeconfig context with the RFC 1123 rule, so `deploy-stack --stack infra` exits with 1 on an EKS ARN after it deployed. #4091 holds it.
-- 78 imports of a private `devops_cli` name remain in the group (79 before). They are tests of private helpers, such as `_parse_minikube_service_url`. Moving that logic into a domain package is another item.
+- The migration found one defect, and the old patch hid it: `fetch_secret_data` checks a kubeconfig context with the RFC 1123 rule, so `deploy-stack --stack infra` exits with 1 on an EKS ARN after it deployed.
+- 78 imports of a private `devops_cli` name remain in the group (79 before). They are tests of private helpers, such as `_parse_minikube_service_url`.
 
 ## Existing Tool Considered
 
