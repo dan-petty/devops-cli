@@ -48,8 +48,8 @@
    "where": ".openspec.yaml",
    "problem": "The change edits only documents, but it carries a spec delta and sets no skip_specs. openspec/config.yaml says a change that alters no consumer-observable behavior, including documentation, has no spec delta and sets skip_specs: true. design.md rejects skip_specs with the claim that the guardrails change what the audit reports. That claim is false: the audit reads the diff of each PR, not the text of the surfaces. Archive would create a new capability spec for prose rules, with no test to hold it.",
    "evidence": "openspec/config.yaml: \"A change that alters no behavior a consumer observes (tests, CI workflows, documentation, ...) has no spec delta and sets skip_specs: true in its .openspec.yaml.\" The plan's .openspec.yaml holds only `schema: spec-driven` and `created: 2026-11-01`. design.md: \"Adding a guardrail changes what the audit reports, which is observable behavior.\" Compare audit_pr_hardening above.",
-   "gate": "none",
-   "reason": "The groups change SECURITY.md and CONTRIBUTING.md. The rule for a delta that is not needed does not list documents at the root."
+   "gate": "paths",
+   "message": "These paths need no spec delta"
   },
   {
    "type": "other",
