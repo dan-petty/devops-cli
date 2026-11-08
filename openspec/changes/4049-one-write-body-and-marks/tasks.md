@@ -8,7 +8,7 @@ Reads: `src/devops_cli/roadmap/stores/store.py`, `src/devops_cli/roadmap/stores/
 
 - [x] 1.1 Write `tests/roadmap/stores/test_roadmap_store_body_with_marks.py`, and give the fake store the same `body` argument on `set_field` and `set_marks`, with a `write_issue_body` entry in `job_writes`
   - Verification: `$ uv run devops ci fail-to-pass --base origin/main`
-- [ ] 1.2 Add the optional keyword `body` to `set_field` and `set_marks` of `RoadmapStore` and `GitHubRoadmapStore`, and let `_edit_issue` replace the text before the record block with it, so one `PATCH` carries the labels, the new body and the record block
+- [x] 1.2 Add the optional keyword `body` to `set_field` and `set_marks` of `RoadmapStore` and `GitHubRoadmapStore`, and let `_edit_issue` replace the text before the record block with it, so one `PATCH` carries the labels, the new body and the record block
   - Verification: `$ uv run devops ci test tests/roadmap/stores`
 
 ## 2. Write the result of a refined item with one request
@@ -19,7 +19,7 @@ Reads: `src/devops_cli/roadmap/refine/refine.py`, `tests/roadmap/refine/test_roa
 
 - [x] 2.1 Write `tests/roadmap/refine/test_roadmap_refine_one_write.py` (a stop after the first write, a Ready item, a Status that stays, a Ready item back to New), and move the refine tests that name the write of the body to the combined write
   - Verification: `$ uv run devops ci fail-to-pass --base origin/main`
-- [ ] 2.2 Write the body, the marks and the Status in `_apply_refined` with `set_field(..., body=r.new_body)` or `set_marks(..., body=r.new_body)`, and delete its call of `write_issue_body`
+- [x] 2.2 Write the body, the marks and the Status in `_apply_refined` with `set_field(..., body=r.new_body)` or `set_marks(..., body=r.new_body)`, and delete its call of `write_issue_body`
   - Verification: `$ uv run devops ci test tests/roadmap/refine`
 
 ## 3. Write a check of the alternatives job with one request
@@ -30,7 +30,7 @@ Reads: `src/devops_cli/roadmap/alternatives.py`, `tests/support/roadmap_alternat
 
 - [x] 3.1 Write `tests/roadmap/test_roadmap_alternatives_one_write.py` (a stop after the write, and the requests of one check)
   - Verification: `$ uv run devops ci fail-to-pass --base origin/main`
-- [ ] 3.2 Write the new body and the marks in `AlternativesWriter.settle` with one `set_marks(..., body=outcome.new_body)`, and delete its call of `write_issue_body`
+- [x] 3.2 Write the new body and the marks in `AlternativesWriter.settle` with one `set_marks(..., body=outcome.new_body)`, and delete its call of `write_issue_body`
   - Verification: `$ uv run devops ci test tests/roadmap/test_roadmap_alternatives.py tests/roadmap/test_roadmap_alternatives_one_write.py`
 
 ## 4. Plan one write in the dry run
@@ -41,7 +41,7 @@ Reads: `src/devops_cli/roadmap/request_plan.py`, `tests/roadmap/test_roadmap_dry
 
 - [x] 4.1 Add the two `body_with_marks` tests to `tests/roadmap/test_roadmap_dry_runs.py`: the plan of a refine round and of `--item`, and the plan of a check
   - Verification: `$ uv run devops ci fail-to-pass --base origin/main`
-- [ ] 4.2 Delete the planned `write_issue_body` from the refine plans (round and `--item`) and from the alternatives plan, and keep it in the repair plan
+- [x] 4.2 Delete the planned `write_issue_body` from the refine plans (round and `--item`) and from the alternatives plan, and keep it in the repair plan
   - Verification: `$ uv run devops ci test tests/roadmap/test_roadmap_dry_runs.py`
 
 ## 5. Say that a result is one write
@@ -50,7 +50,7 @@ Kind: documents
 
 Reads: `docs/roadmap/refine.md`, `docs/roadmap/alternatives.md`. Changes: `docs/roadmap/refine.md`, `docs/roadmap/alternatives.md`.
 
-- [ ] 5.1 In `docs/roadmap/alternatives.md`, change the list of "What a check writes": the body block and the job record go in one request, and the comment follows as a separate request. In `docs/roadmap/refine.md`, say that refine writes the body, the marks and the Status of an item with one request, and the comment after it
+- [x] 5.1 In `docs/roadmap/alternatives.md`, change the list of "What a check writes": the body block and the job record go in one request, and the comment follows as a separate request. In `docs/roadmap/refine.md`, say that refine writes the body, the marks and the Status of an item with one request, and the comment after it
   - Verification: `$ uv run devops ci docs`
 
 ## Criteria

@@ -16,6 +16,8 @@ A proposal that names an open issue as a dependency is not whole. The item waits
 
 Refine looks at the item again after a reply, a body edit, or the close of those open items. It also looks again after a commit on the default branch that changes a file that the block cites. The report groups every item by its next step.
 
+Refine writes the new body, the job record and the Status of an item with one request. The comment follows as a separate request. A stop after the write leaves the new body and its marks together.
+
 An item that waits on a person has one more way out. The comment of refine names issues and files in its questions. Refine looks at the item again when an issue that the comment names closes after the comment, or when a file that it names changes on the default branch after the comment. A round reads at most 5 issues and 5 files from one comment.
 
 ## Items that the stage job returns

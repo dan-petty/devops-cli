@@ -394,7 +394,6 @@ def refine_requests(
         ]
         writes = [
             *deferred_writes,
-            *store.write_issue_body(target_item),
             *store.set_field(target_item, field_name="Status"),
             *within(store.comment(target_item), cond["posted"]),
         ]
@@ -426,7 +425,6 @@ def refine_requests(
             *within(
                 [
                     *deferred_writes,
-                    *store.write_issue_body(target_item),
                     *store.set_field(target_item, field_name="Status"),
                     *within(store.comment(target_item), cond["posted"]),
                 ],
@@ -519,7 +517,6 @@ def alternatives_requests(
     ]
     writes = within(
         [
-            *store.write_issue_body(subject),
             *store.set_marks(subject),
             *store.comment(subject),
         ],

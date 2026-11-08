@@ -1197,7 +1197,6 @@ class AlternativesWriter:
         if not _unchanged_since_read(self._store, outcome):
             return
         number = outcome.item.number
-        self._store.write_issue_body(number, outcome.new_body)
         self._store.set_marks(
             outcome.item,
             {
@@ -1208,6 +1207,7 @@ class AlternativesWriter:
                 AlternativesRecordKey.FAILED_AT: None,
                 AlternativesRecordKey.FAILED_ERROR: None,
             },
+            body=outcome.new_body,
         )
         self._store.comment(number, outcome.comment)
         emit(ROADMAP_ALTERNATIVES_TOTAL, 1, {"verdict": outcome.verdict.value})
