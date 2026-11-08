@@ -2180,6 +2180,14 @@ def _validate_ci_workflow_parity(workflow_data: dict[str, Any]) -> None:
         ): "Git diff to check changed runner image sources",
         ("runner-image", "Run Runner Image Smoke Test"): "Docker container tool smoke tests",
         (
+            "mcp-server-image",
+            "Detect Image Content Changes",
+        ): "Git diff to check changed mcp-server image sources",
+        (
+            "mcp-server-image",
+            "Run MCP Server Image Smoke Test",
+        ): "Docker container tool smoke tests",
+        (
             "test",
             "Changed-Line Coverage",
         ): "Changed-line coverage gate (diff-cover) in the job summary, never a check table row",

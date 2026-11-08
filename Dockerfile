@@ -102,6 +102,30 @@ RUN DEVOPS_CLI_USER_DATA_ROOT=/opt/devops-tools python -m devops_cli.roadmap.run
 
 ENTRYPOINT ["devops"]
 
+# The MCP server: image for the MCP server that serves role-scoped tool sets to cluster jobs (#3220).
+# Inherits runner, installs kubectl and helm at their pinned versions, and runs as user 1000:1000.
+FROM runner AS mcp-server
+
+USER root
+
+RUN DEVOPS_CLI_USER_DATA_ROOT=/opt/devops-tools /app/.venv/bin/devops install-tools \
+      --tool kubectl --target-dir /opt/devops-tools/bin && \
+    DEVOPS_CLI_USER_DATA_ROOT=/opt/devops-tools /app/.venv/bin/devops install-tools \
+      --tool helm --target-dir /opt/devops-tools/bin && \
+    chmod -R a+rX /opt/devops-tools
+
+ENV HOME=/home/devops \
+    DEVOPS_CLI_DATA_DIR=/home/devops/.data \
+    UV_CACHE_DIR=/home/devops/.cache/uv
+
+USER 1000:1000
+
+# The tool version check of the stage: kubectl and helm run at their locked versions.
+RUN DEVOPS_CLI_USER_DATA_ROOT=/opt/devops-tools /app/.venv/bin/devops install-tools \
+      --check --tool kubectl --target-dir /opt/devops-tools/bin && \
+    DEVOPS_CLI_USER_DATA_ROOT=/opt/devops-tools /app/.venv/bin/devops install-tools \
+      --check --tool helm --target-dir /opt/devops-tools/bin
+
 FROM python:3.14-slim-trixie@sha256:0741d101873c12ab927e6f8653feb8862b9bd58771177acb1b885b95141f91b4 AS service
 
 RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends \
