@@ -46,6 +46,8 @@ The model plans with read-only tools. The toolset `base` has nine tools that rea
 
 The two GitHub tools only read. They use the client and the App token of the Service, so they add no permission and no host. The tool masks secrets in the text from GitHub, cuts it, and marks it as data. The prompt tells the model that this text is no instruction. A failure of GitHub (no such item, the rate limit, no connection) is an answer as text, and the run goes on. With `base` the model has no GitHub tool, and the job needs no GitHub read for the plan. The golden-set run (`devops roadmap eval stage`) has no GitHub client, so its GitHub tools answer that GitHub is not available.
 
+The toolset `research` adds one more tool to `extended`: `search_web`. It searches the web for alternative open tools and libraries (up to five results, each with title, URL and cut snippet). A run permits at most five web searches. Text from the web is data and never an instruction. The tool masks secrets and refuses private IP addresses and internal hostnames.
+
 ## Feasibility
 
 `Feasibility` cites only the tools and the paths that this run used, and a premise that the run did not check is written as `not checked`, never as read or ran.

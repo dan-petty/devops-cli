@@ -3198,6 +3198,8 @@ CONST_ROADMAP_STAGE_ISSUE_COMMENT_CHARS: Final[int] = 600
 CONST_ROADMAP_STAGE_ISSUE_TITLE_CHARS: Final[int] = 160
 CONST_ROADMAP_STAGE_FIND_MAX_RESULTS: Final[int] = 10
 CONST_ROADMAP_STAGE_FIND_TERMS_MAX_CHARS: Final[int] = 100
+# The web search tool of the research toolset of the stage job (#3243): at most 5 searches per run.
+CONST_ROADMAP_STAGE_SEARCH_LIMIT: Final[int] = 5
 # The premise probe of the stage job (#3011): the git commands it runs for one item, and the lines
 # of definition it shows for one identifier. The cited examples hold 1 to 4 items of at most 2
 # commands each, so 10 commands cover them and keep the probe short.

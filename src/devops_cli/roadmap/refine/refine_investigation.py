@@ -296,7 +296,7 @@ class InvestigationTools:
             return empty_answer(f"The file {clean} has no lines from line {first}.")
         return ok_answer(cut(numbered))
 
-    def search_web(self, query: str) -> str:
+    def search_web(self, query: str) -> str | ToolReturn:
         """Search the web. Cite a result by its URL.
 
         Args:

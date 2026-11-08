@@ -23,6 +23,7 @@ from typing import Final
 
 HOLDER_STAGE: Final = "stage"
 HOLDER_STAGE_EXTENDED: Final = "stage-extended"
+HOLDER_STAGE_RESEARCH: Final = "stage-research"
 HOLDER_IMPLEMENT: Final = "implement"
 HOLDER_PLANNING: Final = "planning"
 HOLDER_IMPLEMENTATION: Final = "implementation"
@@ -32,14 +33,18 @@ HOLDER_REVIEW: Final = "review"
 HOLDERS: Final[tuple[str, ...]] = (
     HOLDER_STAGE,
     HOLDER_STAGE_EXTENDED,
+    HOLDER_STAGE_RESEARCH,
     HOLDER_IMPLEMENT,
     HOLDER_PLANNING,
     HOLDER_IMPLEMENTATION,
     HOLDER_REVIEW,
 )
 
-_STAGE: Final[frozenset[str]] = frozenset({HOLDER_STAGE, HOLDER_STAGE_EXTENDED})
-_STAGE_EXTENDED: Final[frozenset[str]] = frozenset({HOLDER_STAGE_EXTENDED})
+_STAGE: Final[frozenset[str]] = frozenset(
+    {HOLDER_STAGE, HOLDER_STAGE_EXTENDED, HOLDER_STAGE_RESEARCH}
+)
+_STAGE_EXTENDED: Final[frozenset[str]] = frozenset({HOLDER_STAGE_EXTENDED, HOLDER_STAGE_RESEARCH})
+_STAGE_RESEARCH: Final[frozenset[str]] = frozenset({HOLDER_STAGE_RESEARCH})
 _IMPLEMENT: Final[frozenset[str]] = frozenset({HOLDER_IMPLEMENT})
 _EVERY_JOB_ROLE: Final[frozenset[str]] = frozenset(
     {HOLDER_PLANNING, HOLDER_IMPLEMENTATION, HOLDER_REVIEW}
@@ -99,6 +104,11 @@ TOOLS: Final[dict[str, ToolEntry]] = {
     "find_issues": _read(
         "Lists the open issues and pull requests of the repository that name some words.",
         _STAGE_EXTENDED,
+    ),
+    # The one tool that `stage-research` adds (#3243).
+    "search_web": _read(
+        "Searches the web and returns titles, URLs and cut snippets.",
+        _STAGE_RESEARCH,
     ),
     # The tools that the implement step adds to the harness `Coder`.
     "write_file": _write("Writes the whole text of a file of the workspace.", _IMPLEMENT),
@@ -196,4 +206,14 @@ def check_tables(tables: Mapping[str, Iterable[str]]) -> list[str]:
     ]
 
 
-__all__ = ["HOLDERS", "TOOLS", "ToolEntry", "check_tables", "tool_names"]
+__all__ = [
+    "HOLDERS",
+    "HOLDER_IMPLEMENT",
+    "HOLDER_STAGE",
+    "HOLDER_STAGE_EXTENDED",
+    "HOLDER_STAGE_RESEARCH",
+    "TOOLS",
+    "ToolEntry",
+    "check_tables",
+    "tool_names",
+]

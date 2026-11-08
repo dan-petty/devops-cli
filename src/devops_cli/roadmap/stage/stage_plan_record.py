@@ -22,7 +22,11 @@ from devops_cli.roadmap.body_hash import body_hashes
 from devops_cli.roadmap.stage.stage_change import CHANGE_TASK, StageProposal
 from devops_cli.roadmap.stage.stage_request import StageRequest
 from devops_cli.roadmap.stage.stage_split import SPLIT_TASK
-from devops_cli.roadmap.stage.stage_toolbox import EXTENDED_TOOLS_TASK, TOOLS_TASK
+from devops_cli.roadmap.stage.stage_toolbox import (
+    EXTENDED_TOOLS_TASK,
+    RESEARCH_TOOLS_TASK,
+    TOOLS_TASK,
+)
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -49,8 +53,13 @@ def _digest(parts: list[Any]) -> str:
 
 def prompt_version(toolset: str) -> str:
     """The version of the prompts of the planner: the sha256 of their texts, with the text of the
-    extended tools for the toolset `extended`."""
-    names = (*_PROMPTS, EXTENDED_TOOLS_TASK) if toolset == "extended" else _PROMPTS
+    extended tools for the toolset `extended` and the research tools for `research`."""
+    if toolset == "research":
+        names = (*_PROMPTS, EXTENDED_TOOLS_TASK, RESEARCH_TOOLS_TASK)
+    elif toolset == "extended":
+        names = (*_PROMPTS, EXTENDED_TOOLS_TASK)
+    else:
+        names = _PROMPTS
     return _digest([load_task_prompt(name) for name in names])
 
 

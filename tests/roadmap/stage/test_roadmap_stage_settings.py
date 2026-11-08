@@ -118,13 +118,13 @@ def test_a_config_file_and_a_variable_set_the_toolset(
 ) -> None:
     config(roadmap={"stage": {"toolset": "base"}})
     from_file = settings.load_settings().roadmap.stage.toolset
-    monkeypatch.setenv("DEVOPS_CLI_ROADMAP_STAGE_TOOLSET", "extended")
+    monkeypatch.setenv("DEVOPS_CLI_ROADMAP_STAGE_TOOLSET", "research")
     settings.reset_settings_cache()
 
-    assert (from_file, settings.load_settings().roadmap.stage.toolset) == ("base", "extended")
+    assert (from_file, settings.load_settings().roadmap.stage.toolset) == ("base", "research")
 
 
-def test_a_toolset_that_is_none_of_the_two_is_refused_naming_it(
+def test_a_toolset_that_is_none_of_the_three_is_refused_naming_it(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("DEVOPS_CLI_ROADMAP_STAGE_TOOLSET", "wide")
@@ -132,7 +132,10 @@ def test_a_toolset_that_is_none_of_the_two_is_refused_naming_it(
     with pytest.raises(ConfigurationError, match="DEVOPS_CLI_ROADMAP_STAGE_TOOLSET") as refused:
         settings.load_settings()
 
-    assert "'base' or 'extended'" in str(refused.value)
+    message = str(refused.value)
+    assert "'base'" in message
+    assert "'extended'" in message
+    assert "'research'" in message
 
 
 def test_the_planned_limit_has_a_default() -> None:

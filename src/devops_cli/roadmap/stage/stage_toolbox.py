@@ -53,6 +53,7 @@ if TYPE_CHECKING:
 
 TOOLS_TASK = "roadmap_stage_tools.md"
 EXTENDED_TOOLS_TASK = "roadmap_stage_tools_extended.md"
+RESEARCH_TOOLS_TASK = "roadmap_stage_tools_research.md"
 # The schemas that one agent run with the tools answers, a plan (#3037) and a verification (#3039),
 # with the job row of each in the metrics of the tool calls (`row` label, #3240). The rows differ,
 # so the reads of the verifier do not hide a tool that the planner does not use.
@@ -79,8 +80,8 @@ class ToolboxClient:
     plan or a review. `traces` holds one `RunTrace` for each of these runs, in order; the caller
     clears it. With a `window`, the context window of the model in tokens, a request that would
     leave too little of it for the reply offers no tool. `openspec` reads the specs for `read_spec`. `toolset` is
-    `base` or `extended`; without it the setting `roadmap.stage.toolset` decides. `github` serves
-    `read_issue` and `find_issues` of `extended`; the Service passes it, and a run without it
+    `base`, `extended` or `research`; without it the setting `roadmap.stage.toolset` decides. `github` serves
+    `read_issue` and `find_issues` of `extended` and `research`; the Service passes it, and a run without it
     answers that GitHub is not available.
 
     Raises `RoadmapStageError` when the checkout is not the commit `sha` with no change, because
@@ -107,8 +108,10 @@ class ToolboxClient:
             source=source, sha=sha, openspec=openspec, toolset=chosen, github=github
         )
         self._instructions = load_task_prompt(TOOLS_TASK)
-        if chosen == "extended":
+        if chosen in ("extended", "research"):
             self._instructions += f"\n\n{load_task_prompt(EXTENDED_TOOLS_TASK)}"
+        if chosen == "research":
+            self._instructions += f"\n\n{load_task_prompt(RESEARCH_TOOLS_TASK)}"
         self._window = window
         self._toolset = chosen
         self._tool_names = tuple(tool.name for tool in self._tools.tools())
