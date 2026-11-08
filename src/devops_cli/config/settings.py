@@ -921,7 +921,7 @@ class RoadmapStageConfig(BaseModel):
         ge=1000,
     )
     toolset: Annotated[StageToolset, Variable()] = Field(
-        description="The tools of a plan run of the stage job: `base` is the nine read-only tools that read the staged commit, and `extended` adds `references`, `read_issue` and `find_issues`. The last two read issues and pull requests of the repository on GitHub, with the token of the Service and no other permission",
+        description="The tools of a plan run of the stage job: `base` is the nine read-only tools that read the staged commit, `extended` adds `references`, `read_issue` and `find_issues`, and `research` adds `search_web`. The GitHub tools read issues and pull requests of the repository on GitHub, with the token of the Service and no other permission",
         default=DEFAULT_ROADMAP_STAGE_TOOLSET,
     )
 

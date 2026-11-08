@@ -185,6 +185,10 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
         "kept",
         "the terms of one search; the search of GitHub reads a short query",
     ),
+    "CONST_ROADMAP_STAGE_SEARCH_LIMIT": (
+        "kept",
+        "web searches of one stage run; protects the web search service",
+    ),
     "CONST_ROADMAP_STAGE_PROBE_MAX_COMMANDS": (
         "kept",
         "git commands of one premise probe; the probe runs in the process of the job",

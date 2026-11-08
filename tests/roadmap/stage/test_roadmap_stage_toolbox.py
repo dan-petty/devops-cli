@@ -68,6 +68,7 @@ _TOOLS = [
     "read_spec",
 ]
 _EXTENDED_TOOLS = [*_TOOLS, "references", "read_issue", "find_issues"]
+_RESEARCH_TOOLS = [*_EXTENDED_TOOLS, "search_web"]
 _PLAN = make_stage_proposal()
 # The calls after which a request offers no tool: fewer than a turn of calls is left.
 _LAST_WITH_TOOLS = (
@@ -481,6 +482,24 @@ def test_the_default_toolset_offers_twelve_tools_and_its_prompt_says_when_to_cal
     ) == (_EXTENDED_TOOLS, True)
 
 
+def test_the_research_toolset_offers_thirteen_tools_and_its_prompt_says_when_to_search(
+    checkout: tuple[Path, str],
+) -> None:
+    source, sha = checkout
+    script = Script(_read(), _PLAN)
+    client = ToolboxClient(script.model(), _Inner(), source, sha, toolset="research")
+
+    _plan(client)
+
+    request = script.seen[0][-1]
+    assert isinstance(request, ModelRequest)
+    instructions = request.instructions or ""
+    assert (
+        script.tools_offered[0],
+        load_task_prompt("roadmap_stage_tools_research.md") in instructions,
+    ) == (_RESEARCH_TOOLS, True)
+
+
 def test_the_base_toolset_offers_nine_tools_and_its_prompt_names_no_other(
     checkout: tuple[Path, str],
 ) -> None:
@@ -493,7 +512,7 @@ def test_the_base_toolset_offers_nine_tools_and_its_prompt_names_no_other(
     instructions = request.instructions or ""
     assert (
         script.tools_offered[0],
-        [name for name in _EXTENDED_TOOLS[len(_TOOLS) :] if name in instructions],
+        [name for name in _RESEARCH_TOOLS[len(_TOOLS) :] if name in instructions],
     ) == (_TOOLS, [])
 
 

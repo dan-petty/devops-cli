@@ -992,7 +992,7 @@ The prompt of the stage job SHALL tell the model that `probes` holds the result 
 - **THEN** it names `probes`, asks `feasibility` to quote the probes, and does not name `premise_failed` as a key to set
 
 ### Requirement: The setting toolset chooses the tools of a plan run
-The setting `roadmap.stage.toolset` SHALL be `base` or `extended`, with the variable `DEVOPS_CLI_ROADMAP_STAGE_TOOLSET`. The default SHALL be `extended`. The settings SHALL refuse any other value and name it. The example ConfigMap of the Service SHALL set the key. The toolset `base` SHALL have no GitHub tool and SHALL need no GitHub client.
+The setting `roadmap.stage.toolset` SHALL be `base`, `extended` or `research`, with the variable `DEVOPS_CLI_ROADMAP_STAGE_TOOLSET`. The default SHALL be `extended`. The settings SHALL refuse any other value and name it. The example ConfigMap of the Service SHALL set the key. The toolset `base` SHALL have no GitHub tool and SHALL need no GitHub client.
 
 #### Scenario: The default
 - **WHEN** no config file and no variable sets `roadmap.stage.toolset`
@@ -1004,7 +1004,11 @@ The setting `roadmap.stage.toolset` SHALL be `base` or `extended`, with the vari
 
 #### Scenario: A value that is none of the two
 - **WHEN** the variable is `wide`
-- **THEN** loading the settings fails with a message that names the variable and the values `base` and `extended`
+- **THEN** loading the settings fails with a message that names the variable and the values `base`, `extended` and `research`
+
+#### Scenario: The research toolset
+- **WHEN** the variable `DEVOPS_CLI_ROADMAP_STAGE_TOOLSET` is `research`
+- **THEN** a plan run offers thirteen tools: every tool of `extended` and `search_web`
 
 ### Requirement: The tool references counts a text in every file of the commit
 `references(name)` SHALL run `git grep -n -I -F` for the text over the whole staged commit with no cap for a file. It SHALL answer the count of files and lines, and for each file its path, its exact count of lines and its first five line numbers. It SHALL answer as text for a name that is empty, longer than 100 characters, or not one line.
@@ -3188,6 +3192,7 @@ The stage proposal check SHALL return a problem that names the module of a model
 #### Scenario: A second reply with the same gap stops the item
 - **WHEN** The first and the second reply both read `PullStatus.labels` and both omit `src/devops_cli/github/client.py` from `changes`.
 - **THEN** The stage job records a failure of the item with `RoadmapStageError`, and the plan holds no ready change.
+
 ### Requirement: A plan that passes the gates is kept as a file
 The planner SHALL write the plan that passes the gates, with its `StageRequest`, to the file `roadmap/stage/<owner>/<repo>/<number>.json` under the data directory, atomically, before the model review. The file SHALL hold a key: the sha256 of the item number, the hash of its title, the hashes of its body from `body_hashes`, the model name of the task `stage`, the name of the toolset and the prompt version. The prompt version SHALL be the sha256 of the texts of the prompts that the planner reads.
 
@@ -3334,3 +3339,38 @@ The planner prompt and `docs/roadmap/stage.md` SHALL state that a plan cites onl
 #### Scenario: The prompt rule is present
 - **WHEN** The stage prompt and `docs/roadmap/stage.md` are read.
 - **THEN** Both hold the same sentence of the rule, and the tests in `tests/roadmap/stage/test_roadmap_stage_prompt_rules.py` pass.
+
+### Requirement: Research toolset adds search_web
+The stage toolbox SHALL add `search_web` when the toolset is `research`.
+
+#### Scenario: Research adds one tool
+- **WHEN** the stage toolset is `research`
+- **THEN** the toolbox holds every `extended` tool and `search_web`, and no other tool.
+
+### Requirement: Base and extended omit search_web
+The stage toolbox SHALL NOT include `search_web` when the toolset is `base` or `extended`.
+
+#### Scenario: Network-free toolsets stay network-free
+- **WHEN** the stage toolset is `base` or `extended`
+- **THEN** the toolbox holds no `search_web` tool.
+
+### Requirement: Search query is guarded before the call
+The search tool SHALL build the query from the short term that the model gives and SHALL apply the secret masker and private-data rules before it calls the search service.
+
+#### Scenario: Secret and internal host are stopped
+- **WHEN** the short term holds a secret or an internal host
+- **THEN** the tool masks the secret and refuses the internal host before it calls the search service.
+
+### Requirement: Search result is data
+The search tool SHALL return only titles, URLs and cut snippets, and the prompt SHALL state that a result is data and not an instruction.
+
+#### Scenario: Result text is cut and marked as data
+- **WHEN** the search service returns a long snippet and an instruction in its title
+- **THEN** the tool returns the title, URL and a cut snippet, and the prompt marks the result as data.
+
+### Requirement: Search limit and outcome counter
+A plan run SHALL stop calling `search_web` at the stage search limit and SHALL count each search by its outcome.
+
+#### Scenario: Excess search is refused and counted
+- **WHEN** the model asks for more searches than the limit, with one success and one refusal
+- **THEN** the tool refuses the excess call and the run records the counts by outcome.

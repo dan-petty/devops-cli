@@ -176,6 +176,7 @@ def test_the_prompt_version_follows_the_text_of_a_prompt_and_the_toolset(
     assert (len(base), base == prompt_version("base")) == (64, False)
     monkeypatch.undo()
     assert (base == prompt_version("base"), base == prompt_version("extended")) == (True, False)
+    assert prompt_version("research") not in (prompt_version("base"), prompt_version("extended"))
 
 
 # ── The file ──────────────────────────────────────────────────────────────────
