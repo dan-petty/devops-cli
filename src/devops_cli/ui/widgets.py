@@ -21,13 +21,12 @@ from typing import Any, ClassVar, Protocol, runtime_checkable
 from textual import work
 from textual.app import ComposeResult
 from textual.binding import Binding, BindingType
-from textual.containers import Horizontal, Vertical
+from textual.containers import Vertical
 from textual.css.query import NoMatches
-from textual.widgets import DataTable, Input, Select, Static, TabbedContent, TabPane
+from textual.widgets import DataTable, Input, Static, TabbedContent, TabPane
 
 from devops_cli.config.constants import (
     CONST_DASHBOARD_DOMAIN_DOCKER,
-    CONST_DASHBOARD_DOMAIN_K8S,
     CONST_DASHBOARD_DOMAIN_LABELS,
     CONST_DASHBOARD_DOMAIN_TELEMETRY,
     CONST_DOCKER_RESOURCE_CONTAINERS,
@@ -42,25 +41,17 @@ from devops_cli.config.defaults import (
 from devops_cli.exceptions import ValidationError
 from devops_cli.exceptions.k8s import KubernetesLoggingError
 from devops_cli.k8s.logql import execute_logql_query
-from devops_cli.models.k8s import PodInfo
 from devops_cli.output import Text
 from devops_cli.ui.data_providers import TelemetrySummary
 from devops_cli.ui.highlighters import LogQLHighlighter
 from devops_cli.ui.log_buffer import VirtualLogBuffer
-from devops_cli.ui.pod_inspector import PodInspector
 from devops_cli.ui.projections import (
-    CONST_K8S_ALL_NAMESPACES,
-    CONST_K8S_ALL_NAMESPACES_LABEL,
     DOCKER_RESOURCE_COLUMNS,
     DOMAIN_COLUMNS,
     docker_resource_keys,
     docker_resource_label,
     docker_resource_rows,
-    filter_pods,
-    k8s_filter_banner,
-    k8s_pod_row,
     loading_banner,
-    namespace_choices,
     render_banner,
     render_domain,
     render_keys,
@@ -190,7 +181,6 @@ class DomainPanel(Vertical):
 __all__ = [
     "DockerPanel",
     "DomainPanel",
-    "K8sPanel",
     "LogPane",
     "TelemetryPanel",
     "redraw_table",
@@ -376,191 +366,6 @@ class TelemetryPanel(DomainPanel):
         self.action_show_waterfall()
 
 
-class K8sPanel(Vertical):
-    """The Kubernetes domain: a banner, a namespace selector and text filter, and the pods.
-
-    Both filters are applied to every snapshot, so a refresh never undoes them, and the
-    table is redrawn by pod key, so the cursor stays on its pod. The panel keeps each
-    listed pod's record, so opening its logs or inspecting it needs no further lookup.
-    """
-
-    # Hidden from the footer, which already truncates; the help screen lists them. Bound
-    # here, so they act only while focus is inside the Kubernetes tab.
-    BINDINGS: ClassVar[list[BindingType]] = [
-        Binding("slash", "focus_filter", "Filter pods", show=False),
-        Binding("e", "inspect", "Inspect pod", show=False),
-        Binding("escape", "clear_filter", "Clear filter", show=False),
-    ]
-
-    DEFAULT_CSS = """
-    K8sPanel {
-        height: 1fr;
-    }
-    K8sPanel > Static {
-        padding: 0 1;
-        margin-bottom: 1;
-        background: $boost;
-        color: $text;
-    }
-    K8sPanel #k8s-filters {
-        height: auto;
-    }
-    K8sPanel #k8s-namespace {
-        width: 32;
-    }
-    K8sPanel #k8s-filter {
-        width: 1fr;
-    }
-    K8sPanel > DataTable {
-        height: 1fr;
-    }
-    """
-
-    def __init__(
-        self, domain: str = CONST_DASHBOARD_DOMAIN_K8S, *, stale_after: float | None = None
-    ) -> None:
-        super().__init__(id=f"panel-{domain}")
-        self.domain = domain
-        self.stale_after = stale_after
-        self._snapshot = DomainSnapshot(domain=domain)
-        # Every pod in the last snapshot by row key, and the subset the filters list.
-        self._pods: dict[str, PodInfo] = {}
-        self._shown: dict[str, PodInfo] = {}
-        # The namespaces the selector offers. The chosen one is read from the selector
-        # itself, so a choice made while a refresh is queued is never overwritten.
-        self._namespaces: tuple[str, ...] = ()
-        self._pending_snapshot: DomainSnapshot | None = None
-
-    @property
-    def label(self) -> str:
-        """Human-readable name for this domain."""
-        return CONST_DASHBOARD_DOMAIN_LABELS.get(self.domain, self.domain.title())
-
-    def compose(self) -> ComposeResult:
-        yield Static(loading_banner(self.domain), id=f"{self.domain}-banner")
-        yield Horizontal(
-            Select(
-                [(CONST_K8S_ALL_NAMESPACES_LABEL, CONST_K8S_ALL_NAMESPACES)],
-                value=CONST_K8S_ALL_NAMESPACES,
-                allow_blank=False,
-                id="k8s-namespace",
-            ),
-            Input(placeholder="/ filter by namespace, name or status", id="k8s-filter"),
-            id="k8s-filters",
-        )
-        yield DataTable(id=f"{self.domain}-table")
-
-    def on_mount(self) -> None:
-        """Install the column headers."""
-        table = self._table()
-        table.cursor_type = "row"
-        table.add_columns(*DOMAIN_COLUMNS[self.domain])
-        if self._pending_snapshot is not None:
-            snapshot = self._pending_snapshot
-            self._pending_snapshot = None
-            self.apply(snapshot)
-
-    def _table(self) -> DataTable[Any]:
-        return self.query_one(f"#{self.domain}-table", DataTable)
-
-    def _select(self) -> Select[str]:
-        return self.query_one("#k8s-namespace", Select)
-
-    def _namespace(self) -> str:
-        """Return the chosen namespace, or the empty string for all of them."""
-        value = self._select().value
-        return value if isinstance(value, str) else CONST_K8S_ALL_NAMESPACES
-
-    def apply(self, snapshot: DomainSnapshot) -> None:
-        """Render a snapshot through the current filters.
-
-        Called from the UI thread only; workers hand snapshots across via the app.
-        """
-        if not self.is_mounted:
-            self._pending_snapshot = snapshot
-            return
-        try:
-            self._snapshot = snapshot
-            pods = snapshot.data.pods if snapshot.data is not None else []
-            self._pods = dict(zip(render_keys(snapshot), pods, strict=True))
-            self._offer_namespaces()
-            self._redraw()
-            self._pending_snapshot = None
-        except NoMatches:
-            self._pending_snapshot = snapshot
-
-    def _offer_namespaces(self) -> None:
-        """Offer the namespaces in the snapshot, keeping the one chosen.
-
-        Replacing a Select's options resets its selection, so they are replaced only when
-        the namespaces change, and the choice is put back at once.
-        """
-        chosen = self._namespace()
-        choices = namespace_choices(self._pods.values(), chosen)
-        if choices == self._namespaces:
-            return
-        self._namespaces = choices
-        select = self._select()
-        select.set_options(
-            [
-                (CONST_K8S_ALL_NAMESPACES_LABEL, CONST_K8S_ALL_NAMESPACES),
-                *((namespace, namespace) for namespace in choices),
-            ]
-        )
-        select.value = chosen
-
-    def _redraw(self) -> None:
-        """Redraw the banner and the pods the filters leave listed."""
-        namespace, text = self._namespace(), self.query_one("#k8s-filter", Input).value
-        self._shown = filter_pods(self._pods, namespace, text)
-        banner = render_banner(self._snapshot, stale_after=self.stale_after)
-        if namespace != CONST_K8S_ALL_NAMESPACES or text.strip():
-            banner = k8s_filter_banner(banner, len(self._shown), len(self._pods))
-        self.query_one(f"#{self.domain}-banner", Static).update(banner)
-        rows = [k8s_pod_row(pod) for pod in self._shown.values()]
-        redraw_table(self._table(), rows, list(self._shown))
-
-    def pod_for(self, row_key: str | None) -> PodInfo | None:
-        """Return the pod a listed row shows, if it is still listed and has a name.
-
-        A record read from an object without a name cannot be tailed or inspected: the
-        API would be asked for pod ''.
-        """
-        pod = self._shown.get(row_key) if row_key is not None else None
-        return pod if pod is not None and pod.name else None
-
-    def on_select_changed(self, event: Select.Changed) -> None:
-        """Apply a namespace choice.
-
-        The choice is read from the selector, not the message: restoring it after new
-        options posts a change to the reset value first, which is stale by now.
-        """
-        self._redraw()
-
-    def on_input_changed(self, event: Input.Changed) -> None:
-        """Apply the text filter as it is typed."""
-        self._redraw()
-
-    def on_input_submitted(self, event: Input.Submitted) -> None:
-        """Enter in the filter box hands the arrow keys back to the pods."""
-        self._table().focus()
-
-    def action_focus_filter(self) -> None:
-        """Move to the text filter."""
-        self.query_one("#k8s-filter", Input).focus()
-
-    def action_clear_filter(self) -> None:
-        """Clear the text filter and return to the pods."""
-        self.query_one("#k8s-filter", Input).value = ""
-        self._table().focus()
-
-    def action_inspect(self) -> None:
-        """Open the inspector on the highlighted pod."""
-        pod = self.pod_for(_highlighted_key(self._table()))
-        if pod is not None:
-            self.app.push_screen(PodInspector(pod))
-
-
 class DockerPanel(Vertical):
     """The Docker domain: one banner over nested tabs for each kind of resource.
 
@@ -682,8 +487,6 @@ class LogPane(Vertical, can_focus=True):
         Binding("pageup", "scroll_pages(-1)", "Page Up", show=False),
         Binding("pagedown", "scroll_pages(1)", "Page Down", show=False),
         Binding("end", "follow", "Follow", show=True),
-        # The app knows which pod is tailed and how to open its streams.
-        Binding("c", "app.next_container", "Next container", show=False),
     ]
 
     DEFAULT_CSS = """

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import time
 
 import pytest
@@ -10,9 +9,6 @@ import pytest
 from devops_cli.config.constants import (
     CONST_DASHBOARD_DOMAINS,
     CONST_DOCKER_RESOURCES,
-)
-from devops_cli.ui.data_providers import (
-    K8sSummary,
 )
 from devops_cli.ui.projections import (
     docker_resource_keys,
@@ -25,7 +21,6 @@ from devops_cli.ui.state import DomainSnapshot
 from tests.support.ui import (
     SAMPLES,
     _docker,
-    _pod,
 )
 
 
@@ -48,7 +43,7 @@ def test_every_docker_resource_keys_each_row_it_projects(resource: str) -> None:
 def test_an_unloaded_snapshot_has_no_row_keys() -> None:
     """Keys come from the data, so a domain that has not loaded has none."""
     assert (
-        render_keys(DomainSnapshot(domain="k8s")),
+        render_keys(DomainSnapshot(domain="valkey")),
         docker_resource_keys("images", DomainSnapshot(domain="docker")),
     ) == ([], [])
 
@@ -60,10 +55,3 @@ def test_row_keys_number_each_repeat_of_an_identity() -> None:
         '["a", "b", 1]',
         '["c", 0]',
     ]
-
-
-def test_pods_are_keyed_by_namespace_and_name() -> None:
-    """A pod name is unique only within its namespace."""
-    summary = K8sSummary(connected=True, pods=[_pod("api-0"), _pod("api-0", "b")])
-    keys = render_keys(DomainSnapshot(domain="k8s", data=summary, updated_at=time.time()))
-    assert [json.loads(key) for key in keys] == [["default", "api-0", 0], ["b", "api-0", 0]]

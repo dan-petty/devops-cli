@@ -2474,57 +2474,6 @@ def test_build_pods_table_masks_credentials_in_exceptions(cluster: FakeCluster) 
     assert "secret_token_xyz123" not in rendered
 
 
-def test_the_dashboard_and_k8s_pods_show_the_same_status_and_ready(cluster: FakeCluster) -> None:
-    """Two answers for one pod would be worse than either; both now come from one port."""
-    import devops_cli.ui.data_providers as data_providers
-    from devops_cli.commands.k8s.diagnostics import _build_pods_table
-    from devops_cli.output import Text
-    from devops_cli.ui.projections import k8s_rows
-    from tests.support.fakes.kubernetes import (
-        crashlooping_pod,
-        healthy_pod,
-        pod,
-        running,
-        status,
-        terminated,
-        waiting,
-    )
-
-    def _plain(cell: str) -> str:
-        return Text.from_markup(cell).plain
-
-    mixed_pods = [
-        healthy_pod("api-0", "shop"),
-        crashlooping_pod("exporter-0", "monitoring"),
-        pod(phase="Pending", statuses=[status("app", waiting("ContainerCreating"))]),
-        pod(phase="Succeeded", statuses=[status("app", terminated(0, "Completed"))]),
-        pod(
-            containers=("app", "vault-agent"),
-            statuses=[
-                status("vault-agent", running(), ready=True),
-                status("app", running(), ready=True),
-            ],
-        ),
-    ]
-    cluster.core.answers["list_pod_for_all_namespaces"] = mixed_pods
-    dashboard = [
-        (_plain(row[2]), _plain(row[3])) for row in k8s_rows(data_providers.fetch_k8s_status())
-    ]
-
-    table = _build_pods_table(None, None, all_namespaces=True)
-    cli_table = [(_plain(row[2]), _plain(row[3])) for row in table.rows]
-    assert (dashboard, cli_table) == (
-        [
-            ("Running", "1/1"),
-            ("CrashLoopBackOff", "0/1"),
-            ("ContainerCreating", "0/1"),
-            ("Completed", "0/1"),
-            ("Running", "2/2"),
-        ],
-        dashboard,
-    )
-
-
 def test_k8s_pods_colours_a_status_by_health_not_by_phase(cluster: FakeCluster) -> None:
     """A crashlooping pod in phase Running was printed green."""
     from devops_cli.commands.k8s.diagnostics import _build_pods_table

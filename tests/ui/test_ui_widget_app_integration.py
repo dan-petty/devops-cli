@@ -21,10 +21,9 @@ from devops_cli.ui.projections import (
     DOMAIN_COLUMNS,
 )
 from devops_cli.ui.state import DashboardState, DomainSnapshot
-from devops_cli.ui.widgets import DockerPanel, DomainPanel, K8sPanel
+from devops_cli.ui.widgets import DockerPanel, DomainPanel
 from tests.support.ui import (
     SAMPLES,
-    _k8s,
     _settle,
 )
 from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS
@@ -39,7 +38,6 @@ async def test_the_dashboard_mounts_one_panel_per_configured_domain(
     async with app.run_test():
         panels = {panel.domain for panel in app.query(DomainPanel).results(DomainPanel)}
         panels |= {panel.domain for panel in app.query(DockerPanel).results(DockerPanel)}
-        panels |= {panel.domain for panel in app.query(K8sPanel).results(K8sPanel)}
         assert panels == set(CONST_DASHBOARD_DOMAINS)
 
 
@@ -54,7 +52,6 @@ async def test_every_panel_declares_the_columns_its_domain_projects(
             panel.domain: len(panel.query_one(DataTable).columns)
             for panel in app.query(DomainPanel).results(DomainPanel)
         }
-        widths["k8s"] = len(app.query_one("#k8s-table", DataTable).columns)
         # Docker composes nested tabs, so it is not a plain DomainPanel.
         assert widths == {
             domain: len(DOMAIN_COLUMNS[domain])
@@ -80,9 +77,8 @@ async def test_the_initial_refresh_populates_every_panel(
             panel.domain: panel.query_one(DataTable).row_count
             for panel in app.query(DomainPanel).results(DomainPanel)
         }
-        counts["k8s"] = app.query_one("#k8s-table", DataTable).row_count
         counts["docker"] = app.query_one("#docker-table", DataTable).row_count
-        assert counts == {"k8s": 1, "docker": 1, "telemetry": 3, "valkey": 7}
+        assert counts == {"docker": 1, "telemetry": 3, "valkey": 7}
 
 
 async def test_a_panel_renders_a_snapshot_handed_to_it(
@@ -111,40 +107,35 @@ async def test_a_slow_subsystem_does_not_freeze_the_interface(
     This is the defect the reactive architecture exists to fix: the previous design called
     every provider synchronously from the keypress handler, so one unreachable cluster
     froze every unrelated tab for the duration of its timeout.
-
-    The k8s fetch is held until the test releases it, with no bound of its own, so it outlives
-    every wait that observes it. A 10 s hold ran out on a loaded host before the test looked,
-    and the fetch was then over (#2092). The test releases the hold before the app exits on every
-    path, since Textual waits for its thread workers when it shuts down.
     """
     release = threading.Event()
     entered = threading.Event()
 
-    def slow_k8s() -> Any:
+    def slow_valkey() -> Any:
         entered.set()
         release.wait()
-        return _k8s()
+        return SAMPLES["valkey"]()
 
-    patched_fetchers(k8s=slow_k8s)
+    patched_fetchers(valkey=slow_valkey)
     state = DashboardState()
     app = DashboardApp(refresh_interval=0, state=state)
     async with app.run_test() as pilot:
         try:
-            assert entered.wait(THREAD_HANDOFF_BOUND_SECONDS), "the k8s worker never started"
+            assert entered.wait(THREAD_HANDOFF_BOUND_SECONDS), "the valkey worker never started"
 
-            await pilot.press("2")
+            await pilot.press("1")
             await pilot.pause()
             active_while_blocked = app.query_one(TabbedContent).active
 
             docker_table = app.query_one("#docker-table", DataTable)
             await _settle(pilot, lambda: docker_table.row_count > 0)
             rendered_while_blocked = docker_table.row_count
-            k8s_still_fetching = state.in_flight() == ["k8s"]
+            valkey_still_fetching = state.in_flight() == ["valkey"]
         finally:
             release.set()
         await _settle(pilot, lambda: not state.pending_domains())
 
-    assert (active_while_blocked, rendered_while_blocked, k8s_still_fetching) == (
+    assert (active_while_blocked, rendered_while_blocked, valkey_still_fetching) == (
         "tab-docker",
         1,
         True,
@@ -157,20 +148,20 @@ async def test_a_failing_provider_leaves_the_rest_of_the_dashboard_working(
     """One broken subsystem must not take the dashboard down with it."""
 
     def broken() -> Any:
-        raise ConnectionError("cluster unreachable")
+        raise ConnectionError("service unreachable")
 
-    patched_fetchers(k8s=broken)
+    patched_fetchers(valkey=broken)
     state = DashboardState()
     app = DashboardApp(refresh_interval=0, state=state)
     async with app.run_test() as pilot:
-        await _settle(pilot, lambda: state.failed_domains() == ["k8s"])
-        await _settle(pilot, lambda: app.query_one("#valkey-table", DataTable).row_count == 7)
-        banner = str(app.query_one("#k8s-banner", Static).render())
+        await _settle(pilot, lambda: state.failed_domains() == ["valkey"])
+        await _settle(pilot, lambda: app.query_one("#telemetry-table", DataTable).row_count == 3)
+        banner = str(app.query_one("#valkey-banner", Static).render())
         assert (
             state.failed_domains(),
-            app.query_one("#valkey-table", DataTable).row_count,
+            app.query_one("#telemetry-table", DataTable).row_count,
             "refresh failed" in banner,
-        ) == (["k8s"], 7, True)
+        ) == (["valkey"], 3, True)
 
 
 async def test_a_refresh_keypress_never_blocks_on_the_providers(
@@ -217,7 +208,7 @@ async def test_unrenderable_data_is_confined_to_its_own_panel(
     """
 
     def wrong_shape() -> Any:
-        return _k8s()  # a K8sSummary handed to the Docker projection
+        return object()  # invalid data handed to the Docker projection
 
     patched_fetchers(docker=wrong_shape)
     state = DashboardState()

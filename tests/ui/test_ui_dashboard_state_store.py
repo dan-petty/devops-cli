@@ -10,16 +10,16 @@ from devops_cli.config.constants import (
 from devops_cli.ui.state import DashboardState, DomainSnapshot
 from tests.support.ui import (
     _docker,
-    _k8s,
+    _valkey,
 )
 from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS
 
 
 def test_publish_records_a_snapshot_readable_by_domain(state: DashboardState) -> None:
     """publish stores data retrievable via get, marked successful."""
-    snapshot = state.publish("k8s", _k8s())
-    stored = state.get("k8s")
-    assert (stored.domain, stored.error, stored.ok) == ("k8s", None, True)
+    snapshot = state.publish("valkey", _valkey())
+    stored = state.get("valkey")
+    assert (stored.domain, stored.error, stored.ok) == ("valkey", None, True)
     assert stored.data is snapshot.data
 
 
@@ -40,9 +40,9 @@ def test_publish_error_preserves_the_previously_fetched_data(state: DashboardSta
     Losing the last known state on a transient outage is worse than showing it with a
     warning, because the operator loses the only account of the system they had.
     """
-    original = _k8s()
-    state.publish("k8s", original)
-    snapshot = state.publish_error("k8s", "connection refused")
+    original = _valkey()
+    state.publish("valkey", original)
+    snapshot = state.publish_error("valkey", "connection refused")
     assert (snapshot.error, snapshot.data is original) == ("connection refused", True)
 
 
@@ -63,9 +63,9 @@ def test_subscribers_are_notified_of_every_publish(state: DashboardState) -> Non
     """Listeners receive both successful and failed snapshots."""
     seen: list[tuple[str, str | None]] = []
     state.subscribe(lambda snap: seen.append((snap.domain, snap.error)))
-    state.publish("k8s", _k8s())
+    state.publish("valkey", _valkey())
     state.publish_error("docker", "down")
-    assert seen == [("k8s", None), ("docker", "down")]
+    assert seen == [("valkey", None), ("docker", "down")]
 
 
 def test_a_failing_subscriber_cannot_abort_the_publish(state: DashboardState) -> None:
@@ -77,18 +77,18 @@ def test_a_failing_subscriber_cannot_abort_the_publish(state: DashboardState) ->
     seen: list[str] = []
     state.subscribe(explode)
     state.subscribe(lambda snap: seen.append(snap.domain))
-    state.publish("k8s", _k8s())
-    assert (seen, state.get("k8s").ok) == (["k8s"], True)
+    state.publish("valkey", _valkey())
+    assert (seen, state.get("valkey").ok) == (["valkey"], True)
 
 
 def test_unsubscribe_stops_further_notifications(state: DashboardState) -> None:
     """The handle returned by subscribe removes the listener."""
     seen: list[str] = []
     unsubscribe = state.subscribe(lambda snap: seen.append(snap.domain))
-    state.publish("k8s", _k8s())
+    state.publish("valkey", _valkey())
     unsubscribe()
     state.publish("docker", _docker())
-    assert seen == ["k8s"]
+    assert seen == ["valkey"]
 
 
 def test_unsubscribing_twice_is_harmless(state: DashboardState) -> None:
@@ -112,9 +112,9 @@ def test_subscribers_are_notified_outside_the_lock(state: DashboardState) -> Non
         entered.set()
         release.wait(timeout=THREAD_HANDOFF_BOUND_SECONDS)
 
-    state.publish("k8s", _k8s())
+    state.publish("valkey", _valkey())
     state.subscribe(slow)
-    blocker = threading.Thread(target=lambda: state.publish("k8s", _k8s()))
+    blocker = threading.Thread(target=lambda: state.publish("valkey", _valkey()))
     blocker.start()
     assert entered.wait(timeout=THREAD_HANDOFF_BOUND_SECONDS)
 
@@ -122,7 +122,7 @@ def test_subscribers_are_notified_outside_the_lock(state: DashboardState) -> Non
 
     def reader() -> None:
         state.snapshots()
-        state.get("k8s")
+        state.get("valkey")
         read.set()
 
     worker = threading.Thread(target=reader)
@@ -143,19 +143,19 @@ def test_pending_domains_lists_every_domain_before_any_fetch(state: DashboardSta
 
 def test_pending_domains_shrinks_as_domains_load(state: DashboardState) -> None:
     """A domain with data is no longer pending, and an errored one still is."""
-    state.publish("k8s", _k8s())
+    state.publish("valkey", _valkey())
     state.publish_error("docker", "down")
     pending = state.pending_domains()
-    assert ("k8s" in pending, "docker" in pending) == (False, True)
+    assert ("valkey" in pending, "docker" in pending) == (False, True)
 
 
 def test_failed_domains_lists_only_domains_whose_last_refresh_errored(
     state: DashboardState,
 ) -> None:
     """Recovery clears a domain from the failure list."""
-    state.publish_error("k8s", "down")
+    state.publish_error("valkey", "down")
     state.publish_error("docker", "down")
-    state.publish("k8s", _k8s())
+    state.publish("valkey", _valkey())
     assert state.failed_domains() == ["docker"]
 
 
@@ -163,18 +163,18 @@ def test_clear_discards_snapshots_but_keeps_subscribers(state: DashboardState) -
     """Clearing state does not silently unregister the UI."""
     seen: list[str] = []
     state.subscribe(lambda snap: seen.append(snap.domain))
-    state.publish("k8s", _k8s())
+    state.publish("valkey", _valkey())
     state.clear()
     state.publish("docker", _docker())
-    assert (state.get("k8s").never_loaded, seen) == (True, ["k8s", "docker"])
+    assert (state.get("valkey").never_loaded, seen) == (True, ["valkey", "docker"])
 
 
 def test_snapshots_returns_an_isolated_copy(state: DashboardState) -> None:
     """Mutating the returned mapping cannot corrupt the store."""
-    state.publish("k8s", _k8s())
+    state.publish("valkey", _valkey())
     copy = state.snapshots()
     copy.clear()
-    assert state.get("k8s").ok is True
+    assert state.get("valkey").ok is True
 
 
 def test_concurrent_publishes_across_threads_lose_nothing(state: DashboardState) -> None:

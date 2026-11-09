@@ -10504,7 +10504,7 @@ devops dashboard [OPTIONS]
 |---|---|---|---|
 | `--summary`, `-s` | `boolean` | - | Print static summary panels and exit instead of starting full-screen TUI. |
 | `--refresh-interval`, `-r` | `integer` | `5` | Auto-refresh interval in seconds for live dashboard updates. |
-| `--tab`, `-t` | `string` | `k8s` | Initial tab to activate (1=k8s, 2=docker, 3=telemetry, 4=valkey). |
+| `--tab`, `-t` | `string` | `docker` | Initial tab to activate (1=docker, 2=telemetry, 3=valkey). |
 | `--dry-run` | `boolean` | - | Simulate dashboard launch and print static summary. |
 
 ---
@@ -10529,7 +10529,7 @@ devops tui [OPTIONS]
 |---|---|---|---|
 | `--summary`, `-s` | `boolean` | - | Print static summary panels and exit instead of starting full-screen TUI. |
 | `--refresh-interval`, `-r` | `integer` | `5` | Auto-refresh interval in seconds for live dashboard updates. |
-| `--tab`, `-t` | `string` | `k8s` | Initial tab to activate (1=k8s, 2=docker, 3=telemetry, 4=valkey). |
+| `--tab`, `-t` | `string` | `docker` | Initial tab to activate (1=docker, 2=telemetry, 3=valkey). |
 | `--dry-run` | `boolean` | - | Simulate dashboard launch and print static summary. |
 
 ---
