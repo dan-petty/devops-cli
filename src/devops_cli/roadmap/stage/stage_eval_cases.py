@@ -43,7 +43,8 @@ How the cases were made (2026-11-01):
 - The case of #3167 is a plan that the stage job staged with `x` in each text and `true` as its
   verify command, and that a person closed (#3200). Its `merge_commit` is the head commit of the
   pull request, and its scores are the lowest, set by hand. The `content` gate refuses its texts,
-  and the `paths` gate refuses its verify command.
+  the `paths` gate refuses its verify command, and the `kind` gate refuses the placeholder summary
+  (#3395).
 - The 3 cases that start with `good-` are the plans of #2992, #2859 and #2858 with the one wrong
   path corrected. They have no defect, and every gate must accept them.
 

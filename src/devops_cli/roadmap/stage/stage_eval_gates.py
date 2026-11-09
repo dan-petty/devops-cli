@@ -50,6 +50,7 @@ from devops_cli.roadmap.stage.stage_change import (
     StageSpec,
     check_proposal,
     content_problems,
+    summary_problem,
 )
 from devops_cli.roadmap.stage.stage_criteria import StageCriterion, criterion_problems
 from devops_cli.roadmap.stage.stage_eval_cases import (
@@ -100,6 +101,8 @@ class PlanUnderTest:
         """The plan of a case. A raw group or spec that fails the schema is kept as it is when it
         can be, with the message of the schema as a problem, so the other gates still judge it."""
         problems: list[str] = []
+        if problem := summary_problem(case.plan.get("summary", "")):
+            problems.append(problem)
         groups = [_group_of(raw, problems) for raw in case.groups]
         specs = [spec for raw in case.plan["specs"] if (spec := _spec_of(raw, problems))]
         criteria = [StageCriterion.model_validate(raw) for raw in case.plan.get("criteria", [])]
