@@ -30,8 +30,8 @@ from devops_cli.config.constants import (
     CONST_GH_TOKEN_ENV_VARS,
     CONST_GIT_GLOBAL_CONFIG_ENV,
     CONST_K8S_MINIKUBE_CONTEXT,
+    CONST_KEYRING_BACKUP_COUNT,
     CONST_KEYRING_PACKAGES,
-    CONST_KEYRING_PROMPT_TIMEOUT_SECONDS,
     CONST_KILO_CONFIG_NAME,
     CONST_MCP_JSON_NAME,
     CONST_PYPROJECT_FILENAME,
@@ -1179,6 +1179,9 @@ def _start_session_bus(*, dry_run: bool = False) -> list[str]:
     The socket and its runtime directory stay under /run, which is private to each container:
     /tmp is a volume shared between containers, where one container's keyring daemon would
     replace another's control socket.
+
+    The bus gets no display. It starts gcr-prompter, and gnome-keyring's GUI unlock prompt
+    changes the login keyring password to the last password that --unlock rejected (#4240).
     """
     actions: list[str] = []
     socket_path = _session_bus_socket()
@@ -1203,7 +1206,6 @@ def _start_session_bus(*, dry_run: bool = False) -> list[str]:
                 f"--address=unix:path={socket_path}",
             ],
             env={"XDG_RUNTIME_DIR": str(runtime_dir)},
-            extra_allowed_env={"DISPLAY", "WAYLAND_DISPLAY"},
             check=False,
             quiet=True,
         )
@@ -1213,7 +1215,7 @@ def _start_session_bus(*, dry_run: bool = False) -> list[str]:
             )
             return actions
         # A fresh bus means a fresh keyring daemon, and that always starts locked. The marker
-        # tells post-start and the first interactive shell to ask for the password.
+        # tells the first interactive shell to ask for the password.
         if shutil.which("gnome-keyring-daemon"):
             _keyring_unlock_pending(socket_path).touch()
     actions.append(
@@ -1237,6 +1239,42 @@ def _login_keyring_file() -> Path:
     """Return the file gnome-keyring keeps the login keyring in."""
     data_home = os.getenv("XDG_DATA_HOME") or str(Path.home() / ".local" / "share")
     return Path(data_home) / "keyrings" / "login.keyring"
+
+
+def _keyring_backup_dir() -> Path:
+    """Return the folder of the keyring copies. gnome-keyring loads no subfolder."""
+    return _login_keyring_file().parent / "backups"
+
+
+def _keep_keyring_copy() -> None:
+    """Copy the login keyring that the password has just opened, and keep the newest copies.
+
+    The same password opens the copy, so it can bring the keyring back when the file becomes
+    unreadable. A copy equal to the newest one is not made, so the kept copies differ. The
+    keyring is open whatever happens here, so a failed copy is a warning, not a failure.
+    """
+    from datetime import UTC, datetime
+
+    keyring_file = _login_keyring_file()
+    if not keyring_file.is_file():
+        return
+    backups = _keyring_backup_dir()
+    pattern = f"{keyring_file.name}.*"
+    try:
+        backups.mkdir(mode=0o700, exist_ok=True)
+        backups.chmod(0o700)
+        copies = sorted(backups.glob(pattern))
+        if copies and copies[-1].read_bytes() == keyring_file.read_bytes():
+            return
+        copy = backups / f"{keyring_file.name}.{datetime.now(UTC):%Y%m%d-%H%M%S}"
+        shutil.copy2(keyring_file, copy)
+        copy.chmod(0o600)
+        for old in sorted(backups.glob(pattern))[:-CONST_KEYRING_BACKUP_COUNT]:
+            old.unlink()
+    except OSError as exc:
+        print_warning(MESSAGES.devcontainer.keyring_copy_failed.format(error=exc), prefix=False)
+        return
+    print_info(MESSAGES.devcontainer.keyring_copy_kept.format(path=copy), prefix=False)
 
 
 # =============================================================================
@@ -1270,40 +1308,13 @@ def unlock_keyring(
         render_request_plan("devops devcontainer unlock-keyring", plans)
         return
 
-    if not _unlock_keyring(timeout=None):
+    if not _unlock_keyring():
         raise typer.Exit(1)
 
 
 def _keyring_unlock_pending(socket_path: Path) -> Path:
     """Return the marker post-start leaves while the keyring it started is still locked."""
     return socket_path.parent / ".keyring-unlock-pending"
-
-
-def _stdin_is_terminal() -> bool:
-    """Report whether someone could be typing into stdin."""
-    import sys
-
-    return sys.stdin.isatty()
-
-
-def _read_password(prompt: str, timeout: int | None) -> str:
-    """Read a password without echo, giving up with TimeoutError after timeout seconds."""
-    import getpass
-    import signal
-
-    if timeout is None or not hasattr(signal, "SIGALRM"):
-        return getpass.getpass(prompt)
-
-    def expire(_signum: int, _frame: object) -> None:
-        raise TimeoutError
-
-    previous = signal.signal(signal.SIGALRM, expire)
-    signal.alarm(timeout)
-    try:
-        return getpass.getpass(prompt)  # getpass restores echo on the way out
-    finally:
-        signal.alarm(0)
-        signal.signal(signal.SIGALRM, previous)
 
 
 def _move_plaintext_gh_tokens() -> list[str]:
@@ -1335,11 +1346,11 @@ def _move_plaintext_gh_tokens() -> list[str]:
     return moved
 
 
-def _unlock_keyring(*, timeout: int | None) -> bool:
-    """Prompt for the keyring password, unlock or create the keyring, and move gh tokens into it.
+def _unlock_keyring() -> bool:
+    """Prompt for the keyring password, unlock or create the keyring, keep a copy of it, and
+    move gh tokens into it."""
+    import getpass
 
-    With a timeout, an unanswered prompt gives up instead of blocking the caller.
-    """
     socket_path = _session_bus_socket()
     if socket_path is None or not shutil.which("gnome-keyring-daemon"):
         print_error(ERRORS.devcontainer.keyring_unavailable)
@@ -1355,11 +1366,10 @@ def _unlock_keyring(*, timeout: int | None) -> bool:
         return True
 
     try:
-        password = _read_password(
+        password = getpass.getpass(
             MESSAGES.devcontainer.keyring_new_password
             if first_time
-            else MESSAGES.devcontainer.keyring_password,
-            timeout,
+            else MESSAGES.devcontainer.keyring_password
         )
         if not password:
             # An empty password stores every secret in the keyring file as plain text.
@@ -1367,11 +1377,11 @@ def _unlock_keyring(*, timeout: int | None) -> bool:
             return False
         if (
             first_time
-            and _read_password(MESSAGES.devcontainer.keyring_repeat_password, timeout) != password
+            and getpass.getpass(MESSAGES.devcontainer.keyring_repeat_password) != password
         ):
             print_error(ERRORS.devcontainer.keyring_password_mismatch)
             return False
-    except TimeoutError, EOFError, KeyboardInterrupt:
+    except EOFError, KeyboardInterrupt:
         write_stdout("\n")  # getpass ends the prompt's line only once it is answered
         print_info(MESSAGES.devcontainer.keyring_unlock_skipped, prefix=False)
         return False
@@ -1379,14 +1389,15 @@ def _unlock_keyring(*, timeout: int | None) -> bool:
     # --unlock reads the password from stdin and creates the login keyring when it is missing.
     # Only --replace reaches the daemon already running, and a wrong password still exits 0,
     # so the lock state is read back afterwards. The replacement daemon gets its own session:
-    # otherwise closing the terminal it was started from -- or the pty VS Code gives
-    # post-start -- hangs it up, and D-Bus activates a fresh, locked one on the next request.
+    # otherwise closing the terminal it was started from hangs it up, and D-Bus activates a
+    # fresh, locked one on the next request. The daemon gets no display: a wrong password here
+    # must not reach the GUI prompt, which would make it the keyring password (#4240).
     new_session = ["setsid"] if shutil.which("setsid") else []
     run_subprocess(
         [*new_session, "gnome-keyring-daemon", "--replace", "--unlock", "--components=secrets"],
         input=password,
         env={"XDG_RUNTIME_DIR": str(socket_path.parent)},
-        extra_allowed_env={"DBUS_SESSION_BUS_ADDRESS", "DISPLAY", "WAYLAND_DISPLAY"},
+        extra_allowed_env={"DBUS_SESSION_BUS_ADDRESS"},
         check=False,
         quiet=True,
     )
@@ -1395,11 +1406,16 @@ def _unlock_keyring(*, timeout: int | None) -> bool:
         print_error(ERRORS.devcontainer.keyring_not_created)
         return False
     if locked:
-        print_error(ERRORS.devcontainer.keyring_wrong_password.format(path=_login_keyring_file()))
+        print_error(
+            ERRORS.devcontainer.keyring_wrong_password.format(
+                path=_login_keyring_file(), backups=_keyring_backup_dir()
+            )
+        )
         return False
 
     pending.unlink(missing_ok=True)
     print_success(MESSAGES.devcontainer.keyring_unlocked, prefix=False)
+    _keep_keyring_copy()
     for host in _move_plaintext_gh_tokens():
         print_success(MESSAGES.devcontainer.gh_token_moved.format(host=host), prefix=False)
     for warning in _gh_plaintext_token_warnings():
@@ -1485,12 +1501,8 @@ def post_start(
     for action in actions:
         print_info(f"  [green]✓[/green] {action}", prefix=False)
 
-    # VS Code runs lifecycle commands on a pty, so the keyring can be unlocked right here. If
-    # nobody answers in time, the first interactive terminal asks instead (post-create hook).
-    socket_path = _session_bus_socket()
-    pending = socket_path is not None and _keyring_unlock_pending(socket_path).exists()
-    if pending and _stdin_is_terminal():
-        _unlock_keyring(timeout=CONST_KEYRING_PROMPT_TIMEOUT_SECONDS)
+    # No keyring prompt here: the VS Code lifecycle terminal sends each key twice, so the
+    # password is always wrong (#4240). The first interactive terminal asks (post-create hook).
     print_success(MESSAGES.devcontainer.post_start_ready, prefix=False)
 
 

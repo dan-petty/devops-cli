@@ -1646,6 +1646,28 @@ def test_post_start_starts_the_session_bus_named_by_the_container_env(
     assert kwargs["env"] == {"XDG_RUNTIME_DIR": str(socket_path.parent)}
 
 
+def test_the_session_bus_gets_no_display(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, keyring_store: FakeKeyring
+) -> None:
+    """The bus starts gcr-prompter. With a display, its GUI unlock prompt changes the keyring
+    password to the last password that --unlock rejected (#4240)."""
+    from devops_cli.commands.devcontainer import _start_session_bus
+    from devops_cli.core.process import build_subprocess_env
+
+    socket_path = tmp_path / "run" / "bus"
+    monkeypatch.setenv("DBUS_SESSION_BUS_ADDRESS", f"unix:path={socket_path}")
+    monkeypatch.setenv("DISPLAY", ":0")
+    monkeypatch.setenv("WAYLAND_DISPLAY", "wayland-0")
+    calls = _record_subprocess_calls(monkeypatch)
+    keyring_store.bus_running = False
+
+    _start_session_bus()
+
+    _cmd, kwargs = calls[-1]
+    env = build_subprocess_env(kwargs["env"], extra_allowed_keys=kwargs.get("extra_allowed_env"))
+    assert {"DISPLAY", "WAYLAND_DISPLAY"} & env.keys() == set()
+
+
 def test_the_session_bus_runtime_dir_is_private(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, keyring_store: FakeKeyring
 ) -> None:
@@ -1893,6 +1915,25 @@ def test_unlock_keyring_keeps_the_daemon_off_the_shared_tmp(
     assert unlock["env"] == {"XDG_RUNTIME_DIR": str(tmp_path)}
 
 
+def test_unlock_keyring_gives_the_daemon_no_display(
+    runner: CliRunner,
+    keyring_container: list[dict[str, object]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The replacement daemon would otherwise open the GUI prompt that changes the password."""
+    from devops_cli.core.process import build_subprocess_env
+
+    monkeypatch.setenv("DISPLAY", ":0")
+    monkeypatch.setenv("WAYLAND_DISPLAY", "wayland-0")
+    _answer_prompts(monkeypatch, "correct-horse", "correct-horse")
+
+    runner.invoke(app, ["unlock-keyring"])
+
+    unlock = next(call for call in keyring_container if "gnome-keyring-daemon" in call["cmd"])
+    env = build_subprocess_env(unlock["env"], extra_allowed_keys=unlock.get("extra_allowed_env"))
+    assert {"DISPLAY", "WAYLAND_DISPLAY"} & env.keys() == set()
+
+
 def test_unlock_keyring_asks_once_for_an_existing_keyring(
     runner: CliRunner,
     keyring_container: list[dict[str, object]],
@@ -1961,6 +2002,7 @@ def test_unlock_keyring_reports_a_wrong_password(
 
     assert result.exit_code == 1
     assert "Wrong password; the keyring is still locked." in result.output
+    assert f"Copies from earlier unlocks are in {keyring_file.parent / 'backups'}" in result.output
     assert (
         f"To reset the keyring, move {keyring_file} to a backup file and run 'devops devcontainer unlock-keyring'."
         in result.output
@@ -2137,12 +2179,12 @@ def test_an_unanswered_prompt_leaves_the_keyring_for_the_next_terminal(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """post-start's prompt times out when nobody watches it; the marker must survive that."""
+    """A person who presses Ctrl+C at the prompt still has the marker for the next terminal."""
     pending = tmp_path / ".keyring-unlock-pending"
     pending.touch()
 
     def no_answer(prompt: str = "") -> str:
-        raise TimeoutError
+        raise KeyboardInterrupt
 
     monkeypatch.setattr("getpass.getpass", no_answer)
 
@@ -2153,7 +2195,7 @@ def test_an_unanswered_prompt_leaves_the_keyring_for_the_next_terminal(
     assert "next terminal you open will ask again" in result.output
 
 
-@pytest.mark.parametrize("abandoned", [TimeoutError, EOFError, KeyboardInterrupt])
+@pytest.mark.parametrize("abandoned", [EOFError, KeyboardInterrupt])
 def test_an_abandoned_prompt_ends_its_line_before_the_next_message(
     abandoned: type[BaseException],
     runner: CliRunner,
@@ -2182,74 +2224,127 @@ def test_an_abandoned_prompt_ends_its_line_before_the_next_message(
     )
 
 
-def test_the_password_prompt_gives_up_after_its_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A lifecycle pty nobody types into would otherwise block post-start forever.
-
-    The prompt answers only after the handoff bound, far past the 1 s timeout. A prompt that did
-    not give up would return the answer, and no TimeoutError would come, so the test reads no
-    clock (#1902).
-    """
-    import threading
-
-    from devops_cli.commands.devcontainer import _read_password
-    from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS
-
-    hang = threading.Event()
-    monkeypatch.setattr(
-        "getpass.getpass", lambda prompt="": hang.wait(THREAD_HANDOFF_BOUND_SECONDS) or "late"
-    )
-
-    with pytest.raises(TimeoutError) as raised:
-        _read_password("Keyring password: ", timeout=1)
-    assert raised.type is TimeoutError
-
-
-def test_post_start_asks_for_the_keyring_password_on_a_terminal(
-    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+def test_post_start_leaves_the_keyring_password_to_the_first_terminal(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """VS Code runs lifecycle commands on a pty, so the container can unlock as it starts."""
+    """The VS Code lifecycle terminal sends each key twice, so a password typed there is always
+    wrong, and gnome-keyring keeps that wrong password (#4240)."""
+    import io
+
+    from devops_cli.commands.devcontainer import post_start
+
+    class Terminal(io.StringIO):
+        def isatty(self) -> bool:
+            return True
+
     fake_home = tmp_path / "home"
     fake_home.mkdir()
     monkeypatch.setenv("HOME", str(fake_home))
     monkeypatch.setenv("DBUS_SESSION_BUS_ADDRESS", f"unix:path={tmp_path / 'bus'}")
-    (tmp_path / ".keyring-unlock-pending").touch()
+    pending = tmp_path / ".keyring-unlock-pending"
+    pending.touch()
     monkeypatch.setattr(
         "devops_cli.commands.devcontainer._run_post_start_lifecycle", lambda *a, **k: []
     )
-    monkeypatch.setattr("devops_cli.commands.devcontainer._stdin_is_terminal", lambda: True)
-    timeouts: list[int | None] = []
+    monkeypatch.setattr("sys.stdin", Terminal())
+    unlocks: list[object] = []
     monkeypatch.setattr(
         "devops_cli.commands.devcontainer._unlock_keyring",
-        lambda *, timeout: timeouts.append(timeout) or True,
+        lambda **kw: unlocks.append(kw) or True,
     )
 
-    result = runner.invoke(app, ["post-start", "--workspace", str(tmp_path)])
+    post_start(workspace=tmp_path)
+
+    assert (unlocks, pending.exists()) == ([], True)
+
+
+def _backups(tmp_path: Path) -> list[Path]:
+    return sorted((tmp_path / "data" / "keyrings" / "backups").glob("login.keyring.*"))
+
+
+def test_a_successful_unlock_keeps_a_copy_of_the_keyring(
+    runner: CliRunner,
+    keyring_container: list[dict[str, object]],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    keyring_store: FakeKeyring,
+) -> None:
+    """The password opens the file at this moment, so the copy can bring the keyring back."""
+    keyring_file = _existing_keyring(tmp_path)
+    _answer_prompts(monkeypatch, "correct-horse")
+    keyring_store.lock_answers = [True, False]
+
+    result = runner.invoke(app, ["unlock-keyring"])
 
     assert result.exit_code == 0, result.output
-    assert timeouts == [60]
+    (copy,) = _backups(tmp_path)
+    assert copy.read_bytes() == keyring_file.read_bytes()
+    assert copy.stat().st_mode & 0o777 == 0o600
+    assert copy.parent.stat().st_mode & 0o777 == 0o700
+    assert f"Kept a copy of the keyring: {copy}" in result.output
 
 
-def test_post_start_never_prompts_without_a_terminal(
-    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+def test_an_unchanged_keyring_is_not_copied_again(
+    runner: CliRunner,
+    keyring_container: list[dict[str, object]],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    keyring_store: FakeKeyring,
 ) -> None:
-    """Scripted and CI runs of post-start have nobody to answer."""
-    fake_home = tmp_path / "home"
-    fake_home.mkdir()
-    monkeypatch.setenv("HOME", str(fake_home))
-    monkeypatch.setenv("DBUS_SESSION_BUS_ADDRESS", f"unix:path={tmp_path / 'bus'}")
-    (tmp_path / ".keyring-unlock-pending").touch()
-    monkeypatch.setattr(
-        "devops_cli.commands.devcontainer._run_post_start_lifecycle", lambda *a, **k: []
-    )
-    monkeypatch.setattr("devops_cli.commands.devcontainer._stdin_is_terminal", lambda: False)
-    calls: list[object] = []
-    monkeypatch.setattr(
-        "devops_cli.commands.devcontainer._unlock_keyring", lambda **kw: calls.append(kw)
-    )
+    """Each container start unlocks; equal copies would push the older versions out."""
+    keyring_file = _existing_keyring(tmp_path)
+    backups = keyring_file.parent / "backups"
+    backups.mkdir(mode=0o700)
+    (backups / "login.keyring.20260101-000000").write_bytes(keyring_file.read_bytes())
+    _answer_prompts(monkeypatch, "correct-horse")
+    keyring_store.lock_answers = [True, False]
 
-    result = runner.invoke(app, ["post-start", "--workspace", str(tmp_path)])
+    runner.invoke(app, ["unlock-keyring"])
 
-    assert (result.exit_code, calls) == (0, [])
+    assert [p.name for p in _backups(tmp_path)] == ["login.keyring.20260101-000000"]
+
+
+def test_only_the_newest_keyring_copies_are_kept(
+    runner: CliRunner,
+    keyring_container: list[dict[str, object]],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    keyring_store: FakeKeyring,
+) -> None:
+    """The copies are small, but a long-lived home volume must not collect them without end."""
+    from devops_cli.config.constants import CONST_KEYRING_BACKUP_COUNT
+
+    keyring_file = _existing_keyring(tmp_path)
+    backups = keyring_file.parent / "backups"
+    backups.mkdir(mode=0o700)
+    for day in range(1, CONST_KEYRING_BACKUP_COUNT + 1):
+        (backups / f"login.keyring.202601{day:02d}-000000").write_bytes(f"v{day}".encode())
+    _answer_prompts(monkeypatch, "correct-horse")
+    keyring_store.lock_answers = [True, False]
+
+    runner.invoke(app, ["unlock-keyring"])
+
+    kept = _backups(tmp_path)
+    assert len(kept) == CONST_KEYRING_BACKUP_COUNT
+    assert kept[0].name == "login.keyring.20260102-000000"
+    assert kept[-1].read_bytes() == keyring_file.read_bytes()
+
+
+def test_a_wrong_password_keeps_no_copy(
+    runner: CliRunner,
+    keyring_container: list[dict[str, object]],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    keyring_store: FakeKeyring,
+) -> None:
+    """Only a file that the password opened is worth keeping."""
+    _existing_keyring(tmp_path)
+    _answer_prompts(monkeypatch, "wrong-horse")
+    keyring_store.locked = True
+
+    runner.invoke(app, ["unlock-keyring"])
+
+    assert _backups(tmp_path) == []
 
 
 def test_a_fresh_bus_marks_the_keyring_as_waiting_to_be_unlocked(
