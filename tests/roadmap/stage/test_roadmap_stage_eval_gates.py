@@ -51,7 +51,7 @@ _WHOLE_SET_REPLAY = "replay" + "_all(CASES)"
 _MODULE_FIXTURE = '@pytest.fixture(scope="module")'
 # The defects of the whole set that a gate judges, and all of them, after #3395 records the
 # placeholder summary of case 3167 at the kind gate.
-JUDGED_BASELINE: Final[tuple[int, int]] = (79, 315)
+JUDGED_BASELINE: Final[tuple[int, int]] = (80, 316)
 
 
 @pytest.fixture(scope="module")
