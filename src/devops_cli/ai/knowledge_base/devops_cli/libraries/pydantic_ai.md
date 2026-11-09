@@ -29,7 +29,7 @@ tags:
 **PydanticAI** is a typed agent framework built by the Pydantic team designed for production-grade software engineering, deterministic tool execution, and typed agent workflows. It combines Pydantic's data validation with LLM orchestration, model-agnostic provider abstractions, dependency injection, and native Model Context Protocol (MCP) tool integration.
 
 In `devops-cli`:
-- **Chat Personas**: Interactive assistant personas (`devsecops`, `architect`, `auditor`, `qa`, `pm`) operate as specialized `PydanticAgent` instances.
+- **Chat Personas**: Interactive assistant personas (`devsecops`, `architect`, `auditor`, `qa`, `pm`) operate via `Agent` instances built by `build_agent`.
 - **Dynamic Toolsets**: `FunctionToolset` dynamically exposes local filesystem scanners, AST analyzers, and remote Kubernetes controllers to agent stages.
 - **Usage & Budget Tracking**: `AgentUsage` tracks token consumption across agent pipelines with strict maximum turn budgets.
 
@@ -48,13 +48,14 @@ In `devops-cli`:
 
 ## 4. Key Concepts & Core Patterns
 
-1. **`PydanticAgent`**: Core agent class coordinating LLM inference, system instructions and tool execution. It returns the model's text.
+1. **`Agent`**: Core agent class from `pydantic_ai` coordinating LLM inference, system instructions and tool execution.
 2. **`MCPToolset`** (`pydantic_ai.mcp`): Pydantic AI's own client for a Model Context Protocol server. devops-cli wires no outbound MCP client today. The class takes the server (a URL, a script path or a FastMCP server) as its first argument:
    ```python
+   from pydantic_ai import Agent
    from pydantic_ai.mcp import MCPToolset
 
    async with MCPToolset("http://localhost:8000/sse") as mcp:
-       agent = PydanticAgent(name="DevSecOps", toolsets=[mcp])
+       agent = Agent("test", toolsets=[mcp])
        result = await agent.run("Audit Kubernetes security policies")
    ```
 3. **`AgentTool`**: Strongly typed tool definitions with runtime parameter schema validation and path traversal safety checks.
@@ -71,7 +72,7 @@ In `devops-cli`:
 
 ### Instantiating a Multi-Tool Review Agent
 ```python
-from devops_cli.ai.agents.agent import PydanticAgent
+from pydantic_ai import Agent
 from devops_cli.ai.agents.tools import AgentTool, FunctionToolset
 
 
@@ -90,8 +91,8 @@ toolset.add_tool(
     )
 )
 
-agent = PydanticAgent(
-    name="Architect",
+agent = Agent(
+    "test",
     system_prompt="You are a principal software architect evaluating system modularity.",
     toolsets=[toolset],
 )
@@ -100,10 +101,9 @@ agent = PydanticAgent(
 ### MCP Client Sampling & Custom TLS Configuration
 ```python
 import httpx2
+from pydantic_ai import Agent
 from pydantic_ai.mcp import MCPToolset
 from pydantic_ai.models import Model
-
-from devops_cli.ai.agents.agent import PydanticAgent
 
 
 async def review_ingress(sampling_model: Model) -> None:
@@ -116,7 +116,7 @@ async def review_ingress(sampling_model: Model) -> None:
         http_client=http_client,
         sampling_model=sampling_model,
     ) as mcp:
-        agent = PydanticAgent(name="SecurityReviewer", toolsets=[mcp])
+        agent = Agent("test", toolsets=[mcp])
         result = await agent.run("Review Kubernetes ingress security")
 ```
 

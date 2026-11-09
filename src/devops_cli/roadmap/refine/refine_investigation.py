@@ -15,14 +15,13 @@ import io
 import itertools
 import logging
 import subprocess
-import time
 from collections.abc import Callable, Collection, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Any, Protocol, cast
 
 from pydantic import BaseModel
-from pydantic_ai import Agent, ModelRetry, RunContext, Tool, capture_run_messages
+from pydantic_ai import ModelRetry, RunContext, Tool, capture_run_messages
 from pydantic_ai.capabilities import PrepareTools
 from pydantic_ai.exceptions import (
     ModelAPIError,
@@ -39,6 +38,7 @@ from pydantic_ai.messages import (
 from pydantic_ai.tools import ToolDefinition
 from pydantic_ai.usage import UsageLimits
 
+from devops_cli.ai.client.factory import build_agent
 from devops_cli.ai.context_budget import count_tokens
 from devops_cli.ai.web_search import web_search
 from devops_cli.config.commands import BIN_GIT
@@ -65,7 +65,6 @@ from devops_cli.roadmap.agent_run import (
     error_answer,
     model_call_error,
     ok_answer,
-    record_run_spend,
     run_error_message,
 )
 from devops_cli.roadmap.page_fetch import PageFetch
@@ -400,9 +399,7 @@ def tokens_of(messages: Sequence[ModelMessage]) -> int:
     return count_tokens(ModelMessagesTypeAdapter.dump_json(list(messages)).decode())
 
 
-def _retry_once[T: BaseModel](
-    agent: Agent[None, T], output_check: Callable[[T], str | None]
-) -> None:
+def _retry_once[T: BaseModel](agent: Any, output_check: Callable[[T], str | None]) -> None:
     """Make `agent` send the message of `output_check` back to the model once, for the first
     whole reply that the check does not accept."""
     retried = False
@@ -503,7 +500,7 @@ def investigate[T: BaseModel](
     function_tools = tools.tools()
     offered: list[tuple[str, ...]] = []
     limits_hit: list[RunLimit] = []
-    agent: Agent[None, T] = Agent(
+    agent = build_agent(
         model,
         output_type=output_type,
         instructions=instructions,
@@ -516,6 +513,8 @@ def investigate[T: BaseModel](
             else output_retries,
         },
         capabilities=[PrepareTools(_offering(window, offered, limits_hit))],
+        request_type="agent_run",
+        stage="analysis",
     )
     if output_check is not None:
         _retry_once(agent, output_check)
@@ -524,7 +523,6 @@ def investigate[T: BaseModel](
         tool_calls_limit=CONST_ROADMAP_REFINE_INVESTIGATION_MAX_TOOL_CALLS,
     )
     tool_names = {tool.name for tool in function_tools} | _toolset_names(toolsets)
-    started = time.monotonic()
     with capture_run_messages() as messages:
         try:
             result = agent.run_sync(request, usage_limits=limits, event_stream_handler=drain_events)
@@ -534,7 +532,7 @@ def investigate[T: BaseModel](
             # Raised outside this handler, so a logged traceback holds no reply text.
             error = model_call_error(exc, "The investigation's")
         else:
-            return result.output
+            return cast(T, result.output)
         finally:
             if trace is not None:
                 all_tools = tool_names | _toolset_names(toolsets)
@@ -544,8 +542,6 @@ def investigate[T: BaseModel](
                     offered=offered,
                     limit=limits_hit[0] if limits_hit else None,
                 )
-            record_run_spend(model, messages, time.monotonic() - started, stage="analysis")
-    raise error
     raise error
 
 

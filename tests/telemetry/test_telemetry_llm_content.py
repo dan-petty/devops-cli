@@ -11,7 +11,6 @@ import httpx2
 import pytest
 from opentelemetry.sdk.trace import SpanProcessor
 
-from devops_cli.ai.agents.agent import PydanticAgent
 from devops_cli.ai.client import LLMClient
 from devops_cli.config.settings import AIConfig, Settings, TelemetryConfig
 from devops_cli.core.validation import is_loopback_or_private_host
@@ -217,7 +216,7 @@ def _has_prompt_preview_host(host: str) -> bool:
 def test_pydantic_agent_keeps_private_host_out_of_telemetry_when_capture_off(
     web: WebFake, config: Any, otlp: Any
 ) -> None:
-    """Drive PydanticAgent + LLMClient and assert hostname is in no Logfire or tracer attribute."""
+    """Drive LLMClient and assert hostname is in no Logfire or tracer attribute."""
     captured_logfire_spans: list[Any] = []
     _serve_reply(web, "reply from stubbed agent")
     ai_cfg = AIConfig(provider="openai", model="gpt-4o", api_base_url="https://example.com/v1")
@@ -233,9 +232,8 @@ def test_pydantic_agent_keeps_private_host_out_of_telemetry_when_capture_off(
     )
 
     client = LLMClient(ai_cfg, api_key="sk-test", cache_enabled=False)
-    agent: PydanticAgent[Any, Any] = PydanticAgent(client=client, name="TestSecurityAgent")
 
-    res = agent.run("Connect to node1.example.internal and check status")
+    res = client.chat("system", "Connect to node1.example.internal and check status")
     assert res.content == "reply from stubbed agent"
 
     _assert_no_host_in_recent_spans("node1.example.internal")
@@ -253,9 +251,8 @@ def test_pydantic_agent_records_prompt_preview_when_capture_on(
     clear_span_buffer()
 
     client = LLMClient(ai_cfg, api_key="sk-test", cache_enabled=False)
-    agent: PydanticAgent[Any, Any] = PydanticAgent(client=client, name="TestSecurityAgent")
 
-    agent.run("Connect to node1.example.internal and check status")
+    client.chat("system", "Connect to node1.example.internal and check status")
 
     assert _has_prompt_preview_host("node1.example.internal"), (
         "Expected node1.example.internal in prompt preview when capture is on"

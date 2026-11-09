@@ -119,7 +119,7 @@ from devops_cli.ai.review_schema import Finding
 - **Pinned Version**: `pydantic-ai==2.59.0`
 - **Ecosystem Role**: Multi-agent framework enabling type-safe tool execution, dynamic instructions, structured output validation, model overrides, and sub-agent delegation.
 - **Codebase Integration**:
-  - `devops_cli.ai.agents.agent.PydanticAgent`: High-level agent abstraction managing toolsets, usage tracking (`AgentUsage`), and async lifecycles (`async with agent:`).
+  - `devops_cli.ai.client.factory.build_agent`: Unified factory constructing native Pydantic AI `Agent` instances with spend tracking hooks and capability integration.
   - `pydantic_ai.mcp.MCPToolset`: Pydantic AI's own client for an external Model Context Protocol server. devops-cli wires no outbound MCP client today; see the manual for the pattern.
 
 #### `httpx2` (Pydantic HTTP/2 Client) ([Dedicated Manual](libraries/httpx2.md))

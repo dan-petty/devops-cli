@@ -48,7 +48,7 @@ async def test_ollama_embedding_model_embeds_queries_and_documents(web: WebFake)
 
 
 def test_an_engine_gives_an_operational_pydantic_ai_embedder(web: WebFake) -> None:
-    from devops_cli.ai.agents.embeddings import Embedder
+    from devops_cli.ai.rag.embeddings import Embedder
 
     serve(web, ollama_reply)
     embedder = ollama_engine([SERVING_BACKEND]).to_embedder()

@@ -23,7 +23,7 @@ from devops_cli.ai.toolsets import (
 
 
 class AgentTool(BaseModel):
-    """Encapsulates an executable tool available to a PydanticAgent."""
+    """Encapsulates an executable tool available to an agent."""
 
     name: str
     description: str
@@ -114,7 +114,7 @@ class ToolCall(BaseModel):
 
 
 class AgentSpec(BaseModel):
-    """Declarative specification for constructing a PydanticAgent."""
+    """Declarative specification for constructing an agent."""
 
     model: str = ""
     name: str | None = None

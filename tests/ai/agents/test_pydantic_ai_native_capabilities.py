@@ -10,13 +10,11 @@ from pydantic_ai import Agent
 from pydantic_ai.capabilities import AbstractCapability
 from pydantic_ai.models.test import TestModel
 
-from devops_cli.ai.agents.agent import PydanticAgent
 from devops_cli.ai.agents.capabilities import (
     BaseCapability,
     HandleDeferredToolCalls,
     SystemReminders,
 )
-from devops_cli.ai.review_schema import ReviewResult
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
@@ -95,21 +93,3 @@ def test_capability_tools_and_instructions_in_native_agent() -> None:
     )
     res = agent.run_sync("multiply 4 and 5")
     assert res.output == '{"multiply_numbers":0}'
-
-
-def test_dual_compatibility_with_devops_cli_pydantic_agent() -> None:
-    """Verify that custom unified PydanticAgent continues to execute flawlessly with capabilities."""
-    cap = MathCapability()
-
-    agent = PydanticAgent[ReviewResult](
-        name="SecurityReviewer",
-        system_prompt="Base reviewer prompt",
-        capabilities=[cap],
-        model=TestModel(),
-    )
-
-    assert len(agent.capabilities) == 1
-    assert agent.name == "SecurityReviewer"
-    # Ensure tools from capability are registered
-    tool_names = [getattr(t, "name", getattr(t, "__name__", str(t))) for t in agent.tools]
-    assert "multiply_numbers" in tool_names

@@ -321,12 +321,12 @@ print("__R__" + json.dumps(any("logfire" in p for p in plugins)))
         extra_env={"DEVOPS_CLI_TELEMETRY__LOGFIRE": "true"},
     ),
     ScriptProbe(
-        "ai.agents.agent and ai.providers import neither anthropic, google.genai nor openai",
+        "ai.client.factory and ai.providers import neither anthropic, google.genai nor openai",
         """
 import json
 import sys
 
-import devops_cli.ai.agents.agent
+import devops_cli.ai.client.factory
 import devops_cli.ai.providers
 
 print("__R__" + json.dumps([m in sys.modules for m in ("anthropic", "google.genai", "openai")]))

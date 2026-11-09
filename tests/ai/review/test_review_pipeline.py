@@ -220,7 +220,7 @@ def test_init_per_file_payloads_path_matching(
     meta_full = FileAnalysisMeta(
         path="src/devops_cli/ai/agents/__init__.py",
         primary_purpose="Agents module init",
-        key_symbols=["PydanticAgent"],
+        key_symbols=["Agent"],
         dependencies=["pydantic"],
         quality_score=0.9,
     )
@@ -231,7 +231,7 @@ def test_init_per_file_payloads_path_matching(
 
     assert len(payloads) == 1
     assert payloads[0].metadata.primary_purpose == "Agents module init"
-    assert payloads[0].metadata.key_symbols == ["PydanticAgent"]
+    assert payloads[0].metadata.key_symbols == ["Agent"]
     assert payloads[0].metadata.quality_score == 0.9
 
 

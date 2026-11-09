@@ -1,4 +1,4 @@
-"""MCP tool bridge exposing FastMCP tools to PydanticAgent."""
+"""MCP tool bridge exposing FastMCP tools to agents."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from typing import Any
 
 
 def get_mcp_agent_tools() -> list[Any]:
-    """Expose FastMCP server tools dynamically to PydanticAgents."""
+    """Expose FastMCP server tools dynamically to agents."""
     from fastmcp.server.dependencies import without_injected_parameters
 
     from devops_cli.ai.mcp.server import mcp as devops_server

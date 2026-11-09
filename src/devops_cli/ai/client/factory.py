@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
@@ -174,3 +175,88 @@ def get_tier_model(tier: str, *, settings: Settings | None = None) -> Any:
         return resolve_pydantic_ai_model(tier.strip(), settings=active_settings)
     gateway = active_settings.ai.gateway_provider
     return resolve_pydantic_ai_model(f"{gateway}:{tier.strip()}", settings=active_settings)
+
+
+def build_agent(
+    model: Any = None,
+    *,
+    task: str | None = None,
+    output_type: Any = str,
+    instructions: str | Sequence[str] | None = None,
+    system_prompt: str | Sequence[str] = (),
+    tools: Sequence[Any] = (),
+    toolsets: Sequence[Any] | None = None,
+    retries: int | dict[str, int] | None = None,
+    capabilities: Sequence[Any] | None = None,
+    settings: Settings | None = None,
+    request_type: str = "chat",
+    stage: str | None = None,
+    name: str | None = None,
+    **kwargs: Any,
+) -> Any:
+    """Build a configured pydantic-ai Agent with per-request spend tracking (#2489)."""
+    from pydantic_ai import Agent, RunContext
+    from pydantic_ai.capabilities import Hooks
+    from pydantic_ai.messages import ModelResponse
+    from pydantic_ai.models import Model, ModelRequestContext
+
+    if model is None:
+        model = get_task_model(task or "chat", settings=settings)
+    elif isinstance(model, str):
+        if isinstance(_client_override, Model):
+            model = _client_override
+        else:
+            from devops_cli.ai.pydantic_ai_bridge import resolve_pydantic_ai_model
+
+            model = resolve_pydantic_ai_model(model, settings=settings)
+
+    def _spend_hook(
+        ctx: RunContext[Any],
+        *,
+        request_context: ModelRequestContext,
+        response: ModelResponse,
+    ) -> ModelResponse:
+        from urllib.parse import urlsplit
+
+        from devops_cli.ai.spend.ledger import track_request_spend
+        from devops_cli.config.constants import CONST_AI_GATEWAY_PROVIDER
+
+        m = request_context.model
+        asked = str(getattr(m, "model_name", getattr(m, "model_id", "unknown")))
+        served_by = getattr(m, "served_by", None)
+        answered = response.model_name
+        track_request_spend(
+            provider=CONST_AI_GATEWAY_PROVIDER
+            if served_by
+            else str(getattr(m, "system", "") or getattr(m, "provider", "") or "unknown"),
+            model=asked,
+            server=urlsplit(served_by).netloc if served_by else "unknown",
+            served_model=answered,
+            prompt_tokens=getattr(response.usage, "input_tokens", 0),
+            completion_tokens=getattr(response.usage, "output_tokens", 0),
+            reasoning_tokens=getattr(response.usage, "output_reasoning_tokens", 0),
+            request_type=request_type,
+            stage=stage,
+        )
+        return response
+
+    spend_capability = Hooks(after_model_request=_spend_hook)
+    all_capabilities = [spend_capability, *(capabilities or ())]
+
+    agent_kwargs: dict[str, Any] = {
+        "output_type": output_type,
+        "instructions": instructions,
+        "tools": tools,
+        "capabilities": all_capabilities,
+        **kwargs,
+    }
+    if name is not None:
+        agent_kwargs["name"] = name
+    if system_prompt:
+        agent_kwargs["system_prompt"] = system_prompt
+    if toolsets is not None:
+        agent_kwargs["toolsets"] = toolsets
+    if retries is not None:
+        agent_kwargs["retries"] = retries
+
+    return Agent(model, **agent_kwargs)

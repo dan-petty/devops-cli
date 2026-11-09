@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 from unittest.mock import patch
 
 import pytest
@@ -248,21 +248,21 @@ def test_resolve_pydantic_ai_model_ollama() -> None:
 
 
 def test_pydantic_agent_with_ollama_model(model_fake: ModelFake) -> None:
-    """Verify PydanticAgent accepts OllamaModel and executes lifecycle with test model override."""
-    from devops_cli.ai.agents.agent import PydanticAgent
+    """Verify Agent accepts OllamaModel and executes lifecycle with test model override."""
+    from pydantic_ai import Agent
+
     from devops_cli.ai.models.ollama import create_ollama_model
 
     model = create_ollama_model("qwen2.5-coder:14b", base_url="http://localhost:11434")
-    agent: PydanticAgent[Any, Any] = PydanticAgent(
+    agent: Agent[None, str] = Agent(
         model=model,
-        name="OllamaTestAgent",
         instructions="You are an Ollama-powered test assistant.",
     )
 
     model_fake.answer("Ollama response text")
     with agent.override(model=model_fake):
-        res = agent.run("Hello Ollama")
-        assert res.content == "Ollama response text"
+        res = agent.run_sync("Hello Ollama")
+        assert res.output == "Ollama response text"
 
 
 def test_public_package_reexports() -> None:

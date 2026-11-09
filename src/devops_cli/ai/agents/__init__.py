@@ -1,1 +1,1 @@
-"""Multi-agent orchestrator, memory management, and structured Pydantic agent models."""
+"""Agent context, execution tools, and capability definitions."""

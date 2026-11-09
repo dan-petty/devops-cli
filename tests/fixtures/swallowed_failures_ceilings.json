@@ -1,9 +1,5 @@
 {
-  "src/devops_cli/ai/agents/agent.py": 12,
   "src/devops_cli/ai/agents/capabilities.py": 1,
-  "src/devops_cli/ai/agents/embeddings.py": 2,
-  "src/devops_cli/ai/agents/memory.py": 1,
-  "src/devops_cli/ai/agents/runner.py": 5,
   "src/devops_cli/ai/agents/tools.py": 1,
   "src/devops_cli/ai/analyze/outlines.py": 11,
   "src/devops_cli/ai/ast/engine.py": 2,
@@ -27,7 +23,7 @@
   "src/devops_cli/ai/mcp/server.py": 2,
   "src/devops_cli/ai/personas/__init__.py": 1,
   "src/devops_cli/ai/rag/drift.py": 3,
-  "src/devops_cli/ai/rag/embeddings.py": 7,
+  "src/devops_cli/ai/rag/embeddings.py": 5,
   "src/devops_cli/ai/rag/indexer.py": 8,
   "src/devops_cli/ai/rag/investigator.py": 2,
   "src/devops_cli/ai/rag/library_store.py": 2,
