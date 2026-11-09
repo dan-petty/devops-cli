@@ -2347,6 +2347,25 @@ def test_a_wrong_password_keeps_no_copy(
     assert _backups(tmp_path) == []
 
 
+def test_a_failed_copy_still_leaves_the_keyring_unlocked(
+    runner: CliRunner,
+    keyring_container: list[dict[str, object]],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    keyring_store: FakeKeyring,
+) -> None:
+    """The keyring is open and usable, so a copy that fails is a warning with its cause."""
+    keyring_file = _existing_keyring(tmp_path)
+    (keyring_file.parent / "backups").write_text("a file where the folder should be")
+    _answer_prompts(monkeypatch, "correct-horse")
+    keyring_store.lock_answers = [True, False]
+
+    result = runner.invoke(app, ["unlock-keyring"])
+
+    assert result.exit_code == 0, result.output
+    assert "Warning: Could not keep a copy of the keyring:" in result.output
+
+
 def test_a_fresh_bus_marks_the_keyring_as_waiting_to_be_unlocked(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, keyring_store: FakeKeyring
 ) -> None:

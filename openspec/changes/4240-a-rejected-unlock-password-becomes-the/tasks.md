@@ -16,7 +16,7 @@
 
 ## 3. A copy after each successful unlock (behavior)
 
-- [x] 3.1 Write failing tests: the first copy with its modes and output line, no copy of an unchanged keyring, the oldest copy goes past `CONST_KEYRING_BACKUP_COUNT`, no copy after a wrong password, and the wrong-password error names the backup folder.
+- [x] 3.1 Write failing tests: the first copy with its modes and output line, no copy of an unchanged keyring, the oldest copy goes past `CONST_KEYRING_BACKUP_COUNT`, no copy after a wrong password, a failed copy gives a warning and exits 0, and the wrong-password error names the backup folder.
   - Verification: `$ uv run devops ci test tests/commands/test_devcontainer.py`
 - [x] 3.2 Add `CONST_KEYRING_BACKUP_COUNT`, copy the keyring after a successful unlock, and name the backup folder in `ERRORS.devcontainer.keyring_wrong_password`. Regenerate the documentation.
   - Verification: `$ uv run devops docs generate --sync-readme`

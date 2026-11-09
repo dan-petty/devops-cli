@@ -25,7 +25,7 @@
 - **AND** the pending marker still exists
 
 ### Requirement: A successful unlock keeps a copy of the keyring file
-After `devops devcontainer unlock-keyring` unlocks an existing keyring, it SHALL copy `login.keyring` to `backups/login.keyring.<UTC YYYYMMDD-HHMMSS>` in the keyring folder, with mode 0600 in a folder with mode 0700, and print the path of the copy. It SHALL make no copy when the file is equal to the newest copy, and no copy after a wrong password. It SHALL keep only the newest `CONST_KEYRING_BACKUP_COUNT` copies.
+After `devops devcontainer unlock-keyring` unlocks an existing keyring, it SHALL copy `login.keyring` to `backups/login.keyring.<UTC YYYYMMDD-HHMMSS>` in the keyring folder, with mode 0600 in a folder with mode 0700, and print the path of the copy. It SHALL make no copy when the file is equal to the newest copy, and no copy after a wrong password. It SHALL keep only the newest `CONST_KEYRING_BACKUP_COUNT` copies. A copy that fails SHALL give a warning and SHALL NOT fail the unlock.
 
 #### Scenario: The first copy
 - **WHEN** the password unlocks an existing keyring
@@ -47,6 +47,12 @@ After `devops devcontainer unlock-keyring` unlocks an existing keyring, it SHALL
 #### Scenario: A wrong password
 - **WHEN** the password does not unlock the keyring
 - **THEN** the backup folder holds no copy
+
+#### Scenario: A copy that fails
+- **WHEN** the password unlocks the keyring
+- **AND** the copy cannot be written
+- **THEN** the command exits 0
+- **AND** the output gives a warning with the cause
 
 ## MODIFIED Requirements
 
