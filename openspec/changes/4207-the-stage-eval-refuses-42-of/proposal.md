@@ -26,7 +26,7 @@ None.
 ## Impact
 
 - Code: `src/devops_cli/roadmap/stage/stage.py`, `src/devops_cli/roadmap/stage/stage_eval_run.py`
-- Documents: `docs/roadmap/stage.md`
+- Documents: `docs/ROADMAP_WORKFLOW.md`
 - Tests: `tests/roadmap/stage/test_roadmap_stage_eval_facts_context.py`
 
 ## Feasibility

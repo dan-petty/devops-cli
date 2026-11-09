@@ -175,6 +175,7 @@ def run_case(
                 checkout=source,
                 sha=case.base_commit,
                 step_tokens=step_tokens,
+                facts_source=repository,
             )
             outcome, reason = _planned_as(planned)
         except AICredentialsError:
