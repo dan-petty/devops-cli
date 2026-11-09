@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.100.2](https://github.com/dan-petty/devops-cli/compare/v0.100.1...v0.100.2) (2026-11-09)
+
+
+### Bug Fixes
+
+* **ai:** guard urlsplit in cost report for unparseable backend ([#4226](https://github.com/dan-petty/devops-cli/issues/4226)) ([961f406](https://github.com/dan-petty/devops-cli/commit/961f4066ec8718491c2cf5742f9ba66f86743929))
+* **k8s:** list helm repo and upgrade in deploy-stack dry-run ([#4227](https://github.com/dan-petty/devops-cli/issues/4227)) ([09bde83](https://github.com/dan-petty/devops-cli/commit/09bde83f8a8d675a94bdb444b45353e22fa585b3))
+* **roadmap:** cap the output of a Claude group and name a length stop ([#4224](https://github.com/dan-petty/devops-cli/issues/4224)) ([7e84a13](https://github.com/dan-petty/devops-cli/commit/7e84a13df6331ed2468ec3618760e10c04a4bb3b))
+
 ## [0.100.1](https://github.com/dan-petty/devops-cli/compare/v0.100.0...v0.100.1) (2026-11-09)
 
 
