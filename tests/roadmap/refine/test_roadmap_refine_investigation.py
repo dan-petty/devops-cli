@@ -74,6 +74,7 @@ from devops_cli.roadmap.stores.store import ItemField
 from tests.support.fakes.http import WebFake
 from tests.support.fakes.keyring import FakeKeyring
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
+from tests.support.length_stop import length_stopped_model
 from tests.support.scripted_model import Script, call
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
@@ -955,6 +956,34 @@ def test_a_second_reply_that_breaks_the_schema_stops_the_run_with_one_output_ret
         "Exceeded maximum output retries (1)",
         True,
     )
+
+
+def test_a_reply_cut_by_the_output_token_limit_stops_the_run_and_is_not_a_broken_schema(
+    git_repo: Path, web: WebFake, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A reply with `finish_reason` `length` and no part is a stop by the output token limit
+    of the model. It is not a reply that breaks the schema, and the stop says so (#4220)."""
+    model, _sent = length_stopped_model(web, monkeypatch)
+    tools = InvestigationTools(source=git_repo, sha=inspect_checkout(git_repo, REPO))
+
+    stopped = investigate(model, "Instructions.", "{}", tools, RefinementProposal)
+
+    assert (stopped.reason, stopped.output_limit, stopped.schema_broken) == (
+        "UnexpectedModelBehavior",
+        True,
+        False,
+    )
+
+
+def test_a_stop_that_is_not_the_output_token_limit_does_not_set_the_flag(
+    git_repo: Path,
+) -> None:
+    """A reply that breaks the schema, and a budget limit, are no stop by the output limit
+    (#4220)."""
+    broken = _run(git_repo, Script(_BROKEN), output_retries=1)
+    spent = _run(git_repo, Script(_read()), limits=_limits(tool_calls=0))
+
+    assert (broken.output_limit, spent.output_limit) == (False, False)
 
 
 @pytest.mark.parametrize("gone_calls", [1, 2])

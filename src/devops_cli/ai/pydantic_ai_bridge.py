@@ -10,9 +10,11 @@ from pydantic_ai.concurrency import AnyConcurrencyLimit
 from pydantic_ai.exceptions import UserError
 from pydantic_ai.models.concurrency import limit_model_concurrency
 from pydantic_ai.models.fallback import FallbackModel
+from pydantic_ai.settings import ModelSettings
 
 from devops_cli.config.constants import (
     CONST_AI_CASCADE_PROVIDERS,
+    CONST_AI_CLAUDE_GROUP_MAX_OUTPUT_TOKENS,
     CONST_AI_GATEWAY_DEFAULT_ROUTE,
     CONST_AI_GATEWAY_PROVIDER,
     CONST_AI_GATEWAY_URL_SETTINGS,
@@ -82,7 +84,10 @@ def _claude_group_model(name: str, provider_factory: Any) -> Any:
     """The chat model of a Claude group on a gateway, with the profile that forbids a forced tool
     choice. A Claude model answers 400 to `tool_choice` `required`, which an agent with a tool
     output sends, and a gateway fallback then hides the 400 (#4205). With the profile, the agent
-    sends `auto` and offers the same tools."""
+    sends `auto` and offers the same tools.
+
+    The request sets `max_tokens`: a request that sets none gets the Anthropic default of 4096
+    tokens, which cuts the reply of a stage plan before it holds a part (#4220)."""
     from pydantic_ai.models.openai import OpenAIChatModel
 
     provider_name, _, target = name.partition(":")
@@ -90,6 +95,7 @@ def _claude_group_model(name: str, provider_factory: Any) -> Any:
         target,
         provider=provider_factory(provider_name),
         profile={"supports_forced_tool_choice": False},
+        settings=ModelSettings(max_tokens=CONST_AI_CLAUDE_GROUP_MAX_OUTPUT_TOKENS),
     )
 
 

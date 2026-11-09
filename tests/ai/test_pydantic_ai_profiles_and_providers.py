@@ -459,9 +459,9 @@ def test_ollama_model_waits_the_configured_timeout(
     ]
 
 
-def _planner_tool_choice(remote_bridge: Any, web: WebFake, model: str) -> Any:
-    """The `tool_choice` that an agent with a tool output (the shape of the stage planner) sends
-    to the gateway for `model`, read from the request body that the web fake recorded."""
+def _planner_request(remote_bridge: Any, web: WebFake, model: str) -> dict[str, Any]:
+    """The request body that an agent with a tool output (the shape of the stage planner) sends
+    to the gateway for `model`, as the web fake recorded it."""
     import json
 
     from pydantic import BaseModel
@@ -510,7 +510,12 @@ def _planner_tool_choice(remote_bridge: Any, web: WebFake, model: str) -> Any:
 
     assert result.output.summary == "ok"
     (request,) = [call for call in web.recorded if call.url.endswith("/chat/completions")]
-    return json.loads(request.body)["tool_choice"]
+    body: dict[str, Any] = json.loads(request.body)
+    return body
+
+
+def _planner_tool_choice(remote_bridge: Any, web: WebFake, model: str) -> Any:
+    return _planner_request(remote_bridge, web, model)["tool_choice"]
 
 
 @pytest.mark.parametrize("model", ["claude-sonnet-5-5", "claude-haiku-5-5"])
@@ -543,3 +548,47 @@ def test_a_claude_group_profile_allows_no_forced_tool_choice(remote_bridge: Any)
         claude.profile.get("supports_forced_tool_choice", True),
         other.profile.get("supports_forced_tool_choice", True),
     ) == (False, True)
+
+
+@pytest.mark.parametrize("model", ["claude-sonnet-5-5", "claude-haiku-5-5"])
+def test_a_claude_group_model_carries_the_output_cap_in_its_settings(
+    remote_bridge: Any, model: str
+) -> None:
+    """Verify the model of a Claude group sets `max_tokens`, above the Anthropic default of 4096
+    that a stage plan does not fit in (#4220)."""
+    resolved = remote_bridge.resolve_pydantic_ai_model(
+        model, settings=_remote_settings("gateway", gateway_url=_EXAMPLE_GATEWAY)
+    )
+
+    cap = (resolved.settings or {}).get("max_tokens")
+
+    assert cap is not None
+    assert cap > 4096
+
+
+@pytest.mark.parametrize("model", ["claude-sonnet-5-5", "claude-haiku-5-5"])
+def test_a_request_to_a_claude_group_sends_the_output_cap(
+    remote_bridge: Any, web: WebFake, model: str
+) -> None:
+    """Verify the request body that reaches the gateway holds `max_tokens`, so the gateway
+    does not apply its own default of 4096 (#4220)."""
+    resolved = remote_bridge.resolve_pydantic_ai_model(
+        model, settings=_remote_settings("gateway", gateway_url=_EXAMPLE_GATEWAY)
+    )
+    body = _planner_request(remote_bridge, web, model)
+
+    # The OpenAI chat API names the cap `max_completion_tokens`; the gateway turns it into the
+    # `max_tokens` of the provider.
+    assert body.get("max_completion_tokens") == (resolved.settings or {}).get("max_tokens")
+    assert (body.get("max_completion_tokens") or 0) > 4096
+
+
+@pytest.mark.parametrize("model", ["devops-chat", "deepseek-v4.1-flash-1017"])
+def test_a_model_that_is_not_a_claude_group_sends_no_output_cap(
+    remote_bridge: Any, web: WebFake, model: str
+) -> None:
+    """Verify the cap is for a Claude group only: another model keeps the limit of its gateway
+    entry (#4220)."""
+    body = _planner_request(remote_bridge, web, model)
+
+    assert ("max_tokens" in body, "max_completion_tokens" in body) == (False, False)
