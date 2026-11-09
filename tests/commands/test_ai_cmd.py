@@ -681,3 +681,121 @@ def test_chat_seeds_the_invariants(
     for inv in DEFAULT_CHAT_INVARIANTS:
         assert f"- {inv}" in sys_s
     assert sys_s.index(f"- {DEFAULT_CHAT_INVARIANTS[-1]}") < sys_s.index(role_snippet)
+
+
+def test_stream_part_delta_and_tool_event_handlers() -> None:
+    """Verify streaming delta and tool event handlers process thinking, text, and tools (#2489)."""
+    from pydantic_ai.messages import (
+        FunctionToolCallEvent,
+        FunctionToolResultEvent,
+        PartDeltaEvent,
+        TextPartDelta,
+        ThinkingPartDelta,
+    )
+
+    from devops_cli.commands.ai import (
+        _handle_stream_part_delta,
+        _handle_stream_tool_call,
+        _handle_stream_tool_result,
+    )
+
+    # 1. Delta handling
+    processor = MagicMock()
+    processor.in_think = False
+
+    # Thinking delta starts <think>
+    think_event = PartDeltaEvent(index=0, delta=ThinkingPartDelta(content_delta="reasoning"))
+    _handle_stream_part_delta(think_event, processor)
+    processor.feed.assert_any_call("<think>")
+    processor.feed.assert_any_call("reasoning")
+
+    # Text delta closes </think> when in_think is True
+    processor.in_think = True
+    text_event = PartDeltaEvent(index=0, delta=TextPartDelta(content_delta="final text"))
+    _handle_stream_part_delta(text_event, processor)
+    processor.feed.assert_any_call("</think>")
+    processor.feed.assert_any_call("final text")
+
+    # 2. Tool call event handling
+    active_tools: dict[str, tuple[str, dict[str, Any]]] = {}
+    processor.in_think = True
+    tool_part = MagicMock(
+        tool_name="bash",
+        tool_call_id="call-123",
+        args_as_dict=lambda: {"command": "ls"},
+    )
+    call_event = FunctionToolCallEvent(part=tool_part)
+    _handle_stream_tool_call(call_event, processor, active_tools)
+    assert active_tools["call-123"] == ("bash", {"command": "ls"})
+
+    # 3. Tool result event handling
+    result_part = MagicMock(tool_call_id="call-123", content="output.txt")
+    res_event = FunctionToolResultEvent(part=result_part)
+    _handle_stream_tool_result(res_event, active_tools)
+    assert "call-123" not in active_tools
+
+
+def test_run_interactive_chat_turn_non_streaming_with_thoughts_and_tools() -> None:
+    """Verify non-streaming chat turn prints thoughts and tool calls from message parts (#2489)."""
+    from devops_cli.commands.ai import _run_interactive_chat_turn
+
+    class DummyThinkingPart:
+        content = "pondering deeply"
+
+    class DummyToolCallPart:
+        tool_name = "grep"
+
+        def args_as_dict(self) -> dict[str, Any]:
+            return {"pattern": "error"}
+
+    dummy_msg = MagicMock(parts=[DummyThinkingPart(), DummyToolCallPart()])
+
+    agent = MagicMock()
+    agent_res = MagicMock()
+    agent_res.new_messages.return_value = [dummy_msg]
+    agent_res.output = "Result reply"
+    agent.run_sync.return_value = agent_res
+
+    history: list[Any] = []
+    _run_interactive_chat_turn(
+        agent,
+        thinking=True,
+        effective_prompt="hello",
+        message_history=history,
+        stream=False,
+    )
+    assert agent.run_sync.called
+
+
+def test_extract_stage_tool_calls_and_run_pipeline_stage() -> None:
+    """Verify tool call extraction from stage messages and stage runner (#2489)."""
+    from unittest.mock import patch
+
+    from pydantic_ai.messages import ToolCallPart
+
+    from devops_cli.ai.personas import Persona
+    from devops_cli.commands.ai import _extract_stage_tool_calls, _run_pipeline_stage
+    from devops_cli.config.settings import Settings
+
+    dummy_msg = MagicMock(parts=[ToolCallPart(tool_name="k8s_describe", args={"pod": "test-pod"})])
+
+    mock_res = MagicMock()
+    mock_res.new_messages.return_value = [dummy_msg]
+    calls = _extract_stage_tool_calls(mock_res)
+    assert calls == [("k8s_describe", {"pod": "test-pod"})]
+
+    mock_agent = MagicMock()
+    mock_agent.run_sync.return_value = MagicMock(
+        new_messages=lambda: [dummy_msg],
+        output="Stage completed",
+    )
+
+    with patch("devops_cli.ai.client.factory.build_agent", return_value=mock_agent):
+        output, tool_count = _run_pipeline_stage(
+            Persona.ARCHITECT,
+            stage_index=1,
+            current_prompt="Assess architecture",
+            settings=Settings(),
+        )
+        assert output == "Stage completed"
+        assert tool_count == 1

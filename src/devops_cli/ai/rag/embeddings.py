@@ -19,7 +19,7 @@ from typing import Any, Literal, Protocol, runtime_checkable
 
 import httpx2
 from cachetools import LRUCache
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 from pydantic_ai.embeddings import (
     Embedder as PydanticEmbedder,
 )
@@ -463,7 +463,7 @@ class EmbeddingsEngine:
                 from devops_cli.config.settings import load_settings
 
                 base_config = load_settings().ai
-            except Exception:
+            except DevOpsCLIError, ConfigurationError, ValidationError, OSError:
                 base_config = AIConfig()
         else:
             base_config = ai_config
@@ -1245,7 +1245,7 @@ class OllamaEmbeddingModel(EmbeddingModel):
                 from devops_cli.config.settings import load_settings
 
                 resolved_cfg = load_settings().ai.model_copy(deep=True)
-            except Exception:
+            except DevOpsCLIError, ConfigurationError, ValidationError, OSError:
                 resolved_cfg = AIConfig()
         else:
             resolved_cfg = ai_config.model_copy(deep=True)
@@ -1437,7 +1437,7 @@ class EmbeddingResult(PydanticEmbeddingResult):
         """Calculate approximate cost using Pydantic AI native pricing, with fallback for local models."""
         try:
             return super().cost()
-        except Exception:
+        except LookupError, ValueError, AssertionError:
             from devops_cli.ai.spend import get_pricing_registry
 
             calc = get_pricing_registry().calculate_request_cost(
@@ -1531,7 +1531,7 @@ class Embedder(PydanticEmbedder):
             from devops_cli.config.settings import load_settings
 
             cfg = load_settings().ai.model_copy(deep=True)
-        except Exception:
+        except DevOpsCLIError, ConfigurationError, ValidationError, OSError:
             cfg = AIConfig()
         model_str = str(self._model_arg).strip()
         clean_model = model_str

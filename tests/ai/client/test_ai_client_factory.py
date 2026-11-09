@@ -58,3 +58,22 @@ def test_config_settings_does_not_export_get_llm_client() -> None:
     import devops_cli.config.settings as settings_mod
 
     assert not hasattr(settings_mod, "get_llm_client")
+
+
+def test_build_agent_with_client_override_model() -> None:
+    """Verify build_agent preserves _client_override when given a model string (#2489)."""
+    from pydantic_ai.models.test import TestModel
+
+    from devops_cli.ai.client.factory import (
+        build_agent,
+        reset_llm_client_override,
+        set_llm_client_override,
+    )
+
+    test_model = TestModel()
+    set_llm_client_override(test_model)
+    try:
+        agent = build_agent("some-model-string", task="chat")
+        assert agent.model is test_model
+    finally:
+        reset_llm_client_override()

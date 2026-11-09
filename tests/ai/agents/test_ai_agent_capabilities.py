@@ -244,3 +244,88 @@ def test_agent_override_swaps_the_model(model_fake: ModelFake) -> None:
     with agent.override(model=model_fake):
         res = agent.run_sync("What is the k8s status?")
     assert res.output == "Mocked Agent Response"
+
+
+def test_embeddings_extended_properties_and_fallbacks() -> None:
+    """Verify EngineEmbeddingModel, EmbeddingResult, and Embedder edge cases and properties (#2489)."""
+    from typing import cast
+    from unittest.mock import MagicMock
+
+    from devops_cli.ai.rag.embeddings import (
+        DEFAULT_EMBEDDING_MODEL,
+        Embedder,
+        EmbeddingResult,
+        EngineEmbeddingModel,
+    )
+
+    # 1. EngineEmbeddingModel properties & fallback embed
+    dummy_engine = object()
+    model = EngineEmbeddingModel(dummy_engine, model_name="test-model", provider_name="test-prov")
+    assert model.model_name == "test-model"
+    assert model.system == "test-prov"
+    assert str(model) == "test-model"
+    assert repr(model) == "EngineEmbeddingModel('test-model')"
+    fallback_vectors = model._embed_sync(["hello"], is_query=False)
+    assert len(fallback_vectors) == 1
+    assert len(fallback_vectors[0]) == 768
+
+    # 2. EmbeddingResult properties & methods
+    res = EmbeddingResult(
+        embeddings=[[0.1, 0.2]],
+        inputs=[" hello "],
+        model_name="test-model",
+    )
+    assert res.texts == [" hello "]
+    assert res.model == "test-model"
+    assert res.count == 1
+    assert res.dimension == 2
+    assert res["hello"] == [0.1, 0.2]
+    assert res.first() == [0.1, 0.2]
+    d = res.to_dict()
+    assert "embeddings" in d
+    assert "dimension" in d
+
+    res_empty = EmbeddingResult(embeddings=[], inputs=[])
+    assert res_empty.dimension == 0
+    with pytest.raises(ValueError, match="contains no vectors"):
+        res_empty.first()
+
+    # 3. Embedder variations
+    emb_none = Embedder(model=None)
+    assert emb_none.model_name == DEFAULT_EMBEDDING_MODEL
+
+    emb_openai = Embedder(model="openai:text-embedding-3-small")
+    assert "openai:text-embedding-3-small" in emb_openai.model_name
+
+    emb_obj = Embedder(model=cast(Any, 12345))
+    assert emb_obj.model_name == "12345"
+
+    mock_eng = MagicMock()
+    emb_custom = Embedder(engine=mock_eng)
+    assert emb_custom._get_engine() is mock_eng
+
+    mock_model = MagicMock()
+    mock_model._engine = mock_eng
+    emb_with_model_eng = Embedder(model=mock_model)
+    assert emb_with_model_eng._get_engine() is mock_eng
+
+    emb_fallback_openai = Embedder(model="openai:text-embedding-3-large", dimensions=256)
+    eng_created = emb_fallback_openai._get_engine()
+    assert eng_created._dimension == 256
+    assert eng_created.ai_config.provider == "openai"
+
+    from unittest.mock import patch
+
+    from devops_cli.exceptions.base import DevOpsCLIError
+
+    with patch("devops_cli.config.settings.load_settings", side_effect=DevOpsCLIError("fail")):
+        emb_err = Embedder(model="ollama:minilm")
+        eng_err = emb_err._get_engine()
+        assert eng_err.ai_config.provider == "ollama"
+
+    mock_sync_eng = MagicMock()
+    mock_sync_eng.embed_texts.return_value = [[0.5, 0.5]]
+    emb_sync = Embedder(engine=mock_sync_eng)
+    res_sync = emb_sync.embed_sync("test text", input_type="document")
+    assert isinstance(res_sync, EmbeddingResult)
+    assert res_sync[0] == [0.5, 0.5]
