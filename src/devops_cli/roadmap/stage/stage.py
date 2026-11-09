@@ -175,6 +175,7 @@ from devops_cli.roadmap.stage.stage_change import (
     write_change_files,
 )
 from devops_cli.roadmap.stage.stage_constants import candidate_names, staged_constants
+from devops_cli.roadmap.stage.stage_context_facts import collect_stage_facts_context
 from devops_cli.roadmap.stage.stage_filter import split_filter_entry
 from devops_cli.roadmap.stage.stage_form import (
     record_search_evidence,
@@ -1148,6 +1149,12 @@ class _Planner:
         if matched:
             lines = [f"- {entry.path} ({entry.declaring_path}:{entry.line})" for entry in matched]
             context = f"{context}\n\n### Registry places\n\n" + "\n".join(lines)
+        facts_context = collect_stage_facts_context(
+            f"{item.title}\n{item.body}",
+            lambda path: _read_staged_file(self._source, self._sha, path),
+        )
+        if facts_context:
+            context = f"{context}\n\n{facts_context}"
         pulls, senders = self._read_overlaps(item.body)
         probe = probe_premise(self._source, self._sha, item.body)
         self._dependency = self._dependency_of(target, probe.missing)

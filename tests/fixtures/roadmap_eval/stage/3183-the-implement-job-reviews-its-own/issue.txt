@@ -1,0 +1,137 @@
+### What happened
+
+The job marks a pull request ready when the checks pass. No reviewer looks at the diff against the issue, the plan and the project rules. The draft evaluator (#2867) is planned, but the review tools the project already has are not used by the job.
+
+### What should happen
+
+- After the last group, the job runs `devops review` on the diff and a plan-conformance check (every task ticked, every criterion delivered). Findings of a high severity go back as a repair round. Remaining findings are posted in the PR comment.
+- This is the seam that #2867 uses for its model verdict.
+
+### Acceptance criteria
+
+- [ ] A diff with a seeded high-severity finding is repaired or blocks the ready mark in a replay test.
+- [ ] The PR comment lists the review findings with their disposition.
+- [ ] The review call budget per item is stated and enforced.
+- [ ] The ready mark waits for both the checks and the review.
+
+Related: tracker for this set (filed with it), #2908 (issue workflow), #2867 (draft PR evaluator), #3005 (task kind), #3010 to #3015 (plan gates), #2919 (stuck-item metrics), #2953 (Ollama parser).
+
+
+
+<!-- devops-roadmap-alternatives:start -->
+Alternatives check of 2026-11-04: partly.
+Tool: The-PR-Agent/pr-agent (https://github.com/The-PR-Agent/pr-agent), MIT, last activity 2026-11-04, maintained.
+<!-- devops-roadmap-alternatives:end -->
+
+<!-- devops-roadmap-refine:start -->
+<!-- checked-at: sha=34010d6041ca9127243748c8fb3acfe90224b5cd -->
+## Proposed design
+
+### Problem statement
+The implement job marks a pull request ready when the CI checks pass, and no review of the diff happens before that mark. The project has `devops review` and a tick check, but the implement job calls neither on the diff. The job also runs in a pod that holds no review tools and no sandbox, so this item waits on #3041 and #2695 before a plan can be built. The plan then gates the ready mark through `draft_readiness.extra_checks` with `--no-group-analysis`.
+
+### Acceptance criteria
+
+### Requirement: Review before the ready mark
+The implement job SHALL run `devops review` on the pull request diff after the last task group and before `gh pr ready`.
+
+#### Scenario: Review runs on the diff
+- **WHEN** The last task group of the change is done and the CI checks pass
+- **THEN** The job runs `devops review` on the diff before it calls `gh pr ready`
+
+### Requirement: No diff text to a model
+The implement job MUST run the review with `--no-group-analysis`, so no diff text goes to a model group.
+
+#### Scenario: The review command line
+- **WHEN** The job builds the `devops review` command
+- **THEN** The command holds `--no-group-analysis` and the review sends no code region to a model
+
+### Requirement: A review that cannot run stops the item
+The implement job SHALL stop the item when the review tools do not run, and SHALL NOT treat that review as clean.
+
+#### Scenario: No sandbox on the host
+- **WHEN** The review exits with the error that the review tools did not run
+- **THEN** The job stops the item with a reason that names the missing tool and marks the item Blocked
+
+### Requirement: A high-severity finding is repaired or blocks
+The implement job SHALL repair a high-severity finding in one repair round or SHALL NOT mark the pull request ready.
+
+#### Scenario: Seeded high-severity finding
+- **WHEN** A replay test seeds a high-severity finding in the diff of the last task group
+- **THEN** The job repairs the finding in one repair round, or it does not mark the pull request ready
+
+### Requirement: Findings in the pull request comment
+The implement job SHALL post each review finding and its disposition in the pull request comment.
+
+#### Scenario: Findings with dispositions
+- **WHEN** The review completes with one or more findings
+- **THEN** The pull request comment lists each finding with its disposition: repaired, suppressed or blocking
+
+### Requirement: Review call budget
+The implement job MUST enforce a budget of two `devops review` runs for each item.
+
+#### Scenario: A third review run is needed
+- **WHEN** The job needs a third `devops review` run for the item
+- **THEN** The job stops the review and marks the item Blocked with the reason that the budget was exceeded
+
+### Requirement: Plan-conformance check
+The implement job SHALL report each acceptance criterion of the change that no ticked task in `tasks.md` covers, and SHALL NOT mark the pull request ready while one is open.
+
+#### Scenario: A criterion with no ticked task
+- **WHEN** The change's `tasks.md` has no ticked task for one acceptance criterion
+- **THEN** The job reports the criterion and does not mark the pull request ready
+
+### Requirement: Ready mark waits for the checks and the review
+The implement job SHALL call `gh pr ready` only when the CI checks pass and the review holds no unresolved high-severity finding.
+
+#### Scenario: Checks pass but a finding is open
+- **WHEN** The CI checks pass and the review holds an unresolved high-severity finding
+- **THEN** The job does not mark the pull request ready
+
+### Existing Tool Considered
+The-PR-Agent/pr-agent (``https://github.com/The-PR-Agent/pr-agent``), MIT, last activity 2026-11-04, maintained. The check of 2026-11-04 gave the verdict `partly`. The tool reviews the diff and posts the result as a pull request comment. It lacks findings anchored to tools, advisories, version facts or a rule pack, which ADR 0005 requires. It lacks the project rule pack and severity policy table. It lacks the plan-conformance check, the repair round and the two-run budget. It does not gate `gh pr ready`. The project builds that wiring itself. The written cost is about 150,000 tokens to build, about 30,000 tokens per quarter to keep and fix, and about four working days.
+
+### Key questions
+- **Why can the implement job not run `devops review` today?**: The runner image installs only git, ca-certificates, curl and jq. `NOT_IN_RUNNER` marks bwrap, semgrep, gitleaks, osv-scanner, kube-linter and trivy as absent in that pod. SECURITY.md rule 6 makes the review fail closed with no sandbox, so the job gets an error and never a finding. [sources: src/devops_cli/roadmap/runner_tools.py, k8s/devops/cronjob-runner.yaml, SECURITY.md]
+- **What must be delivered before this item can be built?**: The runner image must carry the review tools (#3041). The pod must run a sandbox that bubblewrap can start in for user 1000 (#2695). The new plan then targets `draft_readiness.extra_checks` and the failure taxonomy. [sources: src/devops_cli/roadmap/runner_tools.py, k8s/devops/cronjob-runner.yaml]
+- **Which seam does the review gate use?**: The review result goes into `draft_readiness.extra_checks`, which the implement job and `devops pr ready` already ask after completeness and the checks. (best practice) [sources: CONTEXT.md]
+  - Chosen: `draft_readiness.extra_checks`. CONTEXT.md gives draft readiness an extra check after completeness and the checks, and both callers ask it.
+  - Rejected: `ready_to_mark`. The plan of #3170 deletes `ready_to_mark` and moves the ready decision to `draft_readiness`.
+  - Rejected: A new gate beside `gh pr ready`. It duplicates draft readiness, and `devops pr ready` would not see the review.
+- **Which model group does the review use, and does diff text leave the cluster?**: No model group. The job passes `--no-group-analysis`, so the review sends no code region to a model and the status lane stays model-free. (best practice) [sources: CONTEXT.md, docs/adr/0005-review-findings-come-from-tools-not-models.md]
+  - Chosen: `--no-group-analysis`. The status lane calls no model, and ADR 0005 lets a model change no finding, so the model stage adds no finding.
+  - Rejected: The `analysis` model group. It sends the code region of each finding off the cluster and bills it, and SECURITY.md rule 13 needs that stated.
+  - Rejected: A hosted review service. It sends the diff off the cluster and reads neither the rule pack nor the severity policy table.
+- **How does the job class a stop from the review?**: The review stops get their own failure class, and a retry cannot clear them. The item stays Blocked until a person comments `implement: retry` or a new runner image rolls out. (best practice) [sources: CONTEXT.md, src/devops_cli/roadmap/failure.py]
+  - Chosen: A failure class for the review stops. CONTEXT.md holds an item Blocked until a retry or a new runner image clears the class, so the class must match the cause.
+  - Rejected: Reuse `ci_infra` with action `retry`. A retry cannot clear a missing tool or a spent budget, so the item would retry without end.
+- **What does the plan-conformance check verify?**: It reuses `openspec validate --archived` for the task ticks. It adds the criterion coverage: it reports each acceptance criterion that no ticked task in `tasks.md` covers. (best practice) [sources: CONTEXT.md, docs/adr/0010-openspec-is-the-spec-and-change-proposal-layer.md]
+  - Chosen: Reuse the tick check and add criterion coverage. The tick check already exists, and CONTEXT.md makes `tasks.md` the checklist of the change.
+  - Rejected: Build a second tick check. `_unticked_failure` already stops on an unticked task, so a second check duplicates it.
+  - Rejected: `openspec validate` alone. It checks the structure and the ticks, and it reports no criterion that the change misses.
+- **What happens when a high-severity finding is found?**: The finding goes back as one repair round. A finding that stays open after that round blocks the ready mark. (best practice) [sources: CONTEXT.md, docs/adr/0005-review-findings-come-from-tools-not-models.md]
+  - Chosen: One repair round, then block. CONTEXT.md gives the implement job at most one fix step, and ADR 0005 accepts a patch only when the tools and the mapped tests pass.
+  - Rejected: Block at once. The job gets no chance to fix a fixable finding.
+  - Rejected: Post the finding only. It contradicts the acceptance criterion that a high-severity finding is repaired or blocks.
+- **What is the review call budget for each item?**: Two `devops review` runs for each item: the first run and the re-run after the repair round. The status lane calls no model, so the budget bounds tool runs. (best practice) [sources: CONTEXT.md]
+  - Chosen: Two runs, the repair re-run included. It matches the at-most-one-fix-step rule, and a count of runs is simple to enforce.
+  - Rejected: One run. The repair round could not confirm its fix, so a repaired finding would block the ready mark.
+  - Rejected: A time-based budget. The runner pod gives no wall-clock guarantee, so a count of runs is easier to hold.
+- **Which findings block the ready mark?**: A high-severity finding that stays open. Severity comes from the rule metadata and the policy table, and only a tool run, a suppression or a person's verdict changes the state of a finding. (best practice) [sources: docs/adr/0005-review-findings-come-from-tools-not-models.md, CONTEXT.md]
+  - Chosen: An open high-severity finding blocks. ADR 0005 takes severity from the rule metadata and the policy table, so the block is a check and not a model.
+  - Rejected: Every open finding blocks. A low-severity finding would stop a ready mark that the checks pass.
+- **What is the seam that #2867 uses for its model verdict?**: The review session holds the findings and their states, and #2867 reads them. The model output stays apart from the findings and changes no finding. (best practice) [sources: docs/adr/0005-review-findings-come-from-tools-not-models.md]
+  - Chosen: Findings stay in the review session, and #2867 reads them. ADR 0005 stores model output apart from findings, so the verdict reads the findings and adds no state.
+  - Rejected: This item builds the model verdict. That is the work of #2867, and it would put a model verdict in the status lane.
+
+### Fit
+Fits in one pull request.
+
+### Suspected block
+The runner pod must carry the review tools (#3041) and a sandbox that bubblewrap can start in (#2695). No review tool can run there until both land.
+
+### Dependencies
+#3041, #2695
+<!-- devops-roadmap-refine:end -->
+
+<!-- devops-roadmap-record {"Effort": "Medium", "Priority": "P2-Medium", "Status": "New", "Value": "Medium", "alternatives.body_hash": "6196cf1304b85d68416a4e399bb79b6d9249beffb6206ef6b7451c7d6f9951eb", "alternatives.checked_at": "2026-11-04T14:55:07.804669+00:00", "alternatives.failed_at": null, "alternatives.failed_error": null, "alternatives.tool": "https://github.com/The-PR-Agent/pr-agent", "alternatives.verdict": "partly", "refine.alternatives_asked": null, "refine.block_paths": "src/devops_cli/roadmap/runner_tools.py,k8s/devops/cronjob-runner.yaml", "refine.blocked_by": "3041,2695", "refine.body_hash": "6196cf1304b85d68416a4e399bb79b6d9249beffb6206ef6b7451c7d6f9951eb", "refine.commented_at": "2026-11-06T04:12:26+00:00", "refine.comments_seen": "10", "refine.failed_body_hash": null, "refine.needs_split": "false", "refine.next_step": "blocked", "refine.returned_body_hash": "6196cf1304b85d68416a4e399bb79b6d9249beffb6206ef6b7451c7d6f9951eb", "refine.section_hash": "deeb76cf880c4073f7bdeb834680898ddbc5fb2a52c6612c9b42f26a387a14c8", "refine.wait_refs": "#3041,#2695,src/devops_cli/roadmap/runner_tools.py,k8s/devops/cronjob-runner.yaml", "stage.branch": null, "stage.failed_at": null, "stage.failed_error": null, "stage.file_cap": null, "stage.groups": null, "stage.needs_fix": null, "stage.needs_split": null, "stage.pr": null, "stage.ready": null, "stage.rejected": "{\"pull\":3183,\"text_hash\":\"6196cf1304b85d68416a4e399bb79b6d9249beffb6206ef6b7451c7d6f9951eb\",\"closed_at\":\"2026-11-02T20:22:45Z\",\"paths\":[\"src/devops_cli/roadmap/runner_tools.py\",\"SECURITY.md\",\"k8s/devops/cronjob-runner.yaml\",\"capabilities.drop\",\"review/analysis.py\"]}", "stage.sha": null, "stage.text_hash": null} -->

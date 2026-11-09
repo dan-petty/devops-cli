@@ -748,3 +748,10 @@ def test_the_stage_prompt_requires_one_exact_change_and_failing_test() -> None:
     assert "A group gives one exact change" in prompt
     assert "names the failing test that the change updates in a code span" in prompt
     assert "A group never fixes a test only if it breaks" in prompt
+
+
+def test_the_stage_prompt_states_failure_and_runner_capabilities_in_feasibility() -> None:
+    prompt = load_task_prompt("roadmap_stage_change.md")
+
+    assert "state each needed failure class and runner capability" in prompt
+    assert "NOT_IN_RUNNER" in prompt

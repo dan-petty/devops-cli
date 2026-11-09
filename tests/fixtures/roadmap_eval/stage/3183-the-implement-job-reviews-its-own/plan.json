@@ -1,0 +1,231 @@
+{
+ "summary": "Plan review gate before ready mark",
+ "pull_request_body": "The implement job marks a pull request ready when the checks pass, with no review of the diff against the issue, the plan and the project rules. This change runs `devops review` and a plan-conformance check after the last task group and before `gh pr ready`. A high-severity finding gets one repair round; a finding that survives blocks the ready mark and the item is Blocked. The pull request comment lists every finding with its disposition. The review call budget per item is stated in the settings and enforced, and the ready mark waits for both the checks and the review. The review output is the seam that the draft evaluator reads.\n\nChange: `openspec/changes/3049-the-implement-job-reviews-its-own/`",
+ "why": "The implement job marks a pull request ready with no review of the diff against the issue, the plan and the project rules, and the review tools the project already has are unused by the job (#3049).",
+ "what_changes": [
+  "Add `src/devops_cli/roadmap/implement_review.py` with the review run, the plan-conformance check and the disposition of each finding.",
+  "Gate `_ready` in `src/devops_cli/roadmap/implement_run.py` on both the checks and the review.",
+  "Add the `roadmap.implement.review_runs` setting and enforce it as the review call budget per item.",
+  "Post every finding and its disposition in the implement comment.",
+  "Add the review step names and messages.",
+  "Add a replay test with a seeded high-severity finding, and tests for the budget and the ready gate.",
+  "Add the `roadmap-implement-review` capability spec delta and update the implement job docs.",
+  "The change fits one pull request."
+ ],
+ "skip_specs": false,
+ "feasibility": [
+  "`read_file` on `src/devops_cli/roadmap/implement_run.py` lines 642-699 showed `_checks` raising `_StopError` unless the watch is READY, then `_ready` calling `mark_ready` at once: the review has no place between them today.",
+  "`file_symbols` on `src/devops_cli/roadmap/implement_pull.py` showed `mark_ready(repo, pull)`, `watch_pull(repo, pull, head)` and `failed_log(repo, check)` as the pull-request seams the job already uses.",
+  "`search_code` for `ready_to_mark` showed `src/devops_cli/roadmap/stage_ready.py` as the single decision function of the stage-ready row, so the review result plugs into an existing seam.",
+  "`read_file` on `src/devops_cli/roadmap/implement_run.py` lines 505-520 showed `repair_rounds` bounding the scoped and check repairs: the review budget follows the same shape."
+ ],
+ "existing_tool": "`devops review` (ADR 0005) already produces the findings from pinned tools, advisories, confirmed version facts and the rule pack, and `src/devops_cli/roadmap/stage_ready.py` already holds the one decision function for the ready mark. The change wires both into the implement job and builds no scanner and no review engine of its own; the plan-conformance check reads the change folder and is a few dozen lines. Building a review engine would cost the pinned tools, a sandbox, a canary per language and the rule pack, weeks of work and a permanent maintenance load, and ADR 0005 rejected exactly that.",
+ "builds_own": false,
+ "decisions": [
+  {
+   "decision": "Run the review after the last task group and the push, before `gh pr ready`, and gate `_ready` on it",
+   "reason": "The review must see the final head, and the issue requires the ready mark to wait for both the checks and the review."
+  },
+  {
+   "decision": "Treat a high-severity finding as repaired after one fix step and a re-run, and block the item when it survives",
+   "reason": "CONTEXT.md's Implementing definition allows at most one fix step, so the job gets one chance to fix before it blocks."
+  },
+  {
+   "decision": "State the review budget as two runs per item in the `roadmap.implement.review_runs` setting",
+   "reason": "One initial run and one re-run after the repair round bound the cost, and the setting makes the budget visible and enforceable."
+  },
+  {
+   "decision": "Write the review result as the input of `ready_to_mark` in `src/devops_cli/roadmap/stage_ready.py`",
+   "reason": "That function is already the one seam of the ready decision, and #2867 replaces its body without touching a caller."
+  },
+  {
+   "decision": "Post one comment line per finding with its disposition, under the existing comment marker",
+   "reason": "The implement comment already carries the outcome of each step, and one marker keeps a single comment per run."
+  }
+ ],
+ "rejected": [
+  {
+   "alternative": "Block the item at the first high-severity finding with no repair round",
+   "evidence": "CONTEXT.md's Implementing definition gives at most one fix step, so a fixable finding would stop an item that the job could repair."
+  },
+  {
+   "alternative": "Run the review only after `gh pr ready`, as an advisory",
+   "evidence": "The issue's acceptance criterion says the ready mark waits for both the checks and the review, and that a high-severity finding blocks the ready mark."
+  },
+  {
+   "alternative": "Let the job call `devops review` without a budget",
+   "evidence": "The issue requires the review call budget per item to be stated and enforced, and ADR 0005 records that extra review calls did not raise precision."
+  },
+  {
+   "alternative": "Build a review engine into the implement job",
+   "evidence": "ADR 0005 already moved findings to pinned tools, advisories, confirmed facts and the rule pack, and `devops review` ships them."
+  }
+ ],
+ "specs": [
+  {
+   "capability": "roadmap-implement-review",
+   "purpose": "The implement job reviews its own diff and its plan conformance before it marks the pull request ready, within a stated call budget.",
+   "added": [
+    {
+     "name": "Review runs before the ready mark",
+     "text": "The implement job SHALL run `devops review` on the item's diff and a plan-conformance check after the last task group and before it marks the pull request ready.",
+     "scenarios": [
+      {
+       "name": "Review runs after the last task group",
+       "when": "the implement job finishes the last task group of the item",
+       "then": "the job runs `devops review` on the diff and the plan-conformance check, and no ready mark happens before both return"
+      },
+      {
+       "name": "Seeded high-severity finding is repaired",
+       "when": "a replay test seeds a high-severity finding in the diff and the fix step clears it",
+       "then": "the job re-runs the review and marks the pull request ready"
+      }
+     ]
+    },
+    {
+     "name": "A surviving high-severity finding blocks the ready mark",
+     "text": "The implement job SHALL run one repair round for a high-severity finding, and MUST NOT mark the pull request ready while a high-severity finding stays open.",
+     "scenarios": [
+      {
+       "name": "Seeded high-severity finding survives the repair round",
+       "when": "a replay test seeds a high-severity finding that the fix step does not clear",
+       "then": "the job stops the item, records the reason and leaves the pull request a draft"
+      },
+      {
+       "name": "Checks pass but a review finding stays open",
+       "when": "every check passed and the review still holds an open high-severity finding",
+       "then": "the pull request stays a draft"
+      }
+     ]
+    },
+    {
+     "name": "The comment lists every finding with its disposition",
+     "text": "The implement job SHALL post each review finding in the pull request comment with its disposition: repaired, suppressed or blocking.",
+     "scenarios": [
+      {
+       "name": "Findings listed with their disposition",
+       "when": "the review completes with one or more findings",
+       "then": "the pull request comment holds one line for each finding with its location, its severity and its disposition"
+      }
+     ]
+    },
+    {
+     "name": "The review call budget is stated and enforced",
+     "text": "The implement job SHALL limit the review runs per item to `roadmap.implement.review_runs` and MUST stop the review with the budget reason when the limit is reached.",
+     "scenarios": [
+      {
+       "name": "Budget is spent",
+       "when": "the review reaches the number of runs of `roadmap.implement.review_runs` with a high-severity finding still open",
+       "then": "the job stops the review and blocks the item with the reason that the review budget was spent"
+      },
+      {
+       "name": "Budget is one initial run and one re-run",
+       "when": "the default settings load",
+       "then": "`roadmap.implement.review_runs` is 2"
+      }
+     ]
+    },
+    {
+     "name": "The ready mark waits for the checks and the review",
+     "text": "The implement job SHALL mark the pull request ready only when every check passed and the review holds no unresolved high-severity finding.",
+     "scenarios": [
+      {
+       "name": "Both gates pass",
+       "when": "every check passed and the review holds no unresolved high-severity finding",
+       "then": "the job marks the pull request ready and sets Status In Review"
+      }
+     ]
+    }
+   ],
+   "modified": []
+  }
+ ],
+ "groups": [
+  {
+   "title": "Add the review budget setting and the review step messages",
+   "kind": "behavior",
+   "reads": [
+    "src/devops_cli/roadmap/implement_run.py",
+    "src/devops_cli/config/constants.py"
+   ],
+   "changes": [
+    "src/devops_cli/config/settings.py",
+    "src/devops_cli/config/constants.py"
+   ],
+   "creates": [],
+   "creates_lines": {},
+   "test": "Add review_runs to the roadmap.implement settings model with a default of 2, and the review step names and the finding, disposition and budget messages in src/devops_cli/config/constants.py, and verify that uv run devops config show passes",
+   "implementation": "Add review_runs to settings and messages to constants",
+   "documentation": null,
+   "verify": "uv run devops config show",
+   "process": null
+  },
+  {
+   "title": "Review the diff and check plan conformance before the ready mark",
+   "kind": "behavior",
+   "reads": [
+    "src/devops_cli/roadmap/implement_run.py",
+    "src/devops_cli/roadmap/implement_pull.py",
+    "src/devops_cli/roadmap/stage_ready.py",
+    "src/devops_cli/config/settings.py"
+   ],
+   "changes": [
+    "src/devops_cli/roadmap/implement_review.py",
+    "src/devops_cli/roadmap/implement_run.py",
+    "tests/roadmap/test_implement_review.py"
+   ],
+   "creates": [
+    "src/devops_cli/roadmap/implement_review.py",
+    "tests/roadmap/test_implement_review.py"
+   ],
+   "creates_lines": {
+    "src/devops_cli/roadmap/implement_review.py": 120,
+    "tests/roadmap/test_implement_review.py": 150
+   },
+   "test": "Write tests/roadmap/test_implement_review.py with a replayed review session that seeds a high-severity finding, and assert that the run spends one fix step, re-runs the review and marks ready only after the finding is cleared",
+   "implementation": "Write src/devops_cli/roadmap/implement_review.py with review_diff, which runs devops review on the item's diff, and plan_conformance, which reads the change folder and returns the unticked tasks and the undelivered criteria. Give the result a disposition per finding. Call both from _ItemRun._checks after the checks pass, add the repair round and the budget of roadmap.implement.review_runs, and gate _ready on a clean result",
+   "documentation": null,
+   "verify": "uv run devops ci test tests/roadmap/test_implement_review.py",
+   "process": null
+  },
+  {
+   "title": "Post the findings and their disposition in the pull request comment",
+   "kind": "behavior",
+   "reads": [
+    "src/devops_cli/roadmap/implement_run.py",
+    "src/devops_cli/roadmap/implement_review.py"
+   ],
+   "changes": [
+    "src/devops_cli/roadmap/implement_run.py",
+    "tests/roadmap/test_implement_review.py"
+   ],
+   "creates": [],
+   "creates_lines": {},
+   "test": "Add a test to tests/roadmap/test_implement_review.py that asserts the comment holds one line per finding with its location, severity and disposition",
+   "implementation": "Extend _scoped_lines and _comment in src/devops_cli/roadmap/implement_run.py so the review findings and their dispositions follow the scoped runs in the same marked comment",
+   "documentation": null,
+   "verify": "uv run devops ci test tests/roadmap/test_implement_review.py",
+   "process": null
+  },
+  {
+   "title": "Document the review gate",
+   "kind": "other",
+   "reads": [
+    "docs/ROADMAP_WORKFLOW.md",
+    "CONTEXT.md"
+   ],
+   "changes": [
+    "docs/ROADMAP_WORKFLOW.md",
+    "CONTEXT.md"
+   ],
+   "creates": [],
+   "creates_lines": {},
+   "test": null,
+   "implementation": "Add the review step, the two-run budget and the blocked reason to docs/ROADMAP_WORKFLOW.md, and name the review gate in the Implementing entry of CONTEXT.md",
+   "documentation": "docs/ROADMAP_WORKFLOW.md and CONTEXT.md describe the review step and its budget",
+   "verify": "uv run devops ci docs",
+   "process": null
+  }
+ ],
+ "dependencies": []
+}
