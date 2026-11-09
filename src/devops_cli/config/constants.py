@@ -3176,6 +3176,11 @@ CONST_ROADMAP_STAGE_LOG_MAX_COUNT: Final[int] = 40
 CONST_ROADMAP_STAGE_MAP_MAX_FILES: Final[int] = 40
 CONST_ROADMAP_STAGE_MAP_LINE_CHARS: Final[int] = 180
 CONST_ROADMAP_STAGE_SPEC_MAX_CHARS: Final[int] = 16000
+# The refused-reply file of an item (#4204) holds at most two replies and their problems. A reply
+# over the byte limit is dropped and only its size stays; a problem is cut to the character limit.
+# So the file is at most about 2 x (128 KiB + 8,000 characters) in size.
+CONST_ROADMAP_STAGE_REFUSED_REPLY_MAX_BYTES: Final[int] = 131_072
+CONST_ROADMAP_STAGE_REFUSED_PROBLEM_MAX_CHARS: Final[int] = 8_000
 # The first plan request (#3477): the repository context and the body of the item each have a fixed
 # cap that does not grow with the window. A cap is also at most a share of a small window
 # (`_WINDOW_SHARE_CONTEXT` and `_WINDOW_SHARE_BODY` in the stage module). For the planner window of

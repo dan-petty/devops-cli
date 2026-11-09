@@ -70,6 +70,14 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
         "kept",
         "retries for a reply that breaks the schema; a stuck model fails again",
     ),
+    "CONST_ROADMAP_STAGE_REFUSED_REPLY_MAX_BYTES": (
+        "kept",
+        "the size of a refused reply that the job keeps for a person; protects the data volume",
+    ),
+    "CONST_ROADMAP_STAGE_REFUSED_PROBLEM_MAX_CHARS": (
+        "kept",
+        "the size of the problem text of a refused reply that the job keeps for a person",
+    ),
     "CONST_ROADMAP_REFINE_TOOL_MAX_LINES": (
         "raised",
         "was 120; a tool answer, bounded by the window",
