@@ -2,12 +2,14 @@
 
 ## 1. Refuse a placeholder summary in the stage plan
 
-Reads: `src/devops_cli/roadmap/stage/stage_change.py`, `src/devops_cli/roadmap/pull_form.py`, `src/devops_cli/lang/en/messages.py`, `tests/roadmap/stage/test_roadmap_stage_title.py`, `tests/support/builders.py`. Changes: `src/devops_cli/roadmap/stage/stage_change.py`, `tests/roadmap/stage/test_roadmap_stage_title.py`.
+Reads: `src/devops_cli/roadmap/stage/stage_change.py`, `src/devops_cli/roadmap/pull_form.py`, `src/devops_cli/lang/en/messages.py`, `src/devops_cli/roadmap/stage/stage_eval_gates.py`, `src/devops_cli/roadmap/stage/stage_eval_cases.py`, `tests/roadmap/stage/test_roadmap_stage_title.py`, `tests/roadmap/stage/test_roadmap_stage_eval_gates.py`, `tests/fixtures/roadmap_eval/stage/3167-a-comment-by-a-person-on/case.json`, `tests/support/builders.py`. Changes: `src/devops_cli/roadmap/stage/stage_change.py`, `src/devops_cli/roadmap/stage/stage_eval_gates.py`, `src/devops_cli/roadmap/stage/stage_eval_cases.py`, `tests/roadmap/stage/test_roadmap_stage_title.py`, `tests/roadmap/stage/test_roadmap_stage_eval_gates.py`, `tests/fixtures/roadmap_eval/stage/3167-a-comment-by-a-person-on/case.json`.
 
 - [x] 1.1 Write `test_the_schema_refuses_a_summary_that_is_a_placeholder_word` and `test_a_plan_that_refuses_a_placeholder_summary_accepts_its_own_summary` in `tests/roadmap/stage/test_roadmap_stage_title.py`, and watch them fail. The first asserts that a summary of `x` raises a `ValueError` that names the placeholder summary, and that `todo` gives the rendered `stage_problem_text_placeholder` text. The second builds the plan's own `StageProposal` with a real summary and asserts that `content_problems` returns no problem, because this group adds the rule that judges the plan itself
   - Verification: `$ uv run devops ci test tests/roadmap/stage/test_roadmap_stage_title.py` fails on the base
 - [x] 1.2 Add the `is_placeholder` check to `StageProposal._summary_fits_the_title` in `src/devops_cli/roadmap/stage/stage_change.py`, after the text is shown, and raise `MESSAGES.roadmap.stage_problem_text_placeholder` with the field `summary` and the stripped text
   - Verification: `$ uv run devops ci test tests/roadmap/stage/test_roadmap_stage_title.py` passes
+- [x] 1.3 Add the summary problem to `PlanUnderTest.of_case` in `src/devops_cli/roadmap/stage/stage_eval_gates.py` through `summary_problem`, and record the `kind` gate defect of the placeholder summary in the golden case `3167-a-comment-by-a-person-on`, so `test_a_plan_fails_the_schema_of_the_reply_only_when_a_defect_names_the_kind_gate` holds
+  - Verification: `$ uv run devops ci test tests/roadmap/stage/test_roadmap_stage_eval_cases.py tests/roadmap/stage/test_roadmap_stage_eval_gates.py tests/roadmap/stage/test_roadmap_stage_eval_run.py` passes
 
 ## 2. Refuse a stage plan whose title summary or body is a placeholder
 

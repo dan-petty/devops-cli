@@ -589,6 +589,31 @@ class WeakenedCheck(_Reply):
 CHANGE_TASK: Final[str] = "roadmap_stage_change.md"
 
 
+def summary_problem(summary: str) -> str | None:
+    """The problem with the text of a `summary`, or None when it fits the title (#3395).
+
+    The title shows the summary as `safe_title` writes it: on one line, and with a code span for a
+    handle or a link. The limit counts that text in the units of the check `Semantic PR title`
+    (`summary_length`), so spare whitespace costs nothing, a handle costs its code span and an
+    emoji costs two. A summary with no text left, a cut summary and a placeholder summary are
+    refused."""
+    text = safe_title(summary)
+    shown = summary_length(text)
+    if not any(_shows_something(char) for char in text):
+        return MESSAGES.roadmap.stage_summary_blank
+    if is_placeholder(text):
+        return MESSAGES.roadmap.stage_problem_text_placeholder.format(
+            field="summary", text=text.strip()
+        )
+    if text.endswith(_ELLIPSIS):
+        return MESSAGES.roadmap.stage_summary_cut
+    if shown > STAGE_SUMMARY_MAX_CHARS:
+        return MESSAGES.roadmap.stage_summary_long.format(
+            length=shown, limit=STAGE_SUMMARY_MAX_CHARS
+        )
+    return None
+
+
 class StageProposal(_Reply):
     """The model's plan of the change. `summary` is the summary of the pull request title, and
     `pull_request_body` the what and why of its body. The scope and the type of the title are not
@@ -626,27 +651,12 @@ class StageProposal(_Reply):
         """The title shows the summary as `safe_title` writes it: on one line, and with a code span
         for a handle or a link. The limit counts that text in the units of the check `Semantic PR
         title` (`summary_length`), so spare whitespace costs nothing, a handle costs its code span
-        and an emoji costs two. A summary with no text left is refused too. The reply that breaks
-        it goes back to the model with the count and the limit, and `staging_title` cuts no summary
-        that the schema accepts."""
-        text = safe_title(summary)
-        shown = summary_length(text)
-        if not any(_shows_something(char) for char in text):
-            raise ValueError(MESSAGES.roadmap.stage_summary_blank)
-        if is_placeholder(text):
-            raise ValueError(
-                MESSAGES.roadmap.stage_problem_text_placeholder.format(
-                    field="summary", text=text.strip()
-                )
-            )
-        if text.endswith(_ELLIPSIS):
-            raise ValueError(MESSAGES.roadmap.stage_summary_cut)
-        if shown > STAGE_SUMMARY_MAX_CHARS:
-            raise ValueError(
-                MESSAGES.roadmap.stage_summary_long.format(
-                    length=shown, limit=STAGE_SUMMARY_MAX_CHARS
-                )
-            )
+        and an emoji costs two. A summary with no text left, a cut summary and a placeholder
+        summary are refused too. The reply that breaks it goes back to the model with the problem,
+        and `staging_title` cuts no summary that the schema accepts."""
+        problem = summary_problem(summary)
+        if problem is not None:
+            raise ValueError(problem)
         return summary
 
 

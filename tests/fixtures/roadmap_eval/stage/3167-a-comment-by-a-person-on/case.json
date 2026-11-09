@@ -37,6 +37,15 @@
    "evidence": "tasks.md of the head commit of pull request #3167: `1.1 x, and verify that `true` passes`.",
    "gate": "paths",
    "message": "gives the `verify` command `true`"
+  },
+  {
+   "type": "other",
+   "severity": "blocker",
+   "where": "plan summary",
+   "problem": "The summary is the placeholder `x`, so the title names no work.",
+   "evidence": "plan.json of the head commit of pull request #3167: `summary` is `x`.",
+   "gate": "kind",
+   "message": "The text of summary is the placeholder `x`"
   }
  ]
 }

@@ -11,6 +11,7 @@ The stage job refuses a placeholder in the plan text, but not in the summary of 
 - Add a `STAGE_PLAN` rule to `_judge_completeness` in `src/devops_cli/roadmap/implement/implement_pull.py`: it refuses a stage plan whose title summary or body is a placeholder, with the reason that names the placeholder.
 - Add `test_the_schema_refuses_a_summary_that_is_a_placeholder_word` and `test_a_plan_that_refuses_a_placeholder_summary_accepts_its_own_summary` to `tests/roadmap/stage/test_roadmap_stage_title.py`.
 - Add tests to `tests/roadmap/test_roadmap_draft_readiness.py` for a placeholder title summary, a placeholder body and a complete stage plan.
+- Add the summary problem to `PlanUnderTest.of_case` in `src/devops_cli/roadmap/stage/stage_eval_gates.py`, and record the `kind` gate defect of the placeholder summary in the golden case `3167-a-comment-by-a-person-on`, so the replay matches the schema.
 - The change fits one pull request.
 
 ## Capabilities
@@ -26,8 +27,8 @@ None.
 
 ## Impact
 
-- Code: `src/devops_cli/roadmap/stage/stage_change.py`, `src/devops_cli/roadmap/implement/implement_pull.py`, `src/devops_cli/github/client.py`
-- Tests: `tests/roadmap/stage/test_roadmap_stage_title.py`, `tests/roadmap/test_roadmap_draft_readiness.py`
+- Code: `src/devops_cli/roadmap/stage/stage_change.py`, `src/devops_cli/roadmap/implement/implement_pull.py`, `src/devops_cli/github/client.py`, `src/devops_cli/roadmap/stage/stage_eval_gates.py`, `src/devops_cli/roadmap/stage/stage_eval_cases.py`
+- Tests: `tests/roadmap/stage/test_roadmap_stage_title.py`, `tests/roadmap/test_roadmap_draft_readiness.py`, `tests/roadmap/stage/test_roadmap_stage_eval_gates.py`, `tests/fixtures/roadmap_eval/stage/3167-a-comment-by-a-person-on/case.json`
 
 ## Feasibility
 

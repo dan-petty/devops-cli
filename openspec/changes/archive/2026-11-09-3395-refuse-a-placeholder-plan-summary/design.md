@@ -9,6 +9,7 @@
 - **Refuse a `STAGE_PLAN` draft when either the title summary or the body is a placeholder.** Either field alone leaves the plan with no usable summary or body. A title-only placeholder still names no work.
 - **Find the summary after the `stage_title_lead` of the item number.** The lead `plan #<number> ` hides the placeholder from `title_problems`, so the decision removes the one definition of the lead and judges the remaining text.
 - **Keep the staging title lead `docs(openspec): plan #<number> `.** The summary alone is the model's text, and the existing title checks depend on the lead.
+- **Report the summary problem through `summary_problem` in the replay.** `PlanUnderTest.of_case` builds the plan with `model_construct`, so it collects no top-level field problem. The replay therefore names the placeholder summary through the same function as the schema, and the golden case `3167` records a `kind` gate defect for it.
 
 ## Rejected alternatives
 
@@ -18,3 +19,4 @@
 - **Refuse only when the title summary and the body are both placeholders.** A title-only placeholder still names no work and would pass.
 - **Call GitHub inside `_judge_completeness`.** The decision is a pure function, and a request would break its tests and its callers.
 - **Add title and body to `Draft` instead of `PullStatus`.** It duplicates the pull request record and makes every caller fill two more fields.
+- **Leave the golden case `3167` without a `kind` gate defect.** The check `test_a_plan_fails_the_schema_of_the_reply_only_when_a_defect_names_the_kind_gate` would then refuse a case that no defect names, and the replay would disagree with the schema about the same plan.
