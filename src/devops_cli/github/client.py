@@ -75,14 +75,17 @@ class PullRequest(BaseModel):
 
 class PullStatus(BaseModel):
     """Whether a pull request is open, a draft, or merged (#2665), the commit of its head
-    (#2865), the labels it holds (#3264) and when it closed (#3503). `head_sha` is empty when
-    GitHub names no head, and `closed_at` is None for a pull request that is open."""
+    (#2865), the labels it holds (#3264), its title and body (#3395), and when it closed
+    (#3503). `head_sha` is empty when GitHub names no head, and `closed_at` is None for a pull
+    request that is open."""
 
     model_config = ConfigDict(validate_by_name=True, validate_by_alias=True)
 
     state: str
     draft: bool = False
     merged: bool = False
+    title: str = ""
+    body: str = ""
     head_sha: str = Field(default="", validation_alias=AliasPath("head", "sha"))
     head_ref: str = Field(default="", validation_alias=AliasPath("head", "ref"))
     labels: tuple[str, ...] = ()
@@ -94,6 +97,12 @@ class PullStatus(BaseModel):
         if not value:
             return ()
         return tuple(item["name"] if isinstance(item, dict) else str(item) for item in value)
+
+    @field_validator("body", mode="before")
+    @classmethod
+    def _turn_null_body(cls, value: Any) -> str:
+        """GitHub gives the body as null when the pull request holds no body."""
+        return "" if value is None else str(value)
 
     @property
     def is_open_draft(self) -> bool:

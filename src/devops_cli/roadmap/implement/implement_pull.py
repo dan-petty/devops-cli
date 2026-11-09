@@ -36,6 +36,7 @@ from devops_cli.github.run_view import fetch_workflow_run_view
 from devops_cli.github.session import get_github_session
 from devops_cli.lang import MESSAGES
 from devops_cli.output import print_muted
+from devops_cli.roadmap.pull_form import is_placeholder
 from devops_cli.roadmap.step_files import parse_task_groups
 from devops_cli.roadmap.stores import store as roadmap_store
 from devops_cli.roadmap.stores.store import (
@@ -120,10 +121,29 @@ def kind_of(item: Item | None, pull: int | None = None) -> DraftKind:
     return DraftKind.PERSON
 
 
+def _stage_summary(title: str, item: Item | None) -> str:
+    """The model's summary of a stage plan title: the text after the type, without the lead
+    `plan #<number> ` that hides a placeholder from the form check (#3395)."""
+    text = title.partition(": ")[2]
+    if item is not None:
+        lead = MESSAGES.roadmap.stage_title_lead.format(number=item.number)
+        text = text.removeprefix(lead)
+    return text
+
+
 def _judge_completeness(draft: Draft) -> Readiness | None:
     texts = MESSAGES.roadmap
     match draft.kind:
         case DraftKind.STAGE_PLAN:
+            for field, text in (
+                ("summary", _stage_summary(draft.pull.title, draft.item)),
+                ("body", draft.pull.body),
+            ):
+                if is_placeholder(text):
+                    return Readiness(
+                        Answer.REFUSE,
+                        texts.stage_problem_text_placeholder.format(field=field, text=text.strip()),
+                    )
             return None
         case DraftKind.IMPLEMENT:
             if draft.change is None:

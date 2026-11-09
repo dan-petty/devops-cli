@@ -58,6 +58,44 @@ _UNTICKED_GROUP_2_TASKS = """\
 - [ ] 2.1 Not done
 """
 
+_STAGE_ITEM = Item(number=3321, title="a plan", url="u")
+
+
+def _stage_draft(title: str, body: str) -> Draft:
+    return Draft(
+        kind=DraftKind.STAGE_PLAN,
+        pull=PullStatus(state="open", draft=True, title=title, body=body),
+        item=_STAGE_ITEM,
+        checks=_PASSING,
+    )
+
+
+def test_draft_readiness_refuses_a_stage_plan_whose_title_summary_is_a_placeholder() -> None:
+    draft = _stage_draft("docs(openspec): plan #3321 x", "A real body.")
+
+    result = draft_readiness(draft)
+
+    assert (result.answer, "placeholder" in result.reason) == (Answer.REFUSE, True)
+
+
+def test_draft_readiness_refuses_a_stage_plan_whose_body_is_a_placeholder() -> None:
+    draft = _stage_draft("docs(openspec): plan #3321 Refuse a placeholder summary", "x")
+
+    result = draft_readiness(draft)
+
+    assert (result.answer, "placeholder" in result.reason) == (Answer.REFUSE, True)
+
+
+def test_draft_readiness_marks_a_complete_stage_plan_ready() -> None:
+    draft = _stage_draft(
+        "docs(openspec): plan #3321 Refuse a placeholder summary",
+        "Plans #3321",
+    )
+
+    result = draft_readiness(draft)
+
+    assert result.answer is Answer.READY
+
 
 @pytest.mark.parametrize(
     ("kind", "declared", "change", "checks", "expected_answer"),
@@ -298,3 +336,26 @@ def test_read_draft_implement_kind_with_no_change_folder_in_files() -> None:
 
     assert draft.kind is DraftKind.IMPLEMENT
     assert draft.change is None
+
+
+def test_read_draft_keeps_the_title_and_the_body_of_the_stage_plan_pull() -> None:
+    store = InMemoryRoadmapStore()
+    issue_num = store.seed_issue(
+        "Issue 1",
+        body=with_record("", encode_job_record({}, {StageRecordKey.PR: "335"})),
+        fields={ItemField.PRIORITY: "P2-Medium"},
+    )
+    client = MagicMock()
+    pull = PullStatus(
+        state="open",
+        draft=True,
+        title="docs(openspec): plan #3321 Refuse a placeholder summary",
+        body="Plans #3321",
+        head_ref=f"fix/{issue_num}-refuse-a-placeholder-summary",
+        head_sha="sha123",
+    )
+
+    draft = read_draft("dan-petty/devops-cli", 335, pull=pull, store=store, client=client)
+
+    assert draft.kind is DraftKind.STAGE_PLAN
+    assert (draft.pull.title, draft.pull.body) == (pull.title, pull.body)

@@ -633,6 +633,12 @@ class StageProposal(_Reply):
         shown = summary_length(text)
         if not any(_shows_something(char) for char in text):
             raise ValueError(MESSAGES.roadmap.stage_summary_blank)
+        if is_placeholder(text):
+            raise ValueError(
+                MESSAGES.roadmap.stage_problem_text_placeholder.format(
+                    field="summary", text=text.strip()
+                )
+            )
         if text.endswith(_ELLIPSIS):
             raise ValueError(MESSAGES.roadmap.stage_summary_cut)
         if shown > STAGE_SUMMARY_MAX_CHARS:

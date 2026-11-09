@@ -10,12 +10,14 @@ import pytest
 
 from devops_cli.config.defaults import DEFAULT_ROADMAP_STAGE_PLANNED_LIMIT
 from devops_cli.exceptions.roadmap import RoadmapStageError
+from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.planned import PlannedChanges
 from devops_cli.roadmap.pull_form import title_problems
 from devops_cli.roadmap.stage.stage import parse_filters, plan_stage, select_stageable
 from devops_cli.roadmap.stage.stage_change import (
     SUMMARY_MAX_CHARS,
     StageProposal,
+    content_problems,
     delivery_title,
     staging_title,
 )
@@ -131,6 +133,30 @@ def test_the_guard_of_the_title_counts_units_so_a_number_with_seven_digits_refus
 def test_the_schema_refuses_a_summary_that_shows_nothing_to_a_reader(invisible: str) -> None:
     with pytest.raises(ValueError, match="The summary has no text"):
         make_stage_proposal(summary=invisible * 3)
+
+
+@pytest.mark.parametrize("summary", ["x", "todo", "TBD", "placeholder"])
+def test_the_schema_refuses_a_summary_that_is_a_placeholder_word(summary: str) -> None:
+    """The title lead `plan #<number> ` hides the placeholder from `title_problems`, so the schema
+    refuses the summary itself (#3395)."""
+    with pytest.raises(ValueError, match="placeholder"):
+        make_stage_proposal(summary=summary)
+
+
+def test_the_placeholder_summary_message_names_the_field_and_the_text() -> None:
+    expected = MESSAGES.roadmap.stage_problem_text_placeholder.format(field="summary", text="todo")
+
+    with pytest.raises(ValueError, match="placeholder") as raised:
+        make_stage_proposal(summary="todo")
+
+    assert expected in str(raised.value)
+
+
+def test_a_plan_that_refuses_a_placeholder_summary_accepts_its_own_summary() -> None:
+    """The rule that this change adds judges the plan that adds it (#3404)."""
+    plan = make_stage_proposal(summary="Refuse a placeholder plan summary")
+
+    assert content_problems(plan) == []
 
 
 def test_the_schema_message_tells_that_an_emoji_counts_as_two() -> None:
