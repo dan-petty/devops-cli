@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.103.1](https://github.com/dan-petty/devops-cli/compare/v0.103.0...v0.103.1) (2026-11-09)
+
+
+### Bug Fixes
+
+* **roadmap:** keep the trace facts of a plan in its record ([#4285](https://github.com/dan-petty/devops-cli/issues/4285)) ([cb2287e](https://github.com/dan-petty/devops-cli/commit/cb2287ed3baf94bbebcc59eacafb9e36e2e10576))
+
+
+### Code Refactoring
+
+* **ai:** remove unreachable partial status of harness ([#4287](https://github.com/dan-petty/devops-cli/issues/4287)) ([a4ea0c2](https://github.com/dan-petty/devops-cli/commit/a4ea0c266e7b9b620ef51b242076efd5c45336e3))
+* **cli:** entry.main sets a dry-run state that is set again ([#4286](https://github.com/dan-petty/devops-cli/issues/4286)) ([f0d3eaa](https://github.com/dan-petty/devops-cli/commit/f0d3eaa65abc15516b0038e0fa5e2ac2c8c573a2))
+
 ## [0.103.0](https://github.com/dan-petty/devops-cli/compare/v0.102.0...v0.103.0) (2026-11-09)
 
 
