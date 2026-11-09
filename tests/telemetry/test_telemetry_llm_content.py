@@ -21,8 +21,8 @@ from devops_cli.telemetry.tracer import (
     get_recent_spans,
     reset_tracer,
 )
-from tests.llm_stream_fakes import serve_llm
 from tests.support.fakes.http import WebFake
+from tests.support.llm_stream_fakes import serve_llm
 
 
 @pytest.fixture(autouse=True)

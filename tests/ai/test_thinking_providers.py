@@ -11,8 +11,8 @@ import pytest
 from devops_cli.ai.client.models import is_reasoning_model
 from devops_cli.ai.client.unified import LLMClient
 from devops_cli.config.settings import AIConfig
-from tests.llm_stream_fakes import serve_llm
 from tests.support.fakes.http import WebFake
+from tests.support.llm_stream_fakes import serve_llm
 
 
 def _make_resp(status_code: int = 200, json_data: dict[str, Any] | None = None) -> httpx2.Response:
@@ -271,7 +271,7 @@ class TestClaudeThinkingPayloadAndParsing:
 
     def test_claude_extended_thinking_payload(self, web: WebFake) -> None:
         """Claude with thinking enabled includes adaptive thinking block and omits temperature."""
-        from tests.llm_stream_fakes import (
+        from tests.support.llm_stream_fakes import (
             make_anthropic_model_info_payload as _make_model_info_payload,
         )
 
@@ -327,7 +327,7 @@ class TestClaudeThinkingPayloadAndParsing:
 
     def test_claude_disabled_thinking_payload(self, web: WebFake) -> None:
         """Claude with enable_thinking=False does not include thinking block."""
-        from tests.llm_stream_fakes import (
+        from tests.support.llm_stream_fakes import (
             make_anthropic_model_info_payload as _make_model_info_payload,
         )
 
@@ -413,11 +413,11 @@ class TestStreamingThinkingExtractors:
     def test_extract_claude_thinking_delta(self, web: WebFake) -> None:
         from devops_cli.ai.client import LLMClient
         from devops_cli.config.settings import AIConfig
-        from tests.llm_stream_fakes import (
+        from tests.support.llm_stream_fakes import (
             anthropic_event,
             reply,
         )
-        from tests.llm_stream_fakes import (
+        from tests.support.llm_stream_fakes import (
             make_anthropic_model_info_payload as _make_model_info_payload,
         )
 
@@ -468,7 +468,7 @@ class TestStreamingThinkingExtractors:
 
     def test_extract_openai_reasoning_content_delta(self, web: WebFake) -> None:
         from devops_cli.models.ai import ChatMessage
-        from tests.llm_stream_fakes import OPENAI_DONE, openai_chunk, reply, sse_data
+        from tests.support.llm_stream_fakes import OPENAI_DONE, openai_chunk, reply, sse_data
 
         cfg = AIConfig(provider="openai", model="deepseek-reasoner", allow_private_network=True)
         client = LLMClient(cfg, api_key="sk-test-token")

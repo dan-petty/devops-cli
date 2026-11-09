@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import fnmatch
 import functools
+import json
 import re
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
-from unittest.mock import patch
 
 import pytest
 import yaml
@@ -965,17 +965,20 @@ def test_every_restart_target_is_a_manifest_workload_or_helm_release() -> None:
 
 
 @pytest.mark.usefixtures("keyring_store")
-def test_no_table_secret_is_copied_back_by_sync() -> None:
+def test_no_table_secret_is_copied_back_by_sync(process_fake: Any) -> None:
     from devops_cli.k8s.credentials import sync_k8s_credentials
+    from tests.support.fakes.process import ProcessAnswer
 
-    read: list[str] = []
-
-    def record(secret_name: str, namespace: str, context: str | None = None) -> dict[str, str]:
-        read.append(f"{namespace}/{secret_name}")
-        return {}
-
-    with patch("devops_cli.k8s.credentials.fetch_secret_data", side_effect=record):
-        sync_k8s_credentials(stack="all", save_to_keyring=False)
+    process_fake.answer(
+        ["kubectl", "get", "secret"],
+        ProcessAnswer(stdout=json.dumps({"data": {}})),
+    )
+    sync_k8s_credentials(stack="all", save_to_keyring=False)
+    read = [
+        f"{call.argv[5]}/{call.argv[3]}"
+        for call in process_fake.calls
+        if len(call.argv) >= 6 and call.argv[:3] == ("kubectl", "get", "secret")
+    ]
     assert (set(read) & TABLE_REFS, bool(read)) == (set(), True)
 
 

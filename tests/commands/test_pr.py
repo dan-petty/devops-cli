@@ -20,7 +20,7 @@ from typing import Any
 import pytest
 
 from devops_cli.roadmap.stores.store import ImplementRecordKey, ItemField
-from tests.copilot_review_payloads import (
+from tests.support.copilot_review_payloads import (
     CHANGES_RECOMMENDED,
     FIRST_REVIEW_ID,
     MAINTAINER,

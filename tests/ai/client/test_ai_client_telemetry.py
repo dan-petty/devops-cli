@@ -27,8 +27,15 @@ from devops_cli.models.ai import ChatMessage
 from devops_cli.telemetry.instruments import AI_GATEWAY_SLOT_WAIT, Instrument
 from devops_cli.telemetry.semconv import load_genai_snapshot
 from devops_cli.telemetry.tracer import get_tracer, reset_tracer
-from tests.llm_stream_fakes import NDJSON, OPENAI_DONE, ollama_line, openai_chunk, reply, serve_llm
 from tests.support.fakes.http import WebFake
+from tests.support.llm_stream_fakes import (
+    NDJSON,
+    OPENAI_DONE,
+    ollama_line,
+    openai_chunk,
+    reply,
+    serve_llm,
+)
 
 INFERENCE_REQUIRED = load_genai_snapshot()["spans"]["gen_ai.inference.client"]["required"]
 

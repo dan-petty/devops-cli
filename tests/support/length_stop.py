@@ -14,8 +14,8 @@ import pytest
 
 from devops_cli.ai import pydantic_ai_bridge
 from devops_cli.config.settings import Settings
-from tests.llm_stream_fakes import OPENAI_DONE, SSE, sse_data
 from tests.support.fakes.http import WebFake
+from tests.support.llm_stream_fakes import OPENAI_DONE, SSE, sse_data
 
 _GATEWAY = "http://example.com:4000/v1"
 

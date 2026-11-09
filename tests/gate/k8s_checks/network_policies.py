@@ -9,7 +9,7 @@ import yaml
 
 from devops_cli.commands.k8s import stack_lifecycle
 from devops_cli.commands.k8s.networking import _resolve_stacks
-from devops_cli.commands.k8s.stack_lifecycle import _KUSTOMIZATIONS_BY_STACK, MANIFESTS_BY_STACK
+from devops_cli.commands.k8s.stack_lifecycle import KUSTOMIZATIONS_BY_STACK, MANIFESTS_BY_STACK
 from tests.gate.k8s_render import applied_objects, kustomized_objects, manifest_objects
 from tests.support.paths import REPO_ROOT
 
@@ -37,7 +37,7 @@ def _deploy_stack_network_policies() -> set[tuple[str, str]]:
     post_helm = [K8S_DIR / entry for stack in stacks for entry in post_helm_by_stack.get(stack, ())]
     kustomizations = [
         K8S_DIR,
-        *(K8S_DIR / entry for stack in stacks for entry in _KUSTOMIZATIONS_BY_STACK.get(stack, ())),
+        *(K8S_DIR / entry for stack in stacks for entry in KUSTOMIZATIONS_BY_STACK.get(stack, ())),
         *(path for path in post_helm if path.is_dir()),
     ]
     manifests = [

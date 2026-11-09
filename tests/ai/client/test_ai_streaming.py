@@ -26,7 +26,8 @@ from devops_cli.ai.review.runner import _review_to_markdown
 from devops_cli.ai.thinking_stream import ThinkingStreamProcessor
 from devops_cli.config.settings import AIConfig
 from devops_cli.models.ai import ChatMessage
-from tests.llm_stream_fakes import (
+from tests.support.fakes.http import WebFake
+from tests.support.llm_stream_fakes import (
     NDJSON,
     OPENAI_DONE,
     SSE,
@@ -41,7 +42,6 @@ from tests.llm_stream_fakes import (
     sse_data,
     streamed,
 )
-from tests.support.fakes.http import WebFake
 
 
 class TestSuffixOverlap:

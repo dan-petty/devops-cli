@@ -17,11 +17,11 @@ from devops_cli.ai.mcp.server import gh_project_reconcile
 from devops_cli.commands.gh import app, milestones_app
 from devops_cli.github.projects import load_project_template
 from devops_cli.roadmap.stores.store import GitHubState, ItemField
-from tests.project_reconcile_fake import REPO, ProjectGitHub, card, issue
 from tests.support.fakes.github import GitHubApiFake, github_json
 from tests.support.fakes.process import ProcessAnswer, ProcessFake
 from tests.support.gh_process import answer_origin, gh_argv, mentions
 from tests.support.paths import REPO_ROOT
+from tests.support.project_reconcile_fake import REPO, ProjectGitHub, card, issue
 
 if TYPE_CHECKING:
     from tests.support.fakes.clock import ClockFake

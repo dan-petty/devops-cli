@@ -28,9 +28,9 @@ from devops_cli.config.settings import AIConfig
 from devops_cli.http.egress import EgressLevel
 from devops_cli.http.entry import http_client
 from devops_cli.models.ai import ChatMessage
-from tests.llm_stream_fakes import OPENAI_DONE, RecordedBody, openai_chunk, serve_llm
-from tests.llm_stream_fakes import reply as stream_reply
 from tests.support.fakes.http import WebFake
+from tests.support.llm_stream_fakes import OPENAI_DONE, RecordedBody, openai_chunk, serve_llm
+from tests.support.llm_stream_fakes import reply as stream_reply
 from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS
 
 _LIMIT = 4096

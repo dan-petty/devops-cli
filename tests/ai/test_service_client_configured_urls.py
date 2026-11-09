@@ -12,8 +12,8 @@ from typer.testing import CliRunner
 from devops_cli.config.settings import AIConfig, reset_settings_cache
 from devops_cli.exceptions import ConfigurationError
 from devops_cli.main import app
-from tests.llm_stream_fakes import serve_llm
 from tests.support.fakes.http import WebFake
+from tests.support.llm_stream_fakes import serve_llm
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
 

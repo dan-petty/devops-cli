@@ -19,7 +19,7 @@ from devops_cli.github.pr_monitor import (
     resolve_branch_pr_number,
 )
 from devops_cli.github.pr_threads import ReviewComment, ReviewThread
-from tests.copilot_review_payloads import (
+from tests.support.copilot_review_payloads import (
     FIRST_REVIEW_ID,
     MAINTAINER,
     NO_CHANGES,

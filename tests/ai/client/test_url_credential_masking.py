@@ -16,8 +16,8 @@ from devops_cli.security.sanitizer import (
     sanitize_telemetry_endpoint,
 )
 from devops_cli.security.vault_broker import VaultSecretBroker
-from tests.llm_stream_fakes import serve_llm
 from tests.support.fakes.http import WebFake
+from tests.support.llm_stream_fakes import serve_llm
 from tests.support.paths import REPO_ROOT
 
 pytestmark = pytest.mark.usefixtures("keyring_store")

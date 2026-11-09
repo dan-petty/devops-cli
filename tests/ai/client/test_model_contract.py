@@ -25,7 +25,6 @@ from devops_cli.ai.client import AIClientError, LLMClient
 from devops_cli.ai.client.models import StructuredOutputValidationError
 from devops_cli.config.settings import AIConfig
 from devops_cli.models.ai import ChatMessage
-from tests.llm_stream_fakes import OPENAI_DONE, openai_chunk, reply, serve_llm
 from tests.support.fakes.http import WebFake
 from tests.support.fakes.model import (
     ModelAnswer,
@@ -33,6 +32,7 @@ from tests.support.fakes.model import (
     ModelFake,
     deterministic_embedding,
 )
+from tests.support.llm_stream_fakes import OPENAI_DONE, openai_chunk, reply, serve_llm
 
 
 @pytest.fixture(autouse=True)

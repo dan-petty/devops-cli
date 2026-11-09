@@ -13,8 +13,8 @@ from devops_cli.config.settings import AIConfig
 from devops_cli.core.process import DEFAULT_ALLOWED_ENV_VARS, run_subprocess
 from devops_cli.dry_run.state import set_dry_run
 from devops_cli.exceptions import ConfigurationError
-from tests.llm_stream_fakes import serve_llm
 from tests.support.fakes.http import WebFake
+from tests.support.llm_stream_fakes import serve_llm
 
 
 def _llm_request_preview(*args: Any, **kwargs: Any) -> Any:

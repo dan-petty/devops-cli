@@ -53,8 +53,11 @@ from devops_cli.github.projects import (
     verify_project_auth_scopes,
 )
 from devops_cli.github.rate_limiter import get_github_rate_limiter
-from tests.project_board_fake import BoardServer, budget_reply
-from tests.project_reconcile_fake import (
+from tests.support.fakes.clock import ClockFake
+from tests.support.fakes.github import GitHubApiFake, github_json, next_page
+from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
+from tests.support.project_board_fake import BoardServer, budget_reply
+from tests.support.project_reconcile_fake import (
     BOARD_TITLE,
     REPO,
     ProjectGitHub,
@@ -62,9 +65,6 @@ from tests.project_reconcile_fake import (
     issue,
     pull,
 )
-from tests.support.fakes.clock import ClockFake
-from tests.support.fakes.github import GitHubApiFake, github_json, next_page
-from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
 
 
 @pytest.fixture(autouse=True)

@@ -18,8 +18,8 @@ from devops_cli.config.settings import (
     reset_settings_cache,
 )
 from devops_cli.exceptions import ConfigurationError
-from tests.llm_stream_fakes import serve_llm
 from tests.support.fakes.http import WebFake
+from tests.support.llm_stream_fakes import serve_llm
 
 # =============================================================================
 # 1. num_ctx refusal and unknown keys validation
@@ -127,7 +127,7 @@ def test_streamed_native_ollama_request_includes_options_and_trace_headers(
 ) -> None:
     """Streamed native Ollama requests carry the same options and trace headers as unstreamed requests."""
     from devops_cli.models.ai import ChatMessage
-    from tests.llm_stream_fakes import ollama_line
+    from tests.support.llm_stream_fakes import ollama_line
 
     cfg = AIConfig(
         provider="ollama",
@@ -170,7 +170,7 @@ def test_streamed_native_ollama_omits_sampling_when_use_model_sampling(
 ) -> None:
     """When use_model_sampling is true, Ollama requests omit temperature and top_p."""
     from devops_cli.models.ai import ChatMessage
-    from tests.llm_stream_fakes import ollama_line
+    from tests.support.llm_stream_fakes import ollama_line
 
     cfg = AIConfig(
         provider="ollama",

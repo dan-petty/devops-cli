@@ -20,7 +20,9 @@ from devops_cli.github.projects import (
     reconcile_project_custom_fields,
 )
 from devops_cli.github.rate_limiter import get_github_rate_limiter
-from tests.project_reconcile_fake import (
+from tests.support.fakes.github import GitHubApiFake, github_json
+from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
+from tests.support.project_reconcile_fake import (
     REPO,
     ProjectGitHub,
     card,
@@ -29,8 +31,6 @@ from tests.project_reconcile_fake import (
     planned_kind,
     pull,
 )
-from tests.support.fakes.github import GitHubApiFake, github_json
-from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
 
 _URL = "https://github.com/owner/repo/issues/7"
 _STATUSES = ("New", "Ready", "In Progress", "In Review", "Done")

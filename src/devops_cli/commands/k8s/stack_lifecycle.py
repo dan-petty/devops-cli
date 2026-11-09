@@ -316,7 +316,7 @@ MANIFESTS_BY_STACK: dict[str, list[Path]] = {
 # the root one, before any Secret or chart. The root leaves `monitoring` out so that Argo CD's
 # `monitoring` Application alone owns its objects (#1279); a cluster without Argo CD gets the same
 # kustomization from here: the namespace's perimeter (#913) and the Grafana dashboards (#1297).
-_KUSTOMIZATIONS_BY_STACK: dict[str, tuple[Path, ...]] = {
+KUSTOMIZATIONS_BY_STACK: dict[str, tuple[Path, ...]] = {
     "infra": (Path("monitoring"), Path("gpu-feature-discovery")),
 }
 
@@ -1158,7 +1158,7 @@ def _collect_deploy_targets(
     for s_name in selected_stacks:
         all_releases.extend(HELM_RELEASES_BY_STACK.get(s_name, []))
         all_manifests.extend([str(p) for p in MANIFESTS_BY_STACK.get(s_name, [])])
-        all_kustomizations.extend(k8s_dir / k for k in _KUSTOMIZATIONS_BY_STACK.get(s_name, ()))
+        all_kustomizations.extend(k8s_dir / k for k in KUSTOMIZATIONS_BY_STACK.get(s_name, ()))
         all_post_helm.extend(k8s_dir / p for p in POST_HELM_BY_STACK.get(s_name, ()))
     return all_releases, all_manifests, all_kustomizations, all_post_helm
 

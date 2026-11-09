@@ -42,8 +42,8 @@ from devops_cli.config.settings import AIConfig
 from devops_cli.models.ai import ChatMessage
 from devops_cli.roadmap.refine.refine import RefinementProposal
 from devops_cli.telemetry.tracer import get_tracer
-from tests.llm_stream_fakes import make_anthropic_model_info_payload, serve_llm
 from tests.support.fakes.http import WebFake
+from tests.support.llm_stream_fakes import make_anthropic_model_info_payload, serve_llm
 
 
 @pytest.fixture(autouse=True)

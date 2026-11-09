@@ -18,8 +18,8 @@ from devops_cli.ai.spend.ledger import SpendLedger
 from devops_cli.commands.ai_cost import app as cost_app
 from devops_cli.config.settings import AIConfig
 from devops_cli.models.ai import ChatMessage
-from tests.llm_stream_fakes import serve_llm
 from tests.support.fakes.http import WebFake
+from tests.support.llm_stream_fakes import serve_llm
 
 runner = CliRunner()
 

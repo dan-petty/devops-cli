@@ -17,10 +17,10 @@ from devops_cli.main import app
 from devops_cli.models.ai import ChatMessage
 from devops_cli.review.diff import diff_blocks
 from devops_cli.review.session import ReviewSessionStore
-from tests.llm_stream_fakes import serve_llm
 from tests.support.fakes.git import GitFake
 from tests.support.fakes.http import WebFake
 from tests.support.fakes.process import ProcessAnswer
+from tests.support.llm_stream_fakes import serve_llm
 
 runner = CliRunner(env={"COLUMNS": "250", "NO_COLOR": "1", "TERM": "dumb"})
 

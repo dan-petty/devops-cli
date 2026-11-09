@@ -12,10 +12,10 @@ from devops_cli.config.settings import AIConfig
 from devops_cli.exceptions.security import SSRFBlockedError
 from devops_cli.http.egress import EgressLevel
 from devops_cli.models.ai import ChatMessage
-from tests.llm_stream_fakes import OPENAI_DONE, openai_chunk, reply, serve_llm
 from tests.support.fakes.clock import ClockFake
 from tests.support.fakes.dns import DnsFake
 from tests.support.fakes.http import WebFake
+from tests.support.llm_stream_fakes import OPENAI_DONE, openai_chunk, reply, serve_llm
 from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS
 
 pytestmark = pytest.mark.usefixtures("clock")

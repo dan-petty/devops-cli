@@ -31,8 +31,8 @@ from devops_cli.github.project_read import (
     require_budget,
     require_floor,
 )
-from tests.project_board_fake import BoardServer, gh_variables
 from tests.support.paths import FIXTURES
+from tests.support.project_board_fake import BoardServer, gh_variables
 
 OWNER = "dan-petty"
 SCHEMA = FIXTURES / "roadmap" / "github-schema-board.graphql"
