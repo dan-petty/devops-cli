@@ -14,7 +14,7 @@ _MAX_DRY_RUN_NESTING_DEPTH: int = 3
 
 def _bound_detail_value(val: Any, depth: int = 0) -> Any:
     """Bound nested detail values by size, collection length, and depth."""
-    if depth >= _MAX_DRY_RUN_NESTING_DEPTH:
+    if isinstance(val, (dict, list, tuple, set)) and depth >= _MAX_DRY_RUN_NESTING_DEPTH:
         return "<truncated: depth exceeded>"
     if isinstance(val, str):
         if len(val) > _MAX_DRY_RUN_STRING_LENGTH:

@@ -657,17 +657,29 @@ def _is_cluster_argo_managed(effective_context: str | None = None) -> bool:
         return False
 
 
-def _deploy_helm_repos(selected_stacks: Sequence[str]) -> None:
-    """Add and update Helm repositories required for the selected stacks."""
+def _build_helm_repo_cmds(selected_stacks: Sequence[str]) -> list[list[str]]:
+    """Build helm repo add and update commands for the selected stacks."""
     repos_to_add: dict[str, str] = {}
     for s_name in selected_stacks:
-        repos_to_add.update(_HELM_REPOS_BY_STACK.get(s_name, {}))
+        repos_to_add.update(HELM_REPOS_BY_STACK.get(s_name, {}))
     if not repos_to_add:
+        return []
+    cmds: list[list[str]] = [
+        ["helm", "repo", "add", repo_name, repo_url] for repo_name, repo_url in repos_to_add.items()
+    ]
+    cmds.append(["helm", "repo", "update"])
+    return cmds
+
+
+def _deploy_helm_repos(selected_stacks: Sequence[str]) -> None:
+    """Add and update Helm repositories required for the selected stacks."""
+    cmds = _build_helm_repo_cmds(selected_stacks)
+    if not cmds:
         return
     print_info(MESSAGES.k8s.adding_helm_repos, prefix=False)
-    for repo_name, repo_url in repos_to_add.items():
-        runtime._run_cmd(["helm", "repo", "add", repo_name, repo_url], check=False)
-    runtime._run_cmd(["helm", "repo", "update"])
+    for cmd in cmds[:-1]:
+        runtime._run_cmd(cmd, check=False)
+    runtime._run_cmd(cmds[-1])
 
 
 def _apply_single_manifest(
@@ -1255,6 +1267,73 @@ def _apply_stack_config_writes(selected_stacks: Sequence[str]) -> None:
     save_settings(active_settings)
 
 
+def _render_deploy_stack_dry_run(
+    *,
+    k8s_dir: Path,
+    stack: str,
+    domain: str | None,
+    selected_stacks: Sequence[str],
+    effective_context: str | None,
+    wait: bool,
+    timeout: str,
+    port_forward: bool,
+    configure_urls: bool,
+    push_secrets: bool,
+    all_releases: Sequence[dict[str, str]],
+    all_manifests: Sequence[str],
+    all_kustomizations: Sequence[Path],
+    all_post_helm: Sequence[Path],
+    config_map: str | None,
+    argocd_revision: str | None,
+    helm_ctx: list[str],
+) -> None:
+    """Render the dry run result for deploy-stack."""
+    from devops_cli.config.settings import load_settings
+
+    active_settings = load_settings()
+    config_writes = [
+        f"{k}: {v}" for k, v in _compute_stack_config_writes(selected_stacks, active_settings)
+    ]
+    helm_commands = [
+        *_build_helm_repo_cmds(selected_stacks),
+        *[_build_helm_upgrade_cmd(r, helm_ctx, wait, timeout, is_v4=False) for r in all_releases],
+    ]
+    render_dry_run_result(
+        command="devops k8s deploy-stack",
+        target=str(k8s_dir),
+        action="deploy_k8s_stack",
+        details={
+            "kustomize_dir": str(k8s_dir),
+            "stack": stack,
+            "domain": domain,
+            "stacks": selected_stacks,
+            "context": effective_context,
+            "wait": wait,
+            "timeout": timeout,
+            "port_forward": port_forward,
+            "configure_urls": configure_urls,
+            "config_writes": config_writes,
+            "secrets": _dry_run_secrets(selected_stacks, push_secrets),
+            "helm_releases": [r["name"] for r in all_releases],
+            "helm_commands": helm_commands,
+            "manifests": all_manifests,
+            "kustomizations": [str(k) for k in all_kustomizations],
+            "post_helm": [str(p) for p in all_post_helm],
+            "config_map": (
+                f"devops/{CONST_K8S_DEVOPS_CONFIGMAP} (rendered from the active config)"
+                if config_map is not None
+                else None
+            ),
+            "argocd_overrides": [
+                f"argocd/{app}: spec.source.kustomize.patches, hosts under "
+                f"{_dry_run_domain(domain)} at {argocd_revision or 'its targetRevision'} "
+                "(if Application 'cluster' exists)"
+                for app in _homelab_applications(selected_stacks)
+            ],
+        },
+    )
+
+
 @dry_run_class("request-plan")
 def deploy_stack(
     k8s_dir: Annotated[Path, typer.Option("--k8s-dir", help=HELP.k8s.k8s_dir)] = DEFAULT_K8S_DIR,
@@ -1313,45 +1392,27 @@ def deploy_stack(
     # and a deploy alike, before either touches the cluster
     config_map = _render_devops_configmap(k8s_dir) if "devops" in selected_stacks else None
 
-    from devops_cli.config.settings import load_settings
+    helm_ctx = ["--kube-context", effective_context] if effective_context else []
 
     if dry_run or is_dry_run():
-        active_settings = load_settings()
-        config_writes = [
-            f"{k}: {v}" for k, v in _compute_stack_config_writes(selected_stacks, active_settings)
-        ]
-        render_dry_run_result(
-            command="devops k8s deploy-stack",
-            target=str(k8s_dir),
-            action="deploy_k8s_stack",
-            details={
-                "kustomize_dir": str(k8s_dir),
-                "stack": stack,
-                "domain": domain,
-                "stacks": selected_stacks,
-                "context": effective_context,
-                "wait": wait,
-                "timeout": timeout,
-                "port_forward": port_forward,
-                "configure_urls": configure_urls,
-                "config_writes": config_writes,
-                "secrets": _dry_run_secrets(selected_stacks, push_secrets),
-                "helm_releases": [r["name"] for r in all_releases],
-                "manifests": all_manifests,
-                "kustomizations": [str(k) for k in all_kustomizations],
-                "post_helm": [str(p) for p in all_post_helm],
-                "config_map": (
-                    f"devops/{CONST_K8S_DEVOPS_CONFIGMAP} (rendered from the active config)"
-                    if config_map is not None
-                    else None
-                ),
-                "argocd_overrides": [
-                    f"argocd/{app}: spec.source.kustomize.patches, hosts under "
-                    f"{_dry_run_domain(domain)} at {argocd_revision or 'its targetRevision'} "
-                    "(if Application 'cluster' exists)"
-                    for app in _homelab_applications(selected_stacks)
-                ],
-            },
+        _render_deploy_stack_dry_run(
+            k8s_dir=k8s_dir,
+            stack=stack,
+            domain=domain,
+            selected_stacks=selected_stacks,
+            effective_context=effective_context,
+            wait=wait,
+            timeout=timeout,
+            port_forward=port_forward,
+            configure_urls=configure_urls,
+            push_secrets=push_secrets,
+            all_releases=all_releases,
+            all_manifests=all_manifests,
+            all_kustomizations=all_kustomizations,
+            all_post_helm=all_post_helm,
+            config_map=config_map,
+            argocd_revision=argocd_revision,
+            helm_ctx=helm_ctx,
         )
         return
 
@@ -1383,7 +1444,6 @@ def deploy_stack(
         return
 
     kubectl_ctx = ["--context", effective_context] if effective_context else []
-    helm_ctx = ["--kube-context", effective_context] if effective_context else []
 
     # 4. Apply kustomize base (namespaces), then the stacks' kustomizations the base leaves out
     print_info("[bold]Applying namespaces...[/bold]", prefix=False)
