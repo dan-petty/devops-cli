@@ -336,7 +336,7 @@ A cheaper model or a lower cap must keep the score of the baseline on the same e
 
 ### The model of the stage planner
 
-The setting `ai.tasks.stage.model` sets the model of the stage planner, of the call that splits the groups, and of `devops roadmap eval stage`. The variable is `DEVOPS_CLI_AI_TASK_STAGE_MODEL`. A field of `ai.tasks.stage` that is not set takes the value of `ai.tasks.analysis`. So the planner moves to another model without a move of refine, intake and alternatives, and the planner reads the `context_window` of its own task. Only a person changes this setting in the deployed config.
+The setting `ai.tasks.stage.model` sets the model of the stage planner, of the call that splits the groups, and of `devops roadmap eval stage`. The variable is `DEVOPS_CLI_AI_TASK_STAGE_MODEL`. A field of `ai.tasks.stage` that is not set takes the value of `ai.tasks.analysis`. So the planner moves to another model without a move of refine, intake and alternatives, and the planner reads the `context_window` of its own task. The variables `DEVOPS_CLI_AI_TASK_STAGE_CONTEXT_WINDOW` and `DEVOPS_CLI_AI_TASK_STAGE_MAX_TOKENS` set the window and the reply limit of the task, so a trial of a model with a larger window needs no change of the config file. The tasks `analysis` and `verification` have the same two variables. Only a person changes this setting in the deployed config.
 
 ### Find the cheapest model that is acceptable
 

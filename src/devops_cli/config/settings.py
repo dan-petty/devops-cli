@@ -568,9 +568,17 @@ class AITaskOverride(BaseModel):
     )
     temperature: float | None = Field(default=None, ge=0.0, allow_inf_nan=False)
     top_p: float | None = Field(default=None, ge=0.0, le=1.0, allow_inf_nan=False)
-    context_window: int | None = Field(default=None, gt=0)
+    context_window: int | None = Field(
+        default=None,
+        gt=0,
+        description="Context window of this task in tokens, in place of `ai.context_window`",
+    )
     num_ctx: int | None = Field(default=None, gt=0)
-    max_tokens: int | None = Field(default=None, gt=0)
+    max_tokens: int | None = Field(
+        default=None,
+        gt=0,
+        description="Limit of the reply of this task in tokens, in place of `ai.max_tokens`",
+    )
     ollama_urls: list[HttpUrlStr] | None = Field(
         default=None, description="Ollama service URLs of this task, in place of `ai.ollama_urls`"
     )
@@ -617,6 +625,9 @@ class AIImplementTaskOverride(AITaskOverride):
 # The fields of a task that a variable sets, such as `DEVOPS_CLI_AI_TASK_CHAT_MODEL`.
 _TASK_VARIABLES: tuple[str, ...] = ("provider", "model", "reasoning_effort", "ollama_urls")
 
+# The size fields of a task that a variable sets, for the tasks that plan and check a change (#4225).
+_TASK_WINDOW_VARIABLES: tuple[str, ...] = ("context_window", "max_tokens")
+
 
 # A task whose unset fields take the value of another task, not of the top level of `ai`.
 _TASK_PARENTS: dict[str, str] = {"stage": "analysis"}
@@ -631,8 +642,12 @@ class AITasksConfig(BaseModel):
         default_factory=AITaskOverride,
         description="The task of `analyze --enhanced` and `ai agents`",
     )
-    analysis: Annotated[AITaskOverride, Variable(fields=_TASK_VARIABLES)] = AITaskOverride()
-    verification: AITaskOverride = AITaskOverride()
+    analysis: Annotated[
+        AITaskOverride, Variable(fields=(*_TASK_VARIABLES, *_TASK_WINDOW_VARIABLES))
+    ] = AITaskOverride()
+    verification: Annotated[AITaskOverride, Variable(fields=_TASK_WINDOW_VARIABLES)] = (
+        AITaskOverride()
+    )
     compose: AITaskOverride = AITaskOverride()
     embedding: Annotated[
         AIEmbeddingTaskOverride, Variable(fields=(*_TASK_VARIABLES, "timeout"))
@@ -645,7 +660,9 @@ class AITasksConfig(BaseModel):
         default_factory=AITaskOverride,
         description="The task of roadmap intake",
     )
-    stage: Annotated[AITaskOverride, Variable(fields=_TASK_VARIABLES)] = Field(
+    stage: Annotated[
+        AITaskOverride, Variable(fields=(*_TASK_VARIABLES, *_TASK_WINDOW_VARIABLES))
+    ] = Field(
         default_factory=AITaskOverride,
         description="The task of the stage job and of `devops roadmap eval stage`: the planner of a change. A field that it leaves unset takes the value of the task `analysis`",
     )
