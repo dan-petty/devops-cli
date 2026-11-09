@@ -427,7 +427,7 @@ class StageReference(_Reply):
     path: str
     kind: Line = ""
     unchanged: bool = False
-    reason: Line = ""
+    reason: Line | None = None
 
     @model_validator(mode="after")
     def _unchanged_has_reason(self) -> Self:
@@ -2101,7 +2101,7 @@ def _design_file(proposal: StageProposal) -> str:
     unchanged = [ref for ref in proposal.references if ref.unchanged]
     if unchanged:
         references = _bullets(
-            [f"`{ref.path}` ({ref.kind}): {ref.reason.strip()}" for ref in unchanged]
+            [f"`{ref.path}` ({ref.kind}): {(ref.reason or '').strip()}" for ref in unchanged]
         )
         content += f"\n## Unchanged references\n\n{references}\n"
     if proposal.security.strip():
