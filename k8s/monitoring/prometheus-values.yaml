@@ -1022,6 +1022,33 @@ serverFiles:
             annotations:
               summary: 'The last research sweep found {{ printf "%.0f" $value }} critical advisories that affect a pin'
               description: "The last `devops research sweep` found critical advisories that affect a pin of the project. Intake has a candidate for each. Run `devops research advisories` to read them, and update the pins (k8s/README.md, Alerting)."
+      # The USD spend of the model calls in devops_cli_ai_spend_usd_total (#4222). The counter
+      # prices a hosted call by the model that the client asked for, and a local call adds 0, so
+      # the sum over all models is the hosted spend. increase() keeps the spend of a series that
+      # resets at a pod restart, and sum() adds a workstation (job="devops-cli") to the Service.
+      # The highest normal day of the owner is 5.59 USD, and a failed stage burst on
+      # claude-sonnet-5-5 spent 21 USD per hour, so both rules fire at once: the window of 24
+      # hours is the smoothing. Set the thresholds again with the data of a month.
+      - name: ai-spend
+        rules:
+          - alert: ClaudeSpendDailyHigh
+            expr: >-
+              sum(increase(devops_cli_ai_spend_usd_total{model="claude-sonnet-5-5"}[24h])) > 15
+            for: 0m
+            labels:
+              severity: warning
+            annotations:
+              summary: 'The spend of claude-sonnet-5-5 in the last 24 hours is {{ printf "%.2f" $value }} USD'
+              description: "The hosted calls of claude-sonnet-5-5 cost more than 15 USD in the last 24 hours. Read the cost page of the AI spend dashboard, find the caller by the `end_user` label, and stop the job (k8s/README.md, Alerting)."
+          - alert: HostedSpendDailyHigh
+            expr: >-
+              sum(increase(devops_cli_ai_spend_usd_total[24h])) > 25
+            for: 0m
+            labels:
+              severity: warning
+            annotations:
+              summary: 'The spend of the hosted models in the last 24 hours is {{ printf "%.2f" $value }} USD'
+              description: "The hosted calls of all models cost more than 25 USD in the last 24 hours. Read the cost page of the AI spend dashboard, find the caller by the `end_user` label, and stop the job (k8s/README.md, Alerting)."
       - name: mattermost
         rules:
           - alert: MattermostUnavailable
