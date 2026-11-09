@@ -195,20 +195,6 @@ model_list:
       output_cost_per_token: 1.92e-07
       cache_read_input_token_cost: 8.0e-09
       supports_response_schema: true
-  # TypeSafe Jev 1.14 System One decision model on OpenRouter. Answers typed Choice, Noul and
-  # Score questions with calibrated probabilities for model routing, tool-call gating and evals.
-  - model_name: typesafe/jev-1.14
-    litellm_params:
-      model: openrouter/typesafe/jev-1.14
-      api_key: os.environ/OPENROUTER_API_KEY
-      extra_body:
-        provider:
-          data_collection: deny
-    model_info:
-      max_input_tokens: 262144
-      input_cost_per_token: 4.2e-08
-      output_cost_per_token: 0.0
-      supports_response_schema: true
 litellm_settings:
   # Per-deployment requests, failures and latency at /metrics/, scraped by Prometheus. The
   # Ollama nodes export no metrics of their own, so this is how their load is seen.
@@ -286,3 +272,21 @@ general_settings:
   # allow_requests_on_db_unavailable stays unset (false): the gateway is reachable from outside
   # the cluster, so a key that it cannot check while the database is down is refused.
   proxy_batch_write_at: 10
+  # TypeSafe Jev 1.14 is a decision model. OpenRouter refuses it on chat completions (HTTP 400),
+  # so it has no model_list entry. The client (src/devops_cli/ai/jev.py) posts the System One
+  # protocol to {ai.gateway_url}/systemone, and this pass-through forwards that body unchanged to
+  # the System One endpoint of OpenRouter (https://openrouter.ai/docs/guides/community/jev). The
+  # gateway checks the key of the caller (auth), sends the OpenRouter key from its own
+  # environment, and forwards no header of the caller. It cannot set provider preferences such as
+  # data_collection in the body, so the privacy setting of the OpenRouter account applies.
+  # tests/ai/test_jev_gateway_route.py fails when this path and the client path differ.
+  pass_through_endpoints:
+    - path: /v1/systemone
+      target: https://openrouter.ai/api/v1/systemone
+      methods: [POST]
+      auth: true
+      forward_headers: false
+      include_subpath: false
+      headers:
+        Authorization: bearer os.environ/OPENROUTER_API_KEY
+        content-type: application/json
