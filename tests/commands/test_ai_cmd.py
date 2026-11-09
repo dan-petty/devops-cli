@@ -764,7 +764,7 @@ def test_run_interactive_chat_turn_non_streaming_with_thoughts_and_tools() -> No
         message_history=history,
         stream=False,
     )
-    assert agent.run_sync.called
+    agent.run_sync.assert_called_once_with("hello", message_history=[])
 
 
 def test_extract_stage_tool_calls_and_run_pipeline_stage() -> None:
