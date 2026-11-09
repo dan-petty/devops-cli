@@ -10,7 +10,6 @@ from typing import TYPE_CHECKING, Any, cast
 import pytest
 
 from devops_cli.ai.client.models import StructuredOutputValidationError
-from devops_cli.ai.schema_reflection import ViolationText
 from devops_cli.config.constants import (
     CONST_ROADMAP_STAGE_REFUSED_PROBLEM_MAX_CHARS,
     CONST_ROADMAP_STAGE_REFUSED_REPLY_MAX_BYTES,
@@ -48,6 +47,7 @@ from tests.support.scripted_model import Script, call
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from devops_cli.ai.schema_reflection import ViolationText
     from devops_cli.roadmap.stage.stage import StageClient
     from tests.support.fakes.github import GitHubApiFake
     from tests.support.fakes.model import ModelFake
@@ -325,6 +325,14 @@ def test_a_gate_refusal_logs_one_line_for_each_refused_reply(
 SECRET = "ghp_abcdefghijklmnopqrstuvwxyz0123456789"
 
 
+def _text(*, loc: str, type: str, message: str) -> ViolationText:
+    """One violation text. The import is here so that a run on a base without the class fails in
+    the call phase of each test and not at the collection of the file."""
+    from devops_cli.ai.schema_reflection import ViolationText
+
+    return ViolationText(loc=loc, type=type, message=message)
+
+
 def _broken(
     *texts: ViolationText, count: int | None = None, stop_reason: str = "validation"
 ) -> StructuredOutputValidationError:
@@ -339,8 +347,8 @@ def _broken(
 
 def _two_violations() -> StructuredOutputValidationError:
     return _broken(
-        ViolationText(loc="references.0.reason", type="string_too_short", message="Too short"),
-        ViolationText(loc="references.1.reason", type="missing", message="Field required"),
+        _text(loc="references.0.reason", type="string_too_short", message="Too short"),
+        _text(loc="references.1.reason", type="missing", message="Field required"),
     )
 
 
@@ -364,7 +372,7 @@ def test_a_schema_failure_names_the_violations_the_stop_reason_and_the_count(
 def test_a_schema_failure_names_at_most_three_violations_of_five(
     store: InMemoryRoadmapStore, stage_repo: StageRepo, model_fake: ModelFake
 ) -> None:
-    texts = [ViolationText(loc=f"field_{n}", type="missing", message="m") for n in range(5)]
+    texts = [_text(loc=f"field_{n}", type="missing", message="m") for n in range(5)]
     model_fake.answer(_broken(*texts, count=5))
 
     (failure,) = _plan(store, stage_repo).failed
@@ -376,7 +384,7 @@ def test_a_schema_failure_names_at_most_three_violations_of_five(
 def test_a_schema_failure_cuts_a_message_of_300_characters_at_200(
     store: InMemoryRoadmapStore, stage_repo: StageRepo, model_fake: ModelFake
 ) -> None:
-    model_fake.answer(_broken(ViolationText(loc="a", type="b", message="m" * 300)))
+    model_fake.answer(_broken(_text(loc="a", type="b", message="m" * 300)))
 
     (failure,) = _plan(store, stage_repo).failed
 
@@ -386,7 +394,7 @@ def test_a_schema_failure_cuts_a_message_of_300_characters_at_200(
 def test_a_schema_failure_with_a_secret_in_a_message_shows_and_keeps_the_masked_value(
     store: InMemoryRoadmapStore, stage_repo: StageRepo, model_fake: ModelFake
 ) -> None:
-    model_fake.answer(_broken(ViolationText(loc="a", type="b", message=f"bad {SECRET}")))
+    model_fake.answer(_broken(_text(loc="a", type="b", message=f"bad {SECRET}")))
 
     (failure,) = _plan(store, stage_repo).failed
 

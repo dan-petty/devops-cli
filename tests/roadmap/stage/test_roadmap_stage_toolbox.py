@@ -28,7 +28,6 @@ from devops_cli.ai.client.models import (
     AICredentialsError,
     StructuredOutputValidationError,
 )
-from devops_cli.ai.schema_reflection import ViolationText
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config import constants, settings
 from devops_cli.config.constants import (
@@ -1010,6 +1009,8 @@ def test_a_later_trace_with_no_violation_leaves_the_texts_of_an_earlier_one() ->
 
 
 def test_a_violation_text_masks_and_cuts_each_of_its_fields() -> None:
+    from devops_cli.ai.schema_reflection import ViolationText
+
     secret = "ghp_abcdefghijklmnopqrstuvwxyz0123456789"
 
     text = ViolationText(loc=f"a.{secret}", type="t" * 300, message=f"{secret} " + "m" * 300)
