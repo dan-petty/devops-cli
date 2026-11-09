@@ -3374,6 +3374,15 @@ class RoadmapMessages:
     )
     stage_secret: str = "The reply has text that looks like a secret, in {path}."
     stage_violations: str = "{count} schema violation(s)"
+    # The failure line of a plan run that broke its schema (#4269): the stop reason and the first
+    # violations, each as `loc (type): message`. The texts are masked and cut where they are made.
+    stage_violations_stop: str = " Stop reason: {reason}."
+    stage_violations_first: str = " First violations: {lines}."
+    stage_violation_line: str = "{loc} ({type}): {message}"
+    stage_violation_separator: str = "; "
+    # The stop reasons of a plan run whose reply broke the schema past its retries.
+    stage_stop_validation: str = "validation"
+    stage_stop_no_tool_call: str = "no tool call"
     # The plan run of the toolbox stopped with no plan; `reason` is the fixed text of its stop.
     stage_run_stopped: str = "The plan run stopped before it gave a plan: {reason}."
     # The output token limit of the request cut the reply of the plan or review run (#4220). The

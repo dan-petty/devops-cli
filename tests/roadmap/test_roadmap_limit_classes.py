@@ -78,6 +78,14 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
         "kept",
         "the size of the problem text of a refused reply that the job keeps for a person",
     ),
+    "CONST_ROADMAP_STAGE_VIOLATIONS_SHOWN": (
+        "kept",
+        "the violations that a failure line, a log line and the refused file name; protects a log",
+    ),
+    "CONST_ROADMAP_STAGE_VIOLATION_TEXT_MAX_CHARS": (
+        "kept",
+        "the size of the text of one violation; protects a log and the secret masking",
+    ),
     "CONST_ROADMAP_REFINE_TOOL_MAX_LINES": (
         "raised",
         "was 120; a tool answer, bounded by the window",

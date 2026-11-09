@@ -22,6 +22,8 @@ from devops_cli.http.urls import get_url_origin, read_url_or_authority
 if TYPE_CHECKING:
     from pydantic_ai.messages import FinishReason
 
+    from devops_cli.ai.schema_reflection import ViolationText
+
 MAX_STREAM_BYTES = 50 * 1024 * 1024  # 50MB maximum streamed response size
 
 
@@ -116,6 +118,10 @@ class StructuredOutputValidationError(AIClientError):
     `violations` counts the last answer's schema violations, and is 0 when it held no JSON.
     `error_types` names their pydantic error types, sorted and without a repeat, and is empty
     when the answer held no JSON: a caller tells one kind of fault from another by it.
+
+    `violation_texts` holds the masked and cut text of the first violations, and `stop_reason` says why the
+    run ended (`validation` or `no tool call`). Both are empty for a caller that does not name them
+    (#4269). The message holds none of them.
     """
 
     def __init__(
@@ -124,11 +130,15 @@ class StructuredOutputValidationError(AIClientError):
         *,
         violations: int = 0,
         error_types: tuple[str, ...] = (),
+        violation_texts: tuple[ViolationText, ...] = (),
+        stop_reason: str = "",
         **kwargs: Any,
     ) -> None:
         super().__init__(message, **kwargs)
         self.violations = violations
         self.error_types = error_types
+        self.violation_texts = violation_texts
+        self.stop_reason = stop_reason
 
 
 class AICredentialsError(AIClientError):

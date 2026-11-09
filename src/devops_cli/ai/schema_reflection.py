@@ -10,26 +10,47 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from devops_cli.config.constants import (
     CONST_ARGUMENT_HALLUCINATED,
     CONST_ARGUMENT_MISSING,
     CONST_MAX_INPUT_VALUE_REPR_LENGTH,
     CONST_MAX_SCHEMA_REFLECTION_ERRORS,
+    CONST_ROADMAP_STAGE_VIOLATION_TEXT_MAX_CHARS,
 )
 from devops_cli.models.ai import ChatMessage
+from devops_cli.security.sanitizer import mask_secrets
 
 __all__ = [
     "ArgumentRefusal",
     "ArgumentViolation",
     "SchemaReflectionReport",
     "SchemaViolation",
+    "ViolationText",
     "build_schema_reflection_message",
     "extract_schema_reflection",
     "format_field_path",
     "synthesize_fix_hint",
 ]
+
+
+class ViolationText(BaseModel):
+    """The text of one schema violation for a log line or a file (#4269): its location, its
+    pydantic error type and its message. Each field is masked for secrets, then cut to
+    `CONST_ROADMAP_STAGE_VIOLATION_TEXT_MAX_CHARS` characters, so no use of the text can leak a
+    secret or grow without a bound. The input value of the violation is never kept."""
+
+    model_config = ConfigDict(frozen=True)
+
+    loc: str
+    type: str
+    message: str
+
+    @field_validator("loc", "type", "message")
+    @classmethod
+    def _safe(cls, value: str) -> str:
+        return mask_secrets(value)[:CONST_ROADMAP_STAGE_VIOLATION_TEXT_MAX_CHARS]
 
 
 class SchemaViolation(BaseModel):

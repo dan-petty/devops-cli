@@ -28,6 +28,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_STAGE_MAX_REQUESTS,
     CONST_ROADMAP_STAGE_MIN_TOOL_CALLS,
     CONST_ROADMAP_STAGE_TOOL_MAX_CALLS,
+    CONST_ROADMAP_STAGE_VIOLATIONS_SHOWN,
 )
 from devops_cli.config.defaults import StageToolset
 from devops_cli.config.settings import load_settings
@@ -221,8 +222,39 @@ def _stopped(result: InvestigationStopped, trace: RunTrace, schema: type[BaseMod
             MESSAGES.roadmap.stage_invalid_arguments.format(reason=result.message)
         )
     if result.schema_broken:
-        return StructuredOutputValidationError(message, violations=trace.violations)
+        # A reply with errors in the retry prompt broke the schema. A reply with none held no call
+        # to a tool at all (#4269).
+        return StructuredOutputValidationError(
+            message,
+            violations=trace.violations,
+            violation_texts=trace.violation_texts,
+            stop_reason=(
+                MESSAGES.roadmap.stage_stop_validation
+                if trace.violations
+                else MESSAGES.roadmap.stage_stop_no_tool_call
+            ),
+        )
     return RoadmapStageError(message)
+
+
+def violation_summary(exc: StructuredOutputValidationError) -> str:
+    """The text of a schema failure for a failure line or a log: the count of violations, the stop
+    reason and at most `CONST_ROADMAP_STAGE_VIOLATIONS_SHOWN` violations (#4269). Their texts are
+    masked and cut when `ViolationText` makes them, and the text holds no value of the reply."""
+    text = MESSAGES.roadmap.stage_violations.format(count=exc.violations)
+    if exc.stop_reason:
+        text += MESSAGES.roadmap.stage_violations_stop.format(reason=exc.stop_reason)
+    lines = [
+        MESSAGES.roadmap.stage_violation_line.format(
+            loc=detail.loc, type=detail.type, message=detail.message
+        )
+        for detail in exc.violation_texts[:CONST_ROADMAP_STAGE_VIOLATIONS_SHOWN]
+    ]
+    if lines:
+        text += MESSAGES.roadmap.stage_violations_first.format(
+            lines=MESSAGES.roadmap.stage_violation_separator.join(lines)
+        )
+    return text
 
 
 def review(
@@ -234,4 +266,4 @@ def review(
     return findings, given.with_reads(client.traces[-1].tool_answers)
 
 
-__all__ = ["ToolboxClient", "ToolboxModel", "review"]
+__all__ = ["ToolboxClient", "ToolboxModel", "review", "violation_summary"]

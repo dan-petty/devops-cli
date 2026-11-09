@@ -15,10 +15,13 @@ from typing import TYPE_CHECKING, Any, Final, Self
 
 from pydantic import BaseModel, ConfigDict, ValidationError
 
+from devops_cli.ai.client.models import StructuredOutputValidationError
+from devops_cli.ai.schema_reflection import ViolationText
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config.constants import (
     CONST_ROADMAP_STAGE_REFUSED_PROBLEM_MAX_CHARS,
     CONST_ROADMAP_STAGE_REFUSED_REPLY_MAX_BYTES,
+    CONST_ROADMAP_STAGE_VIOLATIONS_SHOWN,
 )
 from devops_cli.exceptions.roadmap import RoadmapStageError
 from devops_cli.lang import MESSAGES
@@ -65,18 +68,48 @@ class RefusedReply(BaseModel):
     problem: str
 
 
+class RefusedSchemaFailure(BaseModel):
+    """A reply that broke the schema past its retries (#4269). It never reached the checks, so
+    there is no reply to keep: the record holds the stop reason, the count of violations and the
+    text of the first ones, which are masked and cut."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    stop_reason: str
+    count: int
+    violations: list[ViolationText]
+
+    @classmethod
+    def of(cls, error: StructuredOutputValidationError) -> Self:
+        """The record of the schema failure `error`, with at most
+        `CONST_ROADMAP_STAGE_VIOLATIONS_SHOWN` violations."""
+        return cls(
+            stop_reason=error.stop_reason,
+            count=error.violations,
+            violations=list(error.violation_texts[:CONST_ROADMAP_STAGE_VIOLATIONS_SHOWN]),
+        )
+
+
 class RefusedRecord(BaseModel):
-    """The refused replies of the last failed plan of an item, under the key of its input."""
+    """The refused replies of the last failed plan of an item, under the key of its input, and the
+    schema failure that ended the plan when a reply broke the schema."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     key: str
     replies: list[RefusedReply]
+    schema_failure: RefusedSchemaFailure | None = None
 
     @classmethod
-    def of(cls, key: str, refused: Iterable[tuple[Mapping[str, Any], str]]) -> Self:
-        """The record of `refused`, each a reply (the dump of the model) and its problem. The
-        problem is masked for secrets and cut, and a reply over the byte bound is dropped."""
+    def of(
+        cls,
+        key: str,
+        refused: Iterable[tuple[Mapping[str, Any], str]],
+        schema_failure: StructuredOutputValidationError | None = None,
+    ) -> Self:
+        """The record of `refused`, each a reply (the dump of the model) and its problem, and of
+        `schema_failure`. The problem is masked for secrets and cut, and a reply over the byte
+        bound is dropped."""
         replies: list[RefusedReply] = []
         for reply, problem in refused:
             size = len(json.dumps(reply, ensure_ascii=False, separators=(",", ":")).encode())
@@ -88,7 +121,11 @@ class RefusedRecord(BaseModel):
                     problem=mask_secrets(problem)[:CONST_ROADMAP_STAGE_REFUSED_PROBLEM_MAX_CHARS],
                 )
             )
-        return cls(key=key, replies=replies)
+        return cls(
+            key=key,
+            replies=replies,
+            schema_failure=RefusedSchemaFailure.of(schema_failure) if schema_failure else None,
+        )
 
 
 def _digest(parts: list[Any]) -> str:
