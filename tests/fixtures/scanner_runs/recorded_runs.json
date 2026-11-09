@@ -36,7 +36,7 @@
       "--report-path",
       "-",
       "--redact",
-      "{tree}/app.py",
+      "{workdir}",
       "--config",
       "{workdir}/gitleaks.toml",
       "--gitleaks-ignore-path",

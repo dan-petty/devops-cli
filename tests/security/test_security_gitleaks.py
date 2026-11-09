@@ -5,23 +5,23 @@ from __future__ import annotations
 import json
 from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import pytest
 
 from devops_cli.ai.review_schema import DefectClass
 from devops_cli.dry_run.state import set_dry_run
+from devops_cli.security.base import MaterializedTargets
 from devops_cli.security.gitleaks import (
+    GitleaksScanner,
     parse_gitleaks_json,
     run_gitleaks_scan,
 )
 from devops_cli.security.sarif import to_sarif
+from devops_cli.security.tool_executor import ToolRequest
 from tests.support.builders import make_finding
 from tests.support.fakes.scanners import ScannerFake
 from tests.support.fakes.tool_executor import ToolAnswer
-
-if TYPE_CHECKING:
-    from devops_cli.security.tool_executor import ToolRequest
 
 
 def test_parse_gitleaks_json() -> None:
@@ -70,11 +70,14 @@ def test_run_gitleaks_scan_dry_run(tmp_path: Path) -> None:
 
 
 def _leaks_of_its_source(make_leaks: Callable[[str], list[dict[str, Any]]]) -> Any:
-    """A Gitleaks that reports `make_leaks(source)` for the one source its command names last,
+    """A Gitleaks that reports `make_leaks(source)` for the sources of the request,
     and exits 1 when it reports a leak."""
 
     def answer(request: ToolRequest) -> ToolAnswer:
-        leaks = make_leaks(request.arguments[-1])
+        if request.targets:
+            leaks = [leak for target in request.targets for leak in make_leaks(str(target))]
+        else:
+            leaks = make_leaks(request.arguments[-1])
         return ToolAnswer(exit_code=1 if leaks else 0, stdout=json.dumps(leaks))
 
     return answer
@@ -301,38 +304,114 @@ def test_run_gitleaks_scan_list_target_without_binary(
     assert (outcome.status, len(outcome.findings)) == ("not installed", 0)
 
 
-def test_run_gitleaks_scan_list_target_runs_binary_on_every_file(
+def test_run_gitleaks_scan_list_target_runs_binary_once(
     tmp_path: Path, scanner_fake: ScannerFake
 ) -> None:
-    """Gitleaks takes one source per run, so a list target runs it once per file."""
+    """A list target runs Gitleaks once over the directory of materialized targets."""
     first = tmp_path / "first.py"
     first.write_text("x = 1\n", encoding="utf-8")
     second = tmp_path / "second.env"
     second.write_text("TOKEN=redacted\n", encoding="utf-8")
-    scanner_fake.answer_with(
-        "gitleaks",
-        _leaks_of_its_source(
-            lambda source: (
-                [
-                    {
-                        "RuleID": "generic-api-key",
-                        "Description": "Generic API Key",
-                        "File": source,
-                        "StartLine": 1,
-                        "Match": "TOKEN",
-                    }
-                ]
-                if source == str(second)
-                else []
-            )
-        ),
+    fake_json = json.dumps(
+        [
+            {
+                "RuleID": "generic-api-key",
+                "Description": "Generic API Key",
+                "File": "second.env",
+                "StartLine": 1,
+                "Match": "TOKEN",
+            }
+        ]
     )
+    scanner_fake.script("gitleaks", ToolAnswer(exit_code=1, stdout=fake_json))
 
     outcome = run_gitleaks_scan([first, second])
 
-    assert [run.argv[-1] for run in scanner_fake.runs] == [str(first), str(second)]
+    assert len(scanner_fake.runs) == 1
     assert outcome.status == "ran"
-    assert [f.location for f in outcome.findings] == [f"{second}:1"]
+    assert [f.location for f in outcome.findings] == ["second.env:1"]
+
+
+def test_review_starts_gitleaks_once_for_n_files(tmp_path: Path, scanner_fake: ScannerFake) -> None:
+    """A review of N files starts Gitleaks exactly once on the executor fake, and findings name reviewed files."""
+    tree = tmp_path / "tree"
+    tree.mkdir()
+    first = tree / "first.py"
+    first.write_text("x = 1\n", encoding="utf-8")
+    second = tree / "second.py"
+    second.write_text("TOKEN=secret\n", encoding="utf-8")
+    third = tree / "third.py"
+    third.write_text("z = 3\n", encoding="utf-8")
+
+    fake_json = json.dumps(
+        [
+            {
+                "RuleID": "generic-api-key",
+                "Description": "Generic API Key",
+                "File": "second.py",
+                "StartLine": 1,
+                "Match": "TOKEN",
+            }
+        ]
+    )
+    scanner_fake.script("gitleaks", ToolAnswer(exit_code=1, stdout=fake_json))
+
+    outcome = run_gitleaks_scan(
+        [first, second, third],
+        ignore_tests=True,
+        isolated=True,
+        tree=tree,
+        tool_executor=scanner_fake,
+    )
+
+    gitleaks_requests = [r for r in scanner_fake.requests if r.tool == "gitleaks"]
+    assert len(gitleaks_requests) == 1
+    assert outcome.status == "ran"
+    assert len(outcome.findings) == 1
+    assert outcome.findings[0].location == "second.py:1"
+    assert "devops-scan-gitleaks" not in outcome.findings[0].location
+    assert "devops-scan-gitleaks" not in outcome.findings[0].description
+
+
+def test_gitleaks_scratch_directory_path_is_mapped_to_reviewed_file(
+    tmp_path: Path, scanner_fake: ScannerFake
+) -> None:
+    """Findings that Gitleaks reports with scratch directory paths map back to reviewed files."""
+    tree = tmp_path / "tree"
+    tree.mkdir()
+    secret_file = tree / "config.env"
+    secret_file.write_text("SECRET=xyz\n", encoding="utf-8")
+
+    def answer_with_scratch_path(request: ToolRequest) -> ToolAnswer:
+        workdir = request.cwd or request.workdir
+        fake_json = json.dumps(
+            [
+                {
+                    "RuleID": "generic-api-key",
+                    "Description": "Generic API Key",
+                    "File": str(workdir / "config.env"),
+                    "StartLine": 1,
+                    "Match": "SECRET",
+                }
+            ]
+        )
+        return ToolAnswer(exit_code=1, stdout=fake_json)
+
+    scanner_fake.answer_with("gitleaks", answer_with_scratch_path)
+
+    outcome = run_gitleaks_scan(
+        [secret_file],
+        ignore_tests=True,
+        isolated=True,
+        tree=tree,
+        tool_executor=scanner_fake,
+    )
+
+    assert outcome.status == "ran"
+    assert len(outcome.findings) == 1
+    assert outcome.findings[0].location == "config.env:1"
+    assert "devops-scan" not in outcome.findings[0].location
+    assert "devops-scan" not in outcome.findings[0].description
 
 
 def test_run_gitleaks_scan_list_target_keeps_start_and_end_times_in_sarif(
@@ -362,3 +441,50 @@ def test_run_gitleaks_scan_list_target_keeps_start_and_end_times_in_sarif(
     assert invocation["startTimeUtc"] == outcome.started_utc
     assert invocation["endTimeUtc"] == outcome.ended_utc
     assert invocation["startTimeUtc"] <= invocation["endTimeUtc"]
+
+
+def test_parse_output_ignores_isolation_files(tmp_path: Path) -> None:
+    """Findings for internal isolation files like gitleaks.toml and .gitleaksignore stay ignored."""
+    scanner = GitleaksScanner()
+    staged = MaterializedTargets({"app.py": tmp_path / "app.py"})
+    raw_data = [
+        {"RuleID": "secret", "File": "gitleaks.toml", "Line": 1},
+        {"RuleID": "secret", "File": "/workdir/.gitleaksignore", "Line": 1},
+        {"RuleID": "secret", "File": "app.py", "Line": 2},
+        None,
+    ]
+    findings = scanner.parse_output(raw_data, staged)
+    assert len(findings) == 1
+    assert findings[0].location == "app.py:2"
+
+
+def test_build_command_and_dry_run_with_materialized_and_list_targets(tmp_path: Path) -> None:
+    """`build_command` and `dry_run_scan` support MaterializedTargets and list targets."""
+    scanner = GitleaksScanner()
+    target_file = tmp_path / "app.py"
+    target_file.write_text("x = 1\n", encoding="utf-8")
+    staged = MaterializedTargets({"app.py": target_file})
+
+    cmd_list = scanner.build_command([target_file])
+    assert cmd_list[-1] == str(target_file)
+
+    dry_run = scanner.dry_run_scan(staged)
+    assert len(dry_run) == 1
+    assert str(target_file) in dry_run[0].location
+
+
+def test_isolated_targets_empty_list_and_no_repo_root(tmp_path: Path) -> None:
+    """`isolated_targets` handles empty target lists and files outside a git repository."""
+    scanner = GitleaksScanner()
+    workdir = tmp_path / "workdir"
+    workdir.mkdir()
+
+    empty = scanner.isolated_targets([], workdir)
+    assert isinstance(empty, MaterializedTargets)
+    assert len(empty.origins) == 0
+
+    outside = tmp_path / "outside.py"
+    outside.write_text("x = 1\n", encoding="utf-8")
+    staged = scanner.isolated_targets([outside], workdir)
+    assert isinstance(staged, MaterializedTargets)
+    assert "outside.py" in staged.origins

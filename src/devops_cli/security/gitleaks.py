@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar
@@ -16,9 +17,10 @@ from devops_cli.config.defaults import (
 from devops_cli.core.repo import find_repo_root, is_ignored_by_git
 from devops_cli.security.base import (
     BaseSecurityScanner,
+    MaterializedTargets,
     ScannerConfigFile,
     ScanOutcome,
-    merge_outcomes,
+    materialize_targets,
 )
 
 if TYPE_CHECKING:
@@ -106,6 +108,21 @@ def _resolve_scan_files(target: Path | list[Path], *, ignore_tests: bool = False
     return candidates
 
 
+def _resolve_gitleaks_file(raw_file: str, staged: MaterializedTargets) -> str | None:
+    """The reviewed file path that `raw_file` refers to, or None if it is an isolation file."""
+    clean = Path(raw_file).as_posix().removeprefix("./")
+    if clean in ("gitleaks.toml", ".gitleaksignore") or clean.endswith(
+        ("/gitleaks.toml", "/.gitleaksignore")
+    ):
+        return None
+    if clean in staged.origins:
+        return clean
+    for rel_name in staged.origins:
+        if clean.endswith("/" + rel_name) or clean == rel_name:
+            return rel_name
+    return staged.tree_path(clean)
+
+
 class GitleaksScanner(BaseSecurityScanner):
     """Declarative security scanner adapter for Gitleaks secret detection."""
 
@@ -124,45 +141,94 @@ class GitleaksScanner(BaseSecurityScanner):
         self,
         target_path: Any,
         timeout: float = DEFAULT_SECURITY_SCANNER_TIMEOUT_SECONDS,
+        *,
+        isolated: bool = False,
+        tree: Path | None = None,
         **kwargs: Any,
     ) -> ScanOutcome:
-        """Scan a path, or each file of a list, since Gitleaks takes one source per run."""
+        """Scan a path or a list of files with Gitleaks in one run."""
         if not self._check_binary() and not self._is_dry_run():
             return ScanOutcome(
                 "not installed", [], f"Binary '{self.binary_name}' not found on PATH"
             )
+        if isinstance(target_path, list):
+            files = _resolve_scan_files(target_path, ignore_tests=bool(kwargs.get("ignore_tests")))
+            if not files:
+                return ScanOutcome("not_applicable", [], "No scannable files in the target list")
+            return super().scan(
+                files,
+                timeout=timeout,
+                isolated=True,
+                tree=tree,
+                **kwargs,
+            )
+        return super().scan(target_path, timeout=timeout, isolated=isolated, tree=tree, **kwargs)
+
+    def isolated_targets(
+        self,
+        target_path: Any,
+        workdir: Path,
+        *,
+        tree: Path | None = None,
+        **kwargs: Any,
+    ) -> Any:
+        """A review's targets, linked or copied from `tree` under `workdir`."""
         if not isinstance(target_path, list):
-            return super().scan(target_path, timeout=timeout, **kwargs)
-        files = _resolve_scan_files(target_path)
-        if not files:
-            return ScanOutcome("not_applicable", [], "No scannable files in the target list")
-        return merge_outcomes(
-            [BaseSecurityScanner.scan(self, f, timeout=timeout, **kwargs) for f in files]
-        )
+            return target_path
+        scan_tree: Path | None = tree
+        safe_files = _resolve_scan_files(target_path, ignore_tests=bool(kwargs.get("ignore_tests")))
+        if not safe_files:
+            return MaterializedTargets({})
+        if scan_tree is None:
+            scan_tree = find_repo_root(safe_files[0])
+            if scan_tree is None:
+                common = os.path.commonpath([p.resolve().parent for p in safe_files])
+                scan_tree = Path(common)
+        return materialize_targets(safe_files, scan_tree, workdir)
 
     def build_command(
         self,
-        target_path: Path | list[Path],
+        target_path: Path | list[Path] | MaterializedTargets,
         no_git: bool = True,
+        cwd: Path | None = None,
         **kwargs: Any,
     ) -> list[str]:
         """Build argument command list for invoking Gitleaks."""
-        cmd_target = target_path if isinstance(target_path, Path) else target_path[0]
+        cmd_target: Path | str
+        if isinstance(target_path, MaterializedTargets):
+            cmd_target = cwd if cwd is not None else "."
+        elif isinstance(target_path, list):
+            cmd_target = cwd if cwd is not None else (target_path[0] if target_path else ".")
+        else:
+            cmd_target = target_path
         return build_gitleaks_cmd(cmd_target, no_git=no_git)
 
-    def parse_output(self, data: Any, target_path: Path | list[Path]) -> list[Finding]:
+    def parse_output(
+        self, data: Any, target_path: Path | list[Path] | MaterializedTargets
+    ) -> list[Finding]:
         """Parse raw Gitleaks JSON findings into Finding models."""
-        if isinstance(data, list):
-            return parse_gitleaks_json(data)
-        return []
+        if not isinstance(data, list):
+            return []
+        if isinstance(target_path, MaterializedTargets):
+            findings: list[Finding] = []
+            for item in data:
+                if not isinstance(item, dict):
+                    continue
+                file_name = _resolve_gitleaks_file(str(item.get("File") or ""), target_path)
+                if file_name is None:
+                    continue
+                findings.append(_parse_single_gitleaks_item({**item, "File": file_name}))
+            return findings
+        return parse_gitleaks_json(data)
 
-    def dry_run_scan(self, target_path: Path | list[Path], **kwargs: Any) -> list[Finding]:
+    def dry_run_scan(self, target_path: Any, **kwargs: Any) -> list[Finding]:
         """Return simulated Gitleaks findings for dry-run simulation."""
-        target_desc = (
-            str(target_path[0])
-            if isinstance(target_path, list) and target_path
-            else str(target_path)
-        )
+        if isinstance(target_path, MaterializedTargets):
+            target_desc = str(next(iter(target_path.origins.values()), "workspace"))
+        elif isinstance(target_path, list) and target_path:
+            target_desc = str(target_path[0])
+        else:
+            target_desc = str(target_path)
         return [
             Finding(
                 severity="CRITICAL",
@@ -181,6 +247,7 @@ def run_gitleaks_scan(
     ignore_tests: bool = False,
     *,
     isolated: bool = False,
+    tree: Path | None = None,
     tool_executor: ToolExecutor | None = None,
 ) -> ScanOutcome:
     """Execute Gitleaks secret scanner subprocess or fallback pattern scan; `isolated` for a
@@ -191,7 +258,13 @@ def run_gitleaks_scan(
     if isinstance(target, list) and ignore_tests:
         target = [p for p in target if not _is_test_file(p)]
 
-    outcome = GitleaksScanner(tool_executor).scan(target, isolated=isolated, no_git=no_git)
+    outcome = GitleaksScanner(tool_executor).scan(
+        target,
+        isolated=isolated,
+        no_git=no_git,
+        tree=tree,
+        ignore_tests=ignore_tests,
+    )
     if ignore_tests and outcome.findings:
         filtered = [
             f for f in outcome.findings if not _is_test_file(_extract_location_path(f.location))

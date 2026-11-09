@@ -524,6 +524,7 @@ def _placeholders(request: ToolRequest, targets: Sequence[Path]) -> dict[str, st
                 *targets,
                 *(root / path for path in request.targets),
                 *(base / path.relative_to(root) for path in targets),
+                *((base,) if request.cwd is not None else ()),
             ),
         ),
     )
@@ -542,7 +543,11 @@ def _argv_template(request: ToolRequest, targets: Sequence[Path]) -> tuple[str, 
     base = request.cwd or request.workdir
     template: list[str] = []
     for argument in request.arguments:
-        is_path = os.path.isabs(argument) or argument.startswith(os.curdir + os.sep)
+        is_path = (
+            os.path.isabs(argument)
+            or argument.startswith(os.curdir + os.sep)
+            or argument == os.curdir
+        )
         placeholder = placeholders.get(os.path.normpath(os.path.join(base, argument)))
         if not (is_path and placeholder):
             template.append(argument)
