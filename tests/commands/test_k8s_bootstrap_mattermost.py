@@ -6,7 +6,6 @@ import json
 import socket
 import subprocess
 from typing import Any
-from unittest.mock import MagicMock, patch
 
 import pytest
 from typer.testing import CliRunner
@@ -15,6 +14,8 @@ from devops_cli.commands.k8s.mattermost_bootstrap import bootstrap_mattermost
 from devops_cli.dry_run import get_dry_run_class
 from devops_cli.k8s.manifest_plans import plan_k8s_bootstrap_mattermost
 from devops_cli.main import app
+from tests.support.fakes.keyring import FakeKeyring
+from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
 
 runner = CliRunner()
 
@@ -31,7 +32,6 @@ def block_external_calls(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(subprocess, "run", _fail_process)
     monkeypatch.setattr(subprocess, "Popen", _fail_process)
-    monkeypatch.setattr("devops_cli.core.process.run_subprocess", _fail_process)
     monkeypatch.setattr(socket, "socket", _fail_socket)
     monkeypatch.setattr(socket, "create_connection", _fail_socket)
 
@@ -58,69 +58,73 @@ def test_bootstrap_mattermost_dry_run(block_external_calls: None) -> None:
     assert "Planned requests" in res.output or "kubectl" in res.output
 
 
-def test_bootstrap_mattermost_no_pod() -> None:
+def test_bootstrap_mattermost_no_pod(process_fake: ProcessFake) -> None:
     """Verify failure when no Mattermost pod is found."""
-    with patch("devops_cli.commands.k8s.cluster_runtime._run_cmd") as mock_run:
-        mock_res = MagicMock()
-        mock_res.returncode = 0
-        mock_res.stdout = ""
-        mock_run.return_value = mock_res
+    process_fake.answer("kubectl", ProcessAnswer(returncode=0, stdout=""))
 
-        res = runner.invoke(app, ["k8s", "bootstrap-mattermost"])
-        assert res.exit_code == 1
-        assert "No Mattermost pod found" in res.output
+    res = runner.invoke(app, ["k8s", "bootstrap-mattermost"])
+    assert res.exit_code == 1
+    assert "No Mattermost pod found" in res.output
 
 
-def test_bootstrap_mattermost_full_flow() -> None:
+_FULL_FLOW_TABLE = [
+    ("get pods", "mattermost-pod-123"),
+    ("user list", "admin_user_id: admin (admin@example.com)\n"),
+    ("team list", json.dumps([{"id": "team123", "name": "homelab"}])),
+    (
+        "channel list",
+        json.dumps(
+            [
+                {"id": "chan_alerts", "name": "alerts"},
+                {"id": "chan_deploys", "name": "deploys"},
+            ]
+        ),
+    ),
+    ("webhook list", "[]"),
+    ("webhook create-incoming", json.dumps({"id": "hook_token_abc"})),
+    ("command list", "[]"),
+    ("command create", json.dumps({"token": "cmd_token_xyz"})),
+    ("apply", "secret/configured"),
+]
+
+
+def _handle_full_flow_cmd(call: ProcessCall) -> ProcessAnswer:
+    cmd_str = " ".join(call.argv)
+    if "get" in call.argv and "secret" in call.argv:
+        return ProcessAnswer(returncode=1, stderr="NotFound")
+    for key, val in _FULL_FLOW_TABLE:
+        if key in cmd_str:
+            return ProcessAnswer(returncode=0, stdout=val)
+    return ProcessAnswer(returncode=0, stdout="{}")
+
+
+def test_bootstrap_mattermost_full_flow(
+    process_fake: ProcessFake, keyring_store: FakeKeyring, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Verify full onboarding execution: team, channels, webhooks, command, keyring, push."""
-    with (
-        patch("devops_cli.commands.k8s.cluster_runtime._run_cmd") as mock_run,
-        patch("devops_cli.config.os_keyring.store_keyring_secret") as mock_keyring,
-        patch("devops_cli.commands.k8s.cluster_secret_push.push_secrets") as mock_push,
-    ):
+    monkeypatch.setenv("DEVOPS_CLI_ARGOCD_GITHUB_APP_ID", "123456")
+    monkeypatch.setenv("DEVOPS_CLI_ARGOCD_GITHUB_APP_INSTALLATION_ID", "7890123")
+    keyring_store.values.update(
+        {
+            "service_github_app_private_key": "app-key",
+            "llm_gateway_master_key": "sk-test-master-key",
+            "argocd_github_app_private_key": "argocd-key",
+        }
+    )
 
-        def _mock_cmd_handler(cmd: list[str], *args: Any, **kwargs: Any) -> MagicMock:
-            res = MagicMock()
-            res.returncode = 0
-            if "get" in cmd and "pods" in cmd:
-                res.stdout = "mattermost-pod-123"
-            elif "user" in cmd and "list" in cmd:
-                res.stdout = "admin_user_id: admin (admin@example.com)\n"
-            elif "team" in cmd and "list" in cmd:
-                res.stdout = json.dumps([{"id": "team123", "name": "homelab"}])
-            elif "channel" in cmd and "list" in cmd:
-                res.stdout = json.dumps(
-                    [
-                        {"id": "chan_alerts", "name": "alerts"},
-                        {"id": "chan_deploys", "name": "deploys"},
-                    ]
-                )
-            elif "webhook" in cmd and "list" in cmd:
-                res.stdout = json.dumps([])
-            elif "webhook" in cmd and "create-incoming" in cmd:
-                res.stdout = json.dumps({"id": "hook_token_abc"})
-            elif "command" in cmd and "list" in cmd:
-                res.stdout = json.dumps([])
-            elif "command" in cmd and "create" in cmd:
-                res.stdout = json.dumps({"token": "cmd_token_xyz"})
-            else:
-                res.stdout = "{}"
-            return res
+    process_fake.answer("kubectl", _handle_full_flow_cmd)
 
-        mock_run.side_effect = _mock_cmd_handler
+    res = runner.invoke(app, ["k8s", "bootstrap-mattermost"])
+    assert res.exit_code == 0, f"Failed: {res.output}"
+    assert "Mattermost bootstrap complete" in res.output
 
-        res = runner.invoke(app, ["k8s", "bootstrap-mattermost"])
-        assert res.exit_code == 0, f"Failed: {res.output}"
-        assert "Mattermost bootstrap complete" in res.output
+    # Check keyring values
+    assert keyring_store.values.get("mattermost_alerts_hook") == "hook_token_abc"
+    assert keyring_store.values.get("mattermost_deploys_hook") == "hook_token_abc"
+    assert keyring_store.values.get("mattermost_command_token") == "cmd_token_xyz"
 
-        # Check keyring calls
-        saved_keys = {call.args[0]: call.args[1] for call in mock_keyring.call_args_list}
-        assert "mattermost_alerts_hook" in saved_keys
-        assert "mattermost_deploys_hook" in saved_keys
-        assert "mattermost_command_token" in saved_keys
-
-        # Check secret push was called
-        mock_push.assert_called_once()
+    # Check secret push applied secrets
+    assert any(c.argv[:2] == ("kubectl", "apply") for c in process_fake.calls)
 
 
 def test_extract_json_payload_edges() -> None:
@@ -202,36 +206,33 @@ def _handle_existing_resources_cmd(cmd: list[str]) -> str:
     return "{}"
 
 
-def test_bootstrap_mattermost_creates_missing_team_and_channels() -> None:
+def test_bootstrap_mattermost_creates_missing_team_and_channels(
+    process_fake: ProcessFake, keyring_store: FakeKeyring
+) -> None:
     """Verify team and channel creation when they do not already exist."""
-    with (
-        patch("devops_cli.commands.k8s.cluster_runtime._run_cmd") as mock_run,
-        patch("devops_cli.config.os_keyring.store_keyring_secret"),
-        patch("devops_cli.commands.k8s.cluster_secret_push.push_secrets"),
-    ):
-        mock_run.side_effect = lambda cmd, *a, **kw: MagicMock(
-            returncode=0, stdout=_handle_missing_resources_cmd(cmd)
-        )
-        res = runner.invoke(app, ["k8s", "bootstrap-mattermost"])
-        assert res.exit_code == 0
-        assert "Creating Mattermost team 'homelab'..." in res.output
-        assert "Creating channel 'alerts'..." in res.output
-        assert "Creating channel 'deploys'..." in res.output
+
+    def _handler(call: ProcessCall) -> ProcessAnswer:
+        return ProcessAnswer(returncode=0, stdout=_handle_missing_resources_cmd(list(call.argv)))
+
+    process_fake.answer("kubectl", _handler)
+    res = runner.invoke(app, ["k8s", "bootstrap-mattermost", "--no-push-secrets"])
+    assert res.exit_code == 0
+    assert "Creating Mattermost team 'homelab'..." in res.output
+    assert "Creating channel 'alerts'..." in res.output
+    assert "Creating channel 'deploys'..." in res.output
 
 
-def test_bootstrap_mattermost_reuses_existing_resources() -> None:
+def test_bootstrap_mattermost_reuses_existing_resources(
+    process_fake: ProcessFake, keyring_store: FakeKeyring
+) -> None:
     """Verify idempotency when webhooks and slash commands already exist."""
-    with (
-        patch("devops_cli.commands.k8s.cluster_runtime._run_cmd") as mock_run,
-        patch("devops_cli.config.os_keyring.store_keyring_secret") as mock_keyring,
-        patch("devops_cli.commands.k8s.cluster_secret_push.push_secrets"),
-    ):
-        mock_run.side_effect = lambda cmd, *a, **kw: MagicMock(
-            returncode=0, stdout=_handle_existing_resources_cmd(cmd)
-        )
-        res = runner.invoke(app, ["k8s", "bootstrap-mattermost", "--no-push-secrets"])
-        assert res.exit_code == 0
-        saved_keys = {call.args[0]: call.args[1] for call in mock_keyring.call_args_list}
-        assert saved_keys["mattermost_alerts_hook"] == "existing_alert_token"
-        assert saved_keys["mattermost_deploys_hook"] == "existing_deploy_token"
-        assert saved_keys["mattermost_command_token"] == "existing_cmd_token"
+
+    def _handler(call: ProcessCall) -> ProcessAnswer:
+        return ProcessAnswer(returncode=0, stdout=_handle_existing_resources_cmd(list(call.argv)))
+
+    process_fake.answer("kubectl", _handler)
+    res = runner.invoke(app, ["k8s", "bootstrap-mattermost", "--no-push-secrets"])
+    assert res.exit_code == 0
+    assert keyring_store.values.get("mattermost_alerts_hook") == "existing_alert_token"
+    assert keyring_store.values.get("mattermost_deploys_hook") == "existing_deploy_token"
+    assert keyring_store.values.get("mattermost_command_token") == "existing_cmd_token"
