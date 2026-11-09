@@ -737,6 +737,33 @@ def test_a_gateway_call_is_local_by_the_backend_that_served_it(
     ] == [True, True, False, True, False]
 
 
+@pytest.mark.parametrize(
+    ("served_by", "expected"),
+    [
+        pytest.param("http://[::1", False, id="unclosed-bracket"),
+        pytest.param("http://[", False, id="open-bracket"),
+        pytest.param("http://localhost:11434,http://[::1", False, id="list-with-unreadable"),
+        pytest.param("http://localhost:11434", True, id="local-url"),
+        pytest.param("http+unix://%2fvar%2frun%2fdocker.sock", True, id="http-unix-url"),
+        pytest.param("unix", True, id="unix-transport-label"),
+    ],
+)
+def test_a_stored_served_by_that_urlsplit_cannot_read_is_hosted(
+    served_by: str, expected: bool
+) -> None:
+    """Verify is_local counts an unreadable served_by as hosted instead of stopping (#2462)."""
+    from devops_cli.ai.spend.pricing import is_local
+
+    assert (
+        is_local(
+            server="gateway.example.com:4000",
+            provider="gateway",
+            served_by=served_by,
+        )
+        is expected
+    )
+
+
 def test_a_gateway_reply_that_names_a_deployment_model_and_no_backend_is_hosted(
     config: Callable[..., Path],
 ) -> None:

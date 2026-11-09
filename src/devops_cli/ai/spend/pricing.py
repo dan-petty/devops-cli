@@ -245,8 +245,14 @@ def _is_single_server_local(server: str, settings: _SettingsOnce) -> bool:
     clean = server.strip().lower()
     if not clean:
         return False
-    if clean in CONST_LOCAL_TRANSPORT_LABELS or urlsplit(clean).scheme == "http+unix":
+    if clean in CONST_LOCAL_TRANSPORT_LABELS:
         return True
+    # An old ledger row can hold a value that urlsplit cannot read (#2462).
+    try:
+        if urlsplit(clean).scheme == "http+unix":
+            return True
+    except ValueError:
+        pass
     from devops_cli.http.urls import extract_domain_target
 
     host = extract_domain_target(clean)

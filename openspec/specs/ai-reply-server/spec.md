@@ -99,6 +99,10 @@ The table of `devops ai cost report --by backend` SHALL show the `host[:port]` o
 - **WHEN** the ledger holds a gateway call whose served_by is `example.com:`
 - **THEN** the table of `devops ai cost report --by backend` shows the serving backend `unknown`
 
+#### Scenario: A stored URL that urlsplit cannot read
+- **WHEN** the ledger holds a gateway call whose served_by is `http://[::1`
+- **THEN** `devops ai cost report --by backend` exits 0 and the table shows the serving backend `unknown`
+
 #### Scenario: A bare authority with userinfo in the review benchmark
 - **WHEN** the review benchmark labels the backend `u:pw@example.com:11434`
 - **THEN** the label is `example.com`
