@@ -266,8 +266,8 @@ def test_a_degenerate_item_counts_under_the_result_degenerate_and_a_refused_one_
 def test_the_degenerate_error_is_a_stage_error_with_the_code_of_a_stage_error() -> None:
     error = RoadmapStageDegenerateError("every text is a placeholder", failed_items=[1])
 
-    assert (isinstance(error, RoadmapStageError), error.error_code, error.failed_items) == (
-        True,
+    assert (type(error).__bases__, error.error_code, error.failed_items) == (
+        (RoadmapStageError,),
         RoadmapStageError.error_code,
         (1,),
     )
