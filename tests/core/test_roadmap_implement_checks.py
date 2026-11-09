@@ -240,18 +240,19 @@ def test_a_check_that_fails_twice_gets_two_fix_steps_and_then_passes(job_world: 
     assert len(script.seen) == 8
 
 
-def test_each_repair_round_after_the_push_is_in_a_comment_on_the_pull_request(
+def test_each_repair_round_after_the_push_changes_the_comment_of_the_run(
     job_world: JobWorld,
 ) -> None:
     job_world.pull.runs = [[FAIL], [FAIL], [PASS]]
 
     job_world.run(two_groups(*_fix(1), *_fix(2)))
 
-    comments = _comments(job_world)
-    assert len(comments) == 3
-    assert "| fix |" not in comments[0]
-    for comment in comments[1:]:
-        assert "| fix | done | 1 |" in comment
+    (posted,) = _comments(job_world)
+    changes = [str(sent["body"]) for sent in job_world.sent("PATCH", "issues/comments/1")]
+    assert len(changes) == 2
+    assert "| fix |" not in posted
+    assert [comment.count("| fix | done | 1 |") for comment in changes] == [1, 2]
+    for comment in changes:
         assert "scoped check static: passed" in comment
 
 

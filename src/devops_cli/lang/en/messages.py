@@ -3110,7 +3110,11 @@ class RoadmapMessages:
         "tokens."
     )
     implement_pull_labels_failed: str = "Labels not updated: {error}"
-    implement_pull_comment: str = "{marker}\nThe steps of the job:\n\n{lines}"
+    implement_pull_comment: str = "{marker}\n{run}\nThe steps of the job:\n\n{lines}"
+    implement_pull_comment_run: str = "<!-- devops roadmap implement run: {run} -->"
+    implement_watch_progress: str = (
+        "The checks of pull request #{pull} still run after {seconds} s."
+    )
     implement_table_header: str = (
         "| Step | Status | Attempts | Tokens in/out | Last failing command |\n"
         "| --- | --- | ---: | ---: | --- |"

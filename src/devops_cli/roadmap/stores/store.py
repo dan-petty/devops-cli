@@ -266,7 +266,9 @@ class ImplementRecordKey(StrEnum):
     group and the last commit, as JSON. The job removes it when the group passes. `implement.base`
     holds where the item branch stood before the job pushed a checkpoint (#3677): the sha of the
     branch for a Staged item, `new` for a Planned item. The job writes it once, and clears it at
-    ready and at a return to New."""
+    ready and at a return to New. `implement.checked_sha` and `implement.published_sha` hold the
+    head that passed the scoped checks and the head that the job pushed (#4070): a Job that starts at
+    the same head skips that phase. The job clears both at ready and at a return to New."""
 
     GROUP = "implement.group"
     SHA = "implement.sha"
@@ -279,6 +281,8 @@ class ImplementRecordKey(StrEnum):
     CONFLICT = "implement.conflict"
     WIP = "implement.wip"
     BASE = "implement.base"
+    CHECKED_SHA = "implement.checked_sha"
+    PUBLISHED_SHA = "implement.published_sha"
     SPEND = "implement.spend"
     TRACE = "implement.trace"
     JOB = "implement.job"

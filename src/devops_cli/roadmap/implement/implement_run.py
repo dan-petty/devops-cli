@@ -59,7 +59,9 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
 from enum import StrEnum
 from pathlib import Path
-from typing import Any, NamedTuple, NoReturn
+from typing import Any, NoReturn
+
+from pydantic import BaseModel
 
 from devops_cli.ai.client.models import AIClientError, AICredentialsError
 from devops_cli.config.commands import BIN_DEVOPS, BIN_GIT, BIN_UV
@@ -141,6 +143,7 @@ from devops_cli.roadmap.implement.implement_step import (
     FixRequest,
     StepOutcome,
     StepStatus,
+    TierSpend,
     find_change,
     run_fix_step,
     run_step,
@@ -185,17 +188,19 @@ from devops_cli.security.sanitizer import mask_secrets
 _WHY_HEADINGS = frozenset({"why"})
 
 
-class _Mark(NamedTuple):
-    """How many outcomes, scoped runs and notes the item had at one moment (#3043)."""
-
-    outcomes: int
-    scoped: int
-    notes: int
-    amendments: int = 0
-    skipped: int = 0
+# The run id of the comment on the pull request for a run that no Service started (#4070).
+_MANUAL_RUN = "manual"
 
 
-_NOTHING_YET = _Mark(0, 0, 0, 0, 0)
+class _RecordedSpend(BaseModel):
+    """The spend that the record `implement.spend` holds, as `JobRun._spend` writes it. A key that
+    an older record lacks takes its empty value (#4070)."""
+
+    requests: int = 0
+    input_tokens: int = 0
+    output_tokens: int = 0
+    steps: list[dict[str, Any]] = []
+    tiers: dict[str, TierSpend] = {}
 
 
 class _StopError(Exception):
@@ -487,7 +492,15 @@ class _ItemRun:
     _step: str = field(default="", init=False, repr=False)
     # The draft pull request: the target's, or for a Planned item the one `_publish` opens.
     pull: int | None = field(init=False)
-    last_comment_mark: _Mark = field(default=_NOTHING_YET, init=False)
+    # The spend of the earlier Jobs of the item, from `implement.spend` (#4070).
+    earlier: _RecordedSpend = field(default_factory=_RecordedSpend, init=False)
+    # The heads that earlier Jobs and this Job checked and pushed (#4070), from the record.
+    checked_sha: str | None = field(default=None, init=False)
+    published_sha: str | None = field(default=None, init=False)
+    # The comment of this run on the pull request: its id once it is posted or found, and whether
+    # the comments were listed already (#4070).
+    comment_id: int | None = field(default=None, init=False)
+    comments_listed: bool = field(default=False, init=False)
     returned: bool = False
     checkpoints_off: bool = False
     passed: bool = False
@@ -498,7 +511,11 @@ class _ItemRun:
 
     def __post_init__(self) -> None:
         self.pull = self.target.pull
-        self.last_comment_mark = _NOTHING_YET
+        held = self.target.item.job_record
+        if not self.target.retry and (recorded := held.get(ImplementRecordKey.SPEND)):
+            self.earlier = _RecordedSpend.model_validate_json(recorded)
+        self.checked_sha = held.get(ImplementRecordKey.CHECKED_SHA)
+        self.published_sha = held.get(ImplementRecordKey.PUBLISHED_SHA)
 
     # ── Small helpers ──
 
@@ -536,15 +553,19 @@ class _ItemRun:
     def _item_spend(self) -> ItemSpend:
         """What the steps of this run spent so far, for the budgets of the next step (#3053)."""
         return ItemSpend(
-            input_tokens=sum(outcome.input_tokens for outcome in self.outcomes),
+            input_tokens=self.earlier.input_tokens
+            + sum(outcome.input_tokens for outcome in self.outcomes),
             started=self.started,
         )
 
     def _spend(self) -> str:
-        """The spend of every step, itemized under the tier that served it (#3060), and the input
-        tokens of the first request of each step (#3499). The trace drops its oldest events when it
-        is long, so the size of a first request is kept here."""
-        tiers: dict[str, dict[str, int]] = {}
+        """The spend of every step of the item, itemized under the tier that served it (#3060), and
+        the input tokens of the first request of each step (#3499). The trace drops its oldest
+        events when it is long, so the size of a first request is kept here. It is the sum of the
+        earlier Jobs of the item and this Job (#4070)."""
+        tiers: dict[str, dict[str, int]] = {
+            tier: spend.model_dump() for tier, spend in self.earlier.tiers.items()
+        }
         for outcome in self.outcomes:
             for tier, spend in outcome.tier_spend.items():
                 held = tiers.setdefault(
@@ -555,12 +576,17 @@ class _ItemRun:
                 held["output_tokens"] += spend.output_tokens
         return json.dumps(
             {
-                "requests": sum(o.requests for o in self.outcomes),
-                "input_tokens": sum(o.input_tokens for o in self.outcomes),
-                "output_tokens": sum(o.output_tokens for o in self.outcomes),
+                "requests": self.earlier.requests + sum(o.requests for o in self.outcomes),
+                "input_tokens": self.earlier.input_tokens
+                + sum(o.input_tokens for o in self.outcomes),
+                "output_tokens": self.earlier.output_tokens
+                + sum(o.output_tokens for o in self.outcomes),
                 "steps": [
-                    {"step": _outcome_label(o), "first_request_tokens": o.first_request_tokens}
-                    for o in self.outcomes
+                    *self.earlier.steps,
+                    *(
+                        {"step": _outcome_label(o), "first_request_tokens": o.first_request_tokens}
+                        for o in self.outcomes
+                    ),
                 ],
                 "tiers": tiers,
             }
@@ -643,6 +669,7 @@ class _ItemRun:
             marks[ImplementRecordKey.CHECK] = None
             marks[ImplementRecordKey.CHECK_LOG] = None
             marks[ImplementRecordKey.CONFLICT] = None
+            marks[ImplementRecordKey.SPEND] = None
         self.store.set_field(
             self._fresh(), ItemField.STATUS, CONST_ROADMAP_STATUS_IN_PROGRESS, marks=marks
         )
@@ -762,6 +789,9 @@ class _ItemRun:
                 ImplementRecordKey.BRANCH: None,
                 ImplementRecordKey.PR: None,
                 ImplementRecordKey.BASE: None,
+                ImplementRecordKey.SPEND: None,
+                ImplementRecordKey.CHECKED_SHA: None,
+                ImplementRecordKey.PUBLISHED_SHA: None,
             },
         )
         self.returned = True
@@ -1018,6 +1048,7 @@ class _ItemRun:
             self._record(
                 group=str(group.number),
                 sha=outcome.commit,
+                spend=self._spend(),
                 repair_rounds=sum(o.repair_rounds for o in self.outcomes),
             )
             self.passed = True
@@ -1118,17 +1149,29 @@ class _ItemRun:
     def _push(self) -> int:
         """Rebase onto the default branch again, then push with a lease on the remote tip that the
         job has seen, so a push of anyone else is never overwritten. A Planned item has no remote
-        tip yet: its first push publishes the branch. The number of the pull request."""
+        tip yet: its first push publishes the branch. The job skips the checks at a head that
+        `implement.checked_sha` holds and the push at a head that `implement.published_sha` holds,
+        and writes each mark when its phase passes, so a Job that was killed does not repeat it
+        (#4070). The number of the pull request."""
         self.step = MESSAGES.roadmap.implement_step_names["push"]
         self._sync()
-        with observe_implement(self.repo, StepName.CHECKS):
-            self._scoped_checks()
+        if self.checked_sha != self._head():
+            with observe_implement(self.repo, StepName.CHECKS):
+                self._scoped_checks()
+            self.checked_sha = self._head()
+            self.store.set_marks(self._fresh(), {ImplementRecordKey.CHECKED_SHA: self.checked_sha})
         self.step = MESSAGES.roadmap.implement_step_names["push"]
+        if self.pull is not None and self.published_sha == self._head():
+            return self.pull
         with observe_implement(self.repo, StepName.PUBLISH):
             if self.pull is None:
-                return self._publish()
-            self._push_with_lease()
-        return self.pull
+                pull = self._publish()
+            else:
+                self._push_with_lease()
+                pull = self.pull
+        self.published_sha = self._head()
+        self.store.set_marks(self._fresh(), {ImplementRecordKey.PUBLISHED_SHA: self.published_sha})
+        return pull
 
     def _scoped_run(self) -> ScopedResult | None:
         """Run the scoped checks for the paths the item changed, and keep their results for the
@@ -1298,7 +1341,7 @@ class _ItemRun:
         before = client.get_pull(self.repo, pull)
         delivery_title = self._delivery_title()
         client.update_pull(self.repo, pull, title=delivery_title, body=body)
-        self._comment(pull, _NOTHING_YET)
+        self._comment(pull)
         try:
             declared = declared_labels(self.store, ref=None)
             old = title_labels(before.title, declared)
@@ -1312,44 +1355,55 @@ class _ItemRun:
                 self.repo, pull, texts.implement_pull_labels_failed.format(error=exc)
             )
 
-    def _mark(self) -> _Mark:
-        """How many outcomes, scoped runs, notes and amendments there are now, for `_comment`."""
-        return _Mark(
-            len(self.outcomes),
-            len(self.scoped),
-            len(self.scoped_notes),
-            len(self.amendments),
-            len(self.skipped_steps),
-        )
-
-    def _comment(self, pull: int, since: _Mark) -> None:
-        """Comment on the pull request with the table of the steps, the amendments, the scoped
-        runs and the notes that came after `since`: the repair rounds are in the attempts of the
-        table (#3043)."""
+    def _comment(self, pull: int) -> None:
+        """Write the comment of this run on the pull request: the table of the steps of this Job,
+        the amendments, the scoped runs and the notes. A run has one comment, that the second line
+        marks with the run id (#4070). The first write posts it, and a later write changes it, so a
+        repair round shows in the same comment. A Job with nothing to show writes nothing, so a
+        rerun does not post an empty comment and does not hide the table of the run before."""
         texts = MESSAGES.roadmap
-        table = summary_table(self._row(outcome) for outcome in self.outcomes[since.outcomes :])
-        amend_lines = [amendment.line() for amendment in self.amendments[since.amendments :]]
-        scoped_lines = self._scoped_lines(since)
+        table = summary_table(self._row(outcome) for outcome in self.outcomes)
+        amend_lines = [amendment.line() for amendment in self.amendments]
+        scoped_lines = self._scoped_lines()
         skipped_lines = [
             texts.implement_pull_comment_skipped.format(
                 step=step.value, file=CONST_ROADMAP_IMPLEMENT_STEPS_FILE
             )
-            for step in self.skipped_steps[since.skipped :]
+            for step in self.skipped_steps
         ]
-        lines = "\n".join([*amend_lines, *skipped_lines, *scoped_lines, *self._check_lines(since)])
+        lines = "\n".join([*amend_lines, *skipped_lines, *scoped_lines, *self._check_lines()])
         body = "\n\n".join(part for part in (table, lines) if part)
-        comment = texts.implement_pull_comment.format(
-            marker=CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER, lines=body or "-"
+        if not body:
+            return
+        run = texts.implement_pull_comment_run.format(
+            run=self.target.item.job_record.get(ImplementRecordKey.JOB) or _MANUAL_RUN
         )
-        get_github_session().client.comment_on_pull(self.repo, pull, comment)
-        self.last_comment_mark = self._mark()
+        comment = texts.implement_pull_comment.format(
+            marker=CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER, run=run, lines=body
+        )
+        client = get_github_session().client
+        if self.comment_id is None and not self.comments_listed:
+            self.comments_listed = True
+            head = [CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER, run]
+            self.comment_id = next(
+                (
+                    found.id
+                    for found in client.list_issue_comments(self.repo, pull)
+                    if found.body.splitlines()[:2] == head
+                ),
+                None,
+            )
+        if self.comment_id is None:
+            self.comment_id = client.comment_on_pull(self.repo, pull, comment)
+        else:
+            client.update_issue_comment(self.repo, self.comment_id, comment)
 
-    def _check_lines(self, since: _Mark) -> list[str]:
-        """The lines of the checks of the outcomes after `since` (#3042): the fail-to-pass result of
+    def _check_lines(self) -> list[str]:
+        """The lines of the checks of the outcomes (#3042): the fail-to-pass result of
         each behavior group, and the output of each verify command of a group of kind `other`."""
         texts = MESSAGES.roadmap
         lines: list[str] = []
-        for outcome in self.outcomes[since.outcomes :]:
+        for outcome in self.outcomes:
             if (replay := outcome.fail_to_pass) is not None:
                 lines.append(
                     texts.implement_pull_fail_to_pass.format(
@@ -1371,8 +1425,8 @@ class _ItemRun:
             )
         return lines
 
-    def _scoped_lines(self, since: _Mark) -> list[str]:
-        """One line for each run of a scoped check after `since`: its name, its result and its
+    def _scoped_lines(self) -> list[str]:
+        """One line for each run of a scoped check: its name, its result and its
         seconds. Then one line for each note on the tests check."""
         texts = MESSAGES.roadmap
         runs = [
@@ -1383,11 +1437,10 @@ class _ItemRun:
                 else texts.implement_scoped_failed,
                 seconds=result.seconds,
             )
-            for result in self.scoped[since.scoped :]
+            for result in self.scoped
         ]
         notes = [
-            texts.implement_pull_comment_scoped_note.format(note=note)
-            for note in self.scoped_notes[since.notes :]
+            texts.implement_pull_comment_scoped_note.format(note=note) for note in self.scoped_notes
         ]
         return [*runs, *notes]
 
@@ -1455,10 +1508,9 @@ class _ItemRun:
     def _repair_after_push(self, pull: int, check: PRCheckItem) -> None:
         """One repair round for the failed check `check` of the pull request: a fix step, the push
         (with the scoped checks), and a comment that shows the round."""
-        since = self._mark()
         self._fix(check.name, failed_log(self.repo, check))
         self._push()
-        self._comment(pull, since)
+        self._comment(pull)
         self.step = MESSAGES.roadmap.implement_step_names["checks"]
 
     def _fix(self, check: str, log: str) -> None:
@@ -1525,6 +1577,8 @@ class _ItemRun:
             ImplementRecordKey.TRACE: self.trace.encode(),
             ImplementRecordKey.REPAIR_ROUNDS: sum(o.repair_rounds for o in self.outcomes),
             ImplementRecordKey.BASE: None,
+            ImplementRecordKey.CHECKED_SHA: None,
+            ImplementRecordKey.PUBLISHED_SHA: None,
         }
         self.store.set_field(
             self._fresh(), ItemField.STATUS, CONST_ROADMAP_STATUS_IN_REVIEW, marks=marks
@@ -1572,7 +1626,7 @@ class _ItemRun:
         if stop.push and not note:
             note = self._kept_note(branch=stop.kept_branch)
         if self.pull is not None and self.amendments:
-            self._comment(self.pull, self.last_comment_mark)
+            self._comment(self.pull)
         last = safe_text(mask_secrets(stop.last_message))[
             :CONST_ROADMAP_IMPLEMENT_LAST_MESSAGE_CHARS
         ]

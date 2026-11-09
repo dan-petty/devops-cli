@@ -102,16 +102,14 @@ def _mark(world: JobWorld, marks: Mapping[Any, str | None]) -> None:
 
 
 def _continue(world: JobWorld, job: str = NEXT_JOB, *, retry: bool = False) -> None:
-    """What the Service does after a Job ended: it records the next Job, clears the stop, and puts
-    the item back to Ready. A person who retries comments `implement: retry` too."""
-    _mark(
-        world,
-        {
-            ImplementRecordKey.JOB: job,
-            ImplementRecordKey.STOPPED: None,
-            ImplementRecordKey.FAILURE: None,
-        },
-    )
+    """What happens after a Job ended. The Service records the next Job, clears the stop, and puts
+    the item back to Ready. A person who retries comments `implement: retry` and the stop stays in
+    the record until the next Job clears it."""
+    marks: dict[Any, str | None] = {ImplementRecordKey.JOB: job}
+    if not retry:
+        marks[ImplementRecordKey.STOPPED] = None
+        marks[ImplementRecordKey.FAILURE] = None
+    _mark(world, marks)
     if retry:
         world.store.seed_comment(1, "implement: retry", author_association="OWNER")
     held = world.store.item(1)
