@@ -1008,6 +1008,19 @@ def test_a_tool_call_with_arguments_that_are_not_json_stops_the_run_and_sets_the
     )
 
 
+@pytest.mark.parametrize("arguments", [_JOINED_ARGS, "[1, 2]"])
+def test_a_stop_on_the_first_reply_with_raw_invalid_arguments_sets_the_flag(
+    git_repo: Path, arguments: str
+) -> None:
+    """With no retry left, the last reply still holds the raw text of the arguments: text that
+    is not JSON, and JSON that is not an object, both count as invalid (#4228)."""
+    reply = ModelResponse(parts=[ToolCallPart(tool_name="final_result", args=arguments)])
+
+    stopped = _run(git_repo, Script(reply), output_retries=0)
+
+    assert (stopped.invalid_arguments, stopped.schema_broken) == (True, False)
+
+
 def test_a_stop_that_is_not_invalid_arguments_does_not_set_the_flag(git_repo: Path) -> None:
     """A reply that breaks the schema with valid JSON, and a budget limit, are no stop by
     invalid arguments (#4228)."""

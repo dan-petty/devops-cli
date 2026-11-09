@@ -445,19 +445,13 @@ def _cut_by_the_output_limit(messages: Sequence[ModelMessage]) -> bool:
 
 def _has_invalid_arguments(messages: Sequence[ModelMessage]) -> bool:
     """Whether a tool call of the last reply of the run holds arguments that are not one JSON
-    object (#4228). A run that retried the call has already wrapped the raw text of such
-    arguments under the key `INVALID_JSON_KEY`, so that key counts as invalid too."""
+    object (#4228). pydantic-ai wraps the raw text of such arguments under the key
+    `INVALID_JSON_KEY`, so that key marks the call."""
     replies = [message for message in messages if isinstance(message, ModelResponse)]
-    for part in replies[-1].parts if replies else []:
-        if not isinstance(part, ToolCallPart):
-            continue
-        try:
-            arguments = part.args_as_dict(raise_if_invalid=True)
-        except ValueError, AssertionError:
-            return True
-        if INVALID_JSON_KEY in arguments:
-            return True
-    return False
+    return any(
+        isinstance(part, ToolCallPart) and INVALID_JSON_KEY in part.args_as_dict()
+        for part in (replies[-1].parts if replies else [])
+    )
 
 
 def _toolset_names(toolsets: Sequence[Any] | None) -> set[str]:
