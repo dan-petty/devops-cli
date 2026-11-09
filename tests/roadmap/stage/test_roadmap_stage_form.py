@@ -58,9 +58,23 @@ def _plan(*changes: str, creates: tuple[str, ...] = (), verify: str | None = Non
         update |= {"kind": "other", "test": None}
         if all(path.startswith("tests/") for path in changes):
             update["implementation"] = "Update `test_stage` for the changes."
-    elif PLAN_CHECK_FILE in changes:
+    elif any(
+        path
+        in (
+            "src/devops_cli/roadmap/stage/stage_eval_gates.py",
+            "src/devops_cli/roadmap/stage/stage_change.py",
+        )
+        for path in changes
+    ):
+        # A plan that changes a gate quotes the defect and fails on the base (#3386).
         # A plan that changes the plan check gives the test that accepts its own plan (#3404).
-        update["test"] = f"{base['test']}, and the plan's own {SELF_ACCEPTANCE}"
+        parts = [
+            base["test"],
+            "and that `src/devops_cli/sample.py` fails on the base",
+        ]
+        if PLAN_CHECK_FILE in changes:
+            parts.append(f"and the plan's own {SELF_ACCEPTANCE}")
+        update["test"] = ", ".join(parts)
     prompt_file = any(
         path.startswith("src/devops_cli/ai/tasks/roadmap_stage_") and path.endswith(".md")
         for path in changes

@@ -44,6 +44,7 @@ from devops_cli.roadmap.stage.stage import (
 )
 from devops_cli.roadmap.stage.stage_change import (
     CREATED_LINE_TOKENS,
+    StageDecision,
     StageGroup,
     StageProposal,
     StageSpec,
@@ -863,6 +864,148 @@ def test_a_task_that_names_a_message_passes_with_the_message_file() -> None:
     problems = content_problems(make_stage_proposal(groups=[group]))
 
     assert not any(MESSAGES_FILE in problem for problem in problems)
+
+
+GATE_EVAL_FILE = "src/devops_cli/roadmap/stage/stage_eval_gates.py"
+
+
+def test_a_gate_plan_without_a_defect_quote_is_refused() -> None:
+    group = (
+        make_stage_proposal()
+        .groups[0]
+        .model_copy(
+            update={
+                "changes": [GATE_EVAL_FILE],
+                "creates": [],
+                "creates_lines": {},
+                "test": "Write the test that asserts the new check refuses defective text and fails on the base.",
+            }
+        )
+    )
+    plan = make_stage_proposal(
+        feasibility=["The gate file exists in the repository."],
+        groups=[group],
+    )
+
+    problems = content_problems(plan)
+
+    assert len(problems) == 1
+    assert "Feasibility must quote the defective text" in problems[0]
+    assert GATE_EVAL_FILE in problems[0]
+
+
+def test_a_gate_plan_with_a_defect_quote_and_failing_test_passes() -> None:
+    group = (
+        make_stage_proposal()
+        .groups[0]
+        .model_copy(
+            update={
+                "changes": [GATE_EVAL_FILE],
+                "creates": [],
+                "creates_lines": {},
+                "test": "Write the test that asserts the check refuses `PLAN_SUMMARY_MAX_CHARS = 47` and fails on the base.",
+            }
+        )
+    )
+    plan = make_stage_proposal(
+        feasibility=["The check refuses the defective text `PLAN_SUMMARY_MAX_CHARS = 47`."],
+        groups=[group],
+    )
+
+    problems = content_problems(plan)
+
+    assert not any("defective text" in p or "fails on the base" in p for p in problems)
+
+
+def test_a_gate_plan_with_a_defect_quote_and_no_failing_test_is_refused() -> None:
+    group = (
+        make_stage_proposal()
+        .groups[0]
+        .model_copy(
+            update={
+                "changes": [GATE_EVAL_FILE],
+                "creates": [],
+                "creates_lines": {},
+                "test": "Write the test that asserts the check refuses `PLAN_SUMMARY_MAX_CHARS = 47`.",
+            }
+        )
+    )
+    plan = make_stage_proposal(
+        feasibility=["The check refuses the defective text `PLAN_SUMMARY_MAX_CHARS = 47`."],
+        groups=[group],
+    )
+
+    problems = content_problems(plan)
+
+    assert len(problems) == 1
+    assert "fails on the base" in problems[0]
+    assert GATE_EVAL_FILE in problems[0]
+
+
+def test_a_gate_plan_that_skips_a_case_without_a_non_goal_is_refused() -> None:
+    group = (
+        make_stage_proposal()
+        .groups[0]
+        .model_copy(
+            update={
+                "changes": [GATE_EVAL_FILE],
+                "creates": [],
+                "creates_lines": {},
+                "test": (
+                    "Write the test that asserts the check refuses `PLAN_SUMMARY_MAX_CHARS = 47` "
+                    "and fails on the base, and skips an undefined constant name."
+                ),
+            }
+        )
+    )
+    plan = make_stage_proposal(
+        feasibility=["The check refuses the defective text `PLAN_SUMMARY_MAX_CHARS = 47`."],
+        groups=[group],
+    )
+
+    problems = content_problems(plan)
+
+    assert any("non-goal" in p for p in problems)
+
+
+def test_a_gate_plan_that_skips_a_case_with_a_non_goal_passes() -> None:
+    group = (
+        make_stage_proposal()
+        .groups[0]
+        .model_copy(
+            update={
+                "changes": [GATE_EVAL_FILE],
+                "creates": [],
+                "creates_lines": {},
+                "test": (
+                    "Write the test that asserts the check refuses `PLAN_SUMMARY_MAX_CHARS = 47` "
+                    "and fails on the base, and skips an undefined constant name."
+                ),
+            }
+        )
+    )
+    plan = make_stage_proposal(
+        feasibility=["The check refuses the defective text `PLAN_SUMMARY_MAX_CHARS = 47`."],
+        decisions=[
+            StageDecision(
+                decision="Skip undefined constants",
+                reason="This is a non-goal for the initial check.",
+            )
+        ],
+        groups=[group],
+    )
+
+    problems = content_problems(plan)
+
+    assert not any("non-goal" in p for p in problems)
+
+
+def test_a_plan_with_no_gate_change_needs_no_gate_defect_quote() -> None:
+    problems = content_problems(make_stage_proposal())
+
+    assert not any(
+        "defective text" in p or "fails on the base" in p or "non-goal" in p for p in problems
+    )
 
 
 def test_an_existing_capability_takes_requirements_with_no_purpose() -> None:

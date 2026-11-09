@@ -23,7 +23,8 @@ def test_a_plan_that_changes_security_md_with_no_security_text_is_refused() -> N
             "creates_lines": {},
             "test": (
                 "Write a test that builds the plan's own `StageProposal` and asserts that "
-                "`content_problems` returns no problem for it"
+                "`content_problems` returns no problem for it, and that `src/devops_cli/sample.py` "
+                "fails on the base"
             ),
         }
     )

@@ -63,10 +63,14 @@ def test_a_path_that_no_commit_holds_is_a_problem_of_the_gate_paths() -> None:
 
 def test_a_stage_check_change_with_no_replay_task_is_a_problem_of_the_gate_eval_replay() -> None:
     group = make_stage_proposal().groups[0]
-    # The group holds its self-acceptance test (#3404), so the gate `content` finds nothing.
+    # The group holds its self-acceptance test (#3404) and gate defect quote (#3386),
+    # so the gate `content` finds nothing.
     update = {
         "changes": [*group.changes, STAGE_CHANGE],
-        "test": "Build a `StageProposal` and assert that `content_problems` finds no problem",
+        "test": (
+            "Build a `StageProposal` and assert that `content_problems` finds no problem, "
+            "and that `src/devops_cli/sample.py` fails on the base"
+        ),
     }
     plan = make_stage_proposal(groups=[group.model_copy(update=update)])
 

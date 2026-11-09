@@ -249,6 +249,14 @@ STAGE_EVAL_TRIGGER_PATHS: Final[tuple[str, ...]] = (
 STAGE_EVAL_REPLAY: Final[str] = "uv run devops roadmap eval stage --replay"
 # The words that show that the replay task states the score before and after the change.
 _STAGE_EVAL_SCORE_WORDS: Final[tuple[str, ...]] = ("score", "before", "after")
+# The gate files whose changes must quote the defect the gate refuses (#3386).
+GATE_DEFECT_PATHS: Final[tuple[str, ...]] = (
+    "src/devops_cli/roadmap/stage/stage_eval_gates.py",
+    "src/devops_cli/roadmap/stage/stage_change.py",
+)
+_FAILS_ON_BASE: Final[str] = "fails on the base"
+_SKIP_WORD: Final[re.Pattern[str]] = re.compile(r"\bskips?\b", re.IGNORECASE)
+_NON_GOAL: Final[str] = "non-goal"
 # The texts of a group that a task holds: the title and each part of the work.
 _GROUP_TASK_FIELDS: Final[tuple[str, ...]] = (
     "title",
@@ -1484,7 +1492,71 @@ def _runner_capability_problems(proposal: StageProposal) -> list[str]:
                             capability=prog,
                         )
                     )
+    return problems
 
+
+def _spec_has_non_goal(spec: StageSpec) -> bool:
+    """Whether `spec` mentions non-goal in its purpose, requirements or scenarios (#3386)."""
+    if spec.purpose and _NON_GOAL in spec.purpose.casefold():
+        return True
+    for req in (*spec.added, *spec.modified):
+        if _NON_GOAL in req.name.casefold() or _NON_GOAL in req.text.casefold():
+            return True
+        for sc in req.scenarios:
+            if (
+                _NON_GOAL in sc.name.casefold()
+                or _NON_GOAL in sc.when.casefold()
+                or _NON_GOAL in sc.then.casefold()
+            ):
+                return True
+    return False
+
+
+def _has_non_goal(proposal: StageProposal) -> bool:
+    """Whether `proposal` states a non-goal in decisions, rejected alternatives or specs (#3386)."""
+    for d in proposal.decisions:
+        if _NON_GOAL in d.decision.casefold() or _NON_GOAL in d.reason.casefold():
+            return True
+    for r in proposal.rejected:
+        if _NON_GOAL in r.alternative.casefold() or _NON_GOAL in r.evidence.casefold():
+            return True
+    return any(_spec_has_non_goal(spec) for spec in proposal.specs)
+
+
+def _gate_defect_problems(proposal: StageProposal) -> list[str]:
+    """What is wrong with a plan that changes a gate file (#3386): feasibility quotes no defective
+    text in a code span, no gate test task states that it fails on the base, or a test that skips a
+    case states no non-goal."""
+    gate_groups = [
+        group
+        for group in proposal.groups
+        if group.kind is GroupKind.BEHAVIOR
+        and any(path in GATE_DEFECT_PATHS for path in group.changes)
+    ]
+    if not gate_groups:
+        return []
+    gate_path = next(
+        path for group in gate_groups for path in group.changes if path in GATE_DEFECT_PATHS
+    )
+    texts = MESSAGES.roadmap
+    problems: list[str] = []
+    feasibility_spans = [span for line in proposal.feasibility for span in code_spans(line)]
+    if not feasibility_spans:
+        problems.append(texts.stage_problem_gate_defect_quote.format(path=gate_path))
+    else:
+        has_failing_test = any(
+            group.test is not None
+            and _FAILS_ON_BASE in group.test
+            and any(span in group.test for span in feasibility_spans)
+            for group in gate_groups
+        )
+        if not has_failing_test:
+            problems.append(texts.stage_problem_gate_defect_test.format(path=gate_path))
+    has_skip = any(
+        group.test is not None and _SKIP_WORD.search(group.test) for group in gate_groups
+    )
+    if has_skip and not _has_non_goal(proposal):
+        problems.append(texts.stage_problem_gate_non_goal)
     return problems
 
 
@@ -1497,8 +1569,10 @@ def content_problems(proposal: StageProposal, probes: Sequence[str] = ()) -> lis
     `existing_tool`, a plan that adds a rule of the plan check and gives no test that accepts
     its own plan (#3404), a plan that changes a planner prompt and cites no prompt-rule test
     (#3347), a test-only `other` group that names no test function (#3433), a plan that matches
-    a security trigger with no security text (#3247), and a plan that adds a command to the Job
-    or a verify program from NOT_IN_RUNNER with no runner capability in feasibility (#3258). The
+    a security trigger with no security text (#3247), a plan that adds a command to the Job
+    or a verify program from NOT_IN_RUNNER with no runner capability in feasibility (#3258),
+    and a plan that changes a gate file and quotes no defective text, tests no failure on the
+    base, or states no non-goal (#3386). The
     replay (`stage_eval_gates`) and the job both call this through `check_proposal`, so one rule
     set judges both."""
     texts = MESSAGES.roadmap
@@ -1510,6 +1584,7 @@ def content_problems(proposal: StageProposal, probes: Sequence[str] = ()) -> lis
     problems.extend(_test_only_group_problems(proposal))
     problems.extend(_security_problems(proposal))
     problems.extend(_runner_capability_problems(proposal))
+    problems.extend(_gate_defect_problems(proposal))
     lines = [_squash(line) for line in probes if line.strip()]
     if lines:
         feasibility = _squash(" ".join(proposal.feasibility))

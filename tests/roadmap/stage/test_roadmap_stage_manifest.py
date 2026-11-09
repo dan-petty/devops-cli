@@ -100,7 +100,7 @@ PLAN_OF_THIS_CHANGE: dict[str, Any] = {
     ],
     "skip_specs": False,
     "feasibility": [
-        "The schema and the form check hold the two kinds of today, so the new kind has a place.",
+        "The schema in `src/devops_cli/roadmap/stage/stage_change.py` and the form check hold the two kinds of today, so the new kind has a place.",
         "The plan of #3173 changes a promtool case with the kind other, so the replay pins the rule.",
     ],
     "existing_tool": "No open tool covers the form of the stage plan, so the change builds its own.",
@@ -137,7 +137,8 @@ PLAN_OF_THIS_CHANGE: dict[str, Any] = {
                 "Write `test_a_manifest_group_renders_its_case_first_and_then_its_work` in "
                 "`tests/roadmap/stage/test_roadmap_stage_manifest.py`, and "
                 "`test_the_plan_check_accepts_the_plan_of_this_change`, which builds the plan's "
-                "own `StageProposal` and asserts that `content_problems` returns no problem for it"
+                "own `StageProposal` and asserts that `content_problems` returns no problem for it, "
+                "and verify that `src/devops_cli/roadmap/stage/stage_change.py` fails on the base"
             ),
             "implementation": (
                 "Add `MANIFEST` to `GroupKind` and `_manifest_problems`, and render the case of a "

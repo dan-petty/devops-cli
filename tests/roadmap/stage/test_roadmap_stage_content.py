@@ -38,7 +38,7 @@ MESSAGES_FILE = "src/devops_cli/lang/en/messages.py"
 PLAN_CHECK_FILE = "src/devops_cli/roadmap/stage/stage_change.py"
 SELF_ACCEPTANCE_TEST = (
     "Write a test that builds the plan's own `StageProposal` and asserts that `content_problems` "
-    "returns no problem for it"
+    "returns no problem for it, and verify that `src/devops_cli/sample.py` fails on the base"
 )
 DEPENDENCY_ENTRY = "#3201: the check command"
 LIVING_SPEC = "openspec/specs/roadmap-stage/spec.md"
@@ -840,7 +840,8 @@ def test_content_problems_accepts_this_plans_own_proposal() -> None:
             "verify": "uv run devops ci test tests/roadmap/stage/test_roadmap_stage_content.py",
             "test": (
                 "Write a test that builds this plan's own `StageProposal` and asserts that "
-                "`content_problems` returns no problem for it"
+                "`content_problems` returns no problem for it, and that `src/devops_cli/sample.py` "
+                "fails on the base"
             ),
         }
     )
