@@ -70,7 +70,7 @@ def test_uv_audit_audits_the_lockfile_as_it_is_and_reads_each_finding_of_its_rep
     project = tmp_path.resolve()
     scanner_fake.script("uv", ToolAnswer(exit_code=1, stdout=json.dumps(_REPORT)))
 
-    outcome = run_uv_audit_scan(project)
+    outcome = run_uv_audit_scan(project, workspace=project)
 
     supply_chain = DefectClass.SUPPLY_CHAIN.value
     assert (scanner_fake.runs, outcome) == (
@@ -125,7 +125,7 @@ def test_uv_audit_that_finds_nothing_is_a_clean_scan(
     clean = {**_REPORT, "vulnerabilities": [], "adverse_statuses": []}
     scanner_fake.script("uv", ToolAnswer(stdout=json.dumps(clean)))
 
-    assert run_uv_audit_scan(tmp_path) == ScanOutcome("ran", [])
+    assert run_uv_audit_scan(tmp_path, workspace=tmp_path) == ScanOutcome("ran", [])
 
 
 @pytest.mark.parametrize(
@@ -142,13 +142,63 @@ def test_uv_audit_of_a_path_that_is_not_a_directory_gives_no_result(
     scanner_fake.script("uv", ToolAnswer(stdout=json.dumps(_REPORT)))
     path = project / target
 
-    assert (run_uv_audit_scan(path), scanner_fake.runs) == (
+    assert (run_uv_audit_scan(path, workspace=project), scanner_fake.runs) == (
         ScanOutcome(
             "not_applicable",
             [],
             f"{path} is not a directory. uv audit audits the project of a directory.",
         ),
         [],
+    )
+
+
+def test_uv_audit_of_a_project_outside_the_workspace_gives_no_result(
+    scanner_fake: ScannerFake, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The workspace is a subdirectory of a uv project. uv finds the project in the parent of the
+    workspace, so the scan refuses it and gives no result, naming the project; it never audits the
+    lockfile of the other project (#2440)."""
+    project = (tmp_path / "proj").resolve()
+    workspace = project / "sub"
+    workspace.mkdir(parents=True)
+    (project / "pyproject.toml").write_text(
+        '[project]\nname = "example"\nversion = "0.1.0"\n', encoding="utf-8"
+    )
+    monkeypatch.chdir(workspace)
+    scanner_fake.script_probe(str(project))
+
+    assert (run_uv_audit_scan(workspace, workspace=workspace), scanner_fake.runs) == (
+        ScanOutcome(
+            "not_applicable",
+            [],
+            "uv audit would audit the project at "
+            f"{project}, which lies outside the workspace. "
+            "The scan audits only the project of the workspace.",
+        ),
+        [],
+    )
+
+
+def test_uv_audit_of_a_project_in_the_workspace_runs_the_audit(
+    scanner_fake: ScannerFake, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The project is in the workspace, so the boundary check passes and the scan audits it,
+    giving the findings of its report; the check refuses only a project outside the workspace
+    (#2440)."""
+    project = tmp_path.resolve()
+    (project / "pyproject.toml").write_text(
+        '[project]\nname = "example"\nversion = "0.1.0"\n', encoding="utf-8"
+    )
+    monkeypatch.chdir(project)
+    scanner_fake.script_probe(str(project))
+    scanner_fake.script("uv", ToolAnswer(exit_code=1, stdout=json.dumps(_REPORT)))
+
+    outcome = run_uv_audit_scan(project, workspace=project)
+
+    assert (outcome.status, len(outcome.findings), [run.argv for run in scanner_fake.runs]) == (
+        "ran",
+        4,
+        [_UV_AUDIT],
     )
 
 
@@ -163,7 +213,7 @@ def test_uv_audit_with_no_lockfile_is_a_failed_scan_that_names_the_cause(
     )
     scanner_fake.script("uv", ToolAnswer(exit_code=1, stderr=f"{missing}\n"))
 
-    assert run_uv_audit_scan(tmp_path) == ScanOutcome(
+    assert run_uv_audit_scan(tmp_path, workspace=tmp_path) == ScanOutcome(
         "failed", [], f"Scanner exited with code 1: {missing}"
     )
 
@@ -177,7 +227,7 @@ def test_a_uv_audit_report_of_another_layout_is_a_failed_scan_and_not_a_clean_on
     other_layout = {"schema": {"version": "preview"}, "tools": []}
     scanner_fake.script("uv", ToolAnswer(stdout=json.dumps(other_layout)))
 
-    outcome = run_uv_audit_scan(tmp_path)
+    outcome = run_uv_audit_scan(tmp_path, workspace=tmp_path)
 
     assert (outcome.status, outcome.findings, outcome.reason.startswith(_INVALID_REPORT)) == (
         "failed",

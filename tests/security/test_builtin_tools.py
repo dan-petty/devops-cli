@@ -696,6 +696,33 @@ def test_the_agent_uv_audit_tool_runs_the_uv_audit_adapter_over_the_directory(
     )
 
 
+def test_the_agent_uv_audit_tool_of_a_project_outside_the_workspace_gives_no_result(
+    scanner_fake: ScannerFake, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The workspace is a subdirectory of a uv project. The tool refuses the project outside the
+    workspace and gives no result, naming the project, so it never reads the lockfile of another
+    project as the audit of the workspace (#2440)."""
+    project = (tmp_path / "proj").resolve()
+    workspace = project / "sub"
+    workspace.mkdir(parents=True)
+    (project / "pyproject.toml").write_text(
+        '[project]\nname = "example"\nversion = "0.1.0"\n', encoding="utf-8"
+    )
+    monkeypatch.chdir(workspace)
+    scanner_fake.script_probe(str(project))
+
+    reply = scan_uv_audit(".")
+
+    assert (reply, scanner_fake.runs) == (
+        "uv audit scan status: not_applicable\n"
+        "Reason: uv audit would audit the project at "
+        f"{project}, which lies outside the workspace. "
+        "The scan audits only the project of the workspace.\n"
+        "The scan gave no result. Do not report the target as clean.",
+        [],
+    )
+
+
 def test_the_agent_uv_audit_tool_over_a_directory_that_does_not_exist_gives_no_result(
     scanner_fake: ScannerFake, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

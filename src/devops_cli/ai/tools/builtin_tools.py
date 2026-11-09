@@ -323,7 +323,12 @@ def scan_uv_audit(directory: str = ".") -> str:
     """Audit the packages that the uv.lock of a project pins, as it is, for known vulnerabilities and adverse project statuses, with uv audit."""
     from devops_cli.security.uv_audit import run_uv_audit_scan
 
-    return _run_adapter_scan("uv audit", directory, run_uv_audit_scan)
+    workspace = Path.cwd()
+    return _run_adapter_scan(
+        "uv audit",
+        directory,
+        lambda target_path: run_uv_audit_scan(target_path, workspace=workspace),
+    )
 
 
 def scan_kubelinter(target: str = ".") -> str:

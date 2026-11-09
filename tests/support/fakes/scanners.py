@@ -76,7 +76,7 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
-from tests.support.fakes.tool_executor import ToolAnswer, ToolExecutorFake
+from tests.support.fakes.tool_executor import FAKE_EXECUTOR, ToolAnswer, ToolExecutorFake
 
 if TYPE_CHECKING:
     from devops_cli.security.tool_executor import ToolRequest, ToolResult
@@ -164,6 +164,13 @@ class ScannerFake(ToolExecutorFake):
         self.runs: list[ScannerRun] = []
         self.snapshot_workdirs = False
         self.canaries = recorded_canary_answers()
+        # The answer of a probe that a scanner makes before it scans, such as `uv workspace dir`,
+        # which a scanner answers to learn its target. By default it finds no project, as uv does
+        # when it walks past the workspace, so a scan that names no project falls through to the
+        # audit (#2440).
+        self._probe = ToolAnswer(
+            exit_code=2, stderr="No `pyproject.toml` found in current directory"
+        )
         bin_dir.mkdir(parents=True, exist_ok=True)
         for program, run in recorded.items():
             self.script(
@@ -224,17 +231,68 @@ class ScannerFake(ToolExecutorFake):
         self.script(tool, ToolAnswer())
         super().fail(tool, error)
 
+    def script_probe(self, project_root: str | None) -> None:
+        """Answer the `uv workspace dir` probe of a scanner with `project_root`, the directory of
+        the project it names, or None when it finds no project (#2440). The probe is a read of the
+        target, not a scan, so it never appears in `runs`. The stand-in for `uv` goes on PATH and
+        `uv` is named in `programs`, so the probe is faked, without changing the answer of the
+        audit the scanner runs after it."""
+        stand_in = self.bin_dir / "uv"
+        if not stand_in.exists():
+            stand_in.write_text(_STAND_IN, encoding="utf-8")
+            stand_in.chmod(0o755)
+        self.programs.add("uv")
+        if project_root is None:
+            self._probe = ToolAnswer(
+                exit_code=2, stderr="No `pyproject.toml` found in current directory"
+            )
+        else:
+            self._probe = ToolAnswer(exit_code=0, stdout=project_root)
+
     def _workdir_files(self, cwd: Path) -> dict[str, bytes]:
         """The name and bytes of each file in `cwd`, when the fake snapshots working directories."""
         if not self.snapshot_workdirs:
             return {}
         return {path.name: path.read_bytes() for path in cwd.iterdir() if path.is_file()}
 
+    def _is_probe(self, request: ToolRequest) -> bool:
+        """Whether `request` is the `uv workspace dir` probe of a scanner, which the fake answers
+        with `_probe` and does not record (#2440)."""
+        return request.tool == "uv" and request.arguments[:2] == ("workspace", "dir")
+
+    def _probe_result(self, request: ToolRequest) -> ToolResult:
+        """The result of the `uv workspace dir` probe: `_probe`, with no run record, since a probe
+        is a read of the target, not a scan (#2440)."""
+        from devops_cli.security.tool_executor import ToolResult, ToolRun
+
+        run = ToolRun(
+            tool=request.tool,
+            version=self._probe.version,
+            binary_sha256=self._probe.binary_sha256,
+            executor=FAKE_EXECUTOR,
+            network="none",
+            config_digest="unavailable",
+            ruleset_digest="unavailable",
+            argv_template=(request.tool, *request.arguments),
+            targets_digest="unavailable",
+            commit=None,
+        )
+        return ToolResult(
+            run=run,
+            exit_code=self._probe.exit_code,
+            stdout=self._probe.stdout,
+            stderr=self._probe.stderr,
+            timed_out=self._probe.timed_out,
+        )
+
     def run(self, request: ToolRequest) -> ToolResult:
-        """Answer a canary run with the recorded canary answer. Keep the run of any other
-        `request`, then answer it with the answer of its tool."""
+        """Answer a canary run with the recorded canary answer. Answer the `uv workspace dir`
+        probe with `_probe`, without a record. Keep the run of any other `request`, then answer it
+        with the answer of its tool."""
         if is_canary_run(request):
             return self.canaries.run(request)
+        if self._is_probe(request):
+            return self._probe_result(request)
         cwd = request.cwd or request.workdir
         program = str(request.program) if request.program else request.tool
         self.runs.append(

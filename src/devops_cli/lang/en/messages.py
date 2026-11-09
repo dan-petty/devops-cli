@@ -1506,6 +1506,10 @@ class ScanMessages:
     uv_audit_not_a_directory: str = (
         "{target} is not a directory. uv audit audits the project of a directory."
     )
+    uv_audit_project_outside_workspace: str = (
+        "uv audit would audit the project at {project}, which lies outside the workspace. "
+        "The scan audits only the project of the workspace."
+    )
     kubeconform_not_applicable: str = "No Kubernetes manifest in the target"
     semgrep_executing: str = "Executing Semgrep AST scan on '{target}' (config: {config})..."
     semgrep_passed: str = "✓ No static AST pattern flaws detected."
