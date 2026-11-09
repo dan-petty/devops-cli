@@ -20,11 +20,25 @@ ENV TIKTOKEN_CACHE_DIR=/app/.cache/tiktoken
 RUN uv sync --locked --no-dev --no-editable && \
     /app/.venv/bin/python -c "import tiktoken; tiktoken.get_encoding('cl100k_base'); tiktoken.get_encoding('o200k_base')"
 
-ADD --checksum=sha256:77b9e297e94c50336823d0f84de7ef1be60cba704601fa0d98f129f47a94987b \
-    https://github.com/cli/cli/releases/download/v2.102.1/gh_2.102.1_linux_amd64.tar.gz /tmp/gh_amd64.tar.gz
-ADD --checksum=sha256:5019b3cc6e8a03bb4d88600f8dbda2add8e6407705c159b0c63151036e77a1af \
-    https://github.com/cli/cli/releases/download/v2.102.1/gh_2.102.1_linux_arm64.tar.gz /tmp/gh_arm64.tar.gz
-RUN tar -xzf "/tmp/gh_${TARGETARCH}.tar.gz" -C /tmp && \
+# gh, from its pinned release. BuildKit `ADD` of a URL has no retry option, so a 504 answer of GitHub
+# failed the build (#4223). The step fetches the tarball with `curl --retry` instead, and it checks
+# the pinned SHA-256 with `sha256sum`. curl stays in this stage only: the Service image does not
+# copy it.
+RUN apt-get update && apt-get install -y --no-install-recommends -o Acquire::Retries=5 \
+      ca-certificates curl && \
+    rm -rf /var/lib/apt/lists/* && \
+    case "${TARGETARCH}" in \
+      amd64) \
+        url="https://github.com/cli/cli/releases/download/v2.102.1/gh_2.102.1_linux_amd64.tar.gz"; \
+        sha=77b9e297e94c50336823d0f84de7ef1be60cba704601fa0d98f129f47a94987b ;; \
+      arm64) \
+        url="https://github.com/cli/cli/releases/download/v2.102.1/gh_2.102.1_linux_arm64.tar.gz"; \
+        sha=5019b3cc6e8a03bb4d88600f8dbda2add8e6407705c159b0c63151036e77a1af ;; \
+      *) echo "no gh build for ${TARGETARCH}" >&2; exit 1 ;; \
+    esac && \
+    curl -fsSL --retry 8 --retry-all-errors --retry-delay 2 -o /tmp/gh.tar.gz "$url" && \
+    echo "$sha  /tmp/gh.tar.gz" | sha256sum -c - && \
+    tar -xzf /tmp/gh.tar.gz -C /tmp && \
     install -m 755 "/tmp/gh_2.102.1_linux_${TARGETARCH}/bin/gh" /usr/local/bin/gh && \
     rm -rf /tmp/gh*
 

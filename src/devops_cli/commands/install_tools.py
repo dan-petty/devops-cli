@@ -96,6 +96,19 @@ def _require_https(request: httpx2.Request) -> None:
         )
 
 
+# The count of tries of a download. The waits between them add up to 123 seconds, so an outage of
+# GitHub that ends within two minutes needs no rerun of the check (#4223).
+_DOWNLOAD_RETRIES: Final[int] = 8
+
+_GZIP_MAGIC: Final[bytes] = b"\x1f\x8b"
+# The formats of the lock whose body must be the archive: the check for each one.
+_ARCHIVE_MAGIC: Final[dict[str, Callable[[bytes], bool]]] = {
+    "gzip": lambda data: data.startswith(_GZIP_MAGIC),
+    "tar.gz": lambda data: data.startswith(_GZIP_MAGIC),
+    "zip": lambda data: zipfile.is_zipfile(io.BytesIO(data)),
+}
+
+
 def _download_client() -> httpx2.Client:
     """A public-only client that follows redirects and refuses every hop that is not https.
 
@@ -106,14 +119,29 @@ def _download_client() -> httpx2.Client:
         EgressLevel.PUBLIC,
         follow_redirects=True,
         event_hooks={"request": [_require_https]},
+        retries=_DOWNLOAD_RETRIES,
     )
 
 
-def _download(url: str) -> bytes:
+def _download(url: str, archive_format: str = "binary") -> bytes:
+    """The body of `url`. For an archive format, refuse a body that is not that archive.
+
+    A proxy or an outage page can answer 200 with an HTML body. The checksum check would then
+    report a mismatch, which hides the cause, so the error here names the URL and the status.
+    """
     with _download_client() as c:
         r = c.get(url, timeout=DEFAULT_HTTP_TIMEOUT_SECONDS)
         r.raise_for_status()
-        return r.content
+    is_archive = _ARCHIVE_MAGIC.get(archive_format)
+    if is_archive is not None and not is_archive(r.content):
+        raise ToolDownloadError(
+            url,
+            reason=(
+                f"the body is not a {archive_format} archive "
+                f"(HTTP {r.status_code}, content-type {r.headers.get('content-type', 'none')})"
+            ),
+        )
+    return r.content
 
 
 def _verify_sha256(name: str, data: bytes, expected_hex: str) -> None:
@@ -213,9 +241,10 @@ def install_binary(name: str, entry: BinaryTool, target_dir: Path) -> None:
     if artifact is None:
         raise ToolExecutionError(f"tools.lock has no {_PLATFORM} build of {name}", tool_name=name)
     with _staged(tool_install_dir(name, entry.version)) as stage:
-        data = _download(artifact.url)
+        archive_format = entry.format_of(artifact)
+        data = _download(artifact.url, archive_format)
         _verify_sha256(name, data, artifact.sha256)
-        _UNPACKERS[entry.format_of(artifact)](data, artifact, stage / entry.bin)
+        _UNPACKERS[archive_format](data, artifact, stage / entry.bin)
     _link_commands(name, entry, target_dir)
 
 
