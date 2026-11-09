@@ -109,7 +109,7 @@ def test_set_marks_body_keeps_the_text_when_no_body_is_given(adapter: str) -> No
     )
 
 
-def test_set_marks_body_in_the_memory_store_writes_the_body_with_the_marks() -> None:
+def test_set_marks_body_in_memory_writes_the_body_with_the_marks() -> None:
     """The in-memory store carries a body with the marks in one write, as the GitHub store does,
     and keeps a job's entry for the body (#4049)."""
     memory = InMemoryRoadmapStore(repo=REPO)
