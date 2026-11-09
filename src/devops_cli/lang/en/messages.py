@@ -3266,8 +3266,21 @@ class RoadmapMessages:
         "{issues} creates it. The stage job returns this item to New. It plans no change until "
         "each of {issues} closes."
     )
-    stage_heading_returned: str = "## Returned to New, with a dependency"
+    stage_heading_returned: str = "## Returned to New"
     stage_returned_line: str = "- #{number} {title}: waits for {issues}."
+    stage_returned_premise: str = (
+        "The body of this item says that a class field is absent, and the staging commit "
+        "defines it: {evidence} The stage job returns this item to New and plans no change. A "
+        "body edit brings it back to refinement."
+    )
+    stage_returned_premise_line: str = (
+        "- #{number} {title}: the body states that a class field is absent that the staging "
+        "commit defines."
+    )
+    stage_left_premise: str = (
+        "The body of the item says that a class field is absent, and the staging commit "
+        "defines it: {evidence}"
+    )
     stage_left_title_type: str = (
         "The title has no Conventional Commit type, so the branch has no type."
     )
@@ -3438,6 +3451,8 @@ class RoadmapMessages:
     stage_probe_removed: str = "Commit {commit} deleted or renamed it."
     stage_probe_path_never: str = "No commit in the history deleted or renamed it."
     stage_probe_defined: str = "`{name}` is defined at {where}"
+    stage_probe_field_defined: str = "`{class_}` defines the field `{field}` at {where}"
+    stage_probe_field_missing: str = "`{class_}` defines no field `{field}` in `{module}`."
     stage_probe_undefined: str = "`{name}` has no definition at the staging commit. {removal}"
     stage_probe_touched: str = "Commit {commit} last added or removed its text."
     stage_probe_name_never: str = "No commit in the history added or removed its text."

@@ -764,6 +764,16 @@ class Blocked:
 
 
 @dataclass(frozen=True)
+class FalsePremise:
+    """An item whose body says that a class field is absent while the staging commit defines it
+    (#3406). The job returns it to New with the probe `evidence` as its comment, records a body
+    edit as the next step, and plans no change for it."""
+
+    target: StageTarget
+    evidence: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class StageFailure:
     """An item the job could not plan or write: the class of the error and why, never the model's
     text. `item` is the item itself, when the job read it, so that the job records the failure in
@@ -846,6 +856,7 @@ class StagePlan:
     planned: PlannedChanges | None = None
     unmatched: tuple[LeftOut, ...] = ()
     blocked: tuple[Blocked, ...] = ()
+    premise: tuple[FalsePremise, ...] = ()
     rejections: tuple[Rejection, ...] = ()
 
 
@@ -972,20 +983,26 @@ class _Planner:
         # The reason of a rejected plan, by issue number, for the request (#3503).
         self._rejected = rejected or {}
         self._dependency: Blocked | None = None
+        # The false premise that the probe of the item in hand found, which the run returns
+        # without a model call (#3406).
+        self._premise: FalsePremise | None = None
         # The number of GraphQL requests that read the open pull requests of the item in hand.
         self._pull_requests = 0
 
-    def plan(self, target: StageTarget) -> StagedChange | OverBudget | Blocked:
+    def plan(self, target: StageTarget) -> StagedChange | OverBudget | Blocked | FalsePremise:
         """The change of `target`, or the group that stops it. A reply the checks refuse goes back
         to the model once, with the problem. The model splits the groups at most once. With a
         verifier, the model review of the plan (#3153) follows the checks and may return the plan
         up to `CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS` times (#3039). So an item costs three
         planner calls at most without a verifier, five with one, and three calls of the verifier."""
         self._split_asked = False
+        self._premise = None
         self._traces.clear()
         kept, key = self._kept(target)
         if kept is None:
             request = self._request(target)
+            if self._premise is not None:
+                return self._premise
             if self._dependency is not None:
                 return self._dependency
         else:
@@ -1157,6 +1174,7 @@ class _Planner:
             context = f"{context}\n\n{facts_context}"
         pulls, senders = self._read_overlaps(item.body)
         probe = probe_premise(self._source, self._sha, item.body)
+        self._premise = _false_premise(target, probe.false_premises)
         self._dependency = self._dependency_of(target, probe.missing)
         return StageRequest(
             number=item.number,
@@ -1489,15 +1507,18 @@ def _failure_of(
 
 def _plan_each(
     planner: _Planner, targets: Iterable[StageTarget], writer: StageWriter | None = None
-) -> tuple[list[StagedChange], list[OverBudget], list[StageFailure], list[Blocked]]:
+) -> tuple[
+    list[StagedChange], list[OverBudget], list[StageFailure], list[Blocked], list[FalsePremise]
+]:
     """Plan each target in order. With a `writer`, the result of a target is written as soon as the
     target is done, before the next target is planned (#4034)."""
     ready: list[StagedChange] = []
     stopped: list[OverBudget] = []
     failed: list[StageFailure] = []
     blocked: list[Blocked] = []
+    premise: list[FalsePremise] = []
     for target in targets:
-        result: StagedChange | OverBudget | Blocked | StageFailure
+        result: StagedChange | OverBudget | Blocked | FalsePremise | StageFailure
         try:
             result = planner.plan(target)
         except AICredentialsError:
@@ -1512,9 +1533,11 @@ def _plan_each(
             stopped.append(result)
         elif isinstance(result, Blocked):
             blocked.append(result)
+        elif isinstance(result, FalsePremise):
+            premise.append(result)
         else:
             ready.append(result)
-    return ready, stopped, failed, blocked
+    return ready, stopped, failed, blocked, premise
 
 
 def _pull_of(item: Item) -> int | None:
@@ -1779,13 +1802,14 @@ def plan_stage(
                 **reasons_of(store, (target.item for target in selection.selected)),
             },
         )
-        ready, stopped, failed, blocked = _plan_each(planner, selection.selected, writer)
+        ready, stopped, failed, blocked, premise = _plan_each(planner, selection.selected, writer)
     return replace(
         plan,
         ready=tuple(ready),
         over_budget=tuple(stopped),
         failed=(*plan.failed, *failed),
         blocked=tuple(blocked),
+        premise=tuple(premise),
     )
 
 
@@ -1878,6 +1902,9 @@ def plan_item(
     if isinstance(outcome, Blocked):
         issues = ", ".join(f"#{number}" for number in outcome.blockers)
         raise _stage_error(MESSAGES.roadmap.stage_left_blocked.format(issues=issues), target)
+    if isinstance(outcome, FalsePremise):
+        evidence = " ".join(outcome.evidence)
+        raise _stage_error(MESSAGES.roadmap.stage_left_premise.format(evidence=evidence), target)
     return outcome
 
 
@@ -2328,6 +2355,31 @@ def _return_blocked(store: RoadmapStore, blocked: Blocked) -> None:
     store.set_field(item, ItemField.STATUS, CONST_ROADMAP_STATUS_NEW, marks=marks)
 
 
+def _false_premise(target: StageTarget, evidence: tuple[str, ...]) -> FalsePremise | None:
+    """The false premise of `target` for the probe `evidence`, or None when the probe found none
+    (#3406)."""
+    return FalsePremise(target, evidence) if evidence else None
+
+
+def _return_premise(store: RoadmapStore, premise: FalsePremise) -> None:
+    """Return the item to New with the probe evidence in a comment, and record a body edit as the
+    next step (#3406). The body says that a class field is absent, and the staging commit defines
+    it, so the body must change before refine plans the item again."""
+    texts = MESSAGES.roadmap
+    item = premise.target.item
+    store.comment(
+        item.number,
+        f"{CONST_ROADMAP_STAGE_COMMENT_MARKER}\n\n"
+        f"{texts.stage_returned_premise.format(evidence=' '.join(premise.evidence))}",
+    )
+    store.set_field(
+        item,
+        ItemField.STATUS,
+        CONST_ROADMAP_STATUS_NEW,
+        marks={RefineRecordKey.NEXT_STEP: NextStep.EDIT.value},
+    )
+
+
 def _record_failures(store: RoadmapStore, failures: Sequence[StageFailure], now: datetime) -> None:
     """Record each failure in the job record of its item: the time, the type of the error (#3493),
     the step and the failure class (#4056), in one write. The item waits for the wait of its class, and the job goes on with the others. A
@@ -2425,16 +2477,20 @@ class StageWriter:
         _remove_staged(self._store, repo, self._source, removal)
 
     def settle(
-        self, target: StageTarget, result: StagedChange | OverBudget | Blocked | StageFailure
+        self,
+        target: StageTarget,
+        result: StagedChange | OverBudget | Blocked | FalsePremise | StageFailure,
     ) -> None:
         """Write the result of one selected item: its rejection, if a person rejected its plan,
         then the branch and the draft pull request of a change, the stop on the budget, the return
-        for open blockers, or the record of a failure."""
+        for open blockers, the return for a false premise, or the record of a failure."""
         with self._recording((result,) if isinstance(result, StageFailure) else ()):
             self._settle(target.item, result)
 
     def _settle(
-        self, item: Item, result: StagedChange | OverBudget | Blocked | StageFailure
+        self,
+        item: Item,
+        result: StagedChange | OverBudget | Blocked | FalsePremise | StageFailure,
     ) -> None:
         store, source = self._store, self._source
         if (rejection := self._rejections.pop(item.number, None)) is not None:
@@ -2453,6 +2509,10 @@ class StageWriter:
         elif isinstance(result, Blocked):
             write_each(
                 [(item, partial(_return_blocked, store, result))], self._returned, self._failed
+            )
+        elif isinstance(result, FalsePremise):
+            write_each(
+                [(item, partial(_return_premise, store, result))], self._returned, self._failed
             )
 
     def _stage(self, change: StagedChange) -> None:
@@ -2603,6 +2663,12 @@ def render_stage_plan(plan: StagePlan) -> str:
             issues=", ".join(f"#{number}" for number in b.blockers),
         )
         for b in plan.blocked
+    ]
+    returned += [
+        texts.stage_returned_premise_line.format(
+            number=p.target.item.number, title=p.target.item.title
+        )
+        for p in plan.premise
     ]
     lines += _section(texts.stage_heading_returned, returned)
     lines += _section(texts.stage_heading_rejected, rejected)
