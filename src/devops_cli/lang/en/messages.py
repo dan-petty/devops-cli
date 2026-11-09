@@ -3664,6 +3664,21 @@ class RoadmapMessages:
         "that builds the plan's own `StageProposal` and asserts that `content_problems` returns "
         "no problem for it, because the rule that the plan adds judges the plan itself."
     )
+    # A plan that adds or changes a gate quotes the defect the gate refuses (#3386).
+    stage_problem_gate_defect_quote: str = (
+        "A group changes `{path}`, and feasibility quotes no defective text in a code span. "
+        "Feasibility must quote the defective text that the gate refuses in a code span."
+    )
+    # A plan that adds or changes a gate tests that the check fails on the base (#3386).
+    stage_problem_gate_defect_test: str = (
+        "A group changes `{path}`, and the test task does not state that it fails on the base. "
+        "The test task must quote the defective text and state that it fails on the base."
+    )
+    # A plan whose gate test skips a case states the non-goal (#3386).
+    stage_problem_gate_non_goal: str = (
+        "A gate test skips a case, and the plan does not state a non-goal. "
+        "The plan must state the skipped case as a non-goal in the decisions, rejected alternatives or spec delta."
+    )
     # A plan that changes a planner prompt lists and verifies the prompt-rule test (#3347).
     stage_problem_prompt_rule: str = (
         "A group changes `{path}`, and does not list `{test}` in `reads` or `changes` or verify it. "

@@ -159,7 +159,7 @@ PLAN_OF_THIS_CHANGE: dict[str, Any] = {
                 "In `tests/roadmap/stage/test_roadmap_stage_self_acceptance.py`, write "
                 "`test_this_plan_passes_the_content_gate` first: it builds the `StageProposal` of "
                 "this plan with its four groups, calls `content_problems` and asserts that it gives "
-                "no problem"
+                "no problem, and that `k8s/logging/networkpolicy.yaml` fails on the base"
             ),
             "implementation": (
                 "Add the keyword `manifest_references` to `gate_arguments` in "
