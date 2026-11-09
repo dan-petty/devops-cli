@@ -130,8 +130,8 @@ data:
       alternatives:
         limit: 5
         first_pass_limit: 20
-      # One tier for every step class of the implement job (#3573): a step has no weaker or
-      # stronger tier to move to, so a failure that selects `change_tier` ends the step.
+      # Two hosted tiers for every step class of the implement job (#3573): a step starts on
+      # DeepSeek and moves to Claude Sonnet when a failure selects `change_tier`.
       implement:
         # The effort values of the passes of the job (#3385): the job takes a low-effort item, and a
         # medium-effort item only when no low-effort item is selectable.
@@ -139,5 +139,5 @@ data:
           - low
           - medium
         ladder:
-          edit: [deepseek-v4.1-flash-1017]
-          repair: [deepseek-v4.1-flash-1017]
+          edit: [deepseek-v4.1-flash-1017, claude-sonnet-5-5]
+          repair: [deepseek-v4.1-flash-1017, claude-sonnet-5-5]

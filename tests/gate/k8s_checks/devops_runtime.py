@@ -81,5 +81,6 @@ def check_both_workloads_run_the_digest_image_updater_sets_and_pull_it_only_when
     assert containers == {
         ("CronJob", "devops-cli", f"{service}:latest@{digest}", "IfNotPresent"),
         ("CronJob", "runner", "ghcr.io/dan-petty/devops-cli/runner", "IfNotPresent"),
+        ("Deployment", "mcp-server", "ghcr.io/dan-petty/devops-cli/mcp-server", "IfNotPresent"),
         ("Deployment", "service", f"{service}:latest@{digest}", "IfNotPresent"),
     }

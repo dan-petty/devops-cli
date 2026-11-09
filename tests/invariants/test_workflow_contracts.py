@@ -1180,6 +1180,7 @@ def test_copilot_setup_steps_installs_the_pinned_openspec_with_the_opt_outs() ->
             "DO_NOT_TRACK": "1",
             "OPENSPEC_TELEMETRY": "0",
             "OPENSPEC_NO_UPDATE_CHECK": "1",
+            "PYDANTIC_AI_NO_BANNER": "1",
             "UV_MANAGED_PYTHON": "1",
         },
         {"contents": "read"},
@@ -1188,6 +1189,10 @@ def test_copilot_setup_steps_installs_the_pinned_openspec_with_the_opt_outs() ->
         [
             'echo "$HOME/.local/bin" >> "$GITHUB_PATH"',
             "uv run devops install-tools --tool openspec --only-missing",
+            "uv run devops install-tools --tool gitleaks --only-missing",
+            "uv run devops install-tools --tool osv-scanner --only-missing",
+            "uv run devops install-tools --tool semgrep --only-missing",
+            "uv run devops install-tools --tool tuicr --only-missing",
         ],
     )
     code = "\n".join(

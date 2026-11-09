@@ -21,6 +21,7 @@ from devops_cli.config import os_keyring
 from devops_cli.config.constants import (
     CONST_AGENTS_MD_FILENAME,
     CONST_CLAUDE_MCP_JSON_NAME,
+    CONST_CLAUDE_SETTINGS_PATH,
     CONST_DEVCONTAINER_DIR_NAME,
     CONST_DEVCONTAINER_IMAGE_PREFIX,
     CONST_DEVCONTAINER_JSON_NAME,
@@ -200,6 +201,14 @@ def init(
             render_json_template("claude_mcp.json.j2", project_name=name),
         )
         print_success(MESSAGES.devcontainer.created_file.format(path=claude_mcp_file))
+
+    claude_settings_file = repo_path / CONST_CLAUDE_SETTINGS_PATH
+    if not claude_settings_file.exists() or force:
+        write_text_file(
+            claude_settings_file,
+            render_json_template("claude_settings.json.j2", project_name=name),
+        )
+        print_success(MESSAGES.devcontainer.created_file.format(path=claude_settings_file))
 
     # Kilo Code reads `AGENTS.md` itself, but its MCP servers come from `kilo.jsonc`, which
     # names the command as one array and the variables as `environment`.
@@ -649,6 +658,7 @@ def _sync_mcp_configuration(workspace_dir: Path, *, dry_run: bool = False) -> li
 
     for client, filename, template in (
         ("Claude", CONST_CLAUDE_MCP_JSON_NAME, "claude_mcp.json.j2"),
+        ("Claude settings", CONST_CLAUDE_SETTINGS_PATH, "claude_settings.json.j2"),
         ("Kilo Code", CONST_KILO_CONFIG_NAME, "kilo_mcp.json.j2"),
     ):
         client_file = workspace_dir / filename

@@ -18,8 +18,13 @@ from devops_cli.config.constants import (
     CONST_AI_GATEWAY_DEFAULT_ROUTE,
     CONST_AI_GATEWAY_PROVIDER,
     CONST_AI_GATEWAY_URL_SETTINGS,
+    CONST_AI_JEV_DEFAULT_BOOLEAN_THRESHOLD,
+    CONST_AI_JEV_DEFAULT_ROUTE_THRESHOLD,
+    CONST_AI_JEV_MODEL,
+    CONST_AI_JEV_SYSTEM_ONE_PREFIXES,
     CONST_AI_PYDANTIC_MODEL_PREFIXES,
     CONST_URL_GITHUB_COPILOT_API_BASE,
+    CONST_URL_TYPESAFE_API_BASE,
 )
 from devops_cli.config.settings import AIConfig, Settings, get_ai_api_key, load_settings
 from devops_cli.exceptions import ConfigurationError
@@ -27,12 +32,21 @@ from devops_cli.exceptions import ConfigurationError
 logger = logging.getLogger(__name__)
 
 _CLAUDE_GROUP_NAME_PREFIX = "openai-chat:claude-"
+_JEV_MODEL_TARGETS = ("typesafe/jev-", "jev-")
 
 
 def _gateway_prefix(model_str: str) -> str | None:
     """The gateway (`litellm` or `portkey`) a model name's prefix names, or None."""
     prefix, sep, _ = model_str.partition(":")
     return prefix if sep and prefix in CONST_AI_GATEWAY_URL_SETTINGS else None
+
+
+def _is_jev_model_str(model_str: str) -> bool:
+    """Whether a raw model string names a TypeSafe Jev or System One model."""
+    prefix, sep, target = model_str.partition(":")
+    if sep:
+        return prefix in CONST_AI_JEV_SYSTEM_ONE_PREFIXES or target.startswith(_JEV_MODEL_TARGETS)
+    return model_str.startswith(_JEV_MODEL_TARGETS)
 
 
 def _model_prefix_and_target(model_str: str, ai_cfg: AIConfig) -> tuple[str, str]:
@@ -53,6 +67,8 @@ def _model_prefix_and_target(model_str: str, ai_cfg: AIConfig) -> tuple[str, str
         return ai_cfg.gateway_provider, model_str
     if sep and is_pydantic_ai_provider(prefix):
         return prefix, target
+    if model_str.startswith(_JEV_MODEL_TARGETS) and ai_cfg.provider == "ollama":
+        return ai_cfg.gateway_provider, model_str
     return CONST_AI_PYDANTIC_MODEL_PREFIXES.get(ai_cfg.provider, ""), model_str
 
 
@@ -76,8 +92,11 @@ def _resolve_remote_provider_endpoint(
             )
         return f"openai-chat:{target}", gateway_url
     copilot_base = CONST_URL_GITHUB_COPILOT_API_BASE if ai_cfg.provider == "copilot" else None
+    typesafe_base = (
+        CONST_URL_TYPESAFE_API_BASE if prefix in CONST_AI_JEV_SYSTEM_ONE_PREFIXES else None
+    )
     name = f"{prefix}:{target}" if prefix else target
-    return name, ai_cfg.api_base_url or copilot_base
+    return name, ai_cfg.api_base_url or copilot_base or typesafe_base
 
 
 def _claude_group_model(name: str, provider_factory: Any) -> Any:
@@ -102,6 +121,27 @@ def _claude_group_model(name: str, provider_factory: Any) -> Any:
         settings=ModelSettings(
             max_tokens=CONST_AI_CLAUDE_GROUP_MAX_OUTPUT_TOKENS, parallel_tool_calls=False
         ),
+    )
+
+
+def _is_jev_decision_name(name: str) -> bool:
+    """Whether `name` names a TypeSafe Jev or System One decision model."""
+    prefix, sep, target = name.partition(":")
+    if not sep:
+        return False
+    return prefix in CONST_AI_JEV_SYSTEM_ONE_PREFIXES or target.startswith(_JEV_MODEL_TARGETS)
+
+
+def _jev_decision_model(name: str, provider_factory: Any) -> Any:
+    """The System One decision model for TypeSafe Jev (`typesafe/jev-1.14`), with its profile."""
+    from pydantic_ai.models.system_one import SystemOneModel
+    from pydantic_ai.profiles.typesafe import typesafe_model_profile
+
+    _, _, target = name.partition(":")
+    return SystemOneModel(
+        target,
+        provider=provider_factory("system-one"),
+        profile=typesafe_model_profile(target),
     )
 
 
@@ -135,7 +175,9 @@ def _resolve_remote_inferred_model(model_str: str, active_settings: Settings) ->
         )
 
     try:
-        if to_gateway and name.startswith(_CLAUDE_GROUP_NAME_PREFIX):
+        if _is_jev_decision_name(name):
+            model_obj = _jev_decision_model(name, _provider_factory)
+        elif to_gateway and name.startswith(_CLAUDE_GROUP_NAME_PREFIX):
             model_obj = _claude_group_model(name, _provider_factory)
         else:
             model_obj = infer_model(name, provider_factory=_provider_factory)
@@ -177,8 +219,10 @@ def _resolve_ollama_model(model_str: str, active_settings: Settings) -> Any:
 def _resolve_string_model(model_str: str, active_settings: Settings) -> Any:
     """Resolve a model name: a gateway-prefixed one at its gateway under any provider, an
     `ollama:` one or any other under provider `ollama` on Ollama, the rest remotely."""
-    if not _gateway_prefix(model_str) and (
-        model_str.startswith("ollama:") or active_settings.ai.provider == "ollama"
+    if (
+        not _gateway_prefix(model_str)
+        and not _is_jev_model_str(model_str)
+        and (model_str.startswith("ollama:") or active_settings.ai.provider == "ollama")
     ):
         return _resolve_ollama_model(model_str, active_settings)
     return _resolve_remote_inferred_model(model_str, active_settings)
@@ -196,8 +240,8 @@ def resolve_pydantic_ai_model(
 ) -> Any:
     """Resolve and configure native PydanticAI Model instance.
 
-    Supports OllamaProvider with dynamic cluster URLs, fallback cascade models, and
-    automatic model inference across providers.
+    Supports OllamaProvider with dynamic cluster URLs, fallback cascade models, Jev auto tool-call
+    models (`auto` or `auto:<fallback_model>`), and automatic model inference across providers.
     """
     if model is None:
         return None
@@ -212,7 +256,21 @@ def resolve_pydantic_ai_model(
         return _wrap_model_concurrency(model, model_concurrency)
 
     active_settings = settings or load_settings()
-    resolved = _resolve_string_model(model.strip(), active_settings)
+    cleaned = model.strip()
+    if cleaned == "auto" or cleaned.startswith("auto:"):
+        fallback_target = (
+            cleaned.split(":", 1)[1].strip()
+            if cleaned.startswith("auto:")
+            else active_settings.ai.model
+        )
+        if not fallback_target or fallback_target == "auto" or _is_jev_model_str(fallback_target):
+            fallback_target = CONST_AI_GATEWAY_DEFAULT_ROUTE
+        return build_auto_tool_model(
+            fallback_target,
+            settings=active_settings,
+            model_concurrency=model_concurrency,
+        )
+    resolved = _resolve_string_model(cleaned, active_settings)
     return _wrap_model_concurrency(resolved, model_concurrency)
 
 
@@ -261,7 +319,51 @@ def build_fallback_cascade_model(
     )
 
 
+def build_auto_tool_model(
+    language_model: str | Any,
+    *,
+    jev_model: str | Any | None = None,
+    route_threshold: float = CONST_AI_JEV_DEFAULT_ROUTE_THRESHOLD,
+    boolean_threshold: float = CONST_AI_JEV_DEFAULT_BOOLEAN_THRESHOLD,
+    settings: Settings | None = None,
+    model_concurrency: AnyConcurrencyLimit = None,
+) -> Any:
+    """Build an auto tool-call model that pairs TypeSafe Jev with a language model.
+
+    Jev (`typesafe/jev-1.14`) handles closed-set tool calls and typed decisions in one System One
+    request. When a route probability falls below `route_threshold` (`UnsureRoute`) or a route
+    requires free-form text arguments (`UnfillableRoute`), `FallbackModel` hands the turn to
+    `language_model`.
+    """
+    from pydantic_ai.exceptions import ModelAPIError
+    from pydantic_ai.models.decision import DecisionHandOff, DecisionModelSettings
+
+    active_settings = settings or load_settings()
+    resolved_lm = resolve_pydantic_ai_model(language_model, settings=active_settings)
+    decision_model = (
+        resolve_pydantic_ai_model(CONST_AI_JEV_MODEL, settings=active_settings)
+        if jev_model is None
+        else resolve_pydantic_ai_model(jev_model, settings=active_settings)
+    )
+    if hasattr(decision_model, "_settings"):
+        merged = dict(getattr(decision_model, "_settings", None) or {})
+        merged.update(
+            DecisionModelSettings(
+                decision_route_threshold=route_threshold,
+                decision_boolean_threshold=boolean_threshold,
+            )
+        )
+        decision_model._settings = merged
+    auto_model = FallbackModel(
+        decision_model,
+        resolved_lm,
+        fallback_on=(DecisionHandOff, ModelAPIError, UserError),
+    )
+    return _wrap_model_concurrency(auto_model, model_concurrency)
+
+
 __all__ = [
+    "build_auto_tool_model",
     "build_fallback_cascade_model",
     "resolve_pydantic_ai_model",
 ]

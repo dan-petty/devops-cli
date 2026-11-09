@@ -262,7 +262,7 @@ def test_the_committed_claude_settings_opt_out_of_openspec_telemetry_and_its_upd
     """A Claude Code session runs `openspec` with the environment this file gives it."""
     settings = json.loads(CLAUDE_SETTINGS_JSON.read_text(encoding="utf-8"))
 
-    assert settings["env"] == OPENSPEC_OPT_OUTS
+    assert {key: settings["env"].get(key) for key in OPENSPEC_OPT_OUTS} == OPENSPEC_OPT_OUTS
 
 
 def test_the_ci_workflow_opts_out_of_telemetry_for_every_job() -> None:

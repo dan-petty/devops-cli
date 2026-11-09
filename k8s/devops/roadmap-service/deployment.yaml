@@ -84,6 +84,14 @@ spec:
             # and the Recreate strategy mean one pod sends at a time, so all pods share one id.
             - name: OTEL_RESOURCE_ATTRIBUTES
               value: service.instance.id=roadmap-service
+            - name: DO_NOT_TRACK
+              value: "1"
+            - name: OPENSPEC_TELEMETRY
+              value: "0"
+            - name: OPENSPEC_NO_UPDATE_CHECK
+              value: "1"
+            - name: PYDANTIC_AI_NO_BANNER
+              value: "1"
           volumeMounts:
             - name: tmp
               mountPath: /tmp

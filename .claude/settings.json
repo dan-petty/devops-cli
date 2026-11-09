@@ -10,13 +10,24 @@
   "env": {
     "DO_NOT_TRACK": "1",
     "OPENSPEC_TELEMETRY": "0",
-    "OPENSPEC_NO_UPDATE_CHECK": "1"
+    "OPENSPEC_NO_UPDATE_CHECK": "1",
+    "UV_MALWARE_CHECK": "1"
   },
   "permissions": {
     "allow": [
       "Bash(uv run devops *)",
+      "Bash(uv run pytest *)",
       "Bash(openspec *)",
-      "Bash(tuicr *)"
+      "Bash(tuicr *)",
+      "Bash(git status*)",
+      "Bash(git diff*)",
+      "Bash(git log*)",
+      "Bash(git branch*)"
+    ],
+    "deny": [
+      "Bash(git push * --no-verify*)",
+      "Bash(git commit * --no-verify*)",
+      "Bash(gh *)"
     ]
   }
 }

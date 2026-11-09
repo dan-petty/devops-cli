@@ -16,6 +16,8 @@ _PYDANTIC_PROVIDER_SPECS: dict[str, tuple[str, str]] = {
     "gemini": ("pydantic_ai.providers.google", "GoogleProvider"),
     "deepseek": ("pydantic_ai.providers.deepseek", "DeepSeekProvider"),
     "openrouter": ("pydantic_ai.providers.openrouter", "OpenRouterProvider"),
+    "system-one": ("pydantic_ai.providers.system_one", "SystemOneProvider"),
+    "typesafe": ("pydantic_ai.providers.system_one", "SystemOneProvider"),
 }
 
 
@@ -97,6 +99,10 @@ def create_pydantic_ai_provider(
         provider_cls = infer_provider_class(provider)
 
     init_kwargs: dict[str, Any] = dict(kwargs)
+    if prov_name in {"system-one", "typesafe"} and base_url is None:
+        from devops_cli.config.constants import CONST_URL_TYPESAFE_API_BASE
+
+        base_url = CONST_URL_TYPESAFE_API_BASE
     if base_url is not None and prov_name not in _EXCLUDE_BASE_URL_NAMES:
         init_kwargs["base_url"] = base_url
     if api_key is not None:

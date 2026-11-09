@@ -310,4 +310,5 @@ def check_image_updater_keeps_the_runner_image_on_its_latest_digest() -> None:
     } == {
         "service": ("ghcr.io/dan-petty/devops-cli/service:latest", "digest", True),
         "runner": (f"{RUNNER_IMAGE}:latest", "digest", True),
+        "mcp-server": ("ghcr.io/dan-petty/devops-cli/mcp-server:latest", "digest", True),
     }

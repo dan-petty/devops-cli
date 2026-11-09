@@ -317,10 +317,48 @@ def test_kustomization_lists_every_manifest_and_pins_no_image_and_stays_out_of_t
         and not p.name.endswith(".example.yaml")
         and p.name != "configmap.yaml"
     ]
-    manifests = sorted([*on_disk, "crawl4ai", "roadmap-service", "searxng"])
+    manifests = sorted([*on_disk, "crawl4ai", "mcp-server", "roadmap-service", "searxng"])
     root = yaml.safe_load((K8S_DIR / "kustomization.yaml").read_text(encoding="utf-8"))
     assert (
         sorted(kustomization["resources"]),
         "images" in kustomization,
         [r for r in root["resources"] if r.startswith("devops")],
     ) == (manifests, False, [])
+
+
+def test_mcp_server_and_workloads_disable_telemetry_and_banners() -> None:
+    """The MCP server, runner CronJob and roadmap Service disable CLI banners and external telemetry."""
+    mcp_deploy = _doc("mcp-server/deployment.yaml")
+    mcp_pod = mcp_deploy["spec"]["template"]["spec"]
+    (mcp_container,) = mcp_pod["containers"]
+    mcp_env = {e["name"]: e.get("value") for e in mcp_container["env"]}
+
+    runner_pod = _doc("cronjob-runner.yaml")["spec"]["jobTemplate"]["spec"]["template"]["spec"]
+    (runner_container,) = runner_pod["containers"]
+    runner_env = {e["name"]: e.get("value") for e in runner_container["env"]}
+
+    service_pod = _doc("roadmap-service/deployment.yaml")["spec"]["template"]["spec"]
+    (service_container,) = service_pod["containers"]
+    service_env = {e["name"]: e.get("value") for e in service_container["env"]}
+
+    expected_flags = {
+        "DO_NOT_TRACK": "1",
+        "OPENSPEC_TELEMETRY": "0",
+        "OPENSPEC_NO_UPDATE_CHECK": "1",
+        "PYDANTIC_AI_NO_BANNER": "1",
+    }
+    assert (
+        mcp_deploy["metadata"]["name"],
+        mcp_pod["automountServiceAccountToken"],
+        mcp_container["image"],
+        {k: mcp_env.get(k) for k in expected_flags},
+        {k: runner_env.get(k) for k in expected_flags},
+        {k: service_env.get(k) for k in expected_flags},
+    ) == (
+        "mcp-server",
+        False,
+        "ghcr.io/dan-petty/devops-cli/mcp-server",
+        expected_flags,
+        expected_flags,
+        expected_flags,
+    )
