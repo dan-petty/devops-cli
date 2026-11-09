@@ -87,7 +87,11 @@ def _claude_group_model(name: str, provider_factory: Any) -> Any:
     sends `auto` and offers the same tools.
 
     The request sets `max_tokens`: a request that sets none gets the Anthropic default of 4096
-    tokens, which cuts the reply of a stage plan before it holds a part (#4220)."""
+    tokens, which cuts the reply of a stage plan before it holds a part (#4220).
+
+    The request sets `parallel_tool_calls` false. The gateway maps it to the Anthropic setting
+    `disable_parallel_tool_use`, so the model makes one tool call in a reply and the gateway
+    joins no arguments of several calls into one JSON text that does not parse (#4228)."""
     from pydantic_ai.models.openai import OpenAIChatModel
 
     provider_name, _, target = name.partition(":")
@@ -95,7 +99,9 @@ def _claude_group_model(name: str, provider_factory: Any) -> Any:
         target,
         provider=provider_factory(provider_name),
         profile={"supports_forced_tool_choice": False},
-        settings=ModelSettings(max_tokens=CONST_AI_CLAUDE_GROUP_MAX_OUTPUT_TOKENS),
+        settings=ModelSettings(
+            max_tokens=CONST_AI_CLAUDE_GROUP_MAX_OUTPUT_TOKENS, parallel_tool_calls=False
+        ),
     )
 
 
