@@ -431,7 +431,12 @@ def _criteria(text: str) -> list[StageCriterion]:
     found: list[StageCriterion] = []
     for line in _bullets(section):
         if line.startswith(_PENDING_PREFIX):
-            criterion, _, reason = line.removeprefix(_PENDING_PREFIX).partition(", ")
+            rest = line.removeprefix(_PENDING_PREFIX)
+            if "., " in rest:
+                criterion, _, reason = rest.partition("., ")
+                criterion = f"{criterion}."
+            else:
+                criterion, _, reason = rest.partition(", ")
             if not criterion or not reason:
                 raise PlanReadError(
                     _TASKS, MESSAGES.roadmap.plan_read_bad_criterion.format(text=line)
