@@ -4,8 +4,8 @@
 
 - [x] 1.1 Write failing invariant tests: the workspace configuration names `CONST_DEVCONTAINER_PUBLISHED_IMAGE`, has no `build`, no `features` and no `containerEnv` key of the image configuration, and the workspace lock file does not exist; it mounts no cache volume and sets no `UV_CACHE_DIR`; it keeps the four data mounts.
   - Verification: `$ uv run devops ci test tests/invariants/test_devcontainer_config.py`
-- [x] 1.2 Change `.devcontainer/devcontainer.json` to the published image, remove `features`, `containerEnv` and the five cache mounts, and delete `.devcontainer/devcontainer-lock.json`. Delete the test that compared the two copies of the build, and read the Node pin from the image configuration and its lock only. Change the `.venv` comment of the Dockerfile.
-  - Verification: `$ uv run devops ci test tests/invariants/test_devcontainer_config.py tests/commands/test_devcontainer.py`
+- [x] 1.2 Change `.devcontainer/devcontainer.json` to the published image, remove `features`, `containerEnv` and the five cache mounts, and delete `.devcontainer/devcontainer-lock.json`. Delete the test that compared the two copies of the build, read the Node pin from the image configuration and its lock only, and read the environment telemetry opt-outs from the image configuration only. Change the `.venv` comment of the Dockerfile.
+  - Verification: `$ uv run devops ci test tests/invariants/test_devcontainer_config.py tests/commands/test_devcontainer.py tests/core/test_third_party_telemetry.py`
 
 ## 2. The inventory reads the lock of each configuration folder (behavior)
 
