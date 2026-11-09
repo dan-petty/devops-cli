@@ -13,10 +13,13 @@ from devops_cli.roadmap.stage.stage_change import StageProposal
 from devops_cli.roadmap.stage.stage_paths import StagedTree
 from devops_cli.roadmap.stage.stage_request import StageRequest
 from devops_cli.roadmap.stage.stage_specs import BaseSpec
-from devops_cli.roadmap.stage.stage_toolbox import PLAN_ROW, REVIEW_ROW, ToolboxClient
+from devops_cli.roadmap.stage.stage_toolbox import ToolboxClient
 from devops_cli.roadmap.stores.store import Item
 from tests.support.builders import make_stage_proposal
 
+# The job rows of a plan run and a review run, as the metrics of the stage job name them.
+PLAN_ROW = "stage"
+REVIEW_ROW = "stage_verify"
 PATH = "src/devops_cli/roadmap/agent_run.py"
 SECURITY = "Answers what crosses a trust boundary, what a person must confirm, and what fails."
 

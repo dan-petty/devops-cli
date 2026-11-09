@@ -21,10 +21,11 @@ from devops_cli.roadmap.stage.stage_change import (
 from devops_cli.roadmap.stage.stage_paths import StagedTree
 from devops_cli.roadmap.stage.stage_request import StageRequest
 from devops_cli.roadmap.stage.stage_specs import BaseSpec
-from devops_cli.roadmap.stage.stage_toolbox import PLAN_ROW, ToolboxClient
+from devops_cli.roadmap.stage.stage_toolbox import ToolboxClient
 from devops_cli.roadmap.stores.store import Item
 from tests.support.builders import make_stage_proposal
 
+PLAN_ROW = "stage"  # The job row of a plan run.
 TREE_FILES = ["src/devops_cli/sample.py"]
 TREE = StagedTree(TREE_FILES)
 STAGE_CHANGE = "src/devops_cli/roadmap/stage/stage_change.py"
