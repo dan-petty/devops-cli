@@ -7,7 +7,9 @@ in three moves.
 **Report.** An item whose record holds `implement.job` and no `implement.job_state` has a Job
 that no round reported. When the Job has ended, the round comments the state and the tail of the
 log of its pod on the item, and records `implement.job_state` as `succeeded` or `failed`. A Job
-that no longer exists is recorded as `gone`. A Job that leaves its item In Progress, or Ready and
+that no longer exists is recorded as `gone`. A runner writes `implement.result` as the last mark
+of its end (#4071); a Job with the result `ready`, `yielded` or `returned` ended on purpose and
+causes no stop. A Job with no result that leaves its item In Progress, or Ready and
 not stopped, is a stop that the runner could not write, such as a pod killed for its memory: the
 round sets the item to Blocked and records `implement.stopped` as `job`, or the next round would
 create the same Job again. A clear rule of the Service takes the item out of Blocked
@@ -110,6 +112,7 @@ from devops_cli.roadmap.stop_clear import clear_stops
 from devops_cli.roadmap.stores.store import (
     GitHubState,
     ImplementRecordKey,
+    ImplementResult,
     Item,
     ItemField,
     RoadmapStore,
@@ -118,6 +121,10 @@ from devops_cli.security.sanitizer import mask_secrets
 from devops_cli.telemetry.metrics import GLOBAL_METRICS
 
 _GONE = "gone"
+# The results of a run that ended on purpose and is no stop.
+_ENDS_WITHOUT_STOP = frozenset(
+    {ImplementResult.READY.value, ImplementResult.YIELDED.value, ImplementResult.RETURNED.value}
+)
 # The exit status of a Job that the Job controller ended for its active deadline (SIGTERM).
 _DEADLINE_EXIT_STATUS = 143
 
@@ -158,8 +165,11 @@ def _settles_as_stop(item: Item) -> bool:
     """Whether an item that a Job ended is a stop that nobody wrote: it is In Progress, or Ready or
     Planned and not stopped. Any other Status, In Review and Done included, is the Job's own
     result. An item that an agent or a person claimed is theirs, and the Job ended its run for that
-    claim."""
+    claim. A Job whose runner wrote a result that is no stop (`ready`, `yielded` or `returned`)
+    ended its run on purpose, so the Status it left is its own (#4071)."""
     if claimed_by(item) is not None:
+        return False
+    if _record(item, ImplementRecordKey.RESULT) in _ENDS_WITHOUT_STOP:
         return False
     stopped = _record(item, ImplementRecordKey.STOPPED)
     return item.status == CONST_ROADMAP_STATUS_IN_PROGRESS or (
@@ -371,6 +381,7 @@ def _create(
     marks = {
         ImplementRecordKey.JOB: name,
         ImplementRecordKey.JOB_STATE: None,
+        ImplementRecordKey.RESULT: None,
         ImplementRecordKey.JOB_DIGEST: image_digest(cronjob, RUNNER_TEMPLATE),
     }
     if not service_claim(store, number, marks):

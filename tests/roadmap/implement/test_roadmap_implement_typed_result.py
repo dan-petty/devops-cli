@@ -239,7 +239,7 @@ def test_typed_result_a_new_run_clears_the_result_of_the_run_before(job_world: J
 
     status, record = _item(job_world)
     assert (status, record.get("implement.group")) == ("In Progress", "1")
-    assert RESULT not in _raw_record(job_world.store)
+    assert _raw_record(job_world.store).get(RESULT) is None
 
 
 # ── typed_result: the record of an older version ──────────────────────────────────────────
@@ -324,8 +324,13 @@ def _failures(failure_class: str) -> float:
 
 @pytest.mark.usefixtures("app_slug", "no_continuation")
 @pytest.mark.parametrize(
-    ("result", "status"),
-    [("yielded", "In Progress"), ("ready", "In Progress"), ("returned", "Ready")],
+    ("result", "status", "after", "state"),
+    [
+        ("yielded", "In Progress", "In Progress", "succeeded"),
+        ("ready", "In Progress", "In Progress", "succeeded"),
+        # An item that is Ready and not stopped is eligible, so the same round gives it a new Job.
+        ("returned", "Ready", "In Progress", None),
+    ],
 )
 def test_typed_result_a_job_with_a_result_that_is_no_stop_makes_no_stop(
     store: InMemoryRoadmapStore,
@@ -334,6 +339,8 @@ def test_typed_result_a_job_with_a_result_that_is_no_stop_makes_no_stop(
     kube: FakeCluster,
     result: str,
     status: str,
+    after: str,
+    state: str | None,
 ) -> None:
     """The Job ended its run on purpose, so the Status that it left is not a stop that nobody
     wrote."""
@@ -347,8 +354,8 @@ def test_typed_result_a_job_with_a_result_that_is_no_stop_makes_no_stop(
     _round(store, staged_repo)
 
     held = _held(store)
-    assert (held.status, _record(store).get("implement.stopped")) == (status, None)
-    assert _record(store)["implement.job_state"] == "succeeded"
+    assert (held.status, _record(store).get("implement.stopped")) == (after, None)
+    assert _record(store)["implement.job_state"] == state
     assert sum(_failures(c) for c in ("oom", "timeout", "provider", "parser")) == before
     assert number == 1
 
@@ -415,7 +422,7 @@ def test_no_result_a_new_job_clears_the_result_of_the_run_before(
     _round(store, staged_repo)
 
     assert bool(_record(store).get("implement.job"))
-    assert RESULT not in _raw_record(store)
+    assert _raw_record(store).get(RESULT) is None
 
 
 # ── handoff: the first step of a run gets the stop of the earlier Job ─────────────────────

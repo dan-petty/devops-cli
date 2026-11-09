@@ -250,6 +250,16 @@ class StageRecordKey(StrEnum):
     PENDING = "stage.pending"
 
 
+class ImplementResult(StrEnum):
+    """How the run of an implement Job ended (#4071). The runner records the word in
+    `implement.result`, and the Service compares with it."""
+
+    READY = "ready"
+    STOPPED = "stopped"
+    YIELDED = "yielded"
+    RETURNED = "returned"
+
+
 class ImplementRecordKey(StrEnum):
     """What the implement job records in an Item's job record (#2665): the last task group that
     passed, the commit the job ended on, the branch and the pull request it works on (#2714), the
@@ -268,7 +278,11 @@ class ImplementRecordKey(StrEnum):
     branch for a Staged item, `new` for a Planned item. The job writes it once, and clears it at
     ready and at a return to New. `implement.checked_sha` and `implement.published_sha` hold the
     head that passed the scoped checks and the head that the job pushed (#4070): a Job that starts at
-    the same head skips that phase. The job clears both at ready and at a return to New."""
+    the same head skips that phase. The job clears both at ready and at a return to New.
+    `implement.result` holds how the run of the job ended (`ImplementResult`, #4071). The job
+    writes it as the last mark of its end and clears it in its first write, and the Service clears
+    it when it records a new Job. `implement.check_log` and `implement.conflict` hold the stop of
+    the earlier Job: the next Job hands them to its first step and clears them."""
 
     GROUP = "implement.group"
     SHA = "implement.sha"
@@ -283,6 +297,7 @@ class ImplementRecordKey(StrEnum):
     BASE = "implement.base"
     CHECKED_SHA = "implement.checked_sha"
     PUBLISHED_SHA = "implement.published_sha"
+    RESULT = "implement.result"
     SPEND = "implement.spend"
     TRACE = "implement.trace"
     JOB = "implement.job"
@@ -1090,6 +1105,7 @@ __all__ = [
     "EvidenceKind",
     "GitHubState",
     "ImplementRecordKey",
+    "ImplementResult",
     "IntakeReads",
     "IssueComment",
     "IssueRecord",

@@ -119,6 +119,7 @@ from devops_cli.roadmap.failure import (
     FailureEvidence,
     classify_failure,
 )
+from devops_cli.roadmap.fence import code_fence
 from devops_cli.roadmap.implement.implement_base_replay import (
     BaseReplay,
     BaseStatus,
@@ -217,6 +218,30 @@ class FixRequest:
     log: str
 
 
+@dataclass(frozen=True)
+class EarlierStop:
+    """The facts of the stop of the earlier Job (#4071): the end of the log of the check that
+    failed, and the files that a rebase left in conflict. The first step of a run gets them."""
+
+    check_log: str = ""
+    conflict_files: tuple[str, ...] = ()
+
+    def section(self) -> str:
+        """The text under the heading `# The stop of the earlier Job`, or empty when the stop left
+        no log and no file."""
+        texts = MESSAGES.roadmap
+        parts: list[str] = []
+        if self.check_log:
+            log = self.check_log[-CONST_ROADMAP_IMPLEMENT_LOG_CHARS:]
+            parts.append(texts.implement_earlier_stop_log.format(fence=code_fence(log), log=log))
+        if self.conflict_files:
+            files = "\n".join(f"- {path}" for path in self.conflict_files)
+            parts.append(texts.implement_earlier_stop_files.format(files=files))
+        if not parts:
+            return ""
+        return texts.implement_earlier_stop.format(body="\n\n".join(parts))
+
+
 def fix_group(fix: FixRequest, groups: Sequence[TaskGroup]) -> TaskGroup:
     """The group of a fix step: one task that names the check, with the verification commands of
     every group of the change, and the number `CONST_ROADMAP_IMPLEMENT_FIX_GROUP`."""
@@ -302,9 +327,11 @@ def build_step_inputs(
     source: Path,
     window: int,
     fix: FixRequest | None = None,
+    earlier: EarlierStop | None = None,
 ) -> StepInputs:
     """The inputs of group `group` of item `item`, read from the checkout `source`. With `fix`,
-    the group is the fix of that failed check and `group` is not read.
+    the group is the fix of that failed check and `group` is not read. With `earlier`, the message
+    holds the stop of the earlier Job (#4071).
 
     Raises `RoadmapImplementError` for an issue that is no Item, a change that is not in the
     checkout, a group the change lacks, and inputs that measure more than `window` minus
@@ -329,6 +356,7 @@ def build_step_inputs(
         *(f"# {name} of the change\n\n{text.strip()}" for name, text in documents.items()),
         f"# Your group\n\n{chosen.text}",
         _tasks_file_section(source, change, fix),
+        earlier.section() if earlier is not None else "",
         _log_section(fix),
         _files_section(source, chosen),
     ]
@@ -1884,6 +1912,7 @@ def run_step(
     spend: ItemSpend | None = None,
     recorded_tests: frozenset[str] = frozenset(),
     mcp_toolset: AbstractToolset[Any] | None = None,
+    earlier: EarlierStop | None = None,
 ) -> StepOutcome:
     """Run group `group` of item `item` in the checkout `source`, with the pydantic-ai `model`.
 
@@ -1913,9 +1942,12 @@ def run_step(
 
     `recorded_tests` holds each test, as `path::name`, that the step may lose (#3490). The caller
     reads it from a text that the agent cannot edit. With no value, each lost test stops the step.
+    `earlier` holds the stop of the earlier Job, which only the first step of a run gets (#4071).
     """
     inputs = replace(
-        build_step_inputs(store, item=item, group=group, source=source, window=window, fix=fix),
+        build_step_inputs(
+            store, item=item, group=group, source=source, window=window, fix=fix, earlier=earlier
+        ),
         hooks=hooks,
         recorded_tests=recorded_tests,
     )
