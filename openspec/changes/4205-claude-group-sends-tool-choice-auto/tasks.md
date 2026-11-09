@@ -17,7 +17,7 @@ Kind: behavior. Reads: `src/devops_cli/roadmap/agent_run.py`, `src/devops_cli/te
   - Verification: `$ uv run devops ci fail-to-pass --base origin/main`
 - [x] 2.2 Add the instrument `AI_MODEL_ANSWERS_TOTAL` (`devops_cli_ai_model_answers_total`), read the model name of each reply in `record_run_spend`, pass `served_model` to `track_request_spend`, and emit the count with the labels `asked`, `answered` and `fallback`
   - Verification: `$ uv run devops ci test tests/ai/client/test_roadmap_agent_run.py`
-- [ ] 2.3 Census of the series bound: count the chat groups and the fallback rules of the gateway config, and state the count in the pull request
+- [x] 2.3 Census of the series bound: 11 chat groups and 7 fallback pairs (6 rules of the gateway config, one chain), so at most 18 series; the pull request states the count
   - Verification: `$ grep -cE "^    - [a-z0-9.:-]+: \[" k8s/llm/gateway/config.yaml`
 
 ## 3. Documents
