@@ -517,6 +517,20 @@ The local-path volumes are host directories. They report no kubelet volume stats
 
 The GPU power budget is one number for the whole site, from the GPUs' draw before a breaker trip on the circuit every node shared. Once the power layout is settled, it should become one budget per circuit.
 
+### Free space of the root disk after a prune
+
+The prune of the model store (`devops k8s ollama prune`) frees the root disk of a node. This query shows if the free space of that disk stays above 25% for the 7 days after the prune. Run it in Grafana, in the Explore view of the `Prometheus` datasource, or in the expression browser of the Prometheus server:
+
+```promql
+min_over_time(node_filesystem_avail_bytes{mountpoint="/", instance="<node>"}[7d]) / max_over_time(node_filesystem_size_bytes{mountpoint="/", instance="<node>"}[7d]) < 0.25
+```
+
+Set `instance` to the node that runs the pruned store. An empty result means that the node stayed above 25% free for the 7 days. A result names the node that fell below 25% free. Prometheus keeps 30 days of samples (`server.retention` in `monitoring/prometheus-values.yaml`), so the `[7d]` window is readable. `LocalPathNodeDiskHigh` is no proof of this bound: it fires at 85% used, 10 points above 75%, and only after 15 minutes (Alerting, above).
+
+A node keeps the models of the gateway targets that its tier serves (GPU Placement: Ollama tiers, the keep table). Check the models that the node keeps with `kubectl -n llm exec <tier-pod> -- ollama list`, in a pod of that tier. Compare the list with the row of the table for the targets of the tier.
+
+Post the query and its result as a comment on #3654. The next prune then has the method and the measurement together. #4001 holds the 7-day measurement and that comment.
+
 ### Receiver
 
 Alerts without a routed severity go to the `null` receiver, which sends nowhere. `critical` and `warning` alerts go to `mattermost`, which posts to Mattermost's incoming webhook using the URL in the `url` key of the Secret `alertmanager-mattermost` in `monitoring`. The Secret is mounted optional, as a directory, at `/etc/alertmanager-mattermost`, so Alertmanager starts without it and the running pod sees the file about a minute after the Secret is created. Until then each notification fails, Alertmanager logs the failure, and nothing leaves the cluster. No alert arrives while Mattermost, Alertmanager, or the node under either is down (#1390).
