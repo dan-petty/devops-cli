@@ -2002,7 +2002,9 @@ class OpenSpecCommandHelp:
     archive: str = (
         "Archive a change with `openspec archive <change> --yes`, then run `openspec validate "
         "--all --strict`. Both runs use an isolated configuration with telemetry off. The command "
-        "exits 1 when a run fails. A failed archive skips the validation."
+        "exits 1 when a run fails, or when the archive leaves the change folder in place or makes "
+        "no archive folder. A failed archive skips the validation. With --dry-run, it lists "
+        "the two commands and runs none."
     )
     archive_change: str = "Name of the change folder under openspec/changes, as <issue>-<slug>."
     new: str = "Create an OpenSpec change folder in project form for an issue."

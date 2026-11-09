@@ -477,6 +477,16 @@ class OpenSpecMessages:
         "{command} failed with exit code {code}. The archive is applied. Fix the specs that the "
         "tool names above. Then run `uv run devops openspec check`. Do not run the archive again."
     )
+    archive_not_moved: str = (
+        "{command} exited with code 0, but the change {change} is not archived: the folder "
+        "{folder} is still there. The validation did not run."
+    )
+    archive_no_destination: str = (
+        "{command} exited with code 0 and the folder {folder} of the change {change} is gone, "
+        "but no new folder named <date>-{change} is in {archive}. The validation did not run."
+    )
+    archive_dry_run_heading: str = "devops openspec archive"
+    archive_dry_run_output: str = "Would archive {change}. The commands above are not run."
     change_folder_exists: str = "The change folder {path} already exists."
     new_dry_run_needs_title: str = "--dry-run requires --title so it makes no external request."
     new_dry_run_output: str = "Would create {folder} on branch {branch}."

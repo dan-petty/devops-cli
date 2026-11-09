@@ -19,15 +19,19 @@ tool that dies with no JSON, or that runs past its timeout. And it writes what `
 --force` writes, in each agent's tree that already holds a skill: the skills the repository
 commits, which are the real tool's output at the pin, and it removes every other skill of
 OpenSpec's, as the real tool removes a workflow the profile does not hold (tried: 1.14.3 removed a
-hand-made `openspec-archive-change`). `calls` holds every command the fake answered, with the
+hand-made `openspec-archive-change`). It moves the folder of a change that a recorded `archive`
+run archives, to the folder that run names, as the real tool does (#4270); a scripted `archive`
+moves nothing unless the test gives it an `effect`. `calls` holds every command the fake answered, with the
 directory and the OpenSpec environment it was started with.
 """
 
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
+from collections.abc import Callable
 from dataclasses import dataclass
 from importlib.resources import files
 from pathlib import Path
@@ -41,6 +45,8 @@ from tests.support.openspec_scenarios import build_scenario
 _PROGRAM = "openspec"
 # The variables a run sets for the tool, which a call keeps of the environment it was given.
 _TOOL_ENV_PREFIXES = ("OPENSPEC_", "OPEN_SPEC_", "XDG_CONFIG_HOME", "DO_NOT_TRACK")
+# What a successful `openspec archive` prints, with the name of the folder it moved the change to.
+_ARCHIVED_AS = re.compile(r"archived as '(?P<folder>[^']+)'")
 
 
 @dataclass(frozen=True)
@@ -74,6 +80,7 @@ class OpenSpecFake:
         self.calls: list[OpenSpecCall] = []
         self._scripted: dict[tuple[str, ...], RecordedRun | None] = {}
         self._sequences: dict[tuple[str, ...], list[RecordedRun]] = {}
+        self._effects: dict[tuple[str, ...], Callable[[Path], None]] = {}
         self._real_run = subprocess.run
         self._real_which = shutil.which
 
@@ -86,10 +93,18 @@ class OpenSpecFake:
         return root
 
     def script(
-        self, arguments: tuple[str, ...], returncode: int, stdout: str = "", stderr: str = ""
+        self,
+        arguments: tuple[str, ...],
+        returncode: int,
+        stdout: str = "",
+        stderr: str = "",
+        effect: Callable[[Path], None] | None = None,
     ) -> None:
-        """Answer `openspec <arguments>` with this run instead of the recorded one, in any scenario."""
+        """Answer `openspec <arguments>` with this run instead of the recorded one, in any scenario.
+        `effect` changes the files under the directory of the run, as the real tool would."""
         self._scripted[arguments] = RecordedRun(arguments, returncode, stdout, stderr)
+        if effect is not None:
+            self._effects[arguments] = effect
 
     def script_sequence(self, arguments: tuple[str, ...], *runs: tuple[int, str]) -> None:
         """Answer `openspec <arguments>` with these runs (exit code, standard output) in order, the
@@ -149,6 +164,14 @@ class OpenSpecFake:
                 (cwd / path).parent.mkdir(parents=True, exist_ok=True)
                 (cwd / path).write_bytes(content)
 
+    def _archive(self, cwd: Path, change: str, recorded: RecordedRun) -> None:
+        """Move the folder of `change` to the folder a successful recorded run names."""
+        archived = _ARCHIVED_AS.search(recorded.stdout)
+        if recorded.returncode == 0 and archived is not None:
+            destination = cwd / "openspec/changes/archive" / archived["folder"]
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            (cwd / "openspec/changes" / change).rename(destination)
+
     def run(self, args: Any, *popenargs: Any, **kwargs: Any) -> subprocess.CompletedProcess[Any]:
         """Answer an `openspec` command with its recorded run; run any other command for real."""
         argv = [os.fsdecode(arg) for arg in args] if isinstance(args, (list, tuple)) else []
@@ -177,6 +200,10 @@ class OpenSpecFake:
         recorded = self._recorded(arguments)
         if arguments == ("update", "--force"):
             self._update(cwd)
+        if arguments in self._effects:
+            self._effects[arguments](cwd)
+        elif arguments[:1] == ("archive",) and arguments not in self._scripted:
+            self._archive(cwd, arguments[1], recorded)
         as_text = any(kwargs.get(key) for key in ("text", "universal_newlines", "encoding"))
         stdout = recorded.stdout.replace("{cwd}", str(cwd))
         stderr = recorded.stderr.replace("{cwd}", str(cwd))
