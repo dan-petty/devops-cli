@@ -134,6 +134,20 @@ def test_the_reader_reads_each_kind_of_criterion() -> None:
     assert read_change(_files(original)).criteria == original.criteria
 
 
+def test_the_reader_reads_a_pending_person_criterion_with_commas() -> None:
+    original = make_stage_proposal(
+        criteria=[
+            {
+                "criterion": "The move has a backup of the database first, and a person runs the steps that change the cluster.",
+                "group": PENDING_PERSON,
+                "reason": "A backup and the cluster steps need a person and the live cluster; #3803 delivers them in one window.",
+            },
+        ]
+    )
+
+    assert read_change(_files(original)).criteria == original.criteria
+
+
 def _with_criterion_group(number: int) -> dict[str, str]:
     original = make_stage_proposal(
         criteria=[{"criterion": "The command prints one line for each problem", "group": 1}]
