@@ -55,9 +55,11 @@ from devops_cli.telemetry.instruments import (
     ROADMAP_TOOL_LIMIT_HITS_TOTAL,
 )
 from tests.support.builders import make_stage_proposal
+from tests.support.length_stop import length_stopped_model
 from tests.support.scripted_model import Script, call
 
 if TYPE_CHECKING:
+    from tests.support.fakes.http import WebFake
     from tests.support.fakes.otlp import FakeCollector
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
@@ -220,6 +222,45 @@ def test_a_reply_that_breaks_the_schema_twice_raises_with_the_count_of_violation
         _plan(client)
 
     assert (caught.value.violations, len(client.traces), client.traces[0].violations) == (1, 1, 1)
+
+
+def test_a_reply_cut_by_the_output_token_limit_raises_an_error_that_names_the_limit(
+    checkout: tuple[Path, str], web: WebFake, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A plan reply that the output token limit cuts holds no part. The error is no schema
+    failure, so the stage does not report it as "0 schema violation(s)" (#4220)."""
+    model, sent = length_stopped_model(web, monkeypatch)
+    source, sha = checkout
+    client = ToolboxClient(model, _Inner(), source, sha)
+
+    with pytest.raises(RoadmapStageError) as raised:
+        _plan(client)
+
+    message = str(raised.value)
+    assert (
+        isinstance(raised.value, StructuredOutputValidationError),
+        "output token limit" in message,
+        "max_tokens" in message,
+        "schema violation" in message,
+        len(sent),
+    ) == (False, True, True, False, 1)
+
+
+def test_a_review_reply_cut_by_the_output_token_limit_raises_the_same_error(
+    checkout: tuple[Path, str], web: WebFake, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The review run of a plan names the output token limit too (#4220)."""
+    model, _sent = length_stopped_model(web, monkeypatch)
+    source, sha = checkout
+    client = ToolboxClient(model, _Inner(), source, sha)
+
+    with pytest.raises(RoadmapStageError) as raised:
+        client.chat_structured("System.", "{}", Verification, max_retries=1)
+
+    assert (
+        isinstance(raised.value, StructuredOutputValidationError),
+        "output token limit" in str(raised.value),
+    ) == (False, True)
 
 
 def test_a_reply_that_breaks_the_schema_once_goes_back_and_the_second_stands(
