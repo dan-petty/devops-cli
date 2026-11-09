@@ -25,6 +25,7 @@ from pydantic_ai.messages import (
     ModelMessage,
     ModelMessagesTypeAdapter,
     ModelResponse,
+    RetryPromptPart,
     TextPart,
     ToolCallPart,
     UserPromptPart,
@@ -997,6 +998,24 @@ def test_a_call_to_a_tool_that_is_gone_gets_a_retry_and_the_run_goes_on(
     result = _run(git_repo, Script(*replies), limits=_limits(tool_calls=6))
 
     assert result == _SETTLED
+
+
+def test_the_retry_of_a_call_to_a_tool_that_is_gone_names_the_tools_that_are_offered(
+    git_repo: Path,
+) -> None:
+    """The return for a call to a tool that is gone names the tool that is offered, so the model
+    knows to call `final_result` (#4221). pydantic-ai writes the text; this guards it."""
+    script = Script(*[_read()] * 4, _SETTLED)
+
+    _run(git_repo, script, limits=_limits(tool_calls=6))
+
+    retries = [
+        str(part.content)
+        for message in script.seen[-1]
+        for part in message.parts
+        if isinstance(part, RetryPromptPart)
+    ]
+    assert ["Available tools: 'final_result'" in text for text in retries] == [True]
 
 
 def test_a_third_call_to_a_tool_that_is_gone_stops_the_run_and_it_is_no_budget_limit(
