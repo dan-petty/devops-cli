@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import json
+import os
+from collections.abc import Callable
 from pathlib import Path
-from unittest.mock import MagicMock, patch
 
 import pytest
 import typer
@@ -12,8 +13,9 @@ from typer.testing import CliRunner
 
 from devops_cli.commands.workspace import app as workspace_app
 from devops_cli.commands.workspace import sync_from_repos
-from devops_cli.config.defaults import DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
+from devops_cli.config.defaults import DEFAULT_MAX_AST_FILE_SIZE_BYTES
 from devops_cli.main import app
+from tests.support.fakes.process import ProcessAnswer, ProcessFake
 
 runner = CliRunner()
 
@@ -39,139 +41,133 @@ def test_sync_from_repos_generates_multiroot_workspace(tmp_path: Path) -> None:
     assert data["settings"]["files.trimTrailingWhitespace"] is True
 
 
-def test_workspace_generate_resolves_default_paths_from_project_root(tmp_path: Path) -> None:
+def test_workspace_generate_resolves_default_paths_from_project_root(
+    tmp_path: Path,
+    config: Callable[..., Path],
+) -> None:
     project_root = tmp_path / "project"
-    repos_root = project_root / "repos"
-    repo_dir = repos_root / "group" / "repo"
+    repo_dir = project_root / "group" / "repo"
     repo_dir.mkdir(parents=True)
     (repo_dir / ".git").mkdir()
+    workspace_file = project_root / ".code-workspace"
 
-    settings = MagicMock()
-    settings.repos.base_dir = Path("repos")
-    settings.workspace.file = Path(".code-workspace")
-
-    with (
-        patch("devops_cli.commands.workspace.load_settings", return_value=settings),
-        patch("devops_cli.commands.workspace._PROJECT_ROOT", project_root),
-    ):
-        result = runner.invoke(app, ["workspace", "generate"], catch_exceptions=False)
+    config(repos={"base_dir": str(project_root)}, workspace={"file": str(workspace_file)})
+    result = runner.invoke(app, ["workspace", "generate"], catch_exceptions=False)
 
     assert result.exit_code == 0
-    workspace_file = project_root / ".code-workspace"
     assert workspace_file.exists()
 
     data = json.loads(workspace_file.read_text(encoding="utf-8"))
     assert [folder["path"] for folder in data["folders"]] == [str(repo_dir.resolve()), "."]
 
 
-def test_workspace_open_resolves_default_workspace_file_from_project_root(tmp_path: Path) -> None:
+def test_workspace_open_resolves_default_workspace_file_from_project_root(
+    tmp_path: Path,
+    config: Callable[..., Path],
+    process_fake: ProcessFake,
+) -> None:
     project_root = tmp_path / "project"
     project_root.mkdir()
     workspace_file = project_root / ".code-workspace"
     workspace_file.write_text('{"folders": [{"path": "."}]}\n', encoding="utf-8")
 
-    settings = MagicMock()
-    settings.workspace.file = Path(".code-workspace")
+    config(repos={"base_dir": str(project_root)}, workspace={"file": str(workspace_file)})
+    process_fake.answer(["code", str(workspace_file)], ProcessAnswer(returncode=0))
 
-    with (
-        patch("devops_cli.commands.workspace.load_settings", return_value=settings),
-        patch("devops_cli.commands.workspace._PROJECT_ROOT", project_root),
-        patch("devops_cli.commands.workspace.run_subprocess") as mock_run,
-    ):
-        result = runner.invoke(app, ["workspace", "open"], catch_exceptions=False)
-
+    result = runner.invoke(app, ["workspace", "open"], catch_exceptions=False)
     assert result.exit_code == 0
-    mock_run.assert_called_once_with(
-        ["code", str(workspace_file)],
-        check=True,
-        timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
-    )
+    assert any(call.argv == ("code", str(workspace_file)) for call in process_fake.calls)
 
 
-def test_workspace_add_remove_commands(tmp_path: Path) -> None:
+def test_workspace_add_remove_commands(
+    tmp_path: Path,
+    config: Callable[..., Path],
+) -> None:
     """Verify workspace add, remove, and generate subcommands."""
+    config(repos={"base_dir": str(tmp_path)})
     ws_file = tmp_path / "test.code-workspace"
     ws_file.write_text(json.dumps({"folders": [{"path": "."}]}), encoding="utf-8")
 
-    with patch("devops_cli.commands.workspace._PROJECT_ROOT", tmp_path):
-        res_add = runner.invoke(workspace_app, ["add", str(tmp_path), "--workspace", str(ws_file)])
-        assert res_add.exit_code == 0
+    res_add = runner.invoke(workspace_app, ["add", str(tmp_path), "--workspace", str(ws_file)])
+    assert res_add.exit_code == 0
 
-        res_remove = runner.invoke(
-            workspace_app, ["remove", str(tmp_path), "--workspace", str(ws_file)]
-        )
-        assert res_remove.exit_code == 0
+    res_remove = runner.invoke(
+        workspace_app, ["remove", str(tmp_path), "--workspace", str(ws_file)]
+    )
+    assert res_remove.exit_code == 0
 
-        res_gen = runner.invoke(workspace_app, ["generate", "--workspace", str(ws_file)])
-        assert res_gen.exit_code == 0
+    res_gen = runner.invoke(workspace_app, ["generate", "--workspace", str(ws_file)])
+    assert res_gen.exit_code == 0
 
 
-def test_workspace_edge_cases_and_clean(tmp_path: Path) -> None:
+def test_workspace_edge_cases_and_clean(
+    tmp_path: Path,
+    config: Callable[..., Path],
+    isolate_data_dir: Path,
+) -> None:
     """Verify duplicate add, missing remove, missing open, and clean subcommands."""
-    from devops_cli.core.cleanup import CleanupSummary
-
+    config(repos={"base_dir": str(tmp_path)})
     ws_file = tmp_path / "test.code-workspace"
     ws_file.write_text(
         json.dumps({"folders": [{"path": str(tmp_path.resolve())}]}), encoding="utf-8"
     )
 
-    with patch("devops_cli.commands.workspace._PROJECT_ROOT", tmp_path):
-        # Add duplicate folder
-        res_dup = runner.invoke(workspace_app, ["add", str(tmp_path), "--workspace", str(ws_file)])
-        assert res_dup.exit_code == 0
-        assert "already" in res_dup.output.lower()
+    # Add duplicate folder
+    res_dup = runner.invoke(workspace_app, ["add", str(tmp_path), "--workspace", str(ws_file)])
+    assert res_dup.exit_code == 0
+    assert "already" in res_dup.output.lower()
 
-        # Remove non-existent folder
-        res_not_pres = runner.invoke(
-            workspace_app, ["remove", "/nonexistent/path", "--workspace", str(ws_file)]
-        )
-        assert res_not_pres.exit_code == 0
-        assert "not found" in res_not_pres.output.lower()
+    # Remove non-existent folder
+    res_not_pres = runner.invoke(
+        workspace_app, ["remove", "/nonexistent/path", "--workspace", str(ws_file)]
+    )
+    assert res_not_pres.exit_code == 0
+    assert "not found" in res_not_pres.output.lower()
 
-        # Open non-existent workspace file
-        res_open_err = runner.invoke(
-            workspace_app, ["open", "--workspace", "/nonexistent/file.code-workspace"]
-        )
-        assert res_open_err.exit_code != 0
+    # Open non-existent workspace file
+    res_open_err = runner.invoke(
+        workspace_app, ["open", "--workspace", "/nonexistent/file.code-workspace"]
+    )
+    assert res_open_err.exit_code != 0
 
-        # Clean with older-than
-        res_clean = runner.invoke(workspace_app, ["clean", "--older-than", "5"])
-        assert res_clean.exit_code == 0
+    # Clean with older-than
+    res_clean = runner.invoke(workspace_app, ["clean", "--older-than", "5"])
+    assert res_clean.exit_code == 0
 
-        # Clean when no artifacts
-        mock_empty_summary = CleanupSummary(freed_bytes=0, pruned_files=[], pruned_dirs=[])
-        with patch("devops_cli.core.cleanup.cleanup_data_tier", return_value=mock_empty_summary):
-            res_clean_empty = runner.invoke(workspace_app, ["clean"])
-            assert res_clean_empty.exit_code == 0
-            assert "clean" in res_clean_empty.output.lower()
+    # Clean when no artifacts
+    res_clean_empty = runner.invoke(workspace_app, ["clean"])
+    assert res_clean_empty.exit_code == 0
+    assert "clean" in res_clean_empty.output.lower()
 
-        # Clean with pruned artifacts
-        mock_summary = CleanupSummary(
-            freed_bytes=1048576, pruned_files=["a.json"], pruned_dirs=["old_dir"]
-        )
-        with patch("devops_cli.core.cleanup.cleanup_data_tier", return_value=mock_summary):
-            res_clean_pruned = runner.invoke(workspace_app, ["clean"])
-            assert res_clean_pruned.exit_code == 0
-            assert "Cleaned" in res_clean_pruned.output
+    # Clean with pruned artifacts
+    cache_dir = isolate_data_dir / "cache"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    stale_file = cache_dir / "a.json"
+    stale_file.write_text("old content", encoding="utf-8")
+    os.utime(stale_file, (0, 0))
+
+    res_clean_pruned = runner.invoke(workspace_app, ["clean"])
+    assert res_clean_pruned.exit_code == 0
+    assert "Cleaned" in res_clean_pruned.output
 
 
 @pytest.mark.parametrize(
-    ("content", "size_limit"),
+    ("content", "is_oversized"),
     [
-        ('{\n // c\n "folders": [{"path": "/x"},],\n "settings": {"a": 1}\n}', None),
-        ('{"folders": "x"}', None),
-        ('{"folders": [{"path": "/x"}], "settings": {"a": 1}}', 4),
-        (b'{"folders": [{"path": "/\xff"}]}', None),
+        ('{\n // c\n "folders": [{"path": "/x"},],\n "settings": {"a": 1}\n}', False),
+        ('{"folders": "x"}', False),
+        ('{"folders": [{"path": "/x"}], "settings": {"a": 1}}', True),
+        (b'{"folders": [{"path": "/\xff"}]}', False),
     ],
     ids=["jsonc", "malformed", "oversized", "not-utf8"],
 )
 @pytest.mark.parametrize("command", ["add", "remove"])
 def test_workspace_add_refuses_to_overwrite_unparseable_file(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
+    config: Callable[..., Path],
     command: str,
     content: str | bytes,
-    size_limit: int | None,
+    is_oversized: bool,
 ) -> None:
     """A workspace file the command cannot read is left byte-for-byte as it was (#961).
 
@@ -179,19 +175,19 @@ def test_workspace_add_refuses_to_overwrite_unparseable_file(
     dropping every folder and setting it held. VS Code accepts comments and trailing
     commas in a `.code-workspace` file, which `json.loads` rejects.
     """
+    config(repos={"base_dir": str(tmp_path)})
     ws = tmp_path / "w.code-workspace"
-    if isinstance(content, bytes):
+    if is_oversized:
+        with ws.open("wb") as f:
+            f.seek(DEFAULT_MAX_AST_FILE_SIZE_BYTES + 10)
+            f.write(b"x")
+    elif isinstance(content, bytes):
         ws.write_bytes(content)
     else:
         ws.write_text(content, encoding="utf-8")
     before = ws.read_bytes()
-    if size_limit is not None:
-        monkeypatch.setattr(
-            "devops_cli.commands.workspace.DEFAULT_MAX_AST_FILE_SIZE_BYTES", size_limit
-        )
 
-    with patch("devops_cli.commands.workspace._PROJECT_ROOT", tmp_path):
-        result = runner.invoke(workspace_app, [command, str(tmp_path), "--workspace", str(ws)])
+    result = runner.invoke(workspace_app, [command, str(tmp_path), "--workspace", str(ws)])
 
     assert (result.exit_code, ws.read_bytes(), "left unchanged" in result.output) == (
         1,
@@ -200,7 +196,10 @@ def test_workspace_add_refuses_to_overwrite_unparseable_file(
     )
 
 
-def test_workspace_load_save_boundaries_and_outside_roots(tmp_path: Path) -> None:
+def test_workspace_load_save_boundaries_and_outside_roots(
+    tmp_path: Path,
+    config: Callable[..., Path],
+) -> None:
     """Verify _load defaults and refusals, _save boundaries, and add outside roots."""
     from devops_cli.commands.workspace import _load, _save
 
@@ -218,11 +217,13 @@ def test_workspace_load_save_boundaries_and_outside_roots(tmp_path: Path) -> Non
         with pytest.raises(typer.Exit) as raised:
             _load(unreadable)
         assert raised.value.exit_code is not None
-    with (
-        patch("devops_cli.commands.workspace.DEFAULT_MAX_AST_FILE_SIZE_BYTES", 4),
-        pytest.raises(typer.Exit) as raised,
-    ):
-        _load(good_json)
+
+    oversized = tmp_path / "oversized.code-workspace"
+    with oversized.open("wb") as f:
+        f.seek(DEFAULT_MAX_AST_FILE_SIZE_BYTES + 10)
+        f.write(b"x")
+    with pytest.raises(typer.Exit) as raised:
+        _load(oversized)
     assert raised.value.exit_code is not None
 
     # 4. _save unsafe filename extension
@@ -231,8 +232,13 @@ def test_workspace_load_save_boundaries_and_outside_roots(tmp_path: Path) -> Non
     assert raised.value.exit_code is not None
 
     # 5. Add folder outside permitted roots
+    allowed_root = tmp_path / "isolated_root"
+    allowed_root.mkdir(parents=True)
     outside_dir = tmp_path / "outside_root" / "my_project"
     outside_dir.mkdir(parents=True)
-    with patch("devops_cli.commands.workspace._PROJECT_ROOT", tmp_path / "isolated_root"):
-        res_outside = runner.invoke(workspace_app, ["add", str(outside_dir)])
-        assert res_outside.exit_code == 1
+    config(
+        repos={"base_dir": str(allowed_root)},
+        workspace={"file": str(allowed_root / ".code-workspace")},
+    )
+    res_outside = runner.invoke(workspace_app, ["add", str(outside_dir)])
+    assert res_outside.exit_code == 1

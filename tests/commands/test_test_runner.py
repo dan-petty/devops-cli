@@ -4,16 +4,17 @@ from __future__ import annotations
 
 import re
 import shlex
+import shutil
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock, patch
 
 import pytest
 from typer.testing import CliRunner
 
 from devops_cli.commands.test_cmd import _changed_paths
 from devops_cli.commands.test_cmd import app as app_cli
+from tests.support.fakes.docker_engine import DockerEngineFake
 from tests.support.fakes.git import GitFake
 from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
 
@@ -381,38 +382,35 @@ def test_test_run_runs_the_request_of_its_plan(cli: Any, process_fake: ProcessFa
     assert [" ".join(call.argv) for call in process_fake.calls if not call.local_read] == planned
 
 
-def test_test_run_execution() -> None:
-    """devops test run with mocks."""
-    mock_res = MagicMock(returncode=0)
-    with patch("devops_cli.commands.test_cmd.run_subprocess", return_value=mock_res):
-        res = runner.invoke(
-            app_cli, ["run", "tests/test_scan.py", "--cov", "-v", "-x", "-k", "sample"]
-        )
-        assert res.exit_code == 0
-        assert "Test suite passed cleanly" in res.output
+def test_test_run_execution(process_fake: ProcessFake) -> None:
+    """devops test run with process_fake."""
+    process_fake.answer("uv", ProcessAnswer(returncode=0))
+    res = runner.invoke(app_cli, ["run", "tests/test_scan.py", "--cov", "-v", "-x", "-k", "sample"])
+    assert res.exit_code == 0
+    assert "Test suite passed cleanly" in res.output
 
     # Test run failure
-    mock_fail = MagicMock(returncode=1)
-    with patch("devops_cli.commands.test_cmd.run_subprocess", return_value=mock_fail):
-        res_fail = runner.invoke(app_cli, ["run", "tests/test_scan.py"])
-        assert res_fail.exit_code == 1
+    process_fake.reset()
+    process_fake.answer("uv", ProcessAnswer(returncode=1))
+    res_fail = runner.invoke(app_cli, ["run", "tests/test_scan.py"])
+    assert res_fail.exit_code == 1
 
 
-def test_test_load_missing_k6_and_failure(tmp_path: Path) -> None:
+def test_test_load_missing_k6_and_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, process_fake: ProcessFake
+) -> None:
     """Verify devops test load when k6 is not installed or when test run fails."""
     # 1. Missing k6
-    with patch("devops_cli.commands.test_cmd.shutil.which", return_value=None):
-        res_no_k6 = runner.invoke(app_cli, ["load"])
-        assert res_no_k6.exit_code == 1
+    monkeypatch.setattr(shutil, "which", lambda cmd: None)
+    res_no_k6 = runner.invoke(app_cli, ["load"])
+    assert res_no_k6.exit_code == 1
 
     # 2. k6 failure
     export_file = tmp_path / "summary.json"
-    with (
-        patch("devops_cli.commands.test_cmd.shutil.which", return_value="/usr/local/bin/k6"),
-        patch("devops_cli.commands.test_cmd.run_subprocess", return_value=MagicMock(returncode=2)),
-    ):
-        res_fail = runner.invoke(app_cli, ["load", "--summary-export", str(export_file)])
-        assert res_fail.exit_code == 2
+    monkeypatch.setattr(shutil, "which", lambda cmd: "/usr/local/bin/k6" if cmd == "k6" else None)
+    process_fake.answer("k6", ProcessAnswer(returncode=2))
+    res_fail = runner.invoke(app_cli, ["load", "--summary-export", str(export_file)])
+    assert res_fail.exit_code == 2
 
 
 def test_parse_whitelist_and_validate_sandbox_network() -> None:
@@ -445,42 +443,34 @@ def test_parse_whitelist_and_validate_sandbox_network() -> None:
     assert loc == ["localhost:8000"]
 
 
-def test_test_sandbox_execution_and_failure() -> None:
+def test_test_sandbox_execution_and_failure(
+    tmp_path: Path, docker_daemon: DockerEngineFake
+) -> None:
     """Verify test sandbox execution outputs and error exit codes."""
-    mock_runner = MagicMock()
-    mock_runner.run.return_value = MagicMock(
-        exit_code=0, stdout="Container output", stderr="Warning output", duration_seconds=1.23
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    docker_daemon.add_image("python:3.14-slim")
+    docker_daemon.script_every_run(
+        stdout=b"Container output\n", stderr=b"Warning output\n", exit_code=0
     )
 
-    with (
-        patch("devops_cli.docker.sandbox.WorkloadSandboxRunner", return_value=mock_runner),
-        patch("devops_cli.commands.test_cmd.print_info"),
-        patch("devops_cli.commands.test_cmd.print_success"),
-    ):
-        res = runner.invoke(app_cli, ["sandbox", "echo", "hello"])
-        assert res.exit_code == 0
+    res = runner.invoke(app_cli, ["sandbox", "--workspace", str(ws), "echo", "hello"])
+    assert res.exit_code == 0
+    assert "Container output" in res.output
+    assert "Warning output" in res.output
 
     # Non-zero exit code
-    mock_runner_fail = MagicMock()
-    mock_runner_fail.run.return_value = MagicMock(
-        exit_code=42, stdout="", stderr="Crash", duration_seconds=0.5
-    )
-    with patch("devops_cli.docker.sandbox.WorkloadSandboxRunner", return_value=mock_runner_fail):
-        res_fail = runner.invoke(app_cli, ["sandbox", "false"])
-        assert res_fail.exit_code == 42
+    docker_daemon.script_every_run(stdout=b"", stderr=b"Crash\n", exit_code=42)
+    res_fail = runner.invoke(app_cli, ["sandbox", "--workspace", str(ws), "false"])
+    assert res_fail.exit_code == 42
+    assert "Crash" in res_fail.output
 
 
 def test_profile_memory_error_handling() -> None:
     """Verify profile-memory handles MemoryProfilerError with exit code 1."""
-    from devops_cli.telemetry.memory_profiler import MemoryProfilerError
-
-    with patch(
-        "devops_cli.commands.test_cmd.run_memory_profiler",
-        side_effect=MemoryProfilerError("profiling failed"),
-    ):
-        res = runner.invoke(app_cli, ["profile-memory", "devops_cli.main:app"])
-        assert res.exit_code == 1
-        assert "profiling failed" in res.output
+    res = runner.invoke(app_cli, ["profile-memory", "nonexistent_module:target"])
+    assert res.exit_code == 1
+    assert "Unable to resolve target" in res.output
 
 
 @pytest.fixture
@@ -513,19 +503,20 @@ def nested_worktree(tmp_path: Path) -> tuple[Path, Path]:
 
 
 def test_test_run_runs_pytest_in_a_nested_worktree(
-    nested_worktree: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+    nested_worktree: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch, process_fake: ProcessFake
 ) -> None:
     """Verify `devops test run` from a worktree under `.claude/worktrees/` runs pytest there,
     not in the checkout around it (#582)."""
     _, nested = nested_worktree
     monkeypatch.chdir(nested)
+    process_fake.answer("uv", ProcessAnswer(returncode=0))
 
-    with patch(
-        "devops_cli.commands.test_cmd.run_subprocess", return_value=MagicMock(returncode=0)
-    ) as run:
-        result = runner.invoke(app_cli, ["run"])
+    result = runner.invoke(app_cli, ["run"])
 
-    assert (result.exit_code, run.call_args.kwargs["cwd"]) == (0, nested.resolve())
+    assert result.exit_code == 0
+    pytest_calls = [c for c in process_fake.calls if "pytest" in c.argv]
+    assert pytest_calls
+    assert pytest_calls[0].cwd == nested.resolve()
 
 
 def test_changed_paths_handles_spaces_non_ascii_and_renames(

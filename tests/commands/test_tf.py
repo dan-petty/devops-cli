@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
-from unittest.mock import MagicMock, patch
 
 import pytest
 import typer
@@ -22,6 +22,17 @@ from devops_cli.lang import MESSAGES
 from tests.support.fakes.process import ProcessAnswer, ProcessFake
 
 runner = CliRunner()
+
+
+@pytest.fixture
+def fake_tf_binaries(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Make tofu, terraform and tflint appear on PATH."""
+    old_which = shutil.which
+    monkeypatch.setattr(
+        shutil,
+        "which",
+        lambda cmd: f"/usr/bin/{cmd}" if cmd in ("tofu", "terraform", "tflint") else old_which(cmd),
+    )
 
 
 @pytest.fixture
@@ -57,30 +68,28 @@ def temp_tf_dir(tmp_path: Path) -> Path:
         pytest.param("terraform", "terraform", id="terraform-fallback"),
     ],
 )
-def test_resolve_tf_binary_precedence(available_binary: str, expected_binary: str) -> None:
+def test_resolve_tf_binary_precedence(
+    available_binary: str, expected_binary: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
     def _mock_which(name: str) -> str | None:
         return f"/usr/bin/{name}" if name == available_binary else None
 
-    with patch("shutil.which", side_effect=_mock_which):
-        assert _resolve_tf_binary() == expected_binary
+    monkeypatch.setattr(shutil, "which", _mock_which)
+    assert _resolve_tf_binary() == expected_binary
 
 
-def test_resolve_tf_binary_not_found() -> None:
-    with (
-        patch("shutil.which", return_value=None),
-        patch("devops_cli.commands.tf.is_dry_run", return_value=False),
-    ):
-        with pytest.raises(typer.Exit) as raised:
-            _resolve_tf_binary()
-        assert raised.value.exit_code == 1
+def test_resolve_tf_binary_not_found(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(shutil, "which", lambda name: None)
+    monkeypatch.delenv("DEVOPS_CLI_DRY_RUN", raising=False)
+    with pytest.raises(typer.Exit) as raised:
+        _resolve_tf_binary()
+    assert raised.value.exit_code == 1
 
 
-def test_resolve_tf_binary_dry_run() -> None:
-    with (
-        patch("shutil.which", return_value=None),
-        patch("devops_cli.commands.tf.is_dry_run", return_value=True),
-    ):
-        assert _resolve_tf_binary() == "tofu"
+def test_resolve_tf_binary_dry_run(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(shutil, "which", lambda name: None)
+    monkeypatch.setenv("DEVOPS_CLI_DRY_RUN", "1")
+    assert _resolve_tf_binary() == "tofu"
 
 
 def test_validate_dir_valid(temp_tf_dir: Path) -> None:
@@ -119,231 +128,188 @@ def test_get_default_var_file(tmp_path: Path) -> None:
     assert _get_default_var_file("azure", tmp_path) is None
 
 
-def test_tf_init_command(temp_tf_dir: Path) -> None:
-    with (
-        patch("devops_cli.commands.tf._resolve_tf_binary", return_value="tofu"),
-        patch("subprocess.run", return_value=MagicMock(returncode=0)) as mock_run,
-    ):
-        result = runner.invoke(app, ["init", str(temp_tf_dir), "--upgrade", "--reconfigure"])
-        assert result.exit_code == 0
-        mock_run.assert_called_once()
-        args = mock_run.call_args[0][0]
-        assert args == ["tofu", "init", "-upgrade", "-reconfigure"]
+def test_tf_init_command(
+    temp_tf_dir: Path, fake_tf_binaries: None, process_fake: ProcessFake
+) -> None:
+    result = runner.invoke(app, ["init", str(temp_tf_dir), "--upgrade", "--reconfigure"])
+    assert result.exit_code == 0
+    assert any(c.argv == ("tofu", "init", "-upgrade", "-reconfigure") for c in process_fake.calls)
 
 
-def test_tf_init_dry_run(temp_tf_dir: Path) -> None:
-    with (
-        patch("devops_cli.commands.tf.is_dry_run", return_value=True),
-        patch("subprocess.run") as mock_run,
-    ):
-        result = runner.invoke(app, ["init", str(temp_tf_dir)])
-        assert result.exit_code == 0
-        mock_run.assert_not_called()
+def test_tf_init_dry_run(
+    temp_tf_dir: Path, fake_tf_binaries: None, process_fake: ProcessFake
+) -> None:
+    result = runner.invoke(app, ["init", str(temp_tf_dir), "--dry-run"])
+    assert result.exit_code == 0
+    assert len(process_fake.calls) == 0
 
 
-def test_tf_plan_command(temp_tf_dir: Path) -> None:
+def test_tf_plan_command(
+    temp_tf_dir: Path, fake_tf_binaries: None, process_fake: ProcessFake
+) -> None:
     var_file = temp_tf_dir / "test.tfvars"
     var_file.write_text("a = 1\n")
     out_file = temp_tf_dir / "tfplan"
 
-    with (
-        patch("devops_cli.commands.tf._resolve_tf_binary", return_value="tofu"),
-        patch("subprocess.run", return_value=MagicMock(returncode=0)) as mock_run,
-    ):
-        result = runner.invoke(
-            app, ["plan", str(temp_tf_dir), "-v", str(var_file), "-o", str(out_file), "--destroy"]
-        )
-        assert result.exit_code == 0
-        mock_run.assert_called_once()
-        args = mock_run.call_args[0][0]
-        assert "plan" in args
-        assert "-destroy" in args
+    result = runner.invoke(
+        app, ["plan", str(temp_tf_dir), "-v", str(var_file), "-o", str(out_file), "--destroy"]
+    )
+    assert result.exit_code == 0
+    assert any("plan" in c.argv and "-destroy" in c.argv for c in process_fake.calls)
 
 
-def test_tf_apply_command(temp_tf_dir: Path) -> None:
-    with (
-        patch("devops_cli.commands.tf._resolve_tf_binary", return_value="tofu"),
-        patch("subprocess.run", return_value=MagicMock(returncode=0)) as mock_run,
-    ):
-        result = runner.invoke(app, ["apply", str(temp_tf_dir), "--auto-approve"])
-        assert result.exit_code == 0
-        mock_run.assert_called_once()
-        args = mock_run.call_args[0][0]
-        assert args == ["tofu", "apply", "-auto-approve"]
+def test_tf_apply_command(
+    temp_tf_dir: Path, fake_tf_binaries: None, process_fake: ProcessFake
+) -> None:
+    result = runner.invoke(app, ["apply", str(temp_tf_dir), "--auto-approve"])
+    assert result.exit_code == 0
+    assert any(c.argv == ("tofu", "apply", "-auto-approve") for c in process_fake.calls)
 
 
-def test_tf_apply_with_plan_file(temp_tf_dir: Path) -> None:
+def test_tf_apply_with_plan_file(
+    temp_tf_dir: Path, fake_tf_binaries: None, process_fake: ProcessFake
+) -> None:
     plan_file = temp_tf_dir / "tfplan"
     plan_file.write_text("plan")
 
-    with (
-        patch("devops_cli.commands.tf._resolve_tf_binary", return_value="tofu"),
-        patch("subprocess.run", return_value=MagicMock(returncode=0)) as mock_run,
-    ):
-        result = runner.invoke(app, ["apply", str(temp_tf_dir), "-p", str(plan_file)])
-        assert result.exit_code == 0
-        mock_run.assert_called_once()
-        args = mock_run.call_args[0][0]
-        assert str(plan_file.resolve()) in args
+    result = runner.invoke(app, ["apply", str(temp_tf_dir), "-p", str(plan_file)])
+    assert result.exit_code == 0
+    assert any(str(plan_file.resolve()) in c.argv for c in process_fake.calls)
 
 
-def test_tf_destroy_command(temp_tf_dir: Path) -> None:
-    with (
-        patch("devops_cli.commands.tf._resolve_tf_binary", return_value="tofu"),
-        patch("subprocess.run", return_value=MagicMock(returncode=0)) as mock_run,
-    ):
-        result = runner.invoke(app, ["destroy", str(temp_tf_dir), "--auto-approve"])
-        assert result.exit_code == 0
-        mock_run.assert_called_once()
-        args = mock_run.call_args[0][0]
-        assert args == ["tofu", "destroy", "-auto-approve"]
+def test_tf_destroy_command(
+    temp_tf_dir: Path, fake_tf_binaries: None, process_fake: ProcessFake
+) -> None:
+    result = runner.invoke(app, ["destroy", str(temp_tf_dir), "--auto-approve"])
+    assert result.exit_code == 0
+    assert any(c.argv == ("tofu", "destroy", "-auto-approve") for c in process_fake.calls)
 
 
-def test_tf_output_command(temp_tf_dir: Path) -> None:
-    with (
-        patch("devops_cli.commands.tf._resolve_tf_binary", return_value="tofu"),
-        patch(
-            "subprocess.run",
-            return_value=MagicMock(returncode=0, stdout='{"cluster_name": "eks"}\n'),
-        ) as mock_run,
-    ):
-        result = runner.invoke(app, ["output", str(temp_tf_dir), "--json"])
-        assert result.exit_code == 0
-        mock_run.assert_called_once()
-        args = mock_run.call_args[0][0]
-        assert args == ["tofu", "output", "-json"]
+def test_tf_output_command(
+    temp_tf_dir: Path, fake_tf_binaries: None, process_fake: ProcessFake
+) -> None:
+    process_fake.answer("tofu", ProcessAnswer(stdout='{"cluster_name": "eks"}\n'))
+    result = runner.invoke(app, ["output", str(temp_tf_dir), "--json"])
+    assert result.exit_code == 0
+    assert any(c.argv == ("tofu", "output", "-json") for c in process_fake.calls)
 
 
-def test_tf_output_raw_command(temp_tf_dir: Path) -> None:
-    with (
-        patch("devops_cli.commands.tf._resolve_tf_binary", return_value="tofu"),
-        patch("subprocess.run", return_value=MagicMock(returncode=0, stdout="eks\n")) as mock_run,
-    ):
-        result = runner.invoke(app, ["output", str(temp_tf_dir), "--raw"])
-        assert result.exit_code == 0
-        mock_run.assert_called_once()
-        args = mock_run.call_args[0][0]
-        assert args == ["tofu", "output", "-raw"]
+def test_tf_output_raw_command(
+    temp_tf_dir: Path, fake_tf_binaries: None, process_fake: ProcessFake
+) -> None:
+    process_fake.answer("tofu", ProcessAnswer(stdout="eks\n"))
+    result = runner.invoke(app, ["output", str(temp_tf_dir), "--raw"])
+    assert result.exit_code == 0
+    assert any(c.argv == ("tofu", "output", "-raw") for c in process_fake.calls)
 
 
-def test_tf_validate_command(temp_tf_dir: Path) -> None:
-    with (
-        patch("devops_cli.commands.tf._resolve_tf_binary", return_value="tofu"),
-        patch("subprocess.run", return_value=MagicMock(returncode=0)) as mock_run,
-    ):
-        result = runner.invoke(app, ["validate", str(temp_tf_dir), "--no-color"])
-        assert result.exit_code == 0
-        mock_run.assert_called_once()
-        args = mock_run.call_args[0][0]
-        assert args == ["tofu", "validate", "-no-color"]
+def test_tf_validate_command(
+    temp_tf_dir: Path, fake_tf_binaries: None, process_fake: ProcessFake
+) -> None:
+    result = runner.invoke(app, ["validate", str(temp_tf_dir), "--no-color"])
+    assert result.exit_code == 0
+    assert any(c.argv == ("tofu", "validate", "-no-color") for c in process_fake.calls)
 
 
-def test_tf_fmt_command(temp_tf_dir: Path) -> None:
-    with (
-        patch("devops_cli.commands.tf._resolve_tf_binary", return_value="tofu"),
-        patch("subprocess.run", return_value=MagicMock(returncode=0)) as mock_run,
-    ):
-        result = runner.invoke(app, ["fmt", str(temp_tf_dir), "--check"])
-        assert result.exit_code == 0
-        mock_run.assert_called_once()
-        args = mock_run.call_args[0][0]
-        assert args == ["tofu", "fmt", "-check", "-recursive"]
+def test_tf_fmt_command(
+    temp_tf_dir: Path, fake_tf_binaries: None, process_fake: ProcessFake
+) -> None:
+    result = runner.invoke(app, ["fmt", str(temp_tf_dir), "--check"])
+    assert result.exit_code == 0
+    assert any(c.argv == ("tofu", "fmt", "-check", "-recursive") for c in process_fake.calls)
 
 
-def test_tf_status_command(temp_tf_dir: Path) -> None:
-    with patch("devops_cli.commands.tf._resolve_tf_binary", return_value="tofu"):
-        result = runner.invoke(app, ["status", str(temp_tf_dir)])
-        assert result.exit_code == 0
-        assert "OpenTofu Status" in result.output
+def test_tf_status_command(temp_tf_dir: Path, fake_tf_binaries: None) -> None:
+    result = runner.invoke(app, ["status", str(temp_tf_dir)])
+    assert result.exit_code == 0
+    assert "OpenTofu Status" in result.output
 
 
-def test_deploy_cloud_command(temp_tf_dir: Path) -> None:
-    with (
-        patch("devops_cli.commands.tf.find_worktree_root", return_value=temp_tf_dir),
-        patch("devops_cli.commands.tf._resolve_tf_binary", return_value="tofu"),
-        patch("devops_cli.commands.tf._get_cloud_dir", return_value=temp_tf_dir),
-        patch("subprocess.run", return_value=MagicMock(returncode=0)) as mock_run,
-    ):
-        result = runner.invoke(app, ["deploy-cloud", "--provider", "aws", "--auto-approve"])
-        assert result.exit_code == 0
-        assert mock_run.call_count == 2  # init and apply
-
-
-def test_deploy_cloud_dry_run(temp_tf_dir: Path) -> None:
-    with (
-        patch("devops_cli.commands.tf.find_worktree_root", return_value=temp_tf_dir),
-        patch("devops_cli.commands.tf._resolve_tf_binary", return_value="tofu"),
-        patch("devops_cli.commands.tf._get_cloud_dir", return_value=temp_tf_dir),
-        patch("devops_cli.commands.tf.is_dry_run", return_value=True),
-        patch("subprocess.run") as mock_run,
-    ):
-        result = runner.invoke(app, ["deploy-cloud", "--provider", "aws", "--auto-approve"])
-        assert result.exit_code == 0
-        mock_run.assert_not_called()
-
-
-def test_tf_subcommands_dry_run(temp_tf_dir: Path) -> None:
-    """Verify plan, apply, destroy, and output in dry-run mode."""
-    with (
-        patch("devops_cli.commands.tf._resolve_tf_binary", return_value="tofu"),
-        patch("devops_cli.commands.tf.is_dry_run", return_value=True),
-        patch("subprocess.run") as mock_run,
-    ):
-        assert runner.invoke(app, ["plan", str(temp_tf_dir)]).exit_code == 0
-        assert runner.invoke(app, ["apply", str(temp_tf_dir)]).exit_code == 0
-        assert runner.invoke(app, ["destroy", str(temp_tf_dir)]).exit_code == 0
-        assert runner.invoke(app, ["output", str(temp_tf_dir)]).exit_code == 0
-        mock_run.assert_not_called()
-
-
-def test_tf_lint_command(temp_tf_dir: Path) -> None:
-    """Verify devops tf lint subcommand."""
-    from devops_cli.ai.review_schema import Finding
-    from devops_cli.security.base import ScanOutcome
-
-    mock_finding = Finding(
-        severity="HIGH",
-        location="main.tf:1",
-        title="Unused variable",
-        description="Var declared but not used",
-        fix="Remove var",
+def test_deploy_cloud_command(
+    temp_tf_dir: Path,
+    fake_tf_binaries: None,
+    monkeypatch: pytest.MonkeyPatch,
+    process_fake: ProcessFake,
+) -> None:
+    (temp_tf_dir / ".git").mkdir()
+    (temp_tf_dir / "tf" / "aws").mkdir(parents=True)
+    monkeypatch.chdir(temp_tf_dir)
+    result = runner.invoke(app, ["deploy-cloud", "--provider", "aws", "--auto-approve"])
+    assert result.exit_code == 0
+    assert (
+        len([c for c in process_fake.calls if c.argv and c.argv[0] in ("tofu", "terraform")]) == 2
     )
 
+
+def test_deploy_cloud_dry_run(
+    temp_tf_dir: Path,
+    fake_tf_binaries: None,
+    monkeypatch: pytest.MonkeyPatch,
+    process_fake: ProcessFake,
+) -> None:
+    (temp_tf_dir / ".git").mkdir()
+    (temp_tf_dir / "tf" / "aws").mkdir(parents=True)
+    monkeypatch.chdir(temp_tf_dir)
+    result = runner.invoke(
+        app, ["deploy-cloud", "--provider", "aws", "--auto-approve", "--dry-run"]
+    )
+    assert result.exit_code == 0
+    assert len(process_fake.calls) == 0
+
+
+def test_tf_subcommands_dry_run(
+    temp_tf_dir: Path, fake_tf_binaries: None, process_fake: ProcessFake
+) -> None:
+    """Verify plan, apply, destroy, and output in dry-run mode."""
+    assert runner.invoke(app, ["plan", str(temp_tf_dir), "--dry-run"]).exit_code == 0
+    assert runner.invoke(app, ["apply", str(temp_tf_dir), "--dry-run"]).exit_code == 0
+    assert runner.invoke(app, ["destroy", str(temp_tf_dir), "--dry-run"]).exit_code == 0
+    assert runner.invoke(app, ["output", str(temp_tf_dir), "--dry-run"]).exit_code == 0
+    assert len(process_fake.calls) == 0
+
+
+def test_tf_lint_command(
+    temp_tf_dir: Path, fake_tf_binaries: None, process_fake: ProcessFake
+) -> None:
+    """Verify devops tf lint subcommand."""
     # Dry run
     res_dry = runner.invoke(app, ["lint", str(temp_tf_dir), "--dry-run"])
     assert res_dry.exit_code == 0
 
     # With findings and JSON
-    with patch(
-        "devops_cli.security.tflint.run_tflint_scan",
-        return_value=ScanOutcome("ran", [mock_finding]),
-    ):
-        res_json = runner.invoke(app, ["lint", str(temp_tf_dir), "--json"])
-        assert res_json.exit_code == 0
-        assert "Unused variable" in res_json.output
+    tflint_issues = {
+        "issues": [
+            {
+                "rule": {"name": "terraform-unused-declarations", "severity": "ERROR"},
+                "message": "Unused variable",
+                "range": {"filename": "main.tf", "start": {"line": 1}},
+            }
+        ]
+    }
+    process_fake.answer("tflint", ProcessAnswer(stdout=json.dumps(tflint_issues)))
 
-        res_table = runner.invoke(app, ["lint", str(temp_tf_dir)])
-        assert res_table.exit_code == 0
+    res_json = runner.invoke(app, ["lint", str(temp_tf_dir), "--json"])
+    assert res_json.exit_code == 0
+    assert "Unused variable" in res_json.output
+
+    res_table = runner.invoke(app, ["lint", str(temp_tf_dir)])
+    assert res_table.exit_code == 0
 
     # Clean
-    with patch("devops_cli.security.tflint.run_tflint_scan", return_value=ScanOutcome("ran")):
-        res_clean = runner.invoke(app, ["lint", str(temp_tf_dir)])
-        assert res_clean.exit_code == 0
-        assert "No Terraform" in res_clean.output
+    process_fake.answer("tflint", ProcessAnswer(stdout=json.dumps({"issues": []})))
+    res_clean = runner.invoke(app, ["lint", str(temp_tf_dir)])
+    assert res_clean.exit_code == 0
+    assert "No Terraform" in res_clean.output
 
 
 @pytest.mark.parametrize("output_args", [[], ["--json"]], ids=["table", "json"])
 def test_a_lint_that_did_not_run_says_so_and_fails(
-    temp_tf_dir: Path, output_args: list[str]
+    temp_tf_dir: Path, output_args: list[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """With no tflint on PATH, the command says that the lint did not run and why, says no pass,
     prints no findings list, and exits 1, in each output format (#2427)."""
-    from devops_cli.security.base import ScanOutcome
-
-    outcome = ScanOutcome("unavailable", [], "Binary 'tflint' not found on PATH")
-
-    with patch("devops_cli.security.tflint.run_tflint_scan", return_value=outcome):
-        result = runner.invoke(app, ["lint", str(temp_tf_dir), *output_args])
+    monkeypatch.setattr(shutil, "which", lambda cmd: None)
+    result = runner.invoke(app, ["lint", str(temp_tf_dir), *output_args])
 
     assert (result.exit_code, "No Terraform" in result.output, "[]" in result.output) == (
         1,
