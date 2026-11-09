@@ -9,6 +9,8 @@ from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 
+from devops_cli.ai.client.models import StructuredOutputValidationError
+from devops_cli.ai.schema_reflection import ViolationText
 from devops_cli.config.constants import (
     CONST_ROADMAP_STAGE_REFUSED_PROBLEM_MAX_CHARS,
     CONST_ROADMAP_STAGE_REFUSED_REPLY_MAX_BYTES,
@@ -316,3 +318,143 @@ def test_a_gate_refusal_logs_one_line_for_each_refused_reply(
     lines = [r.getMessage() for r in caplog.records if "stage reply refused" in r.getMessage()]
     assert [line.rsplit(" ", 1)[1] for line in lines] == ["result=refused", "result=refused"]
     assert all("item=#1 request=1 input_tokens=0 tools_offered=False" in line for line in lines)
+
+
+# ── The reply that breaks the schema ──────────────────────────────────────────
+
+SECRET = "ghp_abcdefghijklmnopqrstuvwxyz0123456789"
+
+
+def _broken(
+    *texts: ViolationText, count: int | None = None, stop_reason: str = "validation"
+) -> StructuredOutputValidationError:
+    """The error of a plan run whose reply broke the schema past its retries."""
+    return StructuredOutputValidationError(
+        "The plan run stopped before it gave a plan.",
+        violations=len(texts) if count is None else count,
+        details=texts,
+        stop_reason=stop_reason,
+    )
+
+
+def _two_violations() -> StructuredOutputValidationError:
+    return _broken(
+        ViolationText(loc="references.0.reason", type="string_too_short", message="Too short"),
+        ViolationText(loc="references.1.reason", type="missing", message="Field required"),
+    )
+
+
+def test_a_schema_failure_names_the_violations_the_stop_reason_and_the_count(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo, model_fake: ModelFake
+) -> None:
+    model_fake.answer(_two_violations())
+
+    (failure,) = _plan(store, stage_repo).failed
+
+    assert failure.error == "StructuredOutputValidationError"
+    for expected in (
+        "2 schema violation(s)",
+        "validation",
+        "references.0.reason (string_too_short): Too short",
+        "references.1.reason (missing): Field required",
+    ):
+        assert expected in failure.reason
+
+
+def test_a_schema_failure_names_at_most_three_violations_of_five(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo, model_fake: ModelFake
+) -> None:
+    texts = [ViolationText(loc=f"field_{n}", type="missing", message="m") for n in range(5)]
+    model_fake.answer(_broken(*texts, count=5))
+
+    (failure,) = _plan(store, stage_repo).failed
+
+    assert "5 schema violation(s)" in failure.reason
+    assert [f"field_{n}" in failure.reason for n in range(5)] == [True] * 3 + [False] * 2
+
+
+def test_a_schema_failure_cuts_a_message_of_300_characters_at_200(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo, model_fake: ModelFake
+) -> None:
+    model_fake.answer(_broken(ViolationText(loc="a", type="b", message="m" * 300)))
+
+    (failure,) = _plan(store, stage_repo).failed
+
+    assert ("m" * 200 in failure.reason, "m" * 201 in failure.reason) == (True, False)
+
+
+def test_a_schema_failure_with_a_secret_in_a_message_shows_and_keeps_the_masked_value(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo, model_fake: ModelFake
+) -> None:
+    model_fake.answer(_broken(ViolationText(loc="a", type="b", message=f"bad {SECRET}")))
+
+    (failure,) = _plan(store, stage_repo).failed
+
+    assert SECRET not in failure.reason
+    assert SECRET not in _refused_file().read_text(encoding="utf-8")
+
+
+def test_a_schema_failure_keeps_the_same_fields_in_the_refused_file(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo, model_fake: ModelFake
+) -> None:
+    model_fake.answer(_two_violations())
+
+    _plan(store, stage_repo)
+
+    failure = _read().schema_failure
+    assert failure is not None
+    assert (failure.stop_reason, failure.count) == ("validation", 2)
+    assert [(v.loc, v.type, v.message) for v in failure.violations] == [
+        ("references.0.reason", "string_too_short", "Too short"),
+        ("references.1.reason", "missing", "Field required"),
+    ]
+    assert not plan_record_path(STAGE_REPO, 1).exists()
+
+
+def test_a_schema_failure_after_a_refused_reply_keeps_both(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo, model_fake: ModelFake
+) -> None:
+    refused = _missing_path()
+    model_fake.answer(refused, _two_violations())
+
+    _plan(store, stage_repo)
+
+    record = _read()
+    assert [e.reply for e in record.replies] == [refused.model_dump()]
+    assert record.schema_failure is not None
+    assert record.schema_failure.count == 2
+
+
+def test_a_schema_failure_logs_one_line_with_the_violations(
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    model_fake.answer(_two_violations())
+
+    with caplog.at_level(logging.WARNING):
+        _plan(store, stage_repo)
+
+    (line,) = [r.getMessage() for r in caplog.records if "schema" in r.getMessage()]
+    assert "references.0.reason" in line
+    assert "item=#1" in line
+
+
+def test_a_staged_item_deletes_the_refused_file_of_a_schema_failure(
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    github_api: GitHubApiFake,
+) -> None:
+    github_api.route("POST", PULLS, OPENED)
+    model_fake.answer(_two_violations())
+    _plan(store, stage_repo)
+    assert _refused_file().is_file()
+    model_fake.reset()
+    model_fake.answer(make_stage_proposal())
+    planned = _plan(store, stage_repo)
+
+    applied = apply_stage(store, planned, source=stage_repo.clone)
+
+    assert (applied.staged, _refused_file().exists()) == ((1,), False)

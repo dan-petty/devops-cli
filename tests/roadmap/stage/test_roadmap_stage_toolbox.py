@@ -18,6 +18,8 @@ from pydantic_ai.exceptions import ModelHTTPError
 from pydantic_ai.messages import (
     ModelRequest,
     ModelResponse,
+    RetryPromptPart,
+    TextPart,
     ToolCallPart,
 )
 
@@ -26,6 +28,7 @@ from devops_cli.ai.client.models import (
     AICredentialsError,
     StructuredOutputValidationError,
 )
+from devops_cli.ai.schema_reflection import ViolationText
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config import constants, settings
 from devops_cli.config.constants import (
@@ -889,3 +892,127 @@ def test_toolbox_client_initializes_mcp_when_stage_mcp_enabled(
     )
     assert client._mcp_toolset._target_url == "http://mcp-server:8000/planning/mcp"
     assert client._mcp_toolset._timeout_seconds == 30.0
+
+
+def _broken_plan(*dropped: str, empty_changes: bool = True) -> ModelResponse:
+    """A plan reply with one violation for each dropped key, and one more when the changes of its
+    first group are empty."""
+    plan = _PLAN.model_dump()
+    for key in dropped:
+        del plan[key]
+    if empty_changes:
+        plan["groups"] = [plan["groups"][0] | {"changes": []}, *plan["groups"][1:]]
+    return call("final_result", **plan)
+
+
+def _retry(*errors: dict[str, Any]) -> ModelRequest:
+    """The request after a reply that broke the schema: pydantic-ai sends the errors back."""
+    return ModelRequest(parts=[RetryPromptPart(content=list(errors), tool_name="final_result")])
+
+
+def _error(loc: tuple[int | str, ...], message: str = "Field required") -> dict[str, Any]:
+    return {"type": "missing", "loc": loc, "msg": message, "input": {}}
+
+
+def test_a_reply_that_breaks_the_schema_twice_keeps_the_text_of_its_violations(
+    checkout: tuple[Path, str],
+) -> None:
+    client = _client(checkout, Script(_broken_plan("why")))
+
+    with pytest.raises(StructuredOutputValidationError) as caught:
+        _plan(client)
+
+    error = caught.value
+    assert sorted((v.loc, v.type) for v in error.details) == [
+        ("groups.0.changes", "too_short"),
+        ("why", "missing"),
+    ]
+    assert (error.violations, error.stop_reason) == (2, "validation")
+    assert client.traces[0].violation_texts == error.details
+
+
+def test_a_reply_with_five_violations_keeps_three_texts_and_the_count_of_five(
+    checkout: tuple[Path, str],
+) -> None:
+    client = _client(
+        checkout, Script(_broken_plan("summary", "why", "what_changes", "existing_tool"))
+    )
+
+    with pytest.raises(StructuredOutputValidationError) as caught:
+        _plan(client)
+
+    assert (caught.value.violations, len(caught.value.details)) == (5, 3)
+
+
+def test_a_reply_of_text_that_is_no_json_names_the_root_and_the_type_json_invalid(
+    checkout: tuple[Path, str],
+) -> None:
+    client = _client(checkout, Script(ModelResponse(parts=[TextPart("I will write the plan.")])))
+
+    with pytest.raises(StructuredOutputValidationError) as caught:
+        _plan(client)
+
+    assert [(v.loc, v.type) for v in caught.value.details] == [("root", "json_invalid")]
+    assert caught.value.stop_reason == "validation"
+
+
+def test_a_reply_that_calls_no_tool_of_the_run_raises_with_the_stop_reason_no_tool_call(
+    checkout: tuple[Path, str],
+) -> None:
+    client = _client(checkout, Script(call("no_such_tool", path="src/sample.py")))
+
+    with pytest.raises(StructuredOutputValidationError) as caught:
+        _plan(client)
+
+    assert (caught.value.violations, caught.value.details, caught.value.stop_reason) == (
+        0,
+        (),
+        "no tool call",
+    )
+
+
+def test_the_trace_cuts_a_violation_message_at_200_characters() -> None:
+    trace = RunTrace()
+
+    trace.absorb([_retry(_error(("references", 0, "reason"), "m" * 300))], tools=[])
+
+    assert [len(v.message) for v in trace.violation_texts] == [200]
+
+
+def test_the_trace_keeps_three_texts_of_five_violations_and_the_count_of_five() -> None:
+    errors = [_error(("references", index, "reason")) for index in range(5)]
+    trace = RunTrace()
+
+    trace.absorb([_retry(*errors)], tools=[])
+
+    assert (trace.violations, [v.loc for v in trace.violation_texts]) == (
+        5,
+        ["references.0.reason", "references.1.reason", "references.2.reason"],
+    )
+
+
+def test_the_trace_masks_a_secret_in_a_violation_message() -> None:
+    secret = "ghp_abcdefghijklmnopqrstuvwxyz0123456789"
+    trace = RunTrace()
+
+    trace.absorb([_retry(_error(("references", 0, "reason"), f"bad value {secret}"))], tools=[])
+
+    assert secret not in trace.violation_texts[0].message
+
+
+def test_a_later_trace_with_no_violation_leaves_the_texts_of_an_earlier_one() -> None:
+    broken = RunTrace()
+    broken.absorb([_retry(_error(("a",)))], tools=[])
+
+    total = RunTrace.combined([broken, RunTrace()])
+
+    assert (total.violations, total.violation_texts) == (1, broken.violation_texts)
+
+
+def test_a_violation_text_masks_and_cuts_each_of_its_fields() -> None:
+    secret = "ghp_abcdefghijklmnopqrstuvwxyz0123456789"
+
+    text = ViolationText(loc=f"a.{secret}", type="t" * 300, message=f"{secret} " + "m" * 300)
+
+    assert (secret in text.loc, len(text.type), len(text.message)) == (False, 200, 200)
+    assert secret not in text.message
