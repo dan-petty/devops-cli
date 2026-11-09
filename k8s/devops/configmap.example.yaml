@@ -31,11 +31,18 @@ data:
       # The spend reports value local tokens at the hosted price of these two models, by the
       # owner decision of 2026-11-09 (#4241). The prices are the OpenRouter quotes: 0.035 USD
       # input and 1.50 USD output for chat, and 0.01 USD for embeddings, per million tokens.
-      # genai-prices does not know both names, so the Service keeps the prices in the file
-      # pricing_overrides.json in its data volume (`devops ai cost set-price`); a new volume has
-      # no price until a person sets it again.
+      # genai-prices does not know both names, so `price_overrides` below holds their prices
+      # (#4242). A price that `devops ai cost set-price` saved in the file pricing_overrides.json
+      # of the data volume wins over the price here for the same model.
       reference_model: qwen3.8:27b
       reference_embedding_model: qwen/qwen3-embedding-8b
+      price_overrides:
+        qwen3.8:27b:
+          prompt_usd_per_million: 0.035
+          completion_usd_per_million: 1.50
+        qwen/qwen3-embedding-8b:
+          prompt_usd_per_million: 0.01
+          completion_usd_per_million: 0.0
       tasks:
         # The model lane (stage, refine, alternatives) plans with DeepSeek through the gateway
         # group deepseek-v4.1-flash-1017 (#3155). The verification slot is the model that
