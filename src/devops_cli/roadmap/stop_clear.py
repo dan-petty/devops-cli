@@ -311,14 +311,13 @@ def _comment(decision: _Decision, item: Item, status: str, limits: ClearLimits) 
 
 
 def _marks(decision: _Decision, now: datetime) -> dict[ImplementRecordKey, str | None]:
-    """What a clear writes in the record with the Status: it removes the stop, its class, the failed check and the conflicted files. A clear
+    """What a clear writes in the record with the Status: it removes the stop, its class and the failed check. It keeps the log of the check
+    and the conflicted files: the next Job hands them to its first step and clears them (#4071). A clear
     by digest also keeps the list of the clears, and the time of its comment when it writes one."""
     marks: dict[ImplementRecordKey, str | None] = {
         ImplementRecordKey.STOPPED: None,
         ImplementRecordKey.FAILURE: None,
         ImplementRecordKey.CHECK: None,
-        ImplementRecordKey.CHECK_LOG: None,
-        ImplementRecordKey.CONFLICT: None,
     }
     if decision.rule is ClearRule.CONTINUE:
         marks[ImplementRecordKey.CONTINUATIONS] = str(decision.continuations)

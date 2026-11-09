@@ -2593,6 +2593,19 @@ class RoadmapMessages:
         "window of {window} tokens minus {reserve} tokens for the turns of the run."
     )
     implement_git_failed: str = "git {command} failed.\n{output}"
+    implement_earlier_stop: str = "# The stop of the earlier Job\n\n{body}"
+    implement_earlier_stop_log: str = (
+        "The earlier Job stopped on a failed check. This is the end of its log:\n\n"
+        "{fence}\n{log}\n{fence}"
+    )
+    implement_earlier_stop_files: str = (
+        "The earlier Job stopped on a rebase onto the default branch. These files were in "
+        "conflict:\n\n{files}"
+    )
+    implement_earlier_stop_bad_files: str = (
+        "The record implement.conflict is no JSON list of paths ({error} errors). The first step "
+        "gets no list of conflicted files."
+    )
     implement_fix_title: str = "Make check {check} pass"
     implement_fix_task: str = "[ ] Make check `{check}` pass"
     implement_wip_commit: str = (

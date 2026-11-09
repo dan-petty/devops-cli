@@ -57,11 +57,11 @@ import time
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
-from enum import StrEnum
 from pathlib import Path
 from typing import Any, NoReturn
 
-from pydantic import BaseModel
+from pydantic import BaseModel, TypeAdapter
+from pydantic import ValidationError as ModelValidationError
 
 from devops_cli.ai.client.models import AIClientError, AICredentialsError
 from devops_cli.config.commands import BIN_DEVOPS, BIN_GIT, BIN_UV
@@ -140,6 +140,7 @@ from devops_cli.roadmap.implement.implement_scoped_ci import (
 )
 from devops_cli.roadmap.implement.implement_shell_policy import shown
 from devops_cli.roadmap.implement.implement_step import (
+    EarlierStop,
     FixRequest,
     StepOutcome,
     StepStatus,
@@ -181,7 +182,13 @@ from devops_cli.roadmap.stage.stage_split import ask_split
 from devops_cli.roadmap.status_sync import StatusFacts, derive_status
 from devops_cli.roadmap.step_files import TaskGroup, parse_task_groups, section_text
 from devops_cli.roadmap.step_metrics import observe_implement
-from devops_cli.roadmap.stores.store import ImplementRecordKey, Item, ItemField, RoadmapStore
+from devops_cli.roadmap.stores.store import (
+    ImplementRecordKey,
+    ImplementResult,
+    Item,
+    ItemField,
+    RoadmapStore,
+)
 from devops_cli.roadmap.title_labels import title_labels
 from devops_cli.security.sanitizer import mask_secrets
 
@@ -261,15 +268,6 @@ class _ClaimedError(Exception):
         super().__init__(owner)
         self.owner = owner
         self.boundary = boundary
-
-
-class _Ended(StrEnum):
-    """How the run of an item ended."""
-
-    READY = "ready"
-    STOPPED = "stopped"
-    YIELDED = "yielded"
-    RETURNED = "returned"
 
 
 @dataclass(frozen=True)
@@ -501,6 +499,8 @@ class _ItemRun:
     # the comments were listed already (#4070).
     comment_id: int | None = field(default=None, init=False)
     comments_listed: bool = field(default=False, init=False)
+    # The stop of the earlier Job, which the first step of the run gets once (#4071).
+    handoff: EarlierStop | None = field(default=None, init=False)
     returned: bool = False
     checkpoints_off: bool = False
     passed: bool = False
@@ -663,12 +663,17 @@ class _ItemRun:
             marks[ImplementRecordKey.PR] = str(self.pull)
         if not self.target.item.job_record.get(ImplementRecordKey.BASE):
             marks[ImplementRecordKey.BASE] = self._base()
+        record = self.target.item.job_record
+        self.handoff = _earlier_stop(
+            record.get(ImplementRecordKey.CHECK_LOG), record.get(ImplementRecordKey.CONFLICT)
+        )
+        marks[ImplementRecordKey.RESULT] = None
+        marks[ImplementRecordKey.CHECK_LOG] = None
+        marks[ImplementRecordKey.CONFLICT] = None
         if self.target.retry:
             marks[ImplementRecordKey.STOPPED] = None
             marks[ImplementRecordKey.FAILURE] = None
             marks[ImplementRecordKey.CHECK] = None
-            marks[ImplementRecordKey.CHECK_LOG] = None
-            marks[ImplementRecordKey.CONFLICT] = None
             marks[ImplementRecordKey.SPEND] = None
         self.store.set_field(
             self._fresh(), ItemField.STATUS, CONST_ROADMAP_STATUS_IN_PROGRESS, marks=marks
@@ -792,6 +797,7 @@ class _ItemRun:
                 ImplementRecordKey.SPEND: None,
                 ImplementRecordKey.CHECKED_SHA: None,
                 ImplementRecordKey.PUBLISHED_SHA: None,
+                ImplementRecordKey.RESULT: ImplementResult.RETURNED.value,
             },
         )
         self.returned = True
@@ -1028,6 +1034,7 @@ class _ItemRun:
                     on_wip=self._keep,
                     spend=self._item_spend(),
                     recorded_tests=self._recorded_tests(),
+                    earlier=self._take_earlier(),
                 )
             except OverWindowError as err:
                 self._handle_over_window(group, err, change, tasks_text, tasks_file, tasks)
@@ -1052,6 +1059,12 @@ class _ItemRun:
                 repair_rounds=sum(o.repair_rounds for o in self.outcomes),
             )
             self.passed = True
+
+    def _take_earlier(self) -> EarlierStop | None:
+        """The stop of the earlier Job for the step that runs now, and none for the steps after
+        it: the first step either fixes the cause or stops (#4071)."""
+        earlier, self.handoff = self.handoff, None
+        return earlier
 
     def _checkpoint(self) -> None:
         """Push the groups that passed in this run, so that a killed runner loses none (#3677).
@@ -1579,6 +1592,7 @@ class _ItemRun:
             ImplementRecordKey.BASE: None,
             ImplementRecordKey.CHECKED_SHA: None,
             ImplementRecordKey.PUBLISHED_SHA: None,
+            ImplementRecordKey.RESULT: ImplementResult.READY.value,
         }
         self.store.set_field(
             self._fresh(), ItemField.STATUS, CONST_ROADMAP_STATUS_IN_REVIEW, marks=marks
@@ -1604,8 +1618,11 @@ class _ItemRun:
                 boundary=claimed.boundary,
             ),
         )
+        self.store.set_marks(
+            self._fresh(), {ImplementRecordKey.RESULT: ImplementResult.YIELDED.value}
+        )
 
-    def end_stopped(self, stop: _StopError) -> _Ended:
+    def end_stopped(self, stop: _StopError) -> ImplementResult:
         """End a run that a step stopped. A claim that came while the step ran is the end of the
         run at this boundary: the stop pushes nothing then, opens no pull request and sets no
         Status (#2910)."""
@@ -1613,9 +1630,9 @@ class _ItemRun:
             self._require_unclaimed(MESSAGES.roadmap.implement_boundary_stop.format(step=stop.step))
         except _ClaimedError as claimed:
             self.yield_to(claimed)
-            return _Ended.YIELDED
+            return ImplementResult.YIELDED
         self.stop(stop)
-        return _Ended.STOPPED
+        return ImplementResult.STOPPED
 
     # ── The stop ──
 
@@ -1701,6 +1718,7 @@ class _ItemRun:
             marks[ImplementRecordKey.PR] = str(self.pull)
         if self.wip is not None:
             marks[ImplementRecordKey.WIP] = _wip_record(self.wip)
+        marks[ImplementRecordKey.RESULT] = ImplementResult.STOPPED.value
         self.store.set_field(
             self._fresh(),
             ItemField.STATUS,
@@ -1723,6 +1741,25 @@ class _ItemRun:
         except _StopError as exc:
             return texts.implement_stop_push_failed.format(output=mask_secrets(exc.reason))
         return ""
+
+
+def _earlier_stop(check_log: str | None, conflict: str | None) -> EarlierStop | None:
+    """The stop of the earlier Job that the record holds: the end of a check log and the files of
+    a rebase conflict as a JSON list (#4071), or None when it holds neither. A list that is no JSON
+    list of strings is left out and named on stderr: only a hand edit makes one."""
+    files: tuple[str, ...] = ()
+    if conflict:
+        try:
+            files = tuple(TypeAdapter(list[str]).validate_json(conflict))
+        except ModelValidationError as error:
+            print_muted(
+                MESSAGES.roadmap.implement_earlier_stop_bad_files.format(error=error.error_count()),
+                to_stderr=True,
+                safe=True,
+            )
+    if not check_log and not files:
+        return None
+    return EarlierStop(check_log=check_log or "", conflict_files=files)
 
 
 def _wip_record(commit: WipCommit) -> str:
@@ -1750,8 +1787,8 @@ def _implement_item(
     window: int,
     model_for_tier: Callable[[str], Any] | None = None,
     splitter: Any = None,
-) -> _Ended:
-    """Run one item: how its run ended (`_Ended`)."""
+) -> ImplementResult:
+    """Run one item: how its run ended (`ImplementResult`)."""
     default = default_branch(source, operation=GIT_OPERATION)
     with _worktree(source, target) as path:
         run = _ItemRun(
@@ -1769,7 +1806,7 @@ def _implement_item(
             run.execute()
         except _ClaimedError as claimed:
             run.yield_to(claimed)
-            return _Ended.YIELDED
+            return ImplementResult.YIELDED
         except _StopError as stop:
             return run.end_stopped(stop)
         except AICredentialsError, GitHubUnauthenticatedError:
@@ -1777,8 +1814,8 @@ def _implement_item(
         except (DevOpsCLIError, AIClientError, subprocess.TimeoutExpired) as exc:
             return run.end_stopped(_error_stop(run.step, exc))
         if run.returned:
-            return _Ended.RETURNED
-    return _Ended.READY
+            return ImplementResult.RETURNED
+    return ImplementResult.READY
 
 
 def apply_implement(
@@ -1801,7 +1838,7 @@ def apply_implement(
     deny_environment_reads()
     adopt_orphans()
     checkout = Path(source)
-    ended: dict[_Ended, list[int]] = {kind: [] for kind in _Ended}
+    ended: dict[ImplementResult, list[int]] = {kind: [] for kind in ImplementResult}
     failed: list[ImplementFailure] = []
     for target in plan.selected:
         item = target.item
@@ -1827,11 +1864,11 @@ def apply_implement(
             continue
         ended[how].append(item.number)
     return ImplementApplied(
-        tuple(ended[_Ended.READY]),
-        tuple(ended[_Ended.STOPPED]),
+        tuple(ended[ImplementResult.READY]),
+        tuple(ended[ImplementResult.STOPPED]),
         tuple(failed),
-        tuple(ended[_Ended.YIELDED]),
-        tuple(ended[_Ended.RETURNED]),
+        tuple(ended[ImplementResult.YIELDED]),
+        tuple(ended[ImplementResult.RETURNED]),
     )
 
 

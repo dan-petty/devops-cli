@@ -1,4 +1,4 @@
-"""Each key of the implement job record has a reader (#4070).
+"""Each key of the implement job record has a reader (#4070, #4071).
 
 A key that the job only writes is dead weight, unless a person reads it or the spec requires it. So
 each member of `ImplementRecordKey` is named below with the place that reads it: a read in the code
@@ -32,10 +32,11 @@ READERS: Final[dict[str, tuple[str, ...]]] = {
     ),
     "implement.pr": ("code", f"{ROADMAP}/implement/implement_pull.py"),
     "implement.stopped": ("code", f"{ROADMAP}/status_sync.py"),
+    "implement.result": ("code", f"{ROADMAP}/implement/implement_submit.py"),
     "implement.failure": ("code", f"{ROADMAP}/stop_clear.py"),
     "implement.check": ("text", DOCUMENT, "The check that failed in the stop"),
-    "implement.check_log": ("text", DOCUMENT, "the masked end of its log"),
-    "implement.conflict": ("text", DOCUMENT, "The files that a rebase conflict left unmerged"),
+    "implement.check_log": ("code", f"{ROADMAP}/implement/implement_run.py"),
+    "implement.conflict": ("code", f"{ROADMAP}/implement/implement_run.py"),
     "implement.wip": ("text", SPEC, "The job SHALL write `implement.wip` to the job record"),
     "implement.base": ("code", f"{ROADMAP}/implement/implement_run.py"),
     "implement.checked_sha": ("code", f"{ROADMAP}/implement/implement_run.py"),
@@ -76,3 +77,20 @@ def test_the_reader_of_a_key_reads_it(key: str) -> None:
         assert _reads(source, key), f"{path} does not read {key}"
     else:
         assert text[0] in source, f"{path} does not hold the text for {key}"
+
+
+def test_a_key_with_neither_a_reader_nor_a_spec_line_is_found() -> None:
+    """The table is checked against the members of the enum: a member that the table lacks, and a
+    line of the table that names no member, both make the first test fail."""
+    members = {key.value for key in ImplementRecordKey} | {"implement.unread"}
+
+    assert members - set(READERS) == {"implement.unread"}
+
+
+def test_the_document_names_the_result_key_and_the_hand_off_of_the_stop() -> None:
+    rows = [line for line in _read(DOCUMENT).splitlines() if line.startswith("| Implement |")]
+
+    assert any("`implement.result`" in row for row in rows)
+    for key in ("`implement.check_log`", "`implement.conflict`"):
+        (row,) = [row for row in rows if key in row]
+        assert "first step" in row, f"the row of {key} does not state the hand-off"
