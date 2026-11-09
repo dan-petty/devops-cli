@@ -2893,7 +2893,7 @@ A stage round SHALL write the removals of closed items and the rejections of ite
 - **THEN** the store receives no write, no branch is pushed or deleted, no GitHub write request is sent, and the plan file of the ready item exists
 
 ### Requirement: A security trigger needs a security section
-The proposal check SHALL refuse a plan that names a security trigger and holds no non-blank `security` text, and SHALL name the matched path or word in the refusal.
+The proposal check SHALL refuse a plan that names a security trigger and holds no non-blank `security` text, and SHALL name the matched path or word in the refusal. A trigger word SHALL match as a word, with an optional plural ending, and SHALL NOT match inside a longer word.
 
 #### Scenario: A plan changes SECURITY.md with no security text
 - **WHEN** `check_proposal` receives a proposal whose group changes `SECURITY.md` and whose `security` field is empty
@@ -2910,6 +2910,14 @@ The proposal check SHALL refuse a plan that names a security trigger and holds n
 #### Scenario: A plan with no trigger needs no security text
 - **WHEN** `check_proposal` receives a proposal whose Changes, group paths and task texts name no trigger
 - **THEN** it returns no security problem
+
+#### Scenario: A trigger word inside a longer word is no trigger
+- **WHEN** `check_proposal` receives a proposal whose task text says "Add a regression test" and whose `security` field is empty
+- **THEN** it returns no security problem
+
+#### Scenario: A trigger word as a whole word is a trigger
+- **WHEN** `check_proposal` receives a proposal whose task text says "Change the egress policy of the pod" and whose `security` field is empty
+- **THEN** it returns a problem that names `egress`
 
 ### Requirement: The security triggers are a fixed list of paths and words
 The trigger paths MUST be the named constant `SECURITY_TRIGGER_PATHS` with a docstring, and every entry MUST be a path of the repository.
