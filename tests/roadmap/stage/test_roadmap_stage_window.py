@@ -61,8 +61,8 @@ pytestmark = pytest.mark.usefixtures("keyring_store", "model_fake")
 # A small planner window, for the scripted runs that test the caps of the first request.
 WINDOW = 65536
 # The window of the `analysis` task in the example ConfigMap, and of its model in the gateway.
-CONFIGURED_WINDOW = 256_000
-GATEWAY_WINDOW = 1_048_576
+CONFIGURED_WINDOW = 200_000
+GATEWAY_WINDOW = 1_000_000
 # The first plan request at its caps, measured on 2026-11-07 (#3880), and the tokens of the longest
 # tool answer, at about 4 characters for a token. The tools end when the messages reach the limit.
 FIRST_REQUEST_TOKENS = 38_000
@@ -371,16 +371,17 @@ def test_the_review_window_of_the_example_configmap_fits_the_first_request_and_t
     )
 
 
-def test_the_review_and_the_planner_share_the_model_and_the_window_of_the_example_configmap() -> (
-    None
-):
-    """One model serves every slot of the Service (#3874), so one window fits all of them."""
+def test_the_review_keeps_deepseek_and_a_window_that_fits_while_the_planner_trials_sonnet() -> None:
+    """The planner runs on `claude-sonnet-5-5` by the trial of 2026-11-09 (#4204), and the review
+    stays on the one model of the other slots (#3874). Each window fits its own first request."""
     verification, analysis = _example_task("verification"), _example_task("analysis")
 
-    assert (verification["model"], verification["context_window"]) == (
+    assert (
+        verification["model"],
+        verification["context_window"],
         analysis["model"],
         analysis["context_window"],
-    )
+    ) == ("deepseek-v4.1-flash-1017", 256_000, "claude-sonnet-5-5", 200_000)
 
 
 def test_the_documented_window_of_analysis_and_its_source_are_the_files_values() -> None:
