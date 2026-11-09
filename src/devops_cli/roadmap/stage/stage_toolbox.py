@@ -58,9 +58,11 @@ RESEARCH_TOOLS_TASK = "roadmap_stage_tools_research.md"
 # The schemas that one agent run with the tools answers, a plan (#3037) and a verification (#3039),
 # with the job row of each in the metrics of the tool calls (`row` label, #3240). The rows differ,
 # so the reads of the verifier do not hide a tool that the planner does not use.
+PLAN_ROW: Final = "stage"
+REVIEW_ROW: Final = "stage_verify"
 _AGENT_ROWS: Final[Mapping[type[BaseModel], str]] = {
-    StageProposal: "stage",
-    Verification: "stage_verify",
+    StageProposal: PLAN_ROW,
+    Verification: REVIEW_ROW,
 }
 
 
@@ -148,9 +150,9 @@ class ToolboxClient:
             if schema is StageProposal
             else agent_instructions(system)
         )
-        trace = RunTrace()
-        self.traces.append(trace)
         row = _AGENT_ROWS[schema]
+        trace = RunTrace(row=row)
+        self.traces.append(trace)
         start_run(self._tool_names, row=row, toolset=self._toolset)
         finished = False
         try:

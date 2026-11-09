@@ -81,7 +81,7 @@ from datetime import UTC, date, datetime
 from enum import StrEnum
 from functools import cache, partial
 from pathlib import Path
-from typing import Any, Final, NamedTuple, Protocol
+from typing import Any, Final, NamedTuple, NoReturn, Protocol
 
 from pydantic import BaseModel
 
@@ -114,6 +114,7 @@ from devops_cli.exceptions import (
     GitHubRateLimitError,
     GitHubUnauthenticatedError,
     GitOperationError,
+    RoadmapStageDegenerateError,
     RoadmapStageError,
     ServiceStoppingError,
     ToolExecutionError,
@@ -144,7 +145,12 @@ from devops_cli.roadmap.planned import (
     planned_limit_priorities,
     read_planned_changes,
 )
-from devops_cli.roadmap.pull_form import SUMMARY_MAX_CHARS, summary_length, title_problems
+from devops_cli.roadmap.pull_form import (
+    SUMMARY_MAX_CHARS,
+    is_placeholder,
+    summary_length,
+    title_problems,
+)
 from devops_cli.roadmap.pull_labels import add_pull_labels, read_title_labels, remove_pull_labels
 from devops_cli.roadmap.refine.refine import (
     NextStep,
@@ -196,13 +202,17 @@ from devops_cli.roadmap.stage.stage_overlap import (
 from devops_cli.roadmap.stage.stage_paths import StagedTree, record_test_references
 from devops_cli.roadmap.stage.stage_pending import PendingStage, orphan_mark
 from devops_cli.roadmap.stage.stage_plan_record import (
+    RefusedRecord,
     StagePlanRecord,
     delete_plan_record,
+    delete_refused_record,
     plan_key,
     plan_record_path,
     prompt_version,
     read_plan_record,
+    refused_record_path,
     write_plan_record,
+    write_refused_record,
 )
 from devops_cli.roadmap.stage.stage_probe import blocked_by, probe_premise
 from devops_cli.roadmap.stage.stage_references import reference_files
@@ -220,7 +230,7 @@ from devops_cli.roadmap.stage.stage_removal_references import scan_removal_refer
 from devops_cli.roadmap.stage.stage_request import StageRequest, gate_arguments
 from devops_cli.roadmap.stage.stage_specs import BaseSpec, read_base_specs
 from devops_cli.roadmap.stage.stage_split import ask_split
-from devops_cli.roadmap.stage.stage_toolbox import ToolboxClient, ToolboxModel, review
+from devops_cli.roadmap.stage.stage_toolbox import PLAN_ROW, ToolboxClient, ToolboxModel, review
 from devops_cli.roadmap.stage.stage_validate import validate_change
 from devops_cli.roadmap.stage.stage_verify import (
     PLAN_NEEDS_FIX_LABEL,
@@ -778,7 +788,8 @@ class StageFailure:
     """An item the job could not plan or write: the class of the error and why, never the model's
     text. `item` is the item itself, when the job read it, so that the job records the failure in
     the job record of the item (#3493). `failure_class` comes from the type of the error, and
-    `step` names the step that failed (#4056)."""
+    `step` names the step that failed (#4056). `degenerate` is true for an item whose plan reply was
+    a placeholder in every text, which the metric counts apart from a failure (#4204)."""
 
     number: int
     title: str
@@ -787,6 +798,7 @@ class StageFailure:
     item: Item | None = field(default=None, compare=False, repr=False)
     failure_class: FailureClass = field(kw_only=True)
     step: StepName = field(kw_only=True)
+    degenerate: bool = field(default=False, kw_only=True)
 
 
 @dataclass(frozen=True)
@@ -889,6 +901,20 @@ class _Refused(NamedTuple):
 
     problem: str
     reply: StageProposal
+
+
+def _is_degenerate(proposal: StageProposal) -> bool:
+    """Whether every text of the plan reply is a placeholder: `why`, `existing_tool`, each line of
+    `feasibility` and each task of each group (#4204). The rule is `is_placeholder` of the pull
+    request form, the rule of the content gate, so the two do not differ."""
+    tasks = (
+        text
+        for group in proposal.groups
+        for text in (group.test, group.implementation, group.documentation)
+        if text is not None
+    )
+    texts = [proposal.why, proposal.existing_tool, *proposal.feasibility, *tasks]
+    return all(is_placeholder(text) for text in texts)
 
 
 class StageClient(Protocol):
@@ -1012,7 +1038,9 @@ class _Planner:
             # commit (#4064).
             request = kept.request
             self._dependency = None
-        outcome = self._gated(target, request, first=None if kept is None else kept.proposal)
+        outcome = self._gated(
+            target, request, first=None if kept is None else kept.proposal, key=key
+        )
         if isinstance(outcome, StagedChange) and key is not None:
             self._keep(target, key, request, outcome.proposal, kept)
         verifier = self._verifier
@@ -1023,11 +1051,12 @@ class _Planner:
         return outcome
 
     def _trace_facts(self) -> TraceFacts | None:
-        """The facts of the last agent run, or None when no toolbox client ran."""
-        if not isinstance(self._client, ToolboxClient):
-            return None
-        traces = getattr(self._toolbox, "traces", None)
-        return TraceFacts.of(traces[-1]) if traces else None
+        """The facts of every plan run of the item so far, or None when no plan run happened. The
+        reply that follows a return keeps the claims of the first reply, so the calls of the first
+        run support it. A review run is no plan run: its reads support no claim of the planner
+        (#4257)."""
+        plans = [trace for trace in self._toolbox_traces() if trace.row == PLAN_ROW]
+        return TraceFacts.of(RunTrace.combined(plans)) if plans else None
 
     def _kept(self, target: StageTarget) -> tuple[StagePlanRecord | None, str | None]:
         """The kept plan of the item and its key, (None, None) for a run that keeps no file. A
@@ -1064,24 +1093,94 @@ class _Planner:
         emit(ROADMAP_STAGE_PLAN_RECORD_TOTAL, 1, {"result": "written"})
 
     def _gated(
-        self, target: StageTarget, request: StageRequest, *, first: StageProposal | None = None
+        self,
+        target: StageTarget,
+        request: StageRequest,
+        *,
+        first: StageProposal | None = None,
+        key: str | None = None,
     ) -> StagedChange | OverBudget:
         """The change that passes the checks, with one return of a refused reply. `first` is a kept
-        plan that stands for the first reply of the model."""
+        plan that stands for the first reply of the model. A reply that is a placeholder in every
+        text ends the item at once: the same request gives the same reply (#4204). A failed item
+        keeps its refused replies and their problems in a file under `key`, and each refused reply
+        is logged."""
+        floor = len(self._toolbox_traces())
+        refused: list[tuple[StageProposal, str]] = []
         proposal = first or self._ask(StageProposal, CHANGE_TASK, request.for_model())
+        if _is_degenerate(proposal):
+            self._stop_degenerate(target, key, refused, proposal, floor)
         outcome = self._settle(target, proposal, request, trace=self._trace_facts())
         if isinstance(outcome, _Refused):
+            self._note_refused(target, floor, "refused")
+            refused.append((outcome.reply, outcome.problem))
             again = {
                 **request.for_model(),
                 "previous": outcome.reply.model_dump(),
                 "problem": outcome.problem,
             }
             proposal = self._ask(StageProposal, CHANGE_TASK, again)
+            if _is_degenerate(proposal):
+                self._stop_degenerate(target, key, refused, proposal, floor)
             outcome = self._settle(target, proposal, request, trace=self._trace_facts())
         if isinstance(outcome, _Refused):
+            self._note_refused(target, floor, "refused")
+            refused.append((outcome.reply, outcome.problem))
+            self._keep_refused(target, key, refused)
             message = MESSAGES.roadmap.stage_invalid.format(problem=outcome.problem)
             raise _stage_error(message, target)
         return outcome
+
+    def _toolbox_traces(self) -> list[RunTrace]:
+        """The runs of the toolbox client so far, or an empty list when no toolbox client ran."""
+        if not isinstance(self._client, ToolboxClient):
+            return []
+        return list(getattr(self._toolbox, "traces", []))
+
+    def _note_refused(self, target: StageTarget, floor: int, result: str) -> None:
+        """Log one line for a refused reply: the item, the number of the last request of the plan
+        run and its input in tokens, whether that request offered a tool, and the result. `floor`
+        is the number of runs before this item was asked, so a run of another item is no source. A
+        plan that no toolbox run made (a kept plan, a plain client) is one request with no count."""
+        traces = self._toolbox_traces()
+        trace = traces[-1] if len(traces) > floor else None
+        logger.warning(
+            "stage reply refused: item=#%d request=%d input_tokens=%d tools_offered=%s result=%s",
+            target.item.number,
+            trace.requests if trace else 1,
+            trace.last_input_tokens if trace else 0,
+            bool(trace and trace.offered and trace.offered[-1]),
+            result,
+        )
+
+    def _keep_refused(
+        self, target: StageTarget, key: str | None, refused: Sequence[tuple[StageProposal, str]]
+    ) -> None:
+        """Write the refused replies of the item with their problems, as the item failed. A run
+        with no plan files keeps nothing."""
+        files = self._plan_files
+        if files is None or key is None:
+            return
+        record = RefusedRecord.of(
+            key, [(reply.model_dump(), problem) for reply, problem in refused]
+        )
+        write_refused_record(refused_record_path(files.repo, target.item.number), record)
+
+    def _stop_degenerate(
+        self,
+        target: StageTarget,
+        key: str | None,
+        refused: list[tuple[StageProposal, str]],
+        proposal: StageProposal,
+        floor: int,
+    ) -> NoReturn:
+        """End the item for a reply that is a placeholder in every text, with no second request."""
+        self._note_refused(target, floor, "degenerate")
+        refused.append((proposal, MESSAGES.roadmap.stage_degenerate))
+        self._keep_refused(target, key, refused)
+        raise RoadmapStageDegenerateError(
+            MESSAGES.roadmap.stage_degenerate, failed_items=[target.item.number]
+        )
 
     def _verified(
         self,
@@ -1511,6 +1610,7 @@ def _failure_of(
         target.item,
         failure_class=failure_class_of(exc),
         step=StepName.PLAN,
+        degenerate=isinstance(exc, RoadmapStageDegenerateError),
     )
 
 
@@ -2541,6 +2641,7 @@ class StageWriter:
             _stage_one(self._store, self._repo, self._source, self._sha, change, moved, now)
         # The item is staged, so its plan has no more use. A failed write raised above and kept it.
         delete_plan_record(plan_record_path(self._repo, change.target.item.number))
+        delete_refused_record(refused_record_path(self._repo, change.target.item.number))
 
     @contextmanager
     def _recording(self, planned: Iterable[StageFailure]) -> Iterator[None]:
@@ -2567,6 +2668,7 @@ class StageResult(StrEnum):
     STAGED = "staged"
     NEEDS_SPLIT = "needs_split"
     FAILED = "failed"
+    DEGENERATE = "degenerate"
     SKIPPED = "skipped"
 
 
@@ -2579,9 +2681,10 @@ def stage_results(plan: StagePlan, applied: StageApplied) -> dict[int, StageResu
     results |= dict.fromkeys(applied.stopped, StageResult.NEEDS_SPLIT)
     results |= dict.fromkeys(applied.returned, StageResult.SKIPPED)
     results |= dict.fromkeys(applied.rejected, StageResult.SKIPPED)
-    results |= dict.fromkeys(
-        (failure.number for failure in (*plan.failed, *applied.failed)), StageResult.FAILED
-    )
+    results |= {
+        failure.number: StageResult.DEGENERATE if failure.degenerate else StageResult.FAILED
+        for failure in (*plan.failed, *applied.failed)
+    }
     open_items = {change.target.item.number for change in plan.ready if change.open_findings}
     results |= dict.fromkeys(
         (number for number in applied.staged if number in open_items), StageResult.FAILED

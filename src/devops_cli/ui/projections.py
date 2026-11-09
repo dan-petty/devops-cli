@@ -13,12 +13,11 @@ from __future__ import annotations
 
 import json
 from collections import Counter
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable
 from typing import Any
 
 from devops_cli.config.constants import (
     CONST_DASHBOARD_DOMAIN_DOCKER,
-    CONST_DASHBOARD_DOMAIN_K8S,
     CONST_DASHBOARD_DOMAIN_LABELS,
     CONST_DASHBOARD_DOMAIN_TELEMETRY,
     CONST_DASHBOARD_DOMAIN_VALKEY,
@@ -28,13 +27,9 @@ from devops_cli.config.constants import (
     CONST_DOCKER_RESOURCE_NETWORKS,
     CONST_DOCKER_RESOURCE_REGISTRIES,
     CONST_DOCKER_RESOURCE_VOLUMES,
-    CONST_K8S_CONTAINER_TERMINATED,
 )
-from devops_cli.models.k8s import ContainerInfo, PodEventInfo, PodInfo
-from devops_cli.output import escape_text, format_timestamp_age
 from devops_cli.ui.data_providers import (
     DockerSummary,
-    K8sSummary,
     TelemetrySummary,
     ValkeySummary,
 )
@@ -44,17 +39,7 @@ CONST_STATUS_DOT_OK = "[green]●[/green]"
 CONST_STATUS_DOT_WARN = "[yellow]●[/yellow]"
 CONST_STATUS_DOT_ERROR = "[red]●[/red]"
 
-# Rows of pods that need attention are drawn in this colour.
-CONST_K8S_UNHEALTHY_STYLE = "red"
-# The namespace selector's first option, and the value it stands for: no namespace is
-# ever named by the empty string.
-CONST_K8S_ALL_NAMESPACES_LABEL = "All namespaces"
-CONST_K8S_ALL_NAMESPACES = ""
-# Shown in an inspector cell that has nothing to show.
-CONST_INSPECTOR_EMPTY_CELL = "—"
-
 DOMAIN_COLUMNS: dict[str, tuple[str, ...]] = {
-    CONST_DASHBOARD_DOMAIN_K8S: ("Namespace", "Pod Name", "Status", "Ready", "Restarts"),
     CONST_DASHBOARD_DOMAIN_DOCKER: ("Container ID", "Name", "Image", "Status"),
     CONST_DASHBOARD_DOMAIN_TELEMETRY: ("Metric Name", "Type", "Value / Count"),
     CONST_DASHBOARD_DOMAIN_VALKEY: ("Metric Property", "Value"),
@@ -83,34 +68,6 @@ def _records(records: list[dict[str, str]], keys: tuple[str, ...]) -> list[tuple
 # =============================================================================
 # Banners
 # =============================================================================
-
-
-def _k8s_nodes(summary: K8sSummary) -> str:
-    """Render node readiness, or why the nodes could not be listed."""
-    if summary.nodes_error:
-        return f"nodes: unavailable ({escape_text(summary.nodes_error)})"
-    return f"{summary.nodes_ready}/{summary.nodes_total} nodes Ready"
-
-
-def k8s_banner(summary: K8sSummary) -> str:
-    """Render the Kubernetes banner: the context, node readiness and pod health.
-
-    A disconnected cluster names the context it tried and why it failed. The cluster's
-    own text is escaped, since the banner is rendered as markup.
-    """
-    context = f" | context {escape_text(summary.context)}" if summary.context else ""
-    if not summary.connected:
-        reason = f" — {escape_text(summary.error_message)}" if summary.error_message else ""
-        return f"{_dot(False)} Kubernetes: Disconnected{context}{reason}"
-    return (
-        f"{_dot(True)} Kubernetes: Connected{context} | {_k8s_nodes(summary)} | "
-        f"{len(summary.pods)} pods, {summary.unhealthy_pods} unhealthy"
-    )
-
-
-def k8s_filter_banner(banner: str, shown: int, total: int) -> str:
-    """Add to a banner how many of the pods a filter leaves listed."""
-    return f"{banner} | showing {shown} of {total}"
 
 
 def docker_banner(summary: DockerSummary) -> str:
@@ -201,20 +158,6 @@ def stale_banner(domain: str, banner: str, age_seconds: float) -> str:
 # =============================================================================
 
 
-def k8s_pod_row(pod: PodInfo) -> tuple[str, ...]:
-    """Project one pod into a table row, coloured when the pod needs attention."""
-    cells = (pod.namespace, pod.name, pod.status, pod.ready_containers, str(pod.restart_count))
-    if not pod.unhealthy:
-        return cells
-    style = CONST_K8S_UNHEALTHY_STYLE
-    return tuple(f"[{style}]{escape_text(cell)}[/{style}]" for cell in cells)
-
-
-def k8s_rows(summary: K8sSummary) -> list[tuple[str, ...]]:
-    """Project pods into table rows."""
-    return [k8s_pod_row(pod) for pod in summary.pods]
-
-
 def docker_rows(summary: DockerSummary) -> list[tuple[str, ...]]:
     """Project containers into table rows."""
     return _records(summary.containers, ("id", "name", "image", "status"))
@@ -270,11 +213,6 @@ def valkey_rows(summary: ValkeySummary) -> list[tuple[str, ...]]:
 # every table, and the identity is how the redraw finds the row the operator was on.
 
 
-def k8s_identities(summary: K8sSummary) -> list[tuple[str, ...]]:
-    """Identify pods by namespace and name: a name is unique only within its namespace."""
-    return [(pod.namespace, pod.name) for pod in summary.pods]
-
-
 def docker_identities(summary: DockerSummary) -> list[tuple[str, ...]]:
     """Identify containers by id."""
     return _records(summary.containers, ("id",))
@@ -326,150 +264,22 @@ def row_keys(identities: Iterable[tuple[str, ...]]) -> list[str]:
 
 
 # =============================================================================
-# Pod filters, logs and inspection
-# =============================================================================
-
-
-def pod_matches(pod: PodInfo, namespace: str, text: str) -> bool:
-    """Report whether a pod is in the namespace, all when empty, and matches the text.
-
-    The text matches the namespace, name or status, ignoring case, so it also serves as
-    the status filter: `crash` finds every pod in CrashLoopBackOff.
-    """
-    needle = text.strip().casefold()
-    in_namespace = namespace == CONST_K8S_ALL_NAMESPACES or pod.namespace == namespace
-    return in_namespace and any(
-        needle in field.casefold() for field in (pod.namespace, pod.name, pod.status)
-    )
-
-
-def filter_pods(records: Mapping[str, PodInfo], namespace: str, text: str) -> dict[str, PodInfo]:
-    """Keep the keyed pods the namespace selector and the text filter leave listed."""
-    return {key: pod for key, pod in records.items() if pod_matches(pod, namespace, text)}
-
-
-def namespace_choices(pods: Iterable[PodInfo], selected: str) -> tuple[str, ...]:
-    """List the namespaces to choose from: every one with pods, and the one chosen.
-
-    The chosen one stays even when its pods are gone, so a namespace whose pods are being
-    recreated keeps its filter instead of quietly falling back to every namespace.
-    """
-    names = {pod.namespace for pod in pods} | {selected}
-    return tuple(sorted(names - {CONST_K8S_ALL_NAMESPACES}))
-
-
-def pod_container_names(pod: PodInfo) -> list[str]:
-    """Name a pod's containers in the order `c` steps through them: app, then init."""
-    return [container.name for container in (*pod.containers, *pod.init_containers)]
-
-
-def next_container(pod: PodInfo, current: str) -> str:
-    """Return the container after the current one, wrapping round to the first."""
-    names = pod_container_names(pod)
-    if current not in names:
-        return names[0] if names else current
-    return names[(names.index(current) + 1) % len(names)]
-
-
-def log_title(pod: PodInfo, container: str) -> str:
-    """Title the log pane with the pod, the container and its place among them."""
-    names = pod_container_names(pod)
-    if container not in names:
-        return f"{pod.namespace}/{pod.name}"
-    place = f"{names.index(container) + 1} of {len(names)} containers"
-    return f"{pod.namespace}/{pod.name} [{container}] ({place})"
-
-
-def _state_cell(container: ContainerInfo) -> str:
-    """Render a container's state with the reason it gives."""
-    if not container.state:
-        return CONST_INSPECTOR_EMPTY_CELL
-    return f"{container.state}: {container.reason}" if container.reason else container.state
-
-
-def _last_termination_cell(container: ContainerInfo) -> str:
-    """Render why the container's previous run ended, with its exit code."""
-    if container.last_exit_code is None:
-        return container.last_termination_reason or CONST_INSPECTOR_EMPTY_CELL
-    reason = container.last_termination_reason or CONST_K8S_CONTAINER_TERMINATED
-    return f"{reason} (exit {container.last_exit_code})"
-
-
-def _container_row(container: ContainerInfo, suffix: str = "") -> tuple[str, ...]:
-    """Project one container into an inspector row."""
-    cells = (
-        f"{container.name}{suffix}",
-        container.image,
-        "yes" if container.ready else "no",
-        str(container.restarts),
-        _state_cell(container),
-        _last_termination_cell(container),
-    )
-    return tuple(escape_text(cell) for cell in cells)
-
-
-POD_CONTAINER_COLUMNS: tuple[str, ...] = (
-    "Container",
-    "Image",
-    "Ready",
-    "Restarts",
-    "State",
-    "Last termination",
-)
-
-
-def pod_container_rows(pod: PodInfo) -> list[tuple[str, ...]]:
-    """Project a pod's containers into inspector rows, its init containers marked."""
-    return [
-        *(_container_row(container) for container in pod.containers),
-        *(_container_row(container, " (init)") for container in pod.init_containers),
-    ]
-
-
-POD_EVENT_COLUMNS: tuple[str, ...] = ("Type", "Reason", "Age", "Count", "Message")
-
-
-def _event_age(event: PodEventInfo) -> str:
-    """Render how long ago an event last occurred."""
-    if event.last_seen is None:
-        return CONST_INSPECTOR_EMPTY_CELL
-    return format_timestamp_age(event.last_seen.isoformat())
-
-
-def pod_event_rows(events: Iterable[PodEventInfo]) -> list[tuple[str, ...]]:
-    """Project pod events into inspector rows. The text is the cluster's, so it is escaped."""
-    return [
-        (
-            escape_text(event.type),
-            escape_text(event.reason),
-            _event_age(event),
-            str(event.count),
-            escape_text(event.message),
-        )
-        for event in events
-    ]
-
-
-# =============================================================================
 # Snapshot rendering
 # =============================================================================
 
 _BANNERS: dict[str, Callable[[Any], str]] = {
-    CONST_DASHBOARD_DOMAIN_K8S: k8s_banner,
     CONST_DASHBOARD_DOMAIN_DOCKER: docker_banner,
     CONST_DASHBOARD_DOMAIN_TELEMETRY: telemetry_banner,
     CONST_DASHBOARD_DOMAIN_VALKEY: valkey_banner,
 }
 
 _ROWS: dict[str, Callable[[Any], list[tuple[str, ...]]]] = {
-    CONST_DASHBOARD_DOMAIN_K8S: k8s_rows,
     CONST_DASHBOARD_DOMAIN_DOCKER: docker_rows,
     CONST_DASHBOARD_DOMAIN_TELEMETRY: telemetry_rows,
     CONST_DASHBOARD_DOMAIN_VALKEY: valkey_rows,
 }
 
 _IDENTITIES: dict[str, Callable[[Any], list[tuple[str, ...]]]] = {
-    CONST_DASHBOARD_DOMAIN_K8S: k8s_identities,
     CONST_DASHBOARD_DOMAIN_DOCKER: docker_identities,
     CONST_DASHBOARD_DOMAIN_TELEMETRY: telemetry_identities,
     CONST_DASHBOARD_DOMAIN_VALKEY: valkey_identities,
@@ -574,14 +384,10 @@ def render_domain(
 
 
 __all__ = [
-    "CONST_K8S_ALL_NAMESPACES",
-    "CONST_K8S_ALL_NAMESPACES_LABEL",
     "DOCKER_RESOURCE_COLUMNS",
     "DOCKER_RESOURCE_IDENTITIES",
     "DOCKER_RESOURCE_ROWS",
     "DOMAIN_COLUMNS",
-    "POD_CONTAINER_COLUMNS",
-    "POD_EVENT_COLUMNS",
     "docker_banner",
     "docker_identities",
     "docker_resource_keys",
@@ -589,26 +395,13 @@ __all__ = [
     "docker_resource_rows",
     "docker_rows",
     "error_banner",
-    "filter_pods",
     "images_banner",
     "images_identities",
     "images_rows",
-    "k8s_banner",
-    "k8s_filter_banner",
-    "k8s_identities",
-    "k8s_pod_row",
-    "k8s_rows",
     "loading_banner",
-    "log_title",
-    "namespace_choices",
     "networks_banner",
     "networks_identities",
     "networks_rows",
-    "next_container",
-    "pod_container_names",
-    "pod_container_rows",
-    "pod_event_rows",
-    "pod_matches",
     "registries_banner",
     "registries_identities",
     "registries_rows",

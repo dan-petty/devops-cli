@@ -220,6 +220,14 @@ class RoadmapStageError(DevOpsCLIError):
         )
 
 
+class RoadmapStageDegenerateError(RoadmapStageError):
+    """Raised for an item whose plan reply holds a placeholder in every text of the plan (#4204).
+
+    The same request would give the same reply, so the job sends no second request. The error has
+    the code of `RoadmapStageError`; the stage metric counts it under the result `degenerate`.
+    """
+
+
 class RoadmapPlanRewriteError(DevOpsCLIError):
     """Raised when `devops roadmap plan-recheck --confirm` refuses to write a rewritten plan (#3556).
 

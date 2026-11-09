@@ -9,10 +9,10 @@ from textual.widgets import Static
 from devops_cli.ui.dashboard import DashboardApp, HelpScreen
 
 
-async def test_the_help_screen_lists_the_kubernetes_and_log_keys(
+async def test_the_help_screen_lists_navigation_and_command_keys(
     patched_fetchers: Callable[..., None],
 ) -> None:
-    """`/`, `e`, `c` and Escape are hidden from the footer, so help is where they are found."""
+    """The help screen presents navigation shortcuts and modal controls."""
     patched_fetchers()
     app = DashboardApp(refresh_interval=0)
     async with app.run_test() as pilot:
@@ -22,9 +22,12 @@ async def test_the_help_screen_lists_the_kubernetes_and_log_keys(
         assert all(
             line in help_text
             for line in (
-                "  /   : Filter pods by namespace, name or status (Kubernetes)",
-                "  e   : Inspect the highlighted pod's containers and events (Kubernetes)",
-                "  esc : Clear the pod filter, or close a dialog",
-                "  c         : Stream the pod's next container",
+                "  1-3 : Switch Tabs",
+                "  w   : Open trace waterfall modal (Telemetry)",
+                "  esc : Close a dialog",
+                "  r   : Refresh active data sources",
+                "  q   : Quit the dashboard",
             )
         )
+        assert "/   : Filter pods" not in help_text
+        assert "Stream the pod's next container" not in help_text

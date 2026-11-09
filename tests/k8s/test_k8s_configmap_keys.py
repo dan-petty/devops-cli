@@ -64,6 +64,15 @@ def test_an_unknown_key_in_a_copy_of_the_example_is_reported(
     assert unknown_setting_keys(config) == [reported]
 
 
+def test_a_key_of_a_price_in_a_copy_of_the_example_is_checked_and_a_model_name_is_not() -> None:
+    """The name of a model under `ai.price_overrides` is a key of the user. The fields of its
+    price are keys of a model, so a misspelled field is reported (#4242)."""
+    config = copy.deepcopy(_example_config())
+    config["ai"]["price_overrides"]["qwen3.8:27b"]["prompt_usd_per_milion"] = 1.0
+
+    assert unknown_setting_keys(config) == ["ai.price_overrides.qwen3.8:27b.prompt_usd_per_milion"]
+
+
 def test_an_unknown_ladder_step_class_in_a_copy_of_the_example_fails_to_load() -> None:
     """The ladder refuses a step class that no step has: the load catches this one already."""
     config = copy.deepcopy(_example_config())

@@ -46,7 +46,9 @@ def test_known_option_is_accepted() -> None:
 
 
 def test_unknown_mcp_exposure_key_is_refused() -> None:
-    plan = make_stage_proposal(feasibility=['The plan cites ("ai", "ast-graph").'])
+    plan = make_stage_proposal(
+        feasibility=['The plan cites the exposure table key ("ai", "ast-graph").']
+    )
 
     problems = command_citation_problems(plan)
 
@@ -55,9 +57,47 @@ def test_unknown_mcp_exposure_key_is_refused() -> None:
 
 
 def test_known_mcp_exposure_key_is_accepted() -> None:
-    plan = make_stage_proposal(feasibility=['The plan cites ("ai", "ast", "graph").'])
+    plan = make_stage_proposal(
+        feasibility=['The plan cites the exposure table key ("ai", "ast", "graph").']
+    )
 
     assert command_citation_problems(plan) == []
+
+
+def test_a_quoted_tuple_of_another_table_is_no_mcp_key() -> None:
+    # The live run of #4062 refused a tuple of the fixture table of `tests/conftest.py` (#4255).
+    plan = make_stage_proposal(
+        feasibility=['The fixture table in `tests/conftest.py` lists ("reset_logfire_bridge",).']
+    )
+
+    assert command_citation_problems(plan) == []
+
+
+def test_the_sentence_of_the_tuple_decides_the_context() -> None:
+    plan = make_stage_proposal(
+        feasibility=['The exposure table has rows. The fixture lists ("ai", "ast-graph").']
+    )
+
+    assert command_citation_problems(plan) == []
+
+
+def test_the_constant_name_gives_the_context() -> None:
+    plan = make_stage_proposal(
+        feasibility=['`CONST_MCP_EXPOSURE_TABLE` has no row ("ai", "ast-graph") today.']
+    )
+
+    problems = command_citation_problems(plan)
+
+    assert len(problems) == 1
+    assert '("ai", "ast-graph")' in problems[0]
+
+
+def test_an_unknown_key_in_a_task_text_is_refused_with_the_context() -> None:
+    group = make_stage_proposal().groups[0]
+    update = {"implementation": 'Add the exposure table row ("ai", "ast-graph") to the table.'}
+    plan = make_stage_proposal(groups=[group.model_copy(update=update)])
+
+    assert len(command_citation_problems(plan)) == 1
 
 
 def test_task_command_citation_is_checked() -> None:

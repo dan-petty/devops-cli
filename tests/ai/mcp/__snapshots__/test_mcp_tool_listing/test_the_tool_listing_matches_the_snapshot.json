@@ -205,7 +205,7 @@
       "properties": {
         "by": {
           "default": "server",
-          "description": "Breakdown grouping dimension: server, model, provider, backend, stage, all.",
+          "description": "Breakdown grouping dimension: server, model, provider, backend, stage, day, week, all.",
           "type": "string"
         },
         "days": {
@@ -253,6 +253,30 @@
           ],
           "default": null,
           "description": "Reference model for counterfactual pricing (default: the ai.reference_model setting)."
+        },
+        "since": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Filter usage since ISO date or datetime (default: all lifetime)."
+        },
+        "until": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Filter usage until ISO date or datetime (default: all lifetime)."
         }
       },
       "type": "object"

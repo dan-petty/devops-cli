@@ -188,34 +188,37 @@ def test_argocd_app_from_api_item() -> None:
     assert nested_app.health_status == "Unknown"
 
 
-def test_argo_commands_execution(tmp_path: Path, web: WebFake, local_argocd: str) -> None:
+def test_argo_commands_execution(
+    tmp_path: Path, web: WebFake, local_argocd: str, cluster: FakeCluster
+) -> None:
     """Verify argo cd, workflows, and rollouts subcommands.
 
     The first command turns the global dry run on, and it stays on until the bootstrap step, so
     the `cd apps` commands send no request. Their live requests have their own tests.
     """
+    import time
+
     sample_wf = tmp_path / "workflow.yaml"
     sample_wf.write_text(
         "apiVersion: argoproj.io/v1alpha1\nkind: Workflow\nmetadata:\n  name: my-wf\n",
         encoding="utf-8",
     )
 
-    # Argo custom resources are read and mutated in-process via CustomObjectsApi.
-    mock_crd_api = MagicMock()
-    mock_crd_api.list_namespaced_custom_object.return_value = {"items": []}
-    mock_crd_api.get_namespaced_custom_object.return_value = {
-        "metadata": {"name": "my-wf", "namespace": "argocd"},
-        "status": {"phase": "Succeeded", "nodes": {}},
-    }
-    mock_crd_api.create_namespaced_custom_object.return_value = {
-        "metadata": {"name": "my-wf", "namespace": "argocd"},
-        "status": {"phase": "Running"},
-    }
+    cluster.context_names.append("minikube")
+    cluster.custom_objects.objects[("argoproj.io", "v1alpha1", "workflows")] = [
+        {
+            "metadata": {"name": "my-wf", "namespace": "argocd"},
+            "status": {"phase": "Succeeded", "nodes": {}},
+        }
+    ]
+    cluster.custom_objects.objects[("argoproj.io", "v1alpha1", "rollouts")] = [
+        {
+            "metadata": {"name": "my-rollout", "namespace": "argocd"},
+            "status": {"phase": "Healthy"},
+        }
+    ]
 
-    with (
-        patch("devops_cli.argo.crd.ArgoCRDService._api", return_value=mock_crd_api),
-        patch("devops_cli.watchers.live_resource.LiveResourceWatcher.watch"),
-    ):
+    with patch.object(time, "sleep", side_effect=KeyboardInterrupt):
         res_dry_main = runner.invoke(main_app, ["--dry-run", "argo", "cd", "apps", "list"])
         assert res_dry_main.exit_code == 0
 
@@ -464,6 +467,7 @@ def _workflow(
     metadata: dict[str, Any] = {"name": "my-wf", "namespace": "argocd"}
     if annotations:
         metadata["annotations"] = annotations
+    cluster.context_names.append("minikube")
     cluster.custom_objects.objects[("argoproj.io", "v1alpha1", "workflows")] = [
         {"metadata": metadata, "status": {"phase": "Succeeded", "nodes": {"node-pod-1": node}}}
     ]

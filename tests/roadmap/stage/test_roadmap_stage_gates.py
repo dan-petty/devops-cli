@@ -25,6 +25,7 @@ from devops_cli.roadmap.stage.stage_toolbox import ToolboxClient
 from devops_cli.roadmap.stores.store import Item
 from tests.support.builders import make_stage_proposal
 
+PLAN_ROW = "stage"  # The job row of a plan run.
 TREE_FILES = ["src/devops_cli/sample.py"]
 TREE = StagedTree(TREE_FILES)
 STAGE_CHANGE = "src/devops_cli/roadmap/stage/stage_change.py"
@@ -136,7 +137,9 @@ def test_planner_gates_proposal_with_trace_facts() -> None:
     specs = {"comment-thread": BaseSpec(purpose="Defines thread comments.", requirements=())}
 
     # Calls read the path: proposal passes the gate.
-    call_trace = RunTrace(tool_calls=[ToolCallRecord("read_file", json.dumps({"path": path}))])
+    call_trace = RunTrace(
+        tool_calls=[ToolCallRecord("read_file", json.dumps({"path": path}))], row=PLAN_ROW
+    )
     client_with_calls = _FakeToolboxClient(proposal, call_trace)
     planner_with_calls = _Planner(
         client=client_with_calls,
@@ -154,7 +157,7 @@ def test_planner_gates_proposal_with_trace_facts() -> None:
     assert not isinstance(settled, _Refused)
 
     # Zero-call trace: refused with problem that names the path.
-    zero_trace = RunTrace()
+    zero_trace = RunTrace(row=PLAN_ROW)
     client_zero = _FakeToolboxClient(proposal, zero_trace)
     planner_zero = _Planner(
         client=client_zero,

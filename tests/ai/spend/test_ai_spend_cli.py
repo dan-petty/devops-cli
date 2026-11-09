@@ -331,3 +331,291 @@ def test_ai_cost_report_reasoning_share_columns(
     data = json.loads(res_json.stdout)
     assert data["total_reasoning_tokens"] == 250
     assert any(b.get("reasoning_tokens") == 250 for b in data["backends"])
+
+
+def test_ai_cost_report_since_until_by_week_json(
+    cli: Callable[..., Any], mock_spend_env: SpendLedger
+) -> None:
+    """Verify cost report with --since, --until, and --by week produces 3 rows whose sums equal
+    the ungrouped report of the range (#2193)."""
+    # Clear and seed test records across October 2026
+    mock_spend_env.reset()
+    records = [
+        # Week 1: 2026-10-01 to 2026-10-08
+        ("2026-10-02T10:00:00+00:00", 1000, 500, 0.0001),
+        # Week 2: 2026-10-08 to 2026-10-15
+        ("2026-10-10T14:00:00+00:00", 2000, 1000, 0.0002),
+        # Week 3: 2026-10-15 to 2026-10-22
+        ("2026-10-20T16:00:00+00:00", 3000, 1500, 0.0003),
+    ]
+    for ts, prompt, comp, cost in records:
+        mock_spend_env.record_request(
+            provider="ollama",
+            server="localhost:11434",
+            model="llama3:8b",
+            prompt_tokens=prompt,
+            completion_tokens=comp,
+            cost_usd=cost,
+            timestamp=ts,
+        )
+
+    res = cli(
+        "ai",
+        "cost",
+        "report",
+        "--since",
+        "2026-10-01",
+        "--until",
+        "2026-10-22",
+        "--by",
+        "week",
+        "--json",
+    )
+    assert res.exit_code == 0
+    weekly_rows = json.loads(res.stdout)
+    assert len(weekly_rows) == 3
+    assert [r["period"] for r in weekly_rows] == ["2026-10-01", "2026-10-08", "2026-10-15"]
+    assert [r["requests"] for r in weekly_rows] == [1, 1, 1]
+
+    # Compare with ungrouped report for the same range
+    res_ungrouped = cli(
+        "ai", "cost", "report", "--since", "2026-10-01", "--until", "2026-10-22", "--json"
+    )
+    assert res_ungrouped.exit_code == 0
+    ungrouped = json.loads(res_ungrouped.stdout)
+
+    assert sum(r["requests"] for r in weekly_rows) == ungrouped["total_requests"]
+    assert sum(r["local_tokens"] for r in weekly_rows) == ungrouped["local_tokens"]
+    assert round(sum(r["actual_spend"] for r in weekly_rows), 6) == round(
+        ungrouped["total_spend_usd"], 6
+    )
+    assert round(sum(r["local_cost_equivalent"] or 0.0 for r in weekly_rows), 6) == round(
+        ungrouped["local_cost_equivalent_usd"] or 0.0, 6
+    )
+    assert round(sum(r["cloud_spend_avoided"] or 0.0 for r in weekly_rows), 6) == round(
+        ungrouped["counterfactual_savings_usd"] or 0.0, 6
+    )
+
+
+def test_ai_cost_roi_since_until_by_week_json(
+    cli: Callable[..., Any], mock_spend_env: SpendLedger
+) -> None:
+    """Verify cost roi with --since, --until, and --by week returns expected columns and grouping (#2193)."""
+    mock_spend_env.reset()
+    mock_spend_env.record_request(
+        provider="ollama",
+        server="localhost:11434",
+        model="llama3:8b",
+        prompt_tokens=1000,
+        completion_tokens=500,
+        cost_usd=0.0001,
+        timestamp="2026-10-05T10:00:00+00:00",
+    )
+    mock_spend_env.record_request(
+        provider="ollama",
+        server="localhost:11434",
+        model="llama3:8b",
+        prompt_tokens=2000,
+        completion_tokens=1000,
+        cost_usd=0.0002,
+        timestamp="2026-10-18T10:00:00+00:00",
+    )
+
+    res = cli(
+        "ai",
+        "cost",
+        "roi",
+        "--since",
+        "2026-10-01",
+        "--until",
+        "2026-10-22",
+        "--by",
+        "week",
+        "--json",
+    )
+    assert res.exit_code == 0
+    rows = json.loads(res.stdout)
+    assert len(rows) == 3
+    for row in rows:
+        assert "requests" in row
+        assert "local_tokens" in row
+        assert "actual_spend" in row
+        assert "local_cost_equivalent" in row
+        assert "cloud_spend_avoided" in row
+
+    assert [r["requests"] for r in rows] == [1, 0, 1]
+
+
+def test_ai_cost_days_is_short_form_of_since(
+    cli: Callable[..., Any], mock_spend_env: SpendLedger
+) -> None:
+    """Verify --days N is equivalent to --since set to N days ago (#2193)."""
+    from datetime import UTC, datetime, timedelta
+
+    mock_spend_env.reset()
+    now = datetime.now(UTC)
+    mock_spend_env.record_request(
+        provider="ollama",
+        server="localhost:11434",
+        model="llama3:8b",
+        prompt_tokens=100,
+        completion_tokens=50,
+        cost_usd=0.0001,
+        timestamp=(now - timedelta(days=2)).isoformat(),
+    )
+    mock_spend_env.record_request(
+        provider="ollama",
+        server="localhost:11434",
+        model="llama3:8b",
+        prompt_tokens=200,
+        completion_tokens=100,
+        cost_usd=0.0002,
+        timestamp=(now - timedelta(days=12)).isoformat(),
+    )
+
+    since_ts = (now - timedelta(days=7)).isoformat()
+    res_days = cli("ai", "cost", "report", "--days", "7", "--json")
+    res_since = cli("ai", "cost", "report", "--since", since_ts, "--json")
+
+    assert res_days.exit_code == 0
+    assert res_since.exit_code == 0
+    data_days = json.loads(res_days.stdout)
+    data_since = json.loads(res_since.stdout)
+    assert data_days["total_requests"] == data_since["total_requests"] == 1
+
+
+def test_ai_cost_conflicting_days_and_since(
+    cli: Callable[..., Any], mock_spend_env: SpendLedger
+) -> None:
+    """Verify combining --days and --since raises a usage error (#2193)."""
+    res = cli("ai", "cost", "report", "--days", "7", "--since", "2026-10-01")
+    assert res.exit_code == 2
+    assert "Cannot combine --days with --since" in res.output
+
+
+def test_ai_cost_report_and_roi_table_period_output(
+    cli: Callable[..., Any], mock_spend_env: SpendLedger
+) -> None:
+    """Verify table format output with --by week for report and roi (#2193)."""
+    mock_spend_env.reset()
+    mock_spend_env.record_request(
+        provider="ollama",
+        server="localhost:11434",
+        model="llama3:8b",
+        prompt_tokens=1000,
+        completion_tokens=500,
+        cost_usd=0.0001,
+        timestamp="2026-10-05T10:00:00+00:00",
+    )
+
+    res_report = cli(
+        "ai", "cost", "report", "--since", "2026-10-01", "--until", "2026-10-22", "--by", "week"
+    )
+    assert res_report.exit_code == 0
+    assert "AI Spend & ROI by Week" in res_report.stdout
+    assert "Local Tokens" in res_report.stdout
+    assert "Cloud Spend Avoided" in res_report.stdout
+
+    res_roi = cli(
+        "ai", "cost", "roi", "--since", "2026-10-01", "--until", "2026-10-22", "--by", "week"
+    )
+    assert res_roi.exit_code == 0
+    assert "AI Spend & ROI by Week" in res_roi.stdout
+
+
+def test_ai_cost_range_validation_cli_errors(
+    cli: Callable[..., Any], mock_spend_env: SpendLedger
+) -> None:
+    """Verify validation of malformed and inverted range parameters (#2193)."""
+    res_bad_since = cli("ai", "cost", "report", "--since", "not-a-date")
+    assert res_bad_since.exit_code == 2
+    assert "Invalid ISO date or datetime" in res_bad_since.output
+
+    res_bad_until = cli("ai", "cost", "report", "--until", "not-a-date")
+    assert res_bad_until.exit_code == 2
+    assert "Invalid ISO date or datetime" in res_bad_until.output
+
+    res_inverted = cli("ai", "cost", "report", "--since", "2026-10-20", "--until", "2026-10-10")
+    assert res_inverted.exit_code == 2
+    assert "--until cannot be earlier than --since" in res_inverted.output
+
+    res_bad_roi_by = cli("ai", "cost", "roi", "--by", "month")
+    assert res_bad_roi_by.exit_code == 2
+    assert "Invalid grouping 'month' for roi" in res_bad_roi_by.output
+
+
+def test_ai_cost_period_formats_and_aliases(
+    cli: Callable[..., Any], mock_spend_env: SpendLedger
+) -> None:
+    """Verify period reports across output formats and command aliases (#2193)."""
+    mock_spend_env.reset()
+    # Empty period table output when no spend records exist
+    res_empty_table = cli("ai", "cost", "report", "--by", "day")
+    assert res_empty_table.exit_code == 0
+    assert "No spend records found" in res_empty_table.stdout
+
+    mock_spend_env.record_request(
+        provider="ollama",
+        server="localhost:11434",
+        model="llama3:8b",
+        prompt_tokens=500,
+        completion_tokens=250,
+        cost_usd=0.0001,
+        timestamp="2026-10-05T10:00:00+00:00",
+    )
+
+    # YAML format on report
+    res_yaml = cli(
+        "ai",
+        "cost",
+        "report",
+        "--since",
+        "2026-10-01",
+        "--until",
+        "2026-10-22",
+        "--by",
+        "week",
+        "--format",
+        "yaml",
+    )
+    assert res_yaml.exit_code == 0
+    assert "period: '2026-10-01'" in res_yaml.stdout or "period: 2026-10-01" in res_yaml.stdout
+
+    # devops ai cost (cost_default) with period breakdown
+    res_default = cli(
+        "ai", "cost", "--since", "2026-10-01", "--until", "2026-10-22", "--by", "week", "--json"
+    )
+    assert res_default.exit_code == 0
+    assert len(json.loads(res_default.stdout)) == 3
+
+    # devops ai cost payoff with period breakdown
+    res_payoff = cli(
+        "ai",
+        "cost",
+        "payoff",
+        "--since",
+        "2026-10-01",
+        "--until",
+        "2026-10-22",
+        "--by",
+        "week",
+        "--json",
+    )
+    assert res_payoff.exit_code == 0
+    assert len(json.loads(res_payoff.stdout)) == 3
+
+    # devops ai cost payback with period breakdown
+    res_payback = cli(
+        "ai",
+        "cost",
+        "payback",
+        "--since",
+        "2026-10-01",
+        "--until",
+        "2026-10-22",
+        "--by",
+        "week",
+        "--json",
+    )
+    assert res_payback.exit_code == 0
+    assert len(json.loads(res_payback.stdout)) == 3

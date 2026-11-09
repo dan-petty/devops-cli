@@ -244,8 +244,10 @@ Generate detailed spend and token report across backend services and servers.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `by` | `string` | No | `server` | Breakdown grouping dimension: server, model, provider, backend, stage, all. |
+| `by` | `string` | No | `server` | Breakdown grouping dimension: server, model, provider, backend, stage, day, week, all. |
 | `days` | `integer` | No | - | Filter usage to the last N days (default: all lifetime). |
+| `since` | `string` | No | - | Filter usage since ISO date or datetime (default: all lifetime). |
+| `until` | `string` | No | - | Filter usage until ISO date or datetime (default: all lifetime). |
 | `reference_model` | `string` | No | - | Reference model for counterfactual pricing (default: the ai.reference_model setting). |
 | `hardware_cost` | `number` | No | - | Hardware purchase cost in USD to track pay-off against. |
 | `format_opt` | `string` | No | `table` | Output format: table, json, yaml, prometheus. |

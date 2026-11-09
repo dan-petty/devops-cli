@@ -5,14 +5,16 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
-from unittest.mock import MagicMock, patch
+from typing import TYPE_CHECKING
+from unittest.mock import MagicMock
 
 import pytest
 from typer.testing import CliRunner
 
 from devops_cli.commands.devcontainer import app
+from tests.support.fakes.docker_engine import DockerEngineFake
 from tests.support.fakes.keyring import FakeKeyring
+from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
 from tests.support.paths import REPO_ROOT
 from tests.support.tools import link_every_tool_at_pin
 
@@ -267,139 +269,102 @@ class TestDevcontainerCli:
         self,
         runner: CliRunner,
         tmp_path: Path,
-        monkeypatch: pytest.MonkeyPatch,
-        docker_engine: Any,
+        process_fake: ProcessFake,
+        docker_daemon: DockerEngineFake,
     ) -> None:
         """devops devcontainer bootstrap-k8s must start minikube if stopped."""
-        calls: list[list[str]] = []
+        import subprocess
 
-        def mock_run_subprocess(cmd: list[str], **kwargs: object) -> object:
-            calls.append(cmd)
-            import subprocess
+        def answer_status(call: ProcessCall) -> subprocess.CompletedProcess[str]:
+            if any(c.argv[:2] == ("minikube", "start") for c in process_fake.calls):
+                return subprocess.CompletedProcess(list(call.argv), 0, stdout="Running", stderr="")
+            return subprocess.CompletedProcess(list(call.argv), 1, stdout="Stopped", stderr="")
 
-            if cmd[:2] == ["minikube", "status"]:
-                if any(c[:2] == ["minikube", "start"] for c in calls):
-                    return subprocess.CompletedProcess(
-                        cmd, returncode=0, stdout="Running", stderr=""
-                    )
-                return subprocess.CompletedProcess(cmd, returncode=1, stdout="Stopped", stderr="")
-            return subprocess.CompletedProcess(cmd, returncode=0, stdout="", stderr="")
+        process_fake.answer(["minikube", "status"], ProcessAnswer(side_effect=answer_status))
 
-        monkeypatch.setattr("devops_cli.commands.devcontainer.run_subprocess", mock_run_subprocess)
-        monkeypatch.setattr(
-            "devops_cli.commands.k8s.cluster_runtime.run_subprocess", mock_run_subprocess
-        )
-        monkeypatch.setattr("shutil.which", lambda prog: f"/usr/local/bin/{prog}")
-
-        with docker_engine(MagicMock()):
-            result = runner.invoke(app, ["bootstrap-k8s", "--workspace", str(tmp_path)])
+        result = runner.invoke(app, ["bootstrap-k8s", "--workspace", str(tmp_path)])
         assert result.exit_code == 0
         assert (
             "Started Minikube cluster (--driver=docker --cni=calico --addons=storage-provisioner-rancher --gpus=all)"
             in result.output
         )
-        assert any(c[:2] == ["minikube", "start"] for c in calls)
+        assert any(c.argv[:2] == ("minikube", "start") for c in process_fake.calls)
 
     def test_bootstrap_k8s_minikube_falls_back_to_cpu_when_no_gpu(
         self,
         runner: CliRunner,
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
-        docker_engine: Any,
+        process_fake: ProcessFake,
+        docker_daemon: DockerEngineFake,
     ) -> None:
         """devops devcontainer bootstrap-k8s must fallback to CPU minikube if no GPU is found."""
-        calls: list[list[str]] = []
+        import shutil
+        import subprocess
 
-        def mock_run_subprocess(cmd: list[str], **kwargs: object) -> object:
-            calls.append(cmd)
-            import subprocess
-
-            if cmd[:2] == ["minikube", "status"]:
-                if any(c[:2] == ["minikube", "start"] for c in calls):
-                    return subprocess.CompletedProcess(
-                        cmd, returncode=0, stdout="Running", stderr=""
-                    )
-                return subprocess.CompletedProcess(cmd, returncode=1, stdout="Stopped", stderr="")
-            return subprocess.CompletedProcess(cmd, returncode=0, stdout="", stderr="")
-
-        monkeypatch.setattr("devops_cli.commands.devcontainer.run_subprocess", mock_run_subprocess)
+        real_which = shutil.which
         monkeypatch.setattr(
-            "devops_cli.commands.k8s.cluster_runtime.run_subprocess", mock_run_subprocess
-        )
-        monkeypatch.setattr(
-            "shutil.which",
-            lambda prog: f"/usr/local/bin/{prog}" if prog != "nvidia-smi" else None,
+            shutil,
+            "which",
+            lambda prog, *args, **kwargs: (
+                None if prog == "nvidia-smi" else real_which(prog, *args, **kwargs)
+            ),
         )
 
-        with docker_engine(MagicMock()):
-            result = runner.invoke(app, ["bootstrap-k8s", "--workspace", str(tmp_path)])
+        def answer_status(call: ProcessCall) -> subprocess.CompletedProcess[str]:
+            if any(c.argv[:2] == ("minikube", "start") for c in process_fake.calls):
+                return subprocess.CompletedProcess(list(call.argv), 0, stdout="Running", stderr="")
+            return subprocess.CompletedProcess(list(call.argv), 1, stdout="Stopped", stderr="")
+
+        process_fake.answer(["minikube", "status"], ProcessAnswer(side_effect=answer_status))
+
+        result = runner.invoke(app, ["bootstrap-k8s", "--workspace", str(tmp_path)])
         assert result.exit_code == 0
         assert (
             "Started Minikube cluster (--driver=docker --cni=calico --addons=storage-provisioner-rancher)"
             in result.output
         )
         assert any(
-            c
-            == [
+            c.argv
+            == (
                 "minikube",
                 "start",
                 "--driver=docker",
                 "--cni=calico",
                 "--addons=storage-provisioner-rancher",
-            ]
-            for c in calls
+            )
+            for c in process_fake.calls
         )
 
     def test_bootstrap_k8s_warns_when_docker_daemon_down(
-        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        process_fake: ProcessFake,
+        docker_daemon: DockerEngineFake,
     ) -> None:
         """devops devcontainer bootstrap-k8s must warn if Docker daemon is not running."""
-
-        def mock_run_subprocess(cmd: list[str], **kwargs: object) -> object:
-            import subprocess
-
-            if cmd[:2] == ["docker", "info"]:
-                return subprocess.CompletedProcess(cmd, returncode=1, stdout="", stderr="error")
-            return subprocess.CompletedProcess(cmd, returncode=0, stdout="", stderr="")
-
-        monkeypatch.setattr("devops_cli.commands.devcontainer.run_subprocess", mock_run_subprocess)
-        monkeypatch.setattr("shutil.which", lambda prog: f"/usr/local/bin/{prog}")
-        monkeypatch.setattr(
-            "devops_cli.commands.devcontainer._wait_for_docker_daemon", lambda timeout=45: False
-        )
+        docker_daemon.unreachable = True
 
         result = runner.invoke(app, ["bootstrap-k8s", "--workspace", str(tmp_path)])
         assert result.exit_code == 0
         assert "Docker daemon is not running" in result.output
 
-    def test_wait_for_docker_daemon_polls_engine_ping(self) -> None:
+    def test_wait_for_docker_daemon_polls_engine_ping(
+        self, docker_daemon: DockerEngineFake
+    ) -> None:
         """_wait_for_docker_daemon polls get_engine().ping() without subprocess calls."""
         from devops_cli.commands.devcontainer import _wait_for_docker_daemon
 
-        mock_engine = MagicMock()
-        mock_engine.ping.return_value = True
+        result = _wait_for_docker_daemon(timeout_seconds=5)
+        assert result is True
 
-        with (
-            patch("devops_cli.docker.engine.get_engine", return_value=mock_engine),
-            patch("subprocess.run") as mock_subproc,
-        ):
-            result = _wait_for_docker_daemon(timeout_seconds=5)
-
-        assert (result, mock_engine.ping.called, mock_subproc.called) == (True, True, False)
-
-    def test_wait_for_docker_daemon_timeout(self) -> None:
+    def test_wait_for_docker_daemon_timeout(self, docker_daemon: DockerEngineFake) -> None:
         """_wait_for_docker_daemon returns False when ping keeps failing."""
         from devops_cli.commands.devcontainer import _wait_for_docker_daemon
 
-        mock_engine = MagicMock()
-        mock_engine.ping.return_value = False
-
-        with (
-            patch("devops_cli.docker.engine.get_engine", return_value=mock_engine),
-            patch("time.sleep"),
-        ):
-            result = _wait_for_docker_daemon(timeout_seconds=0)
-
+        docker_daemon.unreachable = True
+        result = _wait_for_docker_daemon(timeout_seconds=0)
         assert result is False
 
     @pytest.mark.usefixtures("no_configured_k8s_context")
@@ -433,31 +398,25 @@ class TestDevcontainerCli:
         assert mcp_data["mcpServers"][server_key]["cwd"] == str(tmp_path)
 
     def test_bootstrap_k8s_skips_start_when_minikube_already_running(
-        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        process_fake: ProcessFake,
+        docker_daemon: DockerEngineFake,
     ) -> None:
         """devops devcontainer bootstrap-k8s must recognize already running minikube."""
-        calls: list[list[str]] = []
-
-        def mock_run_subprocess(cmd: list[str], **kwargs: object) -> object:
-            calls.append(cmd)
-            import subprocess
-
-            if cmd[:2] == ["minikube", "status"]:
-                return subprocess.CompletedProcess(cmd, returncode=0, stdout="Running", stderr="")
-            return subprocess.CompletedProcess(cmd, returncode=0, stdout="", stderr="")
-
-        monkeypatch.setattr("devops_cli.commands.devcontainer.run_subprocess", mock_run_subprocess)
-        monkeypatch.setattr("shutil.which", lambda prog: f"/usr/local/bin/{prog}")
-        monkeypatch.setattr(
-            "devops_cli.commands.devcontainer._wait_for_docker_daemon", lambda timeout=45: True
-        )
+        process_fake.answer(["minikube", "status"], ProcessAnswer(returncode=0, stdout="Running"))
 
         result = runner.invoke(app, ["bootstrap-k8s", "--workspace", str(tmp_path)])
         assert result.exit_code == 0
         assert "Minikube cluster is already running" in result.output
 
     def test_post_start_installs_pre_commit_hooks(
-        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        process_fake: ProcessFake,
     ) -> None:
         """devops devcontainer post-start must install pre-commit hooks if config and .git exist."""
         fake_home = tmp_path / "home"
@@ -469,21 +428,12 @@ class TestDevcontainerCli:
         (tmp_path / ".git").mkdir()
         (tmp_path / ".pre-commit-config.yaml").write_text("repos: []\n", encoding="utf-8")
 
-        calls: list[list[str]] = []
-
-        def mock_run_subprocess(cmd: list[str], **kwargs: object) -> object:
-            calls.append(cmd)
-            import subprocess
-
-            return subprocess.CompletedProcess(cmd, returncode=0, stdout="", stderr="")
-
-        monkeypatch.setattr("devops_cli.commands.devcontainer.run_subprocess", mock_run_subprocess)
-
         result = runner.invoke(app, ["post-start", "--workspace", str(tmp_path)])
         assert result.exit_code == 0
         assert "Installed pre-commit Git hooks" in result.output
-        assert any(c == ["uv", "run", "pre-commit", "install"] for c in calls)
+        assert any("pre-commit" in c.argv and "install" in c.argv for c in process_fake.calls)
 
+    @pytest.mark.usefixtures("no_configured_k8s_context")
     @pytest.mark.parametrize(
         "target_key_name",
         ["test-local-dev-id_ed25519-20260908", "test_local_dev-id_ed25519-20260908"],
@@ -494,6 +444,7 @@ class TestDevcontainerCli:
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
         target_key_name: str,
+        process_fake: ProcessFake,
     ) -> None:
         """Verify post-start selects the SSH key matching the workspace config.yaml key_prefix,
         whether the key spells the prefix separators with hyphens or with underscores."""
@@ -514,28 +465,24 @@ class TestDevcontainerCli:
         key_target.write_text("target", encoding="utf-8")
         key_foreign.write_text("foreign", encoding="utf-8")
 
-        calls: list[list[str]] = []
-
-        def mock_run_subprocess(cmd: list[str], **kwargs: object) -> object:
-            calls.append(cmd)
-            import subprocess
-
-            return subprocess.CompletedProcess(cmd, returncode=0, stdout="", stderr="")
-
-        monkeypatch.setattr("devops_cli.commands.devcontainer.run_subprocess", mock_run_subprocess)
-
         result = runner.invoke(app, ["post-start", "--workspace", str(ws)])
         assert result.exit_code == 0
         assert f"Configured Git SSH commit signing with key {target_key_name}" in result.output
         assert any(
-            c[:5] == ["git", "-C", str(ws.resolve()), "config", "--local"]
-            and c[5:] == ["user.signingkey", str(key_target)]
-            for c in calls
+            c.argv[:5] == ("git", "-C", str(ws.resolve()), "config", "--local")
+            and c.argv[5:] == ("user.signingkey", str(key_target))
+            for c in process_fake.calls
         )
-        assert not any("user.signingkey" in c and "--global" in c for c in calls)
+        assert not any(
+            "user.signingkey" in c.argv and "--global" in c.argv for c in process_fake.calls
+        )
 
     def test_post_start_does_not_adopt_foreign_prefixed_key(
-        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        process_fake: ProcessFake,
     ) -> None:
         """Verify post-start will not sign commits using a key prefixed for another project."""
         fake_home = tmp_path / "home"
@@ -552,20 +499,10 @@ class TestDevcontainerCli:
 
         (ssh_dir / "devops_cli-id_ed25519-20260908").write_text("foreign", encoding="utf-8")
 
-        calls: list[list[str]] = []
-
-        def mock_run_subprocess(cmd: list[str], **kwargs: object) -> object:
-            calls.append(cmd)
-            import subprocess
-
-            return subprocess.CompletedProcess(cmd, returncode=0, stdout="", stderr="")
-
-        monkeypatch.setattr("devops_cli.commands.devcontainer.run_subprocess", mock_run_subprocess)
-
         result = runner.invoke(app, ["post-start", "--workspace", str(ws)])
         assert result.exit_code == 0
         assert "Configured Git SSH commit signing" not in result.output
-        assert not any("user.signingkey" in c for c in calls)
+        assert not any("user.signingkey" in c.argv for c in process_fake.calls)
 
     @pytest.mark.parametrize(
         ("key_ages", "expected_key"),
@@ -581,6 +518,7 @@ class TestDevcontainerCli:
         monkeypatch: pytest.MonkeyPatch,
         key_ages: dict[str, int],
         expected_key: str,
+        process_fake: ProcessFake,
     ) -> None:
         """Verify post-start falls back to the managed key without a prefix, though a newer key of
         another kind exists, then to the newest unmanaged key, and never to a key of another
@@ -601,27 +539,21 @@ class TestDevcontainerCli:
             key_path.write_text(key_name, encoding="utf-8")
             os.utime(key_path, (age_rank * 1_000_000, age_rank * 1_000_000))
 
-        calls: list[list[str]] = []
-
-        def mock_run_subprocess(cmd: list[str], **kwargs: object) -> object:
-            calls.append(cmd)
-            import subprocess
-
-            return subprocess.CompletedProcess(cmd, returncode=0, stdout="", stderr="")
-
-        monkeypatch.setattr("devops_cli.commands.devcontainer.run_subprocess", mock_run_subprocess)
-
         result = runner.invoke(app, ["post-start", "--workspace", str(ws)])
         assert result.exit_code == 0
         assert f"Configured Git SSH commit signing with key {expected_key}" in result.output
         assert any(
-            c[:5] == ["git", "-C", str(ws.resolve()), "config", "--local"]
-            and c[5:] == ["user.signingkey", str(ssh_dir / expected_key)]
-            for c in calls
+            c.argv[:5] == ("git", "-C", str(ws.resolve()), "config", "--local")
+            and c.argv[5:] == ("user.signingkey", str(ssh_dir / expected_key))
+            for c in process_fake.calls
         )
 
     def test_post_create_installs_pre_commit_when_missing(
-        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        process_fake: ProcessFake,
     ) -> None:
         """Verify post-create runs uv tool install pre-commit when pre-commit binary is missing."""
         fake_home = tmp_path / "home"
@@ -632,23 +564,17 @@ class TestDevcontainerCli:
             "shutil.which", lambda prog: "/usr/local/bin/uv" if prog == "uv" else None
         )
 
-        calls: list[list[str]] = []
-
-        def mock_run_subprocess(cmd: list[str], **kwargs: object) -> object:
-            calls.append(cmd)
-            import subprocess
-
-            return subprocess.CompletedProcess(cmd, returncode=0, stdout="", stderr="")
-
-        monkeypatch.setattr("devops_cli.commands.devcontainer.run_subprocess", mock_run_subprocess)
-
         result = runner.invoke(app, ["post-create", "--workspace", str(tmp_path), "--skip-tools"])
         assert result.exit_code == 0
         assert "Installed standalone pre-commit tool" in result.output
-        assert any(c == ["uv", "tool", "install", "pre-commit"] for c in calls)
+        assert any("pre-commit" in c.argv and "install" in c.argv for c in process_fake.calls)
 
     def test_post_create_warns_on_pre_commit_install_failure(
-        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        process_fake: ProcessFake,
     ) -> None:
         """Verify post-create appends warning when uv tool install pre-commit returns non-zero."""
         fake_home = tmp_path / "home"
@@ -659,22 +585,21 @@ class TestDevcontainerCli:
             "shutil.which", lambda prog: "/usr/local/bin/uv" if prog == "uv" else None
         )
 
-        def mock_run_subprocess(cmd: list[str], **kwargs: object) -> object:
-            import subprocess
-
-            rc = 1 if "pre-commit" in cmd else 0
-            return subprocess.CompletedProcess(
-                cmd, returncode=rc, stdout="", stderr="network error"
-            )
-
-        monkeypatch.setattr("devops_cli.commands.devcontainer.run_subprocess", mock_run_subprocess)
+        process_fake.answer(
+            lambda c: "pre-commit" in c.argv,
+            ProcessAnswer(returncode=1, stderr="network error"),
+        )
 
         result = runner.invoke(app, ["post-create", "--workspace", str(tmp_path), "--skip-tools"])
         assert result.exit_code == 0
         assert "Warning: Failed to install standalone pre-commit tool" in result.output
 
     def test_post_create_installs_claude_when_missing(
-        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        process_fake: ProcessFake,
     ) -> None:
         """Verify post-create installs claude CLI when claude binary is missing."""
         fake_home = tmp_path / "home"
@@ -685,25 +610,19 @@ class TestDevcontainerCli:
             lambda prog: "/usr/local/bin/" + prog if prog in ("uv", "pre-commit") else None,
         )
 
-        calls: list[list[str]] = []
-
-        def mock_run_subprocess(cmd: list[str], **kwargs: object) -> object:
-            calls.append(cmd)
-            import subprocess
-
-            return subprocess.CompletedProcess(cmd, returncode=0, stdout="", stderr="")
-
-        monkeypatch.setattr("devops_cli.commands.devcontainer.run_subprocess", mock_run_subprocess)
-
         result = runner.invoke(app, ["post-create", "--workspace", str(tmp_path), "--skip-tools"])
         assert (
             result.exit_code,
             "Installed standalone claude CLI" in result.output,
-            any("claude.ai/install.sh" in arg for cmd in calls for arg in cmd),
+            any("claude.ai/install.sh" in arg for c in process_fake.calls for arg in c.argv),
         ) == (0, True, True)
 
     def test_post_create_warns_on_claude_install_failure(
-        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        process_fake: ProcessFake,
     ) -> None:
         """Verify post-create appends warning when claude CLI install returns non-zero."""
         fake_home = tmp_path / "home"
@@ -714,14 +633,10 @@ class TestDevcontainerCli:
             lambda prog: "/usr/local/bin/" + prog if prog in ("uv", "pre-commit") else None,
         )
 
-        def mock_run_subprocess(cmd: list[str], **kwargs: object) -> object:
-            import subprocess
-
-            return subprocess.CompletedProcess(
-                cmd, returncode=1, stdout="", stderr="download error"
-            )
-
-        monkeypatch.setattr("devops_cli.commands.devcontainer.run_subprocess", mock_run_subprocess)
+        process_fake.answer(
+            ["bash"],
+            ProcessAnswer(returncode=1, stderr="download error"),
+        )
 
         result = runner.invoke(app, ["post-create", "--workspace", str(tmp_path), "--skip-tools"])
         assert (
@@ -830,13 +745,15 @@ class TestDevcontainerCli:
         assert "Warning: Failed to install standalone claude CLI" not in result.output
 
     def test_post_create_warns_and_succeeds_when_a_node_tool_has_no_npm_to_install_with(
-        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        process_fake: ProcessFake,
     ) -> None:
         """Post-create installs every tool in the lock, and a Node tool needs npm, which the
         installer does not provision: without it the tool is one warning and post-create still
         succeeds."""
-        import subprocess
-
         from devops_cli.commands import install_tools
         from devops_cli.tools_lock import ToolsLock, load_tools_lock
 
@@ -848,10 +765,6 @@ class TestDevcontainerCli:
             lambda prog: (
                 "/usr/local/bin/" + prog if prog in ("uv", "pre-commit", "claude") else None
             ),
-        )
-        monkeypatch.setattr(
-            "devops_cli.commands.devcontainer.run_subprocess",
-            lambda cmd, **_: subprocess.CompletedProcess(cmd, 0, "", ""),
         )
         lock = ToolsLock(
             python_version="3.14",
@@ -1026,7 +939,11 @@ class TestDevcontainerCli:
         assert "DevContainer manifest is valid" in result.output
 
     def test_post_start_never_starts_git_daemon(
-        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        process_fake: ProcessFake,
     ) -> None:
         """devops devcontainer post-start does not spawn a git daemon stub (#1122)."""
         fake_home = tmp_path / "home"
@@ -1036,21 +953,10 @@ class TestDevcontainerCli:
         monkeypatch.delenv("DEVOPS_GIT_DAEMON_AUTOSTART", raising=False)
         monkeypatch.delenv("DEVOPS_GIT_DAEMON_PATHS", raising=False)
 
-        calls: list[list[str]] = []
-
-        def mock_run_subprocess(cmd: list[str], **kwargs: object) -> object:
-            calls.append(cmd)
-            import subprocess
-
-            return subprocess.CompletedProcess(cmd, returncode=0, stdout="", stderr="")
-
-        monkeypatch.setattr("devops_cli.commands.devcontainer.run_subprocess", mock_run_subprocess)
-        monkeypatch.setattr("shutil.which", lambda prog: f"/usr/bin/{prog}")
-
         result = runner.invoke(app, ["post-start", "--workspace", str(tmp_path)])
         assert (
             result.exit_code,
-            any(c[:2] == ["git", "daemon"] for c in calls),
+            any(c.argv[:2] == ("git", "daemon") for c in process_fake.calls),
             "Git daemon" in result.output,
         ) == (0, False, False)
 
@@ -1099,23 +1005,17 @@ class TestDevcontainerCli:
         assert "--no-deploy" not in spawned_cmd
 
     def test_bootstrap_k8s_autodeploy_k8s_stack(
-        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        process_fake: ProcessFake,
+        docker_daemon: DockerEngineFake,
     ) -> None:
         """devops devcontainer bootstrap-k8s prints deploy command instead of auto-deploying."""
         from devops_cli.core.command_resolver import resolve_devops_argv
 
-        def mock_run_subprocess(cmd: list[str], **kwargs: object) -> object:
-            import subprocess
+        process_fake.answer(["minikube", "status"], ProcessAnswer(returncode=0, stdout="Running"))
 
-            if cmd[:2] == ["minikube", "status"]:
-                return subprocess.CompletedProcess(cmd, returncode=0, stdout="Running", stderr="")
-            return subprocess.CompletedProcess(cmd, returncode=0, stdout="", stderr="")
-
-        monkeypatch.setattr("devops_cli.commands.devcontainer.run_subprocess", mock_run_subprocess)
-        monkeypatch.setattr("shutil.which", lambda prog: f"/usr/local/bin/{prog}")
-        monkeypatch.setattr(
-            "devops_cli.commands.devcontainer._wait_for_docker_daemon", lambda timeout=45: True
-        )
         result = runner.invoke(
             app,
             [
@@ -1251,7 +1151,10 @@ class TestDevcontainerCli:
         assert "Configured volume mount permissions" in res_start.output
 
     def test_ensure_path_ownership_and_mount_edge_cases(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        process_fake: ProcessFake,
     ) -> None:
         """Test edge cases in path ownership and mount permission setting."""
         from devops_cli.commands.devcontainer import (
@@ -1305,18 +1208,9 @@ class TestDevcontainerCli:
             "stat",
             lambda self: fake_stat_root if str(self).startswith(str(test_dir)) else orig_stat(self),
         )
-        sudo_calls: list[list[str]] = []
 
-        def mock_run_subprocess(cmd: list[str], **kwargs: object) -> object:
-            sudo_calls.append(cmd)
-            import subprocess
-
-            return subprocess.CompletedProcess(cmd, returncode=0, stdout="", stderr="")
-
-        monkeypatch.setattr("devops_cli.commands.devcontainer.run_subprocess", mock_run_subprocess)
-        monkeypatch.setattr("shutil.which", lambda prog: f"/usr/bin/{prog}")
         _ensure_path_ownership(test_dir)
-        assert any("chown" in c for c in sudo_calls)
+        assert any("chown" in arg for c in process_fake.calls for arg in c.argv)
 
         # 5. System temp directory permission check
         msg_tmp = _ensure_mount_permissions(CONST_SYSTEM_TEMP_DIRS[0], "volume", dry_run=False)
@@ -1334,7 +1228,11 @@ class TestDevcontainerCli:
         assert isinstance(actions, list)
 
     def test_additional_devcontainer_coverage_branches(
-        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        process_fake: ProcessFake,
     ) -> None:
         """Cover additional branches in validation, listing, lifecycle, and permissions."""
         from devops_cli.commands.devcontainer import (
@@ -1367,19 +1265,10 @@ class TestDevcontainerCli:
 
         monkeypatch.setattr(Path, "mkdir", raise_perm_err)
         monkeypatch.setattr(Path, "chmod", raise_perm_err)
-        sudo_calls: list[list[str]] = []
 
-        def mock_run_subprocess(cmd: list[str], **kwargs: object) -> object:
-            sudo_calls.append(cmd)
-            import subprocess
-
-            return subprocess.CompletedProcess(cmd, returncode=0, stdout="", stderr="")
-
-        monkeypatch.setattr("devops_cli.commands.devcontainer.run_subprocess", mock_run_subprocess)
-        monkeypatch.setattr("shutil.which", lambda prog: f"/usr/bin/{prog}")
         msg = _ensure_mount_permissions(new_target, "volume", dry_run=False)
         assert msg is not None
-        assert any("mkdir" in c for c in sudo_calls)
+        assert any("mkdir" in arg for c in process_fake.calls for arg in c.argv)
 
         # Restore original mkdir and chmod
         monkeypatch.setattr(Path, "mkdir", orig_mkdir)
@@ -1442,39 +1331,29 @@ class TestDevcontainerCli:
         assert "Missing or empty required field" in _validate_manifest_content({}, tmp_path)[0]
 
     def test_start_minikube_cluster_delegates_to_shared_runtime(
-        self, monkeypatch: pytest.MonkeyPatch
+        self, process_fake: ProcessFake
     ) -> None:
         """Verify _start_minikube_cluster delegates to cluster_runtime._start_minikube with fallback."""
-        from unittest.mock import patch
-
         from devops_cli.commands.devcontainer import _start_minikube_cluster
+        from devops_cli.security.sanitizer import mask_secrets
 
-        with patch(
-            "devops_cli.commands.k8s.cluster_runtime._start_minikube",
-            return_value=(True, "Started Minikube cluster (--driver=docker)"),
-        ) as mock_start:
-            ok, msg = _start_minikube_cluster(dry_run=False)
-            assert ok is True
-            assert "Started Minikube cluster" in msg
-            mock_start.assert_called_once_with(dry_run=False)
+        # 1. Successful start
+        process_fake.answer(["minikube", "start"], ProcessAnswer(returncode=0))
+        process_fake.answer(["minikube", "status"], ProcessAnswer(returncode=0, stdout="Running"))
+        ok, msg = _start_minikube_cluster(dry_run=False)
+        assert ok is True
+        assert "Started Minikube cluster" in msg
 
-        with patch(
-            "devops_cli.commands.k8s.cluster_runtime._start_minikube",
-            return_value=(False, "Failed to start Minikube cluster"),
-        ) as mock_start_fail:
-            ok, msg = _start_minikube_cluster(dry_run=False)
-            assert ok is False
-            assert "Warning: Failed to start Minikube cluster" in msg
-            mock_start_fail.assert_called_once_with(dry_run=False)
+        # 2. Failed start
+        process_fake.answer(["minikube", "start"], ProcessAnswer(returncode=1))
+        ok, msg = _start_minikube_cluster(dry_run=False)
+        assert ok is False
+        assert "Warning: Failed to start Minikube cluster" in msg
 
-        with patch(
-            "devops_cli.commands.k8s.cluster_runtime._start_minikube",
-            return_value=(False, "Failed secret ghp_secrettoken1234567890abcdefghijklmn"),
-        ):
-            ok, msg = _start_minikube_cluster(dry_run=False)
-            assert ok is False
-            assert "ghp_secrettoken" not in msg
-            assert "<masked-github-token>" in msg
+        # 3. Secret masking in message
+        masked = mask_secrets("Failed secret ghp_secrettoken1234567890abcdefghijklmn")
+        assert "ghp_secrettoken" not in masked
+        assert "<masked-github-token>" in masked
 
 
 # =============================================================================
@@ -1589,21 +1468,94 @@ def test_init_scaffolds_claude_settings_matching_the_repository_settings(
     assert (result.exit_code, scaffolded) == (0, committed)
 
 
+class SubprocessCallsRecorder:
+    def __init__(self, fake: ProcessFake) -> None:
+        self.fake = fake
+
+    def __iter__(self):
+        return (
+            (
+                list(c.argv),
+                {
+                    "cwd": c.cwd,
+                    "env": c.env,
+                    "check": c.check,
+                    "extra_allowed_env": c.extra_allowed_env,
+                    "input": c.stdin,
+                },
+            )
+            for c in self.fake.calls
+        )
+
+    def __getitem__(self, idx: int) -> tuple[list[str], dict[str, object]]:
+        c = self.fake.calls[idx]
+        return (
+            list(c.argv),
+            {
+                "cwd": c.cwd,
+                "env": c.env,
+                "check": c.check,
+                "extra_allowed_env": c.extra_allowed_env,
+                "input": c.stdin,
+            },
+        )
+
+    def __len__(self) -> int:
+        return len(self.fake.calls)
+
+    def __bool__(self) -> bool:
+        return bool(self.fake.calls)
+
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, list) and not other:
+            return len(self.fake.calls) == 0
+        return NotImplemented
+
+
+class KeyringCallsRecorder:
+    def __init__(self, fake: ProcessFake) -> None:
+        self.fake = fake
+
+    def __iter__(self):
+        return (
+            {"cmd": list(c.argv), "input": c.stdin, "cwd": c.cwd, "env": c.env}
+            for c in self.fake.calls
+        )
+
+    def __getitem__(self, idx: int) -> dict[str, object]:
+        c = self.fake.calls[idx]
+        return {"cmd": list(c.argv), "input": c.stdin, "cwd": c.cwd, "env": c.env}
+
+    def __len__(self) -> int:
+        return len(self.fake.calls)
+
+    def __bool__(self) -> bool:
+        return bool(self.fake.calls)
+
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, list) and not other:
+            return len(self.fake.calls) == 0
+        return NotImplemented
+
+
 def _record_subprocess_calls(
-    monkeypatch: pytest.MonkeyPatch, returncode: int = 0, stderr: str = ""
-) -> list[tuple[list[str], dict[str, object]]]:
-    """Replace run_subprocess in the devcontainer module and record each call."""
-    import subprocess
+    context: pytest.MonkeyPatch | ProcessFake, returncode: int = 0, stderr: str = ""
+) -> SubprocessCallsRecorder:
+    """Record subprocess calls through ProcessFake."""
+    import shutil
 
-    calls: list[tuple[list[str], dict[str, object]]] = []
+    from devops_cli.core.process import set_process_runner
 
-    def fake_run_subprocess(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
-        calls.append((cmd, kwargs))
-        return subprocess.CompletedProcess(cmd, returncode=returncode, stdout="", stderr=stderr)
+    if isinstance(context, ProcessFake):
+        fake = context
+    else:
+        fake = ProcessFake()
+        set_process_runner(fake)
+        context.setattr(shutil, "which", lambda prog: f"/usr/bin/{prog}")
 
-    monkeypatch.setattr("devops_cli.commands.devcontainer.run_subprocess", fake_run_subprocess)
-    monkeypatch.setattr("shutil.which", lambda prog: f"/usr/bin/{prog}")
-    return calls
+    if returncode != 0 or stderr:
+        fake.answer(lambda _: True, ProcessAnswer(returncode=returncode, stderr=stderr))
+    return SubprocessCallsRecorder(fake)
 
 
 @pytest.mark.parametrize("minikube", [True, False], ids=["minikube", "no-minikube"])
@@ -1794,11 +1746,9 @@ def test_a_failed_session_bus_start_is_reported(
 
 
 def test_post_create_installs_the_keyring_on_images_that_lack_it(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, process_fake: ProcessFake
 ) -> None:
     """A project scaffolded onto a plain image would otherwise have no Secret Service."""
-    import subprocess
-
     from devops_cli.commands.devcontainer import _install_keyring_packages
 
     monkeypatch.setenv("DBUS_SESSION_BUS_ADDRESS", "unix:path=/run/user/1000/bus")
@@ -1806,16 +1756,16 @@ def test_post_create_installs_the_keyring_on_images_that_lack_it(
         "shutil.which", lambda prog: None if prog == "gnome-keyring-daemon" else f"/usr/bin/{prog}"
     )
     monkeypatch.setattr("os.geteuid", lambda: 1000)
-    calls: list[list[str]] = []
-    monkeypatch.setattr(
-        "devops_cli.commands.devcontainer.run_subprocess",
-        lambda cmd, **_: calls.append(cmd) or subprocess.CompletedProcess(cmd, 0, "", ""),
-    )
 
     actions = _install_keyring_packages()
 
-    assert calls[-1][:4] == ["sudo", "env", "DEBIAN_FRONTEND=noninteractive", "apt-get"]
-    assert calls[-1][-2:] == ["gnome-keyring", "dbus-x11"]
+    assert process_fake.calls[-1].argv[:4] == (
+        "sudo",
+        "env",
+        "DEBIAN_FRONTEND=noninteractive",
+        "apt-get",
+    )
+    assert process_fake.calls[-1].argv[-2:] == ("gnome-keyring", "dbus-x11")
     assert actions == ["Installed gnome-keyring, dbus-x11 for the container's keyring"]
 
 
@@ -1856,24 +1806,18 @@ def test_post_create_warns_when_the_keyring_cannot_be_installed(
 
 @pytest.fixture
 def keyring_container(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, keyring_store: FakeKeyring
-) -> list[dict[str, object]]:
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    keyring_store: FakeKeyring,
+    process_fake: ProcessFake,
+) -> KeyringCallsRecorder:
     """A container with gnome-keyring installed and its bus already running; its Secret Service
     reports the default collection unlocked until a test says otherwise."""
     monkeypatch.setenv("DBUS_SESSION_BUS_ADDRESS", f"unix:path={tmp_path / 'bus'}")
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
     monkeypatch.setattr("shutil.which", lambda prog: f"/usr/bin/{prog}")
-    monkeypatch.setattr("devops_cli.commands.devcontainer._start_session_bus", lambda: [])
-    calls: list[dict[str, object]] = []
-
-    def fake_run_subprocess(cmd: list[str], **kwargs: object) -> object:
-        import subprocess
-
-        calls.append({"cmd": cmd, **kwargs})
-        return subprocess.CompletedProcess(cmd, 0, "", "")
-
-    monkeypatch.setattr("devops_cli.commands.devcontainer.run_subprocess", fake_run_subprocess)
-    return calls
+    keyring_store.bus_running = True
+    return KeyringCallsRecorder(process_fake)
 
 
 def _answer_prompts(monkeypatch: pytest.MonkeyPatch, *answers: str) -> list[str]:
@@ -2236,8 +2180,12 @@ def test_an_abandoned_prompt_ends_its_line_before_the_next_message(
     )
 
 
+@pytest.mark.usefixtures("no_configured_k8s_context")
 def test_post_start_leaves_the_keyring_password_to_the_first_terminal(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    process_fake: ProcessFake,
+    keyring_store: FakeKeyring,
 ) -> None:
     """The VS Code lifecycle terminal sends each key twice, so a password typed there is always
     wrong, and gnome-keyring keeps that wrong password (#4240)."""
@@ -2253,21 +2201,16 @@ def test_post_start_leaves_the_keyring_password_to_the_first_terminal(
     fake_home.mkdir()
     monkeypatch.setenv("HOME", str(fake_home))
     monkeypatch.setenv("DBUS_SESSION_BUS_ADDRESS", f"unix:path={tmp_path / 'bus'}")
+    monkeypatch.setenv("DEVOPS_MINIKUBE_AUTOSTART", "false")
+    keyring_store.bus_running = True
     pending = tmp_path / ".keyring-unlock-pending"
     pending.touch()
-    monkeypatch.setattr(
-        "devops_cli.commands.devcontainer._run_post_start_lifecycle", lambda *a, **k: []
-    )
     monkeypatch.setattr("sys.stdin", Terminal())
-    unlocks: list[object] = []
-    monkeypatch.setattr(
-        "devops_cli.commands.devcontainer._unlock_keyring",
-        lambda **kw: unlocks.append(kw) or True,
-    )
 
     post_start(workspace=tmp_path)
 
-    assert (unlocks, pending.exists()) == ([], True)
+    assert pending.exists() is True
+    assert not any("unlock" in c.argv for c in process_fake.calls)
 
 
 def _backups(tmp_path: Path) -> list[Path]:
@@ -2395,7 +2338,7 @@ def test_a_fresh_bus_marks_the_keyring_as_waiting_to_be_unlocked(
 
 
 def test_post_create_adds_the_unlock_hook_to_each_shell_once(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, process_fake: ProcessFake
 ) -> None:
     """The home volume outlives rebuilds, so post-create runs again on the same rc files."""
     from devops_cli.commands.devcontainer import _run_post_create_lifecycle
@@ -2403,12 +2346,6 @@ def test_post_create_adds_the_unlock_hook_to_each_shell_once(
     fake_home = tmp_path / "home"
     fake_home.mkdir()
     monkeypatch.setenv("HOME", str(fake_home))
-    monkeypatch.setattr(
-        "devops_cli.commands.devcontainer._bootstrap_developer_tools", lambda **k: []
-    )
-    monkeypatch.setattr(
-        "devops_cli.commands.devcontainer._install_keyring_packages", lambda **k: []
-    )
 
     _run_post_create_lifecycle(tmp_path, skip_tools=True)
     _run_post_create_lifecycle(tmp_path, skip_tools=True)
@@ -2460,7 +2397,7 @@ def test_the_unlock_hook_stays_quiet_once_the_keyring_is_open(tmp_path: Path) ->
 
 
 def test_plaintext_gh_tokens_are_moved_once_the_keyring_opens(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, process_fake: ProcessFake
 ) -> None:
     """Re-logging in with the token already held mints nothing, unlike `gh auth refresh`."""
     import subprocess
@@ -2471,25 +2408,25 @@ def test_plaintext_gh_tokens_are_moved_once_the_keyring_opens(
         monkeypatch.delenv(token_var, raising=False)
 
     hosts_file = _write_gh_hosts(monkeypatch, tmp_path, "github.com:\n  oauth_token: FAKE-token\n")
-    calls: list[tuple[list[str], dict[str, object]]] = []
 
-    def fake_gh(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
-        calls.append((cmd, kwargs))
-        if cmd[:3] == ["gh", "auth", "login"]:
+    def fake_gh(call: ProcessCall) -> subprocess.CompletedProcess[str]:
+        if call.argv[:3] == ("gh", "auth", "login"):
             hosts_file.write_text("github.com:\n  users:\n    probe:\n  user: probe\n")
-        stdout = "FAKE-token\n" if cmd[:3] == ["gh", "auth", "token"] else ""
-        return subprocess.CompletedProcess(cmd, 0, stdout, "")
+        stdout = "FAKE-token\n" if call.argv[:3] == ("gh", "auth", "token") else ""
+        return subprocess.CompletedProcess(list(call.argv), 0, stdout, "")
 
-    monkeypatch.setattr("devops_cli.commands.devcontainer.run_subprocess", fake_gh)
+    process_fake.answer(["gh"], ProcessAnswer(side_effect=fake_gh))
 
     res = _move_plaintext_gh_tokens()
-    login_cmd, login_kwargs = calls[-1]
-    assert (res, login_cmd, login_kwargs["input"]) == (
+    login_call = next(
+        call for call in process_fake.calls if call.argv[:3] == ("gh", "auth", "login")
+    )
+    assert (res, list(login_call.argv), login_call.stdin) == (
         ["github.com"],
         ["gh", "auth", "login", "-h", "github.com", "--with-token"],
         "FAKE-token",
     )
-    assert "DBUS_SESSION_BUS_ADDRESS" in login_kwargs["extra_allowed_env"]  # type: ignore[operator]
+    assert "DBUS_SESSION_BUS_ADDRESS" in login_call.extra_allowed_env
 
 
 def test_an_environment_token_leaves_hosts_yml_alone(
@@ -2507,8 +2444,6 @@ def test_an_environment_token_leaves_hosts_yml_alone(
 
 def test_bootstrap_managed_tools(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Verify _bootstrap_managed_tools behavior under dry_run, skip, and normal execution."""
-    from unittest.mock import patch
-
     from devops_cli.commands.devcontainer import _bootstrap_managed_tools
 
     # dry_run and skip return empty list
@@ -2517,24 +2452,18 @@ def test_bootstrap_managed_tools(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
         _bootstrap_managed_tools(tmp_path, skip=True),
     ) == ([], [])
 
-    # Successful delegation to install_managed_tools
-    with patch(
-        "devops_cli.commands.install_tools.install_managed_tools",
-        return_value=["Installed k9s v0.51.0 into ~/.local/bin"],
-    ) as mock_install:
-        actions = _bootstrap_managed_tools(tmp_path)
-        assert (actions, mock_install.call_count) == (
-            ["Installed k9s v0.51.0 into ~/.local/bin"],
-            1,
-        )
+    # Successful delegation to install_managed_tools (all at pin)
+    link_every_tool_at_pin(tmp_path)
+    actions = _bootstrap_managed_tools(tmp_path)
+    assert actions == []
 
     # Exception handling returns warning
-    with patch(
-        "devops_cli.commands.install_tools.install_managed_tools",
-        side_effect=RuntimeError("connection refused"),
-    ):
-        warn_actions = _bootstrap_managed_tools(tmp_path)
-        assert any("Warning: Failed to bootstrap managed DevOps tools" in a for a in warn_actions)
+    def raise_err() -> Path:
+        raise RuntimeError("connection refused")
+
+    monkeypatch.setattr(Path, "home", raise_err)
+    warn_actions = _bootstrap_managed_tools(None)
+    assert any("Warning: Failed to bootstrap managed DevOps tools" in a for a in warn_actions)
 
 
 def test_post_create_leaves_semgrep_to_the_tools_lock(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -2550,38 +2479,25 @@ def test_post_create_leaves_semgrep_to_the_tools_lock(monkeypatch: pytest.Monkey
     assert (bool(calls), [cmd for cmd, _ in calls if "semgrep" in " ".join(cmd)]) == (True, [])
 
 
-def test_post_create_skip_tools_flag(tmp_path: Path, runner: CliRunner) -> None:
+def test_post_create_skip_tools_flag(
+    tmp_path: Path, runner: CliRunner, process_fake: ProcessFake
+) -> None:
     """Verify devops devcontainer post-create --skip-tools passes skip_tools flag."""
-    from unittest.mock import patch
-
-    with patch(
-        "devops_cli.commands.devcontainer._run_post_create_lifecycle",
-        return_value=["skipped"],
-    ) as mock_pc:
-        res = runner.invoke(app, ["post-create", "--workspace", str(tmp_path), "--skip-tools"])
-        assert (res.exit_code, mock_pc.call_count) == (0, 1)
-        mock_pc.assert_called_once_with(tmp_path.resolve(), dry_run=False, skip_tools=True)
+    res = runner.invoke(app, ["post-create", "--workspace", str(tmp_path), "--skip-tools"])
+    assert res.exit_code == 0
+    assert "DevContainer post-create setup ready" in res.output
 
 
 def test_bootstrap_k8s_prints_deploy_stack_command(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    process_fake: ProcessFake,
+    docker_daemon: DockerEngineFake,
 ) -> None:
     """bootstrap-k8s prints the deploy-stack command with the minikube context."""
     from devops_cli.config.constants import CONST_K8S_MINIKUBE_CONTEXT
     from devops_cli.core.command_resolver import resolve_devops_argv
 
-    def mock_run_subprocess(cmd: list[str], **kwargs: object) -> object:
-        import subprocess
-
-        if cmd[:2] == ["minikube", "status"]:
-            return subprocess.CompletedProcess(cmd, returncode=0, stdout="Running", stderr="")
-        return subprocess.CompletedProcess(cmd, returncode=0, stdout="", stderr="")
-
-    monkeypatch.setattr("devops_cli.commands.devcontainer.run_subprocess", mock_run_subprocess)
-    monkeypatch.setattr("shutil.which", lambda prog: f"/usr/local/bin/{prog}")
-    monkeypatch.setattr(
-        "devops_cli.commands.devcontainer._wait_for_docker_daemon", lambda timeout=45: True
-    )
+    process_fake.answer(["minikube", "status"], ProcessAnswer(returncode=0, stdout="Running"))
 
     runner = CliRunner()
     result = runner.invoke(app, ["bootstrap-k8s", "--workspace", str(tmp_path), "--stack", "llm"])

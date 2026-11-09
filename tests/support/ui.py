@@ -2,58 +2,18 @@
 
 from __future__ import annotations
 
-import json
-import threading
 import time
 from collections.abc import Callable
 from typing import Any
 
-from textual.widgets import DataTable, Static
-
-from devops_cli.models.k8s import ContainerInfo, PodInfo
 from devops_cli.ui.dashboard import DashboardApp
 from devops_cli.ui.data_providers import (
     DockerSummary,
-    K8sSummary,
     TelemetrySummary,
     ValkeySummary,
 )
 from devops_cli.ui.widgets import LogPane
-from tests.support.fakes.kubernetes import pod
 from tests.support.waits import POLL_INTERVAL_SECONDS, THREAD_HANDOFF_BOUND_SECONDS
-
-
-def _pod(
-    name: str,
-    namespace: str = "default",
-    *,
-    status: str = "Running",
-    containers: tuple[str, ...] = ("app",),
-) -> PodInfo:
-    """Construct a PodInfo object for testing."""
-    healthy = status == "Running"
-    return PodInfo(
-        namespace=namespace,
-        name=name,
-        status=status,
-        ready_containers=f"{len(containers) if healthy else 0}/{len(containers)}",
-        containers=[ContainerInfo(name=container, ready=healthy) for container in containers],
-        default_container=containers[0],
-        unhealthy=not healthy,
-    )
-
-
-def _pods(count: int) -> K8sSummary:
-    """Construct a K8sSummary holding count pods."""
-    return K8sSummary(connected=True, pods=[_pod(f"pod-{index:02d}") for index in range(count)])
-
-
-def _wide_pods(count: int) -> K8sSummary:
-    """Pods whose names run past the pod table's width, as real generated names do."""
-    folder = "nested-" * 12
-    return K8sSummary(
-        connected=True, pods=[_pod(f"{folder}pod-{index:02d}") for index in range(count)]
-    )
 
 
 def _containers(count: int) -> DockerSummary:
@@ -67,89 +27,19 @@ def _containers(count: int) -> DockerSummary:
     )
 
 
-def _cluster(*, extra: tuple[PodInfo, ...] = (), without: str = "") -> K8sSummary:
-    """63 pods, as on a small workstation cluster: one crashlooping, nine log collectors."""
-    pods = [
-        _pod("coredns-0", "kube-system"),
-        _pod("exporter-0", "monitoring", status="CrashLoopBackOff"),
-        _pod("grafana-0", "monitoring", containers=("grafana", "sidecar")),
-        _pod("prometheus-server-0", "monitoring", containers=("server", "reloader")),
-        *(_pod(f"alloy-logs-{index}", "monitoring") for index in range(9)),
-        *(_pod(f"web-{index:02d}", "shop") for index in range(50)),
-        *extra,
-    ]
-    return K8sSummary(
+def _wide_containers(count: int) -> DockerSummary:
+    """Containers whose names run past the table width."""
+    long_name = "nested-" * 12
+    return DockerSummary(
         connected=True,
-        context="lab",
-        pods=[p for p in pods if without not in (p.namespace, p.name)],
-    )
-
-
-def _shown(app: DashboardApp) -> list[str]:
-    """Name the pods the Kubernetes table lists, in row order."""
-    table = app.query_one("#k8s-table", DataTable)
-    return [json.loads(str(row_key.value))[1] for row_key in table.rows]
-
-
-def _k8s_banner_text(app: DashboardApp) -> str:
-    """Retrieve rendered text from the k8s-banner widget."""
-    return str(app.query_one("#k8s-banner", Static).render())
-
-
-def _numbered_lines(count: int) -> Callable[..., Callable[[], Any]]:
-    """A pod log source factory whose every stream is the same finite set of lines."""
-    return lambda *args, **kwargs: lambda: iter([f"line-{index}" for index in range(count)])
-
-
-def _sidecar_pod(annotated: bool) -> K8sSummary:
-    """A pod with containers [sidecar, app], optionally annotated to default to app."""
-    annotations = {"kubectl.kubernetes.io/default-container": "app"} if annotated else None
-    api_pod = pod("web-0", containers=("sidecar", "app"), annotations=annotations)
-    return K8sSummary(connected=True, pods=[PodInfo.from_pod(api_pod)])
-
-
-def _recording_source(requested: list[str | None]) -> Callable[..., Callable[[], Any]]:
-    """A pod log source factory recording the container each stream was opened for."""
-
-    def source(pod: str, namespace: str, container: str | None = None, **_: Any) -> Any:
-        requested.append(container)
-        return lambda: iter([f"{container} line"])
-
-    return source
-
-
-def _endless(release: threading.Event) -> Callable[..., Callable[[], Any]]:
-    """A pod log source factory whose streams never end until released."""
-
-    def source(pod: str, namespace: str, container: str | None = None, **_: Any) -> Any:
-        def lines() -> Any:
-            index = 0
-            while not release.is_set():
-                index += 1
-                yield f"{pod}/{container} {index}"
-                release.wait(0.01)
-
-        return lines
-
-    return source
-
-
-def sample_k8s() -> K8sSummary:
-    """Return a representative Kubernetes summary for dashboard tests."""
-    return K8sSummary(
-        connected=True,
-        context="lab",
-        nodes_ready=1,
-        nodes_total=1,
-        pods=[
-            PodInfo(
-                namespace="devops-system",
-                name="api-0",
-                status="Running",
-                ready_containers="1/1",
-                containers=[ContainerInfo(name="api", ready=True, state="Running")],
-                default_container="api",
-            )
+        containers=[
+            {
+                "id": f"c{index:05d}",
+                "name": f"{long_name}app-{index}",
+                "image": f"{long_name}image:1",
+                "status": "running",
+            }
+            for index in range(count)
         ],
     )
 
@@ -216,13 +106,11 @@ def sample_valkey() -> ValkeySummary:
 
 
 SAMPLES: dict[str, Any] = {
-    "k8s": sample_k8s,
     "docker": sample_docker,
     "telemetry": sample_telemetry,
     "valkey": sample_valkey,
 }
 
-_k8s = sample_k8s
 _docker = sample_docker
 _telemetry = sample_telemetry
 _valkey = sample_valkey

@@ -27,7 +27,12 @@ from devops_cli.ai.client.models import (
     AIClientError,
     AICredentialsError,
 )
-from devops_cli.exceptions import GitOperationError, RoadmapStageError, ToolExecutionError
+from devops_cli.exceptions import (
+    GitOperationError,
+    RoadmapStageDegenerateError,
+    RoadmapStageError,
+    ToolExecutionError,
+)
 from devops_cli.lang import MESSAGES
 from devops_cli.openspec.tool import OpenSpecTool
 from devops_cli.roadmap.clone_git import checkout_at
@@ -54,10 +59,13 @@ _ISSUE_URL = "https://example.com/issues/{number}"
 
 
 class Outcome(StrEnum):
-    """How a case ended. `refused` is a plan that the checks refused after the one return."""
+    """How a case ended. `refused` is a plan that the checks refused after the one return.
+    `degenerate` is a plan reply with a placeholder in every text, which the job refuses at once
+    (#4204)."""
 
     STAGED = "staged"
     REFUSED = "refused"
+    DEGENERATE = "degenerate"
     OVER_BUDGET = "over_budget"
     FAILED = "failed"
 
@@ -130,6 +138,8 @@ def _planned_as(planned: StagedChange | OverBudget) -> tuple[Outcome, str]:
 
 def _ended(exc: Exception) -> tuple[Outcome, str]:
     """How a case that raised ended, and the reason, never the model's text."""
+    if isinstance(exc, RoadmapStageDegenerateError):
+        return Outcome.DEGENERATE, mask_secrets(str(exc))
     if isinstance(exc, RoadmapStageError):
         return Outcome.REFUSED, mask_secrets(str(exc))
     reason = type(exc).__name__

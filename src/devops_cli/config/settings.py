@@ -668,6 +668,23 @@ class AITasksConfig(BaseModel):
     )
 
 
+class AIPriceOverride(BaseModel):
+    """The price of one model in USD per million tokens, for `ai.price_overrides` (#4242)."""
+
+    model_config = ConfigDict(
+        extra="forbid", frozen=False, validate_assignment=True, hide_input_in_errors=True
+    )
+    prompt_usd_per_million: float = Field(
+        default=0.0, ge=0.0, allow_inf_nan=False, description="Price of 1,000,000 prompt tokens"
+    )
+    completion_usd_per_million: float = Field(
+        default=0.0,
+        ge=0.0,
+        allow_inf_nan=False,
+        description="Price of 1,000,000 completion tokens",
+    )
+
+
 class AIConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid", frozen=False, validate_assignment=True, hide_input_in_errors=True
@@ -690,6 +707,10 @@ class AIConfig(BaseModel):
     reference_provider: Annotated[str, Variable()] = Field(
         default=DEFAULT_AI_REFERENCE_PROVIDER,
         description="Provider in genai-prices of the two reference models",
+    )
+    price_overrides: dict[str, AIPriceOverride] = Field(
+        default_factory=dict,
+        description="Price of a model that genai-prices does not know, by model name. A price in the file `pricing_overrides.json` of the data directory wins over the price here for the same model",
     )
     hardware_cost_usd: Annotated[float, Variable()] = Field(
         description="Cost in USD of the local AI hardware, which `devops ai cost` compares with the savings",

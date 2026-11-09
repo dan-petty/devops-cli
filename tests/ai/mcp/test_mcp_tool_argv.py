@@ -459,3 +459,24 @@ def test_fastmcp_k8s_security_stream(mcp_dispatcher: DispatcherFake) -> None:
     assert "--simulate" in cmd
     assert "--severity" in cmd
     assert "Critical" in cmd
+
+
+def test_fastmcp_ai_cost_report_range_and_by(mcp_dispatcher: DispatcherFake) -> None:
+    """Verify ai_cost_report forwards since, until, and by grouping to the CLI (#2193)."""
+    from devops_cli.ai.mcp.server import ai_cost_report
+
+    mcp_dispatcher.answer("[]")
+
+    res = ai_cost_report(since="2026-10-01", until="2026-10-22", by="week")
+
+    cmd = list(mcp_dispatcher.last.argv)
+    assert res == "[]"
+    assert mcp_dispatcher.call_count == 1
+    assert cmd[:6] == ["uv", "run", "devops", "ai", "cost", "report"]
+    assert "--since" in cmd
+    assert cmd[cmd.index("--since") + 1] == "2026-10-01"
+    assert "--until" in cmd
+    assert cmd[cmd.index("--until") + 1] == "2026-10-22"
+    assert "--by" in cmd
+    assert cmd[cmd.index("--by") + 1] == "week"
+    assert cmd[-2:] == ["--format", "json"]

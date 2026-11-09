@@ -2024,8 +2024,10 @@ devops ai cost [OPTIONS] COMMAND [ARGS]...
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--by`, `-b` | `string` | `server` | Breakdown grouping dimension: server, model, provider, backend, stage, all. |
+| `--by`, `-b` | `string` | `server` | Breakdown grouping dimension: server, model, provider, backend, stage, day, week, all. |
 | `--days`, `-d` | `integer` | - | Filter usage to the last N days (default: all lifetime). |
+| `--since`, `-s` | `string` | - | Filter usage since ISO date or datetime (default: all lifetime). |
+| `--until`, `-u` | `string` | - | Filter usage until ISO date or datetime (default: all lifetime). |
 | `--reference-model`, `-m` | `string` | - | Reference model for counterfactual pricing (default: the ai.reference_model setting). |
 | `--hardware-cost`, `-H` | `float` | - | Hardware purchase cost in USD to track pay-off against. |
 | `--format`, `-f` | `string` | `table` | Output format: table, json, yaml, markdown. |
@@ -2043,8 +2045,10 @@ devops ai cost report [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--by`, `-b` | `string` | `server` | Breakdown grouping dimension: server, model, provider, backend, stage, all. |
+| `--by`, `-b` | `string` | `server` | Breakdown grouping dimension: server, model, provider, backend, stage, day, week, all. |
 | `--days`, `-d` | `integer` | - | Filter usage to the last N days (default: all lifetime). |
+| `--since`, `-s` | `string` | - | Filter usage since ISO date or datetime (default: all lifetime). |
+| `--until`, `-u` | `string` | - | Filter usage until ISO date or datetime (default: all lifetime). |
 | `--reference-model`, `-m` | `string` | - | Reference model for counterfactual pricing (default: the ai.reference_model setting). |
 | `--hardware-cost`, `-H` | `float` | - | Hardware purchase cost in USD to track pay-off against. |
 | `--format`, `-f` | `string` | `table` | Output format: table, json, yaml, prometheus. |
@@ -2065,6 +2069,9 @@ devops ai cost roi [OPTIONS]
 | `--hardware-cost`, `-H` | `float` | - | Total hardware purchase cost in USD (e.g. 1599.0 for GPU/workstation). |
 | `--reference-model`, `-m` | `string` | - | Reference model for counterfactual pricing (default: the ai.reference_model setting). |
 | `--days`, `-d` | `integer` | - | Filter usage to the last N days (default: all lifetime). |
+| `--since`, `-s` | `string` | - | Filter usage since ISO date or datetime (default: all lifetime). |
+| `--until`, `-u` | `string` | - | Filter usage until ISO date or datetime (default: all lifetime). |
+| `--by`, `-b` | `string` | - | Grouping period: day, week. |
 | `--format`, `-f` | `string` | `table` | Output format: table, json, yaml. |
 | `--json` | `boolean` | - | First-class alias for --format json. |
 
@@ -2164,8 +2171,10 @@ devops ai spend [OPTIONS] COMMAND [ARGS]...
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--by`, `-b` | `string` | `server` | Breakdown grouping dimension: server, model, provider, backend, stage, all. |
+| `--by`, `-b` | `string` | `server` | Breakdown grouping dimension: server, model, provider, backend, stage, day, week, all. |
 | `--days`, `-d` | `integer` | - | Filter usage to the last N days (default: all lifetime). |
+| `--since`, `-s` | `string` | - | Filter usage since ISO date or datetime (default: all lifetime). |
+| `--until`, `-u` | `string` | - | Filter usage until ISO date or datetime (default: all lifetime). |
 | `--reference-model`, `-m` | `string` | - | Reference model for counterfactual pricing (default: the ai.reference_model setting). |
 | `--hardware-cost`, `-H` | `float` | - | Hardware purchase cost in USD to track pay-off against. |
 | `--format`, `-f` | `string` | `table` | Output format: table, json, yaml, markdown. |
@@ -2183,8 +2192,10 @@ devops ai spend report [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--by`, `-b` | `string` | `server` | Breakdown grouping dimension: server, model, provider, backend, stage, all. |
+| `--by`, `-b` | `string` | `server` | Breakdown grouping dimension: server, model, provider, backend, stage, day, week, all. |
 | `--days`, `-d` | `integer` | - | Filter usage to the last N days (default: all lifetime). |
+| `--since`, `-s` | `string` | - | Filter usage since ISO date or datetime (default: all lifetime). |
+| `--until`, `-u` | `string` | - | Filter usage until ISO date or datetime (default: all lifetime). |
 | `--reference-model`, `-m` | `string` | - | Reference model for counterfactual pricing (default: the ai.reference_model setting). |
 | `--hardware-cost`, `-H` | `float` | - | Hardware purchase cost in USD to track pay-off against. |
 | `--format`, `-f` | `string` | `table` | Output format: table, json, yaml, prometheus. |
@@ -2205,6 +2216,9 @@ devops ai spend roi [OPTIONS]
 | `--hardware-cost`, `-H` | `float` | - | Total hardware purchase cost in USD (e.g. 1599.0 for GPU/workstation). |
 | `--reference-model`, `-m` | `string` | - | Reference model for counterfactual pricing (default: the ai.reference_model setting). |
 | `--days`, `-d` | `integer` | - | Filter usage to the last N days (default: all lifetime). |
+| `--since`, `-s` | `string` | - | Filter usage since ISO date or datetime (default: all lifetime). |
+| `--until`, `-u` | `string` | - | Filter usage until ISO date or datetime (default: all lifetime). |
+| `--by`, `-b` | `string` | - | Grouping period: day, week. |
 | `--format`, `-f` | `string` | `table` | Output format: table, json, yaml. |
 | `--json` | `boolean` | - | First-class alias for --format json. |
 

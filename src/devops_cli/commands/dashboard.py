@@ -10,7 +10,6 @@ import typer
 from devops_cli.config.constants import CONST_DASHBOARD_DOMAINS
 from devops_cli.config.defaults import (
     DEFAULT_DASHBOARD_REFRESH_SECONDS,
-    DEFAULT_DASHBOARD_SUMMARY_POD_ROWS,
 )
 from devops_cli.core.cli import new_typer
 from devops_cli.dry_run import dry_run_class, is_dry_run
@@ -32,7 +31,6 @@ if TYPE_CHECKING:
 def __getattr__(name: str) -> Any:
     if name in (
         "fetch_docker_status",
-        "fetch_k8s_status",
         "fetch_review_status",
         "fetch_telemetry_status",
         "fetch_valkey_status",
@@ -40,10 +38,6 @@ def __getattr__(name: str) -> Any:
         import devops_cli.ui.data_providers as dp
 
         return getattr(dp, name)
-    if name in ("k8s_banner", "k8s_pod_row"):
-        import devops_cli.ui.projections as proj
-
-        return getattr(proj, name)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
@@ -62,35 +56,6 @@ app = new_typer(
     help=HELP.dashboard.app,
     rich_markup_mode="rich",
 )
-
-
-def _render_k8s_panel() -> Panel:
-    """List the pods that need attention first, and count the ones left out."""
-    fetch_k8s_status = getattr(sys.modules[__name__], "fetch_k8s_status")
-    k8s_banner = getattr(sys.modules[__name__], "k8s_banner")
-    k8s_pod_row = getattr(sys.modules[__name__], "k8s_pod_row")
-    summary = fetch_k8s_status()
-    table = Table(box=box.SIMPLE, show_header=True)
-    table.add_column("Namespace", style="cyan")
-    table.add_column("Pod Name", style="white")
-    table.add_column("Status")
-    table.add_column("Ready")
-    table.add_column("Restarts")
-    pods = sorted(summary.pods, key=lambda pod: not pod.unhealthy)
-    for pod in pods[:DEFAULT_DASHBOARD_SUMMARY_POD_ROWS]:
-        table.add_row(*k8s_pod_row(pod))
-    if not summary.pods:
-        table.add_row(
-            "—",
-            "No active pods" if summary.connected else "Cluster disconnected",
-            "—",
-            "—",
-            "—",
-        )
-    hidden = len(pods) - DEFAULT_DASHBOARD_SUMMARY_POD_ROWS
-    footer = [Text(f"{hidden} more pods not shown", style="dim")] if hidden > 0 else []
-    content = Group(Text.from_markup(k8s_banner(summary)), table, *footer)
-    return Panel(content, title="Kubernetes Status", border_style="blue")
 
 
 def _render_docker_panel() -> Panel:
@@ -196,12 +161,11 @@ def _render_summary() -> None:
     console.print(
         Panel(
             "[bold]Workstation Dashboard Summary[/bold]\n"
-            "Real-time overview of Kubernetes, Docker, Telemetry, AI Reviews, and Valkey caching.",
+            "Real-time overview of Docker, Telemetry, AI Reviews, and Valkey caching.",
             title="Workstation Dashboard Summary",
             border_style="cyan",
         )
     )
-    console.print(_render_k8s_panel())
     console.print(_render_docker_panel())
     console.print(_render_telemetry_panel())
     console.print(_render_ai_panel())
@@ -262,7 +226,7 @@ def main_dashboard(
         help=HELP.dashboard.refresh_interval,
     ),
     tab: str = typer.Option(
-        "k8s",
+        "docker",
         "--tab",
         "-t",
         help=HELP.dashboard.tab,

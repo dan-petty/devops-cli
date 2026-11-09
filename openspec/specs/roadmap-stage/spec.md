@@ -2893,7 +2893,7 @@ A stage round SHALL write the removals of closed items and the rejections of ite
 - **THEN** the store receives no write, no branch is pushed or deleted, no GitHub write request is sent, and the plan file of the ready item exists
 
 ### Requirement: A security trigger needs a security section
-The proposal check SHALL refuse a plan that names a security trigger and holds no non-blank `security` text, and SHALL name the matched path or word in the refusal.
+The proposal check SHALL refuse a plan that names a security trigger and holds no non-blank `security` text, and SHALL name the matched path or word in the refusal. A trigger word SHALL match as a word, with an optional plural ending, and SHALL NOT match inside a longer word.
 
 #### Scenario: A plan changes SECURITY.md with no security text
 - **WHEN** `check_proposal` receives a proposal whose group changes `SECURITY.md` and whose `security` field is empty
@@ -2910,6 +2910,14 @@ The proposal check SHALL refuse a plan that names a security trigger and holds n
 #### Scenario: A plan with no trigger needs no security text
 - **WHEN** `check_proposal` receives a proposal whose Changes, group paths and task texts name no trigger
 - **THEN** it returns no security problem
+
+#### Scenario: A trigger word inside a longer word is no trigger
+- **WHEN** `check_proposal` receives a proposal whose task text says "Add a regression test" and whose `security` field is empty
+- **THEN** it returns no security problem
+
+#### Scenario: A trigger word as a whole word is a trigger
+- **WHEN** `check_proposal` receives a proposal whose task text says "Change the egress policy of the pod" and whose `security` field is empty
+- **THEN** it returns a problem that names `egress`
 
 ### Requirement: The security triggers are a fixed list of paths and words
 The trigger paths MUST be the named constant `SECURITY_TRIGGER_PATHS` with a docstring, and every entry MUST be a path of the repository.
@@ -3344,7 +3352,7 @@ The stage prompt SHALL state that a task group gives one exact change and names 
 - **THEN** the prompt text states that a group gives one exact change and names the failing test in a code span
 
 ### Requirement: Feasibility cites only what the plan run did
-The stage job SHALL refuse a feasibility line that names a toolbox tool, or states that a code-span path was read, when the trace of the run that wrote the reply holds no call that supports it, and SHALL accept a line that negates the claim.
+The stage job SHALL refuse a feasibility line that names a toolbox tool, or states that a code-span path was read, when the plan runs of the item hold no call that supports it, and SHALL accept a line that negates the claim.
 
 #### Scenario: A read claim with no tool call
 - **WHEN** The trace holds zero calls and the feasibility section says `read `src/x.py``.
@@ -3366,8 +3374,12 @@ The stage job SHALL refuse a feasibility line that names a toolbox tool, or stat
 - **WHEN** `check_proposal` gets no trace facts and the feasibility section says `read `src/x.py``.
 - **THEN** `check_proposal` returns no trace problem, and its other checks run as before.
 
+#### Scenario: A claim of the first run after a return
+- **WHEN** The first plan run called `read_file` for `src/x.py`, its reply was returned for another problem, the second plan run called no tool, and the second reply says `read `src/x.py``.
+- **THEN** The second reply passes the trace gate.
+
 ### Requirement: Trace facts of a run
-`TraceFacts.of` SHALL hold the tool name of each call of a `RunTrace` and the `path`, `directory` and `paths` values of an argument that parses as JSON, and the stage job SHALL pass the facts of the run that wrote each reply to `check_proposal`.
+`TraceFacts.of` SHALL hold the tool name of each call of a `RunTrace` and the `path`, `directory` and `paths` values of an argument that parses as JSON, and the stage job SHALL pass to `check_proposal` the facts of the combined trace of every plan run of the item so far. A review run SHALL NOT be a plan run.
 
 #### Scenario: A trace with two calls
 - **WHEN** The trace holds a `read_file` call for `src/x.py` and a `search_code` call for `needle`.
@@ -3376,6 +3388,14 @@ The stage job SHALL refuse a feasibility line that names a toolbox tool, or stat
 #### Scenario: The stage job calls the check
 - **WHEN** The planner gets a reply from a toolbox run that called `read_file` for `src/x.py`.
 - **THEN** The `check_proposal` call for that reply holds the facts with the tool `read_file` and the path `src/x.py`.
+
+#### Scenario: The facts hold every plan run
+- **WHEN** The first plan run called `read_file` for `src/x.py` and the second plan run called no tool.
+- **THEN** The facts hold the tool `read_file` and the path `src/x.py`.
+
+#### Scenario: A review run supports no claim
+- **WHEN** A review run called `read_file` for `src/x.py` and no plan run called it.
+- **THEN** The facts hold no tool and no path.
 
 ### Requirement: The planner prompt cites only the run
 The planner prompt and `docs/roadmap/stage.md` SHALL state that a plan cites only the tools and the paths that its run used, and that a premise that the run did not check is written as `not checked`.
@@ -3487,7 +3507,7 @@ The plan check SHALL resolve each option flag in a cited `devops` command span a
 - **THEN** The check returns no command-resolution problem for that span.
 
 ### Requirement: Resolve cited MCP exposure keys
-The plan check SHALL resolve each quoted tuple key that a plan cites against `CONST_MCP_EXPOSURE_TABLE`.
+The plan check SHALL resolve each quoted tuple key that a plan cites against `CONST_MCP_EXPOSURE_TABLE`. It SHALL read a quoted tuple as a cited key only when the sentence that holds the tuple names `CONST_MCP_EXPOSURE_TABLE` or the words "exposure table".
 
 #### Scenario: Unknown MCP exposure key is refused
 - **WHEN** A plan cites the exposure table key `("ai", "ast-graph")`.
@@ -3496,6 +3516,14 @@ The plan check SHALL resolve each quoted tuple key that a plan cites against `CO
 #### Scenario: Known MCP exposure key is accepted
 - **WHEN** A plan cites the exposure table key `("ai", "ast", "graph")`.
 - **THEN** The check returns no MCP exposure problem for that key.
+
+#### Scenario: A quoted tuple of another table is no key
+- **WHEN** A plan says that the fixture table of `tests/conftest.py` lists `("reset_logfire_bridge",)`.
+- **THEN** The check returns no MCP exposure problem.
+
+#### Scenario: The sentence of the tuple decides
+- **WHEN** A plan names the exposure table in one sentence and quotes the tuple `("ai", "ast-graph")` in the next sentence.
+- **THEN** The check returns no MCP exposure problem.
 
 ### Requirement: Failure taxonomy in staging context
 Staging context SHALL include the failure class table and action rules from `failure.py` when the plan cites retry, review, stop, tier or failure.
@@ -3707,3 +3735,32 @@ A plan run or a review run of the stage job that ends because a tool call of its
 #### Scenario: A stop that invalid arguments did not cause
 - **WHEN** a run ends because the reply broke the schema with valid JSON, or because a budget limit was spent
 - **THEN** the stop is not marked as a stop by invalid arguments
+
+### Requirement: A refused reply is logged
+The stage job SHALL log one line `stage reply refused` for each reply of the model that it refuses, with the number of the item, the number of the last request of the plan run, the input of that request in tokens, whether that request offered a function tool, and the result `refused` or `degenerate`.
+
+#### Scenario: A reply that the gates refuse
+- **WHEN** the gates refuse the reply of item 1 in the second request of a plan run, and that request offered a tool
+- **THEN** the log holds one line with `item=#1`, `request=2`, the input of the request in tokens, `tools_offered=True` and `result=refused`
+
+### Requirement: A failed item keeps its refused replies
+When a plan fails, the stage job SHALL write the refused replies and their problems to the file `<n>.refused.json` beside the plan file of item `<n>`, under the key of the plan input. A new failed plan SHALL replace the file, and the staging of the item SHALL delete it. A reply over the byte bound SHALL be dropped with its size kept, and a problem SHALL be masked for secrets and cut to the character bound.
+
+#### Scenario: The gates refuse a plan twice
+- **WHEN** the gates refuse the first reply and the reply after the return of item 1
+- **THEN** the file `1.refused.json` holds the key and both replies, each with its problem, and no plan file exists
+
+#### Scenario: The item is staged
+- **WHEN** a later round stages item 1
+- **THEN** the file `1.refused.json` is deleted
+
+### Requirement: A reply of placeholders ends the item
+The stage job SHALL end an item at once, with no second request, when a reply is a placeholder in `why`, `existing_tool`, each line of `feasibility` and each task of each group. The item SHALL fail with the error `RoadmapStageDegenerateError`, the job SHALL keep the reply as a refused reply, and `devops_cli_roadmap_stage_total` SHALL count the item under the result `degenerate`. A reply with one text that is no placeholder SHALL go back to the model once.
+
+#### Scenario: The first reply is all placeholders
+- **WHEN** the first reply of item 1 holds `x` or `placeholder` in every text of the plan
+- **THEN** the model gets one request, the item fails with `RoadmapStageDegenerateError`, and the result of the item is `degenerate`
+
+#### Scenario: A reply with one real text
+- **WHEN** the first reply holds `x` in `why` and in `feasibility` and a real text in `existing_tool`
+- **THEN** the reply goes back to the model once, as for any refused reply, and the result stays `failed` if the second reply is refused

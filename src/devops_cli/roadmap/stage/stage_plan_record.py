@@ -1,4 +1,5 @@
-"""The plan that passes the gates of the stage job, kept as one file for each item (#4064).
+"""The plan that passes the gates of the stage job, kept as one file for each item (#4064), and the
+replies that the gates refuse, kept in a file beside it (#4204).
 
 The file holds the `StageProposal` and the `StageRequest` of the plan, under a key of the input:
 the item number, the title, the hashes of the body, the model name, the toolset name and the prompt
@@ -10,11 +11,15 @@ from __future__ import annotations
 
 import hashlib
 import json
-from typing import TYPE_CHECKING, Any, Final
+from typing import TYPE_CHECKING, Any, Final, Self
 
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 from devops_cli.ai.task_loader import load_task_prompt
+from devops_cli.config.constants import (
+    CONST_ROADMAP_STAGE_REFUSED_PROBLEM_MAX_CHARS,
+    CONST_ROADMAP_STAGE_REFUSED_REPLY_MAX_BYTES,
+)
 from devops_cli.exceptions.roadmap import RoadmapStageError
 from devops_cli.lang import MESSAGES
 from devops_cli.output.file_writer import write_json_file
@@ -27,8 +32,10 @@ from devops_cli.roadmap.stage.stage_toolbox import (
     RESEARCH_TOOLS_TASK,
     TOOLS_TASK,
 )
+from devops_cli.security.sanitizer import mask_secrets
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable, Mapping
     from pathlib import Path
 
 # The prompts of the planner. The version is the hash of their texts, because the code has no other
@@ -45,6 +52,43 @@ class StagePlanRecord(BaseModel):
     key: str
     proposal: StageProposal
     request: StageRequest
+
+
+class RefusedReply(BaseModel):
+    """A reply that the checks refused, with the problem that they found. `reply` is None for a
+    reply over the size bound, and `reply_bytes` is the size of its JSON text."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    reply: dict[str, Any] | None
+    reply_bytes: int
+    problem: str
+
+
+class RefusedRecord(BaseModel):
+    """The refused replies of the last failed plan of an item, under the key of its input."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    key: str
+    replies: list[RefusedReply]
+
+    @classmethod
+    def of(cls, key: str, refused: Iterable[tuple[Mapping[str, Any], str]]) -> Self:
+        """The record of `refused`, each a reply (the dump of the model) and its problem. The
+        problem is masked for secrets and cut, and a reply over the byte bound is dropped."""
+        replies: list[RefusedReply] = []
+        for reply, problem in refused:
+            size = len(json.dumps(reply, ensure_ascii=False, separators=(",", ":")).encode())
+            kept = dict(reply) if size <= CONST_ROADMAP_STAGE_REFUSED_REPLY_MAX_BYTES else None
+            replies.append(
+                RefusedReply(
+                    reply=kept,
+                    reply_bytes=size,
+                    problem=mask_secrets(problem)[:CONST_ROADMAP_STAGE_REFUSED_PROBLEM_MAX_CHARS],
+                )
+            )
+        return cls(key=key, replies=replies)
 
 
 def _digest(parts: list[Any]) -> str:
@@ -80,6 +124,11 @@ def plan_record_path(repo: str, number: int, data_dir: Path | str | None = None)
 
     owner, name = repo.split("/", 1)
     return service_state_dir(data_dir) / _STAGE_DIRECTORY / owner / name / f"{number}.json"
+
+
+def refused_record_path(repo: str, number: int, data_dir: Path | str | None = None) -> Path:
+    """The refused-reply file of item `number`: `<number>.refused.json` beside its plan file."""
+    return plan_record_path(repo, number, data_dir).with_name(f"{number}.refused.json")
 
 
 def _unreadable(path: Path, reason: str) -> RoadmapStageError:
@@ -120,4 +169,16 @@ def write_plan_record(path: Path, record: StagePlanRecord) -> None:
 
 def delete_plan_record(path: Path) -> None:
     """Delete the file of a plan; a file that is not there is not an error."""
+    path.unlink(missing_ok=True)
+
+
+def write_refused_record(path: Path, record: RefusedRecord) -> None:
+    """Write the refused replies atomically, so a stop of the job leaves the old file or the new
+    one."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    write_json_file(path, record.model_dump(mode="json"), indent=2, atomic=True)
+
+
+def delete_refused_record(path: Path) -> None:
+    """Delete the refused-reply file of an item; a file that is not there is not an error."""
     path.unlink(missing_ok=True)

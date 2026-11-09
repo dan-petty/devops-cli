@@ -7,7 +7,7 @@ import json
 from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -42,6 +42,7 @@ from tests.support.paths import FIXTURES
 
 if TYPE_CHECKING:
     from tests.support.fakes.github import GitHubApiFake
+    from tests.support.fakes.model import ModelFake
 
 _MERGE_BASE = "merge789"
 _HEAD_OF_158 = "ec18ca7bca5202d8e139a58b25757dc161255245"
@@ -120,32 +121,44 @@ def test_a_pr_review_reads_the_pr_heads_files_and_conventions(
     )
 
 
-def test_the_pr_command_reviews_against_the_pr_head(tmp_path: Path) -> None:
+def test_the_pr_command_reviews_against_the_pr_head(
+    cli: Callable[..., Any],
+    github_api: GitHubApiFake,
+    pin_github_session: str,
+    model_fake: ModelFake,
+    scanner_fake: Any,
+) -> None:
     """Verify the review's target directory holds the PR head's files, not the local checkout."""
-    from typer.testing import CliRunner
+    from tests.support.fakes.model import LLMResponse
 
-    from devops_cli.main import app
+    route_pull_request(
+        github_api,
+        "base/app",
+        7,
+        pull_request_payload(
+            title="Change the app",
+            head_sha="abc123",
+            base_sha="base456",
+            head_repo="fork/app",
+            base_repo="base/app",
+        ),
+        files=[pull_request_file_payload("app.py", "added")],
+        diff="diff --git a/app.py b/app.py\n--- /dev/null\n+++ b/app.py\n@@ -0,0 +1 @@\n+head\n",
+    )
+    route_file(github_api, "fork/app", "app.py", "abc123", "head\n")
+    route_file(github_api, "base/app", "AGENTS.md", "base456", "# Conventions\n")
+    route_merge_base(github_api, "base/app", "base456", "abc123", _MERGE_BASE)
 
-    seen: dict[str, Any] = {}
+    model_fake.answer(LLMResponse(content="[]", model="fake-model"))
 
-    def prepare(number: int, repo: Any, checkout: Path, head_dir: Path) -> Any:
-        (head_dir / "app.py").write_text("head\n", encoding="utf-8")
-        return (["page"], "PR #7", _pull(), "base/app", None)
+    result = cli("review", "pr", "7", "--repo", "base/app", "--no-group-analysis")
 
-    def run(*args: Any, **kwargs: Any) -> list[Any]:
-        target = kwargs["target_dir"]
-        seen["content"] = (target / "app.py").read_text(encoding="utf-8")
-        seen["local"] = target.resolve() == Path.cwd().resolve()
-        return []
-
-    with (
-        patch("devops_cli.commands.review._make_review_clients", return_value=MagicMock()),
-        patch("devops_cli.commands.review._prepare_pr_content", side_effect=prepare),
-        patch("devops_cli.commands.review.execute_review_workflow", side_effect=run),
-    ):
-        result = CliRunner().invoke(app, ["review", "pr", "7", "--repo", "base/app"])
-
-    assert (result.exit_code, seen) == (0, {"content": "head\n", "local": False})
+    assert result.exit_code == 0
+    assert not (Path.cwd() / "app.py").exists()
+    assert result.exit_code == 0
+    assert not (Path.cwd() / "app.py").exists()
+    assert any("/fork/app/contents/app.py" in r.url.path for r in github_api.sent)
+    assert "Files Reviewed       1" in result.stdout
 
 
 def test_a_pr_review_of_the_recorded_pull_request_reads_both_pages_of_files(

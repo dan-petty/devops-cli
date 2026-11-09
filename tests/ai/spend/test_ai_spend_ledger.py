@@ -1298,3 +1298,130 @@ def test_a_gateway_call_on_a_hosted_group_with_no_reply_name_is_priced_by_the_as
             "SELECT served_model, pricing_source, cost_usd FROM ai_spend_records"
         ).fetchone()
     assert (served, source, cost > 0) == expected
+
+
+def test_spend_ledger_since_until_filtering(tmp_path: Path) -> None:
+    """Verify since and until bounds filter spend records (#2193)."""
+    ledger = SpendLedger(db_path=tmp_path / "filter_range.db")
+
+    timestamps = [
+        ("before-since", "2026-09-30T23:59:59+00:00"),
+        ("on-since", "2026-10-01T00:00:00+00:00"),
+        ("inside-range", "2026-10-10T12:00:00+00:00"),
+        ("inside-late", "2026-10-21T23:59:59+00:00"),
+        ("on-until", "2026-10-22T00:00:00+00:00"),
+        ("after-until", "2026-10-25T10:00:00+00:00"),
+    ]
+    for model_name, ts in timestamps:
+        ledger.record_request(
+            provider="ollama",
+            server="localhost:11434",
+            model=model_name,
+            prompt_tokens=100,
+            completion_tokens=50,
+            cost_usd=0.001,
+            timestamp=ts,
+        )
+
+    report = ledger.get_lifetime_report(since="2026-10-01", until="2026-10-22", group_by="model")
+    models = {m.model for m in report.models}
+    assert (
+        report.total_requests,
+        "before-since" in models,
+        "on-since" in models,
+        "inside-range" in models,
+        "inside-late" in models,
+        "on-until" in models,
+        "after-until" in models,
+    ) == (3, False, True, True, True, False, False)
+
+
+def test_spend_ledger_get_period_report_day_and_week(tmp_path: Path) -> None:
+    """Verify get_period_report breaks spend into day or week buckets (#2193)."""
+    ledger = SpendLedger(db_path=tmp_path / "periods.db")
+
+    # Record 1 call in week 1, 1 call in week 2, 1 call in week 3
+    ledger.record_request(
+        provider="ollama",
+        server="localhost:11434",
+        model="llama3:8b",
+        prompt_tokens=1000,
+        completion_tokens=500,
+        cost_usd=0.0001,
+        timestamp="2026-10-02T10:00:00+00:00",
+    )
+    ledger.record_request(
+        provider="ollama",
+        server="localhost:11434",
+        model="llama3:8b",
+        prompt_tokens=2000,
+        completion_tokens=1000,
+        cost_usd=0.0002,
+        timestamp="2026-10-09T10:00:00+00:00",
+    )
+    ledger.record_request(
+        provider="ollama",
+        server="localhost:11434",
+        model="llama3:8b",
+        prompt_tokens=3000,
+        completion_tokens=1500,
+        cost_usd=0.0003,
+        timestamp="2026-10-16T10:00:00+00:00",
+    )
+
+    weeks = ledger.get_period_report(by="week", since="2026-10-01", until="2026-10-22")
+    assert len(weeks) == 3
+    assert [w.period for w in weeks] == ["2026-10-01", "2026-10-08", "2026-10-15"]
+    assert [w.requests for w in weeks] == [1, 1, 1]
+
+    ungrouped = ledger.get_lifetime_report(since="2026-10-01", until="2026-10-22")
+    assert sum(w.requests for w in weeks) == ungrouped.total_requests
+    assert sum(w.local_tokens for w in weeks) == ungrouped.local_tokens
+    assert round(sum(w.actual_spend for w in weeks), 6) == round(ungrouped.total_spend_usd, 6)
+    assert round(sum(w.local_cost_equivalent or 0.0 for w in weeks), 6) == round(
+        ungrouped.local_cost_equivalent_usd or 0.0, 6
+    )
+    assert round(sum(w.cloud_spend_avoided or 0.0 for w in weeks), 6) == round(
+        ungrouped.counterfactual_savings_usd or 0.0, 6
+    )
+
+    days = ledger.get_period_report(by="day", since="2026-10-01", until="2026-10-04")
+    assert len(days) == 3
+    assert [d.period for d in days] == ["2026-10-01", "2026-10-02", "2026-10-03"]
+    assert [d.requests for d in days] == [0, 1, 0]
+
+
+def test_spend_ledger_period_report_validation_and_defaults(tmp_path: Path) -> None:
+    """Verify get_period_report parameter validation and default boundaries (#2193)."""
+    from devops_cli.ai.spend.ledger import _to_utc_datetime
+
+    with pytest.raises(ValueError, match="Invalid ISO date or datetime"):
+        _to_utc_datetime("not-an-iso-date")
+
+    empty_ledger = SpendLedger(db_path=tmp_path / "empty.db")
+    assert empty_ledger.get_period_report(by="day") == []
+
+    with pytest.raises(ValueError, match="Invalid period grouping"):
+        empty_ledger.get_period_report(by="hour")
+
+    with pytest.raises(ValueError, match="--until cannot be earlier than --since"):
+        empty_ledger.get_period_report(by="day", since="2026-10-20", until="2026-10-10")
+
+    # Test days parameter without explicit since/until
+    days_report = empty_ledger.get_period_report(by="day", days=2)
+    assert len(days_report) >= 2
+
+    # Test populated ledger with default since and until (both None)
+    ledger = SpendLedger(db_path=tmp_path / "defaults.db")
+    ledger.record_request(
+        provider="ollama",
+        server="localhost:11434",
+        model="llama3:8b",
+        prompt_tokens=100,
+        completion_tokens=50,
+        cost_usd=0.0001,
+        timestamp=(datetime.now(UTC) - timedelta(days=2)).isoformat(),
+    )
+    unbounded = ledger.get_period_report(by="day")
+    assert len(unbounded) >= 2
+    assert sum(p.requests for p in unbounded) == 1

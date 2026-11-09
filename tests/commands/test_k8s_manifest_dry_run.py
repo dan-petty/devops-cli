@@ -106,7 +106,6 @@ def block_external_calls(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(subprocess, "run", _fail_process)
     monkeypatch.setattr(subprocess, "Popen", _fail_process)
-    monkeypatch.setattr("devops_cli.core.process.run_subprocess", _fail_process)
     monkeypatch.setattr(socket, "socket", _fail_socket)
     monkeypatch.setattr(socket, "create_connection", _fail_socket)
 
