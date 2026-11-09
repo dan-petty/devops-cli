@@ -3352,7 +3352,7 @@ The stage prompt SHALL state that a task group gives one exact change and names 
 - **THEN** the prompt text states that a group gives one exact change and names the failing test in a code span
 
 ### Requirement: Feasibility cites only what the plan run did
-The stage job SHALL refuse a feasibility line that names a toolbox tool, or states that a code-span path was read, when the trace of the run that wrote the reply holds no call that supports it, and SHALL accept a line that negates the claim.
+The stage job SHALL refuse a feasibility line that names a toolbox tool, or states that a code-span path was read, when the plan runs of the item hold no call that supports it, and SHALL accept a line that negates the claim.
 
 #### Scenario: A read claim with no tool call
 - **WHEN** The trace holds zero calls and the feasibility section says `read `src/x.py``.
@@ -3374,8 +3374,12 @@ The stage job SHALL refuse a feasibility line that names a toolbox tool, or stat
 - **WHEN** `check_proposal` gets no trace facts and the feasibility section says `read `src/x.py``.
 - **THEN** `check_proposal` returns no trace problem, and its other checks run as before.
 
+#### Scenario: A claim of the first run after a return
+- **WHEN** The first plan run called `read_file` for `src/x.py`, its reply was returned for another problem, the second plan run called no tool, and the second reply says `read `src/x.py``.
+- **THEN** The second reply passes the trace gate.
+
 ### Requirement: Trace facts of a run
-`TraceFacts.of` SHALL hold the tool name of each call of a `RunTrace` and the `path`, `directory` and `paths` values of an argument that parses as JSON, and the stage job SHALL pass the facts of the run that wrote each reply to `check_proposal`.
+`TraceFacts.of` SHALL hold the tool name of each call of a `RunTrace` and the `path`, `directory` and `paths` values of an argument that parses as JSON, and the stage job SHALL pass to `check_proposal` the facts of the combined trace of every plan run of the item so far. A review run SHALL NOT be a plan run.
 
 #### Scenario: A trace with two calls
 - **WHEN** The trace holds a `read_file` call for `src/x.py` and a `search_code` call for `needle`.
@@ -3384,6 +3388,14 @@ The stage job SHALL refuse a feasibility line that names a toolbox tool, or stat
 #### Scenario: The stage job calls the check
 - **WHEN** The planner gets a reply from a toolbox run that called `read_file` for `src/x.py`.
 - **THEN** The `check_proposal` call for that reply holds the facts with the tool `read_file` and the path `src/x.py`.
+
+#### Scenario: The facts hold every plan run
+- **WHEN** The first plan run called `read_file` for `src/x.py` and the second plan run called no tool.
+- **THEN** The facts hold the tool `read_file` and the path `src/x.py`.
+
+#### Scenario: A review run supports no claim
+- **WHEN** A review run called `read_file` for `src/x.py` and no plan run called it.
+- **THEN** The facts hold no tool and no path.
 
 ### Requirement: The planner prompt cites only the run
 The planner prompt and `docs/roadmap/stage.md` SHALL state that a plan cites only the tools and the paths that its run used, and that a premise that the run did not check is written as `not checked`.

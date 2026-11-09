@@ -230,7 +230,7 @@ from devops_cli.roadmap.stage.stage_removal_references import scan_removal_refer
 from devops_cli.roadmap.stage.stage_request import StageRequest, gate_arguments
 from devops_cli.roadmap.stage.stage_specs import BaseSpec, read_base_specs
 from devops_cli.roadmap.stage.stage_split import ask_split
-from devops_cli.roadmap.stage.stage_toolbox import ToolboxClient, ToolboxModel, review
+from devops_cli.roadmap.stage.stage_toolbox import PLAN_ROW, ToolboxClient, ToolboxModel, review
 from devops_cli.roadmap.stage.stage_validate import validate_change
 from devops_cli.roadmap.stage.stage_verify import (
     PLAN_NEEDS_FIX_LABEL,
@@ -1051,11 +1051,12 @@ class _Planner:
         return outcome
 
     def _trace_facts(self) -> TraceFacts | None:
-        """The facts of the last agent run, or None when no toolbox client ran."""
-        if not isinstance(self._client, ToolboxClient):
-            return None
-        traces = getattr(self._toolbox, "traces", None)
-        return TraceFacts.of(traces[-1]) if traces else None
+        """The facts of every plan run of the item so far, or None when no plan run happened. The
+        reply that follows a return keeps the claims of the first reply, so the calls of the first
+        run support it. A review run is no plan run: its reads support no claim of the planner
+        (#4257)."""
+        plans = [trace for trace in self._toolbox_traces() if trace.row == PLAN_ROW]
+        return TraceFacts.of(RunTrace.combined(plans)) if plans else None
 
     def _kept(self, target: StageTarget) -> tuple[StagePlanRecord | None, str | None]:
         """The kept plan of the item and its key, (None, None) for a run that keeps no file. A
