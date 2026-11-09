@@ -41,6 +41,7 @@ from devops_cli.config.constants import (
 from devops_cli.prometheus.promql import selectors
 from devops_cli.telemetry.instruments import (
     AI_REQUESTS_TOTAL,
+    AI_SPEND_USD_TOTAL,
     CRAWL4AI_FETCHES_TOTAL,
     GITHUB_REQUESTS_TOTAL,
     GITHUB_THROTTLE_WAIT,
@@ -84,6 +85,7 @@ OTEL_COLLECTOR_CAPTURE = FIXTURES / "metrics" / "otel-collector.yaml"
 OTEL_COLLECTOR_RULE_TESTS = FIXTURES / "prometheus_rules" / "otel_collector_tests.yaml"
 VALKEY_MEMORY_RULE_TESTS = FIXTURES / "prometheus_rules" / "valkey_memory_tests.yaml"
 RESEARCH_RULE_TESTS = FIXTURES / "prometheus_rules" / "research_tests.yaml"
+AI_SPEND_RULE_TESTS = FIXTURES / "prometheus_rules" / "ai_spend_tests.yaml"
 
 # The job of every series the roadmap Service sends, by the scrape and by OTLP alike (#2472).
 ROADMAP_SERVICE_JOB = "roadmap-service"
@@ -113,6 +115,8 @@ OTEL_COLLECTOR_GROUP = "otel-collector"
 VALKEY_MEMORY_GROUP = "valkey-memory"
 # The rule over the open findings of `devops research sweep` (#3899).
 RESEARCH_GROUP = "research"
+# The rules over the daily USD spend of the hosted models (#4222).
+AI_SPEND_GROUP = "ai-spend"
 # Each group whose rules have promtool unit tests, with the file of its tests.
 RULE_GROUP_TESTS = (
     *ROADMAP_SERVICE_GROUP_TESTS,
@@ -120,6 +124,7 @@ RULE_GROUP_TESTS = (
     (OTEL_COLLECTOR_GROUP, OTEL_COLLECTOR_RULE_TESTS),
     (VALKEY_MEMORY_GROUP, VALKEY_MEMORY_RULE_TESTS),
     (RESEARCH_GROUP, RESEARCH_RULE_TESTS),
+    (AI_SPEND_GROUP, AI_SPEND_RULE_TESTS),
 )
 
 # Every series an alert rule may select, by what serves it.
@@ -216,6 +221,8 @@ SERVED_SERIES = frozenset(
         "devops_cli_service_state_unkept",
         CONST_SERVICE_METRIC_WEBHOOK_DELIVERIES,
         AI_REQUESTS_TOTAL.name,
+        # The USD spend of the model calls, priced by the model that the client asked for (#4222).
+        AI_SPEND_USD_TOTAL.name,
         # The page fetches of the Service through Crawl4AI (#3893).
         CRAWL4AI_FETCHES_TOTAL.name,
         WEB_SEARCHES_TOTAL.name,
@@ -301,7 +308,7 @@ def test_the_baseline_rule_set() -> None:
     """The rules #549 names (nodes, k3s and power-cap units, GPUs, storage, and self-health),
     #550's two volume rules (`LogOrMetricVolumeDiskLow`, `PrometheusNearRetentionSizeCap`), and
     the roadmap Service's rules (#2472, #2475) with the rule of its webhook route (#2476), the
-    Crawl4AI rules (#3893), the OpenTelemetry collector's export rules (#1642), and the Valkey memory rule (#2094).
+    Crawl4AI rules (#3893), the OpenTelemetry collector's export rules (#1642), and the Valkey memory rule (#2094), and the daily spend rules (#4222).
 
     A rule with a warning and a critical threshold is one alert name at two severities, so
     Alertmanager's critical-over-warning inhibition hides the warning while both fire.
@@ -316,6 +323,7 @@ def test_the_baseline_rule_set() -> None:
         ("ArgoCdAutoSyncDisabled", "warning"),
         ("ArgoCdSyncOperationStuck", "warning"),
         ("CloudflareTunnelDegraded", "warning"),
+        ("ClaudeSpendDailyHigh", "warning"),
         ("ClusterMetricsMissing", "critical"),
         ("CoreDnsServfailResponses", "warning"),
         ("Crawl4AIFetchesFailing", "warning"),
@@ -326,6 +334,7 @@ def test_the_baseline_rule_set() -> None:
         ("GpuTemperatureHigh", "warning"),
         ("HostFilesystemSpaceLow", "critical"),
         ("HostFilesystemSpaceLow", "warning"),
+        ("HostedSpendDailyHigh", "warning"),
         ("IngressServesPlaceholderHost", "critical"),
         ("K3sServiceNotActive", "critical"),
         ("LocalPathNodeDiskHigh", "warning"),
@@ -1419,6 +1428,71 @@ def test_each_crawl4ai_alert_points_to_its_row_in_the_readme() -> None:
     ) == ([], [])
 
 
+# The USD that the hosted spend of 24 hours may reach before an alert fires (#4222). The highest
+# normal day of the owner is 5.59 USD, and the failed stage burst of 2026-11-09 was about 58 USD.
+AI_SPEND_CLAUDE_DAILY_USD = 15
+AI_SPEND_HOSTED_DAILY_USD = 25
+_AI_SPEND_COUNTER = AI_SPEND_USD_TOTAL.name
+_AI_SPEND_RULES = [
+    (
+        "ClaudeSpendDailyHigh",
+        f'sum(increase({_AI_SPEND_COUNTER}{{model="claude-sonnet-5-5"}}[24h])) > {AI_SPEND_CLAUDE_DAILY_USD}',
+        "0m",
+        "warning",
+    ),
+    (
+        "HostedSpendDailyHigh",
+        f"sum(increase({_AI_SPEND_COUNTER}[24h])) > {AI_SPEND_HOSTED_DAILY_USD}",
+        "0m",
+        "warning",
+    ),
+]
+
+
+def test_the_ai_spend_rules_sum_the_daily_increase_over_every_series() -> None:
+    """`ai-spend` warns at once when the 24 hour increase of the spend of `claude-sonnet-5-5` is
+    above 15 USD, and when that of all models is above 25 USD. `increase` keeps the spend of a
+    counter that resets, and `sum` adds a workstation and the Service (#4222)."""
+    assert [
+        (rule["alert"], rule["expr"], rule["for"], rule["labels"]["severity"])
+        for rule in _group(AI_SPEND_GROUP)
+    ] == _AI_SPEND_RULES
+
+
+def test_the_ai_spend_thresholds_sit_between_a_normal_day_and_the_failed_burst() -> None:
+    """The Claude threshold is above the highest normal day (5.59 USD) and below the burst of
+    about 58 USD. A burst of 21 USD per hour passes it in under one hour. The hosted threshold is
+    above the Claude threshold, so a Claude burst fires the first alert (#4222)."""
+    highest_normal_day, burst_day, burst_per_hour = 5.59, 58, 21
+    assert highest_normal_day < AI_SPEND_CLAUDE_DAILY_USD < AI_SPEND_HOSTED_DAILY_USD < burst_day
+    assert AI_SPEND_CLAUDE_DAILY_USD / burst_per_hour < 1
+
+
+def test_each_ai_spend_alert_has_a_row_with_the_first_step_in_the_readme() -> None:
+    """The alert table of `k8s/README.md` has a row for each alert of `ai-spend`. The row names
+    the cost page of the AI spend dashboard and the label `end_user`, and the description of the
+    alert points to the section "Alerting" (#4222)."""
+    text = K8S_README.read_text(encoding="utf-8")
+    start = text.index("\n## Alerting\n")
+    section = text[start : text.index("\n### ", start)]
+    rows = [line for line in section.splitlines() if line.startswith("| `")]
+    rules = _group(AI_SPEND_GROUP)
+    pointer = "(k8s/README.md, Alerting)"
+    assert (
+        [r["alert"] for r in rules if pointer not in r["annotations"]["description"]],
+        [
+            r["alert"]
+            for r in rules
+            if not any(
+                row.startswith(f"| `{r['alert']}` |")
+                and "AI spend dashboard" in row
+                and "`end_user`" in row
+                for row in rows
+            )
+        ],
+    ) == ([], [])
+
+
 def _promtool(*args: str | Path) -> subprocess.CompletedProcess[str]:
     """Run the promtool on PATH and keep its output for the failure message."""
     return subprocess.run(
@@ -1451,7 +1525,8 @@ def test_each_unit_tested_rule_fires_on_a_sample_and_stays_quiet_on_a_normal_ser
     """`promtool test rules` passes the unit tests of each rule of `roadmap-service` (#2472), of
     `roadmap-service-webhooks` (#2476), of `roadmap-service-activity` (#2475), of
     `roadmap-service-items` (#2919), of `roadmap-service-tools` (#3240), of `crawl4ai` (#3893), of
-    `otel-collector` (#1642), of `valkey-memory` (#2094) and of `research` (#3899).
+    `otel-collector` (#1642), of `valkey-memory` (#2094), of `research` (#3899) and of `ai-spend`
+    (#4222).
 
     Each alert fires on a sample series with the labels and annotations it pins, and stays quiet
     on a normal series, before its wait ends, and on the series it must not count.

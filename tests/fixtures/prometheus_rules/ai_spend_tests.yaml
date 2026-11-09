@@ -1,0 +1,119 @@
+# promtool rule unit tests of the alert group ai-spend in k8s/monitoring/prometheus-values.yaml
+# (#4222). ClaudeSpendDailyHigh fires when the 24 hour increase of the spend of claude-sonnet-5-5 is
+# above 15 USD. HostedSpendDailyHigh fires when the 24 hour increase of the spend of all models is
+# above 25 USD, and a local model adds 0 to the counter.
+#
+# tests/prometheus/test_k8s_monitoring_alerting.py writes the group to the file that `rule_files`
+# names, beside a copy of this file, and runs `promtool test rules` on the copy. promtool starts each
+# series at time 0, with one sample each `interval`. The label sets are those of the counter
+# devops_cli_ai_spend_usd_total: `job` and `instance` from the resource, and the attributes `model`,
+# `operation`, `provider` and `server`. Each test evaluates at 24h, the end of the window.
+rule_files:
+  - ai_spend.rules.yaml
+
+evaluation_interval: 1h
+
+tests:
+  - name: A Claude spend of 1 USD per hour fires
+    interval: 1h
+    input_series:
+      - series: 'devops_cli_ai_spend_usd_total{job="roadmap-service", instance="roadmap-service", model="claude-sonnet-5-5", operation="chat", provider="gateway"}'
+        values: '0+1x24'
+    alert_rule_test:
+      - eval_time: 24h
+        alertname: ClaudeSpendDailyHigh
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: "The spend of claude-sonnet-5-5 in the last 24 hours is 24.00 USD"
+              description: "The hosted calls of claude-sonnet-5-5 cost more than 15 USD in the last 24 hours. Read the cost page of the AI spend dashboard, find the caller by the `end_user` label, and stop the job (k8s/README.md, Alerting)."
+      - eval_time: 24h
+        alertname: HostedSpendDailyHigh
+        exp_alerts: []
+
+  - name: A normal day of 5.59 USD stays quiet
+    interval: 1h
+    input_series:
+      - series: 'devops_cli_ai_spend_usd_total{job="roadmap-service", instance="roadmap-service", model="claude-sonnet-5-5", operation="chat", provider="gateway"}'
+        values: '0+0.233x24'
+      - series: 'devops_cli_ai_spend_usd_total{job="roadmap-service", instance="roadmap-service", model="qwen3.8:27b", operation="chat", provider="gateway"}'
+        values: '0x24'
+    alert_rule_test:
+      - eval_time: 24h
+        alertname: ClaudeSpendDailyHigh
+        exp_alerts: []
+      - eval_time: 24h
+        alertname: HostedSpendDailyHigh
+        exp_alerts: []
+
+  - name: A counter that resets in the window keeps the sum of the increases
+    interval: 1h
+    input_series:
+      # 10 USD, a pod restart (the counter starts at 0 again), then 13 USD. The last value minus the
+      # first value is under 15 USD, so only the sum of the increases fires the alert.
+      - series: 'devops_cli_ai_spend_usd_total{job="roadmap-service", instance="roadmap-service", model="claude-sonnet-5-5", operation="chat", provider="gateway"}'
+        values: '0+1x10 0+1x13'
+    alert_rule_test:
+      - eval_time: 24h
+        alertname: ClaudeSpendDailyHigh
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: "The spend of claude-sonnet-5-5 in the last 24 hours is 22.96 USD"
+              description: "The hosted calls of claude-sonnet-5-5 cost more than 15 USD in the last 24 hours. Read the cost page of the AI spend dashboard, find the caller by the `end_user` label, and stop the job (k8s/README.md, Alerting)."
+      - eval_time: 24h
+        alertname: HostedSpendDailyHigh
+        exp_alerts: []
+
+  - name: A workstation and the Service add up
+    interval: 1h
+    input_series:
+      - series: 'devops_cli_ai_spend_usd_total{job="devops-cli", instance="workstation", model="claude-sonnet-5-5", operation="chat", provider="gateway"}'
+        values: '0+0.45x24'
+      - series: 'devops_cli_ai_spend_usd_total{job="roadmap-service", instance="roadmap-service", model="claude-sonnet-5-5", operation="chat", provider="gateway"}'
+        values: '0+0.45x24'
+    alert_rule_test:
+      - eval_time: 24h
+        alertname: ClaudeSpendDailyHigh
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: "The spend of claude-sonnet-5-5 in the last 24 hours is 22.57 USD"
+              description: "The hosted calls of claude-sonnet-5-5 cost more than 15 USD in the last 24 hours. Read the cost page of the AI spend dashboard, find the caller by the `end_user` label, and stop the job (k8s/README.md, Alerting)."
+      - eval_time: 24h
+        alertname: HostedSpendDailyHigh
+        exp_alerts: []
+
+  - name: Another hosted model of 30 USD fires only the hosted alert
+    interval: 1h
+    input_series:
+      - series: 'devops_cli_ai_spend_usd_total{job="roadmap-service", instance="roadmap-service", model="gemini-3-pro", operation="chat", provider="gateway"}'
+        values: '0+1.25x24'
+    alert_rule_test:
+      - eval_time: 24h
+        alertname: HostedSpendDailyHigh
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: "The spend of the hosted models in the last 24 hours is 31.30 USD"
+              description: "The hosted calls of all models cost more than 25 USD in the last 24 hours. Read the cost page of the AI spend dashboard, find the caller by the `end_user` label, and stop the job (k8s/README.md, Alerting)."
+      - eval_time: 24h
+        alertname: ClaudeSpendDailyHigh
+        exp_alerts: []
+
+  - name: No series stays quiet
+    interval: 1h
+    input_series:
+      - series: 'devops_cli_ai_requests_total{job="roadmap-service"}'
+        values: '0+1x24'
+    alert_rule_test:
+      - eval_time: 24h
+        alertname: ClaudeSpendDailyHigh
+        exp_alerts: []
+      - eval_time: 24h
+        alertname: HostedSpendDailyHigh
+        exp_alerts: []
