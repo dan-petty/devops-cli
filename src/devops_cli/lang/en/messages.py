@@ -3347,6 +3347,10 @@ class RoadmapMessages:
     stage_left_archived: str = "Its change is archived on {branch}: the folder `{folder}` is there."
     # The files of the change that the stage job writes, and what its checks find wrong (#2654).
     stage_invalid: str = "The change fails its checks, also after a second try: {problem}"
+    stage_degenerate: str = (
+        "Every text of the plan reply is a placeholder, such as `x` or `placeholder`. The same "
+        "request gives the same reply, so the job sends no second request."
+    )
     stage_plan_record_unreadable: str = (
         "The plan file {path} can't be read ({reason}). Remove it: the next run then asks the "
         "planner for a new plan."

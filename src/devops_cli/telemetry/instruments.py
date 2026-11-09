@@ -313,8 +313,9 @@ ROADMAP_STAGE_TOTAL = Instrument(
     "1",
     "Items that a stage round handled, one count for each item, by repository and result: staged for an item "
     "written as a branch and a draft pull request, needs_split for an item stopped on a task "
-    "group over the budget, failed for an item that failed in the plan or in the writes, and "
-    "skipped for an item the job left out with a reason. A plan with no write counts nothing",
+    "group over the budget, failed for an item that failed in the plan or in the writes, "
+    "degenerate for an item whose plan reply was a placeholder in every text (the job sent no "
+    "second request), and skipped for an item the job left out with a reason. A plan with no write counts nothing",
 )
 ROADMAP_STAGE_PLAN_RECORD_TOTAL = Instrument(
     "devops_cli_roadmap_stage_plan_record_total",

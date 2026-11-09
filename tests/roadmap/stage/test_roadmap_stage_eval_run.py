@@ -313,6 +313,26 @@ def _run(name: str, first: dict[GateName, list[str]] | None) -> CaseRun:
     return CaseRun(name, outcome, "", 1, first)
 
 
+def test_a_reply_of_placeholders_ends_the_case_degenerate_after_one_call_and_the_score_counts_it(
+    cases: list[StageCase], stage_repo: StageRepo, model_fake: ModelFake, openspec: OpenSpecFake
+) -> None:
+    case = _live_case(cases, stage_repo)
+    group = (
+        make_stage_proposal()
+        .groups[0]
+        .model_copy(update={"test": "x", "implementation": "placeholder", "documentation": None})
+    )
+    model_fake.answer(
+        make_stage_proposal(why="x", existing_tool="x", feasibility=["x"], groups=[group])
+    )
+
+    run = run_case(case, _client(model_fake), stage_repo.clone)
+    score = score_runs("model-x", [case], [run])
+
+    assert (run.outcome, run.calls) == (Outcome.DEGENERATE, 1)
+    assert (score.ended[Outcome.DEGENERATE], score.ended[Outcome.REFUSED]) == (1, 0)
+
+
 def test_the_score_counts_avoided_and_caught_defects_for_each_type_that_a_gate_catches(
     cases: list[StageCase],
 ) -> None:
@@ -339,6 +359,7 @@ def test_the_score_counts_avoided_and_caught_defects_for_each_type_that_a_gate_c
     assert score.ended == {
         Outcome.STAGED: 3,
         Outcome.REFUSED: 0,
+        Outcome.DEGENERATE: 0,
         Outcome.OVER_BUDGET: 0,
         Outcome.FAILED: 1,
     }

@@ -200,7 +200,8 @@ class RunTrace:
     prompt of its output tool, the names of the function tools that each request offered, in
     order (#3477), and the text of each tool answer, which a quote of the run may come from
     (#3039). A request that offered none holds an empty tuple. `limit` is the limit that ended the
-    tools of the run, or None (#3240)."""
+    tools of the run, or None (#3240). `last_input_tokens` is the input of the last request, the one
+    that the last reply answered (#4204)."""
 
     tool_calls: list[ToolCallRecord] = field(default_factory=list)
     requests: int = 0
@@ -210,6 +211,7 @@ class RunTrace:
     offered: list[tuple[str, ...]] = field(default_factory=list)
     limit: RunLimit | None = None
     tool_answers: list[str] = field(default_factory=list)
+    last_input_tokens: int = 0
 
     @classmethod
     def combined(cls, traces: Iterable[RunTrace]) -> RunTrace:
@@ -224,6 +226,7 @@ class RunTrace:
             total.input_tokens += trace.input_tokens
             total.output_tokens += trace.output_tokens
             total.violations = trace.violations or total.violations
+            total.last_input_tokens = trace.last_input_tokens or total.last_input_tokens
             total.limit = trace.limit or total.limit
         return total
 
@@ -269,6 +272,7 @@ class RunTrace:
         answers: Mapping[str, ToolReturnPart | RetryPromptPart],
     ) -> None:
         self.requests += 1
+        self.last_input_tokens = reply.usage.input_tokens
         self.input_tokens += reply.usage.input_tokens
         self.output_tokens += reply.usage.output_tokens
         for part in reply.parts:
