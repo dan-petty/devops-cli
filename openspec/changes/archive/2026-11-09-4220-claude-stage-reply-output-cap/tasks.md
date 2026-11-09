@@ -30,3 +30,4 @@ Kind: documents. Changes: the documents that the change makes wrong, if any.
 ## Workflow follow-up
 
 - Pending a person: review the diff in tuicr (tuicr -r <base>..HEAD).
+- Issue #4221 holds the second fault of the same live run: the window estimate drops the function tools too early. This change does not fix it.
