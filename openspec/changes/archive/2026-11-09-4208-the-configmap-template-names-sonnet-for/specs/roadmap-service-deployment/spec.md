@@ -6,7 +6,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: Every chat model slot of the Service names one model except analysis
-The ConfigMap template `k8s/devops/configmap.example.yaml` SHALL name `deepseek-v4.1-flash-1017` for `ai.model` and for each task of `ai.tasks` except `analysis` and `embedding`, SHALL name `claude-sonnet-5-5` with `context_window` 200000 for the task `analysis`, and SHALL name `qwen3-embedding:0.6b` for the task `embedding`. A comment in the template SHALL name the owner decision of 2026-11-07 and the condition that ends it, and a comment above the task `analysis` SHALL name the reason of the trial (#4204), the owner decision of 2026-11-09, the cost and the condition that ends the trial.
+The ConfigMap template `k8s/devops/configmap.example.yaml` SHALL name `deepseek-v4.1-flash-1017` for `ai.model` and for each task of `ai.tasks` except `analysis` and `embedding`, SHALL name `claude-sonnet-5-5` with `context_window` 200000 for the task `analysis`, and SHALL name `qwen3-embedding:0.6b` for the task `embedding`. Comments in the template SHALL give the reason and the end condition of each departure.
 
 #### Scenario: The rendered template is read
 - **WHEN** the ConfigMap is rendered from the repository's template and validated as settings
