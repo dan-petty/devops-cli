@@ -98,7 +98,7 @@ def model_modules_imported() -> None:
     Their first import takes over 1 s. Without this, that cost lands in the call phase of the
     first row that builds a model, and not in the behavior that the row checks.
     """
-    for module in ("pydantic_ai.models.ollama", "devops_cli.ai.agents.agent"):
+    for module in ("pydantic_ai.models.ollama", "pydantic_ai.agent"):
         importlib.import_module(module)
 
 

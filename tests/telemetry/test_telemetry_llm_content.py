@@ -233,7 +233,7 @@ def test_pydantic_agent_keeps_private_host_out_of_telemetry_when_capture_off(
 
     client = LLMClient(ai_cfg, api_key="sk-test", cache_enabled=False)
 
-    res = client.chat("Connect to node1.example.internal and check status")
+    res = client.chat("system", "Connect to node1.example.internal and check status")
     assert res.content == "reply from stubbed agent"
 
     _assert_no_host_in_recent_spans("node1.example.internal")
@@ -252,7 +252,7 @@ def test_pydantic_agent_records_prompt_preview_when_capture_on(
 
     client = LLMClient(ai_cfg, api_key="sk-test", cache_enabled=False)
 
-    client.chat("Connect to node1.example.internal and check status")
+    client.chat("system", "Connect to node1.example.internal and check status")
 
     assert _has_prompt_preview_host("node1.example.internal"), (
         "Expected node1.example.internal in prompt preview when capture is on"
