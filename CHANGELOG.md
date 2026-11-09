@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.100.1](https://github.com/dan-petty/devops-cli/compare/v0.100.0...v0.100.1) (2026-11-09)
+
+
+### Bug Fixes
+
+* **roadmap:** read runner facts of a stage eval case in the checkout ([#4212](https://github.com/dan-petty/devops-cli/issues/4212)) ([996c8a2](https://github.com/dan-petty/devops-cli/commit/996c8a280946e03c509ebacf09dea65efe27301e))
+
 ## [0.100.0](https://github.com/dan-petty/devops-cli/compare/v0.99.0...v0.100.0) (2026-11-09)
 
 
