@@ -10,10 +10,15 @@ real counts of a provider.
 from __future__ import annotations
 
 from pydantic_ai.messages import (
+    BinaryContent,
+    FilePart,
     ModelMessage,
     ModelRequest,
     ModelResponse,
+    RetryPromptPart,
+    SystemPromptPart,
     TextPart,
+    ThinkingPart,
     ToolCallPart,
     ToolReturnPart,
     UserPromptPart,
@@ -163,3 +168,43 @@ def test_a_reply_that_reports_no_input_counts_the_text_of_the_messages() -> None
     text = _texts_of(messages)
 
     assert abs(tokens_of(messages) - text) <= text // 50
+
+
+def test_every_kind_of_part_counts_its_text_and_a_part_without_text_counts_nothing() -> None:
+    """The text of a run is the system prompt, the user prompt (a string or a list), the replies,
+    the thinking, the tool calls, the tool answers and the retry texts. A file part holds no text,
+    so it adds nothing."""
+    messages: list[ModelMessage] = [
+        ModelRequest(
+            parts=[
+                SystemPromptPart("system rule one"),
+                UserPromptPart(["first piece", "second piece"]),
+            ]
+        ),
+        ModelResponse(
+            parts=[
+                ThinkingPart("thinking about the files"),
+                TextPart("a reply of text"),
+                ToolCallPart("read_file", {"path": "src/a.py"}, tool_call_id="call-0"),
+                FilePart(BinaryContent(data=b"\x00" * 4096, media_type="image/png")),
+            ]
+        ),
+        ModelRequest(
+            parts=[
+                ToolReturnPart("read_file", "the text of a file", tool_call_id="call-0"),
+                RetryPromptPart("fix the call", tool_name="read_file", tool_call_id="call-1"),
+            ]
+        ),
+    ]
+    expected = "\n".join(
+        [
+            "system rule one",
+            "first piece\nsecond piece",
+            "thinking about the files",
+            "a reply of text",
+            '{"path":"src/a.py"}',
+            "the text of a file",
+            messages[2].parts[1].model_response(),  # type: ignore[union-attr]
+        ]
+    )
+    assert tokens_of(messages) == count_tokens(expected)
