@@ -141,9 +141,11 @@ def test_a_new_digest_clears_the_stop_and_the_comment_names_the_rule_and_both_di
     ) == ((number,), (), "Ready", None, True, True, True, True)
 
 
-def test_a_clear_removes_the_failure_class_and_the_check_with_the_stop(
+def test_a_clear_removes_the_failure_class_and_the_check_with_the_stop_and_keeps_the_log(
     store: InMemoryRoadmapStore,
 ) -> None:
+    """The next Job hands the log to its first step and clears it in its first record write
+    (#4071)."""
     number = _blocked(
         store,
         implement_failure="timeout",
@@ -156,19 +158,15 @@ def test_a_clear_removes_the_failure_class_and_the_check_with_the_stop(
     record = _record(store, number)
     assert [
         record.get(k) for k in ("implement.failure", "implement.check", "implement.check_log")
-    ] == [
-        None,
-        None,
-        None,
-    ]
+    ] == [None, None, "a.py:3: error: bad"]
 
 
-def test_a_clear_removes_the_conflicted_files_with_the_stop(store: InMemoryRoadmapStore) -> None:
+def test_a_clear_keeps_the_conflicted_files_for_the_next_job(store: InMemoryRoadmapStore) -> None:
     number = _blocked(store, implement_conflict='["docs/a.md"]')
 
     _clear(store, Template(DIGEST_B))
 
-    assert _record(store, number).get("implement.conflict") is None
+    assert _record(store, number).get("implement.conflict") == '["docs/a.md"]'
 
 
 def test_a_cleared_item_whose_plan_is_merged_is_planned(store: InMemoryRoadmapStore) -> None:
