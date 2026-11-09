@@ -202,3 +202,25 @@ def test_a_repository_with_none_of_the_files_has_no_components(tmp_path: Path) -
     inventory = read_inventory(tmp_path)
 
     assert (inventory.components, inventory.summary.total) == ([], 0)
+
+
+def test_the_lock_of_a_devcontainer_configuration_folder_is_read(tmp_path: Path) -> None:
+    """A configuration in `.devcontainer/<folder>/` keeps its lock next to it, as the published
+    image of this repository does in `.devcontainer/image/` (#4248)."""
+    lock = tmp_path / ".devcontainer" / "image" / "devcontainer-lock.json"
+    lock.parent.mkdir(parents=True)
+    lock.write_text(
+        '{\n  "features": {\n    "ghcr.io/devcontainers/features/node:2": {\n'
+        '      "version": "2.1.0"\n    }\n  }\n}\n',
+        encoding="utf-8",
+    )
+
+    assert read_inventory(tmp_path).components == [
+        _component(
+            (ComponentKind.DEVCONTAINER_FEATURE, Ecosystem.DEVCONTAINER_FEATURE),
+            "ghcr.io/devcontainers/features/node",
+            "2.1.0",
+            ".devcontainer/image/devcontainer-lock.json",
+            3,
+        )
+    ]

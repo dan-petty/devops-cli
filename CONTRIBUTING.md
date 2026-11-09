@@ -78,7 +78,7 @@ The container has a limit of 8192 processes and threads (`--pids-limit=8192` in 
 
 ### Shell notes for agents
 
-In the devcontainer, the Bash tool of Claude Code runs zsh. `SHELL` is `/bin/zsh`, because the `common-utils` feature in `.devcontainer/devcontainer.json` makes zsh the default shell of the user `vscode`. The tool of another agent, or a machine outside the devcontainer, can run bash. Run `echo $ZSH_VERSION` to check: it prints a version only in zsh.
+In the devcontainer, the Bash tool of Claude Code runs zsh. `SHELL` is `/bin/zsh`, because the `common-utils` feature of the published image (`.devcontainer/image/devcontainer.json`) makes zsh the default shell of the user `vscode`. The tool of another agent, or a machine outside the devcontainer, can run bash. Run `echo $ZSH_VERSION` to check: it prints a version only in zsh.
 
 In bash, `${=F}`, `${(f)...}` and `print -r --` fail. The forms `printf '%s'`, `$(cmd)` and `"${files[@]}"` work in both shells. Three behaviors cause wrong commands.
 

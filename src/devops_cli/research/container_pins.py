@@ -23,7 +23,11 @@ from devops_cli.research.files import (
 from devops_cli.research.models import Component, ComponentKind, Ecosystem
 
 DOCKERFILE_GLOBS = ("Dockerfile*", ".devcontainer/Dockerfile*")
-DEVCONTAINER_LOCK = ".devcontainer/devcontainer-lock.json"
+# A configuration in `.devcontainer/<folder>/` keeps its lock next to it (#4248).
+DEVCONTAINER_LOCK_GLOBS = (
+    ".devcontainer/devcontainer-lock.json",
+    ".devcontainer/*/devcontainer-lock.json",
+)
 _FROM_FLAG = "--from="
 
 
@@ -86,10 +90,8 @@ def _read_dockerfile(root: Path, path: Path) -> list[Component]:
     return [image_component(image, file, line) for image, line in images if not image.isdigit()]
 
 
-def _read_devcontainer_lock(root: Path) -> list[Component]:
-    path = root / DEVCONTAINER_LOCK
-    if not path.is_file():
-        return []
+def _read_devcontainer_lock(root: Path, path: Path) -> list[Component]:
+    file = relative(root, path)
     with parse_errors(root, path):
         text = path.read_text(encoding="utf-8")
         lines = LineIndex(text)
@@ -99,7 +101,7 @@ def _read_devcontainer_lock(root: Path) -> list[Component]:
                 ecosystem=Ecosystem.DEVCONTAINER_FEATURE,
                 name=split_image(key)[0],
                 version=feature["version"],
-                file=DEVCONTAINER_LOCK,
+                file=file,
                 line=lines.find(f'"{key}"'),
             )
             for key, feature in json.loads(text).get("features", {}).items()
@@ -111,5 +113,6 @@ def read_container_pins(root: Path) -> list[Component]:
     found: list[Component] = []
     for path in matching_files(root, *DOCKERFILE_GLOBS):
         found.extend(_read_dockerfile(root, path))
-    found.extend(_read_devcontainer_lock(root))
+    for path in matching_files(root, *DEVCONTAINER_LOCK_GLOBS):
+        found.extend(_read_devcontainer_lock(root, path))
     return found
