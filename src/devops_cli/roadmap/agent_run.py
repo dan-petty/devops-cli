@@ -201,7 +201,8 @@ class RunTrace:
     order (#3477), and the text of each tool answer, which a quote of the run may come from
     (#3039). A request that offered none holds an empty tuple. `limit` is the limit that ended the
     tools of the run, or None (#3240). `last_input_tokens` is the input of the last request, the one
-    that the last reply answered (#4204)."""
+    that the last reply answered (#4204). `row` is the job row of the run, such as the plan or the
+    review of the stage job, and is empty for a run that no job names (#4257)."""
 
     tool_calls: list[ToolCallRecord] = field(default_factory=list)
     requests: int = 0
@@ -212,6 +213,7 @@ class RunTrace:
     limit: RunLimit | None = None
     tool_answers: list[str] = field(default_factory=list)
     last_input_tokens: int = 0
+    row: str = ""
 
     @classmethod
     def combined(cls, traces: Iterable[RunTrace]) -> RunTrace:
