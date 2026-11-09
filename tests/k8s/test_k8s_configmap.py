@@ -256,6 +256,41 @@ def test_every_chat_model_slot_of_the_rendered_template_names_one_hosted_group_b
     )
 
 
+def test_the_rendered_template_names_the_reference_models_of_the_spend_reports() -> None:
+    """The owner values local tokens at the hosted prices of two models from 2026-11-09 (#4241).
+
+    Without the two names, a deploy removes them from the cluster, and the Service reports value
+    local tokens at the defaults `gpt-4o` and `text-embedding-3-small` again.
+    """
+    rendered = render_active_devops_configmap(
+        k8s_dir=REPO_ROOT / "k8s", settings=_settings(["owner/repo"], APP)
+    )
+    inner = yaml.safe_load(yaml.safe_load(rendered)["data"]["devops-cli.yaml"])
+    ai = Settings.model_validate(inner).ai
+
+    assert (ai.reference_model, ai.reference_embedding_model) == (
+        "qwen3.8:27b",
+        "qwen/qwen3-embedding-8b",
+    )
+
+
+def test_the_comment_above_the_reference_models_gives_the_decision_and_the_prices() -> None:
+    """A reader of the template learns who decided, when, and which prices the names stand for."""
+    template = (REPO_ROOT / "k8s" / "devops" / "configmap.example.yaml").read_text(encoding="utf-8")
+    lines = template.splitlines()
+    key = next(i for i, line in enumerate(lines) if line.strip().startswith("reference_model:"))
+    comment_lines: list[str] = []
+    for line in reversed(lines[:key]):
+        if not line.strip().startswith("#"):
+            break
+        comment_lines.append(line)
+    comment = "\n".join(comment_lines)
+
+    assert all(
+        word in comment for word in ("2026-11-09", "0.035", "1.50", "0.01", "pricing_overrides")
+    )
+
+
 def test_render_active_devops_configmap_missing_template_raises(tmp_path: Path) -> None:
     """Verify render_active_devops_configmap raises FileNotFoundError when template is missing."""
     with pytest.raises(

@@ -28,6 +28,14 @@ data:
       # the group up to 5 times (router_settings.num_retries in k8s/llm/gateway/config.yaml), so
       # a client retry adds a layer on a call that the provider bills (k8s/README.md, LLM Gateway).
       max_retries: 1
+      # The spend reports value local tokens at the hosted price of these two models, by the
+      # owner decision of 2026-11-09 (#4241). The prices are the OpenRouter quotes: 0.035 USD
+      # input and 1.50 USD output for chat, and 0.01 USD for embeddings, per million tokens.
+      # genai-prices does not know both names, so the Service keeps the prices in the file
+      # pricing_overrides.json in its data volume (`devops ai cost set-price`); a new volume has
+      # no price until a person sets it again.
+      reference_model: qwen3.8:27b
+      reference_embedding_model: qwen/qwen3-embedding-8b
       tasks:
         # The model lane (stage, refine, alternatives) plans with DeepSeek through the gateway
         # group deepseek-v4.1-flash-1017 (#3155). The verification slot is the model that
