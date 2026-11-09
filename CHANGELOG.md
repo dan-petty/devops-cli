@@ -2,6 +2,30 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.103.0](https://github.com/dan-petty/devops-cli/compare/v0.102.0...v0.103.0) (2026-11-09)
+
+
+### Features
+
+* **ai:** a setting holds the price of a reference model ([#4258](https://github.com/dan-petty/devops-cli/issues/4258)) ([d31717d](https://github.com/dan-petty/devops-cli/commit/d31717d1815f85672b711e88b70df5f36e1f6244))
+* **ai:** add --since, --until, and --by to cost report and roi ([#4264](https://github.com/dan-petty/devops-cli/issues/4264)) ([fe59c14](https://github.com/dan-petty/devops-cli/commit/fe59c145f5e33201d9dfa78cdd55045a7711315d))
+* **ai:** integrate Jev 1.14 and agent configurations ([#4275](https://github.com/dan-petty/devops-cli/issues/4275)) ([28356ed](https://github.com/dan-petty/devops-cli/commit/28356edff59ec4a21087d80b99cf9982231d52d5))
+
+
+### Bug Fixes
+
+* **openspec:** check the archive result on disk, plan the dry run ([#4273](https://github.com/dan-petty/devops-cli/issues/4273)) ([cefc184](https://github.com/dan-petty/devops-cli/commit/cefc1842791a50e595a8ae2355395e36e7c7edcc))
+* **roadmap:** build the trace facts from every plan run ([#4267](https://github.com/dan-petty/devops-cli/issues/4267)) ([b46506d](https://github.com/dan-petty/devops-cli/commit/b46506d402c636380f5a570fa11f963d82a73610))
+* **roadmap:** keep refused stage replies, stop placeholder replies ([#4260](https://github.com/dan-petty/devops-cli/issues/4260)) ([aea5adc](https://github.com/dan-petty/devops-cli/commit/aea5adc80ea91030fcde08de6008addc65118255))
+* **roadmap:** match a security trigger word as a word ([#4261](https://github.com/dan-petty/devops-cli/issues/4261)) ([ec96082](https://github.com/dan-petty/devops-cli/commit/ec96082391f366d0877e639de03fc61b7da11c28))
+* **roadmap:** name schema violations in the log ([#4276](https://github.com/dan-petty/devops-cli/issues/4276)) ([c816e8f](https://github.com/dan-petty/devops-cli/commit/c816e8f3629637e1ab7704102521392037a441f5))
+* **roadmap:** read a quoted tuple as an MCP key in context ([#4265](https://github.com/dan-petty/devops-cli/issues/4265)) ([2cef137](https://github.com/dan-petty/devops-cli/commit/2cef13722dd24407902f84c8976468c66152cfca))
+
+
+### Code Refactoring
+
+* **ui:** delete kubernetes and logs dashboard tabs ([#4263](https://github.com/dan-petty/devops-cli/issues/4263)) ([2d8b693](https://github.com/dan-petty/devops-cli/commit/2d8b693d99f6e4356c5f2febf685d5a2b4371bbd))
+
 ## [0.102.0](https://github.com/dan-petty/devops-cli/compare/v0.101.1...v0.102.0) (2026-11-09)
 
 
