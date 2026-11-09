@@ -675,6 +675,7 @@ class _ItemRun:
             marks[ImplementRecordKey.FAILURE] = None
             marks[ImplementRecordKey.CHECK] = None
             marks[ImplementRecordKey.SPEND] = None
+            marks[ImplementRecordKey.SPEND_COUNTED] = None
         self.store.set_field(
             self._fresh(), ItemField.STATUS, CONST_ROADMAP_STATUS_IN_PROGRESS, marks=marks
         )
@@ -795,6 +796,7 @@ class _ItemRun:
                 ImplementRecordKey.PR: None,
                 ImplementRecordKey.BASE: None,
                 ImplementRecordKey.SPEND: None,
+                ImplementRecordKey.SPEND_COUNTED: None,
                 ImplementRecordKey.CHECKED_SHA: None,
                 ImplementRecordKey.PUBLISHED_SHA: None,
                 ImplementRecordKey.RESULT: ImplementResult.RETURNED.value,

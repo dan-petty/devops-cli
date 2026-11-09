@@ -9,6 +9,7 @@ edges, and the CronJob template is the committed manifest `k8s/devops/cronjob-ru
 from __future__ import annotations
 
 import copy
+import json
 import logging
 from collections.abc import Callable
 from datetime import timedelta
@@ -1459,6 +1460,104 @@ def test_job_reporting_emits_pipeline_outcome_metrics_and_repair_rounds_and_toke
     assert _implement_jobs("fix", "succeeded") - before_jobs == 1
     assert _repair_rounds_count("fix") - before_repairs == 3
     assert _tokens_count("fix") - before_tokens == 1500
+
+
+def _spend_of(tokens: int) -> str:
+    """The spend that the record holds after a Job: the SUM of the spend of all Jobs (#4070)."""
+    return json.dumps({"input_tokens": tokens - tokens // 5, "output_tokens": tokens // 5})
+
+
+def test_two_jobs_of_one_item_count_each_token_once(
+    store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake, kube: FakeCluster
+) -> None:
+    """The record carries the spend of all Jobs, so the second report adds only the tokens that
+    the second Job spent (#4200)."""
+    number = seed_staged(store, title="fix(roadmap): count the tokens once")
+    _roll(kube, DIGEST_A)
+    _round(store, staged_repo)
+    before = _tokens_count("fix")
+
+    store.set_marks(_held(store, number), {ImplementRecordKey.SPEND: _spend_of(1500)})
+    _stop_with_a_failed_job(store, staged_repo, kube)
+    first = (_tokens_count("fix") - before, _record(store, number).get("implement.spend_counted"))
+    store.set_marks(_held(store, number), {ImplementRecordKey.SPEND: _spend_of(4000)})
+    _stop_with_a_failed_job(store, staged_repo, kube, index=1)
+    second = (_tokens_count("fix") - before, _record(store, number).get("implement.spend_counted"))
+
+    assert (first, second) == ((1500, "1500"), (4000, "4000"))
+
+
+def test_a_spend_below_the_counted_spend_is_counted_whole_and_becomes_the_counted_spend(
+    store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake, kube: FakeCluster
+) -> None:
+    """A spend that fell below the count means the record started again: the whole spend counts
+    once, and the count follows it, so no later report goes negative (#4200)."""
+    number = seed_staged(store, title="fix(roadmap): count the tokens once")
+    _round(store, staged_repo)
+    store.set_marks(
+        _held(store, number),
+        {ImplementRecordKey.SPEND: _spend_of(900), ImplementRecordKey.SPEND_COUNTED: "1500"},
+    )
+    before = _tokens_count("fix")
+    _end(kube, "Complete")
+
+    _round(store, staged_repo)
+
+    assert (
+        _tokens_count("fix") - before,
+        _record(store, number).get("implement.spend_counted"),
+    ) == (
+        900,
+        "900",
+    )
+
+
+def test_a_record_of_an_older_version_counts_its_whole_spend_once(
+    store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake, kube: FakeCluster
+) -> None:
+    """A record with `implement.spend` and no `implement.spend_counted` has counted nothing yet
+    (#4200)."""
+    number = seed_staged(store, title="fix(roadmap): count the tokens once")
+    _round(store, staged_repo)
+    store.set_marks(_held(store, number), {ImplementRecordKey.SPEND: _spend_of(1500)})
+    assert "implement.spend_counted" not in _record(store, number)
+    before = _tokens_count("fix")
+    _end(kube, "Complete")
+
+    _round(store, staged_repo)
+
+    assert (
+        _tokens_count("fix") - before,
+        _record(store, number).get("implement.spend_counted"),
+    ) == (
+        1500,
+        "1500",
+    )
+
+
+def test_a_report_without_new_spend_counts_no_tokens(
+    store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake, kube: FakeCluster
+) -> None:
+    """A Job that spent nothing (its pod died at the start) adds no tokens, however much the
+    earlier Jobs spent (#4200)."""
+    number = seed_staged(store, title="fix(roadmap): count the tokens once")
+    _roll(kube, DIGEST_A)
+    _round(store, staged_repo)
+    store.set_marks(
+        _held(store, number),
+        {ImplementRecordKey.SPEND: _spend_of(1500), ImplementRecordKey.SPEND_COUNTED: "1500"},
+    )
+    before = _tokens_count("fix")
+
+    _stop_with_a_failed_job(store, staged_repo, kube)
+
+    assert (
+        _tokens_count("fix") - before,
+        _record(store, number).get("implement.spend_counted"),
+    ) == (
+        0,
+        "1500",
+    )
 
 
 def test_job_reporting_handles_invalid_or_zero_repair_rounds_and_spend(

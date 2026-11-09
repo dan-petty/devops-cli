@@ -425,6 +425,21 @@ def test_spend_survives_kill_a_retry_of_a_person_starts_from_zero(
     assert (_spend(job_world)["requests"], _spend(job_world)["input_tokens"]) == (2, GROUP_TOKENS)
 
 
+def test_spend_survives_kill_a_retry_of_a_person_clears_the_counted_spend(
+    job_world: JobWorld, config: Callable[..., Path]
+) -> None:
+    """The retry starts the spend from zero, so the count of the spend starts from zero too, or the
+    first report after the retry would count too little (#4200)."""
+    config(roadmap={"implement": {"item_token_budget": 200}})
+    job_world.run(ModelScript(tool_calls(*group_one_calls()), say("Group 1 is done."), say("No.")))
+    _mark(job_world, {ImplementRecordKey.SPEND_COUNTED: str(GROUP_TOKENS + REQUEST_TOKENS)})
+    _continue(job_world, retry=True)
+
+    job_world.run(_group_two())
+
+    assert _item(job_world)[1].get("implement.spend_counted") is None
+
+
 def test_spend_survives_kill_a_record_of_an_older_version_gives_its_spend(
     job_world: JobWorld, config: Callable[..., Path]
 ) -> None:
@@ -459,6 +474,22 @@ def test_a_return_to_new_clears_the_spend(job_world: JobWorld) -> None:
 
     status, record = _item(job_world)
     assert (applied.stopped, status, record.get(SPEND)) == ((), "New", None)
+
+
+def test_a_return_to_new_clears_the_counted_spend(job_world: JobWorld) -> None:
+    _mark(job_world, {ImplementRecordKey.SPEND_COUNTED: "100"})
+    premise = (
+        "```plan-request\n"
+        '{"kind": "premise", "group": 2, "defect": "the premise is false", '
+        '"evidence": "upstream removed the API"}\n'
+        "```"
+    )
+
+    job_world.run(
+        ModelScript(tool_calls(*group_one_calls()), say("Group 1 is done."), say(premise))
+    )
+
+    assert _item(job_world)[1].get("implement.spend_counted") is None
 
 
 # ── watch_progress_line ───────────────────────────────────────────────────────────────────
