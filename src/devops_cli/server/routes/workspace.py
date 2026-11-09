@@ -8,7 +8,7 @@ from typing import Any
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
-from devops_cli.config.settings import Settings
+from devops_cli.config.settings import load_settings
 from devops_cli.core.repo import main_worktree_root
 from devops_cli.security.sanitizer import is_secret_field
 
@@ -112,7 +112,7 @@ async def get_configuration() -> ConfigResponse:
     """Retrieve active non-secret configuration parameters."""
     from devops_cli.config.env import secret_keys
 
-    settings = Settings()
+    settings = load_settings()
     config_dict = settings.model_dump(mode="json")
     sanitized_config = _redact_config_dict(config_dict, secret_keys())
 

@@ -117,6 +117,42 @@ def test_config_endpoint_sanitization(client: TestClient, monkeypatch: pytest.Mo
     assert cfg.get("grafana", {}).get("password") in ("***REDACTED***", None)
 
 
+def test_config_endpoint_redacts_a_loaded_secret(
+    client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Test /api/v1/config redacts a secret that the loaded configuration holds."""
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text("valkey:\n  password: secret-value\n", encoding="utf-8")
+    monkeypatch.setenv("DEVOPS_CLI_CONFIG", str(config_file))
+    response = client.get("/api/v1/config")
+    assert response.status_code == 200
+    cfg = response.json()["config"]
+    assert cfg["valkey"]["password"] == "***REDACTED***"
+    assert "secret-value" not in response.text
+
+
+def test_config_endpoint_reflects_environment_variable(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Test /api/v1/config returns the value that an environment variable sets."""
+    monkeypatch.setenv("DEVOPS_CLI_AI_MODEL", "example-model")
+    response = client.get("/api/v1/config")
+    assert response.status_code == 200
+    assert response.json()["config"]["ai"]["model"] == "example-model"
+
+
+def test_config_endpoint_reflects_config_file(
+    client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Test /api/v1/config returns the value that the config file sets."""
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text("ai:\n  model: example-model\n", encoding="utf-8")
+    monkeypatch.setenv("DEVOPS_CLI_CONFIG", str(config_file))
+    response = client.get("/api/v1/config")
+    assert response.status_code == 200
+    assert response.json()["config"]["ai"]["model"] == "example-model"
+
+
 def test_config_recursive_redaction_helper() -> None:
     """Test _redact_config_dict handles deeply nested dictionaries and secret options."""
     from devops_cli.server.routes.workspace import _redact_config_dict
