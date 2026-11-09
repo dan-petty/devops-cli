@@ -3860,6 +3860,8 @@ class RoadmapMessages:
     stage_problem_trace_path: str = (
         "The Feasibility section states that `{path}` was read, but the run did not read it."
     )
+    stage_problem_command_reference: str = "The plan cites `{command}`: {problem}."
+    stage_problem_mcp_exposure_key: str = "The plan cites the MCP exposure table key {key}, but CONST_MCP_EXPOSURE_TABLE does not have it."
     stage_path_same_name: str = "These files have the same name: {names}."
     stage_path_no_same_name: str = "No file has this name."
     stage_path_places: dict[str, str] = field(
