@@ -2899,6 +2899,13 @@ CONST_AI_GATEWAY_URL_SETTINGS: Final[dict[str, str]] = {
     "litellm": "gateway_url",
     "portkey": "portkey_url",
 }
+# The output tokens a request to a Claude group of the gateway may use (#4220). A request that
+# sets no `max_tokens` gets the Anthropic default of 4096, which cuts the reply of a stage plan
+# (the plan texts, the groups and the pull request body) before it holds a part. The body alone may
+# take 8,192 tokens (`CONST_ROADMAP_STAGE_BODY_MAX_TOKENS`), and the thinking tokens of the model
+# count in the same limit, so the cap is about 8 times the default. It is far under the 128,000
+# output tokens that `claude-sonnet-5-5` allows.
+CONST_AI_CLAUDE_GROUP_MAX_OUTPUT_TOKENS: Final[int] = 32_000
 CONST_PIPELINE_STAGE_TRUNCATION_SUFFIX: Final[str] = (
     "\n...[stage output truncated to the stage context budget]"
 )

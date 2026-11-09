@@ -154,11 +154,16 @@ class InvestigationStopped:
     (#2562). Refine keeps the first proposal (#2398).
 
     `schema_broken` is true when the model broke the run's rules with the output tool: its last
-    reply held no call to a function tool, so it never gave a valid reply (#3037)."""
+    reply held no call to a function tool, so it never gave a valid reply (#3037).
+
+    `output_limit` is true when the output token limit cut the last reply (finish reason
+    `length`). That reply holds no part, so it is no broken schema: `schema_broken` is then
+    false (#4220)."""
 
     reason: str
     message: str
     schema_broken: bool = False
+    output_limit: bool = False
 
 
 @dataclass
@@ -425,6 +430,13 @@ def _broke_the_output_rules(messages: Sequence[ModelMessage], tools: Collection[
     return not any(call.tool_name in tools for call in calls)
 
 
+def _cut_by_the_output_limit(messages: Sequence[ModelMessage]) -> bool:
+    """Whether the last reply of the run ended with the finish reason `length`: the output token
+    limit of the request cut it (#4220)."""
+    replies = [message for message in messages if isinstance(message, ModelResponse)]
+    return bool(replies) and replies[-1].finish_reason == "length"
+
+
 def _toolset_names(toolsets: Sequence[Any] | None) -> set[str]:
     """The names of tools exposed by `toolsets`."""
     if not toolsets:
@@ -444,13 +456,16 @@ def _stopped_outcome(
     """The result when an investigation ends early from a usage limit or model behavior."""
     if isinstance(stopped, UsageLimitExceeded) and not limits_hit:
         limits_hit.append(RunLimit.CALLS)
-    schema_broken = isinstance(stopped, UnexpectedModelBehavior) and _broke_the_output_rules(
-        messages, tool_names
+    model_stopped = isinstance(stopped, UnexpectedModelBehavior)
+    output_limit = model_stopped and _cut_by_the_output_limit(messages)
+    schema_broken = (
+        model_stopped and not output_limit and _broke_the_output_rules(messages, tool_names)
     )
     return InvestigationStopped(
         type(stopped).__name__,
         run_error_message(stopped),
         schema_broken=schema_broken,
+        output_limit=output_limit,
     )
 
 

@@ -212,6 +212,8 @@ def _stopped(result: InvestigationStopped, trace: RunTrace, schema: type[BaseMod
         else MESSAGES.roadmap.stage_verify_stopped
     )
     message = template.format(reason=result.message)
+    if result.output_limit:
+        return RoadmapStageError(MESSAGES.roadmap.stage_output_limit.format(reason=result.message))
     if result.schema_broken:
         return StructuredOutputValidationError(message, violations=trace.violations)
     return RoadmapStageError(message)

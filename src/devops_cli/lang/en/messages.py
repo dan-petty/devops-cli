@@ -3356,6 +3356,13 @@ class RoadmapMessages:
     stage_violations: str = "{count} schema violation(s)"
     # The plan run of the toolbox stopped with no plan; `reason` is the fixed text of its stop.
     stage_run_stopped: str = "The plan run stopped before it gave a plan: {reason}."
+    # The output token limit of the request cut the reply of the plan or review run (#4220). The
+    # reply holds no part, so it is no schema failure. The limit is a Claude group's `max_tokens`.
+    stage_output_limit: str = (
+        "The output token limit (max_tokens) of the request cut the reply of the run before it "
+        "held a plan: {reason}. Raise CONST_AI_CLAUDE_GROUP_MAX_OUTPUT_TOKENS, or use a model "
+        "that allows a longer reply."
+    )
     # The window ended the tools of the plan run before it made the least number of tool calls
     # (#3880). The model has then read almost none of the code and writes a placeholder text.
     stage_window_starved: str = (
