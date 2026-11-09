@@ -812,9 +812,9 @@ CONST_CANONICAL_OCI_SOURCE: Final[str] = "https://github.com/dan-petty/devops-cl
 # The Secret Service gh, git and Python keyring use; dbus-x11 satisfies gnome-keyring's
 # session-bus dependency without pulling in systemd. Mirrors .devcontainer/Dockerfile.
 CONST_KEYRING_PACKAGES: Final[tuple[str, ...]] = ("gnome-keyring", "dbus-x11")
-# How long post-start waits for the keyring password before leaving it to the first
-# interactive terminal, so an unwatched prompt never stalls the container start.
-CONST_KEYRING_PROMPT_TIMEOUT_SECONDS: Final[int] = 60
+# How many different copies of login.keyring unlock-keyring keeps in the backups folder next
+# to it. Each copy is the file that the password had just opened.
+CONST_KEYRING_BACKUP_COUNT: Final[int] = 10
 
 # ── Specifications, Load Testing & Chaos ──────────────────────────────────────
 CONST_SPECS_DIR_NAME = ".devops/specs"

@@ -1920,6 +1920,8 @@ class DevcontainerMessages:
         "Keyring left locked; the next terminal you open will ask again, or run "
         "`devops devcontainer unlock-keyring`."
     )
+    keyring_copy_kept: str = "Kept a copy of the keyring: {path}"
+    keyring_copy_failed: str = "Warning: Could not keep a copy of the keyring: {error}"
     gh_token_moved: str = "✓ Moved the gh token for {host} from hosts.yml into the keyring."
 
 
