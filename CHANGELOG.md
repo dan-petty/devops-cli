@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.100.0](https://github.com/dan-petty/devops-cli/compare/v0.99.0...v0.100.0) (2026-11-09)
+
+
+### Features
+
+* **roadmap:** record the reference hits of a stage case in the replay ([#4211](https://github.com/dan-petty/devops-cli/issues/4211)) ([06a7251](https://github.com/dan-petty/devops-cli/commit/06a7251e0a1137d82e3a33a181ac4a2aa949a18b))
+
+
+### Bug Fixes
+
+* **roadmap:** accept a null reason on a stage reference ([#4215](https://github.com/dan-petty/devops-cli/issues/4215)) ([ce96397](https://github.com/dan-petty/devops-cli/commit/ce96397cff52ff54f7fafa7f46c65085168689f9))
+* **roadmap:** count the tokens of each implement Job once ([#4213](https://github.com/dan-petty/devops-cli/issues/4213)) ([a243c25](https://github.com/dan-petty/devops-cli/commit/a243c25f260ce0813f8e8985d159ec8c525a64de))
+* **roadmap:** send tool choice auto to Claude and count answers ([#4216](https://github.com/dan-petty/devops-cli/issues/4216)) ([5c4cabf](https://github.com/dan-petty/devops-cli/commit/5c4cabf9f31f8abe4340d3dbd1aa3dda11ef7a61))
+
 ## [0.99.0](https://github.com/dan-petty/devops-cli/compare/v0.98.0...v0.99.0) (2026-11-09)
 
 
