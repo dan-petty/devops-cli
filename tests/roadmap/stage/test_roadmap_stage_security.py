@@ -8,6 +8,7 @@ from pathlib import Path
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.roadmap.stage.stage_change import (
     SECURITY_TRIGGER_PATHS,
+    StageProposal,
     content_problems,
     render_change,
 )
@@ -50,6 +51,39 @@ def test_a_task_that_names_a_trigger_word_with_no_security_text_is_refused() -> 
     refused = make_stage_proposal(groups=[group], security="")
     problems = content_problems(refused)
     assert any("credential" in p for p in problems)
+
+
+def _plan_with_implementation(text: str) -> StageProposal:
+    sample = make_stage_proposal()
+    group = sample.groups[0].model_copy(update={"implementation": text})
+    return make_stage_proposal(groups=[group], security="")
+
+
+def test_a_trigger_word_inside_a_longer_word_needs_no_security_text() -> None:
+    # `regression` holds `egress`; the live run of #4062 refused a test-only plan for it (#4254).
+    proposal = _plan_with_implementation("Add a regression test for the logger bridge")
+    assert content_problems(proposal) == []
+
+
+def test_a_trigger_word_as_a_whole_word_or_in_a_phrase_is_refused() -> None:
+    for text in (
+        "Allow egress to the registry",
+        "Change the egress policy of the pod",
+        "Egress.",
+        "Rename egress_policy",
+    ):
+        problems = content_problems(_plan_with_implementation(text))
+        assert any("`egress`" in p for p in problems), text
+
+
+def test_a_plural_trigger_word_matches() -> None:
+    problems = content_problems(_plan_with_implementation("Rotate the stored credentials"))
+    assert any("`credential`" in p for p in problems)
+
+
+def test_a_trigger_phrase_of_two_words_matches_as_a_phrase() -> None:
+    problems = content_problems(_plan_with_implementation("Add an admission policy for pods"))
+    assert any("admission policy" in p for p in problems)
 
 
 def test_a_plan_with_no_trigger_needs_no_security_text() -> None:
