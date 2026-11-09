@@ -708,6 +708,28 @@ def test_schema_refuses_unchanged_reference_with_no_reason() -> None:
         StageReference(path=path, kind="snapshot file", unchanged=True, reason="")
 
 
+def test_schema_accepts_a_null_reason_for_a_changed_reference() -> None:
+    reply = {
+        "path": "src/a.py",
+        "kind": "import",
+        "unchanged": False,
+        "reason": None,
+    }
+
+    plan = make_stage_proposal(references=[reply])
+
+    assert plan.references[0].unchanged is False
+    assert not plan.references[0].reason
+
+
+def test_schema_refuses_unchanged_reference_with_a_null_reason() -> None:
+    path = "tests/roadmap/test_x.py"
+    with pytest.raises(ValidationError, match=path):
+        StageReference.model_validate(
+            {"path": path, "kind": "snapshot file", "unchanged": True, "reason": None}
+        )
+
+
 def test_design_file_renders_unchanged_reference_path_kind_and_reason() -> None:
     path = "tests/snapshots/roadmap/test_x.ambr"
     kind = "snapshot file"

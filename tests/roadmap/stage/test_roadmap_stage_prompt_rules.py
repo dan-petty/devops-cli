@@ -727,6 +727,29 @@ def test_the_stage_prompt_names_references_of_a_moved_module() -> None:
     assert "Search a narrower name when the `references` answer leaves files out" in prompt
 
 
+def _prompt_reason_when_changed() -> object:
+    """The value that the `references` key of the prompt gives to `reason` when `unchanged` is
+    false: the words after `else` in the sentence about `reason`."""
+    bullet = re.search(r"^- `references`:.*$", _reply_section(_PROMPT), flags=re.MULTILINE)
+    assert bullet is not None
+    clause = re.search(r"`reason` is [^.]*?, else (null|an empty string)\.", bullet.group(0))
+    assert clause is not None, "the references key states no value of `reason` when unchanged"
+    return None if clause.group(1) == "null" else ""
+
+
+def test_a_reply_that_follows_the_references_key_of_the_prompt_passes_the_schema() -> None:
+    reply = {
+        "path": "src/devops_cli/sample.py",
+        "kind": "import",
+        "unchanged": False,
+        "reason": _prompt_reason_when_changed(),
+    }
+
+    plan = make_stage_proposal(references=[reply])
+
+    assert [ref.path for ref in plan.references] == ["src/devops_cli/sample.py"]
+
+
 def test_the_stage_prompt_states_move_verification() -> None:
     prompt = load_task_prompt("roadmap_stage_change.md")
 
