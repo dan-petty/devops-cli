@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlsplit
 
+import httpx2
 import pytest
 from typer.testing import CliRunner
 
@@ -44,6 +45,7 @@ from devops_cli.tools_lock import (
     ToolsLock,
     load_tools_lock,
 )
+from tests.support.fakes.clock import ClockFake
 from tests.support.fakes.dial import record_connects
 from tests.support.fakes.dns import DnsFake
 from tests.support.fakes.http import WebFake
@@ -840,3 +842,169 @@ def test_download_refuses_a_private_answer_whatever_the_flag(
     assert raised.value.error_code == "SSRF_BLOCKED"
 
     assert recorder.dialled == []
+
+
+# ── Retries and bodies that are not the archive (#4223) ───────────────────────
+
+HTML_504 = "<html><head><title>504 Gateway Time-out</title></head><body>504</body></html>"
+
+
+def _answers(
+    web: WebFake, answers: list[httpx2.Response | httpx2.TransportError]
+) -> list[httpx2.Request]:
+    """Serve each answer of `answers` to the next request for `ASSET_URL`, and the last one to
+    every request after it. Return the list that fills with each request received."""
+    received: list[httpx2.Request] = []
+
+    def serve(request: httpx2.Request) -> httpx2.Response | None:
+        if str(request.url) != ASSET_URL:
+            return None
+        answer = answers[min(len(received), len(answers) - 1)]
+        received.append(request)
+        if isinstance(answer, httpx2.TransportError):
+            answer.request = request
+            raise answer
+        return answer
+
+    web.serve(serve)
+    return received
+
+
+def test_install_retries_two_504_answers_then_installs_the_archive(
+    web: WebFake, clock: ClockFake, tmp_path: Path, isolate_user_data_root: Path
+) -> None:
+    """A 504 answer is not the end of the install: the installer waits and asks again, and the
+    third answer, the archive, is verified and linked."""
+    received = _answers(
+        web,
+        [httpx2.Response(504), httpx2.Response(504), httpx2.Response(200, content=EXECUTABLE)],
+    )
+
+    install_binary("mytool", _binary_entry(EXECUTABLE), tmp_path / "bin")
+
+    assert (
+        len(received),
+        len(clock.waits),
+        all(wait > 0 for wait in clock.waits),
+        (tmp_path / "bin" / "mytool").read_bytes(),
+    ) == (3, 2, True, EXECUTABLE)
+
+
+def test_install_retries_a_lost_connection_then_installs_the_archive(
+    web: WebFake, clock: ClockFake, tmp_path: Path, isolate_user_data_root: Path
+) -> None:
+    """A connect failure is retried as a 5xx answer is."""
+    received = _answers(
+        web,
+        [
+            httpx2.ConnectError("Connection refused"),
+            httpx2.ReadTimeout("The read operation timed out"),
+            httpx2.Response(200, content=EXECUTABLE),
+        ],
+    )
+
+    install_binary("mytool", _binary_entry(EXECUTABLE), tmp_path / "bin")
+
+    assert (len(received), (tmp_path / "bin" / "mytool").read_bytes()) == (3, EXECUTABLE)
+
+
+def test_install_retries_for_at_least_one_minute_of_outage(
+    web: WebFake, clock: ClockFake, tmp_path: Path, isolate_user_data_root: Path
+) -> None:
+    """An outage of GitHub that ends within the retry time needs no rerun of the check: the
+    answers are 504 until the installer has waited one minute, and then the archive."""
+
+    def serve(request: httpx2.Request) -> httpx2.Response | None:
+        if str(request.url) != ASSET_URL:
+            return None
+        return httpx2.Response(504 if sum(clock.waits) < 60 else 200, content=EXECUTABLE)
+
+    web.serve(serve)
+
+    install_binary("mytool", _binary_entry(EXECUTABLE), tmp_path / "bin")
+
+    assert (tmp_path / "bin" / "mytool").read_bytes() == EXECUTABLE
+
+
+def test_a_download_that_keeps_failing_with_504_ends_with_the_url_and_the_status(
+    web: WebFake, clock: ClockFake, tmp_path: Path, isolate_user_data_root: Path
+) -> None:
+    """The retries end. The error names the URL and the HTTP status, not a checksum, and no file
+    of the tool stays."""
+    received = _answers(web, [httpx2.Response(504)])
+    target = tmp_path / "bin"
+
+    with pytest.raises(httpx2.HTTPStatusError, match=rf"504.*{ASSET_URL}"):
+        install_binary("mytool", _binary_entry(EXECUTABLE), target)
+
+    assert (
+        2 <= len(received) <= 20,
+        list((isolate_user_data_root / "tools" / "mytool").iterdir()),
+        os.path.lexists(target / "mytool"),
+    ) == (True, [], False)
+
+
+def test_a_404_answer_is_not_retried(
+    web: WebFake, clock: ClockFake, tmp_path: Path, isolate_user_data_root: Path
+) -> None:
+    """A wrong URL stays an error at once: the retries cover a 5xx answer and a lost connection
+    only."""
+    received = _answers(web, [httpx2.Response(404)])
+
+    with pytest.raises(httpx2.HTTPStatusError, match=rf"404.*{ASSET_URL}"):
+        install_binary("mytool", _binary_entry(EXECUTABLE), tmp_path / "bin")
+
+    assert (len(received), clock.waits) == (1, [])
+
+
+@pytest.mark.parametrize(
+    ("archive_format", "artifact", "member"),
+    [
+        ("gzip", gzip.compress(EXECUTABLE), None),
+        ("tar.gz", _tar_gz({"mytool": EXECUTABLE}), "mytool"),
+        ("zip", _zip({"mytool": EXECUTABLE}), "mytool"),
+    ],
+    ids=["gzip", "tar.gz", "zip"],
+)
+def test_html_504_page_with_status_200_is_not_archive_and_the_error_names_the_url(
+    web: WebFake,
+    tmp_path: Path,
+    isolate_user_data_root: Path,
+    archive_format: str,
+    artifact: bytes,
+    member: str | None,
+) -> None:
+    """The lock holds the checksum of the real archive and the server answers 200 with an HTML
+    error page. The error is not a checksum failure: it names the URL and the HTTP status, and it
+    says that the body is not a `<format>` archive."""
+    web.page(ASSET_URL, HTML_504)
+    target = tmp_path / "bin"
+
+    with pytest.raises(ToolDownloadError) as raised:
+        install_binary(
+            "mytool", _binary_entry(artifact, archive_format=archive_format, member=member), target
+        )
+
+    assert (
+        raised.value.details["url"],
+        f"the body is not a {archive_format} archive" in raised.value.details["reason"],
+        "200" in raised.value.details["reason"],
+        list((isolate_user_data_root / "tools" / "mytool").iterdir()),
+        os.path.lexists(target / "mytool"),
+    ) == (ASSET_URL, True, True, [], False)
+
+
+def test_an_archive_with_other_bytes_than_the_lock_still_fails_the_checksum(
+    web: WebFake, tmp_path: Path, isolate_user_data_root: Path
+) -> None:
+    """The check for a body that is not an archive does not replace the checksum: a real tar.gz
+    with other content passes the first and fails the second."""
+    locked = _tar_gz({"mytool": EXECUTABLE})
+    web.content(ASSET_URL, _tar_gz({"mytool": b"tampered"}))
+
+    with pytest.raises(ChecksumMismatchError, match="mytool"):
+        install_binary(
+            "mytool",
+            _binary_entry(locked, archive_format="tar.gz", member="mytool"),
+            tmp_path / "bin",
+        )
