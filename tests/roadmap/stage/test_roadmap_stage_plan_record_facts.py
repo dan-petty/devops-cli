@@ -11,7 +11,7 @@ import pytest
 
 from devops_cli.exceptions.roadmap import RoadmapStageError
 from devops_cli.roadmap.agent_run import RunTrace, ToolCallRecord
-from devops_cli.roadmap.stage.stage import PlanFiles, StageTarget, _Planner
+from devops_cli.roadmap.stage.stage import PlanFiles, StagedChange, StageTarget, _Planner
 from devops_cli.roadmap.stage.stage_change import StageProposal
 from devops_cli.roadmap.stage.stage_paths import StagedTree
 from devops_cli.roadmap.stage.stage_plan_record import (
@@ -29,6 +29,7 @@ PLAN_ROW = "stage"
 REPO = "example/repo"
 CLAIM = "The run called `read_issue` for the issue and read it."
 MISSING = "tests/test_missing.py"
+TOOLSET = "extended"
 
 
 def _call(name: str, **argument: Any) -> ToolCallRecord:
@@ -51,9 +52,16 @@ class _ScriptedToolbox(ToolboxClient):
         return proposal
 
 
+class _StubbedPlanner(_Planner):
+    """A planner whose request is fixed, so that a run needs no checkout."""
+
+    def _request(self, target: StageTarget) -> StageRequest:
+        return _request()
+
+
 def _planner(client: ToolboxClient, *, model: str = "model-a") -> _Planner:
     specs = {"comment-thread": BaseSpec(purpose="Defines thread comments.", requirements=())}
-    return _Planner(
+    return _StubbedPlanner(
         client=client,
         source=Path("."),
         sha="",
@@ -62,7 +70,7 @@ def _planner(client: ToolboxClient, *, model: str = "model-a") -> _Planner:
         budget=20000,
         window=100000,
         tool=None,
-        plan_files=PlanFiles(REPO, model, "extended"),
+        plan_files=PlanFiles(REPO, model, TOOLSET),
     )
 
 
@@ -102,15 +110,9 @@ def _kept_by_a_run_that_called_read_issue() -> Any:
     client = _ScriptedToolbox([(_plan(), run)])
     planner = _planner(client)
 
-    planner.plan(_target_with_request(planner))
+    planner.plan(_target())
 
     return _file()
-
-
-def _target_with_request(planner: _Planner) -> StageTarget:
-    """The target, with the request of the planner stubbed so that the run needs no checkout."""
-    planner._request = lambda target: _request()  # type: ignore[method-assign]
-    return _target()
 
 
 def test_a_plan_kept_after_a_run_that_called_a_tool_holds_the_tool_in_its_facts() -> None:
@@ -124,7 +126,7 @@ def test_a_plan_kept_after_a_run_that_called_a_tool_holds_the_tool_in_its_facts(
 def _write_record(proposal: StageProposal, facts: dict[str, list[str]] | None) -> None:
     """The plan file of item 1 under the key of the planner, with `facts` or, for the format of an
     older job, with no facts field."""
-    key = _planner(_ScriptedToolbox([]))._plan_files.key(_target().item)  # type: ignore[union-attr]
+    key = PlanFiles(REPO, "model-a", TOOLSET).key(_target().item)
     data = StagePlanRecord(key=key, proposal=proposal, request=_request()).model_dump(mode="json")
     if facts is not None:
         data["facts"] = facts
@@ -138,9 +140,10 @@ def test_a_revision_of_a_kept_plan_keeps_the_claims_of_the_run_that_made_it() ->
     _write_record(_plan(unknown_file=True), {"tools": ["read_issue"], "paths": []})
     fresh = _planner(_ScriptedToolbox([(_plan(), RunTrace(row=PLAN_ROW))]))
 
-    change = fresh.plan(_target_with_request(fresh))
+    change = fresh.plan(_target())
 
-    assert change.proposal.feasibility == [CLAIM]  # type: ignore[union-attr]
+    assert isinstance(change, StagedChange)
+    assert change.proposal.feasibility == [CLAIM]
 
 
 def test_a_kept_plan_is_gated_with_its_facts_and_not_skipped() -> None:
@@ -148,18 +151,18 @@ def test_a_kept_plan_is_gated_with_its_facts_and_not_skipped() -> None:
     fresh = _planner(_ScriptedToolbox([(_plan(), RunTrace(row=PLAN_ROW))]))
 
     with pytest.raises(RoadmapStageError, match="read_issue"):
-        fresh.plan(_target_with_request(fresh))
+        fresh.plan(_target())
 
 
 def test_a_record_in_the_old_format_loads_and_is_planned_again() -> None:
     _write_record(_plan(), None)
-    key = _planner(_ScriptedToolbox([]))._plan_files.key(_target().item)  # type: ignore[union-attr]
+    key = PlanFiles(REPO, "model-a", TOOLSET).key(_target().item)
     assert read_plan_record(_file(), key) is not None
     run = RunTrace(tool_calls=[_call("read_issue", number=7)], row=PLAN_ROW)
     client = _ScriptedToolbox([(_plan(), run)])
     fresh = _planner(client)
 
-    fresh.plan(_target_with_request(fresh))
+    fresh.plan(_target())
 
     assert len(client.traces) == 1
     assert json.loads(_file().read_text(encoding="utf-8"))["facts"]["tools"] == ["read_issue"]
@@ -173,7 +176,7 @@ def test_the_facts_hold_only_the_paths_that_the_feasibility_cites() -> None:
     plan = _plan(feasibility=[f"The run read `{cited}` and found the function."])
     planner = _planner(_ScriptedToolbox([(plan, run)]))
 
-    planner.plan(_target_with_request(planner))
+    planner.plan(_target())
 
     data = json.loads(_file().read_text(encoding="utf-8"))
     assert data["facts"] == {"tools": ["read_file"], "paths": [cited]}
@@ -185,7 +188,7 @@ def test_a_new_planner_model_is_a_miss() -> None:
     client = _ScriptedToolbox([(_plan(), run)])
     other = _planner(client, model="model-b")
 
-    other.plan(_target_with_request(other))
+    other.plan(_target())
 
     assert len(client.traces) == 1
     assert path.is_file()
