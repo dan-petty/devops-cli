@@ -7,7 +7,6 @@ import os
 from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
-from unittest.mock import MagicMock, patch
 
 import pytest
 from typer.testing import CliRunner
@@ -36,6 +35,7 @@ from tests.support.paths import FIXTURES
 
 if TYPE_CHECKING:
     from tests.support.fakes.github import GitHubApiFake
+    from tests.support.fakes.model import ModelFake
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
@@ -196,16 +196,16 @@ def test_analyze_single_file() -> None:
     assert "devops_cli.models.ai" in meta.dependencies
 
 
-def test_ai_analyze_path_command(tmp_path: Path) -> None:
+def test_ai_analyze_path_command(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """devops ai analyze path creates .data/analysis/path-*-metadata.json."""
     (tmp_path / ".git").mkdir()
+    monkeypatch.chdir(tmp_path)
     src_dir = tmp_path / "src"
     src_dir.mkdir()
     py_file = src_dir / "sample.py"
     py_file.write_text('"""Sample module."""\ndef hello() -> str:\n    return "hi"\n')
 
-    with patch("devops_cli.commands.analyze.find_repo_root", return_value=tmp_path):
-        result = runner.invoke(app, ["ai", "analyze", "path", str(src_dir), "--no-enhanced"])
+    result = runner.invoke(app, ["ai", "analyze", "path", str(src_dir), "--no-enhanced"])
 
     assert result.exit_code == 0
     files = list((tmp_path / ".data" / "analysis").glob("*.json"))
@@ -228,11 +228,14 @@ def test_ai_analyze_branch_dry_run(monkeypatch: pytest.MonkeyPatch) -> None:
     assert result.exit_code == 0
 
 
-def test_ai_analyze_path_enhanced(tmp_path: Path) -> None:
+def test_ai_analyze_path_enhanced(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, model_fake: ModelFake
+) -> None:
     """devops ai analyze path defaults to enhanced metadata."""
     from devops_cli.ai.analyze.outlines import EnhancedMetadataOutput
 
     (tmp_path / ".git").mkdir()
+    monkeypatch.chdir(tmp_path)
     src_dir = tmp_path / "src"
     src_dir.mkdir()
     py_file = src_dir / "worker.py"
@@ -249,62 +252,54 @@ def test_ai_analyze_path_enhanced(tmp_path: Path) -> None:
         confidence_score=0.95,
         quality_score=0.90,
     )
+    model_fake.answer(mock_enhanced.model_dump_json())
 
-    with (
-        patch("devops_cli.commands.analyze.find_repo_root", return_value=tmp_path),
-        patch(
-            "devops_cli.ai.analyze.outlines.enhance_file_metadata_with_ai",
-            return_value=mock_enhanced,
-        ),
-    ):
-        # Invoked without flags — enhanced is default True
-        result = runner.invoke(app, ["ai", "analyze", "path", str(src_dir)])
+    # Invoked without flags — enhanced is default True
+    result = runner.invoke(app, ["ai", "analyze", "path", str(src_dir)])
 
-        assert result.exit_code == 0
-        files = list((tmp_path / ".data" / "analysis").glob("*.json"))
-        assert len(files) == 1
-        analysis_file = files[0]
+    assert result.exit_code == 0
+    files = list((tmp_path / ".data" / "analysis").glob("*.json"))
+    assert len(files) == 1
+    analysis_file = files[0]
 
-        data = json.loads(analysis_file.read_text(encoding="utf-8"))
-        payload = AnalysisMetadata.model_validate(data)
+    data = json.loads(analysis_file.read_text(encoding="utf-8"))
+    payload = AnalysisMetadata.model_validate(data)
 
-        assert payload.project.enhanced is True
-        assert payload.project.last_analyzed is not None
-        file_meta = payload.files[0]
-        assert file_meta.pseudocode is not None
-        assert isinstance(file_meta.pseudocode, list)
-        assert len(file_meta.pseudocode) > 0
-        assert file_meta.last_updated is not None
-        assert file_meta.last_analyzed is not None
-        assert file_meta.complexity_score in ("Low", "Medium", "High")
+    assert payload.project.enhanced is True
+    assert payload.project.last_analyzed is not None
+    file_meta = payload.files[0]
+    assert file_meta.pseudocode is not None
+    assert isinstance(file_meta.pseudocode, list)
+    assert len(file_meta.pseudocode) > 0
+    assert file_meta.last_updated is not None
+    assert file_meta.last_analyzed is not None
+    assert file_meta.complexity_score in ("Low", "Medium", "High")
 
-        # Re-run analysis on unchanged file (incremental test)
-        result_rerun = runner.invoke(app, ["ai", "analyze", "path", str(src_dir)])
-        assert result_rerun.exit_code == 0
-        data_rerun = json.loads(analysis_file.read_text(encoding="utf-8"))
-        payload_rerun = AnalysisMetadata.model_validate(data_rerun)
-        assert payload_rerun.project.enhanced is True
-        assert payload_rerun.files[0].pseudocode == file_meta.pseudocode
-        assert payload_rerun.files[0].last_analyzed is not None
+    # Re-run analysis on unchanged file (incremental test)
+    result_rerun = runner.invoke(app, ["ai", "analyze", "path", str(src_dir)])
+    assert result_rerun.exit_code == 0
+    data_rerun = json.loads(analysis_file.read_text(encoding="utf-8"))
+    payload_rerun = AnalysisMetadata.model_validate(data_rerun)
+    assert payload_rerun.project.enhanced is True
+    assert payload_rerun.files[0].pseudocode == file_meta.pseudocode
+    assert payload_rerun.files[0].last_analyzed is not None
 
-        # Re-run analysis with --update-all flag
-        result_update_all = runner.invoke(
-            app, ["ai", "analyze", "path", str(src_dir), "--update-all"]
-        )
-        assert result_update_all.exit_code == 0
-        data_update = json.loads(analysis_file.read_text(encoding="utf-8"))
-        payload_update = AnalysisMetadata.model_validate(data_update)
-        assert payload_update.files[0].last_analyzed is not None
+    # Re-run analysis with --update-all flag
+    result_update_all = runner.invoke(app, ["ai", "analyze", "path", str(src_dir), "--update-all"])
+    assert result_update_all.exit_code == 0
+    data_update = json.loads(analysis_file.read_text(encoding="utf-8"))
+    payload_update = AnalysisMetadata.model_validate(data_update)
+    assert payload_update.files[0].last_analyzed is not None
 
-        # Test explicit --no-enhanced flag
-        result_no_enhanced = runner.invoke(
-            app, ["ai", "analyze", "path", str(src_dir), "--no-enhanced", "--update-all"]
-        )
-        assert result_no_enhanced.exit_code == 0
-        data_no_enhanced = json.loads(analysis_file.read_text(encoding="utf-8"))
-        payload_no_enhanced = AnalysisMetadata.model_validate(data_no_enhanced)
-        assert payload_no_enhanced.project.enhanced is False
-        assert payload_no_enhanced.files[0].pseudocode is None
+    # Test explicit --no-enhanced flag
+    result_no_enhanced = runner.invoke(
+        app, ["ai", "analyze", "path", str(src_dir), "--no-enhanced", "--update-all"]
+    )
+    assert result_no_enhanced.exit_code == 0
+    data_no_enhanced = json.loads(analysis_file.read_text(encoding="utf-8"))
+    payload_no_enhanced = AnalysisMetadata.model_validate(data_no_enhanced)
+    assert payload_no_enhanced.project.enhanced is False
+    assert payload_no_enhanced.files[0].pseudocode is None
 
 
 def test_enhanced_metadata_validation() -> None:
@@ -338,11 +333,14 @@ def test_enhanced_metadata_validation() -> None:
     assert "confidence_score" in str(err_inv)
 
 
-def test_ai_analyze_quality_and_confidence_scores(tmp_path: Path) -> None:
+def test_ai_analyze_quality_and_confidence_scores(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, model_fake: ModelFake
+) -> None:
     """ai analyze populates quality_score and dynamic confidence_score on metadata."""
     from devops_cli.ai.analyze.outlines import EnhancedMetadataOutput
 
     (tmp_path / ".git").mkdir()
+    monkeypatch.chdir(tmp_path)
     src_dir = tmp_path / "src"
     src_dir.mkdir()
     py_file = src_dir / "worker.py"
@@ -357,16 +355,10 @@ def test_ai_analyze_quality_and_confidence_scores(tmp_path: Path) -> None:
         confidence_score=0.92,
         quality_score=0.88,
     )
+    model_fake.answer(mock_enhanced.model_dump_json())
 
-    with (
-        patch("devops_cli.commands.analyze.find_repo_root", return_value=tmp_path),
-        patch(
-            "devops_cli.ai.analyze.outlines.enhance_file_metadata_with_ai",
-            return_value=mock_enhanced,
-        ),
-    ):
-        result = runner.invoke(app, ["ai", "analyze", "path", str(src_dir)])
-        assert result.exit_code == 0
+    result = runner.invoke(app, ["ai", "analyze", "path", str(src_dir)])
+    assert result.exit_code == 0
 
     files = list((tmp_path / ".data" / "analysis").glob("*.json"))
     assert len(files) == 1
@@ -385,9 +377,17 @@ def test_ai_analyze_quality_and_confidence_scores(tmp_path: Path) -> None:
     assert 0.0 <= file_meta.quality_score <= 1.0
 
 
-def test_ai_analyze_branch_and_pr_execution(tmp_path: Path, github_api: GitHubApiFake) -> None:
-    """Test analyze branch and pr with mocked git interactions and the GitHub API fake."""
+def test_ai_analyze_branch_and_pr_execution(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    github_api: GitHubApiFake,
+    git_fake: GitFake,
+) -> None:
+    """Test analyze branch and pr with git_fake interactions and the GitHub API fake."""
+    from devops_cli.core.repo import _cached_repo_origin
+
     (tmp_path / ".git").mkdir()
+    monkeypatch.chdir(tmp_path)
     src_dir = tmp_path / "src"
     src_dir.mkdir()
     worker_file = src_dir / "worker.py"
@@ -400,30 +400,26 @@ def test_ai_analyze_branch_and_pr_execution(tmp_path: Path, github_api: GitHubAp
         files=[pull_request_file_payload("src/worker.py")],
     )
 
-    with (
-        patch("devops_cli.commands.analyze.find_repo_root", return_value=tmp_path),
-        patch(
-            "devops_cli.git.operations.list_branches", return_value=MagicMock(current="feat/worker")
-        ),
-        patch(
-            "devops_cli.git.operations.list_changed_files",
-            return_value=[ChangedFile(change_type="modified", path="src/worker.py")],
-        ),
-        patch("devops_cli.git.operations.resolve_merge_base", return_value="base-sha"),
-        patch("devops_cli.git.operations.read_file_at_revision", return_value=None),
-        patch("devops_cli.core.repo.get_repo_origin_name", return_value="org/repo"),
-    ):
-        res_branch = runner.invoke(analyze_app, ["branch", "feat/worker", "--no-enhanced"])
-        assert res_branch.exit_code == 0
+    git_fake.answer(
+        lambda call: "remote" in call.argv and "get-url" in call.argv,
+        ProcessAnswer(stdout="https://github.com/org/repo.git\n"),
+    )
+    git_fake.answer(lambda call: "merge-base" in call.argv, ProcessAnswer(stdout="base-sha\n"))
+    git_fake.answer(lambda call: "diff" in call.argv, ProcessAnswer(stdout="M\0src/worker.py\0"))
+    git_fake.answer(lambda call: "ls-tree" in call.argv, ProcessAnswer(returncode=1))
+    _cached_repo_origin.cache_clear()
 
-        res_branch_explain = runner.invoke(analyze_app, ["branch", "--explain"])
-        assert res_branch_explain.exit_code == 0
+    res_branch = runner.invoke(analyze_app, ["branch", "feat/worker", "--no-enhanced"])
+    assert res_branch.exit_code == 0
 
-        res_pr = runner.invoke(analyze_app, ["pr", "42", "--no-enhanced"])
-        assert res_pr.exit_code == 0
+    res_branch_explain = runner.invoke(analyze_app, ["branch", "--explain"])
+    assert res_branch_explain.exit_code == 0
 
-        res_pr_explain = runner.invoke(analyze_app, ["pr", "42", "--explain"])
-        assert res_pr_explain.exit_code == 0
+    res_pr = runner.invoke(analyze_app, ["pr", "42", "--no-enhanced"])
+    assert res_pr.exit_code == 0
+
+    res_pr_explain = runner.invoke(analyze_app, ["pr", "42", "--explain"])
+    assert res_pr_explain.exit_code == 0
 
     assert github_api.requested == [
         "GET https://api.github.com/repos/org/repo/pulls/42",
@@ -560,66 +556,63 @@ import internal_sub.helper
 
 def test_analyze_explain_commands() -> None:
     """Verify analyze path, branch, and pr with --explain flag."""
-    with patch("devops_cli.ai.explain.render_explanation") as mock_explain:
-        res_path = runner.invoke(analyze_app, ["path", "src", "--explain"])
-        assert res_path.exit_code == 0
-        mock_explain.assert_called_with("analyze")
+    res_path = runner.invoke(analyze_app, ["path", "src", "--explain"])
+    assert (res_path.exit_code, "Static Code Analysis" in res_path.output) == (0, True)
 
-        mock_explain.reset_mock()
-        res_branch = runner.invoke(analyze_app, ["branch", "main", "--explain"])
-        assert res_branch.exit_code == 0
-        mock_explain.assert_called_with("analyze")
+    res_branch = runner.invoke(analyze_app, ["branch", "main", "--explain"])
+    assert (res_branch.exit_code, "Static Code Analysis" in res_branch.output) == (0, True)
 
-        mock_explain.reset_mock()
-        res_pr = runner.invoke(analyze_app, ["pr", "42", "--explain"])
-        assert res_pr.exit_code == 0
-        mock_explain.assert_called_with("analyze")
+    res_pr = runner.invoke(analyze_app, ["pr", "42", "--explain"])
+    assert (res_pr.exit_code, "Static Code Analysis" in res_pr.output) == (0, True)
 
 
-def test_analyze_path_errors(tmp_path: Path) -> None:
+def test_analyze_path_errors(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Verify analyze path errors on non-existent path and outside repo."""
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
     (repo_root / ".git").mkdir()
+    monkeypatch.chdir(repo_root)
+
     non_existent = repo_root / "does_not_exist"
     res_non = runner.invoke(analyze_app, ["path", str(non_existent)])
     assert res_non.exit_code == 1
 
     outside = tmp_path / "outside_dir"
     outside.mkdir()
-    with patch("devops_cli.commands.analyze.find_repo_root", return_value=repo_root):
-        res_out = runner.invoke(analyze_app, ["path", str(outside)])
-        assert res_out.exit_code == 1
+    res_out = runner.invoke(analyze_app, ["path", str(outside)])
+    assert res_out.exit_code == 1
 
 
 def test_analyze_pr_command(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, github_api: GitHubApiFake
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    github_api: GitHubApiFake,
+    git_fake: GitFake,
+    config: Callable[..., Path],
 ) -> None:
     """Verify devops analyze pr with no gh login, missing origin, and the GitHub API fake."""
-    from devops_cli.config.settings import Settings
+    from devops_cli.core.repo import _cached_repo_origin
+
+    (tmp_path / ".git").mkdir(exist_ok=True)
+    monkeypatch.chdir(tmp_path)
+    config(github={"token": None})
 
     # 1. No token from `gh auth token`
-    empty_settings = Settings()
-    with (
-        patch("devops_cli.commands.analyze.find_repo_root", return_value=tmp_path),
-        patch("devops_cli.commands.analyze.load_settings", return_value=empty_settings),
-        monkeypatch.context() as unauthenticated,
-    ):
+    with monkeypatch.context() as unauthenticated:
         fail_the_github_lookup(unauthenticated)
         res_no_token = runner.invoke(analyze_app, ["pr", "42"])
         assert (res_no_token.exit_code, "gh auth login" in res_no_token.output) == (1, True)
 
     # 2. Missing origin
-    with (
-        patch("devops_cli.commands.analyze.find_repo_root", return_value=tmp_path),
-        patch("devops_cli.commands.analyze.load_settings", return_value=empty_settings),
-        patch("devops_cli.commands.analyze.get_repo_origin_name", return_value=None),
-    ):
-        res_no_origin = runner.invoke(analyze_app, ["pr", "42"])
-        assert res_no_origin.exit_code == 1
+    git_fake.answer(
+        lambda call: "remote" in call.argv and "get-url" in call.argv,
+        ProcessAnswer(returncode=128),
+    )
+    _cached_repo_origin.cache_clear()
+    res_no_origin = runner.invoke(analyze_app, ["pr", "42"])
+    assert res_no_origin.exit_code == 1
 
     # 3. Successful PR analysis
-    (tmp_path / ".git").mkdir(exist_ok=True)
     sample_file = tmp_path / "pr_mod.py"
     sample_file.write_text("def pr_func(): pass\n", encoding="utf-8")
 
@@ -631,13 +624,14 @@ def test_analyze_pr_command(
         files=[pull_request_file_payload("pr_mod.py", additions=5, changes=5)],
     )
 
-    with (
-        patch("devops_cli.commands.analyze.find_repo_root", return_value=tmp_path),
-        patch("devops_cli.commands.analyze.load_settings", return_value=empty_settings),
-        patch("devops_cli.commands.analyze.get_repo_origin_name", return_value="owner/repo"),
-    ):
-        res_pr_ok = runner.invoke(analyze_app, ["pr", "42", "--no-enhanced"])
-        assert res_pr_ok.exit_code == 0
+    git_fake.answer(
+        lambda call: "remote" in call.argv and "get-url" in call.argv,
+        ProcessAnswer(stdout="https://github.com/owner/repo.git\n"),
+    )
+    _cached_repo_origin.cache_clear()
+
+    res_pr_ok = runner.invoke(analyze_app, ["pr", "42", "--no-enhanced"])
+    assert res_pr_ok.exit_code == 0
 
 
 def test_analyze_pr_lists_the_title_and_the_files_of_every_page(
@@ -784,7 +778,6 @@ def test_evict_excess_analysis_files(tmp_path: Path) -> None:
 def test_load_cached_analysis_and_file_metas(tmp_path: Path) -> None:
     """Verify load_cached_analysis and _load_file_analysis_metas."""
     from devops_cli.ai.analyze.cache import _load_file_analysis_metas, load_cached_analysis
-    from devops_cli.config.settings import Settings
     from devops_cli.models.ai import AnalysisMetadata, FileAnalysisMeta, ProjectAnalysisMeta
 
     assert (load_cached_analysis(tmp_path), _load_file_analysis_metas(repo_root=tmp_path)) == (
@@ -794,49 +787,46 @@ def test_load_cached_analysis_and_file_metas(tmp_path: Path) -> None:
 
     analysis_dir = tmp_path / ".data" / "analysis"
     analysis_dir.mkdir(parents=True)
-    custom_settings = Settings()
-    custom_settings.data.analysis_dir = analysis_dir
-    with patch("devops_cli.config.settings.load_settings", return_value=custom_settings):
-        assert load_cached_analysis(tmp_path) is None
+    assert load_cached_analysis(tmp_path) is None
 
-        bad_file = analysis_dir / "bad-metadata.json"
-        bad_file.write_text("not json", encoding="utf-8")
-        assert load_cached_analysis(tmp_path) is None
-        bad_file.unlink()
+    bad_file = analysis_dir / "bad-metadata.json"
+    bad_file.write_text("not json", encoding="utf-8")
+    assert load_cached_analysis(tmp_path) is None
+    bad_file.unlink()
 
-        file_meta = FileAnalysisMeta(
-            path="src/main.py", language="python", line_count=10, char_count=100
-        )
-        proj_meta = ProjectAnalysisMeta(
-            title="Test",
-            target_type="path",
-            target_reference="src",
-            timestamp="2026-09-19T00:00:00Z",
-            total_files=1,
-            total_lines=10,
-            total_chars=100,
-            languages=["python"],
-            primary_purpose="Testing",
-            key_symbols=[],
-            dependencies=[],
-        )
-        payload = AnalysisMetadata(project=proj_meta, files=[file_meta])
-        good_file = analysis_dir / "path-src-metadata.json"
-        good_file.write_text(payload.model_dump_json(), encoding="utf-8")
-        os.utime(good_file, (2000.0, 2000.0))
+    file_meta = FileAnalysisMeta(
+        path="src/main.py", language="python", line_count=10, char_count=100
+    )
+    proj_meta = ProjectAnalysisMeta(
+        title="Test",
+        target_type="path",
+        target_reference="src",
+        timestamp="2026-09-19T00:00:00Z",
+        total_files=1,
+        total_lines=10,
+        total_chars=100,
+        languages=["python"],
+        primary_purpose="Testing",
+        key_symbols=[],
+        dependencies=[],
+    )
+    payload = AnalysisMetadata(project=proj_meta, files=[file_meta])
+    good_file = analysis_dir / "path-src-metadata.json"
+    good_file.write_text(payload.model_dump_json(), encoding="utf-8")
+    os.utime(good_file, (2000.0, 2000.0))
 
-        loaded = load_cached_analysis(tmp_path)
-        all_metas = _load_file_analysis_metas(repo_root=tmp_path)
-        filtered_metas = _load_file_analysis_metas(
-            files=["src/main.py", "nonexistent.py"], repo_root=tmp_path
-        )
+    loaded = load_cached_analysis(tmp_path)
+    all_metas = _load_file_analysis_metas(repo_root=tmp_path)
+    filtered_metas = _load_file_analysis_metas(
+        files=["src/main.py", "nonexistent.py"], repo_root=tmp_path
+    )
 
-        assert (
-            loaded is not None,
-            len(all_metas),
-            "src/main.py" in filtered_metas,
-            "nonexistent.py" in filtered_metas,
-        ) == (True, 1, True, False)
+    assert (
+        loaded is not None,
+        len(all_metas),
+        "src/main.py" in filtered_metas,
+        "nonexistent.py" in filtered_metas,
+    ) == (True, 1, True, False)
 
 
 def test_compute_symbol_delta() -> None:
@@ -949,7 +939,7 @@ def test_apply_symbol_delta_reports_a_symbol_removed_since_the_base(
 
 
 def test_analyze_branch_compares_a_renamed_file_with_its_old_path(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, git_fake: GitFake
 ) -> None:
     """A rename is analysed at its new path and its base read at the old one, at the merge base.
 
@@ -958,63 +948,63 @@ def test_analyze_branch_compares_a_renamed_file_with_its_old_path(
     """
     monkeypatch.setenv("DEVOPS_CLI_DATA_ANALYSIS_DIR", str(tmp_path / "analysis"))
     (tmp_path / ".git").mkdir()
+    monkeypatch.chdir(tmp_path)
     (tmp_path / "new_name.py").write_text("def moved(): pass\ndef fresh(): pass\n", "utf-8")
-    reads: list[tuple[str, str]] = []
 
-    def read(repo: Path, revision: str, rel_path: str) -> str:
-        reads.append((revision, rel_path))
-        return "def moved(): pass\ndef dropped(): pass\n"
+    git_fake.answer(lambda call: "merge-base" in call.argv, ProcessAnswer(stdout="merge-sha\n"))
+    git_fake.answer(
+        lambda call: "diff" in call.argv, ProcessAnswer(stdout="R100\0old_name.py\0new_name.py\0")
+    )
+    git_fake.answer(
+        lambda call: "ls-tree" in call.argv,
+        ProcessAnswer(stdout="100644 blob 1234567890abcdef1234567890abcdef12345678\told_name.py\0"),
+    )
+    git_fake.answer(
+        lambda call: "cat-file" in call.argv,
+        ProcessAnswer(stdout="def moved(): pass\ndef dropped(): pass\n"),
+    )
 
-    renamed = ChangedFile(change_type="renamed", path="new_name.py", old_path="old_name.py")
-    with (
-        patch("devops_cli.commands.analyze.find_repo_root", return_value=tmp_path),
-        patch("devops_cli.git.operations.resolve_merge_base", return_value="merge-sha"),
-        patch("devops_cli.git.operations.list_changed_files", return_value=[renamed]) as lister,
-        patch("devops_cli.git.operations.read_file_at_revision", side_effect=read),
-    ):
-        result = runner.invoke(
-            analyze_app, ["branch", "feature", "--base", "main", "--no-enhanced"]
-        )
+    result = runner.invoke(analyze_app, ["branch", "feature", "--base", "main", "--no-enhanced"])
 
     saved = AnalysisMetadata.model_validate_json(
         next((tmp_path / "analysis").glob("branch-*-metadata.json")).read_text("utf-8")
     )
+    diff_calls = [c.argv for c in git_fake.calls if "diff" in c.argv]
+    tree_calls = [c.argv for c in git_fake.calls if "ls-tree" in c.argv]
     assert (
         result.exit_code,
-        lister.call_args.args[1:],
-        reads,
+        bool(diff_calls and any("merge-sha" in arg and "feature" in arg for arg in diff_calls[0])),
+        bool(tree_calls and "merge-sha" in tree_calls[0] and "old_name.py" in tree_calls[0]),
         [
             (m.path, m.change_type, m.symbols_added, m.symbols_removed, m.symbols_retained)
             for m in saved.files
         ],
     ) == (
         0,
-        ("merge-sha", "feature"),
-        [("merge-sha", "old_name.py")],
+        True,
+        True,
         [("new_name.py", "renamed", ["fresh"], ["dropped"], ["moved"])],
     )
 
 
 def test_analyze_pr_dry_run_previews_and_contacts_no_service(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    github_api: GitHubApiFake,
+    git_fake: GitFake,
 ) -> None:
     """`analyze pr --dry-run` renders the preview and opens no GitHub session."""
     (tmp_path / ".git").mkdir(exist_ok=True)
     monkeypatch.chdir(tmp_path)
 
-    def forbidden(*_args: object, **_kwargs: object) -> None:
-        raise AssertionError("dry run contacted GitHub")
-
-    monkeypatch.setattr("devops_cli.github.session.get_github_session", forbidden)
-    monkeypatch.setattr("subprocess.run", forbidden)
-    monkeypatch.setattr("subprocess.Popen", forbidden)
-    with patch("devops_cli.commands.analyze.find_repo_root", return_value=tmp_path):
-        result = runner.invoke(analyze_app, ["pr", "42", "--dry-run"])
-        monkeypatch.setenv("DEVOPS_CLI_DRY_RUN", "true")
-        env_result = runner.invoke(analyze_app, ["pr", "42"])
+    result = runner.invoke(analyze_app, ["pr", "42", "--dry-run"])
+    monkeypatch.setenv("DEVOPS_CLI_DRY_RUN", "true")
+    env_result = runner.invoke(analyze_app, ["pr", "42"])
 
     assert result.exit_code == 0, result.output
     assert "Plan for AI analyze PR #42" in result.output
     assert "42" in result.output
     assert env_result.exit_code == 0, env_result.output
     assert not (tmp_path / ".data" / "analysis").exists()
+    assert github_api.sent == []
+    assert git_fake.calls == []

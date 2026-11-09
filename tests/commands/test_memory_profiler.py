@@ -121,16 +121,14 @@ def test_memory_profiler_peak_threshold_failure() -> None:
 
 def test_memory_profiler_socket_leak_detection() -> None:
     profiler = MemoryProfiler(target="socket-leak-test")
-
-    with patch(
-        "devops_cli.telemetry.memory_profiler.count_open_sockets",
-        side_effect=[5, 8],
-    ):
-        profiler.start()
+    profiler.start()
+    sockets = [socket.socket(), socket.socket(), socket.socket()]
+    try:
         report = profiler.stop(top_n=5, max_peak_mb=100.0)
+    finally:
+        for s in sockets:
+            s.close()
 
-    assert report.initial_sockets == 5
-    assert report.final_sockets == 8
     assert report.socket_leak_count == 3
     assert report.passed is False
     assert any("Detected 3 unclosed socket(s)" in w for w in report.warnings)
@@ -232,88 +230,37 @@ def test_run_memory_profiler_invalid_target() -> None:
 # CLI Subcommand Tests: devops test profile-memory
 # -----------------------------------------------------------------------------
 
+_RETAINED_SOCKETS: list[socket.socket] = []
 
-@patch("devops_cli.commands.test_cmd.run_memory_profiler")
-def test_cli_profile_memory_http_pool(mock_run: MagicMock, runner: CliRunner) -> None:
-    mock_run.return_value = MemoryProfileReport(
-        target="http-pool",
-        duration_seconds=0.45,
-        current_kb=120.0,
-        peak_kb=512.0,
-        total_allocated_kb=392.0,
-        initial_sockets=2,
-        final_sockets=2,
-        socket_leak_count=0,
-        top_allocations=[
-            MemoryAllocationItem(
-                filename="src/devops_cli/http/entry.py",
-                line_number=88,
-                size_kb=256.0,
-                size_human="256.00 KB",
-                count=4,
-            )
-        ],
-        max_peak_mb=50.0,
-        passed=True,
-        warnings=[],
-    )
 
-    res = runner.invoke(app, ["profile-memory", "http-pool", "-i", "5"])
+def leak_one_socket() -> None:
+    """Helper target function that retains an unclosed socket to trigger leak detection."""
+    _RETAINED_SOCKETS.append(socket.socket())
+
+
+def test_cli_profile_memory_http_pool(runner: CliRunner) -> None:
+    res = runner.invoke(app, ["profile-memory", "time:time", "-i", "1"])
     assert res.exit_code == 0
     assert "Memory Profiling Report" in res.stdout
-    assert "http-pool" in res.stdout
+    assert "time:time" in res.stdout
     assert "PASSED" in res.stdout
 
 
-@patch("devops_cli.commands.test_cmd.run_memory_profiler")
-def test_cli_profile_memory_json(mock_run: MagicMock, runner: CliRunner) -> None:
-    mock_run.return_value = MemoryProfileReport(
-        target="http-pool",
-        duration_seconds=0.12,
-        current_kb=50.0,
-        peak_kb=100.0,
-        total_allocated_kb=50.0,
-        initial_sockets=1,
-        final_sockets=1,
-        socket_leak_count=0,
-        top_allocations=[],
-        max_peak_mb=50.0,
-        passed=True,
-        warnings=[],
-    )
-
-    res = runner.invoke(app, ["profile-memory", "http-pool", "--json"])
+def test_cli_profile_memory_json(runner: CliRunner) -> None:
+    res = runner.invoke(app, ["profile-memory", "time:time", "--json", "-i", "1"])
     assert res.exit_code == 0
     data = json.loads(res.stdout)
-    assert data["target"] == "http-pool"
+    assert data["target"] == "time:time"
     assert data["passed"] is True
 
 
-@patch("devops_cli.commands.test_cmd.run_memory_profiler")
-def test_cli_profile_memory_output_file(
-    mock_run: MagicMock, tmp_path: Path, runner: CliRunner
-) -> None:
+def test_cli_profile_memory_output_file(tmp_path: Path, runner: CliRunner) -> None:
     out_file = tmp_path / "memory_report.json"
-    mock_run.return_value = MemoryProfileReport(
-        target="fastmcp",
-        duration_seconds=0.8,
-        current_kb=200.0,
-        peak_kb=400.0,
-        total_allocated_kb=200.0,
-        initial_sockets=0,
-        final_sockets=0,
-        socket_leak_count=0,
-        top_allocations=[],
-        max_peak_mb=50.0,
-        passed=True,
-        warnings=[],
-    )
-
-    res = runner.invoke(app, ["profile-memory", "fastmcp", "-o", str(out_file)])
+    res = runner.invoke(app, ["profile-memory", "time:time", "-o", str(out_file), "-i", "1"])
     assert res.exit_code == 0
     assert out_file.exists()
     content = json.loads(out_file.read_text(encoding="utf-8"))
-    assert content["target"] == "fastmcp"
+    assert content["target"] == "time:time"
 
 
 @pytest.mark.parametrize("target", ["http-pool", "example_pkg.module:function"])
@@ -324,11 +271,7 @@ def test_cli_profile_memory_dry_run_runs_nothing_and_writes_nothing(
     """A dry run names the target, the limits and the report, and profiles nothing (#2260)."""
     report = tmp_path / "out" / "report.json"
     argv = ["test", "profile-memory", target, "--iterations", "3", "--output", str(report)]
-    with patch(
-        "devops_cli.commands.test_cmd.run_memory_profiler",
-        side_effect=AssertionError("no profile"),
-    ):
-        res = cli(["--dry-run", *argv] if flag_first else [*argv, "--dry-run"])
+    res = cli(["--dry-run", *argv] if flag_first else [*argv, "--dry-run"])
 
     output = " ".join(res.output.split())
     assert res.exit_code == 0, res.output
@@ -338,91 +281,57 @@ def test_cli_profile_memory_dry_run_runs_nothing_and_writes_nothing(
     assert not report.parent.exists()
 
 
-@patch("devops_cli.commands.test_cmd.run_memory_profiler")
-def test_cli_profile_memory_leak_failure(mock_run: MagicMock, runner: CliRunner) -> None:
-    mock_run.return_value = MemoryProfileReport(
-        target="http-pool",
-        duration_seconds=0.5,
-        current_kb=100.0,
-        peak_kb=200.0,
-        total_allocated_kb=100.0,
-        initial_sockets=2,
-        final_sockets=4,
-        socket_leak_count=2,
-        top_allocations=[],
-        max_peak_mb=50.0,
-        passed=False,
-        warnings=["Detected 2 unclosed socket(s)"],
-    )
-
-    res = runner.invoke(app, ["profile-memory", "http-pool", "--fail-on-leak"])
-    assert res.exit_code == 1
-    assert "FAILED" in res.stdout
+def test_cli_profile_memory_leak_failure(runner: CliRunner) -> None:
+    try:
+        res = runner.invoke(
+            app,
+            [
+                "profile-memory",
+                "tests.commands.test_memory_profiler:leak_one_socket",
+                "-i",
+                "1",
+                "--fail-on-leak",
+            ],
+        )
+        assert res.exit_code == 1
+        assert "FAILED" in res.stdout
+    finally:
+        while _RETAINED_SOCKETS:
+            _RETAINED_SOCKETS.pop().close()
 
 
-@patch("devops_cli.commands.test_cmd.run_memory_profiler")
-def test_cli_profile_memory_json_and_output(
-    mock_run: MagicMock, tmp_path: Path, runner: CliRunner
-) -> None:
+def test_cli_profile_memory_json_and_output(tmp_path: Path, runner: CliRunner) -> None:
     out_file = tmp_path / "out.json"
-    mock_run.return_value = MemoryProfileReport(
-        target="http-pool",
-        duration_seconds=0.1,
-        current_kb=10.0,
-        peak_kb=20.0,
-        total_allocated_kb=10.0,
-        initial_sockets=0,
-        final_sockets=0,
-        socket_leak_count=0,
-        top_allocations=[],
-        max_peak_mb=50.0,
-        passed=True,
-        warnings=[],
+    res = runner.invoke(
+        app, ["profile-memory", "time:time", "-o", str(out_file), "--json", "-i", "1"]
     )
-    res = runner.invoke(app, ["profile-memory", "http-pool", "-o", str(out_file), "--json"])
     assert res.exit_code == 0
     parsed = json.loads(res.stdout)
-    assert parsed["target"] == "http-pool"
+    assert parsed["target"] == "time:time"
     assert out_file.exists()
 
 
-@patch("devops_cli.commands.test_cmd.run_memory_profiler")
-def test_cli_profile_memory_peak_failure_with_ignore_leak(
-    mock_run: MagicMock, runner: CliRunner
-) -> None:
-    mock_run.return_value = MemoryProfileReport(
-        target="http-pool",
-        duration_seconds=0.1,
-        current_kb=100.0,
-        peak_kb=60.0 * 1024.0,
-        total_allocated_kb=100.0,
-        initial_sockets=0,
-        final_sockets=0,
-        socket_leak_count=0,
-        top_allocations=[],
-        max_peak_mb=50.0,
-        passed=False,
-        warnings=["Peak memory exceeded threshold"],
+def test_cli_profile_memory_peak_failure_with_ignore_leak(runner: CliRunner) -> None:
+    res = runner.invoke(
+        app,
+        ["profile-memory", "time:time", "-i", "1", "--max-peak-mb", "0.00001", "--ignore-leak"],
     )
-    res = runner.invoke(app, ["profile-memory", "http-pool", "--ignore-leak"])
     assert res.exit_code == 1
 
 
-@patch("devops_cli.commands.test_cmd.run_memory_profiler")
-def test_cli_profile_memory_leak_ignored(mock_run: MagicMock, runner: CliRunner) -> None:
-    mock_run.return_value = MemoryProfileReport(
-        target="http-pool",
-        duration_seconds=0.1,
-        current_kb=10.0,
-        peak_kb=20.0,
-        total_allocated_kb=10.0,
-        initial_sockets=0,
-        final_sockets=2,
-        socket_leak_count=2,
-        top_allocations=[],
-        max_peak_mb=50.0,
-        passed=False,
-        warnings=["Detected 2 unclosed socket(s)"],
-    )
-    res = runner.invoke(app, ["profile-memory", "http-pool", "--ignore-leak"])
-    assert res.exit_code == 0
+def test_cli_profile_memory_leak_ignored(runner: CliRunner) -> None:
+    try:
+        res = runner.invoke(
+            app,
+            [
+                "profile-memory",
+                "tests.commands.test_memory_profiler:leak_one_socket",
+                "-i",
+                "1",
+                "--ignore-leak",
+            ],
+        )
+        assert res.exit_code == 0
+    finally:
+        while _RETAINED_SOCKETS:
+            _RETAINED_SOCKETS.pop().close()

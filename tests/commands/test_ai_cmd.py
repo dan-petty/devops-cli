@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock
 
 if TYPE_CHECKING:
+    from tests.support.fakes.keyring import FakeKeyring
     from tests.support.fakes.model import ModelFake
 
 import pytest
@@ -23,7 +24,6 @@ from devops_cli.commands.ai import (
     stream_interactive_chat_turn,
 )
 from devops_cli.config.defaults import DEFAULT_CHAT_INVARIANTS
-from devops_cli.config.os_keyring import SecretStorageError
 from devops_cli.config.settings import AIConfig
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
@@ -191,14 +191,8 @@ def test_ai_token_count_estimates_file(tmp_path: Path, cli: Callable[..., Any]) 
     assert (res.exit_code, "estimated_tokens" in res.stdout) == (0, True)
 
 
-def test_ai_bundle_models_archives_models(
-    tmp_path: Path, cli: Callable[..., Any], monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_ai_bundle_models_archives_models(tmp_path: Path, cli: Callable[..., Any]) -> None:
     """Verify bundle-models packs models into an archive."""
-    monkeypatch.setattr(
-        "devops_cli.ai.model_bundler.bundle_ollama_models",
-        lambda *a, **k: (2, tmp_path / "models.tar.gz"),
-    )
     res = cli("ai", "bundle-models", "--output", str(tmp_path))
     assert (res.exit_code, "Bundled 2 model" in res.stdout) == (0, True)
 
@@ -390,13 +384,10 @@ def test_ai_config_refuses_invalid_provider(cli: Callable[..., Any]) -> None:
 
 
 def test_ai_config_reports_keyring_error(
-    cli: Callable[..., Any], monkeypatch: pytest.MonkeyPatch
+    cli: Callable[..., Any], keyring_store: FakeKeyring
 ) -> None:
     """Verify keyring storage failures are reported gracefully."""
-    monkeypatch.setattr(
-        "devops_cli.commands.ai.dotted_set",
-        MagicMock(side_effect=SecretStorageError("Keyring locked")),
-    )
+    keyring_store.locked = True
     res = cli("ai", "config", "--api-key", "secret123")
     assert (res.exit_code, "Could not store ai.api_key" in (res.stdout + res.stderr)) == (
         1,
@@ -448,17 +439,19 @@ def test_ai_preload_preloads_ollama_endpoints(
 
 def test_ai_chat_interactive_session(
     cli: Callable[..., Any],
-    monkeypatch: pytest.MonkeyPatch,
     model_fake: ModelFake,
 ) -> None:
     """Verify interactive chat session processes turn and responds."""
-    mock_console = MagicMock()
-    mock_console.input.side_effect = ["How do I secure an ingress?", "exit"]
-    monkeypatch.setattr("devops_cli.commands.ai.get_console", lambda: mock_console)
-
     model_fake.answer("Hello! How can I help you?")
 
-    res = cli("ai", "chat", "--persona", "architect", "--no-stream")
+    res = cli(
+        "ai",
+        "chat",
+        "--persona",
+        "architect",
+        "--no-stream",
+        input="How do I secure an ingress?\nexit\n",
+    )
     assert res.exit_code == 0
     assert "Hello! How can I help you?" in res.stdout
 
@@ -491,31 +484,41 @@ def test_ai_chat_markdown_response_rendering(
     cli: Callable[..., Any],
     config: Callable[..., Path],
     refusing_port: int,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Verify devops ai chat formats responses containing Markdown syntax using Rich Markdown.
 
     The chat prewarms the faked model, and Qdrant is down, refused through `refusing_port`.
     """
-    config(qdrant={"url": f"http://127.0.0.1:{refusing_port}"})
-    mock_console = MagicMock()
-    mock_console.input.side_effect = ["How do I list pods?", "exit"]
-    monkeypatch.setattr("devops_cli.commands.ai.get_console", lambda: mock_console)
-    monkeypatch.setattr("devops_cli.output.console.get_console", lambda: mock_console)
-
-    model_fake.answer(
-        "Here is the solution:\n```bash\ndevops k8s pods\n```\n- Point 1: Fast\n- Point 2: Secure"
-    )
-
-    res_chat = cli("ai", "chat", "--persona", "architect", "--no-stream")
-    assert res_chat.exit_code == 0
     from rich.markdown import Markdown
 
+    from devops_cli.commands.ai import render_chat_response
+
+    mock_console = MagicMock()
+    render_chat_response(
+        "Here is the solution:\n```bash\ndevops k8s pods\n```\n- Point 1: Fast\n- Point 2: Secure",
+        console=mock_console,
+    )
     has_md = any(
         len(c.args) > 0 and isinstance(c.args[0], Markdown)
         for c in mock_console.print.call_args_list
     )
     assert has_md is True
+
+    config(qdrant={"url": f"http://127.0.0.1:{refusing_port}"})
+    model_fake.answer(
+        "Here is the solution:\n```bash\ndevops k8s pods\n```\n- Point 1: Fast\n- Point 2: Secure"
+    )
+
+    res_chat = cli(
+        "ai",
+        "chat",
+        "--persona",
+        "architect",
+        "--no-stream",
+        input="How do I list pods?\nexit\n",
+    )
+    assert res_chat.exit_code == 0
+    assert "Here is the solution:" in res_chat.stdout
 
 
 def test_a_cut_stream_stores_no_reply_in_chat_memory() -> None:
@@ -565,36 +568,21 @@ def test_a_failed_streamed_turn_leaves_memory_as_it_was(
     case_type: str,
     expected_output_fragment: str,
     model_fake: ModelFake,
-    monkeypatch: pytest.MonkeyPatch,
     cli: Callable[..., Any],
 ) -> None:
     """Verify failed or interrupted streamed turn leaves chat history intact."""
-    turn_count = 0
+    if case_type == "client_error":
+        model_fake.route_error("p1", AIClientError("Provider stream ended before its final frame."))
+    else:
+        model_fake.route_error("p1", KeyboardInterrupt())
+    model_fake.answer("r2")
 
-    def fake_stream(*args: Any, **kwargs: Any) -> Any:
-        nonlocal turn_count
-        turn_count += 1
-        if turn_count == 1:
-            if case_type == "client_error":
-                raise AIClientError("Provider stream ended before its final frame.")
-            raise KeyboardInterrupt
-        model_fake.answer("r2")
-
-    monkeypatch.setattr(
-        "devops_cli.commands.ai.stream_interactive_chat_turn",
-        fake_stream,
-    )
-
-    mock_console = MagicMock()
-    mock_console.input.side_effect = ["p1", "p2", "exit"]
-    monkeypatch.setattr("devops_cli.commands.ai.get_console", lambda: mock_console)
-
-    res = cli("ai", "chat", "--no-tools", "--no-rag", "--no-prewarm")
+    res = cli("ai", "chat", "--no-tools", "--no-rag", "--no-prewarm", input="p1\np2\nexit\n")
 
     assert (
         res.exit_code,
         expected_output_fragment in (res.stdout + res.stderr),
-        turn_count,
+        len(model_fake.calls),
     ) == (0, True, 2)
 
 
@@ -617,7 +605,6 @@ def test_chat_seeds_the_invariants(
     unserved_side_channel_port: int,
     config: Callable[..., Path],
     cli: Callable[..., Any],
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Verify devops ai chat seeds DEFAULT_CHAT_INVARIANTS on both non-stream and stream paths.
 
@@ -636,10 +623,6 @@ def test_chat_seeds_the_invariants(
     # 1. Non-stream path with tools enabled
     model_fake.answer("r1")
 
-    mock_console = MagicMock()
-    mock_console.input.side_effect = ["p1", "exit"]
-    monkeypatch.setattr("devops_cli.commands.ai.get_console", lambda: mock_console)
-
     res_non_stream = cli(
         "ai",
         "chat",
@@ -648,6 +631,7 @@ def test_chat_seeds_the_invariants(
         "--no-stream",
         "--no-rag",
         "--no-prewarm",
+        input="p1\nexit\n",
     )
     assert res_non_stream.exit_code == 0
     assert len(model_fake.calls) >= 1
@@ -661,10 +645,6 @@ def test_chat_seeds_the_invariants(
     model_fake.reset()
     model_fake.answer("r1")
 
-    mock_console_2 = MagicMock()
-    mock_console_2.input.side_effect = ["p1", "exit"]
-    monkeypatch.setattr("devops_cli.commands.ai.get_console", lambda: mock_console_2)
-
     res_stream = cli(
         "ai",
         "chat",
@@ -673,6 +653,7 @@ def test_chat_seeds_the_invariants(
         "--no-tools",
         "--no-rag",
         "--no-prewarm",
+        input="p1\nexit\n",
     )
     assert res_stream.exit_code == 0
     assert len(model_fake.calls) >= 1
@@ -784,18 +765,17 @@ def test_extract_stage_tool_calls_and_run_pipeline_stage() -> None:
     calls = _extract_stage_tool_calls(mock_res)
     assert calls == [("k8s_describe", {"pod": "test-pod"})]
 
-    mock_agent = MagicMock()
-    mock_agent.run_sync.return_value = MagicMock(
+    mock_run_result = MagicMock(
         new_messages=lambda: [dummy_msg],
         output="Stage completed",
     )
 
-    with patch("devops_cli.ai.client.factory.build_agent", return_value=mock_agent):
+    with patch("pydantic_ai.Agent.run_sync", return_value=mock_run_result):
         output, tool_count = _run_pipeline_stage(
             Persona.ARCHITECT,
             stage_index=1,
             current_prompt="Assess architecture",
-            settings=Settings(),
+            settings=Settings(ai={"ollama_urls": ["http://localhost:11434"]}),
         )
         assert output == "Stage completed"
         assert tool_count == 1
