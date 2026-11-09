@@ -457,3 +457,89 @@ def test_ollama_model_waits_the_configured_timeout(
     assert [(call["model"], call["urls"], call["timeout"]) for call in built] == [
         ("ollama:qwen3:8b", ["http://example.com:11434"], 12.0)
     ]
+
+
+def _planner_tool_choice(remote_bridge: Any, web: WebFake, model: str) -> Any:
+    """The `tool_choice` that an agent with a tool output (the shape of the stage planner) sends
+    to the gateway for `model`, read from the request body that the web fake recorded."""
+    import json
+
+    from pydantic import BaseModel
+    from pydantic_ai import Agent
+
+    class Proposal(BaseModel):
+        summary: str
+
+    web.respond(
+        "POST",
+        f"{_EXAMPLE_GATEWAY}/chat/completions",
+        200,
+        {
+            "id": "chatcmpl-1",
+            "object": "chat.completion",
+            "created": 1,
+            "model": model,
+            "choices": [
+                {
+                    "index": 0,
+                    "finish_reason": "tool_calls",
+                    "message": {
+                        "role": "assistant",
+                        "content": None,
+                        "tool_calls": [
+                            {
+                                "id": "call_1",
+                                "type": "function",
+                                "function": {
+                                    "name": "final_result",
+                                    "arguments": json.dumps({"summary": "ok"}),
+                                },
+                            }
+                        ],
+                    },
+                }
+            ],
+            "usage": {"prompt_tokens": 3, "completion_tokens": 2, "total_tokens": 5},
+        },
+    )
+    resolved = remote_bridge.resolve_pydantic_ai_model(
+        model, settings=_remote_settings("gateway", gateway_url=_EXAMPLE_GATEWAY)
+    )
+
+    result = Agent(resolved, output_type=Proposal).run_sync("go")
+
+    assert result.output.summary == "ok"
+    (request,) = [call for call in web.recorded if call.url.endswith("/chat/completions")]
+    return json.loads(request.body)["tool_choice"]
+
+
+@pytest.mark.parametrize("model", ["claude-sonnet-5-5", "claude-haiku-5-5"])
+def test_a_claude_group_is_sent_tool_choice_auto_for_a_tool_output(
+    remote_bridge: Any, web: WebFake, model: str
+) -> None:
+    """Verify an agent with a tool output sends `auto` to a Claude group of the gateway, which
+    refuses `required` with a 400 that the gateway fallback then hides (#4205)."""
+    assert _planner_tool_choice(remote_bridge, web, model) == "auto"
+
+
+@pytest.mark.parametrize("model", ["devops-chat", "deepseek-v4.1-flash-1017"])
+def test_a_model_that_is_not_a_claude_group_keeps_the_default_tool_choice(
+    remote_bridge: Any, web: WebFake, model: str
+) -> None:
+    """Verify the default profile stays for a model that is not a Claude group: the agent
+    still forces the tool output with `required` (#4205)."""
+    assert _planner_tool_choice(remote_bridge, web, model) == "required"
+
+
+def test_a_claude_group_profile_allows_no_forced_tool_choice(remote_bridge: Any) -> None:
+    """Verify the profile of a Claude group says that it supports no forced tool choice, and the
+    profile of another model says that it does (#4205)."""
+    settings = _remote_settings("gateway", gateway_url=_EXAMPLE_GATEWAY)
+
+    claude = remote_bridge.resolve_pydantic_ai_model("claude-sonnet-5-5", settings=settings)
+    other = remote_bridge.resolve_pydantic_ai_model("devops-chat", settings=settings)
+
+    assert (
+        claude.profile.get("supports_forced_tool_choice", True),
+        other.profile.get("supports_forced_tool_choice", True),
+    ) == (False, True)

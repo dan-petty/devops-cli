@@ -330,3 +330,112 @@ def test_trace_facts_from_a_zero_call_trace() -> None:
 
     assert facts.tools == frozenset()
     assert facts.paths == frozenset()
+
+
+_ANSWERS_SERIES = "devops_cli_ai_model_answers_total"
+
+
+def _answered(model_name: str | None) -> ModelResponse:
+    return ModelResponse(
+        parts=[TextPart("ok")],
+        usage=RequestUsage(input_tokens=10, output_tokens=2),
+        model_name=model_name,
+    )
+
+
+def _answers(
+    monkeypatch: pytest.MonkeyPatch, asked: str, replies: Sequence[ModelResponse]
+) -> list[tuple[float, dict[str, str]]]:
+    """The (value, labels) of each answer count that a run of `replies` to a model asked for
+    `asked` emits."""
+    emitted: list[tuple[float, dict[str, str]]] = []
+
+    def record(instrument: Any, value: float, labels: dict[str, str] | None = None) -> None:
+        if instrument.name == _ANSWERS_SERIES:
+            emitted.append((value, labels or {}))
+
+    monkeypatch.setattr("devops_cli.telemetry.instruments.emit", record)
+    record_run_spend(
+        FunctionModel(lambda m, i: _reply(1, 1), model_name=asked),
+        [ModelRequest(parts=[UserPromptPart("go")]), *replies],
+        0.5,
+        stage="analysis",
+    )
+    return emitted
+
+
+def test_a_fallback_answer_is_counted_with_the_model_that_answered(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify a slot that reads Sonnet while DeepSeek answers shows in the answer count (#4205)."""
+    emitted = _answers(monkeypatch, "claude-sonnet-5-5", [_answered("deepseek-v4.1-flash-1017")])
+
+    assert emitted == [
+        (
+            1,
+            {
+                "asked": "claude-sonnet-5-5",
+                "answered": "deepseek-v4.1-flash-1017",
+                "fallback": "true",
+            },
+        )
+    ]
+
+
+@pytest.mark.parametrize(
+    ("asked", "answered"),
+    [
+        ("claude-sonnet-5-5", "claude-sonnet-5-5"),
+        ("qwen3-coder:30b", "ollama_chat/qwen3-coder:30b"),
+        ("hf.co/example/model-GGUF:Q4", "ollama_chat/hf.co/example/model-GGUF:Q4"),
+    ],
+    ids=["same", "provider-prefix", "provider-prefix-on-a-path"],
+)
+def test_the_asked_model_with_a_provider_prefix_is_no_fallback(
+    monkeypatch: pytest.MonkeyPatch, asked: str, answered: str
+) -> None:
+    """Verify a reply that names the asked model under a provider prefix counts as no fallback."""
+    emitted = _answers(monkeypatch, asked, [_answered(answered)])
+
+    assert emitted == [(1, {"asked": asked, "answered": answered, "fallback": "false"})]
+
+
+def test_each_reply_of_a_run_is_counted_under_the_model_that_answered_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify a run whose replies come from two models adds one count to each series."""
+    emitted = _answers(
+        monkeypatch,
+        "claude-sonnet-5-5",
+        [_answered("claude-sonnet-5-5"), _answered("deepseek-v4.1-flash-1017")],
+    )
+
+    assert sorted((labels["answered"], labels["fallback"], value) for value, labels in emitted) == [
+        ("claude-sonnet-5-5", "false", 1),
+        ("deepseek-v4.1-flash-1017", "true", 1),
+    ]
+
+
+def test_a_reply_that_names_no_model_adds_no_answer_count(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify a reply with no model name adds no series, so nothing reads as a fallback."""
+    assert _answers(monkeypatch, "claude-sonnet-5-5", [_answered(None)]) == []
+
+
+def test_the_spend_record_keeps_the_model_that_answered(spend_ledger: SpendLedger) -> None:
+    """Verify the record names the asked model in `model` and the answering model in
+    `served_model`, so a slot cannot read Sonnet while DeepSeek answers (#4205)."""
+    record_run_spend(
+        FunctionModel(lambda m, i: _reply(1, 1), model_name="claude-sonnet-5-5"),
+        [
+            ModelRequest(parts=[UserPromptPart("go")]),
+            _answered("deepseek-v4.1-flash-1017"),
+        ],
+        0.5,
+        stage="analysis",
+    )
+
+    with contextlib.closing(sqlite3.connect(spend_ledger.db_path)) as conn:
+        rows = conn.execute("SELECT model, served_model FROM ai_spend_records").fetchall()
+    assert rows == [("claude-sonnet-5-5", "deepseek-v4.1-flash-1017")]

@@ -184,3 +184,18 @@ The warning that names a hosted model that neither genai-prices nor a price over
 #### Scenario: A price override of the deployment model
 - **WHEN** a price override of `deepseek-v4.1-flash-1017:floor` is 0.05 USD input and 0.192 USD output per million tokens
 - **THEN** a call of 1,000,000 prompt and 1,000,000 completion tokens costs 0.242 USD with the source `custom_override`
+
+### Requirement: A run records and counts the model that answered
+`record_run_spend` SHALL store the model name of the replies of a run in `served_model` of the spend record, and SHALL add 1 for each reply to `devops_cli_ai_model_answers_total` with the labels `asked`, `answered` and `fallback`. `fallback` SHALL be `true` when the answered model is neither the asked model nor the asked model under a provider prefix, and `false` otherwise. A reply with no model name SHALL add no count.
+
+#### Scenario: Another model answers
+- **WHEN** a run of `claude-sonnet-5-5` ends with a reply that names `deepseek-v4.1-flash-1017`
+- **THEN** the record has `model` `claude-sonnet-5-5` and `served_model` `deepseek-v4.1-flash-1017`, and the count has `fallback` `true`
+
+#### Scenario: The asked model answers under a provider prefix
+- **WHEN** a run of `qwen3-coder:30b` ends with a reply that names `ollama_chat/qwen3-coder:30b`
+- **THEN** the count has `fallback` `false`
+
+#### Scenario: A reply names no model
+- **WHEN** a run ends with a reply that has no model name
+- **THEN** the run adds no answer count

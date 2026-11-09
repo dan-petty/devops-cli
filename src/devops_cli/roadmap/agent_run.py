@@ -328,20 +328,43 @@ def _outcome_of(
     return (ToolOutcome.OK if text.strip() else ToolOutcome.EMPTY), len(text), None
 
 
+def _is_fallback(asked: str, answered: str) -> bool:
+    """Whether `answered`, the model that a reply names, is another model than `asked`. A
+    gateway may name the asked model under a provider prefix (`ollama_chat/<asked>`), which is
+    no fallback."""
+    return answered != asked and not answered.endswith(f"/{asked}")
+
+
 def record_run_spend(
     model: Any, messages: Sequence[ModelMessage], seconds: float, *, stage: str
 ) -> None:
     """One spend record for the run's model replies, under `stage`; none when the run got no
     reply. A model the bridge sends to a gateway names the gateway's URL in `served_by`, and its
-    record names the provider `gateway`, as `LLMClient`'s records do."""
+    record names the provider `gateway`, as `LLMClient`'s records do.
+
+    The record keeps the model asked for in `model` and the model of the last reply that names
+    one in `served_model`. Each reply that names its model adds one count to
+    `devops_cli_ai_model_answers_total`, with the labels asked, answered and fallback, so a slot
+    that reads one model while a gateway fallback answers with another shows (#4205)."""
+    from devops_cli.telemetry.instruments import AI_MODEL_ANSWERS_TOTAL, emit
+
     replies = [message for message in messages if isinstance(message, ModelResponse)]
     if not replies:
         return
+    asked = str(getattr(model, "model_name", "unknown"))
+    answered = [reply.model_name for reply in replies if reply.model_name]
+    for name in answered:
+        emit(
+            AI_MODEL_ANSWERS_TOTAL,
+            1,
+            {"asked": asked, "answered": name, "fallback": str(_is_fallback(asked, name)).lower()},
+        )
     served_by = getattr(model, "served_by", None)
     track_request_spend(
         provider=CONST_AI_GATEWAY_PROVIDER if served_by else str(getattr(model, "system", "")),
-        model=str(getattr(model, "model_name", "unknown")),
+        model=asked,
         server=urlsplit(served_by).netloc if served_by else "unknown",
+        served_model=answered[-1] if answered else None,
         prompt_tokens=sum(reply.usage.input_tokens for reply in replies),
         completion_tokens=sum(reply.usage.output_tokens for reply in replies),
         request_type="agent_run",
