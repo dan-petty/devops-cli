@@ -4,16 +4,16 @@
 
 Reads: `k8s/monitoring/prometheus-values.yaml`, `tests/prometheus/test_k8s_monitoring_alerting.py`, `tests/fixtures/prometheus_rules/research_tests.yaml`, `src/devops_cli/telemetry/instruments.py`. Changes: `k8s/monitoring/prometheus-values.yaml`, `tests/prometheus/test_k8s_monitoring_alerting.py`, `tests/fixtures/prometheus_rules/ai_spend_tests.yaml`.
 
-- [ ] 1.1 Write the tests of the group `ai-spend`: the rule set, the thresholds and selectors, the README rows and the promtool fixture with the series that fire and the series that do not
+- [x] 1.1 Write the tests of the group `ai-spend`: the rule set, the thresholds and selectors, the README rows and the promtool fixture with the series that fire and the series that do not
   - Verification: `$ uv run devops ci test tests/prometheus/test_k8s_monitoring_alerting.py`
-- [ ] 1.2 Add the group `ai-spend` with `ClaudeSpendDailyHigh` and `HostedSpendDailyHigh` to `k8s/monitoring/prometheus-values.yaml`
+- [x] 1.2 Add the group `ai-spend` with `ClaudeSpendDailyHigh` and `HostedSpendDailyHigh` to `k8s/monitoring/prometheus-values.yaml`
   - Verification: `$ uv run devops ci test tests/prometheus/test_k8s_monitoring_alerting.py`
 
 ## 2. List the alerts in the README
 
 Reads: `k8s/README.md`. Changes: `k8s/README.md`.
 
-- [ ] 2.1 Add a row for each alert to the alert table of the section "Alerting" of `k8s/README.md`
+- [x] 2.1 Add a row for each alert to the alert table of the section "Alerting" of `k8s/README.md`
   - Verification: `$ uv run devops ci test tests/prometheus/test_k8s_monitoring_alerting.py`
 
 ## Criteria

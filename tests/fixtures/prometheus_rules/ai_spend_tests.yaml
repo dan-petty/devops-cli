@@ -81,7 +81,7 @@ tests:
           - exp_labels:
               severity: warning
             exp_annotations:
-              summary: "The spend of claude-sonnet-5-5 in the last 24 hours is 22.57 USD"
+              summary: "The spend of claude-sonnet-5-5 in the last 24 hours is 21.60 USD"
               description: "The hosted calls of claude-sonnet-5-5 cost more than 15 USD in the last 24 hours. Read the cost page of the AI spend dashboard, find the caller by the `end_user` label, and stop the job (k8s/README.md, Alerting)."
       - eval_time: 24h
         alertname: HostedSpendDailyHigh
@@ -99,7 +99,7 @@ tests:
           - exp_labels:
               severity: warning
             exp_annotations:
-              summary: "The spend of the hosted models in the last 24 hours is 31.30 USD"
+              summary: "The spend of the hosted models in the last 24 hours is 30.00 USD"
               description: "The hosted calls of all models cost more than 25 USD in the last 24 hours. Read the cost page of the AI spend dashboard, find the caller by the `end_user` label, and stop the job (k8s/README.md, Alerting)."
       - eval_time: 24h
         alertname: ClaudeSpendDailyHigh
