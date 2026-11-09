@@ -633,8 +633,6 @@ def _evaluate_tiered_status(sub_results: list[SubAgentResult]) -> str:
     successes = sum(1 for r in sub_results if r.status == "success")
     if successes == len(sub_results):
         return "completed"
-    if successes > 0:
-        return "partial"
     return "failed"
 
 
@@ -657,8 +655,7 @@ def _summarize_search(task: str, status: str, sub_results: list[SubAgentResult])
         finding_clauses.append(f"{scouted_files} matched file(s)")
 
     findings_text = " and ".join(finding_clauses) if finding_clauses else "nothing"
-    prefix = "Some searches failed; found" if status == "partial" else "Found"
-    return f"{prefix} {findings_text} for task '{task}'."
+    return f"Found {findings_text} for task '{task}'."
 
 
 def _describe_search(symbol_query: str | None, file_pattern: str | None) -> str:
