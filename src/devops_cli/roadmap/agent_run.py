@@ -26,12 +26,14 @@ from pydantic_ai.messages import (
 )
 
 from devops_cli.ai.client.models import AIClientError, AICredentialsError
+from devops_cli.ai.schema_reflection import ViolationText
 from devops_cli.ai.spend import track_request_spend
 from devops_cli.config.constants import (
     CONST_AI_GATEWAY_PROVIDER,
     CONST_ROADMAP_RUN_ERROR_CHARS,
     CONST_ROADMAP_RUN_ERROR_READ_CHARS,
     CONST_ROADMAP_RUN_TRACE_ARGUMENT_CHARS,
+    CONST_ROADMAP_STAGE_VIOLATIONS_SHOWN,
 )
 from devops_cli.security.sanitizer import mask_secret_named_values, mask_secrets
 
@@ -197,7 +199,7 @@ class ToolCallRecord:
 class RunTrace:
     """What a run of an agent did (#3037): its tool calls in order, the count of its model
     requests, its input and output tokens, the count of schema violations in the last retry
-    prompt of its output tool, the names of the function tools that each request offered, in
+    prompt of its output tool, the masked text of the first of them (#4269), the names of the function tools that each request offered, in
     order (#3477), and the text of each tool answer, which a quote of the run may come from
     (#3039). A request that offered none holds an empty tuple. `limit` is the limit that ended the
     tools of the run, or None (#3240). `last_input_tokens` is the input of the last request, the one
@@ -209,6 +211,7 @@ class RunTrace:
     input_tokens: int = 0
     output_tokens: int = 0
     violations: int = 0
+    violation_texts: tuple[ViolationText, ...] = ()
     offered: list[tuple[str, ...]] = field(default_factory=list)
     limit: RunLimit | None = None
     tool_answers: list[str] = field(default_factory=list)
@@ -228,6 +231,7 @@ class RunTrace:
             total.input_tokens += trace.input_tokens
             total.output_tokens += trace.output_tokens
             total.violations = trace.violations or total.violations
+            total.violation_texts = trace.violation_texts or total.violation_texts
             total.last_input_tokens = trace.last_input_tokens or total.last_input_tokens
             total.limit = trace.limit or total.limit
         return total
@@ -294,7 +298,22 @@ class RunTrace:
     def _add_violations(self, request: ModelRequest, tools: Collection[str]) -> None:
         for part in request.parts:
             if isinstance(part, RetryPromptPart) and part.tool_name not in tools:
-                self.violations = len(part.content) if isinstance(part.content, list) else 0
+                errors = part.content if isinstance(part.content, list) else []
+                self.violations = len(errors)
+                self.violation_texts = tuple(
+                    _violation_text(error)
+                    for error in errors[:CONST_ROADMAP_STAGE_VIOLATIONS_SHOWN]
+                )
+
+
+def _violation_text(error: Mapping[str, Any]) -> ViolationText:
+    """The text of one pydantic error of a retry prompt: its location joined by dots (`root` for a
+    reply that is no JSON object), its type and its message. The input value of the error is
+    dropped."""
+    loc = ".".join(str(step) for step in error.get("loc", ())) or "root"
+    return ViolationText(
+        loc=loc, type=str(error.get("type", "")), message=str(error.get("msg", ""))
+    )
 
 
 def _answers(messages: Sequence[ModelMessage]) -> dict[str, ToolReturnPart | RetryPromptPart]:

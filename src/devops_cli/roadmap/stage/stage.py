@@ -230,7 +230,13 @@ from devops_cli.roadmap.stage.stage_removal_references import scan_removal_refer
 from devops_cli.roadmap.stage.stage_request import StageRequest, gate_arguments
 from devops_cli.roadmap.stage.stage_specs import BaseSpec, read_base_specs
 from devops_cli.roadmap.stage.stage_split import ask_split
-from devops_cli.roadmap.stage.stage_toolbox import PLAN_ROW, ToolboxClient, ToolboxModel, review
+from devops_cli.roadmap.stage.stage_toolbox import (
+    PLAN_ROW,
+    ToolboxClient,
+    ToolboxModel,
+    review,
+    violation_summary,
+)
 from devops_cli.roadmap.stage.stage_validate import validate_change
 from devops_cli.roadmap.stage.stage_verify import (
     PLAN_NEEDS_FIX_LABEL,
@@ -1107,7 +1113,7 @@ class _Planner:
         is logged."""
         floor = len(self._toolbox_traces())
         refused: list[tuple[StageProposal, str]] = []
-        proposal = first or self._ask(StageProposal, CHANGE_TASK, request.for_model())
+        proposal = first or self._ask_plan(target, key, refused, request.for_model())
         if _is_degenerate(proposal):
             self._stop_degenerate(target, key, refused, proposal, floor)
         outcome = self._settle(target, proposal, request, trace=self._trace_facts())
@@ -1119,7 +1125,7 @@ class _Planner:
                 "previous": outcome.reply.model_dump(),
                 "problem": outcome.problem,
             }
-            proposal = self._ask(StageProposal, CHANGE_TASK, again)
+            proposal = self._ask_plan(target, key, refused, again)
             if _is_degenerate(proposal):
                 self._stop_degenerate(target, key, refused, proposal, floor)
             outcome = self._settle(target, proposal, request, trace=self._trace_facts())
@@ -1130,6 +1136,27 @@ class _Planner:
             message = MESSAGES.roadmap.stage_invalid.format(problem=outcome.problem)
             raise _stage_error(message, target)
         return outcome
+
+    def _ask_plan(
+        self,
+        target: StageTarget,
+        key: str | None,
+        refused: Sequence[tuple[StageProposal, str]],
+        request: Mapping[str, Any],
+    ) -> StageProposal:
+        """The plan reply for `request`. A reply that breaks the schema past its retries never
+        reaches the checks, so it is logged here with its violations, and kept in the refused file
+        beside the replies that the checks refused before it (#4269)."""
+        try:
+            return self._ask(StageProposal, CHANGE_TASK, request)
+        except StructuredOutputValidationError as exc:
+            logger.warning(
+                "stage reply broke the schema: item=#%d %s",
+                target.item.number,
+                violation_summary(exc),
+            )
+            self._keep_refused(target, key, refused, exc)
+            raise
 
     def _toolbox_traces(self) -> list[RunTrace]:
         """The runs of the toolbox client so far, or an empty list when no toolbox client ran."""
@@ -1154,15 +1181,19 @@ class _Planner:
         )
 
     def _keep_refused(
-        self, target: StageTarget, key: str | None, refused: Sequence[tuple[StageProposal, str]]
+        self,
+        target: StageTarget,
+        key: str | None,
+        refused: Sequence[tuple[StageProposal, str]],
+        schema_failure: StructuredOutputValidationError | None = None,
     ) -> None:
-        """Write the refused replies of the item with their problems, as the item failed. A run
-        with no plan files keeps nothing."""
+        """Write the refused replies of the item with their problems, and its schema failure, as
+        the item failed. A run with no plan files keeps nothing."""
         files = self._plan_files
         if files is None or key is None:
             return
         record = RefusedRecord.of(
-            key, [(reply.model_dump(), problem) for reply, problem in refused]
+            key, [(reply.model_dump(), problem) for reply, problem in refused], schema_failure
         )
         write_refused_record(refused_record_path(files.repo, target.item.number), record)
 
@@ -1597,7 +1628,7 @@ def _failure_of(
     """The failure that `exc` made of the item. A model's error says its class and the count of
     schema violations, never the reply."""
     if isinstance(exc, StructuredOutputValidationError):
-        reason = MESSAGES.roadmap.stage_violations.format(count=exc.violations)
+        reason = violation_summary(exc)
     elif isinstance(exc, AIClientError):
         reason = ""
     else:

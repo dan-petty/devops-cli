@@ -3181,6 +3181,15 @@ CONST_ROADMAP_STAGE_SPEC_MAX_CHARS: Final[int] = 16000
 # So the file is at most about 2 x (128 KiB + 8,000 characters) in size.
 CONST_ROADMAP_STAGE_REFUSED_REPLY_MAX_BYTES: Final[int] = 131_072
 CONST_ROADMAP_STAGE_REFUSED_PROBLEM_MAX_CHARS: Final[int] = 8_000
+# A failure of the plan run for a broken schema (#4269) names at most 3 violations. Each of their
+# texts (the location, the type and the message) is masked for secrets and cut to 200 characters,
+# so the failure line, the log and the refused-reply file stay small and hold no model text of any
+# size.
+CONST_ROADMAP_STAGE_VIOLATIONS_SHOWN: Final[int] = 3
+CONST_ROADMAP_STAGE_VIOLATION_TEXT_MAX_CHARS: Final[int] = 200
+# The refused-reply file also holds a schema failure (#4269): its count, its stop reason and at most
+# `CONST_ROADMAP_STAGE_VIOLATIONS_SHOWN` violations of at most
+# 3 x 200 characters each, a few KiB in all.
 # The first plan request (#3477): the repository context and the body of the item each have a fixed
 # cap that does not grow with the window. A cap is also at most a share of a small window
 # (`_WINDOW_SHARE_CONTEXT` and `_WINDOW_SHARE_BODY` in the stage module). For the planner window of

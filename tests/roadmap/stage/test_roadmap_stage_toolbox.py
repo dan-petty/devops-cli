@@ -923,12 +923,12 @@ def test_a_reply_that_breaks_the_schema_twice_keeps_the_text_of_its_violations(
         _plan(client)
 
     error = caught.value
-    assert sorted((v.loc, v.type) for v in error.details) == [
+    assert sorted((v.loc, v.type) for v in error.violation_texts) == [
         ("groups.0.changes", "too_short"),
         ("why", "missing"),
     ]
     assert (error.violations, error.stop_reason) == (2, "validation")
-    assert client.traces[0].violation_texts == error.details
+    assert client.traces[0].violation_texts == error.violation_texts
 
 
 def test_a_reply_with_five_violations_keeps_three_texts_and_the_count_of_five(
@@ -941,7 +941,7 @@ def test_a_reply_with_five_violations_keeps_three_texts_and_the_count_of_five(
     with pytest.raises(StructuredOutputValidationError) as caught:
         _plan(client)
 
-    assert (caught.value.violations, len(caught.value.details)) == (5, 3)
+    assert (caught.value.violations, len(caught.value.violation_texts)) == (5, 3)
 
 
 def test_a_reply_of_text_that_is_no_json_names_the_root_and_the_type_json_invalid(
@@ -952,7 +952,7 @@ def test_a_reply_of_text_that_is_no_json_names_the_root_and_the_type_json_invali
     with pytest.raises(StructuredOutputValidationError) as caught:
         _plan(client)
 
-    assert [(v.loc, v.type) for v in caught.value.details] == [("root", "json_invalid")]
+    assert [(v.loc, v.type) for v in caught.value.violation_texts] == [("root", "json_invalid")]
     assert caught.value.stop_reason == "validation"
 
 
@@ -964,7 +964,7 @@ def test_a_reply_that_calls_no_tool_of_the_run_raises_with_the_stop_reason_no_to
     with pytest.raises(StructuredOutputValidationError) as caught:
         _plan(client)
 
-    assert (caught.value.violations, caught.value.details, caught.value.stop_reason) == (
+    assert (caught.value.violations, caught.value.violation_texts, caught.value.stop_reason) == (
         0,
         (),
         "no tool call",

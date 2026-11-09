@@ -332,7 +332,7 @@ def _broken(
     return StructuredOutputValidationError(
         "The plan run stopped before it gave a plan.",
         violations=len(texts) if count is None else count,
-        details=texts,
+        violation_texts=texts,
         stop_reason=stop_reason,
     )
 
