@@ -268,6 +268,8 @@ def test_cost_command_breaks_spend_down_by_backend(
         pytest.param("http://user:pw@example.com:11434", "example.com:11434", id="url-userinfo"),
         pytest.param("example.com:11434", "example.com:11434", id="bare-authority"),
         pytest.param("example.com:", "unknown", id="no-server"),
+        pytest.param("http://[::1", "unknown", id="unreadable-url"),
+        pytest.param("http://localhost:11434", "localhost:11434", id="local-url"),
     ],
 )
 def test_cost_command_names_a_serving_backend_by_its_host_and_port(
