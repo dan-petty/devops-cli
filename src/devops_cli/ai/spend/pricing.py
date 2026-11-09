@@ -371,22 +371,40 @@ def _query_genai_prices(
 class PricingRegistry:
     """Registry maintaining AI model pricing with genai-prices and custom overrides."""
 
-    def __init__(self, data_dir: Path | None = None) -> None:
+    def __init__(self, data_dir: Path | None = None, settings: Settings | None = None) -> None:
+        """Build the registry on `data_dir`, else on the data directory of the settings.
+
+        The prices of `ai.price_overrides` come from `settings`, else from the loaded settings
+        when `data_dir` is None. A registry on a `data_dir` with no `settings` reads no setting.
+        """
         if data_dir is not None:
             self.data_dir = Path(data_dir)
         else:
-            settings = load_settings()
+            settings = settings or load_settings()
             # Beside the spend ledger, which a review records into too (#972).
             self.data_dir = resolve_review_data_path(Path(settings.data.dir))
         self.ai_dir = self.data_dir / "ai"
         self.overrides_path = self.ai_dir / DEFAULT_AI_PRICING_OVERRIDES_FILENAME
         self.snapshot_path = self.ai_dir / "pricing_snapshot.json"
         self._catalog: dict[str, ModelPricing] = {}
+        # The prices that a person set (the file) and the prices that the settings hold. The file
+        # wins for one model, and `set-price` saves only the first, so the settings stay the
+        # owner of their prices (#4242).
         self._overrides: dict[str, ModelPricing] = {}
+        self._configured_overrides: dict[str, ModelPricing] = {}
         self._pricing_cache: dict[str, ModelPricing] = {}
         # The unpriced models already warned about. A process keeps one registry, so it warns
         # once for each model (#1672).
         self._warned_unpriced: set[tuple[str, ...]] = set()
+        if settings is not None:
+            self._configured_overrides = {
+                name.strip().lower(): ModelPricing(
+                    prompt_usd_per_million=price.prompt_usd_per_million,
+                    completion_usd_per_million=price.completion_usd_per_million,
+                    source="settings:ai.price_overrides",
+                )
+                for name, price in settings.ai.price_overrides.items()
+            }
         self._load_local_data()
 
     def _load_local_data(self) -> None:
@@ -468,14 +486,15 @@ class PricingRegistry:
 
     def _get_override_pricing(self, model: str, server: str | None) -> ModelPricing | None:
         """Resolve custom pricing override if configured for model or server."""
+        overrides = {**self._configured_overrides, **self._overrides}
         m_key = model.strip().lower()
-        if m_key in self._overrides:
-            return self._overrides[m_key]
+        if m_key in overrides:
+            return overrides[m_key]
         norm_key = _normalize_model_name(model)
-        if norm_key in self._overrides:
-            return self._overrides[norm_key]
+        if norm_key in overrides:
+            return overrides[norm_key]
         if server:
-            srv_pricing = self._overrides.get(server.strip().lower())
+            srv_pricing = overrides.get(server.strip().lower())
             if srv_pricing is not None:
                 return srv_pricing
         return None
@@ -686,6 +705,7 @@ class PricingRegistry:
         if not self._catalog:
             self._catalog = self._build_catalog()
         merged = dict(self._catalog)
+        merged.update(self._configured_overrides)
         merged.update(self._overrides)
         return merged
 

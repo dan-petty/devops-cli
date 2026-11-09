@@ -83,7 +83,7 @@ Container `service` of `deployment/roadmap-service` SHALL request `768Mi` of mem
 - **THEN** the test fails and its message names #4116
 
 ### Requirement: The ConfigMap template names the reference models
-The ConfigMap template `k8s/devops/configmap.example.yaml` SHALL set `ai.reference_model` to `qwen3.8:27b` and `ai.reference_embedding_model` to `qwen/qwen3-embedding-8b`, so the spend reports of the Service value local tokens at the hosted prices of these two models. The comment above the keys SHALL give the owner decision, its date 2026-11-09, the three prices and the file `pricing_overrides.json` that holds them.
+The ConfigMap template `k8s/devops/configmap.example.yaml` SHALL set `ai.reference_model` to `qwen3.8:27b` and `ai.reference_embedding_model` to `qwen/qwen3-embedding-8b`, so the spend reports of the Service value local tokens at the hosted prices of these two models. The comment above the keys SHALL give the owner decision, its date 2026-11-09, the three prices, and the file `pricing_overrides.json` whose price wins over the price in the template.
 
 #### Scenario: The rendered template is read
 - **WHEN** the ConfigMap is rendered from the repository's template and validated as settings
@@ -92,3 +92,10 @@ The ConfigMap template `k8s/devops/configmap.example.yaml` SHALL set `ai.referen
 #### Scenario: The comment is read
 - **WHEN** the comment lines above `reference_model` in the template are read
 - **THEN** they name the date 2026-11-09, the prices 0.035, 1.50 and 0.01, and the file `pricing_overrides.json`
+
+### Requirement: The ConfigMap template holds the prices of the reference models
+The ConfigMap template SHALL set `ai.price_overrides` for both reference models, so a new data volume needs no hand step: 0.035 USD input and 1.50 USD output per million tokens for `qwen3.8:27b`, and 0.01 USD input and 0 USD output for `qwen/qwen3-embedding-8b`.
+
+#### Scenario: The rendered template is read for prices
+- **WHEN** the ConfigMap is rendered from the repository's template and validated as settings
+- **THEN** `ai.price_overrides` holds 0.035 and 1.50 for `qwen3.8:27b` and 0.01 and 0 for `qwen/qwen3-embedding-8b`

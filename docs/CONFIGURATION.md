@@ -203,6 +203,7 @@ AI code review, multi-agent pipelines, RAG semantic search, and embeddings.
 | `reference_model` | `str` | `gpt-4o` | `DEVOPS_CLI_AI_REFERENCE_MODEL` | Hosted chat model whose genai-prices price values the local chat tokens in the AI spend reports |
 | `reference_embedding_model` | `str` | `text-embedding-3-small` | `DEVOPS_CLI_AI_REFERENCE_EMBEDDING_MODEL` | Hosted embedding model whose genai-prices price values the local embedding tokens in the AI spend reports |
 | `reference_provider` | `str` | `openai` | `DEVOPS_CLI_AI_REFERENCE_PROVIDER` | Provider in genai-prices of the two reference models |
+| `price_overrides` | `dict` | `{}` | - | Price of a model that genai-prices does not know, by model name. A price in the file `pricing_overrides.json` of the data directory wins over the price here for the same model |
 | `hardware_cost_usd` | `float` | `0.0` | `DEVOPS_CLI_AI_HARDWARE_COST_USD` | Cost in USD of the local AI hardware, which `devops ai cost` compares with the savings |
 | `reasoning_effort` | `Union` | - | `DEVOPS_CLI_AI_REASONING_EFFORT` | AI reasoning effort level (low | medium | high) |
 | `supports_reasoning` | `bool` | `False` | - | - |
