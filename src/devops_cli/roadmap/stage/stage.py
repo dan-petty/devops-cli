@@ -202,6 +202,7 @@ from devops_cli.roadmap.stage.stage_overlap import (
 from devops_cli.roadmap.stage.stage_paths import StagedTree, record_test_references
 from devops_cli.roadmap.stage.stage_pending import PendingStage, orphan_mark
 from devops_cli.roadmap.stage.stage_plan_record import (
+    PlanFacts,
     RefusedRecord,
     StagePlanRecord,
     delete_plan_record,
@@ -1022,6 +1023,8 @@ class _Planner:
         self._premise: FalsePremise | None = None
         # The number of GraphQL requests that read the open pull requests of the item in hand.
         self._pull_requests = 0
+        # The trace facts of the kept plan in hand, for the trace gate (#4281).
+        self._kept_facts: TraceFacts | None = None
 
     def plan(self, target: StageTarget) -> StagedChange | OverBudget | Blocked | FalsePremise:
         """The change of `target`, or the group that stops it. A reply the checks refuse goes back
@@ -1033,6 +1036,14 @@ class _Planner:
         self._premise = None
         self._traces.clear()
         kept, key = self._kept(target)
+        # A plain client has no trace and its gate is off, on a hit as on a miss.
+        self._kept_facts = (
+            kept.facts.trace()
+            if kept is not None
+            and kept.facts is not None
+            and isinstance(self._client, ToolboxClient)
+            else None
+        )
         if kept is None:
             request = self._request(target)
             if self._premise is not None:
@@ -1057,12 +1068,19 @@ class _Planner:
         return outcome
 
     def _trace_facts(self) -> TraceFacts | None:
-        """The facts of every plan run of the item so far, or None when no plan run happened. The
-        reply that follows a return keeps the claims of the first reply, so the calls of the first
-        run support it. A review run is no plan run: its reads support no claim of the planner
-        (#4257)."""
+        """The facts of the kept plan and of every plan run of the item so far, or None when
+        neither exists. The reply that follows a return keeps the claims of the first reply, so the
+        calls of the first run support it, and a revision of a kept plan keeps the claims of the run
+        that made the plan (#4281). A review run is no plan run: its reads support no claim of the
+        planner (#4257)."""
         plans = [trace for trace in self._toolbox_traces() if trace.row == PLAN_ROW]
-        return TraceFacts.of(RunTrace.combined(plans)) if plans else None
+        kept = self._kept_facts
+        if kept is None and not plans:
+            return None
+        run = TraceFacts.of(RunTrace.combined(plans))
+        if kept is None:
+            return run
+        return TraceFacts(tools=kept.tools | run.tools, paths=kept.paths | run.paths)
 
     def _kept(self, target: StageTarget) -> tuple[StagePlanRecord | None, str | None]:
         """The kept plan of the item and its key, (None, None) for a run that keeps no file. A
@@ -1073,6 +1091,9 @@ class _Planner:
             return None, None
         path, key = files.path(target.item.number), files.key(target.item)
         kept = read_plan_record(path, key)
+        if kept is not None and kept.facts is None:
+            # A file of an older job holds no facts for the trace gate: plan the item again.
+            kept = None
         if kept is None:
             delete_plan_record(path)
         emit(ROADMAP_STAGE_PLAN_RECORD_TOTAL, 1, {"result": "miss" if kept is None else "hit"})
@@ -1094,7 +1115,12 @@ class _Planner:
             return
         write_plan_record(
             files.path(target.item.number),
-            StagePlanRecord(key=key, proposal=proposal, request=request),
+            StagePlanRecord(
+                key=key,
+                proposal=proposal,
+                request=request,
+                facts=PlanFacts.of(self._trace_facts(), proposal),
+            ),
         )
         emit(ROADMAP_STAGE_PLAN_RECORD_TOTAL, 1, {"result": "written"})
 

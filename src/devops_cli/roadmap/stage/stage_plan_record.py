@@ -1,7 +1,8 @@
 """The plan that passes the gates of the stage job, kept as one file for each item (#4064), and the
 replies that the gates refuse, kept in a file beside it (#4204).
 
-The file holds the `StageProposal` and the `StageRequest` of the plan, under a key of the input:
+The file holds the `StageProposal` and the `StageRequest` of the plan, and the trace facts of the
+run that made it (#4281), under a key of the input:
 the item number, the title, the hashes of the body, the model name, the toolset name and the prompt
 version. A rerun or `--confirm` with the same key reads the file and sends the planner no request;
 the gates and the review run again on the current commit. The staged commit is no part of the key.
@@ -26,6 +27,7 @@ from devops_cli.config.constants import (
 from devops_cli.exceptions.roadmap import RoadmapStageError
 from devops_cli.lang import MESSAGES
 from devops_cli.output.file_writer import write_json_file
+from devops_cli.roadmap.agent_run import TraceFacts
 from devops_cli.roadmap.body_hash import body_hashes
 from devops_cli.roadmap.stage.stage_change import CHANGE_TASK, StageProposal
 from devops_cli.roadmap.stage.stage_request import StageRequest
@@ -47,14 +49,43 @@ _PROMPTS: Final[tuple[str, ...]] = (CHANGE_TASK, SPLIT_TASK, TOOLS_TASK)
 _STAGE_DIRECTORY: Final[str] = "stage"
 
 
+class PlanFacts(BaseModel):
+    """The trace facts of the plan runs that made a kept plan (#4281): the names of the tools that
+    they called, and the paths that they read and that the Feasibility section of the plan cites.
+    The trace gate needs the facts of the run that made the claims, and a plan read from the file
+    has no run in the process. The file is bounded by the toolset and by the text of the plan:
+    `_uncalled_path` compares a code span of the Feasibility text with the paths, so a path that
+    the text does not hold supports no claim."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    tools: list[str]
+    paths: list[str]
+
+    @classmethod
+    def of(cls, facts: TraceFacts | None, proposal: StageProposal) -> Self:
+        """The facts of `facts` for `proposal`, empty when no plan run made `facts` (None)."""
+        facts = facts or TraceFacts()
+        text = "\n".join(proposal.feasibility)
+        return cls(
+            tools=sorted(facts.tools), paths=sorted(path for path in facts.paths if path in text)
+        )
+
+    def trace(self) -> TraceFacts:
+        """The facts for the trace gate."""
+        return TraceFacts(tools=frozenset(self.tools), paths=frozenset(self.paths))
+
+
 class StagePlanRecord(BaseModel):
-    """A plan that passed the gates, with the request that the gates read."""
+    """A plan that passed the gates, with the request that the gates read and the trace facts of its
+    run. `facts` is None in a file of an older job: the planner plans such an item again."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     key: str
     proposal: StageProposal
     request: StageRequest
+    facts: PlanFacts | None = None
 
 
 class RefusedReply(BaseModel):
