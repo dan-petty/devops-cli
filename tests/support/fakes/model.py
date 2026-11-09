@@ -595,11 +595,11 @@ class ModelFake(Model):
         return ModelAnswer(content=self.default_response)
 
     def _materialize_answer(self, candidate: AnswerType, prompt: str) -> ModelAnswer:
-        if callable(candidate) and not isinstance(candidate, (type, BaseModel, Exception)):
+        if callable(candidate) and not isinstance(candidate, (type, BaseModel, BaseException)):
             return self._materialize_answer(candidate(prompt), prompt)
-        if isinstance(candidate, type) and issubclass(candidate, Exception):
+        if isinstance(candidate, type) and issubclass(candidate, BaseException):
             raise candidate("Model error")
-        if isinstance(candidate, Exception):
+        if isinstance(candidate, BaseException):
             raise candidate
         if isinstance(candidate, str):
             return ModelAnswer(content=candidate)

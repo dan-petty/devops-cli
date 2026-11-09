@@ -301,7 +301,7 @@ def analyze_path(  # noqa: C901
         planned = plan_ai_analyze_path(target)
         render_request_plan(f"Plan for AI analyze path on '{target}'", planned)
         return
-    repo = find_repo_root(target)
+    repo = find_repo_root()
     target_abs = target.resolve() if target.is_absolute() else (repo / target).resolve()
 
     if not target_abs.exists():

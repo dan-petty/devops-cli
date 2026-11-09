@@ -479,7 +479,7 @@ def test_the_roadmap_tests_mirror_the_roadmap_subpackages() -> None:
 # The command-test directories that patch no name inside devops-cli (#3769). A group of
 # `tests/commands/` joins this list when its pull request removes its last patch, and #1336 widens
 # the list to the whole directory.
-_PATCH_FREE_COMMAND_TEST_DIRECTORIES = ("tests/commands/k8s",)
+_PATCH_FREE_COMMAND_TEST_DIRECTORIES = ("tests/commands", "tests/commands/k8s")
 _PATCH_CALLS = frozenset({"patch", "setattr"})
 
 

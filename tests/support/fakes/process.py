@@ -38,6 +38,7 @@ class ProcessCall:
     local_read: bool = False
     stdin: str | bytes | None = None
     check: bool = False
+    isolate_env: bool = True
     # Started with `spawn_detached`: in a session of its own, with nothing to wait for.
     detached: bool = False
     # The names of ambient variables the caller lets the child inherit besides the base set.
@@ -296,6 +297,7 @@ class ProcessFake:
             local_read=local_read,
             stdin=stdin if stdin is not None else input,
             check=check,
+            isolate_env=kwargs.get("isolate_env", True),
             extra_allowed_env=frozenset(kwargs.get("extra_allowed_env") or ()),
         )
         self.calls.append(call)
@@ -349,7 +351,13 @@ class ProcessFake:
 
         With no `process` scripted, the child has ended at once with the answer's return code.
         """
-        call = ProcessCall(argv=tuple(cmd), capture_output=False, detached=True)
+        call = ProcessCall(
+            argv=tuple(cmd),
+            capture_output=False,
+            detached=True,
+            isolate_env=isolate_env,
+            extra_allowed_env=frozenset(extra_allowed_env or ()),
+        )
         self.calls.append(call)
         ans = self._match_answer(call)
         if isinstance(ans.side_effect, BaseException):

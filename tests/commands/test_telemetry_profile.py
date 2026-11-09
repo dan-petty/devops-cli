@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import json
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from typing import Any
 
+import httpx2
 import pytest
 from typer.testing import CliRunner
 
+from devops_cli.commands import telemetry
 from devops_cli.commands.telemetry import app
 from devops_cli.telemetry.tracer import (
     build_span_waterfall_tree,
@@ -18,6 +21,9 @@ from devops_cli.telemetry.tracer import (
     get_trace_spans,
     trace_span,
 )
+from tests.support.fakes.clock import ClockFake
+from tests.support.fakes.http import WebFake
+from tests.support.fakes.process import ProcessAnswer, ProcessFake
 
 runner = CliRunner()
 
@@ -103,18 +109,27 @@ def _span(
     return span
 
 
-def _profile_tracer(enabled: bool = True) -> MagicMock:
-    tracer = MagicMock(enabled=enabled)
-    tracer.current_trace_id = _TRACE
-    return tracer
+def _tempo_payload(spans: list[dict[str, Any]]) -> dict[str, Any]:
+    raw_spans = []
+    for s in spans:
+        raw_span = {
+            "traceId": s.get("traceId", _TRACE),
+            "spanId": s["spanId"],
+            "name": s["name"],
+            "startTimeUnixNano": str(s["startTimeUnixNano"]),
+            "endTimeUnixNano": str(s["endTimeUnixNano"]),
+            "status": {"code": "STATUS_CODE_OK"},
+        }
+        if "parentSpanId" in s:
+            raw_span["parentSpanId"] = s["parentSpanId"]
+        raw_spans.append(raw_span)
+    return {"batches": [{"scopeSpans": [{"spans": raw_spans}]}]}
 
 
 @pytest.fixture
 def no_poll_wait(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("devops_cli.commands.telemetry.DEFAULT_TELEMETRY_PROFILE_POLL_SECONDS", 0.0)
-    monkeypatch.setattr(
-        "devops_cli.commands.telemetry.DEFAULT_TELEMETRY_PROFILE_POLL_INTERVAL_SECONDS", 0.0
-    )
+    monkeypatch.setattr(telemetry, "DEFAULT_TELEMETRY_PROFILE_POLL_SECONDS", 0.0)
+    monkeypatch.setattr(telemetry, "DEFAULT_TELEMETRY_PROFILE_POLL_INTERVAL_SECONDS", 0.0)
 
 
 def test_profile_without_a_command_or_trace_exits_with_usage() -> None:
@@ -123,62 +138,70 @@ def test_profile_without_a_command_or_trace_exits_with_usage() -> None:
     assert (result.exit_code, "--trace-id" in result.output) == (2, True)
 
 
-def test_profile_refuses_a_command_when_telemetry_export_is_off() -> None:
-    with (
-        patch("devops_cli.commands.telemetry.get_tracer", return_value=_profile_tracer(False)),
-        patch("devops_cli.core.process.run_subprocess") as mock_run,
-    ):
-        result = runner.invoke(app, ["profile", "devops version"])
-    assert (result.exit_code, mock_run.called, "export is off" in result.output) == (1, False, True)
+def test_profile_refuses_a_command_when_telemetry_export_is_off(
+    config: Callable[..., Path], process_fake: ProcessFake
+) -> None:
+    from devops_cli.telemetry.tracer import reset_tracer
+
+    config(telemetry={"enabled": False})
+    reset_tracer()
+    result = runner.invoke(app, ["profile", "devops version"])
+    assert (result.exit_code, process_fake.calls, "export is off" in result.output) == (1, [], True)
 
 
 @pytest.mark.parametrize(
     "command",
     ["bash -c true", "/usr/local/bin/devops version", "env devops version", "devops 'version", " "],
 )
-def test_profile_refuses_anything_but_a_devops_command(command: str, no_poll_wait: None) -> None:
+def test_profile_refuses_anything_but_a_devops_command(
+    command: str, config: Callable[..., Path], process_fake: ProcessFake, no_poll_wait: None
+) -> None:
     """`profile` split any command line with `shlex` and ran it with the full environment.
 
     Reached through the MCP tool, that let a prompt-injected agent run any program with every
     credential in reach (#980). A command line whose first word is not `devops`, or that does
     not split, is refused before a process starts.
     """
-    with (
-        patch("devops_cli.commands.telemetry.get_tracer", return_value=_profile_tracer()),
-        patch("devops_cli.core.process.run_subprocess") as mock_run,
-        patch("devops_cli.commands.telemetry.query_tempo_trace", return_value=[]),
-    ):
-        result = runner.invoke(app, ["profile", command])
+    from devops_cli.telemetry.tracer import reset_tracer
+
+    config(telemetry={"enabled": True})
+    reset_tracer()
+    result = runner.invoke(app, ["profile", command])
     assert (
         result.exit_code,
-        mock_run.called,
+        process_fake.calls,
         "only a devops-cli command" in result.output,
-    ) == (1, False, True)
+    ) == (1, [], True)
 
 
-def test_profile_runs_a_devops_command_through_the_entry_point(no_poll_wait: None) -> None:
+def test_profile_runs_a_devops_command_through_the_entry_point(
+    config: Callable[..., Path], process_fake: ProcessFake, web: WebFake, no_poll_wait: None
+) -> None:
     """`devops` names the entry point this interpreter runs, not whatever is first on PATH.
 
     `-P` keeps the working directory off `sys.path`, as it is for the `devops` script.
     """
     import sys
 
-    with (
-        patch("devops_cli.commands.telemetry.get_tracer", return_value=_profile_tracer()),
-        patch(
-            "devops_cli.core.process.run_subprocess",
-            return_value=subprocess.CompletedProcess(["devops"], 0),
-        ) as mock_run,
-        patch(
-            "devops_cli.commands.telemetry.query_tempo_trace",
-            return_value=[_span("a1", "telemetry.profile", None, 0, 10)],
-        ),
-    ):
-        result = runner.invoke(app, ["profile", "devops version"])
+    from devops_cli.telemetry.tracer import reset_tracer
+
+    config(telemetry={"enabled": True})
+    reset_tracer()
+    process_fake.answer(["devops", ...], ProcessAnswer(returncode=0))
+    span = _span("a1", "telemetry.profile", None, 0, 10)
+    web.serve(
+        lambda req: (
+            httpx2.Response(200, json=_tempo_payload([span]))
+            if "/api/v2/traces/" in str(req.url)
+            else None
+        )
+    )
+
+    result = runner.invoke(app, ["profile", "devops version"])
     assert (
         result.exit_code,
-        mock_run.call_args.args[0],
-        mock_run.call_args.kwargs["isolate_env"],
+        list(process_fake.calls[0].argv),
+        process_fake.calls[0].isolate_env,
     ) == (0, [sys.executable, "-P", "-m", "devops_cli.entry", "version"], False)
 
 
@@ -206,38 +229,47 @@ def test_profile_child_imports_nothing_from_the_working_directory(tmp_path: Path
     assert (proc.returncode, proc.stderr) == (0, b"")
 
 
-def test_profile_shows_the_child_spans_tempo_recorded(no_poll_wait: None) -> None:
+def test_profile_shows_the_child_spans_tempo_recorded(
+    config: Callable[..., Path], process_fake: ProcessFake, web: WebFake, no_poll_wait: None
+) -> None:
     """The child's spans come back from Tempo under the trace the profile span handed it."""
+    from devops_cli.telemetry.tracer import reset_tracer
+
+    config(telemetry={"enabled": True})
+    reset_tracer()
+    process_fake.answer(["devops", ...], ProcessAnswer(returncode=0))
     spans = [
         _span("a1", "telemetry.profile", None, 0, 40),
         _span("b2", "subprocess.devops", "a1", 1, 39),
         _span("c3", "child.k8s.contexts", "b2", 5, 30),
     ]
-    with (
-        patch("devops_cli.commands.telemetry.get_tracer", return_value=_profile_tracer()),
-        patch(
-            "devops_cli.core.process.run_subprocess",
-            return_value=subprocess.CompletedProcess(["devops"], 0),
-        ) as mock_run,
-        patch("devops_cli.commands.telemetry.query_tempo_trace", return_value=spans) as mock_query,
-    ):
-        result = runner.invoke(app, ["profile", "devops k8s contexts"])
+    web.serve(
+        lambda req: (
+            httpx2.Response(200, json=_tempo_payload(spans))
+            if "/api/v2/traces/" in str(req.url)
+            else None
+        )
+    )
+
+    result = runner.invoke(app, ["profile", "devops k8s contexts"])
     assert (
         result.exit_code,
         "child.k8s.contexts" in result.output,
-        mock_query.call_args[0][0],
-        mock_run.call_args.kwargs["isolate_env"],
-    ) == (0, True, _TRACE, False)
+        process_fake.calls[0].isolate_env,
+    ) == (0, True, False)
 
 
-def test_profile_output_follows_what_tempo_holds(no_poll_wait: None) -> None:
+def test_profile_output_follows_what_tempo_holds(web: WebFake, no_poll_wait: None) -> None:
     """Different spans in Tempo give a different waterfall for the same trace."""
     first = [_span("a1", "first.span", None, 0, 10)]
     second = [_span("a1", "second.span", None, 0, 10)]
-    with patch("devops_cli.commands.telemetry.query_tempo_trace", side_effect=[first, first]):
-        before = runner.invoke(app, ["profile", "--trace-id", _TRACE])
-    with patch("devops_cli.commands.telemetry.query_tempo_trace", side_effect=[second, second]):
-        after = runner.invoke(app, ["profile", "--trace-id", _TRACE])
+
+    web.respond("GET", f"http://localhost:3200/api/v2/traces/{_TRACE}", 200, _tempo_payload(first))
+    before = runner.invoke(app, ["profile", "--trace-id", _TRACE])
+
+    web.respond("GET", f"http://localhost:3200/api/v2/traces/{_TRACE}", 200, _tempo_payload(second))
+    after = runner.invoke(app, ["profile", "--trace-id", _TRACE])
+
     assert (
         "first.span" in before.output,
         "second.span" in after.output,
@@ -245,32 +277,39 @@ def test_profile_output_follows_what_tempo_holds(no_poll_wait: None) -> None:
     ) == (True, True, False)
 
 
-def test_profile_waits_until_the_trace_stops_growing() -> None:
+def test_profile_waits_until_the_trace_stops_growing(web: WebFake, clock: ClockFake) -> None:
     """Spans reach Tempo asynchronously, so a half-exported trace is read again."""
     from devops_cli.commands.telemetry import _read_trace_from_tempo
 
     parent = _span("a1", "parent", None, 0, 10)
     child = _span("b2", "child", "a1", 1, 9)
-    with (
-        patch(
-            "devops_cli.commands.telemetry.query_tempo_trace",
-            side_effect=[[], [parent], [parent, child], [parent, child]],
-        ),
-        patch("devops_cli.commands.telemetry.time.sleep"),
-    ):
-        spans = _read_trace_from_tempo(_TRACE, "http://localhost:3200")
+    sequence = [
+        _tempo_payload([]),
+        _tempo_payload([parent]),
+        _tempo_payload([parent, child]),
+        _tempo_payload([parent, child]),
+    ]
+    it = iter(sequence)
+
+    web.serve(
+        lambda req: (
+            httpx2.Response(200, json=next(it)) if "/api/v2/traces/" in str(req.url) else None
+        )
+    )
+
+    spans = _read_trace_from_tempo(_TRACE, "http://localhost:3200")
     assert [s["name"] for s in spans] == ["parent", "child"]
 
 
-def test_profile_exits_non_zero_when_tempo_has_no_spans(no_poll_wait: None) -> None:
-    with patch("devops_cli.commands.telemetry.query_tempo_trace", return_value=[]):
-        result = runner.invoke(app, ["profile", "--trace-id", _TRACE])
+def test_profile_exits_non_zero_when_tempo_has_no_spans(web: WebFake, no_poll_wait: None) -> None:
+    web.respond("GET", f"http://localhost:3200/api/v2/traces/{_TRACE}", 200, _tempo_payload([]))
+    result = runner.invoke(app, ["profile", "--trace-id", _TRACE])
     assert (result.exit_code, "check the collector" in result.output) == (1, True)
 
 
-def test_profile_json_output(no_poll_wait: None) -> None:
+def test_profile_json_output(web: WebFake, no_poll_wait: None) -> None:
     spans = [_span("a1", "root", None, 0, 20), _span("b2", "leaf", "a1", 2, 18)]
-    with patch("devops_cli.commands.telemetry.query_tempo_trace", return_value=spans):
-        result = runner.invoke(app, ["profile", "--trace-id", _TRACE, "--json"])
+    web.respond("GET", f"http://localhost:3200/api/v2/traces/{_TRACE}", 200, _tempo_payload(spans))
+    result = runner.invoke(app, ["profile", "--trace-id", _TRACE, "--json"])
     data = json.loads(result.output)
     assert (result.exit_code, data["trace_id"], data["span_count"]) == (0, _TRACE, 2)

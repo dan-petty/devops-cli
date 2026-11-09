@@ -27,22 +27,20 @@ def test_serve_invalid_transport(runner: CliRunner) -> None:
 
 def test_serve_stdio_calls_run_mcp_server(runner: CliRunner) -> None:
     """devops mcp serve --transport stdio must delegate to run_mcp_server."""
-    with patch("devops_cli.commands.mcp.run_mcp_server") as mock_run:
+    with patch("fastmcp.FastMCP.run") as mock_run:
         result = runner.invoke(app, ["serve", "--transport", "stdio"])
         assert result.exit_code == 0
-        mock_run.assert_called_once_with(
-            transport="stdio", host="127.0.0.1", port=8000, allow_remote=False
-        )
+        mock_run.assert_called_once_with(transport="stdio", show_banner=False)
 
 
 def test_serve_sse_calls_run_mcp_server(runner: CliRunner) -> None:
     """devops mcp serve --transport sse must pass host and port to run_mcp_server."""
-    with patch("devops_cli.commands.mcp.run_mcp_server") as mock_run:
+    with patch("fastmcp.FastMCP.run") as mock_run:
         result = runner.invoke(
             app, ["serve", "--transport", "sse", "--host", "::1", "--port", "9090"]
         )
         assert result.exit_code == 0
-        mock_run.assert_called_once_with(transport="sse", host="::1", port=9090, allow_remote=False)
+        mock_run.assert_called_once_with(transport="sse", host="::1", port=9090)
 
 
 @pytest.mark.parametrize(
@@ -61,7 +59,7 @@ def test_mcp_serve_dry_run_lists_the_bind_and_the_start(
 ) -> None:
     """A dry run starts no server and lists what the start would bind and start."""
     full = ["mcp", "serve", *argv]
-    with patch("devops_cli.commands.mcp.run_mcp_server", side_effect=AssertionError("no server")):
+    with patch("fastmcp.FastMCP.run", side_effect=AssertionError("no server")):
         result = cli(["--dry-run", *full] if flag_first else [*full, "--dry-run"])
 
     assert result.exit_code == 0, result.output
@@ -70,7 +68,7 @@ def test_mcp_serve_dry_run_lists_the_bind_and_the_start(
 
 def test_mcp_serve_dry_run_refuses_what_the_start_refuses(cli: Any) -> None:
     """A bad transport and a remote `sse` host end the dry run as they end the start."""
-    with patch("devops_cli.commands.mcp.run_mcp_server", side_effect=AssertionError("no server")):
+    with patch("fastmcp.FastMCP.run", side_effect=AssertionError("no server")):
         bad = cli(["mcp", "serve", "--transport", "grpc", "--dry-run"])
         remote = cli(["mcp", "serve", "--transport", "sse", "--host", "192.0.2.10", "--dry-run"])
 
@@ -82,7 +80,7 @@ def test_mcp_serve_starts_what_its_plan_lists(cli: Any) -> None:
     """The start receives the host, the port and the transport of the plan."""
     argv = ["mcp", "serve", "--transport", "sse", "--host", "::1", "--port", "9090"]
     planned = _plan_lines(cli([*argv, "--dry-run"]).output)
-    with patch("devops_cli.commands.mcp.run_mcp_server") as start:
+    with patch("fastmcp.FastMCP.run") as start:
         result = cli(argv)
 
     assert result.exit_code == 0, result.output
