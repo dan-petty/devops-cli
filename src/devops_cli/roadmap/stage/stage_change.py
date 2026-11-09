@@ -230,6 +230,13 @@ SECURITY_TRIGGER_WORDS: Final[tuple[str, ...]] = (
     "loosened",
     "loosening",
 )
+# A trigger word matches as a word, not inside a longer word, so `egress` does not match
+# `regression` (#4254). A letter next to the match ends it; an underscore, a hyphen or a digit
+# does not, so `egress_policy` still matches. An optional plural ending covers `credentials`.
+_SECURITY_WORD_PATTERNS: Final[tuple[re.Pattern[str], ...]] = tuple(
+    re.compile(rf"(?<![a-z]){re.escape(word)}(?:e?s)?(?![a-z])", re.IGNORECASE)
+    for word in SECURITY_TRIGGER_WORDS
+)
 # An entry of `dependencies` that names an issue which must be delivered first: `#<number>: <reason>`
 # (#3224). An overlap or a metric sender keeps its own form, so the reader skips it.
 _ISSUE_DEPENDENCY: Final[re.Pattern[str]] = re.compile(r"^#(?P<number>[0-9]+):")
@@ -1361,9 +1368,8 @@ def _matched_security_trigger(proposal: StageProposal) -> str | None:
         path_lower = path.casefold()
         if any(path_lower in t.casefold() for t in texts):
             return path
-    for word in SECURITY_TRIGGER_WORDS:
-        word_lower = word.casefold()
-        if any(word_lower in t.casefold() for t in texts):
+    for word, pattern in zip(SECURITY_TRIGGER_WORDS, _SECURITY_WORD_PATTERNS, strict=True):
+        if any(pattern.search(t) for t in texts):
             return word
     return None
 
