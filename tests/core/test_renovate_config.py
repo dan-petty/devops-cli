@@ -208,3 +208,47 @@ def test_grafana_plugin_updates_stay_on_the_pinned_major_one_plugin_a_pull_reque
         any("grafanaDependency" in note for note in rule["prBodyNotes"]),
         any("{{{depName}}}/versions/{{{newVersion}}}" in note for note in rule["prBodyNotes"]),
     ) == (1, f"<{max(majors) + 1}.0.0", ["type/chore", "scope/infra"], False, True, True)
+
+
+def test_terraform_updates_carry_the_infra_label() -> None:
+    """Terraform updates in tf/ carry the infra taxonomy labels."""
+    (rule,) = [r for r in _renovate()["packageRules"] if r.get("matchManagers") == ["terraform"]]
+    assert rule["labels"] == ["type/chore", "scope/infra"]
+
+
+def test_devcontainer_and_precommit_updates_carry_the_ci_label() -> None:
+    """Devcontainer and pre-commit hook updates carry the CI taxonomy labels."""
+    renovate = _renovate()
+    devcontainer_rule = next(
+        r for r in renovate["packageRules"] if r.get("matchManagers") == ["devcontainer"]
+    )
+    precommit_rule = next(
+        r for r in renovate["packageRules"] if r.get("matchManagers") == ["pre-commit"]
+    )
+    assert (devcontainer_rule["labels"], precommit_rule["labels"]) == (
+        ["type/chore", "scope/ci"],
+        ["type/chore", "scope/ci"],
+    )
+
+
+def test_github_actions_updates_pin_digests() -> None:
+    """GitHub Actions updates pin commit SHA digests with version comments."""
+    (rule,) = [
+        r for r in _renovate()["packageRules"] if r.get("matchManagers") == ["github-actions"]
+    ]
+    assert (rule["pinDigests"], rule["labels"]) == (True, ["type/chore", "scope/ci"])
+
+
+def test_helm_values_and_helmv3_managers_are_disabled() -> None:
+    """Helm chart values remain deliberate bumps, so helmv3 and helm-values are disabled."""
+    (rule,) = [
+        r
+        for r in _renovate()["packageRules"]
+        if set(r.get("matchManagers", [])) == {"helm-values", "helmv3"}
+    ]
+    assert rule["enabled"] is False
+
+
+def test_renovate_rebases_when_behind_base_branch() -> None:
+    """Renovate rebases open update pull requests when behind the default branch."""
+    assert _renovate()["rebaseWhen"] == "behind-base-branch"
