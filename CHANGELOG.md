@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.97.0](https://github.com/dan-petty/devops-cli/compare/v0.96.0...v0.97.0) (2026-11-09)
+
+
+### Features
+
+* **roadmap:** check test references to removed entities ([#4193](https://github.com/dan-petty/devops-cli/issues/4193)) ([719cd43](https://github.com/dan-petty/devops-cli/commit/719cd43b77f705f918ebc72da5aabbd6cfc80af2))
+* **roadmap:** resolve devops commands and flags cited in a plan ([#4197](https://github.com/dan-petty/devops-cli/issues/4197)) ([bc99a6d](https://github.com/dan-petty/devops-cli/commit/bc99a6dc9d46c87c06b4643b3765b73538c6a942))
+
 ## [0.96.0](https://github.com/dan-petty/devops-cli/compare/v0.95.0...v0.96.0) (2026-11-08)
 
 
