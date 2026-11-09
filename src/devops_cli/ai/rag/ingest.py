@@ -47,7 +47,7 @@ class IngestResult:
     skipped: bool = False
 
 
-def _resolve_repo_paths(data_dir: Path, repo: str) -> tuple[Path, Path, Path]:
+def resolve_repo_paths(data_dir: Path, repo: str) -> tuple[Path, Path, Path]:
     """Validate repository slug and resolve data paths under repos/<owner>/<name>."""
     parts = repo.split("/")
     if len(parts) != 2 or not parts[0] or not parts[1]:
@@ -68,7 +68,10 @@ def _resolve_repo_paths(data_dir: Path, repo: str) -> tuple[Path, Path, Path]:
     return repo_dir, tree_dir, state_file
 
 
-def _read_repo_visibility(repo: str, gh_runner: Any) -> str:
+_resolve_repo_paths = resolve_repo_paths
+
+
+def read_repo_visibility(repo: str, gh_runner: Any) -> str:
     """Read repository visibility from GitHub API, counting public as public and others as private."""
     owner, name = repo.split("/")
     res = gh_runner([CONST_GH_CLI, "api", f"repos/{owner}/{name}"], check=False, quiet=True)
@@ -85,6 +88,9 @@ def _read_repo_visibility(repo: str, gh_runner: Any) -> str:
     except (json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
         logger.debug("Failed to parse GitHub repo payload for %s: %s", repo, exc)
     return "private"
+
+
+_read_repo_visibility = read_repo_visibility
 
 
 def _parse_ls_remote(output: str) -> tuple[str, str]:
@@ -135,7 +141,7 @@ def _sync_shallow_checkout(tree_dir: Path, url: str, branch: str, git_runner: An
         )
 
 
-def _cleanup_removed_repos(
+def cleanup_removed_repos(
     rag_dir: Path,
     configured_repos: set[str],
     indexer: WorkspaceIndexer,
@@ -159,7 +165,10 @@ def _cleanup_removed_repos(
             shutil.rmtree(state_file.parent, ignore_errors=True)
 
 
-def _load_repo_state(state_file: Path) -> dict[str, Any]:
+_cleanup_removed_repos = cleanup_removed_repos
+
+
+def load_repo_state(state_file: Path) -> dict[str, Any]:
     """Read JSON state file if present."""
     if state_file.exists():
         try:
@@ -172,7 +181,10 @@ def _load_repo_state(state_file: Path) -> dict[str, Any]:
     return {}
 
 
-def _update_points_visibility(
+_load_repo_state = load_repo_state
+
+
+def update_points_visibility(
     indexer: WorkspaceIndexer,
     repo: str,
     visibility: str,
@@ -188,6 +200,9 @@ def _update_points_visibility(
             )
         except (QdrantClientError, DevOpsCLIError) as exc:
             logger.warning("Failed rewriting visibility for %s in %s: %s", repo, coll, exc)
+
+
+_update_points_visibility = update_points_visibility
 
 
 def ingest_repository(
@@ -220,8 +235,8 @@ def ingest_repository(
             cache_dir=data_dir,
         )
 
-    repo_dir, tree_dir, state_file = _resolve_repo_paths(data_dir, repo)
-    state = _load_repo_state(state_file)
+    repo_dir, tree_dir, state_file = resolve_repo_paths(data_dir, repo)
+    state = load_repo_state(state_file)
 
     repo_indexer = WorkspaceIndexer(
         qdrant=indexer.qdrant,
@@ -231,9 +246,9 @@ def ingest_repository(
         cache_dir=repo_dir,
     )
 
-    visibility = _read_repo_visibility(repo, gh_runner)
+    visibility = read_repo_visibility(repo, gh_runner)
     if "visibility" in state and state["visibility"] != visibility:
-        _update_points_visibility(indexer, repo, visibility)
+        update_points_visibility(indexer, repo, visibility)
 
     url = remote_url or f"https://github.com/{repo}.git"
     ls_res = git_runner(
@@ -363,7 +378,7 @@ def run_ingest_pass(
     if indexer is None:
         indexer = _build_default_indexer(settings, rag_dir, code_collection)
 
-    _cleanup_removed_repos(rag_dir, set(configured_repos), indexer)
+    cleanup_removed_repos(rag_dir, set(configured_repos), indexer)
 
     results: list[IngestResult] = []
     failed_repos: list[str] = []

@@ -5,27 +5,29 @@ from __future__ import annotations
 import json
 import subprocess
 from pathlib import Path
-from typing import Any, cast
-from unittest.mock import MagicMock
+from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 
 from devops_cli.ai.rag.embeddings import EmbeddingsEngine
 from devops_cli.ai.rag.indexer import WorkspaceIndexer
 from devops_cli.ai.rag.ingest import (
-    _cleanup_removed_repos,
-    _load_repo_state,
-    _read_repo_visibility,
-    _resolve_repo_paths,
-    _update_points_visibility,
+    cleanup_removed_repos,
     ingest_repository,
+    load_repo_state,
+    read_repo_visibility,
+    resolve_repo_paths,
     run_ingest_pass,
+    update_points_visibility,
 )
 from devops_cli.ai.rag.qdrant import QdrantClientError
 from devops_cli.config.settings import AIConfig, Settings
 from devops_cli.exceptions import ConfigurationError, GitOperationError
 from devops_cli.exceptions.ai import RagIngestError
 from tests.support.fakes.qdrant import FakeQdrantClient
+
+if TYPE_CHECKING:
+    from tests.support.fakes.otlp import FakeCollector
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
@@ -91,17 +93,21 @@ def _make_bare_remote(bare_dir: Path, files: dict[str, str], branch: str = "main
     return bare_dir
 
 
+class _ProcResult:
+    def __init__(self, returncode: int = 0, stdout: str = "", stderr: str = "") -> None:
+        self.returncode = returncode
+        self.stdout = stdout
+        self.stderr = stderr
+
+
 def _make_fake_gh_runner(visibility_map: dict[str, str]) -> Any:
     def _runner(cmd: list[str], **kwargs: Any) -> Any:
-        res = MagicMock()
         # Expect cmd e.g. ["gh", "api", "repos/owner/name"]
         api_path = cmd[2] if len(cmd) > 2 else ""
         repo = api_path.replace("repos/", "")
         vis = visibility_map.get(repo, "public")
-        res.returncode = 0
-        res.stdout = json.dumps({"visibility": vis, "name": repo.split("/")[-1]})
-        res.stderr = ""
-        return res
+        stdout = json.dumps({"visibility": vis, "name": repo.split("/")[-1]})
+        return _ProcResult(returncode=0, stdout=stdout, stderr="")
 
     return _runner
 
@@ -568,42 +574,43 @@ def test_embedding_failure_halfway_records_no_head_and_resumes(tmp_path: Path) -
 
 def test_resolve_repo_paths_invalid(tmp_path: Path) -> None:
     with pytest.raises(GitOperationError, match="Invalid repository format"):
-        _resolve_repo_paths(tmp_path, "not-a-slug")
+        resolve_repo_paths(tmp_path, "not-a-slug")
 
     with pytest.raises(GitOperationError, match="Invalid repository slug components"):
-        _resolve_repo_paths(tmp_path, "../repo")
+        resolve_repo_paths(tmp_path, "../repo")
 
     with pytest.raises(GitOperationError, match="Invalid repository slug components"):
-        _resolve_repo_paths(tmp_path, "owner/.hidden")
+        resolve_repo_paths(tmp_path, "owner/.hidden")
 
 
 def test_read_repo_visibility_edge_cases() -> None:
+    class _ProcResult:
+        def __init__(self, returncode: int, stdout: str = "") -> None:
+            self.returncode = returncode
+            self.stdout = stdout
+
     # Error exit code
-    mock_runner = MagicMock()
-    mock_res_err = MagicMock()
-    mock_res_err.returncode = 1
-    mock_runner.return_value = mock_res_err
-    assert _read_repo_visibility("owner/repo", mock_runner) == "private"
+    assert read_repo_visibility("owner/repo", lambda cmd, **kwargs: _ProcResult(1)) == "private"
 
     # Invalid JSON
-    mock_res_bad_json = MagicMock()
-    mock_res_bad_json.returncode = 0
-    mock_res_bad_json.stdout = "not json"
-    mock_runner.return_value = mock_res_bad_json
-    assert _read_repo_visibility("owner/repo", mock_runner) == "private"
+    assert (
+        read_repo_visibility("owner/repo", lambda cmd, **kwargs: _ProcResult(0, "not json"))
+        == "private"
+    )
 
     # Private boolean false -> public
-    mock_res_priv_false = MagicMock()
-    mock_res_priv_false.returncode = 0
-    mock_res_priv_false.stdout = json.dumps({"private": False})
-    mock_runner.return_value = mock_res_priv_false
-    assert _read_repo_visibility("owner/repo", mock_runner) == "public"
+    assert (
+        read_repo_visibility(
+            "owner/repo", lambda cmd, **kwargs: _ProcResult(0, json.dumps({"private": False}))
+        )
+        == "public"
+    )
 
 
 def test_load_repo_state_corrupt_file(tmp_path: Path) -> None:
     state_file = tmp_path / "state.json"
     state_file.write_text("{not-valid-json", encoding="utf-8")
-    assert _load_repo_state(state_file) == {}
+    assert load_repo_state(state_file) == {}
 
 
 def test_cleanup_removed_repos_qdrant_error(tmp_path: Path) -> None:
@@ -611,33 +618,49 @@ def test_cleanup_removed_repos_qdrant_error(tmp_path: Path) -> None:
     repo_state.parent.mkdir(parents=True, exist_ok=True)
     repo_state.write_text("{}", encoding="utf-8")
 
-    fake_qdrant = FakeQdrantClient()
-    mock_qdrant = MagicMock(wraps=fake_qdrant)
-    mock_qdrant.delete_points_by_project.side_effect = QdrantClientError("delete failed")
+    class FailingDeleteQdrant(FakeQdrantClient):
+        def delete_points_by_project(
+            self,
+            name: str,
+            project_name: str,
+            batch_size: int = 100,
+            wait: bool = True,
+        ) -> bool:
+            raise QdrantClientError("delete failed")
 
     indexer = WorkspaceIndexer(
-        qdrant=cast(Any, mock_qdrant),
+        qdrant=cast(Any, FailingDeleteQdrant()),
         embedder=FixedVectorEngine(),
         cache_dir=tmp_path,
     )
     # Should log warning and not raise
-    _cleanup_removed_repos(tmp_path, ["owner/new-repo"], indexer)
+    cleanup_removed_repos(tmp_path, {"owner/new-repo"}, indexer)
     assert not (tmp_path / "repos" / "owner" / "old-repo").exists()
 
 
 def test_update_points_visibility_qdrant_error(tmp_path: Path) -> None:
-    fake_qdrant = FakeQdrantClient()
-    mock_qdrant = MagicMock(wraps=fake_qdrant)
-    mock_qdrant.set_payload.side_effect = QdrantClientError("set_payload failed")
+    called = []
+
+    class FailingPayloadQdrant(FakeQdrantClient):
+        def set_payload(
+            self,
+            name: str,
+            payload: dict[str, Any],
+            filter_payload: dict[str, Any] | None = None,
+            *,
+            wait: bool = True,
+        ) -> bool:
+            called.append(name)
+            raise QdrantClientError("set_payload failed")
 
     indexer = WorkspaceIndexer(
-        qdrant=cast(Any, mock_qdrant),
+        qdrant=cast(Any, FailingPayloadQdrant()),
         embedder=FixedVectorEngine(),
         cache_dir=tmp_path,
     )
     # Should log warning and not raise
-    _update_points_visibility(indexer, "owner/repo", "public")
-    assert mock_qdrant.set_payload.called is True
+    update_points_visibility(indexer, "owner/repo", "public")
+    assert len(called) == 2
 
 
 def test_ingest_empty_repository(tmp_path: Path) -> None:
@@ -664,25 +687,21 @@ def test_ingest_empty_repository(tmp_path: Path) -> None:
     assert res.head == ""
 
 
-def test_run_ingest_pass_catches_repo_failure(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_run_ingest_pass_catches_repo_failure(tmp_path: Path) -> None:
     settings = Settings.model_validate(
         {
             "service": {"repos": ["owner/bad", "owner/good"]},
-            "ai": {"rag": {"data_dir": str(tmp_path)}},
+            "data": {"rag_dir": str(tmp_path)},
             "qdrant": {"url": "http://localhost:6333"},
         }
     )
 
-    def _failing_ingest(repo: str, **kwargs: Any) -> Any:
-        if repo == "owner/bad":
-            raise RuntimeError("network down")
-        from devops_cli.ai.rag.ingest import IngestResult
+    def failing_git_runner(cmd: list[str], **kwargs: Any) -> Any:
+        if any("owner/bad" in arg for arg in cmd):
+            raise GitOperationError("network down")
+        return subprocess.CompletedProcess(cmd, 0, stdout="ref: refs/heads/main\tHEAD\n", stderr="")
 
-        return IngestResult(repo=repo, head="abc", branch="main", visibility="public", success=True)
-
-    monkeypatch.setattr("devops_cli.ai.rag.ingest.ingest_repository", _failing_ingest)
+    gh_runner = _make_fake_gh_runner({"owner/bad": "public", "owner/good": "public"})
     indexer = WorkspaceIndexer(
         qdrant=cast(Any, FakeQdrantClient()),
         embedder=FixedVectorEngine(),
@@ -690,47 +709,50 @@ def test_run_ingest_pass_catches_repo_failure(
     )
 
     with pytest.raises(RagIngestError, match="RAG ingestion failed for repositories: owner/bad"):
-        run_ingest_pass(settings=settings, indexer=indexer)
+        run_ingest_pass(
+            settings=settings,
+            data_dir=tmp_path,
+            indexer=indexer,
+            git_runner=failing_git_runner,
+            gh_runner=gh_runner,
+        )
 
 
 def test_run_ingest_pass_updates_last_success_timestamp(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, otlp: FakeCollector
 ) -> None:
-    from devops_cli.ai.rag.ingest import IngestResult
     from devops_cli.telemetry.instruments import RAG_INGEST_LAST_SUCCESS_TIMESTAMP
 
     settings = Settings.model_validate(
         {
             "service": {"repos": ["owner/repo"]},
-            "ai": {"rag": {"data_dir": str(tmp_path)}},
+            "data": {"rag_dir": str(tmp_path)},
             "qdrant": {"url": "http://localhost:6333"},
         }
     )
 
-    emitted: list[tuple[Any, float, dict[str, str]]] = []
-    monkeypatch.setattr(
-        "devops_cli.ai.rag.ingest.emit",
-        lambda inst, val, labels: emitted.append((inst, val, labels)),
-    )
+    def empty_git_runner(cmd: list[str], **kwargs: Any) -> Any:
+        return subprocess.CompletedProcess(cmd, 0, stdout="ref: refs/heads/main\tHEAD\n", stderr="")
 
-    monkeypatch.setattr(
-        "devops_cli.ai.rag.ingest.ingest_repository",
-        lambda repo, **kwargs: IngestResult(
-            repo=repo, head="abc", branch="main", visibility="public", success=True
-        ),
-    )
+    gh_runner = _make_fake_gh_runner({"owner/repo": "public"})
     indexer = WorkspaceIndexer(
         qdrant=cast(Any, FakeQdrantClient()),
         embedder=FixedVectorEngine(),
         cache_dir=tmp_path,
     )
 
-    results = run_ingest_pass(settings=settings, indexer=indexer)
+    results = run_ingest_pass(
+        settings=settings,
+        data_dir=tmp_path,
+        indexer=indexer,
+        git_runner=empty_git_runner,
+        gh_runner=gh_runner,
+    )
     assert len(results) == 1
     found = [
         (val, labels)
-        for inst, val, labels in emitted
-        if inst.name == RAG_INGEST_LAST_SUCCESS_TIMESTAMP.name
+        for labels, val in otlp.points(RAG_INGEST_LAST_SUCCESS_TIMESTAMP.name)
+        if labels.get("repo") == "owner/repo"
     ]
     assert len(found) == 1
     val, labels = found[0]
