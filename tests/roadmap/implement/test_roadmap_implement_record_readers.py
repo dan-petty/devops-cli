@@ -42,6 +42,7 @@ READERS: Final[dict[str, tuple[str, ...]]] = {
     "implement.checked_sha": ("code", f"{ROADMAP}/implement/implement_run.py"),
     "implement.published_sha": ("code", f"{ROADMAP}/implement/implement_run.py"),
     "implement.spend": ("code", f"{ROADMAP}/implement/implement_submit.py"),
+    "implement.spend_counted": ("code", f"{ROADMAP}/implement/implement_submit.py"),
     "implement.trace": ("code", f"{ROADMAP}/explain.py"),
     "implement.job": ("code", f"{ROADMAP}/status_sync.py"),
     "implement.job_state": ("code", f"{ROADMAP}/status_sync.py"),

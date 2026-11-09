@@ -130,3 +130,17 @@ def test_the_stage_parser_takes_the_defaults_of_the_job() -> None:
 
     assert parsed.matches(make_item(labels=("status/ready", "effort/low")))
     assert not parsed.matches(make_item(labels=("status/ready", "effort/high")))
+
+
+def test_a_record_of_an_older_version_decodes_with_no_counted_spend_and_a_new_one_keeps_it() -> (
+    None
+):
+    """The record block of an older version holds `implement.spend` and no `implement.spend_counted`
+    (#4200). It loads, and the counted spend reads as absent."""
+    old = {"implement.spend": '{"input_tokens": 10, "output_tokens": 5}'}
+    new = {**old, "implement.spend_counted": "15"}
+
+    assert (decode_job_record(old), decode_job_record(new)) == (
+        {ImplementRecordKey.SPEND: old["implement.spend"]},
+        {ImplementRecordKey.SPEND: old["implement.spend"], ImplementRecordKey.SPEND_COUNTED: "15"},
+    )
