@@ -947,8 +947,10 @@ class _Planner:
         traces: list[RunTrace] | None = None,
         rejected: Mapping[int, str] | None = None,
         plan_files: PlanFiles | None = None,
+        facts_source: Path | None = None,
     ) -> None:
         self._client = client
+        self._facts_source = facts_source
         self._plan_files = plan_files
         self._toolbox = toolbox or (client if isinstance(client, ToolboxClient) else None)
         self._verifier = verifier
@@ -1149,6 +1151,14 @@ class _Planner:
             findings, given = review(verifier, self._input_of(target, change))
         return findings, returning(findings, given), open_findings(findings, given)
 
+    def _read_fact_file(self, path: str) -> str | None:
+        """The text of a runner fact file: at the staged commit and, when the planner holds a
+        `facts_source`, in that checkout at `HEAD` where the commit lacks the file (#4207)."""
+        text = _read_staged_file(self._source, self._sha, path)
+        if text is None and self._facts_source is not None:
+            return _read_staged_file(self._facts_source, "HEAD", path)
+        return text
+
     def _request(self, target: StageTarget) -> StageRequest:
         """The request for one item: what the model reads and what the gates need. The open plans
         that create a path are read here, once for the run (#4046)."""
@@ -1167,8 +1177,7 @@ class _Planner:
             lines = [f"- {entry.path} ({entry.declaring_path}:{entry.line})" for entry in matched]
             context = f"{context}\n\n### Registry places\n\n" + "\n".join(lines)
         facts_context = collect_stage_facts_context(
-            f"{item.title}\n{item.body}",
-            lambda path: _read_staged_file(self._source, self._sha, path),
+            f"{item.title}\n{item.body}", self._read_fact_file
         )
         if facts_context:
             context = f"{context}\n\n{facts_context}"
@@ -1826,6 +1835,7 @@ def _planner_of(
     open_creates: Callable[[], Mapping[str, int]] | None = None,
     rejected: Mapping[int, str] | None = None,
     plan_files: PlanFiles | None = None,
+    facts_source: Path | None = None,
 ) -> _Planner:
     """The planner for the checkout at `sha`: it reads the tracked files, the capabilities and the
     context window of the `stage` task once. With a `toolbox` model, a plan run calls the
@@ -1835,7 +1845,8 @@ def _planner_of(
     `verifier` makes the model review of each plan (#3153): an agent of the task `verification`
     with the same tools, and with the window of that task, because the two tasks can resolve to
     different windows (#3039). `rejected` holds the reason of each rejected plan by issue number,
-    for the request of an item that a person rejected (#3503)."""
+    for the request of an item that a person rejected (#3503). `facts_source` is a checkout whose
+    `HEAD` supplies a runner fact file that the staged commit lacks (#4207)."""
     window = task_window("stage")
     verify_window = task_window("verification")
     traces: list[RunTrace] = []
@@ -1874,6 +1885,7 @@ def _planner_of(
         traces=traces,
         rejected=rejected,
         plan_files=plan_files,
+        facts_source=facts_source,
     )
 
 
@@ -1884,6 +1896,7 @@ def plan_item(
     checkout: Path,
     sha: str,
     step_tokens: int | None = None,
+    facts_source: Path | None = None,
 ) -> StagedChange | OverBudget:
     """Plans `item` as the job does, in the checkout at `sha`, and writes nothing (#3028).
 
@@ -1892,12 +1905,18 @@ def plan_item(
     overrides `roadmap.stage.step_tokens`. A `client` that is a `ToolboxClient` plans with the
     read-only tools (#3037); the golden set builds it for the case checkout. This planner reads no
     open plan, so it finds no dependency. A dependency that the type still allows raises
-    `RoadmapStageError`, which the golden set counts as refused (#3418).
+    `RoadmapStageError`, which the golden set counts as refused (#3418). The cases are frozen at old
+    commits that lack the runner fact files of the facts context, so the golden set passes the
+    repository as `facts_source`: the planner reads each fact file at the case commit and then
+    in that checkout. The job passes none, and it raises when a staged commit lacks a fact file
+    (#4207).
     """
     budget = step_tokens or load_settings().roadmap.stage.step_tokens
     target = _target_of(item)
     with openspec_tool() as tool:
-        planner = _planner_of(client, checkout, sha, budget=budget, tool=tool)
+        planner = _planner_of(
+            client, checkout, sha, budget=budget, tool=tool, facts_source=facts_source
+        )
         outcome = planner.plan(target)
     if isinstance(outcome, Blocked):
         issues = ", ".join(f"#{number}" for number in outcome.blockers)
