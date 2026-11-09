@@ -5,6 +5,7 @@
   ],
   "labels": ["type/chore", "scope/ci"],
   "commitMessagePrefix": "chore(deps):",
+  "rebaseWhen": "behind-base-branch",
   "kubernetes": {
     "managerFilePatterns": ["/^k8s/.+\\.ya?ml$/"]
   },
@@ -40,6 +41,10 @@
       "enabled": false
     },
     {
+      "matchManagers": ["helm-values", "helmv3"],
+      "enabled": false
+    },
+    {
       "matchManagers": ["dockerfile", "docker-compose"],
       "labels": ["type/chore", "scope/infra"]
     },
@@ -49,6 +54,10 @@
     },
     {
       "matchManagers": ["argocd"],
+      "labels": ["type/chore", "scope/infra"]
+    },
+    {
+      "matchManagers": ["terraform"],
       "labels": ["type/chore", "scope/infra"]
     },
     {
@@ -75,6 +84,15 @@
     },
     {
       "matchManagers": ["github-actions"],
+      "pinDigests": true,
+      "labels": ["type/chore", "scope/ci"]
+    },
+    {
+      "matchManagers": ["pre-commit"],
+      "labels": ["type/chore", "scope/ci"]
+    },
+    {
+      "matchManagers": ["devcontainer"],
       "labels": ["type/chore", "scope/ci"]
     },
     {

@@ -117,7 +117,7 @@ def test_release_please_makes_every_release_on_a_push_to_main() -> None:
     ) == (
         {"push": {"branches": ["main"]}},
         {},
-        {"group": "release", "cancel-in-progress": False},
+        {"group": "release-${{ github.ref }}", "cancel-in-progress": False},
         ("release", {}),
         {
             "client-id": "${{ vars.RELEASE_APP_CLIENT_ID }}",
