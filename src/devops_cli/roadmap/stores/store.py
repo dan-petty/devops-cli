@@ -282,7 +282,10 @@ class ImplementRecordKey(StrEnum):
     `implement.result` holds how the run of the job ended (`ImplementResult`, #4071). The job
     writes it as the last mark of its end and clears it in its first write, and the Service clears
     it when it records a new Job. `implement.check_log` and `implement.conflict` hold the stop of
-    the earlier Job: the next Job hands them to its first step and clears them."""
+    the earlier Job: the next Job hands them to its first step and clears them.
+    `implement.spend_counted` holds the tokens of `implement.spend` that the token counter already
+    holds (#4200): the Service writes it when it reports a Job, and a retry and a return to New
+    clear it with the spend."""
 
     GROUP = "implement.group"
     SHA = "implement.sha"
@@ -299,6 +302,7 @@ class ImplementRecordKey(StrEnum):
     PUBLISHED_SHA = "implement.published_sha"
     RESULT = "implement.result"
     SPEND = "implement.spend"
+    SPEND_COUNTED = "implement.spend_counted"
     TRACE = "implement.trace"
     JOB = "implement.job"
     JOB_STATE = "implement.job_state"

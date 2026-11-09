@@ -150,6 +150,26 @@ def _record(item: Item, key: ImplementRecordKey) -> str | None:
     return item.job_record.get(key)
 
 
+def _spend_tokens(item: Item) -> int:
+    """The input and output tokens in `implement.spend`. A spend that is absent or cannot be read
+    holds no tokens."""
+    try:
+        data = json.loads(_record(item, ImplementRecordKey.SPEND) or "{}")
+        if isinstance(data, dict):
+            return max(int(data.get("input_tokens", 0)) + int(data.get("output_tokens", 0)), 0)
+    except json.JSONDecodeError, ValueError, TypeError:
+        pass
+    return 0
+
+
+def _counted_tokens(item: Item) -> int:
+    """The tokens of the spend that the token counter holds: `implement.spend_counted`, or none."""
+    try:
+        return max(int(_record(item, ImplementRecordKey.SPEND_COUNTED) or 0), 0)
+    except ValueError:
+        return 0
+
+
 def _unreported(store: RoadmapStore) -> list[tuple[Item, str]]:
     """The open items that record a Job and no state of it, with the Job's name."""
     return [
@@ -277,7 +297,15 @@ def _report(
         item.number,
         _comment(name, state, log, failure=failure, stopped=stops, digest=digest, stall=stall),
     )
-    service_release(store, item.number, {ImplementRecordKey.JOB_STATE: state})
+    spend = _spend_tokens(item)
+    counted = _counted_tokens(item)
+    # The spend is the sum of all Jobs, so only the part after the count is new. A spend below the
+    # count means the record started again: the whole spend is new (#4200).
+    new_tokens = spend - counted if spend >= counted else spend
+    marks: dict[ImplementRecordKey, str | None] = {ImplementRecordKey.JOB_STATE: state}
+    if spend > 0:
+        marks[ImplementRecordKey.SPEND_COUNTED] = str(spend)
+    service_release(store, item.number, marks)
     if stops and failure is not None:
         store.set_field(
             _fresh(store, item.number),
@@ -288,11 +316,11 @@ def _report(
                 ImplementRecordKey.FAILURE: failure.value,
             },
         )
-    _emit_implement_metrics(repo, item, state, failure)
+    _emit_implement_metrics(repo, item, state, failure, new_tokens)
 
 
 def _emit_implement_metrics(
-    repo: str, item: Item, state: str, failure: FailureClass | None
+    repo: str, item: Item, state: str, failure: FailureClass | None, new_tokens: int
 ) -> None:
     item_class = commit_type(item.title) or "chore"
     GLOBAL_METRICS.increment_counter(
@@ -311,22 +339,12 @@ def _emit_implement_metrics(
                 )
         except ValueError, TypeError:
             pass
-    spend_raw = _record(item, ImplementRecordKey.SPEND)
-    if spend_raw:
-        try:
-            spend_data = json.loads(str(spend_raw))
-            if isinstance(spend_data, dict):
-                tokens = int(spend_data.get("input_tokens", 0)) + int(
-                    spend_data.get("output_tokens", 0)
-                )
-                if tokens > 0:
-                    GLOBAL_METRICS.increment_counter(
-                        CONST_SERVICE_METRIC_IMPLEMENT_TOKENS,
-                        tokens,
-                        labels={"repo": repo, "item_class": item_class},
-                    )
-        except json.JSONDecodeError, ValueError, TypeError:
-            pass
+    if new_tokens > 0:
+        GLOBAL_METRICS.increment_counter(
+            CONST_SERVICE_METRIC_IMPLEMENT_TOKENS,
+            new_tokens,
+            labels={"repo": repo, "item_class": item_class},
+        )
     tracker = get_consecutive_failures()
     if failure is not None:
         GLOBAL_METRICS.increment_counter(

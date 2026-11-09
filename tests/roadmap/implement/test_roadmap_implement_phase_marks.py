@@ -426,11 +426,12 @@ def test_spend_survives_kill_a_retry_of_a_person_starts_from_zero(
 
 
 def test_spend_survives_kill_a_retry_of_a_person_clears_the_counted_spend(
-    job_world: JobWorld,
+    job_world: JobWorld, config: Callable[..., Path]
 ) -> None:
     """The retry starts the spend from zero, so the count of the spend starts from zero too, or the
     first report after the retry would count too little (#4200)."""
-    _kill_in_group_two(job_world)
+    config(roadmap={"implement": {"item_token_budget": 200}})
+    job_world.run(ModelScript(tool_calls(*group_one_calls()), say("Group 1 is done."), say("No.")))
     _mark(job_world, {ImplementRecordKey.SPEND_COUNTED: str(GROUP_TOKENS + REQUEST_TOKENS)})
     _continue(job_world, retry=True)
 
