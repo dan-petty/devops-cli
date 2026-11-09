@@ -22,9 +22,9 @@ Kind: behavior. Reads: `src/devops_cli/roadmap/refine/refine_investigation.py`, 
 
 Kind: documents. Changes: the documents that the change makes wrong, if any.
 
-- [ ] 3.1 Search the documents for the old text of the stop ("0 schema violation(s)") and for the parallel tool calls of a Claude group, and fix each one that the change makes wrong
+- [x] 3.1 Search the documents for the old text of the stop ("0 schema violation(s)") and for the parallel tool calls of a Claude group, and fix each one that the change makes wrong
   - Verification: `$ uv run devops ci docs` passes
-- [ ] 3.2 Validate the change folder
+- [x] 3.2 Validate the change folder
   - Verification: `$ uv run devops openspec check` passes
 
 ## Workflow follow-up
