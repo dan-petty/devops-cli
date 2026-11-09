@@ -340,7 +340,7 @@ def gate_tool_call_with_jev(
     state: JsonValue = {
         "context": context,
         "tool_name": tool_name,
-        "arguments": cast(dict[str, JsonValue], dict(arguments)),
+        "arguments": dict(arguments),
     }
     questions: dict[str, DecisionQuestion] = {
         "aligned": NoulQuestion(

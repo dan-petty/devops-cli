@@ -34,3 +34,9 @@ extraObjects:
               commonUpdateSettings:
                 updateStrategy: digest
                 forceUpdate: true
+            # The image of Deployment mcp-server (#3220, #4182).
+            - alias: mcp-server
+              imageName: ghcr.io/dan-petty/devops-cli/mcp-server:latest
+              commonUpdateSettings:
+                updateStrategy: digest
+                forceUpdate: true

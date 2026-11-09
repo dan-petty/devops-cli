@@ -664,6 +664,14 @@ def test_image_updater_keeps_only_application_devops_on_the_digest_of_service_la
                                             "forceUpdate": True,
                                         },
                                     },
+                                    {
+                                        "alias": "mcp-server",
+                                        "imageName": "ghcr.io/dan-petty/devops-cli/mcp-server:latest",
+                                        "commonUpdateSettings": {
+                                            "updateStrategy": "digest",
+                                            "forceUpdate": True,
+                                        },
+                                    },
                                 ],
                             }
                         ]
