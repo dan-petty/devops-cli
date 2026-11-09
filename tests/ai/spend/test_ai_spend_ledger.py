@@ -1256,3 +1256,45 @@ def test_schema_migration_adds_reasoning_tokens_column(tmp_path: Path) -> None:
     with contextlib.closing(sqlite3.connect(db_path)) as conn:
         cols = {row[1] for row in conn.execute("PRAGMA table_info(ai_spend_records);").fetchall()}
     assert "reasoning_tokens" in cols
+
+
+@pytest.mark.parametrize(
+    ("model", "served_model", "expected"),
+    [
+        ("claude-sonnet-5-5", None, ("claude-sonnet-5-5", "genai_prices:anthropic", True)),
+        (
+            "claude-sonnet-5-5",
+            "claude-haiku-5-5",
+            ("claude-haiku-5-5", "genai_prices:anthropic", True),
+        ),
+        ("devops-chat", None, (None, "local", False)),
+    ],
+    ids=["hosted group, no reply name", "reply name wins", "local group, no reply name"],
+)
+def test_a_gateway_call_on_a_hosted_group_with_no_reply_name_is_priced_by_the_asked_model(
+    tmp_path: Path,
+    config: Callable[..., Path],
+    model: str,
+    served_model: str | None,
+    expected: tuple[str | None, str, bool],
+) -> None:
+    """Verify a chat call with no `x-litellm-model-name` header to a hosted group behind a gateway
+    that is the cluster host is hosted and priced, and a local group stays local (#3665)."""
+    config(k8s={"domain": "example.com"}, ai={"gateway_url": "https://llm.example.com/v1"})
+    ledger = SpendLedger(db_path=tmp_path / "spend.db")
+
+    track_request_spend(
+        provider="gateway",
+        model=model,
+        server="llm.example.com",
+        served_model=served_model,
+        prompt_tokens=1_000_000,
+        completion_tokens=1_000,
+        ledger=ledger,
+    )
+
+    with contextlib.closing(sqlite3.connect(ledger.db_path)) as conn:
+        served, source, cost = conn.execute(
+            "SELECT served_model, pricing_source, cost_usd FROM ai_spend_records"
+        ).fetchone()
+    assert (served, source, cost > 0) == expected

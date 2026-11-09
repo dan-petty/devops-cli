@@ -5,8 +5,9 @@ from __future__ import annotations
 
 import contextlib
 import json
+import logging
 import sqlite3
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from typing import Any
 
 import pytest
@@ -439,3 +440,91 @@ def test_the_spend_record_keeps_the_model_that_answered(spend_ledger: SpendLedge
     with contextlib.closing(sqlite3.connect(spend_ledger.db_path)) as conn:
         rows = conn.execute("SELECT model, served_model FROM ai_spend_records").fetchall()
     assert rows == [("claude-sonnet-5-5", "deepseek-v4.1-flash-1017")]
+
+
+_GATEWAY_URL = "https://llm.example.com/v1"
+
+
+class _GatewayModel:
+    """The three facts of a bridge model that `record_run_spend` reads: the name, the provider
+    and the URL of the gateway that it sends to."""
+
+    system = "openai"
+
+    def __init__(self, model_name: str) -> None:
+        self.model_name = model_name
+        self.served_by = _GATEWAY_URL
+
+
+def _run_on_the_gateway(config: Callable[..., Any], asked: str, answered: str | None) -> None:
+    """Record one run on `asked` when the gateway host is the cluster host and the reply names
+    `answered`."""
+    config(k8s={"domain": "example.com"}, ai={"gateway_url": _GATEWAY_URL})
+    record_run_spend(
+        _GatewayModel(asked),  # type: ignore[arg-type]
+        [ModelRequest(parts=[UserPromptPart("go")]), _answered(answered)],
+        0.5,
+        stage="stage",
+    )
+
+
+def _spend_row(ledger: SpendLedger) -> tuple[Any, ...]:
+    with contextlib.closing(sqlite3.connect(ledger.db_path)) as conn:
+        row: tuple[Any, ...] = conn.execute(
+            "SELECT served_model, pricing_source, cost_usd FROM ai_spend_records"
+        ).fetchone()
+    return row
+
+
+@pytest.mark.parametrize(
+    ("asked", "source"),
+    [
+        ("claude-sonnet-5-5", "genai_prices:anthropic"),
+        ("claude-haiku-5-5", "genai_prices:anthropic"),
+        ("gemini-3.8-flash", "genai_prices:google"),
+    ],
+)
+def test_a_run_on_a_hosted_group_that_no_reply_names_is_priced_by_the_asked_model(
+    spend_ledger: SpendLedger, config: Callable[..., Any], asked: str, source: str
+) -> None:
+    """Verify a hosted group behind a gateway that is the cluster host costs money when the
+    replies name no model: the record is not local, and the asked model prices it (#3665)."""
+    _run_on_the_gateway(config, asked, None)
+
+    served_model, pricing_source, cost = _spend_row(spend_ledger)
+    assert (served_model, pricing_source, cost > 0) == (asked, source, True)
+
+
+def test_a_run_on_a_hosted_group_with_no_price_warns_and_is_not_local(
+    spend_ledger: SpendLedger, config: Callable[..., Any], caplog: pytest.LogCaptureFixture
+) -> None:
+    """Verify the DeepSeek group, which nothing prices, is recorded as hosted at $0 with the
+    source `unknown`, and that the warning names the model (#3665)."""
+    deepseek = "deepseek-v4.1-flash-1017"
+
+    with caplog.at_level(logging.WARNING, logger="devops_cli.ai.spend.pricing"):
+        _run_on_the_gateway(config, deepseek, None)
+
+    assert (_spend_row(spend_ledger), [deepseek in r.getMessage() for r in caplog.records]) == (
+        (deepseek, "unknown", 0.0),
+        [True],
+    )
+
+
+def test_a_run_on_a_local_group_that_no_reply_names_stays_local(
+    spend_ledger: SpendLedger, config: Callable[..., Any]
+) -> None:
+    """Verify a local group behind the cluster gateway keeps its local record at $0 (#3665)."""
+    _run_on_the_gateway(config, "devops-coder", None)
+
+    assert _spend_row(spend_ledger) == (None, "local", 0.0)
+
+
+def test_a_reply_that_names_a_model_keeps_that_name_for_the_price(
+    spend_ledger: SpendLedger, config: Callable[..., Any]
+) -> None:
+    """Verify the model that a reply names wins over the asked model: a run on Sonnet that
+    DeepSeek answers is priced as DeepSeek (#3665)."""
+    _run_on_the_gateway(config, "claude-sonnet-5-5", "deepseek-v4.1-flash-1017")
+
+    assert _spend_row(spend_ledger) == ("deepseek-v4.1-flash-1017", "unknown", 0.0)

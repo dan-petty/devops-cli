@@ -22,6 +22,8 @@ from devops_cli.ai.spend.models import (
     StageSpendSummary,
 )
 from devops_cli.config.constants import (
+    CONST_AI_GATEWAY_HOSTED_MODELS,
+    CONST_AI_GATEWAY_PROVIDER,
     CONST_PRICING_SOURCE_LOCAL,
     CONST_RESPONSE_CACHE_SERVER,
     CONST_SPEND_REQUEST_TYPE_EMBEDDING,
@@ -848,7 +850,9 @@ def track_request_spend(
     backend a gateway reply names, decides whether the call is spend or local savings.
     ``served_model``, the deployment model a gateway reply names, prices a hosted call; ``model``
     stays the model that the client asked for, such as a gateway route name, in the ledger and
-    on the metrics, so they still group by it (#2031). The ledger stores where the price came
+    on the metrics, so they still group by it (#2031). A gateway reply that names no backend and
+    no model, for a hosted group, is a hosted call: the asked model prices it, so the cluster
+    host does not turn it into local tokens at 0 USD (#3665). The ledger stores where the price came
     from. The tokens carry `local`, and no process sends a price for them: the cluster prices
     local tokens at one reference for every process (#1672).
     """
@@ -868,6 +872,13 @@ def track_request_spend(
 
     active_ledger = ledger or get_spend_ledger()
     now_utc = datetime.now(UTC)
+    if (
+        provider.strip().lower() == CONST_AI_GATEWAY_PROVIDER
+        and not served_by
+        and not served_model
+        and model in CONST_AI_GATEWAY_HOSTED_MODELS
+    ):
+        served_model = model
     # The response cache ran no model, so its reply has no price.
     priced = (
         None
