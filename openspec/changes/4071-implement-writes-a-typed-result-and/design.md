@@ -1,0 +1,20 @@
+# Design
+
+## Decisions
+
+- **The result is a record mark, written last.** The runner puts `implement.result` last in the marks of the write that ends the run, so a reader that sees the result also sees the Status and the stop marks of that run. `_ready`, `stop` and `_return_to_new` already write marks with their last write. `yield_to` writes none today, so it gets a marks-only write after its comment.
+- **One enum for the values.** `_Ended` becomes a public enum next to `ImplementRecordKey`. The record holds its value, the runner returns it, and the Service compares with it. A second list of the four words would drift.
+- **The result is cleared at the start and at the creation of a Job.** The runner clears it in the first write of `_start`. The Service clears it in the `service_claim` write of `_create`, which also records the new Job. Without the second clear, a Job that is killed before `_start` would leave the result of the run before it, and `_report` would read a stale `yielded` or `ready` as the end of this Job.
+- **The Service trusts the result over the Status, except for `stopped`.** `ready`, `yielded` and `returned` mean that the runner ended its run on purpose, so `_report` records no stop. For `stopped` the runner has already written Blocked, the step and the class, so the existing path holds. With no result, the code is as it was: `_settles_as_stop` and the log. This keeps the killed Job on the old path, which #3727 and the digest rules rely on.
+- **The hand-off is read once, at the start.** `_start` reads both keys from the item that the plan read, before its write, and passes them to the first `run_step` of the run as one optional input. A second step of the run gets none: the first step either fixed the cause or stopped. The message section `# The stop of the earlier Job` holds the log in a fence and the files as a list, and is left out when both are empty.
+- **Clear at the first mark of the new Job.** `_start` clears both keys in its first record write, for every start, not only for a retry of a person. `stop_clear.py` stops clearing them, because a clear by the Service runs before the new Job and would remove the facts that the Job needs. The cost is that a Job that is killed after its first write but before its first step ends hands nothing on. The facts are in the stop comment of the item, and a person or the next stop restores them. A longer hold would need a second mark and a second clear, which the issue does not ask for.
+- **The test of the keys moves.** The issue names `tests/roadmap/implement/test_roadmap_implement_record_readers.py`. The test of #4070 (`tests/invariants/test_roadmap_implement_record_keys.py`) does the same work, so it moves there with `git mv` and grows by the new key. One test of the keys stays, not two. `implement.check_log` and `implement.conflict` change from a line of the document to a reader in `implement_run.py`.
+- **Old records need no code.** `decode_job_record` keeps the known keys, and a record with no `implement.result` has the key absent. A test loads a record of the older form.
+
+## Rejected alternatives
+
+- **A typed `StepName` for the implement stop.** The issue drops it: `implement.stopped` holds the step label that `stop_clear.py` matches, and no fault needs the rewrite.
+- **Read the pod exit status for the result.** #3727 owns the class `oom`. The result tells the Service what the runner knew; a killed runner knows nothing.
+- **Write the result in a separate write after the last mark.** A second write per run costs a request, and a kill between the two writes leaves a stop with no result. The result rides on the last write.
+- **Hand the log to every step.** A step after the first has the facts of its own run. The log of an earlier stop would cost tokens in each step and could mislead the model.
+- **Keep `GROUP`, `SHA` and `WIP` out of the test.** The spec requires them as a record for a person. The test lists them with the spec line that requires each, and removes none.
