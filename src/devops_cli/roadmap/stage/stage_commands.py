@@ -3,7 +3,8 @@
 A plan that cites a `devops` command line in Feasibility or tasks is checked against the Click
 command tree with `resolve_devops_argv`, without running any command. An unknown command, an
 unknown option flag or an unexpected extra argument is refused. A quoted tuple key cited in
-Feasibility or tasks is checked against `CONST_MCP_EXPOSURE_TABLE` and refused when absent.
+Feasibility or tasks, in a sentence that names the exposure table, is checked against
+`CONST_MCP_EXPOSURE_TABLE` and refused when absent.
 """
 
 from __future__ import annotations
@@ -28,6 +29,12 @@ _EXPOSURE_KEYS: Final[frozenset[tuple[str, ...]]] = frozenset(
 _QUOTED_TUPLE: Final[re.Pattern[str]] = re.compile(
     r"\(\s*(?:(?:'[^']*'|\"[^\"]*\")\s*,\s*)+(?:'[^']*'|\"[^\"]*\")?\s*\)"
 )
+# The words that tie a quoted tuple to the MCP exposure table (#4255).
+_EXPOSURE_CONTEXT: Final[re.Pattern[str]] = re.compile(
+    r"CONST_MCP_EXPOSURE_TABLE|exposure[ _-]table", re.IGNORECASE
+)
+# The end of a sentence: a full stop, a question mark or an exclamation mark, then a space or the end.
+_SENTENCE_BREAK: Final[re.Pattern[str]] = re.compile(r"[.!?](?:\s|$)")
 _CODE_SPAN: Final[re.Pattern[str]] = re.compile(r"`([^`]+)`")
 _SHELL_OPERATORS: Final[frozenset[str]] = frozenset(";|><&")
 _COMMAND_PREFIXES: Final[tuple[str, ...]] = (
@@ -122,9 +129,25 @@ def _resolve_command_span(span: str) -> Iterator[str]:
                 )
 
 
+def _sentence_around(text: str, start: int, end: int) -> str:
+    """The sentence of `text` that holds the span from `start` to `end`."""
+    left, right = 0, len(text)
+    for found in _SENTENCE_BREAK.finditer(text):
+        if found.end() <= start:
+            left = found.end()
+        elif found.start() >= end:
+            right = found.start()
+            break
+    return text[left:right]
+
+
 def _mcp_exposure_problems(text: str) -> Iterator[str]:
-    """Find quoted tuples in `text` and check against `CONST_MCP_EXPOSURE_TABLE`."""
+    """Find quoted tuples in `text` and check against `CONST_MCP_EXPOSURE_TABLE`. A quoted tuple is
+    a common literal (a fixture table, a parameter list), so only a tuple in a sentence that names
+    the exposure table is a cited key (#4255)."""
     for match in _QUOTED_TUPLE.finditer(text):
+        if not _EXPOSURE_CONTEXT.search(_sentence_around(text, match.start(), match.end())):
+            continue
         raw = match.group(0)
         try:
             parsed = ast.literal_eval(raw)
