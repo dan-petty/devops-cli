@@ -1,0 +1,14 @@
+{
+ "tracked": [
+  "src/devops_cli/config/constants.py",
+  "src/devops_cli/config/settings.py",
+  "src/devops_cli/roadmap/implement_run.py",
+  "src/devops_cli/roadmap/implement_pull.py",
+  "src/devops_cli/roadmap/stage_ready.py",
+  "docs/ROADMAP_WORKFLOW.md",
+  "CONTEXT.md"
+ ],
+ "capabilities": [
+  "roadmap-implement-review"
+ ]
+}

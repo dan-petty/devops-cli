@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import ast
 import re
+import shlex
 import string
 import unicodedata
 from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
@@ -55,6 +56,7 @@ from devops_cli.roadmap.pull_form import (
     summary_length,
 )
 from devops_cli.roadmap.refine.refine import sanitize_text
+from devops_cli.roadmap.runner_tools import NOT_IN_RUNNER
 from devops_cli.roadmap.stage.stage_commands import command_citation_problems
 from devops_cli.roadmap.stage.stage_constants import constant_problems
 from devops_cli.roadmap.stage.stage_criteria import (
@@ -1379,6 +1381,113 @@ def _security_problems(proposal: StageProposal) -> list[str]:
     return []
 
 
+def _skip_token_modifiers(tokens: list[str]) -> int:
+    idx = 0
+    while idx < len(tokens) and "=" in tokens[idx] and not tokens[idx].startswith("-"):
+        idx += 1
+    while idx < len(tokens) and tokens[idx] in {"sudo", "time", "nice", "nohup", "env"}:
+        idx += 1
+    return idx
+
+
+def _skip_uv_flags(tokens: list[str], idx: int) -> int:
+    while idx < len(tokens) and tokens[idx].startswith("-"):
+        if tokens[idx] in {"--with", "--package", "-p", "--python"} and idx + 1 < len(tokens):
+            idx += 2
+        else:
+            idx += 1
+    return idx
+
+
+def _extract_command_programs(cmd_line: str) -> list[str]:
+    """Extract program names that are invoked in a command line."""
+    programs: list[str] = []
+    for part in re.split(r"(?:;|&&|\|\||\|)", cmd_line):
+        part = part.strip()
+        if not part:
+            continue
+        try:
+            tokens = shlex.split(part)
+        except ValueError:
+            tokens = part.split()
+        if not tokens:
+            continue
+        idx = _skip_token_modifiers(tokens)
+        if idx >= len(tokens):
+            continue
+        prog = tokens[idx]
+        if prog == "uv" and idx + 1 < len(tokens) and tokens[idx + 1] == "run":
+            idx = _skip_uv_flags(tokens, idx + 2)
+            prog = tokens[idx] if idx < len(tokens) else "uv"
+        if prog in {"sh", "bash"} and idx + 2 < len(tokens) and tokens[idx + 1] == "-c":
+            programs.extend(_extract_command_programs(tokens[idx + 2]))
+            continue
+        programs.append(Path(prog).name)
+    return programs
+
+
+def _adds_devops_review_to_job(proposal: StageProposal) -> bool:
+    """Whether `proposal` adds `devops review` to the Job (#3258)."""
+    texts: list[str] = list(proposal.what_changes)
+    texts.append(proposal.why)
+    for group in proposal.groups:
+        texts.extend(_group_task_texts(group))
+    combined = " ".join(texts).casefold()
+    if "devops review" not in combined:
+        return False
+    job_indicators = ("job", "implement", "runner", "cronjob", "ready mark", "mark ready")
+    has_job_context = any(ind in combined for ind in job_indicators) or any(
+        p.startswith("src/devops_cli/roadmap/implement_") or "cronjob" in p
+        for group in proposal.groups
+        for p in group.changes
+    )
+    changes_review_cmd_only = all(
+        "commands/review.py" in p or "review/" in p
+        for group in proposal.groups
+        for p in group.changes
+    ) and not any(ind in combined for ind in ("implement", "runner", "cronjob"))
+    return has_job_context or not changes_review_cmd_only
+
+
+def _runner_capability_problems(proposal: StageProposal) -> list[str]:
+    """What is wrong with a plan that introduces a command or verify program without stating its
+    runner capability in feasibility (#3258)."""
+    texts = MESSAGES.roadmap
+    problems: list[str] = []
+    feasibility_text = " ".join(proposal.feasibility).casefold()
+
+    if _adds_devops_review_to_job(proposal):
+        review_caps = ("review tools", "bwrap", "not_in_runner", "runner capability")
+        if not any(cap in feasibility_text for cap in review_caps):
+            problems.append(
+                texts.stage_problem_runner_command.format(
+                    command="devops review",
+                    capability="review tools",
+                )
+            )
+
+    seen_programs: set[str] = set()
+    for group in proposal.groups:
+        if not group.verify:
+            continue
+        programs = _extract_command_programs(group.verify)
+        for prog in programs:
+            if prog in NOT_IN_RUNNER and prog not in seen_programs:
+                seen_programs.add(prog)
+                if (
+                    prog.casefold() not in feasibility_text
+                    and "not_in_runner" not in feasibility_text
+                ):
+                    problems.append(
+                        texts.stage_problem_runner_verify.format(
+                            program=prog,
+                            capability=prog,
+                        )
+                    )
+
+    return problems
+
+
 def content_problems(proposal: StageProposal, probes: Sequence[str] = ()) -> list[str]:
     """What is wrong with the text of `proposal` that no schema says (#3200): a text that is too
     short or a placeholder word (`is_placeholder` of the pull request form), a `feasibility` that
@@ -1387,9 +1496,11 @@ def content_problems(proposal: StageProposal, probes: Sequence[str] = ()) -> lis
     (#3456), a plan that builds its own code and gives no cost of tokens and time in
     `existing_tool`, a plan that adds a rule of the plan check and gives no test that accepts
     its own plan (#3404), a plan that changes a planner prompt and cites no prompt-rule test
-    (#3347), a test-only `other` group that names no test function (#3433), and a plan that matches
-    a security trigger with no security text (#3247). The replay (`stage_eval_gates`) and the job
-    both call this through `check_proposal`, so one rule set judges both."""
+    (#3347), a test-only `other` group that names no test function (#3433), a plan that matches
+    a security trigger with no security text (#3247), and a plan that adds a command to the Job
+    or a verify program from NOT_IN_RUNNER with no runner capability in feasibility (#3258). The
+    replay (`stage_eval_gates`) and the job both call this through `check_proposal`, so one rule
+    set judges both."""
     texts = MESSAGES.roadmap
     problems = [p for field, text in _plan_texts(proposal) for p in _text_problems(field, text)]
     problems.extend(_message_file_problems(proposal))
@@ -1398,6 +1509,7 @@ def content_problems(proposal: StageProposal, probes: Sequence[str] = ()) -> lis
     problems.extend(_prompt_rule_problems(proposal))
     problems.extend(_test_only_group_problems(proposal))
     problems.extend(_security_problems(proposal))
+    problems.extend(_runner_capability_problems(proposal))
     lines = [_squash(line) for line in probes if line.strip()]
     if lines:
         feasibility = _squash(" ".join(proposal.feasibility))

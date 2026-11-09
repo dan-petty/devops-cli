@@ -1,0 +1,33 @@
+{
+ "issue": 3049,
+ "pull": 3183,
+ "title": "feat(roadmap): Run devops review on the diff before marking PR ready",
+ "change": "3183-the-implement-job-reviews-its-own",
+ "merge_commit": "0000000000000000000000000000000000000000",
+ "base_commit": "0000000000000000000000000000000000000000",
+ "verdict": "needs-fix",
+ "scores": {
+  "premise_ok": 5,
+  "fidelity": 4,
+  "task_quality": 3,
+  "rule_compliance": 3,
+  "accuracy": 3
+ },
+ "state": "closed",
+ "summary": "The plan adds `devops review` to the Job, but Feasibility names no runner capability for it.",
+ "notes": [
+  "The plan is one of this change before the runner capability check exists: it adds devops review to the implement job without naming runner capabilities in feasibility.",
+  "The change was never merged, so merge_commit and base_commit hold placeholders: the case reads no commit, and the facts hold the files of its tree."
+ ],
+ "defects": [
+  {
+   "type": "other",
+   "severity": "major",
+   "where": "feasibility",
+   "problem": "The plan adds `devops review` to the Job, but Feasibility names no runner capability for it.",
+   "evidence": "The feasibility section names no review tools, bwrap, or runner capabilities.",
+   "gate": "content",
+   "message": "devops review"
+  }
+ ]
+}

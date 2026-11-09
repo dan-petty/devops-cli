@@ -3685,6 +3685,15 @@ class RoadmapMessages:
         "The group '{title}' changes only tests, and its implementation names no test function in "
         "a code span. Name the test function that the group updates in a code span, or remove the group."
     )
+    # A plan that introduces a command or program states its runner capabilities in feasibility (#3258).
+    stage_problem_runner_command: str = (
+        "The plan adds '{command}' to the Job, but Feasibility names no runner capability for "
+        "it ({capability})."
+    )
+    stage_problem_runner_verify: str = (
+        "The verify command runs '{program}' from NOT_IN_RUNNER, but Feasibility names no runner "
+        "capability for it ({capability})."
+    )
     # A plan states the work of each task once: a duplicate task spends the budget of the group on
     # no change (#3456).
     stage_group_one: str = "group {first}"

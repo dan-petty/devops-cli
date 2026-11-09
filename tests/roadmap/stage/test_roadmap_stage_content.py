@@ -861,3 +861,40 @@ def test_content_problems_accepts_this_plans_own_proposal() -> None:
         groups=[group],
     )
     assert content_problems(plan) == []
+
+
+def test_a_plan_that_adds_devops_review_to_job_without_runner_capability_is_refused() -> None:
+    plan = make_stage_proposal(
+        what_changes=["Run `devops review` in the implement job."],
+        feasibility=["The code was checked with git grep."],
+    )
+    problems = content_problems(plan)
+    assert any("devops review" in p and "Feasibility" in p for p in problems)
+
+
+def test_a_plan_that_adds_devops_review_to_job_with_runner_capability_is_accepted() -> None:
+    plan = make_stage_proposal(
+        what_changes=["Run `devops review` in the implement job."],
+        feasibility=["The runner pod carries review tools and bwrap sandbox."],
+    )
+    assert not any("devops review" in p for p in content_problems(plan))
+
+
+def test_a_plan_whose_verify_runs_a_not_in_runner_program_without_capability_is_refused() -> None:
+    group = (
+        make_stage_proposal().groups[0].model_copy(update={"verify": "helm template k8s/devops"})
+    )
+    plan = make_stage_proposal(groups=[group], feasibility=["The code was checked."])
+    problems = content_problems(plan)
+    assert any("helm" in p and "NOT_IN_RUNNER" in p for p in problems)
+
+
+def test_a_plan_whose_verify_runs_a_not_in_runner_program_with_capability_is_accepted() -> None:
+    group = (
+        make_stage_proposal().groups[0].model_copy(update={"verify": "helm template k8s/devops"})
+    )
+    plan = make_stage_proposal(
+        groups=[group],
+        feasibility=["The runner lacks helm (NOT_IN_RUNNER), verified manually."],
+    )
+    assert not any("helm" in p for p in content_problems(plan))
