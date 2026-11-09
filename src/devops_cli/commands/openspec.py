@@ -9,9 +9,10 @@ import typer
 from devops_cli.core.cli import new_typer
 from devops_cli.core.repo import find_worktree_root
 from devops_cli.dry_run import dry_run_class, is_dry_run
+from devops_cli.dry_run.requests import render_request_plan
 from devops_cli.exceptions import DevOpsCLIError
 from devops_cli.lang import HELP, MESSAGES
-from devops_cli.openspec.archive import archive_change
+from devops_cli.openspec.archive import archive_change, plan_archive
 from devops_cli.openspec.gate import check_openspec
 from devops_cli.openspec.scaffold import scaffold_change
 from devops_cli.openspec.skills import regenerate_skills
@@ -51,8 +52,16 @@ def regenerate() -> None:
 @trace_span("openspec.archive")
 def archive(
     change: Annotated[str, typer.Argument(help=HELP.openspec.archive_change)],
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
 ) -> None:
     """Archive a change into the living specs, then validate every spec and change."""
+    if dry_run or is_dry_run():
+        render_request_plan(
+            MESSAGES.openspec.archive_dry_run_heading,
+            plan_archive(change),
+            [MESSAGES.openspec.archive_dry_run_output.format(change=change)],
+        )
+        return
     with isolated_openspec() as tool:
         archive_change(tool, find_worktree_root(), change)
     print_success(MESSAGES.openspec.archived.format(change=change))

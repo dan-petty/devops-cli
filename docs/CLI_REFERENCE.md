@@ -737,10 +737,10 @@ devops openspec regenerate
 
 ### `devops openspec archive`
 
-**Archive a change with `openspec archive <change> --yes`, then run `openspec validate --all --strict`. Both runs use an isolated configuration with telemetry off. The command exits 1 when a run fails. A failed archive skips the validation.**
+**Archive a change with `openspec archive <change> --yes`, then run `openspec validate --all --strict`. Both runs use an isolated configuration with telemetry off. The command exits 1 when a run fails, or when the archive leaves the change folder in place or makes no archive folder. A failed archive skips the validation. With --dry-run, it lists the two commands and runs none.**
 
 ```bash
-devops openspec archive <change>
+devops openspec archive [OPTIONS] <change>
 ```
 
 **Arguments:**
@@ -748,6 +748,12 @@ devops openspec archive <change>
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `<change>` | `string` | Yes | Name of the change folder under openspec/changes, as \<issue\>-\<slug\>. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops openspec new`
 
