@@ -16,7 +16,6 @@ import pytest
 from pydantic import BaseModel
 from pydantic_ai.exceptions import ModelHTTPError
 from pydantic_ai.messages import (
-    ModelMessagesTypeAdapter,
     ModelRequest,
     ModelResponse,
     ToolCallPart,
@@ -27,7 +26,6 @@ from devops_cli.ai.client.models import (
     AICredentialsError,
     StructuredOutputValidationError,
 )
-from devops_cli.ai.context_budget import count_tokens
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config import constants, settings
 from devops_cli.config.constants import (
@@ -43,6 +41,7 @@ from devops_cli.config.settings import (
 )
 from devops_cli.exceptions.roadmap import RoadmapStageError
 from devops_cli.roadmap.agent_run import RunLimit, RunTrace, ToolCallRecord, ToolOutcome
+from devops_cli.roadmap.refine.refine_investigation import tokens_of
 from devops_cli.roadmap.stage.stage_change import StageProposal, StageSplit
 from devops_cli.roadmap.stage.stage_toolbox import ToolboxClient
 from devops_cli.roadmap.stage.stage_tools import StageTools
@@ -365,20 +364,19 @@ def test_a_window_takes_the_tools_away_before_the_messages_pass_it(
 ) -> None:
     source, sha = _big_file_checkout(checkout)
     window = 45000
-    script = Script(_read("src/big.py"), without_tools=_PLAN)
+    script = Script(_read("src/big.py"), without_tools=_PLAN, reports_input=True)
     client = ToolboxClient(script.model(), _Inner(), source, sha, window=window)
 
     plan = _plan(client)
 
     offered = [len(tools) for tools in script.tools_offered]
-    last = ModelMessagesTypeAdapter.dump_json(script.seen[-1]).decode()
     assert (plan, offered[0], offered[-1], 1 < len(offered) < 27) == (
         _PLAN,
         len(_EXTENDED_TOOLS),
         0,
         True,
     )
-    assert count_tokens(last) < window
+    assert tokens_of(script.seen[-1]) < window
 
 
 def test_a_plan_run_whose_tools_the_window_ends_too_soon_fails_and_names_the_window_setting(
@@ -387,7 +385,7 @@ def test_a_plan_run_whose_tools_the_window_ends_too_soon_fails_and_names_the_win
     """The window of 12000 tokens ends the tools after fewer calls than the minimum. The run gives
     a valid plan, and the error is still the window and not a fault of the plan (#3880)."""
     source, sha = _big_file_checkout(checkout)
-    script = Script(_read("src/big.py"), without_tools=_PLAN)
+    script = Script(_read("src/big.py"), without_tools=_PLAN, reports_input=True)
     client = ToolboxClient(script.model(), _Inner(), source, sha, window=12000)
 
     with pytest.raises(RoadmapStageError) as raised:
@@ -408,7 +406,7 @@ def test_a_plan_run_whose_window_ends_the_tools_after_the_minimum_calls_gives_it
     checkout: tuple[Path, str],
 ) -> None:
     source, sha = _big_file_checkout(checkout)
-    script = Script(_read("src/big.py"), without_tools=_PLAN)
+    script = Script(_read("src/big.py"), without_tools=_PLAN, reports_input=True)
     client = ToolboxClient(script.model(), _Inner(), source, sha, window=45000)
 
     plan = _plan(client)
@@ -432,7 +430,9 @@ def test_a_review_run_whose_tools_the_window_ends_too_soon_fails_and_names_the_r
     plan with no finding would stage as clean. So the run fails the item, and the error names the
     window of the review and not the window of the planner (#3911)."""
     source, sha = _big_file_checkout(checkout)
-    script = Script(_read("src/big.py"), without_tools=Verification(findings=[]))
+    script = Script(
+        _read("src/big.py"), without_tools=Verification(findings=[]), reports_input=True
+    )
     client = ToolboxClient(script.model(), _Inner(), source, sha, window=12000)
 
     with pytest.raises(RoadmapStageError) as raised:
@@ -448,7 +448,7 @@ def test_a_review_run_whose_window_ends_the_tools_after_the_minimum_calls_gives_
 ) -> None:
     source, sha = _big_file_checkout(checkout)
     verdict = Verification(findings=[])
-    script = Script(_read("src/big.py"), without_tools=verdict)
+    script = Script(_read("src/big.py"), without_tools=verdict, reports_input=True)
     client = ToolboxClient(script.model(), _Inner(), source, sha, window=45000)
 
     result = client.chat_structured("System.", "{}", Verification, max_retries=1)
@@ -788,7 +788,7 @@ def test_a_run_that_fills_the_window_counts_the_window_limit(
     checkout: tuple[Path, str], otlp: FakeCollector
 ) -> None:
     source, sha = _big_file_checkout(checkout)
-    script = Script(_read("src/big.py"), without_tools=_PLAN)
+    script = Script(_read("src/big.py"), without_tools=_PLAN, reports_input=True)
 
     _plan(ToolboxClient(script.model(), _Inner(), source, sha, window=45000, toolset="base"))
 

@@ -258,7 +258,9 @@ def test_the_window_of_the_analysis_task_ends_the_tools_before_the_counts_do(
     small window ends its tools after a few turns and not after the 30 requests that the counts
     allow (#3206)."""
     window(6000)
-    script = Script(call("read_file", path="../outside.py"), without_tools=_SETTLED)
+    script = Script(
+        call("read_file", path="../" + "word " * 300), without_tools=_SETTLED, reports_input=True
+    )
 
     plan = _round(store, git_repo, _FIRST, script)
 
@@ -1099,9 +1101,10 @@ def test_a_run_that_spends_its_requests_names_the_requests_limit(git_repo: Path)
 
 def test_a_run_that_fills_the_window_names_the_window_limit(git_repo: Path) -> None:
     trace = RunTrace()
-    wordy = call("read_file", path="../" + "word " * 300)
+    wordy = call("read_file", path="../" + "word " * 500)
+    script = Script(wordy, without_tools=_SETTLED, reports_input=True)
 
-    result = _run(git_repo, Script(wordy, without_tools=_SETTLED), window=1000, trace=trace)
+    result = _run(git_repo, script, window=1000, trace=trace)
 
     assert (result, trace.limit) == (_SETTLED, RunLimit.WINDOW)
 
