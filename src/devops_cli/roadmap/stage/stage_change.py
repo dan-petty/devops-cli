@@ -1638,21 +1638,52 @@ _PATH_EXTENSIONS: Final[tuple[str, ...]] = (
 )
 
 
+# A citation span starts with its path: `path:line:text` or `path:def name`. The trace gate judges
+# the path, because the prompt asks for these forms and a run reads the file, not the citation.
+_CITATION_PATH: Final[re.Pattern[str]] = re.compile(
+    rf"^(?P<path>{_CITED_PATH}):(?:\d+:|(?:def|class)\s)"
+)
+
+
 def _is_path_span(span: str) -> bool:
     """Whether `span` looks like a file or directory path in the repository."""
     return "/" in span or any(span.endswith(ext) for ext in _PATH_EXTENSIONS)
+
+
+def _claimed_path(span: str) -> str:
+    """The path that a code span claims: the path of a `path:line:text` or `path:def name`
+    citation, else the span, without a leading `./`."""
+    cited = _CITATION_PATH.match(span)
+    return (cited["path"] if cited else span).removeprefix("./")
+
+
+def _was_read(path: str, trace: TraceFacts) -> bool:
+    """Whether the run read `path`: a read path equals it, or ends with it after a `/`, so a
+    claim that names a file or the end of its path is true."""
+    return any(read == path or read.endswith(f"/{path}") for read in trace.paths)
+
+
+def _claim_words(sentence: str, stage_tools: set[str]) -> str:
+    """The sentence with each code span blanked, except a span that names a tool of the toolbox. A
+    word inside a quoted line of code is no claim of the plan."""
+    return _CODE_SPAN.sub(
+        lambda m: m.group(0) if m.group(1).strip() in stage_tools else " " * len(m.group(0)),
+        sentence,
+    )
 
 
 def _uncalled_path(
     sentence: str, spans: Sequence[tuple[int, str]], stage_tools: set[str], trace: TraceFacts
 ) -> str | None:
     """The first uncalled path cited in `sentence`, or None when negated or all called."""
-    read_match = _READ_WORD.search(sentence)
-    if read_match is None or _NEGATION.search(sentence[: read_match.end()]):
+    claim = _claim_words(sentence, stage_tools)
+    read_match = _READ_WORD.search(claim)
+    if read_match is None or _NEGATION.search(claim[: read_match.end()]):
         return None
     for _pos, span in spans:
-        if span not in stage_tools and _is_path_span(span):
-            return span if span not in trace.paths else None
+        path = _claimed_path(span)
+        if span not in stage_tools and _is_path_span(path):
+            return None if _was_read(path, trace) else path
     return None
 
 
