@@ -15,11 +15,6 @@ from typer.testing import CliRunner
 
 from devops_cli.commands.k8s import app
 from devops_cli.commands.k8s.networking import VALID_STACKS
-from devops_cli.commands.k8s.stack_lifecycle import (
-    _HELM_REPOS_BY_STACK,
-    HELM_RELEASES_BY_STACK,
-    MANIFESTS_BY_STACK,
-)
 from devops_cli.config.defaults import DEFAULT_K8S_DIR
 from devops_cli.dry_run import set_dry_run
 from tests.support.fakes.http import WebFake
@@ -31,15 +26,21 @@ from tests.support.paths import REPO_ROOT
 runner = CliRunner()
 
 
-def test_logging_stack_definitions_and_single_shipper() -> None:
+def test_logging_stack_definitions_and_single_shipper(cli: Callable[..., Any]) -> None:
     """Verify logging stack registers Loki alone and Alloy ships pod logs to Loki (#548)."""
     mon_values = yaml.safe_load(
         (REPO_ROOT / "k8s" / "monitoring" / "k8s-monitoring-values.yaml").read_text(
             encoding="utf-8"
         )
     )
-    release_names = tuple(r["name"] for r in HELM_RELEASES_BY_STACK["logging"])
-    repo_names = tuple(_HELM_REPOS_BY_STACK["logging"].keys())
+    res = cli("k8s", "deploy-stack", "--stack", "logging", "--k8s-dir", "k8s", "--dry-run")
+    assert res.exit_code == 0
+    details = _dry_run_details(res.output)
+
+    release_names = tuple(details["helm_releases"])
+    repo_names = tuple(
+        cmd[3] for cmd in details["helm_commands"] if cmd[:3] == ["helm", "repo", "add"]
+    )
     pod_logs_enabled = mon_values["podLogsViaLoki"]["enabled"]
     local_loki_url = mon_values["destinations"]["localLoki"]["url"]
 
@@ -55,31 +56,202 @@ def test_logging_stack_definitions_and_single_shipper() -> None:
         "http://loki.logging.svc.cluster.local:3100/loki/api/v1/push",
     )
 
-    manifest_paths = [str(p) for p in MANIFESTS_BY_STACK["logging"]]
+    manifest_paths = [str(p) for p in details["manifests"]]
     assert ("logging" in VALID_STACKS, any("networkpolicy.yaml" in p for p in manifest_paths)) == (
         True,
         True,
     )
 
 
-def test_deploy_stack_installs_loki_from_the_grafana_community_chart() -> None:
+def test_deploy_stack_installs_loki_from_the_grafana_community_chart(
+    cli: Callable[..., Any],
+) -> None:
     """The logging stack of deploy-stack installs the chart that the Argo CD Application pins,
     `grafana-community/loki` 20.0.2, which runs Loki 3.7.9 and so is out of reach of
     CVE-2026-21729 (#1632). It adds only the grafana-community repository, and gives the chart
     only the values file. The invariant test of the Application and the values is in
     tests/invariants/test_k8s_manifests.py."""
-    (release,) = HELM_RELEASES_BY_STACK["logging"]
+    res = cli("k8s", "deploy-stack", "--stack", "logging", "--k8s-dir", "k8s", "--dry-run")
+    assert res.exit_code == 0
+    details = _dry_run_details(res.output)
 
-    assert (release, _HELM_REPOS_BY_STACK["logging"]) == (
-        {
-            "name": "loki",
-            "chart": "grafana-community/loki",
-            "namespace": "logging",
-            "values": str(DEFAULT_K8S_DIR / "logging" / "loki-values.yaml"),
-            "version": "20.0.2",
-        },
-        {"grafana-community": "https://grafana-community.github.io/helm-charts"},
+    repo_cmd = next(cmd for cmd in details["helm_commands"] if cmd[:3] == ["helm", "repo", "add"])
+    upgrade_cmd = next(
+        cmd for cmd in details["helm_commands"] if cmd[:3] == ["helm", "upgrade", "--install"]
     )
+
+    chart = upgrade_cmd[5]
+    version = upgrade_cmd[upgrade_cmd.index("--version") + 1]
+    namespace = upgrade_cmd[upgrade_cmd.index("--namespace") + 1]
+    values = upgrade_cmd[upgrade_cmd.index("--values") + 1]
+    repo_url = repo_cmd[4]
+
+    assert (
+        chart,
+        version,
+        namespace,
+        values,
+        repo_url,
+    ) == (
+        "grafana-community/loki",
+        "20.0.2",
+        "logging",
+        str(DEFAULT_K8S_DIR / "logging" / "loki-values.yaml"),
+        "https://grafana-community.github.io/helm-charts",
+    )
+
+
+def _dry_run_details(output: str) -> dict[str, Any]:
+    """The details of a dry-run result, after its heading."""
+    details: dict[str, Any] = json.loads(output[output.index("{") :])["details"]
+    return details
+
+
+def test_deploy_stack_dry_run_lists_the_helm_commands_of_the_logging_stack(
+    cli: Callable[..., Any],
+) -> None:
+    """The logging stack dry run lists helm repo add/update and helm upgrade commands (#2469)."""
+    expected_repo_cmds = [
+        [
+            "helm",
+            "repo",
+            "add",
+            "grafana-community",
+            "https://grafana-community.github.io/helm-charts",
+        ],
+        ["helm", "repo", "update"],
+    ]
+    base_upgrade_cmd = [
+        "helm",
+        "upgrade",
+        "--install",
+        "--take-ownership",
+        "loki",
+        "grafana-community/loki",
+        "--version",
+        "20.0.2",
+        "--namespace",
+        "logging",
+        "--values",
+        "k8s/logging/loki-values.yaml",
+        "--kube-context",
+        "ctx-example",
+    ]
+
+    res_wait = cli(
+        "k8s",
+        "deploy-stack",
+        "--stack",
+        "logging",
+        "--k8s-dir",
+        "k8s",
+        "--context",
+        "ctx-example",
+        "--dry-run",
+    )
+    assert res_wait.exit_code == 0
+    assert _dry_run_details(res_wait.output)["helm_commands"] == [
+        *expected_repo_cmds,
+        [*base_upgrade_cmd, "--wait", "--timeout", "10m"],
+    ]
+
+    res_no_wait = cli(
+        "k8s",
+        "deploy-stack",
+        "--stack",
+        "logging",
+        "--k8s-dir",
+        "k8s",
+        "--context",
+        "ctx-example",
+        "--dry-run",
+        "--no-wait",
+    )
+    assert res_no_wait.exit_code == 0
+    assert _dry_run_details(res_no_wait.output)["helm_commands"] == [
+        *expected_repo_cmds,
+        base_upgrade_cmd,
+    ]
+
+
+def test_deploy_stack_dry_run_lists_the_helm_commands_that_the_real_run_starts(
+    cli: Callable[..., Any],
+    process_fake: ProcessFake,
+) -> None:
+    """The dry run lists the helm repo and upgrade commands that the real run starts (#2469)."""
+    ready_node = json.dumps(
+        {
+            "items": [
+                {
+                    "metadata": {"name": "node-1"},
+                    "status": {"conditions": [{"type": "Ready", "status": "True"}]},
+                }
+            ]
+        }
+    )
+    process_fake.answer(
+        "kubectl cluster-info",
+        ProcessAnswer(stdout="Kubernetes control plane is running\n"),
+    )
+    process_fake.answer("kubectl get nodes", ProcessAnswer(stdout=ready_node))
+    answer_helm_version(process_fake, "v3.17.0")
+    process_fake.answer(
+        lambda call: call.argv[:2] == ("helm", "repo"),
+        ProcessAnswer(returncode=0, stdout="ok\n"),
+    )
+    process_fake.answer(
+        lambda call: call.argv[:2] == ("helm", "status"),
+        ProcessAnswer(returncode=1, stdout="not found\n"),
+    )
+    process_fake.answer(
+        lambda call: call.argv[:2] == ("helm", "upgrade"),
+        ProcessAnswer(returncode=0, stdout="Release installed\n"),
+    )
+
+    real_res = cli(
+        "k8s",
+        "deploy-stack",
+        "--stack",
+        "logging",
+        "--k8s-dir",
+        "k8s",
+        "--context",
+        "ctx-example",
+        "--no-push-secrets",
+        "--no-wait",
+    )
+    assert real_res.exit_code == 0
+
+    real_helm_cmds = [
+        list(call.argv)
+        for call in process_fake.calls
+        if call.argv[:2] in {("helm", "repo"), ("helm", "upgrade")}
+    ]
+
+    calls_before_dry_run = len(process_fake.calls)
+    dry_res = cli(
+        "k8s",
+        "deploy-stack",
+        "--stack",
+        "logging",
+        "--k8s-dir",
+        "k8s",
+        "--context",
+        "ctx-example",
+        "--dry-run",
+        "--no-wait",
+    )
+    assert dry_res.exit_code == 0
+
+    dry_details = _dry_run_details(dry_res.output)
+    assert real_helm_cmds == dry_details["helm_commands"]
+
+    helm_calls_during_dry_run = [
+        call.argv
+        for call in process_fake.calls[calls_before_dry_run:]
+        if call.argv and call.argv[0] == "helm"
+    ]
+    assert helm_calls_during_dry_run == []
 
 
 def test_monitoring_network_policy_alloy_egress_rules() -> None:
@@ -155,10 +327,7 @@ def test_deploy_logging_stack_live(cluster: FakeCluster, process_fake: ProcessFa
         for call in process_fake.calls
         if call.argv[:3] == ("helm", "upgrade", "--install")
     ]
-    assert (result.exit_code, installed) == (
-        0,
-        [release["name"] for release in HELM_RELEASES_BY_STACK["logging"]],
-    )
+    assert (result.exit_code, installed) == (0, ["loki"])
 
 
 def test_teardown_logging_stack_live(cluster: FakeCluster, process_fake: ProcessFake) -> None:
@@ -168,10 +337,7 @@ def test_teardown_logging_stack_live(cluster: FakeCluster, process_fake: Process
     removed = [
         call.argv[2] for call in process_fake.calls if call.argv[:2] == ("helm", "uninstall")
     ]
-    assert (result.exit_code, removed) == (
-        0,
-        [release["name"] for release in reversed(HELM_RELEASES_BY_STACK["logging"])],
-    )
+    assert (result.exit_code, removed) == (0, ["loki"])
 
 
 def test_k8s_logs_backward_compatibility(process_fake: ProcessFake) -> None:

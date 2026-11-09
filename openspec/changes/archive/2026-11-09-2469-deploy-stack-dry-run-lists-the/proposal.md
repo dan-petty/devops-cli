@@ -8,7 +8,9 @@
 
 - Add the key `helm_commands` to the `details` of the `deploy-stack` dry run. It is a list of argument lists: first each `helm repo add` and the `helm repo update`, then one `helm upgrade --install` for each release, in the order of the real run.
 - Extract `_build_helm_repo_cmds(selected_stacks)` from `_deploy_helm_repos`. The real run and the dry run build the repository commands from it. The upgrade commands come from `_build_helm_upgrade_cmd`, which both paths already share.
+- Extract `_render_deploy_stack_dry_run` from `deploy_stack` to keep cyclomatic complexity at or below 10 (C901).
 - Move the `helm_ctx` line of `deploy_stack` above the dry-run branch, so the dry run adds `--kube-context` as the real run does. The dry run passes `wait` and `timeout` to the builder.
+- Bound collection nesting depth in `_bound_detail_value` (`src/devops_cli/dry_run/models.py`) so leaf argument strings at depth 3 are preserved rather than truncated.
 - The dry run runs no command, `helm version` included, because a dry run makes no request and reads no state (#412). It builds the upgrade commands with `is_v4=False`. On Helm 4 or later the real run adds `--force-conflicts`, which the dry run cannot know.
 - Keep `helm_releases`. It is a list of names, not a request. The base spec scenario of the chat stack and the test at `tests/commands/k8s/test_k8s.py:2811` read it. This is not a compatibility shim.
 - Add the failing tests first to `tests/commands/k8s/test_k8s_logging_stack.py`, then change the two tests of that file that read private tables so that they read the dry-run output.
@@ -27,7 +29,7 @@ None.
 
 ## Impact
 
-- Code: `src/devops_cli/commands/k8s/stack_lifecycle.py` (`_deploy_helm_repos`, `deploy_stack`).
+- Code: `src/devops_cli/commands/k8s/stack_lifecycle.py` (`_deploy_helm_repos`, `_build_helm_repo_cmds`, `_render_deploy_stack_dry_run`, `deploy_stack`), `src/devops_cli/dry_run/models.py` (`_bound_detail_value`).
 - Tests: `tests/commands/k8s/test_k8s_logging_stack.py`.
 - Specs: `openspec/specs/k8s-helm-deploy/spec.md`.
 - No option, help text or document changes. The help of `--dry-run` (`HELP.k8s.deploy_dry_run`) stays true, so the change regenerates no document.
