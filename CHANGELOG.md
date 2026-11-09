@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.98.0](https://github.com/dan-petty/devops-cli/compare/v0.97.0...v0.98.0) (2026-11-09)
+
+
+### Features
+
+* **roadmap:** a plan that adds a gate quotes the defect ([#4194](https://github.com/dan-petty/devops-cli/issues/4194)) ([ab5e92a](https://github.com/dan-petty/devops-cli/commit/ab5e92a6b0bf9e5ba13944fb0a129f59e5841c7f))
+* **roadmap:** add failure classes and runner facts to stage context ([#4195](https://github.com/dan-petty/devops-cli/issues/4195)) ([87e9bd7](https://github.com/dan-petty/devops-cli/commit/87e9bd7433fbe7cbd90388b67f1e2988c348dda9))
+* **roadmap:** keep phase marks, spend and run comment of a killed Job ([#4202](https://github.com/dan-petty/devops-cli/issues/4202)) ([38ebc17](https://github.com/dan-petty/devops-cli/commit/38ebc1734a2b49ec38eb70bcee0c2f3f7e28bd22))
+
+
+### Bug Fixes
+
+* **roadmap:** refuse a placeholder plan summary and body ([#4196](https://github.com/dan-petty/devops-cli/issues/4196)) ([aec8ef5](https://github.com/dan-petty/devops-cli/commit/aec8ef5d29cfb09bfe5da971e5ff72e8a7066147))
+* **roadmap:** return an item when a cited class field exists ([#4199](https://github.com/dan-petty/devops-cli/issues/4199)) ([816cfe0](https://github.com/dan-petty/devops-cli/commit/816cfe093e3d54074c43965c894c37ddfd490990))
+
 ## [0.97.0](https://github.com/dan-petty/devops-cli/compare/v0.96.0...v0.97.0) (2026-11-09)
 
 
