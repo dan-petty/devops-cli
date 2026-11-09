@@ -445,3 +445,28 @@ def test_dependency_returns_item_without_model_call(
     assert held.job_record[RefineRecordKey.BLOCKED_BY] == str(open_plan)
     assert held.job_record[RefineRecordKey.NEXT_STEP] == NextStep.BLOCKED.value
     assert any(f"#{open_plan}" in comment.body for comment in store.comments_on(target))
+
+
+def test_a_false_field_absence_returns_the_item_without_model_call(
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+) -> None:
+    """An item whose body says a class defines no field that the staging commit defines goes back
+    to New with the probe line, and the round makes no model call (#3406)."""
+    stage_repo.track(
+        {"src/devops_cli/model.py": "class PullStatus:\n    labels: tuple[str, ...] = ()\n"}
+    )
+    target = seed_stageable(store, body="The class `PullStatus` defines no `labels`.")
+
+    _round(store, stage_repo)
+
+    held = store.item(target)
+    assert held is not None
+    assert model_fake.calls == []
+    assert held.status == CONST_ROADMAP_STATUS_NEW
+    assert held.job_record[RefineRecordKey.NEXT_STEP] == NextStep.EDIT.value
+    assert any(
+        "defines the field `labels` at src/devops_cli/model.py:2" in comment.body
+        for comment in store.comments_on(target)
+    )

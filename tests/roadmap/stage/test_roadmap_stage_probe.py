@@ -20,6 +20,8 @@ LIVE = "src/devops_cli/live.py"
 GONE = "src/devops_cli/gone.py"
 LIVE_SOURCE = "def keep_comment(comments):\n    return comments[:-1]\n\nLIMIT = 3\n"
 GONE_SOURCE = "def validate_url(url):\n    return url\n"
+MODEL = "src/devops_cli/model.py"
+MODEL_SOURCE = "class PullStatus:\n    labels: tuple[str, ...] = ()\n    state: str = ''\n"
 
 
 @pytest.fixture
@@ -171,3 +173,67 @@ def test_missing_path_an_open_plan_creates_is_a_dependency(repo: StageRepo) -> N
     assert probe.missing == (GONE,)
     assert blocked_by(probe.missing, {GONE: 3308, LIVE: 3309}) == (3308,)
     assert blocked_by(probe.missing, {LIVE: 3309}) == ()
+
+
+def test_a_cited_class_field_names_its_file_and_line(repo: StageRepo) -> None:
+    repo.track({MODEL: MODEL_SOURCE})
+
+    probe = _probe(repo, "The model `PullStatus.labels` holds the labels.")
+
+    assert f"`PullStatus` defines the field `labels` at {MODEL}:2" in probe.text
+    assert probe.missing == ()
+    assert "The path `PullStatus.labels`" not in probe.text
+
+
+def test_a_cited_class_field_that_the_class_lacks_is_missing(repo: StageRepo) -> None:
+    repo.track({MODEL: MODEL_SOURCE})
+
+    probe = _probe(repo, "The model `PullStatus.unknown_field` holds the value.")
+
+    assert f"`PullStatus` defines no field `unknown_field` in `{MODEL}`." in probe.text
+    assert probe.missing == ("PullStatus.unknown_field",)
+    assert "The path `PullStatus.unknown_field`" not in probe.text
+
+
+def test_a_dotted_reference_that_names_no_class_stays_a_path(repo: StageRepo) -> None:
+    probe = _probe(repo, "Change `README.unknown`.")
+
+    assert "The path `README.unknown` is no file of the staging commit." in probe.text
+    assert probe.missing == ("README.unknown",)
+
+
+def test_a_dotted_absence_statement_is_a_false_premise(repo: StageRepo) -> None:
+    repo.track({MODEL: MODEL_SOURCE})
+
+    probe = _probe(repo, "The issue says `PullStatus.labels` is absent.")
+
+    assert probe.missing == ()
+    assert probe.false_premises == (f"`PullStatus` defines the field `labels` at {MODEL}:2",)
+
+
+def test_a_split_absence_statement_is_a_false_premise(repo: StageRepo) -> None:
+    repo.track({MODEL: MODEL_SOURCE})
+
+    probe = _probe(repo, "The issue says `PullStatus` defines no `labels`.")
+
+    assert probe.false_premises == (f"`PullStatus` defines the field `labels` at {MODEL}:2",)
+
+
+def test_a_true_absence_statement_is_no_false_premise(repo: StageRepo) -> None:
+    repo.track({MODEL: MODEL_SOURCE})
+
+    probe = _probe(repo, "The issue says `PullStatus` has no `closed_at`.")
+
+    assert probe.false_premises == ()
+    assert "PullStatus.closed_at" in probe.missing
+
+
+def test_the_field_probe_counts_its_commands_and_leaves_the_checkout(
+    repo: StageRepo,
+) -> None:
+    repo.track({MODEL: MODEL_SOURCE})
+
+    probe = _probe(repo, "`PullStatus.labels` and `PullStatus.state`.")
+
+    assert probe.commands == 2
+    assert repo.git("status", "--porcelain") == ""

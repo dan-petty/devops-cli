@@ -97,6 +97,36 @@ def parse_module_models(source_code: str) -> dict[str, tuple[str, ...]]:
     }
 
 
+def _class_field_lines(node: ast.ClassDef) -> dict[str, int]:
+    """The line of each annotated or assigned field of the body of `node`."""
+    fields: dict[str, int] = {}
+    for stmt in node.body:
+        names: list[str] = []
+        if isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name):
+            names.append(stmt.target.id)
+        elif isinstance(stmt, ast.Assign):
+            names += [target.id for target in stmt.targets if isinstance(target, ast.Name)]
+        for name in names:
+            fields.setdefault(name, stmt.lineno)
+    return fields
+
+
+def parse_class_fields(source_code: str) -> dict[str, dict[str, int]]:
+    """The line of each annotated or assigned field of each class of `source_code`, by class name.
+
+    The reader takes the fields of the class body and no field of a base class, because a probe
+    names the line of the definition. A module that `ast` cannot parse holds no class."""
+    try:
+        tree = ast.parse(source_code)
+    except SyntaxError:
+        return {}
+    return {
+        node.name: _class_field_lines(node)
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ClassDef)
+    }
+
+
 def _grep_class_paths(source: Path, sha: str, name: str) -> list[str]:
     args = ["grep", "-n", f"^class {name}(", sha, "--", "src/"]
     try:
