@@ -228,10 +228,14 @@ def test_the_repository_template_renders_one_model_retry_for_the_cluster() -> No
     assert Settings.model_validate(inner).ai.max_retries == 1
 
 
-def test_every_chat_model_slot_of_the_rendered_template_names_one_hosted_group() -> None:
-    """The Service uses one chat model until most steps work most of the time (#3874). Every
-    task of `ai.tasks` and the default `ai.model` resolve to it. The embedding slot is the
-    embedding model, because a chat model cannot embed."""
+def test_every_chat_model_slot_of_the_rendered_template_names_one_hosted_group_but_analysis() -> (
+    None
+):
+    """The Service uses one chat model (#3874), with one exception: the owner tries
+    `claude-sonnet-5-5` in the task `analysis` from 2026-11-09 (#4204), and the task `stage` takes
+    its model from `analysis`. Every other task of `ai.tasks` and the default `ai.model` resolve
+    to the one model. The embedding slot is the embedding model, because a chat model cannot
+    embed."""
     rendered = render_active_devops_configmap(
         k8s_dir=REPO_ROOT / "k8s", settings=_settings(["owner/repo"], APP)
     )
@@ -245,7 +249,11 @@ def test_every_chat_model_slot_of_the_rendered_template_names_one_hosted_group()
         ai.model,
         {name: model for name, model in chat_slots.items() if model != "deepseek-v4.1-flash-1017"},
         ai.for_task("embedding").model,
-    ) == ("deepseek-v4.1-flash-1017", {}, "qwen3-embedding:0.6b")
+    ) == (
+        "deepseek-v4.1-flash-1017",
+        {"analysis": "claude-sonnet-5-5", "stage": "claude-sonnet-5-5"},
+        "qwen3-embedding:0.6b",
+    )
 
 
 def test_render_active_devops_configmap_missing_template_raises(tmp_path: Path) -> None:
