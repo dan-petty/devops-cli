@@ -46,8 +46,8 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # Copy devops-cli source files and install the package without re-downloading dependencies.
 # This copy is the devops of the published image: a child repository's post-create and
 # post-start run it, and so does this repository's first post-create, before `uv sync` fills
-# the .venv volume. The remoteEnv PATH of .devcontainer/devcontainer.json puts .venv/bin first,
-# so in this repository `devops` is the editable install of the checkout (#2449).
+# .venv. The remoteEnv PATH of .devcontainer/devcontainer.json puts .venv/bin first, so in this
+# repository `devops` is the editable install of the checkout (#2449).
 COPY pyproject.toml README.md /tmp/devops-cli/
 COPY src/ /tmp/devops-cli/src/
 RUN --mount=type=cache,target=/root/.cache/uv \

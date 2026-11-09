@@ -160,47 +160,11 @@ def test_litellm_gateway_disables_telemetry() -> None:
 
 
 def test_devcontainer_disables_telemetry() -> None:
-    """Verify devcontainer.json specifies telemetry opt-out variables and editor settings."""
+    """The workspace devcontainer turns off the telemetry of the editor. Its environment opt-outs
+    come from the label of the published image: test_devcontainer_image_disables_telemetry (#4248)."""
     assert DEVCONTAINER_JSON.is_file(), f"Missing {DEVCONTAINER_JSON}"
 
     data = json.loads(DEVCONTAINER_JSON.read_text(encoding="utf-8"))
-    env = data.get("containerEnv", {})
-
-    actual_env = (
-        env.get("DO_NOT_TRACK"),
-        env.get("HF_HUB_DISABLE_TELEMETRY"),
-        env.get("SCARF_NO_ANALYTICS"),
-        env.get("NEXT_TELEMETRY_DISABLED"),
-        env.get("CHECKPOINT_DISABLE"),
-        env.get("DOTNET_CLI_TELEMETRY_OPTOUT"),
-        env.get("ANONYMIZED_TELEMETRY"),
-        env.get("DISABLE_TELEMETRY"),
-        env.get("GOTELEMETRY"),
-        env.get("PIP_DISABLE_PIP_VERSION_CHECK"),
-        env.get("npm_config_update_notifier"),
-        env.get("DOCKER_CLI_HINTS"),
-        env.get("MINIKUBE_WANTUPDATENOTIFICATION"),
-        env.get("MINIKUBE_WANTREPORTERRORPROMPT"),
-    )
-    expected_env = (
-        "1",
-        "1",
-        "true",
-        "1",
-        "1",
-        "1",
-        "false",
-        "1",
-        "off",
-        "1",
-        "false",
-        "false",
-        "false",
-        "false",
-    )
-    assert actual_env == expected_env
-    assert "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC" not in env
-
     vscode_settings = data.get("customizations", {}).get("vscode", {}).get("settings", {})
     actual_settings = (
         vscode_settings.get("telemetry.telemetryLevel"),
@@ -278,16 +242,14 @@ def test_a_rendered_devcontainer_template_omits_claude_code_nonessential_traffic
 
 @pytest.mark.parametrize(
     "source",
-    ["this-repository", "image-configuration", "scaffolded-template"],
+    ["image-configuration", "scaffolded-template"],
 )
 def test_a_devcontainer_opts_out_of_openspec_telemetry_and_its_update_check(
     source: str,
 ) -> None:
     """OpenSpec sends events to a PostHog proxy and asks the npm registry for a newer release on
     every `validate`, `list`, `update` and `version --check`, unless the environment says not to."""
-    if source == "this-repository":
-        devcontainer = json.loads(DEVCONTAINER_JSON.read_text(encoding="utf-8"))
-    elif source == "image-configuration":
+    if source == "image-configuration":
         devcontainer = json.loads(DEVCONTAINER_IMAGE_JSON.read_text(encoding="utf-8"))
     else:
         devcontainer = _rendered_devcontainer_template()

@@ -2640,12 +2640,11 @@ def test_devcontainer_ollama_endpoint_matches_gateway_service_and_port() -> None
 
 def test_the_node_version_file_and_the_devcontainer_feature_pin_the_same_node() -> None:
     """The tool OpenSpec needs Node 20.19 or later and the feature floated to whatever the current
-    LTS was: `.node-version`, this repository's devcontainer, the template and the feature's entry
-    in the devcontainer lock name one Node."""
+    LTS was: `.node-version`, the image configuration, the template and the feature's entry in the
+    image lock name one Node. This repository's devcontainer uses the published image (#4248)."""
     from devops_cli.core.templating import render_json_template
 
     pinned = (REPO_ROOT / ".node-version").read_text(encoding="utf-8").strip()
-    repository = json.loads((REPO_ROOT / ".devcontainer" / "devcontainer.json").read_text("utf-8"))
     image_config = json.loads(
         (REPO_ROOT / ".devcontainer" / "image" / "devcontainer.json").read_text("utf-8")
     )
@@ -2660,7 +2659,6 @@ def test_the_node_version_file_and_the_devcontainer_feature_pin_the_same_node() 
             minikube=False,
         )
     )
-    lock = json.loads((REPO_ROOT / ".devcontainer" / "devcontainer-lock.json").read_text("utf-8"))
     image_lock = json.loads(
         (REPO_ROOT / ".devcontainer" / "image" / "devcontainer-lock.json").read_text("utf-8")
     )
@@ -2671,7 +2669,6 @@ def test_the_node_version_file_and_the_devcontainer_feature_pin_the_same_node() 
             options["version"] for ref, options in features.items() if ref.startswith(feature)
         )
         for name, features in (
-            ("repository", repository["features"]),
             ("image", image_config["features"]),
             ("template", scaffolded["features"]),
         )
@@ -2679,14 +2676,8 @@ def test_the_node_version_file_and_the_devcontainer_feature_pin_the_same_node() 
     assert (
         pinned,
         versions,
-        any(ref.startswith(feature) for ref in lock["features"]),
         any(ref.startswith(feature) for ref in image_lock["features"]),
-    ) == (
-        "24",
-        {"repository": "24", "image": "24", "template": "24"},
-        True,
-        True,
-    )
+    ) == ("24", {"image": "24", "template": "24"}, True)
 
 
 def test_devcontainer_image_configuration_omits_workspace_settings() -> None:
@@ -2706,23 +2697,3 @@ def test_devcontainer_image_configuration_omits_workspace_settings() -> None:
     assert "postCreateCommand" not in image_config
     assert "postStartCommand" not in image_config
     assert "customizations" not in image_config
-
-
-def test_devcontainer_image_features_and_lock_match_workspace() -> None:
-    """The image configuration and the workspace configuration define the identical set of
-    Dev Container Features and lock their versions identically (#1898)."""
-    workspace_config = json.loads(
-        (REPO_ROOT / ".devcontainer" / "devcontainer.json").read_text("utf-8")
-    )
-    image_config = json.loads(
-        (REPO_ROOT / ".devcontainer" / "image" / "devcontainer.json").read_text("utf-8")
-    )
-    workspace_lock = json.loads(
-        (REPO_ROOT / ".devcontainer" / "devcontainer-lock.json").read_text("utf-8")
-    )
-    image_lock = json.loads(
-        (REPO_ROOT / ".devcontainer" / "image" / "devcontainer-lock.json").read_text("utf-8")
-    )
-
-    assert image_config["features"] == workspace_config["features"]
-    assert image_lock["features"] == workspace_lock["features"]

@@ -9,7 +9,7 @@
 The official image, for `linux/amd64`, is hosted on GHCR at:
 `ghcr.io/dan-petty/devops-cli/devcontainer`
 
-The release builds the image from `.devcontainer/devcontainer.json` with the Dev Containers CLI. So the image holds the Dev Container Features of that file and the user `vscode` (uid 1000, gid 1000). When a repository names only the image, the `devcontainer.metadata` label of the image sets the remote user to `vscode`. The release starts each image as `vscode` before it tags the image. Images `v0.2.35` to `v0.2.38` have no features and no user `vscode`, and neither had `latest` while one of them was current. A configuration with `"remoteUser": "vscode"` cannot open them ([#1895](https://github.com/dan-petty/devops-cli/issues/1895)). Use `v0.2.34`, or a release after `v0.2.38`. `v0.2.34` and earlier releases have only `linux/amd64`.
+The release builds the image from `.devcontainer/image/devcontainer.json` and `.devcontainer/Dockerfile` with the Dev Containers CLI. So the image holds the Dev Container Features of that file and the user `vscode` (uid 1000, gid 1000). When a repository names only the image, the `devcontainer.metadata` label of the image sets the remote user to `vscode`. The release starts each image as `vscode` before it tags the image. Images `v0.2.35` to `v0.2.38` have no features and no user `vscode`, and neither had `latest` while one of them was current. A configuration with `"remoteUser": "vscode"` cannot open them ([#1895](https://github.com/dan-petty/devops-cli/issues/1895)). Use `v0.2.34`, or a release after `v0.2.38`. `v0.2.34` and earlier releases have only `linux/amd64`.
 
 | Tag Pattern | Example | Description | Best For |
 | :--- | :--- | :--- | :--- |
@@ -237,6 +237,29 @@ USER vscode
 > [!TIP]
 > **Keep Python Dependencies in `pyproject.toml`**: Avoid `pip install` commands in your `Dockerfile`. Manage all Python dependencies declaratively via `pyproject.toml` and let `postCreateCommand: "uv sync"` install them into the named `.venv` volume. This keeps image rebuilds fast and dependencies reproducible across teammates.
 
+### The Devcontainer of This Repository
+`.devcontainer/devcontainer.json` of `devops-cli` uses the published image `ghcr.io/dan-petty/devops-cli/devcontainer:latest`, as a child repository does. `.devcontainer/image/devcontainer.json` and `.devcontainer/Dockerfile` are the only build definition. The `devcontainer.metadata` label of the image gives the features, their run options, the remote user and the environment, so the workspace file holds only the mounts, the run arguments, the `PATH` of the checkout's `.venv`, the lifecycle commands and the editor settings.
+- **A new release**: a rebuild uses the local copy of the tag. Pull the tag first, then run `Dev Containers: Rebuild Container`:
+  ```bash
+  podman pull ghcr.io/dan-petty/devops-cli/devcontainer:latest
+  ```
+  After a rebuild, run `uv sync --all-groups --all-extras` once. Until `.venv` is full, `devops` is the copy in the image.
+- **An image change before a release**: CI builds and starts the image for each pull request that changes `.devcontainer` or `src`. To use the change in your own container first, build it and set `"image"` to its name until the release:
+  ```bash
+  devcontainer build --workspace-folder . --config .devcontainer/image/devcontainer.json --image-name devops-cli-devcontainer:local
+  ```
+- **Mounts that hold data**: the `.data` volume (agent worktrees and state), the home volume (the keyring and its copies, shell history, tool logins), the bind mount of the host `~/.ssh` and the `/tmp` volume. A test fails if one of them leaves the file. Before a change to the mounts or the image, export the volumes on the host:
+  ```bash
+  mkdir -p ~/devcontainer-backup
+  podman volume export devops-cli-data -o ~/devcontainer-backup/devops-cli-data-$(date +%Y%m%d).tar
+  podman volume export global-devcontainer-home -o ~/devcontainer-backup/home-$(date +%Y%m%d).tar
+  cp -a ~/.ssh ~/devcontainer-backup/ssh-$(date +%Y%m%d)
+  ```
+- **No cache volumes**: the workspace is on the Linux file system of the host, so `.venv`, `.uv` and the tool caches stay in the checkout, where `.gitignore` excludes them. To remove the cache volumes of an earlier configuration, name each one. Do not use `podman volume prune` or `podman system prune --volumes`: while a rebuild has removed the container, no container uses the `.data` and home volumes, and a prune deletes them.
+  ```bash
+  podman volume rm devops-cli-venv devops-cli-mypy-cache devops-cli-pytest-cache devops-cli-ruff-cache devops-cli-uv
+  ```
+
 ---
 
 ## 6. Configuring AI Reviewers & Model Context Protocol (MCP)
@@ -305,6 +328,7 @@ To connect external IDE tools (Cursor, Claude Desktop, Antigravity IDE, VS Code)
 On Windows (WSL2 9P filesystem) and macOS (VirtioFS), bind-mounting directories with thousands of small files (like `.venv`, `.uv`, or `.ruff_cache`) incurs significant filesystem translation overhead.
 - **Best Practice**: Mount named Docker volumes for high-churn paths (`.venv`, `.data`, `.uv`, `/tmp`, and `/home/vscode`).
 - **Result**: Native Linux ext4 performance inside the container, reducing `uv sync` and test execution times by up to **10x**.
+- **A workspace on the Linux file system** (for example a clone in the WSL2 home folder) is on the same disk as the volumes, so a cache volume gives no speed. Keep volumes there only for data that must outlive the container, such as `.data`, `/home/vscode` and `/tmp`.
 
 ### SSH Key Management & Host Agent Forwarding
 - **SSH Agent Forwarding (Recommended / Zero-Key Exposure)**: In VS Code and Dev Containers, the host SSH agent is automatically forwarded into the container when `SSH_AUTH_SOCK` is active on the host, allowing seamless git operations without copying or mounting private keys into the container.
