@@ -215,6 +215,7 @@ from devops_cli.roadmap.stage.stage_rejected import (
     recorded_rejection,
     staged_plans,
 )
+from devops_cli.roadmap.stage.stage_removal_references import scan_removal_references
 from devops_cli.roadmap.stage.stage_request import StageRequest, gate_arguments
 from devops_cli.roadmap.stage.stage_specs import BaseSpec, read_base_specs
 from devops_cli.roadmap.stage.stage_split import ask_split
@@ -733,6 +734,7 @@ class StagedChange:
     findings: tuple[Finding, ...] = ()
     open_findings: tuple[Finding, ...] = ()
     pulls_requests: int = 0
+    warnings: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -848,6 +850,25 @@ class StagePlan:
 
 def _stage_error(message: str, target: StageTarget) -> RoadmapStageError:
     return RoadmapStageError(message, failed_items=[target.item.number])
+
+
+def _check_removal_references(
+    source: Path, target: StageTarget, files: Mapping[str, str]
+) -> tuple[str, ...]:
+    """Scan `source` for removed entity references, raise on test references, return source warnings."""
+    scan = scan_removal_references(source, files)
+    if scan.has_test_failures:
+        lines = [
+            MESSAGES.roadmap.stage_problem_unhandled_test_reference.format(path=p, name=name)
+            for name, paths in sorted(scan.unhandled_tests.items())
+            for p in sorted(paths)
+        ]
+        raise _stage_error(" ".join(lines), target)
+    return tuple(
+        MESSAGES.roadmap.stage_problem_unhandled_test_reference.format(path=p, name=name)
+        for name, paths in sorted(scan.unhandled_sources.items())
+        for p in sorted(paths)
+    )
 
 
 class _Refused(NamedTuple):
@@ -1277,6 +1298,7 @@ class _Planner:
         problem = self._validate(target.change, files)
         if problem is not None:
             return _Refused(problem, proposal)
+        warnings = _check_removal_references(self._source, target, files)
         return StagedChange(
             target,
             title,
@@ -1287,6 +1309,7 @@ class _Planner:
             self._budget,
             proposal,
             pulls_requests=self._pull_requests,
+            warnings=warnings,
         )
 
     def _problems(
@@ -2045,6 +2068,14 @@ def _moved_for(checkout: Path, sha: str, change: StagedChange) -> tuple[MovedPat
     return tuple(moved_paths(checkout, sha, f"origin/{default}", _named_paths(change)))
 
 
+def _warnings_section(warnings: Sequence[str]) -> str:
+    """The section of the comment that lists warnings, or empty text for none (#3324)."""
+    if not warnings:
+        return ""
+    lines = "\n".join(f"- {w}" for w in warnings)
+    return MESSAGES.roadmap.stage_comment_warnings.format(warnings=lines)
+
+
 def _notes(change: StagedChange, moved: Sequence[MovedPath] = ()) -> str:
     """The notes that end the comment of a staged item: the named paths that moved first, then the
     open findings, the other findings, the report of the plan runs, the read of the open pull
@@ -2056,6 +2087,7 @@ def _notes(change: StagedChange, moved: Sequence[MovedPath] = ()) -> str:
         else ""
     )
     advisory = tuple(finding for finding in change.findings if finding not in change.open_findings)
+    warnings = _warnings_section(change.warnings)
     return (
         _moved_section(moved)
         + open_findings_section(change.open_findings)
@@ -2063,6 +2095,7 @@ def _notes(change: StagedChange, moved: Sequence[MovedPath] = ()) -> str:
         + _run_report(change.trace)
         + read
         + unvalidated
+        + warnings
     )
 
 
@@ -2110,6 +2143,9 @@ def _stage_one(
     (#3309). The intent mark `stage.pending` goes first, before the push, so that a later round
     finds the branch if the record write fails or the worker dies (#4051); the record clears it."""
     target = change.target
+    source_warnings = _check_removal_references(source, target, change.files)
+    if source_warnings and not change.warnings:
+        change = replace(change, warnings=source_warnings)
     with _worktree(source, target, base) as path:
         store.set_marks(
             target.item,
