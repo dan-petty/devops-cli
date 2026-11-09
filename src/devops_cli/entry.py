@@ -17,7 +17,6 @@ os.environ.setdefault("PYDANTIC_AI_NO_BANNER", "1")
 from devops_cli.dry_run.state import (  # noqa: E402
     is_dry_run_requested,
     mark_dry_run_invocation,
-    set_dry_run,
 )
 
 
@@ -45,11 +44,9 @@ def main(argv: list[str] | None = None) -> None:
         app(raw_args, prog_name="devops")
         return
 
-    # 2. Dry-run state activation
+    # 2. Dry-run invocation marking
     requested = is_dry_run_requested(raw_args)
     mark_dry_run_invocation(requested)
-    if requested:
-        set_dry_run(True)
 
     # 3. Standard Typer execution for delegated subcommands and help
     from devops_cli.main import app
