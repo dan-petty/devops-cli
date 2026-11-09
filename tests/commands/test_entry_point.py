@@ -130,3 +130,40 @@ def test_the_own_dry_run_flag_of_a_command_marks_the_invocation_after_the_root_c
     assert exited.value.code == 0
     assert (is_dry_run(), in_dry_run_invocation()) == (False, is_dry_run_invocation)
     assert [call.argv[-3:] for call in process_fake.calls] == started
+
+
+def test_an_exported_dry_run_request_survives_a_commands_own_dry_run_flag(
+    monkeypatch: pytest.MonkeyPatch,
+    process_fake: ProcessFake,
+) -> None:
+    """An exported DEVOPS_CLI_DRY_RUN applies to every command in the environment,
+    so a command's own --dry-run flag must not cause the root callback to clear it."""
+    monkeypatch.setenv("DEVOPS_CLI_DRY_RUN", "1")
+    with pytest.raises(SystemExit) as exited:
+        main(["uv", "sync", "--dry-run"])
+
+    assert exited.value.code == 0
+    assert is_dry_run() is True
+    assert in_dry_run_invocation() is True
+    assert process_fake.calls == []
+
+
+def test_an_early_stop_option_with_dry_run_records_the_invocation_mark(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """An early-stop option such as --version exits before the root callback runs,
+    but the dry-run invocation mark is recorded for exit telemetry."""
+    with pytest.raises(SystemExit) as exited:
+        main(["devops", "--dry-run", "--version"])
+
+    assert exited.value.code == 0
+    assert __version__ in capsys.readouterr().out
+    assert in_dry_run_invocation() is True
+
+
+def test_entry_point_module_does_not_import_set_dry_run() -> None:
+    """src/devops_cli/entry.py sets no dry-run state and leaves it to the root callback."""
+    from tests.support.paths import REPO_ROOT
+
+    source = (REPO_ROOT / "src" / "devops_cli" / "entry.py").read_text(encoding="utf-8")
+    assert "set_dry_run" not in source
