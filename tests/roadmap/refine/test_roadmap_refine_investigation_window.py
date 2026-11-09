@@ -174,6 +174,7 @@ def test_every_kind_of_part_counts_its_text_and_a_part_without_text_counts_nothi
     """The text of a run is the system prompt, the user prompt (a string or a list), the replies,
     the thinking, the tool calls, the tool answers and the retry texts. A file part holds no text,
     so it adds nothing."""
+    retry = RetryPromptPart("fix the call", tool_name="read_file", tool_call_id="call-1")
     messages: list[ModelMessage] = [
         ModelRequest(
             parts=[
@@ -192,7 +193,7 @@ def test_every_kind_of_part_counts_its_text_and_a_part_without_text_counts_nothi
         ModelRequest(
             parts=[
                 ToolReturnPart("read_file", "the text of a file", tool_call_id="call-0"),
-                RetryPromptPart("fix the call", tool_name="read_file", tool_call_id="call-1"),
+                retry,
             ]
         ),
     ]
@@ -204,7 +205,7 @@ def test_every_kind_of_part_counts_its_text_and_a_part_without_text_counts_nothi
             "a reply of text",
             '{"path":"src/a.py"}',
             "the text of a file",
-            messages[2].parts[1].model_response(),  # type: ignore[union-attr]
+            retry.model_response(),
         ]
     )
     assert tokens_of(messages) == count_tokens(expected)
