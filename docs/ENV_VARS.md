@@ -21,6 +21,8 @@ All configuration options for `devops-cli` can be overridden via environment var
 | `DEVOPS_CLI_AI_REFERENCE_EMBEDDING_MODEL` | `ai.reference_embedding_model` | No | Hosted embedding model whose genai-prices price values the local embedding tokens in the AI spend reports |
 | `DEVOPS_CLI_AI_REFERENCE_MODEL` | `ai.reference_model` | No | Hosted chat model whose genai-prices price values the local chat tokens in the AI spend reports |
 | `DEVOPS_CLI_AI_REFERENCE_PROVIDER` | `ai.reference_provider` | No | Provider in genai-prices of the two reference models |
+| `DEVOPS_CLI_AI_TASK_ANALYSIS_CONTEXT_WINDOW` | `ai.tasks.analysis.context_window` | No | Context window of this task in tokens, in place of `ai.context_window` |
+| `DEVOPS_CLI_AI_TASK_ANALYSIS_MAX_TOKENS` | `ai.tasks.analysis.max_tokens` | No | Limit of the reply of this task in tokens, in place of `ai.max_tokens` |
 | `DEVOPS_CLI_AI_TASK_ANALYSIS_MODEL` | `ai.tasks.analysis.model` | No | AI model of this task, in place of `ai.model` |
 | `DEVOPS_CLI_AI_TASK_ANALYSIS_OLLAMA_URLS` | `ai.tasks.analysis.ollama_urls` | No | Ollama service URLs of this task, in place of `ai.ollama_urls` |
 | `DEVOPS_CLI_AI_TASK_ANALYSIS_PROVIDER` | `ai.tasks.analysis.provider` | No | AI provider of this task, in place of `ai.provider` |
@@ -38,10 +40,14 @@ All configuration options for `devops-cli` can be overridden via environment var
 | `DEVOPS_CLI_AI_TASK_METADATA_OLLAMA_URLS` | `ai.tasks.metadata.ollama_urls` | No | Ollama service URLs of this task, in place of `ai.ollama_urls` |
 | `DEVOPS_CLI_AI_TASK_METADATA_PROVIDER` | `ai.tasks.metadata.provider` | No | AI provider of this task, in place of `ai.provider` |
 | `DEVOPS_CLI_AI_TASK_METADATA_REASONING_EFFORT` | `ai.tasks.metadata.reasoning_effort` | No | Reasoning effort of this task, in place of `ai.reasoning_effort` |
+| `DEVOPS_CLI_AI_TASK_STAGE_CONTEXT_WINDOW` | `ai.tasks.stage.context_window` | No | Context window of this task in tokens, in place of `ai.context_window` |
+| `DEVOPS_CLI_AI_TASK_STAGE_MAX_TOKENS` | `ai.tasks.stage.max_tokens` | No | Limit of the reply of this task in tokens, in place of `ai.max_tokens` |
 | `DEVOPS_CLI_AI_TASK_STAGE_MODEL` | `ai.tasks.stage.model` | No | AI model of this task, in place of `ai.model` |
 | `DEVOPS_CLI_AI_TASK_STAGE_OLLAMA_URLS` | `ai.tasks.stage.ollama_urls` | No | Ollama service URLs of this task, in place of `ai.ollama_urls` |
 | `DEVOPS_CLI_AI_TASK_STAGE_PROVIDER` | `ai.tasks.stage.provider` | No | AI provider of this task, in place of `ai.provider` |
 | `DEVOPS_CLI_AI_TASK_STAGE_REASONING_EFFORT` | `ai.tasks.stage.reasoning_effort` | No | Reasoning effort of this task, in place of `ai.reasoning_effort` |
+| `DEVOPS_CLI_AI_TASK_VERIFICATION_CONTEXT_WINDOW` | `ai.tasks.verification.context_window` | No | Context window of this task in tokens, in place of `ai.context_window` |
+| `DEVOPS_CLI_AI_TASK_VERIFICATION_MAX_TOKENS` | `ai.tasks.verification.max_tokens` | No | Limit of the reply of this task in tokens, in place of `ai.max_tokens` |
 | `DEVOPS_CLI_ANTHROPIC_API_KEY` | `anthropic.api_key` | 🔒 Yes | Anthropic API key that `devops k8s push-secrets` writes to the LLM gateway Secret (stored in OS keyring) |
 | `DEVOPS_CLI_ARGOCD_GITHUB_APP_ID` | `argocd.github_app_id` | No | ID of the GitHub App that Argo CD's GitHub notifier acts as |
 | `DEVOPS_CLI_ARGOCD_GITHUB_APP_INSTALLATION_ID` | `argocd.github_app_installation_id` | No | ID of the installation of Argo CD's notifier App on the managed repositories |
