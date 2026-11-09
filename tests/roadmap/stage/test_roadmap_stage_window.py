@@ -119,7 +119,11 @@ def _limit(window: int) -> int:
 
 
 def _script() -> Script:
-    return Script(call("list_files", directory="src"), _PLAN, without_tools=_PLAN)
+    """A model that lists files, then answers the plan. Its replies report the input of their
+    request, as a provider does, since the window follows it (#4221)."""
+    return Script(
+        call("list_files", directory="src"), _PLAN, without_tools=_PLAN, reports_input=True
+    )
 
 
 def _code(tokens: int) -> str:

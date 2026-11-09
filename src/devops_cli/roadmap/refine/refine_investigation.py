@@ -30,10 +30,18 @@ from pydantic_ai.exceptions import (
 )
 from pydantic_ai.messages import (
     ModelMessage,
-    ModelMessagesTypeAdapter,
+    ModelRequest,
+    ModelRequestPart,
     ModelResponse,
+    ModelResponsePart,
+    RetryPromptPart,
+    SystemPromptPart,
+    TextPart,
+    ThinkingPart,
     ToolCallPart,
     ToolReturn,
+    ToolReturnPart,
+    UserPromptPart,
 )
 from pydantic_ai.tools import ToolDefinition
 from pydantic_ai.usage import UsageLimits
@@ -394,9 +402,52 @@ def _offering(
 
 
 def tokens_of(messages: Sequence[ModelMessage]) -> int:
-    """The tokens of every message of a run: its instructions, requests, replies and tool answers.
-    The JSON form is a little longer than the text a model reads, so the count errs high."""
-    return count_tokens(ModelMessagesTypeAdapter.dump_json(list(messages)).decode())
+    """The tokens that the next request of a run holds. A provider reports the input of each reply,
+    and that input holds every message up to the reply, so the estimate is the input and the
+    output of the last reply that reports an input, and the text that came after it. With no such
+    reply the estimate is the text of every message. The text is what the model reads, and not
+    the JSON form of the messages (#4221)."""
+    for index in range(len(messages) - 1, -1, -1):
+        message = messages[index]
+        if isinstance(message, ModelResponse) and message.usage.input_tokens:
+            return (
+                message.usage.input_tokens
+                + message.usage.output_tokens
+                + _text_tokens(messages[index + 1 :], instructions=False)
+            )
+    return _text_tokens(messages, instructions=True)
+
+
+def _text_tokens(messages: Sequence[ModelMessage], *, instructions: bool) -> int:
+    """The tokens of the text that the model reads in `messages`. When `instructions` is true, the
+    instructions of the last request that has them count once, since every request of a run
+    sends them again."""
+    texts = [_part_text(part) for message in messages for part in message.parts]
+    if instructions:
+        texts += [
+            message.instructions
+            for message in reversed(messages)
+            if isinstance(message, ModelRequest) and message.instructions
+        ][:1]
+    return int(count_tokens("\n".join(texts)))
+
+
+def _part_text(part: ModelRequestPart | ModelResponsePart) -> str:
+    """The text of a part of a message, or an empty string for a part that holds none."""
+    match part:
+        case SystemPromptPart() | TextPart() | ThinkingPart():
+            return part.content
+        case UserPromptPart():
+            content = part.content
+            return content if isinstance(content, str) else "\n".join(map(str, content))
+        case ToolReturnPart():
+            return str(part.content)
+        case ToolCallPart():
+            return part.args_as_json_str()
+        case RetryPromptPart():
+            return part.model_response()
+        case _:
+            return ""
 
 
 def _retry_once[T: BaseModel](agent: Any, output_check: Callable[[T], str | None]) -> None:

@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator, Callable
+from contextlib import asynccontextmanager
 from typing import Any
 
 from pydantic import BaseModel
@@ -17,22 +18,50 @@ from pydantic_ai.messages import (
     ToolReturnPart,
     UserPromptPart,
 )
+from pydantic_ai.models import ModelRequestParameters, StreamedResponse
 from pydantic_ai.models.function import AgentInfo, DeltaToolCall, DeltaToolCalls, FunctionModel
+from pydantic_ai.settings import ModelSettings
+from pydantic_ai.usage import RequestUsage
+
+from devops_cli.roadmap.refine.refine_investigation import tokens_of
+
+
+class _ReportingModel(FunctionModel):
+    """A `FunctionModel` whose streamed replies report the input of the request, as a provider
+    does (#4221). The usage that a streamed `FunctionModel` estimates by itself is a constant that
+    does not follow the messages."""
+
+    @asynccontextmanager
+    async def request_stream(
+        self,
+        messages: list[ModelMessage],
+        model_settings: ModelSettings | None,
+        model_request_parameters: ModelRequestParameters,
+        run_context: Any = None,
+    ) -> AsyncIterator[StreamedResponse]:
+        async with super().request_stream(
+            messages, model_settings, model_request_parameters, run_context
+        ) as response:
+            response._usage = RequestUsage(input_tokens=tokens_of(messages))
+            yield response
 
 
 class Script:
     """A `FunctionModel` callback that answers the nth request with the nth response, and the
     last response after that, or `without_tools` once the request offers no function tool. A
     pydantic model answers as the call of the output tool, and a function answers with the model
-    response or pydantic model that it returns for the request's messages. It keeps the messages of each request
+    response or pydantic model that it returns for the request's messages. With `reports_input`,
+    the replies report the input of their request, as a provider does. It keeps the messages of each request
     and the names of the function tools each one offered."""
 
     def __init__(
         self,
         *responses: ModelResponse | BaseModel | Exception | Callable[[list[ModelMessage]], Any],
         without_tools: BaseModel | None = None,
+        reports_input: bool = False,
     ) -> None:
         self.responses = responses
+        self.reports_input = reports_input
         self.without_tools = without_tools
         self.seen: list[list[ModelMessage]] = []
         self.tools_offered: list[list[str]] = []
@@ -73,8 +102,10 @@ class Script:
                 yield part.content
 
     def model(self) -> FunctionModel:
-        """A `FunctionModel` that answers through this script, streamed or not."""
-        return FunctionModel(self, stream_function=self.stream)
+        """A `FunctionModel` that answers through this script, streamed or not. With
+        `reports_input`, its streamed replies report the input of the request."""
+        cls = _ReportingModel if self.reports_input else FunctionModel
+        return cls(self, stream_function=self.stream)
 
     def prompt(self, request: int = 0) -> str:
         """The user prompt of the request at index `request`."""

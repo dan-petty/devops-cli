@@ -25,6 +25,7 @@ from pydantic_ai.messages import (
     ModelMessage,
     ModelMessagesTypeAdapter,
     ModelResponse,
+    RetryPromptPart,
     TextPart,
     ToolCallPart,
     UserPromptPart,
@@ -257,7 +258,9 @@ def test_the_window_of_the_analysis_task_ends_the_tools_before_the_counts_do(
     small window ends its tools after a few turns and not after the 30 requests that the counts
     allow (#3206)."""
     window(6000)
-    script = Script(call("read_file", path="../outside.py"), without_tools=_SETTLED)
+    script = Script(
+        call("read_file", path="../" + "word " * 300), without_tools=_SETTLED, reports_input=True
+    )
 
     plan = _round(store, git_repo, _FIRST, script)
 
@@ -1002,6 +1005,24 @@ def test_a_call_to_a_tool_that_is_gone_gets_a_retry_and_the_run_goes_on(
     assert result == _SETTLED
 
 
+def test_the_retry_of_a_call_to_a_tool_that_is_gone_names_the_tools_that_are_offered(
+    git_repo: Path,
+) -> None:
+    """The return for a call to a tool that is gone names the tool that is offered, so the model
+    knows to call `final_result` (#4221). pydantic-ai writes the text; this guards it."""
+    script = Script(*[_read()] * 4, _SETTLED)
+
+    _run(git_repo, script, limits=_limits(tool_calls=6))
+
+    retries = [
+        str(part.content)
+        for message in script.seen[-1]
+        for part in message.parts
+        if isinstance(part, RetryPromptPart)
+    ]
+    assert ["Available tools: 'final_result'" in text for text in retries] == [True]
+
+
 def test_a_third_call_to_a_tool_that_is_gone_stops_the_run_and_it_is_no_budget_limit(
     git_repo: Path,
 ) -> None:
@@ -1083,9 +1104,10 @@ def test_a_run_that_spends_its_requests_names_the_requests_limit(git_repo: Path)
 
 def test_a_run_that_fills_the_window_names_the_window_limit(git_repo: Path) -> None:
     trace = RunTrace()
-    wordy = call("read_file", path="../" + "word " * 300)
+    wordy = call("read_file", path="../" + "word " * 500)
+    script = Script(wordy, without_tools=_SETTLED, reports_input=True)
 
-    result = _run(git_repo, Script(wordy, without_tools=_SETTLED), window=1000, trace=trace)
+    result = _run(git_repo, script, window=1000, trace=trace)
 
     assert (result, trace.limit) == (_SETTLED, RunLimit.WINDOW)
 
