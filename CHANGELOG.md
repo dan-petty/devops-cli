@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.101.0](https://github.com/dan-petty/devops-cli/compare/v0.100.2...v0.101.0) (2026-11-09)
+
+
+### Features
+
+* **config:** add task variables for the context window ([#4234](https://github.com/dan-petty/devops-cli/issues/4234)) ([c034509](https://github.com/dan-petty/devops-cli/commit/c034509c1de8d6909d8aac87268b6a6698f89fc5))
+
+
+### Bug Fixes
+
+* **ai:** price a hosted group call by the asked model ([#4231](https://github.com/dan-petty/devops-cli/issues/4231)) ([7b85c91](https://github.com/dan-petty/devops-cli/commit/7b85c91899bc0902235cbbc178d69fc97ef12496))
+* **ai:** Refuse uv audit when project is outside workspace ([#4239](https://github.com/dan-petty/devops-cli/issues/4239)) ([1700648](https://github.com/dan-petty/devops-cli/commit/1700648c2253a5e2f48df54c8eac31b0b5ecfdbc))
+* **ci:** retry the download of a release asset ([#4235](https://github.com/dan-petty/devops-cli/issues/4235)) ([cf0567e](https://github.com/dan-petty/devops-cli/commit/cf0567ed64bb023ef1ed8b94874e0c1ef3330fac))
+* **service:** use load_settings() in GET /config ([#4233](https://github.com/dan-petty/devops-cli/issues/4233)) ([230d77c](https://github.com/dan-petty/devops-cli/commit/230d77cc44c49f1790ff3472aa4da12869504377))
+
 ## [0.100.2](https://github.com/dan-petty/devops-cli/compare/v0.100.1...v0.100.2) (2026-11-09)
 
 
