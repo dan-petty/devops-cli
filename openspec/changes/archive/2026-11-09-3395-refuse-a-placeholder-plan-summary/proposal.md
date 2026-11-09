@@ -28,7 +28,7 @@ None.
 ## Impact
 
 - Code: `src/devops_cli/roadmap/stage/stage_change.py`, `src/devops_cli/roadmap/implement/implement_pull.py`, `src/devops_cli/github/client.py`, `src/devops_cli/roadmap/stage/stage_eval_gates.py`, `src/devops_cli/roadmap/stage/stage_eval_cases.py`
-- Tests: `tests/roadmap/stage/test_roadmap_stage_title.py`, `tests/roadmap/test_roadmap_draft_readiness.py`, `tests/roadmap/stage/test_roadmap_stage_eval_gates.py`, `tests/fixtures/roadmap_eval/stage/3167-a-comment-by-a-person-on/case.json`
+- Tests: `tests/roadmap/stage/test_roadmap_stage_title.py`, `tests/roadmap/test_roadmap_draft_readiness.py`, `tests/roadmap/stage/test_roadmap_stage_eval_gates.py`, `tests/roadmap/stage/test_roadmap_stage_eval_command.py`, `tests/fixtures/roadmap_eval/stage/3167-a-comment-by-a-person-on/case.json`
 
 ## Feasibility
 
