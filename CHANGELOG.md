@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.101.1](https://github.com/dan-petty/devops-cli/compare/v0.101.0...v0.101.1) (2026-11-09)
+
+
+### Bug Fixes
+
+* **devcontainer:** a rejected unlock password becomes the keyring password ([#4249](https://github.com/dan-petty/devops-cli/issues/4249)) ([cc3d22e](https://github.com/dan-petty/devops-cli/commit/cc3d22efebdbb1b81d5384b5c43740996709fae3))
+* **roadmap:** count the reported input in the run window estimate ([#4238](https://github.com/dan-petty/devops-cli/issues/4238)) ([af9c27a](https://github.com/dan-petty/devops-cli/commit/af9c27a639fbb2a270f03d3fef0693dbbff239e3))
+* **roadmap:** send one tool call at a time to a Claude group ([#4243](https://github.com/dan-petty/devops-cli/issues/4243)) ([b855601](https://github.com/dan-petty/devops-cli/commit/b855601033d3efc29f2eb2dd8d9e4e6ab323d8b5))
+
+
+### Code Refactoring
+
+* **ai:** replace PydanticAgent with pydantic-ai Agent ([#4237](https://github.com/dan-petty/devops-cli/issues/4237)) ([5edd7a5](https://github.com/dan-petty/devops-cli/commit/5edd7a547e9db6bb1f44d0ef69ff3e227f150ebc))
+
 ## [0.101.0](https://github.com/dan-petty/devops-cli/compare/v0.100.2...v0.101.0) (2026-11-09)
 
 
