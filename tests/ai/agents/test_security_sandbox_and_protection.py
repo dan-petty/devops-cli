@@ -103,26 +103,6 @@ def test_difftastic_validates_git_references_and_sanitizes_stderr(
     assert "[REDACTED_SECRET]" in diff_res or "<masked" in diff_res.lower()
 
 
-# 6. Secret sanitization in AgentMemory auto_summarize (Finding 6)
-def test_agent_memory_masks_secrets_in_auto_summarize() -> None:
-    """Verify AgentMemory.auto_summarize_if_needed sanitizes secrets from LLM output."""
-    from devops_cli.ai.agents.memory import AgentMemory, MemoryEntry
-
-    mem = AgentMemory(max_entries=2, max_chars=5000)
-    mem.entries = [
-        MemoryEntry(role="user", content="Deploy stack"),
-        MemoryEntry(role="assistant", content="Deployed successfully"),
-        MemoryEntry(role="user", content="Trigger summary"),
-    ]
-
-    mock_llm = _DummyLLM()
-
-    summarized = mem.auto_summarize_if_needed(llm_client=mock_llm)
-    assert summarized is True
-    assert "sk-proj-super_confidential_api_token" not in mem.summary
-    assert "<masked" in mem.summary.lower() or "[REDACTED" in mem.summary
-
-
 # 9. Telemetry error sample secret sanitization (Finding 9)
 @pytest.mark.live("python")
 @pytest.mark.asyncio
@@ -166,24 +146,6 @@ def test_cli_telemetry_masks_secrets_in_cli_error() -> None:
     attr_val = str(span.attributes.get("cli.error", ""))
     assert "ghp_secret_telemetry_token_999" not in attr_val
     assert "<masked" in attr_val.lower() or "[REDACTED" in attr_val
-
-
-# 11. Tool execution error message secret sanitization (Finding 17)
-def test_agent_runner_masks_secrets_in_tool_errors() -> None:
-    """Verify _execute_single_tool masks secrets in exception message."""
-    from devops_cli.ai.agents.runner import _execute_single_tool
-    from devops_cli.ai.agents.tools import Tool
-
-    def leaking_tool() -> None:
-        raise RuntimeError(
-            "Database connection failed for user=admin password=SecretVaultPassword456"
-        )
-
-    tool = Tool(name="leak_tool", description="leaks secret", function=leaking_tool)
-    status, _, err_res = _execute_single_tool(tool, "leak_tool", {}, [])
-    assert status == "error"
-    assert "SecretVaultPassword456" not in str(err_res)
-    assert "<masked" in str(err_res).lower() or "[REDACTED" in str(err_res)
 
 
 # 12. Sandbox directory validation (Finding 10)

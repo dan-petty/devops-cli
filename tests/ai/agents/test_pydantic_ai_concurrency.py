@@ -1,18 +1,11 @@
-"""Unit tests for the concurrency limits the bridge, agent and pipeline hand to Pydantic AI."""
+"""Unit tests for the concurrency limits the bridge hands to Pydantic AI."""
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock
-
-import pytest
 from pydantic_ai import Agent
-from pydantic_ai.concurrency import ConcurrencyLimiter
 from pydantic_ai.models.concurrency import ConcurrencyLimitedModel
 from pydantic_ai.models.test import TestModel
 
-from devops_cli.ai.agents.agent import PydanticAgent
-from devops_cli.ai.agents.models import AgentResponse
-from devops_cli.ai.agents.pipeline import MultiAgentPipeline
 from devops_cli.ai.pydantic_ai_bridge import resolve_pydantic_ai_model
 
 
@@ -26,58 +19,3 @@ def test_resolve_pydantic_ai_model_limits_a_model_concurrency_only_when_asked() 
     assert unwrapped is test_model
     assert isinstance(wrapped, ConcurrencyLimitedModel)
     assert Agent(wrapped).run_sync("hello").output == "success (no tool calls)"
-
-
-@pytest.mark.asyncio
-async def test_pydantic_agent_concurrency_run_async() -> None:
-    """Verify PydanticAgent supports max_concurrency and run_async execution."""
-    mock_client = MagicMock()
-    mock_client.chat_messages.return_value = "Async response content"
-    mock_client.model = "test-model"
-
-    agent: PydanticAgent[str] = PydanticAgent(
-        client=mock_client,
-        name="AsyncTester",
-        max_concurrency=2,
-    )
-    assert agent.max_concurrency == 2
-    assert agent._concurrency_limiter is not None
-
-    res: AgentResponse[str] = await agent.run_async("Analyze concurrency logic")
-    assert res.content == "Async response content"
-    assert res.turns == 1
-
-
-@pytest.mark.asyncio
-async def test_multi_agent_pipeline_concurrency_async() -> None:
-    """Verify MultiAgentPipeline supports concurrency limits and run_parallel_async."""
-    mock_client1 = MagicMock()
-    mock_client1.chat_messages.return_value = '{"summary": "Agent 1 output"}'
-    mock_client1.model = "test-model"
-
-    mock_client2 = MagicMock()
-    mock_client2.chat_messages.return_value = '{"summary": "Agent 2 output"}'
-    mock_client2.model = "test-model"
-
-    agent1: PydanticAgent[str] = PydanticAgent(client=mock_client1, name="Agent1")
-    agent2: PydanticAgent[str] = PydanticAgent(client=mock_client2, name="Agent2")
-
-    pipeline = MultiAgentPipeline(agents=[agent1, agent2], concurrency_limit=2)
-    assert isinstance(pipeline.concurrency_limiter, ConcurrencyLimiter)
-    assert pipeline.concurrency_limiter.max_running == 2
-
-    res = await pipeline.run_parallel_async("Execute parallel inspection")
-    assert sorted(step.content for step in res.steps) == [
-        '{"summary": "Agent 1 output"}',
-        '{"summary": "Agent 2 output"}',
-    ]
-
-
-@pytest.mark.asyncio
-async def test_a_pipeline_with_no_agents_returns_an_empty_result() -> None:
-    """Verify a pipeline with no agents returns an empty result from both parallel runs."""
-    pipeline = MultiAgentPipeline()
-
-    results = [pipeline.run_parallel("prompt"), await pipeline.run_parallel_async("prompt")]
-
-    assert [(result.final_content, result.steps) for result in results] == [("", []), ("", [])]

@@ -8,8 +8,7 @@ from typing import Any
 
 import pytest
 
-from devops_cli.ai.agents.embeddings import Embedder
-from devops_cli.ai.rag.embeddings import EmbeddingsEngine, OllamaEmbeddingModel
+from devops_cli.ai.rag.embeddings import Embedder, EmbeddingsEngine, OllamaEmbeddingModel
 from devops_cli.config.settings import AIConfig, AIEmbeddingTaskOverride
 from tests.support.embedding_replies import ollama_reply, serve
 from tests.support.fakes.http import WebFake

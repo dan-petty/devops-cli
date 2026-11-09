@@ -14,7 +14,7 @@ T = TypeVar("T")
 
 
 class AgentResponse[T](BaseModel):
-    """Structured response returned by a PydanticAgent run."""
+    """Structured response returned by an Agent run."""
 
     content: str
     data: T | None = None

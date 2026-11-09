@@ -221,8 +221,7 @@ async def test_the_embedding_models_report_the_tokens_the_provider_counted(
     spend_ledger: SpendLedger, wrapper: str, web: WebFake
 ) -> None:
     """Both pydantic-ai embedding models report the reply's token count, not an estimate."""
-    from devops_cli.ai.agents.embeddings import EngineEmbeddingModel
-    from devops_cli.ai.rag.embeddings import OllamaEmbeddingModel
+    from devops_cli.ai.rag.embeddings import EngineEmbeddingModel, OllamaEmbeddingModel
 
     serve(web, ollama_reply)
     model = (

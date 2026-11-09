@@ -1,4 +1,4 @@
-"""Central tool registry combining native and MCP tools for PydanticAgent."""
+"""Central tool registry combining native and MCP tools for agents."""
 
 from __future__ import annotations
 

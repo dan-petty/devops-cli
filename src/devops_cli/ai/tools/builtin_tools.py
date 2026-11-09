@@ -1,4 +1,4 @@
-"""Built-in workspace inspection and execution tools for PydanticAgent."""
+"""Built-in workspace inspection and execution tools for agents."""
 
 from __future__ import annotations
 

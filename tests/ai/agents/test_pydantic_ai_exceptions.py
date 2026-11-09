@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 import pydantic_ai.exceptions as p_exc
 
 from devops_cli.exceptions.ai import (
@@ -11,7 +9,6 @@ from devops_cli.exceptions.ai import (
     CallDeferred,
     LLMInferenceError,
     ModelRetry,
-    SkipToolExecution,
     ToolFailed,
     UnexpectedModelBehavior,
 )
@@ -81,88 +78,6 @@ def test_pydantic_ai_exceptions_dual_inheritance_model_behavior() -> None:
     assert unexp.exit_code == 15
     assert unexp.error_code == "UNEXPECTED_MODEL_BEHAVIOR"
     assert unexp.body is not None
-
-
-def test_runner_executes_with_pydantic_exceptions() -> None:
-    """Verify _execute_single_tool in runner handles ToolFailed, SkipToolExecution, and ModelRetry."""
-    from devops_cli.ai.agents.context import RunContext
-    from devops_cli.ai.agents.runner import _execute_single_tool
-    from devops_cli.ai.agents.tools import Tool
-
-    def failing_tool() -> None:
-        raise ToolFailed("Terminal error on database")
-
-    def skipping_tool() -> None:
-        raise SkipToolExecution({"status": "skipped_ok"})
-
-    def retrying_tool() -> None:
-        raise ModelRetry("Please specify a valid cluster context")
-
-    tool_fail = Tool(name="fail_op", description="fail op", function=failing_tool)
-    tool_skip = Tool(name="skip_op", description="skip op", function=skipping_tool)
-    tool_retry = Tool(name="retry_op", description="retry op", function=retrying_tool)
-
-    dummy_ctx: Any = RunContext(deps=None)
-
-    # ToolFailed returns tool_failed outcome
-    status_fail, _, res_fail = _execute_single_tool(
-        tool_fail, "fail_op", {}, [], ctx=dummy_ctx, default_timeout=5, hooks=None
-    )
-    assert status_fail == "tool_failed"
-    assert "Terminal error on database" in str(res_fail)
-
-    # SkipToolExecution returns ok with provided result
-    status_skip, _, res_skip = _execute_single_tool(
-        tool_skip, "skip_op", {}, [], ctx=dummy_ctx, default_timeout=5, hooks=None
-    )
-    assert status_skip == "ok"
-    assert res_skip == {"status": "skipped_ok"}
-
-    # ModelRetry returns retry_requested
-    status_retry, _, res_retry = _execute_single_tool(
-        tool_retry, "retry_op", {}, [], ctx=dummy_ctx, default_timeout=5, hooks=None
-    )
-    assert status_retry == "retry_requested"
-    assert "Please specify a valid cluster context" in str(res_retry)
-
-
-def test_runner_tool_timeout_enforced_without_blocking() -> None:
-    """Verify _execute_single_tool enforces timeout and does not block on hung worker threads.
-
-    The tool is held until the test releases it after the call returns. A call that waited for
-    the worker would return only after the hold, with the tool done, so the test reads no clock
-    (#1902).
-    """
-    import threading
-
-    from devops_cli.ai.agents.context import RunContext
-    from devops_cli.ai.agents.runner import _execute_single_tool
-    from devops_cli.ai.agents.tools import Tool
-    from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS
-
-    release = threading.Event()
-    finished = threading.Event()
-
-    def held_tool() -> str:
-        release.wait(THREAD_HANDOFF_BOUND_SECONDS)
-        finished.set()
-        return "slow_done"
-
-    tool = Tool(name="slow_tool", description="slow tool", function=held_tool, timeout=0.05)
-    dummy_ctx: Any = RunContext(deps=None)
-
-    status, _, res = _execute_single_tool(
-        tool, "slow_tool", {}, [], ctx=dummy_ctx, default_timeout=None
-    )
-    held_when_returned = not finished.is_set()
-    release.set()
-
-    assert (
-        status,
-        "Timed out after 0.05 seconds" in str(res),
-        held_when_returned,
-        finished.wait(THREAD_HANDOFF_BOUND_SECONDS),
-    ) == ("retry_requested", True, True, True)
 
 
 def test_generate_error_catalog_includes_all_ai_exceptions() -> None:

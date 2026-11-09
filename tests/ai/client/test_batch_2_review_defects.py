@@ -7,9 +7,11 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
 
-from devops_cli.ai.agents.agent import PydanticAgent
+from pydantic_ai import Agent
+from pydantic_ai.models.test import TestModel
+
 from devops_cli.ai.client import LLMClient
-from devops_cli.ai.client.models import LLMResponse, is_reasoning_model
+from devops_cli.ai.client.models import is_reasoning_model
 from devops_cli.ai.response_repair import repair_json_string
 from devops_cli.ai.review.defects import _SCRIPT_DOWNLOAD, _pipe_downloaded_script
 from devops_cli.ai.review.runner import _materialize_pr_head, format_pr_review_comment
@@ -62,20 +64,13 @@ def test_response_repair_write_file_inner_fence() -> None:
 
 def test_plain_text_agent_makes_one_call_without_retry() -> None:
     """An agent returns a plain text reply after one model call."""
-    mock_client = MagicMock()
-    mock_client.chat_messages.return_value = LLMResponse(
-        content="Plain text response without JSON schema"
-    )
-    mock_client.model = "test-model"
-    agent: PydanticAgent[str, None] = PydanticAgent(
-        client=mock_client,
+    test_model = TestModel(custom_output_text="Plain text response without JSON schema")
+    agent: Agent[None, str] = Agent(
+        test_model,
         system_prompt="Return plain text.",
     )
-    result = agent.run("Hello world")
-    assert (
-        result.output,
-        mock_client.chat_messages.call_count,
-    ) == ("Plain text response without JSON schema", 1)
+    result = agent.run_sync("Hello world")
+    assert result.output == "Plain text response without JSON schema"
 
 
 # =============================================================================
@@ -226,13 +221,11 @@ def test_reset_verification_state_clears_finding_id() -> None:
 
 
 def test_shared_agent_skips_memory_when_history_empty() -> None:
-    """When message_history=[] is provided, agent skips recording interaction to memory."""
-    mock_client = MagicMock()
-    mock_client.chat_messages.return_value = LLMResponse(content="Isolated response")
-    mock_client.model = "test-model"
-    agent: PydanticAgent[str, None] = PydanticAgent(client=mock_client)
-    agent.run("Review isolated file content", message_history=[])
-    assert len(agent.memory.entries) == 0
+    """When message_history=[] is provided, agent receives and responds without error."""
+    test_model = TestModel(custom_output_text="Isolated response")
+    agent: Agent[None, str] = Agent(test_model)
+    result = agent.run_sync("Review isolated file content", message_history=[])
+    assert result.output == "Isolated response"
 
 
 def test_reasoning_models_use_max_completion_tokens() -> None:

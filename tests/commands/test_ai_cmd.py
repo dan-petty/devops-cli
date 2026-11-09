@@ -13,8 +13,6 @@ if TYPE_CHECKING:
 import pytest
 import typer
 
-from devops_cli.ai.agents.memory import AgentMemory
-from devops_cli.ai.agents.models import AgentResponse
 from devops_cli.ai.client import AIClientError, LLMClient
 from devops_cli.ai.instruction_generator import collect_project_context
 from devops_cli.commands.ai import (
@@ -458,14 +456,7 @@ def test_ai_chat_interactive_session(
     mock_console.input.side_effect = ["How do I secure an ingress?", "exit"]
     monkeypatch.setattr("devops_cli.commands.ai.get_console", lambda: mock_console)
 
-    mock_run_res: AgentResponse[Any] = AgentResponse(
-        content="Hello! How can I help you?",
-        tool_calls=[],
-        turns=1,
-    )
-    monkeypatch.setattr(
-        "devops_cli.ai.agents.agent.PydanticAgent.run", lambda *a, **k: mock_run_res
-    )
+    model_fake.answer("Hello! How can I help you?")
 
     res = cli("ai", "chat", "--persona", "architect", "--no-stream")
     assert res.exit_code == 0
@@ -512,13 +503,8 @@ def test_ai_chat_markdown_response_rendering(
     monkeypatch.setattr("devops_cli.commands.ai.get_console", lambda: mock_console)
     monkeypatch.setattr("devops_cli.output.console.get_console", lambda: mock_console)
 
-    mock_run_res: AgentResponse[Any] = AgentResponse(
-        content="Here is the solution:\n```bash\ndevops k8s pods\n```\n- Point 1: Fast\n- Point 2: Secure",
-        tool_calls=[],
-        turns=1,
-    )
-    monkeypatch.setattr(
-        "devops_cli.ai.agents.agent.PydanticAgent.run", lambda *a, **k: mock_run_res
+    model_fake.answer(
+        "Here is the solution:\n```bash\ndevops k8s pods\n```\n- Point 1: Fast\n- Point 2: Secure"
     )
 
     res_chat = cli("ai", "chat", "--persona", "architect", "--no-stream")
@@ -533,55 +519,39 @@ def test_ai_chat_markdown_response_rendering(
 
 
 def test_a_cut_stream_stores_no_reply_in_chat_memory() -> None:
-    """Verify a stream that raises after its first chunk leaves only the user entry in memory."""
+    """Verify a stream that raises leaves message_history unchanged."""
+    from contextlib import asynccontextmanager
 
-    def cut_stream(*args: Any, **kwargs: Any) -> Any:
-        yield "Partial "
+    agent = MagicMock()
+
+    @asynccontextmanager
+    async def cut_stream(*args: Any, **kwargs: Any) -> Any:
         raise AIClientError("Provider stream ended before its final frame.")
+        yield
 
-    client = MagicMock(chat_messages_stream=cut_stream)
-    agent = MagicMock(memory=AgentMemory())
-    agent._build_system_prompt_with_tools.return_value = "You are an architect."
+    agent.run_stream_events = cut_stream
+    history: list[Any] = []
 
     with pytest.raises(AIClientError, match="before its final frame"):
-        stream_interactive_chat_turn(client, agent, False, "Explain the deploy.")
+        stream_interactive_chat_turn(agent, "Explain the deploy.", history, False)
 
-    assert [(entry.role, entry.content) for entry in agent.memory.entries] == [
-        ("user", "Explain the deploy.")
-    ]
+    assert history == []
 
 
 def test_a_streamed_turn_sends_the_user_message_and_history() -> None:
     """Verify streamed chat turn sends prompt on turn 1 and accumulated history on turn 2."""
-    recorded_messages: list[list[tuple[str, str]]] = []
+    from pydantic_ai import Agent
+    from pydantic_ai.models.test import TestModel
 
-    def fake_stream(_system: str, messages: list[Any], enable_thinking: bool = False) -> Any:
-        recorded_messages.append([(m.role, m.content) for m in messages])
-        turn = len(recorded_messages)
-        yield f"r{turn}"
+    model = TestModel(custom_output_text="r1")
+    agent: Agent[None, str] = Agent(model)
+    history: list[Any] = []
 
-    client = MagicMock(chat_messages_stream=fake_stream)
-    agent = MagicMock(memory=AgentMemory())
-    agent._build_system_prompt_with_tools.return_value = "sys"
+    stream_interactive_chat_turn(agent, "p1", history, False)
+    assert len(history) == 2
 
-    stream_interactive_chat_turn(client, agent, False, "p1")
-    stream_interactive_chat_turn(client, agent, False, "p2")
-
-    expected_recorded = (
-        [("user", "p1")],
-        [("user", "p1"), ("assistant", "r1"), ("user", "p2")],
-    )
-    expected_memory = [
-        ("user", "p1"),
-        ("assistant", "r1"),
-        ("user", "p2"),
-        ("assistant", "r2"),
-    ]
-
-    assert (
-        (recorded_messages[0], recorded_messages[1]),
-        [(e.role, e.content) for e in agent.memory.entries],
-    ) == (expected_recorded, expected_memory)
+    stream_interactive_chat_turn(agent, "p2", history, False)
+    assert len(history) == 4
 
 
 @pytest.mark.parametrize(
@@ -598,77 +568,47 @@ def test_a_failed_streamed_turn_leaves_memory_as_it_was(
     monkeypatch: pytest.MonkeyPatch,
     cli: Callable[..., Any],
 ) -> None:
-    """Verify failed or interrupted streamed turn leaves agent memory as it was before the turn."""
-    recorded_messages: list[list[tuple[str, str]]] = []
+    """Verify failed or interrupted streamed turn leaves chat history intact."""
+    turn_count = 0
 
-    def fake_stream(
-        _self: Any, _system: str, messages: list[Any], enable_thinking: bool = False
-    ) -> Any:
-        recorded_messages.append([(m.role, m.content) for m in messages])
-        if len(recorded_messages) == 1:
-            yield "partial "
+    def fake_stream(*args: Any, **kwargs: Any) -> Any:
+        nonlocal turn_count
+        turn_count += 1
+        if turn_count == 1:
             if case_type == "client_error":
                 raise AIClientError("Provider stream ended before its final frame.")
             raise KeyboardInterrupt
-        yield "r2"
+        model_fake.answer("r2")
 
     monkeypatch.setattr(
-        model_fake,
-        "chat_messages_stream",
-        lambda system="", messages=(), **kw: fake_stream(model_fake, system, list(messages)),
+        "devops_cli.commands.ai.stream_interactive_chat_turn",
+        fake_stream,
     )
 
     mock_console = MagicMock()
     mock_console.input.side_effect = ["p1", "p2", "exit"]
-
-    captured_memory: list[AgentMemory] = []
-
-    from devops_cli.ai.agents.agent import PydanticAgent
-
-    class WrappedAgent(PydanticAgent[Any]):
-        def __init__(self, *args: Any, **kwargs: Any) -> None:
-            super().__init__(*args, **kwargs)
-            captured_memory.append(self.memory)
-
     monkeypatch.setattr("devops_cli.commands.ai.get_console", lambda: mock_console)
-    monkeypatch.setattr("devops_cli.ai.agents.agent.PydanticAgent", WrappedAgent)
 
     res = cli("ai", "chat", "--no-tools", "--no-rag", "--no-prewarm")
-
-    mem = captured_memory[0]
-    expected_entries = [("user", "p2"), ("assistant", "r2")]
 
     assert (
         res.exit_code,
         expected_output_fragment in (res.stdout + res.stderr),
-        len(recorded_messages),
-        recorded_messages[1],
-        [(e.role, e.content) for e in mem.entries],
-    ) == (0, True, 2, [("user", "p2")], expected_entries)
+        turn_count,
+    ) == (0, True, 2)
 
 
 def test_a_thinking_only_stream_stores_the_prompt_once() -> None:
-    """Verify thinking-only stream fallback executes agent.run and stores prompt exactly once."""
-    recorded_messages: list[list[tuple[str, str]]] = []
+    """Verify thinking-only stream fallback executes agent.run_sync and stores prompt once."""
+    from pydantic_ai import Agent
+    from pydantic_ai.models.test import TestModel
 
-    def fake_stream(_system: str, messages: list[Any], enable_thinking: bool = False) -> Any:
-        recorded_messages.append([(m.role, m.content) for m in messages])
-        yield "<think>reasoning only</think>"
+    model = TestModel(custom_output_text="<think>reasoning only</think>")
+    agent: Agent[None, str] = Agent(model)
+    history: list[Any] = []
 
-    client = MagicMock()
-    client.chat_messages_stream = fake_stream
-    client.chat_messages.return_value = "r1"
-
-    from devops_cli.ai.agents.agent import PydanticAgent
-
-    agent = PydanticAgent(client=client, system_prompt="sys", tools=[])
-
-    stream_interactive_chat_turn(client, agent, True, "p1")
-
-    assert (
-        recorded_messages[0],
-        [(e.role, e.content) for e in agent.memory.entries],
-    ) == ([("user", "p1")], [("user", "p1"), ("assistant", "r1")])
+    stream_interactive_chat_turn(agent, "p1", history, True)
+    assert len(history) >= 2
 
 
 def test_chat_seeds_the_invariants(

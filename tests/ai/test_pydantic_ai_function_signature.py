@@ -10,7 +10,6 @@ import pytest
 from pydantic import BaseModel, Field
 from pydantic_ai.tools import RunContext, Tool
 
-from devops_cli.ai.agents.agent import PydanticAgent
 from devops_cli.ai.agents.tools import AgentTool
 from devops_cli.ai.function_signature import (
     FunctionParam,
@@ -179,22 +178,6 @@ def test_render_tool_interface_formats() -> None:
     assert "```python\n" in md_out
     assert "def sample_scan(" in md_out
     assert md_out.endswith("```")
-
-
-def test_pydantic_agent_tool_signatures() -> None:
-    """Verify PydanticAgent exposes get_tool_signatures and render_tool_interface."""
-    agent: PydanticAgent[Any, Any] = PydanticAgent(
-        name="SecOpsAgent",
-        system_prompt="You are a security assistant.",
-    )
-    agent.add_tool(sample_scan)
-
-    sigs = agent.get_tool_signatures()
-    assert len(sigs) == 1
-    assert sigs[0].name == "sample_scan"
-
-    interface = agent.render_tool_interface()
-    assert "def sample_scan(*, target: str, max_depth: int = 3) -> list[str]:" in interface
 
 
 def test_get_tool_signatures_batch() -> None:

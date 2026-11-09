@@ -115,8 +115,7 @@ def test_agent_tool_args_validator() -> None:
 
 
 def test_abstract_custom_toolset() -> None:
-    """Verify custom AbstractToolset subclasses integrate with PydanticAgent."""
-    from devops_cli.ai.agents.agent import PydanticAgent
+    """Verify custom AbstractToolset subclasses produce configured tools."""
     from devops_cli.ai.agents.tools import AbstractToolset, AgentTool
 
     class DynamicMetricToolset(AbstractToolset):
@@ -137,16 +136,13 @@ def test_abstract_custom_toolset() -> None:
     assert tools[0].name == "k8s_cpu"
     assert ts.get_instructions() == ["Query metrics using the metric_ prefix tools."]
 
-    agent = PydanticAgent(toolsets=[ts])
-    assert "k8s_cpu" in agent._tools
-
 
 @pytest.mark.anyio
 async def test_embedder_and_embedding_result() -> None:
     """Verify Embedder interface and EmbeddingResult container indexing and cost calculation."""
     from unittest.mock import MagicMock
 
-    from devops_cli.ai.agents.embeddings import Embedder, EmbeddingResult
+    from devops_cli.ai.rag.embeddings import Embedder, EmbeddingResult
 
     mock_engine = MagicMock()
     mock_engine.embed_query.return_value = [0.1, 0.2, 0.3, 0.4]
@@ -198,9 +194,7 @@ async def test_embedder_and_embedding_result() -> None:
     assert engine._dimension == 384
 
     # 6. Pydantic AI TestEmbeddingModel and EmbeddingSettings integration
-    from pydantic_ai.embeddings import TestEmbeddingModel
-
-    from devops_cli.ai.agents.embeddings import EmbeddingSettings
+    from pydantic_ai.embeddings import EmbeddingSettings, TestEmbeddingModel
 
     test_embedder = Embedder(TestEmbeddingModel(), settings=EmbeddingSettings())
     res_test = test_embedder.embed_query_sync("Test query")
@@ -217,7 +211,7 @@ def test_embedding_cost_of_a_local_model_is_zero_whatever_its_custom_price(tmp_p
 
     from pydantic_ai.usage import RequestUsage
 
-    from devops_cli.ai.agents.embeddings import EmbeddingCost, EmbeddingResult
+    from devops_cli.ai.rag.embeddings import EmbeddingCost, EmbeddingResult
     from devops_cli.ai.spend.pricing import get_pricing_registry
 
     pricing = get_pricing_registry(data_dir=tmp_path)
@@ -239,28 +233,14 @@ def test_embedding_cost_of_a_local_model_is_zero_whatever_its_custom_price(tmp_p
     )
 
 
-def test_agent_override_swaps_the_model_and_the_toolsets(model_fake: ModelFake) -> None:
-    """`Agent.override` answers from the given model and adds the given toolsets for its block."""
-    from devops_cli.ai.agents.agent import PydanticAgent
-    from devops_cli.ai.agents.tools import FunctionToolset
+def test_agent_override_swaps_the_model(model_fake: ModelFake) -> None:
+    """`Agent.override` answers from the given model for its block."""
+    from pydantic_ai import Agent
+    from pydantic_ai.models.test import TestModel
 
-    agent = PydanticAgent(name="TestAssistant", model="openai:gpt-4o")
+    agent: Agent[None, str] = Agent(TestModel(custom_output_text="Initial Model Response"))
 
-    # 1. The model of the override answers, and the run keeps the exchange.
     model_fake.answer("Mocked Agent Response")
     with agent.override(model=model_fake):
-        res = agent.run("What is the k8s status?")
-    assert res.content == "Mocked Agent Response"
-    assert model_fake.requested[-1].endswith("What is the k8s status?")
-    assert [message.role for message in res.messages][-2:] == ["user", "assistant"]
-
-    # 2. The toolsets of the override exist for its block only.
-    ts = FunctionToolset()
-
-    @ts.tool_plain()
-    def custom_tool(x: int) -> int:
-        return x * 2
-
-    with agent.override(toolsets=[ts]):
-        assert "custom_tool" in agent._tools
-    assert "custom_tool" not in agent._tools
+        res = agent.run_sync("What is the k8s status?")
+    assert res.output == "Mocked Agent Response"

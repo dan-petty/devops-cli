@@ -1000,40 +1000,111 @@ def agents(
 _PERSONA_NAMES = [p.value for p in Persona]
 
 
+def _handle_stream_part_delta(event: Any, processor: Any) -> None:
+    """Handle thinking or text deltas from streaming events."""
+    from pydantic_ai.messages import TextPartDelta, ThinkingPartDelta
+
+    if isinstance(event.delta, ThinkingPartDelta):
+        if not processor.in_think:
+            processor.feed("<think>")
+        if event.delta.content_delta:
+            processor.feed(event.delta.content_delta)
+    elif isinstance(event.delta, TextPartDelta):
+        if processor.in_think:
+            processor.feed("</think>")
+        if event.delta.content_delta:
+            processor.feed(event.delta.content_delta)
+
+
+def _handle_stream_tool_call(
+    event: Any,
+    processor: Any,
+    active_tool_calls: dict[str, tuple[str, dict[str, Any]]],
+) -> None:
+    """Track a tool call event during streaming."""
+    if processor.in_think:
+        processor.feed("</think>")
+    part = event.part
+    t_name = getattr(part, "tool_name", "")
+    t_args = (
+        getattr(part, "args_as_dict", lambda: {})()
+        if hasattr(part, "args_as_dict")
+        else getattr(part, "args", {})
+    )
+    call_id = getattr(part, "tool_call_id", t_name)
+    active_tool_calls[call_id] = (
+        t_name,
+        t_args if isinstance(t_args, dict) else {},
+    )
+
+
+def _handle_stream_tool_result(
+    event: Any,
+    active_tool_calls: dict[str, tuple[str, dict[str, Any]]],
+) -> None:
+    """Print the completed tool execution and its result."""
+    part = event.part
+    call_id = getattr(part, "tool_call_id", "")
+    t_name, t_args = active_tool_calls.pop(call_id, (getattr(part, "tool_name", "tool"), {}))
+    res_content = getattr(part, "content", "")
+    _print_chat_tool(t_name, t_args, res_content)
+
+
 def stream_interactive_chat_turn(
-    client: Any,
     agent: Any,
-    thinking: bool,
     effective_prompt: str,
+    message_history: list[Any],
+    thinking: bool,
 ) -> None:
     """Execute streaming response with live thinking and output filtering."""
+    import asyncio
+
+    from pydantic_ai import AgentRunResultEvent
+    from pydantic_ai.messages import (
+        FunctionToolCallEvent,
+        FunctionToolResultEvent,
+        PartDeltaEvent,
+    )
+
     from devops_cli.ai.thinking_stream import ThinkingStreamProcessor, strip_think_blocks
 
     processor = ThinkingStreamProcessor(
         show_thinking=thinking,
         console=get_console(),
     )
-    agent.memory.add_interaction("user", effective_prompt)
-    system_with_tools = agent._build_system_prompt_with_tools()
-    messages = agent.memory.to_chat_messages()
-    for chunk in client.chat_messages_stream(system_with_tools, messages, enable_thinking=thinking):
-        processor.feed(chunk)
-    processor.flush()
+    active_tool_calls: dict[str, tuple[str, dict[str, Any]]] = {}
+
+    async def _stream() -> None:
+        async with agent.run_stream_events(
+            effective_prompt, message_history=message_history
+        ) as stream:
+            async for event in stream:
+                if isinstance(event, PartDeltaEvent):
+                    _handle_stream_part_delta(event, processor)
+                elif isinstance(event, FunctionToolCallEvent):
+                    _handle_stream_tool_call(event, processor, active_tool_calls)
+                elif isinstance(event, FunctionToolResultEvent):
+                    _handle_stream_tool_result(event, active_tool_calls)
+                elif isinstance(event, AgentRunResultEvent):
+                    pass
+            if processor.in_think:
+                processor.feed("</think>")
+            processor.flush()
+            message_history.clear()
+            message_history.extend(stream.all_messages())
+
+    asyncio.run(_stream())
     reply = processor.clean_content
     if not reply.strip() and processor.thinking_content:
         # Model put all output in thinking tags; retrieve summary
-        if agent.memory.entries and agent.memory.entries[-1].role == "user":
-            agent.memory.entries.pop()
-        agent_res = agent.run(effective_prompt, enable_thinking=thinking)
-        reply = strip_think_blocks(agent_res.content)
+        agent_res = agent.run_sync(effective_prompt, message_history=message_history)
+        reply = strip_think_blocks(str(agent_res.output))
         if reply.strip():
             render_chat_response(reply.strip())
+        message_history.clear()
+        message_history.extend(agent_res.all_messages())
         return
     write_stdout("\n\n")
-    agent.memory.add_interaction("assistant", reply)
-
-
-_stream_interactive_chat_turn = stream_interactive_chat_turn
 
 
 # =============================================================================
@@ -1042,10 +1113,10 @@ _stream_interactive_chat_turn = stream_interactive_chat_turn
 
 
 def _run_interactive_chat_turn(
-    client: Any,
     agent: Any,
     thinking: bool,
     effective_prompt: str,
+    message_history: list[Any],
     *,
     stream: bool,
 ) -> None:
@@ -1053,17 +1124,31 @@ def _run_interactive_chat_turn(
     from devops_cli.ai.thinking_stream import strip_think_blocks
 
     if stream:
-        _stream_interactive_chat_turn(client, agent, thinking, effective_prompt)
+        stream_interactive_chat_turn(agent, effective_prompt, message_history, thinking)
         return
-    agent_res = agent.run(
+    agent_res = agent.run_sync(
         effective_prompt,
-        enable_thinking=thinking,
-        on_thought=_print_chat_thought if thinking else None,
-        on_tool_call=_print_chat_tool,
+        message_history=message_history,
     )
-    reply = strip_think_blocks(agent_res.content)
+    for msg in agent_res.new_messages():
+        if hasattr(msg, "parts"):
+            for part in msg.parts:
+                part_type = type(part).__name__
+                if part_type == "ThinkingPart" and thinking:
+                    _print_chat_thought(getattr(part, "content", ""))
+                elif part_type == "ToolCallPart":
+                    t_name = getattr(part, "tool_name", "")
+                    t_args = (
+                        getattr(part, "args_as_dict", lambda: {})()
+                        if hasattr(part, "args_as_dict")
+                        else getattr(part, "args", {})
+                    )
+                    _print_chat_tool(t_name, t_args if isinstance(t_args, dict) else {}, "")
+    reply = strip_think_blocks(str(agent_res.output))
     if reply.strip():
         render_chat_response(reply.strip())
+    message_history.clear()
+    message_history.extend(agent_res.all_messages())
 
 
 @dry_run_class("request-plan")
@@ -1127,13 +1212,14 @@ def chat(  # noqa: C901
 
     import sys
 
-    from devops_cli.ai.agents.agent import PydanticAgent
     from devops_cli.ai.client import (
         RequestPriority,
         current_request_priority,
         get_llm_client,
     )
+    from devops_cli.ai.client.factory import build_agent
     from devops_cli.ai.tools import get_persona_tools
+    from devops_cli.config.defaults import DEFAULT_CHAT_INVARIANTS
     from devops_cli.config.settings import load_settings
 
     if persona not in _PERSONA_NAMES:
@@ -1148,6 +1234,9 @@ def chat(  # noqa: C901
     system = persona_def.chat_prompt
     if context_file is not None:
         system = system + "\n\n## Project Context\n\n" + context_file.read_text(encoding="utf-8")
+
+    inv_section = "## Invariants\n" + "\n".join(f"- {inv}" for inv in DEFAULT_CHAT_INVARIANTS)
+    system = f"{inv_section}\n\n{system}"
 
     settings = load_settings()
     task_config = settings.ai.for_task("chat")
@@ -1166,16 +1255,15 @@ def chat(  # noqa: C901
             )
             client.preload_models(blocking=False)
 
-    from devops_cli.ai.agents.memory import AgentMemory
-    from devops_cli.config.defaults import DEFAULT_CHAT_INVARIANTS
-
     agent_tools = get_persona_tools(persona) if tools else []
-    agent: PydanticAgent[Any] = PydanticAgent(
-        client=client,
+    agent = build_agent(
+        task="chat",
+        model=model,
         system_prompt=system,
         tools=agent_tools,
-        memory=AgentMemory(session_id="chat", invariants=list(DEFAULT_CHAT_INVARIANTS)),
+        settings=settings,
     )
+    message_history: list[Any] = []
 
     print_section(
         f" [bold dark_orange]{persona_def.title}[/bold dark_orange] (Pydantic Agent)  "
@@ -1216,24 +1304,14 @@ def chat(  # noqa: C901
                 )
                 sys.stdout.flush()
                 _run_interactive_chat_turn(
-                    client, agent, thinking, effective_prompt, stream=stream and not tools
+                    agent, thinking, effective_prompt, message_history, stream=stream and not tools
                 )
 
             except KeyboardInterrupt:
                 print_info("\n[dim]Interrupted.[/dim]\n", prefix=False)
-                if agent.memory.entries and agent.memory.entries[-1].role == "user":
-                    agent.memory.entries.pop()
             except Exception as exc:
                 print_error(f"\nError: {exc}\n", prefix=False)
-                if agent.memory.entries and agent.memory.entries[-1].role == "user":
-                    agent.memory.entries.pop()  # don't add failed turn to history
                 continue
-
-            if agent.memory.auto_summarize_if_needed(llm_client=client):
-                print_info(
-                    "[dim]⚡ Long conversation memory consolidated into context summary.[/dim]",
-                    prefix=False,
-                )
     finally:
         current_request_priority.reset(p_token)
 
@@ -1261,6 +1339,54 @@ def bundle_models(
 # =============================================================================
 # Command: devops ai pipeline
 # =============================================================================
+
+
+def _extract_stage_tool_calls(res: Any) -> list[tuple[str, Any]]:
+    """Extract tool call names and args from run result messages."""
+    stage_tools_called: list[tuple[str, Any]] = []
+    for msg in res.new_messages():
+        for part in getattr(msg, "parts", []):
+            if type(part).__name__ == "ToolCallPart":
+                t_name = getattr(part, "tool_name", "")
+                t_args = (
+                    getattr(part, "args_as_dict", lambda: {})()
+                    if hasattr(part, "args_as_dict")
+                    else getattr(part, "args", {})
+                )
+                stage_tools_called.append((t_name, t_args))
+    return stage_tools_called
+
+
+def _run_pipeline_stage(
+    persona: Persona,
+    stage_index: int,
+    current_prompt: str,
+    settings: Any,
+) -> tuple[str, int]:
+    """Execute a single pipeline persona stage."""
+    from devops_cli.ai.client.factory import build_agent
+    from devops_cli.ai.personas import PERSONAS
+    from devops_cli.ai.tools import get_persona_tools
+
+    p_def = PERSONAS[persona]
+    stage_tools = get_persona_tools(persona)
+    stage_agent = build_agent(
+        task="chat",
+        system_prompt=p_def.system_prompt,
+        name=p_def.title,
+        tools=stage_tools,
+        settings=settings,
+    )
+    print_section(f" Stage {stage_index}: {p_def.title} ", style="bold green")
+    res = stage_agent.run_sync(current_prompt)
+    tools_called = _extract_stage_tool_calls(res)
+    if tools_called:
+        print_info(f"[dim]Executed {len(tools_called)} tool call(s):[/dim]", prefix=False)
+        for t_name, t_args in tools_called:
+            print_info(f"  [yellow]⚡ {t_name}[/yellow]({t_args})", prefix=False)
+    output_str = str(res.output).strip()
+    print_info(f"\n{output_str}\n", prefix=False)
+    return output_str, len(tools_called)
 
 
 @dry_run_class("request-plan")
@@ -1302,11 +1428,9 @@ def pipeline(
     ] = False,
 ) -> None:
     """Run a multi-agent Pydantic pipeline with shared DevOps tools and RAG context."""
-    from devops_cli.ai.agents.agent import PydanticAgent
-    from devops_cli.ai.agents.pipeline import MultiAgentPipeline
     from devops_cli.ai.client import get_llm_client
-    from devops_cli.ai.personas import PERSONAS, Persona
-    from devops_cli.ai.tools import get_default_tools, get_persona_tools
+    from devops_cli.ai.context_budget import truncate_to_token_limit
+    from devops_cli.ai.personas import Persona
     from devops_cli.config.settings import load_settings
     from devops_cli.dry_run import is_dry_run
 
@@ -1333,23 +1457,6 @@ def pipeline(
 
     settings = load_settings()
     client = get_llm_client(task="chat", settings=settings)
-    agent_tools = get_default_tools()
-
-    pipeline_engine: MultiAgentPipeline = MultiAgentPipeline(
-        shared_tools=agent_tools,
-        stage_context_tokens=stage_context_tokens,
-    )
-
-    for p in valid_personas:
-        p_def = PERSONAS[p]
-        stage_tools = get_persona_tools(p)
-        agent: PydanticAgent[Any] = PydanticAgent(
-            client=client,
-            system_prompt=p_def.system_prompt,
-            name=p_def.title,
-            tools=stage_tools,
-        )
-        pipeline_engine.add_agent(agent)
 
     print_section(
         f" [cyan]Multi-Agent Pipeline ({len(valid_personas)} Stages)[/cyan]  "
@@ -1364,24 +1471,17 @@ def pipeline(
         if rag_ctx:
             effective_prompt = f"{rag_ctx}\n\nPipeline Goal: {prompt}"
 
-    result = pipeline_engine.run(
-        effective_prompt,
-        max_turns_per_agent=max_turns,
-        enable_thinking=thinking,
-        skip_rag=not rag,
-    )
-
-    for idx, step in enumerate(result.steps, 1):
-        print_section(f" Stage {idx}: {step.agent_name} ", style="bold green")
-        if step.tool_calls:
-            print_info(f"[dim]Executed {len(step.tool_calls)} tool call(s):[/dim]", prefix=False)
-            for tc in step.tool_calls:
-                print_info(f"  [yellow]⚡ {tc.tool_name}[/yellow]({tc.arguments})", prefix=False)
-        print_info(f"\n{step.content.strip()}\n", prefix=False)
+    total_tool_calls = 0
+    current_prompt = effective_prompt
+    for idx, p in enumerate(valid_personas, 1):
+        output_str, calls_count = _run_pipeline_stage(p, idx, current_prompt, settings)
+        total_tool_calls += calls_count
+        truncated_prev = truncate_to_token_limit(output_str, stage_context_tokens)
+        current_prompt = f"Previous stage output:\n{truncated_prev}\n\nPipeline Goal: {prompt}"
 
     print_success(
-        f"Multi-agent pipeline completed across {len(result.steps)} stage(s) "
-        f"({result.total_turns} total turns, {len(result.all_tool_calls)} tool executions)."
+        f"Multi-agent pipeline completed across {len(valid_personas)} stage(s) "
+        f"({len(valid_personas)} total turns, {total_tool_calls} tool executions)."
     )
 
 

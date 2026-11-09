@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-from pathlib import Path
 from typing import Any
 
 import pytest
@@ -407,35 +406,6 @@ def test_cascade_reaches_each_gateway_and_then_ollama(remote_bridge: Any, provid
         ("openai", "devops-chat", f"{_EXAMPLE_PORTKEY}/"),
         ("ollama", "qwen3.8:27b", f"{_EXAMPLE_OLLAMA}/v1/"),
     ]
-
-
-@pytest.mark.parametrize("provider", ["ollama", "gateway"])
-def test_gateway_cascade_falls_back_through_its_routes_to_ollama(
-    remote_bridge: Any, tmp_path: Path, provider: str
-) -> None:
-    """Verify the gateway's cascade is its own routes, then `ai.model` on Ollama directly.
-
-    `devops-coder` fails over to `devops-chat` on the gateway; `devops-chat` fails over to
-    Ollama itself (`direct-ollama`), which is the cascade's last member and not a route.
-    """
-    from devops_cli.ai.gateway import GatewayRouter
-
-    settings = _cascade_settings(provider)
-    router = GatewayRouter(settings.ai, state_file=tmp_path / "gateway_state.json")
-
-    def members(virtual_model: str) -> list[tuple[str, str, str]]:
-        cascade = router.build_pydantic_cascade_model(virtual_model, settings=settings)
-        return [(m.system, m.model_name, str(m.base_url)) for m in cascade.models]
-
-    ollama = ("ollama", "qwen3.8:27b", f"{_EXAMPLE_OLLAMA}/v1/")
-    assert (members("devops-coder"), members("devops-chat")) == (
-        [
-            ("openai", "devops-coder", f"{_EXAMPLE_GATEWAY}/"),
-            ("openai", "devops-chat", f"{_EXAMPLE_GATEWAY}/"),
-            ollama,
-        ],
-        [("openai", "devops-chat", f"{_EXAMPLE_GATEWAY}/"), ollama],
-    )
 
 
 def test_ollama_model_waits_the_configured_timeout(

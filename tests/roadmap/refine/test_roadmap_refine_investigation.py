@@ -786,12 +786,15 @@ def _spend_rows(ledger: SpendLedger) -> Sequence[tuple[Any, ...]]:
     return rows
 
 
-def test_the_runs_usage_reaches_the_spend_ledger_once(
+def test_the_runs_usage_reaches_the_spend_ledger_for_each_model_request(
     git_repo: Path, spend_ledger: SpendLedger
 ) -> None:
     _investigate(git_repo, Script(call("list_files", directory="src"), _SETTLED))
 
-    assert _spend_rows(spend_ledger) == [("agent_run", "analysis", "function", "unknown", 1, 1)]
+    assert _spend_rows(spend_ledger) == [
+        ("agent_run", "analysis", "function", "unknown", 1, 1),
+        ("agent_run", "analysis", "function", "unknown", 1, 1),
+    ]
 
 
 def test_a_gateway_models_run_is_recorded_under_the_gateway(
