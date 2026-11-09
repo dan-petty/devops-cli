@@ -15,22 +15,22 @@ Reads: `k8s/devops/configmap.example.yaml`, `k8s/llm/gateway/config.yaml`. Chang
 
 Reads: `k8s/devops/configmap.example.yaml`. Changes: `k8s/devops/configmap.example.yaml`.
 
-- [ ] 2.1 Set `analysis` to `model: claude-sonnet-5-5` and `context_window: 200000` in `k8s/devops/configmap.example.yaml`, with the comment of the trial (reason #4204, owner decision of 2026-11-09, about 0.27 USD for each stage case at the sample of #3566, up to 3 items for each 37 minutes of the stage row, undo when the rule of #3874 applies again). Fix the header comment of the model block and the comment of `verification`, which name one model for every slot and the same window as `analysis`
+- [x] 2.1 Set `analysis` to `model: claude-sonnet-5-5` and `context_window: 200000` in `k8s/devops/configmap.example.yaml`, with the comment of the trial (reason #4204, owner decision of 2026-11-09, about 0.27 USD for each stage case at the sample of #3566, up to 3 items for each 37 minutes of the stage row, undo when the rule of #3874 applies again). Fix the header comment of the model block and the comment of `verification`, which name one model for every slot and the same window as `analysis`
   - Verification: `$ uv run devops ci test tests/config/test_k8s_devops_runtime.py tests/k8s/test_k8s_configmap.py tests/k8s/test_k8s_configmap_keys.py tests/roadmap/stage/test_roadmap_stage_window.py tests/roadmap/test_roadmap_limit_classes.py`
-- [ ] 2.2 Read the live ConfigMap and the rendered template and compare the key `ai.tasks.analysis`
+- [x] 2.2 Read the live ConfigMap and the rendered template and compare the key `ai.tasks.analysis`
   - Verification: the read-only `kubectl -n devops get configmap devops-cli-config -o yaml` shows `claude-sonnet-5-5` and `200000` for `ai.tasks.analysis`, the same values as the template; apply nothing
 
 ## 3. Fix the documents
 
 Reads: `k8s/README.md`, `docs/roadmap/stage.md`, `SECURITY.md`, `openspec/specs/roadmap-service-deployment/spec.md`. Changes: `k8s/README.md`, `docs/roadmap/stage.md`, `SECURITY.md`.
 
-- [ ] 3.1 Edit item 19 of `k8s/README.md` and the sentence on `analysis` near line 674: `analysis` is Sonnet with 200,000 tokens, the other chat slots are DeepSeek, and `claude-sonnet-5-5` serves the slot `analysis`
+- [x] 3.1 Edit item 19 of `k8s/README.md` and the sentence on `analysis` near line 674: `analysis` is Sonnet with 200,000 tokens, the other chat slots are DeepSeek, and `claude-sonnet-5-5` serves the slot `analysis`
   - Verification: `$ ! git grep -n "claude-sonnet-5-5. serves no slot" -- k8s/README.md SECURITY.md`
-- [ ] 3.2 Edit `docs/roadmap/stage.md`: the window of the task `stage` is 200,000 tokens, the limit is 150,000, and the model is Sonnet with 1,000,000
+- [x] 3.2 Edit `docs/roadmap/stage.md`: the window of the task `stage` is 200,000 tokens, the limit is 150,000, and the model is Sonnet with 1,000,000
   - Verification: `$ uv run devops ci test tests/roadmap/stage/test_roadmap_stage_window.py`
-- [ ] 3.3 Edit rule 13 of `SECURITY.md`: the prompts of `analysis` leave the cluster to Anthropic, and the other chat slots to OpenRouter
+- [x] 3.3 Edit rule 13 of `SECURITY.md`: the prompts of `analysis` leave the cluster to Anthropic, and the other chat slots to OpenRouter
   - Verification: `$ uv run devops ci docs`
-- [ ] 3.4 Check the changed spec
+- [x] 3.4 Check the changed spec
   - Verification: `$ uv run devops openspec check`
 
 ## Criteria
