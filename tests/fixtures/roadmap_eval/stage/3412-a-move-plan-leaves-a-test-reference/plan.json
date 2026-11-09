@@ -1,0 +1,44 @@
+{
+ "summary": "rename the claim module to ownership",
+ "pull_request_body": "Rename the claim module to `ownership` so that its name states the data it holds. The move keeps every public name of the module, and it changes the import lines of its callers.",
+ "why": "The name `claim` says one operation of the module and hides the owner fields that it holds. The rename gives the module the name of the data that it owns.",
+ "what_changes": [
+  "Rename `src/devops_cli/roadmap/claim.py` to `src/devops_cli/roadmap/ownership.py` and keep its public names.",
+  "Change the import lines of the callers of the module in `src/` and `tests/`."
+ ],
+ "skip_specs": true,
+ "feasibility": [
+  "The staged tree holds `src/devops_cli/roadmap/claim.py`, and the plan lists it in `changes` and creates the new path.",
+  "The two test modules import the old dotted name of the module, so the move must change them as well."
+ ],
+ "existing_tool": "The `git mv` of the implement step and the `references` tool of the stage planner cover the need, so the plan builds no tool.",
+ "builds_own": false,
+ "decisions": [],
+ "rejected": [],
+ "specs": [],
+ "groups": [
+  {
+   "title": "Rename the claim module to ownership",
+   "kind": "other",
+   "reads": [
+    "src/devops_cli/roadmap/claim.py"
+   ],
+   "changes": [
+    "src/devops_cli/roadmap/claim.py",
+    "src/devops_cli/roadmap/ownership.py"
+   ],
+   "creates": [
+    "src/devops_cli/roadmap/ownership.py"
+   ],
+   "creates_lines": {
+    "src/devops_cli/roadmap/ownership.py": 200
+   },
+   "test": null,
+   "implementation": "Move the module to its new path and keep every public name that it exports.",
+   "documentation": null,
+   "verify": "uv run pytest tests/roadmap/test_roadmap_claim.py tests/roadmap/test_roadmap_claim_command.py",
+   "process": null
+  }
+ ],
+ "dependencies": []
+}

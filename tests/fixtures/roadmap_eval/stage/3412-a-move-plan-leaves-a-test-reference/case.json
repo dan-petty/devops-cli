@@ -1,0 +1,36 @@
+{
+ "issue": 3412,
+ "pull": 3412,
+ "title": "feat(roadmap): record the reference hits of a stage case in the replay",
+ "change": "3412-record-the-reference-hits-of-a",
+ "merge_commit": "0000000000000000000000000000000000000000",
+ "base_commit": "0000000000000000000000000000000000000000",
+ "verdict": "needs-fix",
+ "scores": {
+  "premise_ok": 5,
+  "fidelity": 4,
+  "task_quality": 4,
+  "rule_compliance": 4,
+  "accuracy": 3
+ },
+ "state": "open",
+ "summary": "The plan moves the claim module to a new path and leaves the two test modules that hold its old dotted name unchanged. The reference check of the job refuses the plan, because a moved module needs a group that changes every file that holds its old name.",
+ "notes": [
+  "The plan is a move plan of the replay case: one group renames a module and no group changes the two test modules that hold the old dotted name.",
+  "The change was never merged as this plan, so `pull`, `merge_commit` and `base_commit` hold the issue number and two placeholders: the case reads no commit, and the facts hold the files of its tree."
+ ],
+ "defects": [
+  {
+   "type": "missing_path",
+   "severity": "major",
+   "where": "tasks.md, group 1",
+   "problem": "The group renames `src/devops_cli/roadmap/claim.py` to `src/devops_cli/roadmap/ownership.py` and no group changes `tests/roadmap/test_roadmap_claim.py` or `tests/roadmap/test_roadmap_claim_command.py`. The two test modules import the old dotted name, so the move leaves them broken.",
+   "evidence": "`tests/roadmap/test_roadmap_claim.py` line 17 reads `from devops_cli.roadmap.claim import`, and `tests/roadmap/test_roadmap_claim_command.py` line 11 reads `from devops_cli.roadmap.claim import dry_run_claim`. Neither path is in the group `changes` or in its `creates`.",
+   "gate": "paths",
+   "paths": [
+    "tests/roadmap/test_roadmap_claim.py",
+    "tests/roadmap/test_roadmap_claim_command.py"
+   ]
+  }
+ ]
+}

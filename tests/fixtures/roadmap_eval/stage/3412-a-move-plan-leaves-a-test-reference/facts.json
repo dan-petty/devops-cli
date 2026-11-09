@@ -1,0 +1,12 @@
+{
+ "tracked": [
+  "src/devops_cli/roadmap/claim.py",
+  "tests/roadmap/test_roadmap_claim.py",
+  "tests/roadmap/test_roadmap_claim_command.py"
+ ],
+ "capabilities": [],
+ "references": [
+  "tests/roadmap/test_roadmap_claim.py",
+  "tests/roadmap/test_roadmap_claim_command.py"
+ ]
+}

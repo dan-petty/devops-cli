@@ -51,7 +51,7 @@ _WHOLE_SET_REPLAY = "replay" + "_all(CASES)"
 _MODULE_FIXTURE = '@pytest.fixture(scope="module")'
 # The defects of the whole set that a gate judges, and all of them, after #3395 records the
 # placeholder summary of case 3167 at the kind gate.
-JUDGED_BASELINE: Final[tuple[int, int]] = (80, 316)
+JUDGED_BASELINE: Final[tuple[int, int]] = (81, 317)
 
 
 @pytest.fixture(scope="module")
@@ -177,6 +177,41 @@ def test_the_plan_under_test_holds_the_manifest_references_of_its_case(
     assert plan.manifest_references == {MANIFEST: (MANIFEST_TEST,)}
 
 
+REFERENCE_TEST = "tests/roadmap/test_roadmap_claim.py"
+REFERENCE_COMMAND_TEST = "tests/roadmap/test_roadmap_claim_command.py"
+
+
+def test_the_plan_under_test_holds_the_reference_hits_of_its_case(
+    cases: list[StageCase],
+) -> None:
+    good = next(c for c in cases if c.verdict is Verdict.GOOD)
+    facts = CaseFacts(
+        tracked=good.facts.tracked,
+        capabilities=(),
+        references=(REFERENCE_TEST, REFERENCE_COMMAND_TEST),
+    )
+
+    plan = PlanUnderTest.of_case(good.model_copy(update={"facts": facts}))
+
+    assert plan.references == (REFERENCE_TEST, REFERENCE_COMMAND_TEST)
+
+
+def test_the_paths_gate_refuses_a_move_plan_that_leaves_a_reference_hit(
+    cases: list[StageCase],
+) -> None:
+    """A case that records the files of a moved module judges the reference check of the job
+    (#3373): the check names each file that no group changes."""
+    case = next(c for c in cases if c.issue == 3412)
+
+    problems = run_gates(PlanUnderTest.of_case(case))[GateName.PATHS]
+    replay = replay_case(case)
+
+    assert any(REFERENCE_TEST in problem for problem in problems)
+    assert any(REFERENCE_COMMAND_TEST in problem for problem in problems)
+    assert all(outcome.status is DefectStatus.CAUGHT for outcome in replay.outcomes)
+    assert replay.failures == []
+
+
 def test_the_paths_gate_refuses_a_manifest_plan_that_omits_its_test(
     cases: list[StageCase],
 ) -> None:
@@ -236,7 +271,7 @@ def test_the_counts_of_each_type_are_the_baseline_that_a_change_of_a_gate_beats(
     lets a gate judge more defects raises the first number and lowers the second."""
     counts = {t.type: (t.caught, t.missed, t.unjudged) for t in report.by_type()}
 
-    assert counts[DefectType.MISSING_PATH] == (36, 0, 0)
+    assert counts[DefectType.MISSING_PATH] == (37, 0, 0)
     assert counts[DefectType.SPEC_DELTA_WRONG] == (6, 0, 19)
     assert counts[DefectType.VERIFY_FORM] == (6, 0, 12)
     assert counts[DefectType.TASK_ORDER] == (1, 0, 8)

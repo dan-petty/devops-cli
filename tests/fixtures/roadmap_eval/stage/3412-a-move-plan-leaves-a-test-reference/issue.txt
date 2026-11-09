@@ -1,0 +1,3 @@
+The replay of the stage golden set passes no reference hits to the reference check, so a plan that misses a reference hit passes the replay.
+
+Add a `references` key to `facts.json` of the stage cases, give `PlanUnderTest` the recorded paths, pass them to `check_proposal`, and add one case that moves a module and leaves a string literal in `tests/`.
