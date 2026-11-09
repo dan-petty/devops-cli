@@ -55,6 +55,7 @@ from devops_cli.roadmap.pull_form import (
     summary_length,
 )
 from devops_cli.roadmap.refine.refine import sanitize_text
+from devops_cli.roadmap.stage.stage_commands import command_citation_problems
 from devops_cli.roadmap.stage.stage_constants import constant_problems
 from devops_cli.roadmap.stage.stage_criteria import (
     PENDING_PERSON,
@@ -1593,7 +1594,10 @@ def check_gates(
             *_scenario_problems(proposal.specs, proposal.groups, tree),
         ],
         ProposalGate.CONTENT: content_problems(proposal, probes),
-        ProposalGate.CITATION: _plan_citation_problems(proposal, read_text),
+        ProposalGate.CITATION: [
+            *_plan_citation_problems(proposal, read_text),
+            *command_citation_problems(proposal),
+        ],
         ProposalGate.FORM: form_problems(proposal.groups),
         ProposalGate.EVAL_REPLAY: eval_replay_problems(proposal.groups),
         ProposalGate.PATHS: [
