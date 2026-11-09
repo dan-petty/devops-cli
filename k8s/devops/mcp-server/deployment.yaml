@@ -1,0 +1,120 @@
+# The MCP server serves role-scoped tool sets over streamable HTTP to cluster jobs (#3220). Each
+# role has its own endpoint at `/<role>/mcp` behind the bearer token of `mcp.token`. The pod
+# runs under `devops-default-perimeter`, and `networkpolicy.yaml` admits TCP 8001 from the
+# roadmap Service and runner Jobs only.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mcp-server
+  namespace: devops
+  labels:
+    app.kubernetes.io/name: mcp-server
+    app.kubernetes.io/part-of: devops-cli-stack
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: mcp-server
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: mcp-server
+        app.kubernetes.io/part-of: devops-cli-stack
+    spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: node-role.kubernetes.io/control-plane
+                    operator: DoesNotExist
+      serviceAccountName: devops-cli
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: mcp-server
+          image: ghcr.io/dan-petty/devops-cli/mcp-server
+          imagePullPolicy: IfNotPresent
+          args:
+            - mcp
+            - serve
+            - --transport
+            - streamable-http
+            - --host
+            - 0.0.0.0
+            - --port
+            - "8001"
+            - --allow-remote
+          ports:
+            - name: http
+              containerPort: 8001
+              protocol: TCP
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          envFrom:
+            - secretRef:
+                name: devops-cli
+          env:
+            - name: DEVOPS_CLI_CONFIG
+              value: /config/devops-cli.yaml
+            - name: DEVOPS_CLI_DATA_DIR
+              value: /home/devops/.data
+            - name: OTEL_SERVICE_NAME
+              value: devops-mcp-server
+            - name: DO_NOT_TRACK
+              value: "1"
+            - name: OPENSPEC_TELEMETRY
+              value: "0"
+            - name: OPENSPEC_NO_UPDATE_CHECK
+              value: "1"
+            - name: PYDANTIC_AI_NO_BANNER
+              value: "1"
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: home
+              mountPath: /home/devops
+            - name: config
+              mountPath: /config
+              readOnly: true
+          livenessProbe:
+            tcpSocket:
+              port: 8001
+            initialDelaySeconds: 5
+            periodSeconds: 15
+          readinessProbe:
+            tcpSocket:
+              port: 8001
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+              ephemeral-storage: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+              ephemeral-storage: 1Gi
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 256Mi
+        - name: home
+          emptyDir:
+            sizeLimit: 512Mi
+        - name: config
+          configMap:
+            name: devops-cli-config

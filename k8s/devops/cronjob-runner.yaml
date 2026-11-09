@@ -71,6 +71,14 @@ spec:
                 # of a step takes it from here.
                 - name: PYTEST_XDIST_AUTO_NUM_WORKERS
                   value: "2"
+                - name: DO_NOT_TRACK
+                  value: "1"
+                - name: OPENSPEC_TELEMETRY
+                  value: "0"
+                - name: OPENSPEC_NO_UPDATE_CHECK
+                  value: "1"
+                - name: PYDANTIC_AI_NO_BANNER
+                  value: "1"
               volumeMounts:
                 - name: tmp
                   mountPath: /tmp

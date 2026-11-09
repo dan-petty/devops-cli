@@ -9,5 +9,6 @@ resources:
 - workflowtemplate-rag-ingest.yaml
 - cronworkflow-rag-ingest.yaml
 - crawl4ai
+- mcp-server
 - searxng
 - roadmap-service

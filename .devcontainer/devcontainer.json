@@ -49,6 +49,7 @@
         ],
         "terminal.integrated.defaultProfile.linux": "zsh",
         "python.defaultInterpreterPath": "${containerWorkspaceFolder}/.venv/bin/python",
+        "python.terminal.activateEnvironment": true,
         "[python]": {
           "editor.defaultFormatter": "charliermarsh.ruff"
         },
@@ -79,7 +80,16 @@
         "ms-azuretools.vscode-containers",
         "ms-kubernetes-tools.vscode-kubernetes-tools",
         "Ollama.ollama",
-        "anthropic.claude-code"
+        "anthropic.claude-code",
+        "google.google-antigravity",
+        "github.vscode-github-actions",
+        "ms-vscode.makefile-tools",
+        "golang.Go",
+        "DavidAnson.vscode-markdownlint",
+        "rust-lang.rust-analyzer",
+        "firefox-devtools.vscode-firefox-debug",
+        "kilocode.Kilo-Code",
+        "saoudrizwan.claude-dev"
       ],
       "settings": {
         "telemetry.telemetryLevel": "off",
@@ -99,7 +109,22 @@
         "python.terminal.activateEnvironment": true,
         "[python]": {
           "editor.defaultFormatter": "charliermarsh.ruff"
-        }
+        },
+        "[markdown]": {
+          "editor.defaultFormatter": "DavidAnson.vscode-markdownlint"
+        },
+        "markdownlint.config": {
+          "default": true,
+          "MD013": false,
+          "MD024": false,
+          "MD033": false
+        },
+        "[rust]": {
+          "editor.defaultFormatter": "rust-lang.rust-analyzer"
+        },
+        "rust-analyzer.check.command": "clippy",
+        "ollama.endpoint": "http://ollama-48gib.llm.svc.cluster.local:11434",
+        "ollama.model": "qwen3.8:27b"
       }
     }
   },

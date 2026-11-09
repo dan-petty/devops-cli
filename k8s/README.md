@@ -1411,6 +1411,12 @@ k8s/
 │   │   ├── networkpolicy-client.yaml
 │   │   ├── networkpolicy.yaml
 │   │   └── service.yaml
+│   ├── mcp-server/           # Role-scoped MCP server: Deployment, Service and NetworkPolicies for the roadmap Service and runner Jobs
+│   │   ├── kustomization.yaml
+│   │   ├── deployment.yaml
+│   │   ├── networkpolicy-client.yaml
+│   │   ├── networkpolicy.yaml
+│   │   └── service.yaml
 │   ├── searxng/              # SearXNG search service: settings ConfigMap, Deployment, Service and the NetworkPolicies of the pod and of its one client
 │   │   ├── kustomization.yaml
 │   │   ├── configmap.yaml

@@ -1577,6 +1577,18 @@ def test_this_repository_ships_a_kilo_config() -> None:
     assert list(config["mcp"]) == ["devops-cli"]
 
 
+def test_init_scaffolds_claude_settings_matching_the_repository_settings(
+    runner: CliRunner, tmp_path: Path
+) -> None:
+    """`devops devcontainer init` writes `.claude/settings.json` with the same permissions and
+    environment opt-outs as the repository's committed file."""
+    result = runner.invoke(app, ["init", str(tmp_path), "--name", "test-project"])
+
+    scaffolded = json.loads((tmp_path / ".claude" / "settings.json").read_text(encoding="utf-8"))
+    committed = json.loads((REPO_ROOT / ".claude" / "settings.json").read_text(encoding="utf-8"))
+    assert (result.exit_code, scaffolded) == (0, committed)
+
+
 def _record_subprocess_calls(
     monkeypatch: pytest.MonkeyPatch, returncode: int = 0, stderr: str = ""
 ) -> list[tuple[list[str], dict[str, object]]]:

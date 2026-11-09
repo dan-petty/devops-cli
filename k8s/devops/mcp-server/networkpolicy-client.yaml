@@ -1,0 +1,27 @@
+# The roadmap Service and runner Jobs call the MCP server on TCP 8001 (#3220). This policy adds
+# to `devops-default-perimeter`, which gives those pods no intra-namespace port.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: mcp-server-clients
+  namespace: devops
+  labels:
+    app.kubernetes.io/part-of: devops-cli-stack
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app.kubernetes.io/name
+        operator: In
+        values:
+          - roadmap-service
+          - devops-cli-runner
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: mcp-server
+      ports:
+        - protocol: TCP
+          port: 8001

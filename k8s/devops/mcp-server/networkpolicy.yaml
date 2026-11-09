@@ -1,0 +1,26 @@
+# Ingress policy for the MCP server (#3220). Only the roadmap Service and runner Jobs call the
+# MCP server on TCP 8001. `devops-default-perimeter` governs the pod's egress.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: mcp-server-ingress
+  namespace: devops
+  labels:
+    app.kubernetes.io/part-of: devops-cli-stack
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: mcp-server
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: roadmap-service
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: devops-cli-runner
+      ports:
+        - protocol: TCP
+          port: 8001

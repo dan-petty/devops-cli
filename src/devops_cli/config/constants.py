@@ -240,6 +240,7 @@ CONST_MCP_JSON_NAME = "mcp.json"
 # `${workspaceFolder}` is a VS Code substitution that Claude Code does not expand, so a
 # copy of the VS Code file would hand the server a literal `${workspaceFolder}` on PATH.
 CONST_CLAUDE_MCP_JSON_NAME = ".mcp.json"
+CONST_CLAUDE_SETTINGS_PATH = ".claude/settings.json"
 # Kilo Code reads project-scoped MCP servers from `kilo.jsonc` at the repository root. It reads
 # neither `.mcp.json` nor `.vscode/mcp.json`, and `.kilo/kilo.jsonc` is left out of git.
 CONST_KILO_CONFIG_NAME = "kilo.jsonc"
@@ -2804,7 +2805,16 @@ CONST_AI_GATEWAY_HOSTED_MODELS: Final[tuple[str, ...]] = (
     "claude-sonnet-5-5",
     "claude-haiku-5-5",
     "deepseek-v4.1-flash-1017",
+    "typesafe/jev-1.14",
 )
+# TypeSafe Jev 1.14 System One decision model constants (https://docs.typesafe.ai/cookbooks).
+CONST_AI_JEV_MODEL: Final[str] = "typesafe/jev-1.14"
+CONST_AI_JEV_CONTEXT_WINDOW: Final[int] = 262_144
+CONST_AI_JEV_DEFAULT_ROUTE_THRESHOLD: Final[float] = 0.75
+CONST_AI_JEV_DEFAULT_BOOLEAN_THRESHOLD: Final[float] = 0.50
+CONST_AI_JEV_HIGH_RISK_THRESHOLD: Final[float] = 0.90
+CONST_AI_JEV_SYSTEM_ONE_PREFIXES: Final[frozenset[str]] = frozenset({"system-one", "typesafe"})
+CONST_URL_TYPESAFE_API_BASE: Final[str] = "https://api.typesafe.ai/v1"
 CONST_AI_GATEWAY_PROVIDER: Final[str] = "gateway"
 # The providers `ai.provider` takes.
 CONST_AI_PROVIDER_IDS: Final[tuple[str, ...]] = (
@@ -2892,6 +2902,8 @@ CONST_AI_PYDANTIC_MODEL_PREFIXES: Final[dict[str, str]] = {
     "openai": "openai-chat",
     "claude": "anthropic",
     "copilot": "openai-chat",
+    "system-one": "system-one",
+    "typesafe": "system-one",
 }
 # Each gateway model prefix and the `ai` setting naming its URL. Both gateways speak the OpenAI
 # chat API, so their models are inferred as `openai-chat:<model>` and sent to that URL.

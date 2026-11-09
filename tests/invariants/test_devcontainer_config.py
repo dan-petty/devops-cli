@@ -116,3 +116,11 @@ def test_the_workspace_devcontainer_keeps_the_mounts_that_hold_data() -> None:
     workspace, _image = _workspace_and_image_configs()
 
     assert [mount for mount in DATA_MOUNTS if mount not in workspace["mounts"]] == []
+
+
+def test_the_workspace_devcontainer_aligns_antigravity_and_vscode_customizations() -> None:
+    """Antigravity and VS Code get the same extensions and editor settings."""
+    workspace, _image = _workspace_and_image_configs()
+    customizations = workspace["customizations"]
+
+    assert customizations["antigravity"] == customizations["vscode"]
