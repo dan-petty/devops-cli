@@ -11,7 +11,6 @@ from devops_cli.config.constants import (
 )
 from devops_cli.ui.data_providers import (
     DockerSummary,
-    K8sSummary,
     TelemetrySummary,
     ValkeySummary,
 )
@@ -19,8 +18,6 @@ from devops_cli.ui.projections import (
     DOMAIN_COLUMNS,
     docker_banner,
     docker_rows,
-    k8s_banner,
-    k8s_rows,
     render_banner,
     render_domain,
     render_rows,
@@ -33,46 +30,9 @@ from devops_cli.ui.state import DomainSnapshot
 from tests.support.ui import (
     SAMPLES,
     _docker,
-    _k8s,
-    _pod,
     _telemetry,
     _valkey,
 )
-
-
-def test_k8s_banner_names_the_context_nodes_and_pod_health() -> None:
-    """The banner says which cluster it read, how many nodes are Ready and what needs a look."""
-    summary = K8sSummary(
-        connected=True,
-        context="lab",
-        nodes_ready=3,
-        nodes_total=4,
-        pods=[_pod("api-0"), _pod("api-1"), _pod("exporter-0", status="CrashLoopBackOff")],
-    )
-    assert k8s_banner(summary) == (
-        "[green]●[/green] Kubernetes: Connected | context lab | 3/4 nodes Ready | "
-        "3 pods, 1 unhealthy"
-    )
-
-
-def test_k8s_banner_says_why_the_node_count_is_missing() -> None:
-    """Pods still render when listing nodes is forbidden, and the banner says so."""
-    summary = K8sSummary(connected=True, context="lab", nodes_error="403 Forbidden")
-    assert "| nodes: unavailable (403 Forbidden) |" in k8s_banner(summary)
-
-
-def test_k8s_banner_reports_a_disconnected_cluster_with_the_context_and_error() -> None:
-    """A disconnected cluster names the context it tried and why it failed."""
-    summary = K8sSummary(connected=False, context="lab", error_message="ConnectionError: refused")
-    assert k8s_banner(summary) == (
-        "[yellow]●[/yellow] Kubernetes: Disconnected | context lab — ConnectionError: refused"
-    )
-
-
-def test_k8s_banner_shows_cluster_text_literally() -> None:
-    """An error quoting a markup tag must not restyle the banner."""
-    summary = K8sSummary(connected=False, context="lab", error_message="bad [bold]x[/bold]")
-    assert k8s_banner(summary).endswith("bad \\[bold]x\\[/bold]")
 
 
 def test_docker_banner_distinguishes_running_from_present() -> None:
@@ -117,22 +77,6 @@ def test_valkey_banner_carries_version_memory_and_hit_ratio() -> None:
     """All three operational figures appear in one line."""
     banner = valkey_banner(_valkey())
     assert ("8.0.1" in banner, "12M" in banner, "94.5%" in banner) == (True, True, True)
-
-
-def test_k8s_rows_project_pod_records() -> None:
-    """Pod records become rows in declared column order."""
-    assert k8s_rows(_k8s()) == [("devops-system", "api-0", "Running", "1/1", "0")]
-
-
-def test_k8s_rows_colour_an_unhealthy_pod() -> None:
-    """A pod that needs attention stands out from the healthy ones around it."""
-    summary = K8sSummary(connected=True, pods=[_pod("exporter-0", status="CrashLoopBackOff")])
-    assert k8s_rows(summary) == [
-        tuple(
-            f"[red]{cell}[/red]"
-            for cell in ("default", "exporter-0", "CrashLoopBackOff", "0/1", "0")
-        )
-    ]
 
 
 def test_docker_rows_project_container_records() -> None:
@@ -187,39 +131,39 @@ def test_every_domain_declares_its_columns(domain: str) -> None:
 
 def test_render_banner_reports_a_domain_that_has_not_loaded_yet() -> None:
     """Before the first result the panel says it is loading, not that it is empty."""
-    assert "loading" in render_banner(DomainSnapshot(domain="k8s"))
+    assert "loading" in render_banner(DomainSnapshot(domain="docker"))
 
 
 def test_render_banner_reports_a_failed_refresh() -> None:
     """A failure is named in the banner along with the reason."""
-    snapshot = DomainSnapshot(domain="k8s", error="ConnectionError: refused")
+    snapshot = DomainSnapshot(domain="docker", error="ConnectionError: refused")
     banner = render_banner(snapshot)
     assert ("refresh failed" in banner, "refused" in banner) == (True, True)
 
 
 def test_render_banner_marks_aged_data_as_stale() -> None:
     """Data shown long after it was fetched is labelled rather than presented as current."""
-    snapshot = DomainSnapshot(domain="k8s", data=_k8s(), updated_at=time.time() - 300.0)
+    snapshot = DomainSnapshot(domain="docker", data=_docker(), updated_at=time.time() - 300.0)
     assert "stale" in render_banner(snapshot, stale_after=30.0)
 
 
 def test_render_banner_leaves_fresh_data_unmarked() -> None:
     """A recent fetch carries no staleness annotation."""
-    snapshot = DomainSnapshot(domain="k8s", data=_k8s(), updated_at=time.time())
+    snapshot = DomainSnapshot(domain="docker", data=_docker(), updated_at=time.time())
     assert "stale" not in render_banner(snapshot, stale_after=30.0)
 
 
 def test_render_rows_keeps_the_last_data_through_a_failed_refresh() -> None:
     """The table survives an outage showing what it last knew."""
     snapshot = DomainSnapshot(
-        domain="k8s", data=_k8s(), updated_at=time.time() - 10.0, error="down"
+        domain="docker", data=_docker(), updated_at=time.time() - 10.0, error="down"
     )
     assert len(render_rows(snapshot)) == 1
 
 
 def test_render_rows_are_empty_before_the_first_fetch() -> None:
     """An unloaded domain renders an empty table rather than raising."""
-    assert render_rows(DomainSnapshot(domain="k8s")) == []
+    assert render_rows(DomainSnapshot(domain="docker")) == []
 
 
 def test_render_domain_returns_both_banner_and_rows() -> None:

@@ -28,19 +28,15 @@ async def test_textual_dashboard_app_lifecycle() -> None:
 
         await pilot.press("2")
         await pilot.pause()
-        assert tabs.active == "tab-docker"
-
-        await pilot.press("3")
-        await pilot.pause()
         assert tabs.active == "tab-telemetry"
 
-        await pilot.press("4")
+        await pilot.press("3")
         await pilot.pause()
         assert tabs.active == "tab-valkey"
 
         await pilot.press("1")
         await pilot.pause()
-        assert tabs.active == "tab-k8s"
+        assert tabs.active == "tab-docker"
 
         await pilot.press("r")
         await pilot.pause()
@@ -104,19 +100,19 @@ async def test_the_dashboard_telemetry_tab_renders_telemetry_panel_and_opens_mod
 
 
 @pytest.mark.usefixtures("empty_docker_engine")
-async def test_the_dashboard_shows_four_domain_tabs_and_the_logs_tab() -> None:
+async def test_the_dashboard_shows_three_domain_tabs() -> None:
     """The dashboard holds no AI Review tab: `devops review findings --details` shows findings."""
     app = DashboardApp()
     async with app.run_test():
         tabs = app.query_one("#dashboard-tabs", TabbedContent)
         shown = [pane.id for pane in tabs.get_child_by_type(ContentSwitcher).children]
 
-    assert shown == ["tab-k8s", "tab-docker", "tab-telemetry", "tab-valkey", "tab-logs"]
+    assert shown == ["tab-docker", "tab-telemetry", "tab-valkey"]
 
 
 @pytest.mark.usefixtures("empty_docker_engine")
-async def test_the_help_screen_numbers_the_four_domain_tabs_and_lists_no_finding_key() -> None:
-    """Help names tab 4 as Valkey, and it lists no key for the finding detail pane."""
+async def test_the_help_screen_numbers_the_three_domain_tabs_and_lists_no_finding_key() -> None:
+    """Help names tab 3 as Valkey, and it lists no key for the finding detail pane."""
     app = DashboardApp(refresh_interval=0)
     async with app.run_test() as pilot:
         app.push_screen(HelpScreen())
@@ -124,7 +120,7 @@ async def test_the_help_screen_numbers_the_four_domain_tabs_and_lists_no_finding
         help_text = str(app.screen.query_one("#help-body", Static).content)
 
     assert (
-        "1=Kubernetes  2=Docker  3=Telemetry  4=Valkey Cache" in help_text,
+        "1=Docker  2=Telemetry  3=Valkey Cache" in help_text,
         "finding" in help_text,
     ) == (
         True,
@@ -136,12 +132,11 @@ async def test_the_help_screen_numbers_the_four_domain_tabs_and_lists_no_finding
 async def test_dashboard_refresh_before_mount_does_not_fail_worker() -> None:
     """A panel update before the panel is mounted is deferred or dropped, never failing the worker."""
     from devops_cli.ui.state import DomainSnapshot
-    from devops_cli.ui.widgets import DockerPanel, DomainPanel, K8sPanel
+    from devops_cli.ui.widgets import DockerPanel, DomainPanel
 
     panels: list[Any] = [
         DomainPanel("telemetry"),
         DomainPanel("valkey"),
-        K8sPanel("k8s"),
         DockerPanel("docker"),
     ]
     snapshots = [DomainSnapshot(domain=p.domain) for p in panels]

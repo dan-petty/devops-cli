@@ -9,23 +9,25 @@ from typing import Any
 from devops_cli.config.constants import (
     CONST_DASHBOARD_DOMAINS,
 )
+from devops_cli.ui.data_providers import DockerSummary
 from devops_cli.ui.refresh import (
     DOMAIN_FETCHERS,
     refresh_domain,
 )
 from devops_cli.ui.state import DashboardState
-from tests.support.ui import (
-    _k8s,
-)
 from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS
+
+
+def _sample_docker() -> DockerSummary:
+    return DockerSummary(connected=True)
 
 
 def test_refresh_domain_publishes_the_fetched_result(
     state: DashboardState, patched_fetchers: Callable[..., None]
 ) -> None:
     """A successful fetch lands in the store."""
-    patched_fetchers(k8s=_k8s)
-    snapshot = refresh_domain(state, "k8s")
+    patched_fetchers(docker=_sample_docker)
+    snapshot = refresh_domain(state, "docker")
     assert snapshot is not None
     assert (snapshot.error, snapshot.data.connected) == (None, True)
 
@@ -40,12 +42,12 @@ def test_refresh_domain_converts_a_provider_failure_into_a_snapshot(
     """
 
     def broken() -> Any:
-        raise ConnectionError("cluster unreachable")
+        raise ConnectionError("service unreachable")
 
-    patched_fetchers(k8s=broken)
-    snapshot = refresh_domain(state, "k8s")
+    patched_fetchers(docker=broken)
+    snapshot = refresh_domain(state, "docker")
     assert snapshot is not None
-    assert snapshot.error == "ConnectionError: cluster unreachable"
+    assert snapshot.error == "ConnectionError: service unreachable"
 
 
 def test_refresh_domain_releases_its_claim_after_a_failure(
@@ -56,10 +58,10 @@ def test_refresh_domain_releases_its_claim_after_a_failure(
     def broken() -> Any:
         raise ConnectionError("down")
 
-    patched_fetchers(k8s=broken)
-    refresh_domain(state, "k8s")
-    patched_fetchers(k8s=_k8s)
-    recovered = refresh_domain(state, "k8s")
+    patched_fetchers(docker=broken)
+    refresh_domain(state, "docker")
+    patched_fetchers(docker=_sample_docker)
+    recovered = refresh_domain(state, "docker")
     assert (state.in_flight(), recovered is not None) == ([], True)
 
 
@@ -80,14 +82,14 @@ def test_a_refresh_tick_does_not_stack_a_second_fetch_on_a_slow_domain(
         calls.append(1)
         entered.set()
         release.wait(timeout=THREAD_HANDOFF_BOUND_SECONDS)
-        return _k8s()
+        return _sample_docker()
 
-    patched_fetchers(k8s=slow)
-    worker = threading.Thread(target=refresh_domain, args=(state, "k8s"))
+    patched_fetchers(docker=slow)
+    worker = threading.Thread(target=refresh_domain, args=(state, "docker"))
     worker.start()
     assert entered.wait(timeout=THREAD_HANDOFF_BOUND_SECONDS)
 
-    assert (refresh_domain(state, "k8s"), state.in_flight()) == (None, ["k8s"])
+    assert (refresh_domain(state, "docker"), state.in_flight()) == (None, ["docker"])
 
     release.set()
     worker.join(timeout=THREAD_HANDOFF_BOUND_SECONDS)

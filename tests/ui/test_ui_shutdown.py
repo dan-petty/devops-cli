@@ -51,7 +51,7 @@ async def test_quitting_does_not_wait_on_a_silent_log_stream(
     app = DashboardApp(refresh_interval=0)
     try:
         async with app.run_test() as pilot:
-            pane = app.query_one("#log-pane", LogPane)
+            pane = app.query_one("#logql-log-pane", LogPane)
             pane.start_stream(silent)
             assert producing.wait(timeout=THREAD_HANDOFF_BOUND_SECONDS)
             await pilot.press("q")
@@ -75,7 +75,7 @@ async def test_unmounting_the_pane_stops_its_stream(
     patched_fetchers()
     app = DashboardApp(refresh_interval=0)
     async with app.run_test() as pilot:
-        pane = app.query_one("#log-pane", LogPane)
+        pane = app.query_one("#logql-log-pane", LogPane)
         pane.start_stream(lambda: iter(["one"]))
         await _settle(pilot, lambda: pane.buffer.total_appended >= 1)
         pane.on_unmount()
@@ -96,7 +96,7 @@ async def test_the_stream_reader_runs_on_a_daemon_thread(
     app = DashboardApp(refresh_interval=0)
     try:
         async with app.run_test():
-            pane = app.query_one("#log-pane", LogPane)
+            pane = app.query_one("#logql-log-pane", LogPane)
 
             def _hanging_stream() -> list[str]:
                 reading.set()
@@ -122,6 +122,6 @@ async def test_a_producer_faster_than_the_terminal_does_not_grow_without_bound(
     patched_fetchers()
     app = DashboardApp(refresh_interval=0)
     async with app.run_test() as pilot:
-        pane = app.query_one("#log-pane", LogPane)
+        pane = app.query_one("#logql-log-pane", LogPane)
         await _stream_into(pilot, pane, [f"line-{index}" for index in range(5000)])
         assert pane._lines.qsize() <= CONST_LOG_STREAM_QUEUE_SIZE

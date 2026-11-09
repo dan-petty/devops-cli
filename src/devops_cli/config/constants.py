@@ -3945,19 +3945,16 @@ path, and a digest of the content of the regular files, both in byte order.
 
 # ── Dashboard TUI Domains ────────────────────────────────────────────────────
 # Each domain is one tab of the workstation dashboard, refreshed by its own worker.
-CONST_DASHBOARD_DOMAIN_K8S: Final[str] = "k8s"
 CONST_DASHBOARD_DOMAIN_DOCKER: Final[str] = "docker"
 CONST_DASHBOARD_DOMAIN_TELEMETRY: Final[str] = "telemetry"
 CONST_DASHBOARD_DOMAIN_VALKEY: Final[str] = "valkey"
 CONST_DASHBOARD_DOMAINS: Final[tuple[str, ...]] = (
-    CONST_DASHBOARD_DOMAIN_K8S,
     CONST_DASHBOARD_DOMAIN_DOCKER,
     CONST_DASHBOARD_DOMAIN_TELEMETRY,
     CONST_DASHBOARD_DOMAIN_VALKEY,
 )
 # Human-readable labels used for tab titles and status banners.
 CONST_DASHBOARD_DOMAIN_LABELS: Final[dict[str, str]] = {
-    CONST_DASHBOARD_DOMAIN_K8S: "Kubernetes",
     CONST_DASHBOARD_DOMAIN_DOCKER: "Docker",
     CONST_DASHBOARD_DOMAIN_TELEMETRY: "Telemetry",
     CONST_DASHBOARD_DOMAIN_VALKEY: "Valkey Cache",
@@ -3985,17 +3982,14 @@ CONST_DOCKER_RESOURCE_LABELS: Final[dict[str, str]] = {
     CONST_DOCKER_RESOURCE_VOLUMES: "Volumes",
     CONST_DOCKER_RESOURCE_REGISTRIES: "Registries",
 }
-# Tab holding the streamed log pane. Not a data domain: it has no provider and is filled
-# by selecting a pod rather than by the refresh cycle.
-CONST_LOGS_TAB_ID: Final[str] = "tab-logs"
 # The dashboard's top-level tabs, told apart from the tabs nested inside a panel.
 CONST_DASHBOARD_TABS_ID: Final[str] = "dashboard-tabs"
 # The widget a tab focuses when it becomes active, so its keys work without pressing Tab.
 # A tab not listed here focuses the first widget in it that can take focus.
 CONST_DASHBOARD_TAB_FOCUS: Final[dict[str, str]] = {
-    f"tab-{CONST_DASHBOARD_DOMAIN_K8S}": f"#{CONST_DASHBOARD_DOMAIN_K8S}-table",
+    f"tab-{CONST_DASHBOARD_DOMAIN_DOCKER}": "#docker-table",
     f"tab-{CONST_DASHBOARD_DOMAIN_TELEMETRY}": "#telemetry-table",
-    CONST_LOGS_TAB_ID: "#log-pane",
+    f"tab-{CONST_DASHBOARD_DOMAIN_VALKEY}": "#valkey-table",
 }
 
 # ── W3C Trace Context ────────────────────────────────────────────────────────
