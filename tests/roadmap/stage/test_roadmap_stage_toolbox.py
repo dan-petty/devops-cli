@@ -237,13 +237,11 @@ def test_a_reply_cut_by_the_output_token_limit_raises_an_error_that_names_the_li
         _plan(client)
 
     message = str(raised.value)
-    assert (
-        isinstance(raised.value, StructuredOutputValidationError),
-        "output token limit" in message,
-        "max_tokens" in message,
-        "schema violation" in message,
-        len(sent),
-    ) == (False, True, True, False, 1)
+    assert not isinstance(raised.value, StructuredOutputValidationError)
+    assert message.count("output token limit") == 1
+    assert message.count("max_tokens") == 1
+    assert message.count("schema violation") == 0
+    assert len(sent) == 1
 
 
 def test_a_review_reply_cut_by_the_output_token_limit_raises_the_same_error(
@@ -257,10 +255,8 @@ def test_a_review_reply_cut_by_the_output_token_limit_raises_the_same_error(
     with pytest.raises(RoadmapStageError) as raised:
         client.chat_structured("System.", "{}", Verification, max_retries=1)
 
-    assert (
-        isinstance(raised.value, StructuredOutputValidationError),
-        "output token limit" in str(raised.value),
-    ) == (False, True)
+    assert not isinstance(raised.value, StructuredOutputValidationError)
+    assert str(raised.value).count("output token limit") == 1
 
 
 def test_a_reply_that_breaks_the_schema_once_goes_back_and_the_second_stands(
