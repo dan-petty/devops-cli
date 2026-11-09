@@ -29,6 +29,7 @@ from pydantic_ai.exceptions import (
     UsageLimitExceeded,
 )
 from pydantic_ai.messages import (
+    INVALID_JSON_KEY,
     ModelMessage,
     ModelRequest,
     ModelRequestPart,
@@ -165,12 +166,17 @@ class InvestigationStopped:
 
     `output_limit` is true when the output token limit cut the last reply (finish reason
     `length`). That reply holds no part, so it is no broken schema: `schema_broken` is then
-    false (#4220)."""
+    false (#4220).
+
+    `invalid_arguments` is true when a tool call of the last reply held arguments that are not
+    JSON, as when a gateway joins the arguments of several calls into one text. The reply broke no
+    schema: `schema_broken` is then false (#4228)."""
 
     reason: str
     message: str
     schema_broken: bool = False
     output_limit: bool = False
+    invalid_arguments: bool = False
 
 
 @dataclass
@@ -485,6 +491,17 @@ def _cut_by_the_output_limit(messages: Sequence[ModelMessage]) -> bool:
     return bool(replies) and replies[-1].finish_reason == "length"
 
 
+def _has_invalid_arguments(messages: Sequence[ModelMessage]) -> bool:
+    """Whether a tool call of the last reply of the run holds arguments that are not one JSON
+    object (#4228). pydantic-ai wraps the raw text of such arguments under the key
+    `INVALID_JSON_KEY`, so that key marks the call."""
+    replies = [message for message in messages if isinstance(message, ModelResponse)]
+    return any(
+        isinstance(part, ToolCallPart) and INVALID_JSON_KEY in part.args_as_dict()
+        for part in (replies[-1].parts if replies else [])
+    )
+
+
 def _toolset_names(toolsets: Sequence[Any] | None) -> set[str]:
     """The names of tools exposed by `toolsets`."""
     if not toolsets:
@@ -506,14 +523,19 @@ def _stopped_outcome(
         limits_hit.append(RunLimit.CALLS)
     model_stopped = isinstance(stopped, UnexpectedModelBehavior)
     output_limit = model_stopped and _cut_by_the_output_limit(messages)
+    invalid_arguments = model_stopped and not output_limit and _has_invalid_arguments(messages)
     schema_broken = (
-        model_stopped and not output_limit and _broke_the_output_rules(messages, tool_names)
+        model_stopped
+        and not output_limit
+        and not invalid_arguments
+        and _broke_the_output_rules(messages, tool_names)
     )
     return InvestigationStopped(
         type(stopped).__name__,
         run_error_message(stopped),
         schema_broken=schema_broken,
         output_limit=output_limit,
+        invalid_arguments=invalid_arguments,
     )
 
 

@@ -3367,6 +3367,13 @@ class RoadmapMessages:
         "held a plan: {reason}. Raise CONST_AI_CLAUDE_GROUP_MAX_OUTPUT_TOKENS, or use a model "
         "that allows a longer reply."
     )
+    # A tool call of the last reply held arguments that are not JSON (#4228). The gateway joined the
+    # arguments of several calls into one text. The reply broke no schema, so no violation count.
+    stage_invalid_arguments: str = (
+        "A tool call of the run held invalid arguments, which are not one JSON text: {reason}. "
+        "The model made several tool calls in one reply and the gateway joined their arguments. "
+        "Use a model or a gateway version that keeps parallel tool calls apart."
+    )
     # The window ended the tools of the plan run before it made the least number of tool calls
     # (#3880). The model has then read almost none of the code and writes a placeholder text.
     stage_window_starved: str = (

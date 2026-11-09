@@ -553,6 +553,29 @@ def test_a_request_to_a_claude_group_sends_the_output_cap(
     assert (body.get("max_completion_tokens") or 0) > 4096
 
 
+@pytest.mark.parametrize("model", ["claude-sonnet-5-5", "claude-haiku-5-5"])
+def test_a_request_to_a_claude_group_forbids_parallel_tool_calls(
+    remote_bridge: Any, web: WebFake, model: str
+) -> None:
+    """Verify the request body that reaches the gateway holds `parallel_tool_calls` false, so
+    the gateway tells Anthropic to make one tool call at a time and joins no arguments of
+    several calls into one JSON text (#4228)."""
+    body = _planner_request(remote_bridge, web, model)
+
+    assert body.get("parallel_tool_calls") is False
+
+
+@pytest.mark.parametrize("model", ["devops-chat", "deepseek-v4.1-flash-1017"])
+def test_a_model_that_is_not_a_claude_group_keeps_parallel_tool_calls(
+    remote_bridge: Any, web: WebFake, model: str
+) -> None:
+    """Verify the setting is for a Claude group only: another model sets none, and so keeps the
+    parallel tool calls of its provider (#4228)."""
+    body = _planner_request(remote_bridge, web, model)
+
+    assert "parallel_tool_calls" not in body
+
+
 @pytest.mark.parametrize("model", ["devops-chat", "deepseek-v4.1-flash-1017"])
 def test_a_model_that_is_not_a_claude_group_sends_no_output_cap(
     remote_bridge: Any, web: WebFake, model: str
