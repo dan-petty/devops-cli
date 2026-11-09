@@ -30,11 +30,12 @@ from devops_cli.exceptions.roadmap import RoadmapImplementError
 from devops_cli.git.branch_form import issue_of_branch
 from devops_cli.github.check_verdict import CheckBucket, CheckVerdictSummary, PRCheckItem
 from devops_cli.github.client import GitHubClient, PullRequestFile, PullStatus
-from devops_cli.github.pr_monitor import PRMonitorResult, monitor_pr
+from devops_cli.github.pr_monitor import PRMonitorResult, PRMonitorStatus, monitor_pr
 from devops_cli.github.rate_limiter import run_gh
 from devops_cli.github.run_view import fetch_workflow_run_view
 from devops_cli.github.session import get_github_session
 from devops_cli.lang import MESSAGES
+from devops_cli.output import print_muted
 from devops_cli.roadmap.step_files import parse_task_groups
 from devops_cli.roadmap.stores import store as roadmap_store
 from devops_cli.roadmap.stores.store import (
@@ -330,6 +331,19 @@ def _judge(result: PRMonitorResult) -> Watch:
     return Watch(WatchKind.READY)
 
 
+def _progress(pull: int) -> Callable[[PRMonitorStatus, int], None]:
+    """The callback of the monitor: one line at each poll after the first while a check runs, so a
+    person who reads the log of the Job sees that the wait goes on (#4070)."""
+
+    def show(status: PRMonitorStatus, elapsed: int) -> None:
+        if elapsed > 0 and status.pending_checks:
+            print_muted(
+                MESSAGES.roadmap.implement_watch_progress.format(pull=pull, seconds=elapsed)
+            )
+
+    return show
+
+
 def watch_pull(repo: str, pull: int, head: str) -> Watch:
     """Watch pull request `pull` of `repo` until the checks of its head `head` settle.
 
@@ -351,6 +365,7 @@ def watch_pull(repo: str, pull: int, head: str) -> Watch:
             settle_timeout=0,
             require_reviews=False,
             commit_statuses=False,
+            status_callback=_progress(pull),
         )
         if result.status.head_sha == head:
             return _judge(result)

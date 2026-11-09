@@ -399,11 +399,13 @@ class GitHubClient:
         path = _repo_path(repo, f"pulls/{number}")
         self._session.rest("PATCH", path, body={"title": title, "body": body})
 
-    def comment_on_pull(self, repo: str, number: int, body: str) -> None:
-        """Comment `body` on the pull request `number`. GitHub keeps the comments of a pull
-        request on its issue (#2665)."""
+    def comment_on_pull(self, repo: str, number: int, body: str) -> int:
+        """Comment `body` on the pull request `number` and return the id of the new comment, so
+        that a caller can change it later. GitHub keeps the comments of a pull request on its
+        issue (#2665)."""
         path = _repo_path(repo, f"issues/{number}/comments")
-        self._session.rest("POST", path, body={"body": body})
+        answer = self._session.rest("POST", path, body={"body": body})
+        return _read_as(IssueComment, answer, path=path).id
 
     def close_pull(self, repo: str, number: int) -> None:
         """Close the pull request `number` without a merge."""
