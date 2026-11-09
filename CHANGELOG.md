@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.99.0](https://github.com/dan-petty/devops-cli/compare/v0.98.0...v0.99.0) (2026-11-09)
+
+
+### Features
+
+* **roadmap:** write a typed result and hand on the earlier stop ([#4206](https://github.com/dan-petty/devops-cli/issues/4206)) ([2f20244](https://github.com/dan-petty/devops-cli/commit/2f20244280960b67f730d24fe834971a78b0bb89))
+
+
+### Bug Fixes
+
+* **k8s:** name Sonnet in the analysis slot of the template ([#4210](https://github.com/dan-petty/devops-cli/issues/4210)) ([681529b](https://github.com/dan-petty/devops-cli/commit/681529b8c9b8ddbad45d102be356a8539971d6b8))
+
 ## [0.98.0](https://github.com/dan-petty/devops-cli/compare/v0.97.0...v0.98.0) (2026-11-09)
 
 
