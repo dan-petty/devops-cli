@@ -9,6 +9,11 @@ statuses, and 1 or 2 with no report when the audit could not run. The report giv
 The audit needs the network, so a review, whose sandbox has none, does not run it: osv-scanner
 audits the lockfiles of a review from its offline database. The agent tool `scan_uv_audit` and
 its MCP tool run this adapter.
+
+The scan resolves the project before it audits, and refuses the project when it lies outside the
+workspace: uv finds the project from the directory and each parent, so a directory of a workspace
+can name the project of the parent of the workspace, and the reply would give the audit of that
+project as the audit of the workspace (#2440).
 """
 
 from __future__ import annotations
@@ -21,6 +26,7 @@ from pydantic import BaseModel, Field
 from devops_cli.ai.review_schema import DefectClass, Finding
 from devops_cli.config.commands import BIN_UV, build_uv_audit_cmd
 from devops_cli.config.constants import CONST_UV_LOCK_FILENAME
+from devops_cli.config.defaults import DEFAULT_SECURITY_SCANNER_TIMEOUT_SECONDS
 from devops_cli.lang import MESSAGES
 from devops_cli.security.base import BaseSecurityScanner, ScanOutcome
 
@@ -132,11 +138,41 @@ class UvAuditScanner(BaseSecurityScanner):
         """The findings of the JSON report of uv audit."""
         return parse_uv_audit_json(data)
 
+    def project_outside_workspace(self, target: Path, workspace: Path) -> str | None:
+        """The reason the project that uv would audit from `target` lies outside `workspace`, or
+        None when it lies in the workspace or uv finds no project there (#2440).
 
-def run_uv_audit_scan(target: Path, *, tool_executor: ToolExecutor | None = None) -> ScanOutcome:
+        uv names the project from the directory it starts in and each parent by `uv workspace dir`,
+        and the caller gives the workspace. With no uv, the probe does not run and the audit
+        reports it not installed, as it does. uv finds no project only when it names none, so a
+        project the scan would not audit is not refused here: the audit then says what it found,
+        as it does when there is no lockfile."""
+        if not self._check_binary():
+            return None
+        result = self._run_tool(
+            [BIN_UV, "workspace", "dir", "--project", str(target)],
+            self._resolve_cwd(target),
+            target,
+            DEFAULT_SECURITY_SCANNER_TIMEOUT_SECONDS,
+        )
+        if result.exit_code != 0:
+            return None
+        project = Path(result.stdout.strip())
+        if not project.is_dir() or project.is_relative_to(workspace):
+            return None
+        return MESSAGES.scan.uv_audit_project_outside_workspace.format(project=project)
+
+
+def run_uv_audit_scan(
+    target: Path, *, workspace: Path, tool_executor: ToolExecutor | None = None
+) -> ScanOutcome:
     """Audit the `uv.lock` of the project of the directory `target`, as it is, and return the
-    outcome. uv audit starts in `target` through `tool_executor`."""
-    return UvAuditScanner(tool_executor).scan(target)
+    outcome. uv audit starts in `target` through `tool_executor`. A project that uv finds outside
+    `workspace` is refused, so the reply gives no result and names the project (#2440)."""
+    scanner = UvAuditScanner(tool_executor)
+    if (reason := scanner.project_outside_workspace(target, workspace)) is not None:
+        return ScanOutcome("not_applicable", [], reason)
+    return scanner.scan(target)
 
 
 __all__ = ["UvAuditScanner", "parse_uv_audit_json", "run_uv_audit_scan"]
