@@ -986,6 +986,37 @@ def test_a_stop_that_is_not_the_output_token_limit_does_not_set_the_flag(
     assert (broken.output_limit, spent.output_limit) == (False, False)
 
 
+# Two tool calls that the gateway joined into one JSON text, as in the live run of #4228.
+_JOINED_ARGS = '{"query": "alpha"}{"query": "beta"}'
+
+
+@pytest.mark.parametrize("tool", ["final_result", "read_file"])
+def test_a_tool_call_with_arguments_that_are_not_json_stops_the_run_and_sets_the_flag(
+    git_repo: Path, tool: str
+) -> None:
+    """A last reply whose tool call holds arguments that do not parse is a stop by invalid
+    arguments, for the output tool and for a function tool. It is no reply that broke the
+    schema, and the stop says so (#4228)."""
+    joined = ModelResponse(parts=[ToolCallPart(tool_name=tool, args=_JOINED_ARGS)])
+
+    stopped = _run(git_repo, Script(joined), output_retries=1)
+
+    assert (stopped.reason, stopped.invalid_arguments, stopped.schema_broken) == (
+        "UnexpectedModelBehavior",
+        True,
+        False,
+    )
+
+
+def test_a_stop_that_is_not_invalid_arguments_does_not_set_the_flag(git_repo: Path) -> None:
+    """A reply that breaks the schema with valid JSON, and a budget limit, are no stop by
+    invalid arguments (#4228)."""
+    broken = _run(git_repo, Script(_BROKEN), output_retries=1)
+    spent = _run(git_repo, Script(_read()), limits=_limits(tool_calls=0))
+
+    assert (broken.invalid_arguments, spent.invalid_arguments) == (False, False)
+
+
 @pytest.mark.parametrize("gone_calls", [1, 2])
 def test_a_call_to_a_tool_that_is_gone_gets_a_retry_and_the_run_goes_on(
     git_repo: Path, gone_calls: int

@@ -259,6 +259,39 @@ def test_a_review_reply_cut_by_the_output_token_limit_raises_the_same_error(
     assert str(raised.value).count("output token limit") == 1
 
 
+@pytest.mark.parametrize("tool", ["final_result", "search_code"])
+def test_a_tool_call_with_invalid_arguments_raises_an_error_that_names_the_cause(
+    checkout: tuple[Path, str], tool: str
+) -> None:
+    """The gateway joined the arguments of two calls into one JSON text that does not parse. The
+    run stops and the error says so: it is no schema failure with a count of 0 violations, and
+    no retry limit of a tool (#4228)."""
+    joined = ModelResponse(parts=[ToolCallPart(tool, '{"query": "alpha"}{"query": "beta"}')])
+    client = _client(checkout, Script(joined))
+
+    with pytest.raises(RoadmapStageError) as raised:
+        _plan(client)
+
+    message = str(raised.value)
+    assert not isinstance(raised.value, StructuredOutputValidationError)
+    assert message.count("invalid arguments") == 1
+    assert message.count("schema violation") == 0
+
+
+def test_a_review_run_with_invalid_arguments_raises_the_same_error(
+    checkout: tuple[Path, str],
+) -> None:
+    """The review run of a plan names the invalid arguments too (#4228)."""
+    joined = ModelResponse(parts=[ToolCallPart("final_result", '{"a": 1}{"b": 2}')])
+    client = _client(checkout, Script(joined))
+
+    with pytest.raises(RoadmapStageError) as raised:
+        client.chat_structured("System.", "{}", Verification, max_retries=1)
+
+    assert not isinstance(raised.value, StructuredOutputValidationError)
+    assert str(raised.value).count("invalid arguments") == 1
+
+
 def test_a_reply_that_breaks_the_schema_once_goes_back_and_the_second_stands(
     checkout: tuple[Path, str],
 ) -> None:
