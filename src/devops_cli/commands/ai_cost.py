@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Annotated
 
 import typer
 import yaml
 
-from devops_cli.ai.spend import get_pricing_registry, get_spend_ledger
-from devops_cli.ai.spend.models import HardwarePayoffSummary, LifetimeSpendReport
+from devops_cli.ai.spend import SpendLedger, get_pricing_registry, get_spend_ledger
+from devops_cli.ai.spend.models import (
+    HardwarePayoffSummary,
+    LifetimeSpendReport,
+    PeriodSpendSummary,
+)
 from devops_cli.config.constants import CONST_AI_BACKEND_HOST_UNKNOWN
 from devops_cli.core.cli import new_typer
 from devops_cli.dry_run import dry_run_class, is_dry_run
@@ -278,6 +283,93 @@ def _render_stages_table(report: LifetimeSpendReport) -> None:
     print_table(title="AI Spend & Usage by Execution Stage", columns=cols, rows=rows)
 
 
+def _validate_range_params(
+    days: int | None, since: str | None, until: str | None
+) -> tuple[str | None, str | None]:
+    """Validate date range bounds and combinations."""
+    if days is not None and since is not None:
+        raise typer.BadParameter("Cannot combine --days with --since.")
+    if since is not None:
+        try:
+            since_dt = datetime.fromisoformat(since.strip())
+        except (ValueError, TypeError) as exc:
+            raise typer.BadParameter(f"Invalid ISO date or datetime: '{since}'.") from exc
+    else:
+        since_dt = None
+
+    if until is not None:
+        try:
+            until_dt = datetime.fromisoformat(until.strip())
+        except (ValueError, TypeError) as exc:
+            raise typer.BadParameter(f"Invalid ISO date or datetime: '{until}'.") from exc
+    else:
+        until_dt = None
+
+    if since_dt is not None and until_dt is not None:
+        s_cmp = since_dt if since_dt.tzinfo is not None else since_dt.replace(tzinfo=UTC)
+        u_cmp = until_dt if until_dt.tzinfo is not None else until_dt.replace(tzinfo=UTC)
+        if u_cmp < s_cmp:
+            raise typer.BadParameter("--until cannot be earlier than --since.")
+
+    return since, until
+
+
+def _render_period_table(periods: list[PeriodSpendSummary], by: str) -> None:
+    """Render spend breakdown by period (day or week)."""
+    if not periods:
+        print_info("No spend records found for the given time range.")
+        return
+
+    cols = [
+        ("Period", "cyan"),
+        ("Requests", "blue"),
+        ("Local Tokens", "magenta"),
+        ("Actual Spend (USD)", "bold green"),
+        ("Hosted Equiv (USD)", "green"),
+        ("Cloud Spend Avoided (USD)", "bold green"),
+    ]
+    rows = [
+        [
+            p.period,
+            f"{p.requests:,}",
+            f"{p.local_tokens:,}",
+            f"${p.actual_spend:,.4f}",
+            _usd(p.local_cost_equivalent),
+            _usd(p.cloud_spend_avoided),
+        ]
+        for p in periods
+    ]
+    print_table(title=f"AI Spend & ROI by {by.capitalize()}", columns=cols, rows=rows)
+
+
+def _handle_period_report(
+    ledger: SpendLedger,
+    by: str | None,
+    since: str | None,
+    until: str | None,
+    days: int | None,
+    reference_model: str | None,
+    eff_format: str,
+) -> bool:
+    """Handle period breakdown output for day or week grouping."""
+    if by not in ("day", "week"):
+        return False
+    periods = ledger.get_period_report(
+        by=by,
+        since=since,
+        until=until,
+        days=days,
+        reference_model=reference_model,
+    )
+    if eff_format == "json":
+        write_stdout(format_json([r.model_dump() for r in periods]))
+    elif eff_format == "yaml":
+        write_stdout(yaml.dump([r.model_dump() for r in periods], sort_keys=False))
+    else:
+        _render_period_table(periods, by)
+    return True
+
+
 def _render_report_tables(report: LifetimeSpendReport, by: str) -> None:
     """Dispatch table rendering based on grouping selection."""
     _render_report_summary_table(report)
@@ -306,7 +398,7 @@ def cost_default(
         typer.Option(
             "--by",
             "-b",
-            help="Breakdown grouping dimension: server, model, provider, backend, stage, all.",
+            help="Breakdown grouping dimension: server, model, provider, backend, stage, day, week, all.",
         ),
     ] = "server",
     days: Annotated[
@@ -315,6 +407,22 @@ def cost_default(
             "--days",
             "-d",
             help="Filter usage to the last N days (default: all lifetime).",
+        ),
+    ] = None,
+    since: Annotated[
+        str | None,
+        typer.Option(
+            "--since",
+            "-s",
+            help="Filter usage since ISO date or datetime (default: all lifetime).",
+        ),
+    ] = None,
+    until: Annotated[
+        str | None,
+        typer.Option(
+            "--until",
+            "-u",
+            help="Filter usage until ISO date or datetime (default: all lifetime).",
         ),
     ] = None,
     reference_model: Annotated[
@@ -353,10 +461,17 @@ def cost_default(
     if ctx.invoked_subcommand is not None:
         return
 
+    _validate_range_params(days, since, until)
     eff_format = "json" if json_flag else format_opt.lower()
     ledger = get_spend_ledger()
+
+    if _handle_period_report(ledger, by, since, until, days, reference_model, eff_format):
+        return
+
     report = ledger.get_lifetime_report(
         days=days,
+        since=since,
+        until=until,
         group_by=by,
         reference_model=reference_model,
         hardware_cost_usd=hardware_cost,
@@ -385,7 +500,7 @@ def cost_report(
         typer.Option(
             "--by",
             "-b",
-            help="Breakdown grouping dimension: server, model, provider, backend, stage, all.",
+            help="Breakdown grouping dimension: server, model, provider, backend, stage, day, week, all.",
         ),
     ] = "server",
     days: Annotated[
@@ -394,6 +509,22 @@ def cost_report(
             "--days",
             "-d",
             help="Filter usage to the last N days (default: all lifetime).",
+        ),
+    ] = None,
+    since: Annotated[
+        str | None,
+        typer.Option(
+            "--since",
+            "-s",
+            help="Filter usage since ISO date or datetime (default: all lifetime).",
+        ),
+    ] = None,
+    until: Annotated[
+        str | None,
+        typer.Option(
+            "--until",
+            "-u",
+            help="Filter usage until ISO date or datetime (default: all lifetime).",
         ),
     ] = None,
     reference_model: Annotated[
@@ -429,10 +560,17 @@ def cost_report(
     ] = False,
 ) -> None:
     """Generate detailed spend and token report across backend services and servers."""
+    _validate_range_params(days, since, until)
     eff_format = "json" if json_flag else format_opt.lower()
     ledger = get_spend_ledger()
+
+    if _handle_period_report(ledger, by, since, until, days, reference_model, eff_format):
+        return
+
     report = ledger.get_lifetime_report(
         days=days,
+        since=since,
+        until=until,
         group_by=by,
         reference_model=reference_model,
         hardware_cost_usd=hardware_cost,
@@ -480,6 +618,30 @@ def cost_roi(
             help="Filter usage to the last N days (default: all lifetime).",
         ),
     ] = None,
+    since: Annotated[
+        str | None,
+        typer.Option(
+            "--since",
+            "-s",
+            help="Filter usage since ISO date or datetime (default: all lifetime).",
+        ),
+    ] = None,
+    until: Annotated[
+        str | None,
+        typer.Option(
+            "--until",
+            "-u",
+            help="Filter usage until ISO date or datetime (default: all lifetime).",
+        ),
+    ] = None,
+    by: Annotated[
+        str | None,
+        typer.Option(
+            "--by",
+            "-b",
+            help="Grouping period: day, week.",
+        ),
+    ] = None,
     format_opt: Annotated[
         str,
         typer.Option(
@@ -497,10 +659,20 @@ def cost_roi(
     ] = False,
 ) -> None:
     """Monitor pay-off in value for local hardware purchases and local LLM savings."""
+    _validate_range_params(days, since, until)
+    if by is not None and by not in ("day", "week"):
+        raise typer.BadParameter(f"Invalid grouping '{by}' for roi. Must be 'day' or 'week'.")
+
     eff_format = "json" if json_flag else format_opt.lower()
     ledger = get_spend_ledger()
+
+    if _handle_period_report(ledger, by, since, until, days, reference_model, eff_format):
+        return
+
     report = ledger.get_lifetime_report(
         days=days,
+        since=since,
+        until=until,
         group_by="all",
         reference_model=reference_model,
         hardware_cost_usd=hardware_cost,
@@ -540,6 +712,18 @@ def cost_payoff(
         int | None,
         typer.Option("--days", "-d"),
     ] = None,
+    since: Annotated[
+        str | None,
+        typer.Option("--since", "-s"),
+    ] = None,
+    until: Annotated[
+        str | None,
+        typer.Option("--until", "-u"),
+    ] = None,
+    by: Annotated[
+        str | None,
+        typer.Option("--by", "-b"),
+    ] = None,
     format_opt: Annotated[
         str,
         typer.Option("--format", "-f"),
@@ -554,6 +738,9 @@ def cost_payoff(
         hardware_cost=hardware_cost,
         reference_model=reference_model,
         days=days,
+        since=since,
+        until=until,
+        by=by,
         format_opt=format_opt,
         json_flag=json_flag,
     )
@@ -574,6 +761,18 @@ def cost_payback(
         int | None,
         typer.Option("--days", "-d"),
     ] = None,
+    since: Annotated[
+        str | None,
+        typer.Option("--since", "-s"),
+    ] = None,
+    until: Annotated[
+        str | None,
+        typer.Option("--until", "-u"),
+    ] = None,
+    by: Annotated[
+        str | None,
+        typer.Option("--by", "-b"),
+    ] = None,
     format_opt: Annotated[
         str,
         typer.Option("--format", "-f"),
@@ -588,6 +787,9 @@ def cost_payback(
         hardware_cost=hardware_cost,
         reference_model=reference_model,
         days=days,
+        since=since,
+        until=until,
+        by=by,
         format_opt=format_opt,
         json_flag=json_flag,
     )

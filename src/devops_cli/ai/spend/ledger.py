@@ -16,6 +16,7 @@ from devops_cli.ai.spend.models import (
     LifetimeSpendReport,
     ModelPricing,
     ModelSpendSummary,
+    PeriodSpendSummary,
     ProviderSpendSummary,
     ServerSpendSummary,
     SpendRecord,
@@ -104,7 +105,7 @@ SELECT
     COALESCE(SUM(reasoning_tokens), 0) as r_tokens,
     COALESCE(SUM(cost_usd), 0.0) as s_cost
 FROM ai_spend_records
-WHERE (:cutoff IS NULL OR timestamp >= :cutoff)
+WHERE (:since IS NULL OR timestamp >= :since) AND (:until IS NULL OR timestamp < :until)
 GROUP BY stage_name
 ORDER BY s_cost DESC, t_tokens DESC;
 """
@@ -124,7 +125,7 @@ SELECT
     MIN(timestamp) as first_ts,
     MAX(timestamp) as last_ts
 FROM ai_spend_records
-WHERE (:cutoff IS NULL OR timestamp >= :cutoff);
+WHERE (:since IS NULL OR timestamp >= :since) AND (:until IS NULL OR timestamp < :until);
 """
 
 _QUERY_SERVER_BREAKDOWN = """
@@ -142,7 +143,7 @@ SELECT
     MIN(timestamp) as f_seen,
     MAX(timestamp) as l_seen
 FROM ai_spend_records
-WHERE (:cutoff IS NULL OR timestamp >= :cutoff)
+WHERE (:since IS NULL OR timestamp >= :since) AND (:until IS NULL OR timestamp < :until)
 GROUP BY server, provider
 ORDER BY s_cost DESC, t_tokens DESC;
 """
@@ -161,7 +162,7 @@ SELECT
     COALESCE(SUM(completion_tokens), 0) as c_tokens,
     COALESCE(SUM(CASE WHEN request_type = :embedding THEN prompt_tokens ELSE 0 END), 0) as e_tokens
 FROM ai_spend_records
-WHERE (:cutoff IS NULL OR timestamp >= :cutoff)
+WHERE (:since IS NULL OR timestamp >= :since) AND (:until IS NULL OR timestamp < :until)
 GROUP BY server, provider, served_by, served_model;
 """
 
@@ -178,7 +179,7 @@ SELECT
     COALESCE(SUM(cost_usd), 0.0) as m_cost,
     COALESCE(SUM(CASE WHEN cached=1 THEN 1 ELSE 0 END), 0) as cached_count
 FROM ai_spend_records
-WHERE (:cutoff IS NULL OR timestamp >= :cutoff)
+WHERE (:since IS NULL OR timestamp >= :since) AND (:until IS NULL OR timestamp < :until)
 GROUP BY model, provider
 ORDER BY m_cost DESC, t_tokens DESC;
 """
@@ -191,7 +192,7 @@ SELECT
     COALESCE(SUM(cost_usd), 0.0) as p_cost,
     COUNT(DISTINCT CASE WHEN cached=0 THEN server END) as s_count
 FROM ai_spend_records
-WHERE (:cutoff IS NULL OR timestamp >= :cutoff)
+WHERE (:since IS NULL OR timestamp >= :since) AND (:until IS NULL OR timestamp < :until)
 GROUP BY provider
 ORDER BY p_cost DESC;
 """
@@ -207,7 +208,7 @@ SELECT
     COALESCE(SUM(reasoning_tokens), 0) as r_tokens,
     COALESCE(AVG(duration_seconds), 0.0) as mean_duration
 FROM ai_spend_records
-WHERE served_by IS NOT NULL AND (:cutoff IS NULL OR timestamp >= :cutoff)
+WHERE served_by IS NOT NULL AND (:since IS NULL OR timestamp >= :since) AND (:until IS NULL OR timestamp < :until)
 GROUP BY served_by
 ORDER BY req_count DESC, t_tokens DESC;
 """
@@ -216,7 +217,7 @@ _QUERY_COUNT_RECORDS = "SELECT COUNT(*) FROM ai_spend_records;"
 _QUERY_DELETE_RECORDS = "DELETE FROM ai_spend_records;"
 
 
-# Named parameters of the report queries: the date-range cutoff and the embedding request type.
+# Named parameters of the report queries: the date-range bounds and the embedding request type.
 _QueryParams = dict[str, str | None]
 
 
@@ -393,6 +394,30 @@ def _add_column(conn: sqlite3.Connection, add_column: str) -> None:
 _JOURNAL_MODE_LOCK = threading.Lock()
 
 
+def _to_utc_datetime(val: str | datetime) -> datetime:
+    """Parse an ISO date or datetime string or normalize a datetime to UTC."""
+    if isinstance(val, datetime):
+        dt = val if val.tzinfo is not None else val.replace(tzinfo=UTC)
+        return dt.astimezone(UTC)
+    clean = str(val).strip()
+    try:
+        dt = datetime.fromisoformat(clean)
+    except (ValueError, TypeError) as exc:
+        raise ValueError(f"Invalid ISO date or datetime: '{val}'") from exc
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=UTC)
+    else:
+        dt = dt.astimezone(UTC)
+    return dt
+
+
+def _normalize_iso_timestamp(ts: str | datetime | None) -> str | None:
+    """Normalize a date, datetime, or ISO string to a UTC ISO-8601 string."""
+    if ts is None:
+        return None
+    return _to_utc_datetime(ts).isoformat()
+
+
 class SpendLedger:
     """Persistent thread-safe SQLite ledger recording AI token spend across backends."""
 
@@ -517,15 +542,25 @@ class SpendLedger:
             # Defensive logging: database failure must never crash user workflows
             return None
 
-    def _build_where_params(self, days: int | None) -> _QueryParams:
-        """The report queries' parameters: the cutoff of the date range, and the request type
-        whose prompt tokens they count as embedding tokens."""
-        cutoff = (
-            None
-            if days is None or days <= 0
-            else (datetime.now(UTC) - timedelta(days=days)).isoformat()
-        )
-        return {"cutoff": cutoff, "embedding": CONST_SPEND_REQUEST_TYPE_EMBEDDING}
+    def _build_where_params(
+        self,
+        days: int | None = None,
+        since: str | datetime | None = None,
+        until: str | datetime | None = None,
+    ) -> _QueryParams:
+        """The report queries' parameters: the since/until bounds of the date range, and the
+        request type whose prompt tokens they count as embedding tokens."""
+        if since is None and days is not None and days > 0:
+            since = datetime.now(UTC) - timedelta(days=days)
+
+        since_iso = _normalize_iso_timestamp(since)
+        until_iso = _normalize_iso_timestamp(until)
+
+        return {
+            "since": since_iso,
+            "until": until_iso,
+            "embedding": CONST_SPEND_REQUEST_TYPE_EMBEDDING,
+        }
 
     @staticmethod
     def _resolve_hardware_cost(hardware_cost_usd: float | None = None) -> float:
@@ -543,6 +578,8 @@ class SpendLedger:
     def get_lifetime_report(
         self,
         days: int | None = None,
+        since: str | datetime | None = None,
+        until: str | datetime | None = None,
         group_by: str = "server",
         reference_model: str | None = None,
         hardware_cost_usd: float | None = None,
@@ -553,7 +590,7 @@ class SpendLedger:
         `ai.reference_embedding_model`, every other token at `reference_model`. A cost
         equivalent is None when a reference model that prices its tokens has no price (#1672).
         """
-        params = self._build_where_params(days)
+        params = self._build_where_params(days=days, since=since, until=until)
         with contextlib.closing(self._get_connection()) as conn:
             summary = self._query_overall_summary(conn, params)
             servers = self._query_server_breakdown(conn, params)
@@ -613,6 +650,68 @@ class SpendLedger:
         summary.backends = backends
         summary.stages = stages
         return summary
+
+    def get_period_report(
+        self,
+        by: str = "week",
+        since: str | datetime | None = None,
+        until: str | datetime | None = None,
+        days: int | None = None,
+        reference_model: str | None = None,
+    ) -> list[PeriodSpendSummary]:
+        """Aggregate spend and token metrics broken down into day or week intervals (#2193)."""
+        if by not in ("day", "week"):
+            raise ValueError(f"Invalid period grouping '{by}'. Must be 'day' or 'week'.")
+
+        if since is None and days is not None and days > 0:
+            since_dt = datetime.now(UTC) - timedelta(days=days)
+        elif since is not None:
+            since_dt = _to_utc_datetime(since)
+        else:
+            with contextlib.closing(self._get_connection()) as conn:
+                row = conn.execute(
+                    "SELECT MIN(timestamp) as first_ts FROM ai_spend_records;"
+                ).fetchone()
+                if not row or not row["first_ts"]:
+                    return []
+                since_dt = _to_utc_datetime(row["first_ts"])
+
+        if until is not None:
+            until_dt = _to_utc_datetime(until)
+        else:
+            until_dt = datetime.now(UTC)
+
+        if until_dt < since_dt:
+            raise ValueError("--until cannot be earlier than --since.")
+
+        step = timedelta(days=1) if by == "day" else timedelta(days=7)
+
+        periods: list[PeriodSpendSummary] = []
+        cur = since_dt
+        while cur < until_dt:
+            nxt = min(cur + step, until_dt)
+            sub = self.get_lifetime_report(
+                since=cur,
+                until=nxt,
+                reference_model=reference_model,
+            )
+            period_label = cur.strftime("%Y-%m-%d")
+            periods.append(
+                PeriodSpendSummary(
+                    period=period_label,
+                    requests=sub.total_requests,
+                    local_tokens=sub.local_tokens,
+                    actual_spend=sub.total_spend_usd,
+                    actual_spend_usd=sub.total_spend_usd,
+                    local_cost_equivalent=sub.local_cost_equivalent_usd,
+                    local_cost_equivalent_usd=sub.local_cost_equivalent_usd,
+                    cloud_spend_avoided=sub.counterfactual_savings_usd,
+                    cloud_spend_avoided_usd=sub.counterfactual_savings_usd,
+                )
+            )
+            cur = nxt
+
+        return periods
 
     def _query_overall_summary(
         self, conn: sqlite3.Connection, params: _QueryParams
