@@ -1302,6 +1302,25 @@ def test_each_roadmap_service_alert_points_to_its_step_in_the_readme(group: str)
     ) == ([], [], True)
 
 
+def test_the_readme_states_the_free_space_query_of_a_node_after_a_prune() -> None:
+    """The runbook holds the 7-day query of the free space of one node's root disk after a prune
+    (#3660), the limit of `LocalPathNodeDiskHigh`, the `ollama list` check of the models the node
+    keeps, and the comment on #3654 that holds the query and its result."""
+    section = _readme_section("Free space of the root disk after a prune")
+    for part in (
+        "node_filesystem_avail_bytes",
+        "node_filesystem_size_bytes",
+        'mountpoint="/"',
+        "instance=",
+        "[7d]",
+        "0.25",
+        "ollama list",
+    ):
+        assert part in section, (
+            f"k8s/README.md, Free space of the root disk after a prune, names no `{part}`"
+        )
+
+
 # The most failed Crawl4AI fetches of an hour that one alert tolerates, and the share of the
 # fetches of the hour that must have failed (#3893).
 CRAWL4AI_MIN_FAILED_FETCHES = 5
