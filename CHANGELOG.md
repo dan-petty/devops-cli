@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.102.0](https://github.com/dan-petty/devops-cli/compare/v0.101.1...v0.102.0) (2026-11-09)
+
+
+### Features
+
+* **k8s:** alert on the daily Claude spend ([#4246](https://github.com/dan-petty/devops-cli/issues/4246)) ([cc3b078](https://github.com/dan-petty/devops-cli/commit/cc3b078b822f37155cc819543c63d3aefb94cefe))
+
+
+### Bug Fixes
+
+* **k8s:** name the reference models in the ConfigMap template ([#4251](https://github.com/dan-petty/devops-cli/issues/4251)) ([750cf78](https://github.com/dan-petty/devops-cli/commit/750cf7892261917af6dc1c5d00499891f1c80a8a))
+
 ## [0.101.1](https://github.com/dan-petty/devops-cli/compare/v0.101.0...v0.101.1) (2026-11-09)
 
 
