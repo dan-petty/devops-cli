@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 from typer.testing import CliRunner
@@ -163,72 +163,78 @@ def test_config_init_dry_run_json(monkeypatch: pytest.MonkeyPatch) -> None:
     fail_subprocess.assert_not_called()
 
 
-def test_config_set_dry_run_preview(
-    monkeypatch: pytest.MonkeyPatch, keyring_store: Any, isolate_devops_cli_config: Path
-) -> None:
+def test_config_set_dry_run_preview(keyring_store: Any, isolate_devops_cli_config: Path) -> None:
     """Verify config set --dry-run prints preview and modifies neither config nor keyring."""
-    fail_save = MagicMock(side_effect=AssertionError("save_settings called during dry run"))
-    monkeypatch.setattr("devops_cli.commands.config.save_settings", fail_save)
+    initial_content = isolate_devops_cli_config.read_text(encoding="utf-8")
 
     # Setting a non-secret configuration key
     res = runner.invoke(app, ["config", "set", "github.default_org", "octocat", "--dry-run"])
     assert res.exit_code == 0, res.output
     assert "Would set github.default_org = octocat" in res.output
-    fail_save.assert_not_called()
+    assert isolate_devops_cli_config.read_text(encoding="utf-8") == initial_content
     assert keyring_store.writes == {}
 
     # Setting a secret configuration key
     res = runner.invoke(app, ["config", "set", "ai.api_key", "secret123", "--dry-run"])
     assert res.exit_code == 0, res.output
     assert "Would store secret 'ai.api_key' in keyring." in res.output
-    fail_save.assert_not_called()
+    assert isolate_devops_cli_config.read_text(encoding="utf-8") == initial_content
     assert keyring_store.writes == {}
 
 
-def test_workspace_add_dry_run_preview(tmp_path: Path) -> None:
+def test_workspace_add_dry_run_preview(tmp_path: Path, config: Any) -> None:
     """Verify workspace add --dry-run previews addition without mutating the workspace file."""
+    config(repos={"base_dir": str(tmp_path)})
     repo_dir = tmp_path / "repo1"
     repo_dir.mkdir()
     ws_file = tmp_path / "test.code-workspace"
     ws_file.write_text('{"folders": []}\n', encoding="utf-8")
 
-    with patch("devops_cli.commands.workspace._PROJECT_ROOT", tmp_path):
-        res = runner.invoke(
-            app, ["workspace", "add", str(repo_dir), "--workspace", str(ws_file), "--dry-run"]
-        )
-        assert res.exit_code == 0, res.output
-        assert f"Would add folder '{repo_dir.resolve()}' to workspace" in res.output
-        assert ws_file.read_text(encoding="utf-8") == '{"folders": []}\n'
+    res = runner.invoke(
+        app, ["workspace", "add", str(repo_dir), "--workspace", str(ws_file), "--dry-run"]
+    )
+    assert res.exit_code == 0, res.output
+    assert f"Would add folder '{repo_dir.resolve()}' to workspace" in res.output
+    assert ws_file.read_text(encoding="utf-8") == '{"folders": []}\n'
 
 
-def test_workspace_remove_dry_run_preview(tmp_path: Path) -> None:
+def test_workspace_remove_dry_run_preview(tmp_path: Path, config: Any) -> None:
     """Verify workspace remove --dry-run previews removal without mutating the workspace file."""
+    config(repos={"base_dir": str(tmp_path)})
     repo_dir = tmp_path / "repo1"
     repo_dir.mkdir()
     ws_file = tmp_path / "test.code-workspace"
     content = json.dumps({"folders": [{"path": str(repo_dir.resolve())}]})
     ws_file.write_text(content, encoding="utf-8")
 
-    with patch("devops_cli.commands.workspace._PROJECT_ROOT", tmp_path):
-        res = runner.invoke(
-            app, ["workspace", "remove", str(repo_dir), "--workspace", str(ws_file), "--dry-run"]
-        )
-        assert res.exit_code == 0, res.output
-        assert f"Would remove folder '{repo_dir.resolve()}' from workspace" in res.output
-        assert ws_file.read_text(encoding="utf-8") == content
+    res = runner.invoke(
+        app, ["workspace", "remove", str(repo_dir), "--workspace", str(ws_file), "--dry-run"]
+    )
+    assert res.exit_code == 0, res.output
+    assert f"Would remove folder '{repo_dir.resolve()}' from workspace" in res.output
+    assert ws_file.read_text(encoding="utf-8") == content
 
 
-def test_workspace_generate_dry_run_preview(tmp_path: Path) -> None:
+def test_workspace_generate_dry_run_preview(tmp_path: Path, config: Any) -> None:
     """Verify workspace generate --dry-run previews generation without creating workspace file."""
+    config(repos={"base_dir": str(tmp_path)})
     (tmp_path / "repos").mkdir()
     ws_file = tmp_path / "generated.code-workspace"
-    with patch("devops_cli.commands.workspace._PROJECT_ROOT", tmp_path):
-        res = runner.invoke(
-            app, ["workspace", "generate", "--workspace", str(ws_file), "--dry-run"]
-        )
-        assert res.exit_code == 0, res.output
-        assert f"Would generate workspace {ws_file}" in res.output
-        assert not ws_file.exists()
+    res = runner.invoke(
+        app,
+        [
+            "workspace",
+            "generate",
+            "--base-dir",
+            str(tmp_path / "repos"),
+            "--workspace",
+            str(ws_file),
+            "--dry-run",
+        ],
+    )
+    assert res.exit_code == 0, res.output
+    assert f"Would generate workspace {ws_file}" in res.output
+    assert not ws_file.exists()
 
 
 def test_global_dry_run_on_mark_only_commands(

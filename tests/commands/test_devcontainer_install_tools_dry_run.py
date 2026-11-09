@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 from typer.testing import CliRunner
@@ -304,13 +304,10 @@ def test_devcontainer_init_dry_run_preview(tmp_path: Path) -> None:
     repo_dir = tmp_path / "test-repo"
     repo_dir.mkdir()
 
-    fail_write = MagicMock(side_effect=AssertionError("write_text_file called during dry run"))
-    with patch("devops_cli.commands.devcontainer.write_text_file", fail_write):
-        res = runner.invoke(app, ["devcontainer", "init", str(repo_dir), "--dry-run"])
-        assert res.exit_code == 0, res.output
-        assert f"Would create devcontainer configuration in {repo_dir.resolve()}" in res.output
-        assert not (repo_dir / ".devcontainer").exists()
-        fail_write.assert_not_called()
+    res = runner.invoke(app, ["devcontainer", "init", str(repo_dir), "--dry-run"])
+    assert res.exit_code == 0, res.output
+    assert f"Would create devcontainer configuration in {repo_dir.resolve()}" in res.output
+    assert not (repo_dir / ".devcontainer").exists()
 
 
 def test_devcontainer_update_dry_run_preview(tmp_path: Path) -> None:
@@ -321,18 +318,15 @@ def test_devcontainer_update_dry_run_preview(tmp_path: Path) -> None:
     initial_content = json.dumps({"image": "ghcr.io/dan-petty/devops-cli/devcontainer:3.12"})
     dc_file.write_text(initial_content, encoding="utf-8")
 
-    fail_write = MagicMock(side_effect=AssertionError("write_json_file called during dry run"))
-    with patch("devops_cli.commands.devcontainer.write_json_file", fail_write):
-        res = runner.invoke(
-            app, ["devcontainer", "update", str(tmp_path), "--python", "3.14", "--dry-run"]
-        )
-        assert res.exit_code == 0, res.output
-        assert (
-            f"Would update image in {dc_file} to mcr.microsoft.com/devcontainers/python:3.14"
-            in res.output
-        )
-        assert dc_file.read_text(encoding="utf-8") == initial_content
-        fail_write.assert_not_called()
+    res = runner.invoke(
+        app, ["devcontainer", "update", str(tmp_path), "--python", "3.14", "--dry-run"]
+    )
+    assert res.exit_code == 0, res.output
+    assert (
+        f"Would update image in {dc_file} to mcr.microsoft.com/devcontainers/python:3.14"
+        in res.output
+    )
+    assert dc_file.read_text(encoding="utf-8") == initial_content
 
 
 # =============================================================================
