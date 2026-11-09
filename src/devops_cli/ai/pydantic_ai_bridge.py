@@ -24,6 +24,8 @@ from devops_cli.exceptions import ConfigurationError
 
 logger = logging.getLogger(__name__)
 
+_CLAUDE_GROUP_NAME_PREFIX = "openai-chat:claude-"
+
 
 def _gateway_prefix(model_str: str) -> str | None:
     """The gateway (`litellm` or `portkey`) a model name's prefix names, or None."""
@@ -76,6 +78,21 @@ def _resolve_remote_provider_endpoint(
     return name, ai_cfg.api_base_url or copilot_base
 
 
+def _claude_group_model(name: str, provider_factory: Any) -> Any:
+    """The chat model of a Claude group on a gateway, with the profile that forbids a forced tool
+    choice. A Claude model answers 400 to `tool_choice` `required`, which an agent with a tool
+    output sends, and a gateway fallback then hides the 400 (#4205). With the profile, the agent
+    sends `auto` and offers the same tools."""
+    from pydantic_ai.models.openai import OpenAIChatModel
+
+    provider_name, _, target = name.partition(":")
+    return OpenAIChatModel(
+        target,
+        provider=provider_factory(provider_name),
+        profile={"supports_forced_tool_choice": False},
+    )
+
+
 def _resolve_remote_inferred_model(model_str: str, active_settings: Settings) -> Any:
     """Infer a remote model that is sent to the endpoint its settings name.
 
@@ -106,7 +123,10 @@ def _resolve_remote_inferred_model(model_str: str, active_settings: Settings) ->
         )
 
     try:
-        model_obj = infer_model(name, provider_factory=_provider_factory)
+        if to_gateway and name.startswith(_CLAUDE_GROUP_NAME_PREFIX):
+            model_obj = _claude_group_model(name, _provider_factory)
+        else:
+            model_obj = infer_model(name, provider_factory=_provider_factory)
         if to_gateway:
             setattr(model_obj, "served_by", base_url)
         return model_obj

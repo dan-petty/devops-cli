@@ -112,6 +112,14 @@ AI_SPEND_USD_TOTAL = Instrument(
     "call is priced at the deployment model that the gateway names, and its model label is the "
     "model that the client asked for, such as the route name",
 )
+AI_MODEL_ANSWERS_TOTAL = Instrument(
+    "devops_cli_ai_model_answers_total",
+    InstrumentKind.COUNTER,
+    "1",
+    "Model replies of an agent run, by the model that the client asked for (asked), the model "
+    "that the reply names (answered) and whether they differ (fallback: true when a gateway "
+    "fallback answered). A slot that reads one model while another answers shows as fallback true",
+)
 AI_JSON_REPAIRS_TOTAL = Instrument(
     "devops_cli_ai_json_repairs_total",
     InstrumentKind.COUNTER,
@@ -626,6 +634,7 @@ INSTRUMENTS: tuple[Instrument, ...] = (
     AI_REQUESTS_TOTAL,
     AI_TOKENS_TOTAL,
     AI_SPEND_USD_TOTAL,
+    AI_MODEL_ANSWERS_TOTAL,
     AI_JSON_REPAIRS_TOTAL,
     AI_GATEWAY_SLOT_WAIT,
     AI_OLLAMA_SLOT_WAIT,
@@ -742,6 +751,7 @@ __all__ = [
     "AI_GATEWAY_PROBE_DURATION",
     "AI_GATEWAY_SLOT_WAIT",
     "AI_JSON_REPAIRS_TOTAL",
+    "AI_MODEL_ANSWERS_TOTAL",
     "AI_OLLAMA_SLOT_WAIT",
     "AI_PREWARMS_TOTAL",
     "AI_REQUESTS_TOTAL",
