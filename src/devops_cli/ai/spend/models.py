@@ -212,3 +212,19 @@ class HardwarePayoffSummary(BaseModel):
     daily_savings_usd: float = 0.0
     estimated_days_to_payoff: float | None = None
     reference_model: str
+
+
+class PeriodSpendSummary(BaseModel):
+    """Spend, token, and savings metrics for a single time period (day or week)."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    period: str
+    requests: int = 0
+    local_tokens: int = 0
+    actual_spend: float = 0.0
+    actual_spend_usd: float = 0.0
+    local_cost_equivalent: float | None = 0.0
+    local_cost_equivalent_usd: float | None = 0.0
+    cloud_spend_avoided: float | None = 0.0
+    cloud_spend_avoided_usd: float | None = 0.0
