@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.107.3](https://github.com/dan-petty/devops-cli/compare/v0.107.2...v0.107.3) (2026-11-10)
+
+
+### Bug Fixes
+
+* **k8s:** one implement ladder in template, cluster, README ([#4381](https://github.com/dan-petty/devops-cli/issues/4381)) ([66dc01d](https://github.com/dan-petty/devops-cli/commit/66dc01d5b74cd4e8f6e1489bd0deebe058b4be23))
+
 ## [0.107.2](https://github.com/dan-petty/devops-cli/compare/v0.107.1...v0.107.2) (2026-11-10)
 
 
