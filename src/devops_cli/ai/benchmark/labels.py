@@ -7,15 +7,23 @@ from devops_cli.ai.client.models import origin_label
 from devops_cli.config.constants import CONST_AI_BACKEND_HOST_UNKNOWN
 from devops_cli.http.urls import get_url_origin
 
+# The highest port that a TCP or UDP server can have. A label never shows a port above it.
+_MAX_SERVER_PORT = 65535
+
 
 def server_label(url: str) -> str:
     """The `host[:port]` text of a server URL, as the AI client names the server of a reply.
 
     The URL can hold userinfo, which the client sends as Basic authentication. The label never
-    holds it. A URL with no httpx2 origin shows as `unknown`, never as its own text.
+    holds it. A URL with no httpx2 origin, and a URL whose port is outside the range 0 to 65535,
+    show as `unknown`, never as their own text.
     """
     origin = get_url_origin(url)
-    return origin_label(origin) if origin is not None else CONST_AI_BACKEND_HOST_UNKNOWN
+    if origin is None:
+        return CONST_AI_BACKEND_HOST_UNKNOWN
+    if origin.port is not None and not 0 <= origin.port <= _MAX_SERVER_PORT:
+        return CONST_AI_BACKEND_HOST_UNKNOWN
+    return origin_label(origin)
 
 
 def model_label(entry: str) -> str:

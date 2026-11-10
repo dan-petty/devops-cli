@@ -678,3 +678,31 @@ def test_settings_domain_refuses_every_spelling_of_the_root_name(root_spelling: 
         KubernetesConfig(domain=root_spelling)
     with pytest.raises(PydanticValidationError, match=r"Invalid domain in cloudflare\.domain"):
         CloudflareConfig(domain=root_spelling)
+
+
+def test_a_service_url_with_no_hostname_names_no_url() -> None:
+    """The error names the fault alone, so no userinfo or path reaches the text."""
+    from devops_cli.core.validation import _parse_and_validate_scheme
+    from devops_cli.exceptions import InvalidURLError
+
+    url = "http:///prefix/secret"
+
+    with pytest.raises(InvalidURLError) as raised:
+        _parse_and_validate_scheme(url, "Service", {"http", "https"}, InvalidURLError)
+
+    text = str(raised.value)
+    assert "missing valid hostname" in text
+    assert [part for part in (url, "prefix", "secret") if part in text] == []
+
+
+def test_a_service_url_with_no_hostname_gives_a_plain_error_with_no_url() -> None:
+    """A caller that passes a plain error class also gets the fault alone."""
+    from devops_cli.core.validation import _parse_and_validate_scheme
+
+    url = "http:///prefix/secret"
+
+    with pytest.raises(ValueError, match="missing valid hostname") as raised:
+        _parse_and_validate_scheme(url, "Service", {"http", "https"}, ValueError)
+
+    text = str(raised.value)
+    assert [part for part in (url, "prefix", "secret") if part in text] == []
