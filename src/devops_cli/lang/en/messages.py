@@ -4066,6 +4066,11 @@ class RoadmapMessages:
         "Add the test to the `Changes:` line of the group that changes the manifest: the "
         "implement job cannot edit a test outside that list."
     )
+    stage_problem_missing_module_test: str = (
+        "Group {group} changes `{path}` and names no existing test of that module. Add `{test}` "
+        "to `reads`, to the `Changes:` line or to a task of the group: the implement job cannot "
+        "edit a test that the plan leaves out."
+    )
     stage_problem_constant_mismatch: str = (
         "{constant} is {staged} in the staged tree, but the plan says {plan}."
     )
