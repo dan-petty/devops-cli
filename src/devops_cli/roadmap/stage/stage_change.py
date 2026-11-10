@@ -851,6 +851,22 @@ def _is_code_identifier(span: str) -> bool:
     return bool(_CODE_IDENTIFIER.match(span)) and ("." in span or "_" in span)
 
 
+def _judged_spans(scenario: StageScenario, tree: StagedTree, touched: Collection[str]) -> list[str]:
+    """The code spans of `scenario` that need a behavior test (#4316): the code of the `then`, which
+    states the behavior under test, and the code of the `when` that is no path or whose path a
+    behavior group changes, creates or reads. A path of the `when` that no group touches is input
+    data, such as the file that a fixture holds, and the test builds it with no reason to name it."""
+    spans = [
+        *(
+            span
+            for span in code_spans(scenario.when)
+            if (path := tree.as_path(span)) is None or path in touched
+        ),
+        *code_spans(scenario.then),
+    ]
+    return [span for span in spans if tree.as_path(span) is not None or _is_code_identifier(span)]
+
+
 def _scenario_problems(
     specs: Sequence[StageSpec],
     groups: Sequence[StageGroup],
@@ -860,19 +876,18 @@ def _scenario_problems(
     behavior_groups = [g for g in groups if g.kind == GroupKind.BEHAVIOR]
     behavior_tests = [g.test for g in behavior_groups if g.test]
     behavior_verifies = [g.verify for g in behavior_groups if g.verify]
+    touched = {p for g in behavior_groups for p in (*g.reads, *g.changes, *g.creates)}
     problems: list[str] = []
 
     for spec in specs:
         for req in (*spec.added, *spec.modified):
             for scenario in req.scenarios:
-                spans = [*code_spans(scenario.when), *code_spans(scenario.then)]
-                if any(_is_scenario_command(span) for span in spans):
+                if any(
+                    _is_scenario_command(span)
+                    for span in (*code_spans(scenario.when), *code_spans(scenario.then))
+                ):
                     continue
-                code_spans_in_scenario = [
-                    span
-                    for span in spans
-                    if tree.as_path(span) is not None or _is_code_identifier(span)
-                ]
+                code_spans_in_scenario = _judged_spans(scenario, tree, touched)
                 if not code_spans_in_scenario:
                     continue
                 satisfied = any(
