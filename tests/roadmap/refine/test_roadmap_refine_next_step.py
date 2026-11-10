@@ -190,6 +190,6 @@ def test_the_report_groups_every_item_under_its_next_step(
     seed_item(store, "New", "P1-High")
     model_fake.answer(READY)
 
-    rounds = [refine_round(store, git_repo), refine_round(store, git_repo)]
+    rounds = [refine_round(store, git_repo, limit=3), refine_round(store, git_repo, limit=3)]
 
     assert [render_refine_plan(plan) for plan in rounds] == snapshot
