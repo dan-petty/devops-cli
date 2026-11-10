@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.107.0](https://github.com/dan-petty/devops-cli/compare/v0.106.1...v0.107.0) (2026-11-10)
+
+
+### Features
+
+* **roadmap:** a Jev screen before the verify step ([#4343](https://github.com/dan-petty/devops-cli/issues/4343)) ([c60efed](https://github.com/dan-petty/devops-cli/commit/c60efed5dbe6234e87e8348f4fb2b20201de6fab))
+* **roadmap:** give the stage runs a call budget and a notice ([#4347](https://github.com/dan-petty/devops-cli/issues/4347)) ([ec377c4](https://github.com/dan-petty/devops-cli/commit/ec377c47620a5c1a52d1eeddd6b3de916dc36759))
+
+
+### Bug Fixes
+
+* **roadmap:** end a cut tool answer at a whole line with a notice ([#4342](https://github.com/dan-petty/devops-cli/issues/4342)) ([469906d](https://github.com/dan-petty/devops-cli/commit/469906d78218a3095abe66229ec3a77ebac992db))
+* **roadmap:** name the reason of a failed stage model call ([#4339](https://github.com/dan-petty/devops-cli/issues/4339)) ([1ec8d4c](https://github.com/dan-petty/devops-cli/commit/1ec8d4c21ea86d4ea03517be3d6b0bc755c7a7df))
+
 ## [0.106.1](https://github.com/dan-petty/devops-cli/compare/v0.106.0...v0.106.1) (2026-11-10)
 
 
