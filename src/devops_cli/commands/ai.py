@@ -15,6 +15,7 @@ from devops_cli.ai.instruction_generator import (
     ProjectMetadata,
     collect_project_context,
 )
+from devops_cli.ai.jev_ask_models import JevAskKind
 from devops_cli.ai.personas import Persona
 from devops_cli.ai.run_store import Mechanism, record_run
 from devops_cli.commands.ai_ast import app as ast_app
@@ -1972,6 +1973,92 @@ def fetch_page_cmd(
         header.append(MESSAGES.ai.fetch_page_truncated.format(limit=DEFAULT_PAGE_TEXT_MAX_CHARS))
     header.append(MESSAGES.ai.fetch_page_untrusted)
     write_stdout("\n".join(header) + "\n\n" + page.text + "\n")
+
+
+# =============================================================================
+# Command: devops ai ask-jev
+# =============================================================================
+
+
+@dry_run_class("request-plan")
+@app.command("ask-jev", help=HELP.ai.ask_jev)
+def ask_jev_cmd(
+    kind: Annotated[JevAskKind, typer.Argument(help=HELP.ai.ask_jev_kind)],
+    question: Annotated[str, typer.Argument(help=HELP.ai.ask_jev_question)],
+    context: Annotated[
+        str,
+        typer.Option("--context", "-c", help=HELP.ai.ask_jev_context),
+    ] = "",
+    option: Annotated[
+        list[str] | None,
+        typer.Option("--option", "-o", help=HELP.ai.ask_jev_option),
+    ] = None,
+    level: Annotated[
+        list[str] | None,
+        typer.Option("--level", "-l", help=HELP.ai.ask_jev_level),
+    ] = None,
+    yes: Annotated[str, typer.Option("--yes", help=HELP.ai.ask_jev_yes)] = "",
+    no: Annotated[str, typer.Option("--no", help=HELP.ai.ask_jev_no)] = "",
+    output_format: Annotated[
+        str,
+        typer.Option("--format", "-f", help=HELP.options.format_type),
+    ] = DEFAULT_TABLE_FORMAT,
+    json: Annotated[
+        bool,
+        typer.Option("--json", help=HELP.options.json_output),
+    ] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
+) -> None:
+    """Ask TypeSafe Jev one question."""
+    resolved = resolve_format(output_format, json_output=json)
+    options, levels = option or [], level or []
+    if dry_run or is_dry_run():
+        from devops_cli.ai.ai_plans import plan_ai_ask_jev
+
+        render_request_plan(
+            MESSAGES.ai.ask_jev_plan_title,
+            plan_ai_ask_jev(
+                kind, question, context=context, options=options, levels=levels, yes=yes, no=no
+            ),
+            described=True,
+        )
+        return
+
+    from devops_cli.ai.jev_ask import ask_jev
+
+    answer = ask_jev(
+        kind, question, context=context, options=options, levels=levels, yes=yes, no=no
+    )
+    if resolved != DEFAULT_TABLE_FORMAT:
+        emit_serialized(answer.model_dump(mode="json"), resolved)
+        return
+    lines = [
+        MESSAGES.ai.ask_jev_kind.format(kind=answer.kind.value),
+        MESSAGES.ai.ask_jev_answer.format(answer=answer.answer),
+    ]
+    if answer.probability is not None:
+        lines.append(MESSAGES.ai.ask_jev_probability.format(probability=answer.probability))
+    if answer.score is not None:
+        lines.append(MESSAGES.ai.ask_jev_score.format(score=answer.score))
+    if answer.confidence is not None:
+        lines.append(MESSAGES.ai.ask_jev_confidence.format(confidence=answer.confidence))
+    lines.append(
+        MESSAGES.ai.ask_jev_probabilities.format(
+            probabilities=", ".join(f"{name}={p:.2f}" for name, p in answer.probabilities.items())
+        )
+    )
+    lines.append(
+        MESSAGES.ai.ask_jev_tokens.format(
+            input_tokens=answer.input_tokens,
+            output_tokens=answer.output_tokens,
+            model=answer.model,
+        )
+    )
+    lines.append(MESSAGES.ai.ask_jev_evidence)
+    write_stdout("\n".join(lines) + "\n")
 
 
 # =============================================================================

@@ -1,4 +1,80 @@
 {
+  "ai_ask_jev": {
+    "description": "Ask TypeSafe Jev one question and print its answer with the probability and the token count. The kind is choice (pick one option), noul (yes or no) or score (rate against a rubric). The answer is evidence, not a verdict: check it. Jev is a hosted model, so the text leaves the cluster. Project text and code are fine, but never send a secret: the command refuses an input with a secret and an input that is too large.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "context": {
+          "default": "",
+          "description": "The text that Jev decides about. When you give none, the question is that text.",
+          "type": "string"
+        },
+        "dry_run": {
+          "default": false,
+          "description": "Preview execution plan without mutating external state.",
+          "type": "boolean"
+        },
+        "kind": {
+          "description": "The kind of question: choice, noul or score.",
+          "enum": [
+            "choice",
+            "noul",
+            "score"
+          ],
+          "type": "string"
+        },
+        "level": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "A level of a score rubric, from level 0 up. Repeat the option; give two or more."
+        },
+        "no": {
+          "default": "",
+          "description": "What a no means in a noul question.",
+          "type": "string"
+        },
+        "option": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "An option of a choice question, as label=description. Repeat the option; give two or more."
+        },
+        "question": {
+          "description": "The question for Jev, in plain words.",
+          "type": "string"
+        },
+        "yes": {
+          "default": "",
+          "description": "What a yes means in a noul question.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "question"
+      ],
+      "type": "object"
+    }
+  },
   "ai_ast_graph": {
     "description": "Synthesize whole-repository symbol dependency and reference graph.",
     "input_schema": {

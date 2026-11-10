@@ -366,6 +366,36 @@ devops ai fetch-page [OPTIONS] <url>
 
 ---
 
+## `devops ai ask-jev`
+
+**Ask TypeSafe Jev one question and print its answer with the probability and the token count. The kind is choice (pick one option), noul (yes or no) or score (rate against a rubric). The answer is evidence, not a verdict: check it. Jev is a hosted model, so the text leaves the cluster. Project text and code are fine, but never send a secret: the command refuses an input with a secret and an input that is too large.**
+
+```bash
+devops ai ask-jev [OPTIONS] <kind> <question>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<kind>` | `choice (choice|noul|score)` | Yes | The kind of question: choice, noul or score. |
+| `<question>` | `string` | Yes | The question for Jev, in plain words. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--context`, `-c` | `string` | `` | The text that Jev decides about. When you give none, the question is that text. |
+| `--option`, `-o` | `string` | - | An option of a choice question, as label=description. Repeat the option; give two or more. |
+| `--level`, `-l` | `string` | - | A level of a score rubric, from level 0 up. Repeat the option; give two or more. |
+| `--yes` | `string` | `` | What a yes means in a noul question. |
+| `--no` | `string` | `` | What a no means in a noul question. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+---
+
 ## `devops ai diagram`
 
 **Generate visual Mermaid architecture topology or STRIDE threat modeling diagrams.**
