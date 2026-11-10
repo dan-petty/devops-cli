@@ -1052,3 +1052,57 @@ def test_the_tunnel_section_of_the_k8s_readme_names_only_hosts_that_a_manifest_s
         name for name in names if not any(fnmatch.fnmatchcase(host, name) for host in served)
     )
     assert unmatched == []
+
+
+OWN_IMAGE_PREFIX = "ghcr.io/dan-petty/devops-cli/"
+OWN_IMAGE_KEYS = frozenset({"image", "imageName"})
+RELEASE_IMAGE_PREFIX = "ghcr.io/${{ github.repository }}/"
+
+
+def _own_image_names(node: Any) -> Iterator[str]:
+    """The names of the images of this repository that a YAML node references, at any depth.
+
+    A name is the part after the prefix, without the tag or the digest.
+    """
+    if isinstance(node, dict):
+        for key, value in node.items():
+            if (
+                key in OWN_IMAGE_KEYS
+                and isinstance(value, str)
+                and value.startswith(OWN_IMAGE_PREFIX)
+            ):
+                yield re.split(r"[:@]", value.removeprefix(OWN_IMAGE_PREFIX))[0]
+            else:
+                yield from _own_image_names(value)
+    elif isinstance(node, list):
+        for item in node:
+            yield from _own_image_names(item)
+
+
+def _released_image_names() -> frozenset[str]:
+    """The images that a job of release.yml attests, which a job does after it pushes the image."""
+    workflow = yaml.safe_load((REPO_ROOT / ".github/workflows/release.yml").read_text("utf-8"))
+    return frozenset(
+        step["with"]["subject-name"].removeprefix(RELEASE_IMAGE_PREFIX)
+        for job in workflow["jobs"].values()
+        for step in job.get("steps", [])
+        if str(step.get("uses", "")).startswith("actions/attest-build-provenance")
+    )
+
+
+def test_every_image_of_this_repository_that_k8s_names_is_published_by_the_release() -> None:
+    """A manifest or an ImageUpdater under k8s/ that names ghcr.io/dan-petty/devops-cli/<name> needs a
+    job in release.yml that pushes and attests <name>, or the pod waits in ImagePullBackOff (#4324)."""
+    named = {
+        name: path.relative_to(REPO_ROOT).as_posix()
+        for path, document in yaml_documents(K8S_DIR)
+        for name in _own_image_names(document)
+    }
+
+    assert named, "No image of this repository found under k8s/"
+    unpublished = {
+        f"{OWN_IMAGE_PREFIX}{name}": path
+        for name, path in named.items()
+        if name not in _released_image_names()
+    }
+    assert unpublished == {}
