@@ -19,7 +19,6 @@ boundary, because an agent chooses its input:
 
 from __future__ import annotations
 
-import asyncio
 import dataclasses
 from collections.abc import Sequence
 from typing import Any, cast
@@ -29,7 +28,6 @@ from pydantic_ai.exceptions import ModelAPIError, UnexpectedModelBehavior, UserE
 from pydantic_ai.models.decision import (
     ChoiceAnswer,
     ChoiceQuestion,
-    DecisionModelSettings,
     DecisionQuestion,
     DecisionRequest,
     NoulAnswer,
@@ -39,7 +37,7 @@ from pydantic_ai.models.decision import (
     ScoreQuestion,
 )
 
-from devops_cli.ai.jev import create_jev_model
+from devops_cli.ai.jev import create_jev_model, decide_with_jev
 from devops_cli.ai.jev_ask_models import JevAnswer, JevAskKind
 from devops_cli.config.constants import (
     CONST_AI_JEV_ASK_MAX_INPUT_CHARS,
@@ -235,9 +233,8 @@ def ask_jev(
     )
     active = settings or load_settings()
     model = create_jev_model(settings=active)
-    model_settings = cast(DecisionModelSettings, dict(getattr(model, "settings", None) or {}))
     try:
-        response = asyncio.run(model.decide(request, model_settings))
+        response = decide_with_jev(request, model=model)
     except ModelAPIError as exc:
         raise ModelGatewayUnreachableError(
             str(getattr(model, "base_url", CONST_AI_JEV_MODEL)),

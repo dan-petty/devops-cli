@@ -240,7 +240,7 @@ from devops_cli.roadmap.stage.stage_toolbox import (
     review,
     violation_summary,
 )
-from devops_cli.roadmap.stage.stage_validate import validate_change
+from devops_cli.roadmap.stage.stage_validate import restore_omitted_scenarios, validate_change
 from devops_cli.roadmap.stage.stage_verify import (
     PLAN_NEEDS_FIX_LABEL,
     Finding,
@@ -1502,6 +1502,7 @@ class _Planner:
         proposal = asked
         if any(m.tokens > self._budget for m in measured):
             return OverBudget(target, tuple(measured), self._budget)
+        files = self._restored(target.change, proposal, files)
         for path, text in files.items():
             if redact_text(text) != text:
                 raise _stage_error(MESSAGES.roadmap.stage_secret.format(path=path), target)
@@ -1649,6 +1650,15 @@ class _Planner:
         proposal = proposal.model_copy(update={"groups": split.groups, "criteria": split.criteria})
         files, measured = self._build(target, proposal)
         return proposal, files, measured
+
+    def _restored(
+        self, change: str, proposal: StageProposal, files: Mapping[str, str]
+    ) -> dict[str, str]:
+        """`files` with the base scenarios that a MODIFIED requirement omits, restored (#4310). The
+        files stay as they are when the tool is not installed."""
+        if self._tool is None:
+            return dict(files)
+        return restore_omitted_scenarios(self._tool, self._source, change, proposal, files)
 
     def _validate(self, change: str, files: Mapping[str, str]) -> str | None:
         """The problems that `openspec validate` finds in `files`, or None when it finds none or

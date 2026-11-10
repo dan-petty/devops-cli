@@ -12,7 +12,9 @@ import yaml
 
 from tests.support.paths import REPO_ROOT
 
-_IMAGE_WITH_TAG = re.compile(r"^\s*-?\s*image:\s*\S+:[\w][\w.-]*\s*$", re.MULTILINE)
+_IMAGE_WITH_TAG = re.compile(
+    r"^\s*-?\s*image:\s*\S+:[\w][\w.-]*(?:@sha256:[0-9a-f]{64})?\s*$", re.MULTILINE
+)
 
 
 def _renovate() -> dict[str, Any]:

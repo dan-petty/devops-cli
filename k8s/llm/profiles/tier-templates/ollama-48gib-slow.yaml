@@ -60,7 +60,7 @@ spec:
                     values: ["48Gi", "52Gi", "56Gi", "60Gi"]
       initContainers:
         - name: own-model-directory
-          image: ollama/ollama:0.40.12
+          image: ollama/ollama:0.40.16@sha256:910d0d8107b538fb0894e63163eb195de0cc7aefcbc666dc62d3b18f71124592
           securityContext:
             runAsUser: 0
             runAsNonRoot: false
@@ -86,7 +86,7 @@ spec:
               mountPath: /home/ollama/.ollama
       containers:
         - name: ollama
-          image: ollama/ollama:0.40.12
+          image: ollama/ollama:0.40.16@sha256:910d0d8107b538fb0894e63163eb195de0cc7aefcbc666dc62d3b18f71124592
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true

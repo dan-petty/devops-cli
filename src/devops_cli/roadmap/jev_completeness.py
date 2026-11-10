@@ -16,7 +16,6 @@ its outcome in `devops_cli_roadmap_jev_completeness_total`.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -27,7 +26,6 @@ from pydantic import JsonValue
 from pydantic_ai.exceptions import AgentRunError, UserError
 from pydantic_ai.models.decision import (
     DecisionModel,
-    DecisionModelSettings,
     DecisionQuestion,
     DecisionRequest,
     NoulAnswer,
@@ -37,7 +35,7 @@ from pydantic_ai.models.decision import (
 )
 
 from devops_cli.ai.context_budget import count_tokens
-from devops_cli.ai.jev import create_jev_model
+from devops_cli.ai.jev import create_jev_model, decide_with_jev
 from devops_cli.config.constants import (
     CONST_ROADMAP_JEV_CRITERION_THRESHOLD,
     CONST_ROADMAP_JEV_MAX_CRITERIA,
@@ -143,11 +141,6 @@ def _count(outcome: CompletenessOutcome) -> None:
         emit(ROADMAP_JEV_COMPLETENESS_TOTAL, 1 if each is outcome else 0, {"outcome": each.value})
 
 
-def _decide(model: DecisionModel[Any], request: DecisionRequest) -> Any:
-    settings = cast(DecisionModelSettings, dict(getattr(model, "settings", None) or {}))
-    return asyncio.run(model.decide(request, settings))
-
-
 def assess(
     criteria: Sequence[str],
     diff: str,
@@ -177,7 +170,7 @@ def assess(
     request = build_request(criteria, diff, subject)
     try:
         decision_model = model or create_jev_model(settings=settings)
-        response = _decide(decision_model, request)
+        response = decide_with_jev(request, model=decision_model)
     except (AgentRunError, UserError) as exc:
         logger.warning("The Jev completeness check got no answer: %s", exc)
         return Completeness(CompletenessOutcome.ERROR, reason=str(exc))

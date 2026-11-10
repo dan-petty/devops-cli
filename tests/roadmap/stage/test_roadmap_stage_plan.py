@@ -2363,11 +2363,31 @@ def _removal_delta(*, modified: bool = False) -> dict[str, Any]:
     }
 
 
-@pytest.mark.usefixtures("openspec")
 def test_a_base_requirement_that_names_a_removed_command_goes_back_to_the_model(
-    store: InMemoryRoadmapStore, item: int, stage_repo: StageRepo, model_fake: ModelFake
+    store: InMemoryRoadmapStore,
+    item: int,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    openspec: OpenSpecFake,
 ) -> None:
     stage_repo.track({"openspec/specs/comment-thread/spec.md": STALE_COMMAND_SPEC})
+    base = {
+        "requirements": [
+            {
+                "name": STALE_COMMAND_REQUIREMENT,
+                "text": "SHALL run each case.",
+                "scenarios": [
+                    {
+                        "name": "One case",
+                        "rawText": "- **WHEN** the command runs\n- **THEN** it runs the case",
+                    }
+                ],
+            }
+        ]
+    }
+    openspec.script_sequence(
+        ("show", "comment-thread", "--type", "spec", "--json"), (0, json.dumps(base))
+    )
     model_fake.answer(
         make_stage_proposal(specs=[_removal_delta()]),
         make_stage_proposal(specs=[_removal_delta(modified=True)]),

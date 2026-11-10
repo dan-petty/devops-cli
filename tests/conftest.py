@@ -79,6 +79,7 @@ _PROCESS_STATE_RESETS: dict[str, tuple[str, ...]] = {
     "devops_cli.ai.client.network": ("reset_ollama_slots", "reset_model_call_limit"),
     "devops_cli.ai.context_budget": ("reset_tiktoken_encoding_cache",),
     "devops_cli.ai.gateway": ("clear_gateway_reasoning_cache",),
+    "devops_cli.ai.jev": ("reset_jev_portal",),
     "devops_cli.ai.kb": ("reset_uv_lock_cache",),
     "devops_cli.ai.mcp.dispatcher": ("reset_mcp_dispatcher",),
     "devops_cli.ai.mcp.generator": ("reset_click_command_cache",),

@@ -138,7 +138,8 @@ def test_release_please_makes_every_release_on_a_push_to_main() -> None:
             "sha": "${{ steps.release.outputs.sha }}",
         },
         dict.fromkeys(
-            ("assets", "devcontainer-image", "service-image", "runner-image"), _RELEASE_CREATED
+            ("assets", "devcontainer-image", "service-image", "runner-image", "mcp-server-image"),
+            _RELEASE_CREATED,
         ),
     )
     assert [name for name in jobs if name != "release-please" and not _gated(jobs, name)] == []
@@ -289,7 +290,14 @@ def test_every_publish_job_checks_out_the_commit_release_please_tagged() -> None
         if any(s.get("name") == "Check out repository" for s in job.get("steps", []))
     }
     assert checkouts == dict.fromkeys(
-        ("assets", "devcontainer-image", "devcontainer-smoke", "service-image", "runner-image"),
+        (
+            "assets",
+            "devcontainer-image",
+            "devcontainer-smoke",
+            "service-image",
+            "runner-image",
+            "mcp-server-image",
+        ),
         (True, {"ref": "${{ needs.release-please.outputs.sha }}", "persist-credentials": False}),
     )
 
@@ -443,6 +451,7 @@ def test_release_workflow_attest_build_provenance_contract() -> None:
         ("devcontainer", "ghcr.io/${{ github.repository }}/devcontainer"),
         ("service-image", "ghcr.io/${{ github.repository }}/service"),
         ("runner-image", "ghcr.io/${{ github.repository }}/runner"),
+        ("mcp-server-image", "ghcr.io/${{ github.repository }}/mcp-server"),
     ]
 
 
@@ -476,6 +485,7 @@ def test_every_trivy_scan_runs_the_trivy_tools_lock_pins() -> None:
         ("ci.yml", "third-party-image-scan", pinned),
         ("release.yml", "service-image", pinned),
         ("release.yml", "runner-image", pinned),
+        ("release.yml", "mcp-server-image", pinned),
     ]
 
 

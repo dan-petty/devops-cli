@@ -21,7 +21,14 @@ from pydantic import BaseModel, ValidationError
 from devops_cli.exceptions import RoadmapStageError
 from devops_cli.lang import MESSAGES
 from devops_cli.openspec.tool import OpenSpecTool, output_of
-from devops_cli.roadmap.stage.stage_change import write_change_files
+from devops_cli.roadmap.stage.stage_change import (
+    OmittedScenarios,
+    StageProposal,
+    omitted_scenarios,
+    spec_file,
+    spec_file_path,
+    write_change_files,
+)
 
 # The most characters of a validation problem that goes back to the model or to a report.
 _PROBLEM_CHARS = 2000
@@ -32,6 +39,53 @@ _SKIP_SPECS_NOTE = (
     "skip_specs is set in .openspec.yaml: change declares no spec-level behavior changes, "
     "zero deltas accepted"
 )
+
+
+def _base_scenarios(
+    tool: OpenSpecTool, source: Path, capability: str
+) -> dict[str, list[tuple[str, str]]] | None:
+    """The name and the raw text of each scenario of each requirement of the base spec of
+    `capability`, by requirement name, as `openspec show` gives them. None when the checkout holds
+    no spec of the capability (#4310)."""
+    if not (source / "openspec" / "specs" / capability / "spec.md").is_file():
+        return None
+    shown = tool.read_json(["show", capability, "--type", "spec", "--json"], source)
+    return {
+        str(requirement["name"]).strip(): [
+            (str(scenario["name"]), str(scenario["rawText"]))
+            for scenario in requirement["scenarios"]
+        ]
+        for requirement in shown["requirements"]
+    }
+
+
+def restore_omitted_scenarios(
+    tool: OpenSpecTool,
+    source: Path,
+    change: str,
+    proposal: StageProposal,
+    files: Mapping[str, str],
+) -> dict[str, str]:
+    """`files` with each base scenario that a MODIFIED requirement omits added at the end of its
+    block, with the raw text that OpenSpec gives (#4310). A MODIFIED block replaces the whole
+    requirement, so `openspec archive` refuses a block that omits a scenario, and a scenario cannot
+    be dropped on purpose. The scenarios of the reply stay as they are. A requirement that the base
+    spec lacks, and a capability with no base spec, are left to `validate_change`, which reports
+    them."""
+    repaired = dict(files)
+    for spec in proposal.specs:
+        base = _base_scenarios(tool, source, spec.capability) if spec.modified else None
+        if base is None:
+            continue
+        omitted: OmittedScenarios = {
+            name: found
+            for requirement in spec.modified
+            if (name := requirement.name.strip())
+            and (found := omitted_scenarios(requirement, base.get(name, ())))
+        }
+        if omitted:
+            repaired[spec_file_path(change, spec.capability)] = spec_file(spec, omitted)
+    return repaired
 
 
 class _Issue(BaseModel):
