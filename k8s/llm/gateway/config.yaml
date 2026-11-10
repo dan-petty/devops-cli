@@ -129,11 +129,12 @@ model_list:
   # provider only when its caller names the group. The key of each comes from the Secret
   # llm-gateway-secrets, which `devops k8s push-secrets` writes. Without the key a call to the
   # group fails and no other group is affected.
-  # The cost map of the pinned LiteLLM image lists gemini/gemini-3.8-flash with its window and
-  # prices. It lists no Claude 5.5 model, so these two set their own windows and prices (USD per
-  # token, from the Anthropic pricing page). The same gap hides from LiteLLM that the API
-  # answers 400 to temperature, top_p and top_k on both models, and `drop_params` drops only
-  # what LiteLLM knows a model refuses, so each Claude group drops the three itself. Sonnet 5.5
+  # The cost map of the pinned LiteLLM image lists gemini/gemini-3.8-flash and both Claude 5.5
+  # models with their windows and prices. The two Claude groups still set their own windows and
+  # prices (USD per token, from the Anthropic pricing page), so a new map does not change the
+  # spend. The API answers 400 to temperature, top_p and top_k on both models. The map marks
+  # them `supports_sampling_params: false`, and each Claude group drops the three itself too,
+  # so the refusal does not depend on the map. Sonnet 5.5
   # also answers an error to a forced tool call (tool_choice "required" or a named tool): a
   # caller of the group sends "auto". LiteLLM turns a `response_format` into such a forced tool
   # call unless its model map says that the model supports native structured output, so each
