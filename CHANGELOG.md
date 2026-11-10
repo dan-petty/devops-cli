@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.106.0](https://github.com/dan-petty/devops-cli/compare/v0.105.0...v0.106.0) (2026-11-10)
+
+
+### Features
+
+* **roadmap:** Add roadmap consolidate with a plan file ([#4328](https://github.com/dan-petty/devops-cli/issues/4328)) ([18f996b](https://github.com/dan-petty/devops-cli/commit/18f996bc87d33c3f4fe0b5097f4f01349768a2e7))
+
+
+### Bug Fixes
+
+* **roadmap:** log why a stage reply holds only placeholders ([#4327](https://github.com/dan-petty/devops-cli/issues/4327)) ([81accc8](https://github.com/dan-petty/devops-cli/commit/81accc8c0d24389bacdecdd090d18bf9d0e9a5fc))
+* **roadmap:** the scenario check accepts a data file in when ([#4330](https://github.com/dan-petty/devops-cli/issues/4330)) ([7246f30](https://github.com/dan-petty/devops-cli/commit/7246f30a2d36c0f8b7fd64e669c43e5ca44a8d1f))
+* **roadmap:** the trace gate counts code that reads a file ([#4329](https://github.com/dan-petty/devops-cli/issues/4329)) ([c562883](https://github.com/dan-petty/devops-cli/commit/c562883c06f59b1d0543332d564f2e4384aeeea8))
+
 ## [0.105.0](https://github.com/dan-petty/devops-cli/compare/v0.104.0...v0.105.0) (2026-11-10)
 
 
