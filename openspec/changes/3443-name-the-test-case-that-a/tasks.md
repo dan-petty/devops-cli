@@ -15,12 +15,10 @@ Reads: `src/devops_cli/ai/tasks/roadmap_stage_change.md`, `tests/roadmap/stage/t
 
 - [ ] 2.1 Add `test_the_prompt_names_the_test_case_that_a_change_invalidates` to `tests/roadmap/stage/test_roadmap_stage_prompt_rules.py`: it loads `src/devops_cli/ai/tasks/roadmap_stage_change.md` and asserts both rules, and asserts that `docs/roadmap/stage.md` holds the same rules
   - Verification: `$ uv run devops ci test tests/roadmap/stage/test_roadmap_stage_prompt_rules.py` fails on the base
-- [ ] 2.2 Add two rules to the list of rules of `src/devops_cli/ai/tasks/roadmap_stage_change.md` after the bullet that chooses the kind of a group: a behavior group that changes a source file and names an existing test module in `reads` or `changes` names each test case of that module whose assertion the change invalidates, and a group that names an existing test module and invalidates no assertion in it states that it updates no existing test case. Add the matching sentence to the section of `docs/roadmap/stage.md` that describes the plan request. Group 2 adds its case and updates no existing test case of `tests/roadmap/stage/test_roadmap_stage_prompt_rules.py`
+- [ ] 2.2 Add two rules to the list of rules of `src/devops_cli/ai/tasks/roadmap_stage_change.md` after the bullet that chooses the kind of a group: a behavior group that changes a source file and names an existing test module in `reads` or `changes` names each test case of that module whose assertion the change invalidates, and a group that names an existing test module and invalidates no assertion in it states that it updates no existing test case. Add the matching sentence to the section of `docs/roadmap/stage.md` that describes the plan request. Group 2 adds its case and updates no existing test case of `tests/roadmap/stage/test_roadmap_stage_prompt_rules.py`. Run `uv run devops roadmap eval stage --replay` on the base commit and on the change with the same model, and state the score before and after the change in the pull request comment
   - Verification: `$ uv run devops ci test tests/roadmap/stage/test_roadmap_stage_prompt_rules.py` passes
 - [ ] 2.3 Edit `docs/roadmap/stage.md` to state that the probe lists the referencing test cases and that the planner names each invalidated case or states that it updates no existing test case
   - Verification: `$ uv run devops ci docs` passes
-- [ ] 2.4 Run `uv run devops roadmap eval stage --replay` on the base commit and on the change with the same model, and state the score before and after the change in a pull request comment
-  - Verification: `$ uv run devops roadmap eval stage --replay` prints a score for the base commit and for the change
 
 ## Workflow follow-up
 
