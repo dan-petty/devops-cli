@@ -197,7 +197,7 @@ class ShadowIntakeModel:
     ) -> None:
         self._base = base
         self._jev = JevIntakeModel(base, decider, settings=settings, fall_back=False)
-        self._now = now or (lambda: datetime.now(UTC))
+        self._now = now or (lambda: datetime.now(UTC).replace(microsecond=0))
 
     def embed(self, texts: Sequence[str]) -> list[list[float]]:
         """The embeddings of the base model."""
