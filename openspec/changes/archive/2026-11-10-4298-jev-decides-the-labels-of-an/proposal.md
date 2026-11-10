@@ -18,7 +18,7 @@
 
 ## Impact
 - With the setting off, nothing changes.
-- The gateway route for `POST /v1/systemone` is the work of #4289. Until it merges, a Jev request fails and, with the setting on, intake falls back. The setting stays off until `devops roadmap eval jev` shows that Jev flags no more false duplicates than the `triage` model.
+- The setting stays off until `devops roadmap eval jev` shows that Jev flags no more false duplicates than the `triage` model, and a person reads the agreement of the label fields.
 - Jev gets the title, the body and the nearest items of a candidate. These texts already go to the hosted `triage` model (SECURITY.md item 13).
 - Jev gives no evidence, so with Jev a candidate can not get the P0 priority from a model proposal. P0 stays with a person and with verified evidence.
 
@@ -26,7 +26,7 @@
 - Cookbooks (https://docs.typesafe.ai/cookbooks): "Classification" uses choice questions, matching and routing use score questions, and field checks use yes/no questions. The page states no limit on options or questions; its examples run 75 options in one choice and 13 questions in one call.
 - Library source, `pydantic_ai/models/decision.py` and `system_one.py` of the venv: `ChoiceQuestion(criteria: dict)`, `ScoreQuestion(criteria: list)` and `NoulQuestion` exist, `SystemOneModel` requires `instructions`, posts to `/v1/systemone`, and checks that every answer matches its question. The answers carry `confidence` (choice, score) and `noul` (yes/no).
 - The fake is a transport under the real `SystemOneModel`, so the library validates each fake answer.
-- Not verified: a live request. `POST /v1/systemone` through the gateway gives 404 until #4289 merges.
+- Live: `devops roadmap eval jev` sent 41 requests to Jev through the gateway after #4289 merged. A probe of three requests showed that the confidence of a score answer is often below 0.60 on the long text of real issues, so the least confidence is a parameter of the model (`--min-confidence` in the evaluation).
 
 ## Existing Tool Considered
 `pydantic_ai`'s `DecisionModel` and `SystemOneModel` (already in the project, `devops_cli.ai.jev.create_jev_model`) send the request and validate the answers; no parser or client is written. `pydantic-evals`, already used by `devops roadmap eval intake`, scores the duplicate cases. The label cases are counted with plain code: one equality for each field. Deleted internal code: none; the `declared` property of the intake run becomes a view of `descriptions`.
