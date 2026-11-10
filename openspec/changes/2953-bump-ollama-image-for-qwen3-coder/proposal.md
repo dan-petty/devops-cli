@@ -25,7 +25,7 @@ Checked on 2026-11-10 against upstream:
 - `compare v0.40.12...v0.40.16` changes only `model/parsers/mimo_test.go`, `parsers.go`, `ripple.go` and `ripple_test.go`. Nothing changes the qwen3-coder parser.
 - Tag 0.40.16 exists on Docker Hub. Its index digest is `sha256:910d0d81…4592`.
 
-So this change does not meet the acceptance criterion "a replay of a large `edit_file` call parses". No replay of the original failure is possible: it depended on one sample of the model after a conversation of about 24,000 tokens that the Job discarded (see the archive of #2922). The owner chose to bump with this knowledge. The item must stay open for the parser fix: the pull request does not use `Closes`.
+So this change does not meet the acceptance criterion "a replay of a large `edit_file` call parses". No replay of the original failure is possible: it depended on one sample of the model after a conversation of about 24,000 tokens that the Job discarded (see the archive of #2922). The owner chose to bump with this knowledge. The pull request closes #2953 as the tooling requires. If the parser failure comes back, file a new issue.
 
 ## Existing Tool Considered
 
