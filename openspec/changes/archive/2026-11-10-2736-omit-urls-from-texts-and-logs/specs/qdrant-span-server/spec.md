@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: The upsert span names a cluster Service by its DNS name
-When the Qdrant address is a `k8s://` or `k8s+https://` Service address, the `qdrant.upsert_points` span SHALL set `server.address` to `<service>.<namespace>`. It SHALL set `server.port` to the port of the address when the port is a number, and SHALL set no `server.port` when the port is a name. The span SHALL hold no userinfo, path or query of the address. When `parse_service_url` refuses the address, the span SHALL set `server.address` to `unknown` and SHALL NOT raise `ServiceAddressError`, matching `qdrant_server_label` for the same address.
+When the Qdrant address is a `k8s://` or `k8s+https://` Service address, the `qdrant.upsert_points` span SHALL set `server.address` to `<service>.<namespace>`. It SHALL set `server.port` to the port of the address when the port is a number, and SHALL set no `server.port` when the port is a name. The span SHALL hold no userinfo, path or query of the address. When `parse_service_url` refuses the address, the span SHALL set `server.address` to `unknown` and SHALL NOT raise `ServiceAddressError`.
 
 #### Scenario: A Service address
 - **WHEN** `qdrant.url` is `k8s://devops/qdrant:6333` and `upsert_points` runs
