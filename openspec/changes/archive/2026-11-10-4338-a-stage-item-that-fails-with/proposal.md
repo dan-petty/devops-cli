@@ -7,7 +7,7 @@ A stage item that fails with `AIClientError` shows no reason. `_failure_of` in `
 ## What Changes
 
 - `_failure_of` gives the reason of an `AIClientError`: the error code with the HTTP status or the timeout (`AIClientError.reason`), then the message of the error. `body_error_text` hides each quoted part of the message, because a provider can echo text of the model.
-- `_failure_of` logs one warning line for it, with the item number, the class and the reason.
+- `_failure_of` logs one warning line for it, with the item number, the class, the error code, the HTTP status and the timeout flag. The line holds no text of the message: CodeQL flags a log of that text as clear-text logging, and the Service already logs the reason inside its failure report.
 - The reason of a `StructuredOutputValidationError` is unchanged and still holds no reply text.
 - The change carries a spec delta because the failure text of an item is observable.
 

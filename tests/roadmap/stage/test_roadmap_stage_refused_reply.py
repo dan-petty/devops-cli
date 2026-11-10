@@ -429,7 +429,7 @@ def test_a_model_call_error_hides_the_quoted_text_of_the_provider(
     assert "Ollama returned HTTP 500" in failure.reason
 
 
-def test_a_model_call_error_logs_one_line_with_the_item_and_the_reason(
+def test_a_model_call_error_logs_one_line_with_the_item_and_the_status(
     store: InMemoryRoadmapStore,
     stage_repo: StageRepo,
     model_fake: ModelFake,
@@ -442,7 +442,7 @@ def test_a_model_call_error_logs_one_line_with_the_item_and_the_reason(
 
     (line,) = [r.getMessage() for r in caplog.records if "model call failed" in r.getMessage()]
     assert "item=#1" in line
-    assert "gateway returned 502" in line
+    assert "status=502" in line
 
 
 def test_a_schema_failure_names_at_most_three_violations_of_five(

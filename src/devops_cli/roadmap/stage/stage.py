@@ -1676,7 +1676,12 @@ def _failure_of(
     elif isinstance(exc, AIClientError):
         reason = _call_reason(exc)
         logger.warning(
-            MESSAGES.roadmap.stage_model_call_log, target.item.number, type(exc).__name__, reason
+            MESSAGES.roadmap.stage_model_call_log,
+            target.item.number,
+            type(exc).__name__,
+            exc.error_code,
+            exc.status,
+            exc.timed_out,
         )
     else:
         reason = mask_secrets(str(exc))
