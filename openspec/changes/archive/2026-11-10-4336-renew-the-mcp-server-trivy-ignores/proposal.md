@@ -40,4 +40,4 @@ Read on 2026-11-10. Both releases are older than 2 weeks (kubectl 1.37.2 on 2026
 
 ## Existing Tool Considered
 
-Trivy and its `.trivyignore` format are the open tools. The change builds no code and adds no test: the existing test of the entries reads the dates.
+Trivy and its `.trivyignore` format are the open tools. The change builds no code. It adds one invariant test for the floor of the two pins, and the test of the version skew reads the kubectl version from the lock.
