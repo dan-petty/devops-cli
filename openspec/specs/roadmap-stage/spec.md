@@ -3979,3 +3979,33 @@ The cuts of the screen SHALL be read from `jev_screen_cuts.json`, which SHALL ho
 #### Scenario: The data file
 - **WHEN** a test loads the cuts of the screen
 - **THEN** each of the nine questions has a cut, and the file names the model and the cases of its fit
+
+#### Scenario: MODIFIED of an unknown requirement
+- **WHEN** a MODIFIED block names a requirement that the base spec does not hold
+- **THEN** the block is unchanged and the validation problem still reaches the model
+
+### Requirement: A cut tool answer says so
+The answer of a read-only tool of a roadmap job SHALL end at a whole line when the character limit shortens it, and a single line over the limit SHALL be cut. An answer that lost text to the line limit or to the character limit SHALL end with the line `(more lines are left out)`. An answer under both limits SHALL have no notice.
+
+#### Scenario: The character limit drops lines
+- **WHEN** a tool answers with 100 lines of 100 characters and the character limit is 8,000
+- **THEN** the answer holds whole lines only, and its last line is `(more lines are left out)`
+
+#### Scenario: An answer under both limits
+- **WHEN** a tool answers with 10 lines of 100 characters
+- **THEN** the answer is those lines and has no notice
+
+#### Scenario: One line over the limit
+- **WHEN** a tool answers with one line of 8,500 characters
+- **THEN** the answer is the first 8,000 characters of the line and the notice
+
+### Requirement: A failed model call names its reason
+The stage job SHALL name the reason of an item that fails with `AIClientError`: the error code with the HTTP status or the timeout, then the message of the error with each quoted part hidden. It SHALL log one warning line `stage model call failed` with the number of the item, the class of the error, its code, its HTTP status and whether it timed out, and no text of the message. The reason SHALL NOT hold the text that a provider quotes from the model.
+
+#### Scenario: A gateway error
+- **WHEN** the model call of item 1 fails with `AIClientError("gateway returned 502", status=502)`
+- **THEN** the failure of item 1 has the error `AIClientError`, and its reason holds `HTTP 502` and `gateway returned 502`, and the log holds one line with `item=#1` and `status=502`
+
+#### Scenario: A provider that quotes the model
+- **WHEN** the message of the error is `Ollama returned HTTP 500. Response: 'the reply of the model'`
+- **THEN** the reason holds `Ollama returned HTTP 500` and does not hold `the reply of the model`

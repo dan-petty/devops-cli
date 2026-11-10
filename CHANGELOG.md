@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.106.1](https://github.com/dan-petty/devops-cli/compare/v0.106.0...v0.106.1) (2026-11-10)
+
+
+### Bug Fixes
+
+* **ai:** a second Jev request on one model works ([#4331](https://github.com/dan-petty/devops-cli/issues/4331)) ([cdefdd6](https://github.com/dan-petty/devops-cli/commit/cdefdd628fc1b99a4dca64d8cbc7ad5ff8ee000b))
+* **ci:** the release publishes the mcp-server image ([#4334](https://github.com/dan-petty/devops-cli/issues/4334)) ([b4770d2](https://github.com/dan-petty/devops-cli/commit/b4770d244b3d119512f9f4b7cd06cdeeaa0c46a1))
+* **roadmap:** a MODIFIED block gets the base scenarios it omits ([#4333](https://github.com/dan-petty/devops-cli/issues/4333)) ([8bd434f](https://github.com/dan-petty/devops-cli/commit/8bd434f9e5a906dd5ff6b8763c49284504dfa3af))
+* **security:** renew MCP server Trivy ignores, bump kubectl, helm ([#4337](https://github.com/dan-petty/devops-cli/issues/4337)) ([ec4aabf](https://github.com/dan-petty/devops-cli/commit/ec4aabf543e84731782677de0ccd938a498c034e))
+
 ## [0.106.0](https://github.com/dan-petty/devops-cli/compare/v0.105.0...v0.106.0) (2026-11-10)
 
 

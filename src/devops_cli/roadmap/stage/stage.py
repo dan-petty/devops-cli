@@ -131,7 +131,7 @@ from devops_cli.github.client import CreatedPull
 from devops_cli.github.session import get_github_session
 from devops_cli.lang import MESSAGES
 from devops_cli.openspec.tool import OpenSpecTool, isolated_openspec
-from devops_cli.roadmap.agent_run import RunTrace, TraceFacts
+from devops_cli.roadmap.agent_run import RunTrace, TraceFacts, body_error_text
 from devops_cli.roadmap.body_hash import body_hashes
 from devops_cli.roadmap.claim import claimed_by
 from devops_cli.roadmap.clone_git import branch_authors, default_branch, git
@@ -1682,11 +1682,20 @@ def _failure_of(
     target: StageTarget, exc: AIClientError | RoadmapStageError | ToolExecutionError
 ) -> StageFailure:
     """The failure that `exc` made of the item. A model's error says its class and the count of
-    schema violations, never the reply."""
+    schema violations, never the reply. A failed model call says its error code, its HTTP status
+    or timeout and its message, with each quoted part hidden (#4338)."""
     if isinstance(exc, StructuredOutputValidationError):
         reason = violation_summary(exc)
     elif isinstance(exc, AIClientError):
-        reason = ""
+        reason = _call_reason(exc)
+        logger.warning(
+            MESSAGES.roadmap.stage_model_call_log,
+            target.item.number,
+            type(exc).__name__,
+            exc.error_code,
+            exc.status,
+            exc.timed_out,
+        )
     else:
         reason = mask_secrets(str(exc))
     return StageFailure(
@@ -1698,6 +1707,18 @@ def _failure_of(
         failure_class=failure_class_of(exc),
         step=StepName.PLAN,
         degenerate=isinstance(exc, RoadmapStageDegenerateError),
+    )
+
+
+def _call_reason(exc: AIClientError) -> str:
+    """Why a model call failed: the error code with the HTTP status or the timeout, then the
+    message of the error. A provider can echo text of the model in its message, so
+    `body_error_text` hides each quoted part (#4338)."""
+    detail = body_error_text(str(exc))
+    return (
+        MESSAGES.roadmap.stage_model_call_failed.format(reason=exc.reason, detail=detail)
+        if detail
+        else exc.reason
     )
 
 
