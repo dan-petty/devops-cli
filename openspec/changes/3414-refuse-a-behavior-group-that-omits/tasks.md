@@ -42,8 +42,6 @@ Reads: `docs/ROADMAP_WORKFLOW.md`, `docs/roadmap/plan-check.md`. Changes: `docs/
 
 - [ ] 5.1 Edit the bullet of the `paths` gate in `docs/ROADMAP_WORKFLOW.md` and the gate list of `docs/roadmap/plan-check.md` to state that a behavior group that changes an existing module under `src/` names an existing test of that module, and that a test file that the plan creates is no existing test
   - Verification: `$ uv run devops ci docs` passes
-- [ ] 5.2 Edit `docs/roadmap/plan-check.md` and `docs/ROADMAP_WORKFLOW.md` to state the rule of the existing test
-  - Verification: `$ uv run devops ci docs` passes
 
 ## Workflow follow-up
 
