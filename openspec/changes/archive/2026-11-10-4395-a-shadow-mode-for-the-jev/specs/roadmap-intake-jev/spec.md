@@ -24,7 +24,7 @@ With `roadmap.intake.jev` set to `on`, intake SHALL ask Jev, in one request, for
 - **THEN** the loaded setting is `shadow`
 
 ### Requirement: A Jev failure falls back to the triage model
-When the setting is `on` and a Jev request fails, times out, or gives a choice or score with a confidence below 0.60, intake SHALL use the `triage` model for the whole proposal, SHALL log a warning, and SHALL count each asked field with the outcome `fallback`. A proposal that Jev decides SHALL count each asked field with the outcome `jev`. The counter `devops_cli_roadmap_intake_jev_fields_total` SHALL have the labels `field` and `outcome` only. Mode `on` SHALL write only the outcomes `jev` and `fallback`, and so at most 10 series.
+When the setting is `on` and a Jev request fails, times out, or gives a choice or score with a confidence below 0.60, intake SHALL use the `triage` model for the whole proposal, SHALL log a warning, and SHALL count each asked field with the outcome `fallback`. A proposal that Jev decides SHALL count each asked field with the outcome `jev`. The counter SHALL have the labels `field` and `outcome` only, and mode `on` SHALL write only `jev` and `fallback`: at most 10 series.
 
 #### Scenario: Jev is unavailable
 - **WHEN** the gateway answers a Jev request with status 503
