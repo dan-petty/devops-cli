@@ -6859,6 +6859,25 @@ devops roadmap retitle [OPTIONS]
 | `--dry-run` | `boolean` | - | Make no request: print the requests a run makes, with placeholders. |
 | `--confirm` | `boolean` | - | Write each new title to GitHub, and a comment on the item. |
 
+### `devops roadmap consolidate`
+
+**Propose groups of open items that share a root cause, and write the plan to a local file. A model proposes and then tries to refute each shortlist, code checks the answers, and nothing changes on GitHub. Details: docs/roadmap/consolidate.md.**
+
+```bash
+devops roadmap consolidate [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--repo`, `-R` | `string` | - | Repository as owner/name (default: this checkout's origin). |
+| `--ref` | `string` | - | Branch, tag or commit to check the cited paths and lines against (default: the default branch of origin). The plan records its commit. |
+| `--limit` | `integer` | - | Maximum number of shortlists to judge with the model in this run (default: 10). A shortlist that an earlier plan judged costs no call and does not count. |
+| `--decline` | `string` | - | The id of a group of the last plan to decline. The job record of its anchor keeps the id, and the group is not proposed again until its members change. Needs --confirm to write. |
+| `--dry-run` | `boolean` | - | Make no request: print the requests a run makes, with placeholders. |
+| `--confirm` | `boolean` | - | Write the decline of --decline to the job record of the anchor. |
+
 ### `devops roadmap stage`
 
 **Make Ready items Staged: for each item, push a branch with its OpenSpec change in one commit and open a draft plan pull request. The Service marks the draft ready when its checks pass. Details: docs/roadmap/stage.md.**

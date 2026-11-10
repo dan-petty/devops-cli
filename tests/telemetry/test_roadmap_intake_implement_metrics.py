@@ -464,7 +464,7 @@ def test_step_names_the_step_values_of_a_run_are_members_of_step_name(
 
 
 def test_step_names_the_new_steps_are_one_word_and_come_after_the_steps_that_exist() -> None:
-    assert [step.value for step in StepName][-3:] == ["checks", "publish", "watch"]
+    assert [step.value for step in StepName][-4:-1] == ["checks", "publish", "watch"]
 
 
 def test_step_names_the_tail_of_step_name_does_not_move_a_stored_step() -> None:

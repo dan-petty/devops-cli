@@ -1440,6 +1440,25 @@ class RoadmapCommandHelp:
     alternatives_dry_run: str = (
         "Make no request: print the requests a run makes, with placeholders."
     )
+    consolidate: str = (
+        "Propose groups of open items that share a root cause, and write the plan to a local "
+        "file. A model proposes and then tries to refute each shortlist, code checks the answers, "
+        "and nothing changes on GitHub. Details: docs/roadmap/consolidate.md."
+    )
+    consolidate_ref: str = (
+        "Branch, tag or commit to check the cited paths and lines against (default: the default "
+        "branch of origin). The plan records its commit."
+    )
+    consolidate_limit: str = (
+        "Maximum number of shortlists to judge with the model in this run (default: 10). A "
+        "shortlist that an earlier plan judged costs no call and does not count."
+    )
+    consolidate_decline: str = (
+        "The id of a group of the last plan to decline. The job record of its anchor keeps the "
+        "id, and the group is not proposed again until its members change. Needs --confirm to write."
+    )
+    consolidate_confirm: str = "Write the decline of --decline to the job record of the anchor."
+    consolidate_dry_run: str = "Make no request: print the requests a run makes, with placeholders."
     retitle: str = (
         "Shorten the title summary of open items that is over 60 characters. The job keeps the type "
         "and the scope. A Planned item takes the summary of its plan pull request title and needs no "
