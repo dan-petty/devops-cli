@@ -42,6 +42,7 @@ NETWORK_NAME = f"{PREFIX}-net"
 VOLUME_NAME = f"{PREFIX}-vol"
 BUILD_TAG = f"{PREFIX}-build:1"
 ABSENT = f"{PREFIX}-absent"
+ABSENT_IMAGE = f"{ABSENT}:never"
 # The sections of a stats frame that the service's projection reads.
 STATS_SECTIONS = frozenset({"cpu_stats", "precpu_stats", "memory_stats", "pids_stats"})
 # The sections of `GET /system/df` that the service and the dashboard read.
@@ -244,6 +245,16 @@ def build_and_push(client: EngineClient) -> tuple[Any, ...]:
     )
 
 
+def image_pull(client: EngineClient) -> tuple[Any, ...]:
+    """A local image is read; a missing one is refused, pulled if a registry holds it, else refused."""
+    return (
+        IMAGE in client.images.get(IMAGE).tags,
+        _refusal(lambda: client.images.get(ABSENT_IMAGE)),
+        _refusal(lambda: client.images.pull(ABSENT_IMAGE)),
+        IMAGE in client.images.pull(IMAGE).tags,
+    )
+
+
 def _seed_nothing(fake: DockerEngineFake) -> None:
     """The scenario expects only what the fake holds from the start."""
 
@@ -309,4 +320,5 @@ SCENARIOS: tuple[EngineScenario, ...] = (
     EngineScenario("inventory", inventory, _seed_volume, _prepare_and_add_volume),
     EngineScenario("prunes", prunes),
     EngineScenario("build_and_push", build_and_push),
+    EngineScenario("image_pull", image_pull),
 )

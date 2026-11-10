@@ -46,6 +46,15 @@ def plan_sandbox_deploy(
     return [
         PlannedRequest(
             method="DOCKER",
+            target=f"GET /images/{image}/json",
+        ),
+        PlannedRequest(
+            method="DOCKER",
+            target=f"POST /images/create?fromImage={image}",
+            condition="the image is not on the engine",
+        ),
+        PlannedRequest(
+            method="DOCKER",
             target=f"POST /containers/create (name: {name or '<auto>'})",
             stdin=json.dumps(details),
         ),

@@ -878,6 +878,23 @@ class DockerEngineService:
 
     # -- Images & BuildKit cache introspection --------------------------------
 
+    def pull_image(self, image: str) -> None:
+        """Pull an image the engine does not hold; a local image makes no registry call."""
+        from docker.errors import ImageNotFound
+
+        images = self.client().images
+        try:
+            images.get(image)
+            return
+        except ImageNotFound:
+            pass
+        except Exception as exc:
+            raise DockerEngineError(f"Image lookup failed for {image}: {exc}", image=image) from exc
+        try:
+            images.pull(image)
+        except Exception as exc:
+            raise DockerEngineError(f"Image pull failed for {image}: {exc}", image=image) from exc
+
     def list_images(self, *, name: str | None = None) -> list[EngineImage]:
         """List local images through the Engine API."""
         try:

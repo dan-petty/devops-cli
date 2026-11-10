@@ -75,6 +75,19 @@ def _digest(*parts: object) -> str:
     return hashlib.sha256("/".join(str(part) for part in parts).encode()).hexdigest()
 
 
+def _resolve_reference(reference: str, tag: str | None = None) -> str:
+    """A reference with its tag: the one given, else `latest` when it carries none."""
+    if tag is not None:
+        return f"{reference}:{tag}"
+    return reference if ":" in reference.rsplit("/", 1)[-1] else f"{reference}:latest"
+
+
+def _repository(reference: str) -> str:
+    """The repository of a reference, without its tag."""
+    last = reference.rsplit("/", 1)[-1]
+    return reference.rsplit(":", 1)[0] if ":" in last else reference
+
+
 def _api_error(
     error: type[docker.errors.APIError], status: int, reason: str, path: str, explanation: str
 ) -> docker.errors.APIError:
@@ -357,6 +370,16 @@ class FakeImages:
         self._engine.record("images.list", (), {"name": name, "all": all, "filters": filters})
         return [FakeImage(attrs) for attrs in self._engine.list_images(name)]
 
+    def get(self, name: str) -> FakeImage:
+        """One local image by reference: a reference without a tag asks for `latest`."""
+        self._engine.record("images.get", (name,))
+        return FakeImage(self._engine.get_image(name))
+
+    def pull(self, repository: str, tag: str | None = None, **kwargs: Any) -> FakeImage:
+        """Pull an image from a registry the fake holds, or return it when it is local."""
+        self._engine.record("images.pull", (repository,), {"tag": tag, **kwargs})
+        return FakeImage(self._engine.pull_image(repository, tag))
+
     def build(self, **kwargs: Any) -> tuple[FakeImage, Iterator[dict[str, Any]]]:
         """Build an image from the scripted steps, tagged with `tag`."""
         self._engine.record("images.build", (), kwargs)
@@ -519,6 +542,7 @@ class DockerEngineFake:
         }
         self.container_state: dict[str, dict[str, Any]] = {}
         self.image_state: dict[str, dict[str, Any]] = {}
+        self.registry: set[str] = set()
         self.network_state: dict[str, dict[str, Any]] = {}
         self.volume_state: dict[str, dict[str, Any]] = {}
         self.build_cache: list[dict[str, Any]] = []
@@ -638,6 +662,10 @@ class DockerEngineFake:
         }
         self.image_state[image_id] = attrs
         return attrs
+
+    def publish_image(self, *references: str) -> None:
+        """Name references that a registry holds, so a pull of one adds it locally."""
+        self.registry.update(references)
 
     def add_container(
         self,
@@ -967,6 +995,37 @@ class DockerEngineFake:
             for attrs in self.image_state.values()
             if any(tag == name or tag.split(":", 1)[0] == name for tag in attrs["RepoTags"])
         ]
+
+    def get_image(self, reference: str) -> dict[str, Any]:
+        """The local image of an exact reference, refusing a reference the engine does not hold."""
+        resolved = _resolve_reference(reference)
+        for attrs in self.image_state.values():
+            if resolved in attrs["RepoTags"]:
+                return attrs
+        raise _api_error(
+            docker.errors.ImageNotFound,
+            404,
+            "Not Found",
+            f"/images/{resolved}/json",
+            f"No such image: {resolved}",
+        )
+
+    def pull_image(self, repository: str, tag: str | None = None) -> dict[str, Any]:
+        """Pull a reference the registry holds, or return one the engine already holds."""
+        reference = _resolve_reference(repository, tag)
+        for attrs in self.image_state.values():
+            if reference in attrs["RepoTags"]:
+                return attrs
+        if reference in self.registry:
+            return self.add_image(reference)
+        raise _api_error(
+            docker.errors.ImageNotFound,
+            404,
+            "Not Found",
+            "/images/create",
+            f"pull access denied for {_repository(reference)}, repository does not "
+            "exist or may require 'docker login'",
+        )
 
     def build_image(self, tag: str | None) -> tuple[dict[str, Any], list[dict[str, Any]]]:
         """An image built from one step, tagged with `tag`, and the build's log."""
