@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.108.0](https://github.com/dan-petty/devops-cli/compare/v0.107.3...v0.108.0) (2026-11-10)
+
+
+### Features
+
+* **roadmap:** allow-list builder for planner read-only commands ([#4378](https://github.com/dan-petty/devops-cli/issues/4378)) ([5a07806](https://github.com/dan-petty/devops-cli/commit/5a07806470a1f5008f3b52a536070ef2eeb9497f))
+
+
+### Bug Fixes
+
+* **devcontainer:** the image gets its tools with native build steps ([#4366](https://github.com/dan-petty/devops-cli/issues/4366)) ([3e2d9c1](https://github.com/dan-petty/devops-cli/commit/3e2d9c1988f6b0cce27cbe69985b7b630a6c187c))
+* **roadmap:** rebase the branch before its first push ([#4384](https://github.com/dan-petty/devops-cli/issues/4384)) ([29212f9](https://github.com/dan-petty/devops-cli/commit/29212f9403c70cec3ccb60a48027c9c93cc36b78))
+
 ## [0.107.3](https://github.com/dan-petty/devops-cli/compare/v0.107.2...v0.107.3) (2026-11-10)
 
 
