@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.103.3](https://github.com/dan-petty/devops-cli/compare/v0.103.2...v0.103.3) (2026-11-10)
+
+
+### Bug Fixes
+
+* **roadmap:** a citation quote in its own code span passes ([#4305](https://github.com/dan-petty/devops-cli/issues/4305)) ([1450bb4](https://github.com/dan-petty/devops-cli/commit/1450bb48906f4e49e203e5ca73249fa50c167665))
+* **roadmap:** a move plan leaves out files of a tool ([#4301](https://github.com/dan-petty/devops-cli/issues/4301)) ([679159f](https://github.com/dan-petty/devops-cli/commit/679159fda3c5f751362464d8b7159160004b14ac))
+* **roadmap:** the cost check reads a time in days or weeks ([#4303](https://github.com/dan-petty/devops-cli/issues/4303)) ([8084fc5](https://github.com/dan-petty/devops-cli/commit/8084fc53a55ce6ea58e1bf329da5aa9d0a543848))
+* **roadmap:** the trace gate judges the path of a citation ([#4299](https://github.com/dan-petty/devops-cli/issues/4299)) ([c70d673](https://github.com/dan-petty/devops-cli/commit/c70d673709ee21a1d6569b3372d08e6fb031307b))
+
 ## [0.103.2](https://github.com/dan-petty/devops-cli/compare/v0.103.1...v0.103.2) (2026-11-10)
 
 
