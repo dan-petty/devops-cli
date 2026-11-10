@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: The probe lists the test cases of a cited test module
-The premise probe SHALL list, for each test module and each source file that the issue cites and that the staging commit holds, the test cases of the module whose body names a symbol, message or constant that the source file binds.
+The premise probe SHALL list, for each test module and each source file that the issue cites and that the staging commit holds, the test cases of the module whose body names a symbol, message or constant that the source file binds at module level.
 
 #### Scenario: A case names a symbol of the cited source file
 - **WHEN** The issue cites `tests/roadmap/stage/test_roadmap_stage_probe.py` and `src/devops_cli/roadmap/stage/stage_probe.py`, and the test module holds a case that calls `blocked_by`.
