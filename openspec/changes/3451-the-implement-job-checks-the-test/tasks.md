@@ -4,9 +4,9 @@
 
 Reads: `src/devops_cli/roadmap/step_files.py`, `src/devops_cli/ci/fail_to_pass.py`, `src/devops_cli/roadmap/implement/implement_test_names.py`, `tests/roadmap/implement/test_roadmap_implement_test_names.py`. Changes: `src/devops_cli/roadmap/implement/implement_test_form.py` (new), `tests/roadmap/implement/test_roadmap_implement_test_form.py` (new).
 
-- [ ] 1.1 Add a test in `tests/roadmap/implement/test_roadmap_implement_test_form.py` that a task naming six statuses gives the path and the count six
+- [x] 1.1 Add a test in `tests/roadmap/implement/test_roadmap_implement_test_form.py` that a task naming six statuses gives the path and the count six
   - Verification: `$ uv run devops ci test tests/roadmap/implement/test_roadmap_implement_test_form.py` fails on the base
-- [ ] 1.2 Create `src/devops_cli/roadmap/implement/implement_test_form.py` with `TestForm`, `named_forms(text, paths)` and `collected_items(output)`. `named_forms` gives one form for each path that `is_test_file` accepts when the task text holds the word `parametrized`, reads the count after `parametrized test over` as a digit or a number word from one to twenty, and gives a form with no count when the task states none. A task with no `parametrized` word gives no form. `collected_items` counts the lines of the quiet collection output that hold `::`
+- [x] 1.2 Create `src/devops_cli/roadmap/implement/implement_test_form.py` with `TestForm`, `named_forms(text, paths)` and `collected_items(output)`. `named_forms` gives one form for each path that `is_test_file` accepts when the task text holds the word `parametrized`, reads the count after `parametrized test over` as a digit or a number word from one to twenty, and gives a form with no count when the task states none. A task with no `parametrized` word gives no form. `collected_items` counts the lines of the quiet collection output that hold `::`
   - Verification: `$ uv run devops ci test tests/roadmap/implement/test_roadmap_implement_test_form.py` passes
 
 ## 2. Refuse a test that does not match its task form
