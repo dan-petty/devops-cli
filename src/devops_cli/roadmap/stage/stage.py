@@ -256,6 +256,11 @@ from devops_cli.roadmap.stage.stage_verify import (
     return_problem,
     returning,
 )
+from devops_cli.roadmap.stage.stage_verify_pulls import (
+    claim_paths_of,
+    named_numbers,
+    read_named_pulls,
+)
 from devops_cli.roadmap.step_files import code_spans
 from devops_cli.roadmap.step_metrics import observe_step
 from devops_cli.roadmap.stores.store import (
@@ -1323,15 +1328,25 @@ class _Planner:
         )
 
     def _input_of(self, target: StageTarget, change: StagedChange) -> VerificationInput:
-        """The input that the pass reads for `change`."""
+        """The input that the pass reads for `change`, with the files of each pull request that the
+        issue or the plan names, at the merge commit of that pull request (#3447)."""
         item = target.item
+        plan = change.proposal.model_dump(mode="json")
+        claim = f"{item.body}\n{json.dumps(plan, ensure_ascii=False)}"
         return VerificationInput.of(
             number=item.number,
             title=item.title,
             body=item.body,
-            plan=change.proposal.model_dump(mode="json"),
+            plan=plan,
             source=self._source,
             window=self._verify_window,
+            pull_requests=read_named_pulls(
+                self._source,
+                named_numbers(claim),
+                reads=self._pull_reads,
+                repo=self._pull_repo,
+                claim=claim_paths_of(claim),
+            ),
         )
 
     def _review(

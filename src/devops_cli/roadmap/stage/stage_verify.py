@@ -44,6 +44,7 @@ from devops_cli.roadmap.pull_form import is_placeholder
 from devops_cli.roadmap.refine.refine_investigation import tokens_of, tool_stop
 from devops_cli.roadmap.stage.stage_change import safe_text
 from devops_cli.roadmap.stage.stage_eval_cases import DefectType
+from devops_cli.roadmap.stage.stage_verify_pulls import PullRequestFiles
 from devops_cli.security.sanitizer import mask_secrets
 
 if TYPE_CHECKING:
@@ -169,14 +170,15 @@ def cited_files(source: Path, plan: Mapping[str, Any]) -> dict[str, str]:
 
 @dataclass(frozen=True)
 class VerificationInput:
-    """What the model reads: the issue, the plan and the cited files, and after an agent run,
-    `reads`, the answers of its tools."""
+    """What the model reads: the issue, the plan and the cited files, the files of each named pull
+    request at its merge commit, and after an agent run, `reads`, the answers of its tools."""
 
     number: int
     title: str
     body: str
     plan: Mapping[str, Any]
     files: Mapping[str, str]
+    pull_requests: tuple[PullRequestFiles, ...] = ()
     reads: tuple[str, ...] = ()
 
     @classmethod
@@ -189,19 +191,21 @@ class VerificationInput:
         plan: Mapping[str, Any],
         source: Path,
         window: int | None = None,
+        pull_requests: Sequence[PullRequestFiles] = (),
     ) -> VerificationInput:
-        """The input for `plan` of issue `number`, with the cited files read from `source`. With
-        `window`, the context window of the model that serves the run in tokens, the request keeps
-        the first cited files, in plan order, that leave the tools room to read (#3039): with its
-        instructions, the request stays `CONST_ROADMAP_STAGE_TOOL_RESERVE_TOKENS` below the point
-        where the run offers no more tools (`tool_stop`)."""
+        """The input for `plan` of issue `number`, with the cited files read from `source` and the
+        files of each pull request in `pull_requests` (#3447). With `window`, the context window of
+        the model that serves the run in tokens, the request keeps the first cited files, in plan
+        order, that leave the tools room to read (#3039): with its instructions, the request stays
+        `CONST_ROADMAP_STAGE_TOOL_RESERVE_TOKENS` below the point where the run offers no more
+        tools (`tool_stop`). The pull request files are already bounded by their reader, and stay."""
         text = truncate_to_token_limit(body, CONST_ROADMAP_STAGE_VERIFY_BODY_MAX_TOKENS)
         files = cited_files(source, plan)
         if window is not None:
-            base = cls(number, title, text, plan, {})
+            base = cls(number, title, text, plan, {}, tuple(pull_requests))
             limit = tool_stop(window) - CONST_ROADMAP_STAGE_TOOL_RESERVE_TOKENS
             files = _fitting(files, base, limit)
-        return cls(number, title, text, plan, files)
+        return cls(number, title, text, plan, files, tuple(pull_requests))
 
     def with_reads(self, answers: Iterable[str]) -> VerificationInput:
         """This input with the tool `answers` of the run, which a quote may also come from."""
@@ -219,6 +223,7 @@ class VerificationInput:
             "body": self.body,
             "plan": dict(self.plan),
             "files": dict(self.files),
+            "pull_requests": [pull.entry() for pull in self.pull_requests],
         }
 
     def request_texts(self) -> Iterable[str]:
@@ -226,6 +231,8 @@ class VerificationInput:
         yield from (self.title, self.body)
         yield from _strings(self.plan)
         yield from self.files.values()
+        for pull in self.pull_requests:
+            yield from pull.files.values()
 
     def texts(self) -> Iterable[str]:
         """The texts that a quote may come from: the request and each tool answer, as the tool

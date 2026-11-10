@@ -187,7 +187,8 @@ def test_the_payload_holds_the_issue_the_plan_and_the_files(tmp_path: Path) -> N
 
     payload = _input(tmp_path).payload()
 
-    assert set(payload) == {"number", "title", "body", "plan", "files"}
+    assert set(payload) == {"number", "title", "body", "plan", "files", "pull_requests"}
+    assert payload["pull_requests"] == []
     assert (payload["number"], payload["plan"], payload["files"]) == (
         7,
         PLAN,

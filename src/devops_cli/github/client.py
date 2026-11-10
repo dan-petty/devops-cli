@@ -90,6 +90,7 @@ class PullStatus(BaseModel):
     head_ref: str = Field(default="", validation_alias=AliasPath("head", "ref"))
     labels: tuple[str, ...] = ()
     closed_at: datetime | None = None
+    merge_commit_sha: str = ""
 
     @field_validator("labels", mode="before")
     @classmethod
@@ -102,6 +103,12 @@ class PullStatus(BaseModel):
     @classmethod
     def _turn_null_body(cls, value: Any) -> str:
         """GitHub gives the body as null when the pull request holds no body."""
+        return "" if value is None else str(value)
+
+    @field_validator("merge_commit_sha", mode="before")
+    @classmethod
+    def _turn_null_merge_commit(cls, value: Any) -> str:
+        """GitHub gives the merge commit as null when the pull request has no merge commit."""
         return "" if value is None else str(value)
 
     @property

@@ -18,13 +18,16 @@ import re
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Final, Protocol
+from typing import TYPE_CHECKING, Any, Final, Protocol
 
 from devops_cli.exceptions.git import GitOperationError
 from devops_cli.roadmap.clone_git import git
 from devops_cli.roadmap.commit_title import commit_scope, commit_type
 from devops_cli.security.sanitizer import mask_secrets
 from devops_cli.telemetry.instruments import INSTRUMENTS
+
+if TYPE_CHECKING:
+    from devops_cli.github.client import PullStatus
 
 # The most pull requests that one GraphQL page holds.
 PULL_PAGE_SIZE: Final[int] = 100
@@ -54,10 +57,14 @@ query OpenPullRequests($owner: String!, $name: String!, $cursor: String) {{
 
 
 class PullReads(Protocol):
-    """The one GraphQL read of the open pull requests that the context makes."""
+    """The reads of the open pull requests and of a named pull request that the context makes."""
 
     def graphql(self, query: str, variables: Mapping[str, Any] | None = None) -> Any:
         """The answer to one GraphQL request."""
+        ...
+
+    def get_pull_status(self, repo: str, number: int) -> PullStatus:
+        """The state, the merge flag and the merge commit of the pull request `number` (#3447)."""
         ...
 
 
