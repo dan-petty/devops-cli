@@ -380,9 +380,16 @@ affinity:
 
 Kubernetes puts the label `node-role.kubernetes.io/control-plane` on each control-plane node, so the rule needs no label of its own. The affinity has an effect on a new volume and on a moved volume. A bound volume keeps its pod on its node.
 
-`tests/core/test_k8s_local_path_placement.py` fails when a pod that mounts a claim has no such affinity, in a chart values file or in a manifest under `k8s/`. It also fails when an Argo CD Application installs a chart, or pins a chart version, that the claim table `CHART_CLAIMS` does not name, because each chart keeps its claims and its affinity at different values and a chart release can move them. A person who bumps a chart reads the claim values of the new version again and changes the key of its entry.
+`tests/core/test_k8s_local_path_placement.py` fails when a pod that mounts a claim has no such affinity, in a chart values file or in a manifest under `k8s/`. It reads a CloudNativePG `Cluster` that sets `spec.storage` as a pod on a claim, and it takes the affinity of that pod from `spec.affinity`: the operator makes a claim from `spec.storage` and applies `spec.affinity` to the database pods. It also fails when an Argo CD Application installs a chart, or pins a chart version, that the claim table `CHART_CLAIMS` does not name, because each chart keeps its claims and its affinity at different values and a chart release can move them. A person who bumps a chart reads the claim values of the new version again and changes the key of its entry.
 
-The table `_CONTROL_PLANE_CLAIM_EXEMPTIONS` of the test is empty, because each pod that mounts a claim has the affinity. A pod that must stay on the control-plane node gets an entry with its reason. An example is a pod whose volume is still on the control-plane node. With the affinity, that pod cannot start. Move the volume as below. Then remove its entry and add the affinity to its values in one pull request.
+The table `_CONTROL_PLANE_CLAIM_EXEMPTIONS` of the test names each pod that may stay on the control-plane node, with its reason. It holds two entries, and each entry goes when its item moves the volume:
+
+| Key | Reason | Item |
+| :--- | :--- | :--- |
+| `k8s/mattermost/database.yaml:Cluster/mattermost-db` | The claim of the database is on the control-plane node. The pod stays Pending with the affinity. | #3803 moves the volume and then adds the affinity. |
+| `k8s/llm/gateway-db.yaml:Cluster/llm-gateway-db` | The claim of the gateway database is on the control-plane node. | #3782 moves the volume and then adds the affinity. |
+
+A pod that must stay on the control-plane node gets an entry with its reason. An example is a pod whose volume is still on the control-plane node. With the affinity, that pod cannot start. Move the volume as below. Then remove its entry and add the affinity to its values in one pull request. The move of the Mattermost database needs a backup first (#3803).
 
 On the homelab, the provisioner's config (ConfigMap `local-path-config` in namespace `local-path-storage`) gives each node two base directories, one under `/var` and one under `/mnt`. Neither StorageClass names one of them (`parameters.nodePath`), so the provisioner (v0.0.28, `getPathOnNode`) puts each new volume under one of the two at random. Thus `fast-nvme` differs from `local-path` only by its reclaim policy, `Retain`: it does not keep a volume on a faster disk.
 
