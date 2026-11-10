@@ -102,6 +102,21 @@ def test_normalize_ollama_base_url_refuses_other_schemes() -> None:
     assert refused == ["ftp://example.com:11434", "file:///etc/passwd"]
 
 
+def test_normalize_ollama_base_url_with_no_host_names_no_url() -> None:
+    """An address with no host names the fault alone, so no userinfo or path reaches the text."""
+    from devops_cli.ai.models.ollama import normalize_ollama_base_url
+    from devops_cli.exceptions import InvalidURLError
+
+    url = "http:///prefix/secret"
+
+    with pytest.raises(InvalidURLError) as raised:
+        normalize_ollama_base_url(url)
+
+    text = str(raised.value)
+    assert "missing host or authority" in text
+    assert [part for part in (url, "prefix", "secret") if part in text] == []
+
+
 @pytest.mark.parametrize("flag", [False, True], ids=["without-flag", "with-flag"])
 def test_the_ollama_provider_dials_at_the_configured_level(flag: bool, web: WebFake) -> None:
     """Verify the provider gets a client at the configured level of its AI configuration.

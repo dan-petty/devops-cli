@@ -48,8 +48,17 @@ def _upsert_span_attributes(url: str, otlp: FakeCollector) -> dict[str, Any]:
         ("k8s://devops/qdrant:6333", ("qdrant.devops", 6333)),
         ("k8s+https://user:secret@devops/qdrant:6333/path?q=secret", ("qdrant.devops", 6333)),
         ("k8s://devops/qdrant:http", ("qdrant.devops", None)),
+        ("k8s://devops", ("unknown", None)),
     ],
-    ids=["port", "userinfo-and-path", "user-only-default-port", "k8s", "k8s-userinfo", "k8s-named"],
+    ids=[
+        "port",
+        "userinfo-and-path",
+        "user-only-default-port",
+        "k8s",
+        "k8s-userinfo",
+        "k8s-named",
+        "k8s-malformed",
+    ],
 )
 def test_upsert_span_names_the_server_by_host_and_port(
     otlp: FakeCollector, url: str, server: tuple[str, int | None]

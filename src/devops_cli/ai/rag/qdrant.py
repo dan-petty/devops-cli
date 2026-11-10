@@ -174,7 +174,7 @@ def _record_retry(
         target,
         attempt,
         max_attempts,
-        exc,
+        _error_text(exc),
     )
     try:
         from qdrant_client.http.exceptions import ResponseHandlingException
@@ -227,6 +227,17 @@ def qdrant_server_label(url: str) -> str:
     return f"{label}:{service.port}" if service.port.isdecimal() else label
 
 
+def _error_text(exc: BaseException) -> str:
+    """The text of an error, with each URL replaced by the label of its server.
+
+    A native or httpx error can hold the request URL, with its userinfo and path, in its text.
+    An error message and a log line name the server by label only (#2736).
+    """
+    from devops_cli.config.constants import CONST_URL_CANDIDATE_RE
+
+    return CONST_URL_CANDIDATE_RE.sub(lambda match: qdrant_server_label(match.group(0)), str(exc))
+
+
 def _validate_qdrant_url(url: str, *, allow_private: bool) -> None:
     """Validate Qdrant URL before initializing the native client.
 
@@ -238,7 +249,7 @@ def _validate_qdrant_url(url: str, *, allow_private: bool) -> None:
     try:
         parsed = httpx2.URL(clean_url)
     except Exception as exc:
-        raise InvalidURLError(clean_url, reason=f"Invalid Qdrant URL: {exc}") from exc
+        raise InvalidURLError(clean_url, reason=f"Invalid Qdrant URL: {_error_text(exc)}") from exc
 
     if parsed.scheme not in ("http", "https"):
         raise InvalidURLError(
@@ -454,12 +465,20 @@ class QdrantClient:
         httpx2 origin of that address is the namespace, with no port.
         """
         from devops_cli.ai.client.models import origin_span_attributes
+        from devops_cli.config.constants import CONST_AI_BACKEND_HOST_UNKNOWN
         from devops_cli.http.urls import get_url_origin
-        from devops_cli.k8s.service_proxy import is_service_url, parse_service_url
+        from devops_cli.k8s.service_proxy import (
+            ServiceAddressError,
+            is_service_url,
+            parse_service_url,
+        )
 
         if not is_service_url(self.base_url):
             return origin_span_attributes(get_url_origin(self.base_url))
-        service = parse_service_url(self.base_url)
+        try:
+            service = parse_service_url(self.base_url)
+        except ServiceAddressError:
+            return {"server.address": CONST_AI_BACKEND_HOST_UNKNOWN}
         attributes: dict[str, Any] = {"server.address": f"{service.service}.{service.namespace}"}
         if service.port.isdecimal():
             attributes["server.port"] = int(service.port)
@@ -528,8 +547,10 @@ class QdrantClient:
             res = self._execute_with_retry(lambda c: c.get_collections(), "list_collections")
             return [c.name for c in res.collections]
         except Exception as exc:
-            logger.debug("Failed to list Qdrant collections from %s: %s", self.server_label, exc)
-            raise QdrantClientError(f"Error connecting to Qdrant: {exc}") from exc
+            logger.debug(
+                "Failed to list Qdrant collections from %s: %s", self.server_label, _error_text(exc)
+            )
+            raise QdrantClientError(f"Error connecting to Qdrant: {_error_text(exc)}") from exc
 
     def get_collection_info(self, name: str) -> dict[str, Any]:
         """Fetch metadata, vectors count, and status for a collection."""
@@ -556,8 +577,8 @@ class QdrantClient:
             err_str = str(exc)
             if "not found" in err_str.lower() or "404" in err_str:
                 return {}
-            logger.debug("Failed to get Qdrant collection %s info: %s", name, exc)
-            raise QdrantClientError(f"Error fetching collection info: {exc}") from exc
+            logger.debug("Failed to get Qdrant collection %s info: %s", name, _error_text(exc))
+            raise QdrantClientError(f"Error fetching collection info: {_error_text(exc)}") from exc
 
     def ensure_collection(
         self,
@@ -610,8 +631,10 @@ class QdrantClient:
             self._verified_collections[name] = vector_size
             return True
         except Exception as exc:
-            logger.error("Error creating collection %s in Qdrant: %s", name, exc)
-            raise QdrantClientError(f"Error creating collection '{name}': {exc}") from exc
+            logger.error("Error creating collection %s in Qdrant: %s", name, _error_text(exc))
+            raise QdrantClientError(
+                f"Error creating collection '{name}': {_error_text(exc)}"
+            ) from exc
 
     def _ensure_payload_indexes(self, name: str, existing_schema: dict[str, Any]) -> None:
         """Create missing payload indexes on the collection."""
@@ -647,9 +670,15 @@ class QdrantClient:
                     f"{name}:{field_name}",
                 )
             except Exception as exc:
-                logger.error("Error creating payload index %s on %s: %s", field_name, name, exc)
+                logger.error(
+                    "Error creating payload index %s on %s: %s",
+                    field_name,
+                    name,
+                    _error_text(exc),
+                )
                 raise QdrantClientError(
-                    f"Error creating payload index '{field_name}' on collection '{name}': {exc}"
+                    f"Error creating payload index '{field_name}' on collection '{name}': "
+                    f"{_error_text(exc)}"
                 ) from exc
 
     def delete_collection(self, name: str) -> bool:
@@ -665,8 +694,10 @@ class QdrantClient:
             err_str = str(exc)
             if "not found" in err_str.lower() or "404" in err_str:
                 return True
-            logger.error("Error deleting collection %s in Qdrant: %s", name, exc)
-            raise QdrantClientError(f"Error deleting collection '{name}': {exc}") from exc
+            logger.error("Error deleting collection %s in Qdrant: %s", name, _error_text(exc))
+            raise QdrantClientError(
+                f"Error deleting collection '{name}': {_error_text(exc)}"
+            ) from exc
 
     def _upsert_batch_with_retry(self, name: str, point_structs: list[qmodels.PointStruct]) -> None:
         """Upsert a single batch of point structs with exponential backoff on transient errors."""
@@ -677,8 +708,10 @@ class QdrantClient:
                 name,
             )
         except Exception as exc:
-            logger.error("Error during Qdrant batch upsert: %s", exc)
-            raise QdrantClientError(f"Error upserting points into '{name}': {exc}") from exc
+            logger.error("Error during Qdrant batch upsert: %s", _error_text(exc))
+            raise QdrantClientError(
+                f"Error upserting points into '{name}': {_error_text(exc)}"
+            ) from exc
 
     def upsert_points(
         self,
@@ -762,7 +795,7 @@ class QdrantClient:
                     or "dimension error" in err_str
                     or "not aligned" in err_str
                 ):
-                    clean_err = str(exc).split("Raw response content:")[0].strip()[:256]
+                    clean_err = _error_text(exc).split("Raw response content:")[0].strip()[:256]
                     raise EmbeddingsError(
                         f"Qdrant collection '{name}' vector dimension mismatch ({clean_err}). "
                         "Fix: run `devops ai rag clear --force`, then `devops ai rag index --force`.",
@@ -774,8 +807,8 @@ class QdrantClient:
                             "fix": "devops ai rag clear --force && devops ai rag index --force",
                         },
                     ) from exc
-                logger.debug("Error searching collection %s: %s", name, exc)
-                raise QdrantClientError(f"Search failed in '{name}': {exc}") from exc
+                logger.debug("Error searching collection %s: %s", name, _error_text(exc))
+                raise QdrantClientError(f"Search failed in '{name}': {_error_text(exc)}") from exc
 
     def count_points(self, name: str, filter_payload: dict[str, Any] | None = None) -> int:
         """Count points in a collection, optionally matching filter criteria."""
@@ -791,8 +824,8 @@ class QdrantClient:
             err_str = str(exc).lower()
             if "not found" in err_str or "404" in err_str:
                 return 0
-            logger.debug("Error counting points in collection %s: %s", name, exc)
-            raise QdrantClientError(f"Count failed in '{name}': {exc}") from exc
+            logger.debug("Error counting points in collection %s: %s", name, _error_text(exc))
+            raise QdrantClientError(f"Count failed in '{name}': {_error_text(exc)}") from exc
 
     def scroll_points(
         self,
@@ -830,8 +863,8 @@ class QdrantClient:
             err_str = str(exc).lower()
             if "not found" in err_str or "404" in err_str:
                 return []
-            logger.debug("Error scrolling points in collection %s: %s", name, exc)
-            raise QdrantClientError(f"Scroll failed in '{name}': {exc}") from exc
+            logger.debug("Error scrolling points in collection %s: %s", name, _error_text(exc))
+            raise QdrantClientError(f"Scroll failed in '{name}': {_error_text(exc)}") from exc
 
     def delete_points_by_files(
         self,
@@ -884,9 +917,9 @@ class QdrantClient:
                     "Failed to delete points by files in %s (project: %s): %s",
                     name,
                     project_name,
-                    exc,
+                    _error_text(exc),
                 )
-                raise QdrantClientError(f"Delete failed in '{name}': {exc}") from exc
+                raise QdrantClientError(f"Delete failed in '{name}': {_error_text(exc)}") from exc
         return True
 
     def delete_points_by_project(
@@ -927,9 +960,11 @@ class QdrantClient:
                 "Failed to delete points by project in %s (project: %s): %s",
                 name,
                 project_name,
-                exc,
+                _error_text(exc),
             )
-            raise QdrantClientError(f"Delete by project failed in '{name}': {exc}") from exc
+            raise QdrantClientError(
+                f"Delete by project failed in '{name}': {_error_text(exc)}"
+            ) from exc
 
     def set_payload(
         self,
@@ -959,4 +994,4 @@ class QdrantClient:
             err_str = str(exc).lower()
             if "not found" in err_str or "404" in err_str:
                 return False
-            raise QdrantClientError(f"Set payload failed in '{name}': {exc}") from exc
+            raise QdrantClientError(f"Set payload failed in '{name}': {_error_text(exc)}") from exc
