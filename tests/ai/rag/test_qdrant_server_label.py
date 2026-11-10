@@ -194,3 +194,154 @@ def test_the_error_for_a_label_with_no_origin_does_not_read_as_a_url() -> None:
     assert str(InvalidURLError("ftp://example.com", "Unsupported scheme")) == (
         "Invalid URL for server example.com: Unsupported scheme"
     )
+
+
+class _FailingNative:
+    """A native client whose calls fail with an exception that holds the configured URL."""
+
+    def __init__(
+        self, *, create_collection: bool = False, create_payload_index: bool = False
+    ) -> None:
+        self._create_collection = create_collection
+        self._create_payload_index = create_payload_index
+
+    def _fail(self) -> None:
+        raise RuntimeError(f"request to {_HTTP_URL} failed")
+
+    def get_collections(self) -> None:
+        self._fail()
+
+    def get_collection(self, **_: Any) -> None:
+        self._fail()
+
+    def create_collection(self, **_: Any) -> bool:
+        if not self._create_collection:
+            self._fail()
+        return True
+
+    def create_payload_index(self, **_: Any) -> None:
+        if not self._create_payload_index:
+            self._fail()
+
+    def delete_collection(self, **_: Any) -> None:
+        self._fail()
+
+    def upsert(self, **_: Any) -> None:
+        self._fail()
+
+    def query_points(self, **_: Any) -> None:
+        self._fail()
+
+    def count(self, **_: Any) -> None:
+        self._fail()
+
+    def scroll(self, **_: Any) -> None:
+        self._fail()
+
+    def delete(self, **_: Any) -> None:
+        self._fail()
+
+    def set_payload(self, **_: Any) -> None:
+        self._fail()
+
+
+_CALLS: list[tuple[str, dict[str, bool], tuple[Any, ...], dict[str, Any]]] = [
+    ("list_collections", {}, (), {}),
+    ("get_collection_info", {}, ("col",), {}),
+    ("delete_collection", {}, ("col",), {}),
+    ("search_points", {}, ("col", [0.1, 0.2]), {"limit": 1}),
+    ("count_points", {}, ("col",), {}),
+    ("scroll_points", {}, ("col",), {}),
+    ("delete_points_by_files", {}, ("col", ["a.py"]), {}),
+    ("delete_points_by_project", {}, ("col", "proj"), {}),
+    ("set_payload", {}, ("col", {"a": 1}), {"filter_payload": {"k": "v"}}),
+]
+
+
+def _assert_no_url(
+    raised: pytest.ExceptionInfo[QdrantClientError], caplog: pytest.LogCaptureFixture
+) -> None:
+    texts = [str(raised.value), *(record.getMessage() for record in caplog.records)]
+    assert [text for text in texts if _leaks(text)] == []
+    assert "example.com:6333" in str(raised.value)
+
+
+@pytest.mark.parametrize(
+    ("operation", "flags", "args", "kwargs"),
+    _CALLS,
+    ids=[
+        "list",
+        "info",
+        "delete",
+        "search",
+        "count",
+        "scroll",
+        "delete-files",
+        "delete-project",
+        "set-payload",
+    ],
+)
+def test_each_failed_call_names_the_server_and_holds_no_url(
+    operation: str,
+    flags: dict[str, bool],
+    args: tuple[Any, ...],
+    kwargs: dict[str, Any],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    client = QdrantClient(
+        _HTTP_URL, client=_FailingNative(**flags), allow_private_network=True, timeout=5.0
+    )
+
+    with caplog.at_level(logging.DEBUG, logger="devops_cli.ai.rag.qdrant"):
+        with pytest.raises(QdrantClientError) as raised:
+            getattr(client, operation)(*args, **kwargs)
+
+    _assert_no_url(raised, caplog)
+
+
+def test_a_collection_that_cannot_be_created_holds_no_url(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    client = QdrantClient(
+        _HTTP_URL, client=_FailingNative(), allow_private_network=True, timeout=5.0
+    )
+    monkeypatch.setattr(client, "get_collection_info", lambda name: {})
+
+    with caplog.at_level(logging.DEBUG, logger="devops_cli.ai.rag.qdrant"):
+        with pytest.raises(QdrantClientError) as raised:
+            client.ensure_collection("col", 4)
+
+    _assert_no_url(raised, caplog)
+
+
+def test_a_payload_index_that_cannot_be_created_holds_no_url(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    client = QdrantClient(
+        _HTTP_URL,
+        client=_FailingNative(create_collection=True),
+        allow_private_network=True,
+        timeout=5.0,
+    )
+
+    with caplog.at_level(logging.DEBUG, logger="devops_cli.ai.rag.qdrant"):
+        with pytest.raises(QdrantClientError) as raised:
+            client._ensure_payload_indexes("col", {})
+
+    _assert_no_url(raised, caplog)
+
+
+def test_an_upsert_that_fails_holds_no_url(caplog: pytest.LogCaptureFixture) -> None:
+    client = QdrantClient(
+        _HTTP_URL,
+        client=_FailingNative(create_collection=True, create_payload_index=True),
+        allow_private_network=True,
+        timeout=5.0,
+    )
+    client._verified_collections["col"] = 4
+
+    with caplog.at_level(logging.DEBUG, logger="devops_cli.ai.rag.qdrant"):
+        with pytest.raises(QdrantClientError) as raised:
+            client.upsert_points("col", [{"id": "1", "vector": [0.1] * 4, "payload": {}}])
+
+    _assert_no_url(raised, caplog)
