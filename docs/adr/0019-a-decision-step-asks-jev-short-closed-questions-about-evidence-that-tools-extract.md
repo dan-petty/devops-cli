@@ -4,7 +4,7 @@ TypeSafe Jev (`typesafe/jev-1.14`) is a System One decision model. It answers ty
 
 ## Status
 
-The merge of the pull request that adds this record is the approval of this record. `git log --follow -- docs/adr/0019-a-decision-step-asks-jev-short-closed-questions-about-evidence-that-tools-extract.md` names the merge commit. The pilot of the first decision step is issue #4282. The pilot of the second step is planned here and built later.
+The merge of the pull request that adds this record is the approval of this record. `git log --follow -- docs/adr/0019-a-decision-step-asks-jev-short-closed-questions-about-evidence-that-tools-extract.md` names the merge commit. The pilot of the first decision step is issue #4282. The second step was measured and needs no model. [ADR 0020](0020-a-decision-point-is-a-unit-of-a-workflow-with-a-resolver-chain-and-a-rule-goes-before-a-decision-model.md) amends this record in three places: it replaces the table of ranked decision points and the section of the pilots with its catalogue, it names the setting that holds the mode of a step, and it gives the measured result of pilot 2. The seven rules of this record stay in force.
 
 ## Context
 
@@ -36,12 +36,12 @@ A step has a success bar that is fixed before the fit. The bar names the loss th
 
 One small module holds the shared parts: the typed question set, the request builder, the fitted thresholds with their bands, the log record and the fail-open rule. A step supplies its evidence builder and its question set. The module reuses `create_jev_model` of `src/devops_cli/ai/jev.py`. It builds no second client.
 
-## The candidate decision points, ranked by fit
+## The candidate decision points, ranked by fit (replaced by the catalogue of ADR 0020)
 
 | Rank | Decision point | Outcomes | Why it fits | Status |
 | :--- | :--- | :--- | :--- | :--- |
 | 1 | The screen before the verify step (#4282): skip the tool-using reviewer, or run it | skip, run, flag | The outcome is binary. The golden set labels the defects. The reviewer is the fallback. A skip saves an agent run. | Pilot 1 |
-| 2 | The class of a failure when no regex rule matches (`src/devops_cli/roadmap/failure.py`) | one of the 19 `FailureClass` values, or `ci_infra` | A closed choice. The default is known. The stored failures are labelled by their typed causes. | Pilot 2, later |
+| 2 | The class of a failure when no regex rule matches (`src/devops_cli/roadmap/failure.py`) | one of the 19 `FailureClass` values, or `ci_infra` | A closed choice. The default is known. The stored failures are labelled by their typed causes. | Pilot 2, no go: a rule fixes it (#4390) |
 | 3 | The tier of a stage run (#4284) | tier, high risk | A closed choice with a score. The real result is the label. | Shadow only, after the pilots |
 | 4 | The `type/*` label of an intake item when the title gives none | one of the type labels | A closed choice over a short title. | Later, with bands |
 | 5 | A tool call of an agent (`gate_tool_call_with_jev`) | run, review, block | Short evidence: the tool name and the arguments. | Never alone: it adds to a deterministic control |
@@ -60,7 +60,7 @@ One small module holds the shared parts: the typed question set, the request bui
 The data of pilot 1 is the golden set of the stage job: 56 cases, 51 plans with 317 labelled defects and 5 good plans. A fixed split makes two halves. The reviewer is the model of the task `verification` (run with `deepseek-v4.1-flash-1017` for the baseline).
 
 - **Pilot 1, the verify screen (#4282).** The screen decides before the reviewer runs. The cascade passes when, on the half that was not fitted, it loses no serious defect (blocker or major) that the reviewer alone finds on the same cases, **and** it skips at least 30% of the reviewer calls. The report also gives the false-clear rate and the cost of a plan with and without the screen. If the bar is not met, the setting stays off and the report states why, with the numbers and the best design found. The pull request of #4282 measured this bar. The reviewer alone found no serious defect in 9 of the 48 cases that it could review (19%), so the oracle of the golden set is below 30%, and no screen could meet the bar. A later bar for the same step must come from the oracle of its data.
-- **Pilot 2, the failure-class tail (later).** `classify_failure` in `src/devops_cli/roadmap/failure.py` is a pure function of the evidence (`FailureEvidence`: the exit status, the error text, the refusal of a tool, the name of the check and the log of the check). Its rules run in order, and a failure that matches no rule is `ci_infra`, whose default action is one retry. The step adds a `Choice` question over the 19 `FailureClass` values, asked only when no rule matches and only about the evidence that code cuts: the last lines of the error text and of the check log, the check name and the exit status, with secrets masked. Its bands: *continue* takes the class when its probability reaches the fitted cut, *review* keeps `ci_infra` and its retry, and *flag* logs a failure that Jev puts in `oom`, `timeout` or `refused_tool` with a high probability, for a person to compare with the cause. The data is the first work item of the pilot: a failure that a rule matches has its class as a label, so the fit hides the phrase that the rule used, and the fallbacks need a sample that a person labels from the job records. The oracle is the share of fallbacks whose true class is `ci_infra`. The pilot passes when, on the half that was not fitted, the class that Jev takes equals the labelled class on the share of the taken cases that the bar fixes before the fit, with at least 7 days in shadow. A separate issue plans it, and it waits for the shared parts of pilot 1.
+- **Pilot 2, the failure-class tail (measured on 2026-11-10: no go).** `classify_failure` in `src/devops_cli/roadmap/failure.py` is a pure function of the evidence, and a failure that matches no rule is `ci_infra`. The 271 stop comments of the four repositories of the Service since 2026-10-11 held 8 untyped stops, and 4 of them were one pattern. A typed class fixes that pattern by rule (#4390), and a rule beats a model call on a tail of this size. The pilot builds no step. It returns only if a larger untyped tail appears.
 
 ## Considered Options
 
