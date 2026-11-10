@@ -8,16 +8,14 @@ from typing import TYPE_CHECKING
 
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.duplicate_eval import load_cases
-from devops_cli.roadmap.intake.intake_jev_shadow import ShadowIntakeModel
 from devops_cli.roadmap.jev_eval import load_label_cases, planned_calls
 from devops_cli.roadmap.stores.store import install_roadmap_store
-from tests.support.roadmap_intake import REPO, FakeModel, Roadmap
+from tests.support.roadmap_intake import REPO, Roadmap
 
 if TYPE_CHECKING:
     from collections.abc import Callable
     from typing import Any
 
-    from tests.support.fakes.jev import JevFake
     from tests.support.fakes.model import ModelFake
 
 CALLS = planned_calls(len(load_cases()), len(load_label_cases()))
@@ -52,12 +50,20 @@ def test_a_run_that_needs_more_calls_than_the_limit_stops_before_the_first_call(
     assert model_fake.call_count == 0
 
 
+MARK = (
+    '{"at":"2026-11-10T12:00:00Z","answers":{"priority":["P1-High",0.8,"P2-Medium"],'
+    '"value":["High",0.7,"Medium"],"effort":["Low",0.9,"Low"]}}'
+)
+
+
 def test_from_shadow_prints_the_report_of_the_records_and_makes_no_model_call(
-    cli: Callable[..., Any], model_fake: ModelFake, jev: JevFake
+    cli: Callable[..., Any], model_fake: ModelFake
 ) -> None:
+    from devops_cli.roadmap.stores.store import IntakeRecordKey
+
     roadmap = Roadmap()
-    roadmap.issue("Cache embeddings")
-    roadmap.run(ShadowIntakeModel(FakeModel(), jev.model))
+    number = roadmap.issue("Cache embeddings")
+    roadmap.store.set_marks(roadmap.item(number), {IntakeRecordKey.JEV_SHADOW: MARK})
     install_roadmap_store(lambda repo, **_: roadmap.store)
 
     result = cli("roadmap", "eval", "jev", "--from-shadow", "--repo", REPO)
