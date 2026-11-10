@@ -118,6 +118,11 @@ data:
     # GitHub with the token of the Service; `base` has the nine tools that read the staged
     # commit only.
     roadmap:
+      # The MCP server that the stage and implement jobs call at `<url>/<role>/mcp`. Both jobs stay
+      # off until `roadmap.stage.mcp` or `roadmap.implement.mcp` is true. They send the token of
+      # Secret devops/mcp-server (`devops k8s push-secrets`).
+      mcp:
+        url: http://mcp-server.devops.svc.cluster.local:8001
       stage:
         filter:
           - status=ready

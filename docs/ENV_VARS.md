@@ -98,7 +98,7 @@ All configuration options for `devops-cli` can be overridden via environment var
 | `DEVOPS_CLI_MATTERMOST_DEPLOYS_HOOK` | `mattermost.deploys_hook` | 🔒 Yes | Mattermost incoming webhook token for the deploys channel (stored in OS keyring) |
 | `DEVOPS_CLI_MCP_IMPLEMENT_TOKEN` | `mcp.implement_token` | 🔒 Yes | Bearer token for the implement job MCP client to connect to the MCP server's implementation role (stored in OS keyring) |
 | `DEVOPS_CLI_MCP_STAGE_TOKEN` | `mcp.stage_token` | 🔒 Yes | Bearer token for the stage job MCP client to connect to the MCP server's planning role (stored in OS keyring) |
-| `DEVOPS_CLI_MCP_TOKEN` | `mcp.token` | 🔒 Yes | Bearer token that `devops mcp serve --transport streamable-http` requires from every request, and refuses to start without (stored in OS keyring) |
+| `DEVOPS_CLI_MCP_TOKEN` | `mcp.token` | 🔒 Yes | Bearer token that `devops mcp serve --transport streamable-http` requires from every request, and refuses to start without. `devops k8s push-secrets` writes it to Secret devops/mcp-server and to the stage and implement client keys of Secret devops/devops-cli (stored in OS keyring) |
 | `DEVOPS_CLI_OPENROUTER_API_KEY` | `openrouter.api_key` | 🔒 Yes | OpenRouter API key that `devops k8s push-secrets` writes to the LLM gateway Secret (stored in OS keyring) |
 | `DEVOPS_CLI_PROMETHEUS_URL` | `prometheus.url` | No | Prometheus service URL |
 | `DEVOPS_CLI_QDRANT_API_KEY` | `qdrant.api_key` | 🔒 Yes | Qdrant API key (stored in OS keyring) |

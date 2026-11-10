@@ -78,6 +78,9 @@ spec:
         name: searxng
       - group: ''
         kind: Secret
+        name: mcp-server
+      - group: ''
+        kind: Secret
         name: devops-cli
       - group: ''
         kind: ConfigMap

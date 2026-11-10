@@ -153,7 +153,9 @@ CREDENTIALS: tuple[Credential, ...] = (
     Credential(
         "mcp.token",
         "Bearer token that `devops mcp serve --transport streamable-http` requires from every "
-        "request, and refuses to start without (stored in OS keyring)",
+        "request, and refuses to start without. `devops k8s push-secrets` writes it to Secret "
+        "devops/mcp-server and to the stage and implement client keys of Secret devops/devops-cli "
+        "(stored in OS keyring)",
     ),
     Credential(
         "mcp.stage_token",

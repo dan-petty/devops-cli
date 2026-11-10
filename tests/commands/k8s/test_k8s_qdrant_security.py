@@ -320,6 +320,7 @@ def test_deploy_stack_pushes_devops_only_where_its_namespace_exists(
                 "cloudflared/cloudflared-token",
                 "devops/crawl4ai",
                 "devops/searxng",
+                "devops/mcp-server",
                 "devops/devops-cli",
                 "devops/qdrant-api-key",
             ],

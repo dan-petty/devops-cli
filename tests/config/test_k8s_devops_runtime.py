@@ -362,3 +362,13 @@ def test_mcp_server_and_workloads_disable_telemetry_and_banners() -> None:
         expected_flags,
         expected_flags,
     )
+
+
+def test_mcp_server_reads_its_bearer_token_from_the_secret_that_the_push_writes() -> None:
+    """The server refuses to start without `mcp.token`, so the pod takes it from its own Secret."""
+    (container,) = _doc("mcp-server/deployment.yaml")["spec"]["template"]["spec"]["containers"]
+    (token,) = (e for e in container["env"] if e["name"] == "DEVOPS_CLI_MCP_TOKEN")
+    assert token == {
+        "name": "DEVOPS_CLI_MCP_TOKEN",
+        "valueFrom": {"secretKeyRef": {"name": "mcp-server", "key": "DEVOPS_CLI_MCP_TOKEN"}},
+    }
