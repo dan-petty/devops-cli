@@ -489,6 +489,15 @@ def move_main_when(
     world.programs.answer(matches, ProcessAnswer(side_effect=move))
 
 
+def advance_main(world: JobWorld, name: str = "main-moved.txt", text: str = "Main.\n") -> None:
+    """What a merge does on GitHub: `main` of `origin` gains a commit that writes `name`."""
+    (world.repo.clone / name).parent.mkdir(parents=True, exist_ok=True)
+    (world.repo.clone / name).write_text(text, encoding="utf-8")
+    world.repo.git("add", "-A")
+    world.repo.git("commit", "-q", "-m", f"main adds {name}")
+    world.repo.git("push", "-q", "origin", "main")
+
+
 @dataclass
 class JobWorld:
     """A Staged item, its repository, GitHub and the process edge, ready for a run."""
