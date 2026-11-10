@@ -3455,6 +3455,12 @@ class RoadmapMessages:
     stage_model_call_log: str = (
         "stage model call failed: item=#%d error=%s code=%s status=%s timed_out=%s"
     )
+    # The notice at the end of a tool answer from the call budget of a run (#4346).
+    stage_calls_notice: str = (
+        "[Notice: this was tool call {calls} of the run, and the call budget is used. Read no "
+        "more. Give your reply now. Call a tool again only to check a path or a name that the "
+        "reply must hold.]"
+    )
     # The stop reasons of a plan run whose reply broke the schema past its retries.
     stage_stop_validation: str = "validation"
     stage_stop_no_tool_call: str = "no tool call"

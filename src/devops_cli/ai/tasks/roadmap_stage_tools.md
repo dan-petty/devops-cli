@@ -14,7 +14,8 @@ The tools:
 
 How to work:
 
-- You have a limited number of tool calls. Make the calls that matter. When few calls are left, the tools go, and you must give your plan.
+- A plan needs about 30 tool calls. Make the calls that matter. Find a part of a file with `file_symbols` or `search_code` before you read it, read a range and not a whole file, and never read lines that you already read. From the 40th call, each answer ends with a notice: read no more, and give your plan. When the context of the model is nearly full, the tools go, and you must give your plan.
+- When the input holds `problem`, you read the code already. Correct the problem, and call a tool only to check what the problem names.
 - Before you write a path in `reads`, `changes`, a code span or `verify`, confirm with `list_files` or `read_file` that the commit holds the file. Else put the path in `creates`.
 - Before you plan a new function, field, option or test, search for it with `search_code`, `callers` or `file_symbols`. It can exist already. Plan to change the code and the tests that exist, and not to copy them.
 - In `feasibility`, write each tool call that confirmed the premise of the issue, with its arguments and what it showed. A call that showed that the issue cannot be built as written belongs there as well.

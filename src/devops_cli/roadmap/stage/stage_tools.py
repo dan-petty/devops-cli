@@ -18,7 +18,10 @@ must be the staged commit with no change: `checkout_problem` says when it is not
 
 from __future__ import annotations
 
+import functools
 import re
+import threading
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Final
@@ -86,6 +89,37 @@ class StageTools(InvestigationTools):
     openspec: OpenSpecTool | None = None
     toolset: StageToolset = field(default_factory=lambda: load_settings().roadmap.stage.toolset)
     github: StageGitHub | None = None
+    # The call budget of the run in hand (#4346): the call from which each answer ends with a
+    # notice, the calls made so far, and the lock of the count, since tools of one turn run in
+    # threads.
+    notice_after: int | None = None
+    made: int = 0
+    _count: threading.Lock = field(default_factory=threading.Lock, repr=False)
+
+    def begin_run(self, notice_after: int | None) -> None:
+        """Start the count of a run: its answers end with the notice from call `notice_after`."""
+        with self._count:
+            self.notice_after = notice_after
+            self.made = 0
+
+    def _counted(self, name: str) -> Callable[..., ToolReturn]:
+        """The tool `name` with the call budget of the run: the answer of each call from
+        `notice_after` ends with a notice to give the reply (#4346). The signature and the
+        docstring stay those of the tool, which the model reads."""
+        tool = getattr(self, name)
+
+        @functools.wraps(tool)
+        def run(*args: Any, **kwargs: Any) -> ToolReturn:
+            answer: ToolReturn = tool(*args, **kwargs)
+            with self._count:
+                self.made += 1
+                calls = self.made
+            if self.notice_after is None or calls < self.notice_after:
+                return answer
+            notice = MESSAGES.roadmap.stage_calls_notice.format(calls=calls)
+            return ToolReturn(f"{answer.return_value}\n\n{notice}", metadata=answer.metadata)
+
+        return run
 
     def checkout_problem(self) -> str | None:
         """Why the checkout is not the staged commit with no change, or None when it is. Three
@@ -390,7 +424,7 @@ class StageTools(InvestigationTools):
             else HOLDER_STAGE_EXTENDED
         )
         names = tool_names(holder)
-        return [Tool(getattr(self, name), takes_ctx=False) for name in names]
+        return [Tool(self._counted(name), takes_ctx=False) for name in names]
 
 
 def _requirement_lines(entry: dict[str, Any]) -> list[str]:
