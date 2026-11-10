@@ -2072,7 +2072,7 @@ def _stale_test_path_problems(
     read_text: Callable[[str], str | None] | None,
 ) -> list[str]:
     """One sentence for each test path in a docstring or a spec that names no file of the commit."""
-    texts = [_spec_file(spec) for spec in proposal.specs]
+    texts = [spec_file(spec) for spec in proposal.specs]
     if read_text is not None:
         for path in (p for g in proposal.groups for p in g.changes if p.endswith(".py")):
             content = read_text(path)
@@ -2135,22 +2135,52 @@ def _bullets(lines: Sequence[str]) -> str:
     return "\n".join(f"- {line.strip()}" for line in lines)
 
 
-def _requirement_lines(requirement: StageRequirement) -> str:
+# The scenarios of a base requirement that a MODIFIED block omits: the name of each and its raw text,
+# by the name of the requirement (#4310).
+OmittedScenarios = Mapping[str, Sequence[tuple[str, str]]]
+
+
+def omitted_scenarios(
+    requirement: StageRequirement, base: Sequence[tuple[str, str]]
+) -> list[tuple[str, str]]:
+    """The scenarios of `base`, as pairs of name and raw text, that `requirement` does not name.
+    OpenSpec compares the names of the scenarios, without the white space at their ends (#4310)."""
+    named = {scenario.name.strip() for scenario in requirement.scenarios}
+    return [(name, raw) for name, raw in base if name.strip() not in named]
+
+
+def _requirement_lines(
+    requirement: StageRequirement, omitted: Sequence[tuple[str, str]] = ()
+) -> str:
     scenarios = "\n\n".join(
-        f"#### Scenario: {s.name.strip()}\n- **WHEN** {s.when.strip()}\n- **THEN** {s.then.strip()}"
-        for s in requirement.scenarios
+        [
+            f"#### Scenario: {s.name.strip()}\n- **WHEN** {s.when.strip()}\n- **THEN** {s.then.strip()}"
+            for s in requirement.scenarios
+        ]
+        + [f"#### Scenario: {name.strip()}\n{raw.strip()}" for name, raw in omitted]
     )
     return f"### Requirement: {requirement.name.strip()}\n{requirement.text.strip()}\n\n{scenarios}"
 
 
-def _spec_file(spec: StageSpec) -> str:
+def spec_file_path(change: str, capability: str) -> str:
+    """The path of the spec delta of `capability` in the change `change`."""
+    return f"{_CHANGES_DIRECTORY}/{change}/specs/{capability}/spec.md"
+
+
+def spec_file(spec: StageSpec, omitted: OmittedScenarios | None = None) -> str:
+    """The text of the spec delta of `spec`. `omitted` gives, by the name of a MODIFIED
+    requirement, the base scenarios that its block adds after the scenarios of the reply (#4310)."""
     parts: list[str] = []
     if spec.purpose:
         parts.append(f"## Purpose\n{spec.purpose.strip()}")
-    for heading, requirements in (("ADDED", spec.added), ("MODIFIED", spec.modified)):
-        if requirements:
-            body = "\n\n".join(_requirement_lines(r) for r in requirements)
-            parts.append(f"## {heading} Requirements\n\n{body}")
+    if spec.added:
+        body = "\n\n".join(_requirement_lines(r) for r in spec.added)
+        parts.append(f"## ADDED Requirements\n\n{body}")
+    if spec.modified:
+        body = "\n\n".join(
+            _requirement_lines(r, (omitted or {}).get(r.name.strip(), ())) for r in spec.modified
+        )
+        parts.append(f"## MODIFIED Requirements\n\n{body}")
     return "\n\n".join(parts) + "\n"
 
 
@@ -2366,7 +2396,7 @@ def render_change(
         f"{root}/tasks.md": _tasks_file(proposal.groups, proposal.criteria),
     }
     for spec in proposal.specs:
-        files[f"{root}/specs/{spec.capability}/spec.md"] = _spec_file(spec)
+        files[spec_file_path(change, spec.capability)] = spec_file(spec)
     return files
 
 
