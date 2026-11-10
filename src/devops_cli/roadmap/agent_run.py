@@ -204,7 +204,9 @@ class RunTrace:
     (#3039). A request that offered none holds an empty tuple. `limit` is the limit that ended the
     tools of the run, or None (#3240). `last_input_tokens` is the input of the last request, the one
     that the last reply answered (#4204). `row` is the job row of the run, such as the plan or the
-    review of the stage job, and is empty for a run that no job names (#4257)."""
+    review of the stage job, and is empty for a run that no job names (#4257). `finish_reason` and
+    `answered` are the stop reason and the model name of the last reply, and are empty when the
+    provider gave none (#4313)."""
 
     tool_calls: list[ToolCallRecord] = field(default_factory=list)
     requests: int = 0
@@ -216,6 +218,8 @@ class RunTrace:
     limit: RunLimit | None = None
     tool_answers: list[str] = field(default_factory=list)
     last_input_tokens: int = 0
+    finish_reason: str = ""
+    answered: str = ""
     row: str = ""
 
     @classmethod
@@ -233,6 +237,8 @@ class RunTrace:
             total.violations = trace.violations or total.violations
             total.violation_texts = trace.violation_texts or total.violation_texts
             total.last_input_tokens = trace.last_input_tokens or total.last_input_tokens
+            total.finish_reason = trace.finish_reason or total.finish_reason
+            total.answered = trace.answered or total.answered
             total.limit = trace.limit or total.limit
         return total
 
@@ -279,6 +285,8 @@ class RunTrace:
     ) -> None:
         self.requests += 1
         self.last_input_tokens = reply.usage.input_tokens
+        self.finish_reason = reply.finish_reason or ""
+        self.answered = reply.model_name or ""
         self.input_tokens += reply.usage.input_tokens
         self.output_tokens += reply.usage.output_tokens
         for part in reply.parts:
