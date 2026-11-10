@@ -35,8 +35,10 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import json
 import secrets
 import shlex
+import time
 from collections import Counter, deque
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
@@ -53,7 +55,7 @@ from pydantic_ai.exceptions import (
     ToolRetryError,
     UnexpectedModelBehavior,
 )
-from pydantic_ai.messages import ToolCallPart
+from pydantic_ai.messages import ModelResponse, ToolCallPart
 from pydantic_ai.models import ModelRequestContext
 from pydantic_ai.tools import ToolDefinition
 
@@ -216,6 +218,20 @@ def retry_text(error: BaseException) -> str:
     return ""
 
 
+def shell_exit_status(result: object) -> int | None:
+    """The exit status that the shell of the harness reports in `result` (#4393), or None. The
+    shell ends the result of a command with the line that its supervisor wrote, a JSON object with
+    `exit_code`. A command that has not ended, a result with no such line and a result that is no
+    text give none."""
+    if not isinstance(result, str) or not (lines := result.strip().splitlines()):
+        return None
+    try:
+        status = json.loads(lines[-1]).get("exit_code")
+    except ValueError, AttributeError:
+        return None
+    return status if isinstance(status, int) and not isinstance(status, bool) else None
+
+
 def checkout_path(root: Path | None, path: str) -> str:
     """The path that `path` names inside the checkout `root`, relative to it, or empty when it names
     no file or directory there: a path that does not exist, one that leaves the root, and any path
@@ -291,6 +307,8 @@ class ToolCallLog:
     fail_to_pass: BaseReplay | None = None
     verified: list[VerifiedCommand] = field(default_factory=list[VerifiedCommand])
     parser_failures: int = 0
+    replied: set[int] = field(default_factory=set[int])
+    asked: float = 0.0
 
     def refuse(self, tool_call_id: str | None) -> None:
         """Note that the shell refused the call with this id and returned the refusal as a result.
@@ -345,6 +363,7 @@ class ToolCallLog:
             tool_execute=self._execute,
             tool_validate_error=self._invalid,
             before_model_request=self._request,
+            after_model_request=self._reply,
         )
 
     def _note(
@@ -355,11 +374,12 @@ class ToolCallLog:
         reason: str = "",
         *,
         digest: str = "",
+        status: int | None = None,
     ) -> None:
         """Count a refusal or a retry, keep its reason, add the event of the call to the trace,
         and write the line of the call."""
         if self.trace is not None:
-            self.trace.tool_call(tool, program, digest, str(outcome), reason)
+            self.trace.tool_call(tool, program, digest, str(outcome), reason, status)
         if outcome is ToolOutcome.REFUSED:
             self.refused[program] += 1
         self.retried += outcome is ToolOutcome.RETRY
@@ -430,7 +450,8 @@ class ToolCallLog:
         refused = call.tool_call_id in self.refusals
         self.refusals.discard(call.tool_call_id)
         outcome = ToolOutcome.REFUSED if refused else ToolOutcome.OK
-        self._note(call.tool_name, program, outcome, digest=argument_digest(call))
+        status = shell_exit_status(result) if call.tool_name == "shell" and not refused else None
+        self._note(call.tool_name, program, outcome, digest=argument_digest(call), status=status)
         if refused and sum(self.refused.values()) > CONST_ROADMAP_IMPLEMENT_MAX_REFUSALS:
             raise UnexpectedModelBehavior(
                 MESSAGES.roadmap.implement_refusal_limit.format(
@@ -442,10 +463,32 @@ class ToolCallLog:
     async def _request(
         self, _ctx: RunContext[Any], request_context: ModelRequestContext, /
     ) -> ModelRequestContext:
-        """Run `before_request`, and pass on the request as it is."""
+        """Run `before_request`, note the time of the request, and pass on the request as it is."""
         if self.before_request is not None:
             self.before_request()
+        self.asked = time.monotonic()
         return request_context
+
+    async def _reply(
+        self,
+        _ctx: RunContext[Any],
+        /,
+        *,
+        request_context: ModelRequestContext,
+        response: ModelResponse,
+    ) -> ModelResponse:
+        """Add the `model` event of a reply to the trace when the reply comes (#4393), so that it
+        stands before the tool calls that it asks for, and pass the reply on. `replied` holds the
+        replies that have their event, so that the step adds no second one when its turn ends."""
+        if self.trace is not None:
+            self.replied.add(id(response))
+            self.trace.model_call(
+                response.model_name or "",
+                response.usage.input_tokens,
+                response.usage.output_tokens,
+                time.monotonic() - self.asked,
+            )
+        return response
 
     async def _invalid(
         self,

@@ -5,12 +5,17 @@ is the structured account that stays in the job record: one event for each model
 exit check, retry and attempt, in order. `devops roadmap explain <issue> --trace` prints it, and the
 comments of the job sum it up as a table.
 
-An event holds no argument and no output. A tool call shows as the digest of its masked argument,
-so a reader still sees that the model made the same call twice, and no path or secret reaches an
-issue body. Every text of an event goes through `bounded_text` and `mask_private_hosts` and is
-escaped to one line. The encoded trace is JSON with the events and the count `dropped`. It holds at
-most `CONST_ROADMAP_IMPLEMENT_TRACE_CHARS` characters: the oldest events go first, as a run fails
-at its end.
+The events are in the order of the run: the step adds a model event when the reply comes, so the
+tool calls and the checks of a turn stand between the replies that asked for them (#4393). An event
+holds no argument and no output. A tool call shows as the digest of its masked argument, so a
+reader still sees that the model made the same call twice, and no path or secret reaches an issue
+body. A shell call also holds the exit status of its command, when the shell reports one. Every
+text of an event goes through `bounded_text` and `mask_private_hosts` and is escaped to one line.
+The encoded trace is JSON with the events and the count `dropped`. It holds at most
+`CONST_ROADMAP_IMPLEMENT_TRACE_CHARS` characters. The oldest model events go first, as they are
+many and show no progress, then the oldest of the other events, as a run fails at its end. The
+tool, check, retry and attempt events show what the run did, and the spend of the job record keeps
+the tokens of the run (#4393).
 """
 
 from __future__ import annotations
@@ -117,10 +122,17 @@ class ImplementTrace:
         )
 
     def tool_call(
-        self, tool: str, program: str, digest: str, outcome: str, reason: str = ""
+        self,
+        tool: str,
+        program: str,
+        digest: str,
+        outcome: str,
+        reason: str = "",
+        status: int | None = None,
     ) -> None:
         """One tool call: the tool, the program of its command, the digest of its argument and
-        its outcome. A retry holds the reason that the Job log shows."""
+        its outcome. A retry holds the reason that the Job log shows. A shell call holds the exit
+        status of its command in `status`, and none when the shell reported none."""
         fields: dict[str, Any] = {
             "tool": _line(tool, 64),
             "program": _line(program, 64),
@@ -129,6 +141,8 @@ class ImplementTrace:
         }
         if reason:
             fields["reason"] = _line(reason, CONST_ROADMAP_IMPLEMENT_LOG_REASON_CHARS)
+        if status is not None:
+            fields["status"] = status
         self._add(TraceEventKind.TOOL, **fields)
 
     def check(self, command: str, status: int | None) -> None:
@@ -172,21 +186,27 @@ class ImplementTrace:
 
     def encode(self) -> str:
         """The trace as JSON, `{"events": [...], "dropped": n}`, not longer than
-        `CONST_ROADMAP_IMPLEMENT_TRACE_CHARS` characters. The oldest events go first and are added
-        to `dropped`."""
+        `CONST_ROADMAP_IMPLEMENT_TRACE_CHARS` characters. The oldest model events go first, then
+        the oldest of the other events (#4393). The kept events stay in the order of the run, and
+        the others are added to `dropped`."""
         pieces = [_compact(event.as_dict()) for event in self.events]
-        start = 0
         total = sum(len(piece) + 1 for piece in pieces)
-        while (
-            start < len(pieces) and total + self._frame(start) > CONST_ROADMAP_IMPLEMENT_TRACE_CHARS
-        ):
-            total -= len(pieces[start]) + 1
-            start += 1
-        return f'{{"events":[{",".join(pieces[start:])}],"dropped":{self.dropped + start}}}'
+        first = sorted(
+            range(len(pieces)),
+            key=lambda index: self.events[index].kind is not TraceEventKind.MODEL,
+        )
+        gone: set[int] = set()
+        for index in first:
+            if total + self._frame(len(gone)) <= CONST_ROADMAP_IMPLEMENT_TRACE_CHARS:
+                break
+            total -= len(pieces[index]) + 1
+            gone.add(index)
+        kept = ",".join(piece for index, piece in enumerate(pieces) if index not in gone)
+        return f'{{"events":[{kept}],"dropped":{self.dropped + len(gone)}}}'
 
-    def _frame(self, start: int) -> int:
-        """The characters of the JSON around the events when `start` events are dropped."""
-        return len(f'{{"events":[],"dropped":{self.dropped + start}}}')
+    def _frame(self, gone: int) -> int:
+        """The characters of the JSON around the events when `gone` events are dropped."""
+        return len(f'{{"events":[],"dropped":{self.dropped + gone}}}')
 
 
 def decode(text: str) -> ImplementTrace:

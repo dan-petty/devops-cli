@@ -378,11 +378,17 @@ def _event_line(event: TraceEvent) -> str:
         case TraceEventKind.TOOL:
             program = fields.get("program")
             reason = fields.get("reason")
+            status = fields.get("status")
             return texts.explain_trace_tool.format(
                 step=step,
                 tool=fields.get("tool", ""),
                 program=texts.explain_trace_tool_program.format(program=program) if program else "",
                 outcome=fields.get("outcome", ""),
+                status=(
+                    texts.explain_trace_tool_status.format(status=status)
+                    if status is not None
+                    else ""
+                ),
                 reason=texts.explain_trace_tool_reason.format(reason=reason) if reason else "",
             )
         case TraceEventKind.CHECK:

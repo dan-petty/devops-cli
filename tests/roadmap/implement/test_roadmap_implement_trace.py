@@ -8,13 +8,20 @@ import pytest
 from pydantic_ai.messages import ToolCallPart
 
 from devops_cli.config.constants import CONST_ROADMAP_IMPLEMENT_TRACE_CHARS
+from devops_cli.roadmap.implement import implement_trace
 from devops_cli.roadmap.implement.implement_trace import (
     ImplementTrace,
     TraceDecodeError,
+    TraceEvent,
     TraceEventKind,
     argument_digest,
     decode,
 )
+
+
+def _compact(event: TraceEvent) -> str:
+    """The JSON of `event` as `encode` writes it."""
+    return json.dumps(event.as_dict(), separators=(",", ":"), ensure_ascii=True)
 
 
 def _trace() -> ImplementTrace:
@@ -74,6 +81,83 @@ def test_too_many_events_keep_the_newest_whole_and_count_the_rest() -> None:
     assert data["events"][-1]["reason"] == "reason 399"
     assert data["dropped"] == 400 - len(data["events"]) > 0
     assert data["events"][0]["reason"] == f"reason {data['dropped']}"
+
+
+def _progress_then_models(models: int) -> ImplementTrace:
+    """Five tool and check events and one retry first, then `models` model events, then the
+    attempt event: the oldest events are the events that show progress."""
+    trace = ImplementTrace(step="group 1")
+    trace.tool_call("shell", "git", "000000000001", "ok")
+    trace.check("pytest", 1)
+    trace.retry("lint failed")
+    trace.tool_call("edit_file", "", "000000000002", "ok")
+    trace.check("ruff check .", 0)
+    trace.tool_call("shell", "pytest", "000000000003", "retry", "exit status 1")
+    for number in range(models):
+        trace.model_call("model-a", 100_000 + number, 300, 2.5)
+    trace.attempt(1, "model-a", "limit_reached", "the step made too many requests", repair=False)
+    return trace
+
+
+def test_the_bound_drops_the_oldest_model_events_before_any_other_event() -> None:
+    """#4393: 200 model events push the tool and check events out of a bound that drops the oldest
+    events first. The model events go first, and the order of the run stays."""
+    trace = _progress_then_models(200)
+
+    text = trace.encode()
+    kept = decode(text)
+
+    kinds = [event.kind for event in kept.events]
+    models = kinds.count(TraceEventKind.MODEL)
+    assert len(text) <= CONST_ROADMAP_IMPLEMENT_TRACE_CHARS
+    assert [event.as_dict() for event in kept.events if event.kind is not TraceEventKind.MODEL] == [
+        event.as_dict() for event in trace.events if event.kind is not TraceEventKind.MODEL
+    ]
+    assert kept.dropped == 200 - models > 0
+    assert kept.events[6:-1] == trace.events[6 + kept.dropped : -1]
+    assert kinds[-1] is TraceEventKind.ATTEMPT
+
+
+def test_the_bound_drops_the_oldest_other_events_when_no_model_event_is_left(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """#4393: when the tool events alone do not fit, every model event goes, then the oldest tool
+    events, and `dropped` counts both."""
+    trace = ImplementTrace(step="group 1")
+    for number in range(100):
+        trace.model_call("model-a", 100, 20, 1.0)
+        if number % 10 == 9:
+            trace.tool_call("shell", "git", f"{number:012d}", "ok")
+    tools = [_compact(event) for event in trace.events if event.kind is TraceEventKind.TOOL]
+    frame = len('{"events":[],"dropped":102}')
+    monkeypatch.setattr(
+        implement_trace,
+        "CONST_ROADMAP_IMPLEMENT_TRACE_CHARS",
+        frame + sum(len(piece) + 1 for piece in tools[-8:]),
+    )
+
+    kept = decode(trace.encode())
+
+    assert kept.dropped == 102
+    assert [event.kind for event in kept.events] == [TraceEventKind.TOOL] * 8
+    assert [event.fields["digest"] for event in kept.events] == [
+        f"{number:012d}" for number in range(29, 100, 10)
+    ]
+
+
+def test_a_stored_trace_keeps_the_order_in_which_it_was_stored() -> None:
+    """A trace from before #4393 holds its model events after the tool events of a turn. Decode
+    keeps that order and needs no field that gives the order."""
+    stored = (
+        '{"events":[{"kind":"tool","step":"g","tool":"shell","program":"git","digest":"a",'
+        '"outcome":"ok"},{"kind":"model","step":"g","model":"m","tokens_in":1,"tokens_out":2,'
+        '"seconds":0.5}],"dropped":3}'
+    )
+
+    trace = decode(stored)
+
+    assert [event.kind for event in trace.events] == [TraceEventKind.TOOL, TraceEventKind.MODEL]
+    assert trace.dropped == 3
 
 
 def test_a_decoded_trace_keeps_its_dropped_count() -> None:

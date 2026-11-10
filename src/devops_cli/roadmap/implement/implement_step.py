@@ -30,7 +30,6 @@ import time
 from collections import Counter
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
-from datetime import datetime
 from enum import StrEnum
 from http import HTTPStatus
 from pathlib import Path, PurePosixPath
@@ -849,7 +848,7 @@ def _run_turn(
             replies = [*_new_replies(messages, conversation), *cut]
             record_run_spend(model, replies, time.monotonic() - started, stage="implement")
             if log.trace is not None:
-                _trace_replies(log.trace, messages, replies)
+                _trace_replies(log.trace, replies, log.replied)
     if error is not None:
         raise error
     return _Run(
@@ -880,24 +879,16 @@ def _run_class(reason: str, typed: FailureClass | None) -> FailureClass | None:
 
 
 def _trace_replies(
-    trace: ImplementTrace, messages: Sequence[ModelMessage], replies: Sequence[ModelResponse]
+    trace: ImplementTrace, replies: Sequence[ModelResponse], replied: set[int]
 ) -> None:
-    """Add one `model` event for each of `replies` (#3032). The seconds are the time of the reply
-    minus the time of the request before it. A reply that is not in `messages`, as one that the
-    output cap cut, has no request to measure from, so its seconds are 0."""
-    fresh = {id(reply) for reply in replies}
-    seen: set[int] = set()
-    asked: datetime | None = None
-    for message in messages:
-        if isinstance(message, ModelRequest):
-            asked = message.timestamp
-        elif isinstance(message, ModelResponse) and id(message) in fresh:
-            seen.add(id(message))
-            seconds = (message.timestamp - asked).total_seconds() if asked else 0.0
-            _trace_reply(trace, message, max(seconds, 0.0))
+    """Add one `model` event for each of `replies` that has none yet (#3032). The log adds the
+    event of a reply when it comes (#4393), so that the events are in the order of the run. A reply
+    that the output cap cut never reaches that point, and it has no request to measure from, so
+    its seconds are 0. `replied` is emptied: it holds object identities of this turn only."""
     for reply in replies:
-        if id(reply) not in seen:
+        if id(reply) not in replied:
             _trace_reply(trace, reply, 0.0)
+    replied.clear()
 
 
 def _trace_reply(trace: ImplementTrace, reply: ModelResponse, seconds: float) -> None:
