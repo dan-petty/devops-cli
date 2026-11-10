@@ -1,5 +1,7 @@
-# The roadmap Service and runner Jobs call the MCP server on TCP 8001 (#3220). This policy adds
-# to `devops-default-perimeter`, which gives those pods no intra-namespace port.
+# The roadmap Service and the Job pods call the MCP server on TCP 8001 (#3220). This policy adds to
+# `devops-default-perimeter`, which gives those pods no intra-namespace port. A Job pod carries the
+# label `devops-cli-job` that `build_job` sets, not the label of the CronJob template (#4355; a
+# test holds the two equal).
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -14,7 +16,7 @@ spec:
         operator: In
         values:
           - roadmap-service
-          - devops-cli-runner
+          - devops-cli-job
   policyTypes:
     - Egress
   egress:
