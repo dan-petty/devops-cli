@@ -241,6 +241,16 @@ class Failure(BaseModel):
     error: str
 
 
+class LeftOut(BaseModel):
+    """A shortlist whose group is not in the plan, and why: the group id when there is one."""
+
+    model_config = ConfigDict(frozen=True)
+
+    anchor: int
+    group: str | None = None
+    reason: str
+
+
 class Judged(BaseModel):
     """The judgement of one case, kept under the digest of the case."""
 
@@ -262,6 +272,7 @@ class Plan(BaseModel):
     groups: tuple[Group, ...] = ()
     pending_closes: tuple[PendingClose, ...] = ()
     failures: tuple[Failure, ...] = ()
+    left_out: tuple[LeftOut, ...] = ()
     judged: tuple[Judged, ...] = ()
     unjudged: int = 0
     dry_run: bool = Field(default=False, exclude=True)
@@ -544,6 +555,7 @@ def run_consolidate(
     judgement as soon as it is made; the plan file is written when the run ends. A judge that
     raises `ModelGatewayUnreachableError` ends the run with no plan.
     """
+    texts = MESSAGES.roadmap
     cap = DEFAULT_ROADMAP_CONSOLIDATE_JUDGED if limit is None else limit
     lists = consolidation_groups(
         store, edges.embed, model=edges.embedding_model, directory=directory
@@ -565,6 +577,7 @@ def run_consolidate(
     used: dict[str, Judged] = {}
     groups: list[Group] = []
     failures: list[Failure] = []
+    left_out: list[LeftOut] = []
     unjudged = calls = 0
     for shortlist in _order(lists):
         kept = [
@@ -573,7 +586,10 @@ def run_consolidate(
             if m.number not in board.started
             and not _was_reopened(store, board, m.number, shortlist.anchor)
         ]
-        if not kept or all(_linked(m) for m in kept):
+        if not kept:
+            continue
+        if all(_linked(m) for m in kept):
+            left_out.append(LeftOut(anchor=shortlist.anchor, reason=texts.consolidate_left_linked))
             continue
         case = _case(shortlist, kept, board)
         found = remembered.get(case.digest)
@@ -603,9 +619,19 @@ def run_consolidate(
             )
         used[case.digest] = found
         group = _settle(shortlist, kept, found.judgement, board, edges.source)
-        if group is None or _all_linked(shortlist, group):
+        if group is None:
+            dropped = found.judgement.verdict is Refutation.DROPPED
+            reason = texts.consolidate_left_refuted if dropped else texts.consolidate_left_rules
+            left_out.append(LeftOut(anchor=shortlist.anchor, reason=reason))
             continue
-        if group.id in _declined(items[group.anchor].job_record.get(ConsolidateRecordKey.DECLINED)):
+        declined = _declined(items[group.anchor].job_record.get(ConsolidateRecordKey.DECLINED))
+        if _all_linked(shortlist, group) or group.id in declined:
+            reason = (
+                texts.consolidate_left_declined
+                if group.id in declined
+                else texts.consolidate_left_linked
+            )
+            left_out.append(LeftOut(anchor=group.anchor, group=group.id, reason=reason))
             continue
         groups.append(group.model_copy(update={"carried": group.id in previous}))
 
@@ -616,6 +642,7 @@ def run_consolidate(
         groups=tuple(groups),
         pending_closes=_pending(groups, earlier, board),
         failures=tuple(failures),
+        left_out=tuple(left_out),
         judged=tuple(used.values()),
         unjudged=unjudged,
     )
@@ -703,6 +730,14 @@ def render_plan(plan: Plan) -> str:
             texts.consolidate_pending.format(member=p.member, anchor=p.anchor)
             for p in plan.pending_closes
         ]
+    if plan.left_out:
+        lines.append(texts.consolidate_left_heading)
+        lines += [
+            texts.consolidate_left.format(
+                anchor=o.anchor, group=f" {o.group}" if o.group else "", reason=o.reason
+            )
+            for o in plan.left_out
+        ]
     if plan.failures:
         lines.append(texts.consolidate_failures_heading)
         lines += [
@@ -727,6 +762,7 @@ __all__ = [
     "Group",
     "GroupMember",
     "Judged",
+    "LeftOut",
     "PendingClose",
     "Plan",
     "Source",

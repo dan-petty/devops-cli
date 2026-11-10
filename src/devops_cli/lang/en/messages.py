@@ -2492,6 +2492,12 @@ class RoadmapMessages:
     )
     consolidate_pending_heading: str = "Close when the anchor merges:"
     consolidate_pending: str = "- #{member} closes when #{anchor} is closed as completed."
+    consolidate_left_heading: str = "Shortlists with no group in the plan:"
+    consolidate_left: str = "- Anchor #{anchor}{group}: {reason}"
+    consolidate_left_linked: str = "the members link to the anchor already"
+    consolidate_left_declined: str = "a person declined the group"
+    consolidate_left_refuted: str = "the refutation dropped the proposal"
+    consolidate_left_rules: str = "no member is left after the rules"
     consolidate_failures_heading: str = "Shortlists that failed:"
     consolidate_failure: str = "- Anchor #{anchor}, step {step}, class {klass}: {error}"
     consolidate_counts: str = (

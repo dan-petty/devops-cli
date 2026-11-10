@@ -645,3 +645,34 @@ def test_a_clone_of_another_repository_and_a_ref_that_does_not_resolve_read_no_f
 
     assert (other.read("src/a.py"), other.sha) == (None, None)
     assert (unknown.read("src/a.py"), unknown.sha) == (None, None)
+
+
+def test_the_plan_says_why_a_shortlist_has_no_group(
+    store: InMemoryRoadmapStore, tmp_path: Path
+) -> None:
+    item(store, "The parser in src/a.py drops a row in `parse_row`.\n\n- Related: #2, #3")
+    item(store)
+    item(store)
+
+    plan = run(store, Judge(), tmp_path)
+
+    assert [(o.anchor, o.reason) for o in plan.left_out] == [
+        (1, "the members link to the anchor already")
+    ]
+    assert "the members link to the anchor already" in render_plan(plan)
+
+
+def test_a_dropped_proposal_and_a_declined_group_are_listed_as_left_out(
+    store: InMemoryRoadmapStore, tmp_path: Path
+) -> None:
+    item(store)
+    item(store)
+    refuted = run(store, Judge(lambda c: judgement(c, verdict=Refutation.DROPPED)), tmp_path)
+    assert [o.reason for o in refuted.left_out] == ["the refutation dropped the proposal"]
+
+    (group,) = run(store, Judge(), tmp_path / "b").groups
+    decline_group(store, group.id, repo=REPO, directory=tmp_path / "b", confirm=True)
+    declined = run(store, Judge(), tmp_path / "b")
+    assert [(o.group, o.reason) for o in declined.left_out] == [
+        (group.id, "a person declined the group")
+    ]
