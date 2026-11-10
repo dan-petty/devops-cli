@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.105.0](https://github.com/dan-petty/devops-cli/compare/v0.104.0...v0.105.0) (2026-11-10)
+
+
+### Features
+
+* **roadmap:** Jev decides the labels of an intake proposal ([#4323](https://github.com/dan-petty/devops-cli/issues/4323)) ([1ae4311](https://github.com/dan-petty/devops-cli/commit/1ae43117bc3ceb62a26a3992b7ab56fae958303c))
+
 ## [0.104.0](https://github.com/dan-petty/devops-cli/compare/v0.103.3...v0.104.0) (2026-11-10)
 
 
