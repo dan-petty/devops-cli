@@ -25,6 +25,7 @@ from devops_cli.config.defaults import DEFAULT_K8S_CONNECT_TIMEOUT_SECONDS
 from devops_cli.k8s.doctor import Snapshot, collect, diagnose
 from devops_cli.k8s.service import KubernetesService
 from devops_cli.models.k8s import Finding
+from devops_cli.tools_lock import load_tools_lock
 from tests.support.fakes.kubernetes import (
     NOW,
     FakeCluster,
@@ -522,7 +523,7 @@ def test_doctor_warns_on_kubectl_version_skew() -> None:
     assert len(findings) == 1
     f = findings[0]
     assert (f.severity, f.class_, f.resource) == ("warning", "cluster", "kubectl")
-    assert "1.37.1" in f.cause
+    assert load_tools_lock().tools()["kubectl"].version in f.cause
     assert "v1.31.4+k3s1" in f.cause or "1.31.4" in f.cause or "1.31" in f.cause
     assert any("1.36" in ev or "1.38" in ev for ev in f.evidence) or "1.36" in f.cause
 
