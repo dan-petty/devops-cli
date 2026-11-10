@@ -465,7 +465,7 @@ Under dry run, each command SHALL make zero external requests, execute zero daem
 
 #### Scenario: Dry run on sandbox deploy
 - **WHEN** user executes `devops sandbox deploy --dry-run`
-- **THEN** the command prints planned container creation and start requests and makes zero engine calls
+- **THEN** the command prints the image lookup, the conditional image pull, the container creation and start requests, in that order, and makes zero engine calls
 
 #### Scenario: Dry run on sandbox exec
 - **WHEN** user executes `devops sandbox exec ls --dry-run`
