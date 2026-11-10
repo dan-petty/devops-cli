@@ -16,6 +16,7 @@ from urllib.parse import urlsplit
 import pytest
 import yaml
 from docker.utils import parse_repository_tag
+from packaging.version import Version
 
 from devops_cli.ai.benchmark.runner import BenchmarkRunner
 from devops_cli.ai.gateway import DEFAULT_GATEWAY_ROUTES, GatewayRoute, GatewayRouter
@@ -74,7 +75,15 @@ DEVCONTAINER = Path(".devcontainer/devcontainer.json")
 # The column of the README's GPU placement table that says whether a node satisfies the tier.
 SERVES_COLUMN = "Serves"
 
-GATEWAY_IMAGE = "ghcr.io/berriai/litellm:v1.103.0"
+GATEWAY_IMAGE = "ghcr.io/berriai/litellm:v1.103.10"
+# The first release of each line that holds the fixes of GHSA-7hp6-4w63-5g45 (1.103.1) and
+# GHSA-w4c7-34wj-hqm8 (1.103.10), both critical advisories of LiteLLM (#4370).
+GATEWAY_ADVISORY_FIXED_IN = {
+    (1, 103): "1.103.10",
+    (1, 104): "1.104.8",
+    (1, 105): "1.105.6",
+    (1, 106): "1.106.5",
+}
 GATEWAY_SECRET = "llm-gateway-secrets"
 GATEWAY_SECRET_KEY = "master-key"
 # The tiers that load `qwen3.8:27b` and no other model until the configuration changes (#3567).
@@ -470,7 +479,7 @@ class TestK8sLLMGatewayManifests:
         `model_info`, equal to the context length of its tier, and none hides a `model_info`
         inside `litellm_params` (#2825).
 
-        LiteLLM v1.103.0 resolves the window of a deployment from its top-level `model_info`
+        LiteLLM v1.103 resolves the window of a deployment from its top-level `model_info`
         and ignores a key under `litellm_params`, so the pre-call check never ran. A deployment
         that sets no window reads the cost-map entry of its backend model, which the last
         deployment registered wrote: `devops-background` read 160000 for a 128000 tier."""
@@ -835,6 +844,27 @@ class TestK8sLLMGatewayManifests:
             False,
             GATEWAY_SECRET,
             GATEWAY_SECRET_KEY,
+        )
+
+    def test_gateway_image_is_not_below_the_release_that_fixes_the_critical_advisories(
+        self,
+    ) -> None:
+        """Verify the pinned LiteLLM release holds the fixes of GHSA-7hp6-4w63-5g45 (an internal
+        user becomes proxy admin) and GHSA-w4c7-34wj-hqm8 (a file read that leaks the master key).
+        The gateway is reachable from outside the cluster (#4370). A line that is not in the table
+        has no known fix, and a release of a newer line holds both."""
+        dep = _load_kind(GATEWAY_DIR / "deployment.yaml", "Deployment")
+        image = dep["spec"]["template"]["spec"]["containers"][0]["image"]
+        repository, tag = parse_repository_tag(image)
+        version = Version((tag or "").removeprefix("v"))
+        fixed_in = GATEWAY_ADVISORY_FIXED_IN.get(version.release[:2])
+        newest_line = max(GATEWAY_ADVISORY_FIXED_IN)
+
+        assert repository == "ghcr.io/berriai/litellm"
+        assert (
+            version >= Version(fixed_in)
+            if fixed_in is not None
+            else version.release[:2] > newest_line
         )
 
     def test_gateway_configmap_enforces_master_key_and_long_generations(self) -> None:

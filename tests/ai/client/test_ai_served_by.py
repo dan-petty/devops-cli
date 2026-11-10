@@ -27,7 +27,7 @@ GATEWAY_URL = "http://gateway.example.com:4000/v1"
 REMOTE = "http://remote.example.com:8000/v1"
 OLLAMA = "http://ollama-0.example.com:11434"
 SERVED_BY_HEADER = "x-litellm-model-api-base"
-# LiteLLM 1.103.0 names the deployment model of the route in this header, and the router writes
+# LiteLLM 1.103 names the deployment model of the route in this header, and the router writes
 # the route name in the reply body (#2031).
 SERVED_MODEL_HEADER = "x-litellm-model-name"
 HOSTED_API = "https://api.openai.com"
