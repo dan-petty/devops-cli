@@ -393,6 +393,7 @@ class WorkloadSandboxEngine:
             _ensure_internal_network()
         create_kwargs = self._build_create_kwargs(config, ws_resolved, port_bindings)
         engine = get_engine()
+        engine.pull_image(config.image)
         container = engine.create_container(**create_kwargs)
         try:
             container.start()

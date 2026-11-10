@@ -116,6 +116,21 @@ def test_sandbox_deploy_plan_content(tmp_path: Path) -> None:
 
 
 @pytest.mark.usefixtures("block_sandbox_externals")
+def test_sandbox_deploy_plan_lists_the_image_requests(tmp_path: Path) -> None:
+    """Verify the plan lists the image lookup and the conditional pull before the container."""
+    result = runner.invoke(
+        app, ["sandbox", "deploy", "--workspace", str(tmp_path), "--name", "my-sbx", "--dry-run"]
+    )
+    assert result.exit_code == 0
+    output = result.output
+    lookup = output.index("DOCKER GET /images/python:3.14-slim/json")
+    pull = output.index("DOCKER POST /images/create?fromImage=python:3.14-slim")
+    create = output.index("DOCKER POST /containers/create")
+    assert lookup < pull < create
+    assert "[only if the image is not on the engine]" in output[pull:create]
+
+
+@pytest.mark.usefixtures("block_sandbox_externals")
 def test_sandbox_status_plan_content() -> None:
     """Verify sandbox status dry run shows planned container listing request."""
     result = runner.invoke(app, ["sandbox", "status", "--all", "--dry-run"])

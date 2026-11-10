@@ -13,7 +13,8 @@ with `tail`, `timestamps` and `follow`, with a TTY, and refused once the contain
 running container's exec, stats stream and stop; the 404 of a container, a network and an image
 that do not exist; an internal network made, read, listed, refused a second time and removed; the
 images of a repository, the volumes and the disk use; each prune; a build and a push that the
-engine refuses. Through `DockerEngineService`, the service builds the SDK's own client of its
+engine refuses; an image read when local, and a missing image refused, pulled and refused again.
+Through `DockerEngineService`, the service builds the SDK's own client of its
 endpoint and reads the same daemon facts as over the fake, and an engine that does not answer fails
 alike over both.
 
@@ -100,6 +101,17 @@ EXPECTED: dict[str, tuple[Any, ...]] = {
         (["SpaceReclaimed", "VolumesDeleted"], 0),
     ),
     "build_and_push": (True, True, True, True),
+    "image_pull": (
+        True,
+        ("ImageNotFound", 404, "No such image: devops-contract-absent:never"),
+        (
+            "ImageNotFound",
+            404,
+            "pull access denied for devops-contract-absent, repository does not exist or may "
+            "require 'docker login'",
+        ),
+        True,
+    ),
 }
 
 

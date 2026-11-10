@@ -172,6 +172,63 @@ def test_create_container_failure_records_image(docker_daemon: DockerEngineFake)
     ) == ("missing:latest", True)
 
 
+def test_pull_image_pulls_a_missing_image(docker_daemon: DockerEngineFake) -> None:
+    """A reference that the registry holds is looked up, pulled and added to the engine."""
+    reference = "example.com/app:1"
+    docker_daemon.publish_image(reference)
+
+    get_engine().pull_image(reference)
+
+    assert (
+        [name for name in docker_daemon.call_names() if name.startswith("images.")],
+        any(reference in attrs["RepoTags"] for attrs in docker_daemon.image_state.values()),
+    ) == (["images.get", "images.pull"], True)
+
+
+def test_pull_image_skips_a_local_image(docker_daemon: DockerEngineFake) -> None:
+    """An image the engine holds makes no pull request."""
+    reference = "example.com/app:1"
+    docker_daemon.add_image(reference)
+
+    get_engine().pull_image(reference)
+
+    assert [name for name in docker_daemon.call_names() if name.startswith("images.")] == [
+        "images.get"
+    ]
+
+
+def test_pull_image_failure_names_the_image_and_the_reason(
+    docker_daemon: DockerEngineFake,
+) -> None:
+    """A pull that no registry can serve raises a typed error with the image and the reason."""
+    reference = "example.com/absent:1"
+
+    with pytest.raises(DockerEngineError) as exc_info:
+        get_engine().pull_image(reference)
+
+    text = str(exc_info.value)
+    assert (
+        "Image pull failed for" in text,
+        reference in text,
+        "pull access denied" in text,
+        exc_info.value.details.get("image"),
+    ) == (True, True, True, reference)
+
+
+def test_pull_image_lookup_failure_starts_no_pull(docker_daemon: DockerEngineFake) -> None:
+    """An engine that fails the lookup raises a typed error and no pull follows."""
+    reference = "example.com/app:1"
+    docker_daemon.fail("images.get", RuntimeError("engine went away"))
+
+    with pytest.raises(DockerEngineError, match="Image lookup failed for") as exc_info:
+        get_engine().pull_image(reference)
+
+    assert (
+        reference in str(exc_info.value),
+        "images.pull" in docker_daemon.call_names(),
+    ) == (True, False)
+
+
 def test_container_logs_failure_is_typed(docker_daemon: DockerEngineFake) -> None:
     """A log retrieval failure surfaces as a typed engine error."""
     container_id = docker_daemon.add_container("svc")

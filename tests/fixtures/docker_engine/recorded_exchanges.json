@@ -4649,6 +4649,223 @@
      ]
     }
    }
+  ],
+  "image_pull": [
+   {
+    "method": "GET",
+    "target": "/version",
+    "status": 200,
+    "headers": {
+     "Api-Version": "1.56",
+     "Content-Type": "application/json",
+     "Ostype": "linux"
+    },
+    "framing": "length",
+    "body": {
+     "kind": "json",
+     "value": {
+      "Version": "29.9.3",
+      "ApiVersion": "1.56",
+      "MinAPIVersion": "1.40",
+      "Os": "linux",
+      "Arch": "amd64",
+      "Components": [
+       {
+        "Name": "Engine",
+        "Version": "29.9.3"
+       },
+       {
+        "Name": "containerd",
+        "Version": "v2.4.2"
+       },
+       {
+        "Name": "runc",
+        "Version": "1.5.2"
+       },
+       {
+        "Name": "docker-init",
+        "Version": "0.19.0"
+       }
+      ]
+     }
+    }
+   },
+   {
+    "method": "GET",
+    "target": "/v1.56/images/alpine:3/json",
+    "status": 200,
+    "headers": {
+     "Api-Version": "1.56",
+     "Content-Type": "application/json",
+     "Ostype": "linux"
+    },
+    "framing": "length",
+    "body": {
+     "kind": "json",
+     "value": {
+      "Id": "sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf",
+      "RepoTags": [
+       "alpine:3"
+      ],
+      "RepoDigests": [
+       "alpine@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf"
+      ],
+      "Comment": "buildkit.dockerfile.v0",
+      "Created": "2026-11-05T18:00:28.583714131Z",
+      "Config": {
+       "Env": [
+        "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+       ],
+       "Cmd": [
+        "/bin/sh"
+       ],
+       "WorkingDir": "/"
+      },
+      "Architecture": "amd64",
+      "Os": "linux",
+      "Size": 12944330,
+      "RootFS": {
+       "Type": "layers",
+       "Layers": [
+        "sha256:75f1d9657d880da5f75298e8f40e9928bb6e260c50d26f97af196845307e3064"
+       ]
+      },
+      "Metadata": {
+       "LastTagTime": "2026-11-10T19:36:15.189779539Z"
+      },
+      "Descriptor": {
+       "mediaType": "application/vnd.oci.image.index.v1+json",
+       "digest": "sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf",
+       "size": 9218
+      },
+      "Identity": {
+       "Pull": [
+        {
+         "Repository": "docker.io/library/alpine"
+        }
+       ]
+      }
+     }
+    }
+   },
+   {
+    "method": "GET",
+    "target": "/v1.56/images/devops-contract-absent:never/json",
+    "status": 404,
+    "headers": {
+     "Api-Version": "1.56",
+     "Content-Type": "application/json",
+     "Ostype": "linux"
+    },
+    "framing": "length",
+    "body": {
+     "kind": "json",
+     "value": {
+      "message": "No such image: devops-contract-absent:never"
+     }
+    }
+   },
+   {
+    "method": "POST",
+    "target": "/v1.56/images/create?tag=never&fromImage=devops-contract-absent",
+    "status": 404,
+    "headers": {
+     "Api-Version": "1.56",
+     "Content-Type": "application/json",
+     "Ostype": "linux"
+    },
+    "framing": "length",
+    "body": {
+     "kind": "json",
+     "value": {
+      "message": "pull access denied for devops-contract-absent, repository does not exist or may require 'docker login'"
+     }
+    }
+   },
+   {
+    "method": "POST",
+    "target": "/v1.56/images/create?tag=3&fromImage=alpine",
+    "status": 200,
+    "headers": {
+     "Api-Version": "1.56",
+     "Content-Type": "application/json",
+     "Ostype": "linux"
+    },
+    "framing": "chunked",
+    "body": {
+     "kind": "json_lines",
+     "value": [
+      {
+       "status": "Pulling from library/alpine",
+       "id": "3"
+      },
+      {
+       "status": "Digest: sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf"
+      },
+      {
+       "status": "Status: Image is up to date for alpine:3"
+      }
+     ]
+    }
+   },
+   {
+    "method": "GET",
+    "target": "/v1.56/images/alpine:3/json",
+    "status": 200,
+    "headers": {
+     "Api-Version": "1.56",
+     "Content-Type": "application/json",
+     "Ostype": "linux"
+    },
+    "framing": "length",
+    "body": {
+     "kind": "json",
+     "value": {
+      "Id": "sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf",
+      "RepoTags": [
+       "alpine:3"
+      ],
+      "RepoDigests": [
+       "alpine@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf"
+      ],
+      "Comment": "buildkit.dockerfile.v0",
+      "Created": "2026-11-05T18:00:28.583714131Z",
+      "Config": {
+       "Env": [
+        "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+       ],
+       "Cmd": [
+        "/bin/sh"
+       ],
+       "WorkingDir": "/"
+      },
+      "Architecture": "amd64",
+      "Os": "linux",
+      "Size": 12944330,
+      "RootFS": {
+       "Type": "layers",
+       "Layers": [
+        "sha256:75f1d9657d880da5f75298e8f40e9928bb6e260c50d26f97af196845307e3064"
+       ]
+      },
+      "Metadata": {
+       "LastTagTime": "2026-11-10T19:42:40.036206735Z"
+      },
+      "Descriptor": {
+       "mediaType": "application/vnd.oci.image.index.v1+json",
+       "digest": "sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf",
+       "size": 9218
+      },
+      "Identity": {
+       "Pull": [
+        {
+         "Repository": "docker.io/library/alpine"
+        }
+       ]
+      }
+     }
+    }
+   }
   ]
  }
 }
