@@ -202,6 +202,8 @@ class ClusterSecret:
 
 CRAWL4AI_ENV_NAME = "CRAWL4AI_API_TOKEN"
 _CRAWL4AI_TOKEN = KeyringSource.for_credential("crawl4ai.api_token")
+MCP_TOKEN_ENV_NAME = "DEVOPS_CLI_MCP_TOKEN"
+_MCP_TOKEN = KeyringSource.for_credential("mcp.token")
 _LLM_GATEWAY_KEY = KeyringSource(LLM_GATEWAY_MASTER_KEY)
 _DEVOPS_CACHE_VALKEY_AUTH = KeyringSource(DEVOPS_CACHE_VALKEY_AUTH_KEY)
 _DEVOPS_CACHE_VALKEY_GENERATOR = SecretGenerator("hex", 32)
@@ -349,6 +351,23 @@ CLUSTER_SECRETS: tuple[ClusterSecret, ...] = (
         restarts=(Workload("deployment", "searxng"),),
         labels={"app.kubernetes.io/name": "searxng"},
     ),
+    # The bearer token of the MCP server, which refuses to start without it. The pod reads the
+    # token at start, so a change restarts it. The server accepts one token, so the keys of the
+    # stage and implement clients in Secret devops/devops-cli read the same keyring entry.
+    ClusterSecret(
+        namespace="devops",
+        name="mcp-server",
+        stack="devops",
+        entries=(
+            SecretEntry(
+                MCP_TOKEN_ENV_NAME,
+                _MCP_TOKEN,
+                generator=SecretGenerator("urlsafe", 32),
+            ),
+        ),
+        restarts=(Workload("deployment", "mcp-server"),),
+        labels={"app.kubernetes.io/name": "mcp-server"},
+    ),
     ClusterSecret(
         namespace="devops",
         name="devops-cli",
@@ -395,6 +414,20 @@ CLUSTER_SECRETS: tuple[ClusterSecret, ...] = (
                 _CRAWL4AI_TOKEN,
                 required=False,
                 adopt_from=SecretKeyRef("devops", "crawl4ai", CRAWL4AI_ENV_NAME),
+            ),
+            # The stage and implement jobs send the token of Secret devops/mcp-server to the role
+            # endpoints of the MCP server.
+            SecretEntry(
+                "DEVOPS_CLI_MCP_STAGE_TOKEN",
+                _MCP_TOKEN,
+                required=False,
+                adopt_from=SecretKeyRef("devops", "mcp-server", MCP_TOKEN_ENV_NAME),
+            ),
+            SecretEntry(
+                "DEVOPS_CLI_MCP_IMPLEMENT_TOKEN",
+                _MCP_TOKEN,
+                required=False,
+                adopt_from=SecretKeyRef("devops", "mcp-server", MCP_TOKEN_ENV_NAME),
             ),
         ),
         restarts=(Workload("deployment", "roadmap-service"),),

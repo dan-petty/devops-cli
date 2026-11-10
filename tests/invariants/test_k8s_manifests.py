@@ -878,6 +878,36 @@ def test_every_secret_referenced_under_k8s_has_a_table_row() -> None:
     assert (references - TABLE_REFS, len(references) >= 5) == (set(), True)
 
 
+def _secret_key_references(node: Any) -> Iterator[tuple[str, str]]:
+    """`(Secret name, key)` of every `secretKeyRef` in a document, at any depth."""
+    if isinstance(node, list):
+        for item in node:
+            yield from _secret_key_references(item)
+    elif isinstance(node, dict):
+        ref = node.get("secretKeyRef")
+        if isinstance(ref, dict) and ref.get("name") and ref.get("key"):
+            yield str(ref["name"]), str(ref["key"])
+        for value in node.values():
+            yield from _secret_key_references(value)
+
+
+def test_every_secret_key_that_a_manifest_reads_from_a_table_secret_is_a_table_entry() -> None:
+    """A pod that reads a key of a Secret of the table reads a key that the push writes. Without
+    the key, the pod cannot start (#4354)."""
+    keys = {secret.ref: {entry.key for entry in secret.entries} for secret in CLUSTER_SECRETS}
+    missing: set[str] = set()
+    read = 0
+    for _path, document in yaml_documents(K8S_DIR):
+        namespace = ((document or {}).get("metadata") or {}).get("namespace")
+        for name, key in _secret_key_references(document):
+            ref = f"{namespace}/{name}"
+            if ref in keys:
+                read += 1
+                if key not in keys[ref]:
+                    missing.add(f"{ref} {key}")
+    assert (missing, read >= 3) == (set(), True)
+
+
 def test_only_a_cluster_without_an_initdb_secret_has_an_operator_generated_secret(
     tmp_path: Path,
 ) -> None:
@@ -948,6 +978,8 @@ def test_env_name_keys_of_devops_cli_feed_their_options() -> None:
         "DEVOPS_CLI_VALKEY_PASSWORD": "valkey.password",
         "DEVOPS_CLI_MATTERMOST_COMMAND_TOKEN": "mattermost.command_token",
         "DEVOPS_CLI_CRAWL4AI_API_TOKEN": "crawl4ai.api_token",
+        "DEVOPS_CLI_MCP_STAGE_TOKEN": "mcp.stage_token",
+        "DEVOPS_CLI_MCP_IMPLEMENT_TOKEN": "mcp.implement_token",
     }
 
 

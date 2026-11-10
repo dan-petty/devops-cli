@@ -67,6 +67,13 @@ spec:
             - secretRef:
                 name: devops-cli
           env:
+            # The server refuses to start without the token (SECURITY.md, MCP Server on the
+            # Network). `devops k8s push-secrets` writes it.
+            - name: DEVOPS_CLI_MCP_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: mcp-server
+                  key: DEVOPS_CLI_MCP_TOKEN
             - name: DEVOPS_CLI_CONFIG
               value: /config/devops-cli.yaml
             - name: DEVOPS_CLI_DATA_DIR

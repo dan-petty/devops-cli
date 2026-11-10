@@ -275,6 +275,15 @@ def test_table_holds_each_secret_entry_with_its_source_and_restarts() -> None:
             ("deployment/searxng",),
         ),
         (
+            "devops/mcp-server",
+            "DEVOPS_CLI_MCP_TOKEN",
+            "devops",
+            True,
+            SecretGenerator("urlsafe", 32),
+            None,
+            ("deployment/mcp-server",),
+        ),
+        (
             "devops/devops-cli",
             APP_KEY_ENTRY,
             "devops",
@@ -335,6 +344,24 @@ def test_table_holds_each_secret_entry_with_its_source_and_restarts() -> None:
             False,
             None,
             "devops/crawl4ai CRAWL4AI_API_TOKEN",
+            ("deployment/roadmap-service",),
+        ),
+        (
+            "devops/devops-cli",
+            "DEVOPS_CLI_MCP_STAGE_TOKEN",
+            "devops",
+            False,
+            None,
+            "devops/mcp-server DEVOPS_CLI_MCP_TOKEN",
+            ("deployment/roadmap-service",),
+        ),
+        (
+            "devops/devops-cli",
+            "DEVOPS_CLI_MCP_IMPLEMENT_TOKEN",
+            "devops",
+            False,
+            None,
+            "devops/mcp-server DEVOPS_CLI_MCP_TOKEN",
             ("deployment/roadmap-service",),
         ),
         (
@@ -478,6 +505,43 @@ def test_the_crawl4ai_token_is_one_managed_credential_for_two_secrets() -> None:
         True,
         ("DEVOPS_CLI_CRAWL4AI_API_TOKEN", "CRAWL4AI_API_TOKEN"),
         "DEVOPS_CLI_CRAWL4AI_API_TOKEN",
+    )
+
+
+def test_the_mcp_token_is_one_managed_credential_for_three_keys() -> None:
+    """The server accepts one bearer token, so the key of the server and the key of each client
+    job read one keyring entry."""
+    from devops_cli.config.env import credential, get_all_env_var_specs
+    from devops_cli.k8s.cluster_secrets import SecretKeyRef
+    from devops_cli.security.secrets import build_secret_registry
+
+    server = next(s for s in CLUSTER_SECRETS if s.ref == "devops/mcp-server")
+    devops = next(s for s in CLUSTER_SECRETS if s.ref == "devops/devops-cli")
+    (token,) = server.entries
+    clients = {
+        e.key: e
+        for e in devops.entries
+        if e.key in {"DEVOPS_CLI_MCP_STAGE_TOKEN", "DEVOPS_CLI_MCP_IMPLEMENT_TOKEN"}
+    }
+    specs = {spec.option_key for spec in get_all_env_var_specs() if spec.is_secret}
+    source = KeyringSource("mcp_token", "mcp.token")
+    assert (
+        token.source,
+        {key: (e.source, e.required, e.generator, e.adopt_from) for key, e in clients.items()},
+        credential("mcp.token").env_vars,
+        "mcp.token" in specs,
+        build_secret_registry()["mcp.token"].env_vars,
+        option_env_vars()["mcp.token"],
+    ) == (
+        source,
+        {
+            key: (source, False, None, SecretKeyRef("devops", "mcp-server", "DEVOPS_CLI_MCP_TOKEN"))
+            for key in ("DEVOPS_CLI_MCP_STAGE_TOKEN", "DEVOPS_CLI_MCP_IMPLEMENT_TOKEN")
+        },
+        ("DEVOPS_CLI_MCP_TOKEN",),
+        True,
+        ("DEVOPS_CLI_MCP_TOKEN",),
+        "DEVOPS_CLI_MCP_TOKEN",
     )
 
 
@@ -658,6 +722,7 @@ def test_the_dry_run_lists_exactly_the_requests_a_push_then_makes(
     stub_keyring.values["firecrawl_api_key"] = "firecrawl-secrets-value-0001"
     stub_keyring.values["mattermost_command_token"] = "mattermost-secrets-value-0001"
     stub_keyring.values["crawl4ai_api_token"] = "crawl4ai-secrets-value-0001"
+    stub_keyring.values["mcp_token"] = "mcp-secrets-value-0001"
     result = _push("--only", "llm/qdrant-api-key", "--only", "devops/devops-cli")
     planned_apply = json.loads(next(r.stdin for r in planned if r.stdin) or "{}")
     applied = cluster.applied_items()
@@ -671,7 +736,7 @@ def test_the_dry_run_lists_exactly_the_requests_a_push_then_makes(
         [call.argv for call in cluster.calls],
         [f"devops-cli/{key}" for key in stub_keyring.reads],
         [{**i, "data": sorted(i["data"])} for i in applied],
-        ["<>", "<>", "<>", "<>", "<>", "<>", "<>", "<>"],
+        ["<>"] * 10,
     )
 
 
