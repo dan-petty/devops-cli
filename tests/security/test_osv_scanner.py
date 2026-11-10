@@ -289,6 +289,19 @@ def test_osv_scanner_takes_no_lockfile_from_an_ignored_tree(tmp_path: Path) -> N
     )
 
 
+def test_osv_scanner_missing_binary_records_unavailable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Missing osv-scanner binary records unavailable status, never a failed state."""
+    tree = _checkout(tmp_path / "checkout", {"poetry.lock": "# lock"})
+    monkeypatch.setenv("PATH", str(tmp_path / "empty-bin"))
+
+    outcome = OsvScanner(snapshot_digest="sha256:mock").scan(tree, tree=tree)
+
+    assert (outcome.status, outcome.findings) == ("unavailable", [])
+    assert "osv-scanner" in outcome.reason
+
+
 def test_osv_scanner_registered_in_registry() -> None:
     """OsvScanner is registered in global_scanner_registry."""
     scanner = global_scanner_registry.get("osv-scanner")

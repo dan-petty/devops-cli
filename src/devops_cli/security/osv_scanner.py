@@ -424,6 +424,9 @@ class OsvScanner(BaseSecurityScanner):
                 return ScanOutcome("coverage_gap", [], "; ".join(gaps))
             return ScanOutcome("clean", [], "No lockfiles found")
 
+        if not self._check_binary():
+            return ScanOutcome("unavailable", [], f"Binary '{self.binary_name}' not found on PATH")
+
         self.last_ecosystems = []
         cmd = self.build_command(effective_lockfiles[0], lockfiles=effective_lockfiles)
 
