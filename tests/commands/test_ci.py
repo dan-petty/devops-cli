@@ -1067,7 +1067,13 @@ def test_service_image_test_ci_job_invariants() -> None:
         s for s in job["steps"] if s.get("name") == "Install Service Image Test Dependencies"
     )
     install_run = str(install_step.get("run", ""))
-    assert ("HOME=/tmp" in install_run, "UV_NO_CONFIG=1" in install_run) == (True, True)
+    test_step = next(s for s in job["steps"] if s.get("name") == "Run Test Suite in Service Image")
+    test_run = str(test_step.get("run", ""))
+    assert (
+        "HOME=/tmp" in install_run,
+        "UV_NO_CONFIG=1" in install_run,
+        "/workspace/project" in test_run,
+    ) == (True, True, True)
 
     interpolated_runs = [s.get("name", "") for s in job["steps"] if "${{" in s.get("run", "")]
     assert interpolated_runs == []

@@ -637,7 +637,7 @@ jobs:
             -v "$WORKSPACE_DIR:/workspace:rw" \
             --entrypoint sh \
             "$IMAGE" \
-            -c 'tar -C /checkout --exclude=./.venv --exclude=./.data --exclude=./.mypy_cache --exclude=./.ruff_cache --exclude=./.pytest_cache -cf - . | tar -C /workspace --no-same-owner -xf - && mkdir -p /workspace/.data/reviews /workspace/.data/analysis /workspace/.data/logs'
+            -c 'mkdir /workspace/project && tar -C /checkout --exclude=./.venv --exclude=./.data --exclude=./.mypy_cache --exclude=./.ruff_cache --exclude=./.pytest_cache -cf - . | tar -C /workspace/project --no-same-owner -xf - && mkdir -p /workspace/project/.data/reviews /workspace/project/.data/analysis /workspace/project/.data/logs'
           docker run --rm --init --read-only --cap-drop ALL --security-opt no-new-privileges \
             --tmpfs /home/devops/.data:rw,size=256m \
             --tmpfs /home/devops/.cache:rw,size=256m \
@@ -645,7 +645,7 @@ jobs:
             -v "$WORKSPACE_DIR:/workspace:rw" \
             -v "$SITE_DIR:/opt/service-test:ro" \
             -v "$TOOLS_DIR:$TOOLS_DIR:ro" \
-            -w /workspace \
+            -w /workspace/project \
             -e PYTHONPATH="/opt/service-test/boot" \
             -e PATH="/app/.venv/bin:/opt/devops-tools/bin:$TOOLS_DIR/bin:/usr/local/bin:/usr/bin:/bin" \
             --entrypoint /app/.venv/bin/python \
