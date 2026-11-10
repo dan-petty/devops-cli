@@ -440,7 +440,10 @@ def _parse_and_validate_scheme(
         raise error_cls(f"Invalid {purpose} URL scheme '{parsed.scheme}': must be {schemes_str}")
     host = parsed.host
     if not host:
-        raise error_cls(f"Invalid {purpose} URL: missing valid hostname in '{url}'")
+        msg = f"Invalid {purpose} URL: missing valid hostname"
+        if issubclass(error_cls, InvalidURLError):
+            raise error_cls(clean_url, reason="missing valid hostname")
+        raise error_cls(msg)
     return clean_url, host
 
 
