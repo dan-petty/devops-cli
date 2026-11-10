@@ -23,6 +23,13 @@ A plan that changes a YAML manifest of `k8s/` also names every test that referen
 test builds the path of a manifest from the file name and the name of its folder, so a test
 references the manifest when it holds both names. The implement job cannot edit a test outside its
 `Changes:` list, so a plan that leaves the test out would loop.
+
+A behavior group that changes a Python module under `src/` also names an existing test of that
+module (#3414). `record_module_tests` reads the record from the tree and the search of the job: a
+test belongs to a module when its name carries the stem of the module in the test naming
+convention, or when it holds the dotted name of the module, as an import does.
+`existing_test_problems` refuses the group that names none of the tests of a module it changes. A
+test that the plan creates is no existing test, and a module with no test passes.
 """
 
 from __future__ import annotations
@@ -63,6 +70,8 @@ _CHANGES_DIRECTORY: Final[str] = "openspec/changes"
 # The manifests that a plan changes, and the tests that reference them (#3972).
 _MANIFEST_TOP: Final[str] = "k8s/"
 _MANIFEST_SUFFIX: Final[str] = ".yaml"
+_SOURCE_TOP: Final[str] = "src/"
+_MODULE_SUFFIX: Final[str] = ".py"
 _TESTS_TOP: Final[str] = "tests/"
 # The name forms of a test module. A fixture under `tests/` holds the names of a manifest too, and
 # it asserts on nothing, so the record names no fixture.
@@ -351,6 +360,87 @@ def missing_reference_problems(
         for test in tests
         if test not in changed
     ]
+
+
+def _dotted_name(path: str) -> str | None:
+    """The dotted import name of the Python module `path` under `src/`, or None."""
+    if not path.startswith(_SOURCE_TOP) or PurePosixPath(path).suffix != _MODULE_SUFFIX:
+        return None
+    return path.removeprefix(_SOURCE_TOP).removesuffix(_MODULE_SUFFIX).replace("/", ".")
+
+
+def _stem_names(stem: str) -> frozenset[str]:
+    """The file names of the test modules that carry `stem` in the test naming convention."""
+    return frozenset(pattern.replace("*", stem) for pattern in _TEST_MODULE_PATTERNS)
+
+
+def record_module_tests(
+    groups: Sequence[StageGroup], tree: StagedTree, search: Callable[[str], Sequence[str]]
+) -> dict[str, tuple[str, ...]]:
+    """The tests under `tests/` of each Python module under `src/` that a behavior group changes,
+    keyed by the module path (#3414). A test belongs to a module when its name carries the stem of
+    the module in the test naming convention, or when it holds the dotted name of the module, as an
+    import does: `tests/roadmap/implement/test_roadmap_implement_step.py` imports
+    `devops_cli.roadmap.step_files`, and its name carries no stem of that module. `search` gives the
+    files that hold a literal, as `git grep` does, and it runs once for each module."""
+    modules: dict[str, tuple[str, ...]] = {}
+    changed = sorted(
+        {path for group in groups if group.kind == "behavior" for path in group.changes}
+    )
+    for path in changed:
+        dotted = _dotted_name(path)
+        if dotted is None:
+            continue
+        names = _stem_names(PurePosixPath(path).stem)
+        tests = {
+            test
+            for test in tree.files
+            if _is_test_module(test) and PurePosixPath(test).name in names
+        } | {test for test in search(dotted) if _is_test_module(test)}
+        if tests:
+            modules[path] = tuple(sorted(tests))
+    return modules
+
+
+def _unnamed_module_test(
+    group: StageGroup,
+    named: set[str],
+    created: set[str],
+    module_tests: Mapping[str, Sequence[str]],
+) -> tuple[str, str] | None:
+    """The first module that `group` changes whose test it names nowhere, with that test."""
+    for path in group.changes:
+        tests = [test for test in module_tests.get(path, ()) if test not in created]
+        if tests and not any(test in named for test in tests):
+            return path, tests[0]
+    return None
+
+
+def existing_test_problems(
+    groups: Sequence[StageGroup],
+    tree: StagedTree,
+    module_tests: Mapping[str, Sequence[str]],
+) -> list[str]:
+    """One sentence for each behavior group that changes a module whose existing test the group
+    names nowhere (#3414). A group names a test when it lists it in `reads`, in `changes`, in a task
+    code span or in `verify`: a group reads a test that pins a module it changes and must not edit
+    it. A test that a group lists in `creates` is no existing test. A module with no test of
+    `module_tests` passes, so a caller that recorded none judges nothing."""
+    created = {path for group in groups for path in group.creates}
+    texts = MESSAGES.roadmap
+    problems: list[str] = []
+    for number, group in enumerate(groups, start=1):
+        if group.kind != "behavior":
+            continue
+        named = {path for _place, path in _named(group, tree)}
+        missing = _unnamed_module_test(group, named, created, module_tests)
+        if missing is not None:
+            problems.append(
+                texts.stage_problem_missing_module_test.format(
+                    group=number, path=missing[0], test=missing[1]
+                )
+            )
+    return problems
 
 
 def path_problems(

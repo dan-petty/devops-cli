@@ -30,6 +30,13 @@ commit, whatever the working tree of the checkout holds.
   file name of the manifest and the name of its folder, because the test builds the path from those
   parts. The `paths` gate refuses the plan that leaves a test out and names the test, because the
   implement job cannot edit a test outside the `Changes:` list of its group.
+- The test of a changed module (#3414): a behavior group that changes an existing Python module
+  under `src/` names an existing test of that module. A test file is a test of a module when its
+  name carries the stem of the module in the test naming convention, or when it holds the dotted
+  name of the module. A test file that the plan creates is no existing test. The `paths` gate
+  refuses the group that names none of these tests and names the group, the module and the test.
+  The command gives the gate no record of these tests, because it runs no search, so the stage job
+  and [plan-recheck](plan-recheck.md) report this refusal, and this command does not.
 - The read: the reader reports each change file that it cannot read, each task group that the
   model refuses, each criterion that the model refuses (such as `Group 0`) and each
   `Verification:` command that the implement step cannot run, as a `read` problem. It never ends in a traceback.

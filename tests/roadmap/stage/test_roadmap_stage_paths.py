@@ -688,3 +688,145 @@ def test_a_manifest_plan_that_omits_its_test_is_refused() -> None:
         path=MANIFEST, test=MANIFEST_TEST
     )
     assert listed[ProposalGate.PATHS] == []
+
+
+# ── A behavior group names the existing test of its module (#3414) ───────────
+
+MODULE = "src/devops_cli/roadmap/stage/stage_paths.py"
+MODULE_TEST = "tests/roadmap/stage/test_roadmap_stage_paths.py"
+CREATED_TEST = "tests/roadmap/stage/test_stage_paths_rule.py"
+OTHER_MODULE = "src/devops_cli/roadmap/step_files.py"
+OTHER_TEST = "tests/roadmap/implement/test_roadmap_implement_step.py"
+MODULE_TREE = StagedTree([*TREE.files, MODULE, MODULE_TEST, OTHER_MODULE, OTHER_TEST])
+# The dotted name of each module, as the test that imports it holds it.
+_SEARCH_HITS = {
+    "devops_cli.roadmap.stage.stage_paths": [MODULE_TEST],
+    "devops_cli.roadmap.step_files": [OTHER_TEST],
+}
+
+
+def _module_search(literal: str) -> list[str]:
+    """The search of the staged commit: a test holds the dotted name of the module it imports."""
+    return _SEARCH_HITS.get(literal, [])
+
+
+def _module_group(**update: object) -> StageGroup:
+    """A behavior group that changes `MODULE` and names only the test that it creates."""
+    base = {
+        "reads": [],
+        "changes": [MODULE, CREATED_TEST],
+        "creates": [CREATED_TEST],
+        "test": f"Write `test_the_rule` in `{CREATED_TEST}`",
+        "implementation": f"Refuse the group in `{MODULE}`",
+        "verify": f"uv run devops ci test {CREATED_TEST}",
+    }
+    return _group(**{**base, **update})
+
+
+def test_a_behavior_group_that_omits_the_test_of_its_module_is_refused() -> None:
+    # Imported here: the base commit holds neither function, and a module-level import would stop
+    # the module at collection, before any assertion runs.
+    from devops_cli.roadmap.stage.stage_paths import (
+        existing_test_problems,
+        record_module_tests,
+    )
+
+    group = _module_group()
+
+    module_tests = record_module_tests([group], MODULE_TREE, _module_search)
+
+    assert module_tests == {MODULE: (MODULE_TEST,)}
+    (problem,) = existing_test_problems([group], MODULE_TREE, module_tests)
+    assert "Group 1" in problem
+    assert f"`{MODULE}`" in problem
+    assert f"`{MODULE_TEST}`" in problem
+
+
+@pytest.mark.parametrize(
+    "update",
+    [
+        {"reads": [MODULE_TEST]},
+        {"changes": [MODULE, MODULE_TEST, CREATED_TEST]},
+        {"test": f"Write `test_the_rule` in `{CREATED_TEST}`, as `{MODULE_TEST}` pins"},
+        {"verify": f"uv run devops ci test {MODULE_TEST}"},
+    ],
+)
+def test_a_behavior_group_that_names_the_test_of_its_module_passes(
+    update: dict[str, object],
+) -> None:
+    from devops_cli.roadmap.stage.stage_paths import (
+        existing_test_problems,
+        record_module_tests,
+    )
+
+    group = _module_group(**update)
+
+    module_tests = record_module_tests([group], MODULE_TREE, _module_search)
+
+    assert existing_test_problems([group], MODULE_TREE, module_tests) == []
+
+
+def test_the_record_names_a_test_that_carries_the_stem_of_the_module() -> None:
+    from devops_cli.roadmap.stage.stage_paths import record_module_tests
+
+    group = _module_group(changes=["src/devops_cli/sample.py", CREATED_TEST])
+
+    record = record_module_tests([group], MODULE_TREE, _module_search)
+
+    assert record == {"src/devops_cli/sample.py": ("tests/test_sample.py",)}
+
+
+def test_a_module_with_no_existing_test_is_exempt() -> None:
+    from devops_cli.roadmap.stage.stage_paths import (
+        existing_test_problems,
+        record_module_tests,
+    )
+
+    module = "src/devops_cli/roadmap/stage/stage_untested.py"
+    tree = MODULE_TREE.with_files([module])
+    group = _module_group(changes=[module, CREATED_TEST])
+
+    module_tests = record_module_tests([group], tree, _module_search)
+
+    assert module_tests == {}
+    assert existing_test_problems([group], tree, module_tests) == []
+
+
+def test_a_test_that_the_plan_creates_is_no_existing_test() -> None:
+    from devops_cli.roadmap.stage.stage_paths import existing_test_problems
+
+    group = _module_group()
+
+    assert existing_test_problems([group], MODULE_TREE, {MODULE: (CREATED_TEST,)}) == []
+
+
+def test_two_groups_that_omit_their_module_test_each_get_a_problem() -> None:
+    from devops_cli.roadmap.stage.stage_paths import (
+        existing_test_problems,
+        record_module_tests,
+    )
+
+    first = _module_group()
+    second = _module_group(changes=[OTHER_MODULE, CREATED_TEST])
+
+    module_tests = record_module_tests([first, second], MODULE_TREE, _module_search)
+
+    assert sorted(module_tests) == [MODULE, OTHER_MODULE]
+    problems = existing_test_problems([first, second], MODULE_TREE, module_tests)
+    assert len(problems) == 2
+    assert "Group 1" in problems[0]
+    assert f"`{MODULE_TEST}`" in problems[0]
+    assert "Group 2" in problems[1]
+    assert f"`{OTHER_TEST}`" in problems[1]
+
+
+def test_an_other_group_that_changes_a_module_is_not_judged() -> None:
+    from devops_cli.roadmap.stage.stage_paths import (
+        existing_test_problems,
+        record_module_tests,
+    )
+
+    group = _construct(kind=GroupKind.OTHER, changes=[MODULE, CREATED_TEST], creates=[CREATED_TEST])
+
+    assert record_module_tests([group], MODULE_TREE, _module_search) == {}
+    assert existing_test_problems([group], MODULE_TREE, {MODULE: (MODULE_TEST,)}) == []

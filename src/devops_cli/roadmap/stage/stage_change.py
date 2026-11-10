@@ -77,6 +77,7 @@ from devops_cli.roadmap.stage.stage_move import (
 from devops_cli.roadmap.stage.stage_paths import (
     StagedTree,
     change_folder_paths,
+    existing_test_problems,
     own_change_problems,
     path_problems,
 )
@@ -1906,6 +1907,7 @@ def check_gates(
     references: Sequence[str] = (),
     models: Mapping[str, tuple[str, Sequence[str]]] | None = None,
     manifest_references: Mapping[str, Sequence[str]] | None = None,
+    module_tests: Mapping[str, Sequence[str]] | None = None,
     trace: TraceFacts | None = None,
 ) -> dict[ProposalGate, list[str]]:
     """What each gate of `check_proposal` finds wrong in `proposal`, one sentence each, under the
@@ -1925,6 +1927,7 @@ def check_gates(
         ProposalGate.EVAL_REPLAY: eval_replay_problems(proposal.groups),
         ProposalGate.PATHS: [
             *path_problems(proposal.groups, tree, manifest_references, change=change),
+            *existing_test_problems(proposal.groups, tree, module_tests or {}),
             *own_change_problems(proposal.groups, change),
             *_reference_problems(proposal),
             *_move_reference_problems(proposal, references),
@@ -1968,6 +1971,7 @@ def check_proposal(
     references: Sequence[str] = (),
     models: Mapping[str, tuple[str, Sequence[str]]] | None = None,
     manifest_references: Mapping[str, Sequence[str]] | None = None,
+    module_tests: Mapping[str, Sequence[str]] | None = None,
     trace: TraceFacts | None = None,
 ) -> list[str]:
     """What the rules of `openspec/config.yaml` and the files of the commit find wrong in
@@ -1989,8 +1993,11 @@ def check_proposal(
     file: the stage job passes the reader of its checkout and commit, and a check with none judges
     no citation (#3422). `manifest_references` maps each changed YAML manifest of `k8s/` to the
     tests that reference it: the job records it from its checkout, the replay reads it from its
-    case, and a caller that gives none judges no test of a manifest (#3972). The problems are
-    those of `check_gates`, joined in the order of the gates."""
+    case, and a caller that gives none judges no test of a manifest (#3972). `module_tests` maps
+    each Python module under `src/` that a behavior group changes to the existing tests of that
+    module: the job records it from its checkout, the recheck reads it from the tree it holds, and
+    a caller that gives none judges no test of a module (#3414). The problems are those of
+    `check_gates`, joined in the order of the gates."""
     found = check_gates(
         proposal,
         known,
@@ -2009,6 +2016,7 @@ def check_proposal(
         references=references,
         models=models,
         manifest_references=manifest_references,
+        module_tests=module_tests,
         trace=trace,
     )
     return joined_problems(found)

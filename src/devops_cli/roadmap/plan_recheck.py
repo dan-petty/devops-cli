@@ -27,8 +27,10 @@ false refusal, and only a person decides which.
 
 The pass judges less than the stage job. It gives `check_gates` no `probes`, `overlaps`,
 `search_evidence` or `plan_creates`. It records the tests that each changed manifest reaches from a
-search at the ref, so a merged manifest plan gets the refusal of a staged one (#3972). It does not
-measure the groups, scan the files for secrets or check the staging title, and it calls no model.
+search at the ref, so a merged manifest plan gets the refusal of a staged one (#3972), and the
+existing tests of each module that a behavior group changes, so a merged plan that omits one is
+refused too (#3414). It does not measure the groups, scan the files for secrets or check the
+staging title, and it calls no model.
 It judges the plan on the tree of the default branch or of the branch, and not on the commit that
 the job staged. So a plan that it accepts can still fail the job.
 """
@@ -57,7 +59,11 @@ from devops_cli.roadmap.plan_read import (
 from devops_cli.roadmap.plan_rewrite import PlanRewrite, rewrite_plan
 from devops_cli.roadmap.planned import PlannedChanges, planned_changes_at, read_planned_changes
 from devops_cli.roadmap.stage.stage_change import check_gates
-from devops_cli.roadmap.stage.stage_paths import StagedTree, record_test_references
+from devops_cli.roadmap.stage.stage_paths import (
+    StagedTree,
+    record_module_tests,
+    record_test_references,
+)
 from devops_cli.roadmap.stage.stage_validate import validate_change
 from devops_cli.roadmap.step_files import parse_task_groups
 from devops_cli.roadmap.stores.store import GitHubState, Item, RoadmapStore
@@ -343,6 +349,7 @@ def _record(shared: _Pass, issue: int, folder: str) -> PlanRecord:
         requirements=shared.requirements,
         issue_body=held.body if held is not None else "",
         manifest_references=record_test_references(proposal.groups, shared.test_search),
+        module_tests=record_module_tests(proposal.groups, shared.tree, shared.test_search),
     )
     refusals = [
         Refusal(folder, gate.value, problem)

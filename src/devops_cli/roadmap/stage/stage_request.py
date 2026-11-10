@@ -76,6 +76,7 @@ def gate_arguments(
     references: Sequence[str] = (),
     models: Mapping[str, tuple[str, Sequence[str]]] | None = None,
     manifest_references: Mapping[str, Sequence[str]] | None = None,
+    module_tests: Mapping[str, Sequence[str]] | None = None,
     trace: TraceFacts | None = None,
 ) -> dict[str, Any]:
     """The keyword arguments of `check_proposal` and `check_gates` after the proposal. The request
@@ -97,5 +98,6 @@ def gate_arguments(
         "references": references,
         "models": models,
         "manifest_references": manifest_references,
+        "module_tests": module_tests,
         "trace": trace,
     }

@@ -44,6 +44,8 @@ CRITERION = "`uv run pytest tests/test_sample.py` - the sample keeps the last co
 ISSUE_BODY = f"Fix `{SAMPLE}`.\n\n## Acceptance criteria\n\n- [ ] {CRITERION}\n"
 TREE = StagedTree([SAMPLE])
 KNOWN = {"comment-thread"}
+MODULE = "src/devops_cli/roadmap/stage/stage_paths.py"
+MODULE_TEST = "tests/roadmap/stage/test_roadmap_stage_paths.py"
 PULL = Overlap(
     number=3173,
     title="docs(openspec): plan #3173 the telemetry page",
@@ -330,6 +332,13 @@ def test_gates_from_request_pass_the_manifest_references_through() -> None:
     arguments = gate_arguments(_request(), TREE, known=KNOWN, manifest_references=references)
 
     assert arguments["manifest_references"] == references
+
+
+def test_gates_from_request_pass_the_module_tests_through() -> None:
+    """The tests of each changed module reach the `paths` gate (#3414)."""
+    arguments = gate_arguments(_request(), TREE, known=KNOWN, module_tests={MODULE: (MODULE_TEST,)})
+
+    assert arguments["module_tests"] == {MODULE: (MODULE_TEST,)}
 
 
 def test_a_request_round_trips_through_json_so_a_gate_runs_again_from_a_file() -> None:
