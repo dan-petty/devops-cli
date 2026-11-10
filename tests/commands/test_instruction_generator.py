@@ -357,9 +357,13 @@ def test_devcontainer_init_scaffolds_agent_instructions(runner: CliRunner, tmp_p
 
 
 def test_devcontainer_post_create_scaffolds_agent_instructions(
-    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    runner: CliRunner,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Verify devops devcontainer post-create scaffolds missing agent instructions."""
+    import inspect
+
     fake_home = tmp_path / "home"
     fake_home.mkdir()
     monkeypatch.setenv("HOME", str(fake_home))
@@ -378,11 +382,18 @@ def test_devcontainer_post_create_scaffolds_agent_instructions(
     )
     assert res_dry.exit_code == 0
 
-    # Live execution test. --skip-tools keeps uv from installing the locked semgrep and bandit
-    # from PyPI into the test's data directory.
+    # Live execution test. Older base revisions accepted --skip-tools to omit managed tools.
+    post_create_cmd = next(
+        c for c in devcontainer_app.registered_commands if c.name == "post-create"
+    )
+    skip_args = (
+        ["--skip-tools"]
+        if "skip_tools" in inspect.signature(post_create_cmd.callback).parameters
+        else []
+    )
     res_live = runner.invoke(
         devcontainer_app,
-        ["post-create", "--workspace", str(tmp_path), "--skip-tools"],
+        ["post-create", "--workspace", str(tmp_path), *skip_args],
     )
     assert (
         res_live.exit_code,

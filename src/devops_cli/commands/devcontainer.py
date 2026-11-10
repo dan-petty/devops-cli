@@ -724,24 +724,6 @@ def _bootstrap_developer_tools(*, dry_run: bool = False) -> list[str]:
     return actions
 
 
-def _bootstrap_managed_tools(
-    target_dir: Path | None = None,
-    *,
-    dry_run: bool = False,
-    skip: bool = False,
-) -> list[str]:
-    """Bootstrap missing managed DevOps tool binaries into target_dir."""
-    if dry_run or skip:
-        return []
-    try:
-        from devops_cli.commands.install_tools import install_managed_tools
-
-        dest = target_dir or (Path.home() / ".local" / "bin")
-        return install_managed_tools(target_dir=dest, only_missing=True)
-    except Exception as exc:
-        return [f"Warning: Failed to bootstrap managed DevOps tools ({exc})"]
-
-
 # Sourced by bash and zsh alike. It asks only while post-start's marker says the keyring is
 # still locked, and flock keeps several restored terminals from all prompting at once.
 _KEYRING_UNLOCK_HOOK_MARKER = "devops-cli keyring unlock"
@@ -789,8 +771,6 @@ def _run_post_create_lifecycle(  # noqa: C901
     workspace_dir: Path,
     *,
     dry_run: bool = False,
-    skip_tools: bool = False,
-    target_dir: Path | None = None,
 ) -> list[str]:
     """Execute DevContainer post-create setup tasks in pure Python."""
     actions: list[str] = []
@@ -798,11 +778,9 @@ def _run_post_create_lifecycle(  # noqa: C901
     # 1. Volume mount permissions & ownership
     actions.extend(_setup_volume_mount_permissions(workspace_dir, dry_run=dry_run))
 
-    # 2. Bootstrap tools if not present, including the keyring on images that lack it
+    # 2. Bootstrap developer tools if not present, including the keyring on images that lack it.
+    # The locked tools are in the image, so a rebuild of the image is the way to change them.
     actions.extend(_bootstrap_developer_tools(dry_run=dry_run))
-    actions.extend(
-        _bootstrap_managed_tools(target_dir=target_dir, dry_run=dry_run, skip=skip_tools)
-    )
     actions.extend(_install_keyring_packages(dry_run=dry_run))
 
     # 3. Persistent bash history
@@ -1445,10 +1423,6 @@ def post_create(
         Path, typer.Option("--workspace", "-w", help=HELP.options.workspace_dir)
     ] = DEFAULT_CURRENT_PATH,
     dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
-    skip_tools: Annotated[
-        bool,
-        typer.Option("--skip-tools", help="Skip bootstrapping missing DevOps tool binaries."),
-    ] = False,
     json_output: Annotated[
         bool, typer.Option("--json", "-j", help=HELP.options.json_output)
     ] = False,
@@ -1458,7 +1432,7 @@ def post_create(
     if dry_run or is_dry_run():
         from devops_cli.devcontainer.devcontainer_plans import plan_post_create
 
-        plans = plan_post_create(workspace=ws, skip_tools=skip_tools)
+        plans = plan_post_create(workspace=ws)
         if json_output:
             emit_serialized(
                 {"dry_run": True, "requests": [r.__dict__ for r in plans]},
@@ -1469,7 +1443,7 @@ def post_create(
         return
 
     print_info(MESSAGES.devcontainer.post_create_start.format(workspace=ws), prefix=False)
-    actions = _run_post_create_lifecycle(ws, dry_run=False, skip_tools=skip_tools)
+    actions = _run_post_create_lifecycle(ws, dry_run=False)
     for action in actions:
         print_info(f"  [green]✓[/green] {action}", prefix=False)
     print_success(MESSAGES.devcontainer.post_create_ready, prefix=False)

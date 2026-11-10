@@ -428,26 +428,6 @@ def _check_pins(targets: dict[str, LockedTool], target_dir: Path) -> None:
     print_success(MESSAGES.install.check_all_pinned.format(count=len(targets), path=target_dir))
 
 
-def install_managed_tools(
-    target_dir: Path = DEFAULT_LOCAL_BIN_DIR,
-    *,
-    only_missing: bool = True,
-) -> list[str]:
-    """Install the locked tools into target_dir, as post-create does.
-
-    Returns one human-readable line per tool it installed or failed to install.
-    """
-    tools = load_tools_lock().tools()
-    actions: list[str] = []
-    for name, entry in (_off_pin(tools, target_dir) if only_missing else tools).items():
-        try:
-            install_tool(name, entry, target_dir)
-            actions.append(f"Installed {name} {entry.version} into {target_dir}")
-        except Exception as exc:
-            actions.append(f"Warning: Failed to install {name} ({exc})")
-    return actions
-
-
 @app.callback(invoke_without_command=True)
 @dry_run_class("request-plan")
 def install_all(

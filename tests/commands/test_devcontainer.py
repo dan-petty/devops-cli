@@ -16,10 +16,9 @@ from tests.support.fakes.docker_engine import DockerEngineFake
 from tests.support.fakes.keyring import FakeKeyring
 from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
 from tests.support.paths import REPO_ROOT
-from tests.support.tools import link_every_tool_at_pin
 
 if TYPE_CHECKING:
-    pass
+    from tests.support.fakes.clock import ClockFake
 
 
 @pytest.fixture
@@ -28,8 +27,9 @@ def runner() -> CliRunner:
 
 
 @pytest.fixture(autouse=True)
-def isolate_devcontainer_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Isolate devcontainer tests from spawning real background system daemons."""
+def isolate_devcontainer_env(monkeypatch: pytest.MonkeyPatch, clock: ClockFake) -> None:
+    """Isolate devcontainer tests from spawning real background system daemons, and from waiting
+    in real time: a lifecycle command that retries a request gets its waits from the fake clock."""
     monkeypatch.setenv("DEVOPS_MINIKUBE_AUTOSTART", "false")
 
 
@@ -170,7 +170,7 @@ class TestDevcontainerCli:
         fake_home.mkdir()
         monkeypatch.setenv("HOME", str(fake_home))
 
-        result = runner.invoke(app, ["post-create", "--workspace", str(tmp_path), "--skip-tools"])
+        result = runner.invoke(app, ["post-create", "--workspace", str(tmp_path)])
         assert result.exit_code == 0
         assert "post-create setup ready" in result.output
         assert (fake_home / ".bash_history").exists()
@@ -564,7 +564,7 @@ class TestDevcontainerCli:
             "shutil.which", lambda prog: "/usr/local/bin/uv" if prog == "uv" else None
         )
 
-        result = runner.invoke(app, ["post-create", "--workspace", str(tmp_path), "--skip-tools"])
+        result = runner.invoke(app, ["post-create", "--workspace", str(tmp_path)])
         assert result.exit_code == 0
         assert "Installed standalone pre-commit tool" in result.output
         assert any("pre-commit" in c.argv and "install" in c.argv for c in process_fake.calls)
@@ -590,7 +590,7 @@ class TestDevcontainerCli:
             ProcessAnswer(returncode=1, stderr="network error"),
         )
 
-        result = runner.invoke(app, ["post-create", "--workspace", str(tmp_path), "--skip-tools"])
+        result = runner.invoke(app, ["post-create", "--workspace", str(tmp_path)])
         assert result.exit_code == 0
         assert "Warning: Failed to install standalone pre-commit tool" in result.output
 
@@ -610,7 +610,7 @@ class TestDevcontainerCli:
             lambda prog: "/usr/local/bin/" + prog if prog in ("uv", "pre-commit") else None,
         )
 
-        result = runner.invoke(app, ["post-create", "--workspace", str(tmp_path), "--skip-tools"])
+        result = runner.invoke(app, ["post-create", "--workspace", str(tmp_path)])
         assert (
             result.exit_code,
             "Installed standalone claude CLI" in result.output,
@@ -638,7 +638,7 @@ class TestDevcontainerCli:
             ProcessAnswer(returncode=1, stderr="download error"),
         )
 
-        result = runner.invoke(app, ["post-create", "--workspace", str(tmp_path), "--skip-tools"])
+        result = runner.invoke(app, ["post-create", "--workspace", str(tmp_path)])
         assert (
             result.exit_code,
             "Warning: Failed to install standalone claude CLI" in result.output,
@@ -664,7 +664,7 @@ class TestDevcontainerCli:
             lambda prog: "/usr/local/bin/" + prog if prog in ("pre-commit", "claude") else None,
         )
 
-        result = runner.invoke(app, ["post-create", "--workspace", str(tmp_path), "--skip-tools"])
+        result = runner.invoke(app, ["post-create", "--workspace", str(tmp_path)])
         assert result.exit_code == 0
         assert "Warning: Failed to install standalone uv binary" in result.output
         assert "Installed standalone uv binary" not in result.output
@@ -689,7 +689,7 @@ class TestDevcontainerCli:
             lambda prog: "/usr/local/bin/" + prog if prog in ("uv", "pre-commit") else None,
         )
 
-        result = runner.invoke(app, ["post-create", "--workspace", str(tmp_path), "--skip-tools"])
+        result = runner.invoke(app, ["post-create", "--workspace", str(tmp_path)])
         assert result.exit_code == 0
         assert "Warning: Failed to install standalone claude CLI" in result.output
         assert "Installed standalone claude CLI" not in result.output
@@ -714,7 +714,7 @@ class TestDevcontainerCli:
             lambda prog: "/usr/local/bin/" + prog if prog in ("pre-commit", "claude") else None,
         )
 
-        result = runner.invoke(app, ["post-create", "--workspace", str(tmp_path), "--skip-tools"])
+        result = runner.invoke(app, ["post-create", "--workspace", str(tmp_path)])
         assert result.exit_code == 0
         assert "Installed standalone uv binary into $HOME/.local/bin" in result.output
         assert "Warning: Failed to install standalone uv binary" not in result.output
@@ -739,48 +739,10 @@ class TestDevcontainerCli:
             lambda prog: "/usr/local/bin/" + prog if prog in ("uv", "pre-commit") else None,
         )
 
-        result = runner.invoke(app, ["post-create", "--workspace", str(tmp_path), "--skip-tools"])
+        result = runner.invoke(app, ["post-create", "--workspace", str(tmp_path)])
         assert result.exit_code == 0
         assert "Installed standalone claude CLI into $HOME/.local/bin" in result.output
         assert "Warning: Failed to install standalone claude CLI" not in result.output
-
-    def test_post_create_warns_and_succeeds_when_a_node_tool_has_no_npm_to_install_with(
-        self,
-        runner: CliRunner,
-        tmp_path: Path,
-        monkeypatch: pytest.MonkeyPatch,
-        process_fake: ProcessFake,
-    ) -> None:
-        """Post-create installs every tool in the lock, and a Node tool needs npm, which the
-        installer does not provision: without it the tool is one warning and post-create still
-        succeeds."""
-        from devops_cli.commands import install_tools
-        from devops_cli.tools_lock import ToolsLock, load_tools_lock
-
-        fake_home = tmp_path / "home"
-        fake_home.mkdir()
-        monkeypatch.setenv("HOME", str(fake_home))
-        monkeypatch.setattr(
-            "shutil.which",
-            lambda prog: (
-                "/usr/local/bin/" + prog if prog in ("uv", "pre-commit", "claude") else None
-            ),
-        )
-        lock = ToolsLock(
-            python_version="3.14",
-            binary={},
-            python={},
-            npm={"openspec": load_tools_lock().npm["openspec"]},
-        )
-        monkeypatch.setattr(install_tools, "load_tools_lock", lambda: lock)
-
-        result = runner.invoke(app, ["post-create", "--workspace", str(tmp_path)])
-
-        assert (
-            result.exit_code,
-            "Warning: Failed to install openspec (Required dependency 'npm' is not installed"
-            in " ".join(result.output.split()),
-        ) == (0, True)
 
     def test_init_scaffolds_claude_extension_and_feature(
         self, runner: CliRunner, tmp_path: Path
@@ -815,9 +777,6 @@ class TestDevcontainerCli:
         fake_home = tmp_path / "home"
         fake_home.mkdir()
         monkeypatch.setenv("HOME", str(fake_home))
-        # run-lifecycle has no --skip-tools: every locked tool is at its pin, so the
-        # bootstrap finds nothing to install.
-        link_every_tool_at_pin(fake_home / ".local" / "bin")
         monkeypatch.setenv("DEVOPS_MINIKUBE_AUTOSTART", "false")
 
         result = runner.invoke(app, ["run-lifecycle", "--all", "--workspace", str(tmp_path)])
@@ -1139,9 +1098,7 @@ class TestDevcontainerCli:
         assert "Configured volume mount permissions" in msg
 
         # Test post-create includes volume mount configuration
-        res_create = runner.invoke(
-            app, ["post-create", "--workspace", str(tmp_path), "--skip-tools"]
-        )
+        res_create = runner.invoke(app, ["post-create", "--workspace", str(tmp_path)])
         assert res_create.exit_code == 0
         assert "Configured volume mount permissions" in res_create.output
 
@@ -1244,9 +1201,6 @@ class TestDevcontainerCli:
         fake_home = tmp_path / "home"
         fake_home.mkdir()
         monkeypatch.setenv("HOME", str(fake_home))
-        # run-lifecycle has no --skip-tools: every locked tool is at its pin, so the
-        # bootstrap finds nothing to install.
-        link_every_tool_at_pin(fake_home / ".local" / "bin")
 
         # 1. Corrupted devcontainer.json in _extract_mount_targets
         dc_dir = tmp_path / ".devcontainer"
@@ -1314,7 +1268,7 @@ class TestDevcontainerCli:
 
         # 7. Post-create warning with non-existent DEVOPS_CLI_CONFIG
         monkeypatch.setenv("DEVOPS_CLI_CONFIG", str(tmp_path / "missing-config.yaml"))
-        actions_pc = _run_post_create_lifecycle(tmp_path, dry_run=False, skip_tools=True)
+        actions_pc = _run_post_create_lifecycle(tmp_path, dry_run=False)
         assert any("Specified DEVOPS_CLI_CONFIG file does not exist" in a for a in actions_pc)
 
         # 8. _run_k8s_bootstrap_worker missing minikube binary
@@ -2347,8 +2301,8 @@ def test_post_create_adds_the_unlock_hook_to_each_shell_once(
     fake_home.mkdir()
     monkeypatch.setenv("HOME", str(fake_home))
 
-    _run_post_create_lifecycle(tmp_path, skip_tools=True)
-    _run_post_create_lifecycle(tmp_path, skip_tools=True)
+    _run_post_create_lifecycle(tmp_path)
+    _run_post_create_lifecycle(tmp_path)
 
     for rc in (".bashrc", ".zshrc"):
         content = (fake_home / rc).read_text(encoding="utf-8")
@@ -2442,33 +2396,9 @@ def test_an_environment_token_leaves_hosts_yml_alone(
     assert (_move_plaintext_gh_tokens(), calls) == ([], [])
 
 
-def test_bootstrap_managed_tools(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Verify _bootstrap_managed_tools behavior under dry_run, skip, and normal execution."""
-    from devops_cli.commands.devcontainer import _bootstrap_managed_tools
-
-    # dry_run and skip return empty list
-    assert (
-        _bootstrap_managed_tools(tmp_path, dry_run=True),
-        _bootstrap_managed_tools(tmp_path, skip=True),
-    ) == ([], [])
-
-    # Successful delegation to install_managed_tools (all at pin)
-    link_every_tool_at_pin(tmp_path)
-    actions = _bootstrap_managed_tools(tmp_path)
-    assert actions == []
-
-    # Exception handling returns warning
-    def raise_err() -> Path:
-        raise RuntimeError("connection refused")
-
-    monkeypatch.setattr(Path, "home", raise_err)
-    warn_actions = _bootstrap_managed_tools(None)
-    assert any("Warning: Failed to bootstrap managed DevOps tools" in a for a in warn_actions)
-
-
 def test_post_create_leaves_semgrep_to_the_tools_lock(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Post-create installs no Semgrep of its own: `install_managed_tools` installs the locked
-    one, so only one Semgrep is on PATH (#1142)."""
+    """Post-create installs no Semgrep of its own: the image installs the locked one,
+    so only one Semgrep is on PATH (#1142)."""
     from devops_cli.commands.devcontainer import _bootstrap_developer_tools
 
     calls = _record_subprocess_calls(monkeypatch)
@@ -2477,15 +2407,6 @@ def test_post_create_leaves_semgrep_to_the_tools_lock(monkeypatch: pytest.Monkey
     _bootstrap_developer_tools()
 
     assert (bool(calls), [cmd for cmd, _ in calls if "semgrep" in " ".join(cmd)]) == (True, [])
-
-
-def test_post_create_skip_tools_flag(
-    tmp_path: Path, runner: CliRunner, process_fake: ProcessFake
-) -> None:
-    """Verify devops devcontainer post-create --skip-tools passes skip_tools flag."""
-    res = runner.invoke(app, ["post-create", "--workspace", str(tmp_path), "--skip-tools"])
-    assert res.exit_code == 0
-    assert "DevContainer post-create setup ready" in res.output
 
 
 def test_bootstrap_k8s_prints_deploy_stack_command(
@@ -2625,3 +2546,14 @@ def test_devcontainer_image_configuration_omits_workspace_settings() -> None:
     assert "postCreateCommand" not in image_config
     assert "postStartCommand" not in image_config
     assert "customizations" not in image_config
+
+
+def test_post_create_installs_no_locked_tool(runner: CliRunner, tmp_path: Path) -> None:
+    """The image holds the locked tools, so the post-create plan has no tool install and the
+    command has no option to skip one."""
+    from devops_cli.devcontainer.devcontainer_plans import plan_post_create
+
+    methods = {request.method for request in plan_post_create(tmp_path)}
+    skipped = runner.invoke(app, ["post-create", "--workspace", str(tmp_path), "--skip-tools"])
+
+    assert (methods & {"npm", "GET"}, skipped.exit_code) == (set(), 2)
