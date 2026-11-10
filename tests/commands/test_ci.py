@@ -978,13 +978,21 @@ def test_ci_workflow_parallelizes_quality_gates() -> None:
         "test",
         "devcontainer",
         "service-image",
+        "service-image-test",
         "runner-image",
     }.issubset(jobs.keys())
     # No `needs:` between them, so they start concurrently rather than in sequence. The one wait is
     # the join of the test shards: the job `Tests & Coverage` needs them and nothing else (#3050).
     assert all(
         not jobs[name].get("needs")
-        for name in ("static", "test-shard", "devcontainer", "service-image", "runner-image")
+        for name in (
+            "static",
+            "test-shard",
+            "devcontainer",
+            "service-image",
+            "service-image-test",
+            "runner-image",
+        )
     )
     assert jobs["test"].get("needs") == "test-shard"
 
@@ -1025,6 +1033,50 @@ def test_service_image_ci_job_invariants() -> None:
     assert not interpolated_runs, (
         f"run: blocks in service-image job must not contain ${{}}: {interpolated_runs}"
     )
+
+
+def test_service_image_test_ci_job_invariants() -> None:
+    """The CI service-image-test job builds the service stage locally and runs the sharded test
+    suite inside `devops-cli-service:local` without pushing or interpolating ${{ in scripts (#1643)."""
+    import yaml
+
+    ci = yaml.safe_load(Path(".github/workflows/ci.yml").read_text(encoding="utf-8")) or {}
+    job = ci["jobs"]["service-image-test"]
+
+    assert (
+        job.get("if"),
+        job.get("permissions"),
+        job.get("strategy"),
+    ) == (
+        "github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'",
+        {"contents": "read", "pull-requests": "read"},
+        {"fail-fast": False, "matrix": {"shard": [1, 2, 3, 4, 5, 6]}},
+    )
+
+    build_step = next(s for s in job["steps"] if s.get("name") == "Build and Load Service Image")
+    build_with = build_step.get("with", {})
+    assert (
+        build_with.get("file"),
+        build_with.get("target"),
+        build_with.get("push") in (False, "false"),
+        build_with.get("load") in (True, "true"),
+        build_with.get("no-cache-filters"),
+    ) == ("./Dockerfile", "service", True, True, "service")
+
+    install_step = next(
+        s for s in job["steps"] if s.get("name") == "Install Service Image Test Dependencies"
+    )
+    install_run = str(install_step.get("run", ""))
+    test_step = next(s for s in job["steps"] if s.get("name") == "Run Test Suite in Service Image")
+    test_run = str(test_step.get("run", ""))
+    assert (
+        "HOME=/tmp" in install_run,
+        "UV_NO_CONFIG=1" in install_run,
+        "/workspace/project" in test_run,
+    ) == (True, True, True)
+
+    interpolated_runs = [s.get("name", "") for s in job["steps"] if "${{" in s.get("run", "")]
+    assert interpolated_runs == []
 
 
 def test_service_image_release_job_invariants() -> None:
@@ -2174,6 +2226,14 @@ def _validate_ci_workflow_parity(workflow_data: dict[str, Any]) -> None:
             "Detect Image Content Changes",
         ): "Git diff to check changed service image sources",
         ("service-image", "Run Service Image Smoke Test"): "Docker container curl/smoke tests",
+        (
+            "service-image-test",
+            "Install Service Image Test Dependencies",
+        ): "Exports locked dev dependencies and installs pinned promtool and kubectl for service image test shards (#1643)",
+        (
+            "service-image-test",
+            "Run Test Suite in Service Image",
+        ): "Runs sharded pytest suite inside built devops-cli-service:local trixie image (#1643)",
         (
             "runner-image",
             "Detect Image Content Changes",

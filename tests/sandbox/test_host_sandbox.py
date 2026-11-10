@@ -15,7 +15,6 @@ from devops_cli.exceptions.sandbox import SandboxValidationError
 from devops_cli.sandbox.host import DEFAULT_HOST_SANDBOX_POLICY, HostSandbox
 from devops_cli.sandbox.models import SandboxPolicy
 from tests.support.fakes.process import FakeSandboxProcess, ProcessFake
-from tests.support.paths import REPO_ROOT
 
 _SYSTEM_PATH = "/usr/local/bin:/usr/bin:/bin"
 
@@ -402,9 +401,13 @@ def test_host_sandbox_linked_worktree_runs_git(tmp_path: Path) -> None:
     ) == (True, 0, True)
 
 
-def test_every_allowlisted_criteria_binary_resolves_inside_the_sandbox_mounts() -> None:
+@pytest.mark.live("jq")
+def test_every_allowlisted_criteria_binary_resolves_inside_the_sandbox_mounts(
+    tmp_path: Path,
+) -> None:
     """Every allowlisted criteria binary is on the sandbox PATH at a path the sandbox binds (#847)."""
-    args = HostSandbox().build_bwrap_args(["true"], cwd=REPO_ROOT)
+    project = _project_with_its_own_environment(tmp_path)
+    args = HostSandbox().build_bwrap_args(["true"], cwd=project)
     bound = _bound_paths(args)
     sandbox_path = _sandbox_path(args)
 
@@ -430,6 +433,7 @@ def _project_with_its_own_environment(root: Path) -> Path:
     (site_packages / "reviewed_dependency.py").write_text("ONE = 1\n", encoding="utf-8")
     (venv / "bin" / "python").parent.mkdir(parents=True, exist_ok=True)
     (venv / "bin" / "python").symlink_to(interpreter)
+    (venv / "bin" / "python3").symlink_to(interpreter)
     ruff = venv / "bin" / "ruff"
     ruff.write_text("#!/bin/sh\necho 'ruff 0.0.0'\n", encoding="utf-8")
     ruff.chmod(0o755)
@@ -485,7 +489,8 @@ def test_sandbox_path_without_a_virtualenv_is_the_system_path(tmp_path: Path) ->
 
 def test_sandbox_path_puts_the_repo_virtualenv_first(tmp_path: Path) -> None:
     """A repository's `.venv/bin` leads the PATH; an interpreter under `/usr` needs no bind (#847)."""
-    repo = _repo_with_virtualenv(tmp_path / "repo", Path("/usr/bin/python3"))
+    system_python = Path(shutil.which("python3", path=_SYSTEM_PATH) or "/usr/bin/python3")
+    repo = _repo_with_virtualenv(tmp_path / "repo", system_python)
     args = HostSandbox().build_bwrap_args(["true"], cwd=repo)
     assert (_sandbox_path(args), _repo_binds(args)) == (
         f"{repo / '.venv' / 'bin'}:{_SYSTEM_PATH}",
