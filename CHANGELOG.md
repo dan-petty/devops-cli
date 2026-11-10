@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.104.0](https://github.com/dan-petty/devops-cli/compare/v0.103.3...v0.104.0) (2026-11-10)
+
+
+### Features
+
+* **ai:** ask-jev command, MCP tool and skill ([#4315](https://github.com/dan-petty/devops-cli/issues/4315)) ([ec160a2](https://github.com/dan-petty/devops-cli/commit/ec160a2d87c2d4e2374e129b2a6d2ba47f97ad3e))
+* **roadmap:** a Jev completeness check for draft pull requests ([#4320](https://github.com/dan-petty/devops-cli/issues/4320)) ([e99dc01](https://github.com/dan-petty/devops-cli/commit/e99dc01e24d0ab05925b242202b35e551f8e97bf))
+
 ## [0.103.3](https://github.com/dan-petty/devops-cli/compare/v0.103.2...v0.103.3) (2026-11-10)
 
 
