@@ -142,8 +142,11 @@ data:
       alternatives:
         limit: 5
         first_pass_limit: 20
-      # Two hosted tiers for every step class of the implement job (#3573): a step starts on
-      # DeepSeek and moves to Claude Sonnet when a failure selects `change_tier`.
+      # Every step class of the implement job has one tier (#3573), as the cluster ConfigMap has
+      # it: a failure that selects `change_tier` ends the step. The owner decided on 2026-11-10
+      # (#4371) to use DeepSeek first. The code of #4274 supports more tiers for each class, and a
+      # Sonnet tier is a later trial, after a Sonnet investigation. A Sonnet tier sends the prompts
+      # of a step to Anthropic (SECURITY.md rule 13).
       implement:
         # The effort values of the passes of the job (#3385): the job takes a low-effort item, and a
         # medium-effort item only when no low-effort item is selectable.
@@ -151,5 +154,5 @@ data:
           - low
           - medium
         ladder:
-          edit: [deepseek-v4.1-flash-1017, claude-sonnet-5-5]
-          repair: [deepseek-v4.1-flash-1017, claude-sonnet-5-5]
+          edit: [deepseek-v4.1-flash-1017]
+          repair: [deepseek-v4.1-flash-1017]
