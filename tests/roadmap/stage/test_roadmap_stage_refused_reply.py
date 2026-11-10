@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any, cast
 import pytest
 from pydantic_ai.messages import ModelResponse, ToolCallPart
 
-from devops_cli.ai.client.models import StructuredOutputValidationError
+from devops_cli.ai.client.models import AIClientError, StructuredOutputValidationError
 from devops_cli.config.constants import (
     CONST_ROADMAP_STAGE_REFUSED_PROBLEM_MAX_CHARS,
     CONST_ROADMAP_STAGE_REFUSED_REPLY_MAX_BYTES,
@@ -404,6 +404,45 @@ def test_a_schema_failure_names_the_violations_the_stop_reason_and_the_count(
         "references.1.reason (missing): Field required",
     ):
         assert expected in failure.reason
+
+
+def test_a_model_call_error_names_its_reason_and_its_message(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo, model_fake: ModelFake
+) -> None:
+    model_fake.answer(AIClientError("gateway returned 502", status=502))
+
+    (failure,) = _plan(store, stage_repo).failed
+
+    assert failure.error == "AIClientError"
+    assert "HTTP 502" in failure.reason
+    assert "gateway returned 502" in failure.reason
+
+
+def test_a_model_call_error_hides_the_quoted_text_of_the_provider(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo, model_fake: ModelFake
+) -> None:
+    model_fake.answer(AIClientError("Ollama returned HTTP 500. Response: 'the reply of the model'"))
+
+    (failure,) = _plan(store, stage_repo).failed
+
+    assert "the reply of the model" not in failure.reason
+    assert "Ollama returned HTTP 500" in failure.reason
+
+
+def test_a_model_call_error_logs_one_line_with_the_item_and_the_reason(
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    model_fake.answer(AIClientError("gateway returned 502", status=502))
+
+    with caplog.at_level(logging.WARNING):
+        _plan(store, stage_repo)
+
+    (line,) = [r.getMessage() for r in caplog.records if "model call failed" in r.getMessage()]
+    assert "item=#1" in line
+    assert "gateway returned 502" in line
 
 
 def test_a_schema_failure_names_at_most_three_violations_of_five(

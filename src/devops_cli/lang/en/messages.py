@@ -3448,6 +3448,10 @@ class RoadmapMessages:
     stage_violations_first: str = " First violations: {lines}."
     stage_violation_line: str = "{loc} ({type}): {message}"
     stage_violation_separator: str = "; "
+    # The failure line and the log line of a model call that failed (#4338): the error code with
+    # the HTTP status or the timeout, then the message of the error with its quoted parts hidden.
+    stage_model_call_failed: str = "{reason}: {detail}"
+    stage_model_call_log: str = "stage model call failed: item=#%d error=%s reason=%s"
     # The stop reasons of a plan run whose reply broke the schema past its retries.
     stage_stop_validation: str = "validation"
     stage_stop_no_tool_call: str = "no tool call"
