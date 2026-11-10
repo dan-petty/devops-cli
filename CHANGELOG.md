@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.108.1](https://github.com/dan-petty/devops-cli/compare/v0.108.0...v0.108.1) (2026-11-10)
+
+
+### Bug Fixes
+
+* **security:** report unavailable when osv-scanner is missing ([#4391](https://github.com/dan-petty/devops-cli/issues/4391)) ([f29d202](https://github.com/dan-petty/devops-cli/commit/f29d202fd25915430350e2cd8dc8772e92960b16))
+
 ## [0.108.0](https://github.com/dan-petty/devops-cli/compare/v0.107.3...v0.108.0) (2026-11-10)
 
 
