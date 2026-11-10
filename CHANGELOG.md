@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.103.2](https://github.com/dan-petty/devops-cli/compare/v0.103.1...v0.103.2) (2026-11-10)
+
+
+### Bug Fixes
+
+* **ai:** route the Jev Decisions API through the gateway ([#4300](https://github.com/dan-petty/devops-cli/issues/4300)) ([4e5adb9](https://github.com/dan-petty/devops-cli/commit/4e5adb90c093a002184121a89a053954d0d2b824))
+* **k8s:** move the mattermost database off the control plane ([#4304](https://github.com/dan-petty/devops-cli/issues/4304)) ([7029757](https://github.com/dan-petty/devops-cli/commit/7029757b067a5a246eb3c62e27f6fc224c6ab43d))
+
+
+### Performance Improvements
+
+* **review:** run Gitleaks once per review instead of per file ([#4295](https://github.com/dan-petty/devops-cli/issues/4295)) ([2acb9f9](https://github.com/dan-petty/devops-cli/commit/2acb9f9da7695a0f07192e62b66ad7c544c252bf))
+
 ## [0.103.1](https://github.com/dan-petty/devops-cli/compare/v0.103.0...v0.103.1) (2026-11-09)
 
 
