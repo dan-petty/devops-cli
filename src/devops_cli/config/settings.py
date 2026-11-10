@@ -1271,6 +1271,17 @@ class RoadmapInboxConfig(BaseModel):
     )
 
 
+class RoadmapIntakeConfig(BaseModel):
+    """What `devops roadmap intake` asks of its models (#4298)."""
+
+    model_config = ConfigDict(extra="ignore", validate_assignment=True, hide_input_in_errors=True)
+
+    jev: bool = Field(
+        description="Whether intake asks TypeSafe Jev (typesafe/jev-1.14) for the type, the priority, the Value, the Effort and the duplicate flags of a proposal. A Jev error, a timeout or a low confidence leaves the proposal to the triage model. Off until `devops roadmap eval jev` shows that Jev flags no more false duplicates than the triage model",
+        default=False,
+    )
+
+
 class RoadmapMcpConfig(BaseModel):
     model_config = ConfigDict(extra="ignore", validate_assignment=True, hide_input_in_errors=True)
 
@@ -1292,6 +1303,7 @@ class RoadmapConfig(BaseModel):
     stage: RoadmapStageConfig = Field(default_factory=RoadmapStageConfig)
     implement: RoadmapImplementConfig = Field(default_factory=RoadmapImplementConfig)
     inbox: RoadmapInboxConfig = Field(default_factory=RoadmapInboxConfig)
+    intake: RoadmapIntakeConfig = Field(default_factory=RoadmapIntakeConfig)
     mcp: RoadmapMcpConfig = Field(default_factory=RoadmapMcpConfig)
 
 

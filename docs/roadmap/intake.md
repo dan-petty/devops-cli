@@ -39,6 +39,23 @@ To keep an issue off the roadmap, close it as not planned:
 devops gh issues close <number> --reason not-planned
 ```
 
+## Jev for the proposal
+
+The setting `roadmap.intake.jev` is off by default. When it is on, intake asks TypeSafe Jev (`typesafe/jev-1.14`) for the fields of the proposal in place of the `triage` model. One request holds a question for each field that has a fixed list:
+
+| Field | Question | Answer |
+| :--- | :--- | :--- |
+| Type | Pick one of the `type/*` labels of `.github/labels.yml`. Asked only when the title and the issue give no type. | The label |
+| Priority | Pick one of `P1-High`, `P2-Medium` and `P3-Low`. | The priority |
+| Value, Effort | Score a rubric of three levels. | The level, rounded |
+| Duplicate | One yes/no question for each nearest item. | A possible original, when the probability reaches 0.90 |
+
+Jev writes no text, so the reason lines say which option Jev chose and how sure it was. Jev gives no evidence for a P0 and no related item. The proposal goes to the same checks as the proposal of the `triage` model, so the checks decide which values stand, and a flagged duplicate only flags: the candidate is still placed.
+
+Intake uses the `triage` model for the whole proposal when a Jev request fails, times out after 30 seconds, or gives a choice or score with a confidence below 0.60. The counter `devops_cli_roadmap_intake_jev_fields_total` shows, for each field, how often Jev or the fallback gave it.
+
+Do not set the setting before `devops roadmap eval jev` shows that Jev flags no more false duplicates than the `triage` model. The command runs both models on the duplicate cases and on 25 closed issues with the labels a person set, and stops before its first call when it needs more calls than `--max-calls`. With `--min-confidence`, it counts a Jev answer below that confidence as no answer, as intake does at 0.60; the default 0 takes every answer to measure what Jev knows.
+
 ## A failed write
 
 A write of GitHub can fail for one candidate, for example with a status 502. Intake skips that candidate, places the others, and then the run fails and names it.
@@ -74,4 +91,5 @@ The Service keeps the failure in its intake record, beside `schedule.json`, and 
 | Type and scope labels from the title | [roadmap-intake-title-labels](../../openspec/specs/roadmap-intake-title-labels/spec.md) |
 | The reply of the model | [roadmap-intake-reply-schema](../../openspec/specs/roadmap-intake-reply-schema/spec.md) |
 | Intake of one issue on an `issues` event of GitHub | [roadmap-scoped-updates](../../openspec/specs/roadmap-scoped-updates/spec.md) |
+| Jev for the proposal fields, and the comparison with the `triage` model | [roadmap-intake-jev](../../openspec/specs/roadmap-intake-jev/spec.md) |
 | The evaluation of the duplicate verdict | `devops roadmap eval intake`, in [roadmap-intake-duplicates](../../openspec/specs/roadmap-intake-duplicates/spec.md) |

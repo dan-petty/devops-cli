@@ -509,6 +509,22 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
         "the age from which the inbox marks a wait; roadmap.inbox.wait_days",
     ),
     "DEFAULT_ROADMAP_INTAKE_INTERVAL_MINUTES": ("other", "a schedule"),
+    "CONST_ROADMAP_JEV_MIN_CONFIDENCE": (
+        "other",
+        "the policy value below which intake uses the triage model; no run is cut by it",
+    ),
+    "CONST_ROADMAP_JEV_DUPLICATE_THRESHOLD": (
+        "other",
+        "the policy value at which a Jev answer flags a possible original; a flag cuts no work",
+    ),
+    "CONST_ROADMAP_JEV_TIMEOUT_SECONDS": (
+        "kept",
+        "the wait for one Jev request; a stuck call falls back to the triage model",
+    ),
+    "CONST_ROADMAP_JEV_EVAL_MAX_CALLS": (
+        "kept",
+        "the calls of one Jev comparison; protects the spend of an on-demand run",
+    ),
     "DEFAULT_ROADMAP_REFINE_INTERVAL_MINUTES": ("other", "a schedule"),
     "DEFAULT_ROADMAP_RETITLE_INTERVAL_MINUTES": ("other", "a schedule"),
     "DEFAULT_ROADMAP_METRICS_INTERVAL_MINUTES": ("other", "a schedule"),

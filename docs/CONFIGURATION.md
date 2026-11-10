@@ -280,6 +280,7 @@ roadmap configuration settings.
 | `stage` | `RoadmapStageConfig` | `filter=['status=ready'] limit=3 planned_limit=20 step_tokens=64000 toolset='extended' mcp=False jev_completeness=False` | - | - |
 | `implement` | `RoadmapImplementConfig` | `effort=['low', 'medium'] in_runner=False repair_rounds=3 step_token_budget=8000000 item_token_budget=20000000 step_time_limit_seconds=5400 item_time_limit_seconds=12600 digest_clears_per_class=1 digest_clears_per_item=3 continuations_per_item=2 ladder={'edit': ['devops-coder'], 'repair': ['devops-coder']} request_timeout_seconds=1200 command_timeout_seconds=1800 monitor_timeout_seconds=3600 deadline_stall_seconds=4200 deadline_extension_seconds=5400 deadline_ceiling_seconds=14400 max_memory_limit='8Gi' mcp=False` | - | - |
 | `inbox` | `RoadmapInboxConfig` | `draft_days=7 wait_days=7` | - | - |
+| `intake` | `RoadmapIntakeConfig` | `jev=False` | - | - |
 | `mcp` | `RoadmapMcpConfig` | `url=None timeout_seconds=30.0` | - | - |
 
 ## Firecrawl Configuration (`firecrawl`)

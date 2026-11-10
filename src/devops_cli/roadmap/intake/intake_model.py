@@ -7,7 +7,7 @@ message and answers with a `ModelProposal`. The reply schema lists the values of
 has a fixed list (#2370), so the structured output of the model keeps to them; intake's own
 checks still decide which values stand. Both calls
 go through the existing clients, the embedder (`ai.tasks.embedding`) and the LLM client
-(`ai.tasks.analysis`), and so through the gateway when one is configured. A call that can't
+(`ai.tasks.triage`), and so through the gateway when one is configured. A call that can't
 reach its model raises `ModelGatewayUnreachableError`, which names the gateway (the error masks
 any password in it), so a run writes nothing. A model that answers, but never in the schema, raises
 `UnusableProposalError` for that one candidate, which intake skips.
@@ -36,6 +36,8 @@ from devops_cli.exceptions.base import DevOpsCLIError
 # The prompt in `ai/tasks/` that tells the model what to return.
 _SYSTEM_PROMPT = "roadmap_intake_system.md"
 _NOTHING_WRITTEN = "intake wrote nothing"
+# The fields of a request that the user message of the triage model does not carry.
+_NOT_SENT = frozenset({"needs_type", "type_notes"})
 
 
 def intake_system_prompt() -> str:
@@ -124,10 +126,15 @@ class ProposalRequest:
     body: str
     shortlist: tuple[Neighbour, ...]
     types: tuple[str, ...]
+    # Whether the type is for the model to give, and what each type label means. A decision
+    # model needs both; the JSON of the user message holds neither (#4298).
+    needs_type: bool = True
+    type_notes: tuple[tuple[str, str], ...] = ()
 
     def as_json(self) -> str:
         """The request as the JSON the user message carries."""
-        return json.dumps(asdict(self), ensure_ascii=False, indent=1)
+        sent = {k: v for k, v in asdict(self).items() if k not in _NOT_SENT}
+        return json.dumps(sent, ensure_ascii=False, indent=1)
 
 
 class UnusableProposalError(ValueError):
@@ -238,12 +245,18 @@ class GatewayIntakeModel:
             ) from exc
 
 
-def build_intake_model() -> GatewayIntakeModel:
-    """Intake's model calls with this checkout's AI settings and API key."""
+def build_intake_model() -> IntakeModel:
+    """Intake's model calls with this checkout's AI settings and API key. With
+    `roadmap.intake.jev`, Jev decides the proposal and the triage model is the fallback."""
     from devops_cli.config.settings import get_ai_api_key, load_settings
 
     settings = load_settings()
-    return GatewayIntakeModel(settings.ai, api_key=get_ai_api_key(settings))
+    gateway = GatewayIntakeModel(settings.ai, api_key=get_ai_api_key(settings))
+    if not settings.roadmap.intake.jev:
+        return gateway
+    from devops_cli.roadmap.intake.intake_jev import JevIntakeModel
+
+    return JevIntakeModel(gateway, settings=settings)
 
 
 __all__ = [

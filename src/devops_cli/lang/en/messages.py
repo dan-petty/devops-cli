@@ -4660,6 +4660,62 @@ class RoadmapMessages:
         "This checkout has no {path}. The evaluation reads the type labels from it, as intake "
         "reads them from the repository. Run the command in a checkout that has the file."
     )
+    intake_jev_fallback: str = (
+        "Jev could not decide the proposal, so the triage model decides it: {error}"
+    )
+    intake_jev_low_confidence: str = (
+        "Jev answered the {field} with a confidence of {confidence:.0%}, below the least of "
+        "{least:.0%}."
+    )
+    intake_jev_choice_reason: str = "Jev chose {choice} with a probability of {probability:.0%}."
+    intake_jev_score_reason: str = "Jev scored {level} with a confidence of {confidence:.0%}."
+    intake_jev_duplicate_reason: str = (
+        "Jev gave a probability of {probability:.0%} that both items ask for the same change."
+    )
+    jev_compare_title: str = (
+        "# Jev against the triage model: {duplicates} duplicate case(s) and {labels} label case(s)"
+    )
+    jev_compare_least: str = (
+        "A Jev answer with a confidence below {least:.0%} counts as no answer. Intake uses a "
+        "least of 60%."
+    )
+    jev_compare_duplicates_title: str = (
+        "Duplicate flags against the verdicts of a person (false duplicates first):"
+    )
+    jev_compare_duplicates_row: str = (
+        "- {model}: {false} false duplicate(s), {true} of {expected} true duplicate(s), "
+        "{failed} case(s) with no answer from the model."
+    )
+    jev_compare_labels_title: str = "Fields that agree with the labels of closed issues:"
+    jev_compare_labels_row: str = (
+        "- {model}: type {type}, priority {priority}, value {value}, effort {effort}, "
+        "{failed} case(s) with no answer from the model."
+    )
+    jev_compare_verdict_ok: str = (
+        "Jev flags {jev} false duplicate(s) and the triage model flags {triage}: Jev flags no "
+        "more. This is the condition to set roadmap.intake.jev."
+    )
+    jev_compare_verdict_worse: str = (
+        "Jev flags {jev} false duplicate(s) and the triage model flags {triage}: Jev flags "
+        "more. Keep roadmap.intake.jev off."
+    )
+    jev_compare_verdict_incomplete: str = (
+        "Jev left {left} duplicate case(s) to the fallback: a request failed, or a confidence was "
+        "below the least. The comparison is incomplete. Keep roadmap.intake.jev off."
+    )
+    jev_compare_dry_run: str = (
+        "Dry run: no request was made. A run sends {calls} call(s) to {gateway}, one at a time: "
+        "each of {duplicates} duplicate case(s) and {labels} label case(s) goes to the triage "
+        "model and to Jev. The limit is {limit} call(s). A run makes no embedding and no GitHub "
+        "request."
+    )
+    jev_compare_over_limit: str = (
+        "A run needs {calls} call(s), above the limit of {limit}. Raise --max-calls, or run "
+        "fewer cases."
+    )
+    jev_compare_spent: str = (
+        "Spent: {triage} triage call(s) and {jev} Jev call(s), and {github} GitHub request(s)."
+    )
     stage_eval_bad_case: str = "The case {name} of the golden set is not valid: {reason}"
     stage_eval_no_cases: str = (
         "The golden set has no case in {path}. Run the command in a checkout that has the "

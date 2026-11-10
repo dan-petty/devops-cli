@@ -1298,6 +1298,30 @@ class RoadmapCommandHelp:
     eval_intake_dry_run: str = (
         "Make no request: list the cases and the analysis call that a run makes for each."
     )
+    eval_jev: str = (
+        "Compare Jev (typesafe/jev-1.14) with the triage model on the proposal fields of "
+        "intake. Both models run the duplicate cases of the intake evaluation set and the label "
+        "cases, which are closed issues with the type, priority, Value and Effort that a person "
+        "set. It prints the false duplicates of each model first, then how often each label "
+        "field agrees with the person's. It ends with the verdict on the setting "
+        "roadmap.intake.jev: set it only when Jev flags no more false duplicates than the "
+        "triage model. The run sends two model calls for each case, one at a time, and no "
+        "embedding or GitHub request. It stops before the first call when it needs more calls "
+        "than --max-calls. A case that a model gives no answer for counts as not agreed, and the "
+        "report counts it. It exits 0 after it prints the report."
+    )
+    eval_jev_dry_run: str = (
+        "Make no request: print the number of calls that a run makes and the limit."
+    )
+    eval_jev_confidence: str = (
+        "The least confidence of a Jev choice or score answer that the run takes. A lower answer "
+        "counts as no answer, as in intake, where the least is 0.60 and the triage model decides "
+        "the proposal. The default 0 takes every answer, to measure what Jev knows."
+    )
+    eval_jev_max_calls: str = (
+        "The most model calls that a run may make. A run that needs more stops before its first "
+        "call. The default keeps the spend of a run under 1 USD."
+    )
     eval_app: str = (
         "Score the plan and implement jobs on a golden set. Each command runs a job's real code "
         "on committed cases with a chosen model. It is on demand and no part of devops ci."
