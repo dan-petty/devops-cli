@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import re
 import subprocess
 from pathlib import Path
 
@@ -266,12 +267,122 @@ def test_product_code_does_not_tell_a_replaced_subprocess_run_from_the_stdlib_on
     assert _function_identity_checks(parsed_source_trees) == []
 
 
-CONST_ROOT_TESTS_CEILING = 0
-CONST_NON_MIRROR_TEST_CEILING = 0
+_MOCK_ATTRIBUTES = frozenset(
+    {
+        "mock_calls",
+        "call_count",
+        "call_args",
+        "call_args_list",
+        "method_calls",
+        "assert_called",
+        "assert_called_once",
+        "assert_called_with",
+        "assert_called_once_with",
+        "assert_any_call",
+        "assert_has_calls",
+        "assert_not_called",
+    }
+)
+
+
+def _probe_in_node(node: ast.AST) -> str | None:
+    if isinstance(node, ast.Call):
+        name = _called_name(node)
+        if name in ("hasattr", "getattr") and len(node.args) >= 2:
+            arg1 = node.args[1]
+            if isinstance(arg1, ast.Constant) and arg1.value in _MOCK_ATTRIBUTES:
+                return f"probe of {arg1.value}"
+    elif isinstance(node, ast.Compare):
+        for comp in node.comparators:
+            if isinstance(comp, ast.Constant) and comp.value == "unittest.mock":
+                return "patch detection through unittest.mock"
+    return None
+
+
+def _mock_attribute_probes_in_src(trees: ParsedTreeMap) -> list[str]:
+    """Each place in src/ that checks mock attributes or detects unittest.mock (#1309, #1336)."""
+    src = (REPO_ROOT / "src").resolve()
+    violations: list[str] = []
+    for path, tree in trees.items():
+        rel = Path(path).resolve().relative_to(src).as_posix()
+        for node in ast.walk(tree):
+            probe = _probe_in_node(node)
+            if probe is not None:
+                violations.append(f"{rel}:{node.lineno}: {probe} (docs/TESTING.md # Doubles)")
+    return sorted(violations)
+
+
+def test_no_mock_attribute_probes_in_src(parsed_source_trees: ParsedTreeMap) -> None:
+    """Product code under src/ never probes mock attributes or detects unittest.mock (#1336)."""
+    assert _mock_attribute_probes_in_src(parsed_source_trees) == []
+
+
+def test_mock_attribute_probe_in_src_fails_ban() -> None:
+    """A mock attribute probe in src/ fails the ban and cites docs/TESTING.md (#1336)."""
+    source = (
+        "def fn(x):\n"
+        "    if hasattr(x, 'mock_calls'):\n"
+        "        return True\n"
+        "    return x == 'unittest.mock'\n"
+    )
+    tree = ast.parse(source)
+    trees = {REPO_ROOT / "src" / "devops_cli" / "probe.py": tree}
+    violations = _mock_attribute_probes_in_src(trees)
+    assert len(violations) == 2
+    assert "devops_cli/probe.py:2" in violations[0]
+    assert "docs/TESTING.md # Doubles" in violations[0]
+    assert "devops_cli/probe.py:4" in violations[1]
+    assert "docs/TESTING.md # Doubles" in violations[1]
+
+
+def _unreachable_calls_in_src(trees: ParsedTreeMap) -> list[str]:
+    """Each place in src/ that calls unreachable(...) (#1336)."""
+    src = (REPO_ROOT / "src").resolve()
+    violations: list[str] = []
+    for path, tree in trees.items():
+        rel = Path(path).resolve().relative_to(src).as_posix()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call) and _called_name(node) == "unreachable":
+                violations.append(
+                    f"{rel}:{node.lineno}: call to unreachable() (docs/TESTING.md # Doubles)"
+                )
+    return sorted(violations)
+
+
+def test_no_unreachable_calls_in_src(parsed_source_trees: ParsedTreeMap) -> None:
+    """Product code under src/ never calls the interim unreachable() marker (#1336)."""
+    assert _unreachable_calls_in_src(parsed_source_trees) == []
+
+
+def test_unreachable_call_in_src_fails_ban() -> None:
+    """An unreachable() call in src/ fails the ban and cites docs/TESTING.md (#1336)."""
+    source = "def fn():\n    unreachable('not implemented')\n"
+    tree = ast.parse(source)
+    trees = {REPO_ROOT / "src" / "devops_cli" / "interim.py": tree}
+    violations = _unreachable_calls_in_src(trees)
+    assert len(violations) == 1
+    assert "devops_cli/interim.py:2" in violations[0]
+    assert "docs/TESTING.md # Doubles" in violations[0]
+
 
 _TEST_RESERVED_DIRECTORIES = frozenset(
     {"fixtures", "golden", "__snapshots__", "__pycache__", "support", "invariants", "gate"}
 )
+
+
+def find_loose_root_test_files(repo_root: Path) -> list[str]:
+    """Find any .py files directly in tests/ other than conftest.py and __init__.py (#1336)."""
+    tests_dir = repo_root / "tests"
+    if not tests_dir.is_dir():
+        return []
+    allowed = {"conftest.py", "__init__.py"}
+    violations: list[str] = []
+    for path in sorted(tests_dir.glob("*.py")):
+        if path.name not in allowed:
+            violations.append(
+                f"{path.relative_to(repo_root).as_posix()}: loose file directly in tests/ (docs/TESTING.md # Layout)"
+            )
+    return violations
 
 
 def find_root_test_files(repo_root: Path) -> list[str]:
@@ -319,10 +430,26 @@ def find_orphan_test_directories(repo_root: Path) -> list[str]:
 
 
 def test_tests_mirror_source_tree_layout() -> None:
-    """Every test file sits in a directory mirroring its devops_cli package or in tests/invariants/ (#1313)."""
-    assert len(find_root_test_files(REPO_ROOT)) <= CONST_ROOT_TESTS_CEILING
-    assert len(find_non_mirror_test_files(REPO_ROOT)) <= CONST_NON_MIRROR_TEST_CEILING
+    """Every test file sits in a directory mirroring its devops_cli package or in tests/invariants/ (#1313, #1336)."""
+    assert find_root_test_files(REPO_ROOT) == []
+    assert find_non_mirror_test_files(REPO_ROOT) == []
     assert find_orphan_test_directories(REPO_ROOT) == []
+
+
+def test_no_loose_files_directly_in_tests() -> None:
+    """Shared helpers live in tests/support/, not directly in tests/ (#1336)."""
+    assert find_loose_root_test_files(REPO_ROOT) == []
+
+
+def test_loose_files_directly_in_tests_fails(tmp_path: Path) -> None:
+    """A helper file directly in tests/ fails the ban and cites docs/TESTING.md (#1336)."""
+    tests_dir = tmp_path / "tests"
+    tests_dir.mkdir(parents=True)
+    (tests_dir / "helper.py").touch()
+    violations = find_loose_root_test_files(tmp_path)
+    assert len(violations) == 1
+    assert "tests/helper.py" in violations[0]
+    assert "docs/TESTING.md # Layout" in violations[0]
 
 
 def test_layout_ratchet_flags_root_test_file(tmp_path: Path) -> None:
@@ -476,48 +603,206 @@ def test_the_roadmap_tests_mirror_the_roadmap_subpackages() -> None:
             assert (directory / f"{snapshot.stem}.py").is_file(), snapshot.name
 
 
-# The command-test directories that patch no name inside devops-cli (#3769). A group of
-# `tests/commands/` joins this list when its pull request removes its last patch, and #1336 widens
-# the list to the whole directory.
-_PATCH_FREE_COMMAND_TEST_DIRECTORIES = ("tests/commands", "tests/commands/k8s")
+# The test directories that patch no name inside devops-cli (#3769, #1336).
+_PATCH_FREE_COMMAND_TEST_DIRECTORIES = ("tests/commands", "tests/invariants")
 _PATCH_CALLS = frozenset({"patch", "setattr"})
 
 
-def _string_patches_of_devops_cli(source: str) -> list[int]:
-    """The lines of the `patch` and `setattr` calls of a test module whose first argument is a
-    string that names a module of devops-cli."""
+def _string_patches_of_devops_cli(source: str) -> list[tuple[int, str]]:
+    """The line and target of patch and setattr calls whose first argument is a string
+    that names a devops_cli module, class, function, or attribute (#1336)."""
+    patches: list[tuple[int, str]] = []
+    for node in ast.walk(ast.parse(source)):
+        if (
+            isinstance(node, ast.Call)
+            and _called_name(node) in _PATCH_CALLS
+            and node.args
+            and isinstance(node.args[0], ast.Constant)
+            and isinstance(node.args[0].value, str)
+            and node.args[0].value.split(".")[0] == "devops_cli"
+        ):
+            patches.append((node.lineno, node.args[0].value))
+    return patches
+
+
+def find_devops_cli_string_patches(test_file: Path, repo_root: Path = REPO_ROOT) -> list[str]:
+    """Find string patches of devops_cli in a test file (#1336)."""
+    rel = test_file.relative_to(repo_root).as_posix()
     return [
-        node.lineno
-        for node in ast.walk(ast.parse(source))
-        if isinstance(node, ast.Call)
-        and _called_name(node) in _PATCH_CALLS
-        and node.args
-        and isinstance(node.args[0], ast.Constant)
-        and isinstance(node.args[0].value, str)
-        and node.args[0].value.split(".")[0] == "devops_cli"
+        f"{rel}:{line}: patch('{target}') (docs/TESTING.md # Doubles)"
+        for line, target in _string_patches_of_devops_cli(test_file.read_text(encoding="utf-8"))
     ]
 
 
-def test_command_tests_of_a_migrated_group_patch_no_devops_cli_name() -> None:
-    """No test of `tests/commands/k8s/` patches a name inside devops-cli: it reaches the edge
-    through the fake of that edge (#4086)."""
-    found = [
-        f"{path.relative_to(REPO_ROOT).as_posix()}:{line}"
+def test_command_and_invariant_tests_patch_no_devops_cli_name() -> None:
+    """No test of tests/commands/ or tests/invariants/ patches a name inside devops-cli (#1336, #4086)."""
+    violations = [
+        violation
         for directory in _PATCH_FREE_COMMAND_TEST_DIRECTORIES
-        for path in sorted((REPO_ROOT / directory).glob("*.py"))
-        for line in _string_patches_of_devops_cli(path.read_text(encoding="utf-8"))
+        for path in sorted((REPO_ROOT / directory).rglob("*.py"))
+        for violation in find_devops_cli_string_patches(path)
     ]
-    assert found == []
+    assert violations == []
 
 
-def test_the_patch_check_finds_a_string_patch_of_a_devops_cli_name() -> None:
-    """The check reads both spellings of a patch, and not a patch of the standard library."""
-    source = (
+def test_patch_of_devops_cli_name_fails_ban(tmp_path: Path) -> None:
+    """A test module patching a devops_cli name fails the ban and cites docs/TESTING.md (#1336)."""
+    test_file = tmp_path / "test_patch.py"
+    test_file.write_text(
         "from unittest.mock import patch\n"
-        "def test_one(monkeypatch):\n"
-        "    patch('devops_cli.commands.k8s._run_cmd')\n"
-        "    monkeypatch.setattr('devops_cli.config.settings.save_settings', None)\n"
-        "    patch('shutil.which')\n"
+        "def test_example(monkeypatch):\n"
+        "    patch('devops_cli.config.settings.load_settings')\n"
+        "    monkeypatch.setattr('devops_cli.core.cli.app', None)\n",
+        encoding="utf-8",
     )
+    violations = find_devops_cli_string_patches(test_file, repo_root=tmp_path)
+    assert len(violations) == 2
+    assert "test_patch.py:3" in violations[0]
+    assert "docs/TESTING.md # Doubles" in violations[0]
+    assert "test_patch.py:4" in violations[1]
+    assert "docs/TESTING.md # Doubles" in violations[1]
 
-    assert _string_patches_of_devops_cli(source) == [3, 4]
+
+def test_stdlib_patch_and_seam_install_are_allowed(tmp_path: Path) -> None:
+    """Patching stdlib edges and installing seam fakes do not fail the patch ban (#1336)."""
+    test_file = tmp_path / "test_allowed.py"
+    test_file.write_text(
+        "from unittest.mock import patch\n"
+        "def test_allowed(git_fake):\n"
+        "    patch('subprocess.run')\n"
+        "    patch('socket.getaddrinfo')\n"
+        "    git_fake.replay('status')\n",
+        encoding="utf-8",
+    )
+    violations = find_devops_cli_string_patches(test_file, repo_root=tmp_path)
+    assert violations == []
+
+
+def _private_devops_cli_import_aliases(node: ast.AST) -> list[tuple[int, str, str]]:
+    if not (
+        isinstance(node, ast.ImportFrom) and node.module and node.module.startswith("devops_cli")
+    ):
+        return []
+    return [
+        (node.lineno, alias.name, node.module) for alias in node.names if alias.name.startswith("_")
+    ]
+
+
+def find_private_devops_cli_imports(directory: Path, repo_root: Path = REPO_ROOT) -> list[str]:
+    """Find any import from devops_cli of a name starting with '_' in directory (#1336)."""
+    violations: list[str] = []
+    for path in sorted(directory.rglob("*.py")):
+        rel = path.relative_to(repo_root).as_posix()
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        for node in ast.walk(tree):
+            for lineno, name, module in _private_devops_cli_import_aliases(node):
+                violations.append(
+                    f"{rel}:{lineno}: private import {name} from {module} (docs/TESTING.md # Doubles)"
+                )
+    return violations
+
+
+def test_invariants_import_no_private_devops_cli_names() -> None:
+    """Invariant tests import only public devops_cli names (#1336)."""
+    assert find_private_devops_cli_imports(REPO_ROOT / "tests" / "invariants") == []
+
+
+def test_private_devops_cli_import_fails_ban(tmp_path: Path) -> None:
+    """A test module importing a private devops_cli name fails the ban and cites docs/TESTING.md (#1336)."""
+    test_file = tmp_path / "test_private.py"
+    test_file.write_text(
+        "from devops_cli.core.cli import _lazy_proxy\n",
+        encoding="utf-8",
+    )
+    violations = find_private_devops_cli_imports(tmp_path, repo_root=tmp_path)
+    assert len(violations) == 1
+    assert "test_private.py:1" in violations[0]
+    assert "_lazy_proxy" in violations[0]
+    assert "docs/TESTING.md # Doubles" in violations[0]
+
+
+def find_module_level_cli_runners(directory: Path, repo_root: Path = REPO_ROOT) -> list[str]:
+    """Find any module-level CliRunner() assignment in directory (#1336)."""
+    violations: list[str] = []
+    for path in sorted(directory.rglob("*.py")):
+        rel = path.relative_to(repo_root).as_posix()
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        for node in tree.body:
+            if isinstance(node, ast.Assign) and isinstance(node.value, ast.Call):
+                if _called_name(node.value) == "CliRunner":
+                    violations.append(
+                        f"{rel}:{node.lineno}: module-level CliRunner (docs/TESTING.md # CLI tests)"
+                    )
+    return violations
+
+
+def test_invariants_bind_no_module_level_cli_runner() -> None:
+    """Invariant tests bind no module-level CliRunner (#1336)."""
+    assert find_module_level_cli_runners(REPO_ROOT / "tests" / "invariants") == []
+
+
+def test_module_level_cli_runner_ban_fails(tmp_path: Path) -> None:
+    """A module-level CliRunner fails the ban and cites docs/TESTING.md (#1336)."""
+    test_file = tmp_path / "test_runner.py"
+    test_file.write_text(
+        "from typer.testing import CliRunner\nrunner = CliRunner()\n",
+        encoding="utf-8",
+    )
+    violations = find_module_level_cli_runners(tmp_path, repo_root=tmp_path)
+    assert len(violations) == 1
+    assert "test_runner.py:2" in violations[0]
+    assert "docs/TESTING.md # CLI tests" in violations[0]
+
+
+def _read_testing_md_invariant_subjects(doc_path: Path) -> frozenset[str]:
+    """Parse the list of invariant subject files from docs/TESTING.md (#1336)."""
+    content = doc_path.read_text(encoding="utf-8")
+    match = re.search(r"-\s+`tests/invariants/`[^\n]*one file per subject:\s*([^\n]+)", content)
+    if not match:
+        return frozenset()
+    subject_line = match.group(1)
+    return frozenset(re.findall(r"`(test_[a-zA-Z0-9_]+\.py)`", subject_line))
+
+
+def find_unlisted_invariant_files(repo_root: Path) -> list[str]:
+    """Find any test_*.py in tests/invariants/ not listed in docs/TESTING.md (#1336)."""
+    testing_md = repo_root / "docs" / "TESTING.md"
+    allowed = _read_testing_md_invariant_subjects(testing_md)
+    invariants_dir = repo_root / "tests" / "invariants"
+    violations: list[str] = []
+    for path in sorted(invariants_dir.glob("test_*.py")):
+        if path.name not in allowed:
+            violations.append(
+                f"{path.relative_to(repo_root).as_posix()}: unlisted invariant file (docs/TESTING.md # Layout)"
+            )
+    return violations
+
+
+def test_invariant_files_are_listed_in_testing_doc() -> None:
+    """Every test file in tests/invariants/ is listed in docs/TESTING.md (#1336)."""
+    assert find_unlisted_invariant_files(REPO_ROOT) == []
+
+
+def test_unlisted_invariant_file_fails_ban(tmp_path: Path) -> None:
+    """An unlisted invariant file fails the ban and cites docs/TESTING.md (#1336)."""
+    docs_dir = tmp_path / "docs"
+    docs_dir.mkdir(parents=True)
+    (docs_dir / "TESTING.md").write_text(
+        "- `tests/invariants/` is the only place for test files outside the mirror. "
+        "It holds the invariant tests, one file per subject: `test_source_tree.py`.\n",
+        encoding="utf-8",
+    )
+    inv_dir = tmp_path / "tests" / "invariants"
+    inv_dir.mkdir(parents=True)
+    (inv_dir / "test_source_tree.py").touch()
+    (inv_dir / "test_unlisted.py").touch()
+    violations = find_unlisted_invariant_files(tmp_path)
+    assert len(violations) == 1
+    assert "tests/invariants/test_unlisted.py" in violations[0]
+    assert "docs/TESTING.md # Layout" in violations[0]

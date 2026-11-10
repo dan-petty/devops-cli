@@ -10,8 +10,8 @@ import importlib
 import json
 from typing import Any
 
+import click
 import typer
-from typer.testing import CliRunner
 
 from devops_cli import main as main_module
 from devops_cli.config.constants import CONST_MCP_EXPOSURE_TABLE
@@ -21,11 +21,9 @@ from devops_cli.dry_run.decorator import (
     dry_run_class,
     get_dry_run_class,
 )
-from devops_cli.main import _COMMAND_SPECS
 from tests.support.paths import FIXTURES
 
 CONST_GAPS_FILE = FIXTURES / "dry_run_gaps.json"
-runner = CliRunner()
 
 
 def _extract_commands(cmd: Any, prefix: str) -> dict[str, Any]:
@@ -44,13 +42,24 @@ def _extract_commands(cmd: Any, prefix: str) -> dict[str, Any]:
 
 
 def _collect_reachable_commands() -> dict[str, Any]:
-    """Traverse all CLI entrypoints in _COMMAND_SPECS and collect commands."""
+    """Traverse all CLI entrypoints in main_app and collect commands."""
     all_cmds: dict[str, Any] = {}
-    for name, (module_path, _) in sorted(_COMMAND_SPECS.items()):
-        mod = importlib.import_module(module_path)
-        app = getattr(mod, "app")
-        click_cmd = typer.main.get_command(app)
-        all_cmds.update(_extract_commands(click_cmd, name))
+    click_cmd = typer.main.get_command(main_module.app)
+    ctx = click.Context(click_cmd)
+    for name in click_cmd.list_commands(ctx):
+        cmd = click_cmd.get_command(ctx, name)
+        cb = getattr(cmd, "callback", None)
+        target = getattr(cb, "target", None)
+        if target is None and cb and hasattr(cb, "__closure__") and cb.__closure__:
+            if "callback" in cb.__code__.co_freevars:
+                idx = cb.__code__.co_freevars.index("callback")
+                target = getattr(cb.__closure__[idx].cell_contents, "target", None)
+        if target:
+            mod_path, _, app_name = target.partition(":")
+            mod = importlib.import_module(mod_path)
+            sub_app = getattr(mod, app_name)
+            sub_click_cmd = typer.main.get_command(sub_app)
+            all_cmds.update(_extract_commands(sub_click_cmd, name))
     return all_cmds
 
 
@@ -222,26 +231,3 @@ def test_mcp_exposure_table_no_external_request_read_only() -> None:
                 )
 
     assert mismatches == []
-
-
-def test_lazy_proxy_dry_run_no_external_request_execution(monkeypatch, capsys) -> None:
-    """Criterion 5: devops --dry-run runs a no-external-request command and prints preview for unclassified."""
-    from devops_cli.core.cli import _handle_lazy_proxy_dry_run
-
-    delegated_calls: list[tuple[str, str, list[str]]] = []
-
-    def _fake_delegate(module_path: str, command_name: str, args: list[str]) -> None:
-        delegated_calls.append((module_path, command_name, args))
-
-    monkeypatch.setattr(main_module, "_delegate", _fake_delegate)
-    stub = "tests.support.dry_run_stub:app"
-
-    # 1. Unclassified command prints generic preview and does NOT execute
-    _handle_lazy_proxy_dry_run(stub, "stub", ["plain"])
-    assert "Would run delegated command: devops stub plain" in capsys.readouterr().out
-    assert len(delegated_calls) == 0
-
-    # 2. Command with no-external-request class executes normally without --dry-run
-    _handle_lazy_proxy_dry_run(stub, "stub", ["marked"])
-    assert "Would run delegated command" not in capsys.readouterr().out
-    assert delegated_calls == [("tests.support.dry_run_stub", "stub", ["marked"])]

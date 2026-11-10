@@ -15,7 +15,7 @@ from devops_cli.config.constants import (
     CONST_ARGO_API_VERSION,
     CONST_ARGO_PLURAL_APPLICATIONS,
 )
-from tests.cluster_secret_fakes import FakeCluster as KubectlWorld
+from tests.support.cluster_secret_fakes import FakeCluster as KubectlWorld
 from tests.support.fakes.keyring import FakeKeyring
 from tests.support.fakes.kubernetes import FakeCluster
 from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake

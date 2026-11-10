@@ -16,9 +16,9 @@ from devops_cli.config.defaults import DEFAULT_AI_MAX_RETRIES, DEFAULT_HTTP_TIME
 from devops_cli.config.settings import AIConfig, AITaskOverride
 from devops_cli.exceptions.security import SSRFBlockedError
 from devops_cli.models.ai import ChatMessage
-from tests.llm_stream_fakes import serve_llm
 from tests.support.fakes.clock import ClockFake
 from tests.support.fakes.http import WebFake
+from tests.support.llm_stream_fakes import serve_llm
 
 
 def test_validate_response_text_valid() -> None:

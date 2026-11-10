@@ -14,7 +14,7 @@ from devops_cli.security.sanitizer import (
     mask_uri_credentials,
     redact_text,
 )
-from tests.github_token_samples import installation_token
+from tests.support.github_token_samples import installation_token
 
 
 def test_redact_text() -> None:

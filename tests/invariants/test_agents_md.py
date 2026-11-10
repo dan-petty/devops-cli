@@ -655,3 +655,38 @@ def test_a_document_that_states_another_coverage_floor_is_reported(tmp_path: Pat
     none.write_text("- The gate has a floor.\n", encoding="utf-8")
 
     assert (_coverage_floors_stated(old), _coverage_floors_stated(none)) == ([90], [])
+
+
+CONST_RETIRED_TEST_PHRASES: Final[tuple[str, ...]] = (
+    "tuple equality",
+    "using mocks (`unittest.mock`, `pytest-mock`)",
+    "tests/test_<submodule>.py",
+    "BaseLLMProvider",
+    "__test__ = False",
+)
+
+
+def _find_retired_test_phrases(content: str) -> list[tuple[int, str]]:
+    """Lines and retired phrases found in text, ignoring case."""
+    found: list[tuple[int, str]] = []
+    for lineno, line in enumerate(content.splitlines(), start=1):
+        line_lower = line.lower()
+        for phrase in CONST_RETIRED_TEST_PHRASES:
+            if phrase.lower() in line_lower:
+                found.append((lineno, phrase))
+    return found
+
+
+def test_agents_md_holds_no_retired_test_rules() -> None:
+    """AGENTS.md holds no retired test rule phrases (#1336)."""
+    agents_path = REPO_ROOT / "AGENTS.md"
+    content = agents_path.read_text(encoding="utf-8")
+    violations = _find_retired_test_phrases(content)
+    assert violations == [], f"Found retired test phrases: {violations}"
+
+
+def test_retired_test_phrase_in_agents_md_fails_ban(tmp_path: Path) -> None:
+    """A file holding a retired phrase fails the ban, naming the line and phrase (#1336)."""
+    doc = tmp_path / "AGENTS.md"
+    doc.write_text("Rule: assert tuple equality in all tests.\n", encoding="utf-8")
+    assert _find_retired_test_phrases(doc.read_text(encoding="utf-8")) == [(1, "tuple equality")]

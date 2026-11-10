@@ -930,7 +930,7 @@ def pin_github_session(monkeypatch: pytest.MonkeyPatch) -> Iterator[str]:
 def isolate_keyring_backends(deny_real_keyring: None) -> Iterator[None]:
     """Unregister the keyring backend classes a test defines and restore keyring's chosen backend,
     so no test's fake backend becomes a later test's keyring (`tests/keyring_isolation.py`)."""
-    from tests.keyring_isolation import keyring_backends_restored
+    from tests.support.keyring_isolation import keyring_backends_restored
 
     with keyring_backends_restored():
         yield

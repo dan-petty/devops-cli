@@ -44,13 +44,13 @@ from devops_cli.review.finding import Finding
 from devops_cli.review.score import score_sessions
 from devops_cli.review.session import ReviewSession, ReviewSessionStore
 from devops_cli.review.state import FindingState
-from tests.llm_stream_fakes import serve_llm
 from tests.support.fakes.git import GitFake
 from tests.support.fakes.http import WebFake
 from tests.support.fakes.model import ModelAnswer, ModelFake
 from tests.support.fakes.process import ProcessAnswer, ProcessCall
 from tests.support.fakes.scanners import ScannerFake
 from tests.support.fakes.tool_executor import ToolAnswer
+from tests.support.llm_stream_fakes import serve_llm
 
 CONST_ANALYSIS_REJECTION_REPLY_TRUNCATED: Final[str] = getattr(
     constants, "CONST_ANALYSIS_REJECTION_REPLY_TRUNCATED", "reply-truncated"

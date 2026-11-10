@@ -44,7 +44,7 @@ from devops_cli.k8s.secret_push import (
     plan_push,
     secret_line,
 )
-from tests.cluster_secret_fakes import (
+from tests.support.cluster_secret_fakes import (
     APP_KEY,
     APP_KEY_ENTRY,
     FakeCluster,

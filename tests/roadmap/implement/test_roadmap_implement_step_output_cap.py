@@ -33,12 +33,12 @@ from devops_cli.roadmap.implement.implement_step import (
     output_cap,
     run_step,
 )
-from tests.llm_stream_fakes import OPENAI_DONE, SSE, sse_data
 from tests.support.fakes.dns import DnsFake
 from tests.support.fakes.http import WebFake
 from tests.support.fakes.process import ProcessFake
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.implement_step import WINDOW, git, is_clean_at, the_whole_group
+from tests.support.llm_stream_fakes import OPENAI_DONE, SSE, sse_data
 from tests.support.model_script import Hang, ModelScript, say
 
 pytestmark = pytest.mark.usefixtures("keyring_store")

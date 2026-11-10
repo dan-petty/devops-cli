@@ -13,8 +13,8 @@ import yaml
 
 from devops_cli.commands.k8s import stack_lifecycle
 from devops_cli.commands.k8s.stack_lifecycle import (
-    _KUSTOMIZATIONS_BY_STACK,
     HELM_RELEASES_BY_STACK,
+    KUSTOMIZATIONS_BY_STACK,
     MANIFESTS_BY_STACK,
 )
 from devops_cli.k8s.cluster_secrets import CLUSTER_SECRETS
@@ -247,11 +247,7 @@ def test_every_application_in_argocd_apps_maps_to_deploy_stack_counterpart() -> 
     ]
     deploy_stack_kustomizations = {
         (REPO_ROOT / "k8s").resolve(),
-        *(
-            (REPO_ROOT / "k8s" / k).resolve()
-            for ks in _KUSTOMIZATIONS_BY_STACK.values()
-            for k in ks
-        ),
+        *((REPO_ROOT / "k8s" / k).resolve() for ks in KUSTOMIZATIONS_BY_STACK.values() for k in ks),
         *(p for p in post_helm if p.is_dir()),
     }
     manifest_paths = [

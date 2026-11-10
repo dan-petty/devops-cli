@@ -21,8 +21,8 @@ from devops_cli.ai.client import LLMClient
 from devops_cli.ai.rag.embeddings import EmbeddingsEngine
 from devops_cli.config.settings import AIConfig, Settings
 from devops_cli.http.entry import request_headers
-from tests.llm_stream_fakes import OPENAI_DONE, openai_chunk, reply, serve_llm
 from tests.support.fakes.http import WebFake
+from tests.support.llm_stream_fakes import OPENAI_DONE, openai_chunk, reply, serve_llm
 
 GATEWAY_URL = "http://example.com:4000/v1"
 END_USER_HEADER = "x-litellm-end-user-id"

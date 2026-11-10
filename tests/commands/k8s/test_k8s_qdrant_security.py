@@ -34,7 +34,7 @@ from devops_cli.config.settings import (
     dotted_set,
     get_qdrant_api_key,
 )
-from tests.cluster_secret_fakes import APP_KEY, APP_KEY_ENTRY, FakeCluster
+from tests.support.cluster_secret_fakes import APP_KEY, APP_KEY_ENTRY, FakeCluster
 from tests.support.fakes.keyring import FakeKeyring
 from tests.support.fakes.process import ProcessAnswer, ProcessFake
 from tests.support.paths import FIXTURES, REPO_ROOT

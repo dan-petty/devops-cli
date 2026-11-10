@@ -372,7 +372,7 @@ def test_a_fake_backend_class_a_test_defines_is_not_left_for_later_tests() -> No
     import keyring.core
     from keyring.backend import KeyringBackend
 
-    from tests.keyring_isolation import keyring_backends_restored
+    from tests.support.keyring_isolation import keyring_backends_restored
 
     chosen = keyring.core._keyring_backend
     with keyring_backends_restored():
@@ -393,7 +393,7 @@ def test_a_locked_backend_class_a_test_defines_is_no_viable_backend_after_it() -
     from keyring.backend import KeyringBackend
     from keyring.errors import KeyringLocked
 
-    from tests.keyring_isolation import keyring_backends_restored
+    from tests.support.keyring_isolation import keyring_backends_restored
 
     def locked(*_: object) -> None:
         raise KeyringLocked("locked")

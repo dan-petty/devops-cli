@@ -36,10 +36,10 @@ from devops_cli.http.egress import EgressLevel
 from devops_cli.http.entry import http_client
 from devops_cli.http.pool import close_expired_connections
 from devops_cli.telemetry.tracer import reset_tracer
-from tests.llm_stream_fakes import serve_llm
 from tests.support.fakes.clock import ClockFake
 from tests.support.fakes.http import WebFake
 from tests.support.fakes.process import ProcessAnswer, ProcessFake
+from tests.support.llm_stream_fakes import serve_llm
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
 

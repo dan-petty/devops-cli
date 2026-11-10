@@ -11,14 +11,14 @@ import pytest
 from devops_cli.ai.client import LLMClient
 from devops_cli.config.settings import AIConfig
 from devops_cli.exceptions import ConfigurationError
-from tests.llm_stream_fakes import (
+from tests.support.fakes.http import WebFake
+from tests.support.llm_stream_fakes import (
     anthropic_event,
     anthropic_text,
     make_anthropic_model_info_payload,
     reply,
     serve_llm,
 )
-from tests.support.fakes.http import WebFake
 
 
 @pytest.fixture(autouse=True)

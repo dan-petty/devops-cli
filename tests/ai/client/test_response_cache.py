@@ -25,9 +25,9 @@ from devops_cli.ai.response_cache import (
 from devops_cli.config.constants import CONST_AI_GATEWAY_SERVED_BY_HEADER
 from devops_cli.config.settings import AIConfig
 from devops_cli.models.ai import ChatMessage
-from tests.llm_stream_fakes import serve_llm
 from tests.support.fakes.clock import ClockFake
 from tests.support.fakes.http import WebFake
+from tests.support.llm_stream_fakes import serve_llm
 
 
 @pytest.fixture(autouse=True)

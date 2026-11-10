@@ -9,7 +9,7 @@ import pytest
 
 from devops_cli.ai.diff.difftastic import get_structural_diff
 from devops_cli.exceptions import SecurityError
-from tests.github_token_samples import installation_token
+from tests.support.github_token_samples import installation_token
 
 
 def test_get_structural_diff_unified_fallback(tmp_path: Path) -> None:

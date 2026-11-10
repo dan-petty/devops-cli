@@ -190,6 +190,8 @@ class OTelTyper(typer.Typer):
                     mod_path, _, _ = target.partition(":")
                     _delegate(mod_path, cmd_name, list(ctx.args))
 
+            setattr(_lazy_proxy, "target", target)
+
             # Interspersed parsing would consume a `--` while collecting the extra arguments,
             # and the delegated command would then parse what followed it as options (#980).
             super().command(

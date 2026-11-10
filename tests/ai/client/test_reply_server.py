@@ -23,15 +23,15 @@ from devops_cli.ai.spend.ledger import SpendLedger
 from devops_cli.config.settings import AIConfig
 from devops_cli.models.ai import ChatMessage
 from devops_cli.telemetry.tracer import get_recent_spans
-from tests.llm_stream_fakes import (
+from tests.support.fakes.http import WebFake
+from tests.support.fakes.otlp import FakeCollector
+from tests.support.llm_stream_fakes import (
     NDJSON,
     make_anthropic_model_info_payload,
     ollama_line,
     reply,
     serve_llm,
 )
-from tests.support.fakes.http import WebFake
-from tests.support.fakes.otlp import FakeCollector
 
 PASSWORD = "pw"
 BASIC_USER_PW = "Basic dXNlcjpwdw=="

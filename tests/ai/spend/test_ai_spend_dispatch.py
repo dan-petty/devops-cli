@@ -18,8 +18,15 @@ from devops_cli.ai.spend.ledger import SpendLedger, observe_llm_calls
 from devops_cli.ai.spend.models import SpendRecord
 from devops_cli.config.settings import AIConfig
 from devops_cli.models.ai import ChatMessage
-from tests.llm_stream_fakes import NDJSON, OPENAI_DONE, openai_chunk, reply, serve_llm, sse_data
 from tests.support.fakes.http import WebFake
+from tests.support.llm_stream_fakes import (
+    NDJSON,
+    OPENAI_DONE,
+    openai_chunk,
+    reply,
+    serve_llm,
+    sse_data,
+)
 
 pytestmark = pytest.mark.usefixtures("clock")
 

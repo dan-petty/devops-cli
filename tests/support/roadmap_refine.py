@@ -38,12 +38,12 @@ from devops_cli.roadmap.stores.store import (
     RefineRecordKey,
     install_roadmap_store,
 )
-from tests.llm_stream_fakes import serve_llm
 from tests.support.fakes.clock import ClockFake
 from tests.support.fakes.git import GitFake
 from tests.support.fakes.http import WebFake
 from tests.support.fakes.process import ProcessAnswer
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
+from tests.support.llm_stream_fakes import serve_llm
 from tests.support.roadmap_jobs import due_job_runner
 
 run_refine_adapter = due_job_runner("refine")

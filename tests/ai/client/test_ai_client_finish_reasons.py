@@ -22,8 +22,8 @@ from devops_cli.config.constants import (
 )
 from devops_cli.config.settings import AIConfig
 from devops_cli.models.ai import ChatMessage
-from tests.llm_stream_fakes import serve_llm
 from tests.support.fakes.http import WebFake
+from tests.support.llm_stream_fakes import serve_llm
 
 _PROMPT = [ChatMessage(role="user", content="hi")]
 

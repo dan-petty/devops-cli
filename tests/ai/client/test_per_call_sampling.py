@@ -10,8 +10,8 @@ import pytest
 
 from devops_cli.ai.client import LLMClient
 from devops_cli.config.settings import AIConfig
-from tests.llm_stream_fakes import serve_llm
 from tests.support.fakes.http import WebFake
+from tests.support.llm_stream_fakes import serve_llm
 
 if TYPE_CHECKING:
     from devops_cli.ai.spend.ledger import SpendLedger

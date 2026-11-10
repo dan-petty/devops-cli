@@ -22,8 +22,8 @@ from devops_cli.ai.spend.ledger import SpendLedger, observe_llm_calls
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config.settings import AIConfig
 from devops_cli.models.ai import ChatMessage
-from tests.llm_stream_fakes import OPENAI_DONE, openai_chunk, reply, serve_llm
 from tests.support.fakes.http import WebFake
+from tests.support.llm_stream_fakes import OPENAI_DONE, openai_chunk, reply, serve_llm
 
 _SYSTEM = "You review one change."
 _PROMPT = "Explain the diff."

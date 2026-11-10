@@ -21,9 +21,9 @@ from urllib.parse import parse_qs, urlsplit
 
 from devops_cli.dry_run.requests import PlannedRequest
 from devops_cli.github.rate_limiter import get_github_rate_limiter
-from tests.project_board_fake import BoardServer
 from tests.support.fakes.github import github_json
 from tests.support.fakes.process import ProcessAnswer, ProcessCall
+from tests.support.project_board_fake import BoardServer
 
 if TYPE_CHECKING:
     from tests.support.fakes.github import GitHubApiFake

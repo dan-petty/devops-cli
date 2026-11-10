@@ -16,8 +16,8 @@ from devops_cli.ai.client import AIClientError, LLMClient
 from devops_cli.ai.client.network import DEFAULT_AI_MAX_RESPONSE_BYTES, size_limit_text
 from devops_cli.ai.spend.ledger import SpendLedger
 from devops_cli.config.settings import AIConfig
-from tests.llm_stream_fakes import OPENAI_DONE, SSE, openai_chunk, serve_llm, sse_data
 from tests.support.fakes.http import WebFake
+from tests.support.llm_stream_fakes import OPENAI_DONE, SSE, openai_chunk, serve_llm, sse_data
 
 GATEWAY_URL = "http://gateway.example.com:4000/v1"
 OLLAMA = "http://ollama-0.example.com:11434"

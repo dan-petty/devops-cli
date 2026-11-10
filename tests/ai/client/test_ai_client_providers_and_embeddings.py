@@ -35,7 +35,8 @@ from devops_cli.ai.client.streaming import (
 )
 from devops_cli.config.settings import AIConfig
 from devops_cli.models.ai import ChatMessage
-from tests.llm_stream_fakes import (
+from tests.support.fakes.http import WebFake
+from tests.support.llm_stream_fakes import (
     NDJSON,
     OPENAI_DONE,
     anthropic_stream_frames,
@@ -45,7 +46,6 @@ from tests.llm_stream_fakes import (
     serve_llm,
     streamed,
 )
-from tests.support.fakes.http import WebFake
 from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS
 
 pytestmark = pytest.mark.usefixtures("keyring_store")

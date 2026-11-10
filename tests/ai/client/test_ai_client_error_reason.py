@@ -16,8 +16,8 @@ from devops_cli.ai.client import AIClientError, LLMClient
 from devops_cli.config.settings import AIConfig
 from devops_cli.http.egress import EgressLevel
 from devops_cli.http.entry import http_client
-from tests.llm_stream_fakes import reply, serve_llm, sse_data
 from tests.support.fakes.http import WebFake
+from tests.support.llm_stream_fakes import reply, serve_llm, sse_data
 
 _MODEL_TEXT = "MODEL-TEXT"
 
