@@ -102,6 +102,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_STAGE_BODY_MAX_TOKENS,
     CONST_ROADMAP_STAGE_COMMENT_MARKER,
     CONST_ROADMAP_STAGE_CONTEXT_MAX_TOKENS,
+    CONST_ROADMAP_STAGE_GATE_RETURNS,
     CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS,
     CONST_ROADMAP_STATUS_NEW,
     CONST_ROADMAP_STATUS_READY,
@@ -1029,16 +1030,21 @@ class _Planner:
         self._pull_requests = 0
         # The trace facts of the kept plan in hand, for the trace gate (#4281).
         self._kept_facts: TraceFacts | None = None
+        # The replies of the item in hand that the checks refused, with their problems, from the
+        # first ask to the last revision of a repair round (#4312).
+        self._refused: list[tuple[StageProposal, str]] = []
 
     def plan(self, target: StageTarget) -> StagedChange | OverBudget | Blocked | FalsePremise:
         """The change of `target`, or the group that stops it. A reply the checks refuse goes back
-        to the model once, with the problem. The model splits the groups at most once. With a
+        to the model `CONST_ROADMAP_STAGE_GATE_RETURNS` time, with the problem, and so does the
+        revision of each repair round (#4348). The model splits the groups at most once. With a
         verifier, the model review of the plan (#3153) follows the checks and may return the plan
         up to `CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS` times (#3039). So an item costs three
-        planner calls at most without a verifier, five with one, and three calls of the verifier."""
+        planner calls at most without a verifier, seven with one, and three calls of the verifier."""
         self._split_asked = False
         self._premise = None
         self._traces.clear()
+        self._refused = []
         kept, key = self._kept(target)
         # A plain client has no trace and its gate is off, on a hit as on a miss.
         self._kept_facts = (
@@ -1066,7 +1072,7 @@ class _Planner:
             self._keep(target, key, request, outcome.proposal, kept)
         verifier = self._verifier
         if isinstance(outcome, StagedChange) and verifier is not None:
-            outcome = self._verified(target, request, outcome, verifier)
+            outcome = self._verified(target, request, outcome, verifier, key)
         if isinstance(outcome, StagedChange) and self._traces:
             return replace(outcome, trace=RunTrace.combined(self._traces))
         return outcome
@@ -1142,30 +1148,43 @@ class _Planner:
         keeps its refused replies and their problems in a file under `key`, and each refused reply
         is logged."""
         floor = len(self._toolbox_traces())
-        refused: list[tuple[StageProposal, str]] = []
-        proposal = first or self._ask_plan(target, key, refused, request.for_model())
-        if _is_degenerate(proposal):
-            self._stop_degenerate(target, key, refused, proposal, floor)
-        outcome = self._settle(target, proposal, request, trace=self._trace_facts())
-        if isinstance(outcome, _Refused):
+        proposal = first or self._ask_plan(target, key, self._refused, request.for_model())
+        return self._returned(target, request, key, floor, proposal, MESSAGES.roadmap.stage_invalid)
+
+    def _returned(
+        self,
+        target: StageTarget,
+        request: StageRequest,
+        key: str | None,
+        floor: int,
+        proposal: StageProposal,
+        invalid: str,
+    ) -> StagedChange | OverBudget:
+        """The change of `proposal`, a reply for the first ask or for a repair round. A reply that
+        the checks refuse goes back to the model with the problem, up to
+        `CONST_ROADMAP_STAGE_GATE_RETURNS` times. A reply that stays refused ends the item, and the
+        file of refused replies holds each of them (#4348, #4312). `floor` is the number of runs
+        before the ask. `invalid` is the failure text, with `{problem}`."""
+        refused = self._refused
+        returns = 0
+        while True:
+            if _is_degenerate(proposal):
+                self._stop_degenerate(target, key, refused, proposal, floor)
+            outcome = self._settle(target, proposal, request, trace=self._trace_facts())
+            if not isinstance(outcome, _Refused):
+                return outcome
             self._note_refused(target, floor, "refused")
             refused.append((outcome.reply, outcome.problem))
+            if returns == CONST_ROADMAP_STAGE_GATE_RETURNS:
+                self._keep_refused(target, key, refused)
+                raise _stage_error(invalid.format(problem=outcome.problem), target)
+            returns += 1
             again = {
                 **request.for_model(),
                 "previous": outcome.reply.model_dump(),
                 "problem": outcome.problem,
             }
             proposal = self._ask_plan(target, key, refused, again)
-            if _is_degenerate(proposal):
-                self._stop_degenerate(target, key, refused, proposal, floor)
-            outcome = self._settle(target, proposal, request, trace=self._trace_facts())
-        if isinstance(outcome, _Refused):
-            self._note_refused(target, floor, "refused")
-            refused.append((outcome.reply, outcome.problem))
-            self._keep_refused(target, key, refused)
-            message = MESSAGES.roadmap.stage_invalid.format(problem=outcome.problem)
-            raise _stage_error(message, target)
-        return outcome
 
     def _ask_plan(
         self,
@@ -1256,19 +1275,20 @@ class _Planner:
         request: StageRequest,
         change: StagedChange,
         verifier: ToolboxClient,
+        key: str | None,
     ) -> StagedChange | OverBudget:
         """The change after the model review. A finding of a type that returns the plan, with a
         quote that is in the input, sends the plan back to the planner with each open finding of
         the round. The revised plan passes the checks and the review again, up to
-        `CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS` times (#3039), and a refused revision stops the
-        item. Every finding of each round stays on the change for the comment (#3039). The last
+        `CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS` times (#3039), and a revision that stays refused
+        stops the item. Every finding of each round stays on the change for the comment (#3039). The last
         review judges the last plan, so only its open findings keep the draft with
         `plan/needs-fix` (#3264)."""
         seen, returned, open_ = self._review(target, change, verifier)
         for _ in range(CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS):
             if not returned:
                 break
-            revised = self._repaired(target, request, change, open_)
+            revised = self._repaired(target, request, change, open_, key)
             if isinstance(revised, OverBudget):
                 return revised
             change = revised
@@ -1282,20 +1302,21 @@ class _Planner:
         request: StageRequest,
         change: StagedChange,
         open_: Sequence[Finding],
+        key: str | None,
     ) -> StagedChange | OverBudget:
         """The plan of one repair round: the planner gets the plan and each open finding of the
-        review, and its revision passes the checks or stops the item."""
+        review. Its revision goes back once with the problem when the checks refuse it, as a first
+        reply does, and a revision that stays refused is kept and stops the item (#4348)."""
         again = {
             **request.for_model(),
             "previous": change.proposal.model_dump(),
             "problem": return_problem(open_),
         }
-        revised = self._ask(StageProposal, CHANGE_TASK, again)
-        outcome = self._settle(target, revised, request, trace=self._trace_facts())
-        if isinstance(outcome, _Refused):
-            message = MESSAGES.roadmap.stage_invalid.format(problem=outcome.problem)
-            raise _stage_error(message, target)
-        return outcome
+        floor = len(self._toolbox_traces())
+        revised = self._ask_plan(target, key, self._refused, again)
+        return self._returned(
+            target, request, key, floor, revised, MESSAGES.roadmap.stage_invalid_revision
+        )
 
     def _input_of(self, target: StageTarget, change: StagedChange) -> VerificationInput:
         """The input that the pass reads for `change`."""

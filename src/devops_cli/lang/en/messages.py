@@ -3425,6 +3425,9 @@ class RoadmapMessages:
     stage_left_archived: str = "Its change is archived on {branch}: the folder `{folder}` is there."
     # The files of the change that the stage job writes, and what its checks find wrong (#2654).
     stage_invalid: str = "The change fails its checks, also after a second try: {problem}"
+    stage_invalid_revision: str = (
+        "The revision after the model review fails its checks, also after a return: {problem}"
+    )
     stage_degenerate: str = (
         "Every text of the plan reply is a placeholder, such as `x` or `placeholder`. The same "
         "request gives the same reply, so the job sends no second request."

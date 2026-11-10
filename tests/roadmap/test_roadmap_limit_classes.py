@@ -70,6 +70,10 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
         "kept",
         "retries for a reply that breaks the schema; a stuck model fails again",
     ),
+    "CONST_ROADMAP_STAGE_GATE_RETURNS": (
+        "kept",
+        "returns of one refused reply to the planner; it bounds the cost of one reply, whether it is a first reply or the revision of a repair round",
+    ),
     "CONST_ROADMAP_STAGE_REFUSED_REPLY_MAX_BYTES": (
         "kept",
         "the size of a refused reply that the job keeps for a person; protects the data volume",

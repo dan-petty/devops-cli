@@ -3285,6 +3285,10 @@ CONST_ROADMAP_STAGE_VERIFY_MAX_FILES: Final[int] = 30
 # The repair rounds of a plan that the verification pass returns (#3039): the planner revises the
 # plan at most this many times, so a plan costs at most three verification runs.
 CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS: Final[int] = 2
+# The returns of a reply that the checks refuse (#4204, #4348): the planner sends the refused reply
+# back with its problem this many times, for the first reply and for the revision of each repair
+# round. A reply that is refused after the last return ends the item.
+CONST_ROADMAP_STAGE_GATE_RETURNS: Final[int] = 1
 # The recall floor of the verification pass (#3039, #3207): the share of the blocker and major
 # defects of the golden set that the pass must find. `docs/ROADMAP_WORKFLOW.md` states the same floor.
 CONST_ROADMAP_VERIFY_RECALL_FLOOR: Final[float] = 0.9
