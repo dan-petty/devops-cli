@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.108.2](https://github.com/dan-petty/devops-cli/compare/v0.108.1...v0.108.2) (2026-11-10)
+
+
+### Bug Fixes
+
+* **sandbox:** pull the sandbox image before deploy ([#4421](https://github.com/dan-petty/devops-cli/issues/4421)) ([45667c9](https://github.com/dan-petty/devops-cli/commit/45667c97994b69c306b214e5204566091e4f88fb))
+
 ## [0.108.1](https://github.com/dan-petty/devops-cli/compare/v0.108.0...v0.108.1) (2026-11-10)
 
 
