@@ -277,8 +277,10 @@ general_settings:
   # so it has no model_list entry. The client (src/devops_cli/ai/jev.py) posts the System One
   # protocol to {ai.gateway_url}/systemone, and this pass-through forwards that body unchanged to
   # the System One endpoint of OpenRouter (https://openrouter.ai/docs/guides/community/jev). The
-  # gateway checks the key of the caller (auth), sends the OpenRouter key from its own
-  # environment, and forwards no header of the caller. It cannot set provider preferences such as
+  # route serves any System One decision model: the model name in the request selects it. A
+  # decision model answers closed questions and writes no text, so it is not a chat model and it
+  # takes no route in model_list. The gateway checks the key of the caller (auth), sends the
+  # OpenRouter key from its own environment, and forwards no header of the caller. It cannot set provider preferences such as
   # data_collection in the body, so the privacy setting of the OpenRouter account applies.
   # tests/ai/test_jev_gateway_route.py fails when this path and the client path differ.
   pass_through_endpoints:
