@@ -1,0 +1,79 @@
+{
+  "step": "verify_screen",
+  "model": "typesafe/jev-1.14",
+  "fitted": "2026-11-10",
+  "cases": 48,
+  "cuts": {
+    "contrived_test": {
+      "continue_below": 0.595,
+      "flag_at": 1.0
+    },
+    "criterion_dropped": {
+      "continue_below": 0.595,
+      "flag_at": 0.63
+    },
+    "false_premise": {
+      "continue_below": 0.595,
+      "flag_at": 0.81
+    },
+    "ignores_existing_code": {
+      "continue_below": 0.595,
+      "flag_at": 1.0
+    },
+    "missing_path": {
+      "continue_below": 0.595,
+      "flag_at": 0.7
+    },
+    "other": {
+      "continue_below": 0.595,
+      "flag_at": 1.0
+    },
+    "spec_delta_wrong": {
+      "continue_below": 0.595,
+      "flag_at": 1.0
+    },
+    "task_order": {
+      "continue_below": 0.595,
+      "flag_at": 1.0
+    },
+    "verify_form": {
+      "continue_below": 0.595,
+      "flag_at": 0.595
+    }
+  },
+  "report": {
+    "skipped_on_all_cases": 3,
+    "lost_serious_on_all_cases": 0,
+    "oracle_skip": 9,
+    "other_half": {
+      "per_question_fitted_on_A": {
+        "skip_rate": 0.2609,
+        "lost_serious": 6,
+        "alone_serious": 48,
+        "false_clear_rate": 0.2381,
+        "bar_met": false
+      },
+      "per_question_fitted_on_B": {
+        "skip_rate": 0.12,
+        "lost_serious": 0,
+        "alone_serious": 56,
+        "false_clear_rate": 0.0455,
+        "bar_met": false
+      },
+      "shared_fitted_on_A": {
+        "skip_rate": 0.0435,
+        "lost_serious": 0,
+        "alone_serious": 48,
+        "false_clear_rate": 0.0,
+        "bar_met": false
+      },
+      "shared_fitted_on_B": {
+        "skip_rate": 0.04,
+        "lost_serious": 0,
+        "alone_serious": 56,
+        "false_clear_rate": 0.0,
+        "bar_met": false
+      }
+    }
+  }
+}

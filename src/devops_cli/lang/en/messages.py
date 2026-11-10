@@ -4726,6 +4726,40 @@ class RoadmapMessages:
         "Jev answered the {field} with a confidence of {confidence:.0%}, below the least of "
         "{least:.0%}."
     )
+    screen_eval_dry_run: str = (
+        "Dry run: no request was made. A run asks Jev about {cases} case(s) at {gateway}, one "
+        "request for each case:"
+    )
+    screen_eval_dry_run_case: str = "the questions of the screen about the case {name}"
+    screen_eval_dry_run_repeat: str = "one request for each case, all sent at the same time"
+    screen_eval_cuts_written: str = "Wrote the fitted cuts to {path}."
+    screen_eval_title: str = "The verify screen on {cases} cases of the golden set."
+    screen_eval_direction: str = "Cuts ({rule}) fitted on half {fitted}, scored on half {other}:"
+    screen_eval_score: str = (
+        "{name}: {skipped} of {reviewed} reviews skipped ({skip}); {lost} of {alone} serious "
+        "defects of the reviewer lost in {cases} case(s); {clears} of {bad} plans with a labelled "
+        "serious defect cleared."
+    )
+    screen_eval_bar: str = "  Bar of pilot 1 on the other half: {met}."
+    screen_eval_oracle: str = (
+        "No screen can skip more than {oracle} of {reviewed} reviews ({share}) with no loss: the "
+        "reviewer alone found no serious defect in those cases."
+    )
+    screen_eval_jev_cost: str = "Jev costs {usd} USD for each plan."
+    screen_eval_cost: str = (
+        "Cost of a plan (cuts: {fitted}): {alone} USD with the reviewer alone, {cascade} USD "
+        "with the screen."
+    )
+    decision_step_secret: str = "The digest of the plan holds a secret, so no request goes to Jev."
+    decision_step_no_cut: str = "A decision step has answers with no cut: {names}."
+    decision_step_no_answer: str = "Jev gave no answer for: {names}."
+    decision_step_failed: str = (
+        "The {step} step could not ask Jev about item #{item}, so the existing path runs: {error}"
+    )
+    decision_step_band: str = (
+        "The {step} step gave item #{item} the band {band}. Questions at their flag cut: "
+        "{flagged}. Highest probability: {top}."
+    )
     intake_jev_choice_reason: str = "Jev chose {choice} with a probability of {probability:.0%}."
     intake_jev_score_reason: str = "Jev scored {level} with a confidence of {confidence:.0%}."
     intake_jev_duplicate_reason: str = (

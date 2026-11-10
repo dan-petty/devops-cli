@@ -136,6 +136,7 @@ from devops_cli.roadmap.body_hash import body_hashes
 from devops_cli.roadmap.claim import claimed_by
 from devops_cli.roadmap.clone_git import branch_authors, default_branch, git
 from devops_cli.roadmap.commit_title import commit_summary, commit_type
+from devops_cli.roadmap.decision_step import Band
 from devops_cli.roadmap.digest_clears import has_digest_clear
 from devops_cli.roadmap.failure import FailureClass, StepName, failure_class_of, retry_after
 from devops_cli.roadmap.planned import (
@@ -187,6 +188,7 @@ from devops_cli.roadmap.stage.stage_form import (
     record_search_evidence,
 )
 from devops_cli.roadmap.stage.stage_github import StageGitHub
+from devops_cli.roadmap.stage.stage_jev_screen import JevScreener, screener_of
 from devops_cli.roadmap.stage.stage_models import model_fields, referenced_classes
 from devops_cli.roadmap.stage.stage_moved import MovedPath, moved_paths
 from devops_cli.roadmap.stage.stage_overlap import (
@@ -973,6 +975,7 @@ class _Planner:
         toolbox: ToolboxClient | None = None,
         verifier: ToolboxClient | None = None,
         verify_window: int | None = None,
+        screener: JevScreener | None = None,
         pull_reads: Callable[[], PullReads] | None = None,
         pull_repo: str = "",
         grep: Callable[[str], Sequence[str]] | None = None,
@@ -988,6 +991,7 @@ class _Planner:
         self._toolbox = toolbox or (client if isinstance(client, ToolboxClient) else None)
         self._verifier = verifier
         self._verify_window = verify_window
+        self._screener = screener
         # The runs of the planner and of the verifier, in order, for the comment (#3039).
         self._traces: list[RunTrace] = [] if traces is None else traces
         self._source = source
@@ -1311,8 +1315,17 @@ class _Planner:
         """The findings of the model review of `change`, those that return the plan, and those
         that are open."""
         with observe_step(self._pull_repo, _ROW, StepName.REVIEW):
-            findings, given = review(verifier, self._input_of(target, change))
-        return findings, returning(findings, given), open_findings(findings, given)
+            given = self._input_of(target, change)
+            screener = self._screener
+            screen = None if screener is None else screener.screen(given, self._tree.files)
+            if screener is not None and screener.skips and screen is not None:
+                if screen.band is Band.CONTINUE:
+                    return [], [], []
+            findings, given = review(verifier, given)
+        open_ = open_findings(findings, given)
+        if screener is not None:
+            screener.record_review(screen, open_)
+        return findings, returning(findings, given), open_
 
     def _read_fact_file(self, path: str) -> str | None:
         """The text of a runner fact file: at the staged commit and, when the planner holds a
@@ -1916,6 +1929,7 @@ def plan_stage(
     step_tokens: int | None = None,
     model: LLMClient | ToolboxModel | None = None,
     verifier: ToolboxModel | None = None,
+    screener: JevScreener | None = None,
     why: bool = False,
     now: datetime | None = None,
     writer: StageWriter | None = None,
@@ -1996,6 +2010,7 @@ def plan_stage(
             tool=tool,
             toolbox=toolbox,
             verifier=verifier,
+            screener=screener or screener_of(settings),
             repo=repo,
             plan_files=PlanFiles(
                 repo, settings.ai.for_task("stage").model, settings.roadmap.stage.toolset
@@ -2026,6 +2041,7 @@ def _planner_of(
     tool: OpenSpecTool | None,
     toolbox: ToolboxModel | None = None,
     verifier: ToolboxModel | None = None,
+    screener: JevScreener | None = None,
     repo: str | None = None,
     open_creates: Callable[[], Mapping[str, int]] | None = None,
     rejected: Mapping[int, str] | None = None,
@@ -2073,6 +2089,7 @@ def _planner_of(
         tool=tool,
         verifier=reviewer,
         verify_window=verify_window,
+        screener=screener,
         pull_reads=None if repo is None else session_pull_reads,
         pull_repo=repo or "",
         grep=partial(grep_at, checkout, sha, operation=_GIT_OPERATION),

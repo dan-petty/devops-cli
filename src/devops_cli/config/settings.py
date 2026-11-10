@@ -117,6 +117,7 @@ from devops_cli.config.defaults import (
     DEFAULT_ROADMAP_INBOX_WAIT_DAYS,
     DEFAULT_ROADMAP_MCP_TIMEOUT_SECONDS,
     DEFAULT_ROADMAP_STAGE_FILTER,
+    DEFAULT_ROADMAP_STAGE_JEV_SCREEN,
     DEFAULT_ROADMAP_STAGE_LIMIT,
     DEFAULT_ROADMAP_STAGE_PLANNED_LIMIT,
     DEFAULT_ROADMAP_STAGE_STEP_TOKENS,
@@ -140,6 +141,7 @@ from devops_cli.config.defaults import (
     DEFAULT_VALKEY_URL,
     DEFAULT_WORKSPACE_FILE,
     SearchProviderName,
+    StageJevScreen,
     StageToolset,
 )
 from devops_cli.config.env import (
@@ -966,6 +968,10 @@ class RoadmapStageConfig(BaseModel):
     mcp: Annotated[bool, Variable()] = Field(
         description="Whether the stage job adds the remote tools of its role from the MCP server",
         default=False,
+    )
+    jev_screen: Annotated[StageJevScreen, Variable()] = Field(
+        description="What a TypeSafe Jev screen does before the model review of a plan in the stage job (ADR 0019). `off` makes no Jev request. `shadow` asks Jev, logs and counts its band beside the result of the review, and always runs the review. `on` skips the review when the band is continue. An error of Jev runs the review. Jev never rejects a plan",
+        default=DEFAULT_ROADMAP_STAGE_JEV_SCREEN,
     )
     jev_completeness: Annotated[bool, Variable()] = Field(
         description="Whether the stage_ready row asks TypeSafe Jev if a green plan draft delivers each acceptance criterion of its issue, before it marks the draft ready. A criterion in doubt, a weak test score or an error of Jev keeps the draft a draft and posts one note; the check never marks a draft ready, merges or closes",

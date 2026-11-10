@@ -3947,23 +3947,38 @@ The stage job SHALL NOT take `reads` or `reading` as a claim that the run read a
 - **WHEN** the trace holds no call and the feasibility section says `I read `src/x.py` and found the function`.
 - **THEN** `check_proposal` returns a problem that names `src/x.py`.
 
-### Requirement: A MODIFIED requirement gets the base scenarios that it omits
-The stage job SHALL add each scenario of the base requirement that a MODIFIED block omits to that block, with the raw text that `openspec show <capability> --type spec --json` gives, before it validates the change. It SHALL write the files that it validated. It SHALL keep the scenarios of the reply in their own text and order, and append the omitted scenarios after them.
+### Requirement: A Jev screen may skip the model review of a plan
+With `roadmap.stage.jev_screen` set to `on`, the stage job SHALL ask Jev nine yes/no questions about a digest of the input of the review before the review, and SHALL skip the review when no probability reaches its fitted cut. Any other band SHALL run the review. With `shadow`, the stage job SHALL ask Jev, log and count the band, and SHALL run the review. With `off`, the default, the stage job SHALL make no Jev request.
 
-#### Scenario: One base scenario omitted
-- **WHEN** a plan holds a MODIFIED requirement that omits one scenario of the base requirement
-- **THEN** the files that the job writes hold all base scenarios in the block
+#### Scenario: The setting is off
+- **WHEN** the stage job reviews a plan and `roadmap.stage.jev_screen` is `off`
+- **THEN** the reviewer runs and no request goes to Jev
 
-#### Scenario: Reply adds and changes scenarios
-- **WHEN** a MODIFIED block has a changed scenario and a new scenario, and omits a base scenario
-- **THEN** the block keeps the changed text and the new scenario, and ends with the omitted base scenario
+#### Scenario: Mode on and the band continue
+- **WHEN** the setting is `on` and every probability is under its cut
+- **THEN** the reviewer is not called and the plan has no finding
 
-### Requirement: The repair leaves a complete block and other sections alone
-The repair MUST NOT change a file when each MODIFIED block names every scenario of its base requirement. It SHALL NOT change an ADDED requirement, and SHALL NOT change a MODIFIED requirement that the base spec lacks, so OpenSpec still reports that problem.
+#### Scenario: Mode on and a probability at its cut
+- **WHEN** the setting is `on` and one probability is at or above its cut
+- **THEN** the reviewer runs
 
-#### Scenario: No scenario omitted
-- **WHEN** a plan holds a MODIFIED block that names every base scenario
-- **THEN** the spec file of the change equals the rendered reply
+#### Scenario: Mode shadow
+- **WHEN** the setting is `shadow`
+- **THEN** the reviewer runs, one counter point names the band, and one point names the band and the result of the reviewer
+
+### Requirement: The screen fails open
+The screen SHALL run the review when the request to Jev raises an error, times out or leaves a question unanswered. It SHALL log the error and count `error`.
+
+#### Scenario: Jev fails
+- **WHEN** the setting is `on` and the request to Jev fails with HTTP 503
+- **THEN** the reviewer runs, one warning names the error, and the counter counts `error`
+
+### Requirement: The cuts of the screen are fitted data
+The cuts of the screen SHALL be read from `jev_screen_cuts.json`, which SHALL hold the Jev model, the day of the fit, the number of cases and the numbers of the check on the other half. The file SHALL have a cut for each question of the screen.
+
+#### Scenario: The data file
+- **WHEN** a test loads the cuts of the screen
+- **THEN** each of the nine questions has a cut, and the file names the model and the cases of its fit
 
 #### Scenario: MODIFIED of an unknown requirement
 - **WHEN** a MODIFIED block names a requirement that the base spec does not hold

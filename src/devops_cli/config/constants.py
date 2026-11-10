@@ -3687,6 +3687,16 @@ CONST_ROADMAP_JEV_TIMEOUT_SECONDS: Final[float] = 30.0
 # The most model calls that `devops roadmap eval jev` makes. At about 0.042 USD for 1M input
 # tokens of Jev and a few cents for the triage model, this keeps a run under 1 USD.
 CONST_ROADMAP_JEV_EVAL_MAX_CALLS: Final[int] = 160
+# The Jev requests of one decision step that run at the same time (ADR 0019).
+CONST_ROADMAP_DECISION_STEP_CONCURRENCY: Final[int] = 8
+# The timeout in seconds of the Jev request of the verify screen (#4282).
+CONST_ROADMAP_STAGE_JEV_TIMEOUT_SECONDS: Final[float] = 30.0
+# The price of Jev in USD for a million input tokens, from the owner on 2026-11-09, for the cost
+# line of the screen evaluation.
+CONST_ROADMAP_STAGE_JEV_USD_PER_MILLION_INPUT_TOKENS: Final[float] = 0.042
+# The share of the reviews that the verify screen must skip, with no loss of a serious defect, to
+# meet the bar of pilot 1 (ADR 0019).
+CONST_ROADMAP_STAGE_SCREEN_BAR_SKIP: Final[float] = 0.30
 # The instructions of the questions that intake asks Jev. The state holds text written by other
 # people, so each question says that the state is data.
 CONST_ROADMAP_JEV_DATA_NOTE: Final[str] = (

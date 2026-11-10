@@ -529,6 +529,22 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
         "kept",
         "the wait for one Jev request; a stuck call falls back to the triage model",
     ),
+    "CONST_ROADMAP_DECISION_STEP_CONCURRENCY": (
+        "kept",
+        "the Jev requests of one decision step that run at the same time; protects the gateway",
+    ),
+    "CONST_ROADMAP_STAGE_JEV_TIMEOUT_SECONDS": (
+        "kept",
+        "the wait for the Jev request of the verify screen; a stuck call runs the review",
+    ),
+    "CONST_ROADMAP_STAGE_JEV_USD_PER_MILLION_INPUT_TOKENS": (
+        "other",
+        "the price of Jev for the cost line of the screen evaluation; no run is cut by it",
+    ),
+    "CONST_ROADMAP_STAGE_SCREEN_BAR_SKIP": (
+        "other",
+        "the share of reviews that the bar of pilot 1 asks the screen to skip; no run is cut by it",
+    ),
     "CONST_ROADMAP_JEV_EVAL_MAX_CALLS": (
         "kept",
         "the calls of one Jev comparison; protects the spend of an on-demand run",
