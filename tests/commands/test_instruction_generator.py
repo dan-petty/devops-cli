@@ -378,11 +378,10 @@ def test_devcontainer_post_create_scaffolds_agent_instructions(
     )
     assert res_dry.exit_code == 0
 
-    # Live execution test. --skip-tools keeps uv from installing the locked semgrep and bandit
-    # from PyPI into the test's data directory.
+    # Live execution test.
     res_live = runner.invoke(
         devcontainer_app,
-        ["post-create", "--workspace", str(tmp_path), "--skip-tools"],
+        ["post-create", "--workspace", str(tmp_path)],
     )
     assert (
         res_live.exit_code,
