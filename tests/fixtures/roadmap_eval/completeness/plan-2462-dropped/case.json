@@ -1,0 +1,16 @@
+{
+ "id": "plan-2462-dropped",
+ "kind": "plan",
+ "label": "incomplete",
+ "source": {
+  "stage_case": "2462-devops-ai-cost-report-shows-a",
+  "pull": 2990,
+  "commit": "80da9bbb74e9ba1d574ebe5ca91fe33676a5809b"
+ },
+ "criteria": [
+  "Report does not crash on unparseable served_by: The report command SHALL NOT raise an unhandled ValueError when a ledger row holds a served_by value that urlsplit cannot parse.",
+  "Unparseable backend shows as unknown: The report SHALL display the serving backend as unknown for a row whose served_by value urlsplit cannot parse.",
+  "Valid served_by values still resolve: The report SHALL resolve a valid served_by value to its local or hosted classification as before."
+ ],
+ "note": "The three spec scenarios say `devops ai cost report --by backend` exits 0 and shows `unknown`. The tasks test only _is_single_server_local and is_local. No task asserts the command or the table label. A guard test alone would not prove the scenarios. The plan also gives no test names, so the Feasibility check `-k unparseable` selects nothing unless the implementer picks that word."
+}

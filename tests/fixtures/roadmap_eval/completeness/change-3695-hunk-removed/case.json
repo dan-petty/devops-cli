@@ -1,0 +1,21 @@
+{
+ "id": "change-3695-hunk-removed",
+ "kind": "change",
+ "label": "incomplete",
+ "source": {
+  "pull_commit": "c7c5556cf191571d04b3d83ce4ccdf8ddaa0e8bb",
+  "issue": 3695,
+  "title": "fix(k8s): hold the copy source until the destination ends (#3712)"
+ },
+ "criteria": [
+  "The source side of the copy does not end before the destination has the data. Prefer a rule that depends on the destination, such as a source that holds until the destination ended, over a fixed wait. A fixed wait is acceptable only with a measure that states why its length is sufficient.",
+  "The command still runs through `run_subprocess`, and the plan, the dry run and the run list the same steps.",
+  "A live measure with temporary pods gives at least 20 complete copies of 20, with the numbers in the pull request.",
+  "`openspec/specs/` and the volume move section of `k8s/README.md` state the rule."
+ ],
+ "removed": {
+  "criterion": 1,
+  "path": "src/devops_cli/k8s/volume_move.py",
+  "hunk": "@@ -309,22 +309,37 @@ def _copy_argv(plan: VolumeMovePlan, context: str | None) -> list[str]:"
+ }
+}

@@ -367,6 +367,32 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
         "kept",
         "GitHub comment of 65,536 characters, read by a person",
     ),
+    # ── Jev completeness check of a draft (#4308) ─────────────────────────────────────────
+    "CONST_ROADMAP_JEV_MAX_DIFF_TOKENS": (
+        "window",
+        "a fourth of the 262,144-token window of Jev; the criteria and questions need the rest",
+    ),
+    "CONST_ROADMAP_JEV_MAX_CRITERIA": (
+        "kept",
+        "an issue with more criteria than 40 is a list to split, and Jev answers all questions",
+    ),
+    "CONST_ROADMAP_JEV_CRITERION_THRESHOLD": (
+        "other",
+        "a probability below which a criterion is in doubt; the eval reports other values",
+    ),
+    "CONST_ROADMAP_JEV_MIN_TEST_SCORE": (
+        "other",
+        "a score of the tests below which the draft is held",
+    ),
+    "CONST_ROADMAP_JEV_EVAL_MAX_FALSE_HOLD_RATE": (
+        "other",
+        "the eval keeps the switch off above this share of false holds",
+    ),
+    "CONST_ROADMAP_JEV_EVAL_MIN_CASES": ("other", "the eval says the set is too small below this"),
+    "CONST_ROADMAP_JEV_EVAL_MIN_CASES_PER_LABEL": (
+        "other",
+        "the eval says the set is too small below this for a label",
+    ),
     "CONST_ROADMAP_IMPLEMENT_HEAD_POLLS": (
         "kept",
         "the time that GitHub takes to show a pushed head",

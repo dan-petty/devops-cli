@@ -1,0 +1,15 @@
+{
+ "id": "plan-2572-dropped",
+ "kind": "plan",
+ "label": "incomplete",
+ "source": {
+  "stage_case": "2572-the-cloudflare-tunnel-section-of-k8s",
+  "pull": 2999,
+  "commit": "f8b65bd214937eaf68a3fbd9630dfebd5697fd30"
+ },
+ "criteria": [
+  "No `homelab.<domain>` host form remains in `k8s/README.md` unless an Ingress in `k8s/` uses it.",
+  "The test fails on the current text and passes after the fix."
+ ],
+ "note": "The plan does not cover the line '- **Subdomain**: `*.homelab`' (Cloudflare dashboard step 1.2). It has no '.<domain>' suffix, so the token regex in 1.1 does not find it, and the replace rules in 2.2 only name '*.homelab.<domain>' and '<name>.homelab.<domain>'. After the plan the section can still tell a person to create a '*.homelab' public hostname, the exact error the issue reports."
+}

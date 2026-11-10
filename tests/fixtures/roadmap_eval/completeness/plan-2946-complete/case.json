@@ -1,0 +1,16 @@
+{
+ "id": "plan-2946-complete",
+ "kind": "plan",
+ "label": "complete",
+ "source": {
+  "stage_case": "2946-the-alternatives-check-must-search-before",
+  "pull": 2958,
+  "commit": "44d59d6ee5d3197fd864a6467bf1698dfadaff21"
+ },
+ "criteria": [
+  "A table test covers each class with no model call and the reason in the comment.",
+  "A scripted model that answers a `feat` item without a search gets one more turn, and its second answer without a search ends as a failed check for that item (see the issue on skipping a failed item).",
+  "The Firecrawl counter rises for a `feat` item in a replay.",
+  "`uv run devops ci` passes."
+ ]
+}

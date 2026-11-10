@@ -1,0 +1,150 @@
+diff --git a/openspec/changes/2946-the-alternatives-check-must-search-before/.openspec.yaml b/openspec/changes/2946-the-alternatives-check-must-search-before/.openspec.yaml
+new file mode 100644
+index 00000000..aa079bc5
+--- /dev/null
++++ b/openspec/changes/2946-the-alternatives-check-must-search-before/.openspec.yaml
+@@ -0,0 +1,2 @@
++schema: spec-driven
++created: 2026-10-31
+diff --git a/openspec/changes/2946-the-alternatives-check-must-search-before/design.md b/openspec/changes/2946-the-alternatives-check-must-search-before/design.md
+new file mode 100644
+index 00000000..82151dc3
+--- /dev/null
++++ b/openspec/changes/2946-the-alternatives-check-must-search-before/design.md
+@@ -0,0 +1,17 @@
++# Design
++
++## Decisions
++
++- **A fixed rule names the skip classes, not the model**: Over 14 days the model searched about 4 times and returned not-applicable every time. A fixed rule is deterministic and testable.
++- **The constant list lives in the alternatives check module**: The issue body says the classes live in one constant list with a test. A constant in the same module as the check keeps the rule and its enforcement together.
++- **Reject a no-search reply and give the model one turn to search**: The issue body records this mechanism. It gives the model a chance to search while still enforcing the rule.
++- **A second no-search reply ends as a failed check**: The issue body says a second answer without a search ends as a failed check for that item.
++- **The verdict for skip-class items is not-applicable with the class name as the reason**: The issue body records this. It is consistent with the existing not-applicable verdict in CONTEXT.md and gives a person a clear reason.
++
++## Rejected alternatives
++
++- **Let the model decide whether to search**: Over 14 days the model searched about 4 times and returned not-applicable every time (issue body, devops_cli_roadmap_alternatives_total). It is not reliable for this gate.
++- **Store the skip classes in a separate configuration file**: The list is a fixed rule, not a user setting. A config file adds indirection without benefit.
++- **Hardcode the skip classes in the model prompt**: The issue body says a fixed rule, not the model, names the classes. A prompt is not a fixed rule.
++- **Hard-fail immediately on the first no-search reply**: The issue body says the model gets one turn to search. Hard-failing gives the model no chance to correct.
++- **Warn and continue with the no-search verdict**: The issue body says the reply is rejected. Warning does not enforce the rule.
+diff --git a/openspec/changes/2946-the-alternatives-check-must-search-before/proposal.md b/openspec/changes/2946-the-alternatives-check-must-search-before/proposal.md
+new file mode 100644
+index 00000000..05f13e84
+--- /dev/null
++++ b/openspec/changes/2946-the-alternatives-check-must-search-before/proposal.md
+@@ -0,0 +1,46 @@
++# Proposal
++
++## Why
++
++The alternatives check lets the model decide whether to search for open tools. Over 14 days it searched about 4 times and returned not-applicable every time, including for a feature that integrates two products (#2946). A fixed rule must name the skip classes, and every other item must run at least one search before the check accepts any verdict.
++
++## What Changes
++
++- Add a SKIP_CLASSES constant list in the alternatives check module
++- Add a classification function that returns the skip class name or None
++- For skip-class items, return not-applicable with the class as reason, with no model call
++- For non-skip items, reject a verdict reply that has no search recorded
++- Give the model one additional turn to search after a rejected reply
++- End as a failed check on a second reply without a search
++- Add a table test covering each skip class with no model call
++- Add a scripted-model test for the search-before-verdict rule
++- Add a replay test that verifies the Firecrawl counter rises
++- The change fits one pull request.
++
++## Capabilities
++
++### New Capabilities
++
++None.
++
++### Modified Capabilities
++
++- `roadmap-alternatives`: skip-class-classification, search-before-verdict, firecrawl-counter-replay
++
++## Impact
++
++- Code: `src/devops_cli/roadmap/alternatives.py`
++- Tests: `tests/test_roadmap_alternatives.py`
++
++## Feasibility
++
++- The premise is confirmed by docs/TELEMETRY.md:81, which defines devops_cli_firecrawl_searches_total as a counter for Firecrawl web searches, and k8s/README.md:609, which describes the Firecrawl search behavior and its metric.
++- CONTEXT.md defines the Alternative term and the alternatives check verdicts: covers, partly, none, not-applicable.
++- AGENTS.md rule 3 states to use an open tool before building, which is the principle this check enforces.
++- The issue body cites devops_cli_roadmap_alternatives_total showing only not-applicable (about 34 checks) over 14 days, and devops_cli_firecrawl_searches_total showing about 4 searches in 7 days.
++- The first check the implementation runs is uv run devops ci test tests/test_roadmap_alternatives.py to verify the table test and the search-before-verdict test.
++- The second check is uv run devops ci to verify the full CI passes.
++
++## Existing Tool Considered
++
++No open, maintained tool or library covers the need to enforce a search-before-verdict rule inside the devops-cli alternatives check. The project builds this logic itself. The written cost is the tokens to build, keep and fix the constant list, the classification function, the search-enforcement guard, and the table and replay tests, plus the elapsed time to implement and debug them.
+diff --git a/openspec/changes/2946-the-alternatives-check-must-search-before/specs/roadmap-alternatives/spec.md b/openspec/changes/2946-the-alternatives-check-must-search-before/specs/roadmap-alternatives/spec.md
+new file mode 100644
+index 00000000..d1df61a5
+--- /dev/null
++++ b/openspec/changes/2946-the-alternatives-check-must-search-before/specs/roadmap-alternatives/spec.md
+@@ -0,0 +1,26 @@
++## ADDED Requirements
++
++### Requirement: skip-class-classification
++The check SHALL classify an item as a skip class when its Conventional Commit type is one of test, docs, refactor, chore, ci, or perf, or when its body is a fix of an internal defect with a stack trace and no new capability. For a skip-class item, the verdict SHALL be not-applicable with the class name as the reason, and no model call SHALL be made.
++
++#### Scenario: Each skip class produces not-applicable without a model call
++- **WHEN** The check runs on an item whose type is test, docs, refactor, chore, ci, or perf
++- **THEN** The verdict is not-applicable, the comment names the class as the reason, and no model call is made
++
++#### Scenario: A fix with stack trace and no new capability is a skip class
++- **WHEN** The check runs on an item whose body is a fix of an internal defect with a stack trace and no new capability
++- **THEN** The verdict is not-applicable, the comment names the class as the reason, and no model call is made
++
++### Requirement: search-before-verdict
++For a non-skip-class item, the check SHALL reject a model reply that gives a verdict with no search recorded. The check SHALL give the model one additional turn to perform a search. A second reply without a search SHALL end as a failed check for that item.
++
++#### Scenario: A scripted model answers a feat item without a search
++- **WHEN** The model returns a verdict with no search recorded for a feat item
++- **THEN** The check rejects the reply, gives the model one turn to search, and a second answer without a search ends as a failed check for that item
++
++### Requirement: firecrawl-counter-replay
++The devops_cli_firecrawl_searches_total counter SHALL increase by at least 1 when the check runs on a non-skip-class item and the model performs a search.
++
++#### Scenario: A replay of a feat item triggers a search
++- **WHEN** The check runs on a feat item in a replay and the model performs a search
++- **THEN** devops_cli_firecrawl_searches_total increases by at least 1
+diff --git a/openspec/changes/2946-the-alternatives-check-must-search-before/tasks.md b/openspec/changes/2946-the-alternatives-check-must-search-before/tasks.md
+new file mode 100644
+index 00000000..adcdfd75
+--- /dev/null
++++ b/openspec/changes/2946-the-alternatives-check-must-search-before/tasks.md
+@@ -0,0 +1,29 @@
++# Tasks
++
++## 1. Add skip-class constant and classification
++
++Reads: none. Changes: `src/devops_cli/roadmap/alternatives.py`, `tests/test_roadmap_alternatives.py`.
++
++- [ ] 1.1 Write a table test that covers each skip class: test, docs, refactor, chore, ci, perf, and fix-with-stack-trace. For each, assert the verdict is not-applicable, the comment names the class as the reason, and no model call is made, and verify that `uv run devops ci test tests/test_roadmap_alternatives.py` fails on the base
++- [ ] 1.2 Add a SKIP_CLASSES constant list in the alternatives module. Add a classify_skip_class function that takes an item and returns the class name or None. In the check entry point, call classify_skip_class before any model call. When it returns a class, write the not-applicable verdict with the class as reason and return without calling the model, and verify that `uv run devops ci test tests/test_roadmap_alternatives.py` passes
++- [ ] 1.3 Change no document, run `uv run devops docs generate --sync-readme`, and verify that `uv run devops ci docs` passes
++
++## 2. Enforce search-before-verdict for non-skip items
++
++Reads: none. Changes: `src/devops_cli/roadmap/alternatives.py`, `tests/test_roadmap_alternatives.py`.
++
++- [ ] 2.1 Write a test with a scripted model that answers a feat item with a verdict and no search. Assert the check rejects the reply. Assert the model gets one more turn. Assert a second answer without a search ends as a failed check for that item, and verify that `uv run devops ci test tests/test_roadmap_alternatives.py` fails on the base
++- [ ] 2.2 In the model reply handler, check whether a search was recorded for the item. If no search was recorded and this is the first reply, reject the reply and give the model one additional turn. If no search was recorded and this is the second reply, end the check as failed for that item, and verify that `uv run devops ci test tests/test_roadmap_alternatives.py` passes
++- [ ] 2.3 Change no document, run `uv run devops docs generate --sync-readme`, and verify that `uv run devops ci docs` passes
++
++## 3. Verify Firecrawl counter rises in replay
++
++Reads: none. Changes: `tests/test_roadmap_alternatives.py`.
++
++- [ ] 3.1 Write a replay test that runs the check on a feat item. Assert that devops_cli_firecrawl_searches_total increases by at least 1 after the model performs a search, and verify that `uv run devops ci test tests/test_roadmap_alternatives.py` fails on the base
++- [ ] 3.2 Ensure the search path in the alternatives check increments the Firecrawl counter defined in docs/TELEMETRY.md. Verify the test asserts the counter delta is at least 1, and verify that `uv run devops ci test tests/test_roadmap_alternatives.py` passes
++- [ ] 3.3 Change no document, run `uv run devops docs generate --sync-readme`, and verify that `uv run devops ci docs` passes
++
++## Workflow follow-up
++
++- Pending a person: review the diff in tuicr (tuicr -r <base>..HEAD).

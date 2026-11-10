@@ -1,0 +1,264 @@
+diff --git a/src/devops_cli/ai/pydantic_ai_bridge.py b/src/devops_cli/ai/pydantic_ai_bridge.py
+index 4329225c..bbdc0835 100644
+--- a/src/devops_cli/ai/pydantic_ai_bridge.py
++++ b/src/devops_cli/ai/pydantic_ai_bridge.py
+@@ -87,7 +87,11 @@ def _claude_group_model(name: str, provider_factory: Any) -> Any:
+     sends `auto` and offers the same tools.
+ 
+     The request sets `max_tokens`: a request that sets none gets the Anthropic default of 4096
+-    tokens, which cuts the reply of a stage plan before it holds a part (#4220)."""
++    tokens, which cuts the reply of a stage plan before it holds a part (#4220).
++
++    The request sets `parallel_tool_calls` false. The gateway maps it to the Anthropic setting
++    `disable_parallel_tool_use`, so the model makes one tool call in a reply and the gateway
++    joins no arguments of several calls into one JSON text that does not parse (#4228)."""
+     from pydantic_ai.models.openai import OpenAIChatModel
+ 
+     provider_name, _, target = name.partition(":")
+@@ -95,7 +99,9 @@ def _claude_group_model(name: str, provider_factory: Any) -> Any:
+         target,
+         provider=provider_factory(provider_name),
+         profile={"supports_forced_tool_choice": False},
+-        settings=ModelSettings(max_tokens=CONST_AI_CLAUDE_GROUP_MAX_OUTPUT_TOKENS),
++        settings=ModelSettings(
++            max_tokens=CONST_AI_CLAUDE_GROUP_MAX_OUTPUT_TOKENS, parallel_tool_calls=False
++        ),
+     )
+ 
+ 
+diff --git a/src/devops_cli/lang/en/messages.py b/src/devops_cli/lang/en/messages.py
+index 61db0648..1dad8d0c 100644
+--- a/src/devops_cli/lang/en/messages.py
++++ b/src/devops_cli/lang/en/messages.py
+@@ -3367,6 +3367,13 @@ class RoadmapMessages:
+         "held a plan: {reason}. Raise CONST_AI_CLAUDE_GROUP_MAX_OUTPUT_TOKENS, or use a model "
+         "that allows a longer reply."
+     )
++    # A tool call of the last reply held arguments that are not JSON (#4228). The gateway joined the
++    # arguments of several calls into one text. The reply broke no schema, so no violation count.
++    stage_invalid_arguments: str = (
++        "A tool call of the run held invalid arguments, which are not one JSON text: {reason}. "
++        "The model made several tool calls in one reply and the gateway joined their arguments. "
++        "Use a model or a gateway version that keeps parallel tool calls apart."
++    )
+     # The window ended the tools of the plan run before it made the least number of tool calls
+     # (#3880). The model has then read almost none of the code and writes a placeholder text.
+     stage_window_starved: str = (
+diff --git a/src/devops_cli/roadmap/refine/refine_investigation.py b/src/devops_cli/roadmap/refine/refine_investigation.py
+index dae4a082..c6fc4a3d 100644
+--- a/src/devops_cli/roadmap/refine/refine_investigation.py
++++ b/src/devops_cli/roadmap/refine/refine_investigation.py
+@@ -29,6 +29,7 @@ from pydantic_ai.exceptions import (
+     UsageLimitExceeded,
+ )
+ from pydantic_ai.messages import (
++    INVALID_JSON_KEY,
+     ModelMessage,
+     ModelRequest,
+     ModelRequestPart,
+@@ -165,12 +166,17 @@ class InvestigationStopped:
+ 
+     `output_limit` is true when the output token limit cut the last reply (finish reason
+     `length`). That reply holds no part, so it is no broken schema: `schema_broken` is then
+-    false (#4220)."""
++    false (#4220).
++
++    `invalid_arguments` is true when a tool call of the last reply held arguments that are not
++    JSON, as when a gateway joins the arguments of several calls into one text. The reply broke no
++    schema: `schema_broken` is then false (#4228)."""
+ 
+     reason: str
+     message: str
+     schema_broken: bool = False
+     output_limit: bool = False
++    invalid_arguments: bool = False
+ 
+ 
+ @dataclass
+@@ -485,6 +491,17 @@ def _cut_by_the_output_limit(messages: Sequence[ModelMessage]) -> bool:
+     return bool(replies) and replies[-1].finish_reason == "length"
+ 
+ 
++def _has_invalid_arguments(messages: Sequence[ModelMessage]) -> bool:
++    """Whether a tool call of the last reply of the run holds arguments that are not one JSON
++    object (#4228). pydantic-ai wraps the raw text of such arguments under the key
++    `INVALID_JSON_KEY`, so that key marks the call."""
++    replies = [message for message in messages if isinstance(message, ModelResponse)]
++    return any(
++        isinstance(part, ToolCallPart) and INVALID_JSON_KEY in part.args_as_dict()
++        for part in (replies[-1].parts if replies else [])
++    )
++
++
+ def _toolset_names(toolsets: Sequence[Any] | None) -> set[str]:
+     """The names of tools exposed by `toolsets`."""
+     if not toolsets:
+@@ -506,14 +523,19 @@ def _stopped_outcome(
+         limits_hit.append(RunLimit.CALLS)
+     model_stopped = isinstance(stopped, UnexpectedModelBehavior)
+     output_limit = model_stopped and _cut_by_the_output_limit(messages)
++    invalid_arguments = model_stopped and not output_limit and _has_invalid_arguments(messages)
+     schema_broken = (
+-        model_stopped and not output_limit and _broke_the_output_rules(messages, tool_names)
++        model_stopped
++        and not output_limit
++        and not invalid_arguments
++        and _broke_the_output_rules(messages, tool_names)
+     )
+     return InvestigationStopped(
+         type(stopped).__name__,
+         run_error_message(stopped),
+         schema_broken=schema_broken,
+         output_limit=output_limit,
++        invalid_arguments=invalid_arguments,
+     )
+ 
+ 
+diff --git a/src/devops_cli/roadmap/stage/stage_toolbox.py b/src/devops_cli/roadmap/stage/stage_toolbox.py
+index 9f0b3aaf..ac1e2747 100644
+--- a/src/devops_cli/roadmap/stage/stage_toolbox.py
++++ b/src/devops_cli/roadmap/stage/stage_toolbox.py
+@@ -214,6 +214,10 @@ def _stopped(result: InvestigationStopped, trace: RunTrace, schema: type[BaseMod
+     message = template.format(reason=result.message)
+     if result.output_limit:
+         return RoadmapStageError(MESSAGES.roadmap.stage_output_limit.format(reason=result.message))
++    if result.invalid_arguments:
++        return RoadmapStageError(
++            MESSAGES.roadmap.stage_invalid_arguments.format(reason=result.message)
++        )
+     if result.schema_broken:
+         return StructuredOutputValidationError(message, violations=trace.violations)
+     return RoadmapStageError(message)
+diff --git a/tests/ai/test_pydantic_ai_profiles_and_providers.py b/tests/ai/test_pydantic_ai_profiles_and_providers.py
+index 7b1ef2b2..38df8070 100644
+--- a/tests/ai/test_pydantic_ai_profiles_and_providers.py
++++ b/tests/ai/test_pydantic_ai_profiles_and_providers.py
+@@ -553,6 +553,29 @@ def test_a_request_to_a_claude_group_sends_the_output_cap(
+     assert (body.get("max_completion_tokens") or 0) > 4096
+ 
+ 
++@pytest.mark.parametrize("model", ["claude-sonnet-5-5", "claude-haiku-5-5"])
++def test_a_request_to_a_claude_group_forbids_parallel_tool_calls(
++    remote_bridge: Any, web: WebFake, model: str
++) -> None:
++    """Verify the request body that reaches the gateway holds `parallel_tool_calls` false, so
++    the gateway tells Anthropic to make one tool call at a time and joins no arguments of
++    several calls into one JSON text (#4228)."""
++    body = _planner_request(remote_bridge, web, model)
++
++    assert body.get("parallel_tool_calls") is False
++
++
++@pytest.mark.parametrize("model", ["devops-chat", "deepseek-v4.1-flash-1017"])
++def test_a_model_that_is_not_a_claude_group_keeps_parallel_tool_calls(
++    remote_bridge: Any, web: WebFake, model: str
++) -> None:
++    """Verify the setting is for a Claude group only: another model sets none, and so keeps the
++    parallel tool calls of its provider (#4228)."""
++    body = _planner_request(remote_bridge, web, model)
++
++    assert "parallel_tool_calls" not in body
++
++
+ @pytest.mark.parametrize("model", ["devops-chat", "deepseek-v4.1-flash-1017"])
+ def test_a_model_that_is_not_a_claude_group_sends_no_output_cap(
+     remote_bridge: Any, web: WebFake, model: str
+diff --git a/tests/roadmap/refine/test_roadmap_refine_investigation.py b/tests/roadmap/refine/test_roadmap_refine_investigation.py
+index 35d8a2c7..35ab3a9b 100644
+--- a/tests/roadmap/refine/test_roadmap_refine_investigation.py
++++ b/tests/roadmap/refine/test_roadmap_refine_investigation.py
+@@ -992,6 +992,50 @@ def test_a_stop_that_is_not_the_output_token_limit_does_not_set_the_flag(
+     assert (broken.output_limit, spent.output_limit) == (False, False)
+ 
+ 
++# Two tool calls that the gateway joined into one JSON text, as in the live run of #4228.
++_JOINED_ARGS = '{"query": "alpha"}{"query": "beta"}'
++
++
++@pytest.mark.parametrize("tool", ["final_result", "read_file"])
++def test_a_tool_call_with_arguments_that_are_not_json_stops_the_run_and_sets_the_flag(
++    git_repo: Path, tool: str
++) -> None:
++    """A last reply whose tool call holds arguments that do not parse is a stop by invalid
++    arguments, for the output tool and for a function tool. It is no reply that broke the
++    schema, and the stop says so (#4228)."""
++    joined = ModelResponse(parts=[ToolCallPart(tool_name=tool, args=_JOINED_ARGS)])
++
++    stopped = _run(git_repo, Script(joined), output_retries=1)
++
++    assert (stopped.reason, stopped.invalid_arguments, stopped.schema_broken) == (
++        "UnexpectedModelBehavior",
++        True,
++        False,
++    )
++
++
++@pytest.mark.parametrize("arguments", [_JOINED_ARGS, "[1, 2]"])
++def test_a_stop_on_the_first_reply_with_raw_invalid_arguments_sets_the_flag(
++    git_repo: Path, arguments: str
++) -> None:
++    """With no retry left, the last reply still holds the raw text of the arguments: text that
++    is not JSON, and JSON that is not an object, both count as invalid (#4228)."""
++    reply = ModelResponse(parts=[ToolCallPart(tool_name="final_result", args=arguments)])
++
++    stopped = _run(git_repo, Script(reply), output_retries=0)
++
++    assert (stopped.invalid_arguments, stopped.schema_broken) == (True, False)
++
++
++def test_a_stop_that_is_not_invalid_arguments_does_not_set_the_flag(git_repo: Path) -> None:
++    """A reply that breaks the schema with valid JSON, and a budget limit, are no stop by
++    invalid arguments (#4228)."""
++    broken = _run(git_repo, Script(_BROKEN), output_retries=1)
++    spent = _run(git_repo, Script(_read()), limits=_limits(tool_calls=0))
++
++    assert (broken.invalid_arguments, spent.invalid_arguments) == (False, False)
++
++
+ @pytest.mark.parametrize("gone_calls", [1, 2])
+ def test_a_call_to_a_tool_that_is_gone_gets_a_retry_and_the_run_goes_on(
+     git_repo: Path, gone_calls: int
+diff --git a/tests/roadmap/stage/test_roadmap_stage_toolbox.py b/tests/roadmap/stage/test_roadmap_stage_toolbox.py
+index 31888b0e..862ba5c0 100644
+--- a/tests/roadmap/stage/test_roadmap_stage_toolbox.py
++++ b/tests/roadmap/stage/test_roadmap_stage_toolbox.py
+@@ -258,6 +258,39 @@ def test_a_review_reply_cut_by_the_output_token_limit_raises_the_same_error(
+     assert str(raised.value).count("output token limit") == 1
+ 
+ 
++@pytest.mark.parametrize("tool", ["final_result", "search_code"])
++def test_a_tool_call_with_invalid_arguments_raises_an_error_that_names_the_cause(
++    checkout: tuple[Path, str], tool: str
++) -> None:
++    """The gateway joined the arguments of two calls into one JSON text that does not parse. The
++    run stops and the error says so: it is no schema failure with a count of 0 violations, and
++    no retry limit of a tool (#4228)."""
++    joined = ModelResponse(parts=[ToolCallPart(tool, '{"query": "alpha"}{"query": "beta"}')])
++    client = _client(checkout, Script(joined))
++
++    with pytest.raises(RoadmapStageError) as raised:
++        _plan(client)
++
++    message = str(raised.value)
++    assert not isinstance(raised.value, StructuredOutputValidationError)
++    assert message.count("invalid arguments") == 1
++    assert message.count("schema violation") == 0
++
++
++def test_a_review_run_with_invalid_arguments_raises_the_same_error(
++    checkout: tuple[Path, str],
++) -> None:
++    """The review run of a plan names the invalid arguments too (#4228)."""
++    joined = ModelResponse(parts=[ToolCallPart("final_result", '{"a": 1}{"b": 2}')])
++    client = _client(checkout, Script(joined))
++
++    with pytest.raises(RoadmapStageError) as raised:
++        client.chat_structured("System.", "{}", Verification, max_retries=1)
++
++    assert not isinstance(raised.value, StructuredOutputValidationError)
++    assert str(raised.value).count("invalid arguments") == 1
++
++
+ def test_a_reply_that_breaks_the_schema_once_goes_back_and_the_second_stands(
+     checkout: tuple[Path, str],
+ ) -> None:

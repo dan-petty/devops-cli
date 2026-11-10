@@ -1,0 +1,19 @@
+{
+ "id": "plan-2163-dropped",
+ "kind": "plan",
+ "label": "incomplete",
+ "source": {
+  "stage_case": "2163-coverage-measures-branches-and-ci-keeps",
+  "pull": 2980,
+  "commit": "ebc0a94a1e562c15a590ab4346f93aa113fe5425"
+ },
+ "criteria": [
+  "`pyproject.toml` sets `branch = true`.",
+  "~~[ ] `fail_under` is the whole percentage that CI measures with branches, and at least 90. The pull request gives the measured figure.~~ (Dropped: #2356.)",
+  "The `Tests & Coverage` job uploads `.data/coverage.xml` as an artifact. The step passes `zizmor` and `actionlint`.",
+  "The pull request gives the job time of 5 runs before and 5 runs after. The average after is under 300 s.",
+  "diff-cover still reads `.data/coverage.xml` (#1743 keeps it in CI).",
+  "`uv run devops ci` passes."
+ ],
+ "note": "The plan has no task for acceptance criterion 4 of the issue: the PR must report the job time of 5 runs before and 5 runs after, with the average under 300 s and compared to 240 s. It also has no task for criterion 6, a full `uv run devops ci` run. Task 1.2 only runs one config test. Nobody checks that the total with branches on stays at or above fail_under = 85. Branch counting usually lowers the total, so the gate can turn red in the first CI run."
+}

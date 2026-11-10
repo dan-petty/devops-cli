@@ -1,0 +1,16 @@
+{
+ "id": "plan-good-3264-complete",
+ "kind": "plan",
+ "label": "complete",
+ "source": {
+  "stage_case": "good-3264-the-stage-marks-a-plan-ready",
+  "pull": 3305,
+  "commit": "7229a7d37162c5b5b8389218f4cefcded5ed3a2a"
+ },
+ "criteria": [
+  "A test with a fake client that returns a placeholder finding shows that the plan pull request is opened as a draft with the label and the findings in the comment.",
+  "A test shows that a plan with no finding is staged as today.",
+  "A test shows that the ready row refuses a plan with an open finding, and states why.",
+  "The golden-set replay includes #3194 or #3174 as a case."
+ ]
+}

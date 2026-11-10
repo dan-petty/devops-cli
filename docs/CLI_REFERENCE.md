@@ -7195,6 +7195,23 @@ devops roadmap eval verify [OPTIONS]
 | `--cases` | `path` | - | Folder of the cases. Default: tests/fixtures/roadmap_eval/stage. |
 | `--source` | `path` | - | Repository that holds the staging commits of the cases. Default: this checkout. |
 
+#### `devops roadmap eval completeness`
+
+**Score the Jev completeness check of the draft pull requests on a labelled set. The set holds the diffs of merged pull requests whose issue lists acceptance criteria (complete drafts), and incomplete drafts: plans that the stage golden set labels with a dropped criterion, and merged diffs from which one hunk is removed. For each case the command makes one request to Jev (a Noul question for each criterion and a Score question for the tests) and prints the recall of the incomplete drafts, the false holds on the complete drafts, the same rates at other thresholds, the spend, and whether the switch roadmap.stage.jev_completeness stays off. It stores the report as JSON under the data directory, with the probability of each criterion.**
+
+```bash
+devops roadmap eval completeness [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--limit` | `integer` | - | Run at most this many cases, the first ones of the set. |
+| `--json` | `boolean` | - | Print the report as JSON in place of the table. |
+| `--dry-run` | `boolean` | - | Make no request: list the cases and the model calls that a run makes. |
+| `--cases` | `path` | - | Folder of the cases. Default: tests/fixtures/roadmap_eval/completeness. |
+
 ---
 
 ## devops pr

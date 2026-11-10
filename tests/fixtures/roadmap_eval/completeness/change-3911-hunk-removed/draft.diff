@@ -1,0 +1,220 @@
+diff --git a/docs/roadmap/stage.md b/docs/roadmap/stage.md
+index 59ccce2f..2e6b9d89 100644
+--- a/docs/roadmap/stage.md
++++ b/docs/roadmap/stage.md
+@@ -64,7 +64,7 @@ A plan run needs about 38,000 tokens for its first request, and many more for it
+ 
+ ## The verification pass
+ 
+-After the checks, a model of the task `ai.tasks.verification` reviews the plan with the issue. The model is an agent: it reads the repository at the commit of the plan with the read tools of the planner, and it reads the start of the first files that the plan cites. Its request and its run use the context window of the task `verification`, and the request stays `CONST_ROADMAP_STAGE_TOOL_RESERVE_TOKENS` below the point where the run offers no more tools. A finding of the type `missing_path`, `false_premise`, `ignores_existing_code`, `task_order` or `verify_form` that quotes its evidence sends the plan back to the planner, with each open finding of the round. The evidence is a text of the issue, the plan, a cited file or a tool answer of the run. The plan goes back at most two repair rounds (`CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS`, #3039), and each round passes the checks and the review again. An open finding is a finding of one of those types, of `spec_delta_wrong` or `criterion_dropped`, or one that reports a placeholder. An open finding of the last review keeps the plan pull request a draft with the label `plan/needs-fix`. The stage comment lists those open findings first, and every other finding of each round after them. The review of refine for an item of a bot sends the same pass with no tool, and a `task_order`, `verify_form` or `criterion_dropped` finding is advice there, because a proposal has no task groups. The row `stage_ready` refuses a green draft that holds `plan/needs-fix`. A later stage round that finds no open finding removes the label, and a person may remove it too. The requirement "A verification pass follows the gates" of [roadmap-stage](../../openspec/specs/roadmap-stage/spec.md) holds the rules, and [the roadmap workflow](../ROADMAP_WORKFLOW.md#measure-the-verification-pass) tells how to score the pass.
++After the checks, a model of the task `ai.tasks.verification` reviews the plan with the issue. The model is an agent: it reads the repository at the commit of the plan with the read tools of the planner, and it reads the start of the first files that the plan cites. Its request and its run use the context window of the task `verification`, and the request stays `CONST_ROADMAP_STAGE_TOOL_RESERVE_TOKENS` below the point where the run offers no more tools. The task has no parent task, so the Service sets `context_window` 256,000 for it in the key `ai.tasks.verification` of [k8s/devops/configmap.example.yaml](../../k8s/devops/configmap.example.yaml). With no setting the task takes the default window of 32,768 tokens, which ends the tools of the run at 24,576 tokens. A review run whose tools the window ends before 8 tool calls (`CONST_ROADMAP_STAGE_MIN_TOOL_CALLS`) has read almost none of the code, so it fails the item with an error that names `ai.tasks.verification.context_window`. The item gets no draft, and the job plans the other items. A finding of the type `missing_path`, `false_premise`, `ignores_existing_code`, `task_order` or `verify_form` that quotes its evidence sends the plan back to the planner, with each open finding of the round. The evidence is a text of the issue, the plan, a cited file or a tool answer of the run. The plan goes back at most two repair rounds (`CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS`, #3039), and each round passes the checks and the review again. An open finding is a finding of one of those types, of `spec_delta_wrong` or `criterion_dropped`, or one that reports a placeholder. An open finding of the last review keeps the plan pull request a draft with the label `plan/needs-fix`. The stage comment lists those open findings first, and every other finding of each round after them. The review of refine for an item of a bot sends the same pass with no tool, and a `task_order`, `verify_form` or `criterion_dropped` finding is advice there, because a proposal has no task groups. The row `stage_ready` refuses a green draft that holds `plan/needs-fix`. A later stage round that finds no open finding removes the label, and a person may remove it too. The requirement "A verification pass follows the gates" of [roadmap-stage](../../openspec/specs/roadmap-stage/spec.md) holds the rules, and [the roadmap workflow](../ROADMAP_WORKFLOW.md#measure-the-verification-pass) tells how to score the pass.
+ 
+ ## Failures and clean-up
+ 
+diff --git a/k8s/devops/configmap.example.yaml b/k8s/devops/configmap.example.yaml
+index b3be3ca2..fc877f6f 100644
+--- a/k8s/devops/configmap.example.yaml
++++ b/k8s/devops/configmap.example.yaml
+@@ -46,8 +46,14 @@ data:
+         implement:
+           model: deepseek-v4.1-flash-1017
+           context_window: 256000
++        # The review run of a plan has the read tools of the planner and no parent task, so it
++        # takes the default window of 32,768 tokens when it sets none. The run ends its tools at
++        # three quarters of the window, which is 24,576 tokens: too soon for the first request and
++        # 8 tool calls (#3911). The window is the same as for analysis, and a run that the window
++        # ends too soon fails the item.
+         verification:
+           model: deepseek-v4.1-flash-1017
++          context_window: 256000
+         chat:
+           model: deepseek-v4.1-flash-1017
+         embedding:
+diff --git a/src/devops_cli/lang/en/messages.py b/src/devops_cli/lang/en/messages.py
+index 6676f97d..07c27874 100644
+--- a/src/devops_cli/lang/en/messages.py
++++ b/src/devops_cli/lang/en/messages.py
+@@ -3250,6 +3250,14 @@ class RoadmapMessages:
+         "ai.tasks.stage.context_window, or ai.tasks.analysis.context_window, which the task "
+         "stage uses when it sets none."
+     )
++    # The window ended the tools of the review run before it made the least number of tool calls
++    # (#3911). The review has read almost none of the code, so its findings cannot be trusted and
++    # a plan with no finding would stage as clean.
++    stage_verify_window_starved: str = (
++        "The context window of {window} tokens ended the tools of the verification run after "
++        "{calls} tool call(s). The run needs at least {minimum} calls. Raise the setting "
++        "ai.tasks.verification.context_window."
++    )
+     # The review run of a plan that passed the gates stopped with no findings (#3039).
+     stage_verify_stopped: str = (
+         "The verification run stopped before it gave its findings: {reason}. The plan passed the "
+diff --git a/src/devops_cli/roadmap/stage/stage_toolbox.py b/src/devops_cli/roadmap/stage/stage_toolbox.py
+index 4da496ec..745cb114 100644
+--- a/src/devops_cli/roadmap/stage/stage_toolbox.py
++++ b/src/devops_cli/roadmap/stage/stage_toolbox.py
+@@ -176,7 +181,8 @@ class ToolboxClient:
+     def _window_starved(trace: RunTrace) -> bool:
+         """Whether the window ended the tools of the run before the least number of tool calls
+         (#3880). The model then writes its plan about code that it did not read, and the
+-        placeholders in the plan hide the cause."""
++        placeholders in the plan hide the cause. A review run that the window starves has read
++        almost none of the code too, so it fails too (#3911)."""
+         return (
+             trace.limit is RunLimit.WINDOW
+             and len(trace.tool_calls) < CONST_ROADMAP_STAGE_MIN_TOOL_CALLS
+diff --git a/tests/roadmap/stage/test_roadmap_stage_toolbox.py b/tests/roadmap/stage/test_roadmap_stage_toolbox.py
+index 51014ae5..498cdedc 100644
+--- a/tests/roadmap/stage/test_roadmap_stage_toolbox.py
++++ b/tests/roadmap/stage/test_roadmap_stage_toolbox.py
+@@ -381,18 +381,40 @@ def test_a_plan_run_whose_window_ends_the_tools_after_the_minimum_calls_gives_it
+     )
+ 
+ 
+-def test_a_review_run_whose_tools_the_window_ends_early_is_not_a_window_failure(
++def test_a_review_run_whose_tools_the_window_ends_too_soon_fails_and_names_the_review_window(
++    checkout: tuple[Path, str],
++) -> None:
++    """A review that read almost none of the code gives no findings that a person can trust, and a
++    plan with no finding would stage as clean. So the run fails the item, and the error names the
++    window of the review and not the window of the planner (#3911)."""
++    source, sha = _big_file_checkout(checkout)
++    script = Script(_read("src/big.py"), without_tools=Verification(findings=[]))
++    client = ToolboxClient(script.model(), _Inner(), source, sha, window=12000)
++
++    with pytest.raises(RoadmapStageError) as raised:
++        client.chat_structured("System.", "{}", Verification, max_retries=1)
++
++    message = str(raised.value)
++    assert ("12000" in message, "ai.tasks.verification.context_window" in message) == (True, True)
++    assert "ai.tasks.stage.context_window" not in message
++
++
++def test_a_review_run_whose_window_ends_the_tools_after_the_minimum_calls_gives_its_findings(
+     checkout: tuple[Path, str],
+ ) -> None:
+-    """Only the plan run names the planner window: the review has its own window (#3880)."""
+     source, sha = _big_file_checkout(checkout)
+     verdict = Verification(findings=[])
+     script = Script(_read("src/big.py"), without_tools=verdict)
+-    client = ToolboxClient(script.model(), _Inner(), source, sha, window=12000)
++    client = ToolboxClient(script.model(), _Inner(), source, sha, window=45000)
+ 
+     result = client.chat_structured("System.", "{}", Verification, max_retries=1)
+ 
+-    assert result == verdict
++    (trace,) = client.traces
++    assert (
++        result,
++        trace.limit,
++        len(trace.tool_calls) >= constants.CONST_ROADMAP_STAGE_MIN_TOOL_CALLS,
++    ) == (verdict, RunLimit.WINDOW, True)
+ 
+ 
+ def test_the_trace_records_the_tools_offered_for_each_request(
+diff --git a/tests/roadmap/stage/test_roadmap_stage_verification.py b/tests/roadmap/stage/test_roadmap_stage_verification.py
+index 90162988..29e1a8bb 100644
+--- a/tests/roadmap/stage/test_roadmap_stage_verification.py
++++ b/tests/roadmap/stage/test_roadmap_stage_verification.py
+@@ -346,9 +346,14 @@ def test_the_review_takes_its_window_from_the_task_verification_and_not_from_sta
+         verifier=ToolboxModel(reads.model()),
+     )
+ 
++    # The window of 12,000 tokens ends the tools of the review after one call, so the review run
++    # fails the item (#3911), and the reason names the window of the task `verification`.
+     request = json.loads(reads.prompt())
+-    assert (len(plan.ready), request["files"]) == (1, {})
++    (failure,) = plan.failed
++    assert (plan.ready, request["files"]) == ((), {})
+     assert (bool(reads.tools_offered[0]), reads.tools_offered[1]) == (True, [])
++    assert (failure.error, "12000 tokens" in failure.reason) == ("RoadmapStageError", True)
++    assert "ai.tasks.verification.context_window" in failure.reason
+ 
+ 
+ def test_the_plan_is_returned_twice_then_stays_in_draft(
+diff --git a/tests/roadmap/stage/test_roadmap_stage_window.py b/tests/roadmap/stage/test_roadmap_stage_window.py
+index e21ad648..6ff28478 100644
+--- a/tests/roadmap/stage/test_roadmap_stage_window.py
++++ b/tests/roadmap/stage/test_roadmap_stage_window.py
+@@ -16,6 +16,7 @@ import yaml
+ from pydantic_ai.messages import ModelMessagesTypeAdapter, ModelRequest, UserPromptPart
+ 
+ from devops_cli.ai.context_budget import count_tokens
++from devops_cli.ai.task_loader import load_task_prompt
+ from devops_cli.config import constants
+ from devops_cli.config.constants import (
+     CONST_ROADMAP_INVESTIGATION_REPLY_WINDOW_SHARE,
+@@ -24,7 +25,10 @@ from devops_cli.config.constants import (
+     CONST_ROADMAP_STAGE_CONTEXT_MAX_TOKENS,
+     CONST_ROADMAP_STAGE_SPEC_MAX_CHARS,
+     CONST_ROADMAP_STAGE_TOOL_RESERVE_TOKENS,
++    CONST_ROADMAP_STAGE_VERIFY_BODY_MAX_TOKENS,
+ )
++from devops_cli.config.defaults import DEFAULT_AI_CONTEXT_WINDOW
++from devops_cli.roadmap.refine.refine_investigation import tokens_of, tool_stop
+ from devops_cli.roadmap.stage import stage
+ from devops_cli.roadmap.stage.stage import (
+     StagePlan,
+@@ -35,6 +39,7 @@ from devops_cli.roadmap.stage.stage import (
+ )
+ from devops_cli.roadmap.stage.stage_eval_run import RecordingClient
+ from devops_cli.roadmap.stage.stage_toolbox import ToolboxClient, ToolboxModel
++from devops_cli.roadmap.stage.stage_verify import VerificationInput, agent_instructions
+ from tests.support.builders import make_stage_proposal
+ from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
+ from tests.support.paths import REPO_ROOT
+@@ -330,6 +335,54 @@ def test_the_planner_window_of_the_example_configmap_fits_the_first_request_and_
+     assert (_limit(window) >= needed, _limit(WINDOW) < needed) == (True, True)
+ 
+ 
++def _review_first_request_tokens() -> int:
++    """The tokens of the first request of a review run with no cited file, counted as the run hook
++    counts them: the issue body at its cap, the plan, and the instructions of the review. The
++    request keeps its files below the limit, so a window that fits this request leaves the tools
++    their room (`VerificationInput.of`)."""
++    given = VerificationInput(
++        1,
++        "A title",
++        _words(CONST_ROADMAP_STAGE_VERIFY_BODY_MAX_TOKENS),
++        _PLAN.model_dump(mode="json"),
++        {},
++    )
++    request = ModelRequest(
++        parts=[UserPromptPart(content=given.text())],
++        instructions=agent_instructions(load_task_prompt("roadmap_stage_verify.md")),
++    )
++    return tokens_of([request])
++
++
++def test_the_review_window_of_the_example_configmap_fits_the_first_request_and_the_minimum_calls() -> (
++    None
++):
++    """The task `verification` has no parent task, so it takes the window of `ai` when it sets
++    none: 32,768 tokens, which ends the tools of a review at 24,576 (#3911)."""
++    needed = (
++        _review_first_request_tokens()
++        + constants.CONST_ROADMAP_STAGE_MIN_TOOL_CALLS * TOOL_ANSWER_TOKENS
++    )
++    window = _example_task("verification").get("context_window", DEFAULT_AI_CONTEXT_WINDOW)
++
++    assert (tool_stop(window) >= needed, tool_stop(DEFAULT_AI_CONTEXT_WINDOW) < needed) == (
++        True,
++        True,
++    )
++
++
++def test_the_review_and_the_planner_share_the_model_and_the_window_of_the_example_configmap() -> (
++    None
++):
++    """One model serves every slot of the Service (#3874), so one window fits all of them."""
++    verification, analysis = _example_task("verification"), _example_task("analysis")
++
++    assert (verification["model"], verification["context_window"]) == (
++        analysis["model"],
++        analysis["context_window"],
++    )
++
++
+ def test_the_documented_window_of_analysis_and_its_source_are_the_files_values() -> None:
+     configured = _example_task("analysis")
+     gateway = {

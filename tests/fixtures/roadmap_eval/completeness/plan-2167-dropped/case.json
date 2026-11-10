@@ -1,0 +1,19 @@
+{
+ "id": "plan-2167-dropped",
+ "kind": "plan",
+ "label": "incomplete",
+ "source": {
+  "stage_case": "2167-the-49-test-files-that-no",
+  "pull": 2982,
+  "commit": "2bb15d5239501ecb0c5934685684c484b82c193a"
+ },
+ "criteria": [
+  "No test in the files above patches a `devops_cli` module, class, function or attribute, or imports a name that starts with `_` from `devops_cli`.",
+  "Each double is a shared fake from `tests/support/fakes/`, installed through its seam or fixture.",
+  "Product code that a test needed only for a patch goes, as #1307's Q27 says.",
+  "If #1309 has landed, its ceilings go down by the sites that this item removes.",
+  "Each test still checks the behaviour that it checked before. The pull request names each test it deletes and why.",
+  "`uv run devops ci` passes."
+ ],
+ "note": "Two acceptance criteria of the issue have no task. (a) 'The pull request names each test it deletes and why' and the product-code removal rule (#1307 Q27) have no task or check. (b) The criterion about #1309 ceilings: #1309 is closed, but the plan neither checks whether ceilings exist nor lowers them. The plan also says nothing about the 'Dependencies: #2143', which is now closed."
+}

@@ -1,0 +1,22 @@
+{
+ "id": "change-3500-hunk-removed",
+ "kind": "change",
+ "label": "incomplete",
+ "source": {
+  "pull_commit": "89fbb085f01f82748624d21408a42966ac57a2c5",
+  "issue": 3500,
+  "title": "fix(roadmap): refine blocks an item with an open dependency (#3696)"
+ },
+ "criteria": [
+  "A test: a complete proposal with one open dependency gives `NextStep.BLOCKED` and that number, and the item does not get Status Ready.",
+  "A test: the same proposal with a closed dependency gives `NextStep.READY`.",
+  "A test: a blocked item is refined again after its last blocker closes, and it reaches Ready.",
+  "`_refinable` (`refine.py:1713`) selects a Ready item only when it has no refine section or holds a covering tool that no round asked about, so a later round does not read these 9 items again. The change adds a selection rule for a Ready item with an open dependency, or one `devops roadmap refine --item <n>` run for each of the 9 items follows the merge.",
+  "After that step, each of the 9 items that still has an open dependency reads Status New, `refine.next_step` blocked, and `refine.blocked_by` set."
+ ],
+ "removed": {
+  "criterion": 1,
+  "path": "src/devops_cli/roadmap/refine.py",
+  "hunk": "@@ -1148,7 +1150,7 @@ def check_ready(proposal: RefinementProposal, open_questions: Sequence[str]) ->"
+ }
+}

@@ -1,0 +1,15 @@
+{
+ "id": "change-4228-complete",
+ "kind": "change",
+ "label": "complete",
+ "source": {
+  "pull_commit": "b855601033d3efc29f2eb2dd8d9e4e6ab323d8b5",
+  "issue": 4228,
+  "title": "fix(roadmap): send one tool call at a time to a Claude group (#4243)"
+ },
+ "criteria": [
+  "A test sends a reply with two tool calls through the layer that fails today and asserts that both calls arrive with valid JSON arguments (it fails today).",
+  "A test for a run that stops on a tool call with invalid arguments asserts that the failure text names that cause.",
+  "`devops roadmap stage --plan --item <small item>` on `claude-sonnet-5-5` ends with a plan or a named cause, not \"0 schema violation(s)\"."
+ ]
+}

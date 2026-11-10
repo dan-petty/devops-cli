@@ -1,0 +1,15 @@
+{
+ "id": "change-3651-complete",
+ "kind": "change",
+ "label": "complete",
+ "source": {
+  "pull_commit": "a341524d7b6559ee7e4460301b43a56a8df55685",
+  "issue": 3651,
+  "title": "fix(roadmap): name the reason of a failed intake write (#3879)"
+ },
+ "criteria": [
+  "A test: a failed write of a candidate prints the masked reason with the class of the error.",
+  "A test: a token in the error text does not appear in the output.",
+  "A test: the other candidates are still written."
+ ]
+}

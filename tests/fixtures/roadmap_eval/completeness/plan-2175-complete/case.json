@@ -1,0 +1,16 @@
+{
+ "id": "plan-2175-complete",
+ "kind": "plan",
+ "label": "complete",
+ "source": {
+  "stage_case": "2175-the-five-functions-and-properties-that",
+  "pull": 2983,
+  "commit": "1969ab06e1adbff97476e21776f2eb1acfb5c78d"
+ },
+ "criteria": [
+  "The five definitions are deleted.",
+  "`git grep -n -w <name>` prints nothing in `src/`, `tests/` and `docs/` for each name.",
+  "A test that only calls a deleted name goes with it, and the pull request names it.",
+  "`uv run devops ci` passes, and the coverage stays at or above `fail_under`."
+ ]
+}

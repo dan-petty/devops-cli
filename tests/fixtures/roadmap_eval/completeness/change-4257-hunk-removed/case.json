@@ -1,0 +1,20 @@
+{
+ "id": "change-4257-hunk-removed",
+ "kind": "change",
+ "label": "incomplete",
+ "source": {
+  "pull_commit": "b46506d402c636380f5a570fa11f963d82a73610",
+  "issue": 4257,
+  "title": "fix(roadmap): build the trace facts from every plan run (#4267)"
+ },
+ "criteria": [
+  "A unit test makes a toolbox client that records a `read_issue` call in its first run and no call in its second run, and a plan whose Feasibility says `read_issue` returned the issue. The first reply is refused for another reason, so the planner returns it once. The second reply passes the trace gate. Command: `uv run devops ci test tests/roadmap/stage/test_roadmap_stage_gates.py`. It fails today: the problem says that the run did not call `read_issue`.",
+  "A unit test records a `read_issue` call in a review run only. A plan that claims `read_issue` is still refused.",
+  "The golden set of the stage eval still passes. Command: `uv run devops roadmap eval stage --replay`."
+ ],
+ "removed": {
+  "criterion": 1,
+  "path": "src/devops_cli/roadmap/stage/stage.py",
+  "hunk": "@@ -1051,11 +1051,12 @@ class _Planner:"
+ }
+}

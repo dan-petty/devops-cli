@@ -1,0 +1,16 @@
+{
+ "id": "plan-2396-dropped",
+ "kind": "plan",
+ "label": "incomplete",
+ "source": {
+  "stage_case": "2396-the-q4-0-ollama-16gib-tier",
+  "pull": 2988,
+  "commit": "4e5ccd0e8406d9f0d4b9c973066375516bc5033b"
+ },
+ "criteria": [
+  "The ollama-16gib DaemonSet in k8s/llm/profiles/ollama-profiles.yaml sets OLLAMA_KV_CACHE_TYPE to q8_0.",
+  "All nine Ollama tiers in ollama-profiles.yaml use the same OLLAMA_KV_CACHE_TYPE value.",
+  "After the change, the same /api/embed request sent to ollama-16gib and ollama-48gib-slow returns vectors with a cosine similarity of 0.999 or higher."
+ ],
+ "note": "Acceptance criterion 3 of the issue is dropped. It asks for a live check that the same /api/embed request to ollama-16gib and ollama-48gib-slow gives cosine of 0.999 or more. The plan has no 'Pending a person:' bullet for it, and no mention in design.md of why it is left out. The only follow-up bullet is the tuicr review."
+}

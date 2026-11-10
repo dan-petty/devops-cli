@@ -1,0 +1,511 @@
+diff --git a/Dockerfile b/Dockerfile
+index f0c21e0b..2bb62946 100644
+--- a/Dockerfile
++++ b/Dockerfile
+@@ -20,11 +20,25 @@ ENV TIKTOKEN_CACHE_DIR=/app/.cache/tiktoken
+ RUN uv sync --locked --no-dev --no-editable && \
+     /app/.venv/bin/python -c "import tiktoken; tiktoken.get_encoding('cl100k_base'); tiktoken.get_encoding('o200k_base')"
+ 
+-ADD --checksum=sha256:77b9e297e94c50336823d0f84de7ef1be60cba704601fa0d98f129f47a94987b \
+-    https://github.com/cli/cli/releases/download/v2.102.1/gh_2.102.1_linux_amd64.tar.gz /tmp/gh_amd64.tar.gz
+-ADD --checksum=sha256:5019b3cc6e8a03bb4d88600f8dbda2add8e6407705c159b0c63151036e77a1af \
+-    https://github.com/cli/cli/releases/download/v2.102.1/gh_2.102.1_linux_arm64.tar.gz /tmp/gh_arm64.tar.gz
+-RUN tar -xzf "/tmp/gh_${TARGETARCH}.tar.gz" -C /tmp && \
++# gh, from its pinned release. BuildKit `ADD` of a URL has no retry option, so a 504 answer of GitHub
++# failed the build (#4223). The step fetches the tarball with `curl --retry` instead, and it checks
++# the pinned SHA-256 with `sha256sum`. curl stays in this stage only: the Service image does not
++# copy it.
++RUN apt-get update && apt-get install -y --no-install-recommends -o Acquire::Retries=5 \
++      ca-certificates curl && \
++    rm -rf /var/lib/apt/lists/* && \
++    case "${TARGETARCH}" in \
++      amd64) \
++        url="https://github.com/cli/cli/releases/download/v2.102.1/gh_2.102.1_linux_amd64.tar.gz"; \
++        sha=77b9e297e94c50336823d0f84de7ef1be60cba704601fa0d98f129f47a94987b ;; \
++      arm64) \
++        url="https://github.com/cli/cli/releases/download/v2.102.1/gh_2.102.1_linux_arm64.tar.gz"; \
++        sha=5019b3cc6e8a03bb4d88600f8dbda2add8e6407705c159b0c63151036e77a1af ;; \
++      *) echo "no gh build for ${TARGETARCH}" >&2; exit 1 ;; \
++    esac && \
++    curl -fsSL --retry 8 --retry-all-errors --retry-delay 2 -o /tmp/gh.tar.gz "$url" && \
++    echo "$sha  /tmp/gh.tar.gz" | sha256sum -c - && \
++    tar -xzf /tmp/gh.tar.gz -C /tmp && \
+     install -m 755 "/tmp/gh_2.102.1_linux_${TARGETARCH}/bin/gh" /usr/local/bin/gh && \
+     rm -rf /tmp/gh*
+ 
+diff --git a/src/devops_cli/commands/install_tools.py b/src/devops_cli/commands/install_tools.py
+index bf523c40..aa908f81 100755
+--- a/src/devops_cli/commands/install_tools.py
++++ b/src/devops_cli/commands/install_tools.py
+@@ -96,6 +96,19 @@ def _require_https(request: httpx2.Request) -> None:
+         )
+ 
+ 
++# The count of tries of a download. The waits between them add up to 123 seconds, so an outage of
++# GitHub that ends within two minutes needs no rerun of the check (#4223).
++_DOWNLOAD_RETRIES: Final[int] = 8
++
++_GZIP_MAGIC: Final[bytes] = b"\x1f\x8b"
++# The formats of the lock whose body must be the archive: the check for each one.
++_ARCHIVE_MAGIC: Final[dict[str, Callable[[bytes], bool]]] = {
++    "gzip": lambda data: data.startswith(_GZIP_MAGIC),
++    "tar.gz": lambda data: data.startswith(_GZIP_MAGIC),
++    "zip": lambda data: zipfile.is_zipfile(io.BytesIO(data)),
++}
++
++
+ def _download_client() -> httpx2.Client:
+     """A public-only client that follows redirects and refuses every hop that is not https.
+ 
+@@ -106,14 +119,29 @@ def _download_client() -> httpx2.Client:
+         EgressLevel.PUBLIC,
+         follow_redirects=True,
+         event_hooks={"request": [_require_https]},
++        retries=_DOWNLOAD_RETRIES,
+     )
+ 
+ 
+-def _download(url: str) -> bytes:
++def _download(url: str, archive_format: str = "binary") -> bytes:
++    """The body of `url`. For an archive format, refuse a body that is not that archive.
++
++    A proxy or an outage page can answer 200 with an HTML body. The checksum check would then
++    report a mismatch, which hides the cause, so the error here names the URL and the status.
++    """
+     with _download_client() as c:
+         r = c.get(url, timeout=DEFAULT_HTTP_TIMEOUT_SECONDS)
+         r.raise_for_status()
+-        return r.content
++    is_archive = _ARCHIVE_MAGIC.get(archive_format)
++    if is_archive is not None and not is_archive(r.content):
++        raise ToolDownloadError(
++            url,
++            reason=(
++                f"the body is not a {archive_format} archive "
++                f"(HTTP {r.status_code}, content-type {r.headers.get('content-type', 'none')})"
++            ),
++        )
++    return r.content
+ 
+ 
+ def _verify_sha256(name: str, data: bytes, expected_hex: str) -> None:
+@@ -213,9 +241,10 @@ def install_binary(name: str, entry: BinaryTool, target_dir: Path) -> None:
+     if artifact is None:
+         raise ToolExecutionError(f"tools.lock has no {_PLATFORM} build of {name}", tool_name=name)
+     with _staged(tool_install_dir(name, entry.version)) as stage:
+-        data = _download(artifact.url)
++        archive_format = entry.format_of(artifact)
++        data = _download(artifact.url, archive_format)
+         _verify_sha256(name, data, artifact.sha256)
+-        _UNPACKERS[entry.format_of(artifact)](data, artifact, stage / entry.bin)
++        _UNPACKERS[archive_format](data, artifact, stage / entry.bin)
+     _link_commands(name, entry, target_dir)
+ 
+ 
+diff --git a/tests/ci/test_release_download_retries.py b/tests/ci/test_release_download_retries.py
+new file mode 100644
+index 00000000..38579706
+--- /dev/null
++++ b/tests/ci/test_release_download_retries.py
+@@ -0,0 +1,211 @@
++"""Every download of a release archive retries on a 5xx answer and on a connect failure (#4223).
++
++A GitHub outage with HTTP 504 answers failed the checks of two pull requests three or four times
++in a row. These tests read the files that download a release: the `Dockerfile`, the workflows with
++their composite actions, and the installer `install_tools.py`. Each one fails for a download with no
++retry, so a new download cannot come back without one.
++"""
++
++from __future__ import annotations
++
++import ast
++import re
++import shlex
++from pathlib import Path
++
++import pytest
++import yaml
++
++from tests.support.dockerfile import stages
++from tests.support.paths import REPO_ROOT
++
++DOCKERFILE = REPO_ROOT / "Dockerfile"
++INSTALL_TOOLS = REPO_ROOT / "src" / "devops_cli" / "commands" / "install_tools.py"
++WORKFLOWS = REPO_ROOT / ".github" / "workflows"
++ACTIONS = REPO_ROOT / ".github" / "actions"
++
++# A shell command ends at one of these. A backslash at the end of a line joins it to the next.
++_COMMAND_END = re.compile(r"&&|\|\||[;|\n]")
++# The programs that fetch a file over the network, and the option of each one that retries.
++_DOWNLOADERS = {"curl": "--retry", "wget": "--tries"}
++
++
++def _commands(script: str) -> list[list[str]]:
++    """The commands of a shell script as lists of words, with the text of a comment dropped.
++
++    The split is on `&&`, `||`, `;`, `|` and a new line. A command with a quote that spans a
++    split, such as a `python -c "a; b"` program, is read from its first words alone: only the name
++    of the program and its options matter here.
++    """
++    found: list[list[str]] = []
++    for part in _COMMAND_END.split(script.replace("\\\n", " ")):
++        try:
++            words = shlex.split(part, comments=True)
++        except ValueError:
++            words = part.split()
++        if words:
++            found.append(words)
++    return found
++
++
++def _downloads_without_retry(script: str) -> list[str]:
++    """Each curl or wget command of `script` that has no retry option."""
++    return [
++        " ".join(words)
++        for words in _commands(script)
++        if (retry := _DOWNLOADERS.get(Path(words[0]).name)) is not None
++        and not any(word.startswith(retry) for word in words[1:])
++    ]
++
++
++def _run_scripts(document: object) -> list[str]:
++    """The `run` script of each step in a parsed workflow or composite action."""
++    if isinstance(document, dict):
++        return [
++            *([document["run"]] if isinstance(document.get("run"), str) else []),
++            *(script for value in document.values() for script in _run_scripts(value)),
++        ]
++    if isinstance(document, list):
++        return [script for item in document for script in _run_scripts(item)]
++    return []
++
++
++def words_text(words: list[str]) -> str:
++    """The words of one Dockerfile instruction as one text."""
++    return " ".join(words)
++
++
++def _workflow_files() -> list[Path]:
++    return sorted([*WORKFLOWS.glob("*.yml"), *ACTIONS.glob("*/action.yml")])
++
++
++# ── The finder, proved on scripts of its own ──────────────────────────────────
++
++
++@pytest.mark.parametrize(
++    ("script", "expected"),
++    [
++        (
++            "curl -fsSL https://example.com/a.tar.gz -o a.tar.gz",
++            ["curl -fsSL https://example.com/a.tar.gz -o a.tar.gz"],
++        ),
++        ("curl -fsS --retry 5 https://example.com/a", []),
++        ("curl -fsS --retry-all-errors --retry-delay 2 https://example.com/a", []),
++        (
++            "set -e\napt-get update && curl -fsSL https://example.com/a | tar -xz",
++            ["curl -fsSL https://example.com/a"],
++        ),
++        ("curl -fsSL \\\n  --retry 8 \\\n  https://example.com/a", []),
++        ("wget https://example.com/a", ["wget https://example.com/a"]),
++        ("wget --tries=5 https://example.com/a", []),
++        ("echo curl is a program # curl https://example.com/a", []),
++        ("uv run devops install-tools --tool trivy", []),
++    ],
++    ids=[
++        "curl-with-no-retry",
++        "curl-retry",
++        "curl-retry-all-errors",
++        "curl-in-a-pipe",
++        "curl-retry-after-a-continuation",
++        "wget-with-no-retry",
++        "wget-tries",
++        "curl-in-a-comment",
++        "no-download",
++    ],
++)
++def test_the_finder_names_each_download_that_has_no_retry(script: str, expected: list[str]) -> None:
++    """The finder flags a curl or wget command without a retry option and nothing else."""
++    found = _downloads_without_retry(script)
++
++    assert found == expected
++
++
++# ── The files that download a release ─────────────────────────────────────────
++
++
++def test_the_dockerfile_fetches_no_remote_file_with_add() -> None:
++    """BuildKit `ADD` of a URL has no retry option: a 504 answer fails the build, and the
++    `--checksum` check names a checksum failure for it. The image fetches a release with
++    `devops install-tools`, which retries."""
++    remote_adds = [
++        " ".join(words)
++        for stage in stages(DOCKERFILE.read_text(encoding="utf-8")).values()
++        for words in stage
++        if words[0].upper() == "ADD"
++        and any(word.startswith(("http://", "https://")) for word in words)
++    ]
++
++    assert remote_adds == []
++
++
++def test_every_download_command_of_the_dockerfile_retries() -> None:
++    """A `RUN` step that calls curl or wget carries the retry option of that program."""
++    scripts = [
++        " ".join(words[1:])
++        for stage in stages(DOCKERFILE.read_text(encoding="utf-8")).values()
++        for words in stage
++        if words[0].upper() == "RUN"
++    ]
++
++    assert [found for script in scripts for found in _downloads_without_retry(script)] == []
++
++
++def test_every_release_download_of_the_dockerfile_keeps_its_pinned_checksum() -> None:
++    """The retry weakens no check: an instruction that names a GitHub release URL also checks a
++    SHA-256 of 64 hexadecimal digits with `sha256sum`."""
++    unchecked = [
++        " ".join(words)
++        for stage in stages(DOCKERFILE.read_text(encoding="utf-8")).values()
++        for words in stage
++        if "github.com/" in " ".join(words)
++        and "/releases/download/" in " ".join(words)
++        and not (
++            "sha256sum" in words_text(words) and re.search(r"\b[0-9a-f]{64}\b", words_text(words))
++        )
++    ]
++
++    assert unchecked == []
++
++
++def test_every_download_command_of_a_workflow_retries() -> None:
++    """A step of a workflow or composite action that calls curl or wget carries the retry option
++    of that program. The health checks of the image jobs already do."""
++    found = {
++        path.relative_to(REPO_ROOT).as_posix(): missing
++        for path in _workflow_files()
++        if (
++            missing := [
++                download
++                for script in _run_scripts(yaml.safe_load(path.read_text(encoding="utf-8")))
++                for download in _downloads_without_retry(script)
++            ]
++        )
++    }
++
++    assert found == {}
++
++
++def _download_client_calls() -> list[ast.Call]:
++    """The calls to `http_client` inside `_download_client` in `install_tools.py`."""
++    tree = ast.parse(INSTALL_TOOLS.read_text(encoding="utf-8"))
++    (function,) = [
++        node
++        for node in ast.walk(tree)
++        if isinstance(node, ast.FunctionDef) and node.name == "_download_client"
++    ]
++    return [
++        node
++        for node in ast.walk(function)
++        if isinstance(node, ast.Call)
++        and isinstance(node.func, ast.Name)
++        and node.func.id == "http_client"
++    ]
++
++
++def test_the_installer_builds_its_download_client_with_retries() -> None:
++    """`devops install-tools` fetches promtool, trivy, helm and the other locked builds with one
++    client. The client passes `retries=` to `http_client`, which wraps its transport in the retry
++    transport. Its behavior is proved in `tests/commands/test_install_tools.py`."""
++    (call,) = _download_client_calls()
++
++    assert [keyword.arg for keyword in call.keywords if keyword.arg == "retries"] == ["retries"]
+diff --git a/tests/commands/test_install_tools.py b/tests/commands/test_install_tools.py
+index b3522915..30ebdbc4 100755
+--- a/tests/commands/test_install_tools.py
++++ b/tests/commands/test_install_tools.py
+@@ -14,6 +14,7 @@ from dataclasses import dataclass
+ from pathlib import Path
+ from urllib.parse import urlsplit
+ 
++import httpx2
+ import pytest
+ from typer.testing import CliRunner
+ 
+@@ -44,6 +45,7 @@ from devops_cli.tools_lock import (
+     ToolsLock,
+     load_tools_lock,
+ )
++from tests.support.fakes.clock import ClockFake
+ from tests.support.fakes.dial import record_connects
+ from tests.support.fakes.dns import DnsFake
+ from tests.support.fakes.http import WebFake
+@@ -840,3 +842,169 @@ def test_download_refuses_a_private_answer_whatever_the_flag(
+     assert raised.value.error_code == "SSRF_BLOCKED"
+ 
+     assert recorder.dialled == []
++
++
++# ── Retries and bodies that are not the archive (#4223) ───────────────────────
++
++HTML_504 = "<html><head><title>504 Gateway Time-out</title></head><body>504</body></html>"
++
++
++def _answers(
++    web: WebFake, answers: list[httpx2.Response | httpx2.TransportError]
++) -> list[httpx2.Request]:
++    """Serve each answer of `answers` to the next request for `ASSET_URL`, and the last one to
++    every request after it. Return the list that fills with each request received."""
++    received: list[httpx2.Request] = []
++
++    def serve(request: httpx2.Request) -> httpx2.Response | None:
++        if str(request.url) != ASSET_URL:
++            return None
++        answer = answers[min(len(received), len(answers) - 1)]
++        received.append(request)
++        if isinstance(answer, httpx2.TransportError):
++            answer.request = request
++            raise answer
++        return answer
++
++    web.serve(serve)
++    return received
++
++
++def test_install_retries_two_504_answers_then_installs_the_archive(
++    web: WebFake, clock: ClockFake, tmp_path: Path, isolate_user_data_root: Path
++) -> None:
++    """A 504 answer is not the end of the install: the installer waits and asks again, and the
++    third answer, the archive, is verified and linked."""
++    received = _answers(
++        web,
++        [httpx2.Response(504), httpx2.Response(504), httpx2.Response(200, content=EXECUTABLE)],
++    )
++
++    install_binary("mytool", _binary_entry(EXECUTABLE), tmp_path / "bin")
++
++    assert (
++        len(received),
++        len(clock.waits),
++        all(wait > 0 for wait in clock.waits),
++        (tmp_path / "bin" / "mytool").read_bytes(),
++    ) == (3, 2, True, EXECUTABLE)
++
++
++def test_install_retries_a_lost_connection_then_installs_the_archive(
++    web: WebFake, clock: ClockFake, tmp_path: Path, isolate_user_data_root: Path
++) -> None:
++    """A connect failure is retried as a 5xx answer is."""
++    received = _answers(
++        web,
++        [
++            httpx2.ConnectError("Connection refused"),
++            httpx2.ReadTimeout("The read operation timed out"),
++            httpx2.Response(200, content=EXECUTABLE),
++        ],
++    )
++
++    install_binary("mytool", _binary_entry(EXECUTABLE), tmp_path / "bin")
++
++    assert (len(received), (tmp_path / "bin" / "mytool").read_bytes()) == (3, EXECUTABLE)
++
++
++def test_install_retries_for_at_least_one_minute_of_outage(
++    web: WebFake, clock: ClockFake, tmp_path: Path, isolate_user_data_root: Path
++) -> None:
++    """An outage of GitHub that ends within the retry time needs no rerun of the check: the
++    answers are 504 until the installer has waited one minute, and then the archive."""
++
++    def serve(request: httpx2.Request) -> httpx2.Response | None:
++        if str(request.url) != ASSET_URL:
++            return None
++        return httpx2.Response(504 if sum(clock.waits) < 60 else 200, content=EXECUTABLE)
++
++    web.serve(serve)
++
++    install_binary("mytool", _binary_entry(EXECUTABLE), tmp_path / "bin")
++
++    assert (tmp_path / "bin" / "mytool").read_bytes() == EXECUTABLE
++
++
++def test_a_download_that_keeps_failing_with_504_ends_with_the_url_and_the_status(
++    web: WebFake, clock: ClockFake, tmp_path: Path, isolate_user_data_root: Path
++) -> None:
++    """The retries end. The error names the URL and the HTTP status, not a checksum, and no file
++    of the tool stays."""
++    received = _answers(web, [httpx2.Response(504)])
++    target = tmp_path / "bin"
++
++    with pytest.raises(httpx2.HTTPStatusError, match=rf"504.*{ASSET_URL}"):
++        install_binary("mytool", _binary_entry(EXECUTABLE), target)
++
++    assert (
++        2 <= len(received) <= 20,
++        list((isolate_user_data_root / "tools" / "mytool").iterdir()),
++        os.path.lexists(target / "mytool"),
++    ) == (True, [], False)
++
++
++def test_a_404_answer_is_not_retried(
++    web: WebFake, clock: ClockFake, tmp_path: Path, isolate_user_data_root: Path
++) -> None:
++    """A wrong URL stays an error at once: the retries cover a 5xx answer and a lost connection
++    only."""
++    received = _answers(web, [httpx2.Response(404)])
++
++    with pytest.raises(httpx2.HTTPStatusError, match=rf"404.*{ASSET_URL}"):
++        install_binary("mytool", _binary_entry(EXECUTABLE), tmp_path / "bin")
++
++    assert (len(received), clock.waits) == (1, [])
++
++
++@pytest.mark.parametrize(
++    ("archive_format", "artifact", "member"),
++    [
++        ("gzip", gzip.compress(EXECUTABLE), None),
++        ("tar.gz", _tar_gz({"mytool": EXECUTABLE}), "mytool"),
++        ("zip", _zip({"mytool": EXECUTABLE}), "mytool"),
++    ],
++    ids=["gzip", "tar.gz", "zip"],
++)
++def test_html_504_page_with_status_200_is_not_archive_and_the_error_names_the_url(
++    web: WebFake,
++    tmp_path: Path,
++    isolate_user_data_root: Path,
++    archive_format: str,
++    artifact: bytes,
++    member: str | None,
++) -> None:
++    """The lock holds the checksum of the real archive and the server answers 200 with an HTML
++    error page. The error is not a checksum failure: it names the URL and the HTTP status, and it
++    says that the body is not a `<format>` archive."""
++    web.page(ASSET_URL, HTML_504)
++    target = tmp_path / "bin"
++
++    with pytest.raises(ToolDownloadError) as raised:
++        install_binary(
++            "mytool", _binary_entry(artifact, archive_format=archive_format, member=member), target
++        )
++
++    assert (
++        raised.value.details["url"],
++        f"the body is not a {archive_format} archive" in raised.value.details["reason"],
++        "200" in raised.value.details["reason"],
++        list((isolate_user_data_root / "tools" / "mytool").iterdir()),
++        os.path.lexists(target / "mytool"),
++    ) == (ASSET_URL, True, True, [], False)
++
++
++def test_an_archive_with_other_bytes_than_the_lock_still_fails_the_checksum(
++    web: WebFake, tmp_path: Path, isolate_user_data_root: Path
++) -> None:
++    """The check for a body that is not an archive does not replace the checksum: a real tar.gz
++    with other content passes the first and fails the second."""
++    locked = _tar_gz({"mytool": EXECUTABLE})
++    web.content(ASSET_URL, _tar_gz({"mytool": b"tampered"}))
++
++    with pytest.raises(ChecksumMismatchError, match="mytool"):
++        install_binary(
++            "mytool",
++            _binary_entry(locked, archive_format="tar.gz", member="mytool"),
++            tmp_path / "bin",
++        )

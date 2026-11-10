@@ -2824,6 +2824,24 @@ CONST_AI_JEV_ASK_MAX_LEVELS: Final[int] = 10
 CONST_AI_JEV_ASK_MIN_LEVELS: Final[int] = 2
 CONST_AI_JEV_ASK_OPTION_SEPARATOR: Final[str] = "="
 CONST_URL_TYPESAFE_API_BASE: Final[str] = "https://api.typesafe.ai/v1"
+# The Jev completeness check of a draft pull request (#4308). The check skips a draft whose diff
+# holds more tokens than this share of the Jev window (one fourth: the criteria, the questions and
+# the rubric need the rest), and an issue that lists more criteria than the cap.
+CONST_ROADMAP_JEV_MAX_DIFF_TOKENS: Final[int] = CONST_AI_JEV_CONTEXT_WINDOW // 4
+CONST_ROADMAP_JEV_MAX_CRITERIA: Final[int] = 40
+# A criterion whose probability of "the draft delivers it" is below this value is in doubt.
+CONST_ROADMAP_JEV_CRITERION_THRESHOLD: Final[float] = 0.50
+# A test-strength score (0 to 3) below this value is in doubt.
+CONST_ROADMAP_JEV_MIN_TEST_SCORE: Final[float] = 1.0
+# The eval of the check (`devops roadmap eval completeness`): the switch stays off when more than
+# this share of the complete drafts is held, or when the set holds fewer cases or fewer cases of a
+# label than the minimums. The thresholds that the report sweeps are shares of the probability.
+CONST_ROADMAP_JEV_EVAL_MAX_FALSE_HOLD_RATE: Final[float] = 0.10
+CONST_ROADMAP_JEV_EVAL_MIN_CASES: Final[int] = 30
+CONST_ROADMAP_JEV_EVAL_MIN_CASES_PER_LABEL: Final[int] = 10
+CONST_ROADMAP_JEV_EVAL_SWEEP: Final[tuple[float, ...]] = (0.3, 0.5, 0.7, 0.8, 0.9)
+# The price of Jev in USD for one million input tokens (https://openrouter.ai/typesafe/jev-1.14).
+CONST_AI_JEV_USD_PER_MILLION_INPUT_TOKENS: Final[float] = 0.042
 CONST_AI_GATEWAY_PROVIDER: Final[str] = "gateway"
 # The providers `ai.provider` takes.
 CONST_AI_PROVIDER_IDS: Final[tuple[str, ...]] = (

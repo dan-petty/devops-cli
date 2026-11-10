@@ -1,0 +1,17 @@
+{
+ "id": "plan-2166-complete",
+ "kind": "plan",
+ "label": "complete",
+ "source": {
+  "stage_case": "2166-the-unused-run-subprocess-re-import",
+  "pull": 2981,
+  "commit": "739854ee402a3a2b8f96782fcefe9f790ee16486"
+ },
+ "criteria": [
+  "`src/devops_cli/security/ruff.py` imports no name it does not use, and its tests patch no `devops_cli` name.",
+  "`rg -n \"_prepare_cmd\" src tests` prints nothing.",
+  "A `devops ci` row runs `ruff check --select F401 --ignore-noqa` over `src/` and fails on a new site. The pull request shows it failing on an added re-import. The ceiling is the count of the sites #1332 owns, and it goes to zero with #1332.",
+  "The row runs on the stock runner with no install, and its job stays under 5 minutes.",
+  "`uv run devops ci` passes."
+ ]
+}

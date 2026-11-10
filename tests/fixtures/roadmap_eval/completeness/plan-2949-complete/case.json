@@ -1,0 +1,16 @@
+{
+ "id": "plan-2949-complete",
+ "kind": "plan",
+ "label": "complete",
+ "source": {
+  "stage_case": "2949-a-failed-alternatives-check-skips-its",
+  "pull": 2976,
+  "commit": "8d4a217a923392bacbf2a0bf4b9f5ae8be67f113"
+ },
+ "criteria": [
+  "A test with one failing item and four good items ends with a successful round and a record for the failing item.",
+  "A round in which every item fails still fails.",
+  "The failed item is tried again after the set time, not before.",
+  "`uv run devops ci` passes."
+ ]
+}

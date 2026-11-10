@@ -3578,6 +3578,38 @@ class RoadmapMessages:
         "`plan/needs-fix`, because the model review of its plan found an open finding. Fix the "
         "plan, or remove the label when the finding is no defect."
     )
+    jev_completeness_question_plan: str = (
+        "Does the plan in the state deliver this acceptance criterion of the issue, with a task "
+        "or a requirement that verifies it? Criterion: {criterion}"
+    )
+    jev_completeness_question_change: str = (
+        "Does the diff in the state deliver this acceptance criterion of the issue? "
+        "Criterion: {criterion}"
+    )
+    jev_completeness_tests_plan: str = (
+        "Do the tests that the plan in the state asks for assert the new behavior?"
+    )
+    jev_completeness_tests_change: str = (
+        "Do the tests in the diff in the state assert the new behavior?"
+    )
+    jev_completeness_skip_no_criteria: str = "the issue lists no acceptance criterion"
+    jev_completeness_skip_criteria: str = (
+        "the issue lists {count} acceptance criteria, and the limit is {limit}"
+    )
+    jev_completeness_skip_diff: str = "the diff holds {tokens} tokens, and the limit is {limit}"
+    jev_completeness_note: str = (
+        "The Jev completeness check leaves pull request #{pull} a draft. It doubts that the draft "
+        "delivers the points below. Fix the draft, or mark it ready by hand when the doubt is "
+        "wrong.\n\n{doubts}"
+    )
+    jev_completeness_note_doubt: str = "- {criterion} (Jev: {percent}% that the draft delivers it)"
+    jev_completeness_note_tests: str = (
+        "- The tests assert little of the new behavior (Jev: {score} of 3)"
+    )
+    jev_completeness_note_error: str = (
+        "The Jev completeness check leaves pull request #{pull} a draft. Jev gave no answer: "
+        "{reason}. The check asks Jev again in the next round."
+    )
     release_comment_released: str = "Released in {tag}: {url}"
     release_comment_live: str = "Live since {time}"
     release_ledger_unreadable: str = (
@@ -4726,6 +4758,46 @@ class RoadmapMessages:
     verify_eval_failed: str = (
         "{failed} case(s) could not run. The score counts their defects as not found."
     )
+    # `devops roadmap eval completeness` (#4308).
+    jev_eval_title: str = (
+        "# Jev completeness check on the labelled set: {cases} case(s), the model {model} at "
+        "{gateway}"
+    )
+    jev_eval_recall: str = (
+        "Recall of incomplete drafts (held): {held} of {total} ({rate}), at the configured "
+        "thresholds."
+    )
+    jev_eval_false_holds: str = (
+        "False holds (complete drafts held): {held} of {total} ({rate}), at the configured "
+        "thresholds."
+    )
+    jev_eval_sweep_header: str = "Threshold of a criterion (tests ignored)  Recall  False holds"
+    jev_eval_sweep_row: str = "{threshold:>38.2f}  {recall:>6}  {false:>11}"
+    jev_eval_unanswered: str = (
+        "Cases with no answer of Jev, left out of the rates ({count}): {cases}."
+    )
+    jev_eval_cost: str = "Spend: {usd:.4f} USD at the input price of Jev."
+    jev_eval_reason_small: str = (
+        "The set is too small to say: {answered} answered case(s), and the least is {minimum} "
+        "case(s) with {per_label} of each label."
+    )
+    jev_eval_reason_false_holds: str = "The false holds are {rate}, and the limit is {limit}."
+    jev_eval_decision_off: str = (
+        "Decision: the switch roadmap.stage.jev_completeness stays off. {reasons}"
+    )
+    jev_eval_decision_ok: str = (
+        "Decision: the false holds are within the limit on a set that is large enough. A person "
+        "decides if the switch roadmap.stage.jev_completeness goes on."
+    )
+    jev_eval_dry_run: str = (
+        "Dry run: no request was made. A run asks Jev about {cases} case(s) with the model "
+        "at {gateway}, one request for each case:"
+    )
+    jev_eval_dry_run_case: str = "completeness of the case {name}"
+    jev_eval_dry_run_repeat: str = (
+        "one request: a Noul question for each criterion and a Score question"
+    )
+    jev_eval_stored: str = "Stored the report in {path}."
     intake_spend: str = (
         "Spent: {github} GitHub request(s) (REST {rest}, REST search {search}, GraphQL "
         "{graphql}; GraphQL points not known), {embeddings} embedding call(s) for {texts} "

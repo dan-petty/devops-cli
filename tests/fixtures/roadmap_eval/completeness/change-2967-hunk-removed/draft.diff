@@ -1,0 +1,138 @@
+diff --git a/docs/ROADMAP_WORKFLOW.md b/docs/ROADMAP_WORKFLOW.md
+index 1e2178e7..ed452859 100644
+--- a/docs/ROADMAP_WORKFLOW.md
++++ b/docs/ROADMAP_WORKFLOW.md
+@@ -54,6 +54,8 @@ Each row is one change of the Status label of an Item. A job never reverts a lab
+ | No state, `status/new`, `status/ready` or `status/planned` | `devops pr create` opens a pull request that closes the Item | `status/in-progress` | Agentic coder or person |
+ | `status/in-progress` | The checks pass and the pull request is marked ready | `status/in-review` | Runner Job, or `devops pr ready` |
+ | No state, `status/new`, `status/ready` or `status/planned` | `devops pr ready` marks a pull request that closes the Item | `status/in-review` | Agentic coder or person |
++| `status/blocked`, with `implement.stopped` | `devops pr create` opens a pull request that closes the Item. The Item keeps the stop on record. A `status/blocked` label that a person set by hand stays | `status/in-progress` | Agentic coder or person |
++| `status/blocked`, with `implement.stopped` | `devops pr ready` marks a pull request that closes the Item. A `status/blocked` label that a person set by hand stays | `status/in-review` | Agentic coder or person |
+ | `status/in-progress` | A step stops, or the Job ends with the Item not finished | `status/blocked`, with `implement.stopped` | Runner Job or Service job |
+ | `status/blocked`, with `implement.stopped` | A trusted person (the owner, a member or a collaborator) comments `implement: retry` after the stop comment | `status/ready`, or `status/planned` when the plan is on the default branch. The same round of row `implement` takes the Item, then it is `status/in-progress` | Person, then Service job |
+ | `status/blocked`, with `implement.stopped` as `job` | The class in `implement.failure` has the action `retry`, and `implement.continuations` is less than `roadmap.implement.continuations_per_item` | `status/ready`, or `status/planned` when the plan is on the default branch, and `implement.continuations` goes up by 1. The same round of row `implement` takes the Item | Service job |
+diff --git a/src/devops_cli/roadmap/pull_status.py b/src/devops_cli/roadmap/pull_status.py
+index 0f181320..be218ef6 100644
+--- a/src/devops_cli/roadmap/pull_status.py
++++ b/src/devops_cli/roadmap/pull_status.py
+@@ -3,9 +3,10 @@ is ready for review (#2717).
+ 
+ `devops pr create` sets In Progress and `devops pr ready` sets In Review on the open issue of
+ this repository that the pull request closes, when that issue is an Item. A Status moves forward
+-only: In Review never goes back to In Progress, and a Blocked item stays Blocked, because a
+-person or a stop of the implement job set that, and only a person or a clear rule of the Service
+-(`stop_clear.py`) takes it out. A pull request that closes no item changes nothing. A closed issue loses its
++only: In Review never goes back to In Progress. A Blocked item stays Blocked when a person set
++that label, because only a person takes it out. A Blocked item that a stop of the implement job
++recorded (`Item.holds_service_stop`) takes the new Status, because the pull request is the fix of the
++stop. A pull request that closes no item changes nothing. A closed issue loses its
+ `status/*` labels in `.github/workflows/clear-status.yml`.
+ """
+ 
+diff --git a/src/devops_cli/roadmap/stop_clear.py b/src/devops_cli/roadmap/stop_clear.py
+index 084ecc73..1c17b85a 100644
+--- a/src/devops_cli/roadmap/stop_clear.py
++++ b/src/devops_cli/roadmap/stop_clear.py
+@@ -65,7 +65,6 @@ from pydantic import NonNegativeInt, TypeAdapter, ValidationError
+ from devops_cli.config.constants import (
+     CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER,
+     CONST_ROADMAP_IMPLEMENT_JOB_STEP,
+-    CONST_ROADMAP_STATUS_BLOCKED,
+     CONST_ROADMAP_STOP_CLEAR_COMMENT_WINDOW_HOURS,
+ )
+ from devops_cli.config.settings import load_settings
+@@ -119,9 +118,7 @@ def is_service_stop(item: Item) -> bool:
+     or person claimed it."""
+     return (
+         item.state is GitHubState.OPEN
+-        and item.status == CONST_ROADMAP_STATUS_BLOCKED
+-        and item.job_record.get(ItemField.STATUS) == CONST_ROADMAP_STATUS_BLOCKED
+-        and bool(item.job_record.get(ImplementRecordKey.STOPPED))
++        and item.holds_service_stop()
+         and not job_holds(item)
+         and claimed_by(item) is None
+     )
+diff --git a/src/devops_cli/roadmap/store.py b/src/devops_cli/roadmap/store.py
+index 7f7e851b..421a9c14 100644
+--- a/src/devops_cli/roadmap/store.py
++++ b/src/devops_cli/roadmap/store.py
+@@ -47,6 +47,7 @@ from devops_cli.config.constants import (
+     CONST_ROADMAP_PRIORITY_VALUES,
+     CONST_ROADMAP_RECORD_MARKER,
+     CONST_ROADMAP_SIZE_OPTIONS,
++    CONST_ROADMAP_STATUS_BLOCKED,
+     CONST_ROADMAP_STATUS_VALUES,
+ )
+ from devops_cli.exceptions.git import GitHubOperationError
+@@ -335,6 +336,15 @@ class Item(BaseModel):
+         """The Item's current value for `field`, to compare with its job record."""
+         return cast(str | None, getattr(self, field.name.lower()))
+ 
++    def holds_service_stop(self) -> bool:
++        """Whether the Item is Blocked with the label that a job last recorded, and a stop is on
++        record: the Blocked label is no one that a person set by hand."""
++        return (
++            self.status == CONST_ROADMAP_STATUS_BLOCKED
++            and self.job_record.get(ItemField.STATUS) == CONST_ROADMAP_STATUS_BLOCKED
++            and bool(self.job_record.get(ImplementRecordKey.STOPPED))
++        )
++
+ 
+ class Change(BaseModel):
+     """One change to an issue, with who made it and when; `label` names the label a `labeled`
+diff --git a/tests/commands/test_pr_status.py b/tests/commands/test_pr_status.py
+index aa974845..974f42c0 100644
+--- a/tests/commands/test_pr_status.py
++++ b/tests/commands/test_pr_status.py
+@@ -21,7 +21,7 @@ from devops_cli.exceptions.git import GitHubOperationError
+ from devops_cli.github.merge_readiness import ClosingRead
+ from devops_cli.roadmap.grounding import ClosingIssue
+ from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
+-from devops_cli.roadmap.store import GitHubState, ItemField
++from devops_cli.roadmap.store import GitHubState, ImplementRecordKey, ItemField
+ 
+ REPO = "example/roadmap"
+ 
+@@ -74,7 +74,7 @@ def _item(roadmap_store: InMemoryRoadmapStore, status: str | None) -> int:
+         ("Blocked", "In Review", "Blocked"),
+     ],
+ )
+-def test_the_status_moves_forward_and_never_leaves_blocked(
++def test_the_status_moves_forward_and_never_leaves_a_blocked_that_a_person_set(
+     roadmap_store: InMemoryRoadmapStore, before: str | None, target: str, after: str
+ ) -> None:
+     number = _item(roadmap_store, before)
+@@ -82,6 +82,33 @@ def test_the_status_moves_forward_and_never_leaves_blocked(
+     assert _status(roadmap_store, number) == after
+ 
+ 
++def _recorded_blocked(roadmap_store: InMemoryRoadmapStore, *, stopped: bool) -> int:
++    """An item that a job set Blocked and recorded, with `implement.stopped` when `stopped`."""
++    number = _item(roadmap_store, None)
++    item = roadmap_store.item(number)
++    assert item is not None
++    marks = {ImplementRecordKey.STOPPED: "group 1"} if stopped else {}
++    roadmap_store.set_field(item, ItemField.STATUS, "Blocked", marks=marks)
++    return number
++
++
++@pytest.mark.parametrize(
++    ("target", "after"), [("In Progress", "In Progress"), ("In Review", "In Review")]
++)
++def test_a_blocked_item_that_a_stop_recorded_moves_on(
++    roadmap_store: InMemoryRoadmapStore, target: str, after: str
++) -> None:
++    number = _recorded_blocked(roadmap_store, stopped=True)
++    changed = _set(roadmap_store, target, ClosingRead((_closing(number),), 1))
++    assert (changed, _status(roadmap_store, number)) == (number, after)
++
++
++def test_a_blocked_item_with_no_stop_on_record_stays(roadmap_store: InMemoryRoadmapStore) -> None:
++    number = _recorded_blocked(roadmap_store, stopped=False)
++    assert _set(roadmap_store, "In Progress", ClosingRead((_closing(number),), 1)) is None
++    assert _status(roadmap_store, number) == "Blocked"
++
++
+ def test_a_pull_request_that_closes_no_issue_changes_nothing(
+     roadmap_store: InMemoryRoadmapStore,
+ ) -> None:

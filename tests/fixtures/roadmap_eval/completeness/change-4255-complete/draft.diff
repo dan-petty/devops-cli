@@ -1,0 +1,120 @@
+diff --git a/src/devops_cli/roadmap/stage/stage_commands.py b/src/devops_cli/roadmap/stage/stage_commands.py
+index 3abb7fc7..03014ed9 100644
+--- a/src/devops_cli/roadmap/stage/stage_commands.py
++++ b/src/devops_cli/roadmap/stage/stage_commands.py
+@@ -3,7 +3,8 @@
+ A plan that cites a `devops` command line in Feasibility or tasks is checked against the Click
+ command tree with `resolve_devops_argv`, without running any command. An unknown command, an
+ unknown option flag or an unexpected extra argument is refused. A quoted tuple key cited in
+-Feasibility or tasks is checked against `CONST_MCP_EXPOSURE_TABLE` and refused when absent.
++Feasibility or tasks, in a sentence that names the exposure table, is checked against
++`CONST_MCP_EXPOSURE_TABLE` and refused when absent.
+ """
+ 
+ from __future__ import annotations
+@@ -28,6 +29,12 @@ _EXPOSURE_KEYS: Final[frozenset[tuple[str, ...]]] = frozenset(
+ _QUOTED_TUPLE: Final[re.Pattern[str]] = re.compile(
+     r"\(\s*(?:(?:'[^']*'|\"[^\"]*\")\s*,\s*)+(?:'[^']*'|\"[^\"]*\")?\s*\)"
+ )
++# The words that tie a quoted tuple to the MCP exposure table (#4255).
++_EXPOSURE_CONTEXT: Final[re.Pattern[str]] = re.compile(
++    r"CONST_MCP_EXPOSURE_TABLE|exposure[ _-]table", re.IGNORECASE
++)
++# The end of a sentence: a full stop, a question mark or an exclamation mark, then a space or the end.
++_SENTENCE_BREAK: Final[re.Pattern[str]] = re.compile(r"[.!?](?:\s|$)")
+ _CODE_SPAN: Final[re.Pattern[str]] = re.compile(r"`([^`]+)`")
+ _SHELL_OPERATORS: Final[frozenset[str]] = frozenset(";|><&")
+ _COMMAND_PREFIXES: Final[tuple[str, ...]] = (
+@@ -122,9 +129,25 @@ def _resolve_command_span(span: str) -> Iterator[str]:
+                 )
+ 
+ 
++def _sentence_around(text: str, start: int, end: int) -> str:
++    """The sentence of `text` that holds the span from `start` to `end`."""
++    left, right = 0, len(text)
++    for found in _SENTENCE_BREAK.finditer(text):
++        if found.end() <= start:
++            left = found.end()
++        elif found.start() >= end:
++            right = found.start()
++            break
++    return text[left:right]
++
++
+ def _mcp_exposure_problems(text: str) -> Iterator[str]:
+-    """Find quoted tuples in `text` and check against `CONST_MCP_EXPOSURE_TABLE`."""
++    """Find quoted tuples in `text` and check against `CONST_MCP_EXPOSURE_TABLE`. A quoted tuple is
++    a common literal (a fixture table, a parameter list), so only a tuple in a sentence that names
++    the exposure table is a cited key (#4255)."""
+     for match in _QUOTED_TUPLE.finditer(text):
++        if not _EXPOSURE_CONTEXT.search(_sentence_around(text, match.start(), match.end())):
++            continue
+         raw = match.group(0)
+         try:
+             parsed = ast.literal_eval(raw)
+diff --git a/tests/roadmap/stage/test_roadmap_stage_command_citations.py b/tests/roadmap/stage/test_roadmap_stage_command_citations.py
+index 81a6c7b5..9f04bff6 100644
+--- a/tests/roadmap/stage/test_roadmap_stage_command_citations.py
++++ b/tests/roadmap/stage/test_roadmap_stage_command_citations.py
+@@ -46,7 +46,9 @@ def test_known_option_is_accepted() -> None:
+ 
+ 
+ def test_unknown_mcp_exposure_key_is_refused() -> None:
+-    plan = make_stage_proposal(feasibility=['The plan cites ("ai", "ast-graph").'])
++    plan = make_stage_proposal(
++        feasibility=['The plan cites the exposure table key ("ai", "ast-graph").']
++    )
+ 
+     problems = command_citation_problems(plan)
+ 
+@@ -55,11 +57,49 @@ def test_unknown_mcp_exposure_key_is_refused() -> None:
+ 
+ 
+ def test_known_mcp_exposure_key_is_accepted() -> None:
+-    plan = make_stage_proposal(feasibility=['The plan cites ("ai", "ast", "graph").'])
++    plan = make_stage_proposal(
++        feasibility=['The plan cites the exposure table key ("ai", "ast", "graph").']
++    )
++
++    assert command_citation_problems(plan) == []
++
++
++def test_a_quoted_tuple_of_another_table_is_no_mcp_key() -> None:
++    # The live run of #4062 refused a tuple of the fixture table of `tests/conftest.py` (#4255).
++    plan = make_stage_proposal(
++        feasibility=['The fixture table in `tests/conftest.py` lists ("reset_logfire_bridge",).']
++    )
++
++    assert command_citation_problems(plan) == []
++
++
++def test_the_sentence_of_the_tuple_decides_the_context() -> None:
++    plan = make_stage_proposal(
++        feasibility=['The exposure table has rows. The fixture lists ("ai", "ast-graph").']
++    )
+ 
+     assert command_citation_problems(plan) == []
+ 
+ 
++def test_the_constant_name_gives_the_context() -> None:
++    plan = make_stage_proposal(
++        feasibility=['`CONST_MCP_EXPOSURE_TABLE` has no row ("ai", "ast-graph") today.']
++    )
++
++    problems = command_citation_problems(plan)
++
++    assert len(problems) == 1
++    assert '("ai", "ast-graph")' in problems[0]
++
++
++def test_an_unknown_key_in_a_task_text_is_refused_with_the_context() -> None:
++    group = make_stage_proposal().groups[0]
++    update = {"implementation": 'Add the exposure table row ("ai", "ast-graph") to the table.'}
++    plan = make_stage_proposal(groups=[group.model_copy(update=update)])
++
++    assert len(command_citation_problems(plan)) == 1
++
++
+ def test_task_command_citation_is_checked() -> None:
+     group = make_stage_proposal().groups[0]
+     update = {"implementation": "Run `uv run devops gh pages verify --bad-opt` here"}

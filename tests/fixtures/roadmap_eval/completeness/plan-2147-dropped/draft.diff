@@ -1,0 +1,116 @@
+diff --git a/openspec/changes/2147-the-volumes-of-grafana-the-prometheus/.openspec.yaml b/openspec/changes/2147-the-volumes-of-grafana-the-prometheus/.openspec.yaml
+new file mode 100644
+index 00000000..aa079bc5
+--- /dev/null
++++ b/openspec/changes/2147-the-volumes-of-grafana-the-prometheus/.openspec.yaml
+@@ -0,0 +1,2 @@
++schema: spec-driven
++created: 2026-10-31
+diff --git a/openspec/changes/2147-the-volumes-of-grafana-the-prometheus/design.md b/openspec/changes/2147-the-volumes-of-grafana-the-prometheus/design.md
+new file mode 100644
+index 00000000..df22bf98
+--- /dev/null
++++ b/openspec/changes/2147-the-volumes-of-grafana-the-prometheus/design.md
+@@ -0,0 +1,12 @@
++# Design
++
++## Decisions
++
++- **Add the affinity to the values files before removing the exemptions.**: If the exemptions are removed first, the placement test fails because the affinity is not yet in the values files. Adding the affinity first keeps the test green at every step.
++- **Use the exact affinity pattern from the README Local-Path Volume Placement section.**: The README defines the pattern and the test checks for it. A different pattern would fail the test.
++- **Keep the constant as an empty list rather than deleting it.**: Other code may import CONST_K8S_CONTROL_PLANE_CLAIM_EXEMPTIONS. An empty list is a safe no-op that avoids an import error.
++
++## Rejected alternatives
++
++- **Remove the exemptions before adding the affinity.**: The placement test checks the affinity for every pod not in the exemption list. Removing the exemptions first makes the test fail because the affinity is not yet in the values files.
++- **Use a nodeSelector instead of nodeAffinity.**: The README and the test both use the nodeAffinity form. A nodeSelector would not match the test assertion and would not be consistent with the other workloads that already use nodeAffinity.
+diff --git a/openspec/changes/2147-the-volumes-of-grafana-the-prometheus/proposal.md b/openspec/changes/2147-the-volumes-of-grafana-the-prometheus/proposal.md
+new file mode 100644
+index 00000000..10f4fbf3
+--- /dev/null
++++ b/openspec/changes/2147-the-volumes-of-grafana-the-prometheus/proposal.md
+@@ -0,0 +1,39 @@
++# Proposal
++
++## Why
++
++Issue #2147: the Grafana, Prometheus server, and Loki volumes sit on the control-plane node, whose 236 GB root disk is about 79% used. The three workloads are in the placement exemption list, so the test does not check their affinity. Moving them to worker nodes and adding the affinity frees the control-plane disk and closes the exemption gap left by #1634.
++
++## What Changes
++
++- Add the control-plane DoesNotExist node affinity to monitoring/grafana-values.yaml (key affinity), monitoring/prometheus-values.yaml (key server.affinity), and logging/loki-values.yaml (key singleBinary.affinity).
++- Remove the three entries (grafana, prometheus-server, storage-loki-0) from CONST_K8S_CONTROL_PLANE_CLAIM_EXEMPTIONS in src/devops_cli/config/constants.py.
++- Remove the three entries from _CONTROL_PLANE_CLAIM_EXEMPTIONS in tests/test_k8s_local_path_placement.py so the test checks the affinity for all three workloads.
++- The change fits one pull request.
++
++## Capabilities
++
++### New Capabilities
++
++None.
++
++### Modified Capabilities
++
++- `local-path-volume-placement`: grafana-prometheus-loki-control-plane-affinity
++
++## Impact
++
++- Code: `monitoring/grafana-values.yaml`, `monitoring/prometheus-values.yaml`, `logging/loki-values.yaml`, `src/devops_cli/config/constants.py`
++- Tests: `tests/test_k8s_local_path_placement.py`
++
++## Feasibility
++
++- The README section Local-Path Volume Placement confirms the affinity pattern, the exemption mechanism, and the move procedure. The three values files and the constants file are named in the issue and the README.
++- The test tests/test_k8s_local_path_placement.py is named in the README and the issue. It currently passes with the three workloads in the exemption list.
++- First check: run uv run devops ci test tests/test_k8s_local_path_placement.py to confirm the test passes with the current exemptions.
++- Second check: read monitoring/grafana-values.yaml, monitoring/prometheus-values.yaml, and logging/loki-values.yaml to confirm the affinity is not yet present.
++- Third check: read src/devops_cli/config/constants.py to confirm the three entries are in CONST_K8S_CONTROL_PLANE_CLAIM_EXEMPTIONS.
++
++## Existing Tool Considered
++
++No external tool covers this. The change edits YAML values files and a Python constants file in this repository. The operational volume move uses the project's own devops k8s volume move command, described in k8s/README.md.
+diff --git a/openspec/changes/2147-the-volumes-of-grafana-the-prometheus/specs/local-path-volume-placement/spec.md b/openspec/changes/2147-the-volumes-of-grafana-the-prometheus/specs/local-path-volume-placement/spec.md
+new file mode 100644
+index 00000000..16d91cf5
+--- /dev/null
++++ b/openspec/changes/2147-the-volumes-of-grafana-the-prometheus/specs/local-path-volume-placement/spec.md
+@@ -0,0 +1,12 @@
++## ADDED Requirements
++
++### Requirement: grafana-prometheus-loki-control-plane-affinity
++The values files for Grafana, the Prometheus server, and Loki SHALL include the control-plane DoesNotExist node affinity, and the three claims SHALL NOT appear in the control-plane claim exemption list.
++
++#### Scenario: placement test passes with no exemptions
++- **WHEN** tests/test_k8s_local_path_placement.py runs with grafana, prometheus-server, and storage-loki-0 removed from the exemption list
++- **THEN** the test passes, confirming the affinity is present in all three values files
++
++#### Scenario: exemption list is empty
++- **WHEN** CONST_K8S_CONTROL_PLANE_CLAIM_EXEMPTIONS is read from src/devops_cli/config/constants.py
++- **THEN** the list is empty or the constant is absent
+diff --git a/openspec/changes/2147-the-volumes-of-grafana-the-prometheus/tasks.md b/openspec/changes/2147-the-volumes-of-grafana-the-prometheus/tasks.md
+new file mode 100644
+index 00000000..6c6f073b
+--- /dev/null
++++ b/openspec/changes/2147-the-volumes-of-grafana-the-prometheus/tasks.md
+@@ -0,0 +1,21 @@
++# Tasks
++
++## 1. Add control-plane affinity to the three values files
++
++Reads: none. Changes: `monitoring/grafana-values.yaml`, `monitoring/prometheus-values.yaml`, `logging/loki-values.yaml`.
++
++- [ ] 1.1 Add an assertion to tests/test_k8s_local_path_placement.py that reads each of the three values files and asserts the control-plane DoesNotExist node affinity is present at the correct key path. Run the test; it fails because the affinity is not yet in the files, and verify that `uv run devops ci test tests/test_k8s_local_path_placement.py` fails on the base
++- [ ] 1.2 Add the requiredDuringSchedulingIgnoredDuringExecution nodeAffinity block with node-role.kubernetes.io/control-plane DoesNotExist to monitoring/grafana-values.yaml at key affinity, to monitoring/prometheus-values.yaml at key server.affinity, and to logging/loki-values.yaml at key singleBinary.affinity, and verify that `uv run devops ci test tests/test_k8s_local_path_placement.py` passes
++- [ ] 1.3 Change no document, run `uv run devops docs generate --sync-readme`, and verify that `uv run devops ci docs` passes
++
++## 2. Remove the three exemptions from constants and test
++
++Reads: none. Changes: `src/devops_cli/config/constants.py`, `tests/test_k8s_local_path_placement.py`.
++
++- [ ] 2.1 Remove the three entries (grafana, prometheus-server, storage-loki-0) from _CONTROL_PLANE_CLAIM_EXEMPTIONS in tests/test_k8s_local_path_placement.py. Run the test; it now checks the affinity for these three workloads and passes because the previous group added it, and verify that `uv run devops ci test tests/test_k8s_local_path_placement.py` fails on the base
++- [ ] 2.2 Remove the three entries from CONST_K8S_CONTROL_PLANE_CLAIM_EXEMPTIONS in src/devops_cli/config/constants.py. If the list is empty after removal, set the constant to an empty list or remove it, and verify that `uv run devops ci test tests/test_k8s_local_path_placement.py` passes
++- [ ] 2.3 Change no document, run `uv run devops docs generate --sync-readme`, and verify that `uv run devops ci docs` passes
++
++## Workflow follow-up
++
++- Pending a person: review the diff in tuicr (tuicr -r <base>..HEAD).

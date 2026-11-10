@@ -1,0 +1,16 @@
+{
+ "id": "change-2967-complete",
+ "kind": "change",
+ "label": "complete",
+ "source": {
+  "pull_commit": "454edb86fa3762d89089b76bd4c60d8f8518e557",
+  "issue": 2967,
+  "title": "fix(roadmap): pr create and pr ready replace a Blocked stop of a job (#3826)"
+ },
+ "criteria": [
+  "`devops pr create` sets In Progress on an item that the Service set Blocked at a stop.",
+  "`devops pr ready` sets In Review on the same item.",
+  "A `status/blocked` label that a person set stays.",
+  "`uv run devops ci` passes."
+ ]
+}

@@ -1,0 +1,21 @@
+{
+ "id": "change-4093-hunk-removed",
+ "kind": "change",
+ "label": "incomplete",
+ "source": {
+  "pull_commit": "7935fbaa0e1418d1c2b0764092486c2e9d832b6e",
+  "issue": 4093,
+  "title": "fix(k8s): check example ConfigMap keys are settings (#4134)"
+ },
+ "criteria": [
+  "`uv run pytest tests/k8s/test_k8s_configmap_keys.py::test_every_key_of_the_example_is_a_setting` fails on the current code: the helper that walks the keys does not exist, so the import fails.",
+  "`uv run pytest tests/k8s/test_k8s_configmap_keys.py::test_an_unknown_key_in_a_copy_of_the_example_is_reported` fails on the current code for the same reason. The test adds `roadmap.implement.not_a_setting: 1` to a copy and expects the report to name it.",
+  "`uv run pytest tests/k8s/test_k8s_configmap_keys.py::test_an_unknown_ladder_step_class_in_a_copy_of_the_example_fails_to_load` passes before and after. It adds the key `plan` to the ladder of a copy and expects the error \"the ladder names no step class\".",
+  "`grep -n \"removes, renames or tightens\" docs/ROADMAP_WORKFLOW.md k8s/README.md` prints one line in each file after the change; it prints none now. A test in `tests/invariants/` asserts that both files hold the phrase."
+ ],
+ "removed": {
+  "criterion": 1,
+  "path": "src/devops_cli/config/setting_keys.py",
+  "hunk": "@@ -0,0 +1,48 @@"
+ }
+}

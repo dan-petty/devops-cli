@@ -221,7 +221,8 @@ class StageRecordKey(StrEnum):
     file cap in tokens of the measure that made the stop: a stop under another cap is stale. The
     Service records `stage.ready`, the number of the draft pull request that it has seen leave the
     draft state (#2865), and `stage.needs_fix`, the number of the draft that it told about the
-    label `plan/needs-fix` (#3264). When the last plan or write of the item failed, the record
+    label `plan/needs-fix` (#3264), and `stage.jev`, the head commit that the Jev completeness
+    check judged with its outcome, `<sha>:held` or `<sha>:error` (#4308). When the last plan or write of the item failed, the record
     holds the time of the failure and the type of its error (#3493), the step that failed
     (`stage.failed_step`, `plan` or `apply`) and the failure class (`stage.failed_class`, a
     `FailureClass` value from the type of the error, #4056), until a run stages the item or stops
@@ -241,6 +242,7 @@ class StageRecordKey(StrEnum):
     FILE_CAP = "stage.file_cap"
     READY = "stage.ready"
     NEEDS_FIX = "stage.needs_fix"
+    JEV = "stage.jev"
     FAILED_AT = "stage.failed_at"
     FAILED_ERROR = "stage.failed_error"
     FAILED_STEP = "stage.failed_step"
