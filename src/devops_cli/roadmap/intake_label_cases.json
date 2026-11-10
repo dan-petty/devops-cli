@@ -1,0 +1,355 @@
+{
+  "about": "The label set of the Jev comparison (#4298). Each case is a closed issue of this project, with the title and the start of the body as filed, and the type, priority, Value and Effort that a person set on it. `devops roadmap eval jev` asks the analysis model and Jev for the proposal of each case and counts how often each field agrees with the person's. The bodies are the first 400 characters of the issue with the white space folded.",
+  "cases": [
+    {
+      "name": "closed-1024",
+      "source": "#1024, closed, labels read on 2026-11-10",
+      "candidate": {
+        "title": "fix(review): the review's scanner config drops the rules that never produced a valid finding on this repository",
+        "body": "## Problem Three scanner rules filled every branch review of release/v0.2.25 on 2026-10-02 with false findings, with no valid finding across S3 to S5 (`.data/review-evaluation-20261002-s5.md`, section 6.3, candidates/reported): - kube-linter `dangling-service`: 4 of 4 in every run; - Semgrep `non-literal-import`: 7/6, 7/6 and 7/1; - Semgrep `exec-detected`: 1/1, in S5 only. Semgrep's `logger-crede"
+      },
+      "expected": {
+        "type": "type/bug",
+        "priority": "P2-Medium",
+        "value": "Low",
+        "effort": "Low"
+      }
+    },
+    {
+      "name": "closed-1027",
+      "source": "#1027, closed, labels read on 2026-11-10",
+      "candidate": {
+        "title": "refactor(ai): the model client, gateway, mcp and tool tables move out of config/ next to their owners",
+        "body": "## Problem `config/constants.py` and `config/defaults.py` declare 138 names (57 constants, 81 defaults) that only one package of the AI runtime uses. Counted at 38517a8 (the release/v0.2.25 tip) by AST, with the method described in #1016: from-imports and attribute reads count, and re-exports do not. The counts are approximate (an independent count differs by up to about ten per item, mostly in ho"
+      },
+      "expected": {
+        "type": "type/refactor",
+        "priority": "P3-Low",
+        "value": "Low",
+        "effort": "Medium"
+      }
+    },
+    {
+      "name": "closed-1729",
+      "source": "#1729, closed, labels read on 2026-11-10",
+      "candidate": {
+        "title": "refactor(devcontainer): remove the DEVOPS_CLI_SKIP_TOOL_BOOTSTRAP test switch from product code",
+        "body": "## Friction Product code holds a switch that exists only for tests, which `docs/TESTING.md` rules out: \"Product code holds nothing for tests\". The switch is `DEVOPS_CLI_SKIP_TOOL_BOOTSTRAP`. ## Evidence - `_bootstrap_managed_tools` in `src/devops_cli/commands/devcontainer.py` returns early when `DEVOPS_CLI_SKIP_TOOL_BOOTSTRAP` is `1`, `true` or `yes`. - Its only callers are tests: - the autouse `i"
+      },
+      "expected": {
+        "type": "type/refactor",
+        "priority": "P2-Medium",
+        "value": "Low",
+        "effort": "Low"
+      }
+    },
+    {
+      "name": "closed-2175",
+      "source": "#2175, closed, labels read on 2026-11-10",
+      "candidate": {
+        "title": "refactor(cli): the five functions and properties that nothing calls and that #1910 does not list leave src",
+        "body": "### What happened Five functions and properties in `src/` have no caller, and #1910 does not list them. `git grep -n -w <name> origin/main -- src tests docs '*.md' '*.yaml' '*.toml'` at b170358e finds only the definition. None of them carries a decorator that registers it, and none overrides a method of a library class. | Definition | Name | | :--- | :--- | | `src/devops_cli/ai/client/streaming.py"
+      },
+      "expected": {
+        "type": "type/refactor",
+        "priority": "P2-Medium",
+        "value": "Low",
+        "effort": "Low"
+      }
+    },
+    {
+      "name": "closed-2454",
+      "source": "#2454, closed, labels read on 2026-11-10",
+      "candidate": {
+        "title": "docs(k8s): the documents name the roadmap Service's GitHub App devops-cli-service and say what the Service still waits on",
+        "body": "## Problem or Motivation The owner created the roadmap Service's GitHub App on 2026-10-28 as `devops-cli-service` (github.com/settings/apps/devops-cli-service). The documents still name it `devops-roadmap`, the name #1647 planned: - `docs/adr/0015-roadmap-jobs-act-as-a-github-app-on-the-personal-account.md` (the App, and its bot login `devops-roadmap[bot]`); - `k8s/README.md` (the Secret row, the "
+      },
+      "expected": {
+        "type": "type/docs",
+        "priority": "P3-Low",
+        "value": "Low",
+        "effort": "Low"
+      }
+    },
+    {
+      "name": "closed-2531",
+      "source": "#2531, closed, labels read on 2026-11-10",
+      "candidate": {
+        "title": "fix(telemetry): a devops command run from a deleted working directory gives no FileNotFoundError traceback from the git directory lookup",
+        "body": "### Problem Description A `devops gh api` call printed a `FileNotFoundError` traceback when its working directory no longer existed. The post-merge worktree cleanup had deleted the directory. The telemetry setup calls `_resolve_git_dir` (`src/devops_cli/telemetry/tracer.py`), which starts from `Path.cwd()`, and `Path.cwd()` raises `FileNotFoundError` for a deleted directory. The command did not re"
+      },
+      "expected": {
+        "type": "type/bug",
+        "priority": "P2-Medium",
+        "value": "Low",
+        "effort": "Low"
+      }
+    },
+    {
+      "name": "closed-2735",
+      "source": "#2735, closed, labels read on 2026-11-10",
+      "candidate": {
+        "title": "fix(security): the subprocess environment guard accepts LESS, which makes less run a program",
+        "body": "### Problem Description `build_subprocess_env` in `src/devops_cli/core/process.py` refuses `LESSOPEN` and `LESSCLOSE` (#2205, #2483) but accepts `LESS`. less(1) reads options from `LESS`, and an option that starts with `+` is a command that less runs at start. The command `!<program>` makes less run a shell command. Git runs less as its default pager, and `gh` runs the pager of `GH_PAGER` or `PAGE"
+      },
+      "expected": {
+        "type": "type/bug",
+        "priority": "P1-High",
+        "value": "High",
+        "effort": "Low"
+      }
+    },
+    {
+      "name": "closed-2838",
+      "source": "#2838, closed, labels read on 2026-11-10",
+      "candidate": {
+        "title": "fix(roadmap): the stage job stops an item whose task group is a few percent over the budget after one split",
+        "body": "### What happened On 2026-10-31 `devops roadmap stage --plan` leaves out four P1 bugs because one task group of each is over the budget of 40000 tokens: - #2735: 41179 tokens (group \"Add LESS to the refused environment patterns\"). - #2739: 41463 tokens (group \"Add data-egress constant and write failing test\"). - #2147: 42236 tokens (group \"Add control-plane affinity to grafana-values.yaml\"). - #27"
+      },
+      "expected": {
+        "type": "type/bug",
+        "priority": "P1-High",
+        "value": "High",
+        "effort": "Medium"
+      }
+    },
+    {
+      "name": "closed-2946",
+      "source": "#2946, closed, labels read on 2026-11-10",
+      "candidate": {
+        "title": "fix(roadmap): the alternatives check must search before any verdict for items that can have an open alternative",
+        "body": "### What happened The check lets the model decide whether to search. Over 14 days it searched about 4 times and returned `not-applicable` every time, including for a feature that integrates two products. ### What should happen - A fixed rule, not the model, names the classes of item that skip the search: the Conventional Commit types `test`, `docs`, `refactor`, `chore`, `ci` and `perf`, and a fix "
+      },
+      "expected": {
+        "type": "type/bug",
+        "priority": "P1-High",
+        "value": "High",
+        "effort": "Medium"
+      }
+    },
+    {
+      "name": "closed-3449",
+      "source": "#3449, closed, labels read on 2026-11-10",
+      "candidate": {
+        "title": "fix(roadmap): the path problem names the (new) mark of a plan folder",
+        "body": "## Problem or Motivation A plan pull request holds the change folder only. `plan_check` reads the `Changes:` line of `tasks.md` and marks a path as created only when it carries the ` (new)` mark. When a plan names a new file without the mark, `path_problems` returns \"Name a file that exists, or make the group that creates it list it in `creates`.\" That advice fits the stage reply, which has a `cre"
+      },
+      "expected": {
+        "type": "type/bug",
+        "priority": "P3-Low",
+        "value": "Low",
+        "effort": "Low"
+      }
+    },
+    {
+      "name": "closed-3483",
+      "source": "#3483, closed, labels read on 2026-11-10",
+      "candidate": {
+        "title": "fix(roadmap): refine looks again when the cause of a wait ends",
+        "body": "### Problem An item that waits in refine can stay there after the cause of the wait ended. The facts are as of 2026-11-04T15:06Z. Part of the logic exists. A blocked wait ends when a blocker closes (`src/devops_cli/roadmap/refine.py:1599`). `_cited_code_changed` (`:1574`) ends a wait when a recorded block path changes. The gaps are these: - A stage return reads as the act of a person. `_still_wait"
+      },
+      "expected": {
+        "type": "type/bug",
+        "priority": "P2-Medium",
+        "value": "High",
+        "effort": "Medium"
+      }
+    },
+    {
+      "name": "closed-3568",
+      "source": "#3568, closed, labels read on 2026-11-10",
+      "candidate": {
+        "title": "feat(roadmap): a step stops at its budgets and records attempts",
+        "body": "### Problem or Motivation Part 1 of #3053. A step of the implement job has no bound on the tokens it uses or the time it takes: one step used 10 million input tokens before it stopped (#2554), and a stop names no limit. The trace shows model calls, tool calls and checks, but not the attempts, so a reader cannot see that a second attempt passed. ### Proposed Solution & Architectural Design - Four s"
+      },
+      "expected": {
+        "type": "type/feature",
+        "priority": "P2-Medium",
+        "value": "High",
+        "effort": "Medium"
+      }
+    },
+    {
+      "name": "closed-3630",
+      "source": "#3630, closed, labels read on 2026-11-10",
+      "candidate": {
+        "title": "fix(roadmap): the Service runs the retitle job on a schedule",
+        "body": "### Problem No Service row runs `devops roadmap retitle`, so a long title holds an item until a person runs the command. - `git grep retitle origin/main -- src/devops_cli/roadmap/run.py src/devops_cli/server k8s .github/workflows` has no hit. #3486 added the command only. - The title rule comes before the Planned limit in the stage rules (`src/devops_cli/roadmap/stage.py`, rule list near line 414)"
+      },
+      "expected": {
+        "type": "type/bug",
+        "priority": "P3-Low",
+        "value": "Medium",
+        "effort": "Low"
+      }
+    },
+    {
+      "name": "closed-3677",
+      "source": "#3677, closed, labels read on 2026-11-10",
+      "candidate": {
+        "title": "feat(roadmap): checkpoint each passed group on origin",
+        "body": "Split from #3062. Decided on 2026-11-06 with best practice (see the comment of that date). Code and documents read at origin/main 29309f04. ## Problem or Motivation `_groups` in `src/devops_cli/roadmap/implement_run.py` records a passed group with `_record`, but `_record` does not push. A `wip:` push (#3054) happens only while tasks of a group are unticked. So a group of one task has no copy on or"
+      },
+      "expected": {
+        "type": "type/feature",
+        "priority": "P2-Medium",
+        "value": "Medium",
+        "effort": "Medium"
+      }
+    },
+    {
+      "name": "closed-3705",
+      "source": "#3705, closed, labels read on 2026-11-10",
+      "candidate": {
+        "title": "fix(deps): upgrade oauthlib to fix GHSA-3jp2-3mrg-2vxc",
+        "body": "## Problem The `audit` check of `devops ci` fails on each pull request that runs after 2026-11-05 21:01 UTC. `uv audit` reports GHSA-3jp2-3mrg-2vxc (CVE-2026-49272) for `oauthlib` 4.0.0. The GitHub advisory database published this advisory again at 21:01 UTC. `uv.lock` holds `oauthlib` 4.0.0 as a transitive dependency: `kubernetes` needs `requests-oauthlib`, and that package needs `oauthlib`. The "
+      },
+      "expected": {
+        "type": "type/bug",
+        "priority": "P1-High",
+        "value": "High",
+        "effort": "Low"
+      }
+    },
+    {
+      "name": "closed-3736",
+      "source": "#3736, closed, labels read on 2026-11-10",
+      "candidate": {
+        "title": "fix(roadmap): a gate test fails with the self-acceptance rule",
+        "body": "## Problem or Motivation `tests/roadmap/test_roadmap_stage_gates.py::test_a_stage_check_change_with_no_replay_task_is_a_problem_of_the_gate_eval_replay` fails on `main` (Tests & Coverage, shard 2). Two pull requests merged in turn. #3641 made `content_problems` refuse a behavior group that changes `src/devops_cli/roadmap/stage_change.py` and holds no self-acceptance test. #3732 added the gate test"
+      },
+      "expected": {
+        "type": "type/bug",
+        "priority": "P1-High",
+        "value": "Medium",
+        "effort": "Low"
+      }
+    },
+    {
+      "name": "closed-3754",
+      "source": "#3754, closed, labels read on 2026-11-10",
+      "candidate": {
+        "title": "test(infra): Argo CD, PromQL and Grafana use the HTTP fake",
+        "body": "## Problem or Motivation Part 6 of 6 of #1335. It waits for #1314, the HTTP and DNS seams. That block is a proposal. See \"Why #1314 first\" below. Argo CD, Argo Rollouts, Prometheus and Grafana code builds its HTTP clients with `new_http_client(level=...)`. A test cannot inject a transport into that client. The only shared double is `stub_web`, which swaps the `httpx2.Client` class, and #1314 delet"
+      },
+      "expected": {
+        "type": "type/test",
+        "priority": "P3-Low",
+        "value": "Medium",
+        "effort": "High"
+      }
+    },
+    {
+      "name": "closed-3898",
+      "source": "#3898, closed, labels read on 2026-11-10",
+      "candidate": {
+        "title": "feat(research): find advisories for every pin",
+        "body": "### Problem `devops ci audit` checks only uv.lock and the npm lock files. Charts, third-party images, GitHub Actions and tools.lock binaries are not checked against any advisory source. Dependabot alerts are off, so GitHub gives no alert either. ### Expected `devops research advisories` takes the Component list and returns findings: component, advisory ids (OSV, GHSA, CVE), severity, affected rang"
+      },
+      "expected": {
+        "type": "type/feature",
+        "priority": "P2-Medium",
+        "value": "High",
+        "effort": "High"
+      }
+    },
+    {
+      "name": "closed-3911",
+      "source": "#3911, closed, labels read on 2026-11-10",
+      "candidate": {
+        "title": "fix(k8s): set the verification window in the example ConfigMap",
+        "body": "## Problem The example ConfigMap (`k8s/devops/configmap.example.yaml`) sets no `context_window` for the task `verification`. The task `verification` has no parent task, so it takes the default window of 32,768 tokens. The verification pass is an agent run with the same read tools as the planner. The hook ends its tools at three quarters of the window, which is 24,576 tokens. A plan whose review ne"
+      },
+      "expected": {
+        "type": "type/bug",
+        "priority": "P2-Medium",
+        "value": "Medium",
+        "effort": "Low"
+      }
+    },
+    {
+      "name": "closed-3925",
+      "source": "#3925, closed, labels read on 2026-11-10",
+      "candidate": {
+        "title": "feat(ai): search the web through a chain of providers",
+        "body": "### Problem Web search has one backend in `main`: `firecrawl_search` (HTTP 402 since the credit ran out). PR #3900 (#3876) adds a DuckDuckGo fallback but keeps Firecrawl first and adds a second counter. The owner asked on 2026-11-07 for a local SearXNG. Each provider added as one more `except` branch makes the code worse. The owner chose not to use the Brave Search API (its terms forbid storing re"
+      },
+      "expected": {
+        "type": "type/feature",
+        "priority": "P2-Medium",
+        "value": "High",
+        "effort": "High"
+      }
+    },
+    {
+      "name": "closed-4036",
+      "source": "#4036, closed, labels read on 2026-11-10",
+      "candidate": {
+        "title": "refactor(roadmap): remove the dead plan and review step classes",
+        "body": "## Problem `StepClass` (implement_step.py) has four members: `PLAN`, `EDIT`, `REPAIR` and `REVIEW`. Only `EDIT` (the default of `run_step`) and `REPAIR` (the fix step) have a reader. `grep -rn 'StepClass' src tests` finds no use of `PLAN` or `REVIEW`. The tuple `CONST_ROADMAP_IMPLEMENT_STEP_CLASSES` (constants.py, line 3231) and the default `ladder` of `RoadmapImplementConfig` (settings.py) still "
+      },
+      "expected": {
+        "type": "type/refactor",
+        "priority": "P3-Low",
+        "value": "Low",
+        "effort": "Low"
+      }
+    },
+    {
+      "name": "closed-4051",
+      "source": "#4051, closed, labels read on 2026-11-10",
+      "candidate": {
+        "title": "fix(roadmap): remove the orphan draft that a failed marks write left",
+        "body": "## Problem Publish in `_stage_one` (stage.py) has these steps in order: 1. Push the branch. 2. Open the draft PR. 3. Write the marks in one `set_marks` (BRANCH, PR, SHA, GROUPS, TEXT_HASH and others). 4. Add the labels. 5. Post the comment. `_open_pull` removes the branch when the draft cannot be made. A label failure is caught (`_label_pull` and `_label_needs_fix` catch `GitHubOperationError`). A"
+      },
+      "expected": {
+        "type": "type/bug",
+        "priority": "P2-Medium",
+        "value": "Medium",
+        "effort": "Medium"
+      }
+    },
+    {
+      "name": "closed-4054",
+      "source": "#4054, closed, labels read on 2026-11-10",
+      "candidate": {
+        "title": "fix(roadmap): alternatives posts a comment only when its verdict changes",
+        "body": "## Problem `apply_alternatives` posts a comment and a block for every check, also when the verdict and the tool are the same as in the last check. A recheck every 30 days (`DEFAULT_ROADMAP_ALTERNATIVES_RECHECK_DAYS`) adds a comment with no news. The comment thread of a long-lived item fills with the same text. ## Expected In `apply_alternatives`, compare the new verdict and tool with the recorded "
+      },
+      "expected": {
+        "type": "type/bug",
+        "priority": "P3-Low",
+        "value": "Medium",
+        "effort": "Low"
+      }
+    },
+    {
+      "name": "closed-4094",
+      "source": "#4094, closed, labels read on 2026-11-10",
+      "candidate": {
+        "title": "fix(k8s): SearXNG engines time out or return no hit",
+        "body": "## Problem A live run on 2026-11-07 against the pinned image (`searxng/searxng:2026.10.23-629368e40`) in namespace `devops` showed three engine faults and two log lines. - `GET /search?q=<query>&format=json&categories=general,it,science` returned 58 hits, but `unresponsive_engines` held `[duckduckgo, timeout]`. The engine had `outgoing.request_timeout: 5.0` (`k8s/devops/searxng/configmap.yaml`). -"
+      },
+      "expected": {
+        "type": "type/bug",
+        "priority": "P2-Medium",
+        "value": "Medium",
+        "effort": "Medium"
+      }
+    },
+    {
+      "name": "closed-4223",
+      "source": "#4223, closed, labels read on 2026-11-10",
+      "candidate": {
+        "title": "fix(ci): retry the GitHub release downloads",
+        "body": "## Problem A GitHub outage with HTTP 504 answers failed the checks of pull requests #4215 and #4216 three or four times in a row. The reruns passed on the fourth try. Each rerun costs about 30 minutes, and a build that averages more than 5 minutes is a P0 bug. What failed: - The `promtool` and `trivy` downloads returned 504. - The `gh` tarball download in the image builds returned a 504 page. The "
+      },
+      "expected": {
+        "type": "type/bug",
+        "priority": "P1-High",
+        "value": "Medium",
+        "effort": "Low"
+      }
+    }
+  ]
+}

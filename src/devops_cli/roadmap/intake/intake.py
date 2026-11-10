@@ -165,7 +165,7 @@ from devops_cli.roadmap.stores.store import (
     select_items,
 )
 from devops_cli.roadmap.title_labels import (
-    declared_label_names,
+    declared_label_specs,
     declared_type_labels,
     title_labels,
 )
@@ -548,10 +548,10 @@ class _Run:
     items: dict[int, Item]
 
     @cached_property
-    def declared(self) -> tuple[str, ...]:
-        """The names of the labels `.github/labels.yml` declares. A file that is missing or is
-        no label specs is a configuration error naming the repository; any other failed read
-        stays GitHub's error (#1358)."""
+    def descriptions(self) -> dict[str, str]:
+        """The label names `.github/labels.yml` declares, each with its description. A file
+        that is missing or is no label specs is a configuration error naming the repository; any
+        other failed read stays GitHub's error (#1358)."""
         path, texts = CONST_ROADMAP_LABELS_PATH, MESSAGES.roadmap
         where = {
             "repo": self.repo,
@@ -560,14 +560,19 @@ class _Run:
         }
         try:
             text = self.store.repository_file(path, ref=self.ref)
-            names = declared_label_names(text)
+            specs = declared_label_specs(text)
         except GitHubFileNotFoundError as exc:
             missing = texts.intake_labels_missing.format(**where)
             raise ConfigurationError(missing, details={"path": path}) from exc
         except (yaml.YAMLError, InvalidLabelsError) as exc:
             unreadable = texts.intake_labels_unreadable.format(**where, error=str(exc)[:200])
             raise ConfigurationError(unreadable, details={"path": path}) from exc
-        return names
+        return {spec.name: spec.description for spec in specs}
+
+    @property
+    def declared(self) -> tuple[str, ...]:
+        """The names of the labels `.github/labels.yml` declares."""
+        return tuple(self.descriptions)
 
     @cached_property
     def types(self) -> tuple[str, ...]:
@@ -623,6 +628,11 @@ def _title_labels(subject: Subject, run: _Run) -> _TitleLabels:
             ("Scope", found.scope_label, texts.intake_scope_from_title.format(scope=scope))
         )
     return _TitleLabels(found.type_label, found.scope_label, tuple(lines))
+
+
+def _needs_type(subject: Subject, run: _Run) -> bool:
+    """Whether the model must give the type: neither the issue nor its title gives one."""
+    return subject.type_label is None and _title_labels(subject, run).type_label is None
 
 
 def _subject(issue: IssueRecord) -> Subject:
@@ -1182,6 +1192,8 @@ class _Planner:
                 if (number := entry.number) is not None
             ),
             types=self.run.types,
+            needs_type=_needs_type(subject, self.run),
+            type_notes=tuple((name, self.run.descriptions[name]) for name in self.run.types),
         )
         return self._propose(subject, request, shortlist)
 
@@ -1192,13 +1204,10 @@ class _Planner:
         shortlist: list[_Entry],
     ) -> IntakeDecision:
         shortlist_entries = {entry.number: entry for entry in shortlist if entry.number is not None}
-        needs_type = (
-            subject.type_label is None and _title_labels(subject, self.run).type_label is None
-        )
         try:
             raw = self.run.model.propose(request)
             judgement, proposal, subject = _resolve_raw(
-                raw, self.run.types, shortlist_entries, subject, needs_type=needs_type
+                raw, self.run.types, shortlist_entries, subject, needs_type=request.needs_type
             )
         except (UnusableProposalError, _InvalidProposal) as exc:
             return self._skipped(subject, str(exc), ())

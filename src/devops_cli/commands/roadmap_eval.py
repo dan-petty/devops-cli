@@ -12,6 +12,7 @@ from __future__ import annotations
 from devops_cli.commands.roadmap_eval_completeness import completeness_cmd
 from devops_cli.commands.roadmap_eval_implement import implement_cmd
 from devops_cli.commands.roadmap_eval_intake import intake_cmd
+from devops_cli.commands.roadmap_eval_jev import jev_cmd
 from devops_cli.commands.roadmap_eval_stage import eval_stage_cmd
 from devops_cli.commands.roadmap_eval_verify import verify_cmd
 from devops_cli.core.cli import new_typer
@@ -21,5 +22,6 @@ eval_app = new_typer(help=HELP.roadmap.eval_app, no_args_is_help=True)
 eval_app.command("stage", help=HELP.roadmap.eval_stage)(eval_stage_cmd)
 eval_app.command("implement", help=HELP.roadmap.eval_implement)(implement_cmd)
 eval_app.command("intake", help=HELP.roadmap.eval_intake)(intake_cmd)
+eval_app.command("jev", help=HELP.roadmap.eval_jev)(jev_cmd)
 eval_app.command("verify", help=HELP.roadmap.eval_verify)(verify_cmd)
 eval_app.command("completeness", help=HELP.roadmap.eval_completeness)(completeness_cmd)
