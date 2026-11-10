@@ -101,12 +101,17 @@ The ConfigMap template SHALL set `ai.price_overrides` for both reference models,
 - **THEN** `ai.price_overrides` holds 0.035 and 1.50 for `qwen3.8:27b` and 0.01 and 0 for `qwen/qwen3-embedding-8b`
 
 ### Requirement: The LLM gateway serves typesafe/jev-1.14 and the bridge resolves System One and auto models
-`k8s/llm/gateway/config.yaml` and `CONST_AI_GATEWAY_HOSTED_MODELS` SHALL include `typesafe/jev-1.14` (`openrouter/typesafe/jev-1.14`, `max_input_tokens: 262144`, `data_collection: deny`). `resolve_pydantic_ai_model` SHALL resolve `typesafe/jev-1.14` to `SystemOneModel` with `typesafe_model_profile` and `"auto"` to a `DecisionModel` backed by a `FallbackModel`.
+`k8s/llm/gateway/config.yaml` SHALL serve `typesafe/jev-1.14` as the authenticated pass-through `POST /v1/systemone` to the System One endpoint of OpenRouter, with the OpenRouter key from the environment of the gateway, and SHALL NOT list it in `model_list`. The path of `SystemOneModel` under `ai.gateway_url` SHALL be that path. `resolve_pydantic_ai_model` SHALL resolve `typesafe/jev-1.14` to `SystemOneModel` and `"auto"` to a `FallbackModel` of a `DecisionModel`.
 
 #### Scenario: The gateway config and model bridge are inspected
-- **WHEN** `k8s/llm/gateway/config.yaml` is loaded and `resolve_pydantic_ai_model` resolves `typesafe/jev-1.14` and `auto`
-- **THEN** `typesafe/jev-1.14` is present in `model_list` and `CONST_AI_GATEWAY_HOSTED_MODELS`
+- **WHEN** the model that the bridge builds for `typesafe/jev-1.14` posts one request, `k8s/llm/gateway/config.yaml` is loaded, and `resolve_pydantic_ai_model` resolves `typesafe/jev-1.14` and `auto`
+- **THEN** the path of the request is the `path` of an entry of `general_settings.pass_through_endpoints` that targets the System One endpoint of OpenRouter with `auth: true`
+- **AND** `model_list` holds no entry named `typesafe/jev-1.14`
 - **AND** `resolve_pydantic_ai_model` returns a `SystemOneModel` for `typesafe/jev-1.14` and a `FallbackModel` wrapping `DecisionModel` for `auto`
+
+#### Scenario: The client reads the answer of OpenRouter
+- **WHEN** the answer holds `id`, `provider` and `usage.cost` next to `model`, `answers` and `usage`
+- **THEN** the client returns the answers and the usage without an error
 
 ### Requirement: The devops stack includes the role-scoped MCP server and disables workload telemetry banners
 `k8s/devops/kustomization.yaml` and `MANIFESTS_BY_STACK["devops"]` SHALL include `k8s/devops/mcp-server/` (`deployment.yaml`, `service.yaml`, `networkpolicy.yaml`, `networkpolicy-client.yaml`), and `mcp-server`, `cronjob-runner`, and `roadmap-service` SHALL set `DO_NOT_TRACK=1`, `OPENSPEC_TELEMETRY=0`, `OPENSPEC_NO_UPDATE_CHECK=1`, and `PYDANTIC_AI_NO_BANNER=1`.

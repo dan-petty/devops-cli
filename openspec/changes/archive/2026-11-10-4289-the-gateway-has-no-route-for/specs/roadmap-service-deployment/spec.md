@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: The LLM gateway serves typesafe/jev-1.14 and the bridge resolves System One and auto models
-`k8s/llm/gateway/config.yaml` SHALL serve `typesafe/jev-1.14` as the pass-through `POST /v1/systemone` to `https://openrouter.ai/api/v1/systemone`, with `auth: true`, `forward_headers: false`, `methods: [POST]` and the header `Authorization` taken from `os.environ/OPENROUTER_API_KEY`. `model_list` and `CONST_AI_GATEWAY_HOSTED_MODELS` SHALL NOT name `typesafe/jev-1.14`, because OpenRouter refuses a decision model on chat completions. The path that `SystemOneModel` posts to under `ai.gateway_url` SHALL be that pass-through path. `resolve_pydantic_ai_model` SHALL resolve `typesafe/jev-1.14` to `SystemOneModel` with `typesafe_model_profile` and `"auto"` to a `DecisionModel` backed by a `FallbackModel`.
+`k8s/llm/gateway/config.yaml` SHALL serve `typesafe/jev-1.14` as the authenticated pass-through `POST /v1/systemone` to the System One endpoint of OpenRouter, with the OpenRouter key from the environment of the gateway, and SHALL NOT list it in `model_list`. The path of `SystemOneModel` under `ai.gateway_url` SHALL be that path. `resolve_pydantic_ai_model` SHALL resolve `typesafe/jev-1.14` to `SystemOneModel` and `"auto"` to a `FallbackModel` of a `DecisionModel`.
 
 #### Scenario: The gateway config and model bridge are inspected
 - **WHEN** the model that the bridge builds for `typesafe/jev-1.14` posts one request, `k8s/llm/gateway/config.yaml` is loaded, and `resolve_pydantic_ai_model` resolves `typesafe/jev-1.14` and `auto`
