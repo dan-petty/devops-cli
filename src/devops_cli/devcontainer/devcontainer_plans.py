@@ -110,12 +110,8 @@ def plan_install_tools(
     return requests
 
 
-def plan_post_create(
-    workspace: Path | str = ".",
-    skip_tools: bool = False,
-    target_dir: Path | None = None,
-) -> list[PlannedRequest]:
-    """Plan developer tool bootstrapping and managed tools installation."""
+def plan_post_create(workspace: Path | str = ".") -> list[PlannedRequest]:
+    """Plan developer tool bootstrapping."""
     requests: list[PlannedRequest] = [
         PlannedRequest(
             method="curl",
@@ -142,8 +138,6 @@ def plan_post_create(
             condition="claude is not installed",
         ),
     ]
-    if not skip_tools:
-        requests.extend(plan_install_tools(target_dir=target_dir, only_missing=True))
     return requests
 
 

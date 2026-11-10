@@ -2,6 +2,10 @@
 # This stage is a reference only; the binary is copied into the devcontainer image below.
 FROM docker.io/kjanat/actionlint:1.17.0@sha256:d484cccadf56b6a356466ade9af4c8e05c5dce1badaf0a9ecd0d7639d68d9c92 AS actionlint
 
+# The Node runtime that builds the pinned OpenSpec and Dev Containers CLI. The build mounts it for
+# one step and keeps none of it: the Node feature of the image configuration provides the runtime.
+FROM node:24-trixie-slim@sha256:54f84b4cf8432b21aaffd5d3ce8d41e12cea0d10d33c09d2f3c9879d49d6b446 AS node
+
 FROM debian:sid
 
 # Avoid interactive prompts during apt operations in CI
@@ -53,6 +57,18 @@ COPY src/ /tmp/devops-cli/src/
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install --system --break-system-packages --no-deps /tmp/devops-cli && \
     rm -rf /tmp/devops-cli
+
+# Install every tool of `tools.lock` at its locked version under /usr/local, the root of software
+# that the administrator installs: the commands link into /usr/local/bin, which PATH holds already,
+# and the files of a Python or Node tool go to /usr/local/share/devops-cli. Both are root-owned and
+# outside the home volume, so a rebuild of the image is the way to change a tool. `npm ci` needs
+# npm at build time only: the bind mount gives it, and the tool's shebang finds the Node of the Node
+# feature at run time. The installer makes each version directory private to its user, so the chmod
+# lets the vscode user read it.
+RUN --mount=type=bind,from=node,source=/usr/local,target=/opt/node \
+    PATH=/opt/node/bin:$PATH DEVOPS_CLI_USER_DATA_ROOT=/usr/local/share/devops-cli \
+    devops install-tools --target-dir /usr/local/bin && \
+    chmod -R a+rX /usr/local/share/devops-cli
 
 # Provide the pinned actionlint binary on PATH so the bare `actionlint` command resolves.
 # Placed last so a source change above rebuilds no earlier layer.

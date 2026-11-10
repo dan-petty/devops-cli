@@ -527,7 +527,6 @@ devops devcontainer post-create [OPTIONS]
 |---|---|---|---|
 | `--workspace`, `-w` | `path` | `.` | Workspace root directory path. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
-| `--skip-tools` | `boolean` | - | Skip bootstrapping missing DevOps tool binaries. |
 | `--json`, `-j` | `boolean` | - | Output findings or metrics as JSON. |
 
 ### `devops devcontainer post-start`

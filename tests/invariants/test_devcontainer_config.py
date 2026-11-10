@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 
 from tests.support.paths import REPO_ROOT
 
@@ -124,3 +125,17 @@ def test_the_workspace_devcontainer_aligns_antigravity_and_vscode_customizations
     customizations = workspace["customizations"]
 
     assert customizations["antigravity"] == customizations["vscode"]
+
+
+def test_the_image_build_installs_the_locked_tools_under_usr_local() -> None:
+    """The image build links every locked tool into /usr/local/bin and keeps the files of a Python
+    or Node tool in /usr/local/share/devops-cli, so a tool is on PATH with no setting and a
+    rebuild of the image is the way to change it."""
+    dockerfile = (DEVCONTAINER / "Dockerfile").read_text(encoding="utf-8")
+
+    install = re.search(r"^RUN .*?devops install-tools[^\n]*", dockerfile, re.M | re.S)
+
+    assert install is not None
+    assert "DEVOPS_CLI_USER_DATA_ROOT=/usr/local/share/devops-cli" in install.group(0)
+    assert "devops install-tools --target-dir /usr/local/bin" in install.group(0)
+    assert "--tool" not in install.group(0)
