@@ -11,8 +11,9 @@ The checks read files only and render no chart. `CHART_CLAIMS` names, for each c
 Argo CD Application installs, which values turn on a claim and where the values set the affinity
 of the pod that mounts it. A chart, or a chart version, that an Application pins and `CHART_CLAIMS`
 does not name fails the test, so a new chart states its claims and a chart bump reads them again.
-A pod that must stay on the control-plane node is in `_CONTROL_PLANE_CLAIM_EXEMPTIONS`, with its
-reason.
+A CloudNativePG Cluster that sets `spec.storage` is a pod on a claim, and the check reads its
+affinity from `spec.affinity`. A pod that must stay on the control-plane node is in
+`_CONTROL_PLANE_CLAIM_EXEMPTIONS`, with its reason.
 """
 
 from __future__ import annotations
@@ -27,10 +28,22 @@ from tests.support.k8s_tree import chart_values, manifests, pinned_charts, pod_s
 
 CONTROL_PLANE_LABEL = "node-role.kubernetes.io/control-plane"
 OFF_CONTROL_PLANE = {"key": CONTROL_PLANE_LABEL, "operator": "DoesNotExist"}
+# The API group of the CloudNativePG operator, which runs the PostgreSQL databases.
+CNPG_GROUP = "postgresql.cnpg.io"
 
 # The pods on a local-path claim that may run on the control-plane node, each with its reason. A key
 # is `<values file>:<pod>` for a chart pod or `<manifest>:<kind>/<name>` for a manifest pod.
-_CONTROL_PLANE_CLAIM_EXEMPTIONS: dict[str, str] = {}
+_CONTROL_PLANE_CLAIM_EXEMPTIONS: dict[str, str] = {
+    # #3803 moves the volume of this Cluster to a worker node and then adds the affinity.
+    "k8s/mattermost/database.yaml:Cluster/mattermost-db": (
+        "The claim of the database is on the control-plane node, and the pod stays Pending with the "
+        "affinity before #3803 moves the volume."
+    ),
+    # #3782 reads the CloudNativePG Clusters in this test and moves this volume.
+    "k8s/llm/gateway-db.yaml:Cluster/llm-gateway-db": (
+        "The claim of the gateway database is on the control-plane node, and #3782 moves it."
+    ),
+}
 
 
 @dataclass(frozen=True)
@@ -153,6 +166,7 @@ EXPECTED_MANIFEST_PODS = frozenset(
     {
         "k8s/devops/roadmap-service/deployment.yaml:Deployment/roadmap-service",
         "k8s/llm/valkey-runs.yaml:Deployment/valkey-runs",
+        "k8s/mattermost/database.yaml:Cluster/mattermost-db",
     }
 )
 
@@ -186,6 +200,21 @@ def _chart_pods() -> dict[str, Any]:
     }
 
 
+def _cluster_pod(document: dict[str, Any]) -> tuple[str, Any] | None:
+    """The name and the affinity of a CloudNativePG Cluster that stores its data on a claim.
+
+    The operator makes a claim from `spec.storage` and mounts it in the database pods, and it
+    applies `spec.affinity` to those pods, so a Cluster is a pod on a claim like a workload. The
+    name has the form `<kind>/<name>`, the form of a workload key.
+    """
+    if not str(document.get("apiVersion", "")).startswith(f"{CNPG_GROUP}/"):
+        return None
+    spec = document.get("spec") or {}
+    if not spec.get("storage"):
+        return None
+    return f"{document['kind']}/{document['metadata']['name']}", spec.get("affinity")
+
+
 def _manifest_pods() -> dict[str, Any]:
     """Each manifest pod that mounts a claim, keyed `<file>:<kind>/<name>`, with its affinity."""
     documents = list(manifests())
@@ -196,6 +225,11 @@ def _manifest_pods() -> dict[str, Any]:
     }
     pods: dict[str, Any] = {}
     for relative, document in documents:
+        cluster = _cluster_pod(document)
+        if cluster is not None:
+            name, affinity = cluster
+            pods[f"{relative}:{name}"] = affinity
+            continue
         pod = pod_spec(document)
         if pod is None:
             continue
@@ -258,6 +292,56 @@ def test_the_placement_check_needs_the_term_in_every_required_term(
 ) -> None:
     """Pin the check on literal affinities: only a required term in every ORed term counts."""
     assert keeps_off_the_control_plane(affinity) is keeps_off
+
+
+def _cluster(affinity: Any) -> dict[str, Any]:
+    """A CloudNativePG Cluster document that stores its data on a claim, with this affinity."""
+    return {
+        "apiVersion": "postgresql.cnpg.io/v1",
+        "kind": "Cluster",
+        "metadata": {"name": "example-db", "namespace": "example"},
+        "spec": {
+            "instances": 1,
+            "storage": {"storageClass": "local-path", "size": "1Gi"},
+            "affinity": affinity,
+        },
+    }
+
+
+@pytest.mark.parametrize(
+    ("affinity", "keeps_off"),
+    [
+        ({"podAntiAffinity": {}}, False),
+        (
+            {
+                "nodeAffinity": {
+                    "requiredDuringSchedulingIgnoredDuringExecution": {
+                        "nodeSelectorTerms": [{"matchExpressions": [OFF_CONTROL_PLANE]}]
+                    }
+                }
+            },
+            True,
+        ),
+    ],
+    ids=["pod-anti-affinity", "required"],
+)
+def test_a_cluster_on_a_claim_is_a_pod_that_keeps_off_the_control_plane(
+    affinity: Any, keeps_off: bool
+) -> None:
+    """The operator applies `spec.affinity` of a Cluster to its database pod, so a Cluster that
+    stores its data on a claim takes the same check as a workload pod."""
+    name, cluster_affinity = _cluster_pod(_cluster(affinity))
+    assert (name, keeps_off_the_control_plane(cluster_affinity)) == (
+        "Cluster/example-db",
+        keeps_off,
+    )
+
+
+def test_a_cluster_without_storage_is_no_pod_on_a_claim() -> None:
+    """A Cluster with no `spec.storage` keeps no data on a claim, so no check applies."""
+    document = _cluster(None)
+    del document["spec"]["storage"]
+    assert _cluster_pod(document) is None
 
 
 def test_the_claim_table_names_each_chart_at_the_version_that_an_application_pins() -> None:
