@@ -224,6 +224,29 @@ def test_the_comment_above_the_analysis_slot_names_the_decision_the_cost_and_the
     ] == []
 
 
+def test_every_step_class_of_the_implement_ladder_has_the_one_deepseek_tier() -> None:
+    """The cluster ConfigMap has one tier for `edit` and for `repair`, and the README says that a
+    step has one tier (#4371). The template says the same, so a render does not add a tier that
+    sends the prompts of a step to Anthropic. The support for more tiers stays in the code."""
+    template = _doc("configmap.example.yaml")["data"]["devops-cli.yaml"]
+    ladder = Settings.model_validate(yaml.safe_load(template)).roadmap.implement.ladder
+
+    assert ladder == {step_class: [DEEPSEEK] for step_class in CONST_ROADMAP_IMPLEMENT_STEP_CLASSES}
+
+
+def test_the_comment_above_the_implement_ladder_names_the_decision_and_the_later_trial() -> None:
+    """A person who reads the template learns who chose one tier, and that a Sonnet tier is a later
+    trial, so the second tier of #4274 does not come back by mistake."""
+    text = (DEVOPS_DIR / "configmap.example.yaml").read_text(encoding="utf-8")
+    comment = text.split("\n      implement:\n")[0].rsplit("first_pass_limit: 20\n", 1)[1]
+
+    assert [
+        needle
+        for needle in ("#4371", "2026-11-10", "#4274", "one tier", "Sonnet", "later trial")
+        if needle not in comment
+    ] == []
+
+
 def _dotted(document: Any, key: str) -> Any:
     for part in key.split("."):
         document = document.get(part) if isinstance(document, dict) else None
