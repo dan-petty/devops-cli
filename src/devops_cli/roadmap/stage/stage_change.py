@@ -1678,6 +1678,11 @@ _NEGATION: Final[re.Pattern[str]] = re.compile(
 _READ_WORD: Final[re.Pattern[str]] = re.compile(
     r"\b(?:read|reads|reading|ran|read_file)\b", re.IGNORECASE
 )
+# The present tense of `read` with a code span, `it` or `which` before it says what code does, such
+# as "it reads `.github/labels.yml`". It is no claim that the run read the file (#4314).
+_CODE_READS: Final[re.Pattern[str]] = re.compile(
+    r"(?:`[^`\n]+`|\b(?:it|which))\s*(?:,|\bis\b|\bare\b)?\s*$", re.IGNORECASE
+)
 _PATH_EXTENSIONS: Final[tuple[str, ...]] = (
     ".py",
     ".md",
@@ -1725,13 +1730,23 @@ def _claim_words(sentence: str, stage_tools: set[str]) -> str:
     )
 
 
+def _is_code_reading(sentence: str, read: re.Match[str]) -> bool:
+    """Whether `read` is `reads` or `reading` with code as its subject: a code span, `it` or
+    `which` before it (#4314). The sentence holds the code spans that the claim blanks."""
+    return read.group().lower() in ("reads", "reading") and bool(
+        _CODE_READS.search(sentence[: read.start()])
+    )
+
+
 def _uncalled_path(
     sentence: str, spans: Sequence[tuple[int, str]], stage_tools: set[str], trace: TraceFacts
 ) -> str | None:
     """The first uncalled path cited in `sentence`, or None when negated or all called."""
     claim = _claim_words(sentence, stage_tools)
-    read_match = _READ_WORD.search(claim)
-    if read_match is None or _NEGATION.search(claim[: read_match.end()]):
+    if not any(
+        not _NEGATION.search(claim[: read.end()]) and not _is_code_reading(sentence, read)
+        for read in _READ_WORD.finditer(claim)
+    ):
         return None
     for _pos, span in spans:
         path = _claimed_path(span)
