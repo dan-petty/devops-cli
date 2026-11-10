@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-import re
+import tomllib
 
 from tests.support.paths import REPO_ROOT
 
@@ -127,15 +127,42 @@ def test_the_workspace_devcontainer_aligns_antigravity_and_vscode_customizations
     assert customizations["antigravity"] == customizations["vscode"]
 
 
-def test_the_image_build_installs_the_locked_tools_under_usr_local() -> None:
-    """The image build links every locked tool into /usr/local/bin and keeps the files of a Python
-    or Node tool in /usr/local/share/devops-cli, so a tool is on PATH with no setting and a
-    rebuild of the image is the way to change it."""
+LOCK = REPO_ROOT / "src" / "devops_cli" / "tools_lock" / "tools.lock"
+
+
+def test_the_image_build_installs_the_tools_with_native_steps_under_usr_local() -> None:
+    """The image build gets each tool with a step of Docker or of its package manager, and puts
+    the commands in /usr/local/bin and the files of a Python or Node tool in
+    /usr/local/share/devops-tools: no custom installer runs, so a tool is on PATH with no setting
+    and a rebuild of the image is the way to change it."""
     dockerfile = (DEVCONTAINER / "Dockerfile").read_text(encoding="utf-8")
+    lock = tomllib.loads(LOCK.read_text(encoding="utf-8"))
 
-    install = re.search(r"^RUN .*?devops install-tools[^\n]*", dockerfile, re.M | re.S)
+    missing_binary_pins = [
+        f"{name} {arch}"
+        for name, tool in lock["binary"].items()
+        for arch in ("amd64", "arm64")
+        for platform in [tool["platforms"][f"linux-{arch}"]]
+        if platform["url"] not in dockerfile or platform["sha256"] not in dockerfile
+    ]
+    unhashed_python = [
+        name
+        for name, tool in lock["python"].items()
+        if f"uv pip sync --require-hashes -p /usr/local/share/devops-tools/{name}/bin/python"
+        not in dockerfile.replace("\\\n    ", "")
+        or f"COPY src/devops_cli/tools_lock/{tool['requirements']} " not in dockerfile
+    ]
+    unlocked_npm = [
+        name
+        for name in lock["npm"]
+        if f"cd /opt/{name} && npm ci --ignore-scripts" not in dockerfile
+    ]
 
-    assert install is not None
-    assert "DEVOPS_CLI_USER_DATA_ROOT=/usr/local/share/devops-cli" in install.group(0)
-    assert "devops install-tools --target-dir /usr/local/bin" in install.group(0)
-    assert "--tool" not in install.group(0)
+    assert (
+        "install-tools" in dockerfile,
+        "sha256sum -c" in dockerfile,
+        "COPY --from=tools /out/bin/ /usr/local/bin/" in dockerfile,
+        missing_binary_pins,
+        unhashed_python,
+        unlocked_npm,
+    ) == (False, True, True, [], [], [])
