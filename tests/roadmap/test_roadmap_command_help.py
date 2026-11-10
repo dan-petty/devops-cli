@@ -22,6 +22,7 @@ COMMANDS = {
     "stage": HELP.roadmap.stage,
     "implement": HELP.roadmap.implement,
     "inbox": HELP.roadmap.inbox,
+    "consolidate": HELP.roadmap.consolidate,
 }
 
 

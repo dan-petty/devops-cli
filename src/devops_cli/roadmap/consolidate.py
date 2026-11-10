@@ -136,7 +136,7 @@ class GitSource:
         if self._usable is None:
             operation = "roadmap.consolidate.source"
             origin = get_repo_origin_name(self._checkout)
-            self._usable = bool(origin) and origin.lower() == self._repo.lower()
+            self._usable = origin is not None and origin.lower() == self._repo.lower()
             if self._usable:
                 try:
                     ref = (
@@ -512,12 +512,13 @@ def _pending(
                     member=member.number, anchor=group.anchor, group=group.id
                 )
     for held in earlier.pending_closes if earlier is not None else ():
-        anchor, member = board.issues.get(held.anchor), board.issues.get(held.member)
+        anchor_issue = board.issues.get(held.anchor)
+        member_issue = board.issues.get(held.member)
         if (
-            anchor is not None
-            and member is not None
-            and anchor.state is GitHubState.OPEN
-            and member.state is GitHubState.OPEN
+            anchor_issue is not None
+            and member_issue is not None
+            and anchor_issue.state is GitHubState.OPEN
+            and member_issue.state is GitHubState.OPEN
         ):
             found.setdefault((held.member, held.anchor), held)
     return tuple(found[key] for key in sorted(found))

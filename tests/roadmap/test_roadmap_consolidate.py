@@ -14,6 +14,7 @@ from devops_cli.ai.client.models import StructuredOutputValidationError
 from devops_cli.exceptions.ai import ModelGatewayUnreachableError
 from devops_cli.roadmap.consolidate import (
     Edges,
+    GitSource,
     Plan,
     decline_group,
     group_id,
@@ -34,7 +35,10 @@ from devops_cli.roadmap.consolidate_judge import (
 from devops_cli.roadmap.failure import FailureClass, StepName
 from devops_cli.roadmap.stores.store import CloseReason, ConsolidateRecordKey, ItemField
 from tests.support.fakes.model import deterministic_embedding
+from tests.support.fakes.process import ProcessAnswer, ProcessFake
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
+from tests.support.implement_step import git_for_real
+from tests.support.roadmap_stage import StageRepo
 
 REPO = "example/roadmap"
 DAY = date(2026, 11, 10)
@@ -597,3 +601,47 @@ def test_a_member_body_that_gives_orders_cannot_widen_the_plan(
     }
     assert 742 not in seen
     assert store.job_writes() == []
+
+
+# ── The files of a commit ──
+
+
+@pytest.fixture
+def programs(process_fake: ProcessFake) -> ProcessFake:
+    """The process edge, where git runs for real."""
+    process_fake.answer("git", ProcessAnswer(side_effect=git_for_real))
+    return process_fake
+
+
+def test_a_cited_file_is_read_at_the_commit_of_the_default_branch_and_the_commit_is_recorded(
+    stage_repo: StageRepo, programs: ProcessFake
+) -> None:
+    stage_repo.track({"src/a.py": "one\ntwo\n"})
+    source = GitSource(stage_repo.clone, REPO)
+
+    assert source.sha is None
+    assert source.read("src/a.py") == "one\ntwo"
+    assert source.read("src/gone.py") is None
+    assert source.sha == stage_repo.git("rev-parse", "origin/main")
+
+
+def test_a_ref_names_the_commit_that_cited_files_are_read_at(
+    stage_repo: StageRepo, programs: ProcessFake
+) -> None:
+    stage_repo.track({"src/a.py": "old\n"})
+    old = stage_repo.git("rev-parse", "HEAD")
+    stage_repo.track({"src/a.py": "new\n"})
+
+    assert GitSource(stage_repo.clone, REPO, old).read("src/a.py") == "old"
+
+
+def test_a_clone_of_another_repository_and_a_ref_that_does_not_resolve_read_no_file(
+    stage_repo: StageRepo, programs: ProcessFake
+) -> None:
+    stage_repo.track({"src/a.py": "one\n"})
+
+    other = GitSource(stage_repo.clone, "example/other")
+    unknown = GitSource(stage_repo.clone, REPO, "no-such-ref")
+
+    assert (other.read("src/a.py"), other.sha) == (None, None)
+    assert (unknown.read("src/a.py"), unknown.sha) == (None, None)

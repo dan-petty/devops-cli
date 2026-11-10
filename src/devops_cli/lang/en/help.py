@@ -1442,8 +1442,8 @@ class RoadmapCommandHelp:
     )
     consolidate: str = (
         "Propose groups of open items that share a root cause, and write the plan to a local "
-        "file. A model proposes and then tries to refute each shortlist; code checks the answers. "
-        "The plan changes nothing on GitHub. Details: docs/roadmap/consolidate.md."
+        "file. A model proposes and then tries to refute each shortlist, code checks the answers, "
+        "and nothing changes on GitHub. Details: docs/roadmap/consolidate.md."
     )
     consolidate_ref: str = (
         "Branch, tag or commit to check the cited paths and lines against (default: the default "
