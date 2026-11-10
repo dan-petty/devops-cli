@@ -89,7 +89,9 @@ def test_every_ollama_tier_runs_one_release_that_serves_multimodal_embedding_mod
     }
 
     assert len(images) == 1
-    repository, tag = next(iter(images)).split(":")
+    repository, tag_and_digest = next(iter(images)).split(":", 1)
+    tag, _, digest = tag_and_digest.partition("@")
+    assert re.fullmatch(r"sha256:[0-9a-f]{64}", digest)
     assert repository == "ollama/ollama"
     assert Version(tag) >= OLLAMA_FIRST_LLAMA_SERVER_EMBEDDING_RELEASE
 
