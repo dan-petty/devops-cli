@@ -18,7 +18,7 @@ from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
 from tests.support.paths import REPO_ROOT
 
 if TYPE_CHECKING:
-    pass
+    from tests.support.fakes.clock import ClockFake
 
 
 @pytest.fixture
@@ -27,8 +27,9 @@ def runner() -> CliRunner:
 
 
 @pytest.fixture(autouse=True)
-def isolate_devcontainer_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Isolate devcontainer tests from spawning real background system daemons."""
+def isolate_devcontainer_env(monkeypatch: pytest.MonkeyPatch, clock: ClockFake) -> None:
+    """Isolate devcontainer tests from spawning real background system daemons, and from waiting
+    in real time: a lifecycle command that retries a request gets its waits from the fake clock."""
     monkeypatch.setenv("DEVOPS_MINIKUBE_AUTOSTART", "false")
 
 

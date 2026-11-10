@@ -24,7 +24,6 @@ from devops_cli.commands.install_tools import (
     _download,
     _verify_sha256,
     install_binary,
-    install_managed_tools,
     install_npm_tool,
     install_python_tool,
 )
@@ -36,7 +35,6 @@ from devops_cli.exceptions import (
     ToolDownloadError,
     ToolExecutionError,
 )
-from devops_cli.lang import MESSAGES
 from devops_cli.tools_lock import (
     LOCK_DIR,
     Artifact,
@@ -635,25 +633,6 @@ def test_install_tools_without_npm_exits_1_naming_npm(
     )
 
 
-def test_install_managed_tools_warns_when_a_node_tool_cannot_install(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, isolate_user_data_root: Path
-) -> None:
-    """Post-create's installer reports a missing npm as one warning line and carries on."""
-    _record_npm(monkeypatch, npm_installed=False)
-    lock = ToolsLock(
-        python_version="3.14",
-        binary={},
-        python={},
-        npm={"openspec": load_tools_lock().npm["openspec"]},
-    )
-    monkeypatch.setattr(install_tools, "load_tools_lock", lambda: lock)
-
-    actions = install_managed_tools(tmp_path / "bin")
-
-    missing = DependencyError("npm", install_hint=MESSAGES.install.npm_missing_hint)
-    assert actions == [f"Warning: Failed to install openspec ({missing})"]
-
-
 # ── The command ───────────────────────────────────────────────────────────────
 
 
@@ -765,34 +744,6 @@ def test_install_tools_refuses_invalid_arguments(
     """The lock is the only version source and only locked tools are allowed."""
     result = runner.invoke(install_tools_app, [*args, "--target-dir", str(tmp_path)])
     assert result.exit_code == expected_exit
-
-
-def test_install_managed_tools_reports_one_line_per_tool(
-    web: WebFake, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Post-create's installer installs every tool the lock holds, and one tool's failure is one
-    warning line."""
-    web.content(ASSET_URL, EXECUTABLE)
-    lock = ToolsLock(
-        python_version="3.14",
-        binary={
-            "mytool": _binary_entry(EXECUTABLE),
-            "broken": _binary_entry(EXECUTABLE, name="broken"),
-        },
-        python={},
-        npm={},
-    )
-    monkeypatch.setattr(install_tools, "load_tools_lock", lambda: lock)
-
-    actions = install_managed_tools(tmp_path / "bin")
-    again = install_managed_tools(tmp_path / "bin")
-
-    assert (len(actions), actions[0].startswith("Installed mytool 1.2.3 into"), again) == (
-        2,
-        True,
-        [actions[1]],
-    )
-    assert actions[1].startswith("Warning: Failed to install broken (")
 
 
 def test_artifact_rejects_unknown_fields() -> None:

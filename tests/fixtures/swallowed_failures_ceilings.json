@@ -54,7 +54,7 @@
   "src/devops_cli/commands/config.py": 1,
   "src/devops_cli/commands/devcontainer.py": 13,
   "src/devops_cli/commands/gh.py": 1,
-  "src/devops_cli/commands/install_tools.py": 2,
+  "src/devops_cli/commands/install_tools.py": 1,
   "src/devops_cli/commands/k8s/bootstrap.py": 1,
   "src/devops_cli/commands/k8s/cluster_context.py": 2,
   "src/devops_cli/commands/k8s/cluster_runtime.py": 6,

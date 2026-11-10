@@ -10,6 +10,7 @@ import pytest
 from typer.testing import CliRunner
 
 if TYPE_CHECKING:
+    from tests.support.fakes.clock import ClockFake
     from tests.support.fakes.model import ModelFake
 
 from devops_cli.ai.instruction_generator import (
@@ -357,15 +358,26 @@ def test_devcontainer_init_scaffolds_agent_instructions(runner: CliRunner, tmp_p
 
 
 def test_devcontainer_post_create_scaffolds_agent_instructions(
-    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    runner: CliRunner,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    clock: ClockFake,
 ) -> None:
     """Verify devops devcontainer post-create scaffolds missing agent instructions."""
     fake_home = tmp_path / "home"
     fake_home.mkdir()
     monkeypatch.setenv("HOME", str(fake_home))
+    monkeypatch.setenv("DEVOPS_MINIKUBE_AUTOSTART", "false")
     # Every program answers as installed, as in the published image, so post-create runs no
     # installer: on a host without claude it ran Claude Code's real installer, a 276 MB download.
     monkeypatch.setattr("shutil.which", lambda cmd, *_args, **_kwargs: f"/usr/local/bin/{cmd}")
+    # On merge-base replay, post-create bootstrapped managed tools over the network into HOME;
+    # ignore that step when replaying this test against older base revisions.
+    monkeypatch.setattr(
+        "devops_cli.commands.devcontainer._bootstrap_managed_tools",
+        lambda **_kwargs: [],
+        raising=False,
+    )
 
     (tmp_path / "pyproject.toml").write_text(
         '[project]\nname = "post-create-proj"\n', encoding="utf-8"
