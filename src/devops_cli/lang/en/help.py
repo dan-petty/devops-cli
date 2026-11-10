@@ -1304,11 +1304,22 @@ class RoadmapCommandHelp:
         "cases, which are closed issues with the type, priority, Value and Effort that a person "
         "set. It prints the false duplicates of each model first, then how often each label "
         "field agrees with the person's. It ends with the verdict on the setting "
-        "roadmap.intake.jev: set it only when Jev flags no more false duplicates than the "
-        "triage model. The run sends two model calls for each case, one at a time, and no "
+        "roadmap.intake.jev: set it to on only when Jev flags no more false duplicates than "
+        "the triage model. The run sends two model calls for each case, one at a time, and no "
         "embedding or GitHub request. It stops before the first call when it needs more calls "
         "than --max-calls. A case that a model gives no answer for counts as not agreed, and the "
-        "report counts it. It exits 0 after it prints the report."
+        "report counts it. With --from-shadow, it reads the shadow records of intake instead. It "
+        "exits 0 after it prints the report."
+    )
+    eval_jev_from_shadow: str = (
+        "Read the shadow records of Jev instead of running the cases. While roadmap.intake.jev is "
+        "shadow, intake records the Jev answers of each new candidate in the job record of its "
+        "issue. This option reads every issue of the repository, joins each record with the "
+        "labels the issue holds now, and prints for each field how often Jev and the triage "
+        "model agree, how often each equals the final label, and how often Jev equals it in each "
+        "band of its probability. It also counts the duplicate flags against the issues closed "
+        "as a duplicate. It makes no model request and no write, and it ignores --max-calls and "
+        "--min-confidence."
     )
     eval_jev_dry_run: str = (
         "Make no request: print the number of calls that a run makes and the limit."

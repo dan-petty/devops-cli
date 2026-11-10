@@ -7195,7 +7195,7 @@ devops roadmap eval intake [OPTIONS]
 
 #### `devops roadmap eval jev`
 
-**Compare Jev (typesafe/jev-1.14) with the triage model on the proposal fields of intake. Both models run the duplicate cases of the intake evaluation set and the label cases, which are closed issues with the type, priority, Value and Effort that a person set. It prints the false duplicates of each model first, then how often each label field agrees with the person's. It ends with the verdict on the setting roadmap.intake.jev: set it only when Jev flags no more false duplicates than the triage model. The run sends two model calls for each case, one at a time, and no embedding or GitHub request. It stops before the first call when it needs more calls than --max-calls. A case that a model gives no answer for counts as not agreed, and the report counts it. It exits 0 after it prints the report.**
+**Compare Jev (typesafe/jev-1.14) with the triage model on the proposal fields of intake. Both models run the duplicate cases of the intake evaluation set and the label cases, which are closed issues with the type, priority, Value and Effort that a person set. It prints the false duplicates of each model first, then how often each label field agrees with the person's. It ends with the verdict on the setting roadmap.intake.jev: set it to on only when Jev flags no more false duplicates than the triage model. The run sends two model calls for each case, one at a time, and no embedding or GitHub request. It stops before the first call when it needs more calls than --max-calls. A case that a model gives no answer for counts as not agreed, and the report counts it. With --from-shadow, it reads the shadow records of intake instead. It exits 0 after it prints the report.**
 
 ```bash
 devops roadmap eval jev [OPTIONS]
@@ -7208,6 +7208,8 @@ devops roadmap eval jev [OPTIONS]
 | `--dry-run` | `boolean` | - | Make no request: print the number of calls that a run makes and the limit. |
 | `--max-calls` | `integer` | `160` | The most model calls that a run may make. A run that needs more stops before its first call. The default keeps the spend of a run under 1 USD. |
 | `--min-confidence` | `float` | `0.0` | The least confidence of a Jev choice or score answer that the run takes. A lower answer counts as no answer, as in intake, where the least is 0.60 and the triage model decides the proposal. The default 0 takes every answer, to measure what Jev knows. |
+| `--from-shadow` | `boolean` | - | Read the shadow records of Jev instead of running the cases. While roadmap.intake.jev is shadow, intake records the Jev answers of each new candidate in the job record of its issue. This option reads every issue of the repository, joins each record with the labels the issue holds now, and prints for each field how often Jev and the triage model agree, how often each equals the final label, and how often Jev equals it in each band of its probability. It also counts the duplicate flags against the issues closed as a duplicate. It makes no model request and no write, and it ignores --max-calls and --min-confidence. |
+| `--repo`, `-R` | `string` | - | Repository as owner/name (default: this checkout's origin). |
 
 #### `devops roadmap eval verify`
 

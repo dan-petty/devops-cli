@@ -69,6 +69,11 @@ A run that stops part-way leaves an open issue with no Priority, a candidate, an
 decides it again: it writes only the fields the issue holds no label for, and no second reason
 comment. Intake writes to no issue but the candidate and its parent sub-issue link, and closes none.
 
+**Jev in shadow** (#4395). With `roadmap.intake.jev` set to `shadow`, the model also asks Jev the
+same fields after it checks the triage reply, and `IntakeDecision.shadow` holds the observation as
+a mark. The placement writes the mark `intake.jev_shadow` in the same write as the Priority. The
+proposal, the labels and the flags stay those of the triage model.
+
 **Dry run, plan, confirm** (the dry-run rule of #412). `dry_run_intake` makes no request, to
 GitHub or a model: it returns an `IntakePlan` marked `dry_run`, with no decision, that holds
 the requests a run makes, in order, with placeholders for what a read gives
@@ -143,6 +148,7 @@ from devops_cli.roadmap.intake.intake_model import (
     ModelEvidence,
     ModelProposal,
     Neighbour,
+    ObservingModel,
     ProposalRequest,
     UnusableProposalError,
 )
@@ -157,6 +163,7 @@ from devops_cli.roadmap.stores.store import (
     EvidenceKind,
     GitHubState,
     IntakeReads,
+    IntakeRecordKey,
     IssueRecord,
     Item,
     ItemField,
@@ -322,7 +329,8 @@ class IntakeDecision:
     comment can be written for the placement and fields the writes make. `possible_duplicate`
     is the item the model names as asking for the same change, with `duplicate_reason`, for a
     person to judge (#2218). `related` is the item a placed candidate is related to but does not
-    duplicate, with `related_reason` (#1755).
+    duplicate, with `related_reason` (#1755). `shadow` is the mark of the shadow observation of
+    Jev, which the placement records in the job record of the issue (#4395).
     """
 
     subject: Subject
@@ -342,6 +350,7 @@ class IntakeDecision:
     notes: tuple[str, ...] = ()
     reasons: tuple[tuple[str, str, str], ...] = ()
     parent: int | None = None
+    shadow: str | None = None
 
     @property
     def has_writes(self) -> bool:
@@ -1211,13 +1220,16 @@ class _Planner:
             )
         except (UnusableProposalError, _InvalidProposal) as exc:
             return self._skipped(subject, str(exc), ())
-        return self._place(subject, proposal, judgement)
+        shadow = _shadow_mark(self.run.model, request, raw, judgement)
+        return self._place(subject, proposal, judgement, shadow)
 
     def _skipped(self, subject: Subject, reason: str, notes: tuple[str, ...]) -> IntakeDecision:
         """A candidate with no usable proposal: nothing is written."""
         return IntakeDecision(subject, Outcome.SKIP, reason=reason, notes=notes)
 
-    def _place(self, subject: Subject, proposal: Proposal, judgement: _Judgement) -> IntakeDecision:
+    def _place(
+        self, subject: Subject, proposal: Proposal, judgement: _Judgement, shadow: str | None
+    ) -> IntakeDecision:
         title = _title_labels(subject, self.run)
         type_label = subject.type_label or title.type_label or proposal.type
         priority = _priority(self.run.store, subject, proposal)
@@ -1249,7 +1261,19 @@ class _Planner:
             related=judgement.related,
             related_reason=judgement.reason if judgement.related is not None else "",
             parent=parent,
+            shadow=shadow,
         )
+
+
+def _shadow_mark(
+    model: IntakeModel, request: ProposalRequest, raw: ModelProposal, judgement: _Judgement
+) -> str | None:
+    """The mark of the shadow observation of Jev for a candidate whose triage reply is `raw`, or
+    None when the model observes nothing (#4395). The observation changes no value of the
+    proposal."""
+    if not isinstance(model, ObservingModel):
+        return None
+    return model.observe(request, raw, judgement.possible_duplicate)
 
 
 def plan_intake(
@@ -1372,7 +1396,8 @@ def _apply_placement(store: RoadmapStore, decision: IntakeDecision) -> int:
         store.set_field(item, item_field, value)
     if decision.comment:
         store.comment(number, decision.comment)
-    store.set_field(item, ItemField.PRIORITY, priority)
+    marks = {IntakeRecordKey.JEV_SHADOW: decision.shadow} if decision.shadow else None
+    store.set_field(item, ItemField.PRIORITY, priority, marks=marks)
     return number
 
 

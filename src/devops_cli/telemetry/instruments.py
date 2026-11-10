@@ -464,8 +464,22 @@ ROADMAP_INTAKE_JEV_FIELDS_TOTAL = Instrument(
     "error, a timeout or a low confidence left the proposal to the triage model. A proposal "
     "falls back as a whole, so its fields all count fallback. The type counts only for a "
     "candidate whose title gives no type, and the duplicate counts only for a candidate with a "
-    "nearest item. Nothing counts while roadmap.intake.jev is off. The metric adds 10 series: "
-    "5 fields and 2 outcomes",
+    "nearest item. Nothing counts while roadmap.intake.jev is off or shadow. The metric adds 10 "
+    "series: 5 fields and 2 outcomes",
+)
+ROADMAP_INTAKE_JEV_SHADOW_TOTAL = Instrument(
+    "devops_cli_roadmap_intake_jev_shadow_total",
+    InstrumentKind.COUNTER,
+    "1",
+    "Proposal fields that intake asked Jev for in shadow mode (#4395), one count for each field of "
+    "each candidate, by field and outcome. Jev decides nothing in shadow: the triage model gives "
+    "every label and every flag. The field is type, priority, value, effort or duplicate. The "
+    "outcome is agree when the Jev answer equals the triage answer, differ when it does not, or "
+    "jev_error when a Jev error or a timeout left the field with no answer. A failed request "
+    "counts jev_error once for each asked field. The type counts only for a candidate whose title "
+    "gives no type, and the duplicate counts only for a candidate with a nearest item. Nothing "
+    "counts while roadmap.intake.jev is off or on. The metric adds 15 series for each scraped "
+    "pod: 5 fields and 3 outcomes",
 )
 ROADMAP_STAGE_GATE_REFUSALS_TOTAL = Instrument(
     "devops_cli_roadmap_stage_gate_refusals_total",
@@ -717,6 +731,7 @@ INSTRUMENTS: tuple[Instrument, ...] = (
     ROADMAP_INTAKE_CANDIDATES_TOTAL,
     ROADMAP_JEV_COMPLETENESS_TOTAL,
     ROADMAP_INTAKE_JEV_FIELDS_TOTAL,
+    ROADMAP_INTAKE_JEV_SHADOW_TOTAL,
     ROADMAP_STAGE_GATE_REFUSALS_TOTAL,
     EMBEDDING_CACHE_LOOKUPS_TOTAL,
     EMBEDDING_CACHE_SIZE,

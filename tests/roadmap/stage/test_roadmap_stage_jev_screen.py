@@ -38,7 +38,7 @@ from tests.support.roadmap_stage import (
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-    from devops_cli.config.defaults import StageJevScreen
+    from devops_cli.config.defaults import JevMode
     from tests.support.fakes.jev import JevFake
     from tests.support.fakes.openspec import OpenSpecFake
     from tests.support.fakes.otlp import FakeCollector
@@ -184,7 +184,7 @@ def test_the_setting_is_off_by_default_and_builds_no_screener() -> None:
 
 
 @pytest.mark.parametrize("mode", ["shadow", "on"])
-def test_the_setting_shadow_or_on_builds_a_screener(mode: StageJevScreen) -> None:
+def test_the_setting_shadow_or_on_builds_a_screener(mode: JevMode) -> None:
     settings = Settings()
     settings.roadmap.stage.jev_screen = mode
 

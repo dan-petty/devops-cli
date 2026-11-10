@@ -29,7 +29,12 @@ from enum import StrEnum
 from devops_cli.config.constants import CONST_ROADMAP_LABELS_PATH
 from devops_cli.dry_run.requests import PlannedRequest, both
 from devops_cli.lang import MESSAGES
-from devops_cli.roadmap.intake.intake_model import IntakeModel, ModelProposal, ProposalRequest
+from devops_cli.roadmap.intake.intake_model import (
+    IntakeModel,
+    ModelProposal,
+    ObservingModel,
+    ProposalRequest,
+)
 from devops_cli.roadmap.request_plan import StoreRequests, within
 
 
@@ -228,6 +233,15 @@ class _MeteredModel:
     def propose(self, request: ProposalRequest) -> ModelProposal:
         self.counts["model_calls"] += 1
         return self.model.propose(request)
+
+    def observe(
+        self, request: ProposalRequest, triage: ModelProposal, duplicate: int | None
+    ) -> str | None:
+        """The observation of the model, when it makes one: a Jev request in shadow mode is no
+        call of the triage model and the meter does not count it."""
+        if isinstance(self.model, ObservingModel):
+            return self.model.observe(request, triage, duplicate)
+        return None
 
 
 _RESOURCE_FIELDS = {"graphql": "graphql", "search": "search"}

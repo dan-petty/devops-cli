@@ -14,6 +14,9 @@ intake decide which values stand. A neighbour whose probability reaches the thre
 possible original, and intake only flags it: the candidate is still placed. Jev gives no
 evidence for a P0 and no related item.
 
+With `roadmap.intake.jev` set to `shadow`, `intake_jev_shadow` uses the questions and the answers of
+this module for an observation, and the triage model decides.
+
 Jev fails open. An error, a timeout or a confidence below the least leaves the whole proposal to
 the triage model, and a counter records which fields came from which model. The evaluation
 (`devops roadmap eval jev`) builds the model with `fall_back=False`, so a Jev failure shows as a
@@ -64,6 +67,7 @@ from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.intake.intake_model import (
     IntakeModel,
     ModelProposal,
+    Neighbour,
     ProposalRequest,
     UnusableProposalError,
 )
@@ -99,7 +103,7 @@ class JevUnusableError(ValueError):
 # A failed call of Jev: the library raises `ModelAPIError` for HTTP and connection errors,
 # `UnexpectedModelBehavior` for a body it can't read, `UserError` for a request it can't send;
 # the model comes from the gateway settings, whose errors are `DevOpsCLIError`s.
-_FAILED = (ModelAPIError, UnexpectedModelBehavior, UserError, DevOpsCLIError, OSError)
+FAILED = (ModelAPIError, UnexpectedModelBehavior, UserError, DevOpsCLIError, OSError)
 
 
 def _instruction(field: JevField, **named: object) -> str:
@@ -173,29 +177,43 @@ def _choice(name: str, response: DecisionResponse, least: float) -> tuple[str, s
     return answer.choice, reason
 
 
+def level_name(answer: ScoreAnswer, levels: _Levels) -> str:
+    """The name of the level that a score answer rounds to."""
+    return levels[min(max(round(answer.score), 0), len(levels) - 1)][0]
+
+
 def _level(name: str, levels: _Levels, response: DecisionResponse, least: float) -> tuple[str, str]:
     """The level a score answer rounds to, and the reason line for it."""
     answer = cast(ScoreAnswer, response.answers[name])
     _confident(name, answer, least)
-    picked = levels[min(max(round(answer.score), 0), len(levels) - 1)][0]
+    picked = level_name(answer, levels)
     reason = MESSAGES.roadmap.intake_jev_score_reason.format(
         level=picked, confidence=answer.confidence
     )
     return picked, reason
 
 
-def _original(request: ProposalRequest, response: DecisionResponse) -> dict[str, Any]:
-    """The fields of the nearest item that Jev is sure asks for the same change, or none."""
-    best_number, best_title, best = None, "", 0.0
+def best_neighbour(
+    request: ProposalRequest, response: DecisionResponse
+) -> tuple[Neighbour | None, float]:
+    """The nearest item with the highest yes/no probability, and that probability: none and 0 for
+    a request with no nearest item."""
+    best_near, best = None, 0.0
     for near in request.shortlist:
         probability = cast(NoulAnswer, response.answers[f"{_DUPLICATE_PREFIX}{near.number}"]).noul
         if probability > best:
-            best_number, best_title, best = near.number, near.title, probability
-    if best_number is None or best < CONST_ROADMAP_JEV_DUPLICATE_THRESHOLD:
+            best_near, best = near, probability
+    return best_near, best
+
+
+def _original(request: ProposalRequest, response: DecisionResponse) -> dict[str, Any]:
+    """The fields of the nearest item that Jev is sure asks for the same change, or none."""
+    near, best = best_neighbour(request, response)
+    if near is None or best < CONST_ROADMAP_JEV_DUPLICATE_THRESHOLD:
         return {}
     return {
-        "duplicate_of": best_number,
-        "shared_change": best_title,
+        "duplicate_of": near.number,
+        "shared_change": near.title,
         "duplicate_reason": MESSAGES.roadmap.intake_jev_duplicate_reason.format(probability=best),
     }
 
@@ -220,7 +238,7 @@ def proposal_from(
     return ModelProposal.model_validate(fields | _original(request, response))
 
 
-def _asked(request: ProposalRequest) -> list[JevField]:
+def asked_fields(request: ProposalRequest) -> list[JevField]:
     """The fields that a request asks Jev for."""
     fields = [JevField.TYPE] if request.needs_type else []
     fields += [JevField.PRIORITY, JevField.VALUE, JevField.EFFORT]
@@ -293,6 +311,11 @@ class JevIntakeModel:
         run = _decide_in_context if self._given else _decide_and_close
         return asyncio.run(run(decider, request, merged))
 
+    def answers(self, request: ProposalRequest) -> DecisionResponse:
+        """The raw answers of Jev to the questions of `request`. A failed request raises one of
+        the errors in `FAILED`."""
+        return self._decide(DecisionRequest(state=_state(request), questions=_questions(request)))
+
     def _count(self, fields: Sequence[JevField], outcome: JevOutcome) -> None:
         if not self._fall_back:
             return
@@ -305,13 +328,11 @@ class JevIntakeModel:
 
     def propose(self, request: ProposalRequest) -> ModelProposal:
         """The proposal that Jev's answers make, or the base model's when Jev fails."""
-        fields = _asked(request)
+        fields = asked_fields(request)
         try:
-            response = self._decide(
-                DecisionRequest(state=_state(request), questions=_questions(request))
-            )
+            response = self.answers(request)
             proposal = proposal_from(request, response, self._least)
-        except (*_FAILED, JevUnusableError) as exc:
+        except (*FAILED, JevUnusableError) as exc:
             reason = str(exc)[:300]
             if not self._fall_back:
                 raise UnusableProposalError(reason) from exc
@@ -323,9 +344,13 @@ class JevIntakeModel:
 
 
 __all__ = [
+    "FAILED",
     "JevField",
     "JevIntakeModel",
     "JevOutcome",
     "JevUnusableError",
+    "asked_fields",
+    "best_neighbour",
+    "level_name",
     "proposal_from",
 ]

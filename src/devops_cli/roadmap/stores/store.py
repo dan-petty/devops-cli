@@ -323,6 +323,16 @@ class RetitleRecordKey(StrEnum):
     SKIPPED = "retitle.skipped"
 
 
+class IntakeRecordKey(StrEnum):
+    """What intake records in an Item's job record (#4395): `intake.jev_shadow` holds the shadow
+    observation of Jev for the proposal of the Item (`ShadowObservation`), as compact JSON. It
+    holds the time of the proposal and, for each field, the answer of Jev, its probability and the
+    answer of the triage model. It holds no text of the issue. Intake writes it in the same write
+    as the Priority, only while `roadmap.intake.jev` is `shadow`."""
+
+    JEV_SHADOW = "intake.jev_shadow"
+
+
 class ConsolidateRecordKey(StrEnum):
     """What the consolidate job records in an Item's job record (#3740): `consolidate.declined`
     holds the ids of the groups that a person declined for the Item as the anchor, joined by
@@ -338,6 +348,7 @@ JobRecord = dict[
     | StageRecordKey
     | ImplementRecordKey
     | RetitleRecordKey
+    | IntakeRecordKey
     | ConsolidateRecordKey,
     str | None,
 ]
@@ -649,6 +660,7 @@ _JOB_RECORD_KEYS = frozenset(
         *StageRecordKey,
         *ImplementRecordKey,
         *RetitleRecordKey,
+        *IntakeRecordKey,
         *ConsolidateRecordKey,
     )
 )
@@ -1124,6 +1136,7 @@ __all__ = [
     "ImplementRecordKey",
     "ImplementResult",
     "IntakeReads",
+    "IntakeRecordKey",
     "IssueComment",
     "IssueRecord",
     "Item",
