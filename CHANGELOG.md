@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.109.0](https://github.com/dan-petty/devops-cli/compare/v0.108.3...v0.109.0) (2026-11-10)
+
+
+### Features
+
+* **roadmap:** decrease refine interval to 17m and increase limit to 7 ([#4430](https://github.com/dan-petty/devops-cli/issues/4430)) ([f9cadb5](https://github.com/dan-petty/devops-cli/commit/f9cadb5f17ef63e328e52002e8eeefb1d40607e9))
+
 ## [0.108.3](https://github.com/dan-petty/devops-cli/compare/v0.108.2...v0.108.3) (2026-11-10)
 
 
