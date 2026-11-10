@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
@@ -25,7 +26,7 @@ from devops_cli.roadmap.stage.stage_eval_cases import (
     load_cases,
 )
 from devops_cli.roadmap.stage.stage_toolbox import ToolboxModel
-from devops_cli.roadmap.stage.stage_verify import Finding, Verification
+from devops_cli.roadmap.stage.stage_verify import Finding, Verification, VerificationInput
 from devops_cli.roadmap.stage.stage_verify_eval import (
     VerifyScore,
     evaluate_cases,
@@ -48,6 +49,73 @@ pytestmark = pytest.mark.usefixtures("keyring_store", "openspec_fake")
 Cli = Callable[..., Any]
 SET = REPO_ROOT / CASES_DIRECTORY
 SAMPLE_QUOTE = "return comments[:-1]"
+FALSE_PREMISE_CASE = "3408-a-plan-restates-the-missing-path-rule"
+PROMPT_PATH = "src/devops_cli/ai/tasks/roadmap_stage_verify.md"
+DESIGN_QUOTE = "The existing `missing_path` type names a code change that needs a file the plan does not change"
+PROMPT_QUOTE = (
+    "`missing_path`: the plan names a file that does not exist and that no earlier group creates."
+)
+
+
+def _folded(text: str) -> str:
+    return " ".join(text.split())
+
+
+def _show(commit: str, path: str) -> str:
+    """The text of `path` at `commit`, or a skip when the clone lacks the commit."""
+    done = subprocess.run(
+        ["git", "-C", str(REPO_ROOT), "show", f"{commit}:{path}"],
+        capture_output=True,
+        text=True,
+    )
+    if done.returncode != 0:
+        pytest.skip(f"The clone lacks the commit {commit} of the case.")
+    return done.stdout
+
+
+def _false_premise_case(cases: list[StageCase]) -> StageCase:
+    return next(case for case in cases if case.name == FALSE_PREMISE_CASE)
+
+
+def test_the_false_premise_case_quotes_the_plan_and_the_cited_prompt(
+    cases: list[StageCase], tmp_path: Path
+) -> None:
+    case = _false_premise_case(cases)
+    (defect,) = case.defects
+    prompt = _show(case.base_commit, PROMPT_PATH)
+    source = tmp_path / "source"
+    (source / PROMPT_PATH).parent.mkdir(parents=True)
+    (source / PROMPT_PATH).write_text(prompt, encoding="utf-8")
+
+    given = VerificationInput.of(
+        number=case.issue,
+        title=case.title,
+        body=case.issue_body,
+        plan=case.plan,
+        source=source,
+    )
+
+    assert (defect.type, defect.gate) == (DefectType.FALSE_PREMISE, GateName.NONE)
+    assert defect.evidence.splitlines() == [DESIGN_QUOTE, PROMPT_QUOTE]
+    assert _folded(DESIGN_QUOTE) in _folded(json.dumps(case.plan))
+    assert PROMPT_QUOTE in given.files[PROMPT_PATH]
+    assert given.contains(DESIGN_QUOTE)
+    assert given.contains(PROMPT_QUOTE)
+
+
+def test_the_false_premise_case_is_scored_with_one_labeled_defect(
+    cases: list[StageCase], model_fake: ModelFake
+) -> None:
+    case = _false_premise_case(cases)
+    _show(case.base_commit, PROMPT_PATH)
+    model_fake.answer(Verification())
+
+    score = evaluate_cases(
+        "m-1", [case], _client(model_fake), REPO_ROOT, toolbox=ToolboxModel(model_fake)
+    )
+
+    row = next(row for row in score.rows if row.type is DefectType.FALSE_PREMISE)
+    assert (score.cases[0].name, row.labeled, row.found) == (case.name, 1, 0)
 
 
 def _defect(kind: DefectType, severity: Severity = Severity.MAJOR) -> Defect:

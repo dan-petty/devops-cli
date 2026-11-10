@@ -1,0 +1,33 @@
+{
+ "issue": 3405,
+ "pull": 3408,
+ "title": "docs(openspec): plan #3405 Require the message file a task names",
+ "change": "3405-the-stage-check-names-the-message",
+ "merge_commit": "4eef2fb2b0f99c6400cd994d38d03c618e756bfc",
+ "base_commit": "4e0e24359208160d2ac0be443259ea76bf4c5d1d",
+ "verdict": "needs-fix",
+ "scores": {
+  "premise_ok": 2,
+  "fidelity": 4,
+  "task_quality": 4,
+  "rule_compliance": 4,
+  "accuracy": 3
+ },
+ "state": "merged",
+ "summary": "The design of the plan of PR #3408 restates the `missing_path` rule and gets it wrong: it says the type already names a code change that needs a file the plan does not change, while the cited verification prompt defines the type only for a file that does not exist and that no earlier group creates.",
+ "notes": [
+  "The plan is the version of the change of #3405 that PR #3408 staged before the author corrected its design. The later commits of the pull request rewrite the decision and the rejected alternative so that they say the prompt widens the type.",
+  "The base commit is the parent of the plan commit, the commit the refine of #3405 read, and the verification prompt there holds the old `missing_path` bullet.",
+  "The merge commit is the squash merge of PR #3408, whose change folder holds the corrected design. The case reads the plan and the prompt of the base commit, not of the merge commit."
+ ],
+ "defects": [
+  {
+   "type": "false_premise",
+   "severity": "major",
+   "where": "design.md, Decisions and Rejected alternatives",
+   "problem": "The design says the `missing_path` type already names a code change that needs a file the plan does not change, but the cited verification prompt defines the type only for a file that does not exist and that no earlier group creates.",
+   "evidence": "The existing `missing_path` type names a code change that needs a file the plan does not change\n`missing_path`: the plan names a file that does not exist and that no earlier group creates.",
+   "gate": "none"
+  }
+ ]
+}
