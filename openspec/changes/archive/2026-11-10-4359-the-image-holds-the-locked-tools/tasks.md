@@ -16,5 +16,8 @@ Reads: `src/devops_cli/commands/install_tools.py`. Changes: `.devcontainer/Docke
 
 ## Workflow follow-up
 
+- The root `Dockerfile` and the CI workflows install tools with native steps: #4361.
+- Product code finds a tool on `PATH` and not in `tools.lock`: #4362.
+- `devops install-tools`, the `tools_lock` package and `tools.lock` are removed, and Renovate follows the Dockerfile pins: #4363.
 - Pending a person: build the image once (`docker build -f .devcontainer/Dockerfile .`) and time it, because the build environment of the author could not pull the base image.
 - Pending a person: review the diff in tuicr (tuicr -r <base>..HEAD).
