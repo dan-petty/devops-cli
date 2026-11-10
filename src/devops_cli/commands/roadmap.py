@@ -357,6 +357,70 @@ def retitle_cmd(
         print_success(MESSAGES.roadmap.retitle_applied.format(count=written))
 
 
+@app.command("consolidate", help=HELP.roadmap.consolidate)
+@dry_run_class("request-plan")
+def consolidate_cmd(
+    repo: RepoOption = None,
+    ref: Annotated[str | None, typer.Option("--ref", help=HELP.roadmap.consolidate_ref)] = None,
+    limit: Annotated[
+        int | None, typer.Option("--limit", min=1, help=HELP.roadmap.consolidate_limit)
+    ] = None,
+    decline: Annotated[
+        str | None, typer.Option("--decline", help=HELP.roadmap.consolidate_decline)
+    ] = None,
+    dry_run: Annotated[
+        bool, typer.Option("--dry-run", help=HELP.roadmap.consolidate_dry_run)
+    ] = False,
+    confirm: Annotated[
+        bool, typer.Option("--confirm", help=HELP.roadmap.consolidate_confirm)
+    ] = False,
+) -> None:
+    """Write a local plan of groups of open items that share a root cause."""
+    _one_mode(dry_run=dry_run, confirm=confirm)
+    if confirm and decline is None:
+        _refuse(MESSAGES.roadmap.consolidate_confirm_needs_decline)
+    target = _target(repo)
+    from datetime import UTC, datetime
+
+    from devops_cli.config.settings import load_settings
+    from devops_cli.core.repo import resolve_data_path
+    from devops_cli.roadmap import consolidate as job
+    from devops_cli.roadmap.consolidate_judge import build_consolidate_models
+
+    today = datetime.now(UTC).date()
+    if dry_run or is_dry_run():
+        planned = job.dry_run_consolidate(target, today=today, limit=limit, decline=decline)
+        render_dry_run("consolidate", target, planned.requests, planned.write_requests)
+        return
+    directory = resolve_data_path(load_settings().data.dir)
+    texts = MESSAGES.roadmap
+    with _exit_on_failure("Could not consolidate"):
+        _, store = _open_store(target)
+        if decline is not None:
+            declined = job.decline_group(
+                store, decline, repo=target, directory=directory, confirm=confirm
+            )
+            template = (
+                texts.consolidate_decline_done
+                if declined.written
+                else texts.consolidate_decline_preview
+            )
+            print_info(template.format(group=declined.group, anchor=declined.anchor))
+            return
+        judge, embedder = build_consolidate_models()
+        edges = job.Edges(
+            judge=judge,
+            embed=embedder.embed,
+            embedding_model=embedder.model,
+            source=job.GitSource(Path.cwd(), target, ref),
+        )
+        plan = job.run_consolidate(
+            store, edges, repo=target, directory=directory, today=today, limit=limit
+        )
+    write_stdout(job.render_plan(plan) + "\n")
+    print_info(texts.consolidate_written.format(path=job.plan_path(directory, plan.day)))
+
+
 @app.command("stage", help=HELP.roadmap.stage)
 def stage_cmd(
     repo: RepoOption = None,

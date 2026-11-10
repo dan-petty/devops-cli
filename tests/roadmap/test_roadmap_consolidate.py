@@ -9,6 +9,9 @@ from datetime import date
 from pathlib import Path
 
 import pytest
+
+from devops_cli.ai.client.models import StructuredOutputValidationError
+from devops_cli.exceptions.ai import ModelGatewayUnreachableError
 from devops_cli.roadmap.consolidate import (
     Edges,
     Plan,
@@ -28,9 +31,6 @@ from devops_cli.roadmap.consolidate_judge import (
     Shape,
     ShortlistCase,
 )
-
-from devops_cli.ai.client.models import StructuredOutputValidationError
-from devops_cli.exceptions.ai import ModelGatewayUnreachableError
 from devops_cli.roadmap.failure import FailureClass, StepName
 from devops_cli.roadmap.stores.store import CloseReason, ConsolidateRecordKey, ItemField
 from tests.support.fakes.model import deterministic_embedding
@@ -274,12 +274,17 @@ def test_a_member_and_an_anchor_outside_the_shortlist_are_dropped(
     plan = run(store, Judge(lambda c: judgement(c, extra=(742, 99))), tmp_path)
 
     assert {n for g in plan.groups for n in (g.anchor, *(m.number for m in g.members))} <= {1, 2, 3}
-    assert (
-        run(
-            store, Judge(lambda c: judgement(c, anchor=742)), tmp_path, day=date(2026, 11, 11)
-        ).groups
-        == ()
-    )
+
+
+def test_a_group_with_an_anchor_outside_the_shortlist_is_dropped(
+    store: InMemoryRoadmapStore, tmp_path: Path
+) -> None:
+    item(store)
+    item(store)
+
+    plan = run(store, Judge(lambda c: judgement(c, anchor=742)), tmp_path)
+
+    assert plan.groups == ()
 
 
 def test_a_citation_of_an_issue_or_a_line_that_does_not_exist_is_dropped_and_recorded(

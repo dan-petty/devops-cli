@@ -2477,6 +2477,42 @@ class RoadmapMessages:
     alternatives_skipped_heading: str = "## Skipped"
     alternatives_skipped_line: str = "- #{number} {title}: skipped, {reason}"
     # `devops roadmap retitle` (#3486).
+    # `devops roadmap consolidate` (#3740).
+    consolidate_title: str = "# Consolidate plan for {repo} on {day}"
+    consolidate_none: str = "The plan holds no group."
+    consolidate_group: str = "- {id} {shape}, anchor #{anchor} ({verdict}, confidence {confidence:.2f}, {status}): {theme}"
+    consolidate_new: str = "new"
+    consolidate_carried: str = "carried from an earlier plan"
+    consolidate_cause: str = "  Root cause: {cause}"
+    consolidate_member: str = "  - #{number} {action}: {reason}"
+    consolidate_rejection: str = "  - Dropped: {text}"
+    consolidate_rejected: str = (
+        "The reply cited {text} for #{member}. It is no issue and no line of the commit, so the "
+        "plan leaves it out."
+    )
+    consolidate_pending_heading: str = "Close when the anchor merges:"
+    consolidate_pending: str = "- #{member} closes when #{anchor} is closed as completed."
+    consolidate_failures_heading: str = "Shortlists that failed:"
+    consolidate_failure: str = "- Anchor #{anchor}, step {step}, class {klass}: {error}"
+    consolidate_counts: str = (
+        "{groups} group(s), {new} of them new. {unjudged} shortlist(s) wait for a later run."
+    )
+    consolidate_written: str = "Plan written to {path}."
+    consolidate_decline_unknown: str = (
+        "The last plan holds no group {group}. Run consolidate, then give an id from its summary."
+    )
+    consolidate_decline_no_item: str = "#{anchor} is no open item, so it holds no job record."
+    consolidate_decline_done: str = (
+        "Declined group {group}: recorded in the job record of #{anchor}."
+    )
+    consolidate_decline_preview: str = (
+        "Group {group} would be declined in the job record of #{anchor}. Nothing was written. "
+        "Run again with --confirm to write it."
+    )
+    consolidate_confirm_needs_decline: str = (
+        "--confirm applies to --decline only: a consolidate run writes a local plan and no GitHub "
+        "change."
+    )
     retitle_title: str = "# Retitle for {repo}"
     retitle_none: str = "No open item has a title summary over {limit} characters."
     retitle_changes_heading: str = "Titles to change:"
@@ -4452,6 +4488,11 @@ class RoadmapMessages:
             "create_issue": "open an issue for {subject}",
             "close": "close {subject} with the reason {reason}",
             "create_label": "create label {label}",
+            "consolidate_embed": "the embeddings of the items that the cache of vectors lacks",
+            "consolidate_proposal": "the model's proposal for the shortlist of {subject}",
+            "consolidate_refutation": "the model's refutation of that proposal",
+            "consolidate_resolve": "the commit of the ref that the cited paths are read at",
+            "consolidate_show": "a file that the model cites, at that commit",
         }
     )
     # The requests of a dry run that no `gh` command makes (#2650).
@@ -4499,6 +4540,8 @@ class RoadmapMessages:
                 "no usable title, or the model gave no summary that passes the title form"
             ),
             "as_app": "the process acts as the GitHub App",
+            "consolidate_cited": "the model cites a path with a line",
+            "consolidate_embed": "an open item has a text that the cache of vectors lacks",
         }
     )
     plan_repeat: dict[str, str] = field(
@@ -4519,6 +4562,9 @@ class RoadmapMessages:
             "alternatives_item": "for each item the run checks, at most --limit",
             "adr_file": "for each file of the directory, once a run",
             "retitle_item": "for each item with a long title, at most --limit",
+            "consolidate_member": "for each member of a shortlist that the run judges",
+            "consolidate_shortlist": "for each shortlist the cache lacks, at most --limit",
+            "consolidate_citation": "for each path with a line that the model cites",
             "search": "for each search the model asks for, at most {limit} for an item",
             "fact": "for each fact read the model asks for, at most {limit} for an item",
             "stage_item": "for each item the run stages, up to the limit",

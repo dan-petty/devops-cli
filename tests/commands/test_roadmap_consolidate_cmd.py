@@ -9,11 +9,11 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from devops_cli.roadmap.consolidate import read_plan
 
 from devops_cli.config.settings import load_settings
 from devops_cli.core.repo import resolve_data_path
 from devops_cli.lang import HELP
+from devops_cli.roadmap.consolidate import read_plan
 from devops_cli.roadmap.stores.store import ConsolidateRecordKey, ItemField
 from tests.support.fakes.model import ModelFake
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
@@ -47,14 +47,19 @@ def _proposal(prompt: str) -> str:
 
 
 @pytest.fixture
-def board(roadmap_store: InMemoryRoadmapStore, model_fake: ModelFake, embedder: Any) -> ModelFake:
+def board(
+    roadmap_store: InMemoryRoadmapStore, model_fake: ModelFake, embedder: Any, keyring_store: Any
+) -> ModelFake:
     for _ in range(2):
         roadmap_store.seed_issue(
             "Parser drops a row", body=BODY, fields={ItemField.PRIORITY: "P2-Medium"}
         )
+    return model_fake
+
+
+def _answer(model_fake: ModelFake) -> None:
     model_fake.route(_stage("proposal"), _proposal)
     model_fake.route(_stage("refutation"), json.dumps({"verdict": "kept", "reasons": ["same"]}))
-    return model_fake
 
 
 def _plan_files() -> list[Path]:
@@ -77,6 +82,8 @@ def test_the_help_names_every_option_and_the_page_and_the_page_exists(
 def test_a_run_prints_the_summary_and_writes_the_plan_and_no_github_change(
     cli: Callable[..., Any], roadmap_store: InMemoryRoadmapStore, board: ModelFake
 ) -> None:
+    _answer(board)
+
     result = cli("roadmap", "consolidate", "--repo", REPO)
 
     assert result.exit_code == 0, result.output
@@ -104,7 +111,7 @@ def test_an_unreachable_gateway_exits_non_zero_names_the_gateway_and_writes_no_p
     board: ModelFake,
     config: Callable[..., Path],
 ) -> None:
-    config(**{"ai.gateway_enabled": True, "ai.gateway_url": "http://example.com:4000"})
+    config(ai={"gateway_enabled": True, "gateway_url": "http://example.com:4000"})
     board.route_error(_stage("proposal"), ConnectionError("down"))
 
     result = cli("roadmap", "consolidate", "--repo", REPO)
@@ -117,6 +124,7 @@ def test_an_unreachable_gateway_exits_non_zero_names_the_gateway_and_writes_no_p
 def test_decline_writes_the_job_record_only_with_confirm(
     cli: Callable[..., Any], roadmap_store: InMemoryRoadmapStore, board: ModelFake
 ) -> None:
+    _answer(board)
     cli("roadmap", "consolidate", "--repo", REPO)
     (written,) = _plan_files()
     group = read_plan(written).groups[0].id

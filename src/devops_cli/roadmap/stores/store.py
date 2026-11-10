@@ -323,13 +323,22 @@ class RetitleRecordKey(StrEnum):
     SKIPPED = "retitle.skipped"
 
 
+class ConsolidateRecordKey(StrEnum):
+    """What the consolidate job records in an Item's job record (#3740): `consolidate.declined`
+    holds the ids of the groups that a person declined for the Item as the anchor, joined by
+    commas. A group id follows its members, so a group whose members changed is a new group."""
+
+    DECLINED = "consolidate.declined"
+
+
 JobRecord = dict[
     ItemField
     | RefineRecordKey
     | AlternativesRecordKey
     | StageRecordKey
     | ImplementRecordKey
-    | RetitleRecordKey,
+    | RetitleRecordKey
+    | ConsolidateRecordKey,
     str | None,
 ]
 
@@ -640,6 +649,7 @@ _JOB_RECORD_KEYS = frozenset(
         *StageRecordKey,
         *ImplementRecordKey,
         *RetitleRecordKey,
+        *ConsolidateRecordKey,
     )
 )
 
@@ -1107,6 +1117,7 @@ __all__ = [
     "ChangeKind",
     "CloseReason",
     "Closure",
+    "ConsolidateRecordKey",
     "Evidence",
     "EvidenceKind",
     "GitHubState",

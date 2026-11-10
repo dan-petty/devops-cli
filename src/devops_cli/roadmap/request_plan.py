@@ -526,6 +526,64 @@ def alternatives_requests(
     return tuple(reads), tuple(writes)
 
 
+def consolidate_requests(
+    repo: str,
+    *,
+    limit: int | None = None,
+    decline: str | None = None,
+) -> tuple[tuple[PlannedRequest, ...], tuple[PlannedRequest, ...]]:
+    """What `devops roadmap consolidate` reads, in order, and the writes `--confirm` makes after
+    them (#3740). A run reads the open issues and every issue, embeds the texts that the cache of
+    vectors lacks, and reads the closes of each member of a shortlist. For each shortlist that no
+    earlier plan judged, at most `--limit`, it asks the model twice: a proposal and a refutation.
+    It resolves the commit and reads a file only when the model cites a path with a line. A run
+    writes no GitHub change. `--decline` reads the issue of the anchor of the group and writes its
+    job record, on `--confirm`."""
+    del limit
+    store = StoreRequests(repo)
+    texts = MESSAGES.roadmap
+    cond, rep, methods, targets = (
+        texts.plan_conditions,
+        texts.plan_repeat,
+        texts.plan_methods,
+        texts.plan_targets,
+    )
+    if decline is not None:
+        return (
+            tuple(store.issue_now(_p("item"))),
+            tuple(store.set_marks(_p("item"))),
+        )
+    model = methods["model"]
+    each_shortlist = rep["consolidate_shortlist"]
+    reads = [
+        *store.open_items(),
+        *store.every_issue(),
+        PlannedRequest(model, targets["consolidate_embed"], condition=cond["consolidate_embed"]),
+        *within(store.closures(_p("item")), repeat=rep["consolidate_member"]),
+        *within(
+            [
+                PlannedRequest(model, targets["consolidate_proposal"].format(subject=_p("item"))),
+                PlannedRequest(model, targets["consolidate_refutation"]),
+            ],
+            repeat=each_shortlist,
+        ),
+        PlannedRequest(
+            "git",
+            targets["consolidate_resolve"],
+            argv=("git", "rev-parse", "--verify", "<ref>^{commit}"),
+            condition=cond["consolidate_cited"],
+        ),
+        PlannedRequest(
+            "git",
+            targets["consolidate_show"],
+            argv=("git", "show", f"<commit>:{_p('path')}"),
+            condition=cond["consolidate_cited"],
+            repeat=rep["consolidate_citation"],
+        ),
+    ]
+    return tuple(reads), ()
+
+
 def retitle_requests(
     repo: str,
     *,
@@ -1065,6 +1123,7 @@ def render_dry_run(
 __all__ = [
     "StoreRequests",
     "alternatives_requests",
+    "consolidate_requests",
     "explain_requests",
     "implement_requests",
     "inbox_requests",

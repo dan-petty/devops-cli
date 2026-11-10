@@ -802,6 +802,10 @@ DEFAULT_ROADMAP_INTAKE_REASON_CHARS: int = 240
 # items that may cite one path or one identifier before it counts as common to every item.
 DEFAULT_ROADMAP_CONSOLIDATE_MEMBERS: int = 10
 DEFAULT_ROADMAP_CONSOLIDATE_COMMON_CITATION: int = 8
+# The most shortlists that one consolidate run judges with the model (#3740), and the most
+# characters of the text of one item that the judge reads.
+DEFAULT_ROADMAP_CONSOLIDATE_JUDGED: int = 10
+DEFAULT_ROADMAP_CONSOLIDATE_TEXT_CHARS: int = 2000
 # `devops review intake` (#2420): the longest title of a candidate made from a review finding.
 DEFAULT_REVIEW_INTAKE_TITLE_CHARS: int = 200
 # The minutes between two runs of a row are prime numbers (#2965): no two rows keep the same
