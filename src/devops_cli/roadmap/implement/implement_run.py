@@ -14,6 +14,8 @@ can start.
 **One item.** The job takes over the staged branch in a worktree, sets Status In Progress and
 rebases onto the fetched default branch. It runs one step for each group that has an unticked
 task, regenerates the documentation, archives the change, rebases again and pushes with a lease.
+Each other push (the first push of a Planned item, a `wip:` push, a checkpoint and the push of a
+stop) also sends a commit that holds the default branch (`_current_tip`, #4380).
 Then it sets the title and the body of the pull request, comments the outcome of each step, and
 watches the checks. A failed check gets one fix step. When the checks pass the job marks the pull
 request ready and sets Status In Review. It never merges.
@@ -51,7 +53,9 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 import subprocess
+import tempfile
 import textwrap
 import time
 from collections.abc import Callable, Iterator, Sequence
@@ -725,19 +729,23 @@ class _ItemRun:
         branch back on its tip, and stops the item. The stop pushes the commits that passed, unless
         `push_on_conflict` is false: at the start of the run there is nothing new to push."""
         self._git("fetch", "-q", "origin", self.default)
+        self._rebase(self.path, push_on_conflict=push_on_conflict)
+
+    def _rebase(self, path: Path, *, push_on_conflict: bool = True) -> None:
+        """Rebase the checkout `path` onto `origin/<default>`. The conflict path of `_sync`."""
         try:
-            self._git("rebase", f"origin/{self.default}")
+            git(path, "rebase", f"origin/{self.default}", operation=GIT_OPERATION)
         except GitOperationError as exc:
             timeout = load_settings().roadmap.implement.command_timeout_seconds
             unmerged = run_subprocess(
-                [BIN_GIT, "-C", str(self.path), "diff", "--name-only", "--diff-filter=U", "-z"],
+                [BIN_GIT, "-C", str(path), "diff", "--name-only", "--diff-filter=U", "-z"],
                 check=False,
                 quiet=True,
                 timeout=timeout,
             )
             files = _conflict_files(unmerged.stdout) if unmerged.returncode == 0 else []
             aborted = run_subprocess(
-                [BIN_GIT, "-C", str(self.path), "rebase", "--abort"],
+                [BIN_GIT, "-C", str(path), "rebase", "--abort"],
                 check=False,
                 quiet=True,
                 timeout=timeout,
@@ -1111,7 +1119,7 @@ class _ItemRun:
         self.wip = commit
         if commit.done >= commit.total:
             return
-        if failed := self._push_passed():
+        if failed := self._push_passed(in_step=True):
             print_muted(failed.strip(), to_stderr=True, safe=True)
         self.store.set_marks(self._fresh(), {ImplementRecordKey.WIP: _wip_record(commit)})
 
@@ -1245,15 +1253,66 @@ class _ItemRun:
             self._fix(failed.name, failed.log)
             self._generate_docs()
 
-    def _push_with_lease(self) -> None:
+    def _push_with_lease(self, tip: str | None = None) -> None:
+        """Push `tip` (the head by default) with a lease on the remote tip that the job has seen."""
+        tip = tip or self._head()
         remote = self._git("rev-parse", f"origin/{self.branch}")
-        if remote != self._head():
-            self._git("push", f"--force-with-lease={self.branch}:{remote}", "origin", self.branch)
+        if remote != tip:
+            self._git(
+                "push", f"--force-with-lease={self.branch}:{remote}", "origin", self._refspec(tip)
+            )
+
+    def _refspec(self, tip: str) -> str:
+        """The source of a push: the branch, or the commit `tip` when it is no head of the
+        checkout."""
+        return self.branch if tip == self._head() else f"{tip}:refs/heads/{self.branch}"
+
+    def _current_tip(self, *, in_step: bool) -> str:
+        """The commit to push, which holds `origin/<default>` as far as a rebase allows (#4380). A
+        run takes minutes, and the default branch moves in that time. Between steps and at a stop
+        the checkout is clean, so the job rebases it as `_sync` does. A step that runs holds the
+        shas of its `wip:` commits and may hold edits, so `_rebased_copy` rebases a copy and leaves
+        the checkout alone. A conflict aborts the rebase and goes to the log: the push goes on with
+        the head, so that the work stays on `origin`, and the sync of `_push` stops the item with
+        the same conflict."""
+        try:
+            if in_step:
+                return self._rebased_copy()
+            self._sync()
+            self._move_wip()
+        except _StopError as conflict:
+            print_muted(conflict.reason.strip(), to_stderr=True, safe=True)
+        return self._head()
+
+    def _move_wip(self) -> None:
+        """Record the last `wip:` commit again after a rebase rewrote it."""
+        if self.wip is None:
+            return
+        if kept := kept_commits(self._git, f"origin/{self.default}"):
+            self.wip = replace(self.wip, sha=kept[0])
+
+    def _rebased_copy(self) -> str:
+        """The tip of the commits of `HEAD` rebased onto `origin/<default>` in a detached worktree
+        that goes at once, or `HEAD` when the default branch has no commit that it lacks."""
+        self._git("fetch", "-q", "origin", self.default)
+        if not self._git("rev-list", "-n", "1", f"HEAD..origin/{self.default}"):
+            return self._head()
+        folder = Path(tempfile.mkdtemp(prefix="rebase-", dir=self.path.parent))
+        copy = folder / "copy"
+        try:
+            self._git("worktree", "add", "-q", "--detach", str(copy), "HEAD")
+            try:
+                self._rebase(copy)
+                return git(copy, "rev-parse", "HEAD", operation=GIT_OPERATION)
+            finally:
+                self._git("worktree", "remove", "--force", str(copy))
+        finally:
+            shutil.rmtree(folder, ignore_errors=True)
 
     def _has_new_commits(self) -> bool:
         return self._head() != self._git("rev-parse", f"origin/{self.default}")
 
-    def _publish(self) -> int:
+    def _publish(self, tip: str | None = None) -> int:
         """The first push of a Planned item: push the new branch with `-u`, open its draft pull
         request, and record both. The first body already closes the delivered issue, so a stop
         leaves a grounded draft (#3273); the final body comes after the archive. A draft that GitHub
@@ -1261,7 +1320,7 @@ class _ItemRun:
         stops the item with nothing left to push."""
         texts = MESSAGES.roadmap
         title = self._delivery_title()
-        self._git("push", "-u", "origin", self.branch)
+        self._git("push", "-u", "origin", self._refspec(tip or self._head()))
         try:
             created = get_github_session().client.create_draft_pull(
                 self.repo,
@@ -1728,16 +1787,20 @@ class _ItemRun:
             marks=marks,
         )
 
-    def _push_passed(self) -> str:
-        """Push the commits of the steps that passed. A Planned item with a commit publishes its
-        branch and opens its draft; with none, nothing is pushed. The text to add to the comment
-        when the push fails, else empty."""
+    def _push_passed(self, *, in_step: bool = False) -> str:
+        """Push the commits of the steps that passed, on a branch that holds the default branch
+        (`_current_tip`). A Planned item with a commit publishes its branch and opens its draft;
+        with none, nothing is pushed. `in_step` is true for the `wip:` push of a step that runs. The
+        text to add to the comment when the push fails, else empty."""
         texts = MESSAGES.roadmap
         try:
+            if self.pull is None and not self._has_new_commits():
+                return ""
+            tip = self._current_tip(in_step=in_step)
             if self.pull is not None:
-                self._push_with_lease()
-            elif self._has_new_commits():
-                self._publish()
+                self._push_with_lease(tip)
+            else:
+                self._publish(tip)
         except GitOperationError as exc:
             return texts.implement_stop_push_failed.format(output=mask_secrets(str(exc)))
         except _StopError as exc:

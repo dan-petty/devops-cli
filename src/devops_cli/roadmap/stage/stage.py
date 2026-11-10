@@ -2239,8 +2239,9 @@ def _move_clone(checkout: Path, sha: str) -> None:
 
 @contextmanager
 def _worktree(source: Path, target: StageTarget, base: str) -> Iterator[Path]:
-    """The worktree of the item's branch, which starts at the staged commit `base`. The worktree
-    and the local branch go when the block ends, so the clone keeps its HEAD and holds no issue."""
+    """The worktree of the item's branch, which starts at the staged commit `base`; the push
+    rebases the commit onto the default branch (#4380). The worktree and the local branch go when
+    the block ends, so the clone keeps its HEAD and holds no issue."""
     report = add_worktree(
         source, issue=target.item.number, type_=target.type_, slug=target.slug, base=base
     )
@@ -2252,13 +2253,28 @@ def _worktree(source: Path, target: StageTarget, base: str) -> Iterator[Path]:
         _git(source, "branch", "-D", target.branch)
 
 
+def _rebase_onto_default(path: Path) -> None:
+    """Fetch the default branch and rebase the commit of `path` onto it (#4380). The plan reads
+    the staged commit, and a run takes minutes, so the default branch has moved by the push. A
+    conflict aborts the rebase, so that no half rebase stays, and raises its error: the item
+    fails and nothing is pushed."""
+    default = default_branch(path, operation=_GIT_OPERATION)
+    _git(path, "fetch", "-q", "origin", default)
+    try:
+        _git(path, "rebase", f"origin/{default}")
+    except GitOperationError:
+        git_result(path, "rebase", "--abort")
+        raise
+
+
 def _commit_and_push(path: Path, change: StagedChange) -> str:
-    """Write the files, make the one commit and push the branch with `-u origin`; the commit's
-    SHA."""
+    """Write the files, make the one commit, rebase it onto the default branch and push the branch
+    with `-u origin`; the commit's SHA."""
     target = change.target
     write_change_files(path, change.files)
     _git(path, "add", "--", f"{_CHANGES_DIRECTORY}/{target.change}")
     _git(path, "commit", "-q", "-m", change.title, "-m", f"Plans #{target.item.number}.")
+    _rebase_onto_default(path)
     sha = _git(path, "rev-parse", "HEAD")
     _git(path, "push", "-q", "-u", "origin", target.branch)
     return sha

@@ -22,6 +22,7 @@ from tests.support.roadmap_implement import (
     PULL,
     TASKS_PATH,
     JobWorld,
+    advance_main,
 )
 from tests.support.roadmap_stage import STAGE_REPO, run_git
 
@@ -240,6 +241,40 @@ def test_the_end_boundary_pushes_nothing(world: JobWorld) -> None:
     assert seen == [FILES[:3]]
     # The checkpoints of groups 1 to 3 and the final push. The end boundary adds none.
     assert len(_pushes(world)) == GROUPS
+
+
+# ── The branch is current at every push (#4380) ──────────────────────────────────────────
+
+
+def _commits_behind(world: JobWorld) -> str:
+    """The count of the commits of `main` that the item branch of `origin` lacks."""
+    return world.repo.origin_git("rev-list", "--count", f"{BRANCH}..main")
+
+
+def test_a_checkpoint_push_holds_the_commit_that_main_gained(world: JobWorld) -> None:
+    seen: list[str] = []
+    script = _script(
+        *_passes(1, 3),
+        at3=lambda: advance_main(world),
+        at5=lambda: seen.append(_commits_behind(world)),
+    )
+
+    world.run(script)
+
+    assert seen == ["0"]
+
+
+def test_the_push_of_a_stop_holds_the_commit_that_main_gained(world: JobWorld) -> None:
+    script = _script(
+        *_passes(1, 2),
+        ModelAPIError("example-model", "The pod died."),
+        at5=lambda: advance_main(world),
+    )
+
+    applied = world.run(script)
+
+    assert applied.stopped == (1,)
+    assert _commits_behind(world) == "0"
 
 
 # ── The claim ─────────────────────────────────────────────────────────────────────────────

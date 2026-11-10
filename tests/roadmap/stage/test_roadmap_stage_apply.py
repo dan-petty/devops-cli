@@ -773,7 +773,29 @@ def test_a_failed_item_counts_under_the_result_failed_and_the_report_has_no_retu
     assert not hasattr(StageResult, "RETURNED")
 
 
-def test_a_staged_branch_starts_at_the_staged_commit_when_origin_moves_on(
+def test_a_staged_branch_holds_the_commit_that_main_gained_after_the_staged_commit(
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    opened: GitHubApiFake,
+    tmp_path: Path,
+) -> None:
+    """The plan reads the staged commit (#3301), and the job pushes it on the default branch of the
+    push (#4380): a run takes minutes, and `main` moves in that time."""
+    model_fake.answer(make_stage_proposal())
+    plan = plan_stage(store, repo=STAGE_REPO, source=stage_repo.clone, filters=parse_filters(()))
+    advance_origin(stage_repo, tmp_path, {"later.txt": "later\n"})
+
+    applied = apply_stage(store, plan, source=stage_repo.clone)
+
+    assert applied.staged == (1,)
+    assert stage_repo.origin_git("rev-parse", f"{BRANCH}^") == stage_repo.origin_git(
+        "rev-parse", "main"
+    )
+    assert stage_repo.origin_git("rev-list", "--count", f"{BRANCH}..main") == "0"
+
+
+def test_a_staged_branch_that_conflicts_with_main_is_not_pushed(
     store: InMemoryRoadmapStore,
     stage_repo: StageRepo,
     model_fake: ModelFake,
@@ -782,11 +804,15 @@ def test_a_staged_branch_starts_at_the_staged_commit_when_origin_moves_on(
 ) -> None:
     model_fake.answer(make_stage_proposal())
     plan = plan_stage(store, repo=STAGE_REPO, source=stage_repo.clone, filters=parse_filters(()))
-    advance_origin(stage_repo, tmp_path, {"later.txt": "later\n"})
+    advance_origin(stage_repo, tmp_path, {f"openspec/changes/{CHANGE}/proposal.md": "Other.\n"})
 
-    apply_stage(store, plan, source=stage_repo.clone)
+    applied = apply_stage(store, plan, source=stage_repo.clone)
 
-    assert stage_repo.origin_git("rev-parse", f"{BRANCH}^") == plan.sha
+    assert (applied.staged, [f.number for f in applied.failed]) == ((), [1])
+    assert _pushed(stage_repo) == ["main"]
+    assert opened.requested == []
+    assert stage_repo.git("worktree", "list").count("\n") == 0
+    assert "rebase-merge" not in stage_repo.git("status")
 
 
 def test_the_report_names_the_staged_commit_that_the_probe_read(
