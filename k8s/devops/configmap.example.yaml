@@ -125,6 +125,10 @@ data:
         planned_limit: 20
         step_tokens: 64000
         toolset: extended
+        # A TypeSafe Jev screen before the model review of a plan (#4282, ADR 0019): `off` makes no
+        # request, `shadow` logs and counts its band beside the review, `on` skips the review for
+        # the band continue. Turn it on only after a person reads the comparison in the pull request.
+        jev_screen: "off"
       # The alternatives row takes `first_pass_limit` items in a round while an item has no
       # check, and `limit` items after, when every item has a check and a round only rechecks.
       alternatives:

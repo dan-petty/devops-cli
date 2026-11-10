@@ -98,6 +98,16 @@ In each run the job judges an open item that holds the mark and no `stage.pr`. A
 
 A pushed branch with no mark is never an orphan, because a person or another agent can own it. A retitle between the failure and the next round does not matter, because the job uses the branch of the mark and not the slug of the title. A closed item that holds the mark is not judged. A bad value of the mark counts as no mark.
 
+### The Jev screen
+
+The setting `roadmap.stage.jev_screen` (`off`, `shadow` or `on`; default `off`) puts a TypeSafe Jev screen before the model review of the stage job. It is pilot 1 of the decision steps of [ADR 0019](../adr/0019-a-decision-step-asks-jev-short-closed-questions-about-evidence-that-tools-extract.md). Code builds a digest of the plan: the criteria of the issue, the groups, the paths that the repository does not hold, and whether the verify command of a group names a test file. One Jev request asks nine yes/no questions about it, one for each defect type. The cuts of the questions are data, in `src/devops_cli/roadmap/stage/jev_screen_cuts.json`, with the model, the day and the numbers of their fit.
+
+- `off` makes no Jev request.
+- `shadow` asks Jev, logs the band and counts it with `devops_cli_roadmap_decision_step_total` (step, mode, band: 8 series). The review always runs. `devops_cli_roadmap_decision_step_review_total` (step, band, reviewer: 6 series) counts whether the review found an open defect where the screen gave the band, so the false-clear rate comes from real reviews.
+- `on` skips the review when every probability is under its cut (the band `continue`). The bands `review` and `flag` run the review.
+
+Any error, timeout or missing answer of Jev runs the review. Jev never rejects a plan, and the review of refine always runs. Score the screen with `devops roadmap eval screen --reviewer <report>`: the report is a run of `devops roadmap eval verify` with the reviewer alone. The command fits the cuts on one half of `tests/fixtures/roadmap_eval/stage/split.json`, scores them on the other half, and repeats with the halves swapped. It prints the skipped reviews, the serious defects that the cascade loses, the false clears, the oracle (the most reviews that any screen can skip with no loss) and the cost. On the 48 cases that the reviewer can read, the oracle is 9 (19%), so the bar of 30% skipped reviews with no loss cannot be met on this set. Keep the setting `off` until a person reads the comparison. The key goes in the ConfigMap `devops-cli-config` under `roadmap.stage`. Apply the ConfigMap, then restart the Service after the image of this version runs.
+
 ## A plan that a person rejected
 
 A person rejects a plan when they close its pull request with no merge. The reason stays on the closed pull request, so the stage job copies it to the issue. In each run the job reads the plan pull request of each staged item. A staged item is an open New or Ready item that holds `stage.pr` and has no plan on the default branch. With `--item` the job reads the pull request of that item only. For a pull request that is closed and not merged, the job does these things in order:

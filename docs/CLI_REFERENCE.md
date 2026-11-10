@@ -7230,6 +7230,26 @@ devops roadmap eval verify [OPTIONS]
 | `--cases` | `path` | - | Folder of the cases. Default: tests/fixtures/roadmap_eval/stage. |
 | `--source` | `path` | - | Repository that holds the staging commits of the cases. Default: this checkout. |
 
+#### `devops roadmap eval screen`
+
+**Score the Jev screen before the verify step against the reviewer alone. For each case of the golden set the command asks Jev the questions of the screen about the digest of the plan, and reads what stored runs of the reviewer (devops roadmap eval verify) found there. It fits the cuts on one fixed half of the cases, scores them on the other half, and repeats with the halves swapped. It prints the skipped reviews, the serious defects that the cascade loses, the false clears, the cost, and whether the bar of the pilot is met. It calls no reviewer. It stores the report as JSON under the data directory.**
+
+```bash
+devops roadmap eval screen [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--reviewer` | `path` | - | A report of devops roadmap eval verify with the reviewer alone. Repeat the option to merge reports; a later report wins for a case. |
+| `--from` | `path` | - | A report of this command. Fit again from its rows and make no request. |
+| `--reviewer-usd` | `float` | - | The price in USD of one review of the reviewer alone, for the cost line. |
+| `--write-cuts` | `boolean` | - | Fit the cuts on all the reviewed cases and write the data file of the screen. |
+| `--json` | `boolean` | - | Print the report as JSON in place of the table. |
+| `--dry-run` | `boolean` | - | Make no request: list the cases and the model calls that a run makes. |
+| `--cases` | `path` | - | Folder of the cases. Default: tests/fixtures/roadmap_eval/stage. |
+
 #### `devops roadmap eval completeness`
 
 **Score the Jev completeness check of the draft pull requests on a labelled set. The set holds the diffs of merged pull requests whose issue lists acceptance criteria (complete drafts), and incomplete drafts: plans that the stage golden set labels with a dropped criterion, and merged diffs from which one hunk is removed. For each case the command makes one request to Jev (a Noul question for each criterion and a Score question for the tests) and prints the recall of the incomplete drafts, the false holds on the complete drafts, the same rates at other thresholds, the spend, and whether the switch roadmap.stage.jev_completeness stays off. It stores the report as JSON under the data directory, with the probability of each criterion.**

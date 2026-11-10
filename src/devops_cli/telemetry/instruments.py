@@ -326,6 +326,22 @@ ROADMAP_STAGE_PLAN_RECORD_TOTAL = Instrument(
     "written for a plan that the job wrote to the file. A miss that plans adds one to miss and one "
     "to written. The hit rate is hit divided by the sum of hit and miss",
 )
+ROADMAP_DECISION_STEP_TOTAL = Instrument(
+    "devops_cli_roadmap_decision_step_total",
+    InstrumentKind.COUNTER,
+    "1",
+    "Decisions of a Jev decision step, by step, mode (shadow or on) and band: continue, review, "
+    "flag, or error for a Jev request that failed and sent the case to the existing path",
+)
+ROADMAP_DECISION_STEP_REVIEW_TOTAL = Instrument(
+    "devops_cli_roadmap_decision_step_review_total",
+    InstrumentKind.COUNTER,
+    "1",
+    "Reviews that ran beside a decision step in shadow mode, by step, band of the step and "
+    "reviewer result (found an open defect, or clean). The false-clear rate of a step is the "
+    "reviews with the band continue and the result found, divided by all reviews with the band "
+    "continue",
+)
 ROADMAP_TOOL_CALLS_TOTAL = Instrument(
     "devops_cli_roadmap_tool_calls_total",
     InstrumentKind.COUNTER,
@@ -686,6 +702,8 @@ INSTRUMENTS: tuple[Instrument, ...] = (
     ROADMAP_ALTERNATIVES_SEARCHES,
     ROADMAP_PAGE_FETCHES_TOTAL,
     ROADMAP_STAGE_PLAN_RECORD_TOTAL,
+    ROADMAP_DECISION_STEP_TOTAL,
+    ROADMAP_DECISION_STEP_REVIEW_TOTAL,
     ROADMAP_STAGE_TOTAL,
     ROADMAP_TOOL_CALLS_TOTAL,
     ROADMAP_TOOL_ANSWER_CHARS,
@@ -832,6 +850,8 @@ __all__ = [
     "ROADMAP_ALTERNATIVES_TOTAL",
     "ROADMAP_ALTERNATIVES_UNCHECKED_ITEMS",
     "ROADMAP_CLAIM_AGE",
+    "ROADMAP_DECISION_STEP_REVIEW_TOTAL",
+    "ROADMAP_DECISION_STEP_TOTAL",
     "ROADMAP_INTAKE_CANDIDATES_TOTAL",
     "ROADMAP_ITEM_AGE",
     "ROADMAP_JEV_COMPLETENESS_TOTAL",

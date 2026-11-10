@@ -1376,6 +1376,26 @@ class RoadmapCommandHelp:
         "the prompt states this score."
     )
     eval_verify_model: str = "Model for the verification task. Without it, the configured model."
+    eval_screen: str = (
+        "Score the Jev screen before the verify step against the reviewer alone. For each case "
+        "of the golden set the command asks Jev the questions of the screen about the digest of "
+        "the plan, and reads what stored runs of the reviewer (devops roadmap eval verify) found "
+        "there. It fits the cuts on one fixed half of the cases, scores them on the other half, "
+        "and repeats with the halves swapped. It prints the skipped reviews, the serious defects "
+        "that the cascade loses, the false clears, the cost, and whether the bar of the pilot is "
+        "met. It calls no reviewer. It stores the report as JSON under the data directory."
+    )
+    eval_screen_reviewer: str = (
+        "A report of devops roadmap eval verify with the reviewer alone. Repeat the option to "
+        "merge reports; a later report wins for a case."
+    )
+    eval_screen_from: str = "A report of this command. Fit again from its rows and make no request."
+    eval_screen_reviewer_usd: str = (
+        "The price in USD of one review of the reviewer alone, for the cost line."
+    )
+    eval_screen_write_cuts: str = (
+        "Fit the cuts on all the reviewed cases and write the data file of the screen."
+    )
     eval_completeness: str = (
         "Score the Jev completeness check of the draft pull requests on a labelled set. The set "
         "holds the diffs of merged pull requests whose issue lists acceptance criteria (complete "
