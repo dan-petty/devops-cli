@@ -3821,21 +3821,17 @@ A plan file that holds the current key and no trace facts (the format of an olde
 - **WHEN** the plan file of an item holds the current key, a plan and a request, and no facts
 - **THEN** the planner sends the model a request, writes a new file with facts, and counts one `miss` and one `written`
 
-### Requirement: The trace gate judges the path of a citation
-The stage job SHALL judge the path of a code span in the form `path:line:text` or `path:def name` when it checks a claim that the run read a file, and SHALL accept the claim when a path that the run read equals that path or ends with it after a `/`. It SHALL read the verbs of a feasibility sentence outside its code spans, except a span that names a toolbox tool. The problem of an unread path SHALL name the path alone.
+### Requirement: A build cost states its time in minutes, hours, days or weeks
+The stage job SHALL accept a time in `existing_tool` of a plan that sets `builds_own` to true when it is a number of minutes, hours, days or weeks, written with digits or with a number word from one to twelve, `a` or `an`. It SHALL still refuse a text that gives no count of tokens or no count of time.
 
-#### Scenario: A symbol citation of a read file
-- **WHEN** the trace holds a `read_file` call for `src/x.py` and the feasibility section says `read `src/x.py:def load``.
-- **THEN** `check_proposal` returns no problem for that line.
+#### Scenario: A time in days with a number word
+- **WHEN** `builds_own` is true and `existing_tool` is `Cost: 80k tokens and about two days of elapsed time.`
+- **THEN** `check_proposal` returns no cost problem.
 
-#### Scenario: A line citation of an unread file
-- **WHEN** the trace holds a `read_file` call for `src/x.py` and the feasibility section says `read `src/y.py:12:value = 1``.
-- **THEN** `check_proposal` returns a problem that names `src/y.py` and not `value = 1`.
+#### Scenario: A time in weeks with digits
+- **WHEN** `builds_own` is true and `existing_tool` is `Cost: 120k tokens, 1.5 weeks.`
+- **THEN** `check_proposal` returns no cost problem.
 
-#### Scenario: A file named by its name
-- **WHEN** the trace holds a `read_file` call for `src/config/constants.py` and the feasibility section says `read `constants.py``.
-- **THEN** `check_proposal` returns no problem for that line.
-
-#### Scenario: A word of reading inside a quoted line
-- **WHEN** the trace holds no call and the feasibility section quotes `src/x.py:3:(("ai", "read"), 60.0)` with no verb of reading outside the code span.
-- **THEN** `check_proposal` returns no problem for that line.
+#### Scenario: A time with no count
+- **WHEN** `builds_own` is true and `existing_tool` is `Cost: 80k tokens and some days.`
+- **THEN** `check_proposal` returns a problem that names the cost rule.
