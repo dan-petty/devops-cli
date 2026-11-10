@@ -191,13 +191,13 @@ def test_the_implement_step_runs_on_a_hosted_gateway_group_that_fits_its_window(
 
 
 DEEPSEEK = "deepseek-v4.1-flash-1017"
-SONNET = "claude-sonnet-5-5"
 
 
-def test_the_analysis_slot_is_the_sonnet_trial_and_every_other_chat_slot_is_deepseek() -> None:
-    """The owner tries Sonnet in the `analysis` slot, because the stage job stages nothing with
-    DeepSeek (#4204). The task `stage` takes its model and window from `analysis`. Every other
-    chat slot stays on DeepSeek (#3874), and the embedding slot stays the embedding model."""
+def test_every_chat_slot_is_deepseek_and_the_stage_slot_is_set_in_the_template() -> None:
+    """The owner moved `analysis` back to DeepSeek on 2026-11-10 (#4369), as the cluster
+    ConfigMap has it. The task `stage` has its own entry, so a later trial of another model in
+    `analysis` does not move the stage job. Every chat slot stays on DeepSeek (#3874), and the
+    embedding slot stays the embedding model."""
     template = _doc("configmap.example.yaml")["data"]["devops-cli.yaml"]
     ai = Settings.model_validate(yaml.safe_load(template)).ai
     slots = {name: ai.for_task(name).model for name in AITasksConfig.model_fields}
@@ -207,23 +207,19 @@ def test_the_analysis_slot_is_the_sonnet_trial_and_every_other_chat_slot_is_deep
         {name: model for name, model in slots.items() if model != DEEPSEEK},
         ai.for_task("analysis").context_window,
         ai.for_task("stage").context_window,
-    ) == (
-        DEEPSEEK,
-        {"analysis": SONNET, "stage": SONNET, "embedding": "qwen3-embedding:0.6b"},
-        200000,
-        200000,
-    )
+        "stage" in yaml.safe_load(template)["ai"]["tasks"],
+    ) == (DEEPSEEK, {"embedding": "qwen3-embedding:0.6b"}, 256000, 256000, True)
 
 
-def test_the_comment_above_the_analysis_slot_names_the_reason_the_cost_and_the_way_back() -> None:
-    """The trial leaves the one-model rule (#3874). The comment says why, who decided, what it
-    costs and when to undo it, so a person who reads the template does not take it for drift."""
+def test_the_comment_above_the_analysis_slot_names_the_decision_the_cost_and_the_trial() -> None:
+    """The slot left Sonnet on 2026-11-10. The comment says who decided, why and what Sonnet
+    cost, so a person who reads the template does not put the trial back by mistake."""
     text = (DEVOPS_DIR / "configmap.example.yaml").read_text(encoding="utf-8")
     comment = text.split("        analysis:\n")[0].rsplit("      tasks:\n", 1)[1]
 
     assert [
         needle
-        for needle in ("#4204", "2026-11-09", "0.27 USD", "3 items", "37 minutes", "#3874")
+        for needle in ("#4369", "2026-11-10", "#4204", "67 USD a week", "#3874", "Sonnet")
         if needle not in comment
     ] == []
 

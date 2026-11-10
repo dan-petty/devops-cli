@@ -16,13 +16,12 @@ data:
       provider: gateway
       gateway_url: http://llm-gateway.llm.svc.cluster.local:4000/v1
       allow_private_network: true
-      # One chat model for every slot of the Service but analysis, by the owner decision of
-      # 2026-11-07 (#3874): ai.model and the tasks implement, verification, chat and triage name
-      # the same group. A failure then shows one model and not a mix. Undo this when most steps
-      # of the roadmap jobs work most of the time: then name a model for each slot again.
-      # The analysis slot is a trial (see there). The embedding slot stays the embedding model,
-      # because a chat model cannot embed. Each prompt of a chat slot leaves the cluster to
-      # OpenRouter (SECURITY.md rule 13), but a prompt of analysis leaves it to Anthropic.
+      # One chat model for every slot of the Service, by the owner decision of 2026-11-07
+      # (#3874): ai.model and the tasks analysis, stage, implement, verification, chat and
+      # triage name the same group. A failure then shows one model and not a mix. Undo this when
+      # most steps of the roadmap jobs work most of the time: then name a model for each slot
+      # again. The embedding slot stays the embedding model, because a chat model cannot embed.
+      # Each prompt of a chat slot leaves the cluster to OpenRouter (SECURITY.md rule 13).
       model: deepseek-v4.1-flash-1017
       # A model call is sent at most two times. The gateway already retries a failed call of
       # the group up to 5 times (router_settings.num_retries in k8s/llm/gateway/config.yaml), so
@@ -47,20 +46,24 @@ data:
         # The model lane (stage, refine, alternatives) plans with DeepSeek through the gateway
         # group deepseek-v4.1-flash-1017 (#3155). The verification slot is the model that
         # reviews a plan; no code reads it before #3153 is built.
-        # The task stage takes this window. A plan run needs about 38,000 tokens for its first
+        # The stage task needs this window. A plan run needs about 38,000 tokens for its first
         # request and 1.5 million input tokens in 23 requests, and the run ends its tools at
         # three quarters of the window. At 65,536 tokens the tools ended after 2 or 3 requests,
         # and the model answered with a placeholder (#3880). 256,000 tokens is the smallest window
         # that an fp8 provider of the gateway group offers; the group allows 1,048,576.
-        # Trial of the owner decision of 2026-11-09: the slot names Sonnet, because the stage job
-        # staged nothing with DeepSeek (#4204). It leaves the one-model rule of #3874 for this
-        # slot only. A stage case costs about 0.27 USD (sample of #3566); the stage row runs up
-        # to 3 items for each 37 minutes. The Sonnet group allows 1,000,000 input tokens, so
-        # 200000 holds the plan run. Undo the trial when the rule of #3874 applies again: name
-        # the DeepSeek group and 256000 here again.
+        # By the owner decision of 2026-11-10 the slot names DeepSeek again (#4369), and the
+        # one-model rule of #3874 holds for every chat slot. Sonnet was the slot's model from
+        # 2026-11-09 (#4204) and cost about 67 USD a week there. A later trial may name Sonnet
+        # again with context_window 200000; the Sonnet group allows 1,000,000 input tokens.
         analysis:
-          model: claude-sonnet-5-5
-          context_window: 200000
+          model: deepseek-v4.1-flash-1017
+          context_window: 256000
+        # The stage job has its own entry, as the cluster ConfigMap has. Without it the task
+        # takes the model and the window of analysis, so a trial of another model in analysis
+        # leaves the stage job on DeepSeek.
+        stage:
+          model: deepseek-v4.1-flash-1017
+          context_window: 256000
         # The implement job runs every step on the same group (#3573). Its prompts, which hold
         # the code of the repository, leave the cluster to OpenRouter (SECURITY.md rule 13). The
         # window is the smallest that an fp8 provider of the group offers (256,000 tokens); the
@@ -71,8 +74,8 @@ data:
         # The review run of a plan has the read tools of the planner and no parent task, so it
         # takes the default window of 32,768 tokens when it sets none. The run ends its tools at
         # three quarters of the window, which is 24,576 tokens: too soon for the first request and
-        # 8 tool calls (#3911). The window is 256,000 tokens, as it was for analysis before the trial, and a run that the window
-        # ends too soon fails the item.
+        # 8 tool calls (#3911). The window is 256,000 tokens, as it is for analysis, and a run
+        # that the window ends too soon fails the item.
         verification:
           model: deepseek-v4.1-flash-1017
           context_window: 256000
