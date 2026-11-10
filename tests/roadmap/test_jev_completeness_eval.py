@@ -149,9 +149,7 @@ def test_a_run_asks_jev_once_for_each_case_and_reports_the_rates_and_the_spend(
     _case(tmp_path, "b-complete", "complete", ["one"])
     web.respond("POST", ROUTE, 200, _answer([0.9]))
 
-    results = run_cases(
-        load_cases(tmp_path), new_model=lambda: create_jev_model(settings=_settings())
-    )
+    results = run_cases(load_cases(tmp_path), model=create_jev_model(settings=_settings()))
     text = render(results, model="typesafe/jev-1.14", gateway=GATEWAY)
     report = json.loads(
         report_json(results, model="typesafe/jev-1.14", gateway=GATEWAY, taken="2026-11-10")

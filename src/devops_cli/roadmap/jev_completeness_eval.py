@@ -23,7 +23,7 @@ new request. The switch `roadmap.stage.jev_completeness` stays off when the fals
 from __future__ import annotations
 
 import json
-from collections.abc import Callable, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
@@ -116,18 +116,14 @@ class CaseResult:
         return any(p < threshold for p in self.result.probabilities) or (tests and weak)
 
 
-def run_cases(
-    cases: Sequence[CompletenessCase], *, new_model: Callable[[], DecisionModel[Any]]
-) -> list[CaseResult]:
-    """Ask Jev about each case, one request at a time. Each request gets a new model: the HTTP
-    client of a model belongs to the event loop of its first request, which ends with that request,
-    so a second request on the same model fails with "Event loop is closed"."""
+def run_cases(cases: Sequence[CompletenessCase], *, model: DecisionModel[Any]) -> list[CaseResult]:
+    """Ask Jev about each case, one request at a time, all on one model."""
     return [
         CaseResult(
             case.id,
             case.label,
             case.kind,
-            assess(case.criteria, case.diff, case.kind, model=new_model()),
+            assess(case.criteria, case.diff, case.kind, model=model),
         )
         for case in cases
     ]
