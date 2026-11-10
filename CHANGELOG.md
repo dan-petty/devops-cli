@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.107.1](https://github.com/dan-petty/devops-cli/compare/v0.107.0...v0.107.1) (2026-11-10)
+
+
+### Bug Fixes
+
+* **k8s:** let Job pods reach the MCP server ([#4367](https://github.com/dan-petty/devops-cli/issues/4367)) ([f795fb8](https://github.com/dan-petty/devops-cli/commit/f795fb849902cad9162bbdfc9db9b556b01a6d57))
+* **k8s:** push-secrets writes the MCP server bearer token ([#4360](https://github.com/dan-petty/devops-cli/issues/4360)) ([273e4c9](https://github.com/dan-petty/devops-cli/commit/273e4c91b114779614a85e6eb356d15ee4d5414d))
+* **roadmap:** return a refused repair revision to the planner ([#4365](https://github.com/dan-petty/devops-cli/issues/4365)) ([89f6be4](https://github.com/dan-petty/devops-cli/commit/89f6be4655ac899cfe2722b8419caf893759e635))
+
 ## [0.107.0](https://github.com/dan-petty/devops-cli/compare/v0.106.1...v0.107.0) (2026-11-10)
 
 
