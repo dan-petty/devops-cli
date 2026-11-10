@@ -16,7 +16,7 @@ import pytest
 import yaml
 from pydantic_ai.models.decision import DecisionRequest, NoulAnswer, NoulQuestion
 
-from devops_cli.ai.jev import _run_decide, create_jev_model
+from devops_cli.ai.jev import decide_with_jev
 from devops_cli.ai.pydantic_ai_bridge import resolve_pydantic_ai_model
 from devops_cli.config.constants import CONST_AI_JEV_MODEL
 from devops_cli.config.settings import Settings
@@ -51,12 +51,12 @@ def _ask_jev_once(web: WebFake, monkeypatch: pytest.MonkeyPatch) -> Any:
 
     monkeypatch.setattr(pydantic_ai_bridge, "get_ai_api_key", lambda _s: "sk-test")
     web.respond("POST", f"{EXAMPLE_GATEWAY}/systemone", 200, OPENROUTER_ANSWER)
-    response = _run_decide(
-        create_jev_model(settings=_gateway_settings()),
+    response = decide_with_jev(
         DecisionRequest(
             state={"report": "The page is blank after Pay."},
             questions={"is_bug": NoulQuestion(instructions="Is this a software defect?")},
         ),
+        settings=_gateway_settings(),
     )
     assert isinstance(response.answers["is_bug"], NoulAnswer)
     return web.recorded[0]
@@ -90,12 +90,12 @@ def test_the_client_reads_the_answer_that_openrouter_adds_fields_to(
     monkeypatch.setattr(pydantic_ai_bridge, "get_ai_api_key", lambda _s: "sk-test")
     web.respond("POST", f"{EXAMPLE_GATEWAY}/systemone", 200, OPENROUTER_ANSWER)
 
-    response = _run_decide(
-        create_jev_model(settings=_gateway_settings()),
+    response = decide_with_jev(
         DecisionRequest(
             state="The page is blank after Pay.",
             questions={"is_bug": NoulQuestion(instructions="Is this a software defect?")},
         ),
+        settings=_gateway_settings(),
     )
 
     assert (response.model_name, response.answers["is_bug"].noul, response.usage.input_tokens) == (

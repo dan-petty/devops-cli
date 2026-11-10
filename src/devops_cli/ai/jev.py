@@ -11,11 +11,14 @@ on top of `pydantic_ai`'s native `DecisionModel` and `SystemOneModel` primitives
 
 from __future__ import annotations
 
-import asyncio
+import atexit
+import threading
 from collections.abc import Mapping, Sequence
+from contextlib import ExitStack
 from dataclasses import dataclass
 from typing import Any, Final, Literal, cast
 
+from anyio.from_thread import BlockingPortal, start_blocking_portal
 from pydantic import JsonValue
 from pydantic_ai.models.decision import (
     ChoiceAnswer,
@@ -159,17 +162,61 @@ def create_jev_model(
     return cast(DecisionModel[Any], resolved)
 
 
-def _run_decide(
-    model: DecisionModel[Any],
+_portal_lock = threading.Lock()
+_portal_stack: ExitStack | None = None
+_portal: BlockingPortal | None = None
+
+
+def _jev_portal() -> BlockingPortal:
+    """The one event loop that runs every Jev request of this process, started on first use.
+
+    The HTTP client of a model dials on the event loop of its first request, and its pooled
+    connections belong to that loop. `asyncio.run` closes the loop at the end of each request, so
+    a second request on the same model failed with `RuntimeError: Event loop is closed` (#4319).
+    An anyio blocking portal keeps one loop open in a thread until the process ends.
+    """
+    global _portal, _portal_stack
+    with _portal_lock:
+        if _portal is None:
+            _portal_stack = ExitStack()
+            _portal = _portal_stack.enter_context(start_blocking_portal())
+        return _portal
+
+
+def reset_jev_portal() -> None:
+    """Stop the loop of the Jev requests. The next request starts a new one. A model that has
+    served a request on the stopped loop must not serve another one, so tests call this between
+    tests and the process calls it at exit."""
+    global _portal, _portal_stack
+    with _portal_lock:
+        stack, _portal, _portal_stack = _portal_stack, None, None
+    if stack is not None:
+        stack.close()
+
+
+atexit.register(reset_jev_portal)
+
+
+def decide_with_jev(
     request: DecisionRequest,
+    *,
+    model: DecisionModel[Any] | None = None,
+    settings: Settings | None = None,
     model_settings: DecisionModelSettings | None = None,
 ) -> DecisionResponse:
-    """Run one `DecisionModel.decide` request synchronously."""
+    """Send one request to a Jev model and return the typed response.
+
+    Without `model`, the function builds the Jev model from `settings`. The call may come from any
+    thread, also from a thread that runs an event loop, and the same model may serve any number of
+    calls. `model_settings` of the call win over the settings of the model. The function raises
+    the exception that `DecisionModel.decide` raises.
+    """
+    decision_model = model or create_jev_model(settings=settings)
     effective_settings = cast(
         DecisionModelSettings,
-        {**(getattr(model, "settings", None) or {}), **(model_settings or {})},
+        {**(getattr(decision_model, "settings", None) or {}), **(model_settings or {})},
     )
-    return asyncio.run(model.decide(request, effective_settings))
+    return _jev_portal().call(decision_model.decide, request, effective_settings)
 
 
 def _effort_for_score(score: float, *, escalated: bool) -> Literal["low", "medium", "high"]:
@@ -218,7 +265,9 @@ def route_with_jev(
             ),
         ),
     }
-    response = _run_decide(decision_model, DecisionRequest(state=state, questions=questions))
+    response = decide_with_jev(
+        DecisionRequest(state=state, questions=questions), model=decision_model
+    )
     tier_ans = cast(ChoiceAnswer, response.answers["tier"])
     comp_ans = cast(ScoreAnswer, response.answers["complexity"])
     risk_ans = cast(NoulAnswer, response.answers["high_risk"])
@@ -266,8 +315,7 @@ def select_skill_with_jev(
         **catalog,
         _NONE_SKILL: "No skill from the catalog is needed for this turn.",
     }
-    step_one = _run_decide(
-        decision_model,
+    step_one = decide_with_jev(
         DecisionRequest(
             state=state,
             questions={
@@ -277,6 +325,7 @@ def select_skill_with_jev(
                 )
             },
         ),
+        model=decision_model,
     )
     choice_ans = cast(ChoiceAnswer, step_one.answers["skill"])
     picked = choice_ans.choice
@@ -292,8 +341,7 @@ def select_skill_with_jev(
         )
 
     skill_desc = catalog[picked]
-    step_two = _run_decide(
-        decision_model,
+    step_two = decide_with_jev(
         DecisionRequest(
             state=state,
             questions={
@@ -306,6 +354,7 @@ def select_skill_with_jev(
                 )
             },
         ),
+        model=decision_model,
     )
     verify_ans = cast(NoulAnswer, step_two.answers["verify"])
     accepted = verify_ans.noul >= threshold and picked_prob >= threshold
@@ -357,7 +406,9 @@ def gate_tool_call_with_jev(
             criteria=list(_TOOL_HARM_RUBRIC),
         ),
     }
-    response = _run_decide(decision_model, DecisionRequest(state=state, questions=questions))
+    response = decide_with_jev(
+        DecisionRequest(state=state, questions=questions), model=decision_model
+    )
     aligned = cast(NoulAnswer, response.answers["aligned"]).noul
     destructive = cast(NoulAnswer, response.answers["destructive"]).noul
     secret_risk = cast(NoulAnswer, response.answers["secret_risk"]).noul
@@ -424,7 +475,9 @@ def judge_with_jev(
             criteria=list(_EVAL_QUALITY_RUBRIC),
         ),
     }
-    response = _run_decide(decision_model, DecisionRequest(state=state, questions=questions))
+    response = decide_with_jev(
+        DecisionRequest(state=state, questions=questions), model=decision_model
+    )
     meets = cast(NoulAnswer, response.answers["meets_rubric"]).noul
     supported = cast(NoulAnswer, response.answers["supported_by_sources"]).noul
     citation = cast(ChoiceAnswer, response.answers["citation_check"])
@@ -515,7 +568,9 @@ def filter_rag_passages_with_jev(
         )
         for idx in range(len(passages))
     }
-    response = _run_decide(decision_model, DecisionRequest(state=state, questions=questions))
+    response = decide_with_jev(
+        DecisionRequest(state=state, questions=questions), model=decision_model
+    )
     kept: list[RankedPassage] = []
     for idx, text in enumerate(passages):
         ans = cast(NoulAnswer, response.answers[f"passage_{idx}"])
@@ -535,6 +590,7 @@ __all__ = [
     "build_auto_tool_model",
     "create_jev_judge_evaluators",
     "create_jev_model",
+    "decide_with_jev",
     "filter_rag_passages_with_jev",
     "gate_tool_call_with_jev",
     "judge_with_jev",

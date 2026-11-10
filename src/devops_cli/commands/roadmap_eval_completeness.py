@@ -52,7 +52,7 @@ def _run(cases_dir: Path | None, limit: int | None, *, dry_run: bool, as_json: b
             [],
         )
         return
-    results = run_cases(cases, new_model=lambda: create_jev_model(settings=settings))
+    results = run_cases(cases, model=create_jev_model(settings=settings))
     now = datetime.now(UTC)
     report = report_json(
         results, model=CONST_AI_JEV_MODEL, gateway=gateway, taken=now.isoformat(timespec="seconds")
