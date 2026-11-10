@@ -4562,7 +4562,7 @@ class RoadmapMessages:
             "alternatives_item": "for each item the run checks, at most --limit",
             "adr_file": "for each file of the directory, once a run",
             "retitle_item": "for each item with a long title, at most --limit",
-            "consolidate_member": "for each member of a shortlist that the run judges",
+            "consolidate_member": "for each member of a shortlist that GitHub marks as reopened",
             "consolidate_shortlist": "for each shortlist the cache lacks, at most --limit",
             "consolidate_citation": "for each path with a line that the model cites",
             "search": "for each search the model asks for, at most {limit} for an item",

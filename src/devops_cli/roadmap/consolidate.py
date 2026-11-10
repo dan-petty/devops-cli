@@ -41,6 +41,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from devops_cli.ai.client.models import StructuredOutputValidationError
 from devops_cli.config.constants import (
+    CONST_GH_ISSUE_STATE_REASON_REOPENED,
     CONST_ROADMAP_CONSOLIDATE_DIR,
     CONST_ROADMAP_STATUS_IN_PROGRESS,
     CONST_ROADMAP_STATUS_IN_REVIEW,
@@ -345,9 +346,12 @@ class _Board:
     planned: frozenset[int]
 
 
-def _was_reopened(store: RoadmapStore, member: int, anchor: int) -> bool:
+def _was_reopened(store: RoadmapStore, board: _Board, member: int, anchor: int) -> bool:
     """Whether someone reopened `member` after a close as a duplicate of `anchor`. A close as a
-    duplicate that names no issue counts for every anchor."""
+    duplicate that names no issue counts for every anchor. Only an issue that GitHub marks as
+    reopened reads its timeline."""
+    if board.issues[member].state_reason != CONST_GH_ISSUE_STATE_REASON_REOPENED:
+        return False
     closed = False
     for closure in store.closures(member):
         if closure.kind is ChangeKind.CLOSED:
@@ -567,7 +571,7 @@ def run_consolidate(
             m
             for m in shortlist.members
             if m.number not in board.started
-            and not _was_reopened(store, m.number, shortlist.anchor)
+            and not _was_reopened(store, board, m.number, shortlist.anchor)
         ]
         if not kept or all(_linked(m) for m in kept):
             continue
