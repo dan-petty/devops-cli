@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.107.2](https://github.com/dan-petty/devops-cli/compare/v0.107.1...v0.107.2) (2026-11-10)
+
+
+### Bug Fixes
+
+* **k8s:** bump the LiteLLM gateway to v1.103.10 ([#4374](https://github.com/dan-petty/devops-cli/issues/4374)) ([7d86a2b](https://github.com/dan-petty/devops-cli/commit/7d86a2b32d9422c4f1a62f14d7aa47139fc37afc))
+* **k8s:** the ConfigMap template names DeepSeek for analysis ([#4376](https://github.com/dan-petty/devops-cli/issues/4376)) ([5435eae](https://github.com/dan-petty/devops-cli/commit/5435eae8c320c33191714f494c47644120c92b05))
+* **roadmap:** check the test form that a task names ([#4353](https://github.com/dan-petty/devops-cli/issues/4353)) ([d25bc49](https://github.com/dan-petty/devops-cli/commit/d25bc49e85cd5de88729595d52d224f0d71c0d7b))
+* **roadmap:** refuse a behavior group that omits a test it changes ([#4356](https://github.com/dan-petty/devops-cli/issues/4356)) ([dd1e285](https://github.com/dan-petty/devops-cli/commit/dd1e2853b586096da6a04ca8a75011487618594b))
+
 ## [0.107.1](https://github.com/dan-petty/devops-cli/compare/v0.107.0...v0.107.1) (2026-11-10)
 
 
