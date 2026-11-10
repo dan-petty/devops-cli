@@ -1063,6 +1063,12 @@ def test_service_image_test_ci_job_invariants() -> None:
         build_with.get("no-cache-filters"),
     ) == ("./Dockerfile", "service", True, True, "service")
 
+    install_step = next(
+        s for s in job["steps"] if s.get("name") == "Install Service Image Test Dependencies"
+    )
+    install_run = str(install_step.get("run", ""))
+    assert ("HOME=/tmp" in install_run, "UV_NO_CONFIG=1" in install_run) == (True, True)
+
     interpolated_runs = [s.get("name", "") for s in job["steps"] if "${{" in s.get("run", "")]
     assert interpolated_runs == []
 

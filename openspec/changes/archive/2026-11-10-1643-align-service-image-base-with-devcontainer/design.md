@@ -5,7 +5,7 @@
 - Keep `Dockerfile` on `python:3.14-slim-trixie` and `.devcontainer/Dockerfile` on `debian:sid` (Direction B chosen by the repository owner on #1643).
 - Leave the shipped `service` stage of `Dockerfile` unchanged so it ships without `uv`, `gcc`, `pytest`, `jq`, or dev packages.
 - Mount locked dev-only site-packages (`uv export --locked --only-dev --no-emit-project --no-editable` installed with `--require-hashes` against `/app/.venv/bin/python`) and pinned `promtool` and `kubectl` read-only at test time.
-- Run `pytest` inside `devops-cli-service:local` with `-o pythonpath=`, `--init`, `--read-only`, `--cap-drop ALL`, `--security-opt no-new-privileges`, a masked `/workspace/.venv`, and disk-backed `/tmp`.
+- Run `pytest` inside `devops-cli-service:local` with `-o pythonpath=`, `--init`, `--read-only`, `--cap-drop ALL`, `--security-opt no-new-privileges`, a container-owned `/workspace` copy excluding `.venv`, and disk-backed `/tmp`.
 - Assert inside each shard before `pytest` starts that `/etc/os-release` names `VERSION_CODENAME=trixie` and `devops_cli.__file__` resolves under `/app/.venv/`.
 - Shard `service-image-test` into 6 parallel shards (`--no-cov`) with `cache-from: type=gha` and no `cache-to:` export so each shard finishes within the 300-second budget.
 - Enforce the Debian release invariant in `tests/invariants/test_architectural_invariants.py` (`-k debian`): stages inside each Dockerfile agree, and cross-Dockerfile release divergence requires `service-image-test` in `.github/workflows/ci.yml`.
