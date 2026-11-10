@@ -119,10 +119,12 @@ CREATED_LINE_TOKENS: Final[int] = 32
 # fewer (#3200).
 PLAN_FIELD_MIN_CHARS: Final[int] = 10
 # The cost that rule 3 of `AGENTS.md` asks of a plan that builds its own code: a number of tokens,
-# with an optional `k`, and a number of hours or minutes.
+# with an optional `k`, and a number of minutes, hours, days or weeks, in digits or in words.
 _TOKEN_COST: Final[re.Pattern[str]] = re.compile(r"\d+(?:[.,]\d+)*\s*k?\s*tokens?\b", re.IGNORECASE)
+_NUMBER_WORDS: Final[str] = "a|an|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve"
 _TIME_COST: Final[re.Pattern[str]] = re.compile(
-    r"\d+(?:[.,]\d+)*\s*(?:hours?|minutes?)\b", re.IGNORECASE
+    rf"(?:\d+(?:[.,]\d+)*\s*|\b(?:{_NUMBER_WORDS})\s+)(?:minutes?|hours?|days?|weeks?)\b",
+    re.IGNORECASE,
 )
 _REQUIREMENT_WORDS: Final[frozenset[str]] = frozenset({"SHALL", "MUST"})
 _WORD_PUNCTUATION: Final[str] = ".,;:()"
