@@ -1,17 +1,12 @@
 # Trivy vulnerability ignore file for the MCP server image (#3220).
 # Pinned findings that cannot be remediated immediately must record a reason and expiration date (exp: YYYY-MM-DD).
+# The first entries are from 2026-11-08, so the limit of 14 days in all is 2026-11-22 (SECURITY.md #a-finding-with-no-fix). Renewed on 2026-11-10 for 3 days (#4336).
 
-# CVE-2026-111943 (HIGH) in stdlib v1.26.8 / v1.27.1, vendored by pinned kubectl v1.37.1 and helm v4.3.0; fixed in stdlib 1.26.10, 1.27.3. No released version of kubectl or helm holds the fix. Tracked in #3220 (see SECURITY.md #a-finding-with-no-fix).
-CVE-2026-111943 exp:2026-11-11
+# CVE-2026-111943 (HIGH) in stdlib v1.27.2, vendored by pinned helm v4.3.1; fixed in stdlib 1.26.10, 1.27.3. helm v4.3.1 is the newest release and has Go 1.27.2. Tracked in #4336 (see SECURITY.md #a-finding-with-no-fix).
+CVE-2026-111943 exp:2026-11-14
 
-# CVE-2026-56851 (HIGH) in golang.org/x/text v0.40.0, vendored by pinned kubectl v1.37.1; fixed in 0.41.0. No released version of kubectl holds the fix. Tracked in #3220 (see SECURITY.md #a-finding-with-no-fix).
-CVE-2026-56851 exp:2026-11-11
+# CVE-2026-56851 (HIGH) in golang.org/x/text v0.40.0, vendored by pinned kubectl v1.37.2; fixed in 0.41.0. kubectl v1.37.2 is the newest release and has x/text 0.40.0. Tracked in #4336 (see SECURITY.md #a-finding-with-no-fix).
+CVE-2026-56851 exp:2026-11-14
 
-# CVE-2026-78667 (HIGH) in stdlib v1.26.8 / v1.27.1, vendored by pinned kubectl v1.37.1 and helm v4.3.0; fixed in stdlib 1.26.9, 1.27.2. No released version of kubectl or helm holds the fix. Tracked in #3220 (see SECURITY.md #a-finding-with-no-fix).
-CVE-2026-78667 exp:2026-11-11
-
-# CVE-2026-78669 (HIGH) in golang.org/x/net v0.57.0 and stdlib, vendored by pinned kubectl v1.37.1 and helm v4.3.0; fixed in x/net 0.60.0 / stdlib 1.26.10, 1.27.3. No released version of kubectl or helm holds the fix. Tracked in #3220 (see SECURITY.md #a-finding-with-no-fix).
-CVE-2026-78669 exp:2026-11-11
-
-# CVE-2026-97031 (HIGH) in stdlib v1.26.8 / v1.27.1, vendored by pinned kubectl v1.37.1 and helm v4.3.0; fixed in stdlib 1.26.10, 1.27.3. No released version of kubectl or helm holds the fix. Tracked in #3220 (see SECURITY.md #a-finding-with-no-fix).
-CVE-2026-97031 exp:2026-11-11
+# CVE-2026-78669 (HIGH) in golang.org/x/net v0.57.0, vendored by pinned kubectl v1.37.2; fixed in x/net 0.60.0. kubectl v1.37.2 is the newest release and has x/net 0.57.0. Tracked in #4336 (see SECURITY.md #a-finding-with-no-fix).
+CVE-2026-78669 exp:2026-11-14
