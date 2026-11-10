@@ -2,7 +2,7 @@
 
 ## Why
 
-A tool answer of the stage planner that passes `CONST_ROADMAP_REFINE_TOOL_MAX_CHARS` is cut in the middle of a line, with no notice. `cut` in `src/devops_cli/roadmap/refine/refine_investigation.py` writes the notice only when the line limit dropped a line. A live plan run of #3387 on 2026-11-10 (58 requests, 79 tool calls) shows the harm: 17 of 79 answers reached the character limit, 11 of them at exactly 8,000 characters with no notice. The `file_symbols` answer for `stage.py` (2,926 lines) and several `read_file` answers were cut silently, and the model then read `stage.py` 9 times with guessed line ranges. Closes #4341.
+A tool answer of the stage planner that passes `CONST_ROADMAP_REFINE_TOOL_MAX_CHARS` is cut in the middle of a line, with no notice. `cut` in `src/devops_cli/roadmap/refine/refine_investigation.py` writes the notice only when the line limit dropped a line. A live plan run of #3387 on 2026-11-10 (58 requests, 79 tool calls) shows the size of the fault: 17 of 79 answers reached the character limit, 11 of them at exactly 8,000 characters with no notice. Examples are `read_file` of 51 lines of `docs/ROADMAP_WORKFLOW.md` (8,000 characters, cut inside the range that the model asked for) and `read_file` of the first 70 lines of `docs/roadmap/stage.md`. The model could not know that it had read less than it asked for. Closes #4341.
 
 ## What Changes
 
