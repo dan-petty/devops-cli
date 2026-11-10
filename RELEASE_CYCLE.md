@@ -63,8 +63,9 @@ The `Release` run of the merge creates the GitHub release and its tag. Then thes
 | `Build DevContainer Image`, `Smoke-Test DevContainer Image`, `Attest & Tag DevContainer Image` | `ghcr.io/dan-petty/devops-cli/devcontainer`, tagged with the release tag and `latest` |
 | `Build & Publish Service Image` | `ghcr.io/dan-petty/devops-cli/service`, tagged with the release tag and `latest` |
 | `Build & Publish Runner Image` | `ghcr.io/dan-petty/devops-cli/runner`, the image of the implement Job, tagged with the release tag and `latest` |
+| `Build & Publish MCP Server Image` | `ghcr.io/dan-petty/devops-cli/mcp-server`, the image of Deployment `mcp-server`, tagged with the release tag and `latest` |
 
-Argo CD Image Updater then moves the Service and the CronJob template of the runner onto the new image digests ([`k8s/README.md`](k8s/README.md), Service Image Updates).
+Argo CD Image Updater then moves the Service, the CronJob template of the runner and Deployment `mcp-server` onto the new image digests ([`k8s/README.md`](k8s/README.md), Service Image Updates).
 
 ## When a Publish Job Fails
 

@@ -96,6 +96,74 @@ def test_the_pull_request_check_builds_and_scans_mcp_server_image() -> None:
     assert int(bound) <= 3000000000
 
 
+MCP_SERVER_STEPS = (
+    "Build and Load MCP Server Image",
+    "Run MCP Server Image Smoke Test",
+    "Scan MCP Server Image for Vulnerabilities",
+    "Build and Push MCP Server Image",
+    "Attest Build Provenance",
+    "Tag the Attested MCP Server Image",
+)
+
+
+def _release_job() -> dict[str, Any]:
+    job: dict[str, Any] = _workflow("release.yml")["jobs"]["mcp-server-image"]
+    return job
+
+
+def test_the_release_publishes_the_mcp_server_image_next_to_the_service_image() -> None:
+    """The release SHALL build, smoke-test, scan, push by digest, attest and tag the mcp-server image,
+    in that order, and only in the run that creates a release (#4324)."""
+    job = _release_job()
+    names = [step.get("name", "") for step in job["steps"]]
+    indices = [names.index(name) for name in MCP_SERVER_STEPS]
+    meta = next(step for step in job["steps"] if step.get("id") == "meta")
+    push = _step(job, "Build and Push MCP Server Image")["with"]
+    attest = _step(job, "Attest Build Provenance")["with"]
+
+    assert (
+        job["if"],
+        job["needs"],
+        job["env"]["MCP_SERVER_IMAGE"],
+        indices == sorted(indices),
+        _step(job, "Build and Load MCP Server Image")["with"]["target"],
+        push["target"],
+        "push-by-digest=true" in push["outputs"],
+        push["no-cache-filters"],
+        attest["subject-name"],
+        [line.strip() for line in meta["with"]["tags"].splitlines() if line.strip()],
+    ) == (
+        "needs.release-please.outputs.release_created == 'true'",
+        "release-please",
+        "ghcr.io/${{ github.repository }}/mcp-server",
+        True,
+        "mcp-server",
+        "mcp-server",
+        True,
+        "mcp-server",
+        "ghcr.io/${{ github.repository }}/mcp-server",
+        ["type=raw,value=${{ needs.release-please.outputs.tag_name }}", "type=raw,value=latest"],
+    )
+
+
+def test_the_release_scans_the_mcp_server_image_like_the_pull_request_check() -> None:
+    """The release scan SHALL equal the scan of the pull request check, with the same ignore files."""
+    release = _step(_release_job(), "Scan MCP Server Image for Vulnerabilities")["with"]
+    ci = _step(
+        _workflow("ci.yml")["jobs"]["mcp-server-image"], "Scan MCP Server Image for Vulnerabilities"
+    )["with"]
+
+    assert release == ci
+
+
+def test_the_smoke_test_of_the_mcp_server_image_is_the_same_in_ci_and_in_the_release() -> None:
+    """Both workflows SHALL run one smoke test, so the image that is pushed passed what CI checked."""
+    ci = _step(_workflow("ci.yml")["jobs"]["mcp-server-image"], MCP_SERVER_STEPS[1])["run"]
+    release = _step(_release_job(), MCP_SERVER_STEPS[1])["run"]
+
+    assert ci.strip() == release.strip()
+
+
 def test_every_mcp_server_trivyignore_entry_has_a_reason_and_an_exp_date_that_is_not_past() -> None:
     """Verify that each entry in `.trivyignore-mcp-server` has a reason and a future exp date."""
     text = (REPO_ROOT / ".trivyignore-mcp-server").read_text(encoding="utf-8")
