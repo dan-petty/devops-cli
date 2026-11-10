@@ -8,6 +8,10 @@ import json
 from typing import Any
 
 import pytest
+
+from devops_cli.ai.client.models import StructuredOutputValidationError
+from devops_cli.config.settings import AIConfig
+from devops_cli.exceptions.ai import ModelGatewayUnreachableError
 from devops_cli.roadmap.consolidate_judge import (
     Action,
     CaseItem,
@@ -18,10 +22,6 @@ from devops_cli.roadmap.consolidate_judge import (
     Shape,
     ShortlistCase,
 )
-
-from devops_cli.ai.client.models import StructuredOutputValidationError
-from devops_cli.config.settings import AIConfig
-from devops_cli.exceptions.ai import ModelGatewayUnreachableError
 from tests.support.fakes.embeddings import FakeEmbedder
 from tests.support.fakes.model import ModelFake
 
