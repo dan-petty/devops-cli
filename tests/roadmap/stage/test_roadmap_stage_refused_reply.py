@@ -8,6 +8,7 @@ import logging
 from typing import TYPE_CHECKING, Any, cast
 
 import pytest
+from pydantic_ai.messages import ModelResponse, ToolCallPart
 
 from devops_cli.ai.client.models import StructuredOutputValidationError
 from devops_cli.config.constants import (
@@ -297,10 +298,42 @@ def test_a_refused_reply_of_a_plan_run_logs_the_request_size_the_request_number_
 
     (record,) = [r for r in caplog.records if "stage reply refused" in r.getMessage()]
     tokens = client.traces[-1].last_input_tokens
+    finish = client.traces[-1].finish_reason or "none"
+    answered = client.traces[-1].answered or "none"
     assert tokens > 0
     assert record.getMessage() == (
         f"stage reply refused: item=#1 request=2 input_tokens={tokens} tools_offered=True "
-        "result=degenerate"
+        f"tool_calls=1 limit=none finish_reason={finish} answered={answered} result=degenerate"
+    )
+
+
+def test_the_log_line_of_a_degenerate_reply_names_the_stop_reason_the_limit_and_the_model(
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    item = store.item(1)
+    assert item is not None
+    sha = stage_repo.git("rev-parse", "HEAD")
+    reply = ModelResponse(
+        parts=[
+            ToolCallPart(tool_name="final_result", args=_placeholders().model_dump()),
+        ],
+        model_name="fallback-model",
+        finish_reason="length",
+    )
+    script = Script(call("list_files", directory="src"), reply, reports_input=True)
+    client = ToolboxClient(script.model(), cast("StageClient", object()), stage_repo.clone, sha)
+
+    with (
+        caplog.at_level(logging.WARNING),
+        pytest.raises(RoadmapStageDegenerateError, match="placeholder"),
+    ):
+        plan_item(item, client=client, checkout=stage_repo.clone, sha=sha)
+
+    (record,) = [r for r in caplog.records if "stage reply refused" in r.getMessage()]
+    assert record.getMessage().endswith(
+        "tool_calls=1 limit=none finish_reason=length answered=fallback-model result=degenerate"
     )
 
 
@@ -317,7 +350,11 @@ def test_a_gate_refusal_logs_one_line_for_each_refused_reply(
 
     lines = [r.getMessage() for r in caplog.records if "stage reply refused" in r.getMessage()]
     assert [line.rsplit(" ", 1)[1] for line in lines] == ["result=refused", "result=refused"]
-    assert all("item=#1 request=1 input_tokens=0 tools_offered=False" in line for line in lines)
+    assert all(
+        "item=#1 request=1 input_tokens=0 tools_offered=False tool_calls=0 limit=none "
+        "finish_reason=none answered=none result=" in line
+        for line in lines
+    )
 
 
 # ── The reply that breaks the schema ──────────────────────────────────────────

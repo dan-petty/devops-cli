@@ -11,6 +11,7 @@ from typing import Any
 
 from pydantic import BaseModel
 from pydantic_ai.messages import (
+    FinishReason,
     ModelMessage,
     ModelResponse,
     TextPart,
@@ -29,7 +30,12 @@ from devops_cli.roadmap.refine.refine_investigation import tokens_of
 class _ReportingModel(FunctionModel):
     """A `FunctionModel` whose streamed replies report the input of the request, as a provider
     does (#4221). The usage that a streamed `FunctionModel` estimates by itself is a constant that
-    does not follow the messages."""
+    does not follow the messages. A scripted `ModelResponse` also gives its model name and its
+    finish reason to the streamed reply, as a provider does (#4313)."""
+
+    def __init__(self, script: Script) -> None:
+        super().__init__(script, stream_function=script.stream)
+        self._script = script
 
     @asynccontextmanager
     async def request_stream(
@@ -43,6 +49,16 @@ class _ReportingModel(FunctionModel):
             messages, model_settings, model_request_parameters, run_context
         ) as response:
             response._usage = RequestUsage(input_tokens=tokens_of(messages))
+            events = response._get_event_iterator
+
+            async def with_reply_facts() -> AsyncIterator[Any]:
+                async for event in events():
+                    yield event
+                name, reason = self._script.reply_facts
+                response._model_name = name or response._model_name
+                response.finish_reason = reason
+
+            response._get_event_iterator = with_reply_facts
             yield response
 
 
@@ -66,6 +82,7 @@ class Script:
         self.seen: list[list[ModelMessage]] = []
         self.tools_offered: list[list[str]] = []
         self.instructions: list[str | None] = []
+        self.reply_facts: tuple[str | None, FinishReason | None] = (None, None)
 
     def __call__(self, messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
         self.seen.append(list(messages))
@@ -89,7 +106,9 @@ class Script:
         self, messages: list[ModelMessage], info: AgentInfo
     ) -> AsyncIterator[str | DeltaToolCalls]:
         """The same answer as a stream, as the investigation asks for it."""
-        for index, part in enumerate(self(messages, info).parts):
+        answer = self(messages, info)
+        self.reply_facts = (answer.model_name, answer.finish_reason)
+        for index, part in enumerate(answer.parts):
             if isinstance(part, ToolCallPart):
                 yield {
                     index: DeltaToolCall(
@@ -104,8 +123,9 @@ class Script:
     def model(self) -> FunctionModel:
         """A `FunctionModel` that answers through this script, streamed or not. With
         `reports_input`, its streamed replies report the input of the request."""
-        cls = _ReportingModel if self.reports_input else FunctionModel
-        return cls(self, stream_function=self.stream)
+        if self.reports_input:
+            return _ReportingModel(self)
+        return FunctionModel(self, stream_function=self.stream)
 
     def prompt(self, request: int = 0) -> str:
         """The user prompt of the request at index `request`."""

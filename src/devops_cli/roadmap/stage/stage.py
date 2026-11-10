@@ -1192,17 +1192,24 @@ class _Planner:
 
     def _note_refused(self, target: StageTarget, floor: int, result: str) -> None:
         """Log one line for a refused reply: the item, the number of the last request of the plan
-        run and its input in tokens, whether that request offered a tool, and the result. `floor`
-        is the number of runs before this item was asked, so a run of another item is no source. A
-        plan that no toolbox run made (a kept plan, a plain client) is one request with no count."""
+        run and its input in tokens, whether that request offered a tool, the tool calls of the
+        run, the limit that ended its tools, the stop reason and the model of the last reply, and
+        the result (#4313). `floor` is the number of runs before this item was asked, so a run of
+        another item is no source. A plan that no toolbox run made (a kept plan, a plain client)
+        is one request with no count, and `none` stands for a fact that the run does not hold."""
         traces = self._toolbox_traces()
         trace = traces[-1] if len(traces) > floor else None
         logger.warning(
-            "stage reply refused: item=#%d request=%d input_tokens=%d tools_offered=%s result=%s",
+            "stage reply refused: item=#%d request=%d input_tokens=%d tools_offered=%s "
+            "tool_calls=%d limit=%s finish_reason=%s answered=%s result=%s",
             target.item.number,
             trace.requests if trace else 1,
             trace.last_input_tokens if trace else 0,
             bool(trace and trace.offered and trace.offered[-1]),
+            len(trace.tool_calls) if trace else 0,
+            (trace.limit if trace else None) or "none",
+            (trace.finish_reason if trace else "") or "none",
+            (trace.answered if trace else "") or "none",
             result,
         )
 
