@@ -12,6 +12,7 @@ import pytest
 
 from devops_cli.ai.client.models import StructuredOutputValidationError
 from devops_cli.exceptions.ai import ModelGatewayUnreachableError
+from devops_cli.exceptions.validation import ValidationError
 from devops_cli.roadmap.consolidate import (
     Edges,
     GitSource,
@@ -464,7 +465,7 @@ def test_a_decline_of_a_group_that_the_last_plan_lacks_is_refused(
     item(store)
     run(store, Judge(), tmp_path)
 
-    with pytest.raises(Exception, match="g9-00000000"):
+    with pytest.raises(ValidationError, match="g9-00000000"):
         decline_group(store, "g9-00000000", repo=REPO, directory=tmp_path, confirm=True)
 
 

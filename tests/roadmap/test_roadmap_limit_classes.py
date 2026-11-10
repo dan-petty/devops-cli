@@ -489,6 +489,14 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
         "kept",
         "members of a shortlist that the model of the consolidation job reads",
     ),
+    "DEFAULT_ROADMAP_CONSOLIDATE_JUDGED": (
+        "kept",
+        "shortlists that one consolidate run judges with the model; the option --limit sets it",
+    ),
+    "DEFAULT_ROADMAP_CONSOLIDATE_TEXT_CHARS": (
+        "kept",
+        "the text of one item that the judge of the consolidation job reads",
+    ),
     "DEFAULT_ROADMAP_CONSOLIDATE_COMMON_CITATION": (
         "other",
         "open items that may cite one path before the citation shows no shared cause",

@@ -90,13 +90,13 @@ class StepName(StrEnum):
     APPLY = "apply"
     INVESTIGATE = "investigate"
     PLACE = "place"
-    JUDGE = "judge"
     SELECT = "select"
     GATE = "gate"
     REVIEW = "review"
     CHECKS = "checks"
     PUBLISH = "publish"
     WATCH = "watch"
+    JUDGE = "judge"
 
 
 class FailureAction(StrEnum):
