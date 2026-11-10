@@ -97,7 +97,7 @@ spec:
                     values: ["16Gi", "20Gi"]
       initContainers:
         - name: own-model-directory
-          image: ollama/ollama:0.40.12
+          image: ollama/ollama:0.40.16@sha256:910d0d8107b538fb0894e63163eb195de0cc7aefcbc666dc62d3b18f71124592
           securityContext:
             runAsUser: 0
             runAsNonRoot: false
@@ -123,7 +123,7 @@ spec:
               mountPath: /home/ollama/.ollama
       containers:
         - name: ollama
-          image: ollama/ollama:0.40.12
+          image: ollama/ollama:0.40.16@sha256:910d0d8107b538fb0894e63163eb195de0cc7aefcbc666dc62d3b18f71124592
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -242,7 +242,7 @@ spec:
                     values: ["24Gi", "28Gi"]
       initContainers:
         - name: own-model-directory
-          image: ollama/ollama:0.40.12
+          image: ollama/ollama:0.40.16@sha256:910d0d8107b538fb0894e63163eb195de0cc7aefcbc666dc62d3b18f71124592
           securityContext:
             runAsUser: 0
             runAsNonRoot: false
@@ -268,7 +268,7 @@ spec:
               mountPath: /home/ollama/.ollama
       containers:
         - name: ollama
-          image: ollama/ollama:0.40.12
+          image: ollama/ollama:0.40.16@sha256:910d0d8107b538fb0894e63163eb195de0cc7aefcbc666dc62d3b18f71124592
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -382,7 +382,7 @@ spec:
                     values: ["32Gi", "36Gi", "40Gi", "44Gi"]
       initContainers:
         - name: own-model-directory
-          image: ollama/ollama:0.40.12
+          image: ollama/ollama:0.40.16@sha256:910d0d8107b538fb0894e63163eb195de0cc7aefcbc666dc62d3b18f71124592
           securityContext:
             runAsUser: 0
             runAsNonRoot: false
@@ -408,7 +408,7 @@ spec:
               mountPath: /home/ollama/.ollama
       containers:
         - name: ollama
-          image: ollama/ollama:0.40.12
+          image: ollama/ollama:0.40.16@sha256:910d0d8107b538fb0894e63163eb195de0cc7aefcbc666dc62d3b18f71124592
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -529,7 +529,7 @@ spec:
                     values: ["48Gi", "52Gi", "56Gi", "60Gi"]
       initContainers:
         - name: own-model-directory
-          image: ollama/ollama:0.40.12
+          image: ollama/ollama:0.40.16@sha256:910d0d8107b538fb0894e63163eb195de0cc7aefcbc666dc62d3b18f71124592
           securityContext:
             runAsUser: 0
             runAsNonRoot: false
@@ -555,7 +555,7 @@ spec:
               mountPath: /home/ollama/.ollama
       containers:
         - name: ollama
-          image: ollama/ollama:0.40.12
+          image: ollama/ollama:0.40.16@sha256:910d0d8107b538fb0894e63163eb195de0cc7aefcbc666dc62d3b18f71124592
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -700,7 +700,7 @@ spec:
               value: '1'
             - name: OLLAMA_NOPRUNE
               value: '1'
-          image: ollama/ollama:0.40.12
+          image: ollama/ollama:0.40.16@sha256:910d0d8107b538fb0894e63163eb195de0cc7aefcbc666dc62d3b18f71124592
           livenessProbe:
             failureThreshold: 6
             httpGet:
@@ -753,7 +753,7 @@ spec:
             - -R
             - 10001:10001
             - /home/ollama/.ollama
-          image: ollama/ollama:0.40.12
+          image: ollama/ollama:0.40.16@sha256:910d0d8107b538fb0894e63163eb195de0cc7aefcbc666dc62d3b18f71124592
           name: own-model-directory
           resources:
             limits:
@@ -872,7 +872,7 @@ spec:
               value: '1'
             - name: OLLAMA_NOPRUNE
               value: '1'
-          image: ollama/ollama:0.40.12
+          image: ollama/ollama:0.40.16@sha256:910d0d8107b538fb0894e63163eb195de0cc7aefcbc666dc62d3b18f71124592
           livenessProbe:
             failureThreshold: 6
             httpGet:
@@ -925,7 +925,7 @@ spec:
             - -R
             - 10001:10001
             - /home/ollama/.ollama
-          image: ollama/ollama:0.40.12
+          image: ollama/ollama:0.40.16@sha256:910d0d8107b538fb0894e63163eb195de0cc7aefcbc666dc62d3b18f71124592
           name: own-model-directory
           resources:
             limits:
@@ -1011,7 +1011,7 @@ spec:
                     values: ["64Gi", "68Gi"]
       initContainers:
         - name: own-model-directory
-          image: ollama/ollama:0.40.12
+          image: ollama/ollama:0.40.16@sha256:910d0d8107b538fb0894e63163eb195de0cc7aefcbc666dc62d3b18f71124592
           securityContext:
             runAsUser: 0
             runAsNonRoot: false
@@ -1037,7 +1037,7 @@ spec:
               mountPath: /home/ollama/.ollama
       containers:
         - name: ollama
-          image: ollama/ollama:0.40.12
+          image: ollama/ollama:0.40.16@sha256:910d0d8107b538fb0894e63163eb195de0cc7aefcbc666dc62d3b18f71124592
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -1159,7 +1159,7 @@ spec:
                     values: ["72Gi", "76Gi", "80Gi", "84Gi", "88Gi", "92Gi"]
       initContainers:
         - name: own-model-directory
-          image: ollama/ollama:0.40.12
+          image: ollama/ollama:0.40.16@sha256:910d0d8107b538fb0894e63163eb195de0cc7aefcbc666dc62d3b18f71124592
           securityContext:
             runAsUser: 0
             runAsNonRoot: false
@@ -1185,7 +1185,7 @@ spec:
               mountPath: /home/ollama/.ollama
       containers:
         - name: ollama
-          image: ollama/ollama:0.40.12
+          image: ollama/ollama:0.40.16@sha256:910d0d8107b538fb0894e63163eb195de0cc7aefcbc666dc62d3b18f71124592
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -1311,7 +1311,7 @@ spec:
                       ]
       initContainers:
         - name: own-model-directory
-          image: ollama/ollama:0.40.12
+          image: ollama/ollama:0.40.16@sha256:910d0d8107b538fb0894e63163eb195de0cc7aefcbc666dc62d3b18f71124592
           securityContext:
             runAsUser: 0
             runAsNonRoot: false
@@ -1337,7 +1337,7 @@ spec:
               mountPath: /home/ollama/.ollama
       containers:
         - name: ollama
-          image: ollama/ollama:0.40.12
+          image: ollama/ollama:0.40.16@sha256:910d0d8107b538fb0894e63163eb195de0cc7aefcbc666dc62d3b18f71124592
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -1453,7 +1453,7 @@ spec:
                     values: ["128Gi"]
       initContainers:
         - name: own-model-directory
-          image: ollama/ollama:0.40.12
+          image: ollama/ollama:0.40.16@sha256:910d0d8107b538fb0894e63163eb195de0cc7aefcbc666dc62d3b18f71124592
           securityContext:
             runAsUser: 0
             runAsNonRoot: false
@@ -1479,7 +1479,7 @@ spec:
               mountPath: /home/ollama/.ollama
       containers:
         - name: ollama
-          image: ollama/ollama:0.40.12
+          image: ollama/ollama:0.40.16@sha256:910d0d8107b538fb0894e63163eb195de0cc7aefcbc666dc62d3b18f71124592
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
