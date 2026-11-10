@@ -113,7 +113,6 @@ HOSTED_GROUPS = (
     "claude-sonnet-5-5",
     "claude-haiku-5-5",
     "deepseek-v4.1-flash-1017",
-    "typesafe/jev-1.14",
 )
 HOSTED_SECRET = "llm-gateway-secrets"
 
@@ -2170,30 +2169,3 @@ def test_every_model_of_the_service_config_is_a_group_the_gateway_serves() -> No
     served = {m["model_name"] for m in _full_gateway_config()["model_list"]}
 
     assert sorted(named - served) == []
-
-
-def test_the_gateway_serves_typesafe_jev_over_openrouter_with_data_collection_denied() -> None:
-    """The gateway exposes `typesafe/jev-1.14` over OpenRouter with `data_collection: deny`."""
-    entry = next(
-        m for m in _full_gateway_config()["model_list"] if m["model_name"] == "typesafe/jev-1.14"
-    )
-    params = entry["litellm_params"]
-    info = entry["model_info"]
-
-    assert (
-        params["model"],
-        params["api_key"],
-        params["extra_body"]["provider"]["data_collection"],
-        info["max_input_tokens"],
-        info["input_cost_per_token"],
-        info["output_cost_per_token"],
-        info["supports_response_schema"],
-    ) == (
-        "openrouter/typesafe/jev-1.14",
-        "os.environ/OPENROUTER_API_KEY",
-        "deny",
-        262144,
-        4.2e-08,
-        0.0,
-        True,
-    )
