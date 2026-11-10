@@ -486,3 +486,37 @@ def test_manifest_plan_omitting_perimeter_test_is_refused_by_paths_gate(
     assert len(paths_refusals) == 1
     assert "networkpolicy.yaml" in paths_refusals[0].message
     assert "tests/k8s/test_logging.py" in paths_refusals[0].message
+
+
+def test_a_plan_that_omits_the_test_of_a_changed_module_is_refused_by_the_paths_gate(
+    stage_repo: StageRepo, tool: OpenSpecTool
+) -> None:
+    module = "src/devops_cli/roadmap/stage/stage_paths.py"
+    module_test = "tests/roadmap/stage/test_roadmap_stage_paths.py"
+    stock = make_stage_proposal()
+    group = stock.groups[0]
+    proposal_omits = make_stage_proposal(
+        groups=[
+            group.model_copy(
+                update={
+                    "reads": [],
+                    "changes": [module, "tests/test_sample.py"],
+                    "creates": ["tests/test_sample.py"],
+                    "creates_lines": {"tests/test_sample.py": 40},
+                }
+            )
+        ]
+    )
+    stage_repo.track(
+        {
+            **_plan(1, proposal_omits),
+            module: "def path_problems() -> None:\n    ...\n",
+            module_test: "from devops_cli.roadmap.stage.stage_paths import path_problems\n",
+        }
+    )
+    recheck = recheck_plans(stage_repo.clone, _store(count=1), tool=tool)
+    (record,) = recheck.records
+    paths_refusals = [r for r in record.refusals if r.gate == "paths"]
+    assert len(paths_refusals) == 1
+    assert module in paths_refusals[0].message
+    assert module_test in paths_refusals[0].message

@@ -31,9 +31,9 @@ Reads: `src/devops_cli/roadmap/stage/stage.py`, `src/devops_cli/roadmap/stage/st
 
 Reads: `src/devops_cli/roadmap/plan_recheck.py`, `src/devops_cli/roadmap/stage/stage_paths.py`, `src/devops_cli/roadmap/stage/stage_change.py`, `tests/roadmap/test_roadmap_plan_recheck.py`. Changes: `src/devops_cli/roadmap/plan_recheck.py`, `tests/roadmap/test_roadmap_plan_recheck.py`.
 
-- [ ] 4.1 In `tests/roadmap/test_roadmap_plan_recheck.py`, write `test_a_plan_that_omits_the_test_of_a_changed_module_is_refused_by_the_paths_gate` first, and it fails on the base because `_record` of `src/devops_cli/roadmap/plan_recheck.py` passes no `module_tests` to `check_gates`: the recheck of a staged plan whose behavior group changes `src/devops_cli/roadmap/stage/stage_paths.py` and names no test gives one `paths` refusal that names `tests/roadmap/stage/test_roadmap_stage_paths.py`
+- [x] 4.1 In `tests/roadmap/test_roadmap_plan_recheck.py`, write `test_a_plan_that_omits_the_test_of_a_changed_module_is_refused_by_the_paths_gate` first, and it fails on the base because `_record` of `src/devops_cli/roadmap/plan_recheck.py` passes no `module_tests` to `check_gates`: the recheck of a staged plan whose behavior group changes `src/devops_cli/roadmap/stage/stage_paths.py` and names no test gives one `paths` refusal that names `tests/roadmap/stage/test_roadmap_stage_paths.py`
   - Verification: `$ uv run devops ci test tests/roadmap/test_roadmap_plan_recheck.py` fails on the base
-- [ ] 4.2 In `src/devops_cli/roadmap/plan_recheck.py`, record the tests with `record_module_tests(proposal.groups, shared.tree, shared.test_search)` beside the record of the manifest tests in `_record`, and pass it to `check_gates` as `module_tests`
+- [x] 4.2 In `src/devops_cli/roadmap/plan_recheck.py`, record the tests with `record_module_tests(proposal.groups, shared.tree, shared.test_search)` beside the record of the manifest tests in `_record`, and pass it to `check_gates` as `module_tests`
   - Verification: `$ uv run devops ci test tests/roadmap/test_roadmap_plan_recheck.py` passes
 
 ## 5. State the rule of the existing test in the plan-check documents
