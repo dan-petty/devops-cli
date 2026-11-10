@@ -22,9 +22,9 @@ Reads: `src/devops_cli/roadmap/stage/stage_change.py`, `src/devops_cli/roadmap/s
 
 Reads: `src/devops_cli/roadmap/stage/stage.py`, `src/devops_cli/roadmap/stage/stage_request.py`, `src/devops_cli/roadmap/stage/stage_paths.py`, `tests/roadmap/stage/test_roadmap_stage_request.py`. Changes: `src/devops_cli/roadmap/stage/stage_request.py`, `src/devops_cli/roadmap/stage/stage.py`, `tests/roadmap/stage/test_roadmap_stage_request.py`.
 
-- [ ] 3.1 In `tests/roadmap/stage/test_roadmap_stage_request.py`, write `test_gates_from_request_pass_the_module_tests_through` first, and it fails on the base because `gate_arguments` of `src/devops_cli/roadmap/stage/stage_request.py` takes no `module_tests` keyword: `gate_arguments(_request(), TREE, known=KNOWN, module_tests={MODULE: (MODULE_TEST,)})` returns that record under the key `module_tests`
+- [x] 3.1 In `tests/roadmap/stage/test_roadmap_stage_request.py`, write `test_gates_from_request_pass_the_module_tests_through` first, and it fails on the base because `gate_arguments` of `src/devops_cli/roadmap/stage/stage_request.py` takes no `module_tests` keyword: `gate_arguments(_request(), TREE, known=KNOWN, module_tests={MODULE: (MODULE_TEST,)})` returns that record under the key `module_tests`
   - Verification: `$ uv run devops ci test tests/roadmap/stage/test_roadmap_stage_request.py` fails on the base
-- [ ] 3.2 Add the keyword `module_tests` to `gate_arguments` in `src/devops_cli/roadmap/stage/stage_request.py` and return it. In `src/devops_cli/roadmap/stage/stage.py`, record the tests with `record_module_tests(proposal.groups, tree, self._grep)` beside the record of the manifest tests, when `self._grep` is not None, and pass it to `gate_arguments` as `module_tests`
+- [x] 3.2 Add the keyword `module_tests` to `gate_arguments` in `src/devops_cli/roadmap/stage/stage_request.py` and return it. In `src/devops_cli/roadmap/stage/stage.py`, record the tests with `record_module_tests(proposal.groups, tree, self._grep)` beside the record of the manifest tests, when `self._grep` is not None, and pass it to `gate_arguments` as `module_tests`
   - Verification: `$ uv run devops ci test tests/roadmap/stage/test_roadmap_stage_request.py` passes
 
 ## 4. Carry the record through the plan recheck

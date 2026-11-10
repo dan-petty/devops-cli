@@ -202,7 +202,11 @@ from devops_cli.roadmap.stage.stage_overlap import (
     overlaps,
     session_pull_reads,
 )
-from devops_cli.roadmap.stage.stage_paths import StagedTree, record_test_references
+from devops_cli.roadmap.stage.stage_paths import (
+    StagedTree,
+    record_module_tests,
+    record_test_references,
+)
 from devops_cli.roadmap.stage.stage_pending import PendingStage, orphan_mark
 from devops_cli.roadmap.stage.stage_plan_record import (
     PlanFacts,
@@ -1578,6 +1582,12 @@ class _Planner:
         manifest_references = (
             record_test_references(proposal.groups, self._grep) if self._grep is not None else None
         )
+        # The existing tests of each module that a behavior group changes (#3414).
+        module_tests = (
+            record_module_tests(proposal.groups, tree, self._grep)
+            if self._grep is not None
+            else None
+        )
         constants = staged_constants(self._source, self._sha, candidate_names(plan_texts(proposal)))
         references = self._probe_references(proposal.groups)
         found = check_gates(
@@ -1591,6 +1601,7 @@ class _Planner:
                 requirement_texts=self._requirement_texts,
                 search_evidence=evidence,
                 manifest_references=manifest_references,
+                module_tests=module_tests,
                 # The citation rule reads the staged commit, the one the probe and the model read
                 # (#3422), and never the working tree.
                 read_text=partial(_read_staged_file, self._source, self._sha),
