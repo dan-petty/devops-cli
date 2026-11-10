@@ -1306,13 +1306,29 @@ def _symbol_citation_problem(
     return MESSAGES.roadmap.stage_problem_citation_stale.format(field=field, path=path)
 
 
+# The text of a line citation that follows `path:line:` in a code span of its own, after the
+# backtick that closes the span of the citation, if there is one.
+_FOLLOWING_QUOTE: Final[re.Pattern[str]] = re.compile(r"`?\s*`(?P<quote>[^`]+)`")
+
+
+def _quoted_text(text: str, match: re.Match[str]) -> str:
+    """The text that a line citation quotes: the text after `path:line:` up to the next backtick,
+    else the code span that follows it. The prompt asks for the text of the line in a code span, so
+    a plan writes `path:line:` and then the text in a span of its own."""
+    quoted = match.group("text")
+    if _cited_text(quoted):
+        return quoted
+    following = _FOLLOWING_QUOTE.match(text, match.end())
+    return following["quote"] if following else quoted
+
+
 def _citation_problems(field: str, text: str, read_text: Callable[[str], str | None]) -> list[str]:
     """One problem for each citation of `text` that the staged file does not hold."""
     problems: list[str] = []
     for match in _LINE_CITATION.finditer(text):
         path = match.group("path")
         problem = _line_citation_problem(
-            field, path, match.group("line"), match.group("text"), read_text(path)
+            field, path, match.group("line"), _quoted_text(text, match), read_text(path)
         )
         if problem is not None:
             problems.append(problem)
