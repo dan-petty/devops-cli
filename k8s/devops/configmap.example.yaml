@@ -23,6 +23,13 @@ data:
       # again. The embedding slot stays the embedding model, because a chat model cannot embed.
       # Each prompt of a chat slot leaves the cluster to OpenRouter (SECURITY.md rule 13).
       model: deepseek-v4.1-flash-1017
+      # `model` and `tasks.*.model` name generative models: they write the plans, comments, code
+      # and findings, and they use tools. A decision model is a different kind: it answers one
+      # closed question (yes/no, one option or a rubric) with a calibrated probability and writes
+      # no text. TypeSafe Jev (`typesafe/jev-1.14`) is the decision model of this project. A
+      # workflow uses the model that `ai.decision_model` names, only at a registered decision
+      # point, and a deterministic rule goes first (ADR 0020). With `ai.decision_model` empty,
+      # every point does what it does today. `devops ai ask-jev` asks Jev directly.
       # A model call is sent at most two times. The gateway already retries a failed call of
       # the group up to 5 times (router_settings.num_retries in k8s/llm/gateway/config.yaml), so
       # a client retry adds a layer on a call that the provider bills (k8s/README.md, LLM Gateway).

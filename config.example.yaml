@@ -98,6 +98,14 @@ ai:
   # reasoning_effort: low  # Reasoning effort level: low | medium | high
   # supports_reasoning: false  # Set true if model natively supports reasoning / thinking parameters
 
+  # `model` and `tasks.*.model` name generative models. They write plans, comments, code and
+  # findings, and they use tools. A decision model is a different kind: it answers one closed
+  # question (yes/no, one option or a rubric) with a calibrated probability, and it writes no
+  # text. Do not put a decision model in `model` or in a task slot, and do not put a chat model
+  # where a workflow expects a decision model. TypeSafe Jev (`typesafe/jev-1.14`) is the decision
+  # model of this project. `devops ai ask-jev` asks it directly; the `ask-jev` skill says when to
+  # ask a decision model and when to ask a generative model.
+
   # Reference model used for counterfactual cloud spend calculations and hardware payoff.
   # Defaults to gpt-4o. The two reference models price the local ledger that
   # `devops ai cost` reports. The AI spend dashboard prices the local tokens of every process
