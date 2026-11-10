@@ -40,8 +40,13 @@ from pydantic import (
 from pydantic.json_schema import SkipJsonSchema
 
 from devops_cli.ai.context_budget import count_tokens
-from devops_cli.config.constants import CONST_ROADMAP_SCOPE_LABEL_PREFIX
+from devops_cli.config.constants import (
+    CONST_DOCS_CLASS_RECORD,
+    CONST_DOCS_CLASS_TOOL_OWNED,
+    CONST_ROADMAP_SCOPE_LABEL_PREFIX,
+)
 from devops_cli.core.paths import safe_resolve_subpath
+from devops_cli.docs.inventory import explicit_classes
 from devops_cli.exceptions.roadmap import RoadmapStageError
 from devops_cli.git.branch_form import is_valid_slug
 from devops_cli.lang import MESSAGES
@@ -946,36 +951,63 @@ def _reference_problems(proposal: StageProposal) -> list[str]:
     return problems
 
 
+def _is_source_module(path: str) -> bool:
+    """Whether `path` is a Python module that is no test module and no `conftest.py`."""
+    pure = PurePosixPath(path)
+    return not (
+        pure.suffix != ".py"
+        or pure.name.startswith("test_")
+        or pure.name == "conftest.py"
+        or path.startswith(("tests/", "test/"))
+        or "/tests/" in path
+    )
+
+
+def _moves_to(old: PurePosixPath, created: Collection[str]) -> bool:
+    """Whether a created module is the old module in another place: a module of the same name, or
+    a module in the subpackage that the name prefix of the old module gives (`stage_probe.py` to
+    `stage/probe.py`)."""
+    subpackage = old.parent / old.stem.split("_", 1)[0]
+    return any(
+        PurePosixPath(new).stem == old.stem or PurePosixPath(new).is_relative_to(subpackage)
+        for new in created
+        if _is_source_module(new)
+    )
+
+
 def moved_modules(groups: Sequence[StageGroup]) -> list[tuple[str, str]]:
     """The old path and the dotted name of each Python module that a group moves (#3373).
 
-    A group moves a module when its `changes` holds the old `.py` path and its `creates` holds a
-    new path. It skips a test module and `conftest.py`."""
+    A group moves a module when its `changes` holds the old `.py` path and its `creates` holds the
+    same module in another place. A group that creates only a test, a document or a new module of
+    another name moves nothing. It skips a test module and `conftest.py`."""
     moved: list[tuple[str, str]] = []
     seen: set[str] = set()
     for group in groups:
-        if not group.creates:
-            continue
-        creates_set = set(group.creates)
         for old in group.changes:
-            if old in creates_set:
-                continue
-            pure = PurePosixPath(old)
             if (
-                pure.suffix != ".py"
-                or pure.name.startswith("test_")
-                or pure.name == "conftest.py"
-                or old.startswith(("tests/", "test/"))
-                or "/tests/" in old
+                old in group.creates
+                or old in seen
+                or not _is_source_module(old)
+                or not _moves_to(PurePosixPath(old), group.creates)
             ):
                 continue
-            if old in seen:
-                continue
             seen.add(old)
-            stripped = old.removeprefix("src/").removesuffix(".py")
-            dotted = stripped.replace("/", ".")
+            dotted = old.removeprefix("src/").removesuffix(".py").replace("/", ".")
             moved.append((old, dotted))
     return moved
+
+
+# The documents that no task group of a plan edits: a tool writes them, or they are records. The
+# inventory of the documents lists them (#1103), so the move check reads the inventory.
+_UNEDITED_CLASSES: Final[frozenset[str]] = frozenset(
+    {CONST_DOCS_CLASS_TOOL_OWNED, CONST_DOCS_CLASS_RECORD}
+)
+
+
+def _is_unedited(path: str) -> bool:
+    """Whether `path` is a document that a tool writes or that is a record."""
+    return bool(_UNEDITED_CLASSES.intersection(explicit_classes(path)))
 
 
 def _move_reference_problems(proposal: StageProposal, references: Sequence[str]) -> list[str]:
@@ -990,7 +1022,10 @@ def _move_reference_problems(proposal: StageProposal, references: Sequence[str])
     for path in references:
         if path not in seen and path not in changed and path not in unchanged:
             seen.add(path)
-            problems.append(MESSAGES.roadmap.stage_problem_reference_uncovered.format(path=path))
+            if not _is_unedited(path):
+                problems.append(
+                    MESSAGES.roadmap.stage_problem_reference_uncovered.format(path=path)
+                )
     return problems
 
 
