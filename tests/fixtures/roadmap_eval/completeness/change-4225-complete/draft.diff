@@ -1,0 +1,190 @@
+diff --git a/docs/ENV_VARS.md b/docs/ENV_VARS.md
+index c7a20928..7df06b5e 100644
+--- a/docs/ENV_VARS.md
++++ b/docs/ENV_VARS.md
+@@ -21,6 +21,8 @@ All configuration options for `devops-cli` can be overridden via environment var
+ | `DEVOPS_CLI_AI_REFERENCE_EMBEDDING_MODEL` | `ai.reference_embedding_model` | No | Hosted embedding model whose genai-prices price values the local embedding tokens in the AI spend reports |
+ | `DEVOPS_CLI_AI_REFERENCE_MODEL` | `ai.reference_model` | No | Hosted chat model whose genai-prices price values the local chat tokens in the AI spend reports |
+ | `DEVOPS_CLI_AI_REFERENCE_PROVIDER` | `ai.reference_provider` | No | Provider in genai-prices of the two reference models |
++| `DEVOPS_CLI_AI_TASK_ANALYSIS_CONTEXT_WINDOW` | `ai.tasks.analysis.context_window` | No | Context window of this task in tokens, in place of `ai.context_window` |
++| `DEVOPS_CLI_AI_TASK_ANALYSIS_MAX_TOKENS` | `ai.tasks.analysis.max_tokens` | No | Limit of the reply of this task in tokens, in place of `ai.max_tokens` |
+ | `DEVOPS_CLI_AI_TASK_ANALYSIS_MODEL` | `ai.tasks.analysis.model` | No | AI model of this task, in place of `ai.model` |
+ | `DEVOPS_CLI_AI_TASK_ANALYSIS_OLLAMA_URLS` | `ai.tasks.analysis.ollama_urls` | No | Ollama service URLs of this task, in place of `ai.ollama_urls` |
+ | `DEVOPS_CLI_AI_TASK_ANALYSIS_PROVIDER` | `ai.tasks.analysis.provider` | No | AI provider of this task, in place of `ai.provider` |
+@@ -38,10 +40,14 @@ All configuration options for `devops-cli` can be overridden via environment var
+ | `DEVOPS_CLI_AI_TASK_METADATA_OLLAMA_URLS` | `ai.tasks.metadata.ollama_urls` | No | Ollama service URLs of this task, in place of `ai.ollama_urls` |
+ | `DEVOPS_CLI_AI_TASK_METADATA_PROVIDER` | `ai.tasks.metadata.provider` | No | AI provider of this task, in place of `ai.provider` |
+ | `DEVOPS_CLI_AI_TASK_METADATA_REASONING_EFFORT` | `ai.tasks.metadata.reasoning_effort` | No | Reasoning effort of this task, in place of `ai.reasoning_effort` |
++| `DEVOPS_CLI_AI_TASK_STAGE_CONTEXT_WINDOW` | `ai.tasks.stage.context_window` | No | Context window of this task in tokens, in place of `ai.context_window` |
++| `DEVOPS_CLI_AI_TASK_STAGE_MAX_TOKENS` | `ai.tasks.stage.max_tokens` | No | Limit of the reply of this task in tokens, in place of `ai.max_tokens` |
+ | `DEVOPS_CLI_AI_TASK_STAGE_MODEL` | `ai.tasks.stage.model` | No | AI model of this task, in place of `ai.model` |
+ | `DEVOPS_CLI_AI_TASK_STAGE_OLLAMA_URLS` | `ai.tasks.stage.ollama_urls` | No | Ollama service URLs of this task, in place of `ai.ollama_urls` |
+ | `DEVOPS_CLI_AI_TASK_STAGE_PROVIDER` | `ai.tasks.stage.provider` | No | AI provider of this task, in place of `ai.provider` |
+ | `DEVOPS_CLI_AI_TASK_STAGE_REASONING_EFFORT` | `ai.tasks.stage.reasoning_effort` | No | Reasoning effort of this task, in place of `ai.reasoning_effort` |
++| `DEVOPS_CLI_AI_TASK_VERIFICATION_CONTEXT_WINDOW` | `ai.tasks.verification.context_window` | No | Context window of this task in tokens, in place of `ai.context_window` |
++| `DEVOPS_CLI_AI_TASK_VERIFICATION_MAX_TOKENS` | `ai.tasks.verification.max_tokens` | No | Limit of the reply of this task in tokens, in place of `ai.max_tokens` |
+ | `DEVOPS_CLI_ANTHROPIC_API_KEY` | `anthropic.api_key` | 🔒 Yes | Anthropic API key that `devops k8s push-secrets` writes to the LLM gateway Secret (stored in OS keyring) |
+ | `DEVOPS_CLI_ARGOCD_GITHUB_APP_ID` | `argocd.github_app_id` | No | ID of the GitHub App that Argo CD's GitHub notifier acts as |
+ | `DEVOPS_CLI_ARGOCD_GITHUB_APP_INSTALLATION_ID` | `argocd.github_app_installation_id` | No | ID of the installation of Argo CD's notifier App on the managed repositories |
+diff --git a/docs/ROADMAP_WORKFLOW.md b/docs/ROADMAP_WORKFLOW.md
+index 7be0a5b4..cc334199 100644
+--- a/docs/ROADMAP_WORKFLOW.md
++++ b/docs/ROADMAP_WORKFLOW.md
+@@ -336,7 +336,7 @@ A cheaper model or a lower cap must keep the score of the baseline on the same e
+ 
+ ### The model of the stage planner
+ 
+-The setting `ai.tasks.stage.model` sets the model of the stage planner, of the call that splits the groups, and of `devops roadmap eval stage`. The variable is `DEVOPS_CLI_AI_TASK_STAGE_MODEL`. A field of `ai.tasks.stage` that is not set takes the value of `ai.tasks.analysis`. So the planner moves to another model without a move of refine, intake and alternatives, and the planner reads the `context_window` of its own task. Only a person changes this setting in the deployed config.
++The setting `ai.tasks.stage.model` sets the model of the stage planner, of the call that splits the groups, and of `devops roadmap eval stage`. The variable is `DEVOPS_CLI_AI_TASK_STAGE_MODEL`. A field of `ai.tasks.stage` that is not set takes the value of `ai.tasks.analysis`. So the planner moves to another model without a move of refine, intake and alternatives, and the planner reads the `context_window` of its own task. The variables `DEVOPS_CLI_AI_TASK_STAGE_CONTEXT_WINDOW` and `DEVOPS_CLI_AI_TASK_STAGE_MAX_TOKENS` set the window and the reply limit of the task, so a trial of a model with a larger window needs no change of the config file. The tasks `analysis` and `verification` have the same two variables. Only a person changes this setting in the deployed config.
+ 
+ ### Find the cheapest model that is acceptable
+ 
+diff --git a/docs/roadmap/stage.md b/docs/roadmap/stage.md
+index 6378964d..7b9a7e1f 100644
+--- a/docs/roadmap/stage.md
++++ b/docs/roadmap/stage.md
+@@ -56,7 +56,7 @@ The toolset `research` adds one more tool to `extended`: `search_web`. It search
+ 
+ ## The window of the plan run
+ 
+-The plan run reads the context window of the task `stage`. The task `stage` takes the fields that it does not set from the task `analysis` (the setting `ai.tasks.stage`, variable `DEVOPS_CLI_AI_TASK_STAGE_MODEL`), so the window and the model are those of `analysis` until a person sets the task `stage`. The Service sets `context_window` 200,000 for `analysis` in the key `ai.tasks.analysis` of [k8s/devops/configmap.example.yaml](../../k8s/devops/configmap.example.yaml). The model of the task, `claude-sonnet-5-5` (a trial of the owner decision of 2026-11-09, #4204), has `max_input_tokens` 1,000,000 in [k8s/llm/gateway/config.yaml](../../k8s/llm/gateway/config.yaml). The job uses the setting and not the larger value of the model.
++The plan run reads the context window of the task `stage`. The task `stage` takes the fields that it does not set from the task `analysis` (the setting `ai.tasks.stage`, variable `DEVOPS_CLI_AI_TASK_STAGE_MODEL`), so the window and the model are those of `analysis` until a person sets the task `stage`. The Service sets `context_window` 200,000 for `analysis` in the key `ai.tasks.analysis` of [k8s/devops/configmap.example.yaml](../../k8s/devops/configmap.example.yaml). The model of the task, `claude-sonnet-5-5` (a trial of the owner decision of 2026-11-09, #4204), has `max_input_tokens` 1,000,000 in [k8s/llm/gateway/config.yaml](../../k8s/llm/gateway/config.yaml). The job uses the setting and not the larger value of the model. The variable `DEVOPS_CLI_AI_TASK_STAGE_CONTEXT_WINDOW` sets the window of the task `stage` alone.
+ 
+ The run hook offers no tool when the messages and one quarter of the window reach the window. For 200,000 tokens, the limit is 150,000 tokens. A request over the limit gets no tool, and the model must answer with its plan. So the first request has fixed caps, and the caps do not grow with the window:
+ 
+diff --git a/src/devops_cli/config/settings.py b/src/devops_cli/config/settings.py
+index 0d3192d0..d6ba277d 100644
+--- a/src/devops_cli/config/settings.py
++++ b/src/devops_cli/config/settings.py
+@@ -568,9 +568,17 @@ class AITaskOverride(BaseModel):
+     )
+     temperature: float | None = Field(default=None, ge=0.0, allow_inf_nan=False)
+     top_p: float | None = Field(default=None, ge=0.0, le=1.0, allow_inf_nan=False)
+-    context_window: int | None = Field(default=None, gt=0)
++    context_window: int | None = Field(
++        default=None,
++        gt=0,
++        description="Context window of this task in tokens, in place of `ai.context_window`",
++    )
+     num_ctx: int | None = Field(default=None, gt=0)
+-    max_tokens: int | None = Field(default=None, gt=0)
++    max_tokens: int | None = Field(
++        default=None,
++        gt=0,
++        description="Limit of the reply of this task in tokens, in place of `ai.max_tokens`",
++    )
+     ollama_urls: list[HttpUrlStr] | None = Field(
+         default=None, description="Ollama service URLs of this task, in place of `ai.ollama_urls`"
+     )
+@@ -617,6 +625,9 @@ class AIImplementTaskOverride(AITaskOverride):
+ # The fields of a task that a variable sets, such as `DEVOPS_CLI_AI_TASK_CHAT_MODEL`.
+ _TASK_VARIABLES: tuple[str, ...] = ("provider", "model", "reasoning_effort", "ollama_urls")
+ 
++# The size fields of a task that a variable sets, for the tasks that plan and check a change (#4225).
++_TASK_WINDOW_VARIABLES: tuple[str, ...] = ("context_window", "max_tokens")
++
+ 
+ # A task whose unset fields take the value of another task, not of the top level of `ai`.
+ _TASK_PARENTS: dict[str, str] = {"stage": "analysis"}
+@@ -631,8 +642,12 @@ class AITasksConfig(BaseModel):
+         default_factory=AITaskOverride,
+         description="The task of `analyze --enhanced` and `ai agents`",
+     )
+-    analysis: Annotated[AITaskOverride, Variable(fields=_TASK_VARIABLES)] = AITaskOverride()
+-    verification: AITaskOverride = AITaskOverride()
++    analysis: Annotated[
++        AITaskOverride, Variable(fields=(*_TASK_VARIABLES, *_TASK_WINDOW_VARIABLES))
++    ] = AITaskOverride()
++    verification: Annotated[AITaskOverride, Variable(fields=_TASK_WINDOW_VARIABLES)] = (
++        AITaskOverride()
++    )
+     compose: AITaskOverride = AITaskOverride()
+     embedding: Annotated[
+         AIEmbeddingTaskOverride, Variable(fields=(*_TASK_VARIABLES, "timeout"))
+@@ -645,7 +660,9 @@ class AITasksConfig(BaseModel):
+         default_factory=AITaskOverride,
+         description="The task of roadmap intake",
+     )
+-    stage: Annotated[AITaskOverride, Variable(fields=_TASK_VARIABLES)] = Field(
++    stage: Annotated[
++        AITaskOverride, Variable(fields=(*_TASK_VARIABLES, *_TASK_WINDOW_VARIABLES))
++    ] = Field(
+         default_factory=AITaskOverride,
+         description="The task of the stage job and of `devops roadmap eval stage`: the planner of a change. A field that it leaves unset takes the value of the task `analysis`",
+     )
+diff --git a/tests/config/test_ai_task_settings_paths.py b/tests/config/test_ai_task_settings_paths.py
+index 827e693a..2d41dc29 100644
+--- a/tests/config/test_ai_task_settings_paths.py
++++ b/tests/config/test_ai_task_settings_paths.py
+@@ -121,3 +121,54 @@ def test_an_environment_override_that_cannot_apply_fails_loudly(
+ 
+     with pytest.raises(ConfigurationError, match="DEVOPS_CLI_AI_MAX_RETRIES"):
+         load_settings()
++
++
++@pytest.mark.parametrize("task", ["analysis", "stage", "verification"])
++def test_a_variable_sets_the_context_window_of_a_task(
++    task: str, monkeypatch: pytest.MonkeyPatch
++) -> None:
++    """Verify `DEVOPS_CLI_AI_TASK_<TASK>_CONTEXT_WINDOW` sets the window that `for_task` reads,
++    where it was dropped without an error (#4225)."""
++    monkeypatch.setenv(f"DEVOPS_CLI_AI_TASK_{task.upper()}_CONTEXT_WINDOW", "131072")
++    reset_settings_cache()
++
++    assert load_settings().ai.for_task(task).context_window == 131072
++
++
++@pytest.mark.parametrize("task", ["analysis", "stage", "verification"])
++def test_a_variable_sets_the_max_tokens_of_a_task(
++    task: str, monkeypatch: pytest.MonkeyPatch
++) -> None:
++    """Verify `DEVOPS_CLI_AI_TASK_<TASK>_MAX_TOKENS` sets the reply limit that `for_task` reads
++    (#4225)."""
++    monkeypatch.setenv(f"DEVOPS_CLI_AI_TASK_{task.upper()}_MAX_TOKENS", "8192")
++    reset_settings_cache()
++
++    assert load_settings().ai.for_task(task).max_tokens == 8192
++
++
++def test_the_stage_window_variable_beats_the_analysis_window_variable(
++    monkeypatch: pytest.MonkeyPatch,
++) -> None:
++    """Verify a baseline run sets the window of the stage task alone: the stage variable wins
++    for `stage`, and the analysis task keeps its own window (#4225)."""
++    monkeypatch.setenv("DEVOPS_CLI_AI_TASK_ANALYSIS_CONTEXT_WINDOW", "65536")
++    monkeypatch.setenv("DEVOPS_CLI_AI_TASK_STAGE_CONTEXT_WINDOW", "131072")
++    reset_settings_cache()
++
++    ai = load_settings().ai
++    assert (ai.for_task("stage").context_window, ai.for_task("analysis").context_window) == (
++        131072,
++        65536,
++    )
++
++
++def test_a_window_variable_that_is_not_a_positive_number_fails_loudly(
++    monkeypatch: pytest.MonkeyPatch,
++) -> None:
++    """Verify a bad window names its variable instead of being ignored (#4225)."""
++    monkeypatch.setenv("DEVOPS_CLI_AI_TASK_STAGE_CONTEXT_WINDOW", "wide")
++    reset_settings_cache()
++
++    with pytest.raises(ConfigurationError, match="DEVOPS_CLI_AI_TASK_STAGE_CONTEXT_WINDOW"):
++        load_settings()
+diff --git a/tests/security/test_config_declarations.py b/tests/security/test_config_declarations.py
+index 1011f2a8..8880e16e 100644
+--- a/tests/security/test_config_declarations.py
++++ b/tests/security/test_config_declarations.py
+@@ -155,6 +155,12 @@ _VARIABLES_OF_LATER_SETTINGS = frozenset(
+         "DEVOPS_CLI_AI_TASK_STAGE_OLLAMA_URLS",  # #3207
+         "DEVOPS_CLI_AI_TASK_STAGE_PROVIDER",  # #3207
+         "DEVOPS_CLI_AI_TASK_STAGE_REASONING_EFFORT",  # #3207
++        "DEVOPS_CLI_AI_TASK_ANALYSIS_CONTEXT_WINDOW",  # #4225
++        "DEVOPS_CLI_AI_TASK_ANALYSIS_MAX_TOKENS",  # #4225
++        "DEVOPS_CLI_AI_TASK_STAGE_CONTEXT_WINDOW",  # #4225
++        "DEVOPS_CLI_AI_TASK_STAGE_MAX_TOKENS",  # #4225
++        "DEVOPS_CLI_AI_TASK_VERIFICATION_CONTEXT_WINDOW",  # #4225
++        "DEVOPS_CLI_AI_TASK_VERIFICATION_MAX_TOKENS",  # #4225
+         "DEVOPS_CLI_ROADMAP_IMPLEMENT_IN_RUNNER",  # #2665
+         "DEVOPS_CLI_ROADMAP_IMPLEMENT_REPAIR_ROUNDS",  # #3043
+         "DEVOPS_CLI_ROADMAP_IMPLEMENT_STEP_TOKEN_BUDGET",  # #3053

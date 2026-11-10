@@ -1,0 +1,721 @@
+diff --git a/docs/TELEMETRY.md b/docs/TELEMETRY.md
+index dcb3a0c7..57cc419c 100644
+--- a/docs/TELEMETRY.md
++++ b/docs/TELEMETRY.md
+@@ -119,6 +119,7 @@ writes by name.
+ | `devops_cli_rag_investigations_total` | Counter | `1` | RAG context retrievals that finished, by outcome: found when they returned context, or empty. |
+ | `devops_cli_rag_stops_total` | Counter | `1` | Processes that turned RAG off for the rest of their run after an embedding failure. |
+ | `devops_cli_rag_ingest_runs_total` | Counter | `1` | RAG repository ingestion runs, by repo and result: success or error. |
++| `devops_cli_rag_ingest_last_success_timestamp_seconds` | Gauge | `s` | Timestamp of the last successful RAG repository ingestion run, by repo. |
+ | `devops_cli_vulnerability_lookups_total` | Counter | `1` | Packages looked up in a vulnerability database, by source, status and batch: true when one batch request looked them up. |
+ | `devops_cli_threat_intel_lookups_total` | Counter | `1` | Domains that a threat-intelligence source was asked about, by source and status: ok, unavailable or failed. A domain that the cache answered is not counted. |
+ | `devops_cli_project_releases` | Gauge | `1` | Total project releases tracked. |
+diff --git a/k8s/README.md b/k8s/README.md
+index d4ff993b..eb7d8c90 100644
+--- a/k8s/README.md
++++ b/k8s/README.md
+@@ -501,6 +501,7 @@ Alertmanager runs from the prometheus chart (`alertmanager` in `monitoring/prome
+ | `CoreDnsServfailResponses` | Over 5% of CoreDNS responses return `SERVFAIL` | 5m | warning |
+ | `ValkeyCacheErrors` | A Valkey exporter reports `redis_up == 0` or rejected client connections | 5m | warning |
+ | `ValkeyMemoryNearBound` | A Valkey with the policy `noeviction` and a bound keeps its data above 80% of its `maxmemory`; at the bound it refuses each write | 10m | warning |
++| `RagIngestBehind` | No RAG ingestion run succeeded for repository `{{ $labels.repo }}` in the last two schedule periods (360s) | — | warning |
+ | `ResearchCriticalFindings` | The last `devops research sweep` of the last 7 days found a critical advisory that affects a pin of the project (#3899). The sweep sets zero for a severity with no finding, so a clean sweep ends the alert. A sweep with a lookup that got no answer sets no value | — | critical | Read the candidates that the sweep filed, or run `devops research advisories`, and update the pin. Run the sweep again. |
+ | `RoadmapServiceIdentityRefused`, `RoadmapServiceGitHubThrottled` | GitHub refused the identity of the roadmap Service, or throttled its requests; see Roadmap service, Alerts | — | critical |
+ | `RoadmapServiceJobsFailing` | All jobs of one row of a repository failed in 1 hour | 30m | warning |
+@@ -583,6 +584,7 @@ Every Secret the stacks read comes from the workstation's OS keyring. `devops k8
+ | `devops/devops-cli` | `DEVOPS_CLI_VALKEY_PASSWORD` | keyring `valkey_devops_password` | yes | adopt from `llm/valkey-devops-auth password`; else generate 64 hex | devops | `deployment/roadmap-service` |
+ | `devops/devops-cli` | `DEVOPS_CLI_MATTERMOST_COMMAND_TOKEN` | keyring `mattermost_command_token` | no | adopt the live value; else skip with a warning | devops | `deployment/roadmap-service` |
+ | `devops/devops-cli` | `DEVOPS_CLI_CRAWL4AI_API_TOKEN` | keyring `crawl4ai_api_token` | no | adopt from `devops/crawl4ai CRAWL4AI_API_TOKEN`; else skip with a warning | devops | `deployment/roadmap-service` |
++| `devops/qdrant-api-key` | `api-key` | keyring `qdrant_api_key` | yes | adopt from `llm/qdrant-api-key api-key`; else generate `token_urlsafe(32)` | devops | none |
+ | `monitoring/grafana-admin` | `admin-user` | literal | yes | fail | infra | `deployment/grafana` |
+ | `monitoring/grafana-admin` | `admin-password` | keyring `grafana_password` | yes | adopt from `monitoring/grafana admin-password`; else generate `token_urlsafe(32)` | infra | `deployment/grafana` |
+ | `monitoring/alertmanager-mattermost` | `url` | derived from keyring mattermost_alerts_hook | no | skip with a warning | infra | none |
+diff --git a/k8s/devops/cronworkflow-rag-ingest.yaml b/k8s/devops/cronworkflow-rag-ingest.yaml
+new file mode 100644
+index 00000000..a5f49771
+--- /dev/null
++++ b/k8s/devops/cronworkflow-rag-ingest.yaml
+@@ -0,0 +1,14 @@
++apiVersion: argoproj.io/v1alpha1
++kind: CronWorkflow
++metadata:
++  name: rag-ingest
++  namespace: devops
++  labels:
++    app.kubernetes.io/name: rag-ingest
++    app.kubernetes.io/part-of: devops-cli-stack
++spec:
++  schedule: "*/3 * * * *"
++  concurrencyPolicy: Forbid
++  workflowSpec:
++    workflowTemplateRef:
++      name: rag-ingest
+diff --git a/k8s/devops/kustomization.yaml b/k8s/devops/kustomization.yaml
+index 8b553710..f2531bd5 100644
+--- a/k8s/devops/kustomization.yaml
++++ b/k8s/devops/kustomization.yaml
+@@ -5,6 +5,9 @@ resources:
+ - cronjob.yaml
+ - cronjob-runner.yaml
+ - networkpolicy.yaml
++- networkpolicy-rag-ingest.yaml
++- workflowtemplate-rag-ingest.yaml
++- cronworkflow-rag-ingest.yaml
+ - crawl4ai
+ - searxng
+ - roadmap-service
+diff --git a/k8s/devops/networkpolicy-rag-ingest.yaml b/k8s/devops/networkpolicy-rag-ingest.yaml
+new file mode 100644
+index 00000000..d8a2e629
+--- /dev/null
++++ b/k8s/devops/networkpolicy-rag-ingest.yaml
+@@ -0,0 +1,27 @@
++# Ingest pods in namespace devops reach Qdrant on TCP 6333 (#1653). This policy adds to
++# `devops-default-perimeter`, which gives devops pods no such port. Only the ingest pods
++# get this port, so a general Job or Service pod cannot call Qdrant directly.
++apiVersion: networking.k8s.io/v1
++kind: NetworkPolicy
++metadata:
++  name: rag-ingest-egress
++  namespace: devops
++  labels:
++    app.kubernetes.io/part-of: devops-cli-stack
++spec:
++  podSelector:
++    matchLabels:
++      app.kubernetes.io/name: rag-ingest
++  policyTypes:
++    - Egress
++  egress:
++    - to:
++        - namespaceSelector:
++            matchLabels:
++              kubernetes.io/metadata.name: llm
++          podSelector:
++            matchLabels:
++              app.kubernetes.io/name: qdrant
++      ports:
++        - protocol: TCP
++          port: 6333
+diff --git a/k8s/devops/workflowtemplate-rag-ingest.yaml b/k8s/devops/workflowtemplate-rag-ingest.yaml
+new file mode 100644
+index 00000000..50615ccc
+--- /dev/null
++++ b/k8s/devops/workflowtemplate-rag-ingest.yaml
+@@ -0,0 +1,91 @@
++apiVersion: argoproj.io/v1alpha1
++kind: WorkflowTemplate
++metadata:
++  name: rag-ingest
++  namespace: devops
++  labels:
++    app.kubernetes.io/name: rag-ingest
++    app.kubernetes.io/part-of: devops-cli-stack
++spec:
++  entrypoint: ingest
++  synchronization:
++    mutex:
++      name: rag-ingest
++  serviceAccountName: devops-cli
++  activeDeadlineSeconds: 7200
++  ttlStrategy:
++    secondsAfterCompletion: 3600
++  podGC:
++    strategy: OnWorkflowSuccess
++  podMetadata:
++    labels:
++      app.kubernetes.io/name: rag-ingest
++      app.kubernetes.io/part-of: devops-cli-stack
++  securityContext:
++    runAsNonRoot: true
++    runAsUser: 1000
++    runAsGroup: 1000
++    fsGroup: 1000
++    seccompProfile:
++      type: RuntimeDefault
++  templates:
++    - name: ingest
++      metadata:
++        labels:
++          app.kubernetes.io/name: rag-ingest
++          app.kubernetes.io/part-of: devops-cli-stack
++      container:
++        image: ghcr.io/dan-petty/devops-cli/service
++        imagePullPolicy: IfNotPresent
++        command: [devops]
++        args: ["ai", "rag", "ingest"]
++        securityContext:
++          allowPrivilegeEscalation: false
++          readOnlyRootFilesystem: true
++          capabilities:
++            drop:
++              - ALL
++        envFrom:
++          - secretRef:
++              name: devops-cli
++        env:
++          - name: DEVOPS_CLI_CONFIG
++            value: /config/devops-cli.yaml
++          - name: DEVOPS_CLI_DATA_DIR
++            value: /home/devops/.data
++          - name: OTEL_SERVICE_NAME
++            value: devops-cli-rag-ingest
++          - name: OTEL_EXPORTER_OTLP_ENDPOINT
++            value: http://otel-collector.otel.svc.cluster.local:4318
++          - name: DEVOPS_CLI_AI_GATEWAY_CONCURRENCY_EMBEDDING
++            value: "1"
++          - name: DEVOPS_CLI_QDRANT_URL
++            value: http://qdrant.llm.svc.cluster.local:6333
++          - name: DEVOPS_CLI_QDRANT_API_KEY
++            valueFrom:
++              secretKeyRef:
++                name: qdrant-api-key
++                key: api-key
++        volumeMounts:
++          - name: tmp
++            mountPath: /tmp
++          - name: home
++            mountPath: /home/devops
++          - name: config
++            mountPath: /config
++            readOnly: true
++        resources:
++          requests:
++            cpu: 250m
++            memory: 512Mi
++          limits:
++            cpu: "2"
++            memory: 2Gi
++      volumes:
++        - name: tmp
++          emptyDir: {}
++        - name: home
++          emptyDir: {}
++        - name: config
++          configMap:
++            name: devops-cli-config
+diff --git a/k8s/llm/networkpolicy.yaml b/k8s/llm/networkpolicy.yaml
+index 112523bd..93cfcc88 100644
+--- a/k8s/llm/networkpolicy.yaml
++++ b/k8s/llm/networkpolicy.yaml
+@@ -41,6 +41,17 @@ spec:
+           podSelector:
+             matchLabels:
+               app.kubernetes.io/name: traefik
++    # Allow ingress from rag-ingest in namespace devops to Qdrant on port 6333 (#1653)
++    - from:
++        - namespaceSelector:
++            matchLabels:
++              kubernetes.io/metadata.name: devops
++          podSelector:
++            matchLabels:
++              app.kubernetes.io/name: rag-ingest
++      ports:
++        - protocol: TCP
++          port: 6333
+   egress:
+     # Allow intra-namespace pod communications
+     - to:
+diff --git a/k8s/monitoring/prometheus-values.yaml b/k8s/monitoring/prometheus-values.yaml
+index e3467ff8..83cb77fa 100644
+--- a/k8s/monitoring/prometheus-values.yaml
++++ b/k8s/monitoring/prometheus-values.yaml
+@@ -1040,3 +1040,15 @@ serverFiles:
+             annotations:
+               summary: "Mattermost CloudNativePG database is down"
+               description: "Mattermost PostgreSQL database in namespace mattermost is unreachable or has no healthy instances for 5 minutes."
++      # Argo workflow for RAG ingestion (#1653).
++      - name: rag-ingest
++        rules:
++          - alert: RagIngestBehind
++            expr: >-
++              time() - max by (repo) (devops_cli_rag_ingest_last_success_timestamp_seconds) > 360
++            for: 0m
++            labels:
++              severity: warning
++            annotations:
++              summary: "RAG index for repository {{ $labels.repo }} is behind"
++              description: "No RAG ingestion run succeeded for repository {{ $labels.repo }} in the last two schedule periods (k8s/README.md, Alerting)."
+diff --git a/src/devops_cli/ai/rag/ingest.py b/src/devops_cli/ai/rag/ingest.py
+index b7bd480b..c7fad650 100644
+--- a/src/devops_cli/ai/rag/ingest.py
++++ b/src/devops_cli/ai/rag/ingest.py
+@@ -5,6 +5,7 @@ from __future__ import annotations
+ import json
+ import logging
+ import shutil
++import time
+ from dataclasses import dataclass
+ from datetime import UTC, datetime
+ from pathlib import Path
+@@ -23,7 +24,11 @@ from devops_cli.exceptions import (
+ )
+ from devops_cli.exceptions.ai import RagIngestError
+ from devops_cli.output.file_writer import write_json_file
+-from devops_cli.telemetry.instruments import RAG_INGEST_RUNS_TOTAL, emit
++from devops_cli.telemetry.instruments import (
++    RAG_INGEST_LAST_SUCCESS_TIMESTAMP,
++    RAG_INGEST_RUNS_TOTAL,
++    emit,
++)
+ from devops_cli.telemetry.metrics import GLOBAL_METRICS
+ from devops_cli.telemetry.tracer import trace_span
+ 
+@@ -377,6 +382,8 @@ def run_ingest_pass(
+                     settings=settings,
+                 )
+                 results.append(res)
++                now_ts = time.time()
++                emit(RAG_INGEST_LAST_SUCCESS_TIMESTAMP, now_ts, {"repo": repo})
+                 GLOBAL_METRICS.increment_counter(
+                     "devops_cli_rag_ingest_runs_total",
+                     value=1.0,
+diff --git a/src/devops_cli/commands/k8s/stack_lifecycle.py b/src/devops_cli/commands/k8s/stack_lifecycle.py
+index c643ec1a..32e8ef14 100644
+--- a/src/devops_cli/commands/k8s/stack_lifecycle.py
++++ b/src/devops_cli/commands/k8s/stack_lifecycle.py
+@@ -280,6 +280,7 @@ MANIFESTS_BY_STACK: dict[str, list[Path]] = {
+     ],
+     "devops": [
+         DEFAULT_K8S_DIR / "devops" / "networkpolicy.yaml",
++        DEFAULT_K8S_DIR / "devops" / "networkpolicy-rag-ingest.yaml",
+         DEFAULT_K8S_DIR / "devops" / "serviceaccount.yaml",
+         DEFAULT_K8S_DIR / "devops" / "cronjob.yaml",
+         DEFAULT_K8S_DIR / "devops" / "cronjob-runner.yaml",
+@@ -322,6 +323,10 @@ POST_HELM_BY_STACK: dict[str, tuple[Path, ...]] = {
+     "infra": (Path("argo-workflows", "workflowtemplate-version.yaml"),),
+     "llm": (Path("llm", "gateway-db.yaml"), Path("llm", "gateway", "servicemonitor.yaml")),
+     "chat": (Path("mattermost"),),
++    "devops": (
++        Path("devops", "workflowtemplate-rag-ingest.yaml"),
++        Path("devops", "cronworkflow-rag-ingest.yaml"),
++    ),
+ }
+ 
+ 
+diff --git a/src/devops_cli/k8s/cluster_secrets.py b/src/devops_cli/k8s/cluster_secrets.py
+index 53d33830..38cefef7 100644
+--- a/src/devops_cli/k8s/cluster_secrets.py
++++ b/src/devops_cli/k8s/cluster_secrets.py
+@@ -400,6 +400,20 @@ CLUSTER_SECRETS: tuple[ClusterSecret, ...] = (
+         restarts=(Workload("deployment", "roadmap-service"),),
+         labels={"app.kubernetes.io/name": "devops-cli"},
+     ),
++    ClusterSecret(
++        namespace="devops",
++        name="qdrant-api-key",
++        stack="devops",
++        entries=(
++            SecretEntry(
++                "api-key",
++                KeyringSource.for_credential("qdrant.api_key"),
++                generator=SecretGenerator("urlsafe", 32),
++                adopt_from=SecretKeyRef("llm", "qdrant-api-key", "api-key"),
++            ),
++        ),
++        labels={"app.kubernetes.io/name": "rag-ingest"},
++    ),
+     ClusterSecret(
+         namespace="monitoring",
+         name="grafana-admin",
+diff --git a/src/devops_cli/telemetry/instruments.py b/src/devops_cli/telemetry/instruments.py
+index 3276042e..2a7d72d0 100644
+--- a/src/devops_cli/telemetry/instruments.py
++++ b/src/devops_cli/telemetry/instruments.py
+@@ -468,6 +468,12 @@ RAG_INGEST_RUNS_TOTAL = Instrument(
+     "1",
+     "RAG repository ingestion runs, by repo and result: success or error",
+ )
++RAG_INGEST_LAST_SUCCESS_TIMESTAMP = Instrument(
++    "devops_cli_rag_ingest_last_success_timestamp_seconds",
++    InstrumentKind.GAUGE,
++    "s",
++    "Timestamp of the last successful RAG repository ingestion run, by repo",
++)
+ VULNERABILITY_LOOKUPS_TOTAL = Instrument(
+     "devops_cli_vulnerability_lookups_total",
+     InstrumentKind.COUNTER,
+@@ -649,6 +655,7 @@ INSTRUMENTS: tuple[Instrument, ...] = (
+     RAG_INVESTIGATIONS_TOTAL,
+     RAG_STOPS_TOTAL,
+     RAG_INGEST_RUNS_TOTAL,
++    RAG_INGEST_LAST_SUCCESS_TIMESTAMP,
+     VULNERABILITY_LOOKUPS_TOTAL,
+     THREAT_INTEL_LOOKUPS_TOTAL,
+     PROJECT_RELEASES,
+@@ -756,6 +763,7 @@ __all__ = [
+     "RAG_DRIFT_SCORE",
+     "RAG_EMBEDDING_BATCH_RESIZES_TOTAL",
+     "RAG_EMBEDDING_BATCH_SIZE",
++    "RAG_INGEST_LAST_SUCCESS_TIMESTAMP",
+     "RAG_INGEST_RUNS_TOTAL",
+     "RAG_INVESTIGATIONS_TOTAL",
+     "RAG_POINTS",
+diff --git a/tests/ai/rag/test_rag_ingest.py b/tests/ai/rag/test_rag_ingest.py
+index a465f4dd..aecff233 100644
+--- a/tests/ai/rag/test_rag_ingest.py
++++ b/tests/ai/rag/test_rag_ingest.py
+@@ -691,3 +691,48 @@ def test_run_ingest_pass_catches_repo_failure(
+ 
+     with pytest.raises(RagIngestError, match="RAG ingestion failed for repositories: owner/bad"):
+         run_ingest_pass(settings=settings, indexer=indexer)
++
++
++def test_run_ingest_pass_updates_last_success_timestamp(
++    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
++) -> None:
++    from devops_cli.ai.rag.ingest import IngestResult
++    from devops_cli.telemetry.instruments import RAG_INGEST_LAST_SUCCESS_TIMESTAMP
++
++    settings = Settings.model_validate(
++        {
++            "service": {"repos": ["owner/repo"]},
++            "ai": {"rag": {"data_dir": str(tmp_path)}},
++            "qdrant": {"url": "http://localhost:6333"},
++        }
++    )
++
++    emitted: list[tuple[Any, float, dict[str, str]]] = []
++    monkeypatch.setattr(
++        "devops_cli.ai.rag.ingest.emit",
++        lambda inst, val, labels: emitted.append((inst, val, labels)),
++    )
++
++    monkeypatch.setattr(
++        "devops_cli.ai.rag.ingest.ingest_repository",
++        lambda repo, **kwargs: IngestResult(
++            repo=repo, head="abc", branch="main", visibility="public", success=True
++        ),
++    )
++    indexer = WorkspaceIndexer(
++        qdrant=cast(Any, FakeQdrantClient()),
++        embedder=FixedVectorEngine(),
++        cache_dir=tmp_path,
++    )
++
++    results = run_ingest_pass(settings=settings, indexer=indexer)
++    assert len(results) == 1
++    found = [
++        (val, labels)
++        for inst, val, labels in emitted
++        if inst.name == RAG_INGEST_LAST_SUCCESS_TIMESTAMP.name
++    ]
++    assert len(found) == 1
++    val, labels = found[0]
++    assert val > 0
++    assert labels == {"repo": "owner/repo"}
+diff --git a/tests/commands/k8s/test_k8s.py b/tests/commands/k8s/test_k8s.py
+index 487d7b30..bca8cabe 100644
+--- a/tests/commands/k8s/test_k8s.py
++++ b/tests/commands/k8s/test_k8s.py
+@@ -250,6 +250,7 @@ def test_deploy_stack_dry_run_lists_the_secrets_and_key_names_and_runs_nothing()
+             "devops/crawl4ai: CRAWL4AI_API_TOKEN (if namespace devops exists)",
+             "devops/searxng: SEARXNG_SECRET (if namespace devops exists)",
+             "devops/devops-cli: DEVOPS_CLI_SERVICE_GITHUB_APP_PRIVATE_KEY, DEVOPS_CLI_AI_API_KEY, DEVOPS_CLI_SERVICE_WEBHOOK_SECRETS, DEVOPS_CLI_FIRECRAWL_API_KEY, DEVOPS_CLI_VALKEY_PASSWORD, DEVOPS_CLI_MATTERMOST_COMMAND_TOKEN, DEVOPS_CLI_CRAWL4AI_API_TOKEN (if namespace devops exists)",
++            "devops/qdrant-api-key: api-key (if namespace devops exists)",
+             "monitoring/grafana-admin: admin-user, admin-password",
+             "monitoring/alertmanager-mattermost: url",
+             "argocd/argocd-notifications-secret: github-appID, github-installationID, github-privateKey, mattermost-deploys-url",
+diff --git a/tests/commands/k8s/test_k8s_devops_stack.py b/tests/commands/k8s/test_k8s_devops_stack.py
+index 1286db4f..e80443f1 100644
+--- a/tests/commands/k8s/test_k8s_devops_stack.py
++++ b/tests/commands/k8s/test_k8s_devops_stack.py
+@@ -64,7 +64,7 @@ def test_devops_stack_manifests_integrity() -> None:
+             if f"{p.parent.name}/{p.name}" in rate_limit_then_ingress
+         ],
+     ) == (
+-        25,
++        26,
+         True,
+         True,
+         True,
+diff --git a/tests/commands/k8s/test_k8s_qdrant_security.py b/tests/commands/k8s/test_k8s_qdrant_security.py
+index f523eefb..8dd8ef16 100644
+--- a/tests/commands/k8s/test_k8s_qdrant_security.py
++++ b/tests/commands/k8s/test_k8s_qdrant_security.py
+@@ -134,7 +134,7 @@ def test_open_webui_is_the_only_workload_that_names_qdrant() -> None:
+         }
+     )
+ 
+-    assert files == ["llm/values-open-webui.yaml"]
++    assert files == ["devops/workflowtemplate-rag-ingest.yaml", "llm/values-open-webui.yaml"]
+ 
+ 
+ def test_qdrant_helm_values_security() -> None:
+@@ -321,6 +321,7 @@ def test_deploy_stack_pushes_devops_only_where_its_namespace_exists(
+                 "devops/crawl4ai",
+                 "devops/searxng",
+                 "devops/devops-cli",
++                "devops/qdrant-api-key",
+             ],
+         ),
+         APP_KEY,
+diff --git a/tests/commands/k8s/test_k8s_rag_ingest_manifests.py b/tests/commands/k8s/test_k8s_rag_ingest_manifests.py
+new file mode 100644
+index 00000000..0040f3c0
+--- /dev/null
++++ b/tests/commands/k8s/test_k8s_rag_ingest_manifests.py
+@@ -0,0 +1,186 @@
++"""Offline manifest and configuration tests for RAG ingest Argo workflows (#1653)."""
++
++from __future__ import annotations
++
++import math
++import subprocess
++from pathlib import Path
++from typing import Any
++
++import yaml
++from typer.testing import CliRunner
++
++from devops_cli.commands.k8s import app
++from devops_cli.config.defaults import DEFAULT_SERVICE_POLL_INTERVAL_SECONDS
++from tests.support.paths import REPO_ROOT
++
++K8S_DIR = REPO_ROOT / "k8s"
++DEVOPS_DIR = K8S_DIR / "devops"
++LLM_DIR = K8S_DIR / "llm"
++MONITORING_DIR = K8S_DIR / "monitoring"
++
++runner = CliRunner()
++
++
++def cron_schedule_for_poll_interval(interval_seconds: int) -> str:
++    """The shortest whole-minute cron period that is not shorter than interval_seconds."""
++    minutes = max(1, math.ceil(interval_seconds / 60))
++    return f"*/{minutes} * * * *"
++
++
++def _rendered_devops_manifests() -> list[dict[str, Any]]:
++    """Render k8s/devops offline via kubectl kustomize."""
++    res = subprocess.run(
++        ["kubectl", "kustomize", str(DEVOPS_DIR)],
++        capture_output=True,
++        text=True,
++        check=True,
++    )
++    docs = [d for d in yaml.safe_load_all(res.stdout) if isinstance(d, dict)]
++    return docs
++
++
++def _extract_secret_refs(node: Any) -> set[str]:
++    """Collect all secret names referenced in a Kubernetes manifest."""
++    refs: set[str] = set()
++    stack = [node]
++    while stack:
++        curr = stack.pop()
++        if isinstance(curr, dict):
++            if "secretRef" in curr and isinstance(curr["secretRef"], dict):
++                refs.add(curr["secretRef"].get("name", ""))
++            if "secretKeyRef" in curr and isinstance(curr["secretKeyRef"], dict):
++                refs.add(curr["secretKeyRef"].get("name", ""))
++            if "secret" in curr and isinstance(curr["secret"], dict):
++                refs.add(curr["secret"].get("secretName", ""))
++            stack.extend(curr.values())
++        elif isinstance(curr, list):
++            stack.extend(curr)
++    return refs
++
++
++def test_qdrant_secret_scoped_to_ingest_workflow_template_only() -> None:
++    """The stack references Secret qdrant-api-key from the ingest WorkflowTemplate only."""
++    docs = _rendered_devops_manifests()
++    secret_references = {
++        f"{doc.get('kind', '')}/{doc.get('metadata', {}).get('name', '')}": refs
++        for doc in docs
++        if "qdrant-api-key" in (refs := _extract_secret_refs(doc))
++    }
++    assert list(secret_references.keys()) == ["WorkflowTemplate/rag-ingest"]
++
++
++def test_network_policy_selects_only_ingest_pods_for_qdrant_6333() -> None:
++    """NetworkPolicy selects only ingest pods for TCP 6333 egress and ingress."""
++    egress_policy_file = DEVOPS_DIR / "networkpolicy-rag-ingest.yaml"
++    assert egress_policy_file.is_file(), f"Missing {egress_policy_file}"
++    egress_policy = yaml.safe_load(egress_policy_file.read_text(encoding="utf-8"))
++
++    llm_policy_file = LLM_DIR / "networkpolicy.yaml"
++    llm_policy = yaml.safe_load(llm_policy_file.read_text(encoding="utf-8"))
++
++    # Egress: from devops to llm qdrant
++    assert egress_policy["spec"]["podSelector"] == {
++        "matchLabels": {"app.kubernetes.io/name": "rag-ingest"}
++    }
++    egress_rules = egress_policy["spec"]["egress"]
++    has_qdrant_egress = any(
++        any(p.get("port") == 6333 and p.get("protocol") == "TCP" for p in rule.get("ports", []))
++        for rule in egress_rules
++    )
++    assert has_qdrant_egress, "rag-ingest-egress must permit egress to TCP port 6333"
++
++    # Ingress: llm perimeter permits TCP 6333 from devops ingest pods only
++    ingress_rules = llm_policy["spec"].get("ingress", [])
++    qdrant_ingress_peers = [
++        peer
++        for rule in ingress_rules
++        if any(p.get("port") == 6333 and p.get("protocol") == "TCP" for p in rule.get("ports", []))
++        for peer in rule.get("from", [])
++    ]
++    assert len(qdrant_ingress_peers) == 1
++    peer = qdrant_ingress_peers[0]
++    assert peer.get("namespaceSelector") == {
++        "matchLabels": {"kubernetes.io/metadata.name": "devops"}
++    }
++    assert peer.get("podSelector") == {"matchLabels": {"app.kubernetes.io/name": "rag-ingest"}}
++
++
++def test_workflow_template_mutex_and_cronworkflow_concurrency_policy() -> None:
++    """The WorkflowTemplate holds mutex rag-ingest and CronWorkflow sets concurrencyPolicy: Forbid."""
++    template_file = DEVOPS_DIR / "workflowtemplate-rag-ingest.yaml"
++    assert template_file.is_file(), f"Missing {template_file}"
++    template = yaml.safe_load(template_file.read_text(encoding="utf-8"))
++
++    cron_file = DEVOPS_DIR / "cronworkflow-rag-ingest.yaml"
++    assert cron_file.is_file(), f"Missing {cron_file}"
++    cron = yaml.safe_load(cron_file.read_text(encoding="utf-8"))
++
++    assert template["spec"]["synchronization"]["mutex"]["name"] == "rag-ingest"
++    assert cron["spec"]["concurrencyPolicy"] == "Forbid"
++
++
++def test_cronworkflow_schedule_follows_poll_interval() -> None:
++    """The CronWorkflow uses shortest whole-minute period not shorter than service.poll_interval_seconds."""
++    cron_file = DEVOPS_DIR / "cronworkflow-rag-ingest.yaml"
++    assert cron_file.is_file(), f"Missing {cron_file}"
++    cron = yaml.safe_load(cron_file.read_text(encoding="utf-8"))
++
++    default_schedule = cron_schedule_for_poll_interval(DEFAULT_SERVICE_POLL_INTERVAL_SECONDS)
++    assert default_schedule == "*/3 * * * *"
++    assert cron["spec"]["schedule"] == "*/3 * * * *"
++
++
++def test_ingest_template_sets_embedding_concurrency_to_one() -> None:
++    """The ingest template sets ai.gateway_concurrency.embedding to 1."""
++    template_file = DEVOPS_DIR / "workflowtemplate-rag-ingest.yaml"
++    assert template_file.is_file(), f"Missing {template_file}"
++    template = yaml.safe_load(template_file.read_text(encoding="utf-8"))
++
++    (step_template,) = template["spec"]["templates"]
++    env_vars = {e["name"]: e.get("value") for e in step_template["container"]["env"]}
++    assert env_vars.get("DEVOPS_CLI_AI_GATEWAY_CONCURRENCY_EMBEDDING") == "1"
++
++
++def test_rag_ingest_behind_alert_rule() -> None:
++    """The stack ships a RagIngestBehind alert that fires after two schedule periods without success."""
++    values_file = MONITORING_DIR / "prometheus-values.yaml"
++    values = yaml.safe_load(values_file.read_text(encoding="utf-8"))
++    groups = values["serverFiles"]["alerting_rules.yml"]["groups"]
++
++    alert = next(
++        (
++            rule
++            for group in groups
++            for rule in group.get("rules", [])
++            if rule.get("alert") == "RagIngestBehind"
++        ),
++        None,
++    )
++    assert alert is not None, "RagIngestBehind alert must be defined"
++    assert "devops_cli_rag_ingest_last_success_timestamp_seconds" in alert["expr"]
++    assert "> 360" in alert["expr"]
++    assert alert["labels"]["severity"] == "warning"
++
++
++def test_deploy_stack_all_renders_ingest_workflow_template_and_cronworkflow(
++    isolate_devops_cli_config: Path,
++) -> None:
++    """devops k8s deploy-stack --stack all renders the WorkflowTemplate and CronWorkflow."""
++    from devops_cli.config.settings import reset_settings_cache
++
++    with isolate_devops_cli_config.open("a", encoding="utf-8") as config:
++        config.write(
++            "service:\n"
++            "  repos:\n"
++            "    - owner/repo\n"
++            "  github_app:\n"
++            "    app_id: 1001\n"
++            "    installation_id: 42\n"
++            "    slug: devops-roadmap\n"
++        )
++    reset_settings_cache()
++    res = runner.invoke(app, ["deploy-stack", "--stack", "all", "--dry-run"])
++    assert res.exit_code == 0, f"Output: {res.output}\nException: {res.exception}"
++    assert "k8s/devops/workflowtemplate-rag-ingest.yaml" in res.output
++    assert "k8s/devops/cronworkflow-rag-ingest.yaml" in res.output
+diff --git a/tests/k8s/test_cluster_secret_plan.py b/tests/k8s/test_cluster_secret_plan.py
+index 8e46576d..1435f63e 100644
+--- a/tests/k8s/test_cluster_secret_plan.py
++++ b/tests/k8s/test_cluster_secret_plan.py
+@@ -337,6 +337,15 @@ def test_table_holds_each_secret_entry_with_its_source_and_restarts() -> None:
+             "devops/crawl4ai CRAWL4AI_API_TOKEN",
+             ("deployment/roadmap-service",),
+         ),
++        (
++            "devops/qdrant-api-key",
++            "api-key",
++            "devops",
++            True,
++            SecretGenerator("urlsafe", 32),
++            "llm/qdrant-api-key api-key",
++            (),
++        ),
+         (
+             "monitoring/grafana-admin",
+             "admin-user",
+diff --git a/tests/k8s/test_cluster_secret_push.py b/tests/k8s/test_cluster_secret_push.py
+index 5c6a70de..cbc5a4ab 100644
+--- a/tests/k8s/test_cluster_secret_push.py
++++ b/tests/k8s/test_cluster_secret_push.py
+@@ -249,6 +249,7 @@ def test_apply_is_one_server_side_apply_of_a_list_on_stdin(
+                 APP_KEY_ENTRY,
+                 "DEVOPS_CLI_VALKEY_PASSWORD",
+             ],
++            "devops/qdrant-api-key": ["api-key"],
+         },
+         [],
+         {"devops-cli"},
+@@ -367,6 +368,7 @@ def test_the_devops_api_key_is_adopted_from_the_gateway_secret_never_generated(
+             "service_github_app_private_key": APP_KEY,
+             "crawl4ai_api_token": CRAWL4AI_TOKEN,
+             "searxng_secret_key": SEARXNG_SECRET,
++            "qdrant_api_key": "qdrant-keyring-value-0001",
+         },
+     )
+     cluster.add_secret("llm", "llm-gateway-secrets", {"master-key": "sk-live-gateway-0001"})
+@@ -560,6 +562,7 @@ def test_stack_devops_reads_the_app_key_gateway_key_and_webhook_secrets_and_runs
+             "mattermost_command_token",
+             "crawl4ai_api_token",
+             "searxng_secret_key",
++            "qdrant_api_key",
+         },
+         [],
+         APP_KEY,
+diff --git a/tests/prometheus/test_k8s_monitoring_alerting.py b/tests/prometheus/test_k8s_monitoring_alerting.py
+index 557ee642..f5c12148 100644
+--- a/tests/prometheus/test_k8s_monitoring_alerting.py
++++ b/tests/prometheus/test_k8s_monitoring_alerting.py
+@@ -44,6 +44,7 @@ from devops_cli.telemetry.instruments import (
+     CRAWL4AI_FETCHES_TOTAL,
+     GITHUB_REQUESTS_TOTAL,
+     GITHUB_THROTTLE_WAIT,
++    RAG_INGEST_LAST_SUCCESS_TIMESTAMP,
+     RESEARCH_OPEN_FINDINGS,
+     ROADMAP_ALTERNATIVES_UNCHECKED_ITEMS,
+     ROADMAP_ITEM_AGE,
+@@ -230,6 +231,8 @@ SERVED_SERIES = frozenset(
+         # The calls of the stage planner's tools, and its plan runs (#3240).
+         ROADMAP_TOOL_CALLS_PER_RUN.name,
+         ROADMAP_TOOL_CALLS_TOTAL.name,
++        # Freshness of the in-cluster RAG ingest runs (#1653).
++        RAG_INGEST_LAST_SUCCESS_TIMESTAMP.name,
+     }
+ )
+ SEVERITIES = frozenset({"critical", "warning"})
+@@ -346,6 +349,7 @@ def test_the_baseline_rule_set() -> None:
+         ("PrometheusSizeLimitCutHistory", "warning"),
+         ("PrometheusStorageNearClaim", "warning"),
+         ("PyroscopeQueryErrors", "warning"),
++        ("RagIngestBehind", "warning"),
+         ("ResearchCriticalFindings", "critical"),
+         ("RoadmapServiceAlternativesNotSearching", "warning"),
+         ("RoadmapServiceGitHubRequestsHigh", "warning"),

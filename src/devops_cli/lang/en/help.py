@@ -1332,6 +1332,20 @@ class RoadmapCommandHelp:
         "the prompt states this score."
     )
     eval_verify_model: str = "Model for the verification task. Without it, the configured model."
+    eval_completeness: str = (
+        "Score the Jev completeness check of the draft pull requests on a labelled set. The set "
+        "holds the diffs of merged pull requests whose issue lists acceptance criteria (complete "
+        "drafts), and incomplete drafts: plans that the stage golden set labels with a dropped "
+        "criterion, and merged diffs from which one hunk is removed. For each case the command "
+        "makes one request to Jev (a Noul question for each criterion and a Score question for "
+        "the tests) and prints the recall of the incomplete drafts, the false holds on the "
+        "complete drafts, the same rates at other thresholds, the spend, and whether the switch "
+        "roadmap.stage.jev_completeness stays off. It stores the report as JSON under the data "
+        "directory, with the probability of each criterion."
+    )
+    eval_completeness_cases: str = (
+        "Folder of the cases. Default: tests/fixtures/roadmap_eval/completeness."
+    )
     run: str = (
         "Run the roadmap jobs that are due, in order: metrics, then intake, refine and "
         "the alternatives check, and record each one's last success. Intake is due on an issue reopened, and decides at "

@@ -1,0 +1,18 @@
+{
+ "id": "plan-2369-dropped",
+ "kind": "plan",
+ "label": "incomplete",
+ "source": {
+  "stage_case": "2369-the-startup-import-tests-start-56",
+  "pull": 2985,
+  "commit": "78726a37f96348d6e107b20b6c455647d21344c9"
+ },
+ "criteria": [
+  "Reduced per-probe CPU time: The file SHALL take at most half its present CPU time over three runs of `pytest tests/test_cli_startup_imports.py -n 0` on the same host.",
+  "All probes pass: All 56 probes SHALL execute and pass with no failures or errors.",
+  "Budget limits unchanged: All four budget limit constants SHALL retain their integer values.",
+  "Control test passes: The control test SHALL prove the budget fails when a heavy package is imported.",
+  "Failure message intact: A failing budget SHALL report the ten slowest imports in its assertion message."
+ ],
+ "note": "No task checks the issue acceptance criterion: at most half the present CPU time over three runs of the file. Task 1 has no baseline step. Group 2 ends without any timing step. The only mention of the 2x goal is in the Feasibility text and the PR body. The plan has no task for the issue's step 1 (split the cost) either."
+}

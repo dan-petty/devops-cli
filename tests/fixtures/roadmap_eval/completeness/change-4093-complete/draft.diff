@@ -1,0 +1,187 @@
+diff --git a/docs/ROADMAP_WORKFLOW.md b/docs/ROADMAP_WORKFLOW.md
+index e85af5c0..49d958fa 100644
+--- a/docs/ROADMAP_WORKFLOW.md
++++ b/docs/ROADMAP_WORKFLOW.md
+@@ -375,6 +375,8 @@ The runner Job runs the checks that a person runs in the devcontainer, from the
+ 
+ Tests hold the drift: each local hook runs a tool that the runner image holds, each scoped row is a row of `devops ci`, and the branches of the Job pass the branch-name hook.
+ 
++A change that removes, renames or tightens a setting that `k8s/devops/configmap.example.yaml` or the live ConfigMap names says in its OpenSpec proposal and in a comment on its pull request how the live ConfigMap changes first ([Go-live check](../k8s/README.md#go-live-check)).
++
+ ## Measure the implement job
+ 
+ The implement job has a baseline score. The command that gives it calls a model through the gateway, so it runs on demand and is no part of `devops ci`.
+diff --git a/k8s/README.md b/k8s/README.md
+index 13cd6c57..31a01b70 100644
+--- a/k8s/README.md
++++ b/k8s/README.md
+@@ -777,6 +777,8 @@ kubectl -n devops get cm devops-cli-config -o jsonpath='{.data.devops-cli\.yaml}
+ kubectl -n devops rollout restart deployment/roadmap-service
+ ```
+ 
++A change that removes, renames or tightens a setting that `k8s/devops/configmap.example.yaml` or the live ConfigMap names says in its OpenSpec proposal and in a comment on its pull request how the live ConfigMap changes first: apply the ConfigMap with `deploy-stack`, then let the image roll. Git does not hold the live ConfigMap, so a test cannot read it. `deploy-stack` loads its rendering into `Settings` before it applies it, and `tests/k8s/test_k8s_configmap_keys.py` fails if the example names a key that no setting declares.
++
+ Then do these checks, and do them again every 15 minutes for the first 2 hours. If a check fails, do the stop switch. If an alert of the rule group `roadmap-service` or `roadmap-service-webhooks` fires, do what its row in Alerts says. Select each series of the Service with `job="roadmap-service"`, as the alert rules do.
+ 
+ 1. The pod runs: `kubectl -n devops get pod -l app.kubernetes.io/name=roadmap-service` shows one pod `Running`, with no restart and no `OOMKilled`.
+diff --git a/src/devops_cli/config/setting_keys.py b/src/devops_cli/config/setting_keys.py
+new file mode 100644
+index 00000000..d942b23e
+--- /dev/null
++++ b/src/devops_cli/config/setting_keys.py
+@@ -0,0 +1,48 @@
++"""Find the keys of a settings mapping that no settings model declares (#4093).
++
++Most models of `Settings` set `extra="ignore"`, so a key that a change removes from a model loads
++with no error when a file still holds it. This walk reports such a key by its dotted path.
++"""
++
++from __future__ import annotations
++
++import typing
++from collections.abc import Mapping
++from typing import Any
++
++from pydantic import BaseModel
++
++from devops_cli.config.settings import Settings
++
++
++def unknown_setting_keys(
++    config: Mapping[str, Any], model: type[BaseModel] = Settings, *, prefix: str = ""
++) -> list[str]:
++    """The dotted path of each key of `config` that no field of `model` or of a nested model
++    declares, in the order of the mapping.
++
++    The walk goes into a value only when the field is a model, alone or in an optional. It reads
++    no key of a plain mapping field, because such a field holds keys of the user and not names of
++    fields.
++    """
++    unknown: list[str] = []
++    for key, value in config.items():
++        path = f"{prefix}{key}"
++        field = model.model_fields.get(key)
++        if field is None:
++            unknown.append(path)
++            continue
++        nested = _nested_model(field.annotation)
++        if nested is not None and isinstance(value, Mapping):
++            unknown.extend(unknown_setting_keys(value, nested, prefix=f"{path}."))
++    return unknown
++
++
++def _nested_model(annotation: Any) -> type[BaseModel] | None:
++    """The model that an annotation names, alone or in an optional, else nothing."""
++    if isinstance(annotation, type) and issubclass(annotation, BaseModel):
++        return annotation
++    for argument in typing.get_args(annotation):
++        if isinstance(argument, type) and issubclass(argument, BaseModel):
++            return argument
++    return None
+diff --git a/tests/invariants/test_configmap_rollout_rule.py b/tests/invariants/test_configmap_rollout_rule.py
+new file mode 100644
+index 00000000..fe7f2c45
+--- /dev/null
++++ b/tests/invariants/test_configmap_rollout_rule.py
+@@ -0,0 +1,22 @@
++"""The two documents that tell how a setting changes name the rule for the live ConfigMap (#4093).
++
++The ConfigMap `devops-cli-config` lives in the cluster, and git does not hold it. A pull request
++that removes, renames or tightens a setting that the example ConfigMap names must say how the live
++ConfigMap changes first. `k8s/README.md` and `docs/ROADMAP_WORKFLOW.md` each hold that rule.
++"""
++
++from __future__ import annotations
++
++import pytest
++
++from tests.support.paths import REPO_ROOT
++
++RULE = "removes, renames or tightens"
++
++
++@pytest.mark.parametrize("document", ["k8s/README.md", "docs/ROADMAP_WORKFLOW.md"])
++def test_the_document_holds_the_rule_for_the_live_configmap(document: str) -> None:
++    """The phrase of the rule is in the document, on one line."""
++    lines = (REPO_ROOT / document).read_text(encoding="utf-8").splitlines()
++
++    assert sum(RULE in line for line in lines) == 1
+diff --git a/tests/k8s/test_k8s_configmap_keys.py b/tests/k8s/test_k8s_configmap_keys.py
+new file mode 100644
+index 00000000..9a06bf68
+--- /dev/null
++++ b/tests/k8s/test_k8s_configmap_keys.py
+@@ -0,0 +1,73 @@
++"""The example ConfigMap names only settings that `Settings` declares (#4093).
++
++Most models of `Settings` set `extra="ignore"`, so a key that a change removes from a model and
++that stays in `k8s/devops/configmap.example.yaml` loads with no error. These tests walk each key of
++the rendered example against the fields of the models. A test cannot read the live ConfigMap:
++`devops k8s deploy-stack` validates its rendering before it applies it, and covers the cluster.
++"""
++
++from __future__ import annotations
++
++import copy
++from typing import Any
++
++import pytest
++import yaml
++from pydantic import ValidationError
++
++from devops_cli.config.setting_keys import unknown_setting_keys
++from devops_cli.config.settings import GitHubAppConfig, ServiceConfig, Settings
++from devops_cli.k8s.configmap import render_active_devops_configmap
++from tests.support.paths import REPO_ROOT
++
++APP = GitHubAppConfig(app_id=1001, installation_id=42, slug="devops-roadmap")
++
++
++def _example_config() -> dict[str, Any]:
++    """The settings that the example ConfigMap holds, as a deploy renders them."""
++    rendered = render_active_devops_configmap(
++        k8s_dir=REPO_ROOT / "k8s",
++        settings=Settings(service=ServiceConfig(repos=["example-org/repo"], github_app=APP)),
++    )
++    config: dict[str, Any] = yaml.safe_load(yaml.safe_load(rendered)["data"]["devops-cli.yaml"])
++    return config
++
++
++def test_every_key_of_the_example_is_a_setting() -> None:
++    """No key of the example is unknown, and the whole example loads into `Settings`."""
++    config = _example_config()
++
++    Settings.model_validate(config)
++
++    assert unknown_setting_keys(config) == []
++
++
++@pytest.mark.parametrize(
++    ("path", "reported"),
++    [
++        (("roadmap", "implement", "not_a_setting"), "roadmap.implement.not_a_setting"),
++        (("not_a_section",), "not_a_section"),
++    ],
++)
++def test_an_unknown_key_in_a_copy_of_the_example_is_reported(
++    path: tuple[str, ...], reported: str
++) -> None:
++    """A key that no model declares is reported with its full path, though the load accepts it."""
++    config = copy.deepcopy(_example_config())
++    section = config
++    for part in path[:-1]:
++        section = section[part]
++    section[path[-1]] = 1
++
++    Settings.model_validate(config)
++
++    assert unknown_setting_keys(config) == [reported]
++
++
++def test_an_unknown_ladder_step_class_in_a_copy_of_the_example_fails_to_load() -> None:
++    """The ladder refuses a step class that no step has: the load catches this one already."""
++    config = copy.deepcopy(_example_config())
++    config["roadmap"]["implement"]["ladder"]["plan"] = ["devops-coder"]
++
++    with pytest.raises(ValidationError, match="the ladder names no step class"):
++        Settings.model_validate(config)

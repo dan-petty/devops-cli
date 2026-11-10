@@ -1,0 +1,15 @@
+{
+ "id": "change-3911-complete",
+ "kind": "change",
+ "label": "complete",
+ "source": {
+  "pull_commit": "84367345a24d31c680c1d93dfa8305aad4bafbba",
+  "issue": 3911,
+  "title": "fix(k8s): set the verification window in the example ConfigMap (#3986)"
+ },
+ "criteria": [
+  "The example ConfigMap sets `ai.tasks.verification.context_window` to a value that fits the model of the task (256000 for `deepseek-v4.1-flash-1017`), with a comment that gives the reason.",
+  "A test fails when the verification window of the example ConfigMap is below the least window of a review run.",
+  "The decision on a failed review run whose window ends its tools too soon is recorded: it fails the item, or it is advice."
+ ]
+}

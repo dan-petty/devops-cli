@@ -1,0 +1,117 @@
+diff --git a/openspec/changes/2163-coverage-measures-branches-and-ci-keeps/.openspec.yaml b/openspec/changes/2163-coverage-measures-branches-and-ci-keeps/.openspec.yaml
+new file mode 100644
+index 00000000..25002a8e
+--- /dev/null
++++ b/openspec/changes/2163-coverage-measures-branches-and-ci-keeps/.openspec.yaml
+@@ -0,0 +1,2 @@
++schema: spec-driven
++created: 2026-11-01
+diff --git a/openspec/changes/2163-coverage-measures-branches-and-ci-keeps/design.md b/openspec/changes/2163-coverage-measures-branches-and-ci-keeps/design.md
+new file mode 100644
+index 00000000..4b8344f0
+--- /dev/null
++++ b/openspec/changes/2163-coverage-measures-branches-and-ci-keeps/design.md
+@@ -0,0 +1,13 @@
++# Design
++
++## Decisions
++
++- **Set `branch = true` in [tool.coverage.run] rather than passing `--branch` on the command line**: The configuration file is the single source of truth for coverage settings. Both the local gate and CI read it, so one change covers both.
++- **Pin `actions/upload-artifact` by commit SHA**: Every other action in ci.yml is pinned by SHA. This matches the existing pattern and prevents a silent version change.
++- **Set retention-days to 7**: The artifact is for review of a recent run. A short retention keeps storage low while covering the review window.
++- **Do not change `fail_under`**: The owner dropped the fail_under raise from this issue per the decision on #2356. The 85% floor and 90% changed-line gate stay as they are.
++
++## Rejected alternatives
++
++- **Raise `fail_under` to the measured total with branches on**: The owner struck this from the issue on 2026-10-27, deferring it to #2356 which sets a lower global floor of 85% and a gate on changed lines.
++- **Build a custom artifact upload script**: `actions/upload-artifact` already uploads a file by path with a retention period. The project uses it for the SARIF report in the same workflow. Building a custom script adds tokens to build, keep and fix with no benefit.
+diff --git a/openspec/changes/2163-coverage-measures-branches-and-ci-keeps/proposal.md b/openspec/changes/2163-coverage-measures-branches-and-ci-keeps/proposal.md
+new file mode 100644
+index 00000000..dee8b48c
+--- /dev/null
++++ b/openspec/changes/2163-coverage-measures-branches-and-ci-keeps/proposal.md
+@@ -0,0 +1,36 @@
++# Proposal
++
++## Why
++
++#2163 reports that the coverage gate measures only lines, not branches, so a guard like `if a or b: raise` counts as covered when one side runs. CI also discards .data/coverage.xml after diff-cover reads it, so a reviewer cannot see per-file figures without a new run.
++
++## What Changes
++
++- pyproject.toml sets `branch = true` in [tool.coverage.run] so coverage.py measures both sides of each conditional
++- .github/workflows/ci.yml adds an upload-artifact step to the Tests & Coverage job that keeps .data/coverage.xml with a 7-day retention
++- The change fits one pull request.
++
++## Capabilities
++
++### New Capabilities
++
++None.
++
++### Modified Capabilities
++
++- `ci-coverage-reports`: branch-coverage-measurement, coverage-xml-artifact-upload
++
++## Impact
++
++- Code: `pyproject.toml`, `.github/workflows/ci.yml`
++
++## Feasibility
++
++- Confirmed: pyproject.toml line 229 shows `data_file = ".data/.coverage"` in [tool.coverage.run] with no `branch` key, matching the issue's claim at pyproject.toml:197-202.
++- Confirmed: .github/workflows/ci.yml has no upload-artifact step for .data/coverage.xml; the job runs diff-cover and ends without keeping the file.
++- The Tests & Coverage job took 245-307 s in the last 8 runs (284.5 s average). Branch measurement adds time. The 300 s average limit is the hard bound; the PR also reports against the 240 s target from #2356.
++- First checks the implementation runs: `uv run devops ci test` to verify the suite passes with branch coverage on; `uv run devops ci --check --only lint,format,actionlint,zizmor` to verify the workflow passes actionlint and zizmor.
++
++## Existing Tool Considered
++
++coverage.py and pytest-cov, which the project already uses, measure branches when `branch = true` is set. `actions/upload-artifact` keeps the report. Nothing is built.
+diff --git a/openspec/changes/2163-coverage-measures-branches-and-ci-keeps/specs/ci-coverage-reports/spec.md b/openspec/changes/2163-coverage-measures-branches-and-ci-keeps/specs/ci-coverage-reports/spec.md
+new file mode 100644
+index 00000000..3646c1ee
+--- /dev/null
++++ b/openspec/changes/2163-coverage-measures-branches-and-ci-keeps/specs/ci-coverage-reports/spec.md
+@@ -0,0 +1,15 @@
++## ADDED Requirements
++
++### Requirement: branch-coverage-measurement
++The coverage configuration SHALL set `branch = true` in `[tool.coverage.run]` so that coverage.py measures both sides of each conditional.
++
++#### Scenario: branch key present in pyproject
++- **WHEN** pyproject.toml is parsed and the [tool.coverage.run] table is read
++- **THEN** the table contains the key `branch` with the value `true`
++
++### Requirement: coverage-xml-artifact-upload
++The `Tests & Coverage` job SHALL upload `.data/coverage.xml` as a CI artifact with a retention period of at most 14 days.
++
++#### Scenario: upload step in workflow
++- **WHEN** the `Tests & Coverage` job in .github/workflows/ci.yml is read
++- **THEN** it contains a step that uses `actions/upload-artifact` with `path` set to `.data/coverage.xml` and a `retention-days` input
+diff --git a/openspec/changes/2163-coverage-measures-branches-and-ci-keeps/tasks.md b/openspec/changes/2163-coverage-measures-branches-and-ci-keeps/tasks.md
+new file mode 100644
+index 00000000..35164c87
+--- /dev/null
++++ b/openspec/changes/2163-coverage-measures-branches-and-ci-keeps/tasks.md
+@@ -0,0 +1,21 @@
++# Tasks
++
++## 1. Enable branch coverage in pyproject.toml
++
++Reads: none. Changes: `pyproject.toml`.
++
++- [ ] 1.1 Write a test in tests/test_coverage_config.py. The test reads pyproject.toml with tomllib, parses the [tool.coverage.run] table, and asserts that the key `branch` has the value `True`. The test fails before the change because the key is absent, and verify that `uv run devops ci test tests/test_coverage_config.py` fails on the base
++- [ ] 1.2 Add `branch = true` to the [tool.coverage.run] section of pyproject.toml, after the existing `parallel = true` line, and verify that `uv run devops ci test tests/test_coverage_config.py` passes
++- [ ] 1.3 Change no document, run `uv run devops docs generate --sync-readme`, and verify that `uv run devops ci docs` passes
++
++## 2. Upload coverage XML as CI artifact
++
++Reads: none. Changes: `.github/workflows/ci.yml`.
++
++- [ ] 2.1 Write a test in tests/test_workflows.py. The test reads .github/workflows/ci.yml with yaml.safe_load, finds the job whose `name` is `Tests & Coverage`, and asserts that one of its steps has `uses` starting with `actions/upload-artifact@` and a `with` table containing `path` set to `.data/coverage.xml` and a `retention-days` key. The test fails before the change because no such step exists, and verify that `uv run devops ci --check --only actionlint,zizmor` fails on the base
++- [ ] 2.2 Add a step after the Changed-Line Coverage step in the Tests & Coverage job: name `Upload Coverage XML`, uses `actions/upload-artifact` pinned by commit SHA, with `name: coverage-xml`, `path: .data/coverage.xml`, and `retention-days: 7`. Add `if: always()` so the artifact uploads even when the gate fails, and verify that `uv run devops ci --check --only actionlint,zizmor` passes
++- [ ] 2.3 Change no document, run `uv run devops docs generate --sync-readme`, and verify that `uv run devops ci docs` passes
++
++## Workflow follow-up
++
++- Pending a person: review the diff in tuicr (tuicr -r <base>..HEAD).

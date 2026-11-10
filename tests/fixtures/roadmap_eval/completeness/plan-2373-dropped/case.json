@@ -1,0 +1,17 @@
+{
+ "id": "plan-2373-dropped",
+ "kind": "plan",
+ "label": "incomplete",
+ "source": {
+  "stage_case": "2373-measure-what-coverage-and-branch-measurement",
+  "pull": 2987,
+  "commit": "5feb5939a26492f3f65a74dcd3b67a732c609c25"
+ },
+ "criteria": [
+  "A table of median CPU time and wall time exists for four configurations, each from three runs on an idle host.",
+  "The cost of branch measurement is stated in seconds of CPU time and job time.",
+  "The serial end of the coverage run is timed as separate commands.",
+  "If a change is made to lower cost, it does not lower any coverage threshold."
+ ],
+ "note": "The issue puts the result table in the pull request description and the cost statement on #2163. The plan puts it in change-folder files (benchmark-results.md, design.md). Those files would be archived with the change and break the rule that artifacts read as merged. No task posts to the PR or to #2163. Also the conditional CI change (a lower-cost `--cov-report`) has no concrete task group: 3.2 says only 'record the lower-cost option', so the change itself is left open, though acceptance criterion 4 needs the 'lines' CPU time shown lower after the change."
+}

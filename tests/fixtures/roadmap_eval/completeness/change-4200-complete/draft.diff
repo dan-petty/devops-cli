@@ -1,0 +1,347 @@
+diff --git a/docs/ROADMAP_WORKFLOW.md b/docs/ROADMAP_WORKFLOW.md
+index 45313b05..e76ccef4 100644
+--- a/docs/ROADMAP_WORKFLOW.md
++++ b/docs/ROADMAP_WORKFLOW.md
+@@ -133,6 +133,7 @@ These are all the keys of the job record, by the job that writes them:
+ | Implement | `implement.group`, `implement.sha`, `implement.branch`, `implement.pr` | The last group that passed, the last commit, the branch and the pull request |
+ | Implement | `implement.repair_rounds` | The count of repair rounds that the steps of the run spent on failed static checks and scoped checks |
+ | Implement | `implement.stopped`, `implement.failure`, `implement.spend`, `implement.trace` | The step that stopped the Item, the class of its failure, the spend of its steps with the input tokens of the first request of each step (`steps`, kept apart from the trace, which drops its oldest events), and the trace of its last run. The spend is the sum of all Jobs of the Item: each passed group writes it, and a retry by a person and a return to New clear it |
++| Implement | `implement.spend_counted` | The tokens of `implement.spend` that the token counter already holds. The Service writes it when it reports a Job and adds only the tokens above it to the counter, so each Job counts once. A spend below it counts whole, and the count follows it. A retry by a person and a return to New clear it with the spend |
+ | Implement | `implement.check`, `implement.check_log` | The check that failed in the stop, and the masked end of its log (at most 2000 characters). The next Job reads both before its first record write, gives them to the first step of its run only, and clears both in that write. A clear rule of the Service keeps them |
+ | Implement | `implement.conflict` | The files that a rebase conflict left unmerged, as a JSON list of masked paths (at most 20). The next Job reads it before its first record write, gives it to the first step of its run only, and clears it in that write. A clear rule of the Service keeps it |
+ | Implement | `implement.wip` | The work in progress that a step kept: its group, the tasks done, the tasks of the group and the last commit as JSON. The job removes it when the group passes |
+diff --git a/src/devops_cli/roadmap/implement/implement_run.py b/src/devops_cli/roadmap/implement/implement_run.py
+index a08ea8b1..a8719b6b 100644
+--- a/src/devops_cli/roadmap/implement/implement_run.py
++++ b/src/devops_cli/roadmap/implement/implement_run.py
+@@ -675,6 +675,7 @@ class _ItemRun:
+             marks[ImplementRecordKey.FAILURE] = None
+             marks[ImplementRecordKey.CHECK] = None
+             marks[ImplementRecordKey.SPEND] = None
++            marks[ImplementRecordKey.SPEND_COUNTED] = None
+         self.store.set_field(
+             self._fresh(), ItemField.STATUS, CONST_ROADMAP_STATUS_IN_PROGRESS, marks=marks
+         )
+@@ -795,6 +796,7 @@ class _ItemRun:
+                 ImplementRecordKey.PR: None,
+                 ImplementRecordKey.BASE: None,
+                 ImplementRecordKey.SPEND: None,
++                ImplementRecordKey.SPEND_COUNTED: None,
+                 ImplementRecordKey.CHECKED_SHA: None,
+                 ImplementRecordKey.PUBLISHED_SHA: None,
+                 ImplementRecordKey.RESULT: ImplementResult.RETURNED.value,
+diff --git a/src/devops_cli/roadmap/implement/implement_submit.py b/src/devops_cli/roadmap/implement/implement_submit.py
+index ef56eebb..bd869876 100644
+--- a/src/devops_cli/roadmap/implement/implement_submit.py
++++ b/src/devops_cli/roadmap/implement/implement_submit.py
+@@ -150,6 +150,26 @@ def _record(item: Item, key: ImplementRecordKey) -> str | None:
+     return item.job_record.get(key)
+ 
+ 
++def _spend_tokens(item: Item) -> int:
++    """The input and output tokens in `implement.spend`. A spend that is absent or cannot be read
++    holds no tokens."""
++    try:
++        data = json.loads(_record(item, ImplementRecordKey.SPEND) or "{}")
++        if isinstance(data, dict):
++            return max(int(data.get("input_tokens", 0)) + int(data.get("output_tokens", 0)), 0)
++    except json.JSONDecodeError, ValueError, TypeError:
++        pass
++    return 0
++
++
++def _counted_tokens(item: Item) -> int:
++    """The tokens of the spend that the token counter holds: `implement.spend_counted`, or none."""
++    try:
++        return max(int(_record(item, ImplementRecordKey.SPEND_COUNTED) or 0), 0)
++    except ValueError:
++        return 0
++
++
+ def _unreported(store: RoadmapStore) -> list[tuple[Item, str]]:
+     """The open items that record a Job and no state of it, with the Job's name."""
+     return [
+@@ -277,7 +297,15 @@ def _report(
+         item.number,
+         _comment(name, state, log, failure=failure, stopped=stops, digest=digest, stall=stall),
+     )
+-    service_release(store, item.number, {ImplementRecordKey.JOB_STATE: state})
++    spend = _spend_tokens(item)
++    counted = _counted_tokens(item)
++    # The spend is the sum of all Jobs, so only the part after the count is new. A spend below the
++    # count means the record started again: the whole spend is new (#4200).
++    new_tokens = spend - counted if spend >= counted else spend
++    marks: dict[ImplementRecordKey, str | None] = {ImplementRecordKey.JOB_STATE: state}
++    if spend > 0:
++        marks[ImplementRecordKey.SPEND_COUNTED] = str(spend)
++    service_release(store, item.number, marks)
+     if stops and failure is not None:
+         store.set_field(
+             _fresh(store, item.number),
+@@ -288,11 +316,11 @@ def _report(
+                 ImplementRecordKey.FAILURE: failure.value,
+             },
+         )
+-    _emit_implement_metrics(repo, item, state, failure)
++    _emit_implement_metrics(repo, item, state, failure, new_tokens)
+ 
+ 
+ def _emit_implement_metrics(
+-    repo: str, item: Item, state: str, failure: FailureClass | None
++    repo: str, item: Item, state: str, failure: FailureClass | None, new_tokens: int
+ ) -> None:
+     item_class = commit_type(item.title) or "chore"
+     GLOBAL_METRICS.increment_counter(
+@@ -311,22 +339,12 @@ def _emit_implement_metrics(
+                 )
+         except ValueError, TypeError:
+             pass
+-    spend_raw = _record(item, ImplementRecordKey.SPEND)
+-    if spend_raw:
+-        try:
+-            spend_data = json.loads(str(spend_raw))
+-            if isinstance(spend_data, dict):
+-                tokens = int(spend_data.get("input_tokens", 0)) + int(
+-                    spend_data.get("output_tokens", 0)
+-                )
+-                if tokens > 0:
+-                    GLOBAL_METRICS.increment_counter(
+-                        CONST_SERVICE_METRIC_IMPLEMENT_TOKENS,
+-                        tokens,
+-                        labels={"repo": repo, "item_class": item_class},
+-                    )
+-        except json.JSONDecodeError, ValueError, TypeError:
+-            pass
++    if new_tokens > 0:
++        GLOBAL_METRICS.increment_counter(
++            CONST_SERVICE_METRIC_IMPLEMENT_TOKENS,
++            new_tokens,
++            labels={"repo": repo, "item_class": item_class},
++        )
+     tracker = get_consecutive_failures()
+     if failure is not None:
+         GLOBAL_METRICS.increment_counter(
+diff --git a/src/devops_cli/roadmap/stores/store.py b/src/devops_cli/roadmap/stores/store.py
+index 3c197d80..e9aa44d4 100644
+--- a/src/devops_cli/roadmap/stores/store.py
++++ b/src/devops_cli/roadmap/stores/store.py
+@@ -282,7 +282,10 @@ class ImplementRecordKey(StrEnum):
+     `implement.result` holds how the run of the job ended (`ImplementResult`, #4071). The job
+     writes it as the last mark of its end and clears it in its first write, and the Service clears
+     it when it records a new Job. `implement.check_log` and `implement.conflict` hold the stop of
+-    the earlier Job: the next Job hands them to its first step and clears them."""
++    the earlier Job: the next Job hands them to its first step and clears them.
++    `implement.spend_counted` holds the tokens of `implement.spend` that the token counter already
++    holds (#4200): the Service writes it when it reports a Job, and a retry and a return to New
++    clear it with the spend."""
+ 
+     GROUP = "implement.group"
+     SHA = "implement.sha"
+@@ -299,6 +302,7 @@ class ImplementRecordKey(StrEnum):
+     PUBLISHED_SHA = "implement.published_sha"
+     RESULT = "implement.result"
+     SPEND = "implement.spend"
++    SPEND_COUNTED = "implement.spend_counted"
+     TRACE = "implement.trace"
+     JOB = "implement.job"
+     JOB_STATE = "implement.job_state"
+diff --git a/tests/roadmap/implement/test_roadmap_implement_phase_marks.py b/tests/roadmap/implement/test_roadmap_implement_phase_marks.py
+index c38d0f6b..141f4aed 100644
+--- a/tests/roadmap/implement/test_roadmap_implement_phase_marks.py
++++ b/tests/roadmap/implement/test_roadmap_implement_phase_marks.py
+@@ -425,6 +425,21 @@ def test_spend_survives_kill_a_retry_of_a_person_starts_from_zero(
+     assert (_spend(job_world)["requests"], _spend(job_world)["input_tokens"]) == (2, GROUP_TOKENS)
+ 
+ 
++def test_spend_survives_kill_a_retry_of_a_person_clears_the_counted_spend(
++    job_world: JobWorld, config: Callable[..., Path]
++) -> None:
++    """The retry starts the spend from zero, so the count of the spend starts from zero too, or the
++    first report after the retry would count too little (#4200)."""
++    config(roadmap={"implement": {"item_token_budget": 200}})
++    job_world.run(ModelScript(tool_calls(*group_one_calls()), say("Group 1 is done."), say("No.")))
++    _mark(job_world, {ImplementRecordKey.SPEND_COUNTED: str(GROUP_TOKENS + REQUEST_TOKENS)})
++    _continue(job_world, retry=True)
++
++    job_world.run(_group_two())
++
++    assert _item(job_world)[1].get("implement.spend_counted") is None
++
++
+ def test_spend_survives_kill_a_record_of_an_older_version_gives_its_spend(
+     job_world: JobWorld, config: Callable[..., Path]
+ ) -> None:
+@@ -461,6 +476,22 @@ def test_a_return_to_new_clears_the_spend(job_world: JobWorld) -> None:
+     assert (applied.stopped, status, record.get(SPEND)) == ((), "New", None)
+ 
+ 
++def test_a_return_to_new_clears_the_counted_spend(job_world: JobWorld) -> None:
++    _mark(job_world, {ImplementRecordKey.SPEND_COUNTED: "100"})
++    premise = (
++        "```plan-request\n"
++        '{"kind": "premise", "group": 2, "defect": "the premise is false", '
++        '"evidence": "upstream removed the API"}\n'
++        "```"
++    )
++
++    job_world.run(
++        ModelScript(tool_calls(*group_one_calls()), say("Group 1 is done."), say(premise))
++    )
++
++    assert _item(job_world)[1].get("implement.spend_counted") is None
++
++
+ # ── watch_progress_line ───────────────────────────────────────────────────────────────────
+ 
+ 
+diff --git a/tests/roadmap/implement/test_roadmap_implement_record_readers.py b/tests/roadmap/implement/test_roadmap_implement_record_readers.py
+index f3f62260..6e19fc9d 100644
+--- a/tests/roadmap/implement/test_roadmap_implement_record_readers.py
++++ b/tests/roadmap/implement/test_roadmap_implement_record_readers.py
+@@ -42,6 +42,7 @@ READERS: Final[dict[str, tuple[str, ...]]] = {
+     "implement.checked_sha": ("code", f"{ROADMAP}/implement/implement_run.py"),
+     "implement.published_sha": ("code", f"{ROADMAP}/implement/implement_run.py"),
+     "implement.spend": ("code", f"{ROADMAP}/implement/implement_submit.py"),
++    "implement.spend_counted": ("code", f"{ROADMAP}/implement/implement_submit.py"),
+     "implement.trace": ("code", f"{ROADMAP}/explain.py"),
+     "implement.job": ("code", f"{ROADMAP}/status_sync.py"),
+     "implement.job_state": ("code", f"{ROADMAP}/status_sync.py"),
+diff --git a/tests/roadmap/implement/test_roadmap_implement_records.py b/tests/roadmap/implement/test_roadmap_implement_records.py
+index f07e6ddf..36e65fa7 100644
+--- a/tests/roadmap/implement/test_roadmap_implement_records.py
++++ b/tests/roadmap/implement/test_roadmap_implement_records.py
+@@ -130,3 +130,17 @@ def test_the_stage_parser_takes_the_defaults_of_the_job() -> None:
+ 
+     assert parsed.matches(make_item(labels=("status/ready", "effort/low")))
+     assert not parsed.matches(make_item(labels=("status/ready", "effort/high")))
++
++
++def test_a_record_of_an_older_version_decodes_with_no_counted_spend_and_a_new_one_keeps_it() -> (
++    None
++):
++    """The record block of an older version holds `implement.spend` and no `implement.spend_counted`
++    (#4200). It loads, and the counted spend reads as absent."""
++    old = {"implement.spend": '{"input_tokens": 10, "output_tokens": 5}'}
++    new = {**old, "implement.spend_counted": "15"}
++
++    assert (decode_job_record(old), decode_job_record(new)) == (
++        {ImplementRecordKey.SPEND: old["implement.spend"]},
++        {ImplementRecordKey.SPEND: old["implement.spend"], ImplementRecordKey.SPEND_COUNTED: "15"},
++    )
+diff --git a/tests/roadmap/implement/test_roadmap_implement_submit.py b/tests/roadmap/implement/test_roadmap_implement_submit.py
+index 3ac197d1..efa34fa9 100644
+--- a/tests/roadmap/implement/test_roadmap_implement_submit.py
++++ b/tests/roadmap/implement/test_roadmap_implement_submit.py
+@@ -9,6 +9,7 @@ edges, and the CronJob template is the committed manifest `k8s/devops/cronjob-ru
+ from __future__ import annotations
+ 
+ import copy
++import json
+ import logging
+ from collections.abc import Callable
+ from datetime import timedelta
+@@ -1461,6 +1462,104 @@ def test_job_reporting_emits_pipeline_outcome_metrics_and_repair_rounds_and_toke
+     assert _tokens_count("fix") - before_tokens == 1500
+ 
+ 
++def _spend_of(tokens: int) -> str:
++    """The spend that the record holds after a Job: the SUM of the spend of all Jobs (#4070)."""
++    return json.dumps({"input_tokens": tokens - tokens // 5, "output_tokens": tokens // 5})
++
++
++def test_two_jobs_of_one_item_count_each_token_once(
++    store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake, kube: FakeCluster
++) -> None:
++    """The record carries the spend of all Jobs, so the second report adds only the tokens that
++    the second Job spent (#4200)."""
++    number = seed_staged(store, title="fix(roadmap): count the tokens once")
++    _roll(kube, DIGEST_A)
++    _round(store, staged_repo)
++    before = _tokens_count("fix")
++
++    store.set_marks(_held(store, number), {ImplementRecordKey.SPEND: _spend_of(1500)})
++    _stop_with_a_failed_job(store, staged_repo, kube)
++    first = (_tokens_count("fix") - before, _record(store, number).get("implement.spend_counted"))
++    store.set_marks(_held(store, number), {ImplementRecordKey.SPEND: _spend_of(4000)})
++    _stop_with_a_failed_job(store, staged_repo, kube, index=1)
++    second = (_tokens_count("fix") - before, _record(store, number).get("implement.spend_counted"))
++
++    assert (first, second) == ((1500, "1500"), (4000, "4000"))
++
++
++def test_a_spend_below_the_counted_spend_is_counted_whole_and_becomes_the_counted_spend(
++    store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake, kube: FakeCluster
++) -> None:
++    """A spend that fell below the count means the record started again: the whole spend counts
++    once, and the count follows it, so no later report goes negative (#4200)."""
++    number = seed_staged(store, title="fix(roadmap): count the tokens once")
++    _round(store, staged_repo)
++    store.set_marks(
++        _held(store, number),
++        {ImplementRecordKey.SPEND: _spend_of(900), ImplementRecordKey.SPEND_COUNTED: "1500"},
++    )
++    before = _tokens_count("fix")
++    _end(kube, "Complete")
++
++    _round(store, staged_repo)
++
++    assert (
++        _tokens_count("fix") - before,
++        _record(store, number).get("implement.spend_counted"),
++    ) == (
++        900,
++        "900",
++    )
++
++
++def test_a_record_of_an_older_version_counts_its_whole_spend_once(
++    store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake, kube: FakeCluster
++) -> None:
++    """A record with `implement.spend` and no `implement.spend_counted` has counted nothing yet
++    (#4200)."""
++    number = seed_staged(store, title="fix(roadmap): count the tokens once")
++    _round(store, staged_repo)
++    store.set_marks(_held(store, number), {ImplementRecordKey.SPEND: _spend_of(1500)})
++    assert "implement.spend_counted" not in _record(store, number)
++    before = _tokens_count("fix")
++    _end(kube, "Complete")
++
++    _round(store, staged_repo)
++
++    assert (
++        _tokens_count("fix") - before,
++        _record(store, number).get("implement.spend_counted"),
++    ) == (
++        1500,
++        "1500",
++    )
++
++
++def test_a_report_without_new_spend_counts_no_tokens(
++    store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake, kube: FakeCluster
++) -> None:
++    """A Job that spent nothing (its pod died at the start) adds no tokens, however much the
++    earlier Jobs spent (#4200)."""
++    number = seed_staged(store, title="fix(roadmap): count the tokens once")
++    _roll(kube, DIGEST_A)
++    _round(store, staged_repo)
++    store.set_marks(
++        _held(store, number),
++        {ImplementRecordKey.SPEND: _spend_of(1500), ImplementRecordKey.SPEND_COUNTED: "1500"},
++    )
++    before = _tokens_count("fix")
++
++    _stop_with_a_failed_job(store, staged_repo, kube)
++
++    assert (
++        _tokens_count("fix") - before,
++        _record(store, number).get("implement.spend_counted"),
++    ) == (
++        0,
++        "1500",
++    )
++
++
+ def test_job_reporting_handles_invalid_or_zero_repair_rounds_and_spend(
+     store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake, kube: FakeCluster
+ ) -> None:

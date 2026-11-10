@@ -426,6 +426,18 @@ ROADMAP_INTAKE_CANDIDATES_TOTAL = Instrument(
     "authentication error ends the round, and the candidates after it count nothing. The round "
     "sends 0 for the four results before its first candidate. One repository adds 4 series",
 )
+ROADMAP_JEV_COMPLETENESS_TOTAL = Instrument(
+    "devops_cli_roadmap_jev_completeness_total",
+    InstrumentKind.COUNTER,
+    "1",
+    "Decisions of the Jev completeness check of a draft pull request, one count for each check, "
+    "by outcome: passed (Jev found each acceptance criterion delivered), held (Jev doubts a "
+    "criterion or the tests, so the draft stays a draft), error (Jev gave no answer, so the "
+    "draft stays a draft) or skipped (the issue lists no criterion or too many, or the diff is "
+    "too large). A check adds 1 to its outcome and 0 to the other three, so the four series "
+    "exist from the first check. The check runs only when the setting "
+    "roadmap.stage.jev_completeness is true. Series: 4 for each scraped pod",
+)
 ROADMAP_STAGE_GATE_REFUSALS_TOTAL = Instrument(
     "devops_cli_roadmap_stage_gate_refusals_total",
     InstrumentKind.COUNTER,
@@ -672,6 +684,7 @@ INSTRUMENTS: tuple[Instrument, ...] = (
     ROADMAP_ROW_SECONDS,
     ROADMAP_STEP_SECONDS,
     ROADMAP_INTAKE_CANDIDATES_TOTAL,
+    ROADMAP_JEV_COMPLETENESS_TOTAL,
     ROADMAP_STAGE_GATE_REFUSALS_TOTAL,
     EMBEDDING_CACHE_LOOKUPS_TOTAL,
     EMBEDDING_CACHE_SIZE,
@@ -807,6 +820,7 @@ __all__ = [
     "ROADMAP_CLAIM_AGE",
     "ROADMAP_INTAKE_CANDIDATES_TOTAL",
     "ROADMAP_ITEM_AGE",
+    "ROADMAP_JEV_COMPLETENESS_TOTAL",
     "ROADMAP_OLDEST_ITEM",
     "ROADMAP_PAGE_FETCHES_TOTAL",
     "ROADMAP_REFINE_COMMENTS_CAPPED_TOTAL",

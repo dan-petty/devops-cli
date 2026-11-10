@@ -1,0 +1,16 @@
+{
+ "id": "plan-2162-complete",
+ "kind": "plan",
+ "label": "complete",
+ "source": {
+  "stage_case": "2162-mutation-runs-decide-which-of-the",
+  "pull": 2979,
+  "commit": "d252096e14da070d68394aa708f07bc4b7e1268b"
+ },
+ "criteria": [
+  "The pull request gives, for each file in the table, the mutants it killed with the whole suite and the mutants that survive without it.",
+  "Each file with no mutant of its own is deleted, or its distinct case moves into the file that covers its lines. The line coverage and `fail_under` stay as they are or rise.",
+  "No contract suite, invariant test or test of a security guard is deleted by this item.",
+  "`uv run devops ci` passes, and the `Tests & Coverage` job takes no longer than before."
+ ]
+}

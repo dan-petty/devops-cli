@@ -1,0 +1,111 @@
+diff --git a/k8s/README.md b/k8s/README.md
+index 4aedcb78..9b41529f 100644
+--- a/k8s/README.md
++++ b/k8s/README.md
+@@ -378,7 +378,7 @@ The move does these steps, and prints each one:
+ 1. It pauses automated sync from the top down: `bootstrap`, `cluster`, then each Application that tracks the claim or the workloads that mount it (Pausing an Application, below). If it did not, self-heal would start the workload again during the copy.
+ 2. It makes the claim `<claim>-move`, with the size and the class of the old claim, and the pod `<claim>-dst` on the target node. local-path binds the new volume on that node.
+ 3. It scales the workloads that mount the claim to zero. It finds them from the volumes of the pod specs, not from labels. Then it starts the pod `<claim>-src`, which mounts the old claim read-only. Its volume keeps it on the old node, so one pod cannot mount the two claims.
+-4. It copies through the API server with GNU tar in `debian:trixie-slim`, which keeps the owners, the modes and the sparse files. When the exec stream stops (`connection reset by peer`), it empties the destination and copies one more time.
++4. It copies through the API server with GNU tar in `debian:trixie-slim`, which keeps the owners, the modes and the sparse files. The source keeps its stdout open until the destination has ended, because the end of that stdout loses the data that still waits on the path to a slower destination. The extract ends at the end-of-archive marker, and a named pipe from the stdout of the destination to the stdin of the source then ends the source. When the exec stream stops (`connection reset by peer`), it empties the destination and copies one more time.
+ 5. It compares the two sides: the number of entries, the number of files, the bytes of the regular files (not `du`, which counts directory blocks), a digest of the metadata (`%y %m %U:%G %P` of each entry) and a digest of the content. It stops at a difference.
+ 6. It sets the two volumes to `Retain`, deletes the copy pods, saves the old claim as a JSON file in `k8s/volume-move/` under the data directory, and deletes the old claim. This is the point of no return.
+ 7. It deletes `<claim>-move`, reserves its volume for the claim name (`claimRef`), and makes the claim again from the saved one, with `spec.volumeName`. It leaves out the annotation `kubectl.kubernetes.io/last-applied-configuration`, and puts the saved value back after the create. `kubectl create` writes the whole new object, `volumeName` included, into that annotation when the manifest has it. Argo CD then tries to remove `volumeName`, and the API server refuses the change (`spec is immutable after creation`).
+diff --git a/src/devops_cli/k8s/volume_move.py b/src/devops_cli/k8s/volume_move.py
+index cec7eca9..ac9c476a 100644
+--- a/src/devops_cli/k8s/volume_move.py
++++ b/src/devops_cli/k8s/volume_move.py
+@@ -345,7 +360,9 @@ def _copy_argv(plan: VolumeMovePlan, context: str | None) -> list[str]:
+         ],
+         context,
+     )
+-    return [BIN_BASH, "-o", "pipefail", "-c", f"{shlex.join(source)} | {shlex.join(destination)}"]
++    hold = """hold=$(mktemp -d) && trap 'rm -rf "$hold"' EXIT && mkfifo "$hold/end" && """
++    pipe = f'{shlex.join(source)} <"$hold/end" | {shlex.join(destination)} >"$hold/end"'
++    return [BIN_BASH, "-o", "pipefail", "-c", hold + pipe]
+ 
+ 
+ def delete_old_volume_command(plan: VolumeMovePlan, context: str | None) -> str:
+diff --git a/tests/k8s/test_k8s_volume_move.py b/tests/k8s/test_k8s_volume_move.py
+index 7dcd5b71..547aeba7 100644
+--- a/tests/k8s/test_k8s_volume_move.py
++++ b/tests/k8s/test_k8s_volume_move.py
+@@ -673,31 +673,37 @@ def test_the_copy_pods_mount_each_claim_on_its_own_node(
+     ]
+ 
+ 
++def _copy_sides(process_fake: ProcessFake) -> tuple[list[str], list[str]]:
++    """The two sides of the pipe of the copy as words, each with its redirection last."""
++    script = next(call.argv[-1] for call in process_fake.calls if call.argv[0] == "bash")
++    _, _, pipe = script.partition(" && kubectl")
++    source, destination = (
++        shlex.split(side.replace(' <"', ' < "').replace(' >"', ' > "'))
++        for side in f"kubectl{pipe}".split(" | ")
++    )
++    return source, destination
++
++
+ def test_the_copy_pipes_gnu_tar_between_the_two_pods_through_the_api_server(
+     cluster: Cluster, process_fake: ProcessFake, tmp_path: Path
+ ) -> None:
+     _move(tmp_path)
+ 
+-    script = next(call.argv[-1] for call in process_fake.calls if call.argv[0] == "bash")
+-    source, destination = (shlex.split(side) for side in script.split(" | "))
+-    assert (source, destination) == (
++    source, destination = _copy_sides(process_fake)
++    assert (source[:-2], destination[:-2]) == (
+         [
+             "kubectl",
+             "--context",
+             CONTEXT,
+             "exec",
++            "-i",
+             "grafana-src",
+             "-n",
+             NAMESPACE,
+             "--",
+-            "tar",
+-            "-C",
+-            "/src",
+-            "--numeric-owner",
+-            "--sparse",
+-            "-cpf",
+-            "-",
+-            ".",
++            "bash",
++            "-c",
++            "tar -C /src --numeric-owner --sparse -cpf - . && exec cat",
+         ],
+         [
+             "kubectl",
+@@ -719,6 +725,29 @@ def test_the_copy_pipes_gnu_tar_between_the_two_pods_through_the_api_server(
+     )
+ 
+ 
++def test_the_source_of_the_copy_holds_until_the_destination_ended(
++    cluster: Cluster, process_fake: ProcessFake, tmp_path: Path
++) -> None:
++    """The destination's stdout is the source's stdin, so its end is the source's end of input."""
++    _move(tmp_path)
++
++    source, destination = _copy_sides(process_fake)
++    assert source[-2:] == ["<", "$hold/end"]
++    assert destination[-2:] == [">", "$hold/end"]
++
++
++def test_the_copy_makes_the_pipe_that_holds_the_source_and_removes_it(
++    cluster: Cluster, process_fake: ProcessFake, tmp_path: Path
++) -> None:
++    _move(tmp_path)
++
++    script = next(call.argv[-1] for call in process_fake.calls if call.argv[0] == "bash")
++    setup, _, _ = script.partition("kubectl")
++    assert setup == (
++        """hold=$(mktemp -d) && trap 'rm -rf "$hold"' EXIT && mkfifo "$hold/end" && """
++    )
++
++
+ # ── Failures before the point of no return: the move undoes its steps ──────
+ 
+ 

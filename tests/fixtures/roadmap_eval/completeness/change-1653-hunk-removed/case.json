@@ -1,0 +1,21 @@
+{
+ "id": "change-1653-hunk-removed",
+ "kind": "change",
+ "label": "incomplete",
+ "source": {
+  "pull_commit": "d2203cecd529523aba3db18f3cd29041efd16fcd",
+  "issue": 1653,
+  "title": "feat(k8s): add an Argo workflow to keep the RAG index current (#4180)"
+ },
+ "criteria": [
+  "Offline manifest tests: the template mounts the Qdrant Secret and no other, the NetworkPolicy selects only the ingest pods, and the CronWorkflow forbids overlap.",
+  "The template is deployed by `devops k8s deploy-stack --stack all`.",
+  "`uv run devops ci` passes.",
+  "Pending a person, once in-cluster jobs have a GitHub identity: one scheduled run indexes each managed repository, and a search scoped to a private repository returns its chunks."
+ ],
+ "removed": {
+  "criterion": 2,
+  "path": "src/devops_cli/commands/k8s/stack_lifecycle.py",
+  "hunk": "@@ -322,6 +323,10 @@ POST_HELM_BY_STACK: dict[str, tuple[Path, ...]] = {"
+ }
+}

@@ -1,0 +1,22 @@
+{
+ "id": "change-4225-hunk-removed",
+ "kind": "change",
+ "label": "incomplete",
+ "source": {
+  "pull_commit": "c034509c1de8d6909d8aac87268b6a6698f89fc5",
+  "issue": 4225,
+  "title": "feat(config): add task variables for the context window (#4234)"
+ },
+ "criteria": [
+  "`DEVOPS_CLI_AI_TASK_STAGE_CONTEXT_WINDOW=131072 uv run python -c \"from devops_cli.config.settings import load_settings; assert load_settings().ai.for_task('stage').context_window == 131072\"` passes. It fails today: the value is 262144.",
+  "The same check passes for `analysis` and `verification`, and for `MAX_TOKENS`. It fails today.",
+  "`uv run pytest tests/config/test_ai_task_settings_paths.py -k context_window` passes. The test sets each variable and reads `for_task(task)`. It fails today: the test does not exist.",
+  "`git grep -n \"AI_TASK_STAGE_CONTEXT_WINDOW\" -- docs/ENV_VARS.md` finds the variable. It fails today.",
+  "`uv run devops docs generate` leaves no diff in `docs/ENV_VARS.md`, and `uv run pytest tests/test_config_declarations.py` passes with the new variables in its set."
+ ],
+ "removed": {
+  "criterion": 1,
+  "path": "src/devops_cli/config/settings.py",
+  "hunk": "@@ -645,7 +660,9 @@ class AITasksConfig(BaseModel):"
+ }
+}

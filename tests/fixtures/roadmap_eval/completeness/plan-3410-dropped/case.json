@@ -1,0 +1,20 @@
+{
+ "id": "plan-3410-dropped",
+ "kind": "plan",
+ "label": "incomplete",
+ "source": {
+  "stage_case": "3410-the-eval-field-group-is-dropped",
+  "pull": 3435,
+  "commit": "48be41b4146fe3488afcfac5f7c2b7190692a44f"
+ },
+ "criteria": [
+  "Negative-search evidence is recorded: The stage job SHALL run the literal of each negative-search `verify` command on the staged tree with `git grep` and record the matching paths and hit count.",
+  "A negative search with no staged hit is refused: `check_proposal` MUST refuse a negative-search literal when the recorded evidence holds no matching path.",
+  "A negative search that a created module keeps is refused: `check_proposal` MUST refuse a negative-search literal when the plan creates a source path whose import path contains the literal.",
+  "A negative search with a surviving hit is accepted: `check_proposal` MUST accept a negative-search literal when the staged tree has a hit and no created source path has an import path that contains the literal.",
+  "The stage prompt asks for the search evidence: The stage prompt MUST ask the planner to run `search_code` with the negative-search literal and quote the hit count in `feasibility`.",
+  "The replay uses recorded evidence: The stage eval replay MUST read the negative-search evidence from the eval case and MUST run no `git` command.",
+  "The eval case covers the #3378 plan: The stage eval case MUST hold the plan of #3378 and assert the no-hit refusal, the created-module refusal, and the acceptance of `devops_cli.roadmap.stage_`."
+ ],
+ "note": "The criterion that the stage eval replay reads the negative-search evidence from the eval case has no group that changes the replay. Group 3 writes only fixture files and a test file, and its `facts.json` needs a field that `CaseFacts` does not have."
+}

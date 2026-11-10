@@ -1,0 +1,160 @@
+diff --git a/openspec/changes/2949-a-failed-alternatives-check-skips-its/.openspec.yaml b/openspec/changes/2949-a-failed-alternatives-check-skips-its/.openspec.yaml
+new file mode 100644
+index 00000000..25002a8e
+--- /dev/null
++++ b/openspec/changes/2949-a-failed-alternatives-check-skips-its/.openspec.yaml
+@@ -0,0 +1,2 @@
++schema: spec-driven
++created: 2026-11-01
+diff --git a/openspec/changes/2949-a-failed-alternatives-check-skips-its/design.md b/openspec/changes/2949-a-failed-alternatives-check-skips-its/design.md
+new file mode 100644
+index 00000000..ff6b5639
+--- /dev/null
++++ b/openspec/changes/2949-a-failed-alternatives-check-skips-its/design.md
+@@ -0,0 +1,14 @@
++# Design
++
++## Decisions
++
++- **The retry interval is 3 days, configurable via roadmap.alternatives.retry_days.**: The issue says 'not in the next round.' One day is the round interval, so it does not meet the requirement. Three days is more than one round and less than the 30-day recheck interval. It gives the upstream service time to recover.
++- **The failure record holds the item number, the error class, and the time of the failure.**: These three fields are sufficient to identify the failure, diagnose it, and schedule the retry. They match the pattern of other job records in the project.
++- **The row fails and counts toward the 3-round suspension only when zero items were checked in the round.**: The issue states the row fails 'only when no item could be checked in the round (for example no search key or no model).' A partial failure is a normal condition and should not suspend the row.
++- **The stop reason uses bounded_text from the #2875 pattern and the readable provider text from #2922.**: The issue explicitly references these two changes for the stop reason format. The bounded_text helper masks secrets and cuts the text to a fixed length.
++
++## Rejected alternatives
++
++- **Retry after 1 day (the next round).**: The issue body says 'not in the next round.' One day is the round interval, so this does not meet the requirement.
++- **Retry after 7 days.**: Too long. The item waits a full week before retry, which delays the owner's request to confirm all issues are vetted (issue body, 2026-10-31).
++- **Keep the current behavior: fail the round on any item error.**: This is the behavior that caused the suspension on 2026-10-30 (issue body, Evidence section). One bad item blocked the entire repository's alternatives row.
+diff --git a/openspec/changes/2949-a-failed-alternatives-check-skips-its/proposal.md b/openspec/changes/2949-a-failed-alternatives-check-skips-its/proposal.md
+new file mode 100644
+index 00000000..26f923f5
+--- /dev/null
++++ b/openspec/changes/2949-a-failed-alternatives-check-skips-its/proposal.md
+@@ -0,0 +1,43 @@
++# Proposal
++
++## Why
++
++Issue #2949 reports that a single failed alternatives check fails the whole round. After three failed rounds the row is suspended. On 2026-10-30 one item (UnexpectedModelBehavior on #1127) suspended the row for the entire repository. One bad item should not block the other items.
++
++## What Changes
++
++- Per-item error isolation: a failed check is caught and recorded, the round continues with the remaining items.
++- Failure record in the item's job record: the item number, the error class, and the time of the failure.
++- Retry delay: a failed item is skipped until roadmap.alternatives.retry_days (3 by default) has elapsed.
++- Row failure condition: the row fails and counts toward the 3-round suspension only when zero items were checked.
++- Stop reason format: uses the tool-call retry reasons of #2875 and the readable provider text of #2922.
++- Documentation: k8s/README.md line 610 and docs/TELEMETRY.md line 83 are updated to the new behavior.
++- The change fits one pull request.
++
++## Capabilities
++
++### New Capabilities
++
++None.
++
++### Modified Capabilities
++
++- `roadmap-alternatives`: partial-failure-isolation, total-failure-still-fails, retry-delay
++
++## Impact
++
++- Code: `src/devops_cli/roadmap/alternatives.py`, `src/devops_cli/roadmap/rows.py`
++- Documents: `k8s/README.md`, `docs/TELEMETRY.md`
++
++## Feasibility
++
++- The current behavior is confirmed at k8s/README.md:610: 'If the check of an item fails, the row writes the other checks and fails, naming the item.'
++- The 3-round suspension and the row scheduling are described at k8s/README.md:610 and in the model lane description in CONTEXT.md.
++- The stop reason format is documented in openspec/changes/archive/2026-10-30-2562-refine-warning-reasons/design.md:13 (bounded_text, AIClientError.reason).
++- The UnexpectedModelBehavior error class is documented at docs/ERRORS.md:125 and in openspec/changes/archive/2026-10-28-2398-refine-investigates-questions/design.md:39.
++- The metric devops_cli_roadmap_alternatives_total is documented at docs/TELEMETRY.md:83.
++- First checks the implementation runs: `uv run devops ci test tests/test_roadmap_alternatives.py` to verify the new per-item isolation, then `uv run devops ci` for the full suite.
++
++## Existing Tool Considered
++
++No open, maintained tool covers this need. The fix modifies the project's own alternatives row code in the roadmap service. The written cost is the tokens to build the per-item error isolation, the retry scheduling, the stop reason formatting, and the tests, plus the elapsed time to pass `uv run devops ci`. No internal code is deleted; the existing failure path is replaced by the per-item isolation.
+diff --git a/openspec/changes/2949-a-failed-alternatives-check-skips-its/specs/roadmap-alternatives/spec.md b/openspec/changes/2949-a-failed-alternatives-check-skips-its/specs/roadmap-alternatives/spec.md
+new file mode 100644
+index 00000000..2499f5f9
+--- /dev/null
++++ b/openspec/changes/2949-a-failed-alternatives-check-skips-its/specs/roadmap-alternatives/spec.md
+@@ -0,0 +1,26 @@
++## ADDED Requirements
++
++### Requirement: partial-failure-isolation
++A round with one failing item and four good items SHALL succeed and record the failure for the failing item.
++
++#### Scenario: one-of-five-fails
++- **WHEN** the alternatives row runs with five items and one item's check raises an error
++- **THEN** the round completes successfully, four items have their checks written, and the failing item's job record holds the error class and the time
++
++### Requirement: total-failure-still-fails
++A round in which every item fails SHALL fail the row and count toward the three-round suspension.
++
++#### Scenario: all-items-fail
++- **WHEN** the alternatives row runs and every item's check raises an error
++- **THEN** the row fails and the failure counts toward the three-round suspension
++
++### Requirement: retry-delay
++A failed item SHALL NOT be retried before the set number of days has elapsed since its failure.
++
++#### Scenario: retry-before-set-time
++- **WHEN** a later round runs before the set number of days since the item's recorded failure
++- **THEN** the item is skipped and not checked again
++
++#### Scenario: retry-after-set-time
++- **WHEN** a later round runs after the set number of days since the item's recorded failure
++- **THEN** the item is checked again and the failure record is cleared
+diff --git a/openspec/changes/2949-a-failed-alternatives-check-skips-its/tasks.md b/openspec/changes/2949-a-failed-alternatives-check-skips-its/tasks.md
+new file mode 100644
+index 00000000..6fa8b7d8
+--- /dev/null
++++ b/openspec/changes/2949-a-failed-alternatives-check-skips-its/tasks.md
+@@ -0,0 +1,45 @@
++# Tasks
++
++## 1. Add retry_days config and failure record structure
++
++Reads: none. Changes: `src/devops_cli/roadmap/alternatives.py`.
++
++- [ ] 1.1 Write a test that asserts the config key roadmap.alternatives.retry_days exists with a default of 3, and that the failure record dataclass holds item_number, error_class, and failed_at, and verify that `uv run devops ci test tests/test_roadmap_alternatives.py -k retry_days` fails on the base
++- [ ] 1.2 Add the retry_days key to the alternatives config section with a default of 3. Define a dataclass AlternativeFailure with fields item_number (int), error_class (str), and failed_at (datetime). Add a helper that reads the failure record from the item's job record and one that writes it, and verify that `uv run devops ci test tests/test_roadmap_alternatives.py -k retry_days` passes
++- [ ] 1.3 Change no document, run `uv run devops docs generate --sync-readme`, and verify that `uv run devops ci docs` passes
++
++## 2. Per-item error isolation in the alternatives round
++
++Reads: none. Changes: `src/devops_cli/roadmap/alternatives.py`.
++
++- [ ] 2.1 Write a test with five items where one item's check raises UnexpectedModelBehavior. Assert the round returns success, four items have their checks written, and the failing item's job record holds the error class and the time, and verify that `uv run devops ci test tests/test_roadmap_alternatives.py -k partial_failure` fails on the base
++- [ ] 2.2 Wrap each item's check call in a try/except block. On exception, build an AlternativeFailure record with the item number, the exception class name, and the current time. Write the record to the item's job record. Format the stop reason using bounded_text from the #2875 pattern and the readable provider text from #2922. Continue to the next item. After the loop, return success if at least one item was checked, and verify that `uv run devops ci test tests/test_roadmap_alternatives.py -k partial_failure` passes
++- [ ] 2.3 Change no document, run `uv run devops docs generate --sync-readme`, and verify that `uv run devops ci docs` passes
++
++## 3. Retry delay for failed items
++
++Reads: none. Changes: `src/devops_cli/roadmap/alternatives.py`.
++
++- [ ] 3.1 Write a test where an item failed 1 day ago and retry_days is 3. Assert the item is skipped. Write a second test where the item failed 4 days ago. Assert the item is checked again, and verify that `uv run devops ci test tests/test_roadmap_alternatives.py -k retry_delay` fails on the base
++- [ ] 3.2 Before checking an item, read its AlternativeFailure record from the job record. If the record exists and the elapsed time since failed_at is less than retry_days, skip the item and do not count it toward the round's limit. If the elapsed time is at or past retry_days, clear the failure record and proceed with the check, and verify that `uv run devops ci test tests/test_roadmap_alternatives.py -k retry_delay` passes
++- [ ] 3.3 Change no document, run `uv run devops docs generate --sync-readme`, and verify that `uv run devops ci docs` passes
++
++## 4. Row fails only when zero items are checked
++
++Reads: none. Changes: `src/devops_cli/roadmap/rows.py`.
++
++- [ ] 4.1 Write a test where all five items fail. Assert the row returns a failure and the failure counts toward the 3-round suspension. Write a second test where one item fails and four succeed. Assert the row returns success and no suspension count is added, and verify that `uv run devops ci test tests/test_roadmap_alternatives.py -k total_failure` fails on the base
++- [ ] 4.2 Track the count of items that were successfully checked in the round. After the loop, if the count is zero, raise the row failure error that triggers the suspension counter. If the count is greater than zero, return success. The existing suspension logic in the row scheduler is unchanged; it still counts three consecutive failures, and verify that `uv run devops ci test tests/test_roadmap_alternatives.py -k total_failure` passes
++- [ ] 4.3 Change no document, run `uv run devops docs generate --sync-readme`, and verify that `uv run devops ci docs` passes
++
++## 5. Update documentation for the new behavior
++
++Reads: none. Changes: `k8s/README.md`, `docs/TELEMETRY.md`.
++
++- [ ] 5.1 Write a test that reads k8s/README.md and asserts the alternatives row section states that a failed item is recorded and the round succeeds, and that the row fails only when no item could be checked, and verify that `uv run devops ci test tests/test_roadmap_alternatives.py -k docs` fails on the base
++- [ ] 5.2 In k8s/README.md line 610, replace the sentence 'If the check of an item fails, the row writes the other checks and fails, naming the item.' with the new behavior: a failed item is recorded in its job record with the error class and time, the round succeeds, and the item is retried after roadmap.alternatives.retry_days. In docs/TELEMETRY.md line 83, add a note that a failed check is recorded in the job record and does not count in the metric, and verify that `uv run devops ci test tests/test_roadmap_alternatives.py -k docs` passes
++- [ ] 5.3 k8s/README.md, docs/TELEMETRY.md, run `uv run devops docs generate --sync-readme`, and verify that `uv run devops ci docs` passes
++
++## Workflow follow-up
++
++- Pending a person: review the diff in tuicr (tuicr -r <base>..HEAD).

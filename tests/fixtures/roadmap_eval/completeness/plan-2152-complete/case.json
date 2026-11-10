@@ -1,0 +1,19 @@
+{
+ "id": "plan-2152-complete",
+ "kind": "plan",
+ "label": "complete",
+ "source": {
+  "stage_case": "2152-the-egress-checks-read-legacy-numeric",
+  "pull": 2971,
+  "commit": "37561bcbddd410cb46981c16a6dcf6293e7c534b"
+ },
+ "criteria": [
+  "Tests first: `validate_url(..., allow_private=False)` and `is_loopback_or_private_host` refuse `http://0177.0.0.1/` and `http://127.0.1/`, and the classifier treats `fe80::1%eth0` as link-local. Each test fails on a parser that drops the form.",
+  "A test shows that `is_private_ip` returns `True` for a value that does not parse.",
+  "`parse_numeric_ip` reads legacy forms with `socket.getaddrinfo(..., flags=socket.AI_NUMERICHOST)` and `ipaddress`. `_parse_part`, `_combine_ipv4_parts` and `_parse_legacy_ipv4` are deleted. If #1314's DNS seam has landed, the call goes through it.",
+  "The repeated metadata check in `_enforce_non_private_ssrf` and the unreachable branches at `:229` and `:255-256` are deleted.",
+  "The existing tests of the one-part, two-part and hex forms (`tests/test_reference_extractor.py:138-140`, `tests/test_builtin_tools.py:307`) still pass.",
+  "No test starts a program or makes a DNS query (docs/TESTING.md).",
+  "`uv run devops ci` passes, the `constructs` row included."
+ ]
+}

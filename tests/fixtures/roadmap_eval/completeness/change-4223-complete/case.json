@@ -1,0 +1,17 @@
+{
+ "id": "change-4223-complete",
+ "kind": "change",
+ "label": "complete",
+ "source": {
+  "pull_commit": "cf0567ed64bb023ef1ed8b94874e0c1ef3330fac",
+  "issue": 4223,
+  "title": "fix(ci): retry the download of a release asset (#4235)"
+ },
+ "criteria": [
+  "A test reads `Dockerfile`, `.github/workflows/*.yml` and `src/devops_cli/commands/install_tools.py`, and fails for each download of a release archive that has no retry option. Command: `uv run pytest tests/ci/test_release_download_retries.py`. It fails today: the file does not exist, and `Dockerfile` lines 23 to 26 have no retry.",
+  "A test serves two 504 answers and then the archive, and `devops install-tools` installs the tool. Command: `uv run pytest tests/commands/test_install_tools.py -k retry`. It fails today: `_download` raises at the first 504.",
+  "A test serves an HTML 504 body with a 200 status and the error names the URL and says that the body is not the archive. Command: `uv run pytest tests/commands/test_install_tools.py -k not_archive`. It fails today: the error is a checksum mismatch.",
+  "`git grep -nE \"ADD --checksum\" -- Dockerfile` finds no `ADD` of a release archive. Command: `! git grep -nE \"ADD --checksum\" -- Dockerfile`. It fails today.",
+  "The next outage of GitHub needs no rerun for a 5xx answer that ends within the retry time."
+ ]
+}

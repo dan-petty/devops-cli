@@ -1,0 +1,15 @@
+{
+ "id": "change-4200-complete",
+ "kind": "change",
+ "label": "complete",
+ "source": {
+  "pull_commit": "a243c25f260ce0813f8e8985d159ec8c525a64de",
+  "issue": 4200,
+  "title": "fix(roadmap): count the tokens of each implement Job once (#4213)"
+ },
+ "criteria": [
+  "A test runs two Jobs for one item (the first killed, the second a continuation) and checks that the counter grows by the tokens of each Job once.",
+  "A retry by a person, which clears `implement.spend`, does not make the counter step back or lose tokens.",
+  "The record keys stay documented in `docs/ROADMAP_WORKFLOW.md`, and the invariant test in `tests/invariants/test_roadmap_implement_record_keys.py` names a reader for any new key."
+ ]
+}

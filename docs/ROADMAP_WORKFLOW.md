@@ -126,6 +126,7 @@ These are all the keys of the job record, by the job that writes them:
 | Stage | `stage.groups`, `stage.needs_split`, `stage.file_cap` | The task groups with their size, the group over the budget, and the cap of that measure |
 | Stage | `stage.ready` | The plan pull request that the Service has seen leave the draft state |
 | Stage | `stage.needs_fix` | The plan pull request that the Service told about the label `plan/needs-fix` |
+| Stage | `stage.jev` | The head commit that the Jev completeness check held a draft on, as `<sha>:held` or `<sha>:error`. A held head is not asked again; an error is asked again in the next round and its note is posted once. A new head commit is checked again. The check runs only when the setting `roadmap.stage.jev_completeness` is true |
 | Stage | `stage.pending` | The intent mark of the stage job, as JSON with the branch name and the time. The job writes it before the push and clears it with the record after the draft. An open Item with the mark, a pushed branch and no `stage.pr` is an orphan: a round at least 1 hour later closes its draft, deletes its branch and clears the record, unless another author wrote to the branch |
 | Stage | `stage.text_hash` | The hash of the text of the Item that the plan came from |
 | Stage | `stage.rejected` | A plan that a person rejected, as JSON. It holds the pull request, the time of the close, the files that the reason names, and the text hash. The job leaves the Item out until the text or one of those files changes. A staged plan clears it |

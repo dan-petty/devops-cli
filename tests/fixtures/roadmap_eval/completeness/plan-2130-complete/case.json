@@ -1,0 +1,14 @@
+{
+ "id": "plan-2130-complete",
+ "kind": "plan",
+ "label": "complete",
+ "source": {
+  "stage_case": "2130-the-toolrun-of-osv-scanner-and",
+  "pull": 2978,
+  "commit": "7231ebcbac924cc489d45f5bced2cfd1ee141184"
+ },
+ "criteria": [
+  "The ToolRun of an osv-scanner run changes when its database changes, and stays the same when it does not.",
+  "The ToolRun of a Ruff run changes when the Ruff configuration of the target changes."
+ ]
+}

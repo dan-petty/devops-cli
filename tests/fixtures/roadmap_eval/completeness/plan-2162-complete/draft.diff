@@ -1,0 +1,130 @@
+diff --git a/openspec/changes/2162-mutation-runs-decide-which-of-the/.openspec.yaml b/openspec/changes/2162-mutation-runs-decide-which-of-the/.openspec.yaml
+new file mode 100644
+index 00000000..25002a8e
+--- /dev/null
++++ b/openspec/changes/2162-mutation-runs-decide-which-of-the/.openspec.yaml
+@@ -0,0 +1,2 @@
++schema: spec-driven
++created: 2026-11-01
+diff --git a/openspec/changes/2162-mutation-runs-decide-which-of-the/design.md b/openspec/changes/2162-mutation-runs-decide-which-of-the/design.md
+new file mode 100644
+index 00000000..e2c634ef
+--- /dev/null
++++ b/openspec/changes/2162-mutation-runs-decide-which-of-the/design.md
+@@ -0,0 +1,12 @@
++# Design
++
++## Decisions
++
++- **Use mutmut via `uv run devops ci mutate` for mutation testing rather than building a custom mutation tool**: mutmut is already integrated in the project CI command. Building a custom tool would cost tokens to write, maintain, and fix, and would duplicate an existing maintained tool.
++- **Determine a file's unique mutant by running the suite once with all tests and once with the file excluded via --ignore=**: A mutant that survives only when the file is excluded is the file's own. This is the method proposed in the issue and supported by pytest_add_cli_args_test_selection in pyproject.toml.
++- **Delete a file with no unique mutant rather than keeping it behind a flag**: The project follows a pre-1.0 policy of deleting rather than keeping behind flags, as stated in ADR 0005.
++
++## Rejected alternatives
++
++- **Keep all 18 files and rely on line coverage alone to judge redundancy**: The issue states that line coverage alone cannot show a file is redundant because a file can cover a line and still assert something no other file asserts. The coverage audit found 84-100% overlap, not 100%.
++- **Build a custom mutation testing harness in the repository**: mutmut is already integrated via `uv run devops ci mutate`. Building a custom tool would add tokens to build, keep, and fix, and would duplicate a maintained open-source tool.
+diff --git a/openspec/changes/2162-mutation-runs-decide-which-of-the/proposal.md b/openspec/changes/2162-mutation-runs-decide-which-of-the/proposal.md
+new file mode 100644
+index 00000000..c77240f0
+--- /dev/null
++++ b/openspec/changes/2162-mutation-runs-decide-which-of-the/proposal.md
+@@ -0,0 +1,41 @@
++# Proposal
++
++## Why
++
++Issue #2162 identifies 18 review and scanner test files that cover no unique source line beyond what other files cover. Line coverage alone cannot prove a file is redundant. Mutation testing determines whether each file kills a unique mutant, so redundant files can be deleted or merged.
++
++## What Changes
++
++- Run mutation testing on the 18 review and scanner test files to identify which kill a unique mutant
++- Delete test files that kill no unique mutant, or merge their distinct case into the covering file
++- Record the mutants each file kills and the mutants that survive without it
++- Verify CI passes and line coverage stays the same or rises
++- Add a spec requirement to ci-test-selection for redundant test file elimination
++- The change fits one pull request.
++
++## Capabilities
++
++### New Capabilities
++
++None.
++
++### Modified Capabilities
++
++- `ci-test-selection`: redundant-test-file-elimination
++
++## Impact
++
++- Documents: `openspec/changes/2162-mutation-review-scanner/mutation-report.md`, `openspec/changes/2162-mutation-review-scanner/tasks.md`
++- Tests: `tests/ai/review/test_cited_code.py`, `tests/commands/test_review.py`, `tests/commands/test_review_removed_options.py`, `tests/test_custom_personas.py`, `tests/test_review_advisory_backing.py`, `tests/test_review_deduplication.py`, `tests/test_review_defects_comments.py`, `tests/test_review_defenses_and_verification.py`, `tests/test_review_history.py`, `tests/test_review_location_paths.py`, `tests/test_review_loop_hardening.py`, `tests/test_review_regression_harness.py`, `tests/test_review_taxonomy_and_severity.py`, `tests/test_review_verification.py`, `tests/test_structural_positional_oracles.py`, `tests/test_security_kubelinter.py`, `tests/test_security_tflint.py`, `tests/security/test_sarif_fuzzing.py`
++
++## Feasibility
++
++- The 18 test files exist in the repository, confirmed by the directory tree showing tests/ai/review/test_cited_code.py, tests/commands/test_review.py, tests/commands/test_review_removed_options.py, tests/security/test_sarif_fuzzing.py, and the others.
++- The coverage audit data in .data/agent/scratch/audit-coverage/unique-lines-nobaseline.json and subsumption.json confirms the line overlap percentages stated in the issue table.
++- The mutation testing command `uv run devops ci mutate` exists, confirmed by the issue evidence citing its --help output.
++- The pytest_add_cli_args_test_selection setting at pyproject.toml:266 supports the --ignore= flag needed to exclude a file from the suite.
++- First checks: (1) `uv run devops ci mutate --help` to confirm the command and its arguments, (2) `uv run pytest tests/ai/review/test_cited_code.py -v` to confirm the file runs and passes, (3) `uv run devops ci mutate` on a small source file to confirm the mutation run completes.
++
++## Existing Tool Considered
++
++mutmut, accessed through `uv run devops ci mutate`, is the open, maintained mutation testing tool that covers the need. The change uses this existing tool and builds no new mutation testing code. The internal code the change deletes is the set of redundant test files identified by the mutation report, drawn from the 18 files listed in the issue table.
+diff --git a/openspec/changes/2162-mutation-runs-decide-which-of-the/specs/ci-test-selection/spec.md b/openspec/changes/2162-mutation-runs-decide-which-of-the/specs/ci-test-selection/spec.md
+new file mode 100644
+index 00000000..2d4d6dc2
+--- /dev/null
++++ b/openspec/changes/2162-mutation-runs-decide-which-of-the/specs/ci-test-selection/spec.md
+@@ -0,0 +1,16 @@
++## ADDED Requirements
++
++### Requirement: redundant-test-file-elimination
++The test suite SHALL contain no test file that kills no unique mutant of the source lines it covers, as determined by mutation testing with the full suite and with the file excluded.
++
++#### Scenario: file with no unique mutant is removed
++- **WHEN** a test file in the review or scanner suite kills no mutant that the rest of the suite leaves alive
++- **THEN** the file is deleted or its distinct case is moved into the file that covers the same lines
++
++#### Scenario: file with a unique mutant is kept
++- **WHEN** a test file kills at least one mutant that survives only when the file is excluded
++- **THEN** the file remains in the suite and the pull request names the mutant
++
++#### Scenario: contract and invariant tests are preserved
++- **WHEN** a test file matches test_architectural_invariants, test_contract, or a security-guard test name
++- **THEN** the file is not deleted by this change
+diff --git a/openspec/changes/2162-mutation-runs-decide-which-of-the/tasks.md b/openspec/changes/2162-mutation-runs-decide-which-of-the/tasks.md
+new file mode 100644
+index 00000000..8768bfd0
+--- /dev/null
++++ b/openspec/changes/2162-mutation-runs-decide-which-of-the/tasks.md
+@@ -0,0 +1,29 @@
++# Tasks
++
++## 1. Run mutation testing and write the report
++
++Reads: none. Changes: `openspec/changes/2162-mutation-review-scanner/mutation-report.md`.
++
++- [ ] 1.1 A test that asserts the file openspec/changes/2162-mutation-review-scanner/mutation-report.md exists and contains a row for each of the 18 test files with columns for mutants killed (full suite) and mutants surviving (file excluded). This test fails because the file does not exist yet, and verify that `test -s openspec/changes/2162-mutation-review-scanner/mutation-report.md && grep -c 'mutant' openspec/changes/2162-mutation-review-scanner/mutation-report.md` fails on the base
++- [ ] 1.2 For each of the 18 files, identify the source functions whose lines the file covers. Run `uv run devops ci mutate` on those functions. Run the test suite once with all tests and once with the file excluded via `--ignore=<file>`. Record the mutant IDs killed by the full suite and the mutant IDs that survive only when the file is excluded. Write the results to the report file as a table with columns: file, mutants killed (full suite), mutants surviving (file excluded), unique mutants, and verify that `test -s openspec/changes/2162-mutation-review-scanner/mutation-report.md && grep -c 'mutant' openspec/changes/2162-mutation-review-scanner/mutation-report.md` passes
++- [ ] 1.3 Change no document, run `uv run devops docs generate --sync-readme`, and verify that `uv run devops ci docs` passes
++
++## 2. Delete or merge files with no unique mutant
++
++Reads: none. Changes: `tests/ai/review/test_cited_code.py`, `tests/commands/test_review.py`, `tests/commands/test_review_removed_options.py`, `tests/test_custom_personas.py`, `tests/test_review_advisory_backing.py`, `tests/test_review_deduplication.py`, `tests/test_review_defects_comments.py`, `tests/test_review_defenses_and_verification.py`, `tests/test_review_history.py`, `tests/test_review_location_paths.py`, `tests/test_review_loop_hardening.py`, `tests/test_review_regression_harness.py`, `tests/test_review_taxonomy_and_severity.py`, `tests/test_review_verification.py`, `tests/test_structural_positional_oracles.py`, `tests/test_security_kubelinter.py`, `tests/test_security_tflint.py`, `tests/security/test_sarif_fuzzing.py`.
++
++- [ ] 2.1 A test that asserts each file in the mutation report with zero unique mutants no longer exists, or its distinct case appears in the covering file. This test fails because the redundant files still exist, and verify that `uv run pytest --cov=devops_cli --cov-report=term` fails on the base
++- [ ] 2.2 Read the mutation report. For each file with zero unique mutants, delete the file. If a file has one distinct case that no other file asserts, move that case into the file that covers the same lines. Do not delete any file matching test_architectural_invariants, test_contract, or a security-guard test name. After deletion, run the full suite and confirm coverage is unchanged or higher, and verify that `uv run pytest --cov=devops_cli --cov-report=term` passes
++- [ ] 2.3 Change no document, run `uv run devops docs generate --sync-readme`, and verify that `uv run devops ci docs` passes
++
++## 3. Verify CI passes and mark tasks complete
++
++Reads: none. Changes: `openspec/changes/2162-mutation-review-scanner/tasks.md`.
++
++- [ ] 3.1 A test that asserts `uv run devops ci` exits with code 0 and the tasks.md file has all tasks marked complete. This test fails because tasks are not yet marked complete, and verify that `uv run devops ci` fails on the base
++- [ ] 3.2 Run `uv run devops ci`. Confirm exit code 0. Confirm the Tests & Coverage job duration is no longer than before. Mark all tasks in the change folder as complete, and verify that `uv run devops ci` passes
++- [ ] 3.3 Change no document, run `uv run devops docs generate --sync-readme`, and verify that `uv run devops ci docs` passes
++
++## Workflow follow-up
++
++- Pending a person: review the diff in tuicr (tuicr -r <base>..HEAD).

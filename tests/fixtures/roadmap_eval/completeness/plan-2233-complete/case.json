@@ -1,0 +1,15 @@
+{
+ "id": "plan-2233-complete",
+ "kind": "plan",
+ "label": "complete",
+ "source": {
+  "stage_case": "2233-the-roadmap-service-sends-its-round",
+  "pull": 2984,
+  "commit": "cbd1cf3ae005610aab70a91fc279df722323692e"
+ },
+ "criteria": [
+  "A round that pauses sends `devops_cli_service_paused_until_seconds` with the end of the pause, and a round with no pause sends 0; a test reads the captured gauge.",
+  "Each round's closing budget read sends `devops_cli_github_graphql_remaining`; a test reads the captured gauge.",
+  "`docs/TELEMETRY.md` lists both gauges."
+ ]
+}

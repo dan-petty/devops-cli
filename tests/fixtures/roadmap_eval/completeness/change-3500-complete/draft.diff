@@ -1,0 +1,234 @@
+diff --git a/docs/roadmap/refine.md b/docs/roadmap/refine.md
+index 53ad0f40..7cbc32b4 100644
+--- a/docs/roadmap/refine.md
++++ b/docs/roadmap/refine.md
+@@ -12,6 +12,8 @@ An item that refine cannot set to Ready gets one comment with its next step. The
+ - The split that a person makes.
+ - The open items that this item waits on.
+ 
++A proposal that names an open issue as a dependency is not whole. The item waits on that issue. Refine does not set it to Ready, and a Ready item goes back to New. A closed dependency holds nothing back.
++
+ Refine looks at the item again after a reply, a body edit, or the close of those open items. It also looks again after a commit on the default branch that changes a file that the block cites. The report groups every item by its next step.
+ 
+ An item that waits on a person has one more way out. The comment of refine names issues and files in its questions. Refine looks at the item again when an issue that the comment names closes after the comment, or when a file that it names changes on the default branch after the comment. A round reads at most 5 issues and 5 files from one comment.
+diff --git a/src/devops_cli/roadmap/refine.py b/src/devops_cli/roadmap/refine.py
+index ba379096..e1973ca2 100644
+--- a/src/devops_cli/roadmap/refine.py
++++ b/src/devops_cli/roadmap/refine.py
+@@ -1135,10 +1135,12 @@ def _complete(criterion: AcceptanceCriterion) -> bool:
+     return all(part.strip() for part in criterion.model_dump().values())
+ 
+ 
+-def check_ready(proposal: RefinementProposal, open_questions: Sequence[str]) -> bool:
++def check_ready(
++    proposal: RefinementProposal, open_questions: Sequence[str], blockers: Sequence[int]
++) -> bool:
+     """Deterministic check: a problem statement, 1+ criterion with every part of its requirement
+-    block, an answer to the existing-tool question (#1849), no open questions, fits one PR, and
+-    no suspected block.
++    block, an answer to the existing-tool question (#1849), no open questions, fits one PR, no
++    open dependency (`blockers`, #3500) and no suspected block.
+     """
+     if not proposal.problem_statement.strip() or not proposal.existing_tool.strip():
+         return False
+@@ -1148,7 +1150,7 @@ def check_ready(proposal: RefinementProposal, open_questions: Sequence[str]) ->
+         return False
+     if open_questions:
+         return False
+-    if not proposal.fits_one_pr:
++    if not proposal.fits_one_pr or blockers:
+         return False
+     return _suspected_block(proposal) is None
+ 
+@@ -1159,23 +1161,29 @@ def _is_open(store: RoadmapStore, number: int) -> bool:
+     return found is not None and found.state is GitHubState.OPEN
+ 
+ 
++def _open_dependencies(store: RoadmapStore, proposal: RefinementProposal) -> tuple[int, ...]:
++    """The open items that the validated proposal names as its dependencies, in its order. A
++    closed issue holds nothing back (#3500)."""
++    return tuple(dep for dep in proposal.dependencies if _is_open(store, dep))
++
++
+ def next_step_of(
+-    store: RoadmapStore,
+     proposal: RefinementProposal,
+     open_questions: Sequence[str],
++    blockers: tuple[int, ...],
+     *,
+     is_ready: bool,
+ ) -> tuple[NextStep, tuple[str, ...], tuple[int, ...]]:
+     """The next step a validated proposal gives its item, with its details and the open items
+-    that block it (#1758): the open questions go to a person first, then the split, then the
+-    open dependencies, then a suspected block, and last a proposal with no checkable criterion."""
++    that block it, which are `blockers` (#1758): the open questions go to a person first, then
++    the split, then the open dependencies, then a suspected block, and last a proposal with no
++    checkable criterion."""
+     if is_ready:
+         return NextStep.READY, (), ()
+     if open_questions:
+         return NextStep.PERSON, tuple(open_questions), ()
+     if not proposal.fits_one_pr:
+         return NextStep.SPLIT, tuple(proposal.split_offs), ()
+-    blockers = tuple(dep for dep in proposal.dependencies if _is_open(store, dep))
+     if blockers:
+         return NextStep.BLOCKED, tuple(f"#{dep}" for dep in blockers), blockers
+     block = _suspected_block(proposal)
+@@ -2005,7 +2013,8 @@ def refine_one_item(
+             proposal, open_questions = validate_proposal(
+                 revised, current_body, allowed_urls, source, sha, store, covers
+             )
+-    is_ready = check_ready(proposal, open_questions)
++    blockers = _open_dependencies(store, proposal)
++    is_ready = check_ready(proposal, open_questions, blockers)
+     judge: JudgeVerdict | None = None
+     findings: tuple[str, ...] = ()
+     if is_ready and is_bot_filed(item):
+@@ -2022,7 +2031,7 @@ def refine_one_item(
+         is_ready = judge is JudgeVerdict.APPROVED
+     needs_split = not proposal.fits_one_pr
+     step, model_details, blocked_by = next_step_of(
+-        store, proposal, open_questions, is_ready=is_ready
++        proposal, open_questions, blockers, is_ready=is_ready
+     )
+     if findings:
+         # The review refused the item: it waits for a body edit, and the comment lists each finding.
+diff --git a/tests/roadmap/test_roadmap_refine.py b/tests/roadmap/test_roadmap_refine.py
+index 3e18bde0..dea0f63f 100644
+--- a/tests/roadmap/test_roadmap_refine.py
++++ b/tests/roadmap/test_roadmap_refine.py
+@@ -560,20 +560,22 @@ def test_check_ready_matrix() -> None:
+         suspected_block=None,
+     )
+     assert (
+-        check_ready(base, []),
+-        check_ready(base, ["Unresolved question"]),
+-        check_ready(base.model_copy(update={"fits_one_pr": False}), []),
+-        check_ready(base.model_copy(update={"suspected_block": "Waiting on auth"}), []),
+-        check_ready(base.model_copy(update={"acceptance_criteria": []}), []),
+-        check_ready(base.model_copy(update={"problem_statement": ""}), []),
+-        check_ready(base.model_copy(update={"existing_tool": " "}), []),
++        check_ready(base, [], ()),
++        check_ready(base, ["Unresolved question"], ()),
++        check_ready(base, [], (7,)),
++        check_ready(base.model_copy(update={"fits_one_pr": False}), [], ()),
++        check_ready(base.model_copy(update={"suspected_block": "Waiting on auth"}), [], ()),
++        check_ready(base.model_copy(update={"acceptance_criteria": []}), [], ()),
++        check_ready(base.model_copy(update={"problem_statement": ""}), [], ()),
++        check_ready(base.model_copy(update={"existing_tool": " "}), [], ()),
+         check_ready(
+             base.model_copy(
+                 update={"acceptance_criteria": [_CRITERION.model_copy(update={"then": ""})]}
+             ),
+             [],
++            (),
+         ),
+-    ) == (True, False, False, False, False, False, False, False)
++    ) == (True, False, False, False, False, False, False, False, False)
+ 
+ 
+ def test_a_criterion_takes_the_parts_of_an_openspec_requirement_and_refuses_the_old_keys() -> None:
+@@ -1910,10 +1912,9 @@ _OPEN_QUESTION = "Which store holds the record? (missing verified source)"
+ 
+ 
+ def _blocked_by(blocker: int) -> RefinementProposal:
+-    """A proposal that waits on the open item `blocker`."""
+-    return _READY.model_copy(
+-        update={"suspected_block": f"Waits on #{blocker}.", "dependencies": [blocker]}
+-    )
++    """A complete proposal that names the item `blocker` as its one dependency and holds no
++    suspected block, so the dependency alone decides (#3500)."""
++    return _READY.model_copy(update={"dependencies": [blocker]})
+ 
+ 
+ def _is_about(number: int, prompt: str) -> bool:
+@@ -2132,6 +2133,89 @@ def test_closing_the_item_that_blocks_an_item_makes_it_eligible_again(
+     ) == ([(blocked, "blocked")], [blocked])
+ 
+ 
++# ── An open dependency that the proposal names blocks the item (#3500) ────────────────────
++
++
++@pytest.mark.parametrize("status", ["New", CONST_ROADMAP_STATUS_READY], ids=["new", "ready"])
++def test_a_complete_proposal_with_an_open_dependency_blocks_its_item_and_sets_no_ready(
++    git_repo: Path, store: InMemoryRoadmapStore, model_fake: ModelFake, status: str
++) -> None:
++    """A proposal with no open question, no split and no suspected block, and one open
++    dependency, gives the next step `blocked` with that number. The item stays New, or goes back
++    to New from Ready, and its record holds the blocker (#3500)."""
++    store.seed_visibility(is_private=True)
++    blocker = _seed_item(store, "In Progress", "P1-High")
++    number = _seed_item(store, status, "P1-High")
++    model_fake.answer(_blocked_by(blocker))
++
++    plan = plan_refine(store, repo=REPO, source=git_repo, item_number=number)
++    apply_refine(store, plan)
++
++    item = _require_item(store, number)
++    assert (
++        [(r.is_ready, r.next_step, r.step_details, r.blocked_by) for r in plan.refined_items],
++        item.status,
++        item.job_record.get(RefineRecordKey.NEXT_STEP),
++        item.job_record.get(RefineRecordKey.BLOCKED_BY),
++    ) == ([(False, "blocked", (f"#{blocker}",), (blocker,))], "New", "blocked", str(blocker))
++
++
++def test_a_complete_proposal_whose_dependency_is_closed_reaches_ready(
++    git_repo: Path, store: InMemoryRoadmapStore, model_fake: ModelFake
++) -> None:
++    """The same proposal with a closed dependency gives the next step `ready` and no blocker: a
++    closed issue holds nothing back (#3500)."""
++    store.seed_visibility(is_private=True)
++    blocker = _seed_item(store, "In Progress", "P1-High")
++    store.as_actor("alice").close_by_hand(blocker, CloseReason.COMPLETED)
++    number = _seed_item(store, "New", "P1-High")
++    model_fake.answer(_blocked_by(blocker))
++
++    plan = _refine_round(store, git_repo)
++
++    item = _require_item(store, number)
++    assert (
++        [(r.is_ready, r.next_step, r.blocked_by) for r in plan.refined_items],
++        item.status,
++        item.job_record.get(RefineRecordKey.BLOCKED_BY),
++    ) == ([(True, "ready", ())], CONST_ROADMAP_STATUS_READY, None)
++
++
++def test_a_blocked_item_reaches_ready_in_the_round_after_its_last_blocker_closes(
++    git_repo: Path, store: InMemoryRoadmapStore, model_fake: ModelFake
++) -> None:
++    """An item with two open dependencies waits on both. When the first closes, it waits on the
++    second with no model call. The round after the second closes refines it again, and it reaches
++    Ready (#3500)."""
++    store.seed_visibility(is_private=True)
++    first = _seed_item(store, "In Progress", "P1-High")
++    second = _seed_item(store, "In Progress", "P1-High")
++    number = _seed_item(store, "New", "P1-High")
++    model_fake.answer(_READY.model_copy(update={"dependencies": [first, second]}))
++    _refine_round(store, git_repo)
++    blocked = _require_item(store, number)
++    calls = model_fake.call_count
++
++    store.as_actor("alice").close_by_hand(first, CloseReason.COMPLETED)
++    waiting = plan_refine(store, repo=REPO, source=git_repo)
++    store.as_actor("alice").close_by_hand(second, CloseReason.COMPLETED)
++    after = _refine_round(store, git_repo)
++
++    assert (
++        (blocked.status, blocked.job_record.get(RefineRecordKey.BLOCKED_BY)),
++        [(w.item.number, w.step, w.details) for w in waiting.waiting_items],
++        model_fake.call_count - calls,
++        [(r.item.number, r.next_step) for r in after.refined_items],
++        _require_item(store, number).status,
++    ) == (
++        ("New", f"{first},{second}"),
++        [(number, "blocked", (f"#{second}",))],
++        1,
++        [(number, "ready")],
++        CONST_ROADMAP_STATUS_READY,
++    )
++
++
+ def test_an_unchanged_item_whose_record_needs_a_split_but_holds_no_step_gets_its_split_handed_on(
+     git_repo: Path, store: InMemoryRoadmapStore, model_fake: ModelFake
+ ) -> None:

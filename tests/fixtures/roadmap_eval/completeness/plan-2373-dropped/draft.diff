@@ -1,0 +1,132 @@
+diff --git a/openspec/changes/2373-measure-what-coverage-and-branch-measurement/.openspec.yaml b/openspec/changes/2373-measure-what-coverage-and-branch-measurement/.openspec.yaml
+new file mode 100644
+index 00000000..25002a8e
+--- /dev/null
++++ b/openspec/changes/2373-measure-what-coverage-and-branch-measurement/.openspec.yaml
+@@ -0,0 +1,2 @@
++schema: spec-driven
++created: 2026-11-01
+diff --git a/openspec/changes/2373-measure-what-coverage-and-branch-measurement/design.md b/openspec/changes/2373-measure-what-coverage-and-branch-measurement/design.md
+new file mode 100644
+index 00000000..b1ce43ac
+--- /dev/null
++++ b/openspec/changes/2373-measure-what-coverage-and-branch-measurement/design.md
+@@ -0,0 +1,14 @@
++# Design
++
++## Decisions
++
++- **Run the benchmark on a local idle host rather than in CI**: The issue requires uptime under 2 before each run. CI runners are shared and cannot guarantee an idle host. A local host gives a clean number.
++- **Use the median of three runs rather than the mean**: The median is robust to one outlier run. The issue names the median as the reported figure.
++- **Time the serial commands separately after the parallel run**: The parallel run hides the cost of combine, report, and xml. Timing them alone isolates the serial tail that the issue asks about.
++- **Include a spec delta on ci-coverage-reports**: The change potentially alters the --cov-report options of the test job, which is an observable devops command option. The rules state that a devops command option change carries a spec delta.
++
++## Rejected alternatives
++
++- **Run the benchmark in a CI job**: The issue requires uptime under 2 before each run. CI runners are shared and the 2026-10-27 attempt failed because the load average was 10 to 39 from other runs (design.md section 4).
++- **Use the 568 s ctrace run as the branch cost**: The design.md states: 'Run 2 above took 568 s against 287 s, but it changes the ctrace core, the contexts and the branches together.' Three variables changed at once, so the number does not isolate the cost of branches.
++- **Add a recurring CI job for this measurement**: The issue states: 'It is a one-time benchmark. The result is a table in the pull request description. No recurring job is added.' (proposed design, key questions).
+diff --git a/openspec/changes/2373-measure-what-coverage-and-branch-measurement/proposal.md b/openspec/changes/2373-measure-what-coverage-and-branch-measurement/proposal.md
+new file mode 100644
+index 00000000..a45526c3
+--- /dev/null
++++ b/openspec/changes/2373-measure-what-coverage-and-branch-measurement/proposal.md
+@@ -0,0 +1,38 @@
++# Proposal
++
++## Why
++
++The owner asked on 2026-10-27 (the decision comment on #2356) whether measuring branches is worth its job time, as #2163 proposes. No clean number exists for what coverage costs the test job. Previous attempts were confounded by host load or changed three variables at once. #2373 measures the cost on a quiet host and reports it on #2163.
++
++## What Changes
++
++- Run four coverage configurations (no coverage, lines, lines+branches, lines+ctrace) three times each on an idle host and record median CPU and wall time
++- Time the serial coverage commands (combine, report, xml) separately on the data of the lines run
++- State the cost of branch measurement in seconds of CPU and job time
++- If the report or combine step is a large share, test lower-cost --cov-report options without lowering any threshold
++- The change fits one pull request.
++
++## Capabilities
++
++### New Capabilities
++
++None.
++
++### Modified Capabilities
++
++- `ci-coverage-reports`: coverage-cost-benchmark-record, coverage-report-options-cost
++
++## Impact
++
++- Documents: `openspec/changes/2373-coverage-cost-measurement/benchmark-results.md`, `openspec/changes/2373-coverage-cost-measurement/design.md`
++
++## Feasibility
++
++- The premise is confirmed by openspec/changes/archive/2026-10-27-2356-coverage-floor-and-test-cost/design.md section 4, which states: 'The cost of branch measurement is not established. The owner asked for it.' and names #2373 as the issue that measures it.
++- The same design.md records the gate command (pytest --cov=src --cov-report=term-missing --cov-report=xml), the 16-worker parallel setup, the 287 s gate time, and the failed same-day comparison (load average 10 to 39).
++- The 568 s ctrace run changed three variables at once (core, contexts, branches), so it does not isolate the cost of branches.
++- First checks the implementation runs: (1) uptime to confirm the host is idle (load under 2); (2) uv run pytest --collect-only -q to confirm the suite collects; (3) uv run coverage --version to confirm coverage.py is installed; (4) uv run pytest tests/test_cli_startup_imports.py --cov=src --cov-report=term-missing to confirm the coverage plugin loads.
++
++## Existing Tool Considered
++
++coverage.py (with pytest-cov) is already in use. The sysmon and ctrace cores, branch measurement, and the combine/report/xml commands are options of coverage.py. Nothing new is built.
+diff --git a/openspec/changes/2373-measure-what-coverage-and-branch-measurement/specs/ci-coverage-reports/spec.md b/openspec/changes/2373-measure-what-coverage-and-branch-measurement/specs/ci-coverage-reports/spec.md
+new file mode 100644
+index 00000000..563ed233
+--- /dev/null
++++ b/openspec/changes/2373-measure-what-coverage-and-branch-measurement/specs/ci-coverage-reports/spec.md
+@@ -0,0 +1,19 @@
++## ADDED Requirements
++
++### Requirement: coverage-cost-benchmark-record
++The change SHALL record the median CPU time and wall time of four coverage configurations (no coverage, lines, lines and branches, lines with ctrace core), each from three runs on a host with uptime under 2, and SHALL state the cost of branch measurement in seconds of CPU time and job time.
++
++#### Scenario: benchmark table complete
++- **WHEN** the three runs of each configuration complete on a host with uptime under 2
++- **THEN** the results document contains a table with four rows, each showing the median user-plus-system CPU time and wall time
++
++#### Scenario: branch cost stated in seconds
++- **WHEN** the medians of the lines and lines-and-branches configurations are computed
++- **THEN** the results document states the difference in seconds of CPU time and job time
++
++### Requirement: coverage-report-options-cost
++When the report or combine step is a large share of the lines configuration CPU time, the test job SHALL use coverage report options that reduce CPU time without lowering any coverage threshold.
++
++#### Scenario: report option reduced without threshold change
++- **WHEN** the report step is a large share of the lines configuration CPU time
++- **THEN** the test job drops the term-missing report from the runner and the coverage floor value in pyproject.toml is unchanged
+diff --git a/openspec/changes/2373-measure-what-coverage-and-branch-measurement/tasks.md b/openspec/changes/2373-measure-what-coverage-and-branch-measurement/tasks.md
+new file mode 100644
+index 00000000..840e2e67
+--- /dev/null
++++ b/openspec/changes/2373-measure-what-coverage-and-branch-measurement/tasks.md
+@@ -0,0 +1,29 @@
++# Tasks
++
++## 1. Run four coverage configurations and record medians
++
++Reads: none. Changes: `openspec/changes/2373-coverage-cost-measurement/benchmark-results.md`.
++
++- [ ] 1.1 Write a check that benchmark-results.md contains four configuration rows (no coverage, lines, lines and branches, lines with ctrace core), each with three runs of user-plus-system CPU time and wall time, and a median column. The file does not exist, so the check fails, and verify that `test -f openspec/changes/2373-coverage-cost-measurement/benchmark-results.md && grep -q 'median' openspec/changes/2373-coverage-cost-measurement/benchmark-results.md` fails on the base
++- [ ] 1.2 Check uptime is under 2. For each of the four configurations, run uv run pytest with the gate options three times. Record user-plus-system CPU time and wall time for each run. Compute the median. Write the table to benchmark-results.md, and verify that `test -f openspec/changes/2373-coverage-cost-measurement/benchmark-results.md && grep -q 'median' openspec/changes/2373-coverage-cost-measurement/benchmark-results.md` passes
++- [ ] 1.3 Change no document, run `uv run devops docs generate --sync-readme`, and verify that `uv run devops ci docs` passes
++
++## 2. Time the serial coverage commands
++
++Reads: none. Changes: `openspec/changes/2373-coverage-cost-measurement/benchmark-results.md`.
++
++- [ ] 2.1 Write a check that benchmark-results.md contains a section with separate timings for coverage combine, coverage report --show-missing, and coverage xml, each with CPU and wall time. The section does not exist, so the check fails, and verify that `grep -q 'coverage combine' openspec/changes/2373-coverage-cost-measurement/benchmark-results.md && grep -q 'coverage report' openspec/changes/2373-coverage-cost-measurement/benchmark-results.md && grep -q 'coverage xml' openspec/changes/2373-coverage-cost-measurement/benchmark-results.md` fails on the base
++- [ ] 2.2 Using the .coverage data files from the lines run, run coverage combine, coverage report --show-missing, and coverage xml each alone. Record the CPU and wall time of each. Append the results to benchmark-results.md, and verify that `grep -q 'coverage combine' openspec/changes/2373-coverage-cost-measurement/benchmark-results.md && grep -q 'coverage report' openspec/changes/2373-coverage-cost-measurement/benchmark-results.md && grep -q 'coverage xml' openspec/changes/2373-coverage-cost-measurement/benchmark-results.md` passes
++- [ ] 2.3 Change no document, run `uv run devops docs generate --sync-readme`, and verify that `uv run devops ci docs` passes
++
++## 3. State the cost and apply the conditional change
++
++Reads: none. Changes: `openspec/changes/2373-coverage-cost-measurement/design.md`.
++
++- [ ] 3.1 Write a check that design.md states the cost of branch measurement in seconds of CPU time and job time, and if the report step is a large share, that the CI option change is recorded with the threshold unchanged. The file does not exist, so the check fails, and verify that `grep -q 'branch' openspec/changes/2373-coverage-cost-measurement/design.md && grep -q 'seconds' openspec/changes/2373-coverage-cost-measurement/design.md` fails on the base
++- [ ] 3.2 Compute the difference between the lines and lines-and-branches medians. Write the cost in seconds of CPU and job time. If the report or combine step is a large share, record the lower-cost option and verify the coverage floor in pyproject.toml is unchanged. State that no threshold is lowered, and verify that `grep -q 'branch' openspec/changes/2373-coverage-cost-measurement/design.md && grep -q 'seconds' openspec/changes/2373-coverage-cost-measurement/design.md` passes
++- [ ] 3.3 Change no document, run `uv run devops docs generate --sync-readme`, and verify that `uv run devops ci docs` passes
++
++## Workflow follow-up
++
++- Pending a person: review the diff in tuicr (tuicr -r <base>..HEAD).

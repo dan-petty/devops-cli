@@ -1,0 +1,21 @@
+{
+ "id": "change-2967-hunk-removed",
+ "kind": "change",
+ "label": "incomplete",
+ "source": {
+  "pull_commit": "454edb86fa3762d89089b76bd4c60d8f8518e557",
+  "issue": 2967,
+  "title": "fix(roadmap): pr create and pr ready replace a Blocked stop of a job (#3826)"
+ },
+ "criteria": [
+  "`devops pr create` sets In Progress on an item that the Service set Blocked at a stop.",
+  "`devops pr ready` sets In Review on the same item.",
+  "A `status/blocked` label that a person set stays.",
+  "`uv run devops ci` passes."
+ ],
+ "removed": {
+  "criterion": 1,
+  "path": "src/devops_cli/roadmap/pull_status.py",
+  "hunk": "@@ -59,7 +60,7 @@ def set_delivered_status(repo: str, pull: int, status: str) -> int | None:"
+ }
+}

@@ -967,6 +967,10 @@ class RoadmapStageConfig(BaseModel):
         description="Whether the stage job adds the remote tools of its role from the MCP server",
         default=False,
     )
+    jev_completeness: Annotated[bool, Variable()] = Field(
+        description="Whether the stage_ready row asks TypeSafe Jev if a green plan draft delivers each acceptance criterion of its issue, before it marks the draft ready. A criterion in doubt, a weak test score or an error of Jev keeps the draft a draft and posts one note; the check never marks a draft ready, merges or closes",
+        default=False,
+    )
 
     @field_validator("filter")
     @classmethod

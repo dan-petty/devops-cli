@@ -1,0 +1,20 @@
+{
+ "id": "plan-2258-complete",
+ "kind": "plan",
+ "label": "complete",
+ "source": {
+  "stage_case": "2258-repos-branches-ssh-and-tls-commands",
+  "pull": 2972,
+  "commit": "a765a4d19ac837d866806368a505a8b0366c6a8a"
+ },
+ "criteria": [
+  "Each command in the table is out of `tests/fixtures/dry_run_gaps.json`, and the ratchet test passes.",
+  "For each request-plan command, `devops <command> --dry-run` and `devops --dry-run <command>` make no external request and print the ordered requests. Verified by tests with the process runner, the HTTP clients and the other clients patched to fail.",
+  "For each request-plan command with `--format json` or `--json`, the dry run returns the real result type marked as a dry run, with the planned requests. Verified by tests.",
+  "For each request-plan command, the plan holds the requests that the real run makes, in the same order. Verified by a test that runs the real command against a fake runner or client that records each call, and compares the calls with the plan (the pattern of `tests/test_roadmap_dry_runs.py`).",
+  "For each mark-only command, `devops --dry-run <command>` runs the command normally. Verified by tests with the process runner and the HTTP clients patched to fail.",
+  "Echo-only previews of these commands are gone, with no shim.",
+  "The new tests start no process and open no socket. The pull request records their time.",
+  "`uv run devops ci` passes."
+ ]
+}

@@ -1,0 +1,18 @@
+{
+ "id": "plan-2576-dropped",
+ "kind": "plan",
+ "label": "incomplete",
+ "source": {
+  "stage_case": "2576-a-token-that-argo-cd-refuses",
+  "pull": 3002,
+  "commit": "1267327bdab34cca4ee9c30028915a1e243a5f0a"
+ },
+ "criteria": [
+  "Retry on 401 with stored password: When the Argo CD API returns HTTP 401 and an admin password is stored, the command SHALL mint a new token, store it in the keyring, and retry the request once.",
+  "Error on 401 without password: When the Argo CD API returns HTTP 401 and no admin password is stored, the command SHALL stop with one error line that names `argocd.token` and the credential sync command.",
+  "Error on retry 401: When the retried request after minting a new token also returns HTTP 401, the command SHALL stop with one error line.",
+  "Error on other HTTP status: When the Argo CD API returns any HTTP status other than 401, the command SHALL stop with one error line containing the status code.",
+  "Error is DevOpsCLIError: Every Argo CD API error SHALL be raised as a `DevOpsCLIError` subclass so the exit seam reports it."
+ ],
+ "note": "The plan covers only three commands. Two other Argo CD API callers use the same stored token with a raw `raise_for_status` and have the same traceback: `fleet.py` (used by fleet and sync commands) and `gitops.py`. The plan does not name them as out of scope or as a follow-up. The design says 'duplicating ... across four or more commands', and the issue title says 'each argo API command', yet only three are changed. After the change, `devops argo sync` and the gitops sync still end in a traceback on a refused token."
+}

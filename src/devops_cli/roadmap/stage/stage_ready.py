@@ -21,6 +21,13 @@ token holds `checks: read` and no `statuses`.
 `draft_readiness` is the one decision. It reads the checks today; #2867 replaces its body with a
 judgement of whether the work is complete.
 
+With the setting `roadmap.stage.jev_completeness` on, a green draft without the label also goes to
+the Jev completeness check (#4308). It asks TypeSafe Jev whether the plan delivers each acceptance
+criterion of the issue. A criterion in doubt, a weak test score or an error of Jev keeps the draft
+a draft. The round posts one note and records `stage.jev` with the head commit, so it asks again
+only for a new head commit, or after an error. The check only holds: a pass leaves the decision to
+the checks above, and the check never marks a draft ready, merges or closes.
+
 A pull request that fails stops that item only. The round then fails and names each item. That
 holds for a 404 too: GitHub answers 404 for a repository the token cannot see, so the answer does
 not prove that the pull request is gone, and the row records nothing. Rejected credentials, a rate
@@ -34,6 +41,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from functools import partial
 
+from devops_cli.config.settings import load_settings
 from devops_cli.exceptions import GitHubRateLimitError
 from devops_cli.github.check_verdict import read_check_runs
 from devops_cli.github.session import get_github_session
@@ -45,7 +53,13 @@ from devops_cli.roadmap.implement.implement_pull import (
     draft_readiness,
     mark_ready,
 )
+from devops_cli.roadmap.jev_completeness import (
+    CompletenessOutcome,
+    check_completeness,
+    completeness_note,
+)
 from devops_cli.roadmap.stage.stage import StageFailure, raise_for_failed, write_each
+from devops_cli.roadmap.stage.stage_criteria import acceptance_criteria
 from devops_cli.roadmap.stage.stage_verify import PLAN_NEEDS_FIX_LABEL
 from devops_cli.roadmap.status_sync import facts_of, sync_status
 from devops_cli.roadmap.stores.store import (
@@ -86,6 +100,30 @@ def _recorded_pull(item: Item) -> int | None:
     return int(recorded)
 
 
+def _jev_holds(store: RoadmapStore, repo: str, item: Item, number: int, head: str) -> bool:
+    """Whether the Jev completeness check keeps draft `number` a draft (#4308). It asks Jev when
+    the setting is on and the record holds no `held` mark for `head`. A hold posts one note and
+    records the head; an error posts its note once for the head and asks again in the next round."""
+    if not load_settings().roadmap.stage.jev_completeness:
+        return False
+    mark = item.job_record.get(StageRecordKey.JEV) or ""
+    if mark == f"{head}:{CompletenessOutcome.HELD}":
+        return True
+    client = get_github_session().client
+    result = check_completeness(
+        acceptance_criteria(item.body), client.get_pr_diff(repo, number), "plan"
+    )
+    if not result.holds:
+        if mark:
+            store.set_marks(item, {StageRecordKey.JEV: None})
+        return False
+    error_mark = f"{head}:{CompletenessOutcome.ERROR}"
+    if not (result.outcome is CompletenessOutcome.ERROR and mark == error_mark):
+        client.comment_on_pull(repo, number, completeness_note(result, number))
+    store.set_marks(item, {StageRecordKey.JEV: f"{head}:{result.outcome}"})
+    return True
+
+
 def _settle(store: RoadmapStore, repo: str, item: Item, number: int) -> _Outcome:
     """Read pull request `number` of `item` and mark it ready when it is a green draft."""
     client = get_github_session().client
@@ -109,6 +147,8 @@ def _settle(store: RoadmapStore, repo: str, item: Item, number: int) -> _Outcome
         return _Outcome.WAITING
     if item.job_record.get(StageRecordKey.NEEDS_FIX):
         store.set_marks(item, {StageRecordKey.NEEDS_FIX: None})
+    if _jev_holds(store, repo, item, number, status.head_sha):
+        return _Outcome.WAITING
     again = client.get_pull_status(repo, number)
     if not again.is_open_draft or again.head_sha != status.head_sha:
         return _Outcome.WAITING

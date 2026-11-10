@@ -1,0 +1,21 @@
+{
+ "id": "change-4255-hunk-removed",
+ "kind": "change",
+ "label": "incomplete",
+ "source": {
+  "pull_commit": "2cef13722dd24407902f84c8976468c66152cfca",
+  "issue": 4255,
+  "title": "fix(roadmap): read a quoted tuple as an MCP key in context (#4265)"
+ },
+ "criteria": [
+  "A unit test builds a plan whose Feasibility sentence says: \"The fixture table in `tests/conftest.py` lists (\\\"reset_logfire_bridge\\\",).\" `command_citation_problems` returns no problem. Command: `uv run devops ci test tests/roadmap/stage/test_roadmap_stage_command_citations.py`. It fails today.",
+  "The tests \"an unknown key is refused\" and \"a known key is accepted\" use a sentence that names the exposure table, and still pass.",
+  "The spec requirement says where the gate reads a quoted tuple. Command: `uv run devops openspec check`.",
+  "The golden set of the stage eval still passes. Command: `uv run devops roadmap eval stage --replay`."
+ ],
+ "removed": {
+  "criterion": 1,
+  "path": "src/devops_cli/roadmap/stage/stage_commands.py",
+  "hunk": "@@ -122,9 +129,25 @@ def _resolve_command_span(span: str) -> Iterator[str]:"
+ }
+}

@@ -1,0 +1,17 @@
+{
+ "id": "plan-2169-complete",
+ "kind": "plan",
+ "label": "complete",
+ "source": {
+  "stage_case": "2169-the-qdrant-retry-the-process-fake",
+  "pull": 2766,
+  "commit": "e133940b4e36e6867d4b986e0995b85cb06493a8"
+ },
+ "criteria": [
+  "`rg -n \"time\\.sleep\" src/devops_cli/ai/rag/qdrant.py tests/support/fakes/process.py` prints nothing.",
+  "No test in the list calls `time.sleep` or `asyncio.sleep` with a positive time, and each still checks its behaviour.",
+  "The audit's real-sleep measure finds no test that sleeps 0.05 s or more in total. The pull request gives the before and after figures for the listed files.",
+  "No test bounds elapsed time from above (the `test-elapsed-upper-bound` rule).",
+  "`uv run devops ci` passes."
+ ]
+}

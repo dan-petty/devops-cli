@@ -1,0 +1,15 @@
+{
+ "id": "plan-2147-dropped",
+ "kind": "plan",
+ "label": "incomplete",
+ "source": {
+  "stage_case": "2147-the-volumes-of-grafana-the-prometheus",
+  "pull": 2857,
+  "commit": "ecbdcfc0abe8e0d5fed3624a433b68dd45d1075d"
+ },
+ "criteria": [
+  "`kubectl get pv` shows the volumes of the three claims on worker nodes, with reclaim policy Retain.",
+  "`CONST_K8S_CONTROL_PLANE_CLAIM_EXEMPTIONS` is empty or gone, and `tests/test_k8s_local_path_placement.py` passes with no exemption."
+ ],
+ "note": "The plan does not deliver acceptance criterion 1 of the issue: the volumes are on worker nodes with reclaim policy Retain. It leaves this as an 'operational step' with no task, no gate and no check. The README says a pod with the affinity cannot start while its volume is still on the control-plane node. Argo CD tracks main with selfHeal, so a merge before the move leaves Grafana, Prometheus and Loki Pending. The plan has no step that checks the volumes are moved before the change merges. It has no Feasibility evidence of the cluster state either."
+}

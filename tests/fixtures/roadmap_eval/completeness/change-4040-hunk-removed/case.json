@@ -1,0 +1,20 @@
+{
+ "id": "change-4040-hunk-removed",
+ "kind": "change",
+ "label": "incomplete",
+ "source": {
+  "pull_commit": "768dbd3a77791de1b4ef55f8e123f2731eb3c237",
+  "issue": 4040,
+  "title": "fix(roadmap): check a split plan of the stage with every gate (#4109)"
+ },
+ "criteria": [
+  "`uv run pytest tests/roadmap/stage/test_roadmap_stage_split_gates.py -k 'eval_replay or what_changes or move_prefix or registry'` - a scripted split brings back one fault that only one named gate refuses. The four faults are:",
+  "`uv run pytest tests/roadmap/stage/test_roadmap_stage_split_gates.py -k only_one_gate` - for each scripted split, `check_gates` shows problems under exactly one gate name. So each test case proves one gate.",
+  "`! grep -n 'path_problems(asked.groups' src/devops_cli/roadmap/stage/stage.py` - the hand-made list of gates after a split is gone."
+ ],
+ "removed": {
+  "criterion": 1,
+  "path": "src/devops_cli/roadmap/stage/stage.py",
+  "hunk": "@@ -1153,19 +1129,9 @@ class _Planner:"
+ }
+}
