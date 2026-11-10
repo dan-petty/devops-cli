@@ -122,7 +122,7 @@ def test_a_later_milestone_is_refined_once_the_second_one_is_ready(
         seed_item(store, "New", priority, milestone=THIRD)
         for priority in ("P1-High", "P2-Medium", "P1-High", "P1-High")
     ]
-    selected, _skipped = select_candidates(store)
+    selected, _skipped = select_candidates(store, limit=3)
     assert [it.number for it in selected] == [later[0], later[2], later[3]]
 
 

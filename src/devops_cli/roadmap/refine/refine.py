@@ -1,6 +1,6 @@
 """`devops roadmap refine`: item refinement to Ready with proposed design, tasks and acceptance criteria.
 
-Without `--item`, refine picks up to `--limit` (default 3) items, nearest place first (#1515):
+Without `--item`, refine picks up to `--limit` (default 7) items, nearest place first (#1515):
 each open milestone's New items, in milestone order (due date, then number); the backlog's P0 and
 P1 items; the backlog's other New items; each place by priority. The number of Ready items does
 not stop a round: the board shows that number to the person who plans, and `--limit` is the only

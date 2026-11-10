@@ -814,10 +814,10 @@ DEFAULT_ROADMAP_INTAKE_INTERVAL_MINUTES: int = 29
 DEFAULT_ROADMAP_INBOX_DRAFT_DAYS: int = 7
 DEFAULT_ROADMAP_INBOX_WAIT_DAYS: int = 7
 # How often refine is due on its own, besides its cross-job trigger (#1515).
-DEFAULT_ROADMAP_REFINE_INTERVAL_MINUTES: int = 31
+DEFAULT_ROADMAP_REFINE_INTERVAL_MINUTES: int = 17
 DEFAULT_ROADMAP_METRICS_INTERVAL_MINUTES: int = 13
 # The most items one refine round takes. It is the only cap of a round (#2004).
-DEFAULT_ROADMAP_REFINE_LIMIT: int = 3
+DEFAULT_ROADMAP_REFINE_LIMIT: int = 7
 # The most candidates one Service round of intake decides, one model call each (#1360).
 DEFAULT_ROADMAP_INTAKE_LIMIT: int = 5
 # `devops roadmap retitle` (#3486): the most items one run examines. A run asks the model once for

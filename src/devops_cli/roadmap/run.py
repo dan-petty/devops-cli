@@ -12,7 +12,7 @@ kept beside the repositories' schedules (`service_state_dir`), so a restart keep
 Each row is due by its interval, by a webhook hint in the batch, or by its due rule, which
 judges the changes made since the row last succeeded: intake's is an issue reopened, or a fresh
 candidate its last round left (`IntakeRecord`, kept beside `schedule.json`). A round's intake
-decides at most `DEFAULT_ROADMAP_INTAKE_LIMIT` candidates. Refine is due every 31 minutes, on a first
+decides at most `DEFAULT_ROADMAP_INTAKE_LIMIT` candidates. Refine is due every 17 minutes, on a first
 run, and in a round where intake placed a critical fix or a P0 item (#1515). Stage, the row after
 refine, is due every 37 minutes, on a first run, and in a round where refine set an item Ready (#2659).
 Retitle, the row before stage, is due every 61 minutes and on a first run, and shortens at most

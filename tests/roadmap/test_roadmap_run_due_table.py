@@ -72,8 +72,8 @@ class StoreSpy:
         return attr
 
 
-# Just under the shortest interval of the hourly rows (intake, 29 minutes), and over all of them.
-UNDER_MINUTES = 28
+# Just under the shortest interval of the hourly rows (refine, 17 minutes), and over all of them.
+UNDER_MINUTES = 16
 
 
 OVER_AGO = NOW - timedelta(minutes=61)
@@ -245,7 +245,7 @@ def test_refine_is_due_at_its_interval_after_its_last_success_and_on_a_first_run
     monkeypatch: pytest.MonkeyPatch,
     cli: Callable[..., Any],
 ) -> None:
-    """Refine is due 31 min after its last success, not at 30, and on a first run; the CLI's dry
+    """Refine is due 17 min after its last success, not at 16, and on a first run; the CLI's dry
     run lists it (#1515)."""
     table = build_stub_table(include_refine=True)
 
@@ -261,12 +261,12 @@ def test_refine_is_due_at_its_interval_after_its_last_success_and_on_a_first_run
             REPO, seeded_store, table=table, data_dir=tmp_path, dry_run=True, now=NOW
         )
 
-    at_31, at_30, first = due(timedelta(minutes=31)), due(timedelta(minutes=30)), due(None)
+    at_17, at_16, first = due(timedelta(minutes=17)), due(timedelta(minutes=16)), due(None)
     monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path))
     _stamp_the_default_table(tmp_path, except_for=("refine",), refine=timedelta(minutes=61))
     result = cli(["roadmap", "run", "--dry-run", "-R", REPO])
 
-    assert (at_31, at_30, first, result.exit_code, "Due: refine\n" in result.output) == (
+    assert (at_17, at_16, first, result.exit_code, "Due: refine\n" in result.output) == (
         ("refine",),
         (),
         ("refine",),
@@ -458,7 +458,7 @@ def test_idle_records_zero_or_one_store_calls(
     stamp_successes(
         tmp_path,
         intake=TWENTY_MINUTES_AGO,
-        refine=TWENTY_MINUTES_AGO,
+        refine=recent,
         retitle=TWENTY_MINUTES_AGO,
         stage=TWENTY_MINUTES_AGO,
         implement=recent,

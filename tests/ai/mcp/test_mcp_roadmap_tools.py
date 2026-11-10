@@ -85,7 +85,7 @@ def test_roadmap_refine_contract_and_argv(
         all(c[-1] == "--dry-run" for c in calls),
         any("--confirm" in c for c in calls),
     ) == (
-        [*head, "--source", str(tmp_path), "--limit", "3", "--dry-run"],
+        [*head, "--source", str(tmp_path), "--limit", "7", "--dry-run"],
         [
             *head,
             "--repo",

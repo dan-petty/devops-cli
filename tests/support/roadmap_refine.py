@@ -359,9 +359,15 @@ def requests_per_item(sent: list[httpx2.Request]) -> dict[int | None, int]:
     return dict(Counter(_issue_number(request) for request in sent))
 
 
-def refine_round(store: InMemoryRoadmapStore, source: Path) -> RefinePlan:
+def refine_round(
+    store: InMemoryRoadmapStore, source: Path, *, limit: int | None = None
+) -> RefinePlan:
     """One round of `devops roadmap refine --confirm`, planned and then applied."""
-    plan = plan_refine(store, repo=REPO, source=source)
+    plan = (
+        plan_refine(store, repo=REPO, source=source)
+        if limit is None
+        else plan_refine(store, repo=REPO, source=source, limit=limit)
+    )
     apply_refine(store, plan)
     return plan
 
