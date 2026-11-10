@@ -15,6 +15,7 @@ from typer.testing import CliRunner
 from devops_cli.commands.k8s import app
 from devops_cli.dry_run import set_dry_run
 from devops_cli.prometheus.promql import selectors, validate_promql
+from devops_cli.tools_lock import load_tools_lock
 from tests.support.config_writes import written_keys
 from tests.support.fakes.clock import ClockFake
 from tests.support.fakes.keyring import FakeKeyring
@@ -195,7 +196,7 @@ def test_deploy_stack_warns_on_kubectl_version_skew(
         app, ["deploy-stack", "--context", "local-k3s", "--no-push-secrets", "--no-wait"]
     )
 
-    assert "1.37.1" in res.output
+    assert load_tools_lock().tools()["kubectl"].version in res.output
     assert "1.31.4" in res.output or "v1.31.4" in res.output
     assert "supported" in res.output or "skew" in res.output
 
