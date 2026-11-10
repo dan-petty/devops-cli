@@ -729,12 +729,13 @@ def test_a_review_that_runs_no_tool_has_a_profile_with_no_rows(tmp_path: Path) -
 def test_the_report_shows_a_row_for_each_distinct_record_and_counts_its_runs(
     tree: Path, orchestrator: ReviewPipelineOrchestrator
 ) -> None:
-    """Gitleaks scans one file at a time, so a review of many files runs it many times with one
-    record. The report holds one row for a record and counts its runs. `profile.json` keeps each.
-    A row names the tool, its version, how it ran, the short digest of its binary, the digests of
-    its config and ruleset, the commit, the command, the exit code and the success."""
+    """The report holds one row for a record and counts its runs when a tool runs more than once
+    with that record. `profile.json` keeps each. A row names the tool, its version, how it ran, the
+    short digest of its binary, the digests of its config and ruleset, the commit, the command, the
+    exit code and the success."""
     executor = orchestrator.tool_executor
-    run_gitleaks_scan([tree / "app.py", tree / "other.py"], isolated=True, tool_executor=executor)
+    run_gitleaks_scan([tree / "app.py"], isolated=True, tree=tree, tool_executor=executor)
+    run_gitleaks_scan([tree / "app.py"], isolated=True, tree=tree, tool_executor=executor)
     run_bandit_scan([tree / "app.py"], isolated=True, tree=tree, tool_executor=executor)
     bandit = executor.runs[-1]
 
@@ -761,7 +762,8 @@ def test_the_sarif_of_a_review_holds_a_run_with_the_records_of_each_tool_that_ra
     with its invocation. Bandit gave no result and its run succeeded, so its run says that it
     looked and found nothing (#2100)."""
     executor = orchestrator.tool_executor
-    run_gitleaks_scan([tree / "app.py", tree / "other.py"], isolated=True, tool_executor=executor)
+    run_gitleaks_scan([tree / "app.py"], isolated=True, tree=tree, tool_executor=executor)
+    run_gitleaks_scan([tree / "app.py"], isolated=True, tree=tree, tool_executor=executor)
     run_bandit_scan([tree / "app.py"], isolated=True, tree=tree, tool_executor=executor)
     orchestrator.admitted_scanner_findings = [
         Finding(

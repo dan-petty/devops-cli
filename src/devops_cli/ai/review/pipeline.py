@@ -1343,6 +1343,7 @@ def _scan_secrets(
     paths: list[Path],
     outcomes: dict[str, Any] | None = None,
     *,
+    tree: Path | None = None,
     tool_executor: ToolExecutor | None = None,
 ) -> list[SavedFinding]:
     """Run the Gitleaks secret scan."""
@@ -1350,7 +1351,9 @@ def _scan_secrets(
         return []
     from devops_cli.security.gitleaks import run_gitleaks_scan
 
-    gl = run_gitleaks_scan(paths, ignore_tests=True, isolated=True, tool_executor=tool_executor)
+    gl = run_gitleaks_scan(
+        paths, ignore_tests=True, isolated=True, tree=tree, tool_executor=tool_executor
+    )
     _observe_outcome(outcomes, "Gitleaks", gl)
     return wrap_static_findings(gl, tool="gitleaks")
 
@@ -1783,7 +1786,11 @@ def _run_scanners_for_buckets(
     if buckets.leak_targets:
         findings.extend(
             _call_scanner_helper(
-                _scan_secrets, buckets.leak_targets, outcomes, tool_executor=tool_executor
+                _scan_secrets,
+                buckets.leak_targets,
+                outcomes,
+                tree=tree,
+                tool_executor=tool_executor,
             )
         )
 
