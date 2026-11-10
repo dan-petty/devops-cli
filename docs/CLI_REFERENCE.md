@@ -4060,7 +4060,7 @@ devops ai fetch-page [OPTIONS] <url>
 
 ### `devops ai ask-jev`
 
-**Ask TypeSafe Jev one question and print its answer with the probability and the token count. The kind is choice (pick one option), noul (yes or no) or score (rate against a rubric). The answer is evidence, not a verdict: check it. Jev is a hosted model, so the text leaves the cluster: send public text only, such as the text of an issue or of a pull request. Never send private code, a secret or private data. The command refuses an input with a secret, a private host or a private address, and an input that is too large.**
+**Ask TypeSafe Jev one question and print its answer with the probability and the token count. The kind is choice (pick one option), noul (yes or no) or score (rate against a rubric). The answer is evidence, not a verdict: check it. Jev is a hosted model, so the text leaves the cluster. Project text and code are fine, but never send a secret: the command refuses an input with a secret and an input that is too large.**
 
 ```bash
 devops ai ask-jev [OPTIONS] <kind> <question>

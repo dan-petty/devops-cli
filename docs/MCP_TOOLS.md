@@ -6,7 +6,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 
 | Tool Name | `readOnlyHint` | Description |
 |---|---|---|
-| [`ai_ask_jev`](#ai-ask-jev) | `true` | Ask TypeSafe Jev one question and print its answer with the probability and the token count. The kind is choice (pick one option), noul (yes or no) or score (rate against a rubric). The answer is evidence, not a verdict: check it. Jev is a hosted model, so the text leaves the cluster: send public text only, such as the text of an issue or of a pull request. Never send private code, a secret or private data. The command refuses an input with a secret, a private host or a private address, and an input that is too large. |
+| [`ai_ask_jev`](#ai-ask-jev) | `true` | Ask TypeSafe Jev one question and print its answer with the probability and the token count. The kind is choice (pick one option), noul (yes or no) or score (rate against a rubric). The answer is evidence, not a verdict: check it. Jev is a hosted model, so the text leaves the cluster. Project text and code are fine, but never send a secret: the command refuses an input with a secret and an input that is too large. |
 | [`ai_ast_graph`](#ai-ast-graph) | `true` | Synthesize whole-repository symbol dependency and reference graph. |
 | [`ai_ast_parse`](#ai-ast-parse) | `true` | Parse source file concrete syntax tree and extract structural symbols. |
 | [`ai_benchmark`](#ai-benchmark) | `true` | Benchmark, evaluate, and peer-grade candidate AI models across engineering tasks. |
@@ -160,7 +160,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 
 ### `ai_ask_jev`
 
-Ask TypeSafe Jev one question and print its answer with the probability and the token count. The kind is choice (pick one option), noul (yes or no) or score (rate against a rubric). The answer is evidence, not a verdict: check it. Jev is a hosted model, so the text leaves the cluster: send public text only, such as the text of an issue or of a pull request. Never send private code, a secret or private data. The command refuses an input with a secret, a private host or a private address, and an input that is too large.
+Ask TypeSafe Jev one question and print its answer with the probability and the token count. The kind is choice (pick one option), noul (yes or no) or score (rate against a rubric). The answer is evidence, not a verdict: check it. Jev is a hosted model, so the text leaves the cluster. Project text and code are fine, but never send a secret: the command refuses an input with a secret and an input that is too large.
 
 **Annotations:** `readOnlyHint: true`
 
