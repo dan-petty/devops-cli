@@ -11,8 +11,14 @@ import pytest
 from pydantic import ValidationError
 
 from devops_cli.config.constants import CONST_ROADMAP_JEV_DUPLICATE_THRESHOLD
-from devops_cli.config.settings import RoadmapIntakeConfig, Settings
-from devops_cli.roadmap.intake.intake import Outcome
+from devops_cli.config.settings import (
+    RoadmapIntakeConfig,
+    Settings,
+    load_settings,
+    reset_settings_cache,
+)
+from devops_cli.exceptions.security import SecurityError
+from devops_cli.roadmap.intake.intake import NewCandidate, Outcome
 from devops_cli.roadmap.intake.intake_jev import JevIntakeModel
 from devops_cli.roadmap.intake.intake_jev_shadow import ShadowIntakeModel, ShadowObservation
 from devops_cli.roadmap.intake.intake_model import GatewayIntakeModel, build_intake_model
@@ -27,8 +33,10 @@ if TYPE_CHECKING:
     from tests.support.fakes.jev import JevFake
     from tests.support.fakes.otlp import FakeCollector
 
-SHADOW_TOTAL = "devops_cli_roadmap_intake_jev_shadow_total"
+# Mode `on` and mode `shadow` count in the same counter, each with its own outcomes.
 FIELDS_TOTAL = "devops_cli_roadmap_intake_jev_fields_total"
+SHADOW_OUTCOMES = {"agree", "differ", "jev_error"}
+FIELDS = {"type", "priority", "value", "effort", "duplicate"}
 AT = datetime(2026, 11, 10, 12, 0, tzinfo=UTC)
 # Level 2 of the three levels is High; level 0 is Low.
 HIGH, LOW = 2, 0
@@ -39,8 +47,9 @@ def _model(jev: JevFake, base: FakeModel | None = None) -> ShadowIntakeModel:
 
 
 def _counts(otlp: FakeCollector) -> dict[tuple[str, str], float]:
+    """The sum of the fields counter for each (field, outcome) that has a point."""
     found: dict[tuple[str, str], float] = {}
-    for attrs, value in otlp.points(SHADOW_TOTAL):
+    for attrs, value in otlp.points(FIELDS_TOTAL):
         assert set(attrs) == {"field", "outcome"}
         key = (attrs["field"], attrs["outcome"])
         found[key] = found.get(key, 0.0) + value
@@ -211,7 +220,7 @@ def test_agreement_counts_agree_and_differ_for_each_field(
     }
 
 
-def test_the_shadow_counter_has_at_most_fifteen_series(
+def test_shadow_counts_at_most_fifteen_series_of_its_own_outcomes(
     roadmap: Roadmap, jev: JevFake, otlp: FakeCollector
 ) -> None:
     first = roadmap.issue("Cache embeddings")
@@ -224,20 +233,45 @@ def test_the_shadow_counter_has_at_most_fifteen_series(
 
     counts = _counts(otlp)
 
-    assert {outcome for _, outcome in counts} <= {"agree", "differ", "jev_error"}
-    assert {field for field, _ in counts} <= {"type", "priority", "value", "effort", "duplicate"}
-    assert len(counts) <= 15
+    assert {outcome for _, outcome in counts} <= SHADOW_OUTCOMES
+    assert {field for field, _ in counts} <= FIELDS
+    assert len(counts) <= len(FIELDS) * len(SHADOW_OUTCOMES)
     assert ("duplicate", "differ") in counts
 
 
-def test_shadow_counts_nothing_in_the_counter_of_the_deciding_model(
+def test_mode_on_and_mode_shadow_share_one_counter_with_separate_outcomes(
     roadmap: Roadmap, jev: JevFake, otlp: FakeCollector
 ) -> None:
+    """One instrument counts both modes: the outcomes of `on` say which model gave a field, and
+    those of `shadow` say whether Jev agrees with the triage model. 5 fields and 5 outcomes."""
     roadmap.issue("Cache embeddings")
-
     roadmap.plan(_model(jev))
+    shadow = set(_counts(otlp))
 
-    assert list(otlp.points(FIELDS_TOTAL)) == []
+    roadmap.plan(JevIntakeModel(FakeModel(topics=("embeddings",)), jev.model))
+    on = set(_counts(otlp)) - shadow
+
+    assert {outcome for _, outcome in shadow} <= SHADOW_OUTCOMES
+    assert {outcome for _, outcome in on} == {"jev"}
+    assert len(FIELDS) * len({"jev", "fallback", *SHADOW_OUTCOMES}) == 25
+    intake_jev = {
+        metric["name"]
+        for metric in otlp.metrics
+        if metric["name"].startswith("devops_cli_roadmap_intake_jev")
+    }
+    assert intake_jev == {FIELDS_TOTAL}
+
+
+def test_a_candidate_with_a_secret_asks_neither_model_in_shadow(
+    roadmap: Roadmap, jev: JevFake
+) -> None:
+    triage = FakeModel()
+    leaked = NewCandidate(title="fix: auth", body="It fails with token=ghp_abcdefghijklmnop1234")
+
+    with pytest.raises(SecurityError, match="secret"):
+        roadmap.plan(_model(jev, triage), new=leaked)
+
+    assert (triage.embedded, triage.requests, jev.requests) == ([], [], [])
 
 
 def test_a_metered_shadow_model_still_observes_and_counts_only_triage_calls(
@@ -273,6 +307,13 @@ def test_the_setting_builds_the_model_for_each_mode(
         "shadow": ShadowIntakeModel,
         "on": JevIntakeModel,
     }
+
+
+def test_the_variable_sets_the_mode(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DEVOPS_CLI_ROADMAP_INTAKE_JEV", "shadow")
+    reset_settings_cache()
+
+    assert load_settings().roadmap.intake.jev == "shadow"
 
 
 def test_the_setting_is_off_by_default_and_refuses_the_old_bool() -> None:

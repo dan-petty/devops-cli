@@ -18,7 +18,8 @@ With `roadmap.intake.jev` set to `shadow`, `intake_jev_shadow` uses the question
 this module for an observation, and the triage model decides.
 
 Jev fails open. An error, a timeout or a confidence below the least leaves the whole proposal to
-the triage model, and a counter records which fields came from which model. The evaluation
+the triage model, and a counter records which fields came from which model. Mode `shadow` counts
+in the same counter, with its own outcomes. The evaluation
 (`devops roadmap eval jev`) builds the model with `fall_back=False`, so a Jev failure shows as a
 skipped candidate and the report compares Jev alone.
 """
@@ -90,10 +91,20 @@ class JevField(StrEnum):
 
 
 class JevOutcome(StrEnum):
-    """Which model gave a field: a label of the counter."""
+    """What happened to a field: a label of the counter. Mode `on` counts which model gave the
+    field (`jev` or `fallback`). Mode `shadow` counts whether Jev agrees with the triage model
+    (`agree` or `differ`), or `jev_error` when Jev gave no answer."""
 
     JEV = "jev"
     FALLBACK = "fallback"
+    AGREE = "agree"
+    DIFFER = "differ"
+    JEV_ERROR = "jev_error"
+
+
+def count_field(field: str, outcome: JevOutcome) -> None:
+    """Add one to the counter of the Jev fields of intake for `field` and `outcome`."""
+    emit(ROADMAP_INTAKE_JEV_FIELDS_TOTAL, 1, {"field": field, "outcome": outcome.value})
 
 
 class JevUnusableError(ValueError):
@@ -320,11 +331,7 @@ class JevIntakeModel:
         if not self._fall_back:
             return
         for field in fields:
-            emit(
-                ROADMAP_INTAKE_JEV_FIELDS_TOTAL,
-                1,
-                {"field": field.value, "outcome": outcome.value},
-            )
+            count_field(field.value, outcome)
 
     def propose(self, request: ProposalRequest) -> ModelProposal:
         """The proposal that Jev's answers make, or the base model's when Jev fails."""
@@ -351,6 +358,7 @@ __all__ = [
     "JevUnusableError",
     "asked_fields",
     "best_neighbour",
+    "count_field",
     "level_name",
     "proposal_from",
 ]

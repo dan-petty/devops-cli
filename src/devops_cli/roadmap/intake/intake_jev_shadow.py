@@ -15,7 +15,9 @@ The result is a `ShadowObservation`. Intake writes it as the mark `intake.jev_sh
 record of the issue, in the same write as the Priority, so a later analysis finds it with the
 issue number and joins it with the final labels (`devops roadmap eval jev --from-shadow`). The mark
 holds the time, the answers and probabilities, and no text of the issue. A Jev error or timeout
-changes nothing: the fields count `jev_error` and the issue gets no mark.
+changes nothing: the fields count `jev_error` and the issue gets no mark. The counts go to the
+counter of mode `on`, `devops_cli_roadmap_intake_jev_fields_total`, with the outcomes of shadow:
+`agree`, `differ` and `jev_error`.
 """
 
 from __future__ import annotations
@@ -23,7 +25,6 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, datetime
-from enum import StrEnum
 from typing import Any, NamedTuple, Self, cast
 
 from pydantic import BaseModel, ConfigDict
@@ -45,8 +46,10 @@ from devops_cli.roadmap.intake.intake_jev import (
     FAILED,
     JevField,
     JevIntakeModel,
+    JevOutcome,
     asked_fields,
     best_neighbour,
+    count_field,
     level_name,
 )
 from devops_cli.roadmap.intake.intake_model import (
@@ -54,19 +57,10 @@ from devops_cli.roadmap.intake.intake_model import (
     ModelProposal,
     ProposalRequest,
 )
-from devops_cli.telemetry.instruments import ROADMAP_INTAKE_JEV_SHADOW_TOTAL, emit
 
 logger = logging.getLogger(__name__)
 
 _PRECISION = 2
-
-
-class ShadowOutcome(StrEnum):
-    """How a field of the shadow compares: a label of the counter."""
-
-    AGREE = "agree"
-    DIFFER = "differ"
-    JEV_ERROR = "jev_error"
 
 
 class ShadowError(ValueError):
@@ -128,8 +122,8 @@ def _score(
 def _duplicate(
     request: ProposalRequest, response: DecisionResponse, original: int | None
 ) -> ShadowAnswer:
-    for near in request.shortlist:
-        _answer_of(response, f"duplicate_of_{near.number}", object)
+    for each in request.shortlist:
+        _answer_of(response, f"duplicate_of_{each.number}", object)
     near, probability = best_neighbour(request, response)
     flagged = near is not None and probability >= CONST_ROADMAP_JEV_DUPLICATE_THRESHOLD
     return ShadowAnswer(
@@ -163,23 +157,9 @@ def observation_of(
     return ShadowObservation(at=at, answers=answers)
 
 
-def _count(fields: Sequence[JevField], outcome: ShadowOutcome) -> None:
-    for field in fields:
-        emit(
-            ROADMAP_INTAKE_JEV_SHADOW_TOTAL,
-            1,
-            {"field": field.value, "outcome": outcome.value},
-        )
-
-
 def _count_observation(observation: ShadowObservation) -> None:
     for name, answer in observation.answers.items():
-        outcome = ShadowOutcome.AGREE if answer.agrees else ShadowOutcome.DIFFER
-        emit(
-            ROADMAP_INTAKE_JEV_SHADOW_TOTAL,
-            1,
-            {"field": name, "outcome": outcome.value},
-        )
+        count_field(name, JevOutcome.AGREE if answer.agrees else JevOutcome.DIFFER)
 
 
 class ShadowIntakeModel:
@@ -221,7 +201,8 @@ class ShadowIntakeModel:
                     error=f"{type(exc).__name__}: {exc}"[:300]
                 )
             )
-            _count(asked_fields(request), ShadowOutcome.JEV_ERROR)
+            for field in asked_fields(request):
+                count_field(field.value, JevOutcome.JEV_ERROR)
             return None
         _count_observation(observation)
         return observation
@@ -239,6 +220,5 @@ __all__ = [
     "ShadowError",
     "ShadowIntakeModel",
     "ShadowObservation",
-    "ShadowOutcome",
     "observation_of",
 ]

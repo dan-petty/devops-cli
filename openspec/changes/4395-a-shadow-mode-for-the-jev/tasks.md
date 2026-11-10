@@ -4,10 +4,10 @@
 
 Reads: `src/devops_cli/roadmap/intake/intake_jev.py`, `src/devops_cli/roadmap/intake/intake.py`, `tests/roadmap/intake/test_roadmap_intake_jev.py`, `tests/support/fakes/jev.py`. Changes: `src/devops_cli/config/defaults.py`, `src/devops_cli/config/settings.py`, `src/devops_cli/roadmap/intake/`, `src/devops_cli/roadmap/stores/store.py`, `src/devops_cli/telemetry/instruments.py`, `src/devops_cli/lang/en/messages.py`.
 
-- [x] 1.1 Write `tests/roadmap/intake/test_roadmap_intake_jev_shadow.py`: shadow changes no label and no flag, a placement records the answers, a Jev error changes nothing, agreement counts, the series count, and the setting builds a model for each mode
+- [x] 1.1 Write `tests/roadmap/intake/test_roadmap_intake_jev_shadow.py`: shadow changes no label and no flag, a placement records the answers, a Jev error changes nothing, agreement counts, both modes share one counter, a secret reaches no model, the variable sets the mode, and the setting builds a model for each mode
   - Verification: `$ uv run devops ci fail-to-pass --base origin/main`
-- [x] 1.2 Make `roadmap.intake.jev` a `JevMode`, add `ShadowIntakeModel`, `ObservingModel`, `IntakeDecision.shadow`, `IntakeRecordKey` and the counter `devops_cli_roadmap_intake_jev_shadow_total`
-  - Verification: `$ uv run devops ci test tests/roadmap/intake/test_roadmap_intake_jev_shadow.py tests/roadmap/intake/test_roadmap_intake_jev.py tests/roadmap/stage/test_roadmap_stage_jev_screen.py`
+- [x] 1.2 Make `roadmap.intake.jev` a `JevMode` with a variable, add `ShadowIntakeModel`, `ObservingModel`, `IntakeDecision.shadow`, `IntakeRecordKey`, and the outcomes `agree`, `differ` and `jev_error` of `devops_cli_roadmap_intake_jev_fields_total`
+  - Verification: `$ uv run devops ci test tests/roadmap/intake/test_roadmap_intake_jev_shadow.py tests/roadmap/intake/test_roadmap_intake_jev.py tests/roadmap/stage/test_roadmap_stage_jev_screen.py tests/security/test_config_declarations.py`
 
 ## 2. The shadow report
 
@@ -20,10 +20,11 @@ Reads: `src/devops_cli/commands/roadmap_eval_jev.py`, `src/devops_cli/roadmap/je
 
 ## 3. Documents
 
-- [x] 3.1 Update `docs/roadmap/intake.md` and the example ConfigMap, and regenerate the references
+- [x] 3.1 Update `docs/roadmap/intake.md` and the example ConfigMap, and regenerate the references (`docs/ENV_VARS.md`, `docs/TELEMETRY.md`)
   - Verification: `$ uv run devops ci docs`
 
 ## Workflow follow-up
 
 - Pending a person: review the diff in tuicr (tuicr -r <base>..HEAD).
 - Pending a person: add `intake:` / `jev: shadow` under `roadmap:` of the live ConfigMap after the new image runs.
+- Later pull request: migrate `intake.proposal` onto the decision-point registry of #4397 (ADR 0020, migration step 3).

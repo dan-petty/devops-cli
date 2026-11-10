@@ -1283,7 +1283,7 @@ class RoadmapIntakeConfig(BaseModel):
 
     model_config = ConfigDict(extra="ignore", validate_assignment=True, hide_input_in_errors=True)
 
-    jev: JevMode = Field(
+    jev: Annotated[JevMode, Variable()] = Field(
         description="What TypeSafe Jev (typesafe/jev-1.14) does in intake (ADR 0019). `off` makes no Jev request. `shadow` keeps the triage model for every label and every flag, asks Jev the same fields (one request for each candidate), and records each Jev answer, its probability and the triage answer in the job record of the issue. `on` lets Jev decide the type, the priority, the Value, the Effort and the duplicate flags, and a Jev error, a timeout or a low confidence leaves the proposal to the triage model. Read the shadow records with `devops roadmap eval jev --from-shadow` before you set `on`",
         default=DEFAULT_ROADMAP_INTAKE_JEV,
     )

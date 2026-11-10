@@ -19,8 +19,12 @@ With `roadmap.intake.jev` set to `on`, intake SHALL ask Jev, in one request, for
 - **WHEN** the setting is the bool `true`
 - **THEN** the settings fail to validate
 
+#### Scenario: The variable sets the mode
+- **WHEN** the variable `DEVOPS_CLI_ROADMAP_INTAKE_JEV` is `shadow`
+- **THEN** the loaded setting is `shadow`
+
 ### Requirement: A Jev failure falls back to the triage model
-When the setting is `on` and a Jev request fails, times out, or gives a choice or score with a confidence below 0.60, intake SHALL use the `triage` model for the whole proposal, SHALL log a warning, and SHALL count each asked field with the outcome `fallback`. A proposal that Jev decides SHALL count each asked field with the outcome `jev`. The counter SHALL have the labels `field` and `outcome` only, and so at most 10 series. Mode `shadow` SHALL not count in this counter.
+When the setting is `on` and a Jev request fails, times out, or gives a choice or score with a confidence below 0.60, intake SHALL use the `triage` model for the whole proposal, SHALL log a warning, and SHALL count each asked field with the outcome `fallback`. A proposal that Jev decides SHALL count each asked field with the outcome `jev`. The counter `devops_cli_roadmap_intake_jev_fields_total` SHALL have the labels `field` and `outcome` only. Mode `on` SHALL write only the outcomes `jev` and `fallback`, and so at most 10 series.
 
 #### Scenario: Jev is unavailable
 - **WHEN** the gateway answers a Jev request with status 503
@@ -47,6 +51,10 @@ With the setting `shadow`, intake SHALL use the `triage` model for every label a
 - **WHEN** the setting is `shadow` and the `triage` model gives no usable reply
 - **THEN** intake sends no Jev request for the candidate
 
+#### Scenario: A candidate holds a secret
+- **WHEN** the setting is `shadow` and the body of a new candidate holds a token that the secret scan finds
+- **THEN** intake raises a security error and sends no `triage` request and no Jev request
+
 ### Requirement: Shadow mode records the observation in the job record
 In mode `shadow`, the placement of a candidate SHALL write the mark `intake.jev_shadow` in the job record of the issue, in the same write as the Priority. The mark SHALL hold the time of the proposal and, for each asked field, the Jev answer, its probability and the `triage` answer. It SHALL hold no text of the issue.
 
@@ -70,11 +78,18 @@ In the mark, the Jev answer of the duplicate field SHALL be the nearest item who
 - **THEN** the duplicate field holds that item number in both answers and the probability 0.90
 
 ### Requirement: Shadow mode counts the agreement of Jev
-In mode `shadow`, intake SHALL count each asked field of each candidate in `devops_cli_roadmap_intake_jev_shadow_total` with the labels `field` (type, priority, value, effort, duplicate) and `outcome` only: `agree` when the Jev answer equals the `triage` answer, `differ` when it does not, and `jev_error` when Jev gave no answer. The counter SHALL have at most 15 series.
+In mode `shadow`, intake SHALL count each asked field of each candidate with the labels `field` (type, priority, value, effort, duplicate) and `outcome` only: `agree` when the Jev answer equals the `triage` answer, `differ` when it does not, and `jev_error` when Jev gave no answer. Mode `shadow` SHALL write at most 15 series.
 
 #### Scenario: Jev agrees on two fields
 - **WHEN** Jev answers the priority and the Effort of the `triage` model and another type and Value
 - **THEN** the counter holds `agree` for priority and effort and `differ` for type and value
+
+### Requirement: One counter for the Jev fields of both modes
+Mode `shadow` SHALL count in the counter of mode `on`, `devops_cli_roadmap_intake_jev_fields_total`, and intake SHALL add no second counter for the Jev fields. The counter SHALL have at most 25 series over both modes: 5 fields and 5 outcomes.
+
+#### Scenario: Both modes count in one counter
+- **WHEN** one candidate is planned in mode `shadow` and one in mode `on`
+- **THEN** the shadow points hold only `agree`, `differ` or `jev_error`, the points of mode `on` hold only `jev` or `fallback`, and no other intake Jev metric is exported
 
 ### Requirement: The report of the shadow records
 `devops roadmap eval jev --from-shadow` SHALL join the mark `intake.jev_shadow` of each issue with the labels of the issue now. For each of type, priority, value and effort it SHALL print the agreement of Jev and the `triage` model, how often each equals the final label, how often only one does, and how often Jev equals it in each band of its probability. It SHALL print the duplicate flags against the issues closed as a duplicate. It SHALL make no model request and no write.
