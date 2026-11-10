@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.108.3](https://github.com/dan-petty/devops-cli/compare/v0.108.2...v0.108.3) (2026-11-10)
+
+
+### Bug Fixes
+
+* **rag:** omit URLs from texts and logs ([#4420](https://github.com/dan-petty/devops-cli/issues/4420)) ([e590fa3](https://github.com/dan-petty/devops-cli/commit/e590fa3d793f568431ab05eb14d91fb2cf0ebc71))
+
 ## [0.108.2](https://github.com/dan-petty/devops-cli/compare/v0.108.1...v0.108.2) (2026-11-10)
 
 
