@@ -10,6 +10,7 @@ Issue #4354: Deployment `mcp-server` in namespace `devops` crash-loops. The serv
 - Add the keys `DEVOPS_CLI_MCP_STAGE_TOKEN` and `DEVOPS_CLI_MCP_IMPLEMENT_TOKEN` to Secret `devops/devops-cli`. Both are optional, read the same keyring entry, and adopt from `devops/mcp-server`. The server accepts one token, so the three values are equal.
 - Set the variable `DEVOPS_CLI_MCP_TOKEN` in Deployment `mcp-server` with a `secretKeyRef`.
 - Set `roadmap.mcp.url` in `k8s/devops/configmap.example.yaml`. The switches `roadmap.stage.mcp` and `roadmap.implement.mcp` stay off.
+- Add Secret `mcp-server` to the orphaned-resource ignore list of the `homelab` Argo CD project, as for `crawl4ai`.
 - Add a test that fails when a `secretKeyRef` of a manifest names a key that its row of the table lacks.
 - Update `k8s/README.md`, `SECURITY.md` and the description of `mcp.token`, and regenerate `docs/ENV_VARS.md`. SECURITY.md named the LiteLLM gateway as the one caller. The callers are the roadmap Service and the runner Jobs.
 - The change carries a spec delta: the secret table, a manifest and a service setting are observable.
@@ -27,7 +28,7 @@ None.
 ## Impact
 
 - `src/devops_cli/k8s/cluster_secrets.py`, `src/devops_cli/config/env.py`.
-- `k8s/devops/mcp-server/deployment.yaml`, `k8s/devops/configmap.example.yaml`.
+- `k8s/devops/mcp-server/deployment.yaml`, `k8s/devops/configmap.example.yaml`, `k8s/argocd/apps/projects.yaml`.
 - `k8s/README.md`, `SECURITY.md`, `docs/ENV_VARS.md`.
 - A person runs `devops k8s push-secrets` after the merge. No agent writes a Secret.
 

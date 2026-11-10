@@ -202,7 +202,7 @@ class ClusterSecret:
 
 CRAWL4AI_ENV_NAME = "CRAWL4AI_API_TOKEN"
 _CRAWL4AI_TOKEN = KeyringSource.for_credential("crawl4ai.api_token")
-MCP_TOKEN_ENV_NAME = "DEVOPS_CLI_MCP_TOKEN"
+MCP_SERVER_ENV_NAME = "DEVOPS_CLI_MCP_TOKEN"
 _MCP_TOKEN = KeyringSource.for_credential("mcp.token")
 _LLM_GATEWAY_KEY = KeyringSource(LLM_GATEWAY_MASTER_KEY)
 _DEVOPS_CACHE_VALKEY_AUTH = KeyringSource(DEVOPS_CACHE_VALKEY_AUTH_KEY)
@@ -360,7 +360,7 @@ CLUSTER_SECRETS: tuple[ClusterSecret, ...] = (
         stack="devops",
         entries=(
             SecretEntry(
-                MCP_TOKEN_ENV_NAME,
+                MCP_SERVER_ENV_NAME,
                 _MCP_TOKEN,
                 generator=SecretGenerator("urlsafe", 32),
             ),
@@ -421,13 +421,13 @@ CLUSTER_SECRETS: tuple[ClusterSecret, ...] = (
                 "DEVOPS_CLI_MCP_STAGE_TOKEN",
                 _MCP_TOKEN,
                 required=False,
-                adopt_from=SecretKeyRef("devops", "mcp-server", MCP_TOKEN_ENV_NAME),
+                adopt_from=SecretKeyRef("devops", "mcp-server", MCP_SERVER_ENV_NAME),
             ),
             SecretEntry(
                 "DEVOPS_CLI_MCP_IMPLEMENT_TOKEN",
                 _MCP_TOKEN,
                 required=False,
-                adopt_from=SecretKeyRef("devops", "mcp-server", MCP_TOKEN_ENV_NAME),
+                adopt_from=SecretKeyRef("devops", "mcp-server", MCP_SERVER_ENV_NAME),
             ),
         ),
         restarts=(Workload("deployment", "roadmap-service"),),
