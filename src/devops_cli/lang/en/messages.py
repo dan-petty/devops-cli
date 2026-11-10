@@ -2829,6 +2829,17 @@ class RoadmapMessages:
     )
     implement_stop_base_not_run: str = "The tests of {files} could not run on the base commit. Pytest exited with status {status}.\n{output}"
     implement_base_check: str = "pytest on base: {files}"
+    implement_test_form_named: str = "{count} cases"
+    implement_test_form_named_none: str = "a parametrized test with no case count"
+    implement_test_form_item: str = "1 item"
+    implement_test_form_items: str = "{count} items"
+    implement_test_form_check: str = "pytest --collect-only {path}: {named}, {collected}"
+    implement_test_form_check_stopped: str = "pytest --collect-only {path}: {named}, no collection"
+    implement_stop_test_form: str = (
+        "The test {path} collects {collected}, and the task names {named}. A parametrized test "
+        "collects one item for each case, and a loop over the cases collects one item. Write the "
+        "test in the form that the task names."
+    )
     implement_base_fails: str = "fails on the base commit"
     implement_base_passes: str = "passes on the base commit"
     implement_base_errors: str = "stops with an error on the base commit"
