@@ -1,0 +1,30 @@
+# Design
+
+## Decisions
+
+- **Build the table from `CONST_MCP_EXPOSURE_TABLE` and `_PATH_PARAM_RESTRICTIONS` instead of a new list of commands.**: Both tables are already tested, and a read-only tool that publishes a writing option fails its test, so a command that becomes read-only enters the allow-list with no second edit.
+- **Put the builder in `src/devops_cli/roadmap/stage/stage_run_allowlist.py`, beside the planner's tools in `src/devops_cli/roadmap/stage/stage_tools.py`.**: The run tool is a tool of the stage planner, and the package layout puts each job's modules in its own subpackage; the builder depends on neither the MCP transport nor the sandbox engine.
+- **Find a path parameter by the Click type that Typer builds and by the path confinement table, and leave the command out on either.**: `src/devops_cli/ai/mcp/path_confinement.py:65: "scan_sast": frozenset({"target", "config"}),` shows a text option that no type shows, and `tests/ai/mcp/test_path_confinement.py:106: param.name for param in command.params if isinstance(param.type, (TyperPath, TyperFile))` shows the type check that alone misses it.
+- **Read `PATH_CONFINEMENTS` from `src/devops_cli/ai/mcp/path_confinement.py` instead of the test table `_TEXT_PATH_OPTIONS`.**: The confinement table is the source record that the audit keeps complete, as `tests/ai/mcp/test_path_confinement.py:245: assert _undecided(_published_path_parameters()) == []` shows, so the builder imports no test module and keeps no second table.
+- **Count a positional argument as a permitted parameter of its command.**: `src/devops_cli/commands/scan.py:377: Path,` shows that `scan sast` takes its target as a positional argument, so an option-only rule would let a path through.
+- **Permit the help form for a command path that the Click tree resolves, even when the table marks the command as a write.**: Click handles the help option itself and exits before the command body runs, so the help of a write command writes nothing and the planner learns its options.
+- **Return a frozen refusal that holds the path, one reason word and the option name.**: A test asserts one word, and the planner branches on it with no parse of free text.
+- **Fail closed for a row whose command the Click tree no longer resolves: leave it out of the table and refuse it as `unknown command`.**: A stale row must not open a run, and a missing entry changes no other command.
+- **Keep `vault get` in the allow-list.**: `src/devops_cli/ai/mcp/path_confinement.py:96: "path": "A Vault secret path selects a secret from Vault, and the server opens no file.",` shows that its path parameter is no file path, and `src/devops_cli/ai/mcp/generator.py:186: "allowed": frozenset({"path", "key", "dry_run"}),` withholds `show`, so the command prints no secret.
+- **Keep the reason words as module constants, not entries of the message catalogue.**: They are data for the planner and for a test, and no person reads them as a sentence.
+- **Build the policy only; the run tool that calls it comes in its own change.**: This change stays one pull request, and no caller imports the module yet, so the wiring and its prompt follow later.
+
+## Rejected alternatives
+
+- **Keep the Click type as the only test of a path parameter.**: `tests/ai/mcp/test_path_confinement.py:38:_TEXT_PATH_OPTIONS: Mapping[str, frozenset[str]] = {"scan_sast": frozenset({"config"})}` names a text option that holds a path, and `src/devops_cli/ai/mcp/path_confinement.py:65: "scan_sast": frozenset({"target", "config"}),` records it, so a type-only rule would permit it.
+- **Import the test table `_TEXT_PATH_OPTIONS` into the builder.**: `src/devops_cli/ai/mcp/path_confinement.py:65: "scan_sast": frozenset({"target", "config"}),` already names the same option in the source tree, so a second table would duplicate it and couple the source to a test module.
+- **A second list of read-only command paths inside the new module.**: `src/devops_cli/config/constants.py:410: (("scan", "sast"), 300.0, True, False),` shows that the table already holds the read-only flag, so a second list would drift from it and no test would catch the drift.
+- **Find a path parameter by the `click.Path` class or by a list of option names.**: `tests/ai/mcp/test_path_confinement.py:21:from typer.models import TyperPath` shows the type that Typer builds from a `Path` annotation; a name list misses a path parameter under another name, such as `config`.
+- **Leave out every command that `_PATH_PARAM_RESTRICTIONS` names.**: It would drop `telemetry profile`, whose entry `src/devops_cli/ai/mcp/generator.py:38` allows one non-path option, and `vault get`, whose path parameter is no file path.
+- **A free-text refusal message.**: No test can assert it and the planner cannot branch on it; the closed set gives one word per test, such as `option not permitted` for `ai benchmark` with `output`.
+- **Permit the help form only for a command path that is in the allow-list.**: Click handles the help option itself and runs no command body, and the planner learns the options of a write command from its help.
+- **Put the builder under `src/devops_cli/ai/mcp/`.**: The MCP server is no caller, and the builder must not depend on the MCP transport; the stage planner is the only caller.
+
+## Security
+
+A model writes the command line of a run, so the allow-list is the guard between the model and the sandbox: a command path or an option that the table does not name does not run, and a permitted parameter that holds a path keeps its command out, whether Typer types it as a path or the confinement table names it, so the planner names no file and the run reads only the mounted copy of the staged commit. A person must confirm that a new read-only row with a path parameter stays out of the table and that `vault get` keeps `show` withheld, so no credential reaches the text of a run. `tests/roadmap/stage/test_stage_run_allowlist.py` fails if a text path parameter enters the table or an option outside the permitted set is accepted.
