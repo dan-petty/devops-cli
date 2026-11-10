@@ -46,6 +46,9 @@ def _leaks(text: str) -> list[str]:
         ("k8s://devops/qdrant:http", "qdrant.devops"),
         ("k8s://devops", "unknown"),
         ("user:secret@example.com:6333/prefix", "unknown"),
+        ("http://example.com:65535", "example.com:65535"),
+        ("http://example.com:65536", "unknown"),
+        ("http://example.com:99999", "unknown"),
         ("", "unknown"),
     ],
     ids=[
@@ -57,6 +60,9 @@ def _leaks(text: str) -> list[str]:
         "k8s-named-port",
         "k8s-malformed",
         "no-scheme",
+        "last-valid-port",
+        "port-above-range",
+        "port-far-above-range",
         "empty",
     ],
 )
@@ -88,6 +94,39 @@ def test_the_client_log_line_of_list_collections_names_the_server_by_host_and_po
     host = f"127.0.0.1:{refusing_port}" if "127.0.0.1" in url else "qdrant.devops:6333"
     assert line.startswith(f"Failed to list Qdrant collections from {host}: ")
     assert _leaks(line) == []
+
+
+class _FailingGetCollections:
+    """A native client whose collection call fails with an exception that holds the URL."""
+
+    def __init__(self, url: str) -> None:
+        self.url = url
+
+    def get_collections(self) -> None:
+        raise RuntimeError(f"request to {self.url} failed")
+
+
+def test_the_error_text_and_log_line_of_a_failed_call_hold_no_url(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    client = QdrantClient(
+        _HTTP_URL,
+        client=_FailingGetCollections(_HTTP_URL),
+        allow_private_network=True,
+        timeout=5.0,
+    )
+
+    with caplog.at_level(logging.DEBUG, logger="devops_cli.ai.rag.qdrant"):
+        with pytest.raises(QdrantClientError) as raised:
+            client.list_collections()
+
+    (line,) = (
+        record.getMessage()
+        for record in caplog.records
+        if record.getMessage().startswith("Failed to list Qdrant collections")
+    )
+    assert [text for text in (str(raised.value), line) if _leaks(text)] == []
+    assert "example.com:6333" in str(raised.value)
 
 
 @pytest.mark.parametrize("url", [_HTTP_URL, _K8S_URL], ids=["http", "k8s"])

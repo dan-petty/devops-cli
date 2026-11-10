@@ -57,7 +57,7 @@ def normalize_ollama_base_url(url: str) -> str:
     if not parsed.netloc:
         raise InvalidURLError(
             clean_url,
-            reason=f"Invalid Ollama URL '{clean_url}': missing host or authority",
+            reason="Invalid Ollama URL: missing host or authority",
         )
 
     raw_path = parsed.path.rstrip("/")
