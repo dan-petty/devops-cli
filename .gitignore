@@ -85,6 +85,7 @@ secrets/
 !.claude/skills/devops-pr-ci/
 !.claude/skills/devops-review/
 !.claude/skills/devops-roadmap/
+!.claude/skills/ask-jev/
 
 # mutmut's copy of the tree, mutated by `devops ci mutate`; `rm -rf mutants` resets it
 /mutants/

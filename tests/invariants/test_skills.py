@@ -27,6 +27,7 @@ PROJECT_SKILLS: dict[str, tuple[str, ...]] = {
         "devops review pr",
         "devops review findings",
     ),
+    "ask-jev/SKILL.md": ("devops ai ask-jev", "ai_ask_jev"),
     "devops-roadmap/SKILL.md": (
         "devops roadmap intake",
         "devops roadmap return",

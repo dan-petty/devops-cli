@@ -284,6 +284,26 @@ class AICommandHelp:
     analogies_target_domain: str = "Filter analogies matching a specific target domain."
     analogies_min_score: str = "Minimum confidence score for returned analogies (0.0 to 1.0)."
     analogies_limit: str = "Maximum number of analogy pairs to surface."
+    ask_jev: str = (
+        "Ask TypeSafe Jev one question and print its answer with the probability and the token "
+        "count. The kind is choice (pick one option), noul (yes or no) or score (rate against "
+        "a rubric). The answer is evidence, not a verdict: check it. Jev is a hosted model, so "
+        "the text leaves the cluster. Project text and code are fine, but never send a secret: "
+        "the command refuses an input with a secret and an input that is too large."
+    )
+    ask_jev_kind: str = "The kind of question: choice, noul or score."
+    ask_jev_question: str = "The question for Jev, in plain words."
+    ask_jev_context: str = (
+        "The text that Jev decides about. When you give none, the question is that text."
+    )
+    ask_jev_option: str = (
+        "An option of a choice question, as label=description. Repeat the option; give two or more."
+    )
+    ask_jev_level: str = (
+        "A level of a score rubric, from level 0 up. Repeat the option; give two or more."
+    )
+    ask_jev_yes: str = "What a yes means in a noul question."
+    ask_jev_no: str = "What a no means in a noul question."
 
 
 @dataclass(frozen=True)

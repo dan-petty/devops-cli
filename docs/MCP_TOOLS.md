@@ -6,6 +6,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 
 | Tool Name | `readOnlyHint` | Description |
 |---|---|---|
+| [`ai_ask_jev`](#ai-ask-jev) | `true` | Ask TypeSafe Jev one question and print its answer with the probability and the token count. The kind is choice (pick one option), noul (yes or no) or score (rate against a rubric). The answer is evidence, not a verdict: check it. Jev is a hosted model, so the text leaves the cluster: send public text only, such as the text of an issue or of a pull request. Never send private code, a secret or private data. The command refuses an input with a secret, a private host or a private address, and an input that is too large. |
 | [`ai_ast_graph`](#ai-ast-graph) | `true` | Synthesize whole-repository symbol dependency and reference graph. |
 | [`ai_ast_parse`](#ai-ast-parse) | `true` | Parse source file concrete syntax tree and extract structural symbols. |
 | [`ai_benchmark`](#ai-benchmark) | `true` | Benchmark, evaluate, and peer-grade candidate AI models across engineering tasks. |
@@ -156,6 +157,25 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`vault_sync`](#vault-sync) | `false` | Synchronize secrets from Vault into OS Keyring for offline/local CLI operations.  Reads Vault alone. A path with no secret fails, and a field named like the entry that holds the `devops vault login` token is never written. |
 
 ---
+
+### `ai_ask_jev`
+
+Ask TypeSafe Jev one question and print its answer with the probability and the token count. The kind is choice (pick one option), noul (yes or no) or score (rate against a rubric). The answer is evidence, not a verdict: check it. Jev is a hosted model, so the text leaves the cluster: send public text only, such as the text of an issue or of a pull request. Never send private code, a secret or private data. The command refuses an input with a secret, a private host or a private address, and an input that is too large.
+
+**Annotations:** `readOnlyHint: true`
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `kind` | `string (choice, noul, score)` | Yes | - | The kind of question: choice, noul or score. |
+| `question` | `string` | Yes | - | The question for Jev, in plain words. |
+| `context` | `string` | No | `` | The text that Jev decides about. When you give none, the question is that text. |
+| `option` | `array[string]` | No | - | An option of a choice question, as label=description. Repeat the option; give two or more. |
+| `level` | `array[string]` | No | - | A level of a score rubric, from level 0 up. Repeat the option; give two or more. |
+| `yes` | `string` | No | `` | What a yes means in a noul question. |
+| `no` | `string` | No | `` | What a no means in a noul question. |
+| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `ai_ast_graph`
 

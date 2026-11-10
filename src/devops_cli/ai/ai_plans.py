@@ -885,3 +885,42 @@ def plan_ai_fetch_page(url: str) -> list[PlannedRequest]:
             ),
         )
     ]
+
+
+def plan_ai_ask_jev(
+    kind: Any,
+    question: str,
+    *,
+    context: str = "",
+    options: Sequence[str] = (),
+    levels: Sequence[str] = (),
+    yes: str = "",
+    no: str = "",
+) -> list[PlannedRequest]:
+    """Plan the one request that asks Jev a question through the gateway.
+
+    The input is checked as the real run checks it, so a refused input fails here too. The key is
+    not read: the request shows a placeholder.
+    """
+    from devops_cli.ai.jev_ask import build_jev_request, jev_request_body
+
+    request = build_jev_request(
+        kind, question, context=context, options=options, levels=levels, yes=yes, no=no
+    )
+    target = f"{_resolve_gateway_base(None)}/v1/systemone"
+    return [
+        PlannedRequest(
+            method="POST",
+            target=target,
+            argv=(
+                "curl",
+                "--request",
+                "POST",
+                "--header",
+                "Authorization: Bearer <ai.api_key>",
+                "--json",
+                json.dumps(jev_request_body(request)),
+                target,
+            ),
+        )
+    ]

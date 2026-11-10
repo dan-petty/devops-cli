@@ -285,6 +285,7 @@ CONST_MCP_DOMAINS: Final[frozenset[str]] = frozenset(
 CONST_MCP_EXPOSURE_TABLE: Final[tuple[tuple[tuple[str, ...], float, bool, bool], ...]] = (
     (("ai", "ast", "graph"), 60.0, True, False),
     (("ai", "ast", "parse"), 60.0, True, True),
+    (("ai", "ask-jev"), 60.0, True, True),
     (("ai", "benchmark"), 300.0, True, False),
     (("ai", "chaos-model"), 300.0, False, False),
     (("ai", "constellation"), 30.0, True, True),
@@ -2813,6 +2814,15 @@ CONST_AI_JEV_DEFAULT_ROUTE_THRESHOLD: Final[float] = 0.75
 CONST_AI_JEV_DEFAULT_BOOLEAN_THRESHOLD: Final[float] = 0.50
 CONST_AI_JEV_HIGH_RISK_THRESHOLD: Final[float] = 0.90
 CONST_AI_JEV_SYSTEM_ONE_PREFIXES: Final[frozenset[str]] = frozenset({"system-one", "typesafe"})
+# `devops ai ask-jev` and the MCP tool `ai_ask_jev` (#4306): the bounds of one request. The bounds
+# keep a request small: the command refuses a larger input before it sends anything. The model
+# profile of Jev allows at most 255 options and 10 levels.
+CONST_AI_JEV_ASK_MAX_INPUT_CHARS: Final[int] = 16_000
+CONST_AI_JEV_ASK_MAX_OPTIONS: Final[int] = 32
+CONST_AI_JEV_ASK_MIN_OPTIONS: Final[int] = 2
+CONST_AI_JEV_ASK_MAX_LEVELS: Final[int] = 10
+CONST_AI_JEV_ASK_MIN_LEVELS: Final[int] = 2
+CONST_AI_JEV_ASK_OPTION_SEPARATOR: Final[str] = "="
 CONST_URL_TYPESAFE_API_BASE: Final[str] = "https://api.typesafe.ai/v1"
 CONST_AI_GATEWAY_PROVIDER: Final[str] = "gateway"
 # The providers `ai.provider` takes.
