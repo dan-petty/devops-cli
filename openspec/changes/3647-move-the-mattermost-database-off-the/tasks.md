@@ -11,9 +11,9 @@ Reads: `tests/core/test_k8s_local_path_placement.py`, `tests/support/k8s_tree.py
 
 Reads: `k8s/README.md`, `tests/core/test_k8s_local_path_placement.py`. Changes: `k8s/README.md`.
 
-- [ ] 2.1 State in the rule paragraph of the section Local-Path Volume Placement that the check reads each CloudNativePG Cluster with `spec.storage` as a pod on a claim and takes its affinity from `spec.affinity`. Replace the paragraph that says the exemption table is empty with the two entries, their reasons and the items that move them (#3803 and #3782). Keep the move procedure unchanged and point at #3803 for the move of the database
+- [x] 2.1 State in the rule paragraph of the section Local-Path Volume Placement that the check reads each CloudNativePG Cluster with `spec.storage` as a pod on a claim and takes its affinity from `spec.affinity`. Replace the paragraph that says the exemption table is empty with the two entries, their reasons and the items that move them (#3803 and #3782). Keep the move procedure unchanged and point at #3803 for the move of the database
   - Verification: `$ uv run devops ci docs` passes
-- [ ] 2.2 Edit `k8s/README.md`
+- [x] 2.2 Edit `k8s/README.md`
   - Verification: `$ uv run devops ci docs` passes
 
 ## Criteria
