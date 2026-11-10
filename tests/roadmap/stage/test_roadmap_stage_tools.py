@@ -654,6 +654,45 @@ def test_search_code_and_callers_stop_at_the_matches_a_tool_answer_can_hold(repo
     assert (searched[-1], called[-1]) == ("(more lines are left out)",) * 2
 
 
+NOTICE = "(more lines are left out)"
+
+
+def test_cut_ends_at_a_whole_line_and_says_so_when_the_character_limit_drops_lines() -> None:
+    limit = CONST_ROADMAP_REFINE_TOOL_MAX_CHARS
+    lines = [f"{n:03d} " + "x" * 96 for n in range(100)]
+
+    answer = refine_investigation.cut(lines).splitlines()
+
+    assert answer[-1] == NOTICE
+    assert all(len(line) == 100 for line in answer[:-1])
+    assert 0 < len(answer) - 1 < 100
+    assert sum(len(line) + 1 for line in answer[:-1]) <= limit + 1
+
+
+def test_cut_keeps_an_answer_that_fits_both_limits_as_it_is() -> None:
+    lines = ["a" * 100] * 10
+
+    assert refine_investigation.cut(lines) == "\n".join(lines)
+
+
+def test_cut_cuts_and_marks_a_single_line_over_the_character_limit() -> None:
+    limit = CONST_ROADMAP_REFINE_TOOL_MAX_CHARS
+
+    answer = refine_investigation.cut(["y" * (limit + 500)]).splitlines()
+
+    assert (answer[0], answer[-1]) == ("y" * limit, NOTICE)
+
+
+def test_read_file_says_when_the_character_limit_left_lines_out(repo: Path) -> None:
+    _commit(repo, "wide", {"wide.txt": "".join(f"{'w' * 150}\n" for _ in range(100))})
+    fresh = StageTools(source=repo, sha=_git(repo, "rev-parse", "HEAD"))
+
+    lines = fresh.read_file("wide.txt", 1, 100).return_value.splitlines()
+
+    assert lines[-1] == NOTICE
+    assert all(line.endswith("w" * 150) for line in lines[:-1])
+
+
 @pytest.mark.live("openspec")
 def test_read_spec_reads_what_the_real_openspec_prints(repo: Path) -> None:
     sha = _git(repo, "rev-parse", "HEAD")

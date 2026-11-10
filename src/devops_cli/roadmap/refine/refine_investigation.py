@@ -104,6 +104,9 @@ def analysis_window() -> int:
     return task_window("analysis")
 
 
+CUT_NOTICE = "(more lines are left out)"
+
+
 def repository_path(text: str) -> str | None:
     """`text` as a path inside the repository, "" for its top, or None for a path outside it."""
     path = PurePosixPath(text.strip() or ".")
@@ -113,10 +116,22 @@ def repository_path(text: str) -> str | None:
 
 
 def cut(lines: list[str], *, max_chars: int = CONST_ROADMAP_REFINE_TOOL_MAX_CHARS) -> str:
-    """At most `CONST_ROADMAP_REFINE_TOOL_MAX_LINES` lines and `max_chars` characters."""
-    kept = lines[:CONST_ROADMAP_REFINE_TOOL_MAX_LINES]
-    text = "\n".join(kept)[:max_chars]
-    return text if len(kept) == len(lines) else f"{text}\n(more lines are left out)"
+    """At most `CONST_ROADMAP_REFINE_TOOL_MAX_LINES` lines and `max_chars` characters. The answer
+    ends at a whole line, and a line that passes `max_chars` alone is cut. An answer that has lost
+    text to either limit ends with a notice, so the model does not read it as the whole (#4341)."""
+    kept: list[str] = []
+    size = 0
+    lost = len(lines) > CONST_ROADMAP_REFINE_TOOL_MAX_LINES
+    for line in lines[:CONST_ROADMAP_REFINE_TOOL_MAX_LINES]:
+        size += len(line) + (1 if kept else 0)
+        if size > max_chars:
+            lost = True
+            if not kept:
+                kept.append(line[:max_chars])
+            break
+        kept.append(line)
+    text = "\n".join(kept)
+    return f"{text}\n{CUT_NOTICE}" if lost else text
 
 
 @dataclass(frozen=True)
