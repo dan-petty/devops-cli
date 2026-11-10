@@ -19,8 +19,9 @@ Reads: `src/devops_cli/ai/tasks/roadmap_stage_change.md`, `tests/roadmap/stage/t
   - Verification: `$ uv run devops ci test tests/roadmap/stage/test_roadmap_stage_prompt_rules.py` passes
 - [ ] 2.3 Edit `docs/roadmap/stage.md` to state that the probe lists the referencing test cases and that the planner names each invalidated case or states that it updates no existing test case
   - Verification: `$ uv run devops ci docs` passes
+- [ ] 2.4 Run `uv run devops roadmap eval stage --replay` on the base commit and on the change with the same model, and state the score before and after the change in a pull request comment
+  - Verification: `$ uv run devops roadmap eval stage --replay` prints a score for the base commit and for the change
 
 ## Workflow follow-up
 
-- Run `uv run devops roadmap eval stage --replay` on the base commit and on the change with the same model, and state the score before and after the change in a pull request comment (the prompt changes, so [the roadmap workflow](../../../docs/ROADMAP_WORKFLOW.md#measure-the-stage-job) requires the score)
 - Pending a person: review the diff in tuicr (tuicr -r <base>..HEAD).
