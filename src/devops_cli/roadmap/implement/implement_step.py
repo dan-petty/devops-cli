@@ -72,6 +72,7 @@ from devops_cli.ci.fail_to_pass import is_test_file
 from devops_cli.ci.typecheck import typecheck_argv, typecheck_files
 from devops_cli.config.commands import (
     BIN_GIT,
+    BIN_PYTEST,
     BIN_RUFF,
     BIN_UV,
 )
@@ -138,6 +139,11 @@ from devops_cli.roadmap.implement.implement_shell_policy import (
 )
 from devops_cli.roadmap.implement.implement_shell_refusal import ShellRefusal
 from devops_cli.roadmap.implement.implement_strays import stray_files, unplanned_paths
+from devops_cli.roadmap.implement.implement_test_form import (
+    TestForm,
+    collected_items,
+    named_forms,
+)
 from devops_cli.roadmap.implement.implement_test_names import lost_since, unrecorded_tests
 from devops_cli.roadmap.implement.implement_tool_log import ToolCallLog
 from devops_cli.roadmap.implement.implement_trace import ImplementTrace
@@ -1308,6 +1314,106 @@ def _changed_test_files(source: Path, base: str) -> list[str]:
     return [name for name in names.split("\0") if name and is_test_file(PurePosixPath(name))]
 
 
+def _named_text(count: int | None) -> str:
+    """The case count that a task names, as the step shows it: its number, or that the task states
+    no count (#3451)."""
+    if count is None:
+        return MESSAGES.roadmap.implement_test_form_named_none
+    return MESSAGES.roadmap.implement_test_form_named.format(count=count)
+
+
+def _items_text(count: int) -> str:
+    """The number of items that a collection reported, as the step shows it (#3451)."""
+    if count == 1:
+        return MESSAGES.roadmap.implement_test_form_item
+    return MESSAGES.roadmap.implement_test_form_items.format(count=count)
+
+
+def _form_check(form: TestForm, collected: int | None) -> str:
+    """The name of the collection check of `form` in the trace: its path, the case count that the
+    task names, and the count that the collection reported, or that it did not end (#3451)."""
+    named = _named_text(form.count)
+    if collected is None:
+        return MESSAGES.roadmap.implement_test_form_check_stopped.format(
+            path=form.path, named=named
+        )
+    return MESSAGES.roadmap.implement_test_form_check.format(
+        path=form.path, named=named, collected=_items_text(collected)
+    )
+
+
+def _form_differs(form: TestForm, collected: int) -> bool:
+    """Whether a collection of `collected` items does not have the form that the task names
+    (#3451). A task that states no count still names a parametrized test, so its file collects more
+    than one item: a loop over the cases collects one."""
+    if form.count is None:
+        return collected <= 1
+    return collected != form.count
+
+
+def _form_failure(
+    source: Path, form: TestForm, trace: ImplementTrace | None
+) -> _Failure | None:
+    """Why the step stops when the test file `form` does not have the form that its task names,
+    else None (#3451). The step collects the test file outside the shell of the agent, so a loop
+    test and a parametrized test give different counts. A collection that runs out of time is a
+    `timeout`. Every other stop is a `test`, and the named test file is the one path that its repair
+    round may change."""
+    argv = [BIN_UV, "run", BIN_PYTEST, "--collect-only", "-q", "--", form.path]
+    limit = load_settings().roadmap.implement.command_timeout_seconds
+    try:
+        done = run_subprocess(argv, cwd=source, quiet=True, timeout=limit)
+    except subprocess.TimeoutExpired:
+        if trace is not None:
+            trace.check(_form_check(form, None), None)
+        return _Failure(
+            MESSAGES.roadmap.implement_stop_command_timeout.format(
+                command=shlex.join(argv), seconds=limit
+            ),
+            klass=FailureClass.TIMEOUT,
+        )
+    collected = collected_items(done.stdout)
+    if trace is not None:
+        trace.check(_form_check(form, collected), done.returncode)
+    if done.returncode != 0:
+        return _Failure(
+            MESSAGES.roadmap.implement_stop_command_failed.format(
+                command=shlex.join(argv), status=done.returncode, output=_tail(done)
+            ),
+            frozenset({form.path}),
+            klass=FailureClass.TEST,
+        )
+    if not _form_differs(form, collected):
+        return None
+    return _Failure(
+        MESSAGES.roadmap.implement_stop_test_form.format(
+            path=form.path, named=_named_text(form.count), collected=_items_text(collected)
+        ),
+        frozenset({form.path}),
+        klass=FailureClass.TEST,
+    )
+
+
+def _test_form_failure(
+    source: Path, inputs: StepInputs, trace: ImplementTrace | None
+) -> _Failure | None:
+    """Why the step stops when a test does not have the form that its task names, else None
+    (#3451). A fix step runs no form check: its group is generated from the failed check and names
+    no test form of a task. A group whose tasks name no parametrized test gives no form either.
+    Each named test file is collected once."""
+    if inputs.fix is not None:
+        return None
+    forms: dict[str, TestForm] = {}
+    for task in inputs.group.tasks:
+        for form in named_forms(task.text, task.paths):
+            forms.setdefault(form.path, form)
+    for form in forms.values():
+        failure = _form_failure(source, form, trace)
+        if failure is not None:
+            return failure
+    return None
+
+
 def _fail_to_pass_failure(
     source: Path,
     inputs: StepInputs,
@@ -1403,6 +1509,21 @@ def _outside_plan_failure(source: Path, inputs: StepInputs, base: str) -> _Failu
     )
 
 
+def _plan_failure(
+    source: Path, inputs: StepInputs, keeper: WipKeeper
+) -> _Failure | None:
+    """Why the step stops for the plan of the change, else None. A fix step stops when it changed a
+    path that the plan does not name (#3824). Any step stops when a test file lost a test that
+    existed at the base commit (#3490)."""
+    outside = _outside_plan_failure(source, inputs, keeper.base)
+    if outside is not None:
+        return outside
+    lost = _tests_failure(source, keeper.base, inputs.recorded_tests)
+    if lost:
+        return _Failure(lost, klass=FailureClass.TESTS_LOST)
+    return None
+
+
 def _exit_failure(
     source: Path, inputs: StepInputs, keeper: WipKeeper, log: ToolCallLog
 ) -> _Failure | None:
@@ -1429,17 +1550,17 @@ def _exit_failure(
             FailureClass.NO_CHANGE_IN_FIX if inputs.fix is not None else FailureClass.PLAN_DEFECT
         )
         return _Failure(MESSAGES.roadmap.implement_stop_no_change, klass=no_change)
-    outside = _outside_plan_failure(source, inputs, keeper.base)
+    outside = _plan_failure(source, inputs, keeper)
     if outside is not None:
         return outside
-    lost = _tests_failure(source, keeper.base, inputs.recorded_tests)
-    if lost:
-        return _Failure(lost, klass=FailureClass.TESTS_LOST)
     early = _format_failure(source, changed, log.trace) or commands_failure(
         source, inputs.group.verification_commands, log.trace, log.verified
     )
     if early:
         return _Failure(early)
+    form = _test_form_failure(source, inputs, log.trace)
+    if form is not None:
+        return form
     proof = _fail_to_pass_failure(source, inputs, keeper, log)
     if proof is not None:
         return proof
