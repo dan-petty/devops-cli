@@ -21,6 +21,7 @@ from devops_cli.docs.source_argv_collector import (
     describe_unresolved_references,
 )
 from devops_cli.main import _COMMAND_SPECS
+from tests.support.paths import REPO_ROOT
 
 FIXTURE_SOURCE = """\
 def ai_architecture(target: str = "src") -> str:
@@ -118,7 +119,7 @@ def src_references() -> list[DevopsArgvReference]:
         patch("devops_cli.ai.mcp.server._run_mcp_cmd", side_effect=AssertionError("no tool")),
         patch("subprocess.Popen", side_effect=AssertionError("no subprocess")),
     ):
-        return collect_source_argv_references()
+        return collect_source_argv_references(REPO_ROOT / "src" / "devops_cli")
 
 
 def test_argv_lists_and_everything_added_to_them_are_collected() -> None:

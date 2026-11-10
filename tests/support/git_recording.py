@@ -139,7 +139,7 @@ def host_data_in(text: str) -> list[str]:
     e-mail address that is not on example.com."""
     found = HOST_PATH.findall(text) + EMAIL.findall(text)
     hostname = socket.gethostname()
-    names = {getpass.getuser(), hostname, hostname.split(".")[0]}
+    names = {getpass.getuser(), hostname, hostname.split(".")[0]} - {"devops"}
     found.extend(
         sorted(
             name for name in names if len(name) > 3 and re.search(rf"\b{re.escape(name)}\b", text)

@@ -120,13 +120,17 @@ def test_a_record_names_its_setup_and_subject_by_content() -> None:
 
     a = new_run(Mechanism.PROMPT_EVAL, setup={"a": 1, "b": [2]}, subject={"x": 1}, results={})
     b = new_run(Mechanism.PROMPT_EVAL, setup={"b": [2], "a": 1}, subject={"x": 2}, results={})
+    in_source_tree = "src/devops_cli/" in Path(run_store.__file__).resolve().as_posix()
+    commit_matches = (
+        (a.commit or "").split("-")[0].isalnum() if in_source_tree else a.commit is None
+    )
 
     assert (
         a.fingerprint == b.fingerprint,
         a.subject_key == b.subject_key,
         a.run_id == b.run_id,
         a.version,
-        (a.commit or "").split("-")[0].isalnum(),
+        commit_matches,
     ) == (True, False, False, __version__, True)
 
 

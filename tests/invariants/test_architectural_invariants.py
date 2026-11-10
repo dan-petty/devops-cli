@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import copy
 import io
 import re
 import subprocess
@@ -30,6 +31,7 @@ from devops_cli.core.repo import list_repo_files
 from devops_cli.docs.inventory import hand_written_documents
 from devops_cli.exceptions.base import DevOpsCLIError
 from tests.gate.ruff_selection import ruff_enforces
+from tests.support.dockerfile import stages as _dockerfile_stages
 from tests.support.paths import FIXTURES, GOLDEN, REPO_ROOT, TESTS_ROOT
 from tests.support.trees import (
     parse_count,
@@ -1578,3 +1580,311 @@ def test_every_source_file_is_parsed_at_most_once(
         if parse_count(path) > 1
     ]
     assert multiple_parses == []
+
+
+_DEBIAN_IMAGE_RELEASE_PATTERNS: Final[tuple[re.Pattern[str], ...]] = (
+    re.compile(r"^(?:docker\.io/library/)?debian:(?P<release>[a-z0-9]+)(?:-slim)?$"),
+    re.compile(
+        r"^(?:docker\.io/library/)?python:[0-9.]+-(?:slim-)?(?P<release>[a-z0-9]+)(?:-slim)?$"
+    ),
+    re.compile(
+        r"^(?:docker\.io/library/)?node:[0-9.]+-(?:slim-)?(?P<release>[a-z0-9]+)(?:-slim)?$"
+    ),
+)
+_SERVICE_DEBIAN_STAGES: Final[tuple[str, ...]] = ("node", "builder", "service")
+_SERVICE_IMAGE_TEST_JOB: Final[str] = "service-image-test"
+
+
+def _debian_release_of_image(image_ref: str) -> str | None:
+    """Return the Debian release codename of a base image reference, or None."""
+    without_digest = image_ref.partition("@")[0]
+    for pattern in _DEBIAN_IMAGE_RELEASE_PATTERNS:
+        if match := pattern.fullmatch(without_digest):
+            return match.group("release")
+    return None
+
+
+def _stage_from_image(stage: Sequence[Sequence[str]]) -> str | None:
+    """Return the image argument of the `FROM` instruction of `stage`, or None."""
+    for words in stage:
+        if words and words[0].upper() == "FROM" and len(words) >= 2:
+            return words[1]
+    return None
+
+
+def _service_dockerfile_debian_release(dockerfile_text: str) -> tuple[str | None, list[str]]:
+    """Verify `Dockerfile` stages name one Debian release and return `(release, problems)`."""
+    parsed = _dockerfile_stages(dockerfile_text)
+    releases: dict[str, str] = {}
+    problems: list[str] = []
+    for name in _SERVICE_DEBIAN_STAGES:
+        image = _stage_from_image(parsed.get(name, ()))
+        release = _debian_release_of_image(image) if image is not None else None
+        if release is None:
+            problems.append(f"Dockerfile stage {name!r} names no Debian release: {image!r}")
+        else:
+            releases[name] = release
+    if len(set(releases.values())) > 1:
+        problems.append(f"Dockerfile stages disagree on Debian release: {releases}")
+    if problems:
+        return None, problems
+    return releases["service"], []
+
+
+def _devcontainer_dockerfile_debian_release(dockerfile_text: str) -> tuple[str | None, list[str]]:
+    """Verify `.devcontainer/Dockerfile` stages name one Debian release and return `(release, problems)`."""
+    parsed = _dockerfile_stages(dockerfile_text)
+    if not parsed:
+        return None, [".devcontainer/Dockerfile defines no stage"]
+    final_name, final_stage = tuple(parsed.items())[-1]
+    releases: dict[str, str] = {}
+    problems: list[str] = []
+    for label, stage in (("tools", parsed.get("tools", ())), ("final", final_stage)):
+        image = _stage_from_image(stage)
+        release = _debian_release_of_image(image) if image is not None else None
+        if release is None:
+            problems.append(
+                f".devcontainer/Dockerfile {label} stage ({final_name if label == 'final' else label!r}) "
+                f"names no Debian release: {image!r}"
+            )
+        else:
+            releases[label] = release
+    if len(set(releases.values())) > 1:
+        problems.append(f".devcontainer/Dockerfile stages disagree on Debian release: {releases}")
+    if problems:
+        return None, problems
+    return releases["final"], []
+
+
+def _service_image_test_job_problems(
+    ci_workflow: Mapping[str, Any], expected_release: str
+) -> list[str]:
+    """Return problems when `ci.yml` does not build `./Dockerfile` and run `pytest` inside it (#1643)."""
+    jobs = ci_workflow.get("jobs")
+    job = jobs.get(_SERVICE_IMAGE_TEST_JOB) if isinstance(jobs, Mapping) else None
+    if not isinstance(job, Mapping):
+        return [
+            f".github/workflows/ci.yml lacks job {_SERVICE_IMAGE_TEST_JOB!r} while Dockerfile and "
+            ".devcontainer/Dockerfile name different Debian releases"
+        ]
+    problems: list[str] = []
+    steps = [s for s in job.get("steps", ()) if isinstance(s, Mapping)]
+    builds = [
+        s.get("with", {})
+        for s in steps
+        if str(s.get("uses", "")).startswith("docker/build-push-action@")
+        and isinstance(s.get("with"), Mapping)
+    ]
+    valid_tags = [
+        str(w.get("tags"))
+        for w in builds
+        if w.get("file") in ("./Dockerfile", "Dockerfile")
+        and w.get("target") in (None, "service")
+        and w.get("load") in (True, "true")
+        and w.get("push") in (False, "false")
+        and w.get("tags")
+    ]
+    if not valid_tags:
+        problems.append(
+            f"{_SERVICE_IMAGE_TEST_JOB} does not build and load the service stage of ./Dockerfile"
+        )
+    runs_suite_in_container = any(
+        "docker run" in str(s.get("run", ""))
+        and "pytest" in str(s.get("run", ""))
+        and f"VERSION_CODENAME={expected_release}" in str(s.get("run", ""))
+        and (
+            any(tag in str(s.get("run", "")) for tag in valid_tags)
+            or (
+                isinstance(s.get("env"), Mapping)
+                and s["env"].get("IMAGE") in set(valid_tags)
+                and '"$IMAGE"' in str(s.get("run", ""))
+            )
+        )
+        for s in steps
+    )
+    if not runs_suite_in_container:
+        problems.append(
+            f"{_SERVICE_IMAGE_TEST_JOB} does not run pytest inside the built {expected_release} "
+            "service image via docker run"
+        )
+    shards = ((job.get("strategy") or {}).get("matrix") or {}).get("shard")
+    if not (
+        isinstance(shards, list) and len(shards) >= 4 and shards == list(range(1, len(shards) + 1))
+    ):
+        problems.append(
+            f"{_SERVICE_IMAGE_TEST_JOB} does not shard the test suite across >=4 shards"
+        )
+    return problems
+
+
+def _debian_base_alignment_problems(
+    service_dockerfile: str,
+    devcontainer_dockerfile: str,
+    ci_workflow: Mapping[str, Any],
+) -> list[str]:
+    """Verify the Debian base-image contract across `Dockerfile`, `.devcontainer/Dockerfile`, and CI (#1643)."""
+    service_release, service_problems = _service_dockerfile_debian_release(service_dockerfile)
+    devcontainer_release, devcontainer_problems = _devcontainer_dockerfile_debian_release(
+        devcontainer_dockerfile
+    )
+    problems = [*service_problems, *devcontainer_problems]
+    if service_release is None or devcontainer_release is None:
+        return problems
+    if service_release == devcontainer_release:
+        return problems
+    if (service_release, devcontainer_release) != ("trixie", "sid"):
+        return [
+            *problems,
+            f"Unexpected Debian release divergence: Dockerfile uses {service_release!r} while "
+            f".devcontainer/Dockerfile uses {devcontainer_release!r}",
+        ]
+    return [*problems, *_service_image_test_job_problems(ci_workflow, service_release)]
+
+
+def test_service_and_devcontainer_debian_releases_are_aligned_or_tested_in_ci() -> None:
+    """`Dockerfile` (`trixie`) and `.devcontainer/Dockerfile` (`sid`) either share one Debian
+    release or run the sharded `pytest` suite inside the built service image in CI (#1643)."""
+    import yaml
+
+    service_text = (REPO_ROOT / "Dockerfile").read_text(encoding="utf-8")
+    devcontainer_text = (REPO_ROOT / ".devcontainer" / "Dockerfile").read_text(encoding="utf-8")
+    ci_workflow = yaml.safe_load(
+        (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    )
+    service_release, _ = _service_dockerfile_debian_release(service_text)
+    devcontainer_release, _ = _devcontainer_dockerfile_debian_release(devcontainer_text)
+
+    assert (
+        service_release,
+        devcontainer_release,
+        _debian_base_alignment_problems(service_text, devcontainer_text, ci_workflow),
+    ) == ("trixie", "sid", [])
+
+
+def _patch_service_image_test_step(
+    ci_workflow: dict[str, Any], step_name: str, field: str, value: str
+) -> None:
+    """Mutate one field on a named step inside `service-image-test` for negative invariant tests."""
+    for step in ci_workflow["jobs"][_SERVICE_IMAGE_TEST_JOB]["steps"]:
+        if step.get("name") != step_name:
+            continue
+        if field == "target":
+            step["with"]["target"] = value
+        else:
+            step[field] = value
+
+
+@pytest.mark.parametrize(
+    ("service_patch", "devcontainer_patch", "drop_ci_job", "ci_step_patch", "expected"),
+    [
+        pytest.param(
+            ("trixie", "forky"),
+            ("debian:sid", "debian:forky"),
+            True,
+            None,
+            [],
+            id="aligned-release",
+        ),
+        pytest.param(
+            (
+                "python:3.14-slim-trixie@sha256:1 AS service",
+                "python:3.14-slim-bookworm@sha256:1 AS service",
+            ),
+            None,
+            False,
+            None,
+            [
+                "Dockerfile stages disagree on Debian release: "
+                "{'node': 'trixie', 'builder': 'trixie', 'service': 'bookworm'}"
+            ],
+            id="service-stage-drift",
+        ),
+        pytest.param(
+            None,
+            ("FROM debian:sid AS tools", "FROM debian:bookworm AS tools"),
+            False,
+            None,
+            [
+                ".devcontainer/Dockerfile stages disagree on Debian release: "
+                "{'tools': 'bookworm', 'final': 'sid'}"
+            ],
+            id="devcontainer-stage-drift",
+        ),
+        pytest.param(
+            ("trixie", "bookworm"),
+            None,
+            False,
+            None,
+            [
+                "Unexpected Debian release divergence: Dockerfile uses 'bookworm' while "
+                ".devcontainer/Dockerfile uses 'sid'"
+            ],
+            id="unapproved-release-pair",
+        ),
+        pytest.param(
+            None,
+            None,
+            True,
+            None,
+            [
+                ".github/workflows/ci.yml lacks job 'service-image-test' while Dockerfile and "
+                ".devcontainer/Dockerfile name different Debian releases"
+            ],
+            id="missing-ci-job",
+        ),
+        pytest.param(
+            None,
+            None,
+            False,
+            ("Build and Load Service Image", "target", "runner"),
+            [
+                "service-image-test does not build and load the service stage of ./Dockerfile",
+                "service-image-test does not run pytest inside the built trixie service image via docker run",
+            ],
+            id="wrong-build-target",
+        ),
+        pytest.param(
+            None,
+            None,
+            False,
+            ("Run Test Suite in Service Image", "run", "uv run pytest -q"),
+            [
+                "service-image-test does not run pytest inside the built trixie service image via docker run"
+            ],
+            id="host-pytest-only",
+        ),
+    ],
+)
+def test_debian_release_invariant_rejects_stage_drift_and_untested_divergence(
+    service_patch: tuple[str, str] | None,
+    devcontainer_patch: tuple[str, str] | None,
+    drop_ci_job: bool,
+    ci_step_patch: tuple[str, str, str] | None,
+    expected: list[str],
+) -> None:
+    """Mutations to either Dockerfile's Debian release or the CI service-image test job fail (#1643)."""
+    import yaml
+
+    service_text = (
+        "FROM node:24-trixie-slim@sha256:0 AS node\n"
+        "FROM python:3.14-slim-trixie@sha256:1 AS builder\n"
+        "FROM python:3.14-slim-trixie@sha256:1 AS service\n"
+    )
+    devcontainer_text = (
+        "FROM debian:sid AS tools\n"
+        "FROM node:24-trixie-slim@sha256:0 AS npm-tools\n"
+        "FROM debian:sid\n"
+    )
+    ci_workflow: dict[str, Any] = copy.deepcopy(
+        yaml.safe_load((REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8"))
+    )
+    if service_patch is not None:
+        service_text = service_text.replace(*service_patch)
+    if devcontainer_patch is not None:
+        devcontainer_text = devcontainer_text.replace(*devcontainer_patch)
+    if drop_ci_job:
+        ci_workflow["jobs"].pop(_SERVICE_IMAGE_TEST_JOB, None)
+    if ci_step_patch is not None:
+        _patch_service_image_test_step(ci_workflow, *ci_step_patch)
+
+    assert _debian_base_alignment_problems(service_text, devcontainer_text, ci_workflow) == expected

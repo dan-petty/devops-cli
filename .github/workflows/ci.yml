@@ -528,6 +528,122 @@ jobs:
           exit-code: "1"
           version: v0.75.0
 
+  # Runs the test suite inside the built Service image (`python:3.14-slim-trixie`) while
+  # `.devcontainer/Dockerfile` uses `debian:sid` (#1643). Dev packages and pinned test tools
+  # (`promtool`, `kubectl`) mount read-only from `$RUNNER_TEMP`, so the shipped `service` stage
+  # keeps its minimal package set and `USER 1000:1000` read-only security posture. Six shards run
+  # without coverage collection to stay under the 300 s check budget of AGENTS.md rule 5.
+  service-image-test:
+    name: Service Image Tests (shard ${{ matrix.shard }} of ${{ strategy.job-total }})
+    if: >-
+      github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      pull-requests: read # paths-filter reads the changed files from the REST API
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6]
+
+    steps:
+      - name: Detect Plan-Only Changes
+        id: changes
+        if: github.event_name == 'pull_request' && github.event.pull_request.changed_files < 3000
+        uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        with:
+          predicate-quantifier: some-with-excludes
+          filters: |
+            outside_plan:
+              - '**'
+              - '!openspec/changes/[0-9]*-*/**/*'
+
+      - name: Check out repository
+        if: steps.changes.outputs.outside_plan != 'false'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Set up uv toolchain
+        if: steps.changes.outputs.outside_plan != 'false'
+        uses: ./.github/actions/setup-toolchain
+        with:
+          cache-suffix: service-image-test-${{ matrix.shard }}
+          save-uv-cache: "false"
+
+      - name: Set up Docker Buildx
+        if: steps.changes.outputs.outside_plan != 'false'
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v3
+
+      - name: Build and Load Service Image
+        if: steps.changes.outputs.outside_plan != 'false'
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v6
+        with:
+          context: .
+          file: ./Dockerfile
+          target: service
+          load: true
+          push: false
+          tags: devops-cli-service:local
+          no-cache-filters: service
+          cache-from: type=gha
+
+      - name: Install Service Image Test Dependencies
+        if: steps.changes.outputs.outside_plan != 'false'
+        env:
+          IMAGE: devops-cli-service:local
+        run: |
+          SITE_DIR="$RUNNER_TEMP/service-test-site"
+          TOOLS_DIR="$RUNNER_TEMP/service-test-tools"
+          mkdir -p "$SITE_DIR/boot" "$SITE_DIR/site-packages" "$TOOLS_DIR/bin"
+          printf 'import site\nsite.addsitedir("/opt/service-test/site-packages")\n' > "$SITE_DIR/boot/sitecustomize.py"
+          uv export --locked --only-dev --no-emit-project --no-editable --output-file "$SITE_DIR/dev-requirements.txt"
+          UV_BIN="$(command -v uv)"
+          docker run --rm --user "$(id -u):$(id -g)" \
+            -e UV_CACHE_DIR=/tmp/uv-cache \
+            -v "$UV_BIN:/usr/local/bin/uv:ro" \
+            -v "$SITE_DIR:/work" \
+            --entrypoint /usr/local/bin/uv \
+            "$IMAGE" \
+            pip install --python /app/.venv/bin/python --target /work/site-packages --compile-bytecode --require-hashes --no-deps -r /work/dev-requirements.txt
+          DEVOPS_CLI_USER_DATA_ROOT="$TOOLS_DIR" uv run devops install-tools --tool promtool --target-dir "$TOOLS_DIR/bin" --only-missing
+          DEVOPS_CLI_USER_DATA_ROOT="$TOOLS_DIR" uv run devops install-tools --tool kubectl --target-dir "$TOOLS_DIR/bin" --only-missing
+          chmod -R a+rX "$SITE_DIR" "$TOOLS_DIR"
+
+      - name: Run Test Suite in Service Image
+        if: steps.changes.outputs.outside_plan != 'false'
+        env:
+          IMAGE: devops-cli-service:local
+          SHARD: ${{ matrix.shard }}
+          SHARDS: ${{ strategy.job-total }}
+        run: |
+          SITE_DIR="$RUNNER_TEMP/service-test-site"
+          TOOLS_DIR="$RUNNER_TEMP/service-test-tools"
+          TMP_DIR="$RUNNER_TEMP/service-test-tmp"
+          SHARD_FILE="$RUNNER_TEMP/service-test-shard.txt"
+          mkdir -p "$TMP_DIR" "$GITHUB_WORKSPACE/.data"
+          chmod 1777 "$TMP_DIR"
+          chmod -R a+rwX "$GITHUB_WORKSPACE/.git" "$GITHUB_WORKSPACE/.data"
+          SHARD_FILE="$SHARD_FILE" uv run python -c 'import os, pathlib; from devops_cli.core.test_selection import shard_test_files; files = shard_test_files(int(os.environ["SHARD"]), int(os.environ["SHARDS"]), pathlib.Path(".")); assert files; pathlib.Path(os.environ["SHARD_FILE"]).write_text("\n".join(files) + "\n", encoding="utf-8")'
+          readarray -t TEST_FILES < "$SHARD_FILE"
+          docker run --rm --init --read-only --cap-drop ALL --security-opt no-new-privileges \
+            --tmpfs /workspace/.venv:rw,size=16m \
+            --tmpfs /home/devops/.data:rw,size=256m \
+            --tmpfs /home/devops/.cache:rw,size=256m \
+            -v "$TMP_DIR:/tmp:rw" \
+            -v "$GITHUB_WORKSPACE:/workspace:rw" \
+            -v "$SITE_DIR:/opt/service-test:ro" \
+            -v "$TOOLS_DIR:$TOOLS_DIR:ro" \
+            -w /workspace \
+            -e PYTHONPATH="/opt/service-test/boot" \
+            -e PATH="/app/.venv/bin:/opt/devops-tools/bin:$TOOLS_DIR/bin:/usr/local/bin:/usr/bin:/bin" \
+            --entrypoint /app/.venv/bin/python \
+            "$IMAGE" \
+            -c 'import pathlib, sys, devops_cli; os_rel = pathlib.Path("/etc/os-release").read_text(encoding="utf-8"); assert "VERSION_CODENAME=trixie" in os_rel, os_rel; assert (devops_cli.__file__ or "").startswith("/app/.venv/"), devops_cli.__file__; import pytest; raise SystemExit(pytest.main(["-o", "pythonpath=", "-q", "--no-cov", "--snapshot-warn-unused", *sys.argv[1:]]))' \
+            "${TEST_FILES[@]}"
+
   # Builds, smoke-tests and scans the runner image of every pull request, without pushing it;
   # release.yml publishes it when a release is created (#2667). It runs next to the Service image
   # job and shares its `builder` stage through the cache, so it adds no time to that job.

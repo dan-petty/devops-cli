@@ -657,12 +657,18 @@ def test_doc_generator_telemetry_docs(generator: DocGenerator) -> None:
 
 def test_doc_generator_knowledge_base_index(generator: DocGenerator) -> None:
     """Verify programmatic generation of KNOWLEDGE_BASE.md and KB article index."""
+    import devops_cli
+
     content = generator.generate_knowledge_base_index()
+    in_source_tree = "src/devops_cli/" in Path(devops_cli.__file__).resolve().as_posix()
     assert "# DevOps CLI Knowledge Base Catalog" in content
     assert "Division 1: DevOps CLI Information" in content
     assert "Division 2: Information Technology Domain-Specific" in content
-    assert "tasks/" in content
-    assert "tools/" in content
+    assert "| `tasks` |" in content
+    assert "| `tools` |" in content
+    if in_source_tree:
+        assert "tasks/" in content
+        assert "tools/" in content
     assert "valkey.md" in content
     assert "Valkey" in content
 
