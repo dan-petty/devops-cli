@@ -1351,9 +1351,7 @@ def _form_differs(form: TestForm, collected: int) -> bool:
     return collected != form.count
 
 
-def _form_failure(
-    source: Path, form: TestForm, trace: ImplementTrace | None
-) -> _Failure | None:
+def _form_failure(source: Path, form: TestForm, trace: ImplementTrace | None) -> _Failure | None:
     """Why the step stops when the test file `form` does not have the form that its task names,
     else None (#3451). The step collects the test file outside the shell of the agent, so a loop
     test and a parametrized test give different counts. A collection that runs out of time is a
@@ -1509,9 +1507,7 @@ def _outside_plan_failure(source: Path, inputs: StepInputs, base: str) -> _Failu
     )
 
 
-def _plan_failure(
-    source: Path, inputs: StepInputs, keeper: WipKeeper
-) -> _Failure | None:
+def _plan_failure(source: Path, inputs: StepInputs, keeper: WipKeeper) -> _Failure | None:
     """Why the step stops for the plan of the change, else None. A fix step stops when it changed a
     path that the plan does not name (#3824). Any step stops when a test file lost a test that
     existed at the base commit (#3490)."""

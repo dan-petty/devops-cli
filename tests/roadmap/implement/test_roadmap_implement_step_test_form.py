@@ -51,14 +51,14 @@ NO_COUNT_TASKS = PARAMETRIZED_TASKS.replace(
 )
 TICKED = PARAMETRIZED_TASKS.replace("- [ ] Add", "- [x] Add")
 NO_COUNT_TICKED = NO_COUNT_TASKS.replace("- [ ] Add", "- [x] Add")
-PARAMETRIZED_TEST = '''\
+PARAMETRIZED_TEST = """\
 import pytest
 
 
 @pytest.mark.parametrize("status", ["a", "b", "c", "d", "e", "f"])
 def test_the_status(status: str) -> None:
     assert status
-'''
+"""
 MISMATCH = (
     "The test tests/test_sample.py collects 11 items, and the task names 6 cases. A parametrized "
     "test collects one item for each case, and a loop over the cases collects one item. Write the "
@@ -227,9 +227,7 @@ def test_a_group_that_names_no_parametrized_test_runs_no_collection(
     checkout = make_checkout(tmp_path)
     script = ModelScript(tool_calls(*the_whole_group()), say("Done."))
 
-    outcome = run_step(
-        store, item=1, group=1, source=checkout, model=script.model(), window=WINDOW
-    )
+    outcome = run_step(store, item=1, group=1, source=checkout, model=script.model(), window=WINDOW)
 
     assert (outcome.status, programs_run(programs, "uv")) == (
         StepStatus.DONE,

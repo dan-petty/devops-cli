@@ -2834,9 +2834,7 @@ class RoadmapMessages:
     implement_test_form_item: str = "1 item"
     implement_test_form_items: str = "{count} items"
     implement_test_form_check: str = "pytest --collect-only {path}: {named}, {collected}"
-    implement_test_form_check_stopped: str = (
-        "pytest --collect-only {path}: {named}, no collection"
-    )
+    implement_test_form_check_stopped: str = "pytest --collect-only {path}: {named}, no collection"
     implement_stop_test_form: str = (
         "The test {path} collects {collected}, and the task names {named}. A parametrized test "
         "collects one item for each case, and a loop over the cases collects one item. Write the "
