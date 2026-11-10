@@ -3,3 +3,5 @@ You have read-only tools on the repository at the commit of the plan. Use them t
 A quote may also come from a tool answer. Copy the text of the file with no line number.
 
 A `missing_path`, `false_premise`, `ignores_existing_code`, `task_order` or `verify_form` finding with a quote that is in the input or in a tool answer sends the plan back to its author, up to two repair rounds. So report these only when the quote proves them. A plan that a defect still holds after the last round stays a draft.
+
+A review needs about 40 tool calls. Check each path with one call, and read a range of a file and not the whole file. From the 60th call, each answer ends with a notice: read no more, and give your findings.

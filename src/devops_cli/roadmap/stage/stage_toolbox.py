@@ -27,6 +27,8 @@ from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config.constants import (
     CONST_ROADMAP_STAGE_MAX_REQUESTS,
     CONST_ROADMAP_STAGE_MIN_TOOL_CALLS,
+    CONST_ROADMAP_STAGE_PLAN_CALLS_NOTICE,
+    CONST_ROADMAP_STAGE_REVIEW_CALLS_NOTICE,
     CONST_ROADMAP_STAGE_TOOL_MAX_CALLS,
     CONST_ROADMAP_STAGE_VIOLATIONS_SHOWN,
 )
@@ -152,6 +154,12 @@ class ToolboxClient:
             else agent_instructions(system)
         )
         row = _AGENT_ROWS[schema]
+        # A plan run and a review run have their own call budgets (#4346).
+        self._tools.begin_run(
+            CONST_ROADMAP_STAGE_PLAN_CALLS_NOTICE
+            if schema is StageProposal
+            else CONST_ROADMAP_STAGE_REVIEW_CALLS_NOTICE
+        )
         trace = RunTrace(row=row)
         self.traces.append(trace)
         start_run(self._tool_names, row=row, toolset=self._toolset)

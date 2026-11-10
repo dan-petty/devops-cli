@@ -42,8 +42,10 @@ from devops_cli.config.settings import (
     Settings,
 )
 from devops_cli.exceptions.roadmap import RoadmapStageError
+from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.agent_run import RunLimit, RunTrace, ToolCallRecord, ToolOutcome
 from devops_cli.roadmap.refine.refine_investigation import tokens_of
+from devops_cli.roadmap.stage import stage_toolbox
 from devops_cli.roadmap.stage.stage_change import StageProposal, StageSplit
 from devops_cli.roadmap.stage.stage_toolbox import ToolboxClient
 from devops_cli.roadmap.stage.stage_tools import StageTools
@@ -1017,3 +1019,63 @@ def test_a_violation_text_masks_and_cuts_each_of_its_fields() -> None:
 
     assert (secret in text.loc, len(text.type), len(text.message)) == (False, 200, 200)
     assert secret not in text.message
+
+
+def _noticed(returns: list[str]) -> list[bool]:
+    """Whether each tool answer ends with the notice to give the reply."""
+    return [
+        answer.rstrip().endswith(MESSAGES.roadmap.stage_calls_notice.format(calls=n))
+        for n, answer in enumerate(returns, start=1)
+    ]
+
+
+def test_the_answers_from_the_call_budget_of_a_plan_run_end_with_a_notice(
+    checkout: tuple[Path, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(stage_toolbox, "CONST_ROADMAP_STAGE_PLAN_CALLS_NOTICE", 2)
+    script = Script(_read(), _read(), _read(), _PLAN)
+
+    _plan(_client(checkout, script))
+
+    assert _noticed(script.tool_returns()) == [False, True, True]
+
+
+def test_the_review_run_has_its_own_call_budget(
+    checkout: tuple[Path, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(stage_toolbox, "CONST_ROADMAP_STAGE_PLAN_CALLS_NOTICE", 1)
+    monkeypatch.setattr(stage_toolbox, "CONST_ROADMAP_STAGE_REVIEW_CALLS_NOTICE", 3)
+    script = Script(_read(), _read(), _read(), Verification(findings=[]))
+
+    _client(checkout, script).chat_structured("System.", "{}", Verification, max_retries=1)
+
+    assert _noticed(script.tool_returns()) == [False, False, True]
+
+
+def test_a_new_run_starts_its_count_at_zero(
+    checkout: tuple[Path, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(stage_toolbox, "CONST_ROADMAP_STAGE_PLAN_CALLS_NOTICE", 2)
+    first = Script(_read(), _read(), _PLAN)
+    client = _client(checkout, first)
+    _plan(client)
+    second = Script(_read(), _PLAN)
+    again = ToolboxClient(second.model(), _Inner(), *checkout)
+
+    _plan(again)
+
+    assert (_noticed(first.tool_returns()), _noticed(second.tool_returns())) == (
+        [False, True],
+        [False],
+    )
+
+
+def test_the_prompts_name_the_budgets_of_the_constants() -> None:
+    plan = load_task_prompt("roadmap_stage_tools.md")
+    review = load_task_prompt("roadmap_stage_verify_tools.md")
+
+    assert f"about {constants.CONST_ROADMAP_STAGE_PLAN_CALLS_ADVISED} tool calls" in plan
+    assert f"from the {constants.CONST_ROADMAP_STAGE_PLAN_CALLS_NOTICE}th call" in plan.lower()
+    assert "call a tool only to check what the problem names" in plan
+    assert f"about {constants.CONST_ROADMAP_STAGE_REVIEW_CALLS_ADVISED} tool calls" in review
+    assert f"from the {constants.CONST_ROADMAP_STAGE_REVIEW_CALLS_NOTICE}th call" in review.lower()

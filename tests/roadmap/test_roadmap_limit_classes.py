@@ -164,6 +164,22 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
         "window",
         "room that the first plan request leaves below the limit of the tools for their answers",
     ),
+    "CONST_ROADMAP_STAGE_PLAN_CALLS_ADVISED": (
+        "guard",
+        "the calls that the prompt of a plan run names; the notice follows 10 calls later",
+    ),
+    "CONST_ROADMAP_STAGE_PLAN_CALLS_NOTICE": (
+        "guard",
+        "the call from which each answer of a plan run tells the model to give the plan",
+    ),
+    "CONST_ROADMAP_STAGE_REVIEW_CALLS_ADVISED": (
+        "guard",
+        "the calls that the prompt of a review run names; the notice follows 20 calls later",
+    ),
+    "CONST_ROADMAP_STAGE_REVIEW_CALLS_NOTICE": (
+        "guard",
+        "the call from which each answer of a review run tells the model to give its findings",
+    ),
     "CONST_ROADMAP_STAGE_MIN_TOOL_CALLS": (
         "window",
         "least tool calls before the window ends the tools of a plan run; fewer fails the item",

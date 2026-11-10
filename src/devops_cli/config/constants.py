@@ -3211,6 +3211,16 @@ CONST_ROADMAP_INVESTIGATION_REPLY_WINDOW_SHARE: Final[int] = 4
 # few more than the calls, for the tool-free turn near the limit and the retries of a reply.
 CONST_ROADMAP_STAGE_TOOL_MAX_CALLS: Final[int] = 200
 CONST_ROADMAP_STAGE_MAX_REQUESTS: Final[int] = 250
+# The call budget of a stage run (#4346). The prompt of a run says how many tool calls it needs
+# (`*_CALLS_ADVISED`), and from the call `*_CALLS_NOTICE` each tool answer ends with a notice to give
+# the reply, with the tools still on. A plan run needs about 30 calls and a review run about 40: the
+# runs of 7 days made 33 (plan) and 53 (review) calls in the middle and 43 and 107 at the 90th
+# percentile, and a plan run of 113 calls filled the window of 256,000 tokens (2026-11-10). Each
+# request sends the whole context again, so a run that reads on costs the sum of its contexts.
+CONST_ROADMAP_STAGE_PLAN_CALLS_ADVISED: Final[int] = 30
+CONST_ROADMAP_STAGE_PLAN_CALLS_NOTICE: Final[int] = 40
+CONST_ROADMAP_STAGE_REVIEW_CALLS_ADVISED: Final[int] = 40
+CONST_ROADMAP_STAGE_REVIEW_CALLS_NOTICE: Final[int] = 60
 CONST_ROADMAP_STAGE_LOG_MAX_COUNT: Final[int] = 40
 CONST_ROADMAP_STAGE_MAP_MAX_FILES: Final[int] = 40
 CONST_ROADMAP_STAGE_MAP_LINE_CHARS: Final[int] = 180
