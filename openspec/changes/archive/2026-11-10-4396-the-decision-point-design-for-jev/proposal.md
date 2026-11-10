@@ -8,7 +8,7 @@ The pilots also show that a decision model is not better by nature. It works on 
 
 ## What Changes
 
-- New ADR 0020. It defines the decision point as a unit, the resolver chain, the settings `ai.decision_model` and `roadmap.decisions`, the shadow record and the outcome join, the one metric `devops_cli_decision_point_total` (at most 48 series for the catalogue), the catalogue of points with their question set, evidence, baseline rule, label source and success bar, what stays generation, and the order of the migration.
+- New ADR 0020. It defines the decision point as a unit, the resolver chain, the settings `ai.decision_model` and `roadmap.decisions`, the shadow record and the outcome join, the one metric `devops_cli_decision_point_total` (at most 60 series for the catalogue), the catalogue of points with their question set, evidence, baseline rule, label source and success bar, what stays generation, and the order of the migration.
 - ADR 0019 is amended in three places: its table of ranked points and its section of pilots point to the catalogue of ADR 0020, and its pilot 2 text gives the measured result.
 - New capability `decision-workflows` with the requirements of the unit.
 - Two requirements of `decision-steps` are modified: the shadow requirement names the mode setting and the one metric, and the fail-open requirement adds the case of no configured model.

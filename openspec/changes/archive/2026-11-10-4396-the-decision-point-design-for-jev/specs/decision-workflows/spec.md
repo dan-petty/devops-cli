@@ -80,7 +80,7 @@ The counter `devops_cli_decision_point_total` SHALL count the decisions with the
 
 #### Scenario: The labels are bounded
 - **WHEN** a test runs every registered point in every mode with every resolver
-- **THEN** the counter has at most 8 series for each point, and no label value is outside the sets above
+- **THEN** the counter has at most 14 series for each point, 8 for a point with one resolver besides the fallback, and no label value is outside the sets above
 
 ### Requirement: A point has its bar before it is built
 The record of a decision point SHALL give, before the point is built, its question set, its evidence fields, its baseline rule, its label source and its success bar. The bar SHALL be checked against the oracle of the labelled data, and a bar above the oracle SHALL NOT be set.

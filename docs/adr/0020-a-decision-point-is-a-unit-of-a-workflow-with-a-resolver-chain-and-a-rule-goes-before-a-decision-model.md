@@ -85,7 +85,7 @@ Each decision gets an identifier: the point, the subject (the item or the run) a
 
 ### 7. Observability
 
-One counter, `devops_cli_decision_point_total`, with the labels `point`, `resolver` (`rule`, `model` or `fallback`), `band` (`continue`, `review`, `flag` or `none`) and `mode` (`shadow` or `on`). A point with mode `off` writes nothing. A `fallback` result has the band `none`. A point writes only the resolvers that it has. The possible series of a point are 4 for each mode when it has two resolvers (3 bands, plus `none`), so at most 8 for each point. The catalogue below has 6 points built or planned, so it has at most **48 series**. Only the series of points that run exist. The pilot of the screen alone is 8 series.
+One counter, `devops_cli_decision_point_total`, with the labels `point`, `resolver` (`rule`, `model` or `fallback`), `band` (`continue`, `review`, `flag` or `none`) and `mode` (`shadow` or `on`). A point with mode `off` writes nothing. A `fallback` result has the band `none`. A point writes only the resolvers that it has. A point with one resolver besides the fallback has 4 series for each mode (3 bands, and `none` for the fallback), so 8. A point with a rule and a model has 7 for each mode, so 14. The catalogue has four points of 8 and two of 14 (`intake.proposal` and `stage.tier_route`), so at most **60 series**. Only the series of points that run exist. The pilot of the screen alone is 8 series.
 
 This counter replaces `devops_cli_roadmap_decision_step_total` and `devops_cli_roadmap_decision_step_review_total`. The false-clear rate of the screen is no longer a live series: it comes from the join of the decision records with the outcome records. The shadow record of a point is the log line of section 6.
 
@@ -207,7 +207,7 @@ Each step is its own item and its own pull request. Each moves one pilot onto th
 - **Leave each pilot as it is.** Rejected. Each has its own setting, metric and log, none has an outcome join, and none keeps a rule ahead of the model.
 - **Put the decision model first and the rule as a check.** Rejected. Two pilots (the failure tail and the budget extension) show a rule with no error on the labelled data. A model call costs a request and adds a failure mode.
 - **One setting for each pilot.** Rejected. The mapping `roadmap.decisions` adds a point with no new setting, and it validates the names.
-- **A metric for each pilot.** Rejected. One counter with a bounded `point` label is 48 series at most.
+- **A metric for each pilot.** Rejected. One counter with a bounded `point` label is 60 series at most.
 - **Turn a model on for all points when `ai.decision_model` is set.** Rejected. The benefit is measured for each point. The model name says only that a model exists.
 - **Wait for a better Jev.** Rejected, for the reason in ADR 0019.
 
