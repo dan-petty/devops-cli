@@ -2080,11 +2080,15 @@ A round SHALL take as the staged commit the commit of `origin/<default branch>` 
 - **THEN** the git commands move the clone to the staged commit before the tracked files are read, and the worktree of each item starts at the staged commit
 
 ### Requirement: A staged branch starts at the staged commit
-The job SHALL start the branch of a staged item at the staged commit of its round, so that the probe and the branch read one commit. When the job takes over a pushed branch of the item, the branch SHALL keep its own tip.
+The job SHALL make the commit of a staged item on the staged commit of its round, so that the probe and the plan read one commit. Before it pushes, the job SHALL fetch the default branch and rebase the commit onto it, so that the pushed branch holds the default branch. A conflict SHALL abort the rebase and fail the item with nothing pushed. When the job takes over a pushed branch of the item, the branch SHALL keep its own tip.
 
 #### Scenario: origin moves after the round read the default branch
 - **WHEN** `origin/main` gains a commit after the round read it, and the job stages an item
-- **THEN** the parent of the commit of the new branch is the staged commit of the round, and the new commit of `origin/main` is not an ancestor of the new branch
+- **THEN** the parent of the commit of the new branch is the tip of `origin/main`, and `main` has no commit that the new branch lacks
+
+#### Scenario: The rebase conflicts
+- **WHEN** `origin/main` gains a file with the path of a file of the plan
+- **THEN** the job aborts the rebase, pushes no branch, opens no pull request, and records the item as failed
 
 ### Requirement: A plan that adds a text rule carries its self-acceptance test
 A plan with a behavior group that changes `src/devops_cli/roadmap/stage/stage_change.py` SHALL give a group test text that names `StageProposal`, `content_problems` and no problem, so the plan holds no text that its own rule refuses.
