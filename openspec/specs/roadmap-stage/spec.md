@@ -2658,21 +2658,6 @@ The stage job SHALL build the registry and ratchet table from the module-level `
 - **WHEN** A plan adds a counted item and holds a task whose text names each declared path.
 - **THEN** `check_proposal` returns no registry problem for that plan.
 
-### Requirement: A test path in a docstring or a spec names a file of the commit
-`check_proposal` SHALL fail when a test file path named in a Python docstring or in a spec names no file of the commit, and MUST add each such path to its refusal list.
-
-#### Scenario: A spec names a missing test file
-- **WHEN** A spec contains `tests/test_missing_example.py` and that file is absent from the commit.
-- **THEN** The check reports `tests/test_missing_example.py` as a missing path.
-
-#### Scenario: A plan changes a docstring with a stale test path
-- **WHEN** A plan changes a Python file whose docstring names a test file that the commit does not hold.
-- **THEN** `check_proposal` returns a problem that names the missing test path.
-
-#### Scenario: A docstring that names a test file of the commit passes
-- **WHEN** A Python file names `tests/roadmap/test_roadmap_limit_classes.py` in its docstring and the commit holds that file.
-- **THEN** The check reports no missing path.
-
 ### Requirement: The planner prompt names the issue form of a dependency
 The planner prompt `src/devops_cli/ai/tasks/roadmap_stage_change.md` SHALL state that a `dependencies` entry which starts with `#<number>:` names an issue that must be delivered first, and MUST keep the rule that names each overlap and each metric sender.
 
@@ -4455,3 +4440,18 @@ The table builder SHALL read the text of each test module, and MUST NOT parse a 
 #### Scenario: The name in a comment gives no entry
 - **WHEN** `counts_in` reads a test module that holds `REGISTRY_COUNTS` only in a comment.
 - **THEN** It returns no entry.
+
+### Requirement: A test path in a spec of the plan names a file of the commit
+`check_proposal` SHALL fail when a test file path named in a spec of the plan names no file of the commit, and MUST add each such path to its refusal list. It MUST NOT read test paths from the base text of a file that the plan changes, because the plan cannot change that text.
+
+#### Scenario: A spec names a missing test file
+- **WHEN** A spec contains `tests/test_missing_example.py` and that file is absent from the commit.
+- **THEN** The check reports `tests/test_missing_example.py` as a missing path.
+
+#### Scenario: A base docstring with a missing test path passes
+- **WHEN** A plan changes a Python file whose base docstring names `tests/test_x.py`, the commit does not hold that file, and no spec of the plan names it.
+- **THEN** `check_proposal` returns no missing test path problem.
+
+#### Scenario: A text that names a test file of the commit passes
+- **WHEN** The scanned text names `tests/roadmap/test_roadmap_limit_classes.py` and the commit holds that file.
+- **THEN** The check reports no missing path.
