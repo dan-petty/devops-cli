@@ -17,6 +17,7 @@ import pytest
 from devops_cli.roadmap.stores.store import ItemField
 from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
+from tests.support.model_script import tool_calls
 
 REPO = "example/roadmap"
 WINDOW = 128000
@@ -201,3 +202,12 @@ def rounds_spent(rounds: int) -> str:
     """The line that a stop adds to its reason when the step used all its `rounds` repair rounds
     (#3053)."""
     return f"\nThe step used all its repair rounds: `roadmap.implement.repair_rounds={rounds}`."
+
+
+def refused_between_reads(command: str) -> Any:
+    """A reply that asks for the refused `command` and, in the same reply, for an accepted call
+    that reads a file. A model that repeats it is refused once in each reply and never twice in a
+    row, so only the total limit of refusals can stop it (#4043)."""
+    return tool_calls(
+        ("run_command", {"command": command}), ("read_file", {"path": "src/sample.py"})
+    )

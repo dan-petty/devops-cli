@@ -32,7 +32,7 @@ from devops_cli.ai.spend.ledger import SpendLedger
 from devops_cli.config import constants
 from devops_cli.config.constants import (
     CONST_ROADMAP_IMPLEMENT_LOG_CHARS,
-    CONST_ROADMAP_IMPLEMENT_MAX_REFUSALS,
+    CONST_ROADMAP_IMPLEMENT_MAX_CONSECUTIVE_REFUSALS,
     CONST_ROADMAP_IMPLEMENT_MAX_REQUESTS,
     CONST_ROADMAP_IMPLEMENT_MAX_TOOL_CALLS,
     CONST_ROADMAP_IMPLEMENT_TOOL_MAX_CHARS,
@@ -79,6 +79,7 @@ from tests.support.implement_step import (
     is_clean_at,
     make_checkout,
     programs_run,
+    refused_between_reads,
     rounds_spent,
     the_whole_group,
     write_call,
@@ -1237,8 +1238,8 @@ RETRY_LIMIT_MESSAGE = (
 
 
 REFUSAL_LIMIT_MESSAGE = (
-    "Too many commands refused by policy in one step: the limit is "
-    f"{CONST_ROADMAP_IMPLEMENT_MAX_REFUSALS}."
+    "Too many consecutive commands refused by policy: the limit is "
+    f"{CONST_ROADMAP_IMPLEMENT_MAX_CONSECUTIVE_REFUSALS}."
 )
 BROKE = UnexpectedModelBehavior("The reply broke the rules.")
 
@@ -1247,8 +1248,7 @@ def test_a_model_that_keeps_calling_a_refused_program_stops_with_the_message_and
     store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
 ) -> None:
     """The shell refuses `pytest`. The model asks for `pytest` in every reply, as the Job on #2656
-    may have done: the shell refuses it up to the limit of refusals, and the next call ends the run
-    (#3271)."""
+    may have done: the third refusal in a row ends the run (#3271, #4043)."""
     head = git(checkout, "rev-parse", "HEAD")
     script = ModelScript(tool_call("run_command", command="pytest tests/test_sample.py"))
 
@@ -1257,8 +1257,9 @@ def test_a_model_that_keeps_calling_a_refused_program_stops_with_the_message_and
     assert (outcome.status, outcome.reason, outcome.requests, is_clean_at(checkout, head)) == (
         StepStatus.STOPPED,
         f"UnexpectedModelBehavior: {REFUSAL_LIMIT_MESSAGE}\n"
-        f"Refused commands: pytest {CONST_ROADMAP_IMPLEMENT_MAX_REFUSALS + 1}. Other retries: 0.",
-        CONST_ROADMAP_IMPLEMENT_MAX_REFUSALS + 1,
+        f"Refused commands: pytest {CONST_ROADMAP_IMPLEMENT_MAX_CONSECUTIVE_REFUSALS}. "
+        "Other retries: 0.",
+        CONST_ROADMAP_IMPLEMENT_MAX_CONSECUTIVE_REFUSALS,
         True,
     )
 
@@ -1268,7 +1269,7 @@ def test_the_reason_counts_the_refused_commands_by_program_from_the_most_refused
 ) -> None:
     script = ModelScript(
         *(
-            tool_call("run_command", command=f"{program} x")
+            refused_between_reads(f"{program} x")
             for program in "cd python cd python python python".split()
         ),
         BROKE,
@@ -1285,7 +1286,7 @@ def test_the_reason_joins_the_programs_beyond_the_limit_to_other(
     """Five programs, one of them twice: the reason lists four, and the fifth joins `other`."""
     script = ModelScript(
         *(
-            tool_call("run_command", command=f"{name} x")
+            refused_between_reads(f"{name} x")
             for name in ("pytest", "rg", "pip", "cd", "python3", "python3")
         ),
         BROKE,
@@ -1493,7 +1494,8 @@ def test_the_counts_cover_the_repair_turn(
     outcome = _step(store, checkout, script)
 
     assert outcome.reason.endswith(
-        f"\nRefused commands: pytest {CONST_ROADMAP_IMPLEMENT_MAX_REFUSALS + 1}. Other retries: 0."
+        f"\nRefused commands: pytest {CONST_ROADMAP_IMPLEMENT_MAX_CONSECUTIVE_REFUSALS + 1}. "
+        "Other retries: 0."
     )
 
 

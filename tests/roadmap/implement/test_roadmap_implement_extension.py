@@ -395,16 +395,19 @@ def test_a_step_that_repeats_refused_commands_stops_at_its_budget(
     implement_programs: ProcessFake,
     config: Callable[..., Path],
 ) -> None:
-    script = ModelScript(tool_calls(*(REFUSED,) * 4, *_reads(16)), say("Done."))
+    # Two replies of two refusals each: a read between them keeps the refusals from being
+    # consecutive, and three in a row end the run (#4043).
+    reply = tool_calls(REFUSED, REFUSED, *_reads(8))
+    script = ModelScript(reply, reply, say("Done."))
 
-    outcome = _step(implement_store, implement_checkout, script, config)
+    outcome = _step(implement_store, implement_checkout, script, config, step_token_budget=150)
 
     assert (len(script.seen), outcome.failure_class, outcome.extension) == (
-        1,
+        2,
         FailureClass.LIMIT_REACHED,
         None,
     )
-    assert BUDGET in outcome.reason
+    assert "`roadmap.implement.step_token_budget=150`" in outcome.reason
     assert "0 successful edit(s) and 4 refused command(s) in its last 20 tool calls" in (
         outcome.reason
     )

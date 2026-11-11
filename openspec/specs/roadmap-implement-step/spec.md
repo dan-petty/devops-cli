@@ -221,7 +221,7 @@ The shell tool SHALL run a command with a pipe when each stage after the first i
 - **THEN** the first holds `|`, and the second holds `head`, `tail`, `grep` and `wc` and only programs of `SHELL_PROGRAMS` with access `read`
 
 ### Requirement: A run that reaches a limit ends stopped
-`UsageLimits` SHALL cap a run, extra turn included, at `CONST_ROADMAP_IMPLEMENT_MAX_REQUESTS` requests and `CONST_ROADMAP_IMPLEMENT_MAX_TOOL_CALLS` tool calls. A run that reaches a limit, exceeds the retries of a tool, or has more than `CONST_ROADMAP_IMPLEMENT_MAX_REFUSALS` shell refusals in the step, SHALL end as stopped, and the step SHALL reset the checkout. The reason SHALL hold the class and the `message` of the error, masked and cut to `CONST_ROADMAP_RUN_ERROR_CHARS` characters.
+`UsageLimits` SHALL cap a run, extra turn included, at `CONST_ROADMAP_IMPLEMENT_MAX_REQUESTS` requests and `CONST_ROADMAP_IMPLEMENT_MAX_TOOL_CALLS` tool calls. A run that reaches a limit, exceeds the retries of a tool, or exceeds a limit of shell refusals (total or in a row), SHALL end as stopped, and the step SHALL reset the checkout. The reason SHALL hold the class and the `message` of the error, masked and cut to `CONST_ROADMAP_RUN_ERROR_CHARS` characters.
 
 #### Scenario: A model that never ends
 - **WHEN** the model calls a tool in every reply
@@ -241,7 +241,11 @@ The shell tool SHALL run a command with a pipe when each stage after the first i
 
 #### Scenario: A model that keeps calling a refused program
 - **WHEN** the model calls the shell tool with `pytest tests/test_sample.py` in every reply
-- **THEN** the model gets `CONST_ROADMAP_IMPLEMENT_MAX_REFUSALS` refusals as tool results, the next call ends the run, the step reports stopped with a reason that starts with `UnexpectedModelBehavior: Too many commands refused by policy in one step: the limit is` and the limit, and the checkout is reset
+- **THEN** the model gets `CONST_ROADMAP_IMPLEMENT_MAX_CONSECUTIVE_REFUSALS` minus one refusals as tool results, the next refusal ends the run, the step reports stopped with a reason that starts with `UnexpectedModelBehavior: Too many consecutive commands refused by policy: the limit is` and the limit, and the checkout is reset
+
+#### Scenario: A model that alternates a refused and an accepted call
+- **WHEN** the model calls a refused command and an accepted tool in every reply
+- **THEN** the model gets `CONST_ROADMAP_IMPLEMENT_MAX_REFUSALS` refusals as tool results, the next call ends the run, and the reason starts with `UnexpectedModelBehavior: Too many commands refused by policy in one step: the limit is` and the limit
 
 #### Scenario: The stop of the refusal limit is a refused tool
 - **WHEN** the step stops because the shell refused more commands than the limit
@@ -330,12 +334,12 @@ A stopped step SHALL give `mask_secrets` at most `CONST_ROADMAP_IMPLEMENT_DIFF_R
 A step that stops on a pydantic-ai error SHALL count the tool calls that a tool refused by its policy, by program, and the tool calls that came back as a retry for another cause. The reason SHALL end with both counts when a count is not zero. It SHALL list at most `CONST_ROADMAP_IMPLEMENT_REFUSED_PROGRAMS` programs, most refused first, and join the rest to `other`. A call counts as refused when the shell refused its command or an argument by its policy.
 
 #### Scenario: The call that exceeds the limit
-- **WHEN** the model is refused more often than `CONST_ROADMAP_IMPLEMENT_MAX_REFUSALS` times
+- **WHEN** the model is refused more often than `CONST_ROADMAP_IMPLEMENT_MAX_REFUSALS` times, or `CONST_ROADMAP_IMPLEMENT_MAX_CONSECUTIVE_REFUSALS` times in a row
 - **THEN** the call that ends the run counts as refused too
 
 #### Scenario: Refused commands
 - **WHEN** the model calls the shell tool with `pytest tests/test_sample.py` in every reply, and `pytest` is not a program of the shell table
-- **THEN** the reason ends with a new line and "Refused commands: pytest 31. Other retries: 0.", where 31 is `CONST_ROADMAP_IMPLEMENT_MAX_REFUSALS` plus one
+- **THEN** the reason ends with a new line and "Refused commands: pytest 3. Other retries: 0.", where 3 is `CONST_ROADMAP_IMPLEMENT_MAX_CONSECUTIVE_REFUSALS`
 
 #### Scenario: Refused commands of two programs
 - **WHEN** the model is refused `python` four times and `cd` twice, and then another error ends the run
@@ -1683,3 +1687,14 @@ The step budget, its ceiling and the item budget SHALL count the new tokens of e
 #### Scenario: A route that reports no cache reads
 - **WHEN** no setting changes the step budget and each reply reports 39300 input tokens, none of them read from the cache, and 200 output tokens
 - **THEN** the step makes at least 200 requests before its token budget, as when the budget counted all input tokens
+
+### Requirement: Consecutive refusals stop the step
+The implement step SHALL end the run as stopped when the shell policy refuses `CONST_ROADMAP_IMPLEMENT_MAX_CONSECUTIVE_REFUSALS` commands in a row, and the checkout SHALL reset. Any tool call that is not refused SHALL reset the count to 0. The stop SHALL use the failure class `refused_tool`. The constant `CONST_ROADMAP_IMPLEMENT_MAX_CONSECUTIVE_REFUSALS` SHALL be 3.
+
+#### Scenario: Three refusals in a row
+- **WHEN** the shell policy refuses 3 commands in a row and no tool call is accepted between them
+- **THEN** the third refusal ends the run, the reason names the limit of 3, the failure class is `refused_tool`, and the checkout is reset
+
+#### Scenario: Refusals split by an accepted call
+- **WHEN** the shell policy refuses 2 commands, a tool call is accepted, and the shell policy refuses 2 more commands
+- **THEN** the step does not stop for the consecutive limit

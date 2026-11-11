@@ -15,6 +15,7 @@ from pydantic_ai.messages import RetryPromptPart, ToolReturnPart
 
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config.constants import (
+    CONST_ROADMAP_IMPLEMENT_MAX_CONSECUTIVE_REFUSALS,
     CONST_ROADMAP_IMPLEMENT_MAX_REFUSALS,
     CONST_ROADMAP_IMPLEMENT_TOOL_RETRIES,
     CONST_ROADMAP_RUN_ERROR_CHARS,
@@ -30,7 +31,7 @@ from devops_cli.roadmap.implement.implement_shell_policy import (
 from devops_cli.roadmap.implement.implement_step import StepOutcome, StepStatus, run_step
 from tests.support.fakes.process import ProcessFake
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
-from tests.support.implement_step import WINDOW, git, is_clean_at
+from tests.support.implement_step import WINDOW, git, is_clean_at, refused_between_reads
 from tests.support.model_script import ModelScript, say, tool_call
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
@@ -225,13 +226,14 @@ def test_more_refusals_than_the_retry_limit_do_not_stop_the_run(
 ) -> None:
     """The refusals of one step are many more than `CONST_ROADMAP_IMPLEMENT_TOOL_RETRIES`, and the
     model then ends its reply (#3271). The step has no change to commit, so it stops for that
-    reason and not for the retries."""
+    reason and not for the retries. An accepted call in each reply keeps the refusals from being
+    consecutive (#4043)."""
     refusals = CONST_ROADMAP_IMPLEMENT_TOOL_RETRIES * 3
-    script = ModelScript(*[tool_call("run_command", command="python -V")] * refusals, say("Done."))
+    script = ModelScript(*[refused_between_reads("python -V")] * refusals, say("Done."))
 
     outcome = _step(store, checkout, script)
 
-    assert (outcome.requests, len(script.tool_answers())) == (refusals + 1, refusals)
+    assert (outcome.requests, len(script.tool_answers())) == (refusals + 1, refusals * 2)
     assert "max retries" not in outcome.reason
     assert "refused by policy" not in outcome.reason
 
@@ -240,7 +242,7 @@ def test_a_real_failure_of_a_tool_still_counts_as_a_retry(
     store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
 ) -> None:
     script = ModelScript(
-        *[tool_call("run_command", command="python -V")] * 3,
+        *[tool_call("run_command", command="python -V")] * 2,
         *[tool_call("read_file")] * (CONST_ROADMAP_IMPLEMENT_TOOL_RETRIES + 1),
     )
 
@@ -250,11 +252,15 @@ def test_a_real_failure_of_a_tool_still_counts_as_a_retry(
     assert "Tool 'read_file' exceeded max retries" in outcome.reason
 
 
-def test_the_model_gets_the_limit_of_refusals_with_a_hint_and_the_next_call_ends_the_run(
+def test_the_limit_of_consecutive_refusals_is_3() -> None:
+    assert CONST_ROADMAP_IMPLEMENT_MAX_CONSECUTIVE_REFUSALS == 3
+
+
+def test_a_model_that_repeats_a_refused_command_stops_at_the_consecutive_limit(
     store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
 ) -> None:
     head = git(checkout, "rev-parse", "HEAD")
-    limit = CONST_ROADMAP_IMPLEMENT_MAX_REFUSALS
+    limit = CONST_ROADMAP_IMPLEMENT_MAX_CONSECUTIVE_REFUSALS
     script = ModelScript(tool_call("run_command", command="python -V"))
 
     outcome = _step(store, checkout, script)
@@ -262,27 +268,63 @@ def test_the_model_gets_the_limit_of_refusals_with_a_hint_and_the_next_call_ends
     answers = script.tool_answers()
     assert (outcome.status, outcome.requests, len(answers), is_clean_at(checkout, head)) == (
         StepStatus.STOPPED,
-        limit + 1,
         limit,
+        limit - 1,
         True,
     )
     assert all(answer.endswith(f"Instead of `python`: {UV_RUN_PYTHON}") for answer in answers)
+    assert outcome.reason == (
+        "UnexpectedModelBehavior: Too many consecutive commands refused by policy: the limit is "
+        f"{limit}.\nRefused commands: python {limit}. Other retries: 0."
+    )
+
+
+def test_a_model_that_is_refused_between_accepted_calls_stops_at_the_total_limit(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    head = git(checkout, "rev-parse", "HEAD")
+    limit = CONST_ROADMAP_IMPLEMENT_MAX_REFUSALS
+    script = ModelScript(refused_between_reads("python -V"))
+
+    outcome = _step(store, checkout, script)
+
+    assert (outcome.status, outcome.requests, is_clean_at(checkout, head)) == (
+        StepStatus.STOPPED,
+        limit + 1,
+        True,
+    )
     assert outcome.reason == (
         "UnexpectedModelBehavior: Too many commands refused by policy in one step: the limit is "
         f"{limit}.\nRefused commands: python {limit + 1}. Other retries: 0."
     )
 
 
-def test_the_stop_of_the_refusal_limit_is_in_the_class_of_a_refused_tool(
+def test_an_accepted_call_resets_the_count_of_consecutive_refusals(
     store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
 ) -> None:
-    script = ModelScript(tool_call("run_command", command="python -V"))
+    refused = tool_call("run_command", command="python -V")
+    script = ModelScript(
+        refused, refused, tool_call("read_file", path="src/sample.py"), refused, refused,
+        say("Done."),
+    )  # fmt: skip
 
     outcome = _step(store, checkout, script)
 
-    first_line = outcome.reason.splitlines()[0]
-    assert classify_failure(FailureEvidence(text=outcome.reason)) is FailureClass.REFUSED_TOOL
-    assert classify_failure(FailureEvidence(text=first_line)) is FailureClass.REFUSED_TOOL
+    assert outcome.requests == 6
+    assert "refused by policy" not in outcome.reason
+
+
+def test_the_stop_of_each_refusal_limit_is_in_the_class_of_a_refused_tool(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    replies = (tool_call("run_command", command="python -V"), refused_between_reads("python -V"))
+    for reply in replies:
+        outcome = _step(store, checkout, ModelScript(reply))
+
+        first_line = outcome.reason.splitlines()[0]
+        assert outcome.status is StepStatus.STOPPED
+        assert classify_failure(FailureEvidence(text=outcome.reason)) is FailureClass.REFUSED_TOOL
+        assert classify_failure(FailureEvidence(text=first_line)) is FailureClass.REFUSED_TOOL
 
 
 # ── The prompt agrees with the table ──────────────────────────────────────────────────────
