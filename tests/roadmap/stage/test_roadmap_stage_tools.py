@@ -176,6 +176,30 @@ def test_the_toolset_names_the_methods_of_the_registry_holder(tools: StageTools)
     assert [tool.name for tool in tools.tools()] == list(tool_names(HOLDER_STAGE_EXTENDED))
 
 
+def test_each_read_tool_description_shows_its_answer_format_unbroken(tmp_path: Path) -> None:
+    """pydantic-ai makes each tool description from the docstring, Google style. A `Returns:`
+    line is read as `type: description`, so it split an answer format such as
+    `path:line:content` at its first colon, and the model got a broken format (#4482)."""
+    stage = StageTools(source=tmp_path, sha="HEAD", toolset="research")
+    refine = refine_investigation.InvestigationTools(source=tmp_path, sha="HEAD", web=True)
+    descriptions = {
+        **{f"stage {tool.name}": tool.tool_def.description or "" for tool in stage.tools()},
+        **{f"refine {tool.name}": tool.tool_def.description or "" for tool in refine.tools()},
+    }
+    formats = {
+        "stage search_code": "`path:line:content`",
+        "stage callers": "`path:line:content`",
+        "stage file_symbols": "`line: signature`",
+        "stage find_issues": "`#N state title`",
+        "refine search_code": "`path:line:content`",
+    }
+
+    assert {
+        name: answer for name, answer in formats.items() if answer not in descriptions[name]
+    } == {}
+    assert [name for name, text in descriptions.items() if "<returns>" in text] == []
+
+
 def test_the_toolbox_has_no_web_search_even_when_the_round_allows_it(repo: Path) -> None:
     keyed = StageTools(source=repo, sha="HEAD", web=True)
 
