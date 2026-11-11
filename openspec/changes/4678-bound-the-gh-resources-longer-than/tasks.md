@@ -2,7 +2,7 @@
 
 ## 1. Behavior: the bound of the gh resources and the chain of an MCP read
 
-- [ ] 1.1 Add the failing tests: each `resource://gh/` resource dispatches its command with `DEFAULT_MCP_TOOL_TIMEOUT_SECONDS`, and the chain test holds the chain of a `resource://gh/` resource next to the chain of the implement job
+- [x] 1.1 Add the failing tests: each `resource://gh/` resource dispatches its command with `DEFAULT_MCP_TOOL_TIMEOUT_SECONDS`, and the chain test holds the chain of a `resource://gh/` resource next to the chain of the implement job
   - Verification: `$ uv run devops ci test tests/ai/mcp/test_mcp_prompts_and_resources.py tests/github/test_github_session_timeouts.py`
 - [ ] 1.2 Give the four `resource://gh/` resources of `src/devops_cli/ai/mcp/server.py` the bound `DEFAULT_MCP_TOOL_TIMEOUT_SECONDS`, and name the calls around a read in the comment of `DEFAULT_GH_SESSION_READ_TIMEOUT_SECONDS`
   - Verification: `$ uv run devops ci test tests/ai/mcp/test_mcp_prompts_and_resources.py tests/github/test_github_session_timeouts.py`

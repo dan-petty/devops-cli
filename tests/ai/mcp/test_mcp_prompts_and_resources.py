@@ -1,6 +1,22 @@
-"""The server registers its prompts and resources, and a prompt fills in its parameters."""
+"""The server registers its prompts and resources, a prompt fills in its parameters, and a
+resource dispatches its command with its bound."""
 
 from __future__ import annotations
+
+import asyncio
+from typing import Final
+
+from devops_cli.ai.mcp.server import mcp
+from devops_cli.config.defaults import DEFAULT_MCP_TOOL_TIMEOUT_SECONDS
+from tests.support.fakes.mcp_dispatcher import DispatcherFake
+
+# The resources of the MCP server that run a `devops gh` command.
+_GH_RESOURCES: Final = (
+    "resource://gh/issues/status",
+    "resource://gh/pages/status",
+    "resource://gh/project/status",
+    "resource://gh/views/status",
+)
 
 
 def test_fastmcp_prompts_and_resources_registration() -> None:
@@ -79,3 +95,21 @@ def test_mcp_prompts_execution() -> None:
         "security audit" in sec_p.lower(),
         "src" in sec_p,
     ) == (True, True, True)
+
+
+def test_each_gh_resource_waits_longer_than_a_github_read(mcp_dispatcher: DispatcherFake) -> None:
+    """Each `resource://gh/` resource dispatches its command with `DEFAULT_MCP_TOOL_TIMEOUT_SECONDS`,
+    which the chain test of `tests/github/test_github_session_timeouts.py` holds above the GitHub
+    session read bound. A GitHub read in the command then stops first, and the resource gets its
+    error, not the timeout of the dispatch (#4678)."""
+    uris = sorted(
+        str(resource.uri)
+        for resource in asyncio.run(mcp.list_resources())
+        if str(resource.uri).startswith("resource://gh/")
+    )
+    for uri in uris:
+        asyncio.run(mcp.read_resource(uri))
+
+    assert dict(zip(uris, (call.timeout for call in mcp_dispatcher.calls), strict=True)) == (
+        dict.fromkeys(_GH_RESOURCES, DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
+    )
