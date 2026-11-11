@@ -1794,6 +1794,42 @@ class RoadmapCommandHelp:
     onboard_dry_run: str = (
         "Make no request: print the requests that a run makes, in order, with placeholders."
     )
+    review_app: str = (
+        "Review a version range or a period of a repository: the facts of the window, each with "
+        "its source, its query and the time of its read."
+    )
+    review_run: str = (
+        "Read the git facts of one window from the checkout of the working directory and write "
+        "data.json and its JSON Schema. The window is half-open: the base commit and the start "
+        "time are out, and the head commit and the end time are in. A tag becomes its commit. A "
+        "time becomes the last first-parent commit of the default branch at or before it. Each "
+        "time is in UTC before any compare. The facts are the commits and their types, the net "
+        "change and the churn with the generated files apart, the release tags, the hot files "
+        "with their renames followed, and the complexity of the hottest files (lizard, the extra "
+        "review). The command reads no network."
+    )
+    review_version: str = (
+        "Two version tags as A..B. The commits after A up to B, and the tags created after A up "
+        "to B."
+    )
+    review_since: str = (
+        "The start time, in ISO 8601, with --until. A time with no offset is in UTC."
+    )
+    review_until: str = "The end time, in ISO 8601, with --since. A time with no offset is in UTC."
+    review_week: str = "One ISO week as YYYY-Www, from Monday 00:00 UTC to the next Monday."
+    review_last: str = "The days up to now as Nd, such as 7d, from the start of this minute."
+    review_repo: str = (
+        "The repository as owner/name (default: the origin of the checkout). It must be the "
+        "origin of the checkout."
+    )
+    review_out: str = (
+        "The folder of data.json (default: project-review/<owner>/<name>/<window id> under the "
+        "data directory)."
+    )
+    review_json: str = "Print data.json to standard output."
+    review_dry_run: str = (
+        "Start no program: print the git commands that a run starts, in order, with placeholders."
+    )
 
 
 @dataclass(frozen=True)

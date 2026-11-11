@@ -7286,6 +7286,36 @@ devops roadmap eval completeness [OPTIONS]
 | `--dry-run` | `boolean` | - | Make no request: list the cases and the model calls that a run makes. |
 | `--cases` | `path` | - | Folder of the cases. Default: tests/fixtures/roadmap_eval/completeness. |
 
+### `devops roadmap review`
+
+**Review a version range or a period of a repository: the facts of the window, each with its source, its query and the time of its read.**
+
+```bash
+devops roadmap review COMMAND [ARGS]...
+```
+
+#### `devops roadmap review run`
+
+**Read the git facts of one window from the checkout of the working directory and write data.json and its JSON Schema. The window is half-open: the base commit and the start time are out, and the head commit and the end time are in. A tag becomes its commit. A time becomes the last first-parent commit of the default branch at or before it. Each time is in UTC before any compare. The facts are the commits and their types, the net change and the churn with the generated files apart, the release tags, the hot files with their renames followed, and the complexity of the hottest files (lizard, the extra review). The command reads no network.**
+
+```bash
+devops roadmap review run [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--version` | `string` | - | Two version tags as A..B. The commits after A up to B, and the tags created after A up to B. |
+| `--since` | `string` | - | The start time, in ISO 8601, with --until. A time with no offset is in UTC. |
+| `--until` | `string` | - | The end time, in ISO 8601, with --since. A time with no offset is in UTC. |
+| `--week` | `string` | - | One ISO week as YYYY-Www, from Monday 00:00 UTC to the next Monday. |
+| `--last` | `string` | - | The days up to now as Nd, such as 7d, from the start of this minute. |
+| `--repo`, `-R` | `string` | - | The repository as owner/name (default: the origin of the checkout). It must be the origin of the checkout. |
+| `--out` | `path` | - | The folder of data.json (default: project-review/\<owner\>/\<name\>/<window id> under the data directory). |
+| `--json` | `boolean` | - | Print data.json to standard output. |
+| `--dry-run` | `boolean` | - | Start no program: print the git commands that a run starts, in order, with placeholders. |
+
 ---
 
 ## devops pr
