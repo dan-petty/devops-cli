@@ -25,7 +25,10 @@ spec:
         prometheus.io/scrape: "true"
         prometheus.io/port: "8000"
     spec:
-      terminationGracePeriodSeconds: 150
+      # CONST_SERVICE_STOP_GRACE_SECONDS: the drain wait (600 s) and the cut wait (30 s) of the
+      # stop of the Service, and 30 s for the exit (#4485). uvicorn starts the drain on SIGTERM,
+      # so the pod has no preStop hook: one would use the same grace period first.
+      terminationGracePeriodSeconds: 660
       # local-path binds the volume on the node where the pod first runs, and the root disk of the
       # control-plane node has the least free space (#1634; k8s/README.md, Local-Path Volume Placement).
       affinity:

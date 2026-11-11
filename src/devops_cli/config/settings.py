@@ -131,7 +131,6 @@ from devops_cli.config.defaults import (
     DEFAULT_SANDBOX_EXCLUDE_HOME,
     DEFAULT_SEARCH_LANGUAGE,
     DEFAULT_SEARCH_PROVIDERS,
-    DEFAULT_SERVICE_DRAIN_TIMEOUT_SECONDS,
     DEFAULT_SERVICE_GITHUB_REQUESTS_PER_HOUR,
     DEFAULT_SERVICE_MODEL_CALL_CONCURRENCY,
     DEFAULT_SERVICE_POLL_INTERVAL_SECONDS,
@@ -1229,11 +1228,6 @@ class ServiceConfig(BaseModel):
         description="Periodic polling interval for service mode in seconds",
         default=DEFAULT_SERVICE_POLL_INTERVAL_SECONDS,
         ge=60,
-    )
-    drain_timeout_seconds: Annotated[int, Variable()] = Field(
-        description="Shutdown drain timeout for running service jobs in seconds",
-        default=DEFAULT_SERVICE_DRAIN_TIMEOUT_SECONDS,
-        gt=0,
     )
     github_requests_per_hour: Annotated[int, Variable()] = Field(
         description="The most GitHub requests the Service sends in one hour, not counting those that GitHub answers with 304, as GitHub does not count them against its rate limit; a request that the last hour has no room for waits. The alert RoadmapServiceGitHubRequestsHigh follows this limit",

@@ -27,6 +27,7 @@ from devops_cli.exceptions import RoadmapStageError, ServiceStoppingError, ended
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.body_hash import body_hashes
 from devops_cli.roadmap.run import _run_stage_adapter
+from devops_cli.roadmap.service_stop import begin_service_stop
 from devops_cli.roadmap.stores.store import CloseReason, ItemField, StageRecordKey
 from tests.support.builders import make_stage_proposal
 from tests.support.fakes.github import github_json
@@ -242,6 +243,39 @@ def test_service_stopping_in_item_three_keeps_item_one_and_records_the_failure_o
         [False, False, False],
         [0, 0, 0],
     )
+
+
+def test_a_stop_of_the_service_during_item_one_stages_it_and_takes_no_next_item(
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    github_api: GitHubApiFake,
+    openspec_fake: OpenSpecFake,
+) -> None:
+    """The Service gets SIGTERM while it plans item 1. Item 1 runs on to its draft pull request,
+    then no next item starts: the round ends with the stop, records no failure, and leaves items
+    2 and 3 for the next pod (#4485)."""
+    store = _roadmap(3, openspec_fake, github_api)
+    no_findings(model_fake)
+    planned: list[int] = []
+
+    def plan(prompt: str) -> Any:
+        planned.append(_number_of(prompt))
+        begin_service_stop()
+        return make_stage_proposal()
+
+    model_fake.answer(plan)
+
+    with pytest.raises(ServiceStoppingError) as stopped:
+        _round(store, stage_repo)
+
+    assert (
+        ended_by_stop(stopped.value),
+        planned,
+        _pushed(stage_repo),
+        len(_staged_comments(store, 1)),
+        [StageRecordKey.FAILED_ERROR.value in _record(store, n) for n in (1, 2, 3)],
+        [len(store.comments_on(n)) for n in (2, 3)],
+    ) == (True, [1], [_branch(1), "main"], 1, [False, False, False], [0, 0])
 
 
 # ── The order of the writes ───────────────────────────────────────────────────

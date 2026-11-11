@@ -40,6 +40,8 @@ from devops_cli.config.constants import (
     CONST_SERVICE_METRIC_TRIGGERS,
     CONST_SERVICE_PROBE_PATHS,
     CONST_SERVICE_SOURCE_POLL,
+    CONST_SERVICE_STOP_CUT_SECONDS,
+    CONST_SERVICE_STOP_DRAIN_SECONDS,
 )
 from devops_cli.config.settings import (
     ServiceConfig,
@@ -57,6 +59,7 @@ from devops_cli.exceptions import (
 from devops_cli.github.rate_limiter import set_request_gate
 from devops_cli.github.request_scope import request_scope
 from devops_cli.lang import MESSAGES
+from devops_cli.roadmap.service_stop import begin_service_stop
 from devops_cli.server.counter_series import prime_service_counters
 from devops_cli.server.routes.webhooks import (
     DeliveryLRUCache,
@@ -201,7 +204,9 @@ class RequestBudget:
     `admit` keeps the request in the window at once, and with a `record`, in that file, so a pod
     that stops in the middle of a round loses none, and a restart reads them back (#2474). Once
     `close` is called, a request that would wait ends with an error instead, so a stop does not
-    wait for the window.
+    wait for the window. Once `cut` is called, every request ends with that error, also one the
+    window has room for, so a round still in flight at the end of the drain wait ends at its next
+    request (#4485).
 
     The cost of a round sets the poll cadence: the Service polls no faster than the budget pays
     for. The Service's /metrics shows the limit, the requests of the window as of the last
@@ -221,6 +226,7 @@ class RequestBudget:
         self._record = record
         self._lock = threading.Lock()
         self._closed = threading.Event()
+        self._cut = threading.Event()
         self._admitted = 0
         self._rounds = 0
         kept = [] if record is None else read_state_record(record, _RequestsSent, [])
@@ -236,8 +242,13 @@ class RequestBudget:
 
     def admit(self) -> None:
         """Give one request its place in the window, and keep it in the record. Waits while the
-        window is full; once the budget is closed, raises instead of waiting."""
+        window is full; once the budget is closed, raises instead of waiting, and once it is cut,
+        raises at once."""
         while True:
+            if self._cut.is_set():
+                raise ServiceStoppingError(
+                    MESSAGES.serve.budget_cut, details={"limit": self._limit}
+                )
             with self._lock:
                 spent = self._spent_locked()
                 if spent < self._limit:
@@ -280,6 +291,11 @@ class RequestBudget:
     def close(self) -> None:
         """End the waits of the requests that the window has no room for, and refuse the
         ones that come after."""
+        self._closed.set()
+
+    def cut(self) -> None:
+        """Refuse every request from now on, also one the window has room for (#4485)."""
+        self._cut.set()
         self._closed.set()
 
     def count_round(self) -> None:
@@ -557,11 +573,13 @@ class RepoWorker:
     def _wait_for_next_batch(
         self,
     ) -> tuple[dict[tuple[str, str, str], int], datetime, datetime] | Callable[[], None] | None:
-        """Wait for pending events or scoped tasks the pause lets run and pop them."""
+        """Wait for pending events or scoped tasks the pause lets run and pop them. Once the
+        worker is told to stop, it pops nothing, so no new round starts: the next pod's first
+        poll reads the changes that the pending triggers were for (#4485)."""
         with self._cond:
             while not self._has_runnable_batch() and not self._stop_event.is_set():
                 self._cond.wait(timeout=0.2)
-            if not self._has_runnable_batch():
+            if self._stop_event.is_set() or not self._has_runnable_batch():
                 return None
             if self._pending_scoped:
                 scoped = self._pending_scoped.popleft()
@@ -745,7 +763,9 @@ class ServiceManager:
     """Coordinates the background workers, one per lane of each repository, the polling loop,
     and the lifecycle. Every trigger goes to each lane of its repository, so a round in one lane
     never waits for another lane's (#1532). With a `state_dir`, the halt and the budget window
-    are kept there, and a restart reads them back (#2474)."""
+    are kept there, and a restart reads them back (#2474). A stop waits up to `drain_seconds` for
+    the rounds in flight, then up to `cut_seconds` once the budget refuses their requests
+    (#4485)."""
 
     def __init__(
         self,
@@ -758,8 +778,12 @@ class ServiceManager:
         identity_refused: IdentityReader = no_identity_refusal,
         state_dir: Path | None = None,
         command_token: str | None = None,
+        drain_seconds: float = CONST_SERVICE_STOP_DRAIN_SECONDS,
+        cut_seconds: float = CONST_SERVICE_STOP_CUT_SECONDS,
     ) -> None:
         self.config = config
+        self._drain_seconds = drain_seconds
+        self._cut_seconds = cut_seconds
         self.secrets = secrets
         self.jobs = jobs
         self.command_token = command_token
@@ -887,11 +911,16 @@ class ServiceManager:
         return True
 
     async def drain_and_stop(self) -> bool:
-        """Initiate graceful shutdown, drain active jobs and stop each worker within configured
-        timeout; the rounds a pause holds are not run. Returns whether every worker drained and
-        stopped before the timeout."""
+        """Stop the Service in two bounded phases, and return whether every worker stopped
+        (#4485). First no worker starts a round, no round starts a row and no stage or refine
+        row starts an item, and the rounds in flight get `drain_seconds` to end. A round that
+        waits for the budget window ends at once, and the rounds that a pause holds do not run.
+        Then the budget refuses every GitHub request, so a round still in flight ends at its next
+        request through the stop path (#2753) within `cut_seconds`: it writes what it did and
+        counts no failure."""
         self._draining = True
         self._stop_event.set()
+        begin_service_stop()
         self.budget.close()
         if self._tick_task is not None and not self._tick_task.done():
             self._tick_task.cancel()
@@ -900,17 +929,28 @@ class ServiceManager:
             except asyncio.CancelledError, Exception:
                 pass
 
-        timeout = float(self.config.drain_timeout_seconds)
-        deadline = time.perf_counter() + timeout
-        cleanly_stopped = True
         for worker in self.workers.values():
-            remaining = max(0.0, deadline - time.perf_counter())
-            drained = worker.wait_active(remaining)
             worker.stop()
-            joined = worker.join(max(0.0, deadline - time.perf_counter()))
-            cleanly_stopped = cleanly_stopped and drained and joined
-        set_request_gate(None)
-        return cleanly_stopped
+        stopped = self._join_workers(self._drain_seconds)
+        if not stopped:
+            active = sum(worker.is_alive() for worker in self.workers.values())
+            logger.info(
+                MESSAGES.serve.drain_cut.format(seconds=f"{self._drain_seconds:g}", active=active)
+            )
+            self.budget.cut()
+            stopped = self._join_workers(self._cut_seconds)
+        # A round that still runs keeps the cut gate, so it sends no request until the exit.
+        if stopped:
+            set_request_gate(None)
+        return stopped
+
+    def _join_workers(self, seconds: float) -> bool:
+        """Wait up to `seconds` in all for the worker threads to end; whether every one has."""
+        deadline = time.perf_counter() + seconds
+        stopped = True
+        for worker in self.workers.values():
+            stopped = worker.join(max(0.0, deadline - time.perf_counter())) and stopped
+        return stopped
 
 
 def _resolve_service_secrets(

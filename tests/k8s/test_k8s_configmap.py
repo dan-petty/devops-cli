@@ -96,23 +96,19 @@ def test_render_devops_configmap_invalid_template_raises() -> None:
         )
 
 
-def test_render_devops_configmap_with_timeouts_and_poll() -> None:
-    """Verify render_devops_configmap_content formats drain_timeout_seconds and poll_interval_seconds."""
+def test_render_devops_configmap_with_poll() -> None:
+    """Verify render_devops_configmap_content formats poll_interval_seconds."""
     rendered = render_devops_configmap_content(
         SAMPLE_TEMPLATE,
         repos=["example/repo"],
         github_app=APP,
-        drain_timeout_seconds=90,
         poll_interval_seconds=180,
     )
     doc = yaml.safe_load(rendered)
     inner = yaml.safe_load(doc["data"]["devops-cli.yaml"])
     settings = Settings.model_validate(inner)
 
-    assert (
-        settings.service.drain_timeout_seconds,
-        settings.service.poll_interval_seconds,
-    ) == (90, 180)
+    assert settings.service.poll_interval_seconds == 180
 
 
 def test_render_active_devops_configmap_produces_valid_yaml(tmp_path: Path) -> None:
@@ -125,7 +121,6 @@ def test_render_active_devops_configmap_produces_valid_yaml(tmp_path: Path) -> N
         service=ServiceConfig(
             repos=["active/repo"],
             github_app=APP,
-            drain_timeout_seconds=75,
             poll_interval_seconds=150,
         )
     )
@@ -137,7 +132,6 @@ def test_render_active_devops_configmap_produces_valid_yaml(tmp_path: Path) -> N
         {
             "repos": ["active/repo"],
             "github_app": {"app_id": 1001, "installation_id": 42, "slug": "devops-roadmap"},
-            "drain_timeout_seconds": 75,
             "poll_interval_seconds": 150,
         },
         False,

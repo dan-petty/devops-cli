@@ -134,6 +134,7 @@ from devops_cli.roadmap.release_comments import comment_releases
 from devops_cli.roadmap.release_feed import GitHubReleaseFeed
 from devops_cli.roadmap.release_roll import cluster_digests
 from devops_cli.roadmap.retitle import apply_retitle, build_retitle_model, plan_retitle
+from devops_cli.roadmap.service_stop import service_stopping, stop_before
 
 # `stage` imports the model client, which imports pydantic_ai too: import it here for the same
 # reason (#2659).
@@ -1445,7 +1446,8 @@ def _execute_due_rows(
     run (#2161). The input of a row in `comment_stamps` also holds the time of that comment of a
     person (#2754). A refusal of the identity ends the round at once: no later job sends a
     request. Each row runs in the request scope of its name, so its GitHub requests count under
-    it (#2475)."""
+    it (#2475). Once the Service stops, no due row starts: the round ends with the stop, and the
+    rows it did not start stay due for the next pod (#4485)."""
     succeeded_jobs: list[str] = []
     failed_jobs: list[str] = []
     outcomes: dict[str, JobOutcome] = {}
@@ -1453,6 +1455,7 @@ def _execute_due_rows(
     clone_error: Exception | None = None
     clone_jobs: list[str] = []
     error_entries: list[tuple[list[str], Exception]] = []
+    stop: ServiceStoppingError | None = None
     inputs = _row_inputs(rows, changes, active_batch, current_time, comment_stamps)
 
     for row in rows:
@@ -1461,6 +1464,9 @@ def _execute_due_rows(
         )
         if not is_due or failures.suspended(repo, row.name, inputs[row.name], current_time):
             continue
+        if service_stopping():
+            stop = stop_before(f"row {row.name}")
+            break
 
         if row.needs_clone and clone_error is not None:
             failed_jobs.append(row.name)
@@ -1505,18 +1511,31 @@ def _execute_due_rows(
             if identity_refused(exc):
                 break
 
-    if failed_jobs:
-        error_parts: list[str] = []
-        exceptions: list[Exception] = []
-        for job_names, entry_exc in error_entries:
-            entry_exc.add_note(", ".join(job_names))
-            error_parts.append(f"{', '.join(job_names)}: {_format_error_line(entry_exc)}")
-            exceptions.append(entry_exc)
-
-        msg = f"Roadmap jobs failed: {'; '.join(error_parts)}"
-        cause = ExceptionGroup("Roadmap jobs failed", exceptions)
-        raise RoadmapRunError(msg, failed_jobs=failed_jobs) from cause
+    _raise_for_rows(failed_jobs, error_entries, stop)
     return tuple(succeeded_jobs)
+
+
+def _raise_for_rows(
+    failed_jobs: list[str],
+    error_entries: Sequence[tuple[list[str], Exception]],
+    stop: ServiceStoppingError | None,
+) -> None:
+    """Raise the error of a round whose rows failed, which names each row and groups their
+    errors as its cause. Else raise the stop that ended the round before a row started."""
+    if not failed_jobs:
+        if stop is not None:
+            raise stop
+        return
+    error_parts: list[str] = []
+    exceptions: list[Exception] = []
+    for job_names, entry_exc in error_entries:
+        entry_exc.add_note(", ".join(job_names))
+        error_parts.append(f"{', '.join(job_names)}: {_format_error_line(entry_exc)}")
+        exceptions.append(entry_exc)
+
+    msg = f"Roadmap jobs failed: {'; '.join(error_parts)}"
+    cause = ExceptionGroup("Roadmap jobs failed", exceptions)
+    raise RoadmapRunError(msg, failed_jobs=failed_jobs) from cause
 
 
 def run_due_jobs(

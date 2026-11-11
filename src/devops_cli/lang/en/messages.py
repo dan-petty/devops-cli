@@ -2111,6 +2111,17 @@ class ServeMessages:
     round_stopped: str = (
         "The Service is stopping, so the round for {repo} ended before it was done."
     )
+    # Raised at a row or an item that does not start because the Service is stopping (#4485).
+    stop_before_work: str = "The Service is stopping, so {work} does not start."
+    # Raised when the drain wait is over and the budget refuses each request (#4485).
+    budget_cut: str = (
+        "The Service is stopping and its drain wait is over, so the request does not go to GitHub."
+    )
+    # Logged once, at the info level, when the drain wait ends with rounds in flight (#4485).
+    drain_cut: str = (
+        "The drain wait of {seconds} s is over and {active} round(s) are still in flight: the "
+        "budget refuses each GitHub request now, so each round ends at its next request."
+    )
     # Ephemeral chat replies for Mattermost /roadmap slash command (#1395). Each string is one line.
     chat_roadmap_status_round: str = "{repo} [{lane}]: {state}, {pending} pending triggers, last round: {start} to {end} UTC ({result})"
     chat_roadmap_status_no_round: str = (

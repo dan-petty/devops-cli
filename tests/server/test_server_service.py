@@ -42,9 +42,11 @@ from devops_cli.config.constants import (
     WebhookProviderName,
 )
 from devops_cli.config.settings import GitHubAppConfig, ServiceConfig, Settings
-from devops_cli.exceptions import ConfigurationError, RoadmapRunError
+from devops_cli.exceptions import ConfigurationError, RoadmapRunError, ServiceStoppingError
 from devops_cli.exceptions.git import GitHubRateLimitError
 from devops_cli.github.project_read import GraphQLBudget, require_budget
+from devops_cli.lang import MESSAGES
+from devops_cli.roadmap.service_stop import service_stopping
 from devops_cli.server.json_logs import JsonLogFormatter
 from devops_cli.server.routes.webhooks import (
     DeliveryLRUCache,
@@ -90,14 +92,12 @@ def _make_settings(
     repos: list[str] | None = None,
     app_slug: str | None = "bot-account",
     poll_interval: int = 300,
-    drain_timeout: int = 120,
 ) -> Settings:
     """Helper creating Settings with configured ServiceConfig; the App's bot is `<slug>[bot]`."""
     service_conf = ServiceConfig(
         repos=repos or ["example-org/repo1", "example-org/repo2"],
         github_app=GitHubAppConfig(app_id=1001, installation_id=42, slug=app_slug),
         poll_interval_seconds=poll_interval,
-        drain_timeout_seconds=drain_timeout,
     )
     return Settings(service=service_conf)
 
@@ -791,68 +791,6 @@ def test_json_log_formatter_zero_leakage() -> None:
     )
 
 
-def test_shutdown_drains_pending_delivery_enqueued_during_active_job() -> None:
-    """Test that graceful shutdown drains follow-up deliveries enqueued while active batch was running."""
-    settings = _make_settings(
-        repos=["example-org/repo1"], drain_timeout=int(THREAD_HANDOFF_BOUND_SECONDS)
-    )
-    secrets = {"example-org/repo1": "secret-1"}
-    batch1_started = threading.Event()
-    batch1_release = threading.Event()
-    received_batches: list[TriggerBatch] = []
-    released: list[bool] = []
-
-    def draining_job(batch: TriggerBatch) -> None:
-        if ("poll", "", "") in batch.counts and len(batch.counts) == 1:
-            return
-        received_batches.append(batch)
-        if ("webhook", "issues", "first") in batch.counts:
-            batch1_started.set()
-            released.append(batch1_release.wait(timeout=THREAD_HANDOFF_BOUND_SECONDS))
-
-    app = create_service_app(jobs={LANE: draining_job}, settings=settings, secrets=secrets)
-
-    with TestClient(app) as client:
-        # 1. Enqueue first webhook to make worker active
-        p1 = json.dumps(
-            {"repository": {"full_name": "example-org/repo1"}, "action": "first"}
-        ).encode("utf-8")
-        h1 = {
-            "Content-Type": "application/json",
-            CONST_GH_WEBHOOK_EVENT_HEADER: "issues",
-            CONST_GH_WEBHOOK_DELIVERY_HEADER: "deliv-1",
-            CONST_GH_WEBHOOK_SIGNATURE_HEADER: _sign(p1, "secret-1"),
-        }
-        res1 = client.post("/webhooks/github", content=p1, headers=h1)
-        assert res1.status_code == 202
-        assert batch1_started.wait(timeout=THREAD_HANDOFF_BOUND_SECONDS) is True
-
-        # 2. Enqueue second webhook while first batch is executing
-        p2 = json.dumps(
-            {"repository": {"full_name": "example-org/repo1"}, "action": "second"}
-        ).encode("utf-8")
-        h2 = {
-            "Content-Type": "application/json",
-            CONST_GH_WEBHOOK_EVENT_HEADER: "issues",
-            CONST_GH_WEBHOOK_DELIVERY_HEADER: "deliv-2",
-            CONST_GH_WEBHOOK_SIGNATURE_HEADER: _sign(p2, "secret-1"),
-        }
-        res2 = client.post("/webhooks/github", content=p2, headers=h2)
-        assert res2.status_code == 202
-
-        # 3. Unblock batch 1 to allow execution to proceed to batch 2 during shutdown
-        batch1_release.set()
-
-    # 4. Context exit runs drain_and_stop(). Verify both batches were executed without loss
-    actions = [action for batch in received_batches for (_, _, action) in batch.counts]
-    assert ("first" in actions, "second" in actions, len(received_batches), released) == (
-        True,
-        True,
-        2,
-        [True],
-    )
-
-
 def test_service_tracing_middleware_adds_headers_and_skips_probes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1305,17 +1243,20 @@ def _service(
     clock: _Clock,
     reader: PauseReader = _budget_pause_until,
     *,
-    drain_timeout: int = 120,
+    drain_seconds: float = THREAD_HANDOFF_BOUND_SECONDS,
+    cut_seconds: float = THREAD_HANDOFF_BOUND_SECONDS,
 ) -> ServiceManager:
     """The Service over both repositories, one worker per lane each, the workers started, with no
     poll loop."""
     manager = ServiceManager(
-        config=_make_settings(repos=[REPO_A, REPO_B], drain_timeout=drain_timeout).service,
+        config=_make_settings(repos=[REPO_A, REPO_B]).service,
         secrets={},
         jobs=jobs,
         clock=clock,
         sleep_func=asyncio.sleep,
         pause_until=reader,
+        drain_seconds=drain_seconds,
+        cut_seconds=cut_seconds,
     )
     for worker in manager.workers.values():
         worker.start()
@@ -1471,7 +1412,7 @@ def test_a_drain_during_a_pause_stops_the_workers_without_running_the_held_round
     holds: the drain completes cleanly, the workers stop, and the held rounds never run;
     the next pod's start-up poll reads the changes they were for."""
     rounds, clock = _Rounds(_refuse_read, {REPO_A: 1}), _Clock(RESET - timedelta(minutes=20))
-    manager = _service({LANE: rounds}, clock, drain_timeout=1)
+    manager = _service({LANE: rounds}, clock)
     _trigger(manager, REPO_A)
     rounds.wait(1, manager)
     _trigger(manager, REPO_A, REPO_B)
@@ -1481,6 +1422,90 @@ def test_a_drain_during_a_pause_stops_the_workers_without_running_the_held_round
         [w.is_alive() for w in manager.workers.values()],
         rounds.triggers(),
     ) == (True, [False, False], {REPO_A: [1], REPO_B: []})
+
+
+def _drain_in_thread(manager: ServiceManager) -> tuple[threading.Thread, list[bool]]:
+    """Start the stop of `manager` in a thread of its own, as SIGTERM starts it in the pod; the
+    list gets its result."""
+    drained: list[bool] = []
+    thread = threading.Thread(
+        target=lambda: drained.append(asyncio.run(manager.drain_and_stop())), daemon=True
+    )
+    thread.start()
+    return thread, drained
+
+
+def test_a_drain_lets_the_round_in_flight_end_and_starts_no_new_round() -> None:
+    """On SIGTERM the round in flight runs on to its end within the drain wait, and it can read
+    that the Service stops. No round starts for the trigger that came during it: the next pod's
+    first poll reads its changes (#4485)."""
+    started, release = threading.Event(), threading.Event()
+    rounds: list[int] = []
+    released: list[bool] = []
+    stopping: list[bool] = []
+
+    def job(batch: TriggerBatch) -> None:
+        rounds.append(sum(batch.counts.values()))
+        started.set()
+        released.append(release.wait(timeout=THREAD_HANDOFF_BOUND_SECONDS))
+        stopping.append(service_stopping())
+
+    manager = _service({LANE: job}, _Clock(RESET))
+    _trigger(manager, REPO_A)
+    assert started.wait(timeout=THREAD_HANDOFF_BOUND_SECONDS)
+    _trigger(manager, REPO_A)
+    thread, drained = _drain_in_thread(manager)
+    assert wait_until(service_stopping)
+    release.set()
+    thread.join(THREAD_HANDOFF_BOUND_SECONDS)
+
+    worker = manager.workers[(REPO_A, LANE)]
+    last = worker.last_round
+    assert (drained, rounds, released, stopping, last.result if last else None) == (
+        [True],
+        [1],
+        [True],
+        [True],
+        "success",
+    )
+
+
+def test_a_round_still_in_flight_after_the_drain_wait_ends_at_its_next_github_request(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """When the drain wait is over, the budget refuses each GitHub request, also one the window
+    has room for. The round ends at its next request through the stop path, so its worker counts
+    it as stopped, not as an error (#4485)."""
+    started, given_up = threading.Event(), threading.Event()
+    refused: list[str] = []
+    manager: ServiceManager
+
+    def job(_batch: TriggerBatch) -> None:
+        started.set()
+        while not given_up.is_set():
+            try:
+                manager.budget.admit()
+            except ServiceStoppingError as exc:
+                refused.append(exc.message)
+                raise
+            given_up.wait(timeout=0.01)
+
+    manager = _service({LANE: job}, _Clock(RESET), drain_seconds=0)
+    _trigger(manager, REPO_A)
+    assert started.wait(timeout=THREAD_HANDOFF_BOUND_SECONDS)
+    with caplog.at_level(logging.INFO):
+        thread, drained = _drain_in_thread(manager)
+        thread.join(THREAD_HANDOFF_BOUND_SECONDS)
+    given_up.set()
+
+    last = manager.workers[(REPO_A, LANE)].last_round
+    cut_lines = [r for r in caplog.records if r.getMessage().startswith("The drain wait of 0 s")]
+    assert (drained, refused, last.result if last else None, len(cut_lines)) == (
+        [True],
+        [MESSAGES.serve.budget_cut],
+        "stopped",
+        1,
+    )
 
 
 def test_a_pause_reader_that_fails_holds_nothing_and_the_worker_carries_on(
