@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import importlib
+import shlex
 import shutil
+import sys
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -11,17 +15,19 @@ import pytest
 from typer.testing import CliRunner
 
 from devops_cli.ai.instruction_generator import ProjectMetadata, generate_agents_md
+from devops_cli.ci import fail_to_pass
 from devops_cli.ci.fail_to_pass import TestCaseOutcome as CaseOutcome
 from devops_cli.ci.fail_to_pass import (
-    changed_test_files,
     format_fail_to_pass_report,
     materialise_base_with_head_tests,
     parse_junit_xml,
+    plan_fail_to_pass,
     pytest_replay_argv,
     run_fail_to_pass,
 )
 from devops_cli.commands.ci import app, get_check_specs
 from devops_cli.core.process import run_subprocess
+from tests.gate import runner as gate_runner
 from tests.support.fakes.git import GitFake
 from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
 from tests.support.paths import REPO_ROOT
@@ -138,6 +144,8 @@ class _FailToPassState:
     base_tests: dict[str, str] = field(default_factory=dict)
     active_worktrees: set[Path] = field(default_factory=set)
     satisfied: bool | None = None
+    gate_base: ProcessAnswer = field(default_factory=ProcessAnswer)
+    gate_head: ProcessAnswer = field(default_factory=ProcessAnswer)
 
 
 @pytest.fixture
@@ -207,6 +215,21 @@ def _cat_file_answer(replay_state: _FailToPassState, call: ProcessCall) -> Proce
     )
 
 
+def _is_gate_row_run(call: ProcessCall) -> bool:
+    """Whether `call` runs the `main` of a gate module with `python -c`."""
+    return call.argv[1:2] == ("-c",) and "from tests.gate." in call.argv[2]
+
+
+def _gate_row_answer(replay_state: _FailToPassState, call: ProcessCall) -> ProcessAnswer:
+    """The output of a gate row run: the base answer in the replay tree, else the head answer."""
+    return replay_state.gate_base if _ran_on_base(call) else replay_state.gate_head
+
+
+def _ran_on_base(call: ProcessCall) -> bool:
+    """Whether `call` ran in the replay tree of the merge base."""
+    return call.cwd is not None and Path(call.cwd).name == "tree"
+
+
 @pytest.fixture(autouse=True)
 def _setup_fail_to_pass_fake(git_fake: GitFake, replay_state: _FailToPassState) -> None:
     git_fake.answer(
@@ -237,6 +260,7 @@ def _setup_fail_to_pass_fake(git_fake: GitFake, replay_state: _FailToPassState) 
         lambda call: "-m" in call.argv and "pytest" in call.argv,
         lambda call: _pytest_answer(replay_state, call),
     )
+    git_fake.answer(_is_gate_row_run, lambda call: _gate_row_answer(replay_state, call))
 
 
 def _mock_replay_repo(replay_state: _FailToPassState, junit_xml: str, exit_status: int = 0) -> None:
@@ -271,6 +295,8 @@ def _replay_report(
         "outcomes": outcomes,
         "could_not_run": could_not_run,
         "unchanged_failed": (),
+        "changed_gate_checks": (),
+        "gate_rows": (),
     }
 
 
@@ -380,12 +406,12 @@ def test_fail_to_pass_materialises_base_and_overlays_head_tests(
     replay_state.base_files["src/mod.py"] = "VALUE = 1\n"
     replay_state.changed_test_files = ("tests/test_mod.py",)
 
-    merge_base, files = changed_test_files(tmp_path, "main", "HEAD")
+    changed = fail_to_pass.changed_tests(tmp_path, "main", "HEAD")
     dest = tmp_path / "materialised"
-    materialise_base_with_head_tests(tmp_path, merge_base, "HEAD", dest)
+    materialise_base_with_head_tests(tmp_path, changed.merge_base, "HEAD", dest)
 
     assert (
-        files,
+        changed.test_files,
         (dest / "src" / "mod.py").read_text(encoding="utf-8"),
         (dest / "tests" / "test_mod.py").read_text(encoding="utf-8"),
     ) == (
@@ -481,7 +507,8 @@ def test_fail_to_pass_dry_run_and_no_changed_tests(replay_state: _FailToPassStat
     assert (
         dry_res.exit_code,
         empty_defect.exit_code,
-        "The fix changes no tests/**/test_*.py file." in empty_defect.output,
+        "The fix changes no tests/**/test_*.py file and no module of tests/gate/*_checks/."
+        in empty_defect.output,
     ) == (0, 1, True)
 
 
@@ -940,15 +967,23 @@ def test_fail_to_pass_dry_run_lists_the_replay_and_starts_nothing(
     assert lines[6] == "git archive --format=tar '--output=<temp-dir>/tests.tar' HEAD -- tests"
     assert " -m pytest " in lines[7]
     assert lines[7].endswith("'<changed test files>'")
+    gate_row = shlex.join(fail_to_pass.gate_row_argv("<gate row>"))
     assert lines[8:] == [
         "git --literal-pathspecs ls-tree -z --full-tree '<merge-base>' -- '<changed test files>'",
         "git cat-file blob '<blob of the changed test file>'",
+        gate_row,
         "git worktree remove --force '<temp-dir>/tree'",
         "git worktree prune",
+        gate_row,
     ]
+    conditions = [line.split("  [", 1)[1] for line in _plan_lines(result.output)[5:]]
+    replay = "only if a changed test file or gate check exists]"
+    gate = "only if a changed gate check exists]  [repeated for each row of a changed gate check]"
+    assert [conditions[index] for index in (0, 1, 6, 7)] == [replay] * 4
     assert all(
-        "[only if a changed test file exists" in line for line in _plan_lines(result.output)[5:]
+        condition.startswith("only if a changed test file exists") for condition in conditions[2:5]
     )
+    assert [conditions[5], conditions[8]] == [gate, gate]
 
 
 def test_fail_to_pass_dry_run_of_a_head_lists_the_fallback_diff(
@@ -965,21 +1000,31 @@ def test_fail_to_pass_dry_run_of_a_head_lists_the_fallback_diff(
         "  [only if the three-dot diff fails]"
     )
     assert not [line for line in lines if "ls-files" in line]
+    gate = "  [only if a changed gate check exists]"
+    assert lines[-4:] == [
+        f"git worktree add --quiet --detach '<temp-dir>/head' feature{gate}",
+        f"{shlex.join(fail_to_pass.gate_row_argv('<gate row>'))}{gate}  [repeated for each row of a changed gate check]",
+        f"git worktree remove --force '<temp-dir>/head'{gate}",
+        f"git worktree prune{gate}",
+    ]
 
 
+@pytest.mark.parametrize(
+    ("changed", "skipped"),
+    [
+        ("tests/test_x.py", "a changed gate check exists"),
+        ("tests/gate/k8s_checks/x.py", "a changed test file exists"),
+    ],
+    ids=["test-file", "gate-check"],
+)
 def test_fail_to_pass_runs_the_processes_of_its_plan(
-    tmp_path: Path, cli: Any, process_fake: ProcessFake
+    changed: str, skipped: str, tmp_path: Path, cli: Any, process_fake: ProcessFake
 ) -> None:
     """The real replay starts the commands of the plan, in the same order, once the
-    placeholders hold the values that the run reads."""
-    import shlex
-
-    from devops_cli.ci.fail_to_pass import plan_fail_to_pass
-
+    placeholders hold the values that the run reads. A fix that changes only a test file starts
+    no gate row, and one that changes only a gate check starts no pytest."""
     process_fake.answer(["git", "merge-base"], ProcessAnswer(stdout="abc123\n"))
-    process_fake.answer(
-        ["git", "diff", "--name-status"], ProcessAnswer(stdout="M\0tests/test_x.py\0")
-    )
+    process_fake.answer(["git", "diff", "--name-status"], ProcessAnswer(stdout=f"M\0{changed}\0"))
 
     run_fail_to_pass(tmp_path, base="main")
 
@@ -989,13 +1034,309 @@ def test_fail_to_pass_runs_the_processes_of_its_plan(
         "<merge-base>": "abc123",
         "<temp-dir>": str(tree.parent),
         "<changed test files>": "tests/test_x.py",
+        "<gate row>": "k8s",
     }
     planned = []
     for request in plan_fail_to_pass("main"):
-        if "failed on base" in request.condition:
+        if "failed on base" in request.condition or request.condition.startswith(skipped):
             continue  # Read only when a test failed on base: this replay ran no test.
         line = shlex.join(request.argv)
         for placeholder, value in values.items():
             line = line.replace(shlex.quote(placeholder), value).replace(placeholder, value)
         planned.append(shlex.split(line))
     assert [list(argv) for argv in recorded] == planned
+
+
+# =============================================================================
+# Gate check replay (#4554)
+# =============================================================================
+
+OTEL_CHECK = "tests/gate/k8s_checks/otel_collector.py"
+FIXED_CASE = "otel_collector.check_spans_hold_no_management_body"
+_GATE_PACKAGE = "replay_gate_checks"
+
+
+def _row_answer(cases: int, *failed: str, row: str = "k8s") -> ProcessAnswer:
+    """What `tests/gate/runner.py` prints for a row of `cases` cases, of which `failed` fail."""
+    stderr = "".join(
+        f"{row}: {case} failed:\nTraceback (most recent call last):\nAssertionError\n"
+        for case in failed
+    )
+    return ProcessAnswer(
+        returncode=1 if failed else 0,
+        stdout=f"{row}: {cases} cases, {len(failed)} failed\n",
+        stderr=stderr,
+    )
+
+
+def _gate_replay(
+    repo: Path,
+    replay_state: _FailToPassState,
+    *,
+    base: ProcessAnswer,
+    head: ProcessAnswer,
+    changed: tuple[str, ...] = (OTEL_CHECK,),
+    head_revision: str = "HEAD",
+) -> tuple[bool, str]:
+    """Replay a fix that changes `changed`, whose gate rows print `base` on the base tree and
+    `head` on the head tree, and return whether it is satisfied and the report text."""
+    (repo / ".git").mkdir(parents=True, exist_ok=True)
+    replay_state.changed_test_files = changed
+    replay_state.gate_base = base
+    replay_state.gate_head = head
+    report = run_fail_to_pass(repo, base="main", head=head_revision)
+    return report.satisfied, format_fail_to_pass_report(report)
+
+
+def _gate_row_runs(git_fake: GitFake) -> list[tuple[str, str]]:
+    """The tree and the gate module of each gate row run, in order."""
+    return [
+        (
+            "base" if _ran_on_base(call) else "head",
+            call.argv[2].split("from tests.gate.")[1].split(" ")[0],
+        )
+        for call in git_fake.calls
+        if _is_gate_row_run(call)
+    ]
+
+
+def test_a_gate_check_that_fails_on_base_and_passes_on_head_proves_the_fix(
+    tmp_path: Path, replay_state: _FailToPassState, git_fake: GitFake
+) -> None:
+    """A manifest fix proves itself with a changed `k8s` check: the case fails on the base tree
+    and passes on the head tree, so the replay is satisfied and names the case and the module."""
+    satisfied, text = _gate_replay(
+        tmp_path, replay_state, base=_row_answer(107, FIXED_CASE), head=_row_answer(107)
+    )
+
+    assert (satisfied, text, _gate_row_runs(git_fake)) == (
+        True,
+        f"  failed on base, passed on head: k8s {FIXED_CASE}\n"
+        f"k8s gate row: 1 of 107 cases failed on base, 0 of 107 on head ({OTEL_CHECK}).",
+        [("base", "k8s"), ("head", "k8s")],
+    )
+
+
+def test_the_command_exits_0_for_a_gate_check_that_proves_the_fix(
+    replay_state: _FailToPassState,
+) -> None:
+    """`devops ci fail-to-pass` exits 0 for a fix that only a gate check proves, and its report
+    holds no line about changed test files."""
+    replay_state.changed_test_files = (OTEL_CHECK,)
+    replay_state.gate_base = _row_answer(107, FIXED_CASE)
+    replay_state.gate_head = _row_answer(107)
+
+    result = runner.invoke(app, ["fail-to-pass", "--base", "main"])
+
+    assert (result.exit_code, OTEL_CHECK in result.output, "test files" in result.output) == (
+        0,
+        True,
+        False,
+    )
+
+
+@pytest.mark.parametrize(
+    ("base", "head", "last_line"),
+    [
+        (
+            _row_answer(107),
+            _row_answer(107),
+            f"No case of a changed gate check fails on base and passes on head ({OTEL_CHECK}).",
+        ),
+        (
+            _row_answer(107, FIXED_CASE),
+            _row_answer(107, FIXED_CASE),
+            f"No case of a changed gate check fails on base and passes on head ({OTEL_CHECK}).",
+        ),
+        (
+            _row_answer(107, FIXED_CASE),
+            _row_answer(106),
+            "The k8s gate row ran 107 cases on base and 106 cases on head. A gate case proves "
+            "a fix only when both trees run the same cases.",
+        ),
+        (
+            _row_answer(107, FIXED_CASE, "other_module.check_other"),
+            _row_answer(107, "other_module.check_other"),
+            "A gate case of a check module that the fix does not change fails on base "
+            "(k8s other_module.check_other). A gate case that fails on base must be in a check "
+            "module that the fix adds or changes.",
+        ),
+    ],
+    ids=["passes-on-both", "fails-on-both", "case-count-changes", "unchanged-module-fails"],
+)
+def test_a_gate_replay_that_proves_nothing_refuses_the_fix(
+    base: ProcessAnswer,
+    head: ProcessAnswer,
+    last_line: str,
+    tmp_path: Path,
+    replay_state: _FailToPassState,
+) -> None:
+    """A changed gate check that passes on base, that still fails on head, whose row runs other
+    cases on the two trees, or whose row fails on base in a module that the fix leaves alone,
+    proves nothing about the fix."""
+    satisfied, text = _gate_replay(tmp_path, replay_state, base=base, head=head)
+
+    assert (satisfied, text.splitlines()[-1]) == (False, last_line)
+
+
+@pytest.mark.parametrize(
+    ("answer", "tail"),
+    [
+        (
+            ProcessAnswer(
+                returncode=1,
+                stderr="Traceback (most recent call last):\n"
+                "ImportError: cannot import name 'SPAN_KEYS'\n",
+            ),
+            "Traceback (most recent call last):\nImportError: cannot import name 'SPAN_KEYS'",
+        ),
+        (
+            ProcessAnswer(returncode=-9, stdout="k8s: 107 cases, 0 failed\n"),
+            "k8s: 107 cases, 0 failed",
+        ),
+    ],
+    ids=["no-summary", "killed"],
+)
+def test_a_gate_row_that_could_not_run_on_base_refuses_the_fix(
+    answer: ProcessAnswer, tail: str, tmp_path: Path, replay_state: _FailToPassState
+) -> None:
+    """A row run that prints no case summary, or that exits with a status other than 0 or 1,
+    could not run: the replay proves nothing and the report names the row, the tree, the status
+    and the last output."""
+    satisfied, text = _gate_replay(tmp_path, replay_state, base=answer, head=_row_answer(107))
+
+    assert (satisfied, text) == (
+        False,
+        f"The k8s gate row could not run on the base tree: it exited with status "
+        f"{answer.returncode}. A gate row run must exit with status 0 or 1 and print its case "
+        "summary. Each changed check module must import and run on both trees. Merge the change "
+        "that a check needs first, in a pull request that is not a fix. Then replay this fix "
+        "against the new base.\n"
+        f"Its last output: {tail}",
+    )
+
+
+def test_the_check_directory_names_the_row_of_a_changed_module(
+    tmp_path: Path, replay_state: _FailToPassState, git_fake: GitFake
+) -> None:
+    """A module directly under `tests/gate/<row>_checks/` runs the gate module `<row>` on both
+    trees. A package file, another gate module and a test file start no gate row."""
+    _gate_replay(
+        tmp_path,
+        replay_state,
+        base=_row_answer(107, FIXED_CASE),
+        head=_row_answer(107),
+        changed=(
+            "tests/gate/tree_checks/assertions.py",
+            OTEL_CHECK,
+            "tests/gate/k8s_checks/__init__.py",
+            "tests/gate/runner.py",
+            "tests/gate/k8s_checks/data/values.py",
+            "tests/gate/ruff_config.py",
+        ),
+    )
+
+    assert _gate_row_runs(git_fake) == [
+        ("base", "k8s"),
+        ("base", "tree"),
+        ("head", "k8s"),
+        ("head", "tree"),
+    ]
+
+
+def test_a_test_only_fix_starts_no_gate_row(
+    tmp_path: Path, replay_state: _FailToPassState, git_fake: GitFake
+) -> None:
+    """A fix that changes only `tests/**/test_*.py` files keeps the pytest replay and its report,
+    and starts no gate row."""
+    repo = _branch_changing_a_test(tmp_path)
+    _replayed_pytest(replay_state, exit_status=1, junit_xml=JUNIT_ONE_FAILURE)
+
+    report = run_fail_to_pass(repo, base="main")
+
+    assert (report.satisfied, report.gate_rows, _gate_row_runs(git_fake)) == (True, (), [])
+
+
+@pytest.mark.parametrize(
+    ("junit_xml", "satisfied"),
+    [(JUNIT_ALL_PASS, True), (_junit(("test_kept", "failure", "assert 0")), False)],
+    ids=["test-passes-on-base", "unchanged-test-fails-on-base"],
+)
+def test_a_gate_proof_satisfies_a_fix_whose_test_replay_refuses_nothing(
+    junit_xml: str, satisfied: bool, tmp_path: Path, replay_state: _FailToPassState
+) -> None:
+    """A fix that changes a test file and a gate check is proved by either replay, and each
+    replay can refuse it: a test that the fix does not change and that fails on base refuses the
+    fix that a gate check proves."""
+    replay_state.base_tests["tests/test_mod.py"] = BASE_TESTS
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "test_mod.py").write_text(BASE_TESTS, encoding="utf-8")
+    _replayed_pytest(replay_state, exit_status=1, junit_xml=junit_xml)
+
+    result, _ = _gate_replay(
+        tmp_path,
+        replay_state,
+        base=_row_answer(107, FIXED_CASE),
+        head=_row_answer(107),
+        changed=("tests/test_mod.py", OTEL_CHECK),
+    )
+
+    assert result is satisfied
+
+
+def test_a_named_head_runs_the_gate_row_in_a_worktree_of_that_head(
+    tmp_path: Path, replay_state: _FailToPassState, git_fake: GitFake
+) -> None:
+    """With `--head feature`, the head row runs in a detached worktree of `feature`, which the
+    replay removes after the run."""
+    satisfied, _ = _gate_replay(
+        tmp_path,
+        replay_state,
+        base=_row_answer(107, FIXED_CASE),
+        head=_row_answer(107),
+        head_revision="feature",
+    )
+
+    head_tree = next(
+        call.cwd for call in git_fake.calls if _is_gate_row_run(call) and not _ran_on_base(call)
+    )
+    added = [call.argv[-2:] for call in git_fake.calls if call.argv[1:3] == ("worktree", "add")]
+    assert (satisfied, added[-1], replay_state.active_worktrees) == (
+        True,
+        (str(head_tree), "feature"),
+        set(),
+    )
+
+
+@pytest.fixture
+def gate_package(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
+    """Where to write a check package that `tmp_path` makes importable, forgotten by the import
+    system after the test."""
+    monkeypatch.syspath_prepend(tmp_path)
+    yield tmp_path / _GATE_PACKAGE
+    for name in [name for name in sys.modules if name.split(".")[0] == _GATE_PACKAGE]:
+        del sys.modules[name]
+
+
+def test_the_replay_reads_the_output_of_the_gate_runner(
+    gate_package: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The replay reads what `tests/gate/runner.py` prints: the case count and the ID of each
+    failed case, a parametrized case with its label."""
+    gate_package.mkdir()
+    (gate_package / "__init__.py").write_text("", encoding="utf-8")
+    (gate_package / "otel_collector.py").write_text(
+        "import pytest\n\n\n"
+        "def check_kept():\n    pass\n\n\n"
+        '@pytest.mark.parametrize("name", ["a", "b"], ids=["argo-cd", "deploy-stack"])\n'
+        "def check_fixed(name):\n"
+        '    assert name == "a", "failed: the body is kept"\n',
+        encoding="utf-8",
+    )
+
+    status = gate_runner.main("k8s", importlib.import_module(_GATE_PACKAGE))
+    printed = capsys.readouterr()
+
+    assert fail_to_pass.parse_gate_row_output(
+        status, printed.out, printed.err
+    ) == fail_to_pass.GateRowRun(cases=3, failed=("otel_collector.check_fixed[deploy-stack]",))

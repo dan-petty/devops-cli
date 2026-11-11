@@ -2,7 +2,7 @@
 
 ## 1. Gate replay (behavior)
 
-- [ ] 1.1 Write failing tests: a changed `k8s` check that fails on the base and passes on the head, a check that passes on both, a base failure of an unchanged module, a row that cannot run, a change of the case count, a named head, the report text, the dry-run plan, and a test-only fix that starts no gate row
+- [x] 1.1 Write failing tests: a changed `k8s` check that fails on the base and passes on the head, a check that passes on both, a base failure of an unchanged module, a row that cannot run, a change of the case count, a named head, the report text, the dry-run plan, and a test-only fix that starts no gate row
   - Verification: `$ uv run devops ci test tests/ci/test_fail_to_pass.py`
 - [ ] 1.2 List the changed gate check modules, run their rows on the base and head trees, compare the failed cases, and add the gate lines to the report and the plan
   - Verification: `$ uv run devops ci test tests/ci/test_fail_to_pass.py`
