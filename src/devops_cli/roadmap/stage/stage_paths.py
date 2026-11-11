@@ -297,6 +297,15 @@ def _named(group: StageGroup, tree: StagedTree) -> Iterator[tuple[_Place, str]]:
     yield from ((_Place.VERIFY, path) for path in _verify_paths(group.verify or "", tree))
 
 
+def same_name_hint(tree: StagedTree, path: str) -> str:
+    """The sentence that names the files of `tree` with the file name of `path`, or that states
+    that no file has the name."""
+    texts = MESSAGES.roadmap
+    if same := tree.same_name(path):
+        return texts.stage_path_same_name.format(names=", ".join(f"`{name}`" for name in same))
+    return texts.stage_path_no_same_name
+
+
 def _problem(number: int, place: _Place, path: str, tree: StagedTree, later: int | None) -> str:
     """The sentence for a missing path; `later` is the group after `number` that creates it."""
     texts = MESSAGES.roadmap
@@ -305,12 +314,7 @@ def _problem(number: int, place: _Place, path: str, tree: StagedTree, later: int
         return texts.stage_problem_path_later.format(
             group=number, path=path, place=where, later=later
         )
-    same = tree.same_name(path)
-    hint = (
-        texts.stage_path_same_name.format(names=", ".join(f"`{name}`" for name in same))
-        if same
-        else texts.stage_path_no_same_name
-    )
+    hint = same_name_hint(tree, path)
     return texts.stage_problem_path.format(group=number, path=path, place=where, hint=hint)
 
 
