@@ -11,5 +11,7 @@
 
 - [x] 2.1 Regenerate the command reference and README, and update the retitle text of `CONTEXT.md` and the skip mark row of `docs/ROADMAP_WORKFLOW.md`
   - Verification: `$ uv run devops ci docs`
+- [x] 2.2 Update the intake refusal, the selection, the correction and the skip log line in `docs/roadmap/intake.md`, the retitle sentence of `docs/roadmap/implement.md`, and the retitle docstrings of `src/devops_cli/roadmap/run.py`
+  - Verification: `$ uv run devops ci docs`
 
 - Pending a person: review the diff in tuicr (tuicr -r origin/main..HEAD).
