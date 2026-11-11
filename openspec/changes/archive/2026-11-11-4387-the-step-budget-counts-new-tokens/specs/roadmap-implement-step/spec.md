@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: A token budget counts the new tokens of a reply
-The step budget, its ceiling and the item budget SHALL count the new tokens of each reply: the input tokens that the provider did not read from its cache, and the output tokens. The outcome of a step and the record `implement.spend` SHALL keep the input tokens that the provider read from its cache, and the item budget SHALL count the new tokens of the earlier Jobs of the item.
+The step budget, its ceiling and the item budget SHALL count the new tokens of each reply: the input tokens that the provider did not read from its cache, and the output tokens. The outcome of a step and the record `implement.spend` SHALL keep the cached input tokens, and the record SHALL keep the count of the item budget as `new_tokens`. The item budget SHALL count the `new_tokens` of the earlier Jobs of the item, and none for a record that has no `new_tokens`.
 
 #### Scenario: The count of one reply
 - **WHEN** a reply reports 120000 input tokens, 118500 of them read from the cache, and 300 output tokens
@@ -12,19 +12,27 @@ The step budget, its ceiling and the item budget SHALL count the new tokens of e
 - **THEN** the step is not stopped for a budget, the model gets two requests, and the outcome holds 200000 cached input tokens
 
 #### Scenario: The cached input of an earlier Job
-- **WHEN** `item_token_budget` is 1000 and the record of an earlier Job holds 100100 input tokens, 100000 of them read from the cache
+- **WHEN** `item_token_budget` is 1000 and the record of an earlier Job holds 100100 input tokens, 100000 of them read from the cache, and 100 `new_tokens`
 - **THEN** the next Job is not stopped for the item budget, and its record still holds the 100000 cached input tokens
+
+#### Scenario: A record that names no unit
+- **WHEN** `item_token_budget` is 1000 and the record of an earlier Job, as an older version wrote it, holds 100100 input tokens and no `new_tokens`
+- **THEN** the next Job is not stopped for the item budget, its record keeps the 100100 input tokens, and its `new_tokens` are the new tokens of the next Job only
+
+#### Scenario: A route that reports no cache reads
+- **WHEN** no setting changes the step budget and each reply reports 39300 input tokens, none of them read from the cache, and 200 output tokens
+- **THEN** the step makes at least 200 requests before its token budget, as when the budget counted all input tokens
 
 ## MODIFIED Requirements
 
 ### Requirement: The budgets of a step and of an item are settings
-The settings `roadmap.implement.step_token_budget`, `item_token_budget`, `step_time_limit_seconds` and `item_time_limit_seconds` SHALL set the new tokens and the seconds that a step and a run of an item may use. Each SHALL have a variable named `DEVOPS_CLI_` and the key in upper case. The defaults SHALL be 1000000, 2500000, 5400 and 12600.
+The settings `roadmap.implement.step_token_budget`, `item_token_budget`, `step_time_limit_seconds` and `item_time_limit_seconds` SHALL set the new tokens and the seconds that a step and a run of an item may use. Each SHALL have a variable named `DEVOPS_CLI_` and the key in upper case. The defaults SHALL be 8000000, 20000000, 5400 and 12600.
 
 A value below 1 SHALL be refused. An item time limit above `roadmap.implement.deadline_ceiling_seconds` SHALL be refused too.
 
 #### Scenario: The defaults
 - **WHEN** no config file and no variable sets a budget
-- **THEN** the step budget is 1000000 tokens, the item budget is 2500000 tokens, the step limit is 5400 seconds and the item limit is 12600 seconds
+- **THEN** the step budget is 8000000 tokens, the item budget is 20000000 tokens, the step limit is 5400 seconds and the item limit is 12600 seconds
 
 #### Scenario: A variable
 - **WHEN** the variable `DEVOPS_CLI_ROADMAP_IMPLEMENT_STEP_TOKEN_BUDGET` holds 5000
@@ -64,21 +72,6 @@ Before each model request, the step SHALL compare its new tokens and its seconds
 #### Scenario: A repair turn
 - **WHEN** the first turn used the whole time limit of the step and a check fails
 - **THEN** the repair turn makes no request and the step stops with the class `limit_reached`
-
-### Requirement: The ceiling of a step budget is a setting
-The setting `roadmap.implement.step_token_ceiling` SHALL set the most new tokens that a step may reach with its one extension. It SHALL have the variable `DEVOPS_CLI_ROADMAP_IMPLEMENT_STEP_TOKEN_CEILING`. Its default SHALL be 2000000, twice the default step budget. A ceiling below `roadmap.implement.step_token_budget` SHALL be refused.
-
-#### Scenario: The default ceiling
-- **WHEN** no config file and no variable sets the ceiling
-- **THEN** the ceiling is 2000000 tokens
-
-#### Scenario: A variable for the ceiling
-- **WHEN** the variable `DEVOPS_CLI_ROADMAP_IMPLEMENT_STEP_TOKEN_CEILING` holds 9000000
-- **THEN** the ceiling is 9000000
-
-#### Scenario: A ceiling below the step budget
-- **WHEN** the config file sets `step_token_budget` to 5000 and `step_token_ceiling` to 4999
-- **THEN** loading the settings fails and the message names `step_token_ceiling`
 
 ### Requirement: The Job log and the outcome show the extension
 The step SHALL write one line to the Job log that names the rule `implement.extension`, the old and the new budget, and the counts. The outcome of the step SHALL hold the extension: the old budget, the new budget, the counts and whether the ceiling cut it.

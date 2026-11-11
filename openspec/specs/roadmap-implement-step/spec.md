@@ -1159,7 +1159,7 @@ A step that starts on a branch with `wip:` commits and ends done SHALL make one 
 - **THEN** the second step reports done, the message of its first request shows the kept task ticked, and the branch holds one new commit past the start, which does not start with `wip:`
 
 ### Requirement: The budgets of a step and of an item are settings
-The settings `roadmap.implement.step_token_budget`, `item_token_budget`, `step_time_limit_seconds` and `item_time_limit_seconds` SHALL set the input tokens and the seconds that a step and a run of an item may use. Each SHALL have a variable named `DEVOPS_CLI_` and the key in upper case. The defaults SHALL be 8000000, 20000000, 5400 and 12600.
+The settings `roadmap.implement.step_token_budget`, `item_token_budget`, `step_time_limit_seconds` and `item_time_limit_seconds` SHALL set the new tokens and the seconds that a step and a run of an item may use. Each SHALL have a variable named `DEVOPS_CLI_` and the key in upper case. The defaults SHALL be 8000000, 20000000, 5400 and 12600.
 
 A value below 1 SHALL be refused. An item time limit above `roadmap.implement.deadline_ceiling_seconds` SHALL be refused too.
 
@@ -1180,14 +1180,14 @@ A value below 1 SHALL be refused. An item time limit above `roadmap.implement.de
 - **THEN** loading the settings fails and the message names `item_time_limit_seconds`
 
 ### Requirement: A step that spends a budget stops and names it
-Before each model request, the step SHALL compare its input tokens and its seconds with the budgets of the step and of the item. When one is spent, the step SHALL make no request, stop with the class `limit_reached` and name the setting and its value, unless the rule `implement.extension` extends the token budget of the step. The item budget SHALL count the tokens of the earlier steps, and the item limit the seconds since the run began. The step SHALL reset the checkout as for any stop.
+Before each model request, the step SHALL compare its new tokens and its seconds with the budgets of the step and of the item. When one is spent, the step SHALL make no request, stop with the class `limit_reached` and name the setting and its value, unless the rule `implement.extension` extends the token budget of the step. The item budget SHALL count the tokens of the earlier steps, and the item limit the seconds since the run began. The step SHALL reset the checkout as for any stop.
 
 #### Scenario: The token budget of the step
-- **WHEN** `step_token_budget` is 50, the first reply of the model reports more than 50 input tokens, and the step made fewer than 20 tool calls
+- **WHEN** `step_token_budget` is 50, the first reply of the model reports more than 50 new tokens, and the step made fewer than 20 tool calls
 - **THEN** the step reports stopped with the class `limit_reached`, the model got no second request, and the reason names `roadmap.implement.step_token_budget` and 50
 
 #### Scenario: The token budget of the item
-- **WHEN** the earlier steps of the run used 900 input tokens and `item_token_budget` is 1000
+- **WHEN** the earlier steps of the run used 900 new tokens and `item_token_budget` is 1000
 - **THEN** a step stops after its first reply, and the reason names `roadmap.implement.item_token_budget` and 1000
 
 #### Scenario: The time limit of the step
@@ -1566,8 +1566,8 @@ The digest SHALL count, in the last 20 tool calls of the step over all its turns
 The step SHALL write one line to the Job log that names the rule `implement.extension`, the old and the new budget, and the counts. The outcome of the step SHALL hold the extension: the old budget, the new budget, the counts and whether the ceiling cut it.
 
 #### Scenario: A step that edits at its budget
-- **WHEN** `step_token_budget` is 50 and the first reply makes 20 tool calls with 3 successful edits
-- **THEN** the model gets a second request, the step ends done, and the Job log names the extension from 50 to 75 input tokens with 3 successful edits and 0 refused commands
+- **WHEN** `step_token_budget` is 250 and the first reply makes 20 tool calls with 3 successful edits and counts 280 new tokens
+- **THEN** the model gets a second request, the step ends done, and the Job log names the extension from 250 to 375 new tokens with 3 successful edits and 0 refused commands
 
 ### Requirement: A step with no progress at its token budget stops as before
 The step SHALL stop with the class `limit_reached` at its token budget, and SHALL name `roadmap.implement.step_token_budget` and its value, when its tool log gives no digest, when the digest holds no successful edit or more than 3 refused commands, when the ceiling leaves no room above the tokens already used, or when the step already used its extension. A step SHALL decide one time at each limit.
@@ -1593,7 +1593,7 @@ The reason of a stop at the token budget SHALL give the counts of the digest, sa
 
 #### Scenario: The second limit
 - **WHEN** an extended step reaches its new budget of 75 tokens
-- **THEN** the step stops with the class `limit_reached`, and the reason names `roadmap.implement.step_token_budget=50` and the extension to 75 input tokens
+- **THEN** the step stops with the class `limit_reached`, and the reason names `roadmap.implement.step_token_budget=50` and the extension to 75 new tokens
 
 #### Scenario: The ceiling ends the extension
 - **WHEN** the ceiling of 60 tokens cut the extension and the step reaches 60 tokens
@@ -1660,3 +1660,26 @@ The implement prompt SHALL state that the shell refuses a new line, a heredoc, a
 #### Scenario: The prompt names the heredoc before the first call
 - **WHEN** A test reads `src/devops_cli/ai/tasks/roadmap_implement_step.md`
 - **THEN** The prompt names a heredoc, `python -c`, a new line, a `;`, `.data/agent/scratch/` and `uv run python <file>`, and the shell refuses a new line and a `;`
+
+### Requirement: A token budget counts the new tokens of a reply
+The step budget, its ceiling and the item budget SHALL count the new tokens of each reply: the input tokens that the provider did not read from its cache, and the output tokens. The outcome of a step and the record `implement.spend` SHALL keep the cached input tokens, and the record SHALL keep the count of the item budget as `new_tokens`. The item budget SHALL count the `new_tokens` of the earlier Jobs of the item, and none for a record that has no `new_tokens`.
+
+#### Scenario: The count of one reply
+- **WHEN** a reply reports 120000 input tokens, 118500 of them read from the cache, and 300 output tokens
+- **THEN** the budget counts 1800 tokens
+
+#### Scenario: Cached input does not stop a step
+- **WHEN** `step_token_budget` is 500 and each of the two replies of a step reports 100000 more input tokens, all read from the cache
+- **THEN** the step is not stopped for a budget, the model gets two requests, and the outcome holds 200000 cached input tokens
+
+#### Scenario: The cached input of an earlier Job
+- **WHEN** `item_token_budget` is 1000 and the record of an earlier Job holds 100100 input tokens, 100000 of them read from the cache, and 100 `new_tokens`
+- **THEN** the next Job is not stopped for the item budget, and its record still holds the 100000 cached input tokens
+
+#### Scenario: A record that names no unit
+- **WHEN** `item_token_budget` is 1000 and the record of an earlier Job, as an older version wrote it, holds 100100 input tokens and no `new_tokens`
+- **THEN** the next Job is not stopped for the item budget, its record keeps the 100100 input tokens, and its `new_tokens` are the new tokens of the next Job only
+
+#### Scenario: A route that reports no cache reads
+- **WHEN** no setting changes the step budget and each reply reports 39300 input tokens, none of them read from the cache, and 200 output tokens
+- **THEN** the step makes at least 200 requests before its token budget, as when the budget counted all input tokens
