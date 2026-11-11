@@ -7,13 +7,22 @@ in the 20 minutes of a real run, and an effect of the script reads `origin` at t
 
 from __future__ import annotations
 
+import subprocess
 from collections.abc import Callable
 
 import pytest
 from pydantic_ai.exceptions import ModelAPIError
 
+from tests.support.fakes.process import ProcessAnswer, ProcessCall
+from tests.support.implement_step import command_text
 from tests.support.model_script import ModelScript, say, tool_calls
-from tests.support.roadmap_implement import BRANCH, TASKS_PATH, JobWorld, advance_main
+from tests.support.roadmap_implement import (
+    BRANCH,
+    TASKS_PATH,
+    JobWorld,
+    advance_main,
+    archive_effect,
+)
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
@@ -176,3 +185,39 @@ def test_a_conflict_at_a_wip_push_keeps_the_work_and_the_final_push_stops_on_it(
     assert "The rebase onto origin/main stopped." in capsys.readouterr().err
     status = planned_world.repo.git("worktree", "list")
     assert status.count("\n") == 0
+
+
+def _archive_applied_then_refused(world: JobWorld) -> None:
+    """`main` gains a commit, then `uv run devops openspec archive` moves the change folder and
+    exits 1, as it does when the strict validation of the specs fails after the move."""
+
+    def answer(call: ProcessCall) -> subprocess.CompletedProcess[str]:
+        advance_main(world)
+        archive_effect(call)
+        return subprocess.CompletedProcess(
+            call.argv, 1, stdout="The archive is applied.\nTotals: 2 passed, 1 failed\n", stderr=""
+        )
+
+    world.programs.answer(
+        lambda call: command_text(call).startswith("uv run devops openspec archive"),
+        ProcessAnswer(side_effect=answer),
+    )
+
+
+def test_a_stop_after_an_archive_that_failed_pushes_a_branch_that_holds_the_commit_that_main_gained(
+    planned_world: JobWorld, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The files that the failed archive wrote are in no commit, so the stop drops them, and the
+    rebase of the stop finds a clean checkout."""
+    _archive_applied_then_refused(planned_world)
+    script = ModelScript(*(reply for n in range(1, FILES + 1) for reply in _task(n)), say("Done."))
+
+    applied = planned_world.run(script)
+
+    assert applied.stopped == (1,)
+    assert planned_world.origin_log() == [
+        "fix(roadmap): The five files (#1)",
+        "docs: regenerate the documentation (#1)",
+    ]
+    assert _commits_behind(planned_world) == BEHIND
+    assert "cannot rebase" not in capsys.readouterr().err
