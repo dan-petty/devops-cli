@@ -1,9 +1,9 @@
 {
   "enabledPlugins": {
     "mattpocock-skills@claude-plugins-official": true,
-    "playwright@claude-plugins-official": true,
-    "mcp-server-dev@claude-plugins-official": true,
-    "cloudflare@claude-plugins-official": true,
+    "playwright@claude-plugins-official": false,
+    "mcp-server-dev@claude-plugins-official": false,
+    "cloudflare@claude-plugins-official": false,
     "pydantic-ai@claude-plugins-official": true,
     "grafana-mcp@claude-plugins-official": true
   },
