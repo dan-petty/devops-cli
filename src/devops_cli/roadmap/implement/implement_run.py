@@ -34,13 +34,14 @@ takes the branch with its `wip:` commits, shows the kept ticks to the agent, and
 into its own commit.
 
 **A stop.** A step that stops, a conflict, a failed command or a check that fails twice stops the
-item: the job pushes the commits that passed (also a stop in the scoped checks, #3645: the finished
-groups stay on the branch, and the draft is not marked ready), comments the step, the reason and the
-last message of the agent, sets Status Blocked, and records `implement.stopped`. The comment starts
-with the class of the failure, the action taken and the action left (`failure.py`, #3065), and the
-class is recorded in `implement.failure`. It does not run the item again until a clear rule of the
-Service removes the stop: a person's comment `implement: retry`, a new runner image
-(`stop_clear.py`), or, for a Job that ended with no result, a continuation (#3721).
+item: the job drops the files that no commit holds (#4487) and pushes the commits that passed (also
+a stop in the scoped checks, #3645: the finished groups stay on the branch, and the draft is not
+marked ready), comments the step, the reason and the last message of the agent, sets Status
+Blocked, and records `implement.stopped`. The comment starts with the class of the failure, the
+action taken and the action left (`failure.py`, #3065), and the class is recorded in
+`implement.failure`. It does not run the item again until a clear rule of the Service removes the
+stop: a person's comment `implement: retry`, a new runner image (`stop_clear.py`), or, for a Job
+that ended with no result, a continuation (#3721).
 
 **A claim** (#2910). The Service holds the item with `owner/service` while the Job runs. The job
 reads the item before each unticked task group, when a step stops, and before the push. When an
@@ -319,6 +320,22 @@ def _conflict_files(output: str) -> list[str]:
     """The paths that `git diff --name-only -z` lists, masked and escaped so that a secret or a
     control character in a path does not leave the job (#3646)."""
     return [shown(mask_secrets(path)) for path in output.split("\0") if path]
+
+
+def _rebase_in_progress(path: Path) -> bool:
+    """Whether a rebase stopped in the checkout `path` and waits: git keeps the state of the rebase
+    in the directory `rebase-merge`, or `rebase-apply` for the apply backend, until it ends. A
+    rebase that git refused to start has neither."""
+    names = git(
+        path,
+        "rev-parse",
+        "--git-path",
+        "rebase-merge",
+        "--git-path",
+        "rebase-apply",
+        operation=GIT_OPERATION,
+    )
+    return any((path / name).is_dir() for name in names.splitlines())
 
 
 def _files_lines(files: Sequence[str]) -> str:
@@ -761,10 +778,22 @@ class _ItemRun:
         self._rebase(self.path, push_on_conflict=push_on_conflict)
 
     def _rebase(self, path: Path, *, push_on_conflict: bool = True) -> None:
-        """Rebase the checkout `path` onto `origin/<default>`. The conflict path of `_sync`."""
+        """Rebase the checkout `path` onto `origin/<default>`. The conflict path of `_sync`. A
+        rebase that git refuses to start, as in a checkout that holds changes, is no conflict: no
+        abort runs, and the stop has the class `ci_infra`, as a new Job starts from a new worktree
+        (#4487)."""
         try:
             git(path, "rebase", f"origin/{self.default}", operation=GIT_OPERATION)
         except GitOperationError as exc:
+            if not _rebase_in_progress(path):
+                raise _StopError(
+                    self.step,
+                    MESSAGES.roadmap.implement_stop_rebase_not_started.format(
+                        branch=self.default, output=str(exc)
+                    ),
+                    push=push_on_conflict,
+                    failure_class=FailureClass.CI_INFRA,
+                ) from exc
             timeout = load_settings().roadmap.implement.command_timeout_seconds
             unmerged = run_subprocess(
                 [BIN_GIT, "-C", str(path), "diff", "--name-only", "--diff-filter=U", "-z"],
@@ -1298,12 +1327,12 @@ class _ItemRun:
 
     def _current_tip(self, *, in_step: bool) -> str:
         """The commit to push, which holds `origin/<default>` as far as a rebase allows (#4380). A
-        run takes minutes, and the default branch moves in that time. Between steps and at a stop
-        the checkout is clean, so the job rebases it as `_sync` does. A step that runs holds the
-        shas of its `wip:` commits and may hold edits, so `_rebased_copy` rebases a copy and leaves
-        the checkout alone. A conflict aborts the rebase and goes to the log: the push goes on with
-        the head, so that the work stays on `origin`, and the sync of `_push` stops the item with
-        the same conflict."""
+        run takes minutes, and the default branch moves in that time. Between steps the checkout is
+        clean, and a stop drops what no commit holds first (`_drop_uncommitted`), so the job rebases
+        it as `_sync` does. A step that runs holds the shas of its `wip:` commits and may hold
+        edits, so `_rebased_copy` rebases a copy and leaves the checkout alone. A conflict aborts
+        the rebase and goes to the log: the push goes on with the head, so that the work stays on
+        `origin`, and the sync of `_push` stops the item with the same conflict."""
         try:
             if in_step:
                 return self._rebased_copy()
@@ -1732,7 +1761,7 @@ class _ItemRun:
     def stop(self, stop: _StopError) -> None:
         """Push what passed, tell the item why, set it Blocked, and record the step."""
         texts = MESSAGES.roadmap
-        note = self._push_passed() if stop.push else ""
+        note = self._push_passed(at_stop=True) if stop.push else ""
         if stop.push and not note:
             note = self._kept_note(branch=stop.kept_branch)
         if self.pull is not None and self.amendments:
@@ -1821,15 +1850,26 @@ class _ItemRun:
             marks=marks,
         )
 
-    def _push_passed(self, *, in_step: bool = False) -> str:
+    def _drop_uncommitted(self) -> None:
+        """Put the checkout back at its head, before the push of a stop (#4487). A project program
+        that failed can leave the files that it wrote, as an archive that moved the change folder
+        and then failed the validation of the specs. No commit holds them, so no push sends them,
+        and git does not rebase a checkout that holds changes."""
+        self._git("reset", "-q", "--hard", "HEAD")
+        self._git("clean", "-fdq")
+
+    def _push_passed(self, *, in_step: bool = False, at_stop: bool = False) -> str:
         """Push the commits of the steps that passed, on a branch that holds the default branch
         (`_current_tip`). A Planned item with a commit publishes its branch and opens its draft;
-        with none, nothing is pushed. `in_step` is true for the `wip:` push of a step that runs. The
-        text to add to the comment when the push fails, else empty."""
+        with none, nothing is pushed. `in_step` is true for the `wip:` push of a step that runs, and
+        `at_stop` for the push of a stop, which drops what no commit holds first. The text to add to
+        the comment when the push fails, else empty."""
         texts = MESSAGES.roadmap
         try:
             if self.pull is None and not self._has_new_commits():
                 return ""
+            if at_stop:
+                self._drop_uncommitted()
             tip = self._current_tip(in_step=in_step)
             if self.pull is not None:
                 self._push_with_lease(tip)

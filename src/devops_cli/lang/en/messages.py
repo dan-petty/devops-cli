@@ -3132,6 +3132,9 @@ class RoadmapMessages:
     draft_check_runs: str = "A check runs: {name}."
     draft_check_runs_unnamed: str = "A check runs."
     implement_stop_rebase: str = "The rebase onto origin/{branch} stopped.\n{output}"
+    implement_stop_rebase_not_started: str = (
+        "The rebase onto origin/{branch} did not start.\n{output}"
+    )
     implement_stop_rebase_files: str = "\nConflicted files:\n{files}"
     implement_stop_abort_failed: str = "\nThe abort of the rebase failed too.\n{output}"
     implement_stop_program_failed: str = "{command} exited with status {status}.\n{output}"

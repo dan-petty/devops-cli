@@ -44,7 +44,13 @@ from tests.support.base_replay import (
 from tests.support.fakes.github import GitHubApiFake
 from tests.support.fakes.process import ProcessAnswer, ProcessCall
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
-from tests.support.implement_step import TEST_BODY, WINDOW, command_text, write_call
+from tests.support.implement_step import (
+    TEST_BODY,
+    WINDOW,
+    command_text,
+    git_for_real,
+    write_call,
+)
 from tests.support.model_script import ModelScript, say, tool_calls
 from tests.support.roadmap_implement import (
     BRANCH,
@@ -931,6 +937,38 @@ def test_a_conflict_on_the_rebase_before_the_push_names_the_conflicted_files(
         "- src/devops_cli/shout.py" in comment,
         json.loads(record["implement.conflict"] or "[]"),
     ) == (True, True, ["src/devops_cli/shout.py"])
+
+
+REBASE = ("rebase", "origin/main")
+ABORT = ("rebase", "--abort")
+
+
+def _dirty_at_the_rebase(world: JobWorld) -> None:
+    """Each `git rebase origin/main` finds a changed tracked file in the checkout, so git refuses
+    to start the rebase."""
+
+    def answer(call: ProcessCall) -> subprocess.CompletedProcess[str]:
+        checkout = Path(call.argv[2])
+        (checkout / TASKS_PATH).write_text("Changed in the checkout.\n", encoding="utf-8")
+        return git_for_real(call)
+
+    world.programs.answer(lambda call: call.argv[3:] == REBASE, ProcessAnswer(side_effect=answer))
+
+
+def test_a_rebase_that_does_not_start_is_no_conflict_and_runs_no_abort(
+    job_world: JobWorld,
+) -> None:
+    _dirty_at_the_rebase(job_world)
+
+    applied = job_world.run(two_groups())
+
+    comment = job_world.issue_comments()[0]
+    status, record = _item(job_world)
+    assert (applied.stopped, status, record.get("implement.stopped")) == ((1,), "Blocked", "rebase")
+    assert (record.get("implement.failure"), record.get("implement.conflict")) == ("ci_infra", None)
+    assert [call.argv[3:] for call in job_world.programs.calls if call.argv[3:5] == ABORT] == []
+    assert "did not start" in comment
+    assert "abort" not in comment
 
 
 def test_a_retry_clears_the_conflicted_files_with_the_stop(job_world: JobWorld) -> None:
