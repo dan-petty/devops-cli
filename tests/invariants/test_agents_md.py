@@ -711,3 +711,31 @@ def test_retired_test_phrase_in_agents_md_fails_ban(tmp_path: Path) -> None:
     doc = tmp_path / "AGENTS.md"
     doc.write_text("Rule: assert tuple equality in all tests.\n", encoding="utf-8")
     assert _find_retired_test_phrases(doc.read_text(encoding="utf-8")) == [(1, "tuple equality")]
+
+
+def _trivy_config_rule() -> str:
+    """The text of the section of SECURITY.md that judges a `Trivy-config` alert (#4401)."""
+    text = Path("SECURITY.md").read_text(encoding="utf-8")
+    start = text.index("## Judging a Trivy-config Alert")
+    end = text.find("\n## ", start + 1)
+    return " ".join(text[start : end if end != -1 else None].split())
+
+
+def test_the_policy_names_the_judge_the_time_and_the_ignore_file() -> None:
+    rule = _trivy_config_rule()
+
+    assert "owner" in rule
+    assert "CRITICAL" in rule
+    assert "24 hours" in rule
+    assert "agent" in rule
+    assert "14 days" in rule
+    assert "`.trivyignore.yaml`" in rule
+    assert "`statement`" in rule
+    assert "`expired_at`" in rule
+
+
+def test_the_policy_keeps_the_limits_of_a_finding_with_no_fix() -> None:
+    rule = _trivy_config_rule()
+
+    assert "A Finding with No Fix" in rule
+    assert "3 days" in rule

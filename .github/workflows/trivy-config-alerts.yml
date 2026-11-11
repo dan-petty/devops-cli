@@ -1,0 +1,50 @@
+# File one issue for each open Trivy-config code scanning alert group that has none (#4401).
+# The Security Scan step of the CI workflow uploads the results of `trivy config`, and no job
+# turned an alert into work. SECURITY.md ("Judging a Trivy-config Alert") names who judges the
+# issue and in what time. The job is no step of CI: a step of a pull request run must not write
+# issues. It has no `workflow_run` trigger either: zizmor reports that trigger as a HIGH finding
+# (dangerous-triggers), which would add one more alert that nobody judged. The CI run on `main`
+# uploads the alerts, and this job files their issues on the next day.
+name: Trivy Config Alerts
+
+on:
+  schedule:
+    # Once a day at 06:00 UTC.
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: read
+  issues: write
+
+concurrency:
+  group: trivy-config-alerts
+  cancel-in-progress: false
+
+env:
+  # uv runs only its own CPython builds, never the runner image's Python (#1494).
+  UV_MANAGED_PYTHON: "1"
+
+jobs:
+  file-alert-issues:
+    name: File Alert Issues
+    runs-on: ubuntu-26.04
+    # The filer reads two listings and posts at most 5 issues. The step limit is shorter.
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Set up uv toolchain
+        uses: ./.github/actions/setup-toolchain
+
+      - name: File the issues
+        timeout-minutes: 5
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPOSITORY: ${{ github.repository }}
+        run: uv run devops scan alerts --repo "$REPOSITORY"

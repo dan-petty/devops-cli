@@ -13,7 +13,11 @@ import typer
 
 from devops_cli.ai.review_schema import Finding
 from devops_cli.config.commands import BIN_TRIVY
-from devops_cli.config.constants import CONST_OUTPUT_FORMAT_TABLE, CONST_SCAN_NO_RESULT_STATUSES
+from devops_cli.config.constants import (
+    CONST_OUTPUT_FORMAT_TABLE,
+    CONST_SCAN_NO_RESULT_STATUSES,
+    CONST_TRIVY_CONFIG_ALERT_ISSUES_PER_RUN,
+)
 from devops_cli.config.defaults import (
     DEFAULT_CURRENT_PATH,
     DEFAULT_SEMGREP_CONFIG,
@@ -24,9 +28,11 @@ from devops_cli.config.defaults import (
 )
 from devops_cli.core.binaries import check_binary
 from devops_cli.core.cli import new_typer
+from devops_cli.core.repo import find_repo_root, get_repo_origin_name
 from devops_cli.dry_run.decorator import dry_run_class
 from devops_cli.dry_run.requests import render_request_plan
 from devops_cli.dry_run.state import is_dry_run
+from devops_cli.exceptions.git import GitHubOperationError
 from devops_cli.exceptions.tools import ToolExecutionError
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.models.vulnerability import VulnerabilityRemediationResult
@@ -55,6 +61,7 @@ from devops_cli.security.registry import global_scanner_registry
 from devops_cli.security.sarif import SarifError, read_sarif, write_sarif
 from devops_cli.security.sbom import run_trivy_sbom
 from devops_cli.security.scan_plans import (
+    plan_scan_alerts,
     plan_scan_fix,
     plan_scan_report,
     plan_semgrep_scan,
@@ -1157,3 +1164,44 @@ def scan_sarif(
 
     if fail_on and report.exceeds(fail_on):
         raise typer.Exit(1)
+
+
+@app.command("alerts", help=HELP.scan.alerts)
+@dry_run_class("request-plan")
+def scan_alerts(
+    repo: Annotated[str | None, typer.Option("--repo", "-R", help=HELP.scan.alerts_repo)] = None,
+    limit: Annotated[
+        int,
+        typer.Option("--limit", min=1, help=HELP.scan.alerts_limit),
+    ] = CONST_TRIVY_CONFIG_ALERT_ISSUES_PER_RUN,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
+) -> None:
+    """File one issue for each open `Trivy-config` alert group that no open issue names.
+
+    The alerts are the results of `devops scan report` that the Security Scan step of CI uploads
+    to code scanning. A run files at most `--limit` issues, the worst severity first, and names the
+    groups that it leaves for the next run."""
+    if dry_run or is_dry_run():
+        render_request_plan(MESSAGES.scan.alerts_dry_run_heading, plan_scan_alerts(repo))
+        return
+    from devops_cli.github.session import get_github_session
+    from devops_cli.security.alert_filer import file_alert_issues
+
+    target = repo or get_repo_origin_name(find_repo_root(Path.cwd()))
+    if not target or "/" not in target:
+        print_error(MESSAGES.scan.alerts_no_repo, safe=True, to_stderr=True)
+        raise typer.Exit(1)
+    try:
+        outcome = file_alert_issues(get_github_session(), target, limit=limit)
+    except GitHubOperationError as exc:
+        print_error(str(exc), safe=True, to_stderr=True)
+        raise typer.Exit(1) from exc
+    if not (outcome.filed or outcome.held or outcome.left):
+        print_success(MESSAGES.scan.alerts_none_open)
+        return
+    for group, number in outcome.filed:
+        print_success(MESSAGES.scan.alerts_filed.format(number=number, title=group.title))
+    for group in outcome.held:
+        print_muted(MESSAGES.scan.alerts_held.format(title=group.title))
+    for group in outcome.left:
+        print_muted(MESSAGES.scan.alerts_left.format(title=group.title))

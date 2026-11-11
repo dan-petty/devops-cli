@@ -2008,6 +2008,11 @@ class ScanCommandHelp:
         "Target file or directory to scan for prompt-injection smuggling vectors."
     )
     fail_on: str = "Exit non-zero when a finding at or above this severity survives suppression."
+    alerts: str = (
+        "File one issue for each open Trivy-config code scanning alert group that has none."
+    )
+    alerts_repo: str = "Repository (owner/name); the origin of the current directory by default."
+    alerts_limit: str = "The most issues that one run files; the worst severity goes first."
 
 
 @dataclass(frozen=True)
