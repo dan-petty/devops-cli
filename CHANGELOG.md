@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.109.1](https://github.com/dan-petty/devops-cli/compare/v0.109.0...v0.109.1) (2026-11-11)
+
+
+### Bug Fixes
+
+* **roadmap:** keep tool events in the trace of a long run ([#4436](https://github.com/dan-petty/devops-cli/issues/4436)) ([50839d7](https://github.com/dan-petty/devops-cli/commit/50839d768e8b48144a03da51c80308f336392b9a))
+
 ## [0.109.0](https://github.com/dan-petty/devops-cli/compare/v0.108.3...v0.109.0) (2026-11-10)
 
 
