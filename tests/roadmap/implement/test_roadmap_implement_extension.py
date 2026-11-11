@@ -6,7 +6,8 @@ rule is the resolver of the decision point `implement.extension` (ADR 0020). The
 comes from pilot 3: the counts in the last 20 tool calls before the stops of 14 days of Job logs.
 
 The model is a pydantic-ai `FunctionModel` from `ModelScript`, which reports 50 input tokens for
-each streamed request. Git runs for real on a checkout in `tmp_path`, and `process_fake` answers
+each streamed request and the output tokens of its parts. A first reply that makes the 20 tool
+calls of the whole group and of 17 reads counts 280 new tokens (`FIRST`). Git runs for real on a checkout in `tmp_path`, and `process_fake` answers
 every other program. The counter goes to a fake of the telemetry edge.
 """
 
@@ -74,6 +75,8 @@ SPIN = {
 EDGES = {"no edit": (0, 0), "no edit and 3 refused": (0, 3), "4 refused": (1, 4)}
 
 READ = ("read_file", {"path": "src/sample.py"})
+# The new tokens of the first reply of the whole group and 17 reads: 50 input and 230 output.
+FIRST = 280
 REFUSED = ("run_command", {"command": "pytest tests/test_sample.py"})
 
 
@@ -101,7 +104,7 @@ def _budget(
     ceiling: int | None = None,
     item: ItemSpend | None = None,
 ) -> StepBudget:
-    """A step budget of 50 input tokens whose tool log gives `digest`."""
+    """A step budget of 50 new tokens whose tool log gives `digest`."""
     implement: dict[str, int] = {"step_token_budget": 50}
     if ceiling is not None:
         implement["step_token_ceiling"] = ceiling
@@ -261,7 +264,7 @@ def test_a_second_limit_stops_the_step_and_names_the_extension(
     reason = budget.spent()
 
     assert reason is not None
-    assert f"{BUDGET} and its one extension to 75 input tokens" in reason
+    assert f"{BUDGET} and its one extension to 75 new tokens" in reason
     assert counted[-2:] == [("extended", 0), ("halted", 1)]
 
 
@@ -376,13 +379,13 @@ def test_a_step_that_edits_at_its_budget_gets_one_more_request_and_ends_done(
 ) -> None:
     script = ModelScript(tool_calls(*the_whole_group(), *_reads(17)), say("Done."))
 
-    outcome = _step(implement_store, implement_checkout, script, config)
+    outcome = _step(implement_store, implement_checkout, script, config, step_token_budget=250)
 
-    assert (len(script.seen), outcome.status) == (2, StepStatus.DONE)
-    assert outcome.extension == BudgetExtension(limit=50, budget=75, calls=20, edits=3, refused=0)
+    assert (len(script.seen), outcome.status, outcome.output_tokens) == (2, StepStatus.DONE, 232)
+    assert outcome.extension == BudgetExtension(limit=250, budget=375, calls=20, edits=3, refused=0)
     assert (
-        "The step got one extension of its token budget (rule `implement.extension`), from 50 to "
-        "75 input tokens: 3 successful edit(s) and 0 refused command(s) in its last 20 tool calls."
+        "The step got one extension of its token budget (rule `implement.extension`), from 250 to "
+        "375 new tokens: 3 successful edit(s) and 0 refused command(s) in its last 20 tool calls."
     ) in capsys.readouterr().err
 
 
@@ -417,15 +420,17 @@ def test_an_extended_step_stops_at_its_second_limit(
         tool_calls(*the_whole_group(), *_reads(17)), tool_calls(READ), say("Done.")
     )
 
-    outcome = _step(implement_store, implement_checkout, script, config)
+    outcome = _step(implement_store, implement_checkout, script, config, step_token_budget=200)
 
     assert (len(script.seen), outcome.status, outcome.failure_class) == (
         2,
         StepStatus.STOPPED,
         FailureClass.LIMIT_REACHED,
     )
-    assert f"{BUDGET} and its one extension to 75 input tokens" in outcome.reason
-    assert outcome.extension == BudgetExtension(limit=50, budget=75, calls=20, edits=3, refused=0)
+    assert (
+        "`roadmap.implement.step_token_budget=200` and its one extension to 300 new tokens"
+    ) in outcome.reason
+    assert outcome.extension == BudgetExtension(limit=200, budget=300, calls=20, edits=3, refused=0)
 
 
 def test_an_extended_step_stops_at_the_ceiling(
@@ -438,10 +443,17 @@ def test_an_extended_step_stops_at_the_ceiling(
         tool_calls(*the_whole_group(), *_reads(17)), tool_calls(READ), say("Done.")
     )
 
-    outcome = _step(implement_store, implement_checkout, script, config, step_token_ceiling=60)
+    outcome = _step(
+        implement_store,
+        implement_checkout,
+        script,
+        config,
+        step_token_budget=200,
+        step_token_ceiling=FIRST + 10,
+    )
 
     assert (len(script.seen), outcome.failure_class) == (2, FailureClass.LIMIT_REACHED)
-    assert "`roadmap.implement.step_token_ceiling=60`" in outcome.reason
+    assert "`roadmap.implement.step_token_ceiling=290`" in outcome.reason
 
 
 def test_a_step_with_fewer_calls_than_the_window_stops_at_its_budget(
@@ -481,10 +493,11 @@ def test_an_extended_step_stops_at_the_item_budget(
         implement_checkout,
         script,
         config,
-        step_token_budget=200,
-        item_token_budget=250,
+        step_token_budget=400,
+        item_token_budget=450,
     )
 
+    # The step counts 135, 198, 295, 430 and 485 new tokens after its 5 requests.
     assert (len(script.seen), outcome.failure_class) == (5, FailureClass.LIMIT_REACHED)
-    assert outcome.extension == BudgetExtension(limit=200, budget=300, calls=20, edits=3, refused=0)
-    assert "`roadmap.implement.item_token_budget=250`" in outcome.reason
+    assert outcome.extension == BudgetExtension(limit=400, budget=600, calls=20, edits=3, refused=0)
+    assert "`roadmap.implement.item_token_budget=450`" in outcome.reason

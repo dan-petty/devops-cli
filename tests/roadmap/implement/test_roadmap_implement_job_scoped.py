@@ -294,9 +294,10 @@ def test_a_fix_step_that_stops_in_the_scoped_checks_keeps_the_work_of_both_group
 def test_a_fix_step_that_spends_a_budget_keeps_the_work_and_names_the_action_left(
     job_world: JobWorld, config: Callable[..., Path]
 ) -> None:
-    """Each scripted request counts 50 input tokens, so the two groups spend 200. The fix step
-    finds the budget of the item spent, makes no request and stops with the class `limit_reached`."""
-    config(roadmap={"implement": {"item_token_budget": 200}})
+    """Each scripted request counts 50 input tokens and the output tokens of its parts, so the two
+    groups spend 434 new tokens, and the last request starts at 379. The fix step finds the budget
+    of the item spent, makes no request and stops with the class `limit_reached`."""
+    config(roadmap={"implement": {"item_token_budget": 400}})
     _fails_until(job_world, STATIC, RULE, times=1)
 
     applied = job_world.run(two_groups())

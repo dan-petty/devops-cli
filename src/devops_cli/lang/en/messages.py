@@ -2743,7 +2743,7 @@ class RoadmapMessages:
     implement_model_call_deadline: str = "{detail}, no complete reply in {seconds:g} seconds"
     implement_stop_limit: str = "The step spent its budget `{setting}={value}`."
     implement_stop_limit_extended: str = (
-        "The step spent its budget `{setting}={value}` and its one extension to {budget} input "
+        "The step spent its budget `{setting}={value}` and its one extension to {budget} new "
         "tokens."
     )
     implement_stop_limit_ceiling: str = (
@@ -2751,7 +2751,7 @@ class RoadmapMessages:
         "`{ceiling}={budget}`."
     )
     implement_stop_limit_no_room: str = (
-        "The step spent its budget `{setting}={value}`. It used {used} input tokens, so the "
+        "The step spent its budget `{setting}={value}`. It used {used} new tokens, so the "
         "ceiling `{ceiling}={budget}` left no room for its one extension."
     )
     implement_stop_limit_unclear: str = (
@@ -2764,14 +2764,14 @@ class RoadmapMessages:
     )
     implement_extension_extended: str = (
         "The step got one extension of its token budget (rule `implement.extension`), from "
-        "{limit} to {budget} input tokens: {edits} successful edit(s) and {refused} refused "
+        "{limit} to {budget} new tokens: {edits} successful edit(s) and {refused} refused "
         "command(s) in its last {calls} tool calls."
     )
     implement_extension_section: str = (
         "\n\nBudget extensions (rule `implement.extension`):\n\n{lines}"
     )
     implement_extension_step: str = (
-        "- {step}: {limit} to {budget} input tokens{cut}. Trigger: {edits} successful edit(s) "
+        "- {step}: {limit} to {budget} new tokens{cut}. Trigger: {edits} successful edit(s) "
         "and {refused} refused command(s) in the last {calls} tool calls."
     )
     implement_extension_cut: str = " (the ceiling)"

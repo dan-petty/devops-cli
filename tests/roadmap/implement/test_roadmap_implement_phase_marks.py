@@ -46,14 +46,33 @@ CHECKED = "implement.checked_sha"
 PUBLISHED = "implement.published_sha"
 SPEND = "implement.spend"
 PRE_PUSH = "uv run pre-commit run --hook-stage pre-push --from-ref origin/main --to-ref HEAD"
-# Each scripted request counts 50 input tokens, so a group of two requests spends 100.
+# Each scripted request counts 50 input tokens, so a group of two requests spends 100. With the
+# output tokens of its parts, group 1 counts 226 new tokens and the first request of group 2 153.
 GROUP_TOKENS = 100
+GROUP_NEW_TOKENS = 226
 REQUEST_TOKENS = 50
+CACHED = 100_000
+# The spend of an earlier Job as a version before #4387 wrote it: its input tokens hold the
+# 100000 that the provider read from its cache, and the record names no unit (`new_tokens`).
 OLD_SPEND = json.dumps(
     {
         "requests": 2,
-        "input_tokens": GROUP_TOKENS,
+        "input_tokens": CACHED + GROUP_TOKENS,
         "output_tokens": 0,
+        "steps": [{"step": "group 1", "first_request_tokens": REQUEST_TOKENS}],
+        "tiers": {},
+    }
+)
+
+# The spend of an earlier Job whose 2 requests read 100000 input tokens from the cache of the
+# provider: only the other 100 count for the item budget (#4387).
+CACHED_SPEND = json.dumps(
+    {
+        "requests": 2,
+        "input_tokens": CACHED + GROUP_TOKENS,
+        "cache_read_tokens": CACHED,
+        "output_tokens": 0,
+        "new_tokens": GROUP_TOKENS,
         "steps": [{"step": "group 1", "first_request_tokens": REQUEST_TOKENS}],
         "tiers": {},
     }
@@ -360,15 +379,16 @@ def test_spend_survives_kill_the_mark_of_a_passed_group_holds_the_spend(
     spend = _spend(job_world)
 
     assert (spend["requests"], spend["input_tokens"]) == (2, GROUP_TOKENS)
+    assert spend["new_tokens"] == GROUP_NEW_TOKENS
 
 
 def test_spend_survives_kill_a_continuation_stops_at_the_item_budget_as_a_sum(
     job_world: JobWorld, config: Callable[..., Path]
 ) -> None:
-    """The budget is 150. Group 1 spent 100 in the killed Job. A Job that starts from zero would
-    spend 100 on group 2 and finish. A Job that starts from the recorded 100 has spent 150 after
-    its first request, so it makes no second request."""
-    config(roadmap={"implement": {"item_token_budget": 150}})
+    """The budget is 300 new tokens. Group 1 spent 226 in the killed Job. A Job that starts from
+    zero would spend 208 on group 2 and finish. A Job that starts from the recorded 226 has spent
+    379 after its first request, so it makes no second request."""
+    config(roadmap={"implement": {"item_token_budget": 300}})
     _kill_in_group_two(job_world)
     _continue(job_world)
     script = _group_two()
@@ -413,8 +433,9 @@ def test_spend_survives_kill_ready_writes_the_sum_of_the_jobs(job_world: JobWorl
 def test_spend_survives_kill_a_retry_of_a_person_starts_from_zero(
     job_world: JobWorld, config: Callable[..., Path]
 ) -> None:
-    """A stop on the budget is retried by a person, so the retry must not stop at once again."""
-    config(roadmap={"implement": {"item_token_budget": 200}})
+    """A stop on the budget is retried by a person, so the retry must not stop at once again. Group 1
+    spends 226 new tokens, and the next request stops at the budget of 250."""
+    config(roadmap={"implement": {"item_token_budget": 250}})
     job_world.run(ModelScript(tool_calls(*group_one_calls()), say("Group 1 is done."), say("No.")))
     assert _spend(job_world)["input_tokens"] == GROUP_TOKENS + REQUEST_TOKENS
     _continue(job_world, retry=True)
@@ -440,24 +461,42 @@ def test_spend_survives_kill_a_retry_of_a_person_clears_the_counted_spend(
     assert _item(job_world)[1].get("implement.spend_counted") is None
 
 
-def test_spend_survives_kill_a_record_of_an_older_version_gives_its_spend(
+def test_spend_survives_kill_the_item_budget_counts_no_cached_input_of_an_earlier_job(
     job_world: JobWorld, config: Callable[..., Path]
 ) -> None:
-    """The record holds the spend as an earlier version wrote it, and none of the phase marks."""
-    config(roadmap={"implement": {"item_token_budget": 150}})
+    """The earlier Job read 100000 input tokens from the cache. The item budget of 1000 counts only
+    its other 100 tokens, so the run goes on, and the record keeps the cached input."""
+    config(roadmap={"implement": {"item_token_budget": 1000}})
+    _mark(job_world, {ImplementRecordKey.SPEND: CACHED_SPEND})
+    script = two_groups()
+
+    job_world.run(script)
+
+    assert _item(job_world)[1].get("implement.failure") != "limit_reached"
+    assert len(script.seen) > 1
+    assert _spend(job_world)["cache_read_tokens"] == CACHED
+
+
+def test_spend_survives_kill_a_record_of_an_older_version_counts_no_tokens_for_the_item_budget(
+    job_world: JobWorld, config: Callable[..., Path]
+) -> None:
+    """The record holds the spend as a version before #4387 wrote it, and none of the phase marks.
+    Its 100100 input tokens hold cache reads in an unknown share, so they are not new tokens: the
+    item budget of 1000 counts none of them, and the run goes on (#4387). The record keeps them."""
+    config(roadmap={"implement": {"item_token_budget": 1000}})
     _mark(job_world, {ImplementRecordKey.SPEND: OLD_SPEND})
     assert {CHECKED, PUBLISHED}.isdisjoint(_item(job_world)[1])
     script = two_groups()
 
-    applied = job_world.run(script)
+    job_world.run(script)
 
-    status, record = _item(job_world)
-    assert (applied.stopped, status, record.get("implement.failure")) == (
-        (1,),
-        "Blocked",
-        "limit_reached",
-    )
-    assert len(script.seen) == 1
+    spend = _spend(job_world)
+    input_tokens, output_tokens = spend["input_tokens"], spend["output_tokens"]
+    assert isinstance(input_tokens, int)
+    assert isinstance(output_tokens, int)
+    assert _item(job_world)[1].get("implement.failure") != "limit_reached"
+    assert len(script.seen) > 1
+    assert spend["new_tokens"] == input_tokens - CACHED - GROUP_TOKENS + output_tokens
 
 
 def test_a_return_to_new_clears_the_spend(job_world: JobWorld) -> None:

@@ -2,11 +2,18 @@
 
 A step ran with no bound on the tokens it used or the time it took: one step used 10 million input
 tokens before it stopped, and the stop named no limit. `StepBudget` holds four limits, all settings
-of `roadmap.implement`: the input tokens and the seconds of the step, and the input tokens and the
-seconds of the run of the item. `limit_hooks` is a pydantic-ai `Hooks` capability. It adds the input
+of `roadmap.implement`: the new tokens and the seconds of the step, and the new tokens and the
+seconds of the run of the item. `limit_hooks` is a pydantic-ai `Hooks` capability. It adds the new
 tokens of each reply to the count of the step, and before each model request it raises
 `LimitReached` when a limit is spent. The error names the setting and its value, so the stop names
 the limit that ended it.
+
+The new tokens of a reply (`new_tokens`) are its input tokens that the provider did not read from
+its cache, and its output tokens (#4387). Each request sends the whole conversation again, and the
+pydantic-ai `input_tokens` of a reply includes the prefix that the provider read from its cache.
+In the runner Jobs, 98.6% of the input tokens were cache reads, at 3% of the input price, so a count
+of all input tokens capped a step at about 100 requests and not at its cost. A provider that caches
+nothing gives cache reads of 0, so each input token counts.
 
 The hook reads typed values, the usage of each reply and the clock. `UsageLimits` of pydantic-ai
 raises an error that holds a message and no field, so a stop could name its setting only by a
@@ -31,7 +38,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Any, TypeGuard
+from typing import Any, Protocol, TypeGuard
 
 from pydantic import BaseModel, ConfigDict
 from pydantic_ai import RunContext
@@ -56,13 +63,35 @@ __all__ = [
     "ItemSpend",
     "ProgressDigest",
     "StepBudget",
+    "TokenCounts",
     "extends",
     "limit_hooks",
+    "new_tokens",
 ]
 
 _SETTINGS = "roadmap.implement"
 _STEP_BUDGET = f"{_SETTINGS}.step_token_budget"
 _CEILING = f"{_SETTINGS}.step_token_ceiling"
+
+
+class TokenCounts(Protocol):
+    """The token counts of a reply or of a sum of replies, as pydantic-ai `RequestUsage` holds
+    them: `input_tokens` includes `cache_read_tokens`."""
+
+    @property
+    def input_tokens(self) -> int: ...
+
+    @property
+    def cache_read_tokens(self) -> int: ...
+
+    @property
+    def output_tokens(self) -> int: ...
+
+
+def new_tokens(counts: TokenCounts) -> int:
+    """The tokens that a budget counts: the input tokens that the provider did not read from its
+    cache, and the output tokens."""
+    return counts.input_tokens - counts.cache_read_tokens + counts.output_tokens
 
 
 @dataclass(frozen=True)
@@ -116,11 +145,11 @@ def _count(decision: _Decision) -> None:
 
 @dataclass(frozen=True)
 class ItemSpend:
-    """What a run of an item spent before a step: the input tokens of its earlier steps, and the
+    """What a run of an item spent before a step: the new tokens of its earlier steps, and the
     time at which the run began (`None`: when the first step began). `clock` gives the seconds; a
     test passes its own."""
 
-    input_tokens: int = 0
+    tokens: int = 0
     started: float | None = None
     clock: Callable[[], float] = time.monotonic
 
@@ -154,7 +183,7 @@ class StepBudget:
             (
                 "item_token_budget",
                 limits.item_token_budget,
-                lambda: spend.input_tokens + self.used,
+                lambda: spend.tokens + self.used,
             ),
             (
                 "step_time_limit_seconds",
@@ -168,9 +197,9 @@ class StepBudget:
             ),
         )
 
-    def add(self, input_tokens: int) -> None:
-        """Count the input tokens of one reply."""
-        self.used += input_tokens
+    def add(self, tokens: int) -> None:
+        """Count the new tokens of one reply."""
+        self.used += tokens
 
     def spent(self) -> str | None:
         """The reason of the first limit that is spent, naming its setting and its value, or None
@@ -248,14 +277,14 @@ class StepBudget:
 
 
 def limit_hooks(budget: StepBudget) -> Hooks[None]:
-    """The capability for the agent of a step: it counts the input tokens of each reply, and
+    """The capability for the agent of a step: it counts the new tokens of each reply, and
     raises `LimitReached` before a request when `budget` is spent."""
 
     async def count(
         _ctx: RunContext[Any], /, *, request_context: ModelRequestContext, response: ModelResponse
     ) -> ModelResponse:
-        """Add the input tokens of a reply to the count of the step, and pass the reply on."""
-        budget.add(response.usage.input_tokens)
+        """Add the new tokens of a reply to the count of the step, and pass the reply on."""
+        budget.add(new_tokens(response.usage))
         return response
 
     async def check(

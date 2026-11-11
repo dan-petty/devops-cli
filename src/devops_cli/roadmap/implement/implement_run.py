@@ -125,7 +125,7 @@ from devops_cli.roadmap.implement.implement_amend import (
 )
 from devops_cli.roadmap.implement.implement_base_replay import BaseStatus
 from devops_cli.roadmap.implement.implement_hooks import install_hook_environments, trusted_config
-from devops_cli.roadmap.implement.implement_limits import BudgetExtension, ItemSpend
+from devops_cli.roadmap.implement.implement_limits import BudgetExtension, ItemSpend, new_tokens
 from devops_cli.roadmap.implement.implement_pull import (
     Answer,
     ChangeFacts,
@@ -207,11 +207,16 @@ _MANUAL_RUN = "manual"
 
 class _RecordedSpend(BaseModel):
     """The spend that the record `implement.spend` holds, as `JobRun._spend` writes it. A key that
-    an older record lacks takes its empty value (#4070)."""
+    an older record lacks takes its empty value (#4070). `cache_read_tokens` is the part of
+    `input_tokens` that the provider read from its cache, and `new_tokens` is the count of the item
+    budget in its unit, the new tokens (#4387). A record that a version before #4387 wrote has no
+    `new_tokens`: its input tokens hold cache reads in an unknown share, so its Jobs count none."""
 
     requests: int = 0
     input_tokens: int = 0
+    cache_read_tokens: int = 0
     output_tokens: int = 0
+    new_tokens: int = 0
     steps: list[dict[str, Any]] = []
     tiers: dict[str, TierSpend] = {}
 
@@ -605,12 +610,13 @@ class _ItemRun:
         return held
 
     def _item_spend(self) -> ItemSpend:
-        """What the steps of this run spent so far, for the budgets of the next step (#3053)."""
-        return ItemSpend(
-            input_tokens=self.earlier.input_tokens
-            + sum(outcome.input_tokens for outcome in self.outcomes),
-            started=self.started,
-        )
+        """What the steps of this run spent so far, for the budgets of the next step (#3053): the
+        new tokens of the earlier Jobs and of the steps of this Job (#4387)."""
+        return ItemSpend(tokens=self._new_tokens(), started=self.started)
+
+    def _new_tokens(self) -> int:
+        """The new tokens that the record of the earlier Jobs counts, and those of this Job."""
+        return self.earlier.new_tokens + sum(new_tokens(o) for o in self.outcomes)
 
     def _spend(self) -> str:
         """The spend of every step of the item, itemized under the tier that served it (#3060), and
@@ -622,19 +628,21 @@ class _ItemRun:
         }
         for outcome in self.outcomes:
             for tier, spend in outcome.tier_spend.items():
-                held = tiers.setdefault(
-                    tier, {"requests": 0, "input_tokens": 0, "output_tokens": 0}
-                )
+                held = tiers.setdefault(tier, TierSpend().model_dump())
                 held["requests"] += spend.requests
                 held["input_tokens"] += spend.input_tokens
+                held["cache_read_tokens"] += spend.cache_read_tokens
                 held["output_tokens"] += spend.output_tokens
         return json.dumps(
             {
                 "requests": self.earlier.requests + sum(o.requests for o in self.outcomes),
                 "input_tokens": self.earlier.input_tokens
                 + sum(o.input_tokens for o in self.outcomes),
+                "cache_read_tokens": self.earlier.cache_read_tokens
+                + sum(o.cache_read_tokens for o in self.outcomes),
                 "output_tokens": self.earlier.output_tokens
                 + sum(o.output_tokens for o in self.outcomes),
+                "new_tokens": self._new_tokens(),
                 "steps": [
                     *self.earlier.steps,
                     *(_step_spend(o) for o in self.outcomes),
