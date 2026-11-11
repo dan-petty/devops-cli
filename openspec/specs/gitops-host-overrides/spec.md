@@ -1,7 +1,7 @@
 # gitops-host-overrides Specification
 
 ## Purpose
-How the deploy-time host overrides on the Argo CD Applications `devops` and `ingress` stay in place through a sync of the app-of-apps `cluster`, and the alert that fires when a live Ingress routes a host under the placeholder domain of git.
+Which hosts and container environment values the deploy-time overrides set on the homelab Argo CD Applications, how the overrides stay in place through a sync of the app-of-apps `cluster`, and the alert that fires when a live Ingress routes a host under the placeholder domain of git.
 
 ## Requirements
 
@@ -29,3 +29,14 @@ The alert rule `IngressServesPlaceholderHost` in the group `homelab-services` of
 - **WHEN** a test reads `k8s/monitoring/k8s-monitoring-values.yaml` and the kube-state-metrics capture `tests/fixtures/metrics/kube-state-metrics.yaml`
 - **THEN** `kube_ingress_path` is in `clusterMetrics.kube-state-metrics.metricsTuning.includeMetrics`
 - **AND** the capture gives `kube_ingress_path` the labels `host`, `ingress` and `namespace`
+
+### Requirement: deploy-stack sets the configured domain in container environment values
+For each Deployment in the render of a homelab Application, `host_patches` SHALL test and then replace each `env[].value` of a container or init container that holds the placeholder domain. It SHALL change no other value, and the Argo CD gate SHALL allow the placeholder in such a value only.
+
+#### Scenario: A Deployment holds the placeholder in three env values
+- **WHEN** `host_patches` reads a Deployment with the placeholder in an init container value, two container values, an argument and an annotation, and with a value without it
+- **THEN** the patch has a `test` and a `replace` operation for each of the three env values with the placeholder, and none for the argument, the annotation or the other value
+
+#### Scenario: The Argo CD gate reads such a Deployment
+- **WHEN** the Application `devops` renders a Deployment with the placeholder in an env value and in an argument
+- **THEN** the gate refuses only the argument
