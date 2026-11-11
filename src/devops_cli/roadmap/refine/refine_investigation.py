@@ -234,12 +234,10 @@ class InvestigationTools:
 
     def search_code(self, text: str) -> ToolReturn:
         """Search the files of the repository for a text, in any case.
+        Each match is one line, as `path:line:content`.
 
         Args:
             text: The text to find. It is a plain text, not a regular expression.
-
-        Returns:
-            One line for each match, as `path:line:content`.
         """
         self.searched.append(f"search_code {text!r}")
         code, out = self._git(

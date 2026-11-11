@@ -195,12 +195,10 @@ class StageTools(InvestigationTools):
 
     def callers(self, symbol: str) -> ToolReturn:
         """List the places that call a function, a method or a class: each name followed by `(`.
+        Each match is one line, as `path:line:content`.
 
         Args:
             symbol: The name of the symbol, such as `plan_item`.
-
-        Returns:
-            One line for each match, as `path:line:content`.
         """
         if not _SYMBOL.fullmatch(symbol):
             return error_answer(f"The text {symbol} is no symbol name.")
@@ -242,12 +240,10 @@ class StageTools(InvestigationTools):
 
     def file_symbols(self, path: str) -> ToolReturn:
         """List the classes, functions and methods of one source file, with their lines.
+        Each symbol is one line, as `line: signature`.
 
         Args:
             path: The repository path of the file, such as `src/app.py`.
-
-        Returns:
-            One line for each symbol, as `line: signature`.
         """
         found = self._checkout_path(path)
         if isinstance(found, ToolReturn):
