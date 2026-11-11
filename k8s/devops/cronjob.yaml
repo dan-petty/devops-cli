@@ -57,6 +57,16 @@ spec:
                 # workstation runs (devops-cli) and roadmap-service.
                 - name: OTEL_SERVICE_NAME
                   value: devops-cli-job
+                # The spans and the log records name the cluster (`k8s.cluster.name`) and the
+                # namespace (`k8s.namespace.name`) from these two values. The cluster name is the
+                # name in k8s/monitoring/k8s-monitoring-values.yaml; without it, they name
+                # minikube.
+                - name: K8S_CONTEXT
+                  value: homelab-k3s
+                - name: POD_NAMESPACE
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.namespace
               volumeMounts:
                 - name: tmp
                   mountPath: /tmp

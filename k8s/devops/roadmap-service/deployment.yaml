@@ -87,6 +87,15 @@ spec:
             # and the Recreate strategy mean one pod sends at a time, so all pods share one id.
             - name: OTEL_RESOURCE_ATTRIBUTES
               value: service.instance.id=roadmap-service
+            # The spans and the log records name the cluster (`k8s.cluster.name`) and the
+            # namespace (`k8s.namespace.name`) from these two values. The cluster name is the
+            # name in k8s/monitoring/k8s-monitoring-values.yaml; without it, they name minikube.
+            - name: K8S_CONTEXT
+              value: homelab-k3s
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
             - name: DO_NOT_TRACK
               value: "1"
             - name: OPENSPEC_TELEMETRY
