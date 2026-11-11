@@ -10,7 +10,7 @@ The AI Agent Instructions Scaffolding subsystem (`devops ai agents`, `devops dev
 
 ```mermaid
 graph TD
-    A[pyproject.toml + Directory Metadata] --> B[parse_project_metadata tomllib]
+    A[Manifests + Pre-push Hooks + Documents] --> B[parse_project_metadata]
     B --> C[generate_agents_md Canonical Source]
     B --> D[generate_pointer_stub CLAUDE.md]
     B --> I[generate_pointer_stub GEMINI.md]
@@ -21,9 +21,9 @@ graph TD
     E --> H[Target Repo: .github/copilot-instructions.md]
 ```
 
-- **Single Source of Truth**: `AGENTS.md` holds the rules for every task and a table that routes each kind of task to the document that owns it. It stays within `CONST_AGENTS_MD_MAX_CHARS`. The table has a row for each document of `CONST_AGENTS_MD_ROUTES` that exists in the target, and the push rule names the pre-push hooks of the target, or the uv defaults. A model answer longer than the cap is replaced by the template.
+- **Single Source of Truth**: `AGENTS.md` holds the rules for every task and a table that routes each kind of task to the document that owns it. It stays within `CONST_AGENTS_MD_MAX_CHARS`. The table has a row for each document of `CONST_AGENTS_MD_ROUTES` that exists in the target, and the push rule names the pre-push hooks of the target, or no check when it has none. The toolchain line names the language of each manifest of `CONST_AGENTS_MD_MANIFESTS` that exists (`pyproject.toml`, `Cargo.toml`, `package.json`, `go.mod`), and a folder with none gets no toolchain line. The `devops ci fail-to-pass` sentence renders only for a Python project, and the OpenSpec sentence only when `openspec/config.yaml` exists. The model path sends `ai/tasks/generate_agents.md` with these facts as its own system prompt, with no review persona. A model answer longer than the cap is replaced by the template. A test in `tests/invariants/test_agents_md.py` compares the rule titles of the template with those of the devops-cli `AGENTS.md`, less the rules that only devops-cli has.
 - **Thin Redirection Pointers**: Tool-specific instruction files (`CLAUDE.md`, `GEMINI.md` and `.github/copilot-instructions.md`) are lightweight pointer stubs that direct tools to `AGENTS.md`, avoiding duplicated or out-of-sync documentation. One table, `POINTER_STUBS`, holds what differs between the stubs. It holds the tool name, the title and the link to `AGENTS.md`. It also holds the import line of a tool that expands one, in the form that the documentation of the tool shows: `@AGENTS.md` for Claude Code and `@./AGENTS.md` for Gemini CLI. A stub with an import line tells its tool that the line loads `AGENTS.md` into its context and not to read the file again. A stub without one (GitHub Copilot) tells its tool to read `AGENTS.md`.
-- **Dynamic Metadata Extraction**: Uses Python's standard `tomllib` to inspect `pyproject.toml` dynamically for project name, description, Python runtime requirements, entry points, and dependencies.
+- **Dynamic Metadata Extraction**: Uses Python's standard `tomllib` to read the name, description, `requires-python` range, entry point and dependencies from `pyproject.toml` when it exists. The other manifests give only their language.
 
 ---
 
