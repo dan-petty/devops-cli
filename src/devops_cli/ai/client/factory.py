@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Sequence
+from contextvars import ContextVar
+from time import monotonic
 from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
@@ -177,48 +180,27 @@ def get_tier_model(tier: str, *, settings: Settings | None = None) -> Any:
     return resolve_pydantic_ai_model(f"{gateway}:{tier.strip()}", settings=active_settings)
 
 
-def build_agent(
-    model: Any = None,
-    *,
-    task: str | None = None,
-    output_type: Any = str,
-    instructions: str | Sequence[str] | None = None,
-    system_prompt: str | Sequence[str] = (),
-    tools: Sequence[Any] = (),
-    toolsets: Sequence[Any] | None = None,
-    retries: int | dict[str, int] | None = None,
-    capabilities: Sequence[Any] | None = None,
-    settings: Settings | None = None,
-    request_type: str = "chat",
-    stage: str | None = None,
-    name: str | None = None,
-    **kwargs: Any,
-) -> Any:
-    """Build a configured pydantic-ai Agent with per-request spend tracking (#2489). Each model
-    request writes one spend record, with the prompt tokens that the provider read from its cache,
-    and a reply that names its model adds one count to `devops_cli_ai_model_answers_total`, as the
-    run of an implement step does (#4475)."""
-    from pydantic_ai import Agent, RunContext
+def _spend_capability(request_type: str, stage: str | None) -> Any:
+    """The pydantic-ai hooks that write one spend record for each model request. The before hook
+    keeps the monotonic start time of the request in a context variable, and the after hook
+    writes the seconds since then (#4504). A request that raises runs no after hook, so it writes
+    no record."""
+    from pydantic_ai import RunContext
     from pydantic_ai.capabilities import Hooks
     from pydantic_ai.messages import ModelResponse
-    from pydantic_ai.models import Model, ModelRequestContext
+    from pydantic_ai.models import ModelRequestContext
 
-    if model is None:
-        model = get_task_model(task or "chat", settings=settings)
-    elif isinstance(model, str):
-        if isinstance(_client_override, Model):
-            model = _client_override
-        else:
-            from devops_cli.ai.pydantic_ai_bridge import resolve_pydantic_ai_model
+    request_started: ContextVar[float | None] = ContextVar("request_started", default=None)
 
-            model = resolve_pydantic_ai_model(model, settings=settings)
+    async def _start_hook(
+        ctx: RunContext[Any], request_context: ModelRequestContext
+    ) -> ModelRequestContext:
+        request_started.set(monotonic())
+        return request_context
 
-    def _spend_hook(
-        ctx: RunContext[Any],
-        *,
-        request_context: ModelRequestContext,
-        response: ModelResponse,
-    ) -> ModelResponse:
+    def _record(
+        request_context: ModelRequestContext, response: ModelResponse, duration_seconds: float
+    ) -> None:
         from urllib.parse import urlsplit
 
         from devops_cli.ai.spend.ledger import model_answer_labels, track_request_spend
@@ -243,12 +225,60 @@ def build_agent(
             reasoning_tokens=getattr(response.usage, "output_reasoning_tokens", 0),
             cache_read_tokens=getattr(response.usage, "cache_read_tokens", 0),
             request_type=request_type,
+            duration_seconds=duration_seconds,
             stage=stage,
         )
+
+    async def _spend_hook(
+        ctx: RunContext[Any],
+        *,
+        request_context: ModelRequestContext,
+        response: ModelResponse,
+    ) -> ModelResponse:
+        started = request_started.get()
+        request_started.set(None)
+        duration = 0.0 if started is None else monotonic() - started
+        await asyncio.to_thread(_record, request_context, response, duration)
         return response
 
-    spend_capability = Hooks(after_model_request=_spend_hook)
-    all_capabilities = [spend_capability, *(capabilities or ())]
+    return Hooks(before_model_request=_start_hook, after_model_request=_spend_hook)
+
+
+def build_agent(
+    model: Any = None,
+    *,
+    task: str | None = None,
+    output_type: Any = str,
+    instructions: str | Sequence[str] | None = None,
+    system_prompt: str | Sequence[str] = (),
+    tools: Sequence[Any] = (),
+    toolsets: Sequence[Any] | None = None,
+    retries: int | dict[str, int] | None = None,
+    capabilities: Sequence[Any] | None = None,
+    settings: Settings | None = None,
+    request_type: str = "chat",
+    stage: str | None = None,
+    name: str | None = None,
+    **kwargs: Any,
+) -> Any:
+    """Build a configured pydantic-ai Agent with per-request spend tracking (#2489). Each model
+    request writes one spend record, with the seconds of the request (#4504) and the prompt tokens
+    that the provider read from its cache, and a reply that names its model adds one count to
+    `devops_cli_ai_model_answers_total`, as the run of an implement step does (#4475)."""
+    from pydantic_ai import Agent
+    from pydantic_ai.models import Model
+
+    if model is None:
+        model = get_task_model(task or "chat", settings=settings)
+    elif isinstance(model, str):
+        if isinstance(_client_override, Model):
+            model = _client_override
+        else:
+            from devops_cli.ai.pydantic_ai_bridge import resolve_pydantic_ai_model
+
+            model = resolve_pydantic_ai_model(model, settings=settings)
+
+    all_capabilities = [_spend_capability(request_type, stage), *(capabilities or ())]
 
     agent_kwargs: dict[str, Any] = {
         "output_type": output_type,
