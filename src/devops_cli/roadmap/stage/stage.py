@@ -1437,8 +1437,8 @@ class _Planner:
         return findings, returning(findings, given), open_
 
     def _read_fact_file(self, path: str) -> str | None:
-        """The text of a runner fact file: at the staged commit and, when the planner holds a
-        `facts_source`, in that checkout at `HEAD` where the commit lacks the file (#4207)."""
+        """The text of a runner image fact file: at the staged commit and, when the planner holds
+        a `facts_source`, in that checkout at `HEAD` where the commit lacks the file (#4207)."""
         text = _read_staged_file(self._source, self._sha, path)
         if text is None and self._facts_source is not None:
             return _read_staged_file(self._facts_source, "HEAD", path)
@@ -2252,10 +2252,10 @@ def plan_item(
     read-only tools (#3037); the golden set builds it for the case checkout. This planner reads no
     open plan, so it finds no dependency. A dependency that the type still allows raises
     `RoadmapStageError`, which the golden set counts as refused (#3418). The cases are frozen at old
-    commits that lack the runner fact files of the facts context, so the golden set passes the
-    repository as `facts_source`: the planner reads each fact file at the case commit and then
-    in that checkout. The job passes none, and it raises when a staged commit lacks a fact file
-    (#4207).
+    commits that can lack the runner image fact files of the facts context, so the golden set
+    passes the repository as `facts_source`: the planner reads each of those files at the case
+    commit and then in that checkout (#4207). The job passes none. The failure classes and the
+    runner tools come from the installed modules, so a commit that lacks them still plans (#4628).
     """
     budget = step_tokens or load_settings().roadmap.stage.step_tokens
     target = _target_of(item)

@@ -1,21 +1,23 @@
 """The failure taxonomy and runner capabilities in staging context (#3258).
 
-Derives failure classes, action rules, runner image tools, NOT_IN_RUNNER entries, and pod
-security settings from repository files at the staged commit.
+The failure classes, the action rules, the runner tools and `NOT_IN_RUNNER` come from the installed
+modules: they describe the runner image, and the runner image is the devops-cli image for every
+repository (#4628). The Dockerfile packages and the pod security settings come from the staged
+commit, and only when that commit holds `runner_tools.py`, because only a devops-cli commit
+describes the runner image.
 """
 
 from __future__ import annotations
 
-import ast
 import re
 from collections.abc import Callable
 from typing import Any, Final
 
 import yaml
 
-from devops_cli.exceptions import RoadmapStageError
+from devops_cli.roadmap.failure import ACTION_BY_CLASS, FailureClass
+from devops_cli.roadmap.runner_tools import NOT_IN_RUNNER, tool_names
 
-FAILURE_TAXONOMY_PATH: Final[str] = "src/devops_cli/roadmap/failure.py"
 RUNNER_TOOLS_PATH: Final[str] = "src/devops_cli/roadmap/runner_tools.py"
 RUNNER_DOCKERFILE_PATH: Final[str] = "Dockerfile"
 RUNNER_POD_MANIFEST_PATH: Final[str] = "k8s/devops/cronjob-runner.yaml"
@@ -46,49 +48,10 @@ def should_include_runner_capabilities(text: str) -> bool:
     return bool(_TOOL_OR_COMMAND_PATTERN.search(text))
 
 
-def _extract_failure_classes(tree: ast.Module) -> list[str]:
-    classes: list[str] = []
-    for node in tree.body:
-        if not (isinstance(node, ast.ClassDef) and node.name == "FailureClass"):
-            continue
-        for item in node.body:
-            if not isinstance(item, ast.Assign):
-                continue
-            for target in item.targets:
-                if isinstance(target, ast.Name):
-                    classes.append(target.id.lower())
-    return classes
-
-
-def _extract_action_by_class(tree: ast.Module) -> list[tuple[str, str]]:
-    actions: list[tuple[str, str]] = []
-    for node in tree.body:
-        if not (isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name)):
-            continue
-        if node.target.id != "ACTION_BY_CLASS" or not (
-            isinstance(node.value, ast.Call) and node.value.args
-        ):
-            continue
-        arg = node.value.args[0]
-        if not isinstance(arg, ast.Dict):
-            continue
-        for k, v in zip(arg.keys, arg.values, strict=False):
-            k_name = k.attr.lower() if isinstance(k, ast.Attribute) else ""
-            v_name = v.attr.lower() if isinstance(v, ast.Attribute) else ""
-            if k_name and v_name:
-                actions.append((k_name, v_name))
-    return actions
-
-
-def _extract_failure_taxonomy(source_text: str) -> str:
-    """Extract FailureClass values and ACTION_BY_CLASS from failure.py source."""
-    tree = ast.parse(source_text)
-    classes = _extract_failure_classes(tree)
-    actions = _extract_action_by_class(tree)
-
-    class_lines = [f"- `{cls_name}`" for cls_name in classes]
-    action_lines = [f"- `{cls_name}`: `{action}`" for cls_name, action in actions]
-
+def build_failure_taxonomy_context() -> str:
+    """Build the failure taxonomy section from the installed `failure` module."""
+    class_lines = [f"- `{failure_class}`" for failure_class in FailureClass]
+    action_lines = [f"- `{cls}`: `{action}`" for cls, action in ACTION_BY_CLASS.items()]
     return (
         "### Failure taxonomy\n\n"
         "#### Failure classes\n"
@@ -96,71 +59,6 @@ def _extract_failure_taxonomy(source_text: str) -> str:
         + "\n\n#### Action by class\n"
         + "\n".join(action_lines)
     )
-
-
-def build_failure_taxonomy_context(read_file: Callable[[str], str | None]) -> str:
-    """Build the failure taxonomy section read from failure.py at the staged commit."""
-    content = read_file(FAILURE_TAXONOMY_PATH)
-    if content is None:
-        raise RoadmapStageError(f"Staged source moved or missing: {FAILURE_TAXONOMY_PATH}")
-    return _extract_failure_taxonomy(content)
-
-
-def _extract_runner_tools_list(node: ast.AST) -> list[str]:
-    if not (
-        isinstance(node, ast.AnnAssign)
-        and isinstance(node.target, ast.Name)
-        and node.target.id == "RUNNER_TOOLS"
-        and isinstance(node.value, ast.Tuple)
-    ):
-        return []
-    tools: list[str] = []
-    for elt in node.value.elts:
-        if isinstance(elt, ast.Call) and elt.args:
-            arg = elt.args[0]
-            if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
-                tools.append(arg.value)
-    return tools
-
-
-def _extract_dict_exclusions(dict_node: ast.Dict) -> dict[str, str]:
-    exclusions: dict[str, str] = {}
-    for k, v in zip(dict_node.keys, dict_node.values, strict=False):
-        if not (isinstance(k, ast.Constant) and isinstance(k.value, str)):
-            continue
-        if isinstance(v, ast.Constant) and isinstance(v.value, str):
-            exclusions[k.value] = v.value
-        elif isinstance(v, ast.Name):
-            exclusions[k.value] = v.id
-        elif isinstance(v, ast.Call):
-            exclusions[k.value] = "exclusion rule"
-        else:
-            exclusions[k.value] = ""
-    return exclusions
-
-
-def _extract_runner_tools(source_text: str) -> tuple[list[str], dict[str, str]]:
-    """Extract tool names and NOT_IN_RUNNER exclusions from runner_tools.py."""
-    tree = ast.parse(source_text)
-    tools: list[str] = []
-    not_in_runner: dict[str, str] = {}
-
-    for node in tree.body:
-        if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
-            if node.target.id == "RUNNER_TOOLS":
-                tools.extend(_extract_runner_tools_list(node))
-            elif node.target.id == "NOT_IN_RUNNER" and isinstance(node.value, ast.Dict):
-                not_in_runner.update(_extract_dict_exclusions(node.value))
-        elif isinstance(node, ast.Assign):
-            for target in node.targets:
-                if (
-                    isinstance(target, ast.Name)
-                    and target.id == "NOT_IN_RUNNER"
-                    and isinstance(node.value, ast.Dict)
-                ):
-                    not_in_runner.update(_extract_dict_exclusions(node.value))
-
-    return tools, not_in_runner
 
 
 def _extract_dockerfile_tools(dockerfile_text: str) -> list[str]:
@@ -211,41 +109,38 @@ def _extract_pod_security(manifest_text: str) -> dict[str, Any]:
     return settings
 
 
+def _image_facts(read_file: Callable[[str], str | None]) -> tuple[str, str]:
+    """The packages line and the pod security subsection of a devops-cli commit. Each is empty
+    when the commit lacks `runner_tools.py` or the file of the fact."""
+    if read_file(RUNNER_TOOLS_PATH) is None:
+        return "", ""
+    packages = ""
+    dockerfile = read_file(RUNNER_DOCKERFILE_PATH)
+    if dockerfile is not None:
+        pkg_line = ", ".join(f"`{p}`" for p in _extract_dockerfile_tools(dockerfile))
+        packages = f"- Installed packages: {pkg_line}\n"
+    security = ""
+    manifest = read_file(RUNNER_POD_MANIFEST_PATH)
+    if manifest is not None:
+        sec_lines = [f"- `{k}`: `{v}`" for k, v in sorted(_extract_pod_security(manifest).items())]
+        security = "\n\n#### Pod security settings\n" + "\n".join(sec_lines)
+    return packages, security
+
+
 def build_runner_capabilities_context(read_file: Callable[[str], str | None]) -> str:
-    """Build the runner capabilities section read from repo files at the staged commit."""
-    tools_content = read_file(RUNNER_TOOLS_PATH)
-    if tools_content is None:
-        raise RoadmapStageError(f"Staged source moved or missing: {RUNNER_TOOLS_PATH}")
-
-    dockerfile_content = read_file(RUNNER_DOCKERFILE_PATH)
-    if dockerfile_content is None:
-        raise RoadmapStageError(f"Staged source moved or missing: {RUNNER_DOCKERFILE_PATH}")
-
-    manifest_content = read_file(RUNNER_POD_MANIFEST_PATH)
-    if manifest_content is None:
-        raise RoadmapStageError(f"Staged source moved or missing: {RUNNER_POD_MANIFEST_PATH}")
-
-    tools, not_in_runner = _extract_runner_tools(tools_content)
-    pkg_list = _extract_dockerfile_tools(dockerfile_content)
-    pod_sec = _extract_pod_security(manifest_content)
-
-    tools_line = ", ".join(f"`{t}`" for t in tools)
-    pkg_line = ", ".join(f"`{p}`" for p in pkg_list)
+    """Build the runner capabilities section: the runner tools and `NOT_IN_RUNNER` of the installed
+    module, and the image facts of a devops-cli commit."""
+    packages, security = _image_facts(read_file)
+    tools_line = ", ".join(f"`{t}`" for t in tool_names())
     not_in_runner_lines = [
-        f"- `{prog}`: {reason}" if reason else f"- `{prog}`"
-        for prog, reason in sorted(not_in_runner.items())
+        f"- `{prog}`: {reason}" for prog, reason in sorted(NOT_IN_RUNNER.items())
     ]
-    sec_lines = [f"- `{k}`: `{v}`" for k, v in sorted(pod_sec.items())]
-
     return (
         "### Runner capabilities\n\n"
         "#### Image tools\n"
-        f"- Installed packages: {pkg_line}\n"
+        f"{packages}"
         f"- Runner tools: {tools_line}\n\n"
-        "#### Excluded tools (NOT_IN_RUNNER)\n"
-        + "\n".join(not_in_runner_lines)
-        + "\n\n#### Pod security settings\n"
-        + "\n".join(sec_lines)
+        "#### Excluded tools (NOT_IN_RUNNER)\n" + "\n".join(not_in_runner_lines) + security
     )
 
 
@@ -256,7 +151,7 @@ def collect_stage_facts_context(
     """Collect failure taxonomy and runner capabilities context sections when triggered."""
     sections: list[str] = []
     if should_include_failure_taxonomy(text):
-        sections.append(build_failure_taxonomy_context(read_file))
+        sections.append(build_failure_taxonomy_context())
     if should_include_runner_capabilities(text):
         sections.append(build_runner_capabilities_context(read_file))
     return "\n\n".join(sections)
