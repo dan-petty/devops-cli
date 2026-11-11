@@ -2,6 +2,51 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.112.0](https://github.com/dan-petty/devops-cli/compare/v0.111.0...v0.112.0) (2026-11-11)
+
+
+### Features
+
+* **k8s:** export gateway spans without key metadata ([#4520](https://github.com/dan-petty/devops-cli/issues/4520)) ([7234d71](https://github.com/dan-petty/devops-cli/commit/7234d71886f474449094cd91cd4d3b7313390394))
+* **k8s:** set the homelab domain in container env values ([#4608](https://github.com/dan-petty/devops-cli/issues/4608)) ([a3bcf7c](https://github.com/dan-petty/devops-cli/commit/a3bcf7c0a1d1895c91e94debd0a888869ce0980a))
+* **roadmap:** keep the tokens of each implement attempt ([#4594](https://github.com/dan-petty/devops-cli/issues/4594)) ([66fdaab](https://github.com/dan-petty/devops-cli/commit/66fdaabdbf5c080671c5a656042dc3456285a427))
+* **roadmap:** log each fix round and each failed stage item ([#4561](https://github.com/dan-petty/devops-cli/issues/4561)) ([1936572](https://github.com/dan-petty/devops-cli/commit/1936572f24a5a8f2ff83006eb97a7c82b02adb2c))
+* **roadmap:** name each repository's resources from one RepoRef ([#4612](https://github.com/dan-petty/devops-cli/issues/4612)) ([75dd9c8](https://github.com/dan-petty/devops-cli/commit/75dd9c8732f68a0d3895a9caa87a3a066f938459))
+* **telemetry:** send pydantic-ai spans through the exporter seam ([#4538](https://github.com/dan-petty/devops-cli/issues/4538)) ([fcf2a7a](https://github.com/dan-petty/devops-cli/commit/fcf2a7a19bd877736939b97d3bcf30b1fed108c5))
+
+
+### Bug Fixes
+
+* **ai:** price cached prompt tokens of chat calls ([#4584](https://github.com/dan-petty/devops-cli/issues/4584)) ([f84bbe6](https://github.com/dan-petty/devops-cli/commit/f84bbe6e6887f22a30c809283a80efe09465cd82))
+* **devcontainer:** stop uv noise lines in agent shells ([#4592](https://github.com/dan-petty/devops-cli/issues/4592)) ([9ba375c](https://github.com/dan-petty/devops-cli/commit/9ba375ca59498b09673eae29bc8a37e6e10f04d4))
+* **k8s:** delete gateway management bodies from spans ([#4551](https://github.com/dan-petty/devops-cli/issues/4551)) ([b835d3c](https://github.com/dan-petty/devops-cli/commit/b835d3ca9a69a4a286dd114fe646615baac2ee18))
+* **k8s:** set the kube context and namespace on devops pods ([#4514](https://github.com/dan-petty/devops-cli/issues/4514)) ([9087b39](https://github.com/dan-petty/devops-cli/commit/9087b39c3d9707cdfb41e67efc4866bf273b413e))
+* **roadmap:** a refused spec after the archive is a plan defect ([#4549](https://github.com/dan-petty/devops-cli/issues/4549)) ([1db29f7](https://github.com/dan-petty/devops-cli/commit/1db29f7c3a0828d541f43398cc23ff3a5461c0f9))
+* **roadmap:** count and log the reason of a left-out stage item ([#4541](https://github.com/dan-petty/devops-cli/issues/4541)) ([5600179](https://github.com/dan-petty/devops-cli/commit/56001799a84ab19cb57079af98ec80ddb57c919c))
+* **roadmap:** default the step ceiling to twice the budget ([#4556](https://github.com/dan-petty/devops-cli/issues/4556)) ([1dfb6c8](https://github.com/dan-petty/devops-cli/commit/1dfb6c8de0643b4ad014408a03362e52f90a9792))
+* **roadmap:** explain --trace shows the argument digest ([#4526](https://github.com/dan-petty/devops-cli/issues/4526)) ([c92195f](https://github.com/dan-petty/devops-cli/commit/c92195f8814c06ee5894c10ae95112e495bcc3d7))
+* **roadmap:** explain totals count dropped model events ([#4543](https://github.com/dan-petty/devops-cli/issues/4543)) ([fe0e979](https://github.com/dan-petty/devops-cli/commit/fe0e9798dc75c3d72184a50638578225088f11b5))
+* **roadmap:** give each eval verify run its own report file ([#4534](https://github.com/dan-petty/devops-cli/issues/4534)) ([ad27f2d](https://github.com/dan-petty/devops-cli/commit/ad27f2dbd1d8370c36849c1c1965f70c675ce6a0))
+* **roadmap:** make intake due when a new issue opens ([#4615](https://github.com/dan-petty/devops-cli/issues/4615)) ([a0c16db](https://github.com/dan-petty/devops-cli/commit/a0c16dbb747d280b87150b399b01d29fdf6f59d3))
+* **roadmap:** name the same-name file of a stale test path ([#4591](https://github.com/dan-petty/devops-cli/issues/4591)) ([2e0be77](https://github.com/dan-petty/devops-cli/commit/2e0be7764e6e59eb5e5628845480b89d113480c7))
+* **roadmap:** one event loop and a time limit for decide_all ([#4585](https://github.com/dan-petty/devops-cli/issues/4585)) ([ec51e01](https://github.com/dan-petty/devops-cli/commit/ec51e011f8f1a39eca1795468bf39dce4b46a987))
+* **roadmap:** refuse a requirement text over 500 chars ([#4614](https://github.com/dan-petty/devops-cli/issues/4614)) ([f67c882](https://github.com/dan-petty/devops-cli/commit/f67c882009c4268d7989075a144ebc9a470e8dde))
+* **roadmap:** retitle corrects a title type that is not listed ([#4532](https://github.com/dan-petty/devops-cli/issues/4532)) ([e083598](https://github.com/dan-petty/devops-cli/commit/e08359880756955d65f3f8abd397a42fc932479b))
+* **roadmap:** return a stage item to New after three refused plans ([#4537](https://github.com/dan-petty/devops-cli/issues/4537)) ([9c666ea](https://github.com/dan-petty/devops-cli/commit/9c666eacf69cae662e2dbc77429a3f599ea9c9d2))
+* **roadmap:** scoped updates send requests with no row scope ([#4531](https://github.com/dan-petty/devops-cli/issues/4531)) ([5f75d25](https://github.com/dan-petty/devops-cli/commit/5f75d2567b62e974e40004e6b506f47f642f6028))
+* **roadmap:** the caller gate reads an added parameter span ([#4548](https://github.com/dan-petty/devops-cli/issues/4548)) ([1ba07c1](https://github.com/dan-petty/devops-cli/commit/1ba07c14e5eb1608851b5f5cf6469cfa4e360f1b))
+* **roadmap:** the implement shell waits for its command ([#4536](https://github.com/dan-petty/devops-cli/issues/4536)) ([571e044](https://github.com/dan-petty/devops-cli/commit/571e04457b71a3361fea1e9f5f6b1f0dde197e92))
+* **roadmap:** the module-test and caller gates read imports and calls ([#4490](https://github.com/dan-petty/devops-cli/issues/4490)) ([8a22e82](https://github.com/dan-petty/devops-cli/commit/8a22e828476c62af2c98f4cd20ebed374a4e50e1))
+* **roadmap:** the step budget counts new tokens, not cached input ([#4553](https://github.com/dan-petty/devops-cli/issues/4553)) ([9605f55](https://github.com/dan-petty/devops-cli/commit/9605f554638f9c7fd6baf251a0518eee5b723c02))
+* **service:** put trace ids on Service JSON log lines ([#4511](https://github.com/dan-petty/devops-cli/issues/4511)) ([0d7a0d2](https://github.com/dan-petty/devops-cli/commit/0d7a0d22138feea084392e3be6a2892465f04f46))
+
+
+### Performance Improvements
+
+* **ai:** keep intake embeddings between CLI runs ([#4546](https://github.com/dan-petty/devops-cli/issues/4546)) ([812871e](https://github.com/dan-petty/devops-cli/commit/812871ef50ea225592112f363c18da93bae6c056))
+* **config:** check roadmap.decisions against a light point table ([#4611](https://github.com/dan-petty/devops-cli/issues/4611)) ([ab587dc](https://github.com/dan-petty/devops-cli/commit/ab587dcb51b2305b8723af9fd166d3834377c2af))
+* **roadmap:** intake reads only the issues that changed ([#4552](https://github.com/dan-petty/devops-cli/issues/4552)) ([7dfd155](https://github.com/dan-petty/devops-cli/commit/7dfd155a35883506e7ee1549e0ec410d74155809))
+
 ## [0.111.0](https://github.com/dan-petty/devops-cli/compare/v0.110.0...v0.111.0) (2026-11-11)
 
 
