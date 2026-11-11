@@ -2,6 +2,29 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.114.0](https://github.com/dan-petty/devops-cli/compare/v0.113.0...v0.114.0) (2026-11-11)
+
+
+### Features
+
+* **k8s:** add cert-manager and the Barman Cloud plugin ([#4789](https://github.com/dan-petty/devops-cli/issues/4789)) ([cd6fb76](https://github.com/dan-petty/devops-cli/commit/cd6fb76c7e572f1948feaef44906ad7c1297dda2))
+* **roadmap:** collect the git facts of a project review window ([#4794](https://github.com/dan-petty/devops-cli/issues/4794)) ([21d1bc0](https://github.com/dan-petty/devops-cli/commit/21d1bc03a6348cc8eae898bba54409c2a34d1a54))
+* **roadmap:** consolidate has a read-only MCP mirror ([#4807](https://github.com/dan-petty/devops-cli/issues/4807)) ([2ec561d](https://github.com/dan-petty/devops-cli/commit/2ec561d7b4a4faf562cb5c986055273347cb6e74))
+
+
+### Bug Fixes
+
+* **ai:** devops ai agents detects the project manifest ([#4790](https://github.com/dan-petty/devops-cli/issues/4790)) ([e8d1e53](https://github.com/dan-petty/devops-cli/commit/e8d1e534950bac2d29828c555620465f5e351754))
+* **mcp:** bound the gh resources longer than a GitHub read ([#4844](https://github.com/dan-petty/devops-cli/issues/4844)) ([7f09921](https://github.com/dan-petty/devops-cli/commit/7f099217065e9da1fd10bd9f12339f86735e65c3))
+* **roadmap:** run stage before refine on the model lane ([#4841](https://github.com/dan-petty/devops-cli/issues/4841)) ([96c9bee](https://github.com/dan-petty/devops-cli/commit/96c9bee233f653ab612be1bb6e7ab6b487f6a347))
+* **roadmap:** stop refusing test paths in base docstrings ([#4826](https://github.com/dan-petty/devops-cli/issues/4826)) ([1bbfce0](https://github.com/dan-petty/devops-cli/commit/1bbfce04685178a105b2a307ac505a930d4cfb51))
+* **telemetry:** key the project gauges by repository ([#4804](https://github.com/dan-petty/devops-cli/issues/4804)) ([9f0e0c8](https://github.com/dan-petty/devops-cli/commit/9f0e0c898c0709cdca8c72ef309ca445cd5e990f))
+
+
+### Performance Improvements
+
+* **ci:** run the in-image suite nightly and on image pull requests ([#4828](https://github.com/dan-petty/devops-cli/issues/4828)) ([a2cfd9a](https://github.com/dan-petty/devops-cli/commit/a2cfd9a58ced3e7bda1051c06a9f27c61d3b3ba4))
+
 ## [0.113.0](https://github.com/dan-petty/devops-cli/compare/v0.112.3...v0.113.0) (2026-11-11)
 
 
