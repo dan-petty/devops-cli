@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import sqlite3
+from array import array
 from datetime import timedelta
 from pathlib import Path
 from typing import Any
@@ -105,6 +107,69 @@ def test_a_corrupt_entry_goes_to_the_model_and_its_vector_replaces_it(
     third = _run(path, ["damaged"])
 
     assert (len(sent), second, third) == (2, first, first)
+
+
+def test_a_stored_vector_of_another_length_goes_to_the_model(tmp_path: Path, web: WebFake) -> None:
+    """A row that holds two doubles, under a key whose vectors have four, is a miss."""
+    sent = serve(web, _distinct_reply)
+    path = tmp_path / "embeddings.db"
+    first = _run(path, ["short row"])
+    with sqlite3.connect(path) as conn:
+        conn.execute("UPDATE embeddings SET vector = ?", (array("d", [1.0, 2.0]).tobytes(),))
+    conn.close()
+
+    second = _run(path, ["short row"])
+
+    assert (len(sent), second) == (2, first)
+
+
+def _six_doubles_reply(request: httpx2.Request) -> httpx2.Response:
+    """A gateway reply whose vectors have six doubles: the same model name serves a new model."""
+    texts = inputs(request)
+    return httpx2.Response(
+        200,
+        headers={CONST_AI_GATEWAY_SERVED_BY_HEADER: SERVING_BACKEND},
+        json={"data": [{"index": i, "embedding": [0.25] * 6} for i in range(len(texts))]},
+    )
+
+
+def test_vectors_of_a_new_length_remove_the_rows_of_the_old_length(
+    tmp_path: Path, web: WebFake
+) -> None:
+    sent = serve(web, _distinct_reply, _six_doubles_reply)
+    path = tmp_path / "embeddings.db"
+    _run(path, ["old row"])
+    _run(path, ["new row"])
+
+    again = _run(path, ["old row", "new row"])
+
+    assert ([inputs(request) for request in sent], again) == (
+        [["old row"], ["new row"], ["old row"]],
+        [[0.25] * 6, [0.25] * 6],
+    )
+
+
+def test_a_vector_of_the_model_that_a_direct_openai_request_names_is_a_miss_at_the_gateway(
+    tmp_path: Path, web: WebFake
+) -> None:
+    """A direct OpenAI request sends `text-embedding-3-small` for `qwen3-embedding:0.6b`; the
+    gateway gets the configured name, so the vector of the one is no hit for the other."""
+    sent = serve(web, _distinct_reply)
+    path = tmp_path / "embeddings.db"
+    direct = AIConfig(
+        provider="openai", api_base_url="http://example.com:1234/v1", allow_private_network=True
+    )
+    direct.tasks.embedding.model = "qwen3-embedding:0.6b"
+    gateway = gateway_config()
+    gateway.tasks.embedding.model = "qwen3-embedding:0.6b"
+    _run(path, ["same text"], direct)
+
+    _run(path, ["same text"], gateway)
+
+    assert [json.loads(request.content)["model"] for request in sent] == [
+        "text-embedding-3-small",
+        "qwen3-embedding:0.6b",
+    ]
 
 
 def test_a_cache_file_that_is_not_a_database_leaves_each_text_to_the_model(

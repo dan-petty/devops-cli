@@ -25,6 +25,15 @@ Kind: other. Changes: `docs/roadmap/intake.md`, `docs/TELEMETRY.md`.
 - [x] 3.1 Describe the disk cache in `docs/roadmap/intake.md`, and the tier `disk` in `docs/TELEMETRY.md` and in the description of the lookup counter
   - Verification: `$ uv run devops ci docs`
 
+## 4. The disk cache key and the vector length (review of #4546)
+
+Kind: behavior. Changes: `src/devops_cli/ai/rag/embedding_disk_cache.py`, `src/devops_cli/ai/rag/embeddings.py`, `tests/ai/rag/test_embedding_disk_cache.py`.
+
+- [x] 4.1 Write failing tests: a stored valid vector of another length goes to the model, a vector of a direct OpenAI request is a miss at the gateway, and vectors of a new length remove the rows of the old length
+  - Verification: `$ uv run devops ci test tests/ai/rag/test_embedding_disk_cache.py` fails before the fix
+- [x] 4.2 Key the rows by the provider and the model name that the request sends, record one vector length for each key, and treat a row of another length as a miss
+  - Verification: `$ uv run devops ci test tests/ai/rag/test_embedding_disk_cache.py`
+
 ## Workflow follow-up
 
 - Pending a person: review the diff in tuicr (tuicr -r origin/main..HEAD).

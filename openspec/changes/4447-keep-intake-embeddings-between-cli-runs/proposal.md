@@ -6,7 +6,7 @@ Issue #4447: each `devops roadmap intake` run on a workstation sends all texts o
 
 ## What Changes
 
-- A new disk tier of the embedding cache, `EmbeddingDiskCache` (`src/devops_cli/ai/rag/embedding_disk_cache.py`), keeps vectors in the SQLite file `ai/embeddings.db` under the data directory, with the stdlib `sqlite3`. The key of a row is the embedding model and the SHA-256 of the text that the model gets.
+- A new disk tier of the embedding cache, `EmbeddingDiskCache` (`src/devops_cli/ai/rag/embedding_disk_cache.py`), keeps vectors in the SQLite file `ai/embeddings.db` under the data directory, with the stdlib `sqlite3`. The key of a row is the provider, the model name that the request sends and the SHA-256 of the text that the model gets. The file records one vector length for each key, and a row of another length is a miss.
 - `EmbeddingsEngine` takes an optional `disk_cache`. It looks up a text in the memory tier, then in Valkey, then on disk, and sends only the misses to the model. A disk hit goes into the memory tier and into Valkey. A fresh vector goes into all three tiers.
 - The embedder of intake (`GatewayIntakeModel`) gives the engine the disk cache. Other callers, such as the RAG indexer and the embedding benchmark, give none, so a benchmark still measures the model and a large index does not fill the file.
 - A stored value that is not a vector is a miss, and the fresh vector replaces it. A file that cannot be opened, read or written turns the disk tier off for the run, with one warning that names the file. Each write removes the vectors that no run used for 30 days.
@@ -39,7 +39,7 @@ Checked on `origin/main` 7234d718 (2026-11-11), Python 3.14.10 with SQLite 3.53.
 - `uv run devops valkey ping` in the devcontainer gives `Error 111 connecting to localhost:6379. Connection refused.` So the Valkey tier gives no hit on a workstation.
 - One `uv run devops roadmap intake --plan` call, measured with a wrapper of `EmbeddingsEngine` in the same process: 155.1 s in `embed_texts`, 1,866 texts, 59 answered `/v1/embeddings` requests, 0 memory hits, 0 Valkey hits, 1,866 misses, 249 s for the whole call.
 - Intake embeds the comparison set and the candidates in one `embed_texts` call (`_Decider._embed` in `src/devops_cli/roadmap/intake/intake.py`), and builds its engine in `GatewayIntakeModel._embedder`. So one tier under the engine serves each intake run.
-- The existing keys hash the text after the task prefix of the model, with the model name (`_EmbeddingLRUCache._key`, `EmbeddingsEngine._valkey_key`). The disk key uses the same text and model.
+- The existing keys hash the text after the task prefix of the model, with the model name (`_EmbeddingLRUCache._key`, `EmbeddingsEngine._valkey_key`). The disk key uses the same text. Its model part is the provider and the model name that the request sends: `_resolve_openai_endpoint_and_model` sends `text-embedding-3-small` for `qwen3-embedding:0.6b` when the provider is `openai` or `copilot` with no gateway, so the configured name alone can give a vector of 1,536 dimensions to a run of 1,024 dimensions.
 - The owner plans a central Valkey store (#4517), so this change adds no Valkey instance to the devcontainer.
 
 ## Existing Tool Considered

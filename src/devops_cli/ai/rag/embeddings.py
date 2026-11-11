@@ -719,7 +719,7 @@ class EmbeddingsEngine:
 
         Returns the indices and the texts that the disk cache does not hold.
         """
-        found = disk.get_many(self.model, miss_texts)
+        found = disk.get_many(self._disk_cache_model(), miss_texts)
         still_indices: list[int] = []
         still_texts: list[str] = []
         for idx, text, vector in zip(miss_indices, miss_texts, found, strict=True):
@@ -988,7 +988,19 @@ class EmbeddingsEngine:
             self._set_valkey_embedding(sent_text, self.model, vector, is_query=is_query)
             cached[miss_idx] = vector
         if self._disk is not None:
-            self._disk.put_many(self.model, list(zip(miss_texts, fresh, strict=True)))
+            self._disk.put_many(self._disk_cache_model(), list(zip(miss_texts, fresh, strict=True)))
+
+    def _disk_cache_model(self) -> str:
+        """The model key of the disk cache: the provider and the model name that the request sends.
+
+        A direct OpenAI request sends another name than the gateway for the same configured model,
+        so the vectors of the one are no hit for the other (#4546).
+        """
+        provider = self.ai_config.provider.lower()
+        is_gateway = self._is_gateway_provider()
+        if is_gateway or provider in ("openai", "copilot"):
+            return f"{provider}/{self._openai_request_model(is_gateway)}"
+        return f"{provider}/{self.model}"
 
     def embed_query(self, text: str) -> list[float]:
         """Generate vector embedding for a single search query with LRU cache acceleration."""
@@ -1139,10 +1151,14 @@ class EmbeddingsEngine:
         endpoint = (
             f"{base_url}/embeddings" if base_url.endswith("/v1") else f"{base_url}/v1/embeddings"
         )
-        model = self.model
+        return endpoint, self._openai_request_model(is_gateway)
+
+    def _openai_request_model(self, is_gateway: bool) -> str:
+        """The model name that an OpenAI-compatible request sends for the configured model."""
+        model = str(self.model)
         if not is_gateway and model in ("all-minilm", "qwen3-embedding:0.6b"):
-            model = "text-embedding-3-small"
-        return endpoint, model
+            return "text-embedding-3-small"
+        return model
 
     def _post_openai_batch_with_retry(
         self, endpoint: str, headers: dict[str, str], model: str, batch: list[str]
