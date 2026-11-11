@@ -26,6 +26,7 @@ from tests.support.fakes.process import ProcessFake
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.roadmap_implement import (
     BRANCH,
+    NEEDS_FIX_DRAFT,
     PULL,
     push_staged_branch,
     route_pull_status,
@@ -412,6 +413,21 @@ def test_an_item_whose_pull_request_is_not_an_open_draft_is_left_out(
     plan = _plan(store, staged_repo)
 
     assert _reasons(plan) == {number: f"Its pull request #{PULL} is not an open draft."}
+
+
+def test_an_item_whose_draft_holds_the_label_plan_needs_fix_is_left_out_with_the_label_as_reason(
+    store: InMemoryRoadmapStore, staged_repo: StageRepo, github_api: GitHubApiFake
+) -> None:
+    route_pull_status(github_api, NEEDS_FIX_DRAFT)
+    number = seed_staged(store)
+
+    plan = _plan(store, staged_repo)
+
+    assert plan.selected == ()
+    assert _reasons(plan) == {
+        number: f"Its pull request #{PULL} holds the label `plan/needs-fix`: the review of its "
+        "plan found an open finding. The job takes the item again when the label is gone."
+    }
 
 
 def test_an_item_that_a_worktree_holds_is_left_out(

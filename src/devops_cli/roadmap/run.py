@@ -147,6 +147,7 @@ from devops_cli.roadmap.stage.stage import (
 )
 from devops_cli.roadmap.stage.stage_ready import mark_stage_ready
 from devops_cli.roadmap.stage.stage_toolbox import ToolboxModel
+from devops_cli.roadmap.stage.stage_verify import PLAN_NEEDS_FIX_LABEL
 from devops_cli.roadmap.status_sync import sync_statuses
 from devops_cli.roadmap.stores.store import Change, ChangeKind, RoadmapStore
 from devops_cli.roadmap.trust import is_person_comment
@@ -656,6 +657,12 @@ def _run_implement_adapter(
     )
     if result.left is not None:
         logger.info(MESSAGES.roadmap.implement_round_left.format(number=result.left))
+    for held in result.needs_fix:
+        logger.info(
+            MESSAGES.roadmap.implement_round_needs_fix.format(
+                number=held.item.number, pull=held.pull, label=PLAN_NEEDS_FIX_LABEL
+            )
+        )
     if result.created is not None and result.effort:
         logger.info(MESSAGES.roadmap.implement_round_effort.format(effort=result.effort))
         if result.fallback:

@@ -41,6 +41,7 @@ from tests.support.fakes.kubernetes import FakeCluster, pod
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.paths import REPO_ROOT
 from tests.support.roadmap_implement import (
+    NEEDS_FIX_DRAFT,
     PULL,
     TASKS,
     merge_plan,
@@ -1387,6 +1388,75 @@ def test_a_person_who_claims_after_the_plan_gets_no_job_and_the_round_does_not_f
         ("Human", ["owner/human"]),
         {"stage.branch": "fix/1-the-job-drops-a-comment", "stage.pr": "5"},
     )
+
+
+def test_a_round_creates_no_job_while_the_draft_holds_the_label_plan_needs_fix_and_logs_it_once(
+    store: InMemoryRoadmapStore,
+    staged_repo: StageRepo,
+    api: GitHubApiFake,
+    kube: FakeCluster,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    route_pull_status(api, NEEDS_FIX_DRAFT)
+    number = seed_staged(store)
+
+    with caplog.at_level(logging.INFO, logger="devops_cli.roadmap.run"):
+        _round(store, staged_repo)
+        _round(store, staged_repo)
+
+    assert [line for line in caplog.messages if line.startswith(f"Left #{number}")] == [
+        f"Left #{number}: its pull request #{PULL} holds the label `plan/needs-fix`. "
+        "The row takes the item again when the label is gone."
+    ]
+    assert _creates(kube) == []
+    assert _record(store, number) == {
+        "stage.branch": "fix/1-the-job-drops-a-comment",
+        "stage.pr": "5",
+        "implement.needs_fix": "5",
+    }
+
+
+def test_a_round_creates_the_job_once_the_label_plan_needs_fix_is_gone_and_clears_its_note(
+    store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake, kube: FakeCluster
+) -> None:
+    route_pull_status(api, NEEDS_FIX_DRAFT)
+    number = seed_staged(store)
+    _round(store, staged_repo)
+    noted = _record(store, number)["implement.needs_fix"]
+    route_pull_status(api)
+
+    _round(store, staged_repo)
+
+    (job,) = _jobs(kube)
+    record = _record(store, number)
+    assert (noted, record["implement.needs_fix"]) == ("5", None)
+    assert record["implement.job"] == job["metadata"]["name"]
+
+
+def test_a_round_logs_the_label_plan_needs_fix_again_when_it_comes_back_after_it_was_gone(
+    store: InMemoryRoadmapStore,
+    staged_repo: StageRepo,
+    api: GitHubApiFake,
+    kube: FakeCluster,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    route_pull_status(api, NEEDS_FIX_DRAFT)
+    number = seed_staged(store)
+    _round(store, staged_repo)
+    route_pull_status(api)
+    store.as_actor("alice").add_label(number, "owner/human")
+    _round(store, staged_repo)
+    store.as_actor("alice").remove_label(number, "owner/human")
+    route_pull_status(api, NEEDS_FIX_DRAFT)
+
+    with caplog.at_level(logging.INFO, logger="devops_cli.roadmap.run"):
+        _round(store, staged_repo)
+
+    assert [line for line in caplog.messages if line.startswith(f"Left #{number}")] == [
+        f"Left #{number}: its pull request #{PULL} holds the label `plan/needs-fix`. "
+        "The row takes the item again when the label is gone."
+    ]
+    assert _creates(kube) == []
 
 
 def test_the_report_of_a_job_keeps_the_claim_of_a_person_and_stops_nothing(

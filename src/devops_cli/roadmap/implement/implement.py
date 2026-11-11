@@ -29,8 +29,9 @@ its author is not the owner, a member or a collaborator, its branch is gone from
 a commit by anyone but the App (a clean merge by a person does not count, #3392), a worktree holds
 the issue, its plan fails the stage gates of `check_proposal` or the reader cannot read it (#3393;
 a branch whose change the job archived already passed them, and a retry takes it, #3645),
-its pull request is not an open draft, or, for a Planned item, a branch of `origin` holds the issue,
-its change is archived, it has no branch name, its change has no `tasks.md` on the default branch,
+its pull request is not an open draft or holds the label `plan/needs-fix` of a plan with an open
+finding (the job takes the item again when the label is gone), or, for a Planned item, a branch of
+`origin` holds the issue, its change is archived, it has no branch name, its change has no `tasks.md` on the default branch,
 or every task of its change is ticked. A run takes at most `--limit` items,
 the highest priority first. `--item` takes the one item it names and does not apply the filter or
 the limit.
@@ -108,6 +109,7 @@ from devops_cli.roadmap.stage.stage import (
 )
 from devops_cli.roadmap.stage.stage_change import check_proposal
 from devops_cli.roadmap.stage.stage_paths import StagedTree
+from devops_cli.roadmap.stage.stage_verify import PLAN_NEEDS_FIX_LABEL
 from devops_cli.roadmap.status_sync import job_holds
 from devops_cli.roadmap.step_files import parse_task_groups
 from devops_cli.roadmap.stores.store import (
@@ -188,14 +190,22 @@ class ImplementTarget:
         return parse_branch(self.branch) if self.planned else None
 
 
+class NeedsFix(NamedTuple):
+    """An item that the job leaves out while its draft `pull` holds the label `plan/needs-fix`."""
+
+    item: Item
+    pull: int
+
+
 @dataclass(frozen=True)
 class ImplementPlan:
     """What a run does: the items to implement, and the items the filter names that the job leaves
     out, each with its reason. `unmatched` holds the open items that the filter does not name, only
     when the plan was asked for them (`--why`). `beyond` holds the numbers of the items that pass
     every rule but come after the limit (`walk_named`). `effort` is the effort of the pass that
-    takes the run, and `fallback` is true when that pass is a later value of the set (#3385). A dry
-    run holds the requests of a run and nothing else."""
+    takes the run, and `fallback` is true when that pass is a later value of the set (#3385).
+    `needs_fix` holds the left-out items whose draft holds the label `plan/needs-fix`. A dry run
+    holds the requests of a run and nothing else."""
 
     repo: str
     selected: tuple[ImplementTarget, ...] = ()
@@ -207,6 +217,7 @@ class ImplementPlan:
     beyond: tuple[int, ...] = ()
     effort: str = ""
     fallback: bool = False
+    needs_fix: tuple[NeedsFix, ...] = ()
 
 
 class RecordedBranch(NamedTuple):
@@ -287,6 +298,7 @@ class _Judge:
         self._default_rev = f"origin/{planned.default}"
         self._pull_status = pull_status
         self._bot = load_settings().service.github_app.bot_login
+        self.needs_fix: dict[int, NeedsFix] = {}
 
     def judge(self, item: Item) -> ImplementTarget | str:
         """The target for `item`, or the reason the job leaves it out."""
@@ -314,7 +326,7 @@ class _Judge:
         why = (
             self._branch_reason(item, route.branch)
             or self._plan_reason(item, f"origin/{route.branch}")
-            or self._pull_reason(route.pull)
+            or self._pull_reason(item, route.pull)
         )
         return why if why is not None else ImplementTarget(item, route.branch, route.pull, retry)
 
@@ -431,14 +443,21 @@ class _Judge:
             return texts.implement_left_foreign.format(author=other, bot=self._bot)
         return stray_branch_reason(self._source, branch, self._heads)
 
-    def _pull_reason(self, pull: int) -> str | None:
+    def _pull_reason(self, item: Item, pull: int) -> str | None:
+        """Why the job leaves out the draft `pull` of `item`, or None when it takes it. A draft
+        with the label `plan/needs-fix` holds a plan with an open finding: the job leaves it out
+        until the label is gone, and keeps the item in `needs_fix`."""
+        texts = MESSAGES.roadmap
         try:
             status = self._pull_status(pull)
         except GitHubNotFoundError:
-            return MESSAGES.roadmap.implement_left_pull.format(pull=pull)
-        return (
-            None if status.is_open_draft else MESSAGES.roadmap.implement_left_pull.format(pull=pull)
-        )
+            return texts.implement_left_pull.format(pull=pull)
+        if not status.is_open_draft:
+            return texts.implement_left_pull.format(pull=pull)
+        if PLAN_NEEDS_FIX_LABEL in status.labels:
+            self.needs_fix[item.number] = NeedsFix(item, pull)
+            return texts.implement_left_needs_fix.format(pull=pull, label=PLAN_NEEDS_FIX_LABEL)
+        return None
 
 
 def _left(item: Item, why: str) -> LeftOut:
@@ -529,7 +548,7 @@ def plan_implement(
     )
     if item_number is not None:
         selected, left_out = _named(judge, store, item_number)
-        return ImplementPlan(repo, selected, left_out)
+        return ImplementPlan(repo, selected, left_out, needs_fix=tuple(judge.needs_fix.values()))
     efforts = implement_efforts()
     walked, in_use = _walk_passes(store, effort_passes(filters, efforts), judge, limit, probe)
     explicit = "effort" in filters.families
@@ -541,6 +560,7 @@ def plan_implement(
         beyond=walked.beyond,
         effort=in_use,
         fallback=bool(in_use) and not explicit and in_use != efforts[0],
+        needs_fix=tuple(judge.needs_fix.values()),
     )
 
 
@@ -598,6 +618,7 @@ __all__ = [
     "GIT_OPERATION",
     "ImplementPlan",
     "ImplementTarget",
+    "NeedsFix",
     "RecordedBranch",
     "dry_run_implement",
     "parse_implement_filters",

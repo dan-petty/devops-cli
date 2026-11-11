@@ -3030,6 +3030,10 @@ class RoadmapMessages:
     implement_left_no_branch: str = "Its staged branch `{branch}` is not on origin."
     implement_left_foreign: str = "Its branch has a commit by {author}, not by {bot}."
     implement_left_pull: str = "Its pull request #{pull} is not an open draft."
+    implement_left_needs_fix: str = (
+        "Its pull request #{pull} holds the label `{label}`: the review of its plan found an open "
+        "finding. The job takes the item again when the label is gone."
+    )
     implement_left_plan: str = "Its plan fails the stage check: {problem}"
     implement_left_plan_git: str = "Its plan cannot be read from git: {reason}"
     implement_job_title: str = "# Implement plan for {repo}"
@@ -3097,6 +3101,10 @@ class RoadmapMessages:
     implement_job_applied: str = "Took {ready} item(s) to a ready pull request, stopped {stopped}."
     implement_job_yielded: str = "Left {yielded} item(s) to the owner that claimed them."
     implement_round_left: str = "Left #{number}: an agent or a person claimed it since the plan."
+    implement_round_needs_fix: str = (
+        "Left #{number}: its pull request #{pull} holds the label `{label}`. The row takes the item "
+        "again when the label is gone."
+    )
     implement_round_effort: str = "The round selected an item in effort pass {effort}."
     implement_round_fallback: str = "The round uses the fallback pass."
     implement_boundary_group: str = "the start of group {group}"
