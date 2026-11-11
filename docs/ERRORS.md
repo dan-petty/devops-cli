@@ -130,6 +130,7 @@ Each exception class declares its `error_code` and `exit_code`. A command that a
 | `StructuredOutputSchemaError` | `STRUCTURED_OUTPUT_SCHEMA_INVALID` | `1` | Ai | Raised when a schema class is missing or invalid for structured LLM output generation. |
 | `StructuredOutputValidationError` | `LLM_INFERENCE_ERROR` | `10` | Devops_cli.ai.client.models | Raised when the model answered, but no answer validated against the schema after retries. |
 | `SubprocessError` | `SUBPROCESS_FAILED` | `1` | Tools | Raised when an external subprocess command exits with a non-zero code or fails execution. |
+| `TaskPromptNotFoundError` | `TASK_PROMPT_NOT_FOUND` | `1` | Ai | Raised when a prompt name is not a file of the `ai/tasks/` folder of the package. |
 | `TelemetryError` | `TELEMETRY_ERROR` | `1` | Telemetry | Base exception for telemetry, tracing, and metric collection errors. |
 | `TemplateRenderError` | `VALIDATION_ERROR` | `1` | Devops_cli.core.templating | Raised when a template cannot be rendered into valid output. |
 | `TokenCountError` | `TOKEN_COUNT_ERROR` | `10` | Ai | Raised when the tiktoken encoding is unavailable, so no exact token count exists. |

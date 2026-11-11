@@ -11,6 +11,7 @@ Nine prompt files of `src/devops_cli/ai/tasks/` and the two files of `src/devops
 - `load_task_prompt` raises the new `TaskPromptNotFoundError` (error code `TASK_PROMPT_NOT_FOUND`) for a name that is not a file of `ai/tasks/`, and for a name that resolves outside the folder. It no longer returns an empty string.
 - Delete the fallback prompts `_DEFAULT_SOCRATIC_SYSTEM` (`ai/research/socratic.py`) and `_DEFAULT_SYNTHESIS_SYSTEM` (`ai/research/mental_model.py`).
 - Move the check that each prompt name the code loads exists from a pytest test into the `test-tree` row of `devops ci` (`tests/gate/tree_checks/task_prompts.py`), as `docs/TESTING.md` asks for a check of committed files. It now resolves a name that holds a constant, also through a `from` import, and not only a literal. A second check of the row fails when a file of `ai/tasks/` has no string literal in `src/` that names it, so a new orphan fails CI.
+- `docs/TESTING.md` lists the new invariant file `tests/invariants/test_task_prompts_check.py`, and the error catalog `docs/ERRORS.md` lists the new error.
 - The new error and its message are output that a consumer can see, so the change has a spec delta.
 - The change fits one pull request.
 

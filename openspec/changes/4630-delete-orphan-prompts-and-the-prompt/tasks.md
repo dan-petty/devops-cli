@@ -14,6 +14,11 @@
 - [x] 2.2 Delete the nine orphan files of `ai/tasks/` and the folder `ai/prompts/`, and remove the `ai/prompts/**/*.md` glob from `CONST_DOCS_CLASS_PROMPT` and from `tests/invariants/test_agents_md.py`
   - Verification: `$ uv run devops ci --only test-tree`
 
+## 3. Documents
+
+- [x] 3.1 List `test_task_prompts_check.py` among the invariant files of `docs/TESTING.md`, and add `TaskPromptNotFoundError` to the error catalog `docs/ERRORS.md`
+  - Verification: `$ uv run devops ci docs`
+
 ## Workflow follow-up
 
 - Pending a person: review the diff in tuicr (tuicr -r origin/main..HEAD).
