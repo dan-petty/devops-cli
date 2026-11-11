@@ -2911,6 +2911,12 @@ class RoadmapMessages:
         "only the paths that the plan names and the files of the change folder. The cause of the "
         "failed check may lie in another path. A person decides how to change the plan."
     )
+    implement_stop_check_outside_scope: str = (
+        "The check {check} failed, and its log names no path of the repair scope. A fix turn may "
+        "change only the paths that the plan names and the files of the change folder, so the job "
+        "made no model request. The repair scope is: {scope}. A person decides how to fix the "
+        "check."
+    )
     implement_stop_no_test_file: str = "A behavior group changed no test file. Write the failing test first, in a file under tests/."
     implement_stop_base_passes: str = (
         "No test of the group fails on the base commit. The tests of {files} pass there, "
