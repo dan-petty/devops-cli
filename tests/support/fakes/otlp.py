@@ -6,6 +6,11 @@ request as the collector receives it, and reads back the exported spans, metric 
 log records as plain values. `answer(status)` and `refuse()` make its exports and its probe fail
 with the texts of the real exporter, and `accept()` makes them succeed again.
 
+The fake decodes an OTLP/JSON request of any signal, and an OTLP/HTTP protobuf trace request,
+which the library span exporter sends (`devops_cli.telemetry.library_spans`), with the
+`opentelemetry.proto` request class. `protobuf_traces_payload` gives a protobuf request the shape
+of the OTLP/JSON request it encodes, so one plain-value view reads both.
+
 The `otlp` fixture installs the fake as the process's exporter with export on, so code under test
 exports to it. Each read first waits for the exports the tracer queued, through the tracer's
 public `flush()`, so no test sleeps. `tests/telemetry/test_otlp_exporter_contract.py` holds the
@@ -18,6 +23,7 @@ them.
 
 from __future__ import annotations
 
+import base64
 import json
 import threading
 from collections.abc import Callable, Iterable, Iterator
@@ -78,6 +84,41 @@ def _exported_span(span: dict[str, Any]) -> ExportedSpan:
     )
 
 
+def _hex_ids(record: dict[str, Any]) -> None:
+    for key in ("traceId", "spanId", "parentSpanId"):
+        if key in record:
+            record[key] = base64.b64decode(record[key]).hex()
+
+
+def protobuf_traces_payload(body: bytes) -> dict[str, Any]:
+    """An OTLP/HTTP protobuf trace request as the OTLP/JSON request it encodes, ids in hex."""
+    from google.protobuf.json_format import MessageToDict
+    from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import (
+        ExportTraceServiceRequest,
+    )
+
+    payload = MessageToDict(ExportTraceServiceRequest.FromString(body))
+    for resource in payload.get("resourceSpans", []):
+        for scope in resource.get("scopeSpans", []):
+            for span in scope.get("spans", []):
+                _hex_ids(span)
+                for link in span.get("links", []):
+                    _hex_ids(link)
+    return payload
+
+
+def decode_export(signal: OtlpSignal, body: bytes, content_type: str) -> dict[str, Any]:
+    """An export request as its OTLP/JSON payload; `ValueError` for a body the fake cannot read."""
+    from devops_cli.telemetry.exporter import JSON_CONTENT_TYPE, PROTOBUF_CONTENT_TYPE, OtlpSignal
+
+    if content_type == JSON_CONTENT_TYPE:
+        payload: dict[str, Any] = json.loads(body)
+        return payload
+    if content_type == PROTOBUF_CONTENT_TYPE and signal == OtlpSignal.TRACES:
+        return protobuf_traces_payload(body)
+    raise ValueError(f"The OTLP fake cannot decode {content_type} on {signal}")
+
+
 def _metric_points(metric: dict[str, Any]) -> list[tuple[dict[str, Any], float]]:
     data = (
         metric.get("sum")
@@ -131,14 +172,13 @@ class FakeCollector:
 
     def export(self, signal: OtlpSignal, body: bytes, content_type: str) -> None:
         from devops_cli.exceptions.telemetry import OtlpExportError
-        from devops_cli.telemetry.exporter import JSON_CONTENT_TYPE, OtlpSignal
+        from devops_cli.telemetry.exporter import OtlpSignal
 
         if self._failure is not None:
             raise OtlpExportError(self._failure)
-        if content_type != JSON_CONTENT_TYPE:
-            raise ValueError(f"The OTLP fake decodes {JSON_CONTENT_TYPE} only, not {content_type}")
+        payload = decode_export(OtlpSignal(signal), body, content_type)
         with self._lock:
-            self.exports.append(Export(OtlpSignal(signal), json.loads(body)))
+            self.exports.append(Export(OtlpSignal(signal), payload))
 
     def probe(self, timeout: float) -> ProbeResult:
         return self._probe

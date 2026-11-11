@@ -86,28 +86,15 @@ def plan_telemetry_connect(
     ]
 
 
-def plan_telemetry_test(
-    name: str,
-    endpoint: str,
-    logfire: bool = False,
-) -> list[PlannedRequest]:
+def plan_telemetry_test(name: str, endpoint: str) -> list[PlannedRequest]:
     """Generate planned requests for telemetry test trace emission."""
-    requests = [
+    return [
         PlannedRequest(
             method="POST",
             target=f"{endpoint}/v1/traces",
             stdin=f"<span-payload:{name}>",
         )
     ]
-    if logfire:
-        requests.append(
-            PlannedRequest(
-                method="POST",
-                target="https://logfire-api.pydantic.dev/v1/traces",
-                condition="logfire configured",
-            )
-        )
-    return requests
 
 
 def plan_telemetry_profile(

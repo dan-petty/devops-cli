@@ -8,7 +8,6 @@ counts and its `last_export_error` are what the cases compare.
 
 from __future__ import annotations
 
-import json
 import threading
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
@@ -16,18 +15,27 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
 import pytest
+from opentelemetry.exporter.otlp.proto.common.trace_encoder import encode_spans
+from opentelemetry.sdk.resources import Resource
+from opentelemetry.sdk.trace import ReadableSpan
+from opentelemetry.sdk.util.instrumentation import InstrumentationScope
+from opentelemetry.trace import SpanContext
 
 from devops_cli.telemetry.exporter import (
     CONNECT_FAILED,
     JSON_CONTENT_TYPE,
     PROBE_FAILED,
+    PROTOBUF_CONTENT_TYPE,
     HttpOtlpExporter,
     OtlpExporter,
     OtlpSignal,
     json_body,
 )
 from devops_cli.telemetry.tracer import OTelTelemetryClient
-from tests.support.fakes.otlp import FakeCollector
+from tests.support.fakes.otlp import FakeCollector, decode_export
+
+TRACE_ID = "4bf92f3577b34da6a3ce929d0e0e4736"
+SPAN_ID = "00f067aa0ba902b7"
 
 
 class _Receiver(BaseHTTPRequestHandler):
@@ -38,8 +46,9 @@ class _Receiver(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         length = int(self.headers.get("Content-Length") or 0)
         body = self.rfile.read(length)
+        content_type = self.headers.get("Content-Type", "")
         self.server.received.append(
-            (self.path, self.headers.get("Content-Type", ""), json.loads(body))
+            (self.path, content_type, decode_export(OtlpSignal(self.path), body, content_type))
         )
         self.send_response(self.server.status)
         self.send_header("Content-Length", "0")
@@ -99,11 +108,7 @@ def _fake_side() -> Collector:
 def _real_side(receiver: _ReceiverServer, refusing_port: int) -> Collector:
     side = Collector(
         exporter=HttpOtlpExporter(f"http://127.0.0.1:{receiver.server_address[1]}"),
-        received=lambda: [
-            (path, payload)
-            for path, content_type, payload in receiver.received
-            if content_type == JSON_CONTENT_TYPE
-        ],
+        received=lambda: [(path, payload) for path, _content_type, payload in receiver.received],
         answer=lambda status: setattr(receiver, "status", status),
         refuse=lambda: None,
     )
@@ -143,6 +148,36 @@ def test_the_collector_receives_each_request_on_its_signals_path(
     collector.exporter.export(signal, json_body(payload), JSON_CONTENT_TYPE)
 
     assert collector.received() == [(str(signal), payload)]
+
+
+def _protobuf_trace_request() -> bytes:
+    span = ReadableSpan(
+        name="contract_span",
+        context=SpanContext(int(TRACE_ID, 16), int(SPAN_ID, 16), is_remote=False),
+        resource=Resource.create({"service.name": "contract"}),
+        attributes={"case": "protobuf"},
+        instrumentation_scope=InstrumentationScope("contract"),
+    )
+    return encode_spans([span]).SerializeToString()
+
+
+def test_the_collector_receives_a_protobuf_trace_request_as_its_spans(
+    collector: Collector,
+) -> None:
+    """Verify a protobuf trace request reaches the collector as the span it encodes."""
+    body = _protobuf_trace_request()
+
+    collector.exporter.export(OtlpSignal.TRACES, body, PROTOBUF_CONTENT_TYPE)
+
+    [(path, payload)] = collector.received()
+    [span] = payload["resourceSpans"][0]["scopeSpans"][0]["spans"]
+    assert (path, span["name"], span["traceId"], span["spanId"], span["attributes"]) == (
+        str(OtlpSignal.TRACES),
+        "contract_span",
+        TRACE_ID,
+        SPAN_ID,
+        [{"key": "case", "value": {"stringValue": "protobuf"}}],
+    )
 
 
 @pytest.mark.parametrize("status", [200, 202])

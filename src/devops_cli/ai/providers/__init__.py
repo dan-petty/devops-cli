@@ -89,7 +89,7 @@ def create_pydantic_ai_provider(
     A provider that takes an ``http_client`` gets a client of the HTTP entry point at the configured level:
     loopback, or private with ``allow_private_network``. The connect checks each address.
     With ``gateway_caller``, each request of that client names devops-cli and its service as the
-    caller, for the LLM gateway (#1668).
+    caller, for the LLM gateway (#1668), and carries the trace context of its HTTP client span.
     """
     prov_name = provider.lower().strip()
     provider_cls: Any = _PYDANTIC_PROVIDERS.get(prov_name)
@@ -118,10 +118,13 @@ def create_pydantic_ai_provider(
         level = EgressLevel.PRIVATE if allow_private_network else EgressLevel.LOOPBACK
         if gateway_caller:
             from devops_cli.ai.client.network import name_gateway_caller
+            from devops_cli.telemetry.library_spans import instrument_gateway_client
 
-            init_kwargs["http_client"] = async_http_client(
+            gateway_client = async_http_client(
                 level, event_hooks={"request": [name_gateway_caller]}
             )
+            instrument_gateway_client(gateway_client)
+            init_kwargs["http_client"] = gateway_client
         else:
             init_kwargs["http_client"] = async_http_client(level)
 

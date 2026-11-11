@@ -213,7 +213,7 @@ def telemetry_logfire_cmd(
         typer.Option("--json", help=HELP.options.json_output),
     ] = False,
 ) -> None:
-    """Display Logfire structured observability bridge status and token metrics."""
+    """Display the status of the Logfire bridge."""
     from devops_cli.telemetry.logfire import get_logfire_bridge
 
     bridge = get_logfire_bridge()
@@ -244,10 +244,6 @@ def telemetry_logfire_cmd(
                 ),
             ],
             ["Send to Logfire", str(status.send_to_logfire)],
-            ["Recorded Agent Turns", str(status.turns_count)],
-            ["Input Tokens", str(status.token_metrics.get("input_tokens", 0))],
-            ["Output Tokens", str(status.token_metrics.get("output_tokens", 0))],
-            ["Total Tokens", str(status.token_metrics.get("total_tokens", 0))],
         ],
     )
 
@@ -264,10 +260,6 @@ def telemetry_test_cmd(
         str,
         typer.Option("--name", "-n", help=HELP.telemetry.span_name),
     ] = DEFAULT_TELEMETRY_TEST_NAME,
-    logfire: Annotated[
-        bool,
-        typer.Option("--logfire", help=HELP.telemetry.test_logfire),
-    ] = False,
     dry_run: Annotated[
         bool,
         typer.Option("--dry-run", help=HELP.options.dry_run),
@@ -279,7 +271,7 @@ def telemetry_test_cmd(
     if dry_run or is_dry_run():
         render_request_plan(
             "devops telemetry test",
-            plan_telemetry_test(name, tracer.endpoint, logfire=logfire),
+            plan_telemetry_test(name, tracer.endpoint),
         )
         return
 
@@ -292,12 +284,6 @@ def telemetry_test_cmd(
 
     with trace_span(name, attributes={"test": True, "cli": "devops-cli"}) as span_id:
         emit(TELEMETRY_TESTS_TOTAL, 1.0)
-        if logfire:
-            from devops_cli.telemetry.logfire import logfire_agent_turn
-
-            with logfire_agent_turn("test_agent", turn_index=1, prompt=name) as turn:
-                turn.record_tokens(input_tokens=10, output_tokens=5)
-                turn.set_response("Logfire test response")
         time.sleep(0.02)  # 20ms simulated span duration
 
     elapsed_ms = (time.perf_counter() - start) * 1000

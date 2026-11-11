@@ -241,6 +241,9 @@ def resolve_pydantic_ai_model(
     if model is None:
         return None
 
+    from devops_cli.telemetry.library_spans import install_library_spans
+
+    install_library_spans()
     if isinstance(model, (list, tuple)) or model == "cascade":
         seq = model if isinstance(model, (list, tuple)) else CONST_AI_CASCADE_PROVIDERS
         return build_fallback_cascade_model(

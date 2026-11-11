@@ -80,6 +80,8 @@ dependencies = [
     "psutil==7.2.2",
     "unidiff==1.0.1",
     "ddgs==9.16.1",
+    "opentelemetry-exporter-otlp-proto-common==1.45.1",
+    "opentelemetry-instrumentation-httpx==0.66b1",
 ]
 
 [project.scripts]

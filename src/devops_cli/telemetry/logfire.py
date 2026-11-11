@@ -6,15 +6,12 @@ import contextlib
 import logging
 import os
 import threading
-import time
-from collections.abc import Generator
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from devops_cli.config.settings import Settings, get_logfire_token, load_settings
 from devops_cli.exceptions.telemetry import LogfireConfigurationError
-from devops_cli.output import Panel, Table
 from devops_cli.security.sanitizer import PRIVATE_HOST_PATTERNS
 from devops_cli.telemetry.tracer import _to_otlp_any_value, record_completed_span
 
@@ -25,16 +22,12 @@ _BRIDGE_LOCK = threading.Lock()
 
 
 class LogfireStatus(BaseModel):
-    """Status model reporting active Logfire bridge state and token metrics."""
+    """Status model reporting the state of the Logfire bridge."""
 
     enabled: bool = False
     token_configured: bool = False
     send_to_logfire: bool | str = "if-token-present"
     active_spans_count: int = 0
-    token_metrics: dict[str, int] = Field(
-        default_factory=lambda: {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
-    )
-    turns_count: int = 0
 
 
 class LogfireOTelBridgeProcessor:
@@ -94,76 +87,6 @@ class LogfireOTelBridgeProcessor:
         return True
 
 
-class AgentTurnHandle:
-    """Handle for recording telemetry, response content, and tokens for an agent turn."""
-
-    def __init__(
-        self,
-        agent_name: str,
-        turn_index: int,
-        prompt: str | None = None,
-        model: str | None = None,
-        span_handle: Any = None,
-    ) -> None:
-        self.agent_name = agent_name
-        self.turn_index = turn_index
-        self.prompt = prompt or ""
-        self.model = model or ""
-        self.response = ""
-        self.tools_called: list[str] = []
-        self.input_tokens = 0
-        self.output_tokens = 0
-        self.total_tokens = 0
-        self.start_time = time.perf_counter()
-        self.duration_ms = 0.0
-        self._span_handle = span_handle
-
-    def set_response(self, response: str) -> None:
-        """Record agent response preview."""
-        self.response = response
-        if self._span_handle and hasattr(self._span_handle, "set_attribute"):
-            self._span_handle.set_attribute("agent.response", response[:500])
-
-    def record_tokens(self, input_tokens: int = 0, output_tokens: int = 0) -> None:
-        """Record token usage for this turn."""
-        self.input_tokens += input_tokens
-        self.output_tokens += output_tokens
-        self.total_tokens += input_tokens + output_tokens
-
-        bridge = get_logfire_bridge()
-        bridge.accumulate_tokens(input_tokens, output_tokens)
-
-        try:
-            import logfire
-
-            logfire.metric_counter("agent.tokens.input").add(input_tokens)
-            logfire.metric_counter("agent.tokens.output").add(output_tokens)
-            logfire.metric_counter("agent.tokens.total").add(input_tokens + output_tokens)
-        except Exception as exc:
-            logger.debug("Logfire token metric counter update suppressed: %s", exc)
-
-    def record_tool_call(
-        self, tool_name: str, args: dict[str, Any] | None = None, result: Any = None
-    ) -> None:
-        """Record tool invocation details."""
-        self.tools_called.append(tool_name)
-        if self._span_handle and hasattr(self._span_handle, "set_attribute"):
-            self._span_handle.set_attribute(
-                f"agent.tools.{len(self.tools_called)}",
-                f"{tool_name}({list((args or {}).keys())})",
-            )
-
-    def finalize(self) -> None:
-        """Compute duration and record turn completion metric."""
-        self.duration_ms = (time.perf_counter() - self.start_time) * 1000
-        try:
-            import logfire
-
-            logfire.metric_counter("agent.turns.total").add(1)
-        except Exception as exc:
-            logger.debug("Logfire turn counter metric suppressed: %s", exc)
-
-
 class LogfireBridge:
     """Manages configuration, secret resolution, instrumentation, and metrics for Logfire."""
 
@@ -171,13 +94,6 @@ class LogfireBridge:
         self._enabled: bool = False
         self._token_configured: bool = False
         self._send_to_logfire: bool | str = "if-token-present"
-        self._token_metrics: dict[str, int] = {
-            "input_tokens": 0,
-            "output_tokens": 0,
-            "total_tokens": 0,
-        }
-        self._turns_count: int = 0
-        self._lock = threading.Lock()
 
     def configure(
         self,
@@ -203,12 +119,16 @@ class LogfireBridge:
         try:
             import logfire
 
-            processor = LogfireOTelBridgeProcessor()
+            from devops_cli.telemetry.library_spans import library_span_processor
+
+            # The cluster collector gets the agent spans too, through the exporter seam.
+            seam = library_span_processor()
+            processors = [LogfireOTelBridgeProcessor(), *([seam] if seam is not None else [])]
             logfire.configure(
                 send_to_logfire=effective_send,  # type: ignore[arg-type]
                 token=resolved_token,
                 console=None if console else False,
-                additional_span_processors=[processor],  # type: ignore[list-item]
+                additional_span_processors=processors,  # type: ignore[arg-type]
                 inspect_arguments=False,
                 scrubbing=logfire.ScrubbingOptions(extra_patterns=PRIVATE_HOST_PATTERNS),
             )
@@ -228,18 +148,6 @@ class LogfireBridge:
     def is_active(self) -> bool:
         """Return True if Logfire is configured and active."""
         return self._enabled
-
-    def accumulate_tokens(self, input_tokens: int, output_tokens: int) -> None:
-        """Accumulate token counts across agent runs."""
-        with self._lock:
-            self._token_metrics["input_tokens"] += input_tokens
-            self._token_metrics["output_tokens"] += output_tokens
-            self._token_metrics["total_tokens"] += input_tokens + output_tokens
-
-    def increment_turns(self) -> None:
-        """Increment recorded turn counter."""
-        with self._lock:
-            self._turns_count += 1
 
     def flush(self) -> None:
         """Flush pending Logfire spans."""
@@ -269,16 +177,12 @@ class LogfireBridge:
         """Return current status of the Logfire bridge."""
         from devops_cli.telemetry.tracer import get_recent_spans
 
-        active_spans = len(get_recent_spans())
-        with self._lock:
-            return LogfireStatus(
-                enabled=self._enabled,
-                token_configured=self._token_configured,
-                send_to_logfire=self._send_to_logfire,
-                active_spans_count=active_spans,
-                token_metrics=dict(self._token_metrics),
-                turns_count=self._turns_count,
-            )
+        return LogfireStatus(
+            enabled=self._enabled,
+            token_configured=self._token_configured,
+            send_to_logfire=self._send_to_logfire,
+            active_spans_count=len(get_recent_spans()),
+        )
 
 
 def get_logfire_bridge() -> LogfireBridge:
@@ -297,87 +201,3 @@ def reset_logfire_bridge() -> None:
         if _GLOBAL_LOGFIRE_BRIDGE is not None:
             _GLOBAL_LOGFIRE_BRIDGE.shutdown()
         _GLOBAL_LOGFIRE_BRIDGE = None
-
-
-@contextlib.contextmanager
-def logfire_agent_turn(
-    agent_name: str,
-    turn_index: int,
-    prompt: str | None = None,
-    model: str | None = None,
-    attributes: dict[str, Any] | None = None,
-) -> Generator[AgentTurnHandle]:
-    """Context manager for tracing an agent turn with Logfire structured observability."""
-    bridge = get_logfire_bridge()
-    bridge.increment_turns()
-
-    span_attrs: dict[str, Any] = {
-        "agent.name": agent_name,
-        "agent.turn_index": turn_index,
-        "agent.prompt": (prompt or "")[:500],
-        "agent.model": model or "unknown",
-    }
-    if attributes:
-        span_attrs.update(attributes)
-
-    span_cm: Any
-    try:
-        import logfire
-
-        span_cm = logfire.span(f"agent.turn.{agent_name}", **span_attrs)
-    except Exception:
-        span_cm = contextlib.nullcontext()
-
-    with span_cm as span_ctx:
-        handle = AgentTurnHandle(
-            agent_name=agent_name,
-            turn_index=turn_index,
-            prompt=prompt,
-            model=model,
-            span_handle=span_ctx,
-        )
-        try:
-            yield handle
-        finally:
-            handle.finalize()
-
-
-def render_agent_turn_table(turn_info: dict[str, Any]) -> Table:
-    """Render Rich table formatting an agent turn's structured telemetry."""
-    table = Table(
-        title=f"Agent Turn: {turn_info.get('agent_name', 'agent')} (Turn {turn_info.get('turn_index', 1)})",
-        border_style="cyan",
-    )
-    table.add_column("Property", style="cyan")
-    table.add_column("Value", style="white")
-
-    table.add_row("Agent", str(turn_info.get("agent_name", "unknown")))
-    table.add_row("Turn Index", str(turn_info.get("turn_index", 1)))
-    prompt_val = str(turn_info.get("prompt", ""))
-    table.add_row("Prompt Preview", prompt_val[:100] + ("..." if len(prompt_val) > 100 else ""))
-    resp_val = str(turn_info.get("response", ""))
-    table.add_row("Response Preview", resp_val[:100] + ("..." if len(resp_val) > 100 else ""))
-
-    tools = turn_info.get("tools_called", [])
-    table.add_row("Tools Called", ", ".join(tools) if tools else "None")
-
-    usage = turn_info.get("token_usage", {})
-    in_tok = usage.get("input_tokens", 0)
-    out_tok = usage.get("output_tokens", 0)
-    tot_tok = usage.get("total_tokens", in_tok + out_tok)
-    table.add_row("Token Usage", f"In: {in_tok} | Out: {out_tok} | Total: {tot_tok}")
-
-    if "duration_ms" in turn_info:
-        table.add_row("Duration", f"{turn_info['duration_ms']:.2f} ms")
-
-    return table
-
-
-def render_agent_turn_panel(turn_info: dict[str, Any]) -> Panel:
-    """Render Rich panel wrapping an agent turn's structured telemetry table."""
-    table = render_agent_turn_table(turn_info)
-    return Panel(
-        table,
-        title="[bold blue]Logfire Agent Observability[/bold blue]",
-        border_style="bright_blue",
-    )

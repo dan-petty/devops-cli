@@ -5720,7 +5720,7 @@
     }
   },
   "telemetry_logfire": {
-    "description": "Display Logfire structured observability bridge status and token metrics.",
+    "description": "Display the status of the Logfire bridge.",
     "input_schema": {
       "additionalProperties": false,
       "properties": {
@@ -5776,11 +5776,6 @@
         "dry_run": {
           "default": false,
           "description": "Preview execution plan without mutating external state.",
-          "type": "boolean"
-        },
-        "logfire": {
-          "default": false,
-          "description": "Emit test span via Logfire bridge.",
           "type": "boolean"
         },
         "name": {

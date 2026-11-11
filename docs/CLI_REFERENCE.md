@@ -9542,7 +9542,7 @@ devops telemetry connect [OPTIONS]
 
 ### `devops telemetry logfire`
 
-**Display Logfire structured observability bridge status and token metrics.**
+**Display the status of the Logfire bridge.**
 
 ```bash
 devops telemetry logfire [OPTIONS]
@@ -9568,7 +9568,6 @@ devops telemetry test [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--name`, `-n` | `string` | `devops-cli.manual_test` | Name for test span. |
-| `--logfire` | `boolean` | - | Emit test span via Logfire bridge. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops telemetry profile`

@@ -469,7 +469,7 @@ and draft readiness. |
 |  | `devops tls enable-k8s [OPTIONS]` | Generate and apply TLS secrets (kubernetes.io/tls) across Kubernetes namespaces. |
 | [**telemetry**](docs/commands/telemetry.md) | `devops telemetry status [OPTIONS]` | Check OpenTelemetry collector health, Tempo endpoint, and trace propagation status. |
 |  | `devops telemetry connect [OPTIONS]` | Find the cluster's OpenTelemetry collector, check it answers, and send telemetry there. |
-|  | `devops telemetry logfire [OPTIONS]` | Display Logfire structured observability bridge status and token metrics. |
+|  | `devops telemetry logfire [OPTIONS]` | Display the status of the Logfire bridge. |
 |  | `devops telemetry test [OPTIONS]` | Emit a test OpenTelemetry trace span and metric to the configured collector. |
 |  | `devops telemetry profile [OPTIONS] <command>` | Run a devops-cli command, or name a trace, and show its span waterfall as Tempo recorded it. |
 |  | `devops telemetry open-ui` | Print and show the Tempo HTTP API endpoint for inspecting traces. |

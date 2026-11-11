@@ -244,7 +244,7 @@ def test_telemetry_plans() -> None:
     assert len(connect_plan) >= 1
     assert any("kubectl" in p.argv or p.method == "kubectl" for p in connect_plan)
 
-    test_plan = plan_telemetry_test("test-span", "http://otel.example.com:4318", logfire=True)
+    test_plan = plan_telemetry_test("test-span", "http://otel.example.com:4318")
     assert len(test_plan) >= 1
     assert "v1/traces" in test_plan[0].target
 
