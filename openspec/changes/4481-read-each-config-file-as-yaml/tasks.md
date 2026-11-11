@@ -11,10 +11,12 @@ Kind: behavior. Reads: `src/devops_cli/config/round_trip.py`. Changes: `src/devo
 
 ## 2. Documents
 
-Kind: documents. Changes: `src/devops_cli/docs/generator.py`, `docs/CONFIGURATION.md`, `docs/roadmap/intake.md`.
+Kind: documents. Changes: `src/devops_cli/docs/generator.py`, `docs/CONFIGURATION.md`, `docs/roadmap/intake.md`, `src/devops_cli/ai/knowledge_base/devops_cli/libraries/pyyaml_jinja2.md`.
 
 - [x] 2.1 State in the generated configuration reference (`docs/generator.py`, `docs/CONFIGURATION.md`) and in `docs/roadmap/intake.md` that a config file is read as YAML 1.2, so a bare `off`, `on`, `yes` or `no` is a string.
   - Verification: `$ uv run devops docs generate --check`
+- [x] 2.2 State in the knowledge page of PyYAML that PyYAML reads YAML 1.1, that `parse_config_yaml` reads each config file as YAML 1.2, and that `load_yaml` has no `errors` parameter.
+  - Verification: `$ uv run devops ci --check --only docs`
 
 ## Workflow follow-up
 
