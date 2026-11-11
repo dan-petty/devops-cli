@@ -1842,6 +1842,10 @@ class CIMessages:
         "Over the limit: the last {count} runs of {job} took {mean:.0f} s on average, "
         "and the limit is {limit:.0f} s."
     )
+    job_time_queue: str = (
+        "The jobs of {job} also waited {queue:.0f} s on average for a runner. "
+        "The limit does not count this time."
+    )
     job_time_short: str = (
         "Only {found} of the last {wanted} runs of {job} could be read from {workflow} on "
         "{branch}, so the mean says nothing yet."

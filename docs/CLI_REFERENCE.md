@@ -3349,7 +3349,7 @@ devops ci job-time [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--repo`, `-R` | `string` | - | Repository as owner/name. Default: the origin of the current checkout. |
-| `--job` | `string` | `Tests & Coverage` | Name of the check whose time is read: the job of that name, timed from the first start of it or of its shard jobs named '\<name\> (...)'. |
+| `--job` | `string` | `Tests & Coverage` | Name of the check whose time is read: the run time of the job of that name plus the run time of the slowest of its shard jobs named '\<name\> (...)'. Time in the queue is shown but not counted. |
 | `--workflow` | `string` | `ci.yml` | Workflow file that holds the job. |
 | `--branch`, `-b` | `string` | `main` | Branch whose push runs are read. |
 | `--runs` | `integer` | `20` | How many of the last runs the mean covers. |

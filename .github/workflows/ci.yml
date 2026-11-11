@@ -10,13 +10,15 @@ on:
     types: [opened, synchronize, reopened]
     branches: [main]
   schedule:
-    # Advisory dependency freshness sweep at 05:00 UTC, kept off the pull request
-    # critical path so it never delays merge feedback.
+    # The daily run at 05:00 UTC: the advisory dependency freshness sweep and the job-time check,
+    # kept off the pull request critical path so they never delay merge feedback.
     - cron: "0 5 * * *"
   workflow_dispatch:
 
+# The event is part of the group: a push to main and the schedule run of main have the same ref, and
+# a merge must not cancel the schedule run, which holds the job-time check (#4634).
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 env:
@@ -284,15 +286,16 @@ jobs:
   # AGENTS.md rule 5: a check that averages more than 5 minutes is a P0 bug. The run of one pull
   # request is one sample, so this job reads the last twenty completed pushes to main from the
   # Actions API and fails when the mean of the `Tests & Coverage` check is over 300 s (#2699). The
-  # time of a run is the time from the first shard job to the end of the job `Tests & Coverage`,
-  # which joins the shards (#3050). The job runs on every push to main and on the daily schedule,
-  # beside the test job, and no pull request waits for it: the history it reads is main's, which a
-  # pull request cannot change. It sees the runs before this one. It reads the conclusion of the
-  # test job, not of the run, so a run that this job turned red still gives its test time to the
-  # next window. It needs `actions: read` only.
+  # time of a run is the run time of the slowest shard job plus that of the job `Tests & Coverage`,
+  # which joins the shards (#3050). The time the jobs waited for a runner is shown on its own line
+  # and is not counted (#4634). The job runs only on the daily schedule and on a manual run: a
+  # merge does not change the window of twenty runs much, and a red alarm on each push to main hid
+  # the result of the tests of that push (#4634). No pull request waits for it. It reads the
+  # conclusion of the test job, not of the run, so a failed run still gives its test time to the
+  # window. It needs `actions: read` only.
   job-time:
     name: Test Job Duration
-    if: github.event_name == 'push' || github.event_name == 'schedule'
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-26.04
     timeout-minutes: 10
     permissions:
