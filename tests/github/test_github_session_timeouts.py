@@ -21,15 +21,28 @@ from tests.support.fakes.github import GitHubApiDouble, serve_github_api
 # The read bound of the test of a silent host, so that the test ends at once.
 _SHORT_READ_SECONDS: Final = 0.05
 
-# The bounds around a GitHub session read, the innermost first. A call holds the call of the bound
-# before it: the Valkey cache tier in front of a read stops before the read, the session's read
-# stops before the watch of the checks of the implement job, which reads through the session at
-# each poll. A new call around a GitHub read adds its bound here, in its place.
-_CHAIN: Final = (
-    "DEFAULT_VALKEY_TIMEOUT_SECONDS",
-    "DEFAULT_GH_SESSION_READ_TIMEOUT_SECONDS",
-    "DEFAULT_ROADMAP_IMPLEMENT_MONITOR_TIMEOUT_SECONDS",
+# The chains of bounds around a GitHub session read, each one the innermost first. A call holds
+# the call of the bound before it: the Valkey cache tier in front of a read stops before the read,
+# and the session's read stops before the call that holds it. The watch of the checks of the
+# implement job reads through the session at each poll. The MCP server reads each `resource://gh/`
+# resource with `DEFAULT_MCP_TOOL_TIMEOUT_SECONDS`, and `devops gh issues status` reads the issues
+# through the session (#4678). A new call around a GitHub read adds its bound to its chain, or adds
+# its own chain.
+_CHAINS: Final = (
+    (
+        "DEFAULT_VALKEY_TIMEOUT_SECONDS",
+        "DEFAULT_GH_SESSION_READ_TIMEOUT_SECONDS",
+        "DEFAULT_ROADMAP_IMPLEMENT_MONITOR_TIMEOUT_SECONDS",
+    ),
+    (
+        "DEFAULT_VALKEY_TIMEOUT_SECONDS",
+        "DEFAULT_GH_SESSION_READ_TIMEOUT_SECONDS",
+        "DEFAULT_MCP_TOOL_TIMEOUT_SECONDS",
+    ),
 )
+
+# Each pair of a bound and the bound around it, once, in the order of the chains.
+_PAIRS: Final = list(dict.fromkeys(pair for chain in _CHAINS for pair in pairwise(chain)))
 
 
 class _SilentGitHub(GitHubApiDouble):
@@ -94,7 +107,7 @@ def test_a_host_that_does_not_answer_fails_the_read_at_the_sessions_read_bound(
     )
 
 
-@pytest.mark.parametrize(("inner", "outer"), list(pairwise(_CHAIN)))
+@pytest.mark.parametrize(("inner", "outer"), _PAIRS)
 def test_each_bound_of_the_chain_is_shorter_than_the_bound_around_it(
     inner: str, outer: str
 ) -> None:
