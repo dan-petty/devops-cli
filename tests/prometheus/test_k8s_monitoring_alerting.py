@@ -38,6 +38,7 @@ from devops_cli.config.constants import (
     CONST_SERVICE_METRIC_JOBS,
     CONST_SERVICE_METRIC_WEBHOOK_DELIVERIES,
 )
+from devops_cli.prometheus.client import parse_duration
 from devops_cli.prometheus.promql import selectors
 from devops_cli.telemetry.instruments import (
     AI_REQUESTS_TOTAL,
@@ -74,6 +75,9 @@ ROADMAP_SERVICE_WEBHOOKS_RULE_TESTS = (
 ROADMAP_SERVICE_ACTIVITY_RULE_TESTS = (
     FIXTURES / "prometheus_rules" / "roadmap_service_activity_tests.yaml"
 )
+ROADMAP_SERVICE_ACTIVITY_HOURLY_RULE_TESTS = (
+    FIXTURES / "prometheus_rules" / "roadmap_service_activity_hourly_tests.yaml"
+)
 ROADMAP_SERVICE_ITEMS_RULE_TESTS = (
     FIXTURES / "prometheus_rules" / "roadmap_service_items_tests.yaml"
 )
@@ -98,15 +102,17 @@ ROADMAP_SERVICE_ACTIVITY_GROUP = "roadmap-service-activity"
 ROADMAP_SERVICE_ITEMS_GROUP = "roadmap-service-items"
 # The tools of the stage planner that no run called (#3240).
 ROADMAP_SERVICE_TOOLS_GROUP = "roadmap-service-tools"
-# Each group of the roadmap Service, with the promtool unit tests of its rules.
+# Each group of the roadmap Service, with a file of promtool unit tests of its rules. A group
+# whose cases need two evaluation intervals has one file for each interval.
 ROADMAP_SERVICE_GROUP_TESTS = (
     (ROADMAP_SERVICE_GROUP, ROADMAP_SERVICE_RULE_TESTS),
     (ROADMAP_SERVICE_WEBHOOKS_GROUP, ROADMAP_SERVICE_WEBHOOKS_RULE_TESTS),
     (ROADMAP_SERVICE_ACTIVITY_GROUP, ROADMAP_SERVICE_ACTIVITY_RULE_TESTS),
+    (ROADMAP_SERVICE_ACTIVITY_GROUP, ROADMAP_SERVICE_ACTIVITY_HOURLY_RULE_TESTS),
     (ROADMAP_SERVICE_ITEMS_GROUP, ROADMAP_SERVICE_ITEMS_RULE_TESTS),
     (ROADMAP_SERVICE_TOOLS_GROUP, ROADMAP_SERVICE_TOOLS_RULE_TESTS),
 )
-ROADMAP_SERVICE_GROUPS = tuple(group for group, _ in ROADMAP_SERVICE_GROUP_TESTS)
+ROADMAP_SERVICE_GROUPS = tuple(dict.fromkeys(group for group, _ in ROADMAP_SERVICE_GROUP_TESTS))
 # The page fetches of the Crawl4AI service and its Deployment (#3893).
 CRAWL4AI_GROUP = "crawl4ai"
 # The rules over the OpenTelemetry collector's own telemetry (#1642).
@@ -117,7 +123,7 @@ VALKEY_MEMORY_GROUP = "valkey-memory"
 RESEARCH_GROUP = "research"
 # The rules over the daily USD spend of the hosted models (#4222).
 AI_SPEND_GROUP = "ai-spend"
-# Each group whose rules have promtool unit tests, with the file of its tests.
+# Each group whose rules have promtool unit tests, with a file of its tests.
 RULE_GROUP_TESTS = (
     *ROADMAP_SERVICE_GROUP_TESTS,
     (CRAWL4AI_GROUP, CRAWL4AI_RULE_TESTS),
@@ -126,6 +132,11 @@ RULE_GROUP_TESTS = (
     (RESEARCH_GROUP, RESEARCH_RULE_TESTS),
     (AI_SPEND_GROUP, AI_SPEND_RULE_TESTS),
 )
+RULE_TEST_IDS = [rule_tests.stem for _, rule_tests in RULE_GROUP_TESTS]
+# promtool evaluates the rules of a group once each `evaluation_interval` of a file, from 0 to
+# the last `eval_time` of a case. A case of 150 hours at 1 minute made 9,000 rounds of a group
+# of 4 rules and took 64 s on a CI runner (#4456). The longest case of the other files makes 390.
+MAX_PROMTOOL_ROUNDS = 1_000
 
 # Every series an alert rule may select, by what serves it.
 SERVED_SERIES = frozenset(
@@ -1513,12 +1524,46 @@ def test_promtool_accepts_every_alert_rule(tmp_path: Path) -> None:
     assert result.returncode == 0, result.stdout + result.stderr
 
 
+def _tested_alerts(rule_tests: Path) -> set[str]:
+    """The alerts that the cases of a file of promtool unit tests name."""
+    unit_tests = yaml.safe_load(rule_tests.read_text(encoding="utf-8"))
+    return {
+        case["alertname"]
+        for test in unit_tests["tests"]
+        for case in test.get("alert_rule_test", [])
+    }
+
+
+@pytest.mark.parametrize("group", tuple(dict.fromkeys(group for group, _ in RULE_GROUP_TESTS)))
+def test_the_promtool_files_of_a_group_test_every_alert_of_the_group(group: str) -> None:
+    """The files of promtool unit tests of a group test each of its alerts, and no other."""
+    tested = set().union(
+        *(_tested_alerts(path) for name, path in RULE_GROUP_TESTS if name == group)
+    )
+    assert sorted(tested) == sorted(rule["alert"] for rule in _group(group))
+
+
+@pytest.mark.parametrize(("group", "rule_tests"), RULE_GROUP_TESTS, ids=RULE_TEST_IDS)
+def test_no_promtool_case_evaluates_more_rounds_than_the_budget(
+    group: str, rule_tests: Path
+) -> None:
+    """Each case of a file of promtool unit tests ends within `MAX_PROMTOOL_ROUNDS` evaluations
+    of its group (#4456): its last `eval_time` over the `evaluation_interval` of the file."""
+    unit_tests = yaml.safe_load(rule_tests.read_text(encoding="utf-8"))
+    step = parse_duration(str(unit_tests.get("evaluation_interval", "1m")))
+    rounds = {
+        test["name"]: max(
+            parse_duration(str(case["eval_time"]))
+            for case in (*test.get("alert_rule_test", []), *test.get("promql_expr_test", []))
+        )
+        / step
+        for test in unit_tests["tests"]
+    }
+    assert {name: n for name, n in rounds.items() if n > MAX_PROMTOOL_ROUNDS} == {}, group
+
+
 @pytest.mark.live("promtool")
-@pytest.mark.parametrize(
-    ("group", "rule_tests"),
-    RULE_GROUP_TESTS,
-    ids=[group for group, _ in RULE_GROUP_TESTS],
-)
+@pytest.mark.parametrize(("group", "rule_tests"), RULE_GROUP_TESTS, ids=RULE_TEST_IDS)
 def test_each_unit_tested_rule_fires_on_a_sample_and_stays_quiet_on_a_normal_series(
     group: str, rule_tests: Path, tmp_path: Path
 ) -> None:
@@ -1529,7 +1574,8 @@ def test_each_unit_tested_rule_fires_on_a_sample_and_stays_quiet_on_a_normal_ser
     (#4222).
 
     Each alert fires on a sample series with the labels and annotations it pins, and stays quiet
-    on a normal series, before its wait ends, and on the series it must not count.
+    on a normal series, before its wait ends, and on the series it must not count. Each file
+    tests alerts of its group only.
     """
     unit_tests = yaml.safe_load(rule_tests.read_text(encoding="utf-8"))
     (rule_file,) = unit_tests["rule_files"]
@@ -1538,18 +1584,13 @@ def test_each_unit_tested_rule_fires_on_a_sample_and_stays_quiet_on_a_normal_ser
         yaml.safe_dump({"groups": [g for g in groups if g["name"] == group]}),
         encoding="utf-8",
     )
-    tested = {
-        case["alertname"]
-        for test in unit_tests["tests"]
-        for case in test.get("alert_rule_test", [])
-    }
     copy = tmp_path / rule_tests.name
     copy.write_text(rule_tests.read_text(encoding="utf-8"), encoding="utf-8")
     result = _promtool("test", "rules", copy)
-    assert (sorted(tested), result.returncode) == (
-        sorted(rule["alert"] for rule in _group(group)),
-        0,
-    ), result.stdout + result.stderr
+    assert (
+        sorted(_tested_alerts(rule_tests) - {rule["alert"] for rule in _group(group)}),
+        result.returncode,
+    ) == ([], 0), result.stdout + result.stderr
 
 
 def test_github_requests_high_action_does_not_lower_budget() -> None:
