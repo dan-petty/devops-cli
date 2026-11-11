@@ -1057,6 +1057,41 @@ def test_a_failed_archive_stops_the_item_at_the_archive(job_world: JobWorld) -> 
     assert (applied.stopped, record.get("implement.stopped")) == ((1,), "archive")
     assert "the change has no delta" in job_world.issue_comments()[0]
     assert job_world.pull.ready_calls == []
+    assert record.get("implement.failure") == "ci_infra"
+
+
+# The end of the output of `devops openspec archive` on item #3462: the strict validation refused a
+# spec after the archive moved the change folder (#4503).
+VALIDATION_REFUSED = (
+    "Totals: 258 passed, 1 failed (259 items)\n"
+    "✗ spec/roadmap-stage\n"
+    "  ⚠ [WARNING] requirements[247]: Requirement text is very long (>500 characters).\n"
+)
+
+
+def _archive_then_validation_refuses(call: ProcessCall) -> subprocess.CompletedProcess[str]:
+    archive_effect(call)
+    return subprocess.CompletedProcess(call.argv, 1, stdout="", stderr=VALIDATION_REFUSED)
+
+
+def test_an_archive_that_the_validation_of_the_specs_refuses_is_a_plan_defect(
+    job_world: JobWorld,
+) -> None:
+    """The cause is a spec of the plan, not a test: "1 failed" counts specs (#4503)."""
+    job_world.programs.answer(
+        lambda call: command_text(call).startswith("uv run devops openspec archive"),
+        ProcessAnswer(side_effect=_archive_then_validation_refuses),
+    )
+
+    applied = job_world.run(two_groups())
+
+    _, record = _item(job_world)
+    comment = job_world.issue_comments()[0]
+    assert (applied.stopped, record.get("implement.stopped")) == ((1,), "archive")
+    assert record.get("implement.failure") == "plan_defect"
+    assert "Failure class: `plan_defect`." in comment
+    assert "Action left: `amend`" in comment
+    assert "requirements[247]" in comment
 
 
 def test_the_plan_alone_runs_nothing(job_world: JobWorld) -> None:

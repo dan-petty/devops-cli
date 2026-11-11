@@ -71,6 +71,7 @@ from pydantic import ValidationError as ModelValidationError
 from devops_cli.ai.client.models import AIClientError, AICredentialsError
 from devops_cli.config.commands import BIN_DEVOPS, BIN_GIT, BIN_UV
 from devops_cli.config.constants import (
+    CONST_EXIT_FAILURE,
     CONST_OPENSPEC_ARCHIVE_DIR,
     CONST_OPENSPEC_CHANGES_DIR,
     CONST_ROADMAP_IMPLEMENT_CHECK_LOG_CHARS,
@@ -1224,7 +1225,19 @@ class _ItemRun:
         if change is None or not self._runs(ProjectStep.ARCHIVE):
             return
         self.step = names["archive"]
-        self._program([BIN_UV, "run", BIN_DEVOPS, "openspec", "archive", change.name])
+        try:
+            self._program([BIN_UV, "run", BIN_DEVOPS, "openspec", "archive", change.name])
+        except _StopError as stop:
+            # An archive that moved the change folder and then exited 1 failed the strict
+            # validation of the specs: a spec of the plan is the cause. The output counts specs
+            # ("1 failed"), so its words do not decide the class (#4503).
+            if (
+                stop.status == CONST_EXIT_FAILURE
+                and self._active_change() is None
+                and self._archived_name()
+            ):
+                stop.failure_class = FailureClass.PLAN_DEFECT
+            raise
         self._commit_if_changed(f"docs(openspec): archive the change (#{self.number})")
 
     def _push(self) -> int:

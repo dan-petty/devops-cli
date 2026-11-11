@@ -183,7 +183,7 @@ A stop has a class (`roadmap/failure.py`, #3065). A stop site that knows its cau
 | `test` | `repair` | A test failed |
 | `lint` | `repair` | A lint, format, hook or static check failed |
 | `types` | `repair` | `mypy` or another type check failed |
-| `plan_defect` | `amend` | The plan cannot be run as written: a group step changed no file, its inputs do not fit the window, an archived change holds an unticked task, or the model review of the stage found an open finding. A plan with an open finding stays in draft with `plan/needs-fix` and counts as no staged plan |
+| `plan_defect` | `amend` | The plan cannot be run as written: a group step changed no file, its inputs do not fit the window, an archived change holds an unticked task, the strict validation of the specs refused a spec after the archive moved the change folder (#4503), or the model review of the stage found an open finding. A plan with an open finding stays in draft with `plan/needs-fix` and counts as no staged plan |
 | `premise_false` | `return` | The premise of the Item is false |
 | `oom` | `raise_limit` | A process was killed for memory |
 | `timeout` | `retry` | A command, a model call or the watch of the checks ran out of time |
