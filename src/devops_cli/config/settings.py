@@ -686,6 +686,12 @@ class AIPriceOverride(BaseModel):
         allow_inf_nan=False,
         description="Price of 1,000,000 completion tokens",
     )
+    cache_read_usd_per_million: float | None = Field(
+        default=None,
+        ge=0.0,
+        allow_inf_nan=False,
+        description="Price of 1,000,000 prompt tokens that the provider reads from its cache. Unset, they cost the prompt price",
+    )
 
 
 class AIConfig(BaseModel):

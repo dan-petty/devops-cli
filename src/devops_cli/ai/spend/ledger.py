@@ -934,6 +934,7 @@ def track_request_spend(
     prompt_tokens: int = 0,
     completion_tokens: int = 0,
     reasoning_tokens: int = 0,
+    cache_read_tokens: int = 0,
     cached: bool = False,
     request_type: str = "chat",
     duration_seconds: float = 0.0,
@@ -953,7 +954,9 @@ def track_request_spend(
     no model, for a hosted group, is a hosted call: the asked model prices it, so the cluster
     host does not turn it into local tokens at 0 USD (#3665). The ledger stores where the price came
     from. The tokens carry `local`, and no process sends a price for them: the cluster prices
-    local tokens at one reference for every process (#1672).
+    local tokens at one reference for every process (#1672). ``cache_read_tokens``, the part of
+    ``prompt_tokens`` that the provider read from its cache, costs the cached input rate of the
+    price (#4403).
     """
     from opentelemetry.semconv._incubating.attributes.gen_ai_attributes import (
         GenAiOperationNameValues,
@@ -991,6 +994,7 @@ def track_request_spend(
             request_timestamp=now_utc,
             served_by=served_by,
             served_model=served_model,
+            cache_read_tokens=cache_read_tokens,
         )
     )
     cost = priced.cost_usd if priced else 0.0

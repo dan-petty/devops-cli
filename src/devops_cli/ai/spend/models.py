@@ -19,14 +19,32 @@ class ModelPricing(BaseModel):
 
     prompt_usd_per_million: float = 0.0
     completion_usd_per_million: float = 0.0
+    # The price of a prompt token that the provider reads from its cache. None when the price
+    # names no such rate: then a cached prompt token costs the prompt price (#4403).
+    cache_read_usd_per_million: float | None = None
     source: str = "default"
     updated_at: str | None = None
 
-    def calculate_cost(self, prompt_tokens: int, completion_tokens: int) -> float:
-        """Calculate total USD cost for the given token counts."""
-        prompt_cost = (prompt_tokens / 1_000_000.0) * self.prompt_usd_per_million
+    def calculate_cost(
+        self, prompt_tokens: int, completion_tokens: int, cache_read_tokens: int = 0
+    ) -> float:
+        """Calculate total USD cost for the given token counts.
+
+        `cache_read_tokens` is the part of `prompt_tokens` that the provider read from its cache,
+        as the OpenAI usage (`prompt_tokens_details.cached_tokens`), pydantic-ai and genai-prices
+        count it.
+        """
+        cache_rate = (
+            self.prompt_usd_per_million
+            if self.cache_read_usd_per_million is None
+            else self.cache_read_usd_per_million
+        )
+        new_prompt_cost = (
+            (prompt_tokens - cache_read_tokens) / 1_000_000.0
+        ) * self.prompt_usd_per_million
+        cached_prompt_cost = (cache_read_tokens / 1_000_000.0) * cache_rate
         completion_cost = (completion_tokens / 1_000_000.0) * self.completion_usd_per_million
-        return round(prompt_cost + completion_cost, 6)
+        return round(new_prompt_cost + cached_prompt_cost + completion_cost, 6)
 
 
 class SpendRecord(BaseModel):

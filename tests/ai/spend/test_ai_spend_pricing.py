@@ -815,16 +815,16 @@ def test_a_hosted_group_behind_a_loopback_gateway_is_priced_by_genai_prices(
 def test_a_hosted_group_that_nothing_prices_warns_with_the_command_that_sets_a_price(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """Verify the DeepSeek group, which genai-prices does not list, is hosted at $0 with the
+    """Verify a hosted group whose deployment model nothing prices is hosted at $0 with the
     source `unknown`, and that its one warning names the command that sets a price, and a price
     override of the deployment model prices it."""
-    deepseek = "openrouter/deepseek/deepseek-v4.1-flash-1017:floor"
+    unpriced = "openrouter/example-provider/unpriced-model:floor"
     registry = PricingRegistry(data_dir=tmp_path)
     call = {
-        "model": "deepseek-v4.1-flash-1017",
+        "model": "unpriced-group",
         "server": "127.0.0.1:4200",
         "provider": "gateway",
-        "served_model": deepseek,
+        "served_model": unpriced,
     }
 
     with caplog.at_level(logging.WARNING, logger="devops_cli.ai.spend.pricing"):
@@ -832,7 +832,7 @@ def test_a_hosted_group_that_nothing_prices_warns_with_the_command_that_sets_a_p
         unpriced.append(
             registry.calculate_request_cost(**call, prompt_tokens=10, completion_tokens=1)
         )
-    registry.set_custom_pricing("deepseek-v4.1-flash-1017:floor", 0.05, 0.192)
+    registry.set_custom_pricing("unpriced-model:floor", 0.05, 0.192)
     priced = registry.calculate_request_cost(
         **call, prompt_tokens=1_000_000, completion_tokens=1_000_000
     )

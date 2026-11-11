@@ -7,9 +7,10 @@ import ipaddress
 import json
 import logging
 import re
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, NamedTuple
 from urllib.parse import urlsplit
 
@@ -37,6 +38,33 @@ logger = logging.getLogger(__name__)
 # What genai-prices raises for a model it cannot price: LookupError for a model or provider it
 # does not know, ValueError for a price in a snapshot that is not valid.
 _GENAI_PRICES_UNPRICED_ERRORS: tuple[type[Exception], ...] = (LookupError, ValueError)
+
+_HOSTED_GROUP_PRICE_SOURCE = "builtin:hosted_group_prices"
+# DeepSeek V4.1 Flash 1017 through OpenRouter, on the route `:floor` with fp8 weights and
+# `data_collection: deny` (k8s/llm/gateway/config.yaml). genai-prices 0.1.13 does not know the
+# snapshot, and 0.2.3 gives the list price of DeepSeek (0.30 and 1.20 USD), not the price of the
+# route. These are the rates of the endpoint deepinfra/fp8/flex in the OpenRouter API
+# /api/v1/models/deepseek/deepseek-v4.1-flash-1017/endpoints on 2026-11-11. The cost that
+# OpenRouter reported for the calls of the gateway from 2026-11-08 to 2026-11-11 is within 7% of
+# these rates, and 94% of their prompt tokens came from the cache of the provider (#4403).
+_DEEPSEEK_V4_1_FLASH_1017_PRICE = ModelPricing(
+    prompt_usd_per_million=0.0784,
+    cache_read_usd_per_million=0.002352,
+    completion_usd_per_million=0.2352,
+    source=_HOSTED_GROUP_PRICE_SOURCE,
+)
+# The price of each hosted gateway group that genai-prices does not price, under the route name
+# and under the deployment model of the group. A run of an agent names the route name, which the
+# gateway writes in the reply body; a chat call names the deployment model of the reply header.
+# The model_info of the group in k8s/llm/gateway/config.yaml holds the same rates, and
+# tests/ai/spend/test_hosted_group_prices.py fails when they differ or a hosted group has no
+# price. A price in `ai.price_overrides` or in the file of `set-price` wins over this one.
+_HOSTED_GROUP_PRICES: Mapping[str, ModelPricing] = MappingProxyType(
+    {
+        "deepseek-v4.1-flash-1017": _DEEPSEEK_V4_1_FLASH_1017_PRICE,
+        "openrouter/deepseek/deepseek-v4.1-flash-1017:floor": _DEEPSEEK_V4_1_FLASH_1017_PRICE,
+    }
+)
 
 
 class UpdatePricingResult(NamedTuple):
@@ -401,6 +429,7 @@ class PricingRegistry:
                 name.strip().lower(): ModelPricing(
                     prompt_usd_per_million=price.prompt_usd_per_million,
                     completion_usd_per_million=price.completion_usd_per_million,
+                    cache_read_usd_per_million=price.cache_read_usd_per_million,
                     source="settings:ai.price_overrides",
                 )
                 for name, price in settings.ai.price_overrides.items()
@@ -485,8 +514,12 @@ class PricingRegistry:
             self._overrides = {}
 
     def _get_override_pricing(self, model: str, server: str | None) -> ModelPricing | None:
-        """Resolve custom pricing override if configured for model or server."""
-        overrides = {**self._configured_overrides, **self._overrides}
+        """Resolve the price of a hosted group or a custom pricing override, for model or server.
+
+        The file of `set-price` wins over `ai.price_overrides`, and both win over the built-in
+        price of a hosted group.
+        """
+        overrides = {**_HOSTED_GROUP_PRICES, **self._configured_overrides, **self._overrides}
         m_key = model.strip().lower()
         if m_key in overrides:
             return overrides[m_key]
@@ -574,12 +607,17 @@ class PricingRegistry:
         completion_tokens: int,
         provider: str | None,
         request_timestamp: datetime | None,
+        cache_read_tokens: int = 0,
     ) -> RequestCost | None:
         """The cost of the request at genai-prices' price for its tokens and timestamp; None when
         genai-prices cannot price the model."""
         import genai_prices
 
-        usage = genai_prices.Usage(input_tokens=prompt_tokens, output_tokens=completion_tokens)
+        usage = genai_prices.Usage(
+            input_tokens=prompt_tokens,
+            cache_read_tokens=cache_read_tokens,
+            output_tokens=completion_tokens,
+        )
         candidates = _candidate_models(model)
         prov_id = provider.strip().lower() if provider else None
         req_ts = request_timestamp or datetime.now(UTC)
@@ -606,12 +644,17 @@ class PricingRegistry:
         request_timestamp: datetime | None = None,
         served_by: str | None = None,
         served_model: str | None = None,
+        cache_read_tokens: int = 0,
     ) -> RequestCost:
         """The cost of a request at its real token usage and timestamp, and its pricing source.
 
         A local call costs nothing, whatever override names its model or server (#1631). A
         hosted model that neither an override nor genai-prices prices costs $0 with the source
         `unknown`, and the registry logs one warning for each such model (#1672).
+
+        `cache_read_tokens` is the part of `prompt_tokens` that the provider read from its cache.
+        It costs the cached input rate of the price, or the prompt rate when the price has none
+        (#4403).
 
         `served_model` is the deployment model that a gateway reply names, a LiteLLM model
         reference such as `openai/gpt-4o`. When the reply names it, a hosted call is priced at
@@ -628,11 +671,17 @@ class PricingRegistry:
         override = self._get_override_pricing(model, server)
         if override is not None:
             return RequestCost(
-                override.calculate_cost(prompt_tokens, completion_tokens), override.source
+                override.calculate_cost(prompt_tokens, completion_tokens, cache_read_tokens),
+                override.source,
             )
 
         priced = self._genai_prices_cost(
-            model, prompt_tokens, completion_tokens, provider, request_timestamp
+            model,
+            prompt_tokens,
+            completion_tokens,
+            provider,
+            request_timestamp,
+            cache_read_tokens=cache_read_tokens,
         )
         if priced is not None:
             return priced
@@ -705,6 +754,7 @@ class PricingRegistry:
         if not self._catalog:
             self._catalog = self._build_catalog()
         merged = dict(self._catalog)
+        merged.update(_HOSTED_GROUP_PRICES)
         merged.update(self._configured_overrides)
         merged.update(self._overrides)
         return merged

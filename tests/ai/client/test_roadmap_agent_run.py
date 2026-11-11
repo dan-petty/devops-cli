@@ -43,6 +43,7 @@ from devops_cli.roadmap.agent_run import (
     record_run_spend,
     run_error_message,
 )
+from tests.support.fakes.otlp import FakeCollector
 
 try:
     from devops_cli.roadmap.agent_run import TraceFacts
@@ -495,19 +496,53 @@ def test_a_run_on_a_hosted_group_that_no_reply_names_is_priced_by_the_asked_mode
     assert (served_model, pricing_source, cost > 0) == (asked, source, True)
 
 
-def test_a_run_on_a_hosted_group_with_no_price_warns_and_is_not_local(
+def test_a_run_whose_reply_names_a_model_with_no_price_warns_and_is_not_local(
     spend_ledger: SpendLedger, config: Callable[..., Any], caplog: pytest.LogCaptureFixture
 ) -> None:
-    """Verify the DeepSeek group, which nothing prices, is recorded as hosted at $0 with the
-    source `unknown`, and that the warning names the model (#3665)."""
-    deepseek = "deepseek-v4.1-flash-1017"
+    """Verify a reply that names a model which nothing prices is recorded as hosted at $0 with
+    the source `unknown`, and that the warning names the model (#3665)."""
+    unpriced = "example-provider/unpriced-model"
 
     with caplog.at_level(logging.WARNING, logger="devops_cli.ai.spend.pricing"):
-        _run_on_the_gateway(config, deepseek, None)
+        _run_on_the_gateway(config, "claude-sonnet-5-5", unpriced)
 
-    assert (_spend_row(spend_ledger), [deepseek in r.getMessage() for r in caplog.records]) == (
-        (deepseek, "unknown", 0.0),
+    assert (_spend_row(spend_ledger), [unpriced in r.getMessage() for r in caplog.records]) == (
+        (unpriced, "unknown", 0.0),
         [True],
+    )
+
+
+def test_a_run_on_the_deepseek_group_costs_its_cached_and_new_input_and_its_output(
+    spend_ledger: SpendLedger, config: Callable[..., Any], otlp: FakeCollector
+) -> None:
+    """Verify a run on the group that runs the Service adds its cost to the ledger and to
+    `devops_cli_ai_spend_usd_total` under the route name (#4403). Of 1,000,000 prompt tokens,
+    900,000 come from the cache of the provider: 0.1 x 0.0784 + 0.9 x 0.002352 + 0.1 x 0.2352
+    USD for 100,000 completion tokens."""
+    deepseek = "deepseek-v4.1-flash-1017"
+    config(k8s={"domain": "example.com"}, ai={"gateway_url": _GATEWAY_URL})
+
+    record_run_spend(
+        _GatewayModel(deepseek),  # type: ignore[arg-type]
+        [
+            ModelRequest(parts=[UserPromptPart("go")]),
+            ModelResponse(
+                parts=[TextPart("ok")],
+                usage=RequestUsage(
+                    input_tokens=1_000_000, cache_read_tokens=900_000, output_tokens=100_000
+                ),
+                model_name=deepseek,
+            ),
+        ],
+        0.5,
+        stage="stage",
+    )
+
+    served_model, pricing_source, cost = _spend_row(spend_ledger)
+    points = [(a["model"], round(v, 6)) for a, v in otlp.points("devops_cli_ai_spend_usd_total")]
+    assert ((served_model, pricing_source, round(cost, 6)), points) == (
+        (deepseek, "builtin:hosted_group_prices", 0.033477),
+        [(deepseek, 0.033477)],
     )
 
 
@@ -527,4 +562,8 @@ def test_a_reply_that_names_a_model_keeps_that_name_for_the_price(
     DeepSeek answers is priced as DeepSeek (#3665)."""
     _run_on_the_gateway(config, "claude-sonnet-5-5", "deepseek-v4.1-flash-1017")
 
-    assert _spend_row(spend_ledger) == ("deepseek-v4.1-flash-1017", "unknown", 0.0)
+    served_model, pricing_source, _cost = _spend_row(spend_ledger)
+    assert (served_model, pricing_source) == (
+        "deepseek-v4.1-flash-1017",
+        "builtin:hosted_group_prices",
+    )
