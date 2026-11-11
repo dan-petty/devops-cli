@@ -16,6 +16,15 @@ from tests.support.fakes.qdrant import serving_qdrant
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
+HIDDEN = "..hidden"
+"""The marker in each part of a test URL that a span must not show: the userinfo, the path and the
+query.
+
+The tracer adds the branch name of the checkout to each span. Git refuses `..` in a branch name
+(`git check-ref-format`), and a URL encoder does not change `.`, so a span holds the marker only
+when it shows a hidden part of the URL, on every branch (#4358).
+"""
+
 
 @pytest.fixture(autouse=True)
 def _mock_example_com_dns(dns: DnsFake) -> None:
@@ -43,10 +52,16 @@ def _upsert_span_attributes(url: str, otlp: FakeCollector) -> dict[str, Any]:
     ("url", "server"),
     [
         ("http://example.com:6333", ("example.com", 6333)),
-        ("http://user:secret@example.com:6333/prefix/path", ("example.com", 6333)),
-        ("https://token@example.com", ("example.com", 443)),
+        (
+            "http://login..hidden:password..hidden@example.com:6333/prefix..hidden/path",
+            ("example.com", 6333),
+        ),
+        ("https://token..hidden@example.com", ("example.com", 443)),
         ("k8s://devops/qdrant:6333", ("qdrant.devops", 6333)),
-        ("k8s+https://user:secret@devops/qdrant:6333/path?q=secret", ("qdrant.devops", 6333)),
+        (
+            "k8s+https://login..hidden:password..hidden@devops/qdrant:6333/path..hidden?q=query..hidden",
+            ("qdrant.devops", 6333),
+        ),
         ("k8s://devops/qdrant:http", ("qdrant.devops", None)),
         ("k8s://devops", ("unknown", None)),
     ],
@@ -70,7 +85,7 @@ def test_upsert_span_names_the_server_by_host_and_port(
     assert not [
         value
         for value in attributes.values()
-        if any(text in str(value) for text in ("secret", "token", "user", "/prefix", "://"))
+        if any(text in str(value) for text in (HIDDEN, "://"))
     ]
 
 
