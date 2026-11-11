@@ -12,6 +12,6 @@
 
 - A setting in `config.yaml` for the read bound: rejected. GitHub's own 10 s limit does not change for each user, and the connect bound is a constant too.
 - A lower default read bound for every client of the entry point: rejected. Downloads of release archives and model replies need long reads (`DEFAULT_HTTP_TIMEOUT_SECONDS`, "API requests & downloads"), and the item asks to keep them.
-- The MCP tool call (30 s) in the chain: rejected. The design of the project brain lists it between the GitHub read and the reference step, but an MCP tool call does not hold a GitHub session read, and 30 s is shorter than 60 s. The issue leaves it out of the chain.
+- The MCP tool call (30 s) in the chain: rejected. The design of the project brain lists it between the GitHub read and the reference step, and the issue leaves it out of the chain. This was wrong: `resource://gh/issues/status` holds a GitHub session read, and its bound of 30 s was shorter than the read. #4678 gives the `resource://gh/` resources `DEFAULT_MCP_TOOL_TIMEOUT_SECONDS` (300 s) and adds their chain to the test.
 - A bound on the write of the session: out of scope. The item names the read, and `request_timeout` sets the write bound for every client of the entry point.
 - A test that shows the read through `WebFake.time_out` only: rejected. The fake raises `ReadTimeout` at once and does not show that the client's bound reaches the socket.

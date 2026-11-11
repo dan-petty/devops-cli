@@ -9,7 +9,7 @@
 
 ## 2. Documents
 
-- [ ] 2.1 Name the calls that the read bound is shorter than in ADR 0006 (Client), and correct the rejected alternative of the MCP tool call in the archived design of #4626
+- [x] 2.1 Name the calls that the read bound is shorter than in ADR 0006 (Client), and correct the rejected alternative of the MCP tool call in the archived design of #4626
   - Verification: `$ uv run devops ci docs`
 
 ## Workflow follow-up
