@@ -1054,7 +1054,6 @@ DEFAULT_SHELL_STOP_POLL_SECONDS: Final[float] = 0.05
 
 # ── Service Mode Defaults ─────────────────────────────────────────────────────
 DEFAULT_SERVICE_POLL_INTERVAL_SECONDS: Final[int] = 151
-DEFAULT_SERVICE_DRAIN_TIMEOUT_SECONDS: Final[int] = 120
 # The GitHub requests the Service sends in any one hour, all repositories together (#2161). GitHub
 # suspended the roadmap's former machine account at 800 to 1,700 requests an hour, so the default
 # stays under that.

@@ -206,6 +206,7 @@ from devops_cli.roadmap.refine.refine_investigation import (
     analysis_window,
     investigate,
 )
+from devops_cli.roadmap.service_stop import raise_if_service_stops
 from devops_cli.roadmap.stores.store import (
     AlternativesRecordKey,
     ChangeKind,
@@ -2678,6 +2679,7 @@ def plan_refine(
     refined: list[RefinedItem] = []
     failed: list[RefineFailure] = []
     for cand in candidates:
+        raise_if_service_stops(f"the refine of #{cand.number}")
         try:
             res = refine_one_item(
                 store,

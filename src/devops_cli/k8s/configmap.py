@@ -30,7 +30,6 @@ _BlockDumper.add_representer(str, _represent_text)
 def _service_block(
     repos: Sequence[str],
     github_app: GitHubAppConfig,
-    drain_timeout_seconds: int | None,
     poll_interval_seconds: int | None,
     github_requests_per_hour: int | None,
 ) -> dict[str, Any]:
@@ -48,7 +47,6 @@ def _service_block(
         "github_app": github_app.model_dump(mode="json", exclude={"token_repository"}),
     }
     optional = {
-        "drain_timeout_seconds": drain_timeout_seconds,
         "poll_interval_seconds": poll_interval_seconds,
         "github_requests_per_hour": github_requests_per_hour,
     }
@@ -60,7 +58,6 @@ def render_devops_configmap_content(
     template_content: str,
     repos: Sequence[str],
     github_app: GitHubAppConfig,
-    drain_timeout_seconds: int | None = None,
     poll_interval_seconds: int | None = None,
     github_requests_per_hour: int | None = None,
 ) -> str:
@@ -79,7 +76,7 @@ def render_devops_configmap_content(
             "Could not locate standard service configuration block in devops ConfigMap template."
         )
     config["service"] = _service_block(
-        repos, github_app, drain_timeout_seconds, poll_interval_seconds, github_requests_per_hour
+        repos, github_app, poll_interval_seconds, github_requests_per_hour
     )
     Settings.model_validate(config)
     data[_CONFIG_KEY] = yaml.dump(config, Dumper=_BlockDumper, sort_keys=False)
@@ -142,7 +139,6 @@ def render_active_devops_configmap(
     effective_repos = _configured_repos(active_settings)
     github_app = _configured_app(active_settings)
 
-    drain_timeout = active_settings.service.drain_timeout_seconds
     poll_interval = active_settings.service.poll_interval_seconds
     # The Service keeps its own default unless a source sets the budget: the ConfigMap copies no
     # default into the cluster (#2755).
@@ -157,7 +153,6 @@ def render_active_devops_configmap(
         template_text,
         repos=effective_repos,
         github_app=github_app,
-        drain_timeout_seconds=drain_timeout,
         poll_interval_seconds=poll_interval,
         github_requests_per_hour=budget,
     )

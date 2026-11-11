@@ -165,6 +165,7 @@ from devops_cli.roadmap.refine.refine import (
     stage_comment_text,
 )
 from devops_cli.roadmap.refine.refine_investigation import task_window
+from devops_cli.roadmap.service_stop import raise_if_service_stops
 from devops_cli.roadmap.stage.stage_change import (
     CHANGE_TASK,
     MeasuredGroup,
@@ -1765,13 +1766,15 @@ def _plan_each(
     list[StagedChange], list[OverBudget], list[StageFailure], list[Blocked], list[FalsePremise]
 ]:
     """Plan each target in order. With a `writer`, the result of a target is written as soon as the
-    target is done, before the next target is planned (#4034)."""
+    target is done, before the next target is planned (#4034). Once the Service stops, no next
+    target starts, and the stop ends the round (#4485)."""
     ready: list[StagedChange] = []
     stopped: list[OverBudget] = []
     failed: list[StageFailure] = []
     blocked: list[Blocked] = []
     premise: list[FalsePremise] = []
     for target in targets:
+        raise_if_service_stops(f"the plan of #{target.item.number}")
         result: StagedChange | OverBudget | Blocked | FalsePremise | StageFailure
         try:
             result = planner.plan(target)

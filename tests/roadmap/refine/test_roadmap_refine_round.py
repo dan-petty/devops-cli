@@ -21,6 +21,7 @@ import pytest
 from devops_cli.exceptions import RoadmapRefineError, ServiceStoppingError
 from devops_cli.roadmap.refine.refine import plan_refine
 from devops_cli.roadmap.run import _run_refine_adapter
+from devops_cli.roadmap.service_stop import begin_service_stop, reset_service_stop
 from devops_cli.roadmap.stores.store import ItemField
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.service_stop import stop_error
@@ -145,6 +146,34 @@ def test_a_round_that_stops_in_item_three_keeps_items_one_and_two_and_the_next_r
             f"Refine round for {REPO} ended: taken=3, written=2, failed=0.",
         ],
     )
+
+
+def test_a_stop_during_item_one_writes_item_one_and_the_next_round_takes_the_others(
+    git_repo: Path, model_fake: ModelFake
+) -> None:
+    """The Service gets SIGTERM while it refines item 1. Item 1 runs on to its write, then no next
+    item starts, and the round ends with the stop. The next round takes items 2 and 3 (#4485)."""
+    store = InMemoryRoadmapStore(repo=REPO)
+    first, second, third = _seed_three(store)
+
+    def ready(_prompt: str) -> str:
+        begin_service_stop()
+        return _READY
+
+    model_fake.answer(ready)
+    with pytest.raises(ServiceStoppingError) as stopped:
+        _run_refine_adapter(store, repo=REPO, clone_path=git_repo)
+    after_stop = _statuses(store, [first, second, third])
+    reset_service_stop()
+    asked = model_fake.call_count
+    model_fake.answer(_READY)
+    _run_refine_adapter(store, repo=REPO, clone_path=git_repo)
+
+    assert (
+        stopped.value.error_code,
+        after_stop,
+        [json.loads(call.prompt)["number"] for call in model_fake.calls[asked:]],
+    ) == ("SERVICE_STOPPING", ["Ready", "New", "New"], [second, third])
 
 
 def test_a_write_that_fails_costs_the_other_items_nothing_and_the_round_logs_its_counts(

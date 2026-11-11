@@ -17,6 +17,7 @@ from devops_cli.config.constants import (
 from devops_cli.exceptions import (
     RoadmapRunError,
     ServiceStoppingError,
+    ended_by_stop,
 )
 from devops_cli.roadmap.run import (
     JobOutcome,
@@ -24,6 +25,7 @@ from devops_cli.roadmap.run import (
     run_scoped_update,
     service_jobs,
 )
+from devops_cli.roadmap.service_stop import begin_service_stop, reset_service_stop
 from devops_cli.telemetry.metrics import GLOBAL_METRICS
 from tests.support.roadmap_run import (
     NOW,
@@ -94,6 +96,44 @@ def test_a_row_that_the_stop_of_the_service_ends_counts_as_stopped(
         _job_count(CONST_SERVICE_LANE_STATUS, "implement", "stopped"),
         _job_count(CONST_SERVICE_LANE_STATUS, "implement", "error"),
     ) == (["implement"], 1, 0)
+
+
+@pytest.mark.usefixtures("roadmap_bot")
+def test_no_row_starts_once_the_service_stops_and_the_next_round_runs_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The stop of the Service falls in the first row. The round starts no next row and ends with
+    the stop, so the row that did not start counts no job and no failure, stays due, and the
+    round of the next pod runs it (#4485)."""
+    GLOBAL_METRICS.reset()
+    github = service_github(labeled_changes(2, "alice"))
+    serve_over(tmp_path, monkeypatch, github, stamped=False)
+    ran: list[str] = []
+
+    def stops(**_: object) -> JobOutcome:
+        ran.append("metrics")
+        begin_service_stop()
+        return JobOutcome()
+
+    def implement(**_: object) -> JobOutcome:
+        ran.append("implement")
+        return JobOutcome()
+
+    table = build_stub_table({"metrics": stops, "implement": implement})
+    with pytest.raises(ServiceStoppingError) as ended:
+        service_jobs(tmp_path)[CONST_SERVICE_LANE_STATUS](POLL, table=table)
+    counted = [
+        _job_count(CONST_SERVICE_LANE_STATUS, "implement", result)
+        for result in ("success", "error", "stopped")
+    ]
+    reset_service_stop()
+    service_jobs(tmp_path)[CONST_SERVICE_LANE_STATUS](POLL, table=table)
+
+    assert (ended_by_stop(ended.value), counted, ran) == (
+        True,
+        [0, 0, 0],
+        ["metrics", "implement"],
+    )
 
 
 @pytest.mark.parametrize(

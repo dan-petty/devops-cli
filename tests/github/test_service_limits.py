@@ -396,6 +396,19 @@ def test_a_request_the_budget_has_no_room_for_ends_when_the_budget_is_closed() -
     assert (raised.value.details, budget.spent()) == ({"limit": 2}, 2)
 
 
+def test_a_cut_budget_refuses_a_request_that_the_window_has_room_for() -> None:
+    """At the end of the drain wait the budget refuses every request, so a round still in flight
+    ends at its next request through the stop path."""
+    budget = RequestBudget(_Clock(), 100)
+    _send(budget, 1)
+    budget.cut()
+
+    with pytest.raises(exceptions.ServiceStoppingError) as raised:
+        budget.admit()
+
+    assert (exceptions.ended_by_stop(raised.value), budget.spent()) == (True, 1)
+
+
 def test_the_requests_of_a_session_are_admitted_by_the_service_budget(
     github_api: GitHubApiFake,
 ) -> None:

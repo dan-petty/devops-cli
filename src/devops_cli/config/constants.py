@@ -1605,6 +1605,16 @@ CONST_SERVICE_CHAT_RESULT_UNKNOWN_REPO: Final[str] = "unknown_repo"
 CONST_SERVICE_CHAT_RESULT_ERROR: Final[str] = "error"
 # The Service's window for its GitHub request budget (#2161).
 CONST_SERVICE_BUDGET_WINDOW_SECONDS: Final[int] = 3600
+# The stop of the Service in two bounded phases (#4485). On SIGTERM no round, row or item
+# starts, and the rounds in flight get the drain wait to end. In 14 days to 2026-11-11, 91% of
+# the 403 stage plan steps ended within 600 s (mean 299 s, 98% within 900 s), and the time left
+# of the item that a stop falls in is longer than 600 s for about 7% of stops. Then the request
+# budget refuses each GitHub request, and a round still in flight ends at its next request
+# through the stop path within the cut wait. The grace period of the pod covers both waits and
+# the exit: `terminationGracePeriodSeconds` of k8s/devops/roadmap-service/deployment.yaml.
+CONST_SERVICE_STOP_DRAIN_SECONDS: Final[int] = 600
+CONST_SERVICE_STOP_CUT_SECONDS: Final[int] = 30
+CONST_SERVICE_STOP_GRACE_SECONDS: Final[int] = 660
 # What the Service keeps on its volume so that a restart does not clear it (#2474), each a file in
 # the `roadmap` directory of the data directory, beside each repository's `schedule.json`: the
 # halt after GitHub refused the identity, the requests of the budget window, and the ledger of

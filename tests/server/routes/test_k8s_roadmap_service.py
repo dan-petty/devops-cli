@@ -11,7 +11,12 @@ import pytest
 import yaml
 from kubernetes.utils.quantity import parse_quantity
 
-from devops_cli.config.constants import WebhookExposure
+from devops_cli.config.constants import (
+    CONST_SERVICE_STOP_CUT_SECONDS,
+    CONST_SERVICE_STOP_DRAIN_SECONDS,
+    CONST_SERVICE_STOP_GRACE_SECONDS,
+    WebhookExposure,
+)
 from devops_cli.config.settings import Settings
 from devops_cli.server.routes.webhooks import WEBHOOK_PROVIDERS
 from devops_cli.telemetry.exporter import OtlpSignal
@@ -81,8 +86,19 @@ def test_deployment_spec_and_container() -> None:
         True,
         True,
         "roadmap-service",
-        150,
+        CONST_SERVICE_STOP_GRACE_SECONDS,
     )
+
+
+def test_the_grace_period_covers_both_waits_of_the_stop_and_no_hook_uses_it_first() -> None:
+    """Kubernetes kills the pod at the end of its grace period, so the period covers the drain
+    wait and the cut wait of the stop. uvicorn starts the drain on SIGTERM, and a preStop hook
+    would use the period first (#4485)."""
+    assert (
+        CONST_SERVICE_STOP_GRACE_SECONDS
+        > CONST_SERVICE_STOP_DRAIN_SECONDS + CONST_SERVICE_STOP_CUT_SECONDS,
+        "lifecycle" in _container(),
+    ) == (True, False)
 
 
 def test_deployment_memory_is_sized_for_the_observed_growth() -> None:
