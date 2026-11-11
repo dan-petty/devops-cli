@@ -475,6 +475,28 @@ def test_span_vcs_and_k8s_attributes_detection(
     reset_tracer()
 
 
+def test_a_pod_names_its_cluster_and_namespace_from_its_environment(
+    monkeypatch: pytest.MonkeyPatch, collector: str
+) -> None:
+    """The devops-cli pods of k8s/devops set K8S_CONTEXT and POD_NAMESPACE: the resource names
+    the cluster, and each span names the namespace."""
+    monkeypatch.delenv("K8S_NAMESPACE", raising=False)
+    monkeypatch.setenv("K8S_CONTEXT", "example-cluster")
+    monkeypatch.setenv("POD_NAMESPACE", "example-namespace")
+    reset_tracer()
+    client = OTelTelemetryClient(endpoint=collector, enabled=True)
+    resource = {
+        attr["key"]: attr["value"].get("stringValue") for attr in client._cached_resource_attributes
+    }
+    with client.span("pod_span") as handle:
+        namespace = handle._attributes.get("k8s.namespace.name")
+    reset_tracer()
+    assert (resource.get("k8s.cluster.name"), namespace) == (
+        "example-cluster",
+        "example-namespace",
+    )
+
+
 def test_cached_resource_attributes_enrichment() -> None:
     """Verify OTelTelemetryClient pre-computes enriched system and environment resource attributes."""
     client = OTelTelemetryClient(enabled=True)

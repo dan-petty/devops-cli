@@ -65,6 +65,15 @@ spec:
                 # jobs.
                 - name: OTEL_SERVICE_NAME
                   value: devops-cli-job
+                # The spans and the log records name the cluster (`k8s.cluster.name`) and the
+                # namespace (`k8s.namespace.name`) from these two values. The cluster name is the
+                # name in k8s/monitoring/k8s-monitoring-values.yaml; without it, they name
+                # minikube. The admission policy `roadmap-service-jobs` refuses `valueFrom` in a
+                # Job of the Service, so the namespace is a plain value.
+                - name: K8S_CONTEXT
+                  value: homelab-k3s
+                - name: POD_NAMESPACE
+                  value: devops
                 # `pytest-xdist` starts one worker for each CPU of the node, not of the pod
                 # (`-n logical`, 280 MB each). On a node with 48 CPUs that is about 13 GB in a pod
                 # with 2 CPUs (#2806). The value equals the CPU limit; a test checks it. The shell
