@@ -642,13 +642,6 @@ DEFAULT_PROBE_POD_LIFETIME_SECONDS: int = 600
 DEFAULT_SIGNATURE_BODY: str = "..."
 DEFAULT_TOOL_INTERFACE_FORMAT: Literal["python", "markdown"] = "python"
 DEFAULT_PROJECT_VERSION: str = "0.1.0"
-DEFAULT_PYTHON_REQUIRES: str = ">=3.14"
-# The checks a generated AGENTS.md names before a push when the project has no pre-push hook.
-DEFAULT_AGENTS_MD_CHECK_COMMANDS: tuple[str, ...] = (
-    "uv run pytest",
-    "uv run ruff check",
-    "uv run mypy src",
-)
 
 DEFAULT_FINDING_STATUS: str = "UNVERIFIED"
 DEFAULT_SYNTHESIZED_TEST_STATUS: str = "UNEXECUTED"

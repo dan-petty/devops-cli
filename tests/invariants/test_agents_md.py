@@ -6,7 +6,7 @@ import json
 import re
 import tomllib
 from collections import deque
-from itertools import pairwise
+from itertools import pairwise, takewhile
 from pathlib import Path
 from typing import Final
 from urllib.parse import unquote, urlsplit
@@ -17,6 +17,7 @@ from mdit_py_plugins.anchors import anchors_plugin
 
 from devops_cli.ai.instruction_generator import (
     POINTER_STUBS,
+    generate_agents_md,
     generate_instruction_content,
     parse_project_metadata,
     scaffold_agent_instructions,
@@ -181,6 +182,71 @@ def test_agents_md_stays_within_character_budget(tmp_path: Path) -> None:
         len((REPO_ROOT / "AGENTS.md").read_text(encoding="utf-8")) <= CONST_AGENTS_MD_MAX_CHARS,
         len(generated) <= CONST_AGENTS_MD_MAX_CHARS,
     ) == (True, True, True)
+
+
+# The rules of AGENTS.md that only devops-cli has, so the template of `devops ai agents` does
+# not hold them: its writing standard (owner decision D2 of #1961) and its decision model, Jev.
+CONST_DEVOPS_CLI_ONLY_RULES: Final[frozenset[str]] = frozenset(
+    {
+        "Write prose in ASD-STE100",
+        "Use a decision model for a closed choice, a generative model for text",
+    }
+)
+
+
+def _bold_start(inline: Token) -> str | None:
+    """The bold text that starts an inline token, less its end mark, or None."""
+    children = [child for child in inline.children or [] if child.content or child.markup]
+    if not children or children[0].type != "strong_open":
+        return None
+    bold = takewhile(lambda child: child.type != "strong_close", children[1:])
+    return "".join(
+        f"`{child.content}`" if child.type == "code_inline" else child.content for child in bold
+    ).rstrip(".:")
+
+
+def _rule_titles(markdown: str) -> list[str]:
+    """The bold title of each numbered rule under `## Rules for every task`."""
+    tokens = MarkdownIt().parse(markdown)
+    start = next(i for i, token in enumerate(tokens) if token.content == "Rules for every task")
+    end = next(i for i in range(start, len(tokens)) if tokens[i].type == "ordered_list_close")
+    titles = (_bold_start(token) for token in tokens[start + 1 : end] if token.type == "inline")
+    return [title for title in titles if title is not None]
+
+
+def _rule_drift(agents_md: str, generated: str) -> tuple[list[str], list[str]]:
+    """The rule titles of `agents_md` that neither `generated` nor the devops-cli list holds, and
+    the rule titles of `generated` that `agents_md` does not hold."""
+    ours, template = _rule_titles(agents_md), _rule_titles(generated)
+    return (
+        [title for title in ours if title not in template + list(CONST_DEVOPS_CLI_ONLY_RULES)],
+        [title for title in template if title not in ours],
+    )
+
+
+def test_the_template_holds_each_rule_of_agents_md_that_is_not_only_for_devops_cli() -> None:
+    """The template of `devops ai agents`, rendered for devops-cli, has the rule titles of
+    AGENTS.md, less the rules that only devops-cli has, so a new rule reaches the template or
+    the list on purpose (#4641). The test compares titles, not bytes: AGENTS.md is near its cap."""
+    agents_md = (REPO_ROOT / "AGENTS.md").read_text(encoding="utf-8")
+    generated = generate_agents_md(parse_project_metadata(REPO_ROOT))
+    assert (
+        _rule_drift(agents_md, generated),
+        len(_rule_titles(generated)) >= 10,
+    ) == (([], []), True)
+
+
+def test_a_rule_title_added_only_to_agents_md_is_reported() -> None:
+    """A rule title that AGENTS.md adds, and that is not in the template or in the devops-cli
+    list, is reported; a title of the devops-cli list is not (#4641)."""
+    agents_md = (
+        "## Rules for every task\n\n"
+        "1. **Fix the cause.** Text.\n"
+        "2. **Pin every tool.** Text.\n"
+        "3. **Write prose in ASD-STE100** for text.\n"
+    )
+    generated = "## Rules for every task\n\n1. **Fix the cause.** Text.\n2. **Back up.** Text.\n"
+    assert _rule_drift(agents_md, generated) == (["Pin every tool"], ["Back up"])
 
 
 def test_agents_md_premise_rule_closes_superseded_issues() -> None:

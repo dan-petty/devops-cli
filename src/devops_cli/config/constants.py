@@ -209,6 +209,14 @@ CONST_AGENTS_MD_ROUTES: Final[tuple[tuple[str, str], ...]] = (
     ("k8s/README.md", "change a manifest or the cluster"),
 )
 CONST_PYPROJECT_FILENAME = "pyproject.toml"
+# The manifests that a generated AGENTS.md detects, each with the language whose toolchain it
+# names, in the order of its toolchain line. A project with none of them gets no toolchain line.
+CONST_AGENTS_MD_MANIFESTS: Final[tuple[tuple[str, str], ...]] = (
+    (CONST_PYPROJECT_FILENAME, "Python"),
+    ("Cargo.toml", "Rust"),
+    ("package.json", "Node.js"),
+    ("go.mod", "Go"),
+)
 CONST_UV_LOCK_FILENAME = "uv.lock"
 # The two files `npm ci` installs a Node tool from: the manifest naming its one dependency at an
 # exact version, and the lockfile that records the sha512 of every package that version needs.

@@ -188,15 +188,24 @@ def ai_main(
 _AI_TASKS = ("chat", "metadata", "analysis", "verification", "compose", "embedding", "implement")
 
 
-def _get_agents_task_addendum(meta: ProjectMetadata) -> str:
-    """The AGENTS.md task: the size cap, and the documents that exist for the table to route to."""
+def _agents_system_prompt(meta: ProjectMetadata) -> str:
+    """The system prompt of the AGENTS.md task: the size cap, the detected toolchains and
+    pre-push checks, and the documents that exist for the table to route to."""
     from devops_cli.ai.task_loader import load_task_prompt
 
-    documents = ", ".join(f"`{path}`" for path in meta.routed_documents) or "none"
+    facts = {
+        "{toolchains}": ", ".join(
+            f"{language} `{version}`" if version else language
+            for language, version in meta.toolchains
+        ),
+        "{checks}": ", ".join(f"`{command}`" for command in meta.check_commands),
+        "{documents}": ", ".join(f"`{path}`" for path in meta.routed_documents),
+        "{max_chars}": str(CONST_AGENTS_MD_MAX_CHARS),
+    }
     task = load_task_prompt("generate_agents.md")
-    return "\n" + task.replace("{documents}", documents).replace(
-        "{max_chars}", str(CONST_AGENTS_MD_MAX_CHARS)
-    )
+    for placeholder, value in facts.items():
+        task = task.replace(placeholder, value or "none")
+    return task
 
 
 # =============================================================================
@@ -900,13 +909,11 @@ def _generate_agents_content(repo: Path, template: bool) -> str:
         print_warning(f"LLM unavailable ({exc}), falling back to template.", prefix=False)
         return generate_agents_md(meta)
 
-    from devops_cli.ai.personas import PERSONAS, Persona
-
     print_info(
         MESSAGES.ai.generating_agents.format(target=f"[cyan]{CONST_AGENTS_MD_FILENAME}[/cyan]"),
         prefix=False,
     )
-    system = PERSONAS[Persona.ARCHITECT].system_prompt + _get_agents_task_addendum(meta)
+    system = _agents_system_prompt(meta)
     try:
         content = client.chat(system=system, user=_agent_prompt(context, CONST_AGENTS_MD_FILENAME))
     except Exception as exc:

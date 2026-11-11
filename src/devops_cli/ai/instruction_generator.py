@@ -12,22 +12,21 @@ import logging
 import subprocess
 import tomllib
 from pathlib import Path, PurePosixPath
-from typing import Any
+from typing import Any, Literal
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field
 
 from devops_cli.config.constants import (
     CONST_AGENTS_MD_FILENAME,
+    CONST_AGENTS_MD_MANIFESTS,
     CONST_AGENTS_MD_ROUTES,
+    CONST_OPENSPEC_CONFIG_PATH,
     CONST_PRE_COMMIT_CONFIG_FILENAME,
     CONST_PRE_COMMIT_PRE_PUSH_STAGE,
+    CONST_PYPROJECT_FILENAME,
 )
-from devops_cli.config.defaults import (
-    DEFAULT_AGENTS_MD_CHECK_COMMANDS,
-    DEFAULT_PROJECT_VERSION,
-    DEFAULT_PYTHON_REQUIRES,
-)
+from devops_cli.config.defaults import DEFAULT_PROJECT_VERSION
 from devops_cli.core.templating import render_template
 
 logger = logging.getLogger(__name__)
@@ -85,16 +84,28 @@ class ProjectMetadata(BaseModel):
     name: str
     description: str = ""
     version: str = DEFAULT_PROJECT_VERSION
-    requires_python: str = DEFAULT_PYTHON_REQUIRES
+    # The `requires-python` range of `pyproject.toml`, empty when the file does not declare one.
+    requires_python: str = ""
     entry_point: str = ""
     dependencies: list[str] = Field(default_factory=list)
     dev_dependencies: list[str] = Field(default_factory=list)
+    # The manifests of `CONST_AGENTS_MD_MANIFESTS` that exist in the project, in its order.
+    manifests: list[str] = Field(default_factory=list)
+    # The plan system: `openspec` when `openspec/config.yaml` exists.
+    plan_system: Literal["openspec", "none"] = "none"
     # The paths of `CONST_AGENTS_MD_ROUTES` that exist in the project, in the order of its table.
     routed_documents: list[str] = Field(default_factory=list)
-    # The commands the project runs before a push: its pre-push hooks, or the uv defaults.
-    check_commands: list[str] = Field(
-        default_factory=lambda: list(DEFAULT_AGENTS_MD_CHECK_COMMANDS)
-    )
+    # The commands of the pre-push hooks of the project; none when it has no such hook.
+    check_commands: list[str] = Field(default_factory=list)
+
+    @property
+    def toolchains(self) -> list[tuple[str, str]]:
+        """The language of each manifest, with the `requires-python` range for Python."""
+        return [
+            (language, self.requires_python if manifest == CONST_PYPROJECT_FILENAME else "")
+            for manifest, language in CONST_AGENTS_MD_MANIFESTS
+            if manifest in self.manifests
+        ]
 
 
 def _extract_pyproject_deps(data: dict[str, Any]) -> tuple[list[str], list[str]]:
@@ -121,7 +132,7 @@ def _extract_pyproject_meta(
     name = str(project.get("name", default_name))
     desc = str(project.get("description", default_desc))
     ver = str(project.get("version", DEFAULT_PROJECT_VERSION))
-    req_py = str(project.get("requires-python", DEFAULT_PYTHON_REQUIRES))
+    req_py = str(project.get("requires-python", ""))
     entry = ""
     scripts = project.get("scripts")
     if isinstance(scripts, dict) and scripts:
@@ -160,14 +171,15 @@ def _pre_push_commands(repo_path: Path) -> list[str]:
 
 
 def parse_project_metadata(repo_path: Path) -> ProjectMetadata:
-    """Extract structured metadata from pyproject.toml and repository structure."""
+    """Extract structured metadata from the manifests, the pre-push hooks and the documents of
+    the project. Only `pyproject.toml` gives the name, the version and the dependencies."""
     resolved_path = repo_path.resolve()
-    pyproject_file = resolved_path / "pyproject.toml"
+    pyproject_file = resolved_path / CONST_PYPROJECT_FILENAME
 
     name = resolved_path.name
     description = f"{name} workspace tooling and development environment."
     version = DEFAULT_PROJECT_VERSION
-    requires_python = DEFAULT_PYTHON_REQUIRES
+    requires_python = ""
     entry_point = ""
     dependencies: list[str] = []
     dev_dependencies: list[str] = []
@@ -193,10 +205,18 @@ def parse_project_metadata(repo_path: Path) -> ProjectMetadata:
         entry_point=entry_point,
         dependencies=dependencies,
         dev_dependencies=dev_dependencies,
+        manifests=[
+            manifest
+            for manifest, _language in CONST_AGENTS_MD_MANIFESTS
+            if (resolved_path / manifest).is_file()
+        ],
+        plan_system="openspec"
+        if (resolved_path / CONST_OPENSPEC_CONFIG_PATH).is_file()
+        else "none",
         routed_documents=[
             path for path, _task in CONST_AGENTS_MD_ROUTES if (resolved_path / path).exists()
         ],
-        check_commands=_pre_push_commands(resolved_path) or list(DEFAULT_AGENTS_MD_CHECK_COMMANDS),
+        check_commands=_pre_push_commands(resolved_path),
     )
 
 
@@ -223,14 +243,16 @@ def generate_pointer_stub(
 
 
 def generate_agents_md(meta: ProjectMetadata) -> str:
-    """Generate the router AGENTS.md of a project: its purpose, the rules for every task, and a
-    row for each routed document that exists in it."""
+    """Generate the router AGENTS.md of a project: its purpose, its toolchains, the rules for
+    every task, and a row for each routed document that exists in it."""
     tasks = dict(CONST_AGENTS_MD_ROUTES)
     return render_template(
         "AGENTS.md.j2",
         name=meta.name,
         description=meta.description,
-        requires_python=meta.requires_python,
+        toolchains=meta.toolchains,
+        python=CONST_PYPROJECT_FILENAME in meta.manifests,
+        plan_system=meta.plan_system,
         entry_point=meta.entry_point,
         check_commands=meta.check_commands,
         routes=[(path, tasks[path]) for path in meta.routed_documents if path in tasks],
@@ -265,10 +287,11 @@ def collect_project_context(repo: Path) -> str:
 
     sections: list[str] = []
 
-    # pyproject.toml
-    pyproject = repo / "pyproject.toml"
-    if pyproject.exists():
-        sections.append(f"## pyproject.toml\n```toml\n{pyproject.read_text()}\n```")
+    for manifest, _language in CONST_AGENTS_MD_MANIFESTS:
+        manifest_file = repo / manifest
+        if manifest_file.is_file():
+            clean_manifest = sanitize_prompt_boundary_tags(manifest_file.read_text())
+            sections.append(f"## {manifest}\n```\n{clean_manifest}\n```")
 
     # README
     for name in ("README.md", "README.rst", "README.txt", "README"):

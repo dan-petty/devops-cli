@@ -23,6 +23,7 @@ from devops_cli.ai.instruction_generator import (
     parse_project_metadata,
     scaffold_agent_instructions,
 )
+from devops_cli.ai.personas import PERSONAS, Persona
 from devops_cli.commands.ai import app as ai_app
 from devops_cli.commands.devcontainer import app as devcontainer_app
 from devops_cli.config.constants import (
@@ -30,7 +31,6 @@ from devops_cli.config.constants import (
     CONST_AGENTS_MD_MAX_CHARS,
     CONST_AGENTS_MD_ROUTES,
 )
-from devops_cli.config.defaults import DEFAULT_AGENTS_MD_CHECK_COMMANDS
 from tests.support.paths import REPO_ROOT
 
 CONST_DELETED_PROCESS_TERMS: Final[tuple[str, ...]] = (
@@ -84,6 +84,7 @@ dev = ["pytest>=8.0.0", "ruff>=0.9.0"]
     assert meta.version == "1.2.3"
     assert meta.description == "High performance API gateway"
     assert meta.requires_python == ">=3.14"
+    assert meta.manifests == ["pyproject.toml"]
     assert "sample-service" in meta.entry_point
     assert "fastapi>=0.110.0" in meta.dependencies
     assert "pytest>=8.0.0" in meta.dev_dependencies
@@ -92,9 +93,12 @@ dev = ["pytest>=8.0.0", "ruff>=0.9.0"]
 def test_parse_project_metadata_fallback_when_no_pyproject(tmp_path: Path) -> None:
     """Verify fallback behavior when no pyproject.toml exists."""
     meta = parse_project_metadata(tmp_path)
-    assert meta.name == tmp_path.name
-    assert meta.version == "0.1.0"
-    assert meta.requires_python == ">=3.14"
+    assert (meta.name, meta.version, meta.requires_python, meta.manifests) == (
+        tmp_path.name,
+        "0.1.0",
+        "",
+        [],
+    )
 
 
 def test_generate_pointer_stub() -> None:
@@ -238,6 +242,7 @@ def test_generated_agents_md_is_a_router(tmp_path: Path) -> None:
             "name": "sample-project",
             "description": "Workstation automation scripts",
             "entry_point": "sample (sample.main:app)",
+            "manifests": ["pyproject.toml"],
         }
     )
     content = generate_agents_md(meta)
@@ -246,7 +251,7 @@ def test_generated_agents_md_is_a_router(tmp_path: Path) -> None:
     assert (
         headings,
         "Workstation automation scripts" in content,
-        "`sample (sample.main:app)`" in content,
+        "It uses Python, and its entry point is `sample (sample.main:app)`." in content,
         "Canonical Source" in content,
         "| When you | Read |" in content,
         "| set up, name a branch, write a pull request title, run one check | "
@@ -268,8 +273,8 @@ def test_generated_agents_md_is_a_router(tmp_path: Path) -> None:
 
 
 def test_generated_agents_md_names_the_pre_push_checks_of_the_project(tmp_path: Path) -> None:
-    """Verify the push rule names the project's own pre-push hooks, and the uv defaults only for
-    a project that has none."""
+    """Verify the push rule names the project's own pre-push hooks, and no check command for a
+    project that has none (#4641)."""
     (tmp_path / ".pre-commit-config.yaml").write_text(
         "repos:\n"
         "  - repo: local\n"
@@ -286,14 +291,97 @@ def test_generated_agents_md_names_the_pre_push_checks_of_the_project(tmp_path: 
     bare.mkdir()
 
     hooked = generate_agents_md(parse_project_metadata(tmp_path))
-    defaults = generate_agents_md(parse_project_metadata(bare))
+    unhooked = generate_agents_md(parse_project_metadata(bare))
 
     assert (
-        "`make check`" in hooked,
+        "Run these before each push: `make check`." in hooked,
         "make lint" in hooked,
-        "uv run pytest" in hooked,
-        all(f"`{command}`" in defaults for command in DEFAULT_AGENTS_MD_CHECK_COMMANDS),
-    ) == (True, False, False, True)
+        "uv run" in hooked + unhooked,
+        "before each push" in unhooked,
+    ) == (True, False, False, False)
+
+
+def test_a_cargo_only_folder_gets_the_rust_toolchain_and_no_python_tool(tmp_path: Path) -> None:
+    """Verify the AGENTS.md of a folder that holds only `Cargo.toml` names Rust, and no Python
+    tool or Python-only rule (#4641)."""
+    crate = tmp_path / "crate"
+    crate.mkdir()
+    (crate / "Cargo.toml").write_text('[package]\nname = "crate"\n', encoding="utf-8")
+
+    content = generate_agents_md(parse_project_metadata(crate))
+
+    assert (
+        "It uses Rust." in content,
+        [word for word in ("Python", "uv", "pytest", "ruff", "mypy") if word in content],
+        "fail-to-pass" in content,
+    ) == (True, [], False)
+
+
+def test_a_folder_with_no_manifest_and_no_hooks_gets_no_toolchain_or_check_line(
+    tmp_path: Path,
+) -> None:
+    """Verify a folder with no manifest and no pre-push hook gets no toolchain line and no check
+    line, where a Python project gets its toolchain line (#4641)."""
+    python = tmp_path / "python"
+    python.mkdir()
+    (python / "pyproject.toml").write_text(
+        '[project]\nname = "python"\nrequires-python = ">=3.13"\n', encoding="utf-8"
+    )
+    bare = tmp_path / "bare"
+    bare.mkdir()
+
+    with_manifest = generate_agents_md(parse_project_metadata(python))
+    without = generate_agents_md(parse_project_metadata(bare))
+
+    assert (
+        "It uses Python `>=3.13`." in with_manifest,
+        "devops ci fail-to-pass" in with_manifest,
+        "It uses" in without,
+        "before each push" in without,
+        "fail-to-pass" in without,
+    ) == (True, True, False, False, False)
+
+
+def test_a_project_with_several_manifests_names_each_toolchain(tmp_path: Path) -> None:
+    """Verify the toolchain line names the language of each manifest that exists, in the order
+    of the manifest table (#4641)."""
+    for manifest in ("go.mod", "package.json", "pyproject.toml"):
+        (tmp_path / manifest).write_text("", encoding="utf-8")
+
+    meta = parse_project_metadata(tmp_path)
+
+    assert (
+        meta.manifests,
+        "It uses Python, Node.js and Go." in generate_agents_md(meta),
+    ) == (["pyproject.toml", "package.json", "go.mod"], True)
+
+
+def test_devops_cli_renders_the_check_line_of_its_pre_push_hooks() -> None:
+    """Verify the AGENTS.md that `devops ai agents` writes for devops-cli names the same two
+    checks as before #4641, which come from its pre-push hooks."""
+    content = generate_agents_md(parse_project_metadata(REPO_ROOT))
+    assert (
+        "Run these before each push: `uv run devops ci --check --only lint,format`, "
+        "`uv run devops ci --check --only actionlint,zizmor`." in content
+    )
+
+
+def test_the_openspec_text_renders_only_where_openspec_is_set_up(tmp_path: Path) -> None:
+    """Verify the rule for each pull request names the OpenSpec change only in a project that
+    has `openspec/config.yaml` (#4641)."""
+    planned = tmp_path / "planned"
+    (planned / "openspec").mkdir(parents=True)
+    (planned / "openspec" / "config.yaml").write_text("schema: spec-driven\n", encoding="utf-8")
+    unplanned = tmp_path / "unplanned"
+    unplanned.mkdir()
+
+    rule = "Plan it as the OpenSpec change `openspec/changes/<issue>-<slug>/`"
+    assert (
+        parse_project_metadata(planned).plan_system,
+        rule in generate_agents_md(parse_project_metadata(planned)),
+        parse_project_metadata(unplanned).plan_system,
+        "OpenSpec" in generate_agents_md(parse_project_metadata(unplanned)),
+    ) == ("openspec", True, "none", False)
 
 
 def test_generated_agents_md_leaves_the_writing_standard_to_the_project() -> None:
@@ -503,6 +591,38 @@ def test_ai_agents_replaces_a_model_answer_over_the_cap_with_the_router(
         "`SECURITY.md`" in call.system,
         "Generate the contents of" in call.user,
     ) == (0, generate_agents_md(parse_project_metadata(tmp_path)), True, True, False, False)
+
+
+@pytest.mark.live("find")
+def test_ai_agents_gives_the_model_its_own_prompt_with_the_detected_facts(
+    runner: CliRunner, tmp_path: Path, model_fake: ModelFake, config: Callable[..., Path]
+) -> None:
+    """Verify the model path sends the AGENTS.md task as a short system prompt of its own, not
+    a review persona, with the pre-push checks of the project, and sends the detected manifest
+    in the project context (#4641)."""
+    config(ai={"rag": {"enabled": False}})
+    (tmp_path / "Cargo.toml").write_text('[package]\nname = "model-crate"\n', encoding="utf-8")
+    (tmp_path / ".pre-commit-config.yaml").write_text(
+        "repos:\n"
+        "  - repo: local\n"
+        "    hooks:\n"
+        "      - id: gate\n"
+        "        entry: cargo test\n"
+        "        stages: [pre-push]\n",
+        encoding="utf-8",
+    )
+    model_fake.answer("# model-crate — AI Agent Instructions\n")
+
+    result = runner.invoke(ai_app, ["agents", "--repo", str(tmp_path), "--file", "AGENTS.md"])
+    [call] = model_fake.calls
+
+    assert (
+        result.exit_code,
+        PERSONAS[Persona.ARCHITECT].system_prompt[:200] in call.system,
+        "`cargo test`" in call.system,
+        "## Cargo.toml" in call.user,
+        'name = "model-crate"' in call.user,
+    ) == (0, False, True, True, True)
 
 
 def test_instruction_generator_corrupt_pyproject_and_force_modes(tmp_path: Path) -> None:
