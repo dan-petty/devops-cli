@@ -20,7 +20,7 @@ flowchart LR
 
 ### The Seven Pillars of DevOps CLI Engineering
 1. **Test-Driven Specification (TDD as Living Contract)**: Implementation code is never written without pre-existing executable tests establishing functional expectations, interfaces, and boundary conditions.
-2. **Strict Architectural Invariant Gates**: Continuous compliance verification enforces Cyclomatic Complexity $\le 10$, at most 4 nested blocks, standardized domain exceptions, and $\ge 90\%$ line code coverage.
+2. **Strict Architectural Invariant Gates**: Continuous compliance verification enforces Cyclomatic Complexity $\le 10$, at most 4 nested blocks, standardized domain exceptions, and the coverage floor that [CONTRIBUTING.md](../CONTRIBUTING.md) states.
 3. **Zero-Trust Security & Egress Safety**: No plaintext secrets anywhere in code, configuration, or logs (OS Keyring / Vault isolation); SSRF endpoint validation; bounded subprocess timeouts; least-privilege containers.
 4. **Supply Chain Integrity**: Locked dependency graph (`uv.lock`) audited by `uv audit`, and the `package-lock.json` of each Node tool in `tools.lock` audited by `npm audit`, in every `devops ci` run, hash-pinned tool downloads (`tools.lock`; `npm ci` checks the sha512 of every package of a Node tool), every remote GitHub Action pinned to a commit SHA and every workflow audited by `zizmor` (`devops scan workflows`, which fails on template injection, unpinned actions and excessive permissions; `devops scan report` publishes every zizmor finding to code scanning), build provenance attestations on release artifacts, and static security analysis (`bandit`, `detect-private-key`).
 5. **Automated Code Review & Fact Grounding**: Tool-anchored code review pipeline evaluates all changes across static security analyzers, vulnerability audits, and secret scanning, with bounded model analysis for admitted finding groups.
@@ -68,18 +68,21 @@ Every significant feature, structural refactoring, or tooling upgrade begins wit
 #### Operational Requirements
 1. **Planning Artifacts**:
    - Plan every item as an OpenSpec change, `openspec/changes/<issue>-<slug>/` ([`openspec/config.yaml`](../openspec/config.yaml), [ADR 0010](adr/0010-openspec-is-the-spec-and-change-proposal-layer.md)). The change folder is the only in-repo record of the item. The proposal records the feasibility check and the existing tool considered.
-   - The pull request that closes the issue archives the change in its last commit with `uv run devops openspec archive <change>`, after every task is ticked. `devops pr check-readiness` blocks an implement pull request with an unticked task group, and blocks a pull request that does not add `openspec/changes/archive/<date>-<issue>-<slug>/` for its issue. It also blocks a pull request that writes `openspec/specs/` or another issue's archived folder. A plan pull request (title `docs(openspec): plan #<issue> <summary>`) delivers nothing, so readiness asks it for no closing issue and no archive. It needs one `Plans #<issue>` line, no closing keyword, a file added to `openspec/changes/<issue>-<slug>/`, and no change under `openspec/specs/`.
+   - The pull request that closes the issue archives the change in its last commit with `uv run devops openspec archive <change>`, after every task is ticked. `devops pr check-readiness` blocks an implement pull request with an unticked task group, and blocks a pull request that does not add `openspec/changes/archive/<date>-<issue>-<slug>/` for its issue. It also blocks a pull request that writes `openspec/specs/` or another issue's archived folder. A plan pull request (title `docs(openspec): plan #<issue> <summary>`) delivers nothing, so readiness asks it for no closing issue and no archive. It needs one `Plans #<issue>` line, no closing keyword, a file added to `openspec/changes/<issue>-<slug>/`, and no change under `openspec/specs/`. The archive appends the requirements of the change to `openspec/specs/<capability>/spec.md`, so two open pull requests that archive into one capability conflict in that file. Resolve such a conflict in the rebase before the next push: keep the requirement blocks of both sides.
 2. **Roadmap & Backlog Synchronization**:
+   - Before you file, search the open issues, and fold the finding into an open item that has the same root cause or the same change surface. File one candidate at a time, and link it to the work that found it. Do not fix it in the current pull request unless it blocks the task.
+   - When a study or a report shows a blocker, such as a gap in a measurement, a broken signal or a slow loop, claim its issue and start it at once, under the usual rules: one issue, one draft pull request, no stacked pull request.
+   - Close an item that a newer direction replaces as not planned, with a comment that names the newer direction: `devops gh issues close <n> --reason not-planned --comment-file <file>`.
    - File new work as a candidate with `devops roadmap intake --title "<conventional title>" --body-file <file> --confirm`. Intake files it, gives it its type, Priority, Value and Effort, and puts it in the backlog. When the model judges it a possible duplicate, the report and the reason comment name the possible original, and a person closes one of the two. Never set a milestone or priority on a new issue: intake sets its `priority/*` label, and a person plans the milestones.
    - The Value and Effort intake sets place each item in the **Value vs. Effort Prioritization Matrix** (Quick Wins, Major Projects, Fill-Ins, Reconsider).
 3. **Milestones Are Planning Buckets**:
-   - A person groups items into milestones: each issue holds its milestone. A milestone never names a version, and no release reads one.
+   - A person groups items into milestones: each issue holds its milestone. A milestone never names a version, and no release reads one. A tracker or epic issue has no milestone; its sub-issues have the milestone.
 4. **Status Lives on GitHub**:
    - The eight steps of an issue, its states, labels and the three human gates are in [ROADMAP_WORKFLOW.md](ROADMAP_WORKFLOW.md). Follow that page; this phase does not repeat it.
-   - The labels of each item hold its Status, Priority, Value, Effort and Owner (ADR 0001, ADR 0016). No roadmap job reads or writes the project board. A change folder holds no status, milestone, priority or pull request number (`tests/test_change_folders.py`).
+   - The labels of each item hold its Status, Priority, Value, Effort and Owner (ADR 0001, ADR 0016). No roadmap job reads or writes the project board. A change folder holds no status, milestone, priority or pull request number (`tests/invariants/test_change_folders.py`).
 5. **Topic Branch Creation**:
    - Create an isolated worktree on a topic branch from the fetched upstream: `devops repos worktrees add <issue> --type <type> --slug <slug>`. The command fetches `origin/main` and refuses an issue that a worktree or a pushed branch already holds. When the App staged the branch of the issue (every commit past `origin/main` has the App as author), the command takes that branch over instead, and `--type` and `--slug` come from the branch. The command then claims the issue for an agent with the label `owner/agent`, and it only warns if the claim fails. [CONTRIBUTING.md](../CONTRIBUTING.md#5-naming) gives the form of the branch name.
-   - Before the first push of the branch, fetch again and rebase it onto `origin/main` if `main` moved, so the branch holds the latest `main` when the pull request opens. A pull request that is open needs no rebase to catch up with `main`. Update it when it has a conflict or a check fails (Phase 6).
+   - Before each push, rebase the branch onto the latest `origin/main`, and update an open pull request only for the causes that Phase 6 gives ([Branch Governance & Hierarchy](#branch-governance--hierarchy)).
 
 ---
 
@@ -120,7 +123,7 @@ graph TD
 1. **Cyclomatic Complexity $\le 10$ & At Most 4 Nested Blocks**:
    - Every function and method must keep cyclomatic complexity $\le 10$ and at most 4 nested blocks.
    - Decompose multi-step branching into pure predicate helpers, table-driven dispatch dictionaries, or functional pipelines (`functools`, `itertools`, `pathlib`).
-   - Complexity is Ruff `C901` (standard McCabe) at 10, set in `pyproject.toml`. `uv run devops ci` and the pre-commit `ruff-check` hook run it with `--config pyproject.toml`, and the `lint` row checks the resolved settings of Ruff and the walk of Ruff against the files that git tracks (`tests/gate/ruff_config.py`), while `tests/commands/test_ruff_complexity_cap.py` checks every `ruff check` command. Functions over the cap when it was turned on carry `# noqa: C901`, and `tests/test_architectural_invariants.py` keeps their count from growing. Nesting is Ruff `PLR1702` at `max-nested-blocks = 4`, a preview rule that `pyproject.toml` turns on with `explicit-preview-rules`; the same `ruff check` runs it. `devops scan complexity` reports Ruff `C901`'s McCabe count and does not gate.
+   - Complexity is Ruff `C901` (standard McCabe) at 10, set in `pyproject.toml`. `uv run devops ci` and the pre-commit `ruff-check` hook run it with `--config pyproject.toml`, and the `lint` row checks the resolved settings of Ruff and the walk of Ruff against the files that git tracks (`tests/gate/ruff_config.py`), while `tests/commands/test_ruff_complexity_cap.py` checks every `ruff check` command. Functions over the cap when it was turned on carry `# noqa: C901`, and `tests/invariants/test_architectural_invariants.py` keeps their count from growing. Nesting is Ruff `PLR1702` at `max-nested-blocks = 4`, a preview rule that `pyproject.toml` turns on with `explicit-preview-rules`; the same `ruff check` runs it. `devops scan complexity` reports Ruff `C901`'s McCabe count and does not gate.
 2. **Standardized Domain Exception Taxonomy**:
    - Raising bare Python built-ins (`ValueError`, `RuntimeError`, `TypeError`, `Exception`) in domain logic is strictly prohibited.
    - All domain errors must inherit from `DevOpsCLIError` under `src/devops_cli/exceptions/`, and declare their codes as [CONTRIBUTING.md](../CONTRIBUTING.md) says.
@@ -187,20 +190,20 @@ flowchart TD
 
 #### Pre-Commit Hardening
 The `.pre-commit-config.yaml` suite intercepts flawed commits before they enter git history:
-- `detect-private-key`: Scans staged files for RSA, SSH, and EC private keys (excluding the synthetic keys in `tests/test_review_prompt_guardrails.py` and `tests/test_security_gitleaks.py`).
+- `detect-private-key`: Scans staged files for RSA, SSH, and EC private keys (excluding the synthetic keys in `tests/ai/test_review_prompt_guardrails.py` and `tests/security/test_security_gitleaks.py`).
 - `check-merge-conflict`: Blocks accidental commits containing unresolved conflict markers (`<<<<<<<`, `=======`, `>>>>>>>`).
 - `check-yaml`, `check-toml`, `check-json`: Validates configuration syntax across all structured files.
 - `ruff`: Enforces lint rules, among them the complexity cap (`C901`) and the nesting cap of 4 blocks (`PLR1702`), and code formatting.
 - `ast-grep-scan` and `ast-grep-test`: Run the ast-grep rules over `src` and `tests`, and the tests of the rules.
 - `openspec-gate`: Runs `devops ci --only openspec` when a commit changes `openspec/` or the committed skills.
 - A commit runs no tests. The `Tests & Coverage` check of CI runs the full suite, and so does `uv run devops ci` by hand (#2086). The one exception is a pull request that only adds a plan: it runs `tests/invariants` (see [The Plan-Only Test Run](#the-plan-only-test-run-ciyml-test-shard-and-test)).
-- `devops-ci-pre-push`: Runs only the fast static checks before a push, `uv run devops ci --check --only lint,format` (#1752). The hook `devops-ci-workflows-pre-push` runs `uv run devops ci --check --only actionlint,zizmor`, only when the push changes a workflow (#3043). It is in check-only mode, so it changes no file: when it reports a lint or format problem, fix it (`uv run devops ci format`, `uv run devops ci lint`), commit, and push again. Never use `--no-verify`.
+- `devops-ci-pre-push` and `devops-ci-workflows-pre-push`: the fast static checks before a push, which [CONTRIBUTING.md](../CONTRIBUTING.md#3-test-first-development-cycle-inner-loop) lists (step 4). They are in check-only mode, so they change no file: when one reports a lint or format problem, fix it (`uv run devops ci format`, `uv run devops ci lint`), commit, and push again.
 
 #### The Primary CI Verification Gate (`devops ci`)
 CI is the authoritative gate ([ADR 0004](adr/0004-ci-is-the-authoritative-gate.md)). The required checks of the `main` ruleset, `Static Analysis`, `Tests & Coverage` and `Semantic PR title`, must pass on a pull request before it merges (Phase 6). `Static Analysis` runs `devops ci --check --no-cache --skip test,outdated`, and `Tests & Coverage` runs `devops ci --check --no-cache --only test`, or `tests/invariants` alone for a plan-only pull request. The pre-push hook runs only the fast static checks, so the full `uv run devops ci` is a manual run. Run it by hand when you want every check before a push. The default run auto-applies ruff format and lint fixes and regenerates the docs, so commit what it changes. This command runs every check `devops ci` defines:
 1. `python_version`: Verifies Python runtime compatibility.
 2. `test`: Executes all unit and integration tests via `pytest`.
-3. `coverage`: Enforces strict $\ge 90\%$ code coverage across `src/`.
+3. `coverage`: Enforces the coverage floor of `pyproject.toml` (`fail_under`) on the lines and branches of `src/`, as [CONTRIBUTING.md](../CONTRIBUTING.md) states.
 4. `lint`: Executes `ruff check` across the entire codebase.
 5. `format`: Verifies formatting compliance with `ruff format --check`.
 6. `typecheck`: Enforces strict static type analysis with `mypy --strict`.
@@ -212,6 +215,10 @@ CI is the authoritative gate ([ADR 0004](adr/0004-ci-is-the-authoritative-gate.m
 12. `lockfile`: Verifies lockfile synchronization via `uv lock --check`.
 13. `outdated`: Inspects dependency tree for outdated packages via `uv tree --outdated`.
 14. `openspec`: Runs `devops openspec check`, the OpenSpec gate: `openspec validate --all --strict` and `--archived`, a regeneration of the committed skills under the isolated profile compared with the tree, the instructions of a probe change with nothing on standard error, and a check that no requirement is rewritten by two active changes. It needs Node and the pinned `openspec` (`uv run devops install-tools --tool openspec --only-missing`), runs in every `devops ci` and in the `static` job with no path filter and no exemption, and runs alone in a commit hook when a commit touches `openspec/` or the generated skills ([ADR 0010](adr/0010-openspec-is-the-spec-and-change-proposal-layer.md)).
+
+#### Where a Check Runs
+- A check that does not apply to a change does not run for it: scope its trigger, for example with a path filter, as the jobs below do. Do not add an escape, an exemption or a special case to make a check pass.
+- Every CI job runs in the devcontainer and on a stock GitHub-hosted runner, with no package install and no host change on the runner. A test that needs a capability of the host skips where the host does not have it ([docs/TESTING.md](TESTING.md#hosts-sockets-and-the-shared-container)).
 
 #### The Test Shards (`ci.yml`, `test-shard` and `test`)
 The suite has about 18,000 tests, and on one runner it took 355 s to 528 s, depending on the speed of the runner that GitHub gave. AGENTS.md rule 5 sets the bound at 300 s. The test row therefore runs in four shards on four runners, the jobs `Tests & Coverage (shard <n> of 4)`. Each runs `uv run devops ci --check --no-cache --only test --shard <n> --shards 4`, which passes the paths of about one quarter of the test files to pytest, so a shard collects only its own files. A shard checks no coverage floor, since it measures a part of the tree. It uploads its coverage data as an artifact.
@@ -238,6 +245,9 @@ A wrong image tag under `k8s/` fails only when Argo CD syncs. The `Image Pins` j
 
 #### The Third-Party Image Scan (`ci.yml`, `third-party-image-scan`)
 The cluster runs the image of Crawl4AI by the digest that `k8s/devops/crawl4ai/deployment.yaml` pins. The project does not build that image, so it cannot fix a finding in it: the fix is the upstream release that a Renovate pull request brings. The `Third-Party Image Scan` job runs Trivy on the pinned reference when a pull request changes that file. It looks for fixed findings of severity HIGH and CRITICAL, prints them in the log, and never fails the job. The person who merges the bump reads the log. On any other pull request, the job skips the scan and reports success.
+
+#### The Service Image Tests (`ci.yml`, `service-image-test`)
+The service image has a Debian trixie userland, which the devcontainer and the runners of the other jobs do not have. The jobs `Service Image Tests (shard <n> of 6)` build the `service` stage of the `Dockerfile`, add the dev dependencies of `uv.lock` and the tools `promtool` and `kubectl`, and run one sixth of the test files inside the image, with a read-only root file system and no capabilities. They run on each pull request and on a manual run, not on a push to `main`, and they skip their steps for a plan-only pull request. They are not required checks.
 
 ---
 
@@ -293,8 +303,14 @@ gitGraph
 
 #### Branch Governance & Hierarchy
 - **Zero Direct Commits to `main`**: All work occurs on dedicated topic branches, named as [`CONTRIBUTING.md`](../CONTRIBUTING.md#5-naming) says.
+- **Current Branch at Every Push**: Immediately before each push to GitHub, the first push included, fetch `origin` and rebase the branch onto `origin/main`. Do not push a branch that does not hold `origin/main` or that does not merge cleanly into it. After a rebase, push with `git push --force-with-lease`.
+- **No Catch-Up Updates**: Do not update an open pull request only to catch up with `main`, with `devops pr update`, the **Update branch** button or a merge of `main`. Update it only when GitHub reports a conflict, or when a required check fails and its fix is on `main`. The rule above then applies to that push.
+- **Branch Push Policy**: Nobody pushes to `main`. An agent can create, delete and force-push (`--force-with-lease`) any other branch that no other session works on.
+- **No Stacked Pull Requests**: Never base a pull request on another pull request that is not merged and that changes the same files. When the owner asks for pull requests, open them at once, with no report before them.
+- **Push When the Work Is Complete**: A person can merge a draft minutes after it opens. So keep the implementation, the review fixes and the OpenSpec archive as local commits, and push and open the pull request only when all of them are done.
+- **After the Merge**: Do not commit to the branch of a merged pull request: start the next task on a new topic branch from `origin/main`. To change an open pull request, push to its branch, and do not open a second pull request for the same issue.
 - **PR Base Branch Targeting**: Topic PRs and Renovate's PRs target `main`. release-please opens the one release pull request, and the scheduled workflow `release-merge.yml` or a person merges it. Agents change the release workflow and its configuration through ordinary pull requests ([`RELEASE_CYCLE.md`](../RELEASE_CYCLE.md)).
-- **Required Checks Gate the Merge**: The `main` ruleset requires `Static Analysis`, `Tests & Coverage` and `Semantic PR title`. A pull request merges only when the three checks pass on the pull request. The release pull request runs the same checks on each new `main`, so its status shows a defect that two pull requests make together ([`RELEASE_CYCLE.md`](../RELEASE_CYCLE.md)). CI is the authoritative gate ([ADR 0004](adr/0004-ci-is-the-authoritative-gate.md)): the pre-push hook runs only the fast static checks (Phase 4), so these checks are the first run of the test suite on a branch, unless the author runs `uv run devops ci` by hand ([ADR 0014](adr/0014-required-checks-gate-the-merge-and-the-pre-push-hook-runs-the-fast-static-checks.md)).
+- **Required Checks Gate the Merge**: The `main` ruleset requires `Static Analysis`, `Tests & Coverage` and `Semantic PR title`. A pull request merges only when the three checks pass on the pull request. The release pull request runs the same checks on each new `main`, so its status shows a defect that two pull requests make together ([`RELEASE_CYCLE.md`](../RELEASE_CYCLE.md)). CI is the authoritative gate ([ADR 0004](adr/0004-ci-is-the-authoritative-gate.md)): the pre-push hook runs only the fast static checks (Phase 4), so these checks are the first run of the test suite on a branch, unless the author runs `uv run devops ci` by hand ([ADR 0014](adr/0014-required-checks-gate-the-merge-and-the-pre-push-hook-runs-the-fast-static-checks.md)). A required check that fails on the release pull request shows a defect of `main`: find the two merges that caused it, file the defect, and fix it before other work. GitHub gives no merge queue to a repository of a personal account, and its server merge ignores the merge drivers of `.gitattributes`, so do not plan either one to prevent merge conflicts.
 - **Strict Remote Branch Lifecycle Governance**: Every remote branch on `origin` must have an associated open Pull Request targeting `main`. Remote branches must be deleted immediately upon PR merge or supersession (`git push origin --delete <branch>` and `git fetch --prune origin`). Orphan remote branches are strictly prohibited.
 - **Atomic Conventional Commits & PR Titles**: All commit messages and PR titles must follow Conventional Commits: `feat(scope): ...`, `fix(scope): ...`, `docs(scope): ...`, `refactor(scope): ...`, `chore(scope): ...`. The `Semantic PR title` check enforces the PR title, and its scope must be one that `.github/labels.yml` declares. The squash commit takes the title, and release-please writes it as the changelog line ([`CONTRIBUTING.md`](../CONTRIBUTING.md) lists the types that add a line).
   - **Short Titles and Bodies**: [`CONTRIBUTING.md`](../CONTRIBUTING.md) section 4 sets the length of the title summary and of the body, and says what goes in a comment instead.
@@ -305,7 +321,7 @@ gitGraph
   - **Declarative Taxonomy (`.github/labels.yml`)**: Every PR must carry `type/*` and `scope/*` labels, audited manually via `devops gh labels audit` (not enforced in CI).
   - **GitHub-Sourced Roadmap (ADR 0001)**: Issues are the roadmap's items, milestones are planning buckets that a person sets, and labels hold their Status, Priority, Value and Effort (ADR 0016).
   - **Standardized Projects v2 & Issues Views (`https://github.com/dan-petty/devops-cli/projects` & `https://github.com/dan-petty/devops-cli/issues/views`)**: Four standardized views (*Sprint Kanban*, *Roadmap Timeline*, *Triage & Quality Table*, *Value vs Effort Priority Matrix*) track features across lifecycles (`New` -> `Ready` -> `In Progress` -> `In Review` -> `Done`, or `Blocked` while waiting on something outside the roadmap), audited via `devops gh views list` / `spec` / `audit` and synced via `devops gh views sync` (card fields via `devops gh project sync`; a person or the board's own workflows add the cards, and no roadmap job reads or writes the board) with mandatory repository board linkage (`devops gh project link <number>`) so projects appear under `https://github.com/dan-petty/devops-cli/projects` and views under `https://github.com/dan-petty/devops-cli/issues/views`.
-- **Human-in-the-Loop Merging**: AI agents prepare PRs, monitor remote GitHub Actions CI, and remediate failures. AI agents **never merge PRs autonomously**. Maintainers approve and squash-merge.
+- **Human-in-the-Loop Merging**: AI agents prepare PRs, monitor remote GitHub Actions CI, and remediate failures. Only a person merges a pull request ([`AGENTS.md`](../AGENTS.md)).
 - **Human Review Round (`tuicr`)**: A person can review the diff of an agent in `tuicr`, a terminal program that `tools.lock` pins. The person reads the diff and the commit message, and adds comments of the type `issue`, `question` or `nit` (`.devops/tuicr.config.toml`). The agent then follows these steps:
   1. Find the session. Run `tuicr review list --repo <worktree>`. Use the entry with `"active": true`, which means that tuicr is open on it. If no entry or two entries are active, ask the person which slug to use.
   2. Read the comments. Run `tuicr review comments --repo <worktree> --session <slug>`. Read only this JSON. Do not read the clipboard text or the session file.
@@ -327,7 +343,8 @@ gitGraph
   - AI agents and developers **MUST ALWAYS** monitor remote CI checks and any review a person requested via `devops pr monitor <pr_number>` (or `devops pr wait <pr_number>`) immediately after opening or updating PRs.
   - **Cadence & Timeout Standards**: Allow at least 5 minutes (300s) for remote CI checks and review bots to complete, and wait at least a full minute (60s) between request cycles when monitoring check status. Never poll in rapid or sub-minute intervals.
   - **Zero Premature Completions**: Never conclude a turn or declare a task done while CI checks are pending/failing or a requested review session is unresolved.
-  - **Wait for Requested Reviews to Settle**: When a person requests a Copilot review, agents wait for that review session to complete.
+  - **Watch Until the Merge**: Watch each of your open pull requests from the push to the merge, not only until it is ready. Fix a failed check or a conflict at once, with no request. After a session restarts, compare the `HEAD` of each worktree with its remote branch to find a push that was lost.
+  - **Copilot Reviews**: Agents never request a Copilot review and do not wait for one.
   - **Remediate Check Failures Immediately**: Inspect failed logs (`devops gh runs view <run_id> --log-failed`), apply concise test-first fixes, push, and re-monitor.
   - **Mandatory Direct In-Thread Replies & Resolution**: When review comments are submitted (exit code 2), inspect threads via `devops pr threads list <pr_number> --unresolved-only`, author test-first fixes, reply **directly within each specific review discussion thread** (`devops pr threads reply <thread_id> "<body>"`), and resolve the thread (`devops pr threads resolve <thread_id>`). Never post solely top-level summary comments.
   - **Merge Readiness Guarantee**: A PR is ready for merging ONLY when `devops pr monitor` exits with code 0 (all checks green, any requested review settled, 0 unresolved threads).
@@ -363,13 +380,13 @@ flowchart TD
 
 #### Distributed Tracing & Telemetry
 - All CLI subcommands, background tasks, and AI pipeline stages are instrumented with OpenTelemetry distributed spans via `@trace_span`.
-- Distributed context propagates across network boundaries using W3C `traceparent` headers.
-- Real-time command durations, error frequencies, and LLM token usage are tracked in-memory and emitted to Prometheus endpoints.
+- Trace context goes to subprocesses and sandbox containers, to the LLM gateway, and to the requests that a caller sends with `request_headers`; [docs/TELEMETRY.md](TELEMETRY.md), Distributed Tracing & W3C Context Propagation, gives each path.
+- Command durations, error counts and LLM token use are metrics that devops-cli sends over OTLP to the OpenTelemetry Collector ([docs/TELEMETRY.md](TELEMETRY.md)).
 
 #### DORA Metrics Standards
 | Metric | Definition | DevOps CLI Target | Measurement Mechanism |
 | :--- | :--- | :--- | :--- |
-| **Deployment Frequency (DF)** | Rate of successful releases | A person decides when to release | GitHub Releases tag frequency (`v<version>`) |
+| **Deployment Frequency (DF)** | Rate of successful releases | `release-merge.yml` merges the release pull request every 6 hours, or a person merges it earlier ([RELEASE_CYCLE.md](../RELEASE_CYCLE.md)) | GitHub Releases tag frequency (`v<version>`) |
 | **Lead Time for Changes (LT)** | Time from commit creation to release tag | $< 48$ hours | Git commit timestamp to GitHub Release event |
 | **Change Failure Rate (CFR)** | Percentage of releases requiring a regression fix | $< 5\%$ | Releases that needed a regression fix, divided by all releases |
 | **Mean Time to Recovery (MTTR)** | Time to resolve pipeline or release defects | $< 2$ hours | GitHub issue and critical-fix pull request duration |
@@ -382,8 +399,8 @@ flowchart TD
 | :--- | :--- | :--- | :--- |
 | **1. Inception** | Planning | The issue and its OpenSpec change | The issue holds a `priority/*` label |
 | **2. Specification** | Test-First Authoring | `uv run devops ci test tests/test_<feature>.py` | Clean initial failure (asserting new behavior) |
-| **3. Implementation**| Invariant Enforcement | `tests/test_architectural_invariants.py` | Complexity $\le 10$, Nesting $\le 5$, zero bare exceptions |
-| **4. Verification**  | Full CI Suite | `devops ci` (or `uv run devops ci`) | All Gated quality checks green, coverage $\ge 90\%$ |
+| **3. Implementation**| Invariant Enforcement | Ruff and `tests/invariants/test_architectural_invariants.py` | Complexity $\le 10$, nesting $\le 4$ blocks, zero bare exceptions |
+| **4. Verification**  | Full CI Suite | `devops ci` (or `uv run devops ci`) | All gated quality checks green, the coverage floor met |
 | **4. Pre-Commit**    | Git Hook Interception | `uv run pre-commit run --all-files` | All pre-commit hooks passing |
 | **5. AI Review**     | Automated Code Review | `devops review branch <branch> --dry-run` | Zero high/critical unmitigated findings |
 | **6. PR Lifecycle**  | Branch Governance | `devops pr create` (opens a draft into `main`) | CODEOWNERS notified; remote CI checks green |

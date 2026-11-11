@@ -167,7 +167,7 @@ The long-running devops-cli deployment that runs the roadmap jobs when they are 
 _Avoid_: runner, bot, daemon, worker
 
 **Lane**:
-One of the Service's three paths for a repository's jobs, each running one round at a time. The triage lane runs intake. The model lane runs refinement, the retitle job, staging and the alternatives check, which call a model; the retitle row calls the model of the triage task, and runs before the stage row, every 61 minutes, so the stage job reads the shortened titles and the corrected title types (`security` becomes `fix(security)`). The status lane runs the metrics, implement, stage_ready, release_comments, github_status, cloudflare_status and pr_conflicts rows, which call no model; the stage_ready row marks a staged draft pull request ready when its checks have passed, and the release_comments row comments the version, and the time it runs, on the issues of a release, the github_status and cloudflare_status rows each read one status page, so a failed read fails its own row, and the pr_conflicts row comments once on a ready delivery pull request that has merge conflicts with the default branch. All three get every trigger, and a round in one never waits for a round in the others.
+One of the Service's three paths for a repository's jobs, each running one round at a time: the triage lane, the model lane and the status lane. [k8s/README.md](k8s/README.md), Roadmap service step 17, lists the rows of each lane.
 _Avoid_: queue, track, worker
 
 ## Code review

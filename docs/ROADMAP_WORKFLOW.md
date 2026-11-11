@@ -10,6 +10,8 @@ An issue that the roadmap tracks is an Item ([CONTEXT.md](../CONTEXT.md)). Three
 - **Agentic coder**: an AI agent that works in a worktree of this repository.
 - **Person**: a human developer or the owner.
 
+A comment of a Service job or of an agent on an issue gives evidence and its sources. It does not repeat the issue, and it comes once for each change of the facts.
+
 The state of an Item is in labels on its issue ([ADR 0016](adr/0016-labels-hold-the-roadmap-items-fields.md)). Each actor reads the same labels. Each actor follows the same steps. A person makes the three decisions that no other actor makes: the gates.
 
 ## The eight steps
@@ -234,6 +236,8 @@ Only a person passes a gate. No agent and no Service job merges a pull request.
 | G2 | A person merges the implementation pull request | The squash commit closes the issue. The workflow `clear-status.yml` removes the labels |
 | G3 | The workflow `release-merge.yml` merges the release pull request every 6 hours, or a person merges it | release-please makes the release. The images roll ([RELEASE_CYCLE.md](../RELEASE_CYCLE.md)) |
 
+A pull request of the Service waits at G2 for an independent review with evidence: the tests that ran, the fail-to-pass result of a fix, and the scope against the plan. A person merges it only when that review shows that it is safe. The Service continues to run during this time.
+
 ## The manual path
 
 A person can run the work of the Service for one Item. The Item must be Staged or Planned, and nobody may hold its claim. A Blocked Item is not startable: comment `implement: retry`, and the next round of row `implement` clears the stop. The command `devops k8s run-job --template runner` makes the Job. Its options, and the rule for `--repo`, are in [k8s/README.md](../k8s/README.md), Runner Jobs. The same stop and retry path applies.
@@ -347,12 +351,12 @@ The setting `ai.tasks.stage.model` sets the model of the stage planner, of the c
 
 Measure first. Park each cost change, such as a budget (#3066), the model ladder (#3060) and a lower cap, until the baseline passes: a cap set before the baseline hides the cause of a failure.
 
-1. **The baseline.** Run the eval with a cloud model that is likely to pass, for example `claude-sonnet-5-5`. Run it with the toolbox and without it, and run the verification eval with the same model. Each report holds the tokens and the spend in USD of its run, and the file is under `roadmap_eval/stage/` or `roadmap_eval/verify/` in the data directory.
+1. **The baseline.** Run the eval with a hosted model that is likely to pass and that no hold of the owner covers ([SECURITY.md](../SECURITY.md), Hosted Models). Run it with the toolbox and without it, and run the verification eval with the same model. Each report holds the tokens and the spend in USD of its run, and the file is under `roadmap_eval/stage/` or `roadmap_eval/verify/` in the data directory.
 
    ```text
-   uv run devops roadmap eval stage --model claude-sonnet-5-5
-   uv run devops roadmap eval stage --model claude-sonnet-5-5 --no-toolbox
-   uv run devops roadmap eval verify --model claude-sonnet-5-5 --source <repository>
+   uv run devops roadmap eval stage --model <baseline-model>
+   uv run devops roadmap eval stage --model <baseline-model> --no-toolbox
+   uv run devops roadmap eval verify --model <baseline-model> --source <repository>
    ```
 
 2. **The gap.** Run the same commands with the current model. The difference of the two scores is the gap, as a number.
@@ -419,12 +423,9 @@ A change to the implement prompt (`src/devops_cli/ai/tasks/roadmap_implement_ste
 
 ## Planned changes
 
-Tracker [#2908](https://github.com/dan-petty/devops-cli/issues/2908) holds the work that is not built yet. This section is the one place that names it. When an item merges, change its line here and the text above.
+This section is the one place that names the work of the workflow that is not built yet. When an item merges, change its line here and the text above.
 
 | Issue | Step | What it will change |
 | :--- | :--- | :--- |
-| #2913 | The manual path | `devops roadmap implement` outside the runner makes the runner Job, and `--repo` is needed once |
 | #2867 | 6 Verify | A model evaluator marks a draft ready when it matches its issue and the project rules |
-| #2919 | All | Metrics show the age of stuck Items, and one alert fires |
 | #2968 | All | The counts of `devops roadmap inbox` are gauges with a Grafana panel, and the inbox lists an image digest that is not rolled |
-| #3028 | 3 Plan | A sister command of the group `devops roadmap eval` scores the stage job on a golden set of plan cases |
