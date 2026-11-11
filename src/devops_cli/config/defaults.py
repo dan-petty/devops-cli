@@ -938,6 +938,10 @@ DEFAULT_ROADMAP_STAGE_READY_INTERVAL_MINUTES: int = 3
 # How often the release_comments row is due on its own, besides its first run (#2917). Image
 # Updater checks the registry every two minutes, so a roll is seen within this time plus the sync.
 DEFAULT_ROADMAP_RELEASE_COMMENTS_INTERVAL_MINUTES: int = 11
+# How often the pr_conflicts row is due on its own, besides its first run (#4027). GitHub computes
+# the mergeable state of a pull request after a read asks for it, so a new conflict shows within
+# two rounds. A round costs one read of each open pull request that is not a draft.
+DEFAULT_ROADMAP_PR_CONFLICTS_INTERVAL_MINUTES: int = 13
 # The tokens that the inputs of one implementation step may hold: the step's instructions, the
 # `AGENTS.md` of the repository and the sections of the documents it routes the group to, the
 # item, the change folder and the packed files of one task group. It is half of the default window

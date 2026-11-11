@@ -180,6 +180,23 @@ class _Verdict:
         )
 
 
+CONFLICT_STATES = frozenset({"dirty", "conflicting"})
+"""The mergeable states of a pull request whose branch conflicts with its base: `dirty` in REST,
+`conflicting` in GraphQL."""
+
+
+def merge_conflict(mergeable: bool | None, mergeable_state: str) -> bool | None:
+    """Whether GitHub reports a merge conflict between a pull request and its base: True for a
+    conflict, None while GitHub has not computed the state, and False else. A branch that is only
+    behind its base has no conflict. `devops pr check-readiness` and the Service row
+    `pr_conflicts` judge a conflict with this one function (#4027)."""
+    if mergeable is False or mergeable_state in CONFLICT_STATES:
+        return True
+    if mergeable is None or mergeable_state in ("unknown", ""):
+        return None
+    return False
+
+
 def _judge_mergeable(
     verdict: _Verdict, pr_data: dict[str, Any], pr_num: int, allow_blocked_state: bool
 ) -> None:
@@ -196,12 +213,13 @@ def _judge_mergeable(
     mergeable_state = pr_data.get("mergeable_state", "")
     base_ref = pr_data.get("base", {}).get("ref", "")
 
-    if mergeable is False or mergeable_state in ("dirty", "conflicting"):
+    conflict = merge_conflict(mergeable, mergeable_state)
+    if conflict:
         verdict.block(
             BlockerKind.CONFLICT,
             f"PR #{pr_num} has merge conflicts with base branch '{base_ref}'.",
         )
-    elif mergeable is None or mergeable_state in ("unknown", ""):
+    elif conflict is None:
         verdict.block(
             BlockerKind.MERGEABILITY,
             f"PR #{pr_num} mergeability is unresolved or still calculating on GitHub "

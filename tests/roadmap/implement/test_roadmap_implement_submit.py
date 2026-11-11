@@ -33,7 +33,7 @@ from devops_cli.exceptions.k8s import ClusterJobError
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.failure import FailureClass
 from devops_cli.roadmap.implement.implement import parse_implement_filters, plan_implement
-from devops_cli.roadmap.run import MODEL_LANE_ROWS, STATUS_LANE_ROWS, JobOutcome
+from devops_cli.roadmap.run import MODEL_LANE_ROWS, STATUS_LANE_ROWS, TRIAGE_LANE_ROWS, JobOutcome
 from devops_cli.roadmap.stores.store import ImplementRecordKey, Item, ItemField
 from devops_cli.telemetry.metrics import GLOBAL_METRICS
 from tests.support.fakes.github import GitHubApiFake
@@ -145,7 +145,8 @@ def test_the_row_follows_metrics_on_the_status_lane_runs_on_a_clone_and_is_due_e
     names = [row.name for row in STATUS_LANE_ROWS]
     assert (
         names,
-        "implement" in [row.name for row in MODEL_LANE_ROWS],
+        [row.name for row in TRIAGE_LANE_ROWS],
+        [row.name for row in MODEL_LANE_ROWS],
         IMPLEMENT_ROW.needs_clone,
         IMPLEMENT_ROW.first_run_due,
         IMPLEMENT_ROW.interval,
@@ -157,8 +158,10 @@ def test_the_row_follows_metrics_on_the_status_lane_runs_on_a_clone_and_is_due_e
             "release_comments",
             "github_status",
             "cloudflare_status",
+            "pr_conflicts",
         ],
-        False,
+        ["intake"],
+        ["refine", "retitle", "stage", "alternatives"],
         True,
         True,
         timedelta(minutes=7),

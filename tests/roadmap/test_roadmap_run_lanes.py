@@ -270,6 +270,7 @@ def test_the_implement_row_is_due_on_the_status_lane_by_its_interval_and_by_no_h
         "release_comments": NOW - timedelta(minutes=1),
         "github_status": NOW - timedelta(minutes=1),
         "cloudflare_status": NOW - timedelta(minutes=1),
+        "pr_conflicts": NOW - timedelta(minutes=1),
     }
     first = ran({POLL_KEY: 1})
     too_soon = ran({POLL_KEY: 1}, **fresh, implement=NOW - timedelta(minutes=6, seconds=59))
@@ -284,6 +285,7 @@ def test_the_implement_row_is_due_on_the_status_lane_by_its_interval_and_by_no_h
             "release_comments",
             "github_status",
             "cloudflare_status",
+            "pr_conflicts",
         ),
         (),
         ("implement",),
@@ -338,6 +340,7 @@ def test_each_lanes_success_stays_in_schedule_json_when_their_rounds_interleave(
             "release_comments",
             "github_status",
             "cloudflare_status",
+            "pr_conflicts",
         ),
         {
             "intake": later.isoformat(),
@@ -351,6 +354,7 @@ def test_each_lanes_success_stays_in_schedule_json_when_their_rounds_interleave(
             "release_comments": NOW.isoformat(),
             "github_status": NOW.isoformat(),
             "cloudflare_status": NOW.isoformat(),
+            "pr_conflicts": NOW.isoformat(),
         },
     )
 

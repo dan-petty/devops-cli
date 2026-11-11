@@ -290,6 +290,14 @@ ROADMAP_ALTERNATIVES_OLDEST_CHECK_AGE = Instrument(
     "Age of the oldest alternatives check among the items that the check can take, by repo. The "
     "age is the time since the check was written. Not sent while no such item has a check",
 )
+ROADMAP_CONFLICTED_PULLS = Instrument(
+    "devops_cli_roadmap_conflicted_pulls",
+    InstrumentKind.GAUGE,
+    "1",
+    "Open ready delivery pull requests that GitHub reports with merge conflicts against the "
+    "default branch, by repo. The Service sends it at the end of each round of the row "
+    "pr_conflicts. A pull request whose mergeable state GitHub has not computed does not count",
+)
 ROADMAP_ALTERNATIVES_SEARCHES = Instrument(
     "devops_cli_roadmap_alternatives_searches",
     InstrumentKind.HISTOGRAM,
@@ -716,6 +724,7 @@ INSTRUMENTS: tuple[Instrument, ...] = (
     ROADMAP_ALTERNATIVES_UNCHECKED_ITEMS,
     ROADMAP_ALTERNATIVES_OLDEST_CHECK_AGE,
     ROADMAP_ALTERNATIVES_SEARCHES,
+    ROADMAP_CONFLICTED_PULLS,
     ROADMAP_PAGE_FETCHES_TOTAL,
     ROADMAP_STAGE_PLAN_RECORD_TOTAL,
     DECISION_POINT_TOTAL,
@@ -867,6 +876,7 @@ __all__ = [
     "ROADMAP_ALTERNATIVES_TOTAL",
     "ROADMAP_ALTERNATIVES_UNCHECKED_ITEMS",
     "ROADMAP_CLAIM_AGE",
+    "ROADMAP_CONFLICTED_PULLS",
     "ROADMAP_INTAKE_CANDIDATES_TOTAL",
     "ROADMAP_ITEM_AGE",
     "ROADMAP_JEV_COMPLETENESS_TOTAL",

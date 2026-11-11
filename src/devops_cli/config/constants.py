@@ -3556,6 +3556,9 @@ CONST_ROADMAP_RUN_STATE_FILENAME: Final[str] = "schedule.json"
 CONST_ROADMAP_INTAKE_RECORD_FILENAME: Final[str] = "intake.json"
 # The release_comments row's ledger beside schedule.json: which releases hold their comments (#2917).
 CONST_ROADMAP_RELEASE_LEDGER_FILENAME: Final[str] = "release_comments.json"
+# The pr_conflicts row's ledger beside schedule.json: the head commit of each pull request that it
+# found with merge conflicts, so it comments once for each conflict (#4027).
+CONST_ROADMAP_PR_CONFLICTS_LEDGER_FILENAME: Final[str] = "pr_conflicts.json"
 # The releases that the release_comments row comments on: those published within this many hours
 # of a round, out of the newest `CONST_ROADMAP_RELEASE_COMMENTS_LIST` (#2917).
 CONST_ROADMAP_RELEASE_COMMENTS_WINDOW_HOURS: Final[int] = 12
