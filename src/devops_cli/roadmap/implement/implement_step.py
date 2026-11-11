@@ -156,6 +156,7 @@ from devops_cli.roadmap.mcp import ROLE_IMPLEMENTATION, build_roadmap_mcp_toolse
 from devops_cli.roadmap.step_commit import step_commit_title
 from devops_cli.roadmap.step_files import (
     CHECKBOXES,
+    MARKDOWN,
     GroupTask,
     TaskGroup,
     file_lines,
@@ -172,6 +173,11 @@ if TYPE_CHECKING:
 
 _CHANGE_DOCUMENTS = ("proposal.md", "design.md", "tasks.md")
 _PROMPT = "roadmap_implement_step.md"
+# The start, in lower case, of the title of each section in which the refine job writes one
+# acceptance criterion (`### Requirement: <name>` and its scenarios).
+_REQUIREMENT_PREFIX = "requirement:"
+# The start of an HTML comment, such as a marker of a job in an issue body.
+_COMMENT_OPEN = "<!--"
 
 
 class StepClass(StrEnum):
@@ -191,11 +197,46 @@ class ItemReader(Protocol):
 
 
 def issue_inputs(item: Item) -> str:
-    """The title of the item, then its problem and its acceptance criteria. An issue that holds
-    neither section gives its whole body."""
-    wanted = CONST_ROADMAP_IMPLEMENT_PROBLEM_HEADINGS | CONST_ROADMAP_IMPLEMENT_CRITERIA_HEADINGS
-    text = section_text(item.body, wanted) or item.body.strip()
+    """The title of the item, then its problem and its acceptance criteria, with no HTML comment.
+    The refine job writes each criterion as a `Requirement:` section after its `Acceptance
+    criteria` heading, at the same level, so these sections come too: the criteria section alone
+    ends at the first of them. An issue that holds none of the sections gives its whole body."""
+    body = _without_comments(item.body)
+    wanted = (
+        CONST_ROADMAP_IMPLEMENT_PROBLEM_HEADINGS
+        | CONST_ROADMAP_IMPLEMENT_CRITERIA_HEADINGS
+        | _requirement_titles(body)
+    )
+    text = section_text(body, wanted) or body.strip()
     return f"# Item #{item.number}: {item.title}\n\n{text}"
+
+
+def _without_comments(body: str) -> str:
+    """`body` without its top-level HTML comment blocks, such as the markers of the jobs and the
+    `checked-at` line of refine. In CommonMark, which GitHub uses, a block that starts with `<!--`
+    ends at the line that holds `-->`; a comment in a code block is text and stays."""
+    lines = file_lines(body)
+    for token in reversed(MARKDOWN.parse(body)):
+        if (
+            token.type == "html_block"
+            and token.level == 0
+            and token.map is not None
+            and token.content.lstrip().startswith(_COMMENT_OPEN)
+        ):
+            del lines[token.map[0] : token.map[1]]
+    return "".join(lines)
+
+
+def _requirement_titles(body: str) -> frozenset[str]:
+    """The top-level headings of `body`, in lower case as `section_text` compares them, whose
+    title starts with `Requirement:`."""
+    tokens = MARKDOWN.parse(body)
+    titles = (
+        tokens[index + 1].content.strip().casefold()
+        for index, token in enumerate(tokens)
+        if token.type == "heading_open" and token.level == 0
+    )
+    return frozenset(title for title in titles if title.startswith(_REQUIREMENT_PREFIX))
 
 
 def find_change(source: Path, item: int, *, archived: bool = False) -> Path:

@@ -69,3 +69,77 @@
   ```
   '''
 # ---
+# name: test_the_issue_section_of_a_real_body_shape[form-with-criteria]
+  '''
+  # Item #1: An item
+  
+  ## Acceptance criteria
+  
+  - `uv.lock` holds `oauthlib` 4.0.1 or newer. No other package moves, unless the lock needs it.
+  - No `--ignore` option is added to the audit: the fix does not lower the check.
+  
+  ### Problem statement
+  The `audit` check fails on every pull request because `uv.lock` holds `oauthlib` 4.0.0. The change raises the locked version to 4.0.1.
+  
+  ### Acceptance criteria
+  
+  ### Requirement: Locked oauthlib version
+  `uv.lock` SHALL hold `oauthlib` 4.0.1 or newer.
+  
+  #### Scenario: The lock names the fixed version
+  - **WHEN** the `oauthlib` entry of `uv.lock` is read after the change
+  - **THEN** its `version` field is 4.0.1 or newer
+  
+  ### Requirement: Audit keeps its strictness
+  The audit invocation MUST NOT gain an `--ignore` entry or another suppression for GHSA-3jp2-3mrg-2vxc.
+  
+  #### Scenario: No suppression names the advisory
+  - **WHEN** the audit invocation in the CI configuration and the scripts is searched
+  - **THEN** no `--ignore` argument names GHSA-3jp2-3mrg-2vxc
+  '''
+# ---
+# name: test_the_issue_section_of_a_real_body_shape[no-section]
+  '''
+  # Item #1: An item
+  
+  ### Problem Description
+  
+  `devops roadmap explain --trace` shows a digest of each tool argument, not the argument.
+  
+  ### Reproduction Steps
+  
+  1. Run `devops roadmap explain 4004 --trace`.
+  2. Read a `read_file` row.
+  
+  ### Expected vs Actual Behavior
+  
+  Expected: the row names the path that the tool read. Actual: the row shows `88e3d1d10784`.
+  
+  Alternatives check of 2026-11-09: none.
+  Tool: none found.
+  '''
+# ---
+# name: test_the_issue_section_of_a_real_body_shape[refined]
+  '''
+  # Item #1: An item
+  
+  ### Problem statement
+  The pytest step of `devops ci` takes 6m 53s, and the budget is 5 minutes. This change runs the suite in parallel workers.
+  
+  ### Acceptance criteria
+  
+  ### Requirement: Pytest command uses parallel workers
+  The pytest command that `devops ci test` builds SHALL pass `-n auto` to pytest through `pytest-xdist`, which the project declares as a test dependency.
+  
+  #### Scenario: Built pytest command
+  - **WHEN** A test reads the pytest arguments that `devops ci test` builds.
+  - **THEN** The arguments hold `-n auto`.
+  
+  ### Requirement: Suite meets the five-minute budget
+  The pytest step of `devops ci test` SHALL finish in less than 300 seconds on the agent worktree host, with every test passing.
+  
+  #### Scenario: Full suite on the agent host
+  - **WHEN** The full suite runs on the agent worktree host with the parallel command.
+  - **THEN** The step reports less than 300 seconds and no failed test.
+  '''
+# ---

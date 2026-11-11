@@ -1,0 +1,48 @@
+## Problem
+
+The `audit` check of `devops ci` fails on each pull request. `uv audit` reports GHSA-3jp2-3mrg-2vxc for `oauthlib` 4.0.0, which `uv.lock` holds as a transitive dependency.
+
+## Expected
+
+`uv audit --frozen` finds no vulnerability, so `audit` passes.
+
+## Acceptance criteria
+
+- `uv.lock` holds `oauthlib` 4.0.1 or newer. No other package moves, unless the lock needs it.
+- No `--ignore` option is added to the audit: the fix does not lower the check.
+
+<!-- devops-roadmap-refine:start -->
+<!-- checked-at: sha=f481be8c453a5548138b58fadbad005ba87839ac -->
+## Proposed design
+
+### Problem statement
+The `audit` check fails on every pull request because `uv.lock` holds `oauthlib` 4.0.0. The change raises the locked version to 4.0.1.
+
+### Acceptance criteria
+
+### Requirement: Locked oauthlib version
+`uv.lock` SHALL hold `oauthlib` 4.0.1 or newer.
+
+#### Scenario: The lock names the fixed version
+- **WHEN** the `oauthlib` entry of `uv.lock` is read after the change
+- **THEN** its `version` field is 4.0.1 or newer
+
+### Requirement: Audit keeps its strictness
+The audit invocation MUST NOT gain an `--ignore` entry or another suppression for GHSA-3jp2-3mrg-2vxc.
+
+#### Scenario: No suppression names the advisory
+- **WHEN** the audit invocation in the CI configuration and the scripts is searched
+- **THEN** no `--ignore` argument names GHSA-3jp2-3mrg-2vxc
+
+### Existing Tool Considered
+`uv lock --upgrade-package oauthlib`. The change builds no code.
+
+### Fit
+Fits in one pull request.
+
+### Suspected block
+None.
+
+### Dependencies
+None.
+<!-- devops-roadmap-refine:end -->

@@ -1,0 +1,17 @@
+### Problem Description
+
+`devops roadmap explain --trace` shows a digest of each tool argument, not the argument.
+
+### Reproduction Steps
+
+1. Run `devops roadmap explain 4004 --trace`.
+2. Read a `read_file` row.
+
+### Expected vs Actual Behavior
+
+Expected: the row names the path that the tool read. Actual: the row shows `88e3d1d10784`.
+
+<!-- devops-roadmap-alternatives:start -->
+Alternatives check of 2026-11-09: none.
+Tool: none found.
+<!-- devops-roadmap-alternatives:end -->

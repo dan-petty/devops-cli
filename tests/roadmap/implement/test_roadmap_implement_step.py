@@ -53,12 +53,14 @@ from devops_cli.roadmap.implement.implement_step import (
     StepStatus,
     build_agent,
     build_step_inputs,
+    issue_inputs,
     run_fix_step,
     run_step,
     shell_environment,
 )
 from devops_cli.roadmap.implement.implement_tool_log import ToolCallLog, logged_program
 from devops_cli.roadmap.step_files import parse_task_groups
+from tests.support.builders import make_item
 from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.implement_step import (
@@ -81,6 +83,7 @@ from tests.support.implement_step import (
     write_call,
 )
 from tests.support.model_script import InStream, ModelScript, say, tool_call, tool_calls
+from tests.support.paths import FIXTURES
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
@@ -2351,3 +2354,33 @@ def test_a_step_with_no_model_and_no_tier_factory_is_refused(
 ) -> None:
     with pytest.raises(RoadmapImplementError, match="needs a model"):
         run_step(store, item=1, group=1, source=checkout, window=WINDOW)
+
+
+# Issue bodies in the shapes of real issues: a body that refine wrote its block into, a form body
+# with its own criteria list before that block, and a body with neither section.
+_ISSUE_BODIES = FIXTURES / "roadmap" / "issue_bodies"
+
+
+def _issue_body(name: str) -> str:
+    return (_ISSUE_BODIES / f"{name}.txt").read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize("name", ["refined", "form-with-criteria", "no-section"])
+def test_the_issue_section_of_a_real_body_shape(name: str, snapshot: object) -> None:
+    assert issue_inputs(make_item(body=_issue_body(name))) == snapshot
+
+
+@pytest.mark.parametrize("name", ["refined", "form-with-criteria"])
+def test_the_issue_section_holds_each_refined_requirement_and_its_scenario(name: str) -> None:
+    body = _issue_body(name)
+    marks = ("### Requirement:", "#### Scenario:", "- **WHEN**", "- **THEN**")
+    refined = [line for line in body.splitlines() if line.startswith(marks)]
+
+    lines = issue_inputs(make_item(body=body)).splitlines()
+
+    assert [line for line in refined if line not in lines] == []
+
+
+@pytest.mark.parametrize("name", ["refined", "form-with-criteria", "no-section"])
+def test_the_issue_section_holds_no_html_comment(name: str) -> None:
+    assert "<!--" not in issue_inputs(make_item(body=_issue_body(name)))
