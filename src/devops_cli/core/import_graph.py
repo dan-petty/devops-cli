@@ -144,15 +144,21 @@ def _resolve_statement_targets(
 
 
 def build_import_graph(
-    trees: Mapping[Path, ast.Module], root: Path | None = None, *, function_bodies: bool = False
+    trees: Mapping[Path, ast.Module],
+    root: Path | None = None,
+    *,
+    function_bodies: bool = False,
+    known: Collection[str] = (),
 ) -> ImportGraph:
     """Build the non-`TYPE_CHECKING` import graph across `trees`: the module-level imports, and
-    with `function_bodies` the imports inside functions too, which run when the function does."""
+    with `function_bodies` the imports inside functions too, which run when the function does.
+    `known` names more modules that an import resolves to, beside the modules of `trees`: a
+    caller that parses only some files still resolves `from pkg import name` to the submodule."""
     paths = list(trees)
     import_root = _infer_import_root(paths, root)
     modules_by_path = {path: module_name(path, import_root) for path in paths}
-    known_modules = set(modules_by_path.values())
-    edges: dict[str, set[str]] = {mod: set() for mod in known_modules}
+    known_modules = {*modules_by_path.values(), *known}
+    edges: dict[str, set[str]] = {mod: set() for mod in modules_by_path.values()}
     locations: dict[tuple[str, str], str] = {}
 
     for path, tree in trees.items():

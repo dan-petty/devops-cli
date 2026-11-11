@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+from collections.abc import Callable, Sequence
 from functools import partial
 from pathlib import Path
 
@@ -16,8 +18,16 @@ from devops_cli.roadmap.stage.stage_change import (
     check_gates,
 )
 from devops_cli.roadmap.stage.stage_overlap import grep_at
-from devops_cli.roadmap.stage.stage_paths import StagedTree, path_problems
+from devops_cli.roadmap.stage.stage_paths import (
+    StagedTree,
+    existing_test_problems,
+    path_problems,
+    record_module_tests,
+)
 from tests.support.builders import make_stage_proposal
+
+# The search of a staged commit: the files that hold a literal.
+Search = Callable[[str], Sequence[str]]
 
 TREE = StagedTree(
     [
@@ -573,7 +583,7 @@ def test_a_plan_that_leaves_out_a_caller_is_refused(tmp_path: Path) -> None:
 
     group = _group(
         changes=["src/a.py"],
-        test="Add `probes` to `check_proposal`",
+        test="Add the keyword `probes` to `check_proposal`",
     )
     problems = path_problems([group], tree)
 
@@ -603,11 +613,105 @@ def test_caller_check_skipped_when_tree_has_no_checkout() -> None:
     tree = StagedTree(["src/a.py", "src/b.py"])
     group = _group(
         changes=["src/a.py"],
-        test="Add `probes` to `check_proposal`",
+        test="Add the keyword `probes` to `check_proposal`",
     )
     problems = path_problems([group], tree)
 
     assert not any("check_proposal" in p for p in problems)
+
+
+# Each task text of the refused replies, and the functions that it adds a parameter to (#4467). A
+# task names a function in a clause `add ... to `name`` that says parameter, argument or keyword; a
+# member, a field or a property of a class is no parameter, and a clause ends at `.`, `:` or `;`.
+_CHANGED_FUNCTION_CASES = [
+    pytest.param("Add a probes parameter to `check_proposal`", ["check_proposal"], id="parameter"),
+    pytest.param(
+        'Add `claim_texts(proposal)`, the member `CLASS_CLAIM = "class-claim"` of `ProposalGate`, '
+        "and the keyword `class_text` to `check_gates`",
+        ["check_gates"],
+        id="keyword-at-the-end-of-a-list",
+    ),
+    pytest.param(
+        "In `stage_change.py`, add the keyword-only argument `base_scenarios` to `check_gates` and "
+        "`check_proposal` with its docstring",
+        ["check_gates", "check_proposal"],
+        id="argument-of-two-functions",
+    ),
+    pytest.param(
+        'Add `REVIEW = "review"` to `FailureClass` in `src/devops_cli/roadmap/failure.py`',
+        [],
+        id="member-of-an-enum",
+    ),
+    pytest.param(
+        "Add the property `added_names` to `TaskGroup` in `src/devops_cli/roadmap/step_files.py`",
+        [],
+        id="property-of-a-class",
+    ),
+    pytest.param(
+        "add `constant_claims` to `StageProposal` with an empty default", [], id="field-of-a-model"
+    ),
+    pytest.param(
+        "Add `_Run.missing_check(call_site, check)`: it reads the definition, and when no command "
+        "is left it appends the claim to `skipped`",
+        [],
+        id="list-in-the-next-clause",
+    ),
+    pytest.param(
+        "Add the method `_repair_scope` to the run in `implement_run.py`: it takes the folder. In "
+        "`_repair_after_push`, pass the same log to `_fix`",
+        [],
+        id="call-in-the-next-sentence",
+    ),
+    pytest.param(
+        "Add `test_the_replay_reads_the_base_scenario_names` to `tests/x/test_y.py` for the "
+        "requirement `R`: the replay passes them to `check_proposal`",
+        [],
+        id="test-function-of-a-test-file",
+    ),
+]
+
+
+@pytest.mark.parametrize(("text", "functions"), _CHANGED_FUNCTION_CASES)
+def test_the_caller_check_reads_only_a_parameter_that_a_task_adds(
+    text: str, functions: list[str]
+) -> None:
+    from devops_cli.roadmap.stage.stage_paths import changed_functions
+
+    assert changed_functions([_group(implementation=text)]) == functions
+
+
+# The files under `src/` that hold the name of a function as a word, and whether each calls it
+# (#4467). `asyncio.TaskGroup` and `scan_fix` were callers of the refused replies.
+_CALLER_CASES = [
+    pytest.param("check_proposal", "problems = check_proposal(plan)\n", True, id="call"),
+    pytest.param("_fix", "self._fix(check, log)\n", True, id="call-of-a-method"),
+    pytest.param("check_proposal", '"""Run check_proposal(plan) first."""\n', False, id="string"),
+    pytest.param("_fix", "result = scan_fix(log)\n", False, id="longer-name"),
+    pytest.param("check_proposal", "from a import check_proposal\n", False, id="import-only"),
+]
+
+
+@pytest.mark.parametrize(("name", "text", "calls"), _CALLER_CASES)
+def test_a_caller_is_a_file_that_calls_the_function(name: str, text: str, calls: bool) -> None:
+    from devops_cli.roadmap.stage.stage_paths import calling_files
+
+    defined = f"class Run:\n    def {name}(self) -> None: ...\n"
+
+    found = calling_files({"src/a.py": defined, "src/b.py": text}, name)
+
+    assert found == (["src/b.py"] if calls else [])
+
+
+def test_a_class_has_no_caller() -> None:
+    """`TaskGroup` of `step_files.py` is a class, and `asyncio.TaskGroup()` called another one."""
+    from devops_cli.roadmap.stage.stage_paths import calling_files
+
+    modules = {
+        "src/step_files.py": "class TaskGroup: ...\n",
+        "src/pool.py": "async with asyncio.TaskGroup() as group: ...\n",
+    }
+
+    assert calling_files(modules, "TaskGroup") == []
 
 
 # ── A plan that changes a manifest names the tests that reference it (#3972) ─
@@ -697,17 +801,34 @@ MODULE_TEST = "tests/roadmap/stage/test_roadmap_stage_paths.py"
 CREATED_TEST = "tests/roadmap/stage/test_stage_paths_rule.py"
 OTHER_MODULE = "src/devops_cli/roadmap/step_files.py"
 OTHER_TEST = "tests/roadmap/implement/test_roadmap_implement_step.py"
-MODULE_TREE = StagedTree([*TREE.files, MODULE, MODULE_TEST, OTHER_MODULE, OTHER_TEST])
-# The dotted name of each module, as the test that imports it holds it.
-_SEARCH_HITS = {
-    "devops_cli.roadmap.stage.stage_paths": [MODULE_TEST],
-    "devops_cli.roadmap.step_files": [OTHER_TEST],
+MESSAGES_MODULE = "src/devops_cli/lang/en/messages.py"
+SAMPLE_TEST = "tests/roadmap/test_roadmap_sample.py"
+# The files of the staged commit that the record reads, with their text: each test imports the
+# module it tests, and the package `devops_cli.lang` imports the messages through its subpackage.
+_TEXTS = {
+    MODULE: "def path_problems() -> None: ...\n",
+    MODULE_TEST: "from devops_cli.roadmap.stage.stage_paths import path_problems\n",
+    OTHER_MODULE: "def parse_task_groups() -> None: ...\n",
+    OTHER_TEST: "from devops_cli.roadmap.step_files import parse_task_groups\n",
+    MESSAGES_MODULE: "MESSAGES = object()\n",
+    "src/devops_cli/lang/__init__.py": "from devops_cli.lang.en import MESSAGES\n",
+    "src/devops_cli/lang/en/__init__.py": "from devops_cli.lang.en.messages import MESSAGES\n",
+    "src/devops_cli/lang/en/errors.py": "ERRORS = object()\n",
+    "src/devops_cli/cloudflare/client.py": "class Client: ...\n",
+    "src/devops_cli/github/client.py": "class Client: ...\n",
 }
 
 
-def _module_search(literal: str) -> list[str]:
-    """The search of the staged commit: a test holds the dotted name of the module it imports."""
-    return _SEARCH_HITS.get(literal, [])
+def _module_tree(tests: dict[str, str] | None = None) -> tuple[StagedTree, Search]:
+    """The staged tree of `_TEXTS` and `tests`, a map of a test path to its text, and the search
+    of that commit, as `git grep -F -w -l` gives it: the files that hold a literal as a word."""
+    texts = {**_TEXTS, **(tests or {})}
+
+    def search(literal: str) -> list[str]:
+        word = re.compile(rf"(?<!\w){re.escape(literal)}(?!\w)")
+        return sorted(path for path, text in texts.items() if word.search(text))
+
+    return StagedTree([*TREE.files, *texts], reader=texts.__getitem__), search
 
 
 def _module_group(**update: object) -> StageGroup:
@@ -724,19 +845,13 @@ def _module_group(**update: object) -> StageGroup:
 
 
 def test_a_behavior_group_that_omits_the_test_of_its_module_is_refused() -> None:
-    # Imported here: the base commit holds neither function, and a module-level import would stop
-    # the module at collection, before any assertion runs.
-    from devops_cli.roadmap.stage.stage_paths import (
-        existing_test_problems,
-        record_module_tests,
-    )
-
+    tree, search = _module_tree()
     group = _module_group()
 
-    module_tests = record_module_tests([group], MODULE_TREE, _module_search)
+    module_tests = record_module_tests([group], tree, search)
 
     assert module_tests == {MODULE: (MODULE_TEST,)}
-    (problem,) = existing_test_problems([group], MODULE_TREE, module_tests)
+    (problem,) = existing_test_problems([group], tree, module_tests)
     assert "Group 1" in problem
     assert f"`{MODULE}`" in problem
     assert f"`{MODULE_TEST}`" in problem
@@ -754,65 +869,223 @@ def test_a_behavior_group_that_omits_the_test_of_its_module_is_refused() -> None
 def test_a_behavior_group_that_names_the_test_of_its_module_passes(
     update: dict[str, object],
 ) -> None:
-    from devops_cli.roadmap.stage.stage_paths import (
-        existing_test_problems,
-        record_module_tests,
-    )
-
+    tree, search = _module_tree()
     group = _module_group(**update)
 
-    module_tests = record_module_tests([group], MODULE_TREE, _module_search)
+    module_tests = record_module_tests([group], tree, search)
 
-    assert existing_test_problems([group], MODULE_TREE, module_tests) == []
+    assert existing_test_problems([group], tree, module_tests) == []
 
 
-def test_the_record_names_a_test_that_carries_the_stem_of_the_module() -> None:
-    from devops_cli.roadmap.stage.stage_paths import record_module_tests
+# Each test of the staged commit, and whether it is a test of the module that a group changes
+# (#4467). A test of a module imports it, in any form of an import and at any depth of the test. The
+# false cases come from the refused replies of the stage job: the gate asked for
+# `tests/commands/test_new.py`, which holds the path of the messages module in a string, and for a
+# test that carries the stem of a module in another package.
+_IMPORT_CASES = [
+    pytest.param(
+        MODULE,
+        "tests/sample/test_sample_import.py",
+        "from devops_cli.roadmap.stage.stage_paths import path_problems\n",
+        True,
+        id="from-the-module-import-a-name",
+    ),
+    pytest.param(
+        MODULE,
+        "tests/sample/test_sample_import.py",
+        "from devops_cli.roadmap.stage import stage_paths\n",
+        True,
+        id="from-the-package-import-the-module",
+    ),
+    pytest.param(
+        MODULE,
+        "tests/sample/test_sample_import.py",
+        "import devops_cli.roadmap.stage.stage_paths as paths\n",
+        True,
+        id="import-the-module",
+    ),
+    pytest.param(
+        MODULE,
+        "tests/sample/test_sample_import.py",
+        "def test_rule() -> None:\n    from devops_cli.roadmap.stage.stage_paths import x\n",
+        True,
+        id="import-in-a-test-function",
+    ),
+    pytest.param(
+        MESSAGES_MODULE,
+        "tests/sample/test_sample_import.py",
+        "from devops_cli.lang import MESSAGES\n",
+        True,
+        id="import-a-package-that-imports-the-module",
+    ),
+    pytest.param(
+        MESSAGES_MODULE,
+        "tests/commands/test_new.py",
+        'MESSAGES_FILE = "src/devops_cli/lang/en/messages.py"\n',
+        False,
+        id="the-path-of-the-module-in-a-string",
+    ),
+    pytest.param(
+        MODULE,
+        "tests/sample/test_sample_import.py",
+        'TARGET = "devops_cli.roadmap.stage.stage_paths.path_problems"\n',
+        False,
+        id="the-dotted-name-in-a-string",
+    ),
+    pytest.param(
+        MESSAGES_MODULE,
+        "tests/sample/test_sample_import.py",
+        "from devops_cli.lang.en.errors import ERRORS\n",
+        False,
+        id="import-another-module-of-the-package",
+    ),
+    pytest.param(
+        "src/devops_cli/github/client.py",
+        "tests/cloudflare/test_client.py",
+        "from devops_cli.cloudflare.client import Client\n",
+        False,
+        id="the-stem-of-a-module-of-another-package",
+    ),
+    pytest.param(
+        MODULE,
+        "tests/sample/test_sample_import.py",
+        "from typing import TYPE_CHECKING\n\nif TYPE_CHECKING:\n"
+        "    from devops_cli.roadmap.stage.stage_paths import StagedTree\n",
+        False,
+        id="import-for-types-only",
+    ),
+]
 
-    group = _module_group(changes=["src/devops_cli/sample.py", CREATED_TEST])
 
-    record = record_module_tests([group], MODULE_TREE, _module_search)
+@pytest.mark.parametrize(("module", "test", "text", "imports"), _IMPORT_CASES)
+def test_the_record_holds_a_test_only_when_it_imports_the_module(
+    module: str, test: str, text: str, imports: bool
+) -> None:
+    tree, search = _module_tree({test: text})
+    group = _module_group(changes=[module, CREATED_TEST])
 
-    assert record == {"src/devops_cli/sample.py": ("tests/test_sample.py",)}
+    record = record_module_tests([group], tree, search)
+
+    assert (test in record.get(module, ())) is imports
+
+
+FOLLOW_MODULE = "src/devops_cli/roadmap/follow.py"
+FOLLOW_TEST = "tests/roadmap/test_roadmap_follow.py"
+NEW_TEST = "tests/commands/test_new.py"
+# The tests of the refused replies of #3049, #3076 and #4043 (#4467): the scaffold test holds the
+# path of the messages module in a string, the test of `follow.py` imports that module, which shows
+# the messages, and a sample test imports the messages through their package.
+_MESSAGES_TESTS = {
+    NEW_TEST: 'MESSAGES_FILE = "src/devops_cli/lang/en/messages.py"\n',
+    FOLLOW_MODULE: "from devops_cli.lang import MESSAGES\n\ndef follow() -> None: ...\n",
+    FOLLOW_TEST: "from devops_cli.roadmap.follow import follow\n",
+    SAMPLE_TEST: "from devops_cli.lang import MESSAGES\n",
+}
+
+
+@pytest.mark.parametrize(
+    ("changes", "reads", "missing"),
+    [
+        pytest.param([MESSAGES_MODULE], [SAMPLE_TEST], None, id="reads-a-test-of-the-package"),
+        pytest.param(
+            [FOLLOW_MODULE, MESSAGES_MODULE],
+            [FOLLOW_TEST],
+            None,
+            id="reads-the-test-of-a-changed-module-that-shows-the-messages",
+        ),
+        pytest.param(
+            [MESSAGES_MODULE], [NEW_TEST], SAMPLE_TEST, id="reads-only-a-holder-of-the-path"
+        ),
+        pytest.param(
+            [MODULE, MESSAGES_MODULE],
+            [MODULE_TEST],
+            SAMPLE_TEST,
+            id="reads-the-test-of-a-changed-module-that-shows-no-message",
+        ),
+    ],
+)
+def test_a_group_that_changes_the_messages_names_a_test_that_runs_them(
+    changes: list[str], reads: list[str], missing: str | None
+) -> None:
+    """The gate asked the plans that changed the messages for `tests/commands/test_new.py`, which
+    holds their path in a string and runs none of them, and refused each reply (#4467)."""
+    tree, search = _module_tree(_MESSAGES_TESTS)
+    group = _module_group(changes=[*changes, CREATED_TEST], reads=reads)
+
+    problems = existing_test_problems([group], tree, record_module_tests([group], tree, search))
+
+    if missing is None:
+        assert problems == []
+    else:
+        (problem,) = problems
+        assert f"`{MESSAGES_MODULE}`" in problem
+        assert f"`{missing}`" in problem
+
+
+def test_a_module_whose_only_holder_is_no_test_of_it_is_exempt() -> None:
+    tree, search = _module_tree(
+        {"tests/commands/test_new.py": 'MESSAGES_FILE = "src/devops_cli/lang/en/messages.py"\n'}
+    )
+    group = _module_group(changes=[MESSAGES_MODULE, CREATED_TEST])
+
+    module_tests = record_module_tests([group], tree, search)
+
+    assert module_tests == {}
+    assert existing_test_problems([group], tree, module_tests) == []
+
+
+def test_a_tree_that_cannot_read_its_files_records_no_test() -> None:
+    """A tree of a replay case has no checkout and no reader, so the gate judges no module."""
+    tree, search = _module_tree()
+    group = _module_group()
+
+    assert record_module_tests([group], StagedTree(tree.files), search) == {}
+
+
+def test_grep_at_reads_a_dotted_name_as_a_fixed_string(tmp_path: Path) -> None:
+    """`git grep -e` reads each dot of `devops_cli.lang.en.messages` as any sign, so the search
+    found the path `src/devops_cli/lang/en/messages.py` in a string (#4467)."""
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "test_new.py").write_text(
+        'MESSAGES_FILE = "src/devops_cli/lang/en/messages.py"\n', encoding="utf-8"
+    )
+    (tmp_path / "tests" / "test_amend.py").write_text(
+        "from devops_cli.lang.en.messages import MESSAGES\n", encoding="utf-8"
+    )
+    _git_checkout(tmp_path)
+
+    found = grep_at(tmp_path, "HEAD", "devops_cli.lang.en.messages", operation="test")
+
+    assert found == ("tests/test_amend.py",)
 
 
 def test_a_module_with_no_existing_test_is_exempt() -> None:
-    from devops_cli.roadmap.stage.stage_paths import (
-        existing_test_problems,
-        record_module_tests,
-    )
-
     module = "src/devops_cli/roadmap/stage/stage_untested.py"
-    tree = MODULE_TREE.with_files([module])
+    tree, search = _module_tree({module: "def untested() -> None: ...\n"})
     group = _module_group(changes=[module, CREATED_TEST])
 
-    module_tests = record_module_tests([group], tree, _module_search)
+    module_tests = record_module_tests([group], tree, search)
 
     assert module_tests == {}
     assert existing_test_problems([group], tree, module_tests) == []
 
 
 def test_a_test_that_the_plan_creates_is_no_existing_test() -> None:
-    from devops_cli.roadmap.stage.stage_paths import existing_test_problems
-
+    tree, _search = _module_tree()
     group = _module_group()
 
-    assert existing_test_problems([group], MODULE_TREE, {MODULE: (CREATED_TEST,)}) == []
+    assert existing_test_problems([group], tree, {MODULE: (CREATED_TEST,)}) == []
 
 
 def test_two_groups_that_omit_their_module_test_each_get_a_problem() -> None:
-    from devops_cli.roadmap.stage.stage_paths import (
-        existing_test_problems,
-        record_module_tests,
-    )
-
+    tree, search = _module_tree()
     first = _module_group()
     second = _module_group(changes=[OTHER_MODULE, CREATED_TEST])
 
-    module_tests = record_module_tests([first, second], MODULE_TREE, _module_search)
+    module_tests = record_module_tests([first, second], tree, search)
 
     assert sorted(module_tests) == [MODULE, OTHER_MODULE]
-    problems = existing_test_problems([first, second], MODULE_TREE, module_tests)
+    problems = existing_test_problems([first, second], tree, module_tests)
     assert len(problems) == 2
     assert "Group 1" in problems[0]
     assert f"`{MODULE_TEST}`" in problems[0]
@@ -821,12 +1094,8 @@ def test_two_groups_that_omit_their_module_test_each_get_a_problem() -> None:
 
 
 def test_an_other_group_that_changes_a_module_is_not_judged() -> None:
-    from devops_cli.roadmap.stage.stage_paths import (
-        existing_test_problems,
-        record_module_tests,
-    )
-
+    tree, search = _module_tree()
     group = _construct(kind=GroupKind.OTHER, changes=[MODULE, CREATED_TEST], creates=[CREATED_TEST])
 
-    assert record_module_tests([group], MODULE_TREE, _module_search) == {}
-    assert existing_test_problems([group], MODULE_TREE, {MODULE: (MODULE_TEST,)}) == []
+    assert record_module_tests([group], tree, search) == {}
+    assert existing_test_problems([group], tree, {MODULE: (MODULE_TEST,)}) == []
