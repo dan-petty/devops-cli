@@ -60,7 +60,7 @@ def test_the_limit_is_the_limit_of_openspec() -> None:
 
 
 def test_an_added_requirement_over_the_limit_is_refused_with_its_name_and_length() -> None:
-    problems = check_proposal(_plan(_text(LENGTH_3462)), [], TREE)
+    problems = check_proposal(_plan(_text(LENGTH_3462)), [], TREE, registry=())
 
     assert problems == [_long(LENGTH_3462)]
 
@@ -68,15 +68,18 @@ def test_an_added_requirement_over_the_limit_is_refused_with_its_name_and_length
 def test_the_modified_requirement_of_the_3462_plan_is_refused_with_its_name_and_length() -> None:
     assert len(TEXT_3462) == LENGTH_3462
 
-    problems = check_proposal(_plan(TEXT_3462, modified=True), [CAPABILITY], TREE)
+    problems = check_proposal(_plan(TEXT_3462, modified=True), [CAPABILITY], TREE, registry=())
 
     assert problems == [_long(LENGTH_3462)]
 
 
 def test_a_requirement_at_the_limit_passes() -> None:
-    assert check_proposal(_plan(_text(REQUIREMENT_MAX_CHARS)), [], TREE) == []
+    assert check_proposal(_plan(_text(REQUIREMENT_MAX_CHARS)), [], TREE, registry=()) == []
     assert (
-        check_proposal(_plan(_text(REQUIREMENT_MAX_CHARS), modified=True), [CAPABILITY], TREE) == []
+        check_proposal(
+            _plan(_text(REQUIREMENT_MAX_CHARS), modified=True), [CAPABILITY], TREE, registry=()
+        )
+        == []
     )
 
 
@@ -85,11 +88,11 @@ def test_the_length_counts_utf16_units_as_openspec_does() -> None:
     counts two."""
     text = _text(REQUIREMENT_MAX_CHARS - 1) + "\N{GRINNING FACE}"
 
-    assert check_proposal(_plan(text), [], TREE) == [_long(REQUIREMENT_MAX_CHARS + 1)]
+    assert check_proposal(_plan(text), [], TREE, registry=()) == [_long(REQUIREMENT_MAX_CHARS + 1)]
 
 
 def test_the_length_problem_is_a_problem_of_the_gate_spec_delta() -> None:
-    found = check_gates(_plan(_text(LENGTH_3462)), [], TREE)
+    found = check_gates(_plan(_text(LENGTH_3462)), [], TREE, registry=())
 
     assert found[ProposalGate.SPEC_DELTA] == [_long(LENGTH_3462)]
     assert [gate for gate, problems in found.items() if problems] == [ProposalGate.SPEC_DELTA]

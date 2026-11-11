@@ -47,7 +47,7 @@ LIVING_SPEC_TREE = TREE.with_files([LIVING_SPEC])
 
 
 def _check(proposal: StageProposal, **keywords: Any) -> list[str]:
-    return check_proposal(proposal, ["comment-thread"], TREE, **keywords)
+    return check_proposal(proposal, ["comment-thread"], TREE, registry=(), **keywords)
 
 
 def _plan_that_adds_a_rule(test: str) -> StageProposal:
@@ -242,7 +242,7 @@ def test_a_what_changes_code_span_that_is_no_path_is_accepted() -> None:
 def test_a_what_changes_path_under_the_living_spec_folder_is_accepted() -> None:
     plan = make_stage_proposal(what_changes=[f"`{LIVING_SPEC}` gains a scenario."])
 
-    problems = check_proposal(plan, ["comment-thread"], LIVING_SPEC_TREE)
+    problems = check_proposal(plan, ["comment-thread"], LIVING_SPEC_TREE, registry=())
 
     assert not any(LIVING_SPEC in p for p in problems)
 
@@ -294,12 +294,14 @@ CITED_FILES = {
 
 def _cited(text: str, **overrides: Any) -> list[str]:
     plan = make_stage_proposal(feasibility=[text], **overrides)
-    return check_proposal(plan, ["comment-thread"], TREE, read_text=CITED_FILES.get)
+    return check_proposal(plan, ["comment-thread"], TREE, read_text=CITED_FILES.get, registry=())
 
 
 def test_the_sample_plan_cites_no_line_that_the_staged_file_lacks() -> None:
     assert (
-        check_proposal(make_stage_proposal(), ["comment-thread"], TREE, read_text=CITED_FILES.get)
+        check_proposal(
+            make_stage_proposal(), ["comment-thread"], TREE, read_text=CITED_FILES.get, registry=()
+        )
         == []
     )
 
@@ -355,7 +357,9 @@ def test_a_citation_of_an_absent_symbol_is_refused() -> None:
 def test_a_stale_citation_of_what_changes_names_that_field() -> None:
     plan = make_stage_proposal(what_changes=[f"The probe reads `{CITED}:4:def g():` now."])
 
-    problems = check_proposal(plan, ["comment-thread"], TREE, read_text=CITED_FILES.get)
+    problems = check_proposal(
+        plan, ["comment-thread"], TREE, read_text=CITED_FILES.get, registry=()
+    )
 
     assert any("what_changes" in p and CITED in p for p in problems)
 
@@ -464,7 +468,9 @@ def test_a_documents_task_that_repeats_a_work_text_is_refused() -> None:
         what_changes=[f"`{MESSAGES_FILE}` gains the duplicate-task message."], groups=[group]
     )
 
-    problems = check_proposal(plan, ["comment-thread"], TREE.with_files([MESSAGES_FILE]))
+    problems = check_proposal(
+        plan, ["comment-thread"], TREE.with_files([MESSAGES_FILE]), registry=()
+    )
 
     assert any("state the same work" in p and "1.1" in p and "1.2" in p for p in problems)
 
@@ -687,20 +693,26 @@ def test_check_proposal_refuses_uncovered_reference_and_accepts_changed() -> Non
     proposal = make_stage_proposal()
 
     # Uncovered probed reference is refused
-    problems = check_proposal(proposal, ["comment-thread"], tree, references=[path])
+    problems = check_proposal(proposal, ["comment-thread"], tree, references=[path], registry=())
     assert any(path in p for p in problems)
 
     # When a group changes that path, it is accepted
     group = proposal.groups[0].model_copy(update={"changes": [*proposal.groups[0].changes, path]})
     plan_with_change = make_stage_proposal(groups=[group])
-    assert check_proposal(plan_with_change, ["comment-thread"], tree, references=[path]) == []
+    assert (
+        check_proposal(plan_with_change, ["comment-thread"], tree, references=[path], registry=())
+        == []
+    )
 
     # When marked unchanged with a reason, it is accepted
     ref = StageReference(
         path=path, kind="snapshot file", unchanged=True, reason="Legacy snapshot format kept."
     )
     plan_with_ref = make_stage_proposal(references=[ref])
-    assert check_proposal(plan_with_ref, ["comment-thread"], tree, references=[path]) == []
+    assert (
+        check_proposal(plan_with_ref, ["comment-thread"], tree, references=[path], registry=())
+        == []
+    )
 
 
 def test_schema_refuses_unchanged_reference_with_no_reason() -> None:

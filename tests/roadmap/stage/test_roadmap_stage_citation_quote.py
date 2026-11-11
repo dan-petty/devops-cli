@@ -21,7 +21,7 @@ TREE = StagedTree(["src/devops_cli/sample.py", CITED])
 
 def _cited(text: str, **overrides: Any) -> list[str]:
     plan = make_stage_proposal(feasibility=[text], **overrides)
-    return check_proposal(plan, ["comment-thread"], TREE, read_text=FILES.get)
+    return check_proposal(plan, ["comment-thread"], TREE, read_text=FILES.get, registry=())
 
 
 @pytest.mark.parametrize(

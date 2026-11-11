@@ -824,12 +824,14 @@ def test_a_manifest_plan_that_omits_its_test_is_refused() -> None:
         KNOWN,
         tree,
         manifest_references=references,
+        registry=(),
     )
     listed = check_gates(
         make_stage_proposal(groups=[_manifest_group(MANIFEST, MANIFEST_TEST)]),
         KNOWN,
         tree,
         manifest_references=references,
+        registry=(),
     )
 
     (problem,) = omitted[ProposalGate.PATHS]

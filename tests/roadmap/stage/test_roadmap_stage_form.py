@@ -102,7 +102,7 @@ def _problems(proposal: StageProposal) -> list[str]:
     tree = StagedTree(
         [*group.changes, *group.reads, "src/devops_cli/sample.py", "tests/test_sample.py"]
     )
-    return check_proposal(proposal, ["comment-thread"], tree)
+    return check_proposal(proposal, ["comment-thread"], tree, registry=())
 
 
 def test_a_pytest_verify_command_is_refused_with_the_form_to_use() -> None:
@@ -436,7 +436,7 @@ def _overlap_problems(plan: StageProposal) -> list[str]:
     """What `check_proposal` finds in a plan whose files exist, against one overlap."""
     group = plan.groups[0]
     tree = StagedTree([*group.changes, "src/devops_cli/sample.py", "tests/test_sample.py"])
-    return check_proposal(plan, ["comment-thread"], tree, overlaps=[_OVERLAP])
+    return check_proposal(plan, ["comment-thread"], tree, overlaps=[_OVERLAP], registry=())
 
 
 def test_an_overlap_with_no_dependency_is_refused_and_named() -> None:
@@ -547,7 +547,7 @@ def test_a_spec_naming_a_missing_test_file_is_refused() -> None:
     )
     plan = make_stage_proposal(specs=[spec])
     tree = StagedTree(["src/devops_cli/sample.py", "tests/test_sample.py"])
-    problems = check_proposal(plan, ["comment-thread"], tree)
+    problems = check_proposal(plan, ["comment-thread"], tree, registry=())
     assert any("tests/test_missing_example.py" in p for p in problems)
 
 
@@ -557,7 +557,7 @@ def test_a_changed_docstring_naming_a_missing_test_file_is_refused() -> None:
     source = 'def helper():\n    """See `tests/test_missing_example.py`."""\n    pass\n'
     read_text = {"src/devops_cli/sample.py": source}.get
     tree = StagedTree(["src/devops_cli/sample.py", "tests/test_sample.py"])
-    problems = check_proposal(plan, ["comment-thread"], tree, read_text=read_text)
+    problems = check_proposal(plan, ["comment-thread"], tree, read_text=read_text, registry=())
     assert any("tests/test_missing_example.py" in p for p in problems)
 
 
@@ -571,6 +571,7 @@ def _stale_test_path_problem(path: str, files: list[str]) -> str:
         ["comment-thread"],
         StagedTree(["src/devops_cli/sample.py", *files]),
         read_text=read_text,
+        registry=(),
     )
     (problem,) = [p for p in problems if p.startswith(f"The test path `{path}`")]
     return problem
@@ -596,7 +597,7 @@ def test_a_changed_source_with_syntax_error_is_ignored() -> None:
     plan = make_stage_proposal(groups=[group])
     read_text = {"src/devops_cli/sample.py": "def broken_syntax(:\n"}.get
     tree = StagedTree(["src/devops_cli/sample.py", "tests/test_sample.py"])
-    problems = check_proposal(plan, ["comment-thread"], tree, read_text=read_text)
+    problems = check_proposal(plan, ["comment-thread"], tree, read_text=read_text, registry=())
     assert not any("stage_problem_missing_test_file" in p for p in problems)
 
 
@@ -607,7 +608,7 @@ def test_a_changed_docstring_naming_an_existing_test_file_passes() -> None:
         "src/devops_cli/sample.py": '"""See `tests/roadmap/test_roadmap_limit_classes.py`."""\n'
     }.get
     tree = StagedTree(["src/devops_cli/sample.py", "tests/roadmap/test_roadmap_limit_classes.py"])
-    problems = check_proposal(plan, ["comment-thread"], tree, read_text=read_text)
+    problems = check_proposal(plan, ["comment-thread"], tree, read_text=read_text, registry=())
     assert not any("tests/roadmap/test_roadmap_limit_classes.py" in p for p in problems)
 
 

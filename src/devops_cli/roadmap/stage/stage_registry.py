@@ -59,11 +59,21 @@ def _extract_entries(value_node: ast.expr, declaring_path: str) -> list[Registry
     return entries
 
 
-def counts_in(path: Path) -> tuple[RegistryCount, ...]:
-    """Parse one Python module and read its module-level `REGISTRY_COUNTS` declaration."""
+def _declaring_source(path: Path) -> str:
+    """The text of the module at `path`, or "" when the file cannot be read or its text does not
+    hold `REGISTRY_COUNTS`. A module that does not hold the name declares nothing (#4509)."""
     try:
         source = path.read_text(encoding="utf-8")
     except OSError, UnicodeDecodeError:
+        return ""
+    return source if _TARGET_CONSTANT in source else ""
+
+
+def counts_in(path: Path) -> tuple[RegistryCount, ...]:
+    """Parse one Python module and read its module-level `REGISTRY_COUNTS` declaration. A module
+    whose text does not hold the name is not parsed."""
+    source = _declaring_source(path)
+    if not source:
         return ()
 
     try:
@@ -95,9 +105,11 @@ def registry_table(root: Path) -> tuple[RegistryCount, ...]:
     for file_path in sorted(search_dir.rglob("*.py")):
         if not file_path.is_file():
             continue
+        entries = counts_in(file_path)
+        if not entries:
+            continue
         rel_path = file_path.relative_to(root).as_posix()
-        for entry in counts_in(file_path):
-            all_entries.append(replace(entry, declaring_path=rel_path))
+        all_entries.extend(replace(entry, declaring_path=rel_path) for entry in entries)
 
     return tuple(sorted(all_entries, key=lambda item: (item.declaring_path, item.line, item.token)))
 

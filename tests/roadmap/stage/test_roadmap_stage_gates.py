@@ -42,21 +42,21 @@ def _reads_a_missing_file(**overrides: object) -> StageProposal:
 
 
 def test_a_good_plan_has_a_key_for_every_gate_and_no_problem() -> None:
-    found = check_gates(make_stage_proposal(), KNOWN, TREE)
+    found = check_gates(make_stage_proposal(), KNOWN, TREE, registry=())
 
     assert set(found) == set(ProposalGate)
     assert not any(found.values())
 
 
 def test_a_missing_spec_delta_is_a_problem_of_the_gate_spec_delta() -> None:
-    found = check_gates(make_stage_proposal(specs=[]), KNOWN, TREE)
+    found = check_gates(make_stage_proposal(specs=[]), KNOWN, TREE, registry=())
 
     assert found[ProposalGate.SPEC_DELTA] == [NO_SPEC_DELTA]
     assert [gate for gate, problems in found.items() if problems] == [ProposalGate.SPEC_DELTA]
 
 
 def test_a_path_that_no_commit_holds_is_a_problem_of_the_gate_paths() -> None:
-    found = check_gates(_reads_a_missing_file(), KNOWN, TREE)
+    found = check_gates(_reads_a_missing_file(), KNOWN, TREE, registry=())
 
     assert any(MISSING in problem for problem in found[ProposalGate.PATHS])
     assert not found[ProposalGate.SPEC_DELTA]
@@ -75,7 +75,7 @@ def test_a_stage_check_change_with_no_replay_task_is_a_problem_of_the_gate_eval_
     }
     plan = make_stage_proposal(groups=[group.model_copy(update=update)])
 
-    found = check_gates(plan, KNOWN, StagedTree([*TREE_FILES, STAGE_CHANGE]))
+    found = check_gates(plan, KNOWN, StagedTree([*TREE_FILES, STAGE_CHANGE]), registry=())
 
     (problem,) = found[ProposalGate.EVAL_REPLAY]
     assert STAGE_EVAL_REPLAY in problem
@@ -85,10 +85,10 @@ def test_a_stage_check_change_with_no_replay_task_is_a_problem_of_the_gate_eval_
 def test_check_proposal_joins_the_problems_of_the_gates_in_the_order_of_the_gates() -> None:
     plan = _reads_a_missing_file(specs=[])
 
-    found = check_gates(plan, KNOWN, TREE)
+    found = check_gates(plan, KNOWN, TREE, registry=())
 
     assert sum(1 for problems in found.values() if problems) >= 2
-    assert check_proposal(plan, KNOWN, TREE) == [
+    assert check_proposal(plan, KNOWN, TREE, registry=()) == [
         problem for problems in found.values() for problem in problems
     ]
     assert list(found) == list(ProposalGate)
@@ -97,7 +97,9 @@ def test_check_proposal_joins_the_problems_of_the_gates_in_the_order_of_the_gate
 def test_a_stale_citation_is_a_problem_of_the_gate_citation() -> None:
     plan = make_stage_proposal(feasibility=["The probe shows `src/sample.py:4:def g():` here."])
 
-    found = check_gates(plan, KNOWN, TREE, read_text={"src/sample.py": "x\n\n\ndef f():\n"}.get)
+    found = check_gates(
+        plan, KNOWN, TREE, read_text={"src/sample.py": "x\n\n\ndef f():\n"}.get, registry=()
+    )
 
     assert [gate for gate, problems in found.items() if problems] == [ProposalGate.CITATION]
 

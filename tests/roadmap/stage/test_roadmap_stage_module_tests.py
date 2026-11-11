@@ -53,12 +53,14 @@ def test_the_paths_gate_refuses_a_group_that_omits_its_module_test() -> None:
         KNOWN,
         TREE,
         module_tests=MODULE_TESTS,
+        registry=(),
     )
     listed = check_gates(
         make_stage_proposal(groups=[_group(reads=[MODULE_TEST])]),
         KNOWN,
         TREE,
         module_tests=MODULE_TESTS,
+        registry=(),
     )
 
     (problem,) = omitted[ProposalGate.PATHS]
@@ -69,7 +71,7 @@ def test_the_paths_gate_refuses_a_group_that_omits_its_module_test() -> None:
 
 
 def test_the_paths_gate_judges_no_module_test_when_the_caller_passes_no_record() -> None:
-    found = check_gates(make_stage_proposal(groups=[_group()]), KNOWN, TREE)
+    found = check_gates(make_stage_proposal(groups=[_group()]), KNOWN, TREE, registry=())
 
     assert found[ProposalGate.PATHS] == []
 
