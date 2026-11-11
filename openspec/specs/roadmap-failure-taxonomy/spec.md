@@ -141,7 +141,7 @@ The module `failure.py` SHALL hold `StepName`, a string enum of the steps that t
 - **THEN** the step is a member of `StepName` and the item waits for the time of its failure class
 
 ### Requirement: A failure class has a wait
-The module `failure.py` SHALL hold the read-only mapping `RETRY_AFTER` from each class that `CLASS_BY_EXCEPTION` gives to a `timedelta`: `provider` 1 hour, `parser` 6 hours, `plan_defect` 6 hours, `ci_infra` 1 hour and `head_moved` 0. The keys of `RETRY_AFTER` SHALL be exactly the classes of `CLASS_BY_EXCEPTION`, and no value SHALL be `None`.
+The module `failure.py` SHALL hold the read-only mapping `RETRY_AFTER` from each class that `CLASS_BY_EXCEPTION` gives to a `timedelta`: `provider` 1 hour, `parser` 6 hours, `plan_defect` 1 hour, `ci_infra` 1 hour and `head_moved` 0. The keys of `RETRY_AFTER` SHALL be exactly the classes of `CLASS_BY_EXCEPTION`, and no value SHALL be `None`.
 
 #### Scenario: The keys
 - **WHEN** a test reads the keys of `RETRY_AFTER` and the classes of `CLASS_BY_EXCEPTION`
@@ -149,7 +149,7 @@ The module `failure.py` SHALL hold the read-only mapping `RETRY_AFTER` from each
 
 #### Scenario: The waits
 - **WHEN** a test reads the value of each key
-- **THEN** it finds 1 hour for `provider` and `ci_infra`, 6 hours for `parser` and `plan_defect`, and 0 for `head_moved`
+- **THEN** it finds 1 hour for `provider`, `plan_defect` and `ci_infra`, 6 hours for `parser`, and 0 for `head_moved`
 
 ### Requirement: A rebase that does not start is no conflict
 When git refuses to start a rebase of the implement job, as in a checkout that holds changes, the job SHALL run no `git rebase --abort`, its reason SHALL say that the rebase did not start, and the stop SHALL have the class `ci_infra`, not `conflict`. A new Job starts from a new worktree, so the default action `retry` applies.

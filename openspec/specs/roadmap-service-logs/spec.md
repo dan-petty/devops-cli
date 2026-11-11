@@ -60,7 +60,7 @@ The roadmap jobs SHALL log one line with counts and no model text for a stage re
 - **THEN** two `stage review round` lines give the repository, the item, rounds 0 and 1 and their counts, and one `stage gate returns` line gives `returns=1 result=passed`
 
 #### Scenario: A failed item
-- **WHEN** a stage round fails an item whose plan the checks refused twice
+- **WHEN** a stage round fails an item whose plan the checks refused after each return
 - **THEN** one `stage item failed` line gives the repository, the item, the step `plan` and the class `plan_defect`
 
 #### Scenario: An implement attempt

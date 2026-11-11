@@ -132,7 +132,7 @@ For the stage job, `devops roadmap explain <issue>` SHALL read `stage.failed_at`
 
 #### Scenario: A held item
 - **WHEN** the job record of a Ready item holds a failure of 5 minutes ago with the error `RoadmapStageError` and the class `plan_defect`
-- **THEN** the stage job is `no` and the reason names `RoadmapStageError` and the time 6 hours after the failure
+- **THEN** the stage job is `no` and the reason names `RoadmapStageError` and the time 1 hour after the failure
 
 #### Scenario: A held item with no class
 - **WHEN** the job record of a Ready item holds a failure of 5 minutes ago with the error `AIClientError` and no class
