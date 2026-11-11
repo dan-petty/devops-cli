@@ -484,7 +484,9 @@ class StepOutcome(BaseModel):
     `tier_spend` holds the requests and tokens of each tier (#3060). `failure_class` is the class
     of a stopped step, when the step knows its cause (#3476). `first_request_tokens` is the input
     tokens of the first model request of the step, which is the size of that request (#3499), and
-    0 when no request got a reply. `planned_requests` are the requests a dry run lists. `fail_to_pass` is the replay of a behavior group's tests on its base commit,
+    0 when no request got a reply. `largest_request_tokens` is the input tokens of the largest
+    model request of the step (#4587), and 0 when no request got a reply.
+    `planned_requests` are the requests a dry run lists. `fail_to_pass` is the replay of a behavior group's tests on its base commit,
     and `verified` holds the verify commands of a group of kind `other`, of a done step (#3042).
     `extension` is the one extension of the token budget that the step got, with the counts that
     gave it (#4394), or None. `cache_read_tokens` is the part of `input_tokens` that the provider
@@ -513,6 +515,7 @@ class StepOutcome(BaseModel):
     tier_spend: dict[str, TierSpend] = {}
     failure_class: FailureClass | None = None
     first_request_tokens: int = 0
+    largest_request_tokens: int = 0
     dry_run: bool = False
     planned_requests: tuple[str, ...] = ()
     fail_to_pass: BaseReplay | None = None
@@ -689,7 +692,8 @@ class _Run:
     the request can fix the error that ended it (#2794). `provider_error` says that a failed model
     call ended it, which moves the step to the next tier (#3060). `failure_class` is the class of
     `reason`: the output cap, or what the classifier reads in the text of the error (#3476). The
-    tier decision and the stop of the step read this one class. `first_request_tokens` is the input
+    tier decision and the stop of the step read this one class. `largest_request_tokens` is the
+    input tokens of the largest request with a reply (#4587). `first_request_tokens` is the input
     tokens of the first request that got a reply, which is the size of that request (#3499), and 0
     when no request got one. `cache_read_tokens` is the part of `input_tokens` that the provider
     read from its cache (#4387)."""
@@ -706,11 +710,12 @@ class _Run:
     provider_error: bool = False
     failure_class: FailureClass | None = None
     first_request_tokens: int = 0
+    largest_request_tokens: int = 0
 
     def then(self, later: _Run) -> _Run:
         """This turn followed by `later`, which continued its conversation: the end and the last
         text of `later`, and the spend of both. The first request stays that of this turn, unless
-        this turn got no reply."""
+        this turn got no reply. The largest request is the larger of the two turns."""
         return _Run(
             reason=later.reason,
             last_message=later.last_message or self.last_message,
@@ -724,6 +729,7 @@ class _Run:
             resend=later.resend,
             provider_error=self.provider_error or later.provider_error,
             failure_class=later.failure_class,
+            largest_request_tokens=max(self.largest_request_tokens, later.largest_request_tokens),
         )
 
 
@@ -933,6 +939,7 @@ def _run_turn(
         resend=resend,
         provider_error=provider_error,
         failure_class=_run_class(reason, typed),
+        largest_request_tokens=max((reply.usage.input_tokens for reply in replies), default=0),
     )
 
 
@@ -1932,7 +1939,7 @@ def _attempt(
     number = 1
     rounds_spent = False
     tool_calls = 0
-    first_request = 0
+    first_request = largest_request = 0
     total = TierSpend()
     spent: dict[str, TierSpend] = {}
     tried: list[str] = []
@@ -1982,6 +1989,7 @@ def _attempt(
             )
             rounds_spent = repaired.spent
             total = total.plus(run)
+            largest_request = max(largest_request, run.largest_request_tokens)
             tool_calls += run.tool_calls
             if tier:
                 spent[tier] = spent.get(tier, TierSpend()).plus(run)
@@ -2004,6 +2012,7 @@ def _attempt(
         cache_read_tokens=total.cache_read_tokens,
         output_tokens=total.output_tokens,
         first_request_tokens=first_request,
+        largest_request_tokens=largest_request,
         removed=tuple(log.removed),
         repair_rounds=rounds,
         tier=tried[-1] if tried else "",

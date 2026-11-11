@@ -442,10 +442,16 @@ def _step_label(group: int) -> str:
 
 def _step_spend(outcome: StepOutcome) -> dict[str, Any]:
     """The entry of a step in the record `implement.spend`: its label, the size of its first
-    request (#3499), and the one extension of its token budget when it got one (#4394)."""
+    request (#3499), its requests, tokens, repair rounds and the size of its largest request
+    (#4587), and the one extension of its token budget when it got one (#4394)."""
     entry: dict[str, Any] = {
         "step": _outcome_label(outcome),
         "first_request_tokens": outcome.first_request_tokens,
+        "requests": outcome.requests,
+        "input_tokens": outcome.input_tokens,
+        "output_tokens": outcome.output_tokens,
+        "repair_rounds": outcome.repair_rounds,
+        "largest_request_tokens": outcome.largest_request_tokens,
     }
     if outcome.extension is not None:
         entry["extension"] = outcome.extension.model_dump()
