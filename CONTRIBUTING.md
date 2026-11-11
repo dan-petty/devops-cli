@@ -106,7 +106,9 @@ In bash, `${=F}`, `${(f)...}` and `print -r --` fail. The forms `printf '%s'`, `
    printf '%s\n' '-----'    # right
    ```
 
-3. **JSON from `uv run devops gh api` breaks in two ways.** The command writes a `Bytecode compiled` line and an `Elapsed:` line to stderr. In a git worktree, `uv run` also writes a `warning: VIRTUAL_ENV` line. The Bash tool shows these lines around the reply, and a `2>&1` pipe mixes them into the JSON.
+3. **JSON from `uv run devops gh api` breaks in two ways.** The command writes an `Elapsed:` line to stderr. In a shell that has the environment of the devcontainer image, `uv run` also writes a `Bytecode compiled` line, because the image sets `UV_COMPILE_BYTECODE=1`. The Bash tool shows these lines around the reply, and a `2>&1` pipe mixes them into the JSON.
+
+   The `env` of `.claude/settings.json` sets `UV_COMPILE_BYTECODE` to `0` and `VIRTUAL_ENV` to an empty value, which uv reads as unset. The VS Code extension of Claude Code starts the session with `VIRTUAL_ENV` set to the main `.venv`, so without this value `uv run` in a git worktree writes a `warning: VIRTUAL_ENV` line. The warning advises `--active`. Do not use it: it points the editable install of the main `.venv` at the worktree.
 
    In zsh, `echo "$VAR"` expands backslash escapes. A `\n` in a JSON string then becomes a raw newline, and the parser fails. Pipe stdout directly. Print a variable with `print -r --` or `printf '%s'`. Or read one field with `--jq`:
 
