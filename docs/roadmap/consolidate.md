@@ -62,6 +62,16 @@ consistency gained, the risks and a confidence. Each member has an action (`merg
   names the gateway. The progress file keeps the shortlists that were done.
 - `--decline` without `--confirm` prints what it would write.
 
+## MCP tool
+
+The MCP tool `roadmap_consolidate` runs the plan path of the command. It publishes `repo`, `ref`,
+`limit` and `dry_run` only, so its argv never holds `--decline` or `--confirm`, and it is
+read-only. It waits at most 900 s: a run of 10 shortlists takes about 10 minutes. Pass `limit` for
+a shorter run. A run that stops keeps its judgements in the progress file.
+
+No row of the Service run starts the job. Item #4687 plans a daily consolidate step in a
+CronWorkflow, out of the Service pod.
+
 ## The judge
 
 The judge is one function, `ShortlistJudge.judge`, in `src/devops_cli/roadmap/consolidate_judge.py`.
