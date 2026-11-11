@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any, Final
 
 from tests.support.paths import FIXTURES, REPO_ROOT
+from tests.support.trees import parse_python_file
 
 CONST_SWALLOWED_FAILURES_RUFF_RULES: Final[tuple[str, ...]] = ("BLE001", "S110", "S112")
 CONST_SWALLOWED_FAILURES_CHECK_ATTRS: Final[tuple[str, ...]] = ("returncode", "stdout", "stderr")
@@ -237,7 +238,7 @@ def collect_ast_unread_check_false(
             if not f.name.endswith(".py"):
                 continue
             try:
-                tree = ast.parse(f.read_text(encoding="utf-8"), filename=str(f))
+                tree = parse_python_file(f)
             except SyntaxError, UnicodeDecodeError:
                 continue
             file_tree_pairs.append((f, tree))

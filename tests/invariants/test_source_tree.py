@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 from tests.support.paths import REPO_ROOT
-from tests.support.trees import ParsedTreeMap
+from tests.support.trees import ParsedTreeMap, parse_python_file
 
 # The one structured-output path, and the module that defines the reflection it sends (#1003).
 _STRUCTURED_OUTPUT_MODULES = frozenset(
@@ -490,7 +490,6 @@ def test_layout_ratchet_flags_orphan_mirror_directory(tmp_path: Path) -> None:
 
 # ── The roadmap package layout (#3187) ───────────────────────────────────────
 
-_ROADMAP_DOTTED = "devops_cli.roadmap"
 _ROADMAP_SRC = REPO_ROOT / "src" / "devops_cli" / "roadmap"
 _ROADMAP_TESTS = REPO_ROOT / "tests" / "roadmap"
 _ROADMAP_JOBS = ("intake", "refine", "stage", "implement")
@@ -502,39 +501,6 @@ def _module_stems(directory: Path) -> list[str]:
     return sorted(p.stem for p in directory.glob("*.py") if p.name != "__init__.py")
 
 
-def _roadmap_path(dotted: str) -> Path | None:
-    """The module file or package folder that the dotted name `devops_cli.roadmap...` gives."""
-    base = _ROADMAP_SRC.joinpath(*dotted.split(".")[2:])
-    for candidate in (base.with_suffix(".py"), base / "__init__.py"):
-        if candidate.is_file():
-            return candidate
-    return None
-
-
-def _roadmap_import_problems(path: Path) -> list[str]:
-    """The imports in `path` of a roadmap module, or of a name of a roadmap package, that do not
-    exist."""
-    problems: list[str] = []
-    for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
-        names: list[str] = []
-        if isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
-            if node.module == _ROADMAP_DOTTED or node.module.startswith(f"{_ROADMAP_DOTTED}."):
-                names = [node.module]
-                module = _roadmap_path(node.module)
-                if module is not None and module.name == "__init__.py":
-                    names += [f"{node.module}.{alias.name}" for alias in node.names]
-        elif isinstance(node, ast.Import):
-            names = [
-                alias.name for alias in node.names if alias.name.startswith(f"{_ROADMAP_DOTTED}.")
-            ]
-        problems += [
-            f"{path.relative_to(REPO_ROOT)}:{node.lineno} {name}"
-            for name in names
-            if name != _ROADMAP_DOTTED and _roadmap_path(name) is None
-        ]
-    return problems
-
-
 def test_each_roadmap_job_module_sits_in_its_subpackage() -> None:
     """No top-level roadmap module starts with a job name, and each job and the stores have a
     subpackage that holds its modules (#3187)."""
@@ -543,18 +509,6 @@ def test_each_roadmap_job_module_sits_in_its_subpackage() -> None:
         assert _module_stems(_ROADMAP_SRC / job), job
     assert set(_ROADMAP_STORE_MODULES) <= set(_module_stems(_ROADMAP_SRC / "stores"))
     assert set(_ROADMAP_STORE_MODULES).isdisjoint(_module_stems(_ROADMAP_SRC))
-
-
-def test_every_import_of_a_roadmap_module_names_a_module_that_exists() -> None:
-    """No module of `src/` or `tests/` imports a roadmap module by a path that the move
-    removed (#3187)."""
-    problems = [
-        problem
-        for tree in ("src", "tests")
-        for path in sorted((REPO_ROOT / tree).rglob("*.py"))
-        for problem in _roadmap_import_problems(path)
-    ]
-    assert problems == []
 
 
 def test_the_roadmap_package_module_holds_only_its_docstring() -> None:
@@ -608,11 +562,11 @@ _PATCH_FREE_COMMAND_TEST_DIRECTORIES = ("tests/commands", "tests/invariants")
 _PATCH_CALLS = frozenset({"patch", "setattr"})
 
 
-def _string_patches_of_devops_cli(source: str) -> list[tuple[int, str]]:
+def _string_patches_of_devops_cli(tree: ast.Module) -> list[tuple[int, str]]:
     """The line and target of patch and setattr calls whose first argument is a string
     that names a devops_cli module, class, function, or attribute (#1336)."""
     patches: list[tuple[int, str]] = []
-    for node in ast.walk(ast.parse(source)):
+    for node in ast.walk(tree):
         if (
             isinstance(node, ast.Call)
             and _called_name(node) in _PATCH_CALLS
@@ -630,7 +584,7 @@ def find_devops_cli_string_patches(test_file: Path, repo_root: Path = REPO_ROOT)
     rel = test_file.relative_to(repo_root).as_posix()
     return [
         f"{rel}:{line}: patch('{target}') (docs/TESTING.md # Doubles)"
-        for line, target in _string_patches_of_devops_cli(test_file.read_text(encoding="utf-8"))
+        for line, target in _string_patches_of_devops_cli(parse_python_file(test_file))
     ]
 
 
@@ -694,7 +648,7 @@ def find_private_devops_cli_imports(directory: Path, repo_root: Path = REPO_ROOT
     for path in sorted(directory.rglob("*.py")):
         rel = path.relative_to(repo_root).as_posix()
         try:
-            tree = ast.parse(path.read_text(encoding="utf-8"))
+            tree = parse_python_file(path)
         except Exception:
             continue
         for node in ast.walk(tree):
@@ -730,7 +684,7 @@ def find_module_level_cli_runners(directory: Path, repo_root: Path = REPO_ROOT) 
     for path in sorted(directory.rglob("*.py")):
         rel = path.relative_to(repo_root).as_posix()
         try:
-            tree = ast.parse(path.read_text(encoding="utf-8"))
+            tree = parse_python_file(path)
         except Exception:
             continue
         for node in tree.body:

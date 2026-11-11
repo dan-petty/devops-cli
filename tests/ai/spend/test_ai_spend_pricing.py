@@ -23,6 +23,7 @@ from devops_cli.ai.spend.pricing import (
 from devops_cli.config.defaults import DEFAULT_AI_REFERENCE_MODEL
 from tests.support.fakes.http import WebFake
 from tests.support.paths import REPO_ROOT
+from tests.support.trees import parse_python_file
 
 
 @pytest.fixture(autouse=True)
@@ -1095,13 +1096,12 @@ def test_a_price_override_of_the_deployment_model_prices_a_gateway_call(tmp_path
     )
 
 
-def _names_the_reference_model(source: str, model: str) -> list[int]:
-    """The lines of `source` where a string names `model` as a reference model: the string, or
+def _names_the_reference_model(tree: ast.Module, model: str) -> list[int]:
+    """The lines of `tree` where a string names `model` as a reference model: the string, or
     the call, keyword, assignment or parameter list that holds it, mentions a reference. A longer
     name such as `<model>-mini`, or a LiteLLM reference such as `openai/<model>`, is another
     model, and another use of the same model, such as a tokenizer default, is no reference."""
     whole_name = re.compile(rf"(?<![\w./:-]){re.escape(model)}(?![\w./:-])")
-    tree = ast.parse(source)
     holders = {child: node for node in ast.walk(tree) for child in ast.iter_child_nodes(node)}
     return [
         node.lineno
@@ -1128,7 +1128,7 @@ def test_the_reference_model_check_finds_the_model_only_as_a_reference(
 ) -> None:
     """Verify the check below finds a literal reference model, such as the help text that named
     the default before #1672, and not another use of the same model name (#2194)."""
-    assert _names_the_reference_model(source, "gpt-4o") == lines
+    assert _names_the_reference_model(ast.parse(source), "gpt-4o") == lines
 
 
 def test_only_the_defaults_name_the_default_reference_model() -> None:
@@ -1142,7 +1142,6 @@ def test_only_the_defaults_name_the_default_reference_model() -> None:
         f"{path.relative_to(source)}:{line}"
         for path in sorted(source.rglob("*.py"))
         if path != defaults
-        for text in [path.read_text(encoding="utf-8")]
-        if DEFAULT_AI_REFERENCE_MODEL in text
-        for line in _names_the_reference_model(text, DEFAULT_AI_REFERENCE_MODEL)
+        if DEFAULT_AI_REFERENCE_MODEL in path.read_text(encoding="utf-8")
+        for line in _names_the_reference_model(parse_python_file(path), DEFAULT_AI_REFERENCE_MODEL)
     ] == []

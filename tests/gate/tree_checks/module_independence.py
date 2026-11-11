@@ -9,6 +9,7 @@ from fnmatch import fnmatch
 from pathlib import Path
 
 from tests.support.paths import REPO_ROOT
+from tests.support.trees import parse_test_trees
 
 # The patterns by which pytest collects a test module: its default, since pyproject.toml sets none.
 PYTEST_PYTHON_FILES = ("test_*.py", "*_test.py")
@@ -94,18 +95,11 @@ def _violations(
     a conftest in the Python files under `root`'s `tests/` but `tests/fixtures/`, each parsed
     once."""
     found: list[str] = []
-    if trees is not None:
-        file_tree_pairs = [
-            (path, tree)
-            for path, tree in sorted(trees.items())
-            if not path.relative_to(root).is_relative_to(_FIXTURES)
-        ]
-    else:
-        file_tree_pairs = [
-            (path, ast.parse(path.read_bytes()))
-            for path in sorted((root / _TESTS).rglob("*.py"))
-            if not path.relative_to(root).is_relative_to(_FIXTURES)
-        ]
+    file_tree_pairs = [
+        (path, tree)
+        for path, tree in sorted((parse_test_trees(root) if trees is None else trees).items())
+        if not path.relative_to(root).is_relative_to(_FIXTURES)
+    ]
     for path, tree in file_tree_pairs:
         relative = path.relative_to(root)
         lines = _offending_lines(tree, relative, root, python_files)
