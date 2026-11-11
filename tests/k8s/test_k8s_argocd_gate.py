@@ -184,6 +184,54 @@ def test_a_placeholder_ingress_host_in_a_non_homelab_application_fails(tmp_path:
     )
 
 
+def test_a_placeholder_in_a_devops_deployment_fails_only_outside_its_env_values(
+    tmp_path: Path,
+) -> None:
+    """deploy-stack sets the configured domain in an env value of a homelab Deployment, so the
+    gate allows the placeholder there and refuses it in each other field (#4542)."""
+    _write_app(tmp_path, "devops", path="k8s/devops")
+    devops_dir = tmp_path / "k8s" / "devops"
+    devops_dir.mkdir(parents=True)
+    (devops_dir / "kustomization.yaml").write_text(
+        "apiVersion: kustomize.config.k8s.io/v1beta1\n"
+        "kind: Kustomization\n"
+        "resources:\n"
+        "  - deployment.yaml\n",
+        encoding="utf-8",
+    )
+    (devops_dir / "deployment.yaml").write_text(
+        "apiVersion: apps/v1\n"
+        "kind: Deployment\n"
+        "metadata:\n"
+        "  name: start\n"
+        "spec:\n"
+        "  template:\n"
+        "    spec:\n"
+        "      initContainers:\n"
+        "        - name: wait\n"
+        "          env:\n"
+        "            - name: TARGET\n"
+        "              value: start.example.com\n"
+        "      containers:\n"
+        "        - name: homepage\n"
+        "          args: ['--host', 'start.example.com']\n"
+        "          env:\n"
+        "            - name: HOMEPAGE_VAR_DOMAIN\n"
+        "              value: example.com\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ArgoCDGateError) as exc_info:
+        check_argocd_gate(tmp_path)
+
+    assert exc_info.value.failures == {
+        "devops": [
+            "Placeholder domain value 'start.example.com' at Deployment/start "
+            "/spec/template/spec/containers/0/args/1 is not permitted in application 'devops'"
+        ]
+    }
+
+
 def test_a_placeholder_in_a_helm_value_file_fails(tmp_path: Path) -> None:
     _write_app(
         tmp_path,
