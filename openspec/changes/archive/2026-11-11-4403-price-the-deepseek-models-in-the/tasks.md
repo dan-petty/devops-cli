@@ -13,7 +13,7 @@ Kind: behavior. Reads: `src/devops_cli/ai/spend/pricing.py`, `src/devops_cli/ai/
 
 Kind: other. Reads: `k8s/llm/gateway/config.yaml`. Changes: `k8s/llm/gateway/config.yaml`.
 
-- [x] 2.1 Set the input, cached input and output prices of the group `deepseek-v4.1-flash-1017` to 0.0784, 0.0024 and 0.2352 USD per million tokens, with the source and the date in the comment
+- [x] 2.1 Set the input, cached input and output prices of the group `deepseek-v4.1-flash-1017` to 0.0784, 0.002352 and 0.2352 USD per million tokens, with the source and the date in the comment
   - Verification: `$ uv run devops ci test tests/ai/spend/test_hosted_group_prices.py tests/ai/benchmark/test_k8s_llm_gateway.py` passes
 
 ## 3. Documents

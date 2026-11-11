@@ -26,7 +26,7 @@ The pricing registry SHALL price every hosted group of `k8s/llm/gateway/config.y
 
 #### Scenario: An agent run on the DeepSeek group
 - **WHEN** an agent run on `deepseek-v4.1-flash-1017` gets a reply that names `deepseek-v4.1-flash-1017` and uses 1,000,000 prompt tokens, 900,000 of them cached, and 100,000 completion tokens
-- **THEN** the record has the pricing source `builtin:hosted_group_prices` and a cost of 0.03352 USD, and `devops_cli_ai_spend_usd_total` adds 0.03352 with the `model` label `deepseek-v4.1-flash-1017`
+- **THEN** the record has the pricing source `builtin:hosted_group_prices` and a cost of 0.033477 USD, and `devops_cli_ai_spend_usd_total` adds 0.033477 with the `model` label `deepseek-v4.1-flash-1017`
 
 ### Requirement: A price override wins over the built-in price of a group
 `pricing_overrides.json` SHALL win over `ai.price_overrides`, and both SHALL win over the built-in price of a hosted group.
