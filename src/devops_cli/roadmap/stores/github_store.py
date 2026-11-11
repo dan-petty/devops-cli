@@ -36,6 +36,7 @@ import threading
 from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
 from datetime import date, datetime
 from http import HTTPStatus
+from itertools import islice
 from pathlib import PurePosixPath
 from typing import Any, Protocol
 from urllib.parse import quote, urlsplit
@@ -411,6 +412,13 @@ _TIMELINE = TypeAdapter(_TimelinePayload)
 _WORKFLOW_RUN = TypeAdapter(_WorkflowRunPayload)
 _COMMITS = TypeAdapter(list[_CommitPayload])
 _ANY_OBJECT = TypeAdapter(dict[str, Any])
+
+# The issue listing newest first, by the time each issue or pull request opened, and the entries
+# of the one page that the newest issue is read from (#4540). A pull request takes a place on the
+# page, so the newest issue stays on it while fewer than ten pull requests opened after it.
+_NEWEST_ISSUES_QUERY = "state=all&sort=created&direction=desc"
+_NEWEST_ISSUES_PAGE = 10
+
 # The `type` that the contents API gives an entry that is a file; a directory, a symlink and a
 # submodule have others.
 _FILE_ENTRY = "file"
@@ -476,6 +484,12 @@ def listing_path(endpoint: str, per_page: int = DEFAULT_GH_REST_PER_PAGE) -> str
     a page, a full page by default; the session follows each page's `Link: rel="next"`."""
     separator = "&" if "?" in endpoint else "?"
     return f"/{endpoint}{separator}per_page={per_page}"
+
+
+def newest_issues_path(repo: str) -> str:
+    """The path of the one page that the newest issue of `repo` is read from: the issue listing
+    newest first, by the time each issue or pull request opened (#4540)."""
+    return listing_path(issues_endpoint(repo, _NEWEST_ISSUES_QUERY), _NEWEST_ISSUES_PAGE)
 
 
 # The argument builders below are pure: the store runs what they return, and a dry run's request
@@ -771,6 +785,18 @@ class GitHubRoadmapStore(RoadmapStore):
             and change.at >= cutoff
             and (skipped is None or change.actor != skipped)
         ]
+
+    def newest_issue_number(self) -> int | None:
+        """The number of the newest issue that is no pull request, from the first page of the
+        issue listing, newest first (#4540). The session sends the read with the ETag of its last
+        answer, so a page that did not change costs a 304. A page that holds only pull requests
+        gives None, and the store asks for no later page."""
+        page = self._listing_session().paginate(newest_issues_path(self._repo))
+        for found in islice(page, _NEWEST_ISSUES_PAGE):
+            issue = self._validate_entry(found, _ISSUE, "issues")
+            if issue.pull_request is None:
+                return issue.number
+        return None
 
     def label_changes(self, number: int) -> list[Change]:
         """The labeled and unlabeled events of issue `number` from its own listing, oldest first:
@@ -1245,6 +1271,7 @@ __all__ = [
     "listing_path",
     "milestone_edit_args",
     "milestones_endpoint",
+    "newest_issues_path",
     "path_commits_args",
     "repository_comments_endpoint",
     "repository_file_args",

@@ -507,13 +507,17 @@ def stage_cmd(
 
 def _render_roadmap_run_dry_run(target: str) -> None:
     from devops_cli.roadmap.request_plan import planned_session_read, render_dry_run
+    from devops_cli.roadmap.stores.github_store import newest_issues_path
 
     reads = [
         planned_session_read(
             f"/repos/{target}/issues/events",
             "the issue events to judge what jobs are due",
             repeat=MESSAGES.roadmap.plan_repeat_page,
-        )
+        ),
+        planned_session_read(
+            newest_issues_path(target), "the newest issue to judge whether intake is due"
+        ),
     ]
     render_dry_run("run", target, reads, ())
 

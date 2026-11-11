@@ -483,6 +483,8 @@ class GitHubFake:
             if query.get("state", "open") in ("all", issue["state"])
             and self._in_milestone(issue, query.get("milestone"))
         ]
+        if query.get("sort") == "created" and query.get("direction") == "desc":
+            listed.sort(key=lambda issue: issue["number"], reverse=True)
         per_page = int(query.get("per_page", "100"))
         return listed[(page - 1) * per_page : page * per_page]
 

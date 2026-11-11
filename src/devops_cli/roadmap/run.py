@@ -39,7 +39,7 @@ from collections import deque
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
-from functools import partial
+from functools import cache, partial
 from itertools import islice
 from pathlib import Path
 from types import MappingProxyType
@@ -197,13 +197,15 @@ class JobOutcome:
 @dataclass(frozen=True)
 class DueCheck:
     """What a row's due rule judges at a poll or a webhook (#1360): the changes made at or after
-    the row's last success (none before its first), the time, that last success, and the
-    repository's data directory, which holds `schedule.json`."""
+    the row's last success (none before its first), the time, that last success, the
+    repository's data directory, which holds `schedule.json`, and the read of the number of the
+    repository's newest issue, which a rule calls only when it needs the number (#4540)."""
 
     changes: tuple[Change, ...]
     now: datetime
     last_success: datetime | None
     repo_dir: Path
+    newest_issue: Callable[[], int | None] = lambda: None
 
 
 @dataclass(frozen=True)
@@ -414,14 +416,23 @@ def model_clone(repo: str) -> Path:
 
 
 def _intake_due(check: DueCheck) -> bool:
-    """Intake is due when an issue reopens, or when its last round left a fresh candidate. A
-    record that can't be read makes it due, so its run raises, naming the record."""
+    """Intake is due when an issue reopens, when its last round left a fresh candidate, or when
+    the repository has an issue newer than the newest one that an intake round saw. The issue
+    events report no opened issue, so the rule reads the newest issue, and only when nothing
+    else makes intake due (#4540). A record with no newest issue makes no read. A record that
+    can't be read makes intake due, so its run raises, naming the record."""
     if any(change.kind is ChangeKind.REOPENED for change in check.changes):
         return True
     try:
-        return read_intake_record(check.repo_dir / CONST_ROADMAP_INTAKE_RECORD_FILENAME).pending
+        record = read_intake_record(check.repo_dir / CONST_ROADMAP_INTAKE_RECORD_FILENAME)
     except RoadmapRunError:
         return True
+    if record.pending:
+        return True
+    if record.newest is None:
+        return False
+    newest = check.newest_issue()
+    return newest is not None and newest > record.newest
 
 
 def _refine_cross_job(outcomes: Mapping[str, JobOutcome]) -> bool:
@@ -483,6 +494,8 @@ def _run_intake_adapter(
     **_: Any,
 ) -> JobOutcome:
     """Decide at most `limit` of `repo`'s candidates, fresh ones first, and place them (#1360).
+    The record keeps the newest issue as the round starts, so an issue that opens later makes
+    intake due at the next poll (#4540).
     The record of what it decided is written before any placement, so intake keeps the round's
     skips when a placement raises, and a candidate whose placement raised is
     decided again after the fresh ones. A candidate whose write fails is skipped, the round's
@@ -491,6 +504,7 @@ def _run_intake_adapter(
 
     record_path = repo_dir / CONST_ROADMAP_INTAKE_RECORD_FILENAME
     record = read_intake_record(record_path)
+    newest = store.newest_issue_number()
     plan = plan_intake(
         store,
         repo=repo,
@@ -500,7 +514,7 @@ def _run_intake_adapter(
         failed=record.failed,
         now=now,
     )
-    after = record.after(plan, now)
+    after = record.after(plan, now, newest=newest)
     _write_intake_record(record_path, after)
     return _apply_round(
         store, plan, record=after, record_path=record_path, repo=repo, repo_dir=repo_dir, now=now
@@ -1025,13 +1039,15 @@ def _oldest_cutoff(
 @dataclass(frozen=True)
 class _Poll:
     """What every row of one round is judged by: the schedule, the batch, the changes read, the
-    time and the repository's data directory."""
+    time, the repository's data directory and the read of its newest issue, which reads nothing
+    in a round with no trigger."""
 
     schedule: Mapping[str, datetime]
     batch: Mapping[tuple[str, str, str], int]
     changes: Sequence[Change]
     now: datetime
     repo_dir: Path
+    newest_issue: Callable[[], int | None] = lambda: None
 
     def is_due(self, row: JobRow) -> bool:
         """Whether `row` is due before any other row runs: by its interval, a hint in the
@@ -1047,7 +1063,7 @@ class _Poll:
             return False
         since = last or self.now
         mine = tuple(change for change in self.changes if change.at >= since)
-        return row.due_rule(DueCheck(mine, self.now, last, self.repo_dir))
+        return row.due_rule(DueCheck(mine, self.now, last, self.repo_dir, self.newest_issue))
 
 
 def _lane_reads_changes(rows: Sequence[JobRow]) -> bool:
@@ -1564,10 +1580,11 @@ def run_due_jobs(
     """Evaluate and execute due roadmap jobs, the clone rows in `clone_dirname`.
 
     With no trigger in the batch, rows are judged on no changes, which reads nothing; a round
-    whose rows are all not due reads no more than its changes. Each row is judged by
-    `schedule.json` as the round found it, and each success is written as it happens. When a row
-    that may run failed a round before, a round that only polls reads the newest comments of the
-    repository once, for a comment of a person is new input for such a row (#2754).
+    whose rows are all not due reads no more than its changes and the newest issue (#4540).
+    Each row is judged by `schedule.json` as the round found it, and each success is written as
+    it happens. When a row that may run failed a round before, a round that only polls reads the
+    newest comments of the repository once, for a comment of a person is new input for such a
+    row (#2754).
     """
     current_time = now or datetime.now(UTC)
     base_data = _resolve_data_dir(data_dir)
@@ -1585,7 +1602,7 @@ def run_due_jobs(
         return ()
 
     changes = _fetch_filtered_changes(rows, schedule, store, current_time)
-    polled = replace(quiet, changes=changes)
+    polled = replace(quiet, changes=changes, newest_issue=cache(store.newest_issue_number))
     initially_due = {row.name: polled.is_due(row) for row in rows}
     if not any(initially_due.values()):
         return ()

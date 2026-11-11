@@ -473,21 +473,25 @@ class IntakeRecord(BaseModel):
     """What the Service's intake keeps between rounds (#1360): each candidate it decided that is
     still one, by number, whether a fresh candidate is left, which makes intake due at the
     next poll, and each candidate whose placement failed, which intake leaves out until the wait
-    of the failure class has passed (#4061). A record file from before `failed` loads with none."""
+    of the failure class has passed (#4061). `newest` is the number of the newest issue that an
+    intake round saw: a newer issue makes intake due at the next poll (#4540). A record file from
+    before `failed` or `newest` loads with none."""
 
     model_config = ConfigDict(frozen=True)
 
     pending: bool = False
     waiting: dict[int, Waiting] = Field(default_factory=dict)
     failed: dict[int, Failed] = Field(default_factory=dict)
+    newest: int | None = None
 
-    def after(self, plan: IntakePlan, now: datetime) -> IntakeRecord:
+    def after(self, plan: IntakePlan, now: datetime, *, newest: int | None = None) -> IntakeRecord:
         """The record once `plan`'s candidates are decided, at `now`: those it decided, placed
         or not, and those it left or held that waited before. A candidate that is one no more
         drops out at the next run, which no longer lists it; one whose placement raised is decided
         again after the fresh ones, unless that placement had already written to it, which makes
         it fresh once. The failures of the candidates that the plan names stay, and the others
-        drop out."""
+        drop out. The record keeps the higher of its own newest issue and `newest`, the newest
+        issue when the round started."""
         decided = {
             decision.subject.number: Waiting(updated_at=decision.subject.updated_at, decided_at=now)
             for decision in plan.decisions
@@ -497,13 +501,18 @@ class IntakeRecord(BaseModel):
         kept = {number: self.waiting[number] for number in kept_waiting if number in self.waiting}
         known = {*decided, *kept_waiting}
         failed = {number: entry for number, entry in self.failed.items() if number in known}
-        return IntakeRecord(pending=plan.fresh_left, waiting=kept | decided, failed=failed)
+        seen = max((n for n in (self.newest, newest) if n is not None), default=None)
+        return IntakeRecord(
+            pending=plan.fresh_left, waiting=kept | decided, failed=failed, newest=seen
+        )
 
     def merged(self, plan: IntakePlan, now: datetime) -> IntakeRecord:
         """The record once a scoped run decided `plan`'s candidates, at `now` (ADR 0017): it adds
         or replaces their entries and keeps every other entry. Intake stays due when it was, or
         when the run saw a fresh candidate it was not asked for, so a scoped run never hides a
-        candidate that a lost delivery left for the poll."""
+        candidate that a lost delivery left for the poll. It keeps the newest issue as it was,
+        so an issue that opened before the scoped one, and whose delivery was lost, still makes
+        intake due (#4540)."""
         decided = {
             decision.subject.number: Waiting(updated_at=decision.subject.updated_at, decided_at=now)
             for decision in plan.decisions
@@ -513,6 +522,7 @@ class IntakeRecord(BaseModel):
             pending=self.pending or plan.others_fresh,
             waiting={**self.waiting, **decided},
             failed=self.failed,
+            newest=self.newest,
         )
 
     def settled(self, plan: IntakePlan, applied: IntakeApplied, now: datetime) -> IntakeRecord:
@@ -531,7 +541,7 @@ class IntakeRecord(BaseModel):
                 count=(before.count if before else 0) + 1,
                 failed_at=now,
             )
-        return IntakeRecord(pending=self.pending, waiting=self.waiting, failed=failed)
+        return self.model_copy(update={"failed": failed})
 
 
 class _InvalidProposal(ValueError):

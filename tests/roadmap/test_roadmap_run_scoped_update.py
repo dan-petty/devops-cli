@@ -156,6 +156,61 @@ def test_a_poll_after_a_scoped_update_decides_the_lost_delivery_and_not_the_hand
     )
 
 
+def test_a_new_issue_whose_delivery_was_lost_makes_intake_due_at_the_next_poll(
+    tmp_path: Path,
+) -> None:
+    """Test first for #4540: intake decides candidate 1, then candidate 2 opens and no scoped
+    update runs for it. The next poll comes before intake's interval and runs intake, which
+    decides candidate 2. A new pull request after it makes intake due at no poll."""
+    store, _, _ = make_candidates(1)
+    model = IntakeModel()
+    table = intake_table(model, [])
+    poll_round(store, tmp_path, table=table)
+    store.seed_issue("candidate 2")
+
+    lost = poll_round(store, tmp_path, now=NOW + timedelta(minutes=5), table=table)
+    store.seed_pull("a pull request", head_ref="feat/1-a-change")
+    after_pull = poll_round(store, tmp_path, now=NOW + timedelta(minutes=10), table=table)
+
+    assert (lost, after_pull, model.asked) == (
+        ("intake",),
+        (),
+        ["candidate 1", "candidate 2"],
+    )
+
+
+def test_a_new_issue_that_its_scoped_update_decided_costs_the_next_intake_no_model_request(
+    tmp_path: Path,
+) -> None:
+    """Test first for #4540: the scoped update of new candidate 2 decides it. The scoped update
+    does not mark the issue as seen, so the next poll runs intake. That intake finds nothing to
+    decide and sends no model request, and the poll after it runs no intake."""
+    store, _, _ = make_candidates(1)
+    model = IntakeModel()
+    table = intake_table(model, [])
+    poll_round(store, tmp_path, table=table)
+    opened = store.seed_issue("candidate 2")
+    run_scoped_update(
+        webhook_delivery("opened", opened),
+        store,
+        data_dir=tmp_path,
+        now=NOW + timedelta(minutes=1),
+        model=model,
+    )
+    asked = list(model.asked)
+
+    jobs = (
+        poll_round(store, tmp_path, now=NOW + timedelta(minutes=5), table=table),
+        poll_round(store, tmp_path, now=NOW + timedelta(minutes=10), table=table),
+    )
+
+    assert (asked, jobs, model.asked) == (
+        ["candidate 1", "candidate 2"],
+        (("intake",), ()),
+        ["candidate 1", "candidate 2"],
+    )
+
+
 def test_a_scoped_update_keeps_the_entries_and_the_pending_flag_a_capped_round_left(
     tmp_path: Path,
 ) -> None:
