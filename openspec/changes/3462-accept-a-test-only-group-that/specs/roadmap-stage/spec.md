@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: A test-only other group names its test function
-The stage plan SHALL refuse an other task group whose every changed path is a test module under tests when the implementation of the group names no test function in a code span, and SHALL accept the group when one changed path under tests is no test module. A test module is a path under tests whose base name starts with `test_` and ends with `.py`, the form that `devops ci test` runs as a test module. A code span names a test function when its last segment, after the last `::` when it holds one, starts with `test_`, with optional parentheses.
+The stage plan SHALL refuse an other task group that changes only test modules under tests and whose implementation names no test function in a code span. The stage plan SHALL accept an other group with one changed path that is no test module under tests. A test module under tests is a path under `tests/` whose base name starts with `test_` and ends with `.py`. A code span names a test function when its last segment starts with `test_`, with optional parentheses. The last segment of a span that holds `::` is the text after the last `::`.
 
 #### Scenario: Conditional test-only group
 - **WHEN** `content_problems` reads a proposal with an other group whose `changes` lists only `tests/roadmap/stage/test_roadmap_stage_content.py` and whose `implementation` holds no code span with a `test_` function
