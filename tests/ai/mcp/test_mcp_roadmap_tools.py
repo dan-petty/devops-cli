@@ -141,3 +141,37 @@ def test_roadmap_intake_argv_keeps_its_order_and_writes_only_on_confirm(
         [*head, "--filed-by", "agent", "--plan"],
         [*head, "--filed-by", "agent", "--dry-run"],
     ]
+
+
+def test_roadmap_consolidate_is_a_read_only_mirror_of_the_plan_run(
+    mcp_dispatcher: DispatcherFake,
+) -> None:
+    """The tool publishes the options of the plan run only, so no argv holds a write (#3745)."""
+    import asyncio
+
+    from devops_cli.ai.mcp import server as mcp_server
+    from devops_cli.ai.mcp.server import roadmap_consolidate
+
+    tool = asyncio.run(mcp_server.mcp.get_tool("roadmap_consolidate"))
+    read_only = tool.annotations.read_only_hint if tool and tool.annotations else None
+
+    roadmap_consolidate()
+    roadmap_consolidate(repo="dan-petty/devops-cli", ref="main", limit=2, dry_run=True)
+
+    head = ["uv", "run", "devops", "roadmap", "consolidate"]
+    calls = [list(call.argv) for call in mcp_dispatcher.calls]
+    writes = {"--apply", "--confirm", "--decline"}
+    assert (
+        sorted(_roadmap_tool_parameters("roadmap_consolidate")),
+        read_only,
+        calls,
+        [sorted(writes.intersection(c)) for c in calls],
+    ) == (
+        ["dry_run", "limit", "ref", "repo"],
+        True,
+        [
+            head,
+            [*head, "--repo", "dan-petty/devops-cli", "--ref", "main", "--limit", "2", "--dry-run"],
+        ],
+        [[], []],
+    )

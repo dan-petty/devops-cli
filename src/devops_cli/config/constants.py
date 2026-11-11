@@ -401,6 +401,10 @@ CONST_MCP_EXPOSURE_TABLE: Final[tuple[tuple[tuple[str, ...], float, bool, bool],
     (("review", "path"), 300.0, True, False),
     (("review", "pr"), 300.0, False, False),
     (("review", "stats"), 60.0, True, False),
+    # The plan run only: the tool publishes no `--decline` or `--confirm` (#3745). A run judges at
+    # most `--limit` shortlists (default 10). On 2026-11-10 a run judged 6 in about 6 minutes, so
+    # 10 need about 10. A run that stops keeps each judgement in its progress file.
+    (("roadmap", "consolidate"), 900.0, True, False),
     (("roadmap", "intake"), 300.0, False, False),
     # `--confirm` writes the proposed designs to GitHub (#3235).
     (("roadmap", "refine"), 300.0, False, False),

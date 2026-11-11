@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import ast
 import copy
+import glob
 import io
 import re
 import subprocess
 import tokenize
 import tomllib
 from collections import defaultdict
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from graphlib import CycleError
 from pathlib import Path, PurePosixPath
 from typing import Any, Final
@@ -1593,6 +1594,18 @@ _DEBIAN_IMAGE_RELEASE_PATTERNS: Final[tuple[re.Pattern[str], ...]] = (
 )
 _SERVICE_DEBIAN_STAGES: Final[tuple[str, ...]] = ("node", "builder", "service")
 _SERVICE_IMAGE_TEST_JOB: Final[str] = "service-image-test"
+_SERVICE_IMAGE_TEST_WORKFLOW: Final[str] = ".github/workflows/service-image-test.yml"
+# The suite runs in the image on a pull request that changes an image input other than src/, or
+# the workflow itself. A change to src/ alone waits for the daily run (#4644).
+_SERVICE_IMAGE_TEST_INPUTS: Final[tuple[str, ...]] = (
+    "Dockerfile",
+    ".dockerignore",
+    "pyproject.toml",
+    "uv.lock",
+    "src/devops_cli/tools_lock/tools.lock",
+    _SERVICE_IMAGE_TEST_WORKFLOW,
+)
+_SRC_ONLY_CHANGE: Final[str] = "src/devops_cli/__init__.py"
 
 
 def _debian_release_of_image(image_ref: str) -> str | None:
@@ -1656,18 +1669,65 @@ def _devcontainer_dockerfile_debian_release(dockerfile_text: str) -> tuple[str |
     return releases["final"], []
 
 
+def _paths_filter_includes(patterns: Sequence[str], path: str) -> bool:
+    """Return whether the `paths` filter of a GitHub workflow trigger includes `path`.
+
+    The last pattern that matches decides, and a pattern that starts with `!` excludes the path.
+    """
+    included = False
+    for pattern in patterns:
+        glob_pattern = pattern.removeprefix("!")
+        if re.fullmatch(glob.translate(glob_pattern, recursive=True, include_hidden=True), path):
+            included = glob_pattern == pattern
+    return included
+
+
+def _service_image_test_trigger_problems(workflow: Mapping[Any, Any]) -> list[str]:
+    """Return problems when the in-image suite does not run daily, on a manual run and on a pull
+    request that changes an image input other than src/ (#4644)."""
+    # PyYAML reads the key `on` as the boolean True.
+    triggers = workflow.get("on", workflow.get(True))
+    triggers = triggers if isinstance(triggers, Mapping) else {}
+    problems: list[str] = []
+    schedule = triggers.get("schedule")
+    if not (
+        isinstance(schedule, list)
+        and any(isinstance(e, Mapping) and e.get("cron") for e in schedule)
+    ):
+        problems.append(f"{_SERVICE_IMAGE_TEST_WORKFLOW} has no schedule trigger")
+    if "workflow_dispatch" not in triggers:
+        problems.append(f"{_SERVICE_IMAGE_TEST_WORKFLOW} has no workflow_dispatch trigger")
+    paths: list[str] = []
+    if "pull_request" in triggers:
+        pull_request = (
+            triggers["pull_request"] if isinstance(triggers["pull_request"], Mapping) else {}
+        )
+        paths = [str(p) for p in pull_request.get("paths", ["**"])]
+    unwatched = [p for p in _SERVICE_IMAGE_TEST_INPUTS if not _paths_filter_includes(paths, p)]
+    if unwatched:
+        problems.append(
+            f"{_SERVICE_IMAGE_TEST_WORKFLOW} does not run on a pull request that changes {unwatched}"
+        )
+    if _paths_filter_includes(paths, _SRC_ONLY_CHANGE):
+        problems.append(
+            f"{_SERVICE_IMAGE_TEST_WORKFLOW} runs on a pull request that changes only src/"
+        )
+    return problems
+
+
 def _service_image_test_job_problems(
-    ci_workflow: Mapping[str, Any], expected_release: str
+    workflow: Mapping[Any, Any], expected_release: str
 ) -> list[str]:
-    """Return problems when `ci.yml` does not build `./Dockerfile` and run `pytest` inside it (#1643)."""
-    jobs = ci_workflow.get("jobs")
+    """Return problems when the in-image test workflow does not build `./Dockerfile` and run
+    `pytest` inside it (#1643) daily and on the pull requests that change the image (#4644)."""
+    jobs = workflow.get("jobs")
     job = jobs.get(_SERVICE_IMAGE_TEST_JOB) if isinstance(jobs, Mapping) else None
     if not isinstance(job, Mapping):
         return [
-            f".github/workflows/ci.yml lacks job {_SERVICE_IMAGE_TEST_JOB!r} while Dockerfile and "
-            ".devcontainer/Dockerfile name different Debian releases"
+            f"{_SERVICE_IMAGE_TEST_WORKFLOW} lacks job {_SERVICE_IMAGE_TEST_JOB!r} while Dockerfile "
+            "and .devcontainer/Dockerfile name different Debian releases"
         ]
-    problems: list[str] = []
+    problems: list[str] = _service_image_test_trigger_problems(workflow)
     steps = [s for s in job.get("steps", ()) if isinstance(s, Mapping)]
     builds = [
         s.get("with", {})
@@ -1720,7 +1780,7 @@ def _service_image_test_job_problems(
 def _debian_base_alignment_problems(
     service_dockerfile: str,
     devcontainer_dockerfile: str,
-    ci_workflow: Mapping[str, Any],
+    image_test_workflow: Mapping[Any, Any],
 ) -> list[str]:
     """Verify the Debian base-image contract across `Dockerfile`, `.devcontainer/Dockerfile`, and CI (#1643)."""
     service_release, service_problems = _service_dockerfile_debian_release(service_dockerfile)
@@ -1738,7 +1798,7 @@ def _debian_base_alignment_problems(
             f"Unexpected Debian release divergence: Dockerfile uses {service_release!r} while "
             f".devcontainer/Dockerfile uses {devcontainer_release!r}",
         ]
-    return [*problems, *_service_image_test_job_problems(ci_workflow, service_release)]
+    return [*problems, *_service_image_test_job_problems(image_test_workflow, service_release)]
 
 
 def test_service_and_devcontainer_debian_releases_are_aligned_or_tested_in_ci() -> None:
@@ -1748,8 +1808,8 @@ def test_service_and_devcontainer_debian_releases_are_aligned_or_tested_in_ci() 
 
     service_text = (REPO_ROOT / "Dockerfile").read_text(encoding="utf-8")
     devcontainer_text = (REPO_ROOT / ".devcontainer" / "Dockerfile").read_text(encoding="utf-8")
-    ci_workflow = yaml.safe_load(
-        (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    image_test_workflow = yaml.safe_load(
+        (REPO_ROOT / _SERVICE_IMAGE_TEST_WORKFLOW).read_text(encoding="utf-8")
     )
     service_release, _ = _service_dockerfile_debian_release(service_text)
     devcontainer_release, _ = _devcontainer_dockerfile_debian_release(devcontainer_text)
@@ -1757,12 +1817,12 @@ def test_service_and_devcontainer_debian_releases_are_aligned_or_tested_in_ci() 
     assert (
         service_release,
         devcontainer_release,
-        _debian_base_alignment_problems(service_text, devcontainer_text, ci_workflow),
+        _debian_base_alignment_problems(service_text, devcontainer_text, image_test_workflow),
     ) == ("trixie", "sid", [])
 
 
 def _patch_service_image_test_step(
-    ci_workflow: dict[str, Any], step_name: str, field: str, value: str
+    ci_workflow: dict[Any, Any], step_name: str, field: str, value: str
 ) -> None:
     """Mutate one field on a named step inside `service-image-test` for negative invariant tests."""
     for step in ci_workflow["jobs"][_SERVICE_IMAGE_TEST_JOB]["steps"]:
@@ -1827,8 +1887,8 @@ def _patch_service_image_test_step(
             True,
             None,
             [
-                ".github/workflows/ci.yml lacks job 'service-image-test' while Dockerfile and "
-                ".devcontainer/Dockerfile name different Debian releases"
+                ".github/workflows/service-image-test.yml lacks job 'service-image-test' while "
+                "Dockerfile and .devcontainer/Dockerfile name different Debian releases"
             ],
             id="missing-ci-job",
         ),
@@ -1875,8 +1935,8 @@ def test_debian_release_invariant_rejects_stage_drift_and_untested_divergence(
         "FROM node:24-trixie-slim@sha256:0 AS npm-tools\n"
         "FROM debian:sid\n"
     )
-    ci_workflow: dict[str, Any] = copy.deepcopy(
-        yaml.safe_load((REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8"))
+    ci_workflow: dict[Any, Any] = copy.deepcopy(
+        yaml.safe_load((REPO_ROOT / _SERVICE_IMAGE_TEST_WORKFLOW).read_text(encoding="utf-8"))
     )
     if service_patch is not None:
         service_text = service_text.replace(*service_patch)
@@ -1888,3 +1948,57 @@ def test_debian_release_invariant_rejects_stage_drift_and_untested_divergence(
         _patch_service_image_test_step(ci_workflow, *ci_step_patch)
 
     assert _debian_base_alignment_problems(service_text, devcontainer_text, ci_workflow) == expected
+
+
+@pytest.mark.parametrize(
+    ("mutate", "expected"),
+    [
+        pytest.param(lambda on: None, [], id="nightly-dispatch-and-image-pull-requests"),
+        pytest.param(
+            lambda on: on.pop("schedule"),
+            [".github/workflows/service-image-test.yml has no schedule trigger"],
+            id="missing-schedule",
+        ),
+        pytest.param(
+            lambda on: on.pop("workflow_dispatch"),
+            [".github/workflows/service-image-test.yml has no workflow_dispatch trigger"],
+            id="missing-dispatch",
+        ),
+        pytest.param(
+            lambda on: on["pull_request"].pop("paths"),
+            [
+                ".github/workflows/service-image-test.yml runs on a pull request that changes only src/"
+            ],
+            id="every-pull-request",
+        ),
+        pytest.param(
+            lambda on: on["pull_request"]["paths"].append("src/**"),
+            [
+                ".github/workflows/service-image-test.yml runs on a pull request that changes only src/"
+            ],
+            id="src-only-pull-request",
+        ),
+        pytest.param(
+            lambda on: on["pull_request"]["paths"].remove("uv.lock"),
+            [
+                ".github/workflows/service-image-test.yml does not run on a pull request that "
+                "changes ['uv.lock']"
+            ],
+            id="unwatched-lockfile",
+        ),
+    ],
+)
+def test_the_in_image_suite_runs_daily_and_on_image_pull_requests_only(
+    mutate: Callable[[dict[str, Any]], object], expected: list[str]
+) -> None:
+    """The in-image suite runs on the daily schedule, on a manual run and on a pull request that
+    changes an image input other than src/. A pull request that changes only src/ starts no job of
+    it (#4644)."""
+    import yaml
+
+    workflow: dict[Any, Any] = yaml.safe_load(
+        (REPO_ROOT / _SERVICE_IMAGE_TEST_WORKFLOW).read_text(encoding="utf-8")
+    )
+    mutate(workflow[True])
+
+    assert _service_image_test_job_problems(workflow, "trixie") == expected

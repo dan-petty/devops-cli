@@ -1,0 +1,142 @@
+name: Service Image Tests
+
+# The suite runs inside the Service image on the daily schedule, on a manual run and on a pull
+# request that changes an image input other than src/: the build recipe, the build context filter,
+# the project and lock files, the tool locks, or this workflow. A pull request that changes only
+# src/ starts no job here; Tests & Coverage tests it on the runner, and the next daily run tests it
+# in the image (#4644). The native paths filter stops the run before a runner starts, so a plan-only
+# pull request starts no job either.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+    paths:
+      - Dockerfile
+      - .dockerignore
+      - pyproject.toml
+      - uv.lock
+      - src/devops_cli/tools_lock/**
+      - .github/workflows/service-image-test.yml
+  schedule:
+    # Daily at 04:30 UTC, before the 05:00 UTC run of ci.yml.
+    - cron: "30 4 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # No tool the job runs reports usage.
+  DO_NOT_TRACK: "1"
+  # uv runs only its own CPython builds, never the runner image's Python (#1494).
+  UV_MANAGED_PYTHON: "1"
+
+jobs:
+  # Runs the test suite inside the built Service image (`python:3.14-slim-trixie`) while
+  # `.devcontainer/Dockerfile` uses `debian:sid` (#1643). Dev packages and pinned test tools
+  # (`promtool`, `kubectl`) mount read-only from `$RUNNER_TEMP`, so the shipped `service` stage
+  # keeps its minimal package set and `USER 1000:1000` read-only security posture. Six shards run
+  # without coverage collection.
+  service-image-test:
+    name: Service Image Tests (shard ${{ matrix.shard }} of ${{ strategy.job-total }})
+    runs-on: ubuntu-26.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6]
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Set up uv toolchain
+        uses: ./.github/actions/setup-toolchain
+        with:
+          cache-suffix: service-image-test-${{ matrix.shard }}
+          save-uv-cache: "false"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v3
+
+      - name: Build and Load Service Image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v6
+        with:
+          context: .
+          file: ./Dockerfile
+          target: service
+          load: true
+          push: false
+          tags: devops-cli-service:local
+          no-cache-filters: service
+          cache-from: type=gha
+
+      - name: Install Service Image Test Dependencies
+        env:
+          IMAGE: devops-cli-service:local
+        run: |
+          SITE_DIR="$RUNNER_TEMP/service-test-site"
+          TOOLS_DIR="$RUNNER_TEMP/service-test-tools"
+          mkdir -p "$SITE_DIR/boot" "$SITE_DIR/site-packages" "$TOOLS_DIR/bin"
+          printf 'import site\nsite.addsitedir("/opt/service-test/site-packages")\n' > "$SITE_DIR/boot/sitecustomize.py"
+          uv export -q --locked --only-dev --no-emit-project --no-editable --output-file "$SITE_DIR/dev-requirements.txt"
+          UV_BIN="$(command -v uv)"
+          docker run --rm --user "$(id -u):$(id -g)" \
+            -w /work \
+            -e HOME=/tmp \
+            -e UV_NO_CONFIG=1 \
+            -e UV_CACHE_DIR=/tmp/uv-cache \
+            -v "$UV_BIN:/usr/local/bin/uv:ro" \
+            -v "$SITE_DIR:/work" \
+            --entrypoint /usr/local/bin/uv \
+            "$IMAGE" \
+            pip install -q --python /app/.venv/bin/python --target /work/site-packages --compile-bytecode --require-hashes --no-deps -r /work/dev-requirements.txt
+          DEVOPS_CLI_USER_DATA_ROOT="$TOOLS_DIR" uv run devops install-tools --tool promtool --target-dir "$TOOLS_DIR/bin" --only-missing
+          DEVOPS_CLI_USER_DATA_ROOT="$TOOLS_DIR" uv run devops install-tools --tool kubectl --target-dir "$TOOLS_DIR/bin" --only-missing
+          chmod -R a+rX "$SITE_DIR" "$TOOLS_DIR"
+
+      - name: Run Test Suite in Service Image
+        env:
+          IMAGE: devops-cli-service:local
+          SHARD: ${{ matrix.shard }}
+          SHARDS: ${{ strategy.job-total }}
+        run: |
+          SITE_DIR="$RUNNER_TEMP/service-test-site"
+          TOOLS_DIR="$RUNNER_TEMP/service-test-tools"
+          WORKSPACE_DIR="$RUNNER_TEMP/service-test-workspace"
+          TMP_DIR="$RUNNER_TEMP/service-test-tmp"
+          SHARD_FILE="$RUNNER_TEMP/service-test-shard.txt"
+          mkdir -p "$WORKSPACE_DIR" "$TMP_DIR"
+          chmod 1777 "$WORKSPACE_DIR" "$TMP_DIR"
+          chmod -R a+rX "$GITHUB_WORKSPACE"
+          SHARD_FILE="$SHARD_FILE" uv run python -c 'import os, pathlib; from devops_cli.core.test_selection import shard_test_files; files = shard_test_files(int(os.environ["SHARD"]), int(os.environ["SHARDS"]), pathlib.Path(".")); assert files; pathlib.Path(os.environ["SHARD_FILE"]).write_text("\n".join(files) + "\n", encoding="utf-8")'
+          readarray -t TEST_FILES < "$SHARD_FILE"
+          docker run --rm --read-only --cap-drop ALL --security-opt no-new-privileges \
+            -v "$GITHUB_WORKSPACE:/checkout:ro" \
+            -v "$WORKSPACE_DIR:/workspace:rw" \
+            --entrypoint sh \
+            "$IMAGE" \
+            -c 'mkdir /workspace/project && tar -C /checkout --exclude=./.venv --exclude=./.data --exclude=./.mypy_cache --exclude=./.ruff_cache --exclude=./.pytest_cache -cf - . | tar -C /workspace/project --no-same-owner -xf - && mkdir -p /workspace/project/.data/reviews /workspace/project/.data/analysis /workspace/project/.data/logs'
+          docker run --rm --init --read-only --cap-drop ALL --security-opt no-new-privileges \
+            --tmpfs /home/devops/.data:rw,size=256m \
+            --tmpfs /home/devops/.cache:rw,size=256m \
+            -v "$TMP_DIR:/tmp:rw" \
+            -v "$WORKSPACE_DIR:/workspace:rw" \
+            -v "$SITE_DIR:/opt/service-test:ro" \
+            -v "$TOOLS_DIR:$TOOLS_DIR:ro" \
+            -w /workspace/project \
+            -e PYTHONPATH="/opt/service-test/boot" \
+            -e PATH="/app/.venv/bin:/opt/devops-tools/bin:$TOOLS_DIR/bin:/usr/local/bin:/usr/bin:/bin" \
+            --entrypoint /app/.venv/bin/python \
+            "$IMAGE" \
+            -c 'import pathlib, sys, devops_cli; os_rel = pathlib.Path("/etc/os-release").read_text(encoding="utf-8"); assert "VERSION_CODENAME=trixie" in os_rel, os_rel; assert (devops_cli.__file__ or "").startswith("/app/.venv/"), devops_cli.__file__; import pytest; raise SystemExit(pytest.main(["-o", "pythonpath=", "-q", "--no-cov", "--snapshot-warn-unused", *sys.argv[1:]]))' \
+            "${TEST_FILES[@]}"

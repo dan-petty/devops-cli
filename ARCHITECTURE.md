@@ -152,7 +152,14 @@ flowchart TD
 - **Structured Metrics & Telemetry**: Integrates with Prometheus query endpoints (`devops prometheus`) and Grafana dashboards (`devops grafana`) to monitor workstation and cluster health. The API calls sit in the domain packages, behind public clients (`prometheus/client.py`, `grafana/client.py` and `argo/client.py`), and the commands only resolve settings and print. Each client builds its httpx2 client through the HTTP entry point, so the `web` fixture answers it in a test.
 - **Gated CI Quality Gate**: Automated enforcement of Python 3.14 runtime, Ruff formatting, Mypy strict typing, documentation freshness, test coverage, and static security scanning (`devops ci`).
 - **Releases by release-please**: release-please derives each version and the changelog from the Conventional Commit titles on `main`, and a scheduled workflow merges its release pull request every 6 hours when it passes the guards ([`RELEASE_CYCLE.md`](RELEASE_CYCLE.md)). devops-cli holds no release code.
-- **Nested Time Limits**: Set each inner time limit shorter than the limit around it, with a margin. Then the inner limit stops first, with a clean exit and a diagnostic. Set the bound of one test shorter than its step, and the step shorter than the `timeout-minutes` of its job. Set the step limit of a roadmap Job shorter than its item limit, and the item limit shorter than the deadline of the Job. Set the timeout of a call that makes reads, such as an MCP tool call, longer than each of these reads. Some MCP resources that make a GitHub read stop at 30 s, before the 60 s bound of the read: this is a known break (#4678). The idle cut of a network hop is not a limit that nests. The Cloudflare tunnel in front of the LLM gateway cuts a request that has no data for 125 s, so each chat call streams, and the gateway sends a keepalive into a streamed reply that has no data for 30 s ([k8s/README.md](k8s/README.md)).
+- **Nested Time Limits**: Set each inner time limit shorter than the limit around it, with a margin. The inner limit then stops first, with a clean exit and a diagnostic.
+  - Set the bound of one test shorter than its step.
+  - Set the step shorter than the `timeout-minutes` of its job.
+  - Set the step limit of a roadmap Job shorter than its item limit.
+  - Set the item limit shorter than the deadline of the Job.
+  - Set the timeout of a call that makes reads, such as an MCP tool call, longer than each read.
+  - Known break: some MCP resources stop at 30 s, before the 60 s bound of their GitHub read (#4678).
+  - The idle cut of a network hop does not nest. The Cloudflare tunnel in front of the LLM gateway cuts a request that has no data for 125 s. Thus each chat call streams. The gateway sends a keepalive into a streamed reply after 30 s with no data ([k8s/README.md](k8s/README.md)).
 
 ---
 

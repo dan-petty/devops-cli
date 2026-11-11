@@ -2,7 +2,8 @@
 refine readies items, stage makes a Ready item Staged, implement takes a Staged or Planned item
 to a ready pull request, return sends an item back to New, claim and release say who works
 on an item, explain says why the stage job and the implement job take an item or leave it out,
-inbox lists what waits for a person, and eval scores a job on a golden set.
+inbox lists what waits for a person, eval scores a job on a golden set, and review gives the facts
+of a version range or a period.
 
 Every command opens the roadmap store of the repository: labels and milestones hold the Items
 and their fields, and no command reads or writes a project board (ADR 0016). Intake reads
@@ -32,6 +33,7 @@ from typing import Annotated, NoReturn
 import typer
 
 from devops_cli.commands.roadmap_eval import eval_app
+from devops_cli.commands.roadmap_review import review_app
 from devops_cli.config.defaults import (
     DEFAULT_ROADMAP_IMPLEMENT_LIMIT,
     DEFAULT_ROADMAP_REFINE_LIMIT,
@@ -72,6 +74,7 @@ from devops_cli.roadmap.stores.store import RoadmapStore
 
 app = new_typer(help=HELP.roadmap.app, no_args_is_help=True)
 app.add_typer(eval_app, name="eval", help=HELP.roadmap.eval_app)
+app.add_typer(review_app, name="review", help=HELP.roadmap.review_app)
 
 RepoOption = Annotated[str | None, typer.Option("--repo", "-R", help=HELP.roadmap.repo)]
 RefOption = Annotated[str | None, typer.Option("--ref", help=HELP.roadmap.ref)]

@@ -112,6 +112,12 @@ _PATH_PARAM_RESTRICTIONS: dict[tuple[str, ...], dict[str, Any]] = {
         ),
         "required": frozenset(),
     },
+    # No `decline` or `confirm`: they write the decline of a group to GitHub. The tool runs the plan
+    # path only, which writes the local plan file and nothing on GitHub (#3745).
+    ("roadmap", "consolidate"): {
+        "allowed": frozenset({"repo", "ref", "limit", "dry_run"}),
+        "required": frozenset(),
+    },
     # No `output`: the command appends to the configured feedback dataset, so a path that the
     # model gives would make it write a file (#3480).
     ("review", "export-feedback"): {

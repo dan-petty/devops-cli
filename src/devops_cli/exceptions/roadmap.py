@@ -278,3 +278,13 @@ class RoadmapMcpUnavailableError(DevOpsCLIError):
             message or f"MCP server at '{url}' is unavailable.",
             details={"url": url, **(details or {})},
         )
+
+
+class RoadmapReviewError(DevOpsCLIError):
+    """Raised when `devops roadmap review run` cannot resolve its window or read git (#4686).
+
+    The review writes no file. The message names the option, the tag, the time or the git command
+    that failed.
+    """
+
+    error_code = "ROADMAP_REVIEW_FAILED"

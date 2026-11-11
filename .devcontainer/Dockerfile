@@ -307,7 +307,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 COPY pyproject.toml uv.lock /tmp/devops-cli/
 RUN --mount=type=cache,target=/root/.cache/uv \
     cd /tmp/devops-cli && \
-    uv export --no-dev --no-emit-project -o /tmp/requirements.txt && \
+    uv export --no-dev --extra review --no-emit-project -o /tmp/requirements.txt && \
     uv pip install --system --break-system-packages -r /tmp/requirements.txt pre-commit && \
     python3 -c "import tiktoken; tiktoken.get_encoding('cl100k_base'); tiktoken.get_encoding('o200k_base')" && \
     rm -rf /tmp/requirements.txt
