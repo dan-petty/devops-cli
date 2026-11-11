@@ -288,8 +288,8 @@ class ImplementRecordKey(StrEnum):
     `implement.spend_counted` holds the tokens of `implement.spend` that the token counter already
     holds (#4200): the Service writes it when it reports a Job, and a retry and a return to New
     clear it with the spend. `implement.needs_fix` holds the draft that the Service logged as left
-    out for the label `plan/needs-fix`, so it logs the item once; a round that judges the item
-    and does not leave it out for the label clears the mark."""
+    out for the label `plan/needs-fix`, so it logs the item once (#4477); a round that judges
+    the item and does not leave it out for the label clears the mark."""
 
     GROUP = "implement.group"
     SHA = "implement.sha"

@@ -47,9 +47,9 @@ and names the class and the action left in its comment. The runner pod is not sc
 counts.
 
 **Needs fix.** The plan leaves out a Staged item while its draft holds the label `plan/needs-fix`
-of a plan with an open finding (`implement.py`). The round returns such an item once for each draft,
-for the row to log, and records the draft in `implement.needs_fix`. A round that judges the item
-and does not leave it out for the label clears the mark, so a new label is logged again.
+of a plan with an open finding (`implement.py`, #4477). The round returns such an item once for
+each draft, for the row to log, and records the draft in `implement.needs_fix`. A round that judges
+the item and does not leave it out for the label clears the mark, so a new label is logged again.
 
 **Status.** After it reports the Jobs, and again after it creates one, the round sets the Status
 label of each item from the record and the plans on the default branch (`status_sync.py`, #2920):

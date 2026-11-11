@@ -30,9 +30,9 @@ a commit by anyone but the App (a clean merge by a person does not count, #3392)
 the issue, its plan fails the stage gates of `check_proposal` or the reader cannot read it (#3393;
 a branch whose change the job archived already passed them, and a retry takes it, #3645),
 its pull request is not an open draft or holds the label `plan/needs-fix` of a plan with an open
-finding (the job takes the item again when the label is gone), or, for a Planned item, a branch of
-`origin` holds the issue, its change is archived, it has no branch name, its change has no `tasks.md` on the default branch,
-or every task of its change is ticked. A run takes at most `--limit` items,
+finding (the job takes the item again when the label is gone, #4477), or, for a Planned item, a
+branch of `origin` holds the issue, its change is archived, it has no branch name, its change has
+no `tasks.md` on the default branch, or every task of its change is ticked. A run takes at most `--limit` items,
 the highest priority first. `--item` takes the one item it names and does not apply the filter or
 the limit.
 
@@ -191,7 +191,8 @@ class ImplementTarget:
 
 
 class NeedsFix(NamedTuple):
-    """An item that the job leaves out while its draft `pull` holds the label `plan/needs-fix`."""
+    """An item that the job leaves out while its draft `pull` holds the label `plan/needs-fix`
+    (#4477)."""
 
     item: Item
     pull: int
