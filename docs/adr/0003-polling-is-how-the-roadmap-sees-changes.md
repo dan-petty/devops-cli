@@ -1,5 +1,7 @@
 # Polling is how the roadmap sees changes; webhooks only cut latency
 
+Amended on 2026-11-11 by [ADR 0021](0021-the-roadmap-service-is-a-webhook-router-cluster-pods-run-the-roadmap-jobs-and-valkey-holds-their-shared-state.md). The poll becomes the sweep, a cluster schedule every 5 minutes, and the row intervals round up to 5-minute ticks. A short row asks GitHub to redeliver each failed delivery, and the sweep stays the source of truth. No lane stays.
+
 The webhook clause is superseded on 2026-10-29 by [ADR 0017](0017-each-subscribed-webhook-event-runs-the-update-scoped-to-it.md): each subscribed webhook event runs the update scoped to it at once, and the poll reconciles.
 
 Amended on 2026-10-28 by [ADR 0016](0016-labels-hold-the-roadmap-items-fields.md). Labels hold Status, Priority, Value and Effort, so a change of a field is a `labeled` or `unlabeled` issue event. The poll reads those events, and the repository webhook sends them. No roadmap job reads a board.
