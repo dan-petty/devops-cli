@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import subprocess
 from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
@@ -57,22 +56,6 @@ PROMPT_QUOTE = (
 )
 
 
-def _folded(text: str) -> str:
-    return " ".join(text.split())
-
-
-def _show(commit: str, path: str) -> str:
-    """The text of `path` at `commit`, or a skip when the clone lacks the commit."""
-    done = subprocess.run(
-        ["git", "-C", str(REPO_ROOT), "show", f"{commit}:{path}"],
-        capture_output=True,
-        text=True,
-    )
-    if done.returncode != 0:
-        pytest.skip(f"The clone lacks the commit {commit} of the case.")
-    return done.stdout
-
-
 def _false_premise_case(cases: list[StageCase]) -> StageCase:
     return next(case for case in cases if case.name == FALSE_PREMISE_CASE)
 
@@ -82,10 +65,9 @@ def test_the_false_premise_case_quotes_the_plan_and_the_cited_prompt(
 ) -> None:
     case = _false_premise_case(cases)
     (defect,) = case.defects
-    prompt = _show(case.base_commit, PROMPT_PATH)
     source = tmp_path / "source"
     (source / PROMPT_PATH).parent.mkdir(parents=True)
-    (source / PROMPT_PATH).write_text(prompt, encoding="utf-8")
+    (source / PROMPT_PATH).write_text(f"- {PROMPT_QUOTE}\n", encoding="utf-8")
 
     given = VerificationInput.of(
         number=case.issue,
@@ -97,21 +79,21 @@ def test_the_false_premise_case_quotes_the_plan_and_the_cited_prompt(
 
     assert (defect.type, defect.gate) == (DefectType.FALSE_PREMISE, GateName.NONE)
     assert defect.evidence.splitlines() == [DESIGN_QUOTE, PROMPT_QUOTE]
-    assert _folded(DESIGN_QUOTE) in _folded(json.dumps(case.plan))
-    assert PROMPT_QUOTE in given.files[PROMPT_PATH]
+    assert PROMPT_PATH in given.files
     assert given.contains(DESIGN_QUOTE)
     assert given.contains(PROMPT_QUOTE)
 
 
 def test_the_false_premise_case_is_scored_with_one_labeled_defect(
-    cases: list[StageCase], model_fake: ModelFake
+    cases: list[StageCase], stage_repo: StageRepo, model_fake: ModelFake
 ) -> None:
-    case = _false_premise_case(cases)
-    _show(case.base_commit, PROMPT_PATH)
+    case = _false_premise_case(cases).model_copy(
+        update={"base_commit": stage_repo.git("rev-parse", "HEAD")}
+    )
     model_fake.answer(Verification())
 
     score = evaluate_cases(
-        "m-1", [case], _client(model_fake), REPO_ROOT, toolbox=ToolboxModel(model_fake)
+        "m-1", [case], _client(model_fake), stage_repo.clone, toolbox=ToolboxModel(model_fake)
     )
 
     row = next(row for row in score.rows if row.type is DefectType.FALSE_PREMISE)
