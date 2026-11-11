@@ -17,7 +17,7 @@ COPY pyproject.toml uv.lock ./
 COPY src/ ./src/
 
 ENV TIKTOKEN_CACHE_DIR=/app/.cache/tiktoken
-RUN uv sync --locked --no-dev --no-editable && \
+RUN uv sync --locked --no-dev --no-editable --extra review && \
     /app/.venv/bin/python -c "import tiktoken; tiktoken.get_encoding('cl100k_base'); tiktoken.get_encoding('o200k_base')"
 
 # gh, from its pinned release. BuildKit `ADD` of a URL has no retry option, so a 504 answer of GitHub
@@ -80,7 +80,7 @@ RUN DEVOPS_CLI_USER_DATA_ROOT=/opt/devops-tools /app/.venv/bin/devops install-to
 # A Job installs no tool, so npm goes (it bundles `undici` and `brace-expansion`) and so does pip
 # (it vendors `certifi`, `urllib3` and `msgpack`), as in the service stage. The scan of the image
 # reports all of them. The uv cache of root, which holds the wheels of the build, goes too.
-RUN uv sync --locked --no-editable && \
+RUN uv sync --locked --no-editable --extra review && \
     rm -rf /root/.cache/uv /usr/local/lib/node_modules/npm /usr/local/bin/npm \
       /usr/local/lib/python3.14/site-packages/pip* /usr/local/bin/pip*
 

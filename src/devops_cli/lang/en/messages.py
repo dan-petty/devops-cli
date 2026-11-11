@@ -5352,6 +5352,79 @@ class RoadmapMessages:
         "Pass --issue for existing issues, or --title and --body-file for a new candidate, "
         "not both."
     )
+    review_one_window: str = (
+        "Give one window: --version A..B, --since with --until, --week YYYY-Www, or --last Nd."
+    )
+    review_bad_version: str = "--version takes two tags as A..B, not {text!r}."
+    review_bad_time: str = "{option} takes an ISO 8601 time, not {text!r}."
+    review_bad_week: str = "--week takes an ISO week as YYYY-Www, such as 2026-W45, not {text!r}."
+    review_bad_last: str = "--last takes a number of days as Nd, such as 7d, not {text!r}."
+    review_empty_window: str = "The window ends at {end}, which is not after its start {start}."
+    review_unknown_tag: str = "The checkout has no commit for the tag {tag!r}."
+    review_no_commit: str = "{ref} has no first-parent commit at or before {time}."
+    review_git_failed: str = "`{command}` failed: {error}"
+    review_no_repo: str = "The checkout has no origin on GitHub: pass --repo owner/name."
+    review_repo_mismatch: str = (
+        "The origin of the checkout is {origin}, and --repo names {repo}. Run the review in a "
+        "checkout of {repo}."
+    )
+    review_fact_needs_reason: str = "A fact with the status {status} must give a reason."
+    review_lizard_missing: str = (
+        "lizard is not installed: install the extra review, for example with "
+        "`uv sync --extra review`."
+    )
+    review_window_line: str = (
+        "Window {id} ({kind}): {base}..{head}, from {start} (out) to {end} (in)."
+    )
+    review_previous_line: str = "Previous window: {id}."
+    review_no_previous: str = "none"
+    review_wrote: str = "Wrote {path} and its JSON Schema."
+    review_plan_heading: str = (
+        "The review of {window} reads the checkout {checkout}. A run starts these git commands, "
+        "and makes no network request:"
+    )
+    review_plan_each_file: str = "for each of the hottest files that lizard reads"
+    review_placeholders: dict[str, str] = field(
+        default_factory=lambda: {
+            "base": "<base commit>",
+            "head": "<head commit>",
+            "ref": "<default branch>",
+            "path": "<path>",
+        }
+    )
+    review_fact_definitions: dict[str, str] = field(
+        default_factory=lambda: {
+            "git.commits": "The first-parent commits after the base up to the head.",
+            "git.commit_types": (
+                "The commits for each Conventional Commit type of the subject; other is a "
+                "subject with no listed type."
+            ),
+            "git.net_change": (
+                "The change from the tree of the base to the tree of the head (git diff "
+                "--numstat): the files, the added lines and the deleted lines. generated counts "
+                "the paths that .gitattributes marks linguist-generated."
+            ),
+            "git.churn": (
+                "The sum of the numstat of each commit: a line that two commits change counts "
+                "two times. files counts the paths. generated counts the paths that "
+                ".gitattributes marks linguist-generated."
+            ),
+            "git.releases": (
+                "The release tags created after the start up to the end, for each kind of "
+                "version: major, minor, patch or other."
+            ),
+            "git.release_tags": "The release tags created after the start up to the end.",
+            "git.hotspots": (
+                "The paths that are not generated, most commits first, each under its name at "
+                "the head. A commit at an old name of a renamed path counts for the path."
+            ),
+            "lizard.complexity": (
+                "The functions, the highest and the sum of the cyclomatic complexity of the "
+                "hottest files that lizard reads, at the base and at the head. null is a file "
+                "that the commit does not hold."
+            ),
+        }
+    )
 
 
 @dataclass(frozen=True)

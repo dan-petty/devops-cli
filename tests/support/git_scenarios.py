@@ -51,6 +51,8 @@ from devops_cli.git.worktree import (
     remove_worktree,
     review_worktrees_context,
 )
+from devops_cli.roadmap.project_review.facts import review_facts
+from devops_cli.roadmap.project_review.window import parse_window, read_tags, resolve_window
 
 ROOT_MARK = "{root}"
 IDENTITY_NAME = "Example Author"
@@ -66,7 +68,7 @@ def scenario(function: Scenario) -> Scenario:
     return function
 
 
-def setup_env(root: Path) -> dict[str, str]:
+def setup_env(root: Path, date: str = COMMIT_DATE) -> dict[str, str]:
     """The environment that builds a repository the same way on every host: no configuration
     file, one identity on `example.com`, one date, the C locale."""
     return {
@@ -77,10 +79,10 @@ def setup_env(root: Path) -> dict[str, str]:
         "GIT_CONFIG_NOSYSTEM": "1",
         "GIT_AUTHOR_NAME": IDENTITY_NAME,
         "GIT_AUTHOR_EMAIL": IDENTITY_EMAIL,
-        "GIT_AUTHOR_DATE": COMMIT_DATE,
+        "GIT_AUTHOR_DATE": date,
         "GIT_COMMITTER_NAME": IDENTITY_NAME,
         "GIT_COMMITTER_EMAIL": IDENTITY_EMAIL,
-        "GIT_COMMITTER_DATE": COMMIT_DATE,
+        "GIT_COMMITTER_DATE": date,
     }
 
 
@@ -112,8 +114,9 @@ class Workspace:
         link.parent.mkdir(parents=True, exist_ok=True)
         link.symlink_to(target)
 
-    def git(self, rel_dir: str, *args: str) -> None:
-        """Run git in `rel_dir` to build the repository. A replay runs nothing."""
+    def git(self, rel_dir: str, *args: str, date: str = COMMIT_DATE) -> None:
+        """Run git in `rel_dir` to build the repository, with `date` as the time of a commit or
+        a tag. A replay runs nothing."""
         directory = self.path(rel_dir)
         directory.mkdir(parents=True, exist_ok=True)
         if not self.recording:
@@ -123,7 +126,7 @@ class Workspace:
         subprocess.run(
             ["git", *args],
             cwd=directory,
-            env=setup_env(self.root),
+            env=setup_env(self.root, date),
             check=True,
             capture_output=True,
         )
@@ -536,6 +539,86 @@ def co_changes(ws: Workspace) -> Any:
 
     with ws.environment():
         return {"a": edges("a.py"), "latest_only": edges("a.py", 1), "alone": edges("lonely.py")}
+
+
+def _dated_commit(ws: Workspace, message: str, date: str) -> None:
+    """Add every change of `project` and commit it at `date`."""
+    ws.git("project", "add", ".", date=date)
+    ws.git("project", "commit", "--quiet", "-m", message, date=date)
+
+
+REVIEW_HELPER = "".join(
+    f"def step_{n}(x):\n    if x > {n}:\n        return {n}\n    return 0\n\n\n" for n in range(6)
+)
+
+
+@scenario
+def review_window(ws: Workspace) -> Any:
+    """`project` has the origin `example/project` and these first-parent commits on `main`, in three
+    time zones: `feat: start` (tag `v1.0.0`), a fix of `a.py`, a rename of `old_name.py` to
+    `pkg/new_name.py` (tag `v1.1.0`, at +02:00), a merge of a branch that adds `side.py`, and a
+    change of `pkg/new_name.py`, `a.py` and `uv.lock` (tag `v1.1.1`, at -07:00). The
+    `.gitattributes` marks `uv.lock` as generated. The review resolves version, period and week
+    windows, and reads the facts of `v1.0.0..v1.1.1` and of the period."""
+    repo = ws.path("project")
+    ws.git("project", "init", "--quiet", "-b", "main")
+    ws.git("project", "remote", "add", "origin", "https://example.com/example/project.git")
+    ws.write("project/.gitattributes", "uv.lock linguist-generated\n")
+    ws.write("project/a.py", "def run(x):\n    return x\n")
+    ws.write("project/old_name.py", REVIEW_HELPER)
+    ws.write("project/uv.lock", "version = 1\n")
+    _dated_commit(ws, "feat: start", "2026-09-25T10:00:00+00:00")
+    ws.git("project", "tag", "v1.0.0")
+    ws.write("project/a.py", "def run(x):\n    if x:\n        return x\n    return 0\n")
+    _dated_commit(ws, "fix(core): guard the input", "2026-10-02T09:00:00-07:00")
+    (repo / "old_name.py").unlink()
+    ws.write("project/pkg/new_name.py", REVIEW_HELPER + "def step_9(x):\n    return 9\n")
+    _dated_commit(ws, "refactor: move the helper", "2026-10-03T12:00:00+02:00")
+    ws.git("project", "tag", "v1.1.0")
+    ws.git("project", "switch", "--quiet", "-c", "side")
+    ws.write("project/side.py", "def side():\n    return 1\n")
+    _dated_commit(ws, "chore: side work", "2026-10-04T08:00:00+00:00")
+    ws.git("project", "switch", "--quiet", "main")
+    merged = "2026-10-04T09:00:00+00:00"
+    ws.git(
+        "project", "merge", "--quiet", "--no-ff", "-m", "Merge the side work", "side", date=merged
+    )
+    ws.write(
+        "project/pkg/new_name.py",
+        REVIEW_HELPER + "def step_9(x):\n    if x:\n        return 9\n    return 0\n",
+    )
+    ws.write("project/a.py", "def run(x):\n    if x:\n        return x + 1\n    return 0\n")
+    ws.write("project/uv.lock", "version = 2\n")
+    _dated_commit(ws, "feat(pkg): grow the helper", "2026-10-04T23:30:00-07:00")
+    ws.git("project", "tag", "v1.1.1")
+    now = datetime(2026, 10, 6, tzinfo=UTC)
+
+    def window(**options: str) -> dict[str, Any]:
+        resolved = resolve_window(repo, parse_window(now=now, **options), read_tags(repo))
+        return resolved.model_dump(mode="json")
+
+    def facts(**options: str) -> list[dict[str, Any]]:
+        tags = read_tags(repo)
+        resolved = resolve_window(repo, parse_window(now=now, **options), tags)
+        return [
+            fact.model_dump(mode="json", exclude={"read_at"})
+            for fact in review_facts(repo, resolved, tags)
+        ]
+
+    period = {"since": "2026-10-03T10:00:00Z", "until": "2026-10-05T06:30:00Z"}
+    with ws.environment():
+        return {
+            "origin": get_repo_origin_name(repo),
+            "tags": [[tag.name, tag.created.isoformat()] for tag in read_tags(repo)],
+            "version": window(version="v1.0.0..v1.1.1"),
+            "short_version": window(version="v1.1.0..v1.1.1"),
+            "period": window(**period),
+            "week": window(week="2026-W40"),
+            "unknown_tag": outcome(lambda: window(version="v1.0.0..v9.9.9"), ws),
+            "before_history": outcome(lambda: window(week="2026-W38"), ws),
+            "version_facts": facts(version="v1.0.0..v1.1.1"),
+            "period_facts": facts(**period),
+        }
 
 
 @pytest.fixture
