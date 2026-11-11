@@ -279,6 +279,20 @@ def _test_search(source: Path, rev: str) -> Callable[[str], Sequence[str]]:
     return search
 
 
+def _file_reader(source: Path, rev: str) -> Callable[[str], str]:
+    """The text of a file at `rev`, read once for the pass: the record of a changed module reads
+    the imports of each test that may import it (#4467)."""
+
+    texts: dict[str, str] = {}
+
+    def read(path: str) -> str:
+        if path not in texts:
+            texts[path] = files_at(source, rev, [path], operation=GIT_OPERATION)[path]
+        return texts[path]
+
+    return read
+
+
 def _grep_tests(source: Path, rev: str, literal: str) -> tuple[str, ...]:
     """The tests at `rev` that hold `literal`, sorted."""
     try:
@@ -392,7 +406,7 @@ def _judge(
         rev=rev,
         name=name,
         paths=paths,
-        tree=StagedTree(paths),
+        tree=StagedTree(paths, reader=_file_reader(source, rev)),
         known=known,
         requirements=requirements,
         open_items=open_items,

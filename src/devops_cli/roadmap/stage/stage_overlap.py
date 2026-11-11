@@ -202,10 +202,11 @@ def cited_instruments(text: str) -> list[str]:
 
 
 def grep_at(source: Path, sha: str, name: str, *, operation: str) -> tuple[str, ...]:
-    """The files that hold `name` at `sha`, from `git grep -w`. A name that no file holds, and a
-    failed read, gives no file."""
+    """The files that hold `name` at `sha` as a word, from `git grep -F -w`. The name is a fixed
+    string: a dot of a dotted name is no regex wildcard, so `a.b` does not match the path `a/b`.
+    A name that no file holds, and a failed read, gives no file."""
     try:
-        listing = git(source, "grep", "-w", "-l", "-e", name, sha, operation=operation)
+        listing = git(source, "grep", "-F", "-w", "-l", "-e", name, sha, operation=operation)
     except GitOperationError:
         return ()
     prefix = f"{sha}:"

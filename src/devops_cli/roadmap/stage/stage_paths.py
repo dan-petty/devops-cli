@@ -26,26 +26,34 @@ references the manifest when it holds both names. The implement job cannot edit 
 
 A behavior group that changes a Python module under `src/` also names an existing test of that
 module (#3414). `record_module_tests` reads the record from the tree and the search of the job: a
-test belongs to a module when its name carries the stem of the module in the test naming
-convention, or when it holds the dotted name of the module, as an import does.
-`existing_test_problems` refuses the group that names none of the tests of a module it changes. A
-test that the plan creates is no existing test, and a module with no test passes.
+test belongs to a module when it imports the module, a package whose `__init__.py` imports it, or
+another module that the plan changes and that imports it (#4467). `ast` and the import graph read
+the imports, so a test that holds the name of the module in a string or a path is no test of it. `existing_test_problems` refuses the group that names none
+of the tests of a module it changes. A test that the plan creates is no existing test, and a
+module with no test passes.
+
+A plan that adds a parameter to a function also lists each file under `src/` that calls the
+function (#3307). `changed_functions` reads a task clause that adds a parameter, an argument or a
+keyword to a function, and `StagedTree.callers` reads the calls with `ast` (#4467).
 """
 
 from __future__ import annotations
 
+import ast
 import posixpath
 import re
 import shlex
 from collections import defaultdict
-from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Collection, Iterable, Iterator, Mapping, Sequence
 from enum import StrEnum
 from fnmatch import fnmatchcase
+from functools import partial
 from glob import has_magic
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Final, Self
 
 from devops_cli.config.constants import CONST_GIT_CLI
+from devops_cli.core.import_graph import build_import_graph, module_name
 from devops_cli.core.process import run_subprocess
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.clone_git import git
@@ -106,8 +114,15 @@ class StagedTree:
     """The tracked files of a checkout, with what the check needs to know about them: the folders
     above them, their suffixes, their top-level names and the files of each name."""
 
-    def __init__(self, files: Iterable[str], *, source: Path | None = None) -> None:
+    def __init__(
+        self,
+        files: Iterable[str],
+        *,
+        source: Path | None = None,
+        reader: Callable[[str], str] | None = None,
+    ) -> None:
         self._source = source
+        self._reader = reader or (None if source is None else partial(_checkout_text, source))
         self._files = frozenset(files)
         self._folders = frozenset(folder for path in self._files for folder in _folders_of(path))
         self._suffixes = frozenset(PurePosixPath(path).suffix for path in self._files) - {""}
@@ -136,32 +151,41 @@ class StagedTree:
 
     def with_files(self, paths: Iterable[str]) -> StagedTree:
         """A tree that also holds `paths`: the files that the job itself writes."""
-        return StagedTree([*self._files, *paths], source=self._source)
+        return StagedTree([*self._files, *paths], source=self._source, reader=self._reader)
+
+    @property
+    def reader(self) -> Callable[[str], str] | None:
+        """The text of a tracked file: from the reader that the tree got, else from the checkout.
+        None for a tree with neither, as the tree of a replay case."""
+        return self._reader
 
     def callers(self, name: str) -> list[str]:
-        """The files under `src/` that call the function `name`, except definition lines."""
-        if self._source is None:
+        """The files under `src/` that call the function `name`, as `name(...)` or
+        `value.name(...)`, read with `ast`. `git grep -F -w` finds the files that hold the name as
+        a word, so `scan_fix(` is no call of `_fix`. A name that no file under `src/` defines with
+        `def` is no function, as a class or an enum is not, so it has no caller (#4467)."""
+        if self._source is None or self._reader is None:
             return []
         proc = run_subprocess(
-            [CONST_GIT_CLI, "-C", str(self._source), "grep", "-n", "-F", "--", f"{name}(", "src"],
+            [
+                CONST_GIT_CLI,
+                "-C",
+                str(self._source),
+                "grep",
+                "-l",
+                "-F",
+                "-w",
+                "-e",
+                name,
+                "--",
+                "src",
+            ],
             check=False,
             quiet=True,
         )
         if proc.returncode != 0:
             return []
-        calling_files: set[str] = set()
-        def_prefix = f"def {name}("
-        async_def_prefix = f"async def {name}("
-        for line in proc.stdout.splitlines():
-            parts = line.split(":", 2)
-            if len(parts) < 3:
-                continue
-            path, _lineno, content = parts
-            stripped = content.strip()
-            if stripped.startswith(def_prefix) or stripped.startswith(async_def_prefix):
-                continue
-            calling_files.add(path)
-        return sorted(calling_files)
+        return calling_files({path: self._reader(path) for path in proc.stdout.splitlines()}, name)
 
     def has(self, path: str) -> bool:
         """Whether the tree holds the file or the folder `path`, or a file that a glob matches."""
@@ -197,6 +221,46 @@ class StagedTree:
         """The paths among the code spans of `text`, in order. Only a code span names a path: the
         other words of a text are prose that a check leaves alone."""
         return [path for span in code_spans(text) for path in self.paths_in(span)]
+
+
+def _checkout_text(source: Path, path: str) -> str:
+    """The text of the file `path` of the checkout at `source`."""
+    return (source / path).read_text(encoding="utf-8")
+
+
+def _parse(text: str) -> ast.Module:
+    """The module of `text`; a file that `ast` cannot parse is an empty module, which defines,
+    calls and imports nothing."""
+    try:
+        return ast.parse(text)
+    except SyntaxError, ValueError:
+        return ast.Module(body=[], type_ignores=[])
+
+
+def _defines_function(node: ast.AST, name: str) -> bool:
+    """Whether `node` defines the function or the method `name`."""
+    return isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef) and node.name == name
+
+
+def _calls(node: ast.AST, name: str) -> bool:
+    """Whether `node` calls `name`, as `name(...)` or `value.name(...)`."""
+    if not isinstance(node, ast.Call):
+        return False
+    match node.func:
+        case ast.Name(id=called) | ast.Attribute(attr=called):
+            return called == name
+    return False
+
+
+def calling_files(modules: Mapping[str, str], name: str) -> list[str]:
+    """The paths of `modules`, a map of path to text, that call the function `name`, sorted. A
+    call is `name(...)` or `value.name(...)`; a definition, a string and a longer name are none.
+    When no module defines a function or a method `name`, the name is no function, as a class or an
+    enum is not, and no path calls it."""
+    nodes = {path: list(ast.walk(_parse(text))) for path, text in modules.items()}
+    if not any(_defines_function(node, name) for found in nodes.values() for node in found):
+        return []
+    return sorted(path for path, found in nodes.items() if any(_calls(n, name) for n in found))
 
 
 def _keep_slash(path: str) -> str:
@@ -259,25 +323,33 @@ def _first_creators(groups: Sequence[StageGroup]) -> dict[str, int]:
     return first
 
 
-_ADD_PARAMETER: Final[re.Pattern[str]] = re.compile(
-    r"\bAdd\s+.+?\s+to\s+`([A-Za-z_][A-Za-z0-9_]*)`"
+# One clause of a task that adds something to one or more names: `Add the keyword `probes` to
+# `check_proposal``, `add an argument to `a` and `b``. Outside a code span the clause holds no `.`,
+# `:` or `;`, so a match never runs into the next sentence (#4467).
+_ADD_TO: Final[re.Pattern[str]] = re.compile(
+    r"\badd\s+(?P<what>(?:`[^`]*`|[^`.:;])+?)\s+to\s+"
+    r"(?P<names>`[A-Za-z_]\w*`(?:(?:\s*,\s*(?:and\s+)?|\s+and\s+)`[A-Za-z_]\w*`)*)",
+    re.IGNORECASE,
+)
+_NAME_SPAN: Final[re.Pattern[str]] = re.compile(r"`([A-Za-z_]\w*)`")
+# The words of a clause that adds a parameter. A field, a member, a property or a method of a class
+# is no parameter of a function.
+_PARAMETER_WORD: Final[re.Pattern[str]] = re.compile(
+    r"\b(?:parameter|argument|keyword)s?\b", re.IGNORECASE
 )
 
 
 def changed_functions(groups: Sequence[StageGroup]) -> list[str]:
-    """The function names that task texts of `groups` add a parameter to."""
+    """The function names that task texts of `groups` add a parameter to: each name of a clause
+    `add ... to `name`` whose added part says parameter, argument or keyword (#4467)."""
     functions: list[str] = []
-    seen: set[str] = set()
     for group in groups:
         for text in (group.test, group.implementation, group.documentation, group.process):
-            if not text:
-                continue
-            for match in _ADD_PARAMETER.finditer(text):
-                fn = match.group(1)
-                if fn not in seen:
-                    seen.add(fn)
-                    functions.append(fn)
-    return functions
+            for match in _ADD_TO.finditer(text or ""):
+                if _PARAMETER_WORD.search(match["what"]) is None:
+                    continue
+                functions.extend(_NAME_SPAN.findall(match["names"]))
+    return list(dict.fromkeys(functions))
 
 
 def caller_problems(groups: Sequence[StageGroup], tree: StagedTree) -> list[str]:
@@ -362,41 +434,110 @@ def missing_reference_problems(
     ]
 
 
-def _dotted_name(path: str) -> str | None:
-    """The dotted import name of the Python module `path` under `src/`, or None."""
-    if not path.startswith(_SOURCE_TOP) or PurePosixPath(path).suffix != _MODULE_SUFFIX:
-        return None
-    return path.removeprefix(_SOURCE_TOP).removesuffix(_MODULE_SUFFIX).replace("/", ".")
+def _is_source_module(path: str) -> bool:
+    """Whether `path` is a Python module under `src/`."""
+    return path.startswith(_SOURCE_TOP) and PurePosixPath(path).suffix == _MODULE_SUFFIX
 
 
-def _stem_names(stem: str) -> frozenset[str]:
-    """The file names of the test modules that carry `stem` in the test naming convention."""
-    return frozenset(pattern.replace("*", stem) for pattern in _TEST_MODULE_PATTERNS)
+def _dotted_name(path: str) -> str:
+    """The dotted import name of the Python module `path` under `src/`; a package's
+    `__init__.py` names the package."""
+    return module_name(Path(path), Path(_SOURCE_TOP))
+
+
+def _package_init(package: str) -> str:
+    """The path of the `__init__.py` of the package `package` under `src/`."""
+    return f"{_SOURCE_TOP}{package.replace('.', '/')}/__init__.py"
+
+
+def _exporters(
+    dotted: str, tree: StagedTree, read: Callable[[str], str], known: frozenset[str]
+) -> set[str]:
+    """`dotted` and each package above it whose `__init__.py` imports it, or imports a package
+    that does: `from devops_cli.lang import MESSAGES` imports `devops_cli.lang.en.messages`."""
+    parts = dotted.split(".")
+    packages = [".".join(parts[:end]) for end in range(len(parts) - 1, 0, -1)]
+    inits = {
+        Path(init): _parse(read(init))
+        for package in packages
+        if (init := _package_init(package)) in tree.files
+    }
+    edges = build_import_graph(inits, root=Path(_SOURCE_TOP), known=known).edges
+    exporters = {dotted}
+    for package in packages:
+        if edges.get(package, set()) & exporters:
+            exporters.add(package)
+    return exporters
+
+
+def _importing_tests(
+    exporters: Collection[str],
+    read: Callable[[str], str],
+    search: Callable[[str], Sequence[str]],
+    known: frozenset[str],
+) -> set[str]:
+    """The test modules that import one of `exporters`, at any depth of the test. A test that
+    imports `a.b.c` holds the words `a.b` and `c` in each import form, so `search` finds the
+    candidates and `ast` reads their imports."""
+    candidates: set[str] = set()
+    for name in exporters:
+        parent, _, leaf = name.rpartition(".")
+        holders = set(search(name)) if not parent else set(search(parent)) & set(search(leaf))
+        candidates |= {path for path in holders if _is_test_module(path)}
+    trees = {Path(path): _parse(read(path)) for path in sorted(candidates)}
+    edges = build_import_graph(trees, root=Path(), function_bodies=True, known=known).edges
+    return {path for path in candidates if edges[_test_name(path)] & set(exporters)}
+
+
+def _test_name(path: str) -> str:
+    """The dotted name of the test module `path`, from the root of the tree."""
+    return module_name(Path(path), Path())
+
+
+def _module_imports(path: str, read: Callable[[str], str], known: frozenset[str]) -> set[str]:
+    """The modules that the module `path` under `src/` imports, at any depth of the module."""
+    module = {Path(path): _parse(read(path))}
+    edges = build_import_graph(module, root=Path(_SOURCE_TOP), function_bodies=True, known=known)
+    return edges.edges[_dotted_name(path)]
 
 
 def record_module_tests(
     groups: Sequence[StageGroup], tree: StagedTree, search: Callable[[str], Sequence[str]]
 ) -> dict[str, tuple[str, ...]]:
-    """The tests under `tests/` of each Python module under `src/` that a behavior group changes,
-    keyed by the module path (#3414). A test belongs to a module when its name carries the stem of
-    the module in the test naming convention, or when it holds the dotted name of the module, as an
-    import does: `tests/roadmap/implement/test_roadmap_implement_step.py` imports
-    `devops_cli.roadmap.step_files`, and its name carries no stem of that module. `search` gives the
-    files that hold a literal, as `git grep` does, and it runs once for each module."""
-    modules: dict[str, tuple[str, ...]] = {}
+    """The tests under `tests/` of each existing Python module under `src/` that a behavior group
+    changes, keyed by the module path (#3414). A test belongs to a module when it imports the
+    module, or a package whose `__init__.py` imports it, at any depth of the test (#4467):
+    `tests/roadmap/implement/test_roadmap_implement_step.py` imports
+    `devops_cli.roadmap.step_files`. A test of another module that the plan changes, and that
+    imports the module, runs it too: a group that changes `follow.py` and the messages that it shows
+    names the test of `follow.py`. A test that holds the name in a string or a path, as
+    `tests/commands/test_new.py` holds `src/devops_cli/lang/en/messages.py`, is no test of the
+    module. `search` gives the files that hold a literal as a word, as `git grep -F -w` does, and
+    it runs once for each literal. A tree that cannot read its files records nothing, so the gate
+    judges no module."""
+    read = tree.reader
+    if read is None:
+        return {}
+    found: dict[str, tuple[str, ...]] = {}
+
+    def holders(literal: str) -> tuple[str, ...]:
+        if literal not in found:
+            found[literal] = tuple(search(literal))
+        return found[literal]
+
+    known = frozenset(_dotted_name(path) for path in tree.files if _is_source_module(path))
     changed = sorted(
-        {path for group in groups if group.kind == "behavior" for path in group.changes}
+        path
+        for path in {path for group in groups if group.kind == "behavior" for path in group.changes}
+        if _is_source_module(path) and path in tree.files
     )
+    exporters = {path: _exporters(_dotted_name(path), tree, read, known) for path in changed}
+    direct = {path: _importing_tests(exporters[path], read, holders, known) for path in changed}
+    imports = {path: _module_imports(path, read, known) for path in changed}
+    modules: dict[str, tuple[str, ...]] = {}
     for path in changed:
-        dotted = _dotted_name(path)
-        if dotted is None:
-            continue
-        names = _stem_names(PurePosixPath(path).stem)
-        tests = {
-            test
-            for test in tree.files
-            if _is_test_module(test) and PurePosixPath(test).name in names
-        } | {test for test in search(dotted) if _is_test_module(test)}
+        users = [other for other in changed if imports[other] & exporters[path]]
+        tests = direct[path].union(*(direct[other] for other in users))
         if tests:
             modules[path] = tuple(sorted(tests))
     return modules

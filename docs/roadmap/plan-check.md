@@ -31,10 +31,12 @@ commit, whatever the working tree of the checkout holds.
   parts. The `paths` gate refuses the plan that leaves a test out and names the test, because the
   implement job cannot edit a test outside the `Changes:` list of its group.
 - The test of a changed module (#3414): a behavior group that changes an existing Python module
-  under `src/` names an existing test of that module. A test file is a test of a module when its
-  name carries the stem of the module in the test naming convention, or when it holds the dotted
-  name of the module. A test file that the plan creates is no existing test. The `paths` gate
-  refuses the group that names none of these tests and names the group, the module and the test.
+  under `src/` names an existing test of that module. A test file is a test of a module when it
+  imports the module, or a package whose `__init__.py` imports it, at any depth of the test
+  (#4467). A test of another module that the plan changes, and that imports the module, is a test
+  of it too. A test file that holds the name of the module in a string or a path is no test of it.
+  A test file that the plan creates is no existing test. The `paths` gate refuses the group that
+  names none of these tests and names the group, the module and the test.
   The command gives the gate no record of these tests, because it runs no search, so the stage job
   and [plan-recheck](plan-recheck.md) report this refusal, and this command does not.
 - The read: the reader reports each change file that it cannot read, each task group that the
