@@ -11,9 +11,9 @@ Reads: `src/devops_cli/roadmap/stage/stage_change.py`, `src/devops_cli/roadmap/p
 
 ## 2. The #3462 plan is a golden case
 
-Reads: `src/devops_cli/roadmap/stage/stage_eval_cases.py`, `src/devops_cli/roadmap/stage/stage_eval_gates.py`. Changes: `tests/fixtures/roadmap_eval/stage/3462-a-modified-requirement-over-the-limit/case.json`, `tests/fixtures/roadmap_eval/stage/3462-a-modified-requirement-over-the-limit/facts.json`, `tests/fixtures/roadmap_eval/stage/3462-a-modified-requirement-over-the-limit/issue.txt`, `tests/fixtures/roadmap_eval/stage/3462-a-modified-requirement-over-the-limit/plan.json`, `tests/roadmap/stage/test_roadmap_stage_eval_cases.py`, `tests/roadmap/stage/test_roadmap_stage_eval_command.py`, `tests/roadmap/stage/test_roadmap_stage_eval_gates.py`.
+Reads: `src/devops_cli/roadmap/stage/stage_eval_cases.py`, `src/devops_cli/roadmap/stage/stage_eval_gates.py`. Changes: `tests/fixtures/roadmap_eval/stage/3462-a-modified-requirement-over-the-limit/case.json`, `tests/fixtures/roadmap_eval/stage/3462-a-modified-requirement-over-the-limit/facts.json`, `tests/fixtures/roadmap_eval/stage/3462-a-modified-requirement-over-the-limit/issue.txt`, `tests/fixtures/roadmap_eval/stage/3462-a-modified-requirement-over-the-limit/plan.json`, `tests/fixtures/roadmap_eval/stage/split.json`, `tests/roadmap/stage/test_roadmap_stage_eval_cases.py`, `tests/roadmap/stage/test_roadmap_stage_eval_command.py`, `tests/roadmap/stage/test_roadmap_stage_eval_gates.py`, `tests/commands/test_roadmap_eval_screen.py`.
 
-- [x] 2.1 Add the case with the plan of PR #4435 and its `spec_delta_wrong` defect at the gate `paths`, and raise the counts of the set: 58 cases, 53 reviewed pulls, `spec_delta_wrong` caught 7, judged 82 of 319
+- [x] 2.1 Add the case with the plan of PR #4435 and its `spec_delta_wrong` defect at the gate `paths`, put it in half B of the fixed split of the screen eval, and raise the counts of the set: 58 cases, 53 reviewed pulls, `spec_delta_wrong` caught 7, judged 82 of 319
   - Verification: `$ uv run devops roadmap eval stage --replay`
 
 ## 3. Documents

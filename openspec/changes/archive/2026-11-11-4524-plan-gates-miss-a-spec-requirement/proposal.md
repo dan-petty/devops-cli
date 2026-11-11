@@ -12,7 +12,7 @@ Item #3462 shows it. Its plan (PR #4435) modified the requirement `A test-only o
 - New function `_length_problems` in `stage_change.py`. `_delta_problems` calls it for each capability of the spec delta, so `check_proposal` refuses each ADDED and MODIFIED requirement whose text is longer than the limit. The problem goes to the gate `spec-delta`. `devops roadmap plan-check` runs `check_proposal`, so it reports the same problem with the rule `stage`.
 - The count is in UTF-16 code units, as OpenSpec counts a JavaScript string.
 - New message `stage_problem_requirement_long`. It names the requirement, its length and the limit.
-- New golden case `3462-a-modified-requirement-over-the-limit` with the plan of PR #4435. The replay lists its defect as caught by the gate `paths`.
+- New golden case `3462-a-modified-requirement-over-the-limit` with the plan of PR #4435. The replay lists its defect as caught by the gate `paths`. The case goes into half B of the fixed split of the screen eval, the smaller half, so that no other case moves.
 
 ## Capabilities
 
@@ -28,7 +28,7 @@ None.
 ## Impact
 
 - Code: `src/devops_cli/roadmap/stage/stage_change.py`, `src/devops_cli/lang/en/messages.py`
-- Tests: `tests/roadmap/stage/test_roadmap_stage_requirement_length.py`, `tests/roadmap/test_roadmap_plan_check.py`, `tests/roadmap/stage/test_roadmap_stage_eval_cases.py`, `tests/roadmap/stage/test_roadmap_stage_eval_command.py`, `tests/roadmap/stage/test_roadmap_stage_eval_gates.py`, `tests/fixtures/roadmap_eval/stage/3462-a-modified-requirement-over-the-limit/`
+- Tests: `tests/roadmap/stage/test_roadmap_stage_requirement_length.py`, `tests/roadmap/test_roadmap_plan_check.py`, `tests/roadmap/stage/test_roadmap_stage_eval_cases.py`, `tests/roadmap/stage/test_roadmap_stage_eval_command.py`, `tests/roadmap/stage/test_roadmap_stage_eval_gates.py`, `tests/fixtures/roadmap_eval/stage/3462-a-modified-requirement-over-the-limit/`, `tests/fixtures/roadmap_eval/stage/split.json`, `tests/commands/test_roadmap_eval_screen.py`
 - Documents: `docs/roadmap/plan-recheck.md`
 - The change fits one pull request.
 
