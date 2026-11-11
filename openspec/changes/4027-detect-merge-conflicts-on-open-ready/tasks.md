@@ -6,8 +6,8 @@
   - Verification: `$ uv run devops ci test tests/roadmap/test_pr_conflicts.py`
 - [x] 1.2 Add `merge_conflict` to `merge_readiness.py` and call it from the readiness verdict and the implement watch. Add the merge state, the base branch and the default branch to `PullStatus`. Add `roadmap/pr_conflicts.py`, the row `pr_conflicts` after `cloudflare_status`, its interval, its ledger file name, its messages and the gauge `devops_cli_roadmap_conflicted_pulls`.
   - Verification: `$ uv run devops ci test tests/roadmap/test_pr_conflicts.py tests/github/test_merge_readiness.py`
-- [x] 1.3 Add `pr_conflicts` to the tests that read the rows of the status lane, and check the triage lane and the model lane in the implement lane test.
-  - Verification: `$ uv run devops ci test tests/roadmap/implement/test_roadmap_implement_submit.py tests/roadmap/stage/test_roadmap_stage_ready.py tests/roadmap/test_roadmap_run_due_table.py tests/roadmap/test_roadmap_status_rows.py`
+- [x] 1.3 Add `pr_conflicts` to the tests that read the rows of the status lane, and check the triage lane and the model lane in the implement lane test. The due table has 12 rows, so the bound of the row seconds series is 36.
+  - Verification: `$ uv run devops ci test tests/roadmap/implement/test_roadmap_implement_submit.py tests/roadmap/stage/test_roadmap_stage_ready.py tests/roadmap/test_roadmap_run_due_table.py tests/roadmap/test_roadmap_status_rows.py tests/roadmap/test_roadmap_run_lanes.py tests/roadmap/test_roadmap_run_job_rows.py tests/telemetry/test_roadmap_row_seconds.py`
 
 ## 2. Documents
 

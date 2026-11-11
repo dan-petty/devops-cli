@@ -20,6 +20,7 @@ The roadmap Service marks a delivery pull request ready when its checks pass. A 
 - `roadmap-pr-conflicts` (new): the row, its candidates, its comments, its ledger, its gauge and its failures.
 - `pr-merge-readiness`: one conflict judgment for the readiness verdict and the row.
 - `roadmap-implement-job`: the status lane holds `pr_conflicts` last.
+- `metric-instruments`: the due table has 12 rows, so `devops_cli_roadmap_row_seconds` adds at most 36 series for one repository.
 
 ## Impact
 
