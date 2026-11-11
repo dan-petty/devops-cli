@@ -41,7 +41,7 @@ The audit record of a config write SHALL read the file before and after the writ
 - **THEN** `plaintext_leaks` names `ai.api_key` of the file, `is_compliant` is false, and the command exits 1
 
 ### Requirement: The ConfigMap render reads the config of its template as YAML 1.2
-The ConfigMap render SHALL read the config in the ConfigMap template as YAML 1.2. It SHALL write the config so that a YAML 1.2 read of the rendered config gives the same value for each setting.
+The ConfigMap render SHALL read the config in the ConfigMap template as YAML 1.2. It SHALL validate the settings of the YAML 1.2 read of the config that it writes, which is the config that the Service loads.
 
 #### Scenario: A bare off in the template
 - **WHEN** the config of the ConfigMap template holds `roadmap.intake.jev: off` with no quotes

@@ -472,7 +472,7 @@ _LOADER_CREDENTIAL = "FAKE-2426-value"
         ),
         pytest.param(
             f"ai:\n  api_key: !!timestamp {_LOADER_CREDENTIAL}\n".encode(),
-            "AttributeError",
+            "ConstructorError at line 2, column 12",
             id="timestamp",
         ),
         pytest.param(
@@ -501,8 +501,9 @@ def test_config_audit_keys_reports_a_global_config_file_that_the_yaml_loader_can
 ) -> None:
     """The audit refuses the errors of the YAML loader that the settings load refuses (#1468).
 
-    The message of these errors quotes the value, so the audit names only the file and the type of
-    the error. It prints the full report and exits 1.
+    The message of these errors quotes the value, so the audit names only the file, the type of
+    the error, and its line and column when the error has a mark. It prints the full report and
+    exits 1.
     """
     global_config = write_global_config(content).resolve()
 

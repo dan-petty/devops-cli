@@ -17,7 +17,6 @@ from pathlib import Path
 from typing import Annotated, Any
 
 import httpx2
-import yaml
 from pydantic import (
     AfterValidator,
     AnyHttpUrl,
@@ -158,7 +157,7 @@ from devops_cli.config.env import (
     setting_variables,
 )
 from devops_cli.config.os_keyring import store_keyring_secret
-from devops_cli.config.yaml_errors import load_yaml
+from devops_cli.config.yaml_errors import load_yaml, parse_config_yaml
 from devops_cli.core.dns_names import OptionalConfiguredDomain
 from devops_cli.core.untrusted_trees import reads_untrusted_trees
 from devops_cli.exceptions import ConfigurationError
@@ -1706,15 +1705,15 @@ def _stamps_are_settled(stamps: tuple[_FileStamp, _FileStamp]) -> bool:
 
 
 def _read_config_file(path: Path) -> Any:
-    """The YAML document of the config file `path`, or `{}` for an empty file.
+    """The YAML 1.2 document of the config file `path`, or `{}` for an empty file.
 
-    A file that is not valid YAML raises ConfigurationError that names the file, the type of the
-    error, and its line and column when the error has a mark, and quotes no text of the file
-    (`load_yaml`, #1468). An `OSError` names only the file and is not a YAML problem, so it goes
-    up as it is.
+    A settings save writes YAML 1.2, so the load reads the same version (#4481). A file that is not
+    valid YAML raises ConfigurationError that names the file, the type of the error, and its line
+    and column when the error has a mark, and quotes no text of the file (`load_yaml`, #1468). An
+    `OSError` names only the file and is not a YAML problem, so it goes up as it is.
     """
     return load_yaml(
-        lambda: yaml.safe_load(path.read_text(encoding="utf-8")) or {},
+        lambda: parse_config_yaml(path.read_text(encoding="utf-8")) or {},
         name=str(path),
         action=ERRORS.config.not_yaml_load,
     )

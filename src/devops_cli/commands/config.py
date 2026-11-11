@@ -52,7 +52,11 @@ from devops_cli.config.settings import (
     save_settings,
     similar_config_keys,
 )
-from devops_cli.config.yaml_errors import YAML_LOAD_ERRORS, yaml_error_location
+from devops_cli.config.yaml_errors import (
+    parse_config_yaml,
+    yaml_error_location,
+    yaml_load_errors,
+)
 from devops_cli.core.binaries import check_binary
 from devops_cli.core.cli import new_typer
 from devops_cli.dry_run import is_dry_run, render_dry_run_result
@@ -685,10 +689,6 @@ def audit_stream(
 # Command: devops config audit-keys
 # =============================================================================
 
-# The audit refuses the errors that the settings load refuses (#1468), and an error that stops the
-# read of the file.
-_AUDIT_READ_ERRORS: tuple[type[Exception], ...] = (*YAML_LOAD_ERRORS, OSError)
-
 
 def _plaintext_secret_keys(
     node: dict[Any, Any], secret_options: frozenset[str], prefix: str = ""
@@ -710,13 +710,14 @@ def _scan_yaml_for_secret_keys(cfg_file: Path) -> list[str] | None:
     or None if the file is unreadable.
 
     A leak names the full path: the global config file and a project config file can both have the
-    name ``config.yaml`` (#2426). A key is found at its full dotted key, at any depth (#2511).
+    name ``config.yaml`` (#2426). A key is found at its full dotted key, at any depth (#2511). The
+    audit reads the file as YAML 1.2, as the settings load does (#4481). It refuses the errors that
+    the load refuses (#1468), and an error that stops the read of the file.
     """
-    import yaml
-
+    read_errors: tuple[type[Exception], ...] = (*yaml_load_errors(), OSError)
     try:
-        raw_cfg = yaml.safe_load(cfg_file.read_text(encoding="utf-8")) or {}
-    except _AUDIT_READ_ERRORS as err:
+        raw_cfg = parse_config_yaml(cfg_file.read_text(encoding="utf-8")) or {}
+    except read_errors as err:
         # The message of the error and the mark of a YAML error quote the file's content, which
         # may hold the value.
         where = yaml_error_location(err)

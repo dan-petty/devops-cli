@@ -37,13 +37,16 @@ def _sanitize_prefix(raw_prefix: str) -> str:
 
 
 def _extract_prefix_from_yaml(cfg_file: Path) -> str | None:
-    """Extract and sanitize key_prefix from a YAML config file."""
-    import yaml
+    """Extract and sanitize key_prefix from a config file, read as YAML 1.2 as the settings load
+    reads it (#4481). The log of a file that does not load quotes no text of it."""
+    from ruamel.yaml.error import YAMLError
+
+    from devops_cli.config.yaml_errors import parse_config_yaml, yaml_error_location
 
     if not cfg_file.is_file():
         return None
     try:
-        data = yaml.safe_load(cfg_file.read_text(encoding="utf-8")) or {}
+        data = parse_config_yaml(cfg_file.read_text(encoding="utf-8")) or {}
         if not isinstance(data, dict):
             return None
         ssh_conf = data.get("ssh", {})
@@ -53,8 +56,11 @@ def _extract_prefix_from_yaml(cfg_file: Path) -> str | None:
         elif data.get("key_prefix"):
             raw_prefix = data["key_prefix"]
         return _sanitize_prefix(str(raw_prefix)) if raw_prefix else None
-    except (yaml.YAMLError, OSError, UnicodeDecodeError) as exc:
-        logger.debug("Failed reading YAML key_prefix from %s: %s", cfg_file, exc)
+    except (YAMLError, OSError, UnicodeDecodeError) as exc:
+        where = yaml_error_location(exc)
+        logger.debug(
+            "Failed reading YAML key_prefix from %s: %s%s", cfg_file, type(exc).__name__, where
+        )
         return None
 
 
