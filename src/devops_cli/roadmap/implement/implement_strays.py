@@ -42,6 +42,12 @@ def _named(group: TaskGroup) -> frozenset[str]:
     return frozenset(posixpath.normpath(span) for span in code_spans(group.text))
 
 
+def plan_paths(groups: Iterable[TaskGroup]) -> frozenset[str]:
+    """The paths that the plan names: the code spans of the text of every group in `groups`, as
+    normalised paths."""
+    return frozenset().union(*(_named(group) for group in groups))
+
+
 def stray_files(untracked: Iterable[str], group: TaskGroup, change: str) -> list[str]:
     """The names of `untracked` that `group` does not allow, in their order. `untracked` holds the
     paths that git lists, relative to the checkout. `change` is the change folder of the item,
@@ -64,7 +70,7 @@ def unplanned_paths(changed: Iterable[str], groups: Iterable[TaskGroup], change:
     every path that a step added, changed or deleted, relative to the checkout. The plan names a
     path in a code span of the text of any of its `groups`. A file under the change folder `change`
     is always allowed."""
-    named = frozenset().union(*(_named(group) for group in groups))
+    named = plan_paths(groups)
     folder = PurePosixPath(change)
     return [
         name
