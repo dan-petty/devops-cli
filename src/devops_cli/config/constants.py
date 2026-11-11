@@ -3721,7 +3721,8 @@ CONST_ROADMAP_JEV_MIN_CONFIDENCE: Final[float] = 0.60
 # The least probability of a noul answer that flags a nearest item as the possible original of a
 # candidate. A false duplicate is worse than a missed one, so the bar is high.
 CONST_ROADMAP_JEV_DUPLICATE_THRESHOLD: Final[float] = 0.90
-# The seconds that one request to Jev may take before intake uses the triage model.
+# The seconds that one request to Jev may take. Then intake uses the triage model, and a decision
+# step fails open (#4513).
 CONST_ROADMAP_JEV_TIMEOUT_SECONDS: Final[float] = 30.0
 # The most model calls that `devops roadmap eval jev` makes. At about 0.042 USD for 1M input
 # tokens of Jev and a few cents for the triage model, this keeps a run under 1 USD.
