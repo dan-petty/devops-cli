@@ -496,7 +496,6 @@ CONST_DOCS_INVENTORY: Final[dict[str, tuple[str, ...]]] = {
     ),
     CONST_DOCS_CLASS_PROMPT: (
         "src/devops_cli/ai/personas/**/*.md",
-        "src/devops_cli/ai/prompts/**/*.md",
         "src/devops_cli/ai/tasks/**/*.md",
     ),
     CONST_DOCS_CLASS_TOOL_GENERATED: (

@@ -8,16 +8,18 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from devops_cli.exceptions.ai import TaskPromptNotFoundError
+
 _TASKS_DIR = Path(__file__).resolve().parent / "tasks"
 
 
 def load_task_prompt(filename: str) -> str:
     """Load a markdown prompt file from the ai/tasks/ directory.
 
-    Returns the file contents stripped of leading/trailing whitespace,
-    or an empty string if the file does not exist or is outside the tasks directory.
+    Returns the file contents stripped of leading/trailing whitespace. Raises
+    `TaskPromptNotFoundError` when the name is not a file inside the tasks directory.
     """
     target_path = (_TASKS_DIR / filename).resolve()
     if not target_path.is_relative_to(_TASKS_DIR) or not target_path.is_file():
-        return ""
+        raise TaskPromptNotFoundError(filename)
     return target_path.read_text(encoding="utf-8").strip()
