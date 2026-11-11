@@ -477,14 +477,18 @@ class GitHubFake:
             self.seed_issue(number, fields["title"], labels=json.loads(fields["labels"]))
             self.issues[number]["body"] = fields.get("body", "")
             return self.issues[number]
+        # `since` keeps the issues updated at or after it; both are written as `_wire` writes them.
         listed = [
             issue
             for issue in self.issues.values()
             if query.get("state", "open") in ("all", issue["state"])
             and self._in_milestone(issue, query.get("milestone"))
+            and issue["updated_at"] >= query.get("since", "")
         ]
         if query.get("sort") == "created" and query.get("direction") == "desc":
             listed.sort(key=lambda issue: issue["number"], reverse=True)
+        if query.get("sort") == "updated" and query.get("direction") == "desc":
+            listed.sort(key=lambda issue: issue["updated_at"], reverse=True)
         per_page = int(query.get("per_page", "100"))
         return listed[(page - 1) * per_page : page * per_page]
 

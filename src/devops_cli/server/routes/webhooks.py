@@ -285,6 +285,7 @@ def roadmap_consumer(service_manager: ServiceManager) -> WebhookConsumer:
             run_scoped_update,
             scoped_update_wakes_model_lane,
         )
+        from devops_cli.roadmap.stores.listing_snapshot import intake_listing
         from devops_cli.roadmap.stores.store import get_roadmap_store
 
         scoped = SCOPED_UPDATES.get((event, action))
@@ -302,8 +303,11 @@ def roadmap_consumer(service_manager: ServiceManager) -> WebhookConsumer:
             )
 
             def run_scoped() -> None:
-                store = get_roadmap_store(repo)
-                data_dir = service_manager.state_dir.parent if service_manager.state_dir else None
+                # The scoped intake reads every issue through the snapshot that the triage
+                # lane's intake keeps in the state directory (#3670).
+                state_dir = service_manager.state_dir
+                store = get_roadmap_store(repo, listing=intake_listing(state_dir))
+                data_dir = state_dir.parent if state_dir else None
                 outcome = run_scoped_update(delivery, store, data_dir=data_dir)
                 if scoped_update_wakes_model_lane(delivery, outcome):
                     service_manager.enqueue_trigger(

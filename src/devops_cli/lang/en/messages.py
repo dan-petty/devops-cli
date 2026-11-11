@@ -5254,8 +5254,8 @@ class RoadmapMessages:
         default_factory=lambda: {
             "candidate": "the run has a candidate",
             "changed_issues": (
-                "the data directory holds a snapshot of the listing that this version wrote, and "
-                "its last full read is less than {hours} hours old"
+                "the data directory holds a snapshot of the listing with the current record "
+                "schema, and its last full read is less than {hours} hours old"
             ),
             "no_snapshot": "the data directory holds no such snapshot of the listing",
             "embed": "the run has a candidate",

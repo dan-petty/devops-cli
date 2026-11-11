@@ -115,8 +115,8 @@ def test_a_dry_run_reads_the_changes_since_the_snapshot_or_else_every_issue(full
     unread = "the run has not read every issue yet"
     changed = (
         "state=all&sort=updated&direction=desc&since=<the watermark of the snapshot>&per_page=100",
-        "the data directory holds a snapshot of the listing that this version wrote, and its "
-        f"last full read is less than 24 hours old and {unread}",
+        "the data directory holds a snapshot of the listing with the current record schema, "
+        f"and its last full read is less than 24 hours old and {unread}",
     )
     whole = (
         "state=all&per_page=100",

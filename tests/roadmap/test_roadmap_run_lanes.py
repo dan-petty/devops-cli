@@ -1,5 +1,6 @@
 """The lanes of the service: the status, triage and model lanes run their own rows, keep their own
-schedule and use their own clone (#981).
+schedule and use their own clone (#981). The triage lane reads every issue through the listing
+snapshot (#3670).
 """
 
 from __future__ import annotations
@@ -34,8 +35,16 @@ from devops_cli.roadmap.run import (
     service_job,
     service_jobs,
 )
+from devops_cli.roadmap.stores.github_store import GitHubRoadmapStore
+from devops_cli.roadmap.stores.listing_snapshot import (
+    FileSnapshotStore,
+    IncrementalListing,
+    SnapshotStore,
+)
+from devops_cli.roadmap.stores.store import RoadmapStore, install_roadmap_store
 from devops_cli.server.service import ServiceManager
 from devops_cli.telemetry.metrics import GLOBAL_METRICS
+from tests.support.fakes.github import RunnerSession
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.roadmap_run import (
     NOW,
@@ -91,6 +100,31 @@ def test_a_model_lane_poll_when_not_due_reads_no_change_and_sends_no_request(
     )
     service_jobs(tmp_path)[CONST_SERVICE_LANE_MODEL](POLL)
     assert [args for args in github.calls if "rate_limit" not in " ".join(args)] == []
+
+
+@pytest.mark.usefixtures("roadmap_bot")
+def test_the_triage_lane_alone_reads_every_issue_through_the_snapshot_in_the_state_dir(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Test first for #3670: the triage lane runs intake, so it opens its store with the listing
+    snapshot that the Service keeps in its state directory, as the scoped intake does. The
+    status and model lanes read the whole listing."""
+    github = service_github([])
+    serve_over(tmp_path, monkeypatch, github, stamped=False)
+    rows = (*STATUS_LANE_ROWS, *TRIAGE_LANE_ROWS, *MODEL_LANE_ROWS)
+    recent = datetime.now(UTC) - timedelta(minutes=1)
+    stamp_successes(tmp_path, **{row.name: recent for row in rows})
+    snapshots: list[SnapshotStore | None] = []
+
+    def store(repo: str, *, listing: IncrementalListing | None = None, **_: Any) -> RoadmapStore:
+        snapshots.append(None if listing is None else listing.snapshots)
+        return GitHubRoadmapStore(repo, runner=github, session=RunnerSession(github))
+
+    install_roadmap_store(store)
+    jobs = service_jobs(tmp_path)
+    for lane in (CONST_SERVICE_LANE_STATUS, CONST_SERVICE_LANE_TRIAGE, CONST_SERVICE_LANE_MODEL):
+        jobs[lane](POLL)
+    assert snapshots == [None, FileSnapshotStore(tmp_path / "listing"), None]
 
 
 def test_a_blocked_model_lane_holds_back_none_of_the_status_lanes_rounds(

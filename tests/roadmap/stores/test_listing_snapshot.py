@@ -1,9 +1,10 @@
 """The snapshot of the issue listing that intake keeps between runs, and the incremental read of the
-issues changed since it (#4448).
+issues changed since it (#4448). The snapshot keys to the schema of the issue record (#3670).
 """
 
 from __future__ import annotations
 
+import functools
 import logging
 import os
 from datetime import UTC, datetime, timedelta
@@ -12,10 +13,12 @@ from typing import Any
 
 import pytest
 
+from devops_cli.config.metadata import ProjectMetadata, load_project_metadata
 from devops_cli.exceptions.security import SecurityError
 from devops_cli.github.session import get_github_session
 from devops_cli.roadmap.stores.github_store import GitHubRoadmapStore
 from devops_cli.roadmap.stores.listing_snapshot import (
+    LISTING_SCHEMA_KEY,
     FileSnapshotStore,
     IncrementalListing,
     ListingSnapshot,
@@ -40,13 +43,10 @@ def _issue(number: int, *, updated: str = "2026-01-01T09:00:00Z", **changes: Any
     )
 
 
-def _store(
-    root: Path, *, at: datetime = STARTED, full: bool = False, version: str = "1.0.0"
-) -> GitHubRoadmapStore:
-    """A store that reads its listing at `at` through the snapshot that `root` holds."""
-    listing = IncrementalListing(
-        FileSnapshotStore(root), full=full, clock=lambda: at, version=version
-    )
+def _store(root: Path, *, at: datetime = STARTED, **options: Any) -> GitHubRoadmapStore:
+    """A store that reads its listing at `at` through the snapshot that `root` holds, with the
+    other `options` of the listing."""
+    listing = IncrementalListing(FileSnapshotStore(root), clock=lambda: at, **options)
     return GitHubRoadmapStore(
         REPO, runner=RecordedGh({}), session=get_github_session(), listing=listing
     )
@@ -149,19 +149,64 @@ def test_the_watermark_is_the_earlier_of_the_start_and_the_newest_change_less_a_
     assert _kept(tmp_path).watermark.isoformat() == watermark
 
 
+def test_the_snapshot_key_is_the_hash_of_the_issue_record_schema() -> None:
+    """The key is the first 16 hex characters of the sha256 of the JSON schema of `IssueRecord`.
+    A change of the record changes the key, so each kept snapshot is read again in full once:
+    pin the new key when you change the record (#3670)."""
+    assert LISTING_SCHEMA_KEY == "9b18595b00d0c95e"
+
+
+def test_a_new_package_version_with_the_same_record_schema_reads_only_the_changes(
+    github_api: GitHubApiFake, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A release that keeps the schema of the issue record keeps the snapshot: the run after it
+    reads from the watermark, not the whole listing (#3670)."""
+    real = load_project_metadata()
+
+    def released(version: str) -> None:
+        # Cached, as the real reader is, so the reset of the metadata cache after the test runs.
+        @functools.cache
+        def metadata(*_: Any) -> ProjectMetadata:
+            return real.model_copy(update={"version": version})
+
+        monkeypatch.setattr("devops_cli.config.metadata.load_project_metadata", metadata)
+
+    released("1.0.0")
+    _first_run(github_api, tmp_path, _issue(2), _issue(1))
+    released("2.0.0")
+    github_api.route(
+        "GET",
+        _since("2026-01-01T08:59:00Z"),
+        github_json([_issue(3, updated="2026-01-01T10:30:00Z")]),
+    )
+    numbers = [i.number for i in _store(tmp_path, at=STARTED + timedelta(hours=1)).issues()]
+    assert (_queries(github_api), numbers) == (
+        [
+            {
+                "state": "all",
+                "sort": "updated",
+                "direction": "desc",
+                "since": "2026-01-01T08:59:00Z",
+                "per_page": "100",
+            }
+        ],
+        [3, 2, 1],
+    )
+
+
 @pytest.mark.parametrize(
     ("later", "changes"),
     [
         ({"full": True}, "the flag"),
-        ({"version": "2.0.0"}, "another version"),
+        ({"schema_key": "0123456789abcdef"}, "another record schema"),
         ({"at": STARTED + timedelta(hours=25)}, "an old full read"),
     ],
 )
 def test_the_whole_listing_is_read_again_and_replaces_the_snapshot(
     github_api: GitHubApiFake, tmp_path: Path, later: dict[str, Any], changes: str
 ) -> None:
-    """`--full`, a snapshot that another version wrote, and a snapshot whose last full read is
-    older than a day are read in full, not from the watermark."""
+    """`--full`, a snapshot of records with another schema, and a snapshot whose last full read
+    is older than a day are read in full, not from the watermark."""
     _first_run(github_api, tmp_path, _issue(2), _issue(1))
     github_api.route("GET", FULL, github_json([_issue(3), _issue(1)]))
     numbers = [i.number for i in _store(tmp_path, **later).issues()]
