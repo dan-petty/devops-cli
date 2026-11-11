@@ -77,7 +77,9 @@ class PullStatus(BaseModel):
     """Whether a pull request is open, a draft, or merged (#2665), the commit of its head
     (#2865), the labels it holds (#3264), its title and body (#3395), and when it closed
     (#3503). `head_sha` is empty when GitHub names no head, and `closed_at` is None for a pull
-    request that is open."""
+    request that is open. `mergeable` and `mergeable_state` are GitHub's merge state, and
+    `base_ref` and `default_branch` are the branch it merges into and the default branch of
+    that repository (#4027)."""
 
     model_config = ConfigDict(validate_by_name=True, validate_by_alias=True)
 
@@ -90,6 +92,12 @@ class PullStatus(BaseModel):
     head_ref: str = Field(default="", validation_alias=AliasPath("head", "ref"))
     labels: tuple[str, ...] = ()
     closed_at: datetime | None = None
+    mergeable: bool | None = None
+    mergeable_state: str = ""
+    base_ref: str = Field(default="", validation_alias=AliasPath("base", "ref"))
+    default_branch: str = Field(
+        default="", validation_alias=AliasPath("base", "repo", "default_branch")
+    )
 
     @field_validator("labels", mode="before")
     @classmethod

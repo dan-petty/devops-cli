@@ -30,6 +30,7 @@ from devops_cli.exceptions.roadmap import RoadmapImplementError
 from devops_cli.git.branch_form import issue_of_branch
 from devops_cli.github.check_verdict import CheckBucket, CheckVerdictSummary, PRCheckItem
 from devops_cli.github.client import GitHubClient, PullRequestFile, PullStatus
+from devops_cli.github.merge_readiness import merge_conflict
 from devops_cli.github.pr_monitor import PRMonitorResult, PRMonitorStatus, monitor_pr
 from devops_cli.github.rate_limiter import run_gh
 from devops_cli.github.run_view import fetch_workflow_run_view
@@ -47,8 +48,6 @@ from devops_cli.roadmap.stores.store import (
 )
 from devops_cli.security.sanitizer import mask_secrets
 
-# GitHub's name for a pull request that cannot merge because its branch conflicts with the base.
-_CONFLICT_STATES = frozenset({"dirty", "conflicting"})
 # The index of the run's number in the path of a check's link, after `runs`: `runs/<run>/job/<job>`.
 _JOB_SEGMENT = 2
 
@@ -346,7 +345,7 @@ def _judge(result: PRMonitorResult) -> Watch:
     if status.unresolved_threads:
         count = len(status.unresolved_threads)
         return Watch(WatchKind.STOPPED, texts.implement_stop_threads.format(count=count))
-    if status.mergeable is False or status.mergeable_state in _CONFLICT_STATES:
+    if merge_conflict(status.mergeable, status.mergeable_state):
         return Watch(WatchKind.STOPPED, texts.implement_stop_conflict)
     return Watch(WatchKind.READY)
 

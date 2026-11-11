@@ -1,10 +1,11 @@
 """Roadmap job evaluation, scheduling, checkout management, and execution.
 
 The due table runs the status lane's rows, metrics, implement, stage_ready, release_comments,
-github_status and cloudflare_status, before the model lane's, intake, refine, retitle, stage and
-alternatives, so a burst of candidates never holds back the metrics (#1360), and a slow model never holds back the implement or stage_ready row
+github_status, cloudflare_status and pr_conflicts, before the model lane's, intake, refine, retitle,
+stage and alternatives, so a burst of candidates never holds back the metrics (#1360), and a slow model never holds back the implement or stage_ready row
 (#2757, #2865). The row stage_ready marks a green stage draft pull request ready. The row
 release_comments comments the version, and the time it runs, on the issues of a release (#2917).
+The row pr_conflicts comments once on a ready delivery pull request with merge conflicts (#4027).
 `devops roadmap run` runs the whole table in one round. The Service runs each lane in its own worker and its own clone
 (`service_jobs`), so a status-lane round never waits for a model-bound one (#1532); both lanes
 read and write the repository's one `schedule.json`. The Service's ledger of failed rounds is
@@ -82,6 +83,7 @@ from devops_cli.config.defaults import (
     DEFAULT_ROADMAP_INTAKE_INTERVAL_MINUTES,
     DEFAULT_ROADMAP_INTAKE_LIMIT,
     DEFAULT_ROADMAP_METRICS_INTERVAL_MINUTES,
+    DEFAULT_ROADMAP_PR_CONFLICTS_INTERVAL_MINUTES,
     DEFAULT_ROADMAP_REFINE_INTERVAL_MINUTES,
     DEFAULT_ROADMAP_RELEASE_COMMENTS_INTERVAL_MINUTES,
     DEFAULT_ROADMAP_RETITLE_INTERVAL_MINUTES,
@@ -133,6 +135,7 @@ from devops_cli.roadmap.intake.intake import (
 # `refine` imports pydantic_ai. The Python 3.14 import lock deadlocks when two worker threads
 # import it for the first time together, so import it at module level, in the Service's main
 # thread, before any worker starts (#2535).
+from devops_cli.roadmap.pr_conflicts import watch_conflicts
 from devops_cli.roadmap.refine.refine import RefineWriter, plan_refine
 from devops_cli.roadmap.release_comments import comment_releases
 from devops_cli.roadmap.release_feed import GitHubReleaseFeed
@@ -802,6 +805,21 @@ def _run_cloudflare_status_adapter(**_: Any) -> JobOutcome:
     return JobOutcome()
 
 
+def _run_pr_conflicts_adapter(
+    store: RoadmapStore, *, repo: str, repo_dir: Path, **_: Any
+) -> JobOutcome:
+    """Comment once on each ready delivery pull request that has merge conflicts with the default
+    branch, and send the gauge of those pull requests (#4027). The row calls no model and needs no
+    clone; its ledger `pr_conflicts.json` lies beside `schedule.json`. A clean pull request that
+    is behind the default branch gets no action. A failed read of GitHub fails this row only."""
+    from devops_cli.config.constants import CONST_ROADMAP_PR_CONFLICTS_LEDGER_FILENAME
+
+    watch_conflicts(
+        store, repo=repo, ledger_path=repo_dir / CONST_ROADMAP_PR_CONFLICTS_LEDGER_FILENAME
+    )
+    return JobOutcome()
+
+
 STATUS_LANE_ROWS: tuple[JobRow, ...] = (
     JobRow(
         name="metrics",
@@ -842,16 +860,24 @@ STATUS_LANE_ROWS: tuple[JobRow, ...] = (
         runner=_run_cloudflare_status_adapter,
         first_run_due=True,
     ),
+    JobRow(
+        name="pr_conflicts",
+        interval=timedelta(minutes=DEFAULT_ROADMAP_PR_CONFLICTS_INTERVAL_MINUTES),
+        runner=_run_pr_conflicts_adapter,
+        first_run_due=True,
+    ),
 )
 """The rows that call no model: the one that refreshes the metrics, the one that submits the
 implement Job, which only talks to the Kubernetes API and GitHub, and the one that marks a green
 stage pull request ready, which only talks to GitHub, and the one that comments a release on its
-issues, which talks to GitHub, the registry and the Kubernetes API, and the two that read the GitHub
-and the Cloudflare status page, one row each, so a failed read fails its own row (#4052). The model runs in the Job, so a model-lane
+issues, which talks to GitHub, the registry and the Kubernetes API, the two that read the GitHub
+and the Cloudflare status page, one row each, so a failed read fails its own row (#4052), and the
+one that comments on a ready delivery pull request with merge conflicts, which only talks to GitHub
+(#4027). The model runs in the Job, so a model-lane
 round that is still running never delays the rows (#2757, #2865). `stage_ready` follows
 `implement`, so a Staged item with a green draft gets its Job first, and the row leaves a pull
-request that a Job works on alone. `release_comments` and the two status reads come last: they
-wait for no other row, and a slow status page delays no other row."""
+request that a Job works on alone. `release_comments`, the two status reads and `pr_conflicts`
+come last: they wait for no other row, and a slow read delays no other row."""
 
 TRIAGE_LANE_ROWS: tuple[JobRow, ...] = (
     JobRow(
@@ -986,8 +1012,8 @@ def build_stub_table(
     include_retitle: bool | None = None,
 ) -> tuple[JobRow, ...]:
     """The due table's rows, in its order, each running `runners`' stub for its job: metrics,
-    implement, stage_ready, release_comments, github_status, cloudflare_status, intake, refine,
-    retitle, stage and alternatives.
+    implement, stage_ready, release_comments, github_status, cloudflare_status, pr_conflicts,
+    intake, refine, retitle, stage and alternatives.
     Intake is always in; the others are added when asked for or given a stub."""
     r = runners or {}
     add_retitle = include_retitle if include_retitle is not None else ("retitle" in r)
@@ -1016,6 +1042,7 @@ def build_stub_table(
         "release_comments": add_release_comments,
         "github_status": "github_status" in r,
         "cloudflare_status": "cloudflare_status" in r,
+        "pr_conflicts": "pr_conflicts" in r,
         "alternatives": add_alternatives,
     }
     return tuple(

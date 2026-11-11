@@ -156,6 +156,7 @@ def test_a_suspended_implement_row_runs_again_on_a_later_poll_round_when_the_fau
             "release_comments",
             "github_status",
             "cloudflare_status",
+            "pr_conflicts",
         ),
         4,
     )

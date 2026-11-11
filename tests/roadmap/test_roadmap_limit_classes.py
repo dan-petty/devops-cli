@@ -628,6 +628,7 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
         "ends in about 6 minutes",
     ),
     "DEFAULT_ROADMAP_RELEASE_COMMENTS_INTERVAL_MINUTES": ("other", "a schedule"),
+    "DEFAULT_ROADMAP_PR_CONFLICTS_INTERVAL_MINUTES": ("other", "a schedule"),
 }
 
 # The window of the planner in the example ConfigMap of the stack, which no raised cap passes.

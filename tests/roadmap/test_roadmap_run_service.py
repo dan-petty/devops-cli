@@ -97,6 +97,7 @@ def test_service_wiring(
                 "release_comments",
                 "github_status",
                 "cloudflare_status",
+                "pr_conflicts",
             ],
             ["intake"],
             ["refine", "retitle", "stage", "alternatives"],

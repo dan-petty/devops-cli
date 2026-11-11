@@ -451,7 +451,7 @@ The row `implement` SHALL NOT be a row of the model lane. A poll SHALL make it d
 
 #### Scenario: The rows of each lane
 - **WHEN** the due table is read
-- **THEN** the status lane holds `metrics`, `implement`, `stage_ready`, `release_comments`, `github_status` and `cloudflare_status` in this order, and the model lane holds `intake`, `refine`, `stage` and `alternatives`
+- **THEN** the status lane holds `metrics`, `implement`, `stage_ready`, `release_comments`, `github_status`, `cloudflare_status` and `pr_conflicts` in this order, the triage lane holds `intake`, and the model lane holds `refine`, `retitle`, `stage` and `alternatives`
 
 #### Scenario: A suspended row keeps its suspension
 - **WHEN** the record of failed rounds holds an entry of the row `implement` at the limit of rounds, and the status lane runs a round on the same input
