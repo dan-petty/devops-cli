@@ -101,7 +101,8 @@ def test_a_request_that_is_never_answered_ends_in_timeout_error(jev: JevFake) ->
         jev.release()
         caller.join(THREAD_HANDOFF_BOUND_SECONDS)
 
-    assert isinstance(result, TimeoutError)
+    assert type(result) is TimeoutError
+    assert jev.asked == []
 
 
 def test_a_failed_request_raises_so_the_step_can_fail_open(jev: JevFake) -> None:
