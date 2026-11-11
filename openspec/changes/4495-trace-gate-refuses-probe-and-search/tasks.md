@@ -8,6 +8,8 @@ Reads: `src/devops_cli/roadmap/stage/stage_change.py`, `tests/roadmap/stage/test
   - Verification: `$ uv run devops ci test tests/roadmap/stage/test_roadmap_stage_trace_subject.py` fails on the base
 - [x] 1.2 In `src/devops_cli/roadmap/stage/stage_change.py`, find the subject and the object of each read word in `_uncalled_path`, and do not match `read` before a hyphen
   - Verification: `$ uv run devops ci test tests/roadmap/stage/test_roadmap_stage_trace_subject.py tests/roadmap/stage/test_roadmap_stage_trace_spans.py` passes
+- [x] 1.3 In `src/devops_cli/roadmap/stage/stage_change.py`, end the object of a read at a verb of its result, judge the last path before the read when its object has no path, and assert the plan sentence of #3252 with a trace of each of its paths in `tests/roadmap/stage/test_roadmap_stage_trace_subject.py`
+  - Verification: `$ uv run devops ci test tests/roadmap/stage/test_roadmap_stage_trace_subject.py` fails before the change and passes after it
 
 ## 2. Count a search match line as seen
 
