@@ -19,7 +19,7 @@ import json
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass
 from functools import cached_property
-from typing import Any, Literal, Protocol
+from typing import Any, Literal, Protocol, runtime_checkable
 
 from pydantic import BaseModel, ConfigDict, create_model
 
@@ -151,6 +151,19 @@ class IntakeModel(Protocol):
         """The model's proposal for one candidate; `UnusableProposalError` when it has none."""
 
 
+@runtime_checkable
+class ObservingModel(Protocol):
+    """A model that also observes the proposal of the triage model, as the shadow mode of Jev
+    does (#4395). Intake calls `observe` after it checks the reply of `propose`. The model changes
+    nothing in the proposal."""
+
+    def observe(
+        self, request: ProposalRequest, triage: ModelProposal, duplicate: int | None
+    ) -> str | None:
+        """The mark to record in the job record of the issue for `request`, whose triage reply is
+        `triage` and whose checked possible original is `duplicate`; None to record nothing."""
+
+
 class Embedder(Protocol):
     """What intake needs of `EmbeddingsEngine`."""
 
@@ -247,13 +260,19 @@ class GatewayIntakeModel:
 
 def build_intake_model() -> IntakeModel:
     """Intake's model calls with this checkout's AI settings and API key. With
-    `roadmap.intake.jev`, Jev decides the proposal and the triage model is the fallback."""
+    `roadmap.intake.jev` `on`, Jev decides the proposal and the triage model is the fallback. With
+    `shadow`, the triage model decides and Jev only answers beside it."""
     from devops_cli.config.settings import get_ai_api_key, load_settings
 
     settings = load_settings()
     gateway = GatewayIntakeModel(settings.ai, api_key=get_ai_api_key(settings))
-    if not settings.roadmap.intake.jev:
+    mode = settings.roadmap.intake.jev
+    if mode == "off":
         return gateway
+    if mode == "shadow":
+        from devops_cli.roadmap.intake.intake_jev_shadow import ShadowIntakeModel
+
+        return ShadowIntakeModel(gateway, settings=settings)
     from devops_cli.roadmap.intake.intake_jev import JevIntakeModel
 
     return JevIntakeModel(gateway, settings=settings)
@@ -266,6 +285,7 @@ __all__ = [
     "ModelEvidence",
     "ModelProposal",
     "Neighbour",
+    "ObservingModel",
     "ProposalClient",
     "ProposalRequest",
     "UnusableProposalError",

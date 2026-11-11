@@ -928,8 +928,11 @@ DEFAULT_ROADMAP_STAGE_STEP_TOKENS: Final[int] = DEFAULT_AI_IMPLEMENT_CONTEXT_WIN
 # read GitHub through the client of the Service. `research` adds `search_web`.
 StageToolset = Literal["base", "extended", "research"]
 DEFAULT_ROADMAP_STAGE_TOOLSET: StageToolset = "extended"
-StageJevScreen = Literal["off", "shadow", "on"]
-DEFAULT_ROADMAP_STAGE_JEV_SCREEN: StageJevScreen = "off"
+# What a Jev decision step does (ADR 0019): `off` makes no request, `shadow` asks Jev and records the
+# answer beside the real result, and `on` lets the answer decide.
+JevMode = Literal["off", "shadow", "on"]
+DEFAULT_ROADMAP_STAGE_JEV_SCREEN: JevMode = "off"
+DEFAULT_ROADMAP_INTAKE_JEV: JevMode = "off"
 DEFAULT_GH_MUTATION_MIN_INTERVAL_SECONDS: float = 1.0
 DEFAULT_GH_SECONDARY_RATE_WAIT: float = 60.0
 DEFAULT_GH_SECONDARY_MAX_CAP: float = 300.0

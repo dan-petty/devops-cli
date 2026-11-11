@@ -41,7 +41,9 @@ devops gh issues close <number> --reason not-planned
 
 ## Jev for the proposal
 
-The setting `roadmap.intake.jev` is off by default. When it is on, intake asks TypeSafe Jev (`typesafe/jev-1.14`) for the fields of the proposal in place of the `triage` model. One request holds a question for each field that has a fixed list:
+The setting `roadmap.intake.jev` has three values (ADR 0019). `off` is the default and makes no Jev request. `shadow` keeps the `triage` model for every label and every flag, and records what TypeSafe Jev (`typesafe/jev-1.14`) would answer. `on` asks Jev for the fields of the proposal in place of the `triage` model. Jev must not decide yet: on the 25 closed issues of `devops roadmap eval jev` it ties the `triage` model on type, and it is behind on priority, Value and Effort. Use `shadow` to measure it on real new issues.
+
+One request holds a question for each field that has a fixed list:
 
 | Field | Question | Answer |
 | :--- | :--- | :--- |
@@ -50,11 +52,29 @@ The setting `roadmap.intake.jev` is off by default. When it is on, intake asks T
 | Value, Effort | Score a rubric of three levels. | The level, rounded |
 | Duplicate | One yes/no question for each nearest item. | A possible original, when the probability reaches 0.90 |
 
+### Mode `on`
+
 Jev writes no text, so the reason lines say which option Jev chose and how sure it was. Jev gives no evidence for a P0 and no related item. The proposal goes to the same checks as the proposal of the `triage` model, so the checks decide which values stand, and a flagged duplicate only flags: the candidate is still placed.
 
-Intake uses the `triage` model for the whole proposal when a Jev request fails, times out after 30 seconds, or gives a choice or score with a confidence below 0.60. The counter `devops_cli_roadmap_intake_jev_fields_total` shows, for each field, how often Jev or the fallback gave it.
+Intake uses the `triage` model for the whole proposal when a Jev request fails, times out after 30 seconds, or gives a choice or score with a confidence below 0.60. The counter `devops_cli_roadmap_intake_jev_fields_total` shows, for each field, how often Jev (`jev`) or the fallback (`fallback`) gave it.
 
-Do not set the setting before `devops roadmap eval jev` shows that Jev flags no more false duplicates than the `triage` model. The command runs both models on the duplicate cases and on 25 closed issues with the labels a person set, and stops before its first call when it needs more calls than `--max-calls`. With `--min-confidence`, it counts a Jev answer below that confidence as no answer, as intake does at 0.60; the default 0 takes every answer to measure what Jev knows.
+Do not set `on` before `devops roadmap eval jev` shows that Jev flags no more false duplicates than the `triage` model, and before the shadow report supports it. The command runs both models on the duplicate cases and on 25 closed issues with the labels a person set, and stops before its first call when it needs more calls than `--max-calls`. With `--min-confidence`, it counts a Jev answer below that confidence as no answer, as intake does at 0.60; the default 0 takes every answer to measure what Jev knows.
+
+### Mode `shadow`
+
+After the `triage` model answers and the checks of intake accept the reply, intake asks Jev the same questions, one request for each candidate (about 0.0001 USD). The text of the title and the issue goes to the hosted model, as in any model call of intake, and intake refuses a candidate that holds a secret before it. Jev changes nothing: no label, no flag and no comment come from it. A Jev error or timeout changes nothing too. It only counts.
+
+Intake records the observation in the job record of the issue, as the mark `intake.jev_shadow`, in the same write as the Priority. The mark is compact JSON that holds the time of the proposal and, for each field, three values: the Jev answer, its probability, and the `triage` answer. For the duplicate, the Jev answer is the nearest item that reaches 0.90 (or empty), the probability is the highest one of any nearest item, and the `triage` answer is the possible original that intake took (or empty). The mark holds no text of the issue. A candidate that Jev could not answer has no mark.
+
+Shadow counts in the same counter as mode `on`, `devops_cli_roadmap_intake_jev_fields_total`, with its own values of the label `outcome`: `agree`, `differ` and `jev_error`. The label `field` is type, priority, value, effort or duplicate. Mode `shadow` writes at most 15 series for each pod, mode `on` at most 10, and the counter has at most 25.
+
+To read the records, run:
+
+```text
+devops roadmap eval jev --from-shadow
+```
+
+The command reads every issue of the repository (GitHub reads, no model request, no write). For each field it prints how often Jev and the `triage` model agree, how often each equals the label the issue holds now, how often only one of them does, and how often Jev is right in each band of its probability (below 60%, 60 to 75%, 75 to 90%, 90% and above). For the duplicate it counts the flags of each model against the issues that GitHub shows closed as a duplicate. The final label is a weak truth: intake writes the `triage` label, and a label that no person changed counts as final. Read the columns "only Jev" and "only triage" first.
 
 ## A failed write
 

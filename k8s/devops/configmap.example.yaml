@@ -144,6 +144,12 @@ data:
         # request, `shadow` logs and counts its band beside the review, `on` skips the review for
         # the band continue. Turn it on only after a person reads the comparison in the pull request.
         jev_screen: "off"
+      # What TypeSafe Jev does in intake (#4395, ADR 0019): `off` makes no request, `shadow` keeps
+      # the triage model for every label and records the Jev answers in the job record of each
+      # issue (`devops roadmap eval jev --from-shadow` reads them), `on` lets Jev decide. Jev
+      # must not decide yet. An image from before #4395 refuses `shadow`: roll the image first.
+      intake:
+        jev: "off"
       # The alternatives row takes `first_pass_limit` items in a round while an item has no
       # check, and `limit` items after, when every item has a check and a round only rechecks.
       alternatives:

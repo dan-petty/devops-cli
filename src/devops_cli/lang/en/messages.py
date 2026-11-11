@@ -4791,6 +4791,46 @@ class RoadmapMessages:
     intake_jev_duplicate_reason: str = (
         "Jev gave a probability of {probability:.0%} that both items ask for the same change."
     )
+    intake_jev_shadow_failed: str = (
+        "Jev gave no answer in shadow mode, so intake records nothing for the candidate and goes "
+        "on with the triage model: {error}"
+    )
+    intake_jev_shadow_no_answer: str = "The Jev reply has no usable answer for the question {name}."
+    jev_shadow_none: str = (
+        "No issue holds a Jev shadow record ({unreadable} unreadable). Set roadmap.intake.jev to "
+        "shadow: intake then records the Jev answers of each new candidate in its job record."
+    )
+    jev_shadow_no_repo: str = "Cannot resolve the repository; pass --repo owner/name."
+    jev_shadow_dry_run: str = (
+        "Dry run: no request was made. A run reads every issue of {repo} from GitHub, lists the "
+        "issues that hold a Jev shadow record, and prints the report. It makes no model request "
+        "and no write."
+    )
+    jev_shadow_title: str = (
+        "# Jev shadow records of intake: {issues} issue(s) from {first} to {last}, {unreadable} "
+        "unreadable mark(s)"
+    )
+    jev_shadow_caveat: str = (
+        "The final label is the label of the issue now. Intake writes the triage label, and a "
+        "label that no person changed counts as final, so the triage model has an edge. Read the "
+        "columns only Jev and only triage first."
+    )
+    jev_shadow_fields_title: str = "Agreement and accuracy against the final labels:"
+    jev_shadow_fields_row: str = (
+        "- {field}: {records} record(s), Jev and triage agree {agree}, Jev is final {jev}, "
+        "triage is final {triage}, only Jev {only_jev}, only triage {only_triage}."
+    )
+    jev_shadow_bands_title: str = (
+        "Jev equals the final label, by the probability of its answer (right/records):"
+    )
+    jev_shadow_bands_row: str = "- {field}: {cells}"
+    jev_shadow_band: str = "{low:.0%}-{high:.0%}"
+    jev_shadow_duplicate: str = (
+        "Duplicate flags: {records} record(s) with a nearest item. Jev flags {jev}, triage flags "
+        "{triage}, both flag {both}. GitHub shows {closed} of them closed as a duplicate: Jev "
+        "flagged {jev_closed} of these and triage flagged {triage_closed}. A flag only records. "
+        "It closes nothing."
+    )
     jev_compare_title: str = (
         "# Jev against the triage model: {duplicates} duplicate case(s) and {labels} label case(s)"
     )
@@ -4812,15 +4852,16 @@ class RoadmapMessages:
     )
     jev_compare_verdict_ok: str = (
         "Jev flags {jev} false duplicate(s) and the triage model flags {triage}: Jev flags no "
-        "more. This is the condition to set roadmap.intake.jev."
+        "more. This is one condition to set roadmap.intake.jev to on. The other is the report of "
+        "the shadow records (--from-shadow)."
     )
     jev_compare_verdict_worse: str = (
         "Jev flags {jev} false duplicate(s) and the triage model flags {triage}: Jev flags "
-        "more. Keep roadmap.intake.jev off."
+        "more. Keep roadmap.intake.jev at off or shadow."
     )
     jev_compare_verdict_incomplete: str = (
         "Jev left {left} duplicate case(s) to the fallback: a request failed, or a confidence was "
-        "below the least. The comparison is incomplete. Keep roadmap.intake.jev off."
+        "below the least. The comparison is incomplete. Keep roadmap.intake.jev at off or shadow."
     )
     jev_compare_dry_run: str = (
         "Dry run: no request was made. A run sends {calls} call(s) to {gateway}, one at a time: "

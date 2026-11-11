@@ -458,14 +458,17 @@ ROADMAP_INTAKE_JEV_FIELDS_TOTAL = Instrument(
     "devops_cli_roadmap_intake_jev_fields_total",
     InstrumentKind.COUNTER,
     "1",
-    "Proposal fields that intake asked Jev for (#4298), one count for each field of each "
+    "Proposal fields that intake asked Jev for (#4298, #4395), one count for each field of each "
     "candidate, by field and outcome. The field is type, priority, value, effort or duplicate. "
-    "The outcome is jev when the field comes from the answer of Jev, or fallback when a Jev "
-    "error, a timeout or a low confidence left the proposal to the triage model. A proposal "
-    "falls back as a whole, so its fields all count fallback. The type counts only for a "
-    "candidate whose title gives no type, and the duplicate counts only for a candidate with a "
-    "nearest item. Nothing counts while roadmap.intake.jev is off. The metric adds 10 series: "
-    "5 fields and 2 outcomes",
+    "Each mode of roadmap.intake.jev has its own outcomes. With on: jev when the field comes "
+    "from the answer of Jev, or fallback when a Jev error, a timeout or a low confidence left the "
+    "proposal to the triage model; a proposal falls back as a whole, so its fields all count "
+    "fallback. With shadow, the triage model gives every label and Jev decides nothing: agree "
+    "when the Jev answer equals the triage answer, differ when it does not, or jev_error when a "
+    "Jev error or a timeout left the field with no answer. The type counts only for a candidate "
+    "whose title gives no type, and the duplicate counts only for a candidate with a nearest "
+    "item. Nothing counts while the setting is off. The metric adds at most 25 series: 5 fields "
+    "and 5 outcomes. One mode writes 10 (on) or 15 (shadow) of them",
 )
 ROADMAP_STAGE_GATE_REFUSALS_TOTAL = Instrument(
     "devops_cli_roadmap_stage_gate_refusals_total",

@@ -115,6 +115,7 @@ from devops_cli.config.defaults import (
     DEFAULT_ROADMAP_IMPLEMENT_STEP_TOKEN_BUDGET,
     DEFAULT_ROADMAP_INBOX_DRAFT_DAYS,
     DEFAULT_ROADMAP_INBOX_WAIT_DAYS,
+    DEFAULT_ROADMAP_INTAKE_JEV,
     DEFAULT_ROADMAP_MCP_TIMEOUT_SECONDS,
     DEFAULT_ROADMAP_STAGE_FILTER,
     DEFAULT_ROADMAP_STAGE_JEV_SCREEN,
@@ -140,8 +141,8 @@ from devops_cli.config.defaults import (
     DEFAULT_VALKEY_TIMEOUT_SECONDS,
     DEFAULT_VALKEY_URL,
     DEFAULT_WORKSPACE_FILE,
+    JevMode,
     SearchProviderName,
-    StageJevScreen,
     StageToolset,
 )
 from devops_cli.config.env import (
@@ -969,7 +970,7 @@ class RoadmapStageConfig(BaseModel):
         description="Whether the stage job adds the remote tools of its role from the MCP server",
         default=False,
     )
-    jev_screen: Annotated[StageJevScreen, Variable()] = Field(
+    jev_screen: Annotated[JevMode, Variable()] = Field(
         description="What a TypeSafe Jev screen does before the model review of a plan in the stage job (ADR 0019). `off` makes no Jev request. `shadow` asks Jev, logs and counts its band beside the result of the review, and always runs the review. `on` skips the review when the band is continue. An error of Jev runs the review. Jev never rejects a plan",
         default=DEFAULT_ROADMAP_STAGE_JEV_SCREEN,
     )
@@ -1282,9 +1283,9 @@ class RoadmapIntakeConfig(BaseModel):
 
     model_config = ConfigDict(extra="ignore", validate_assignment=True, hide_input_in_errors=True)
 
-    jev: bool = Field(
-        description="Whether intake asks TypeSafe Jev (typesafe/jev-1.14) for the type, the priority, the Value, the Effort and the duplicate flags of a proposal. A Jev error, a timeout or a low confidence leaves the proposal to the triage model. Off until `devops roadmap eval jev` shows that Jev flags no more false duplicates than the triage model",
-        default=False,
+    jev: Annotated[JevMode, Variable()] = Field(
+        description="What TypeSafe Jev (typesafe/jev-1.14) does in intake (ADR 0019). `off` makes no Jev request. `shadow` keeps the triage model for every label and every flag, asks Jev the same fields (one request for each candidate), and records each Jev answer, its probability and the triage answer in the job record of the issue. `on` lets Jev decide the type, the priority, the Value, the Effort and the duplicate flags, and a Jev error, a timeout or a low confidence leaves the proposal to the triage model. Read the shadow records with `devops roadmap eval jev --from-shadow` before you set `on`",
+        default=DEFAULT_ROADMAP_INTAKE_JEV,
     )
 
 

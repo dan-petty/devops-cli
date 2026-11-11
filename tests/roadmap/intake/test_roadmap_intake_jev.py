@@ -216,7 +216,7 @@ def test_the_setting_off_builds_the_triage_model_and_on_builds_jev(
 ) -> None:
     config()
     off = build_intake_model()
-    config(roadmap={"intake": {"jev": True}})
+    config(roadmap={"intake": {"jev": "on"}})
     on = build_intake_model()
 
     assert (type(off), type(on)) == (GatewayIntakeModel, JevIntakeModel)
