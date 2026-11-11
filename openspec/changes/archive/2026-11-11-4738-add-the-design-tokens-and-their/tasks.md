@@ -23,5 +23,5 @@
 
 ## Workflow follow-up
 
-- #4777: add the `tools.lock` entry of Style Dictionary when the dependencies of a release that is 14 days old have no audit finding.
+- #4777: add the `tools.lock` entry of Style Dictionary when a release has dependencies with no audit finding.
 - Pending a person: review the diff in tuicr (tuicr -r origin/main..HEAD).
