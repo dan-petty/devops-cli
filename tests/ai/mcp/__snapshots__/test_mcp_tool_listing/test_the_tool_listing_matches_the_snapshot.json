@@ -4816,6 +4816,57 @@
       "type": "object"
     }
   },
+  "roadmap_consolidate": {
+    "description": "Propose groups of open items that share a root cause, and write the plan to a local file. A model proposes and then tries to refute each shortlist, code checks the answers, and nothing changes on GitHub. Details: docs/roadmap/consolidate.md.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "dry_run": {
+          "default": false,
+          "description": "Make no request: print the requests a run makes, with placeholders.",
+          "type": "boolean"
+        },
+        "limit": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Maximum number of shortlists to judge with the model in this run (default: 10). A shortlist that an earlier plan judged costs no call and does not count."
+        },
+        "ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Branch, tag or commit to check the cited paths and lines against (default: the default branch of origin). The plan records its commit."
+        },
+        "repo": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Repository as owner/name (default: this checkout's origin)."
+        }
+      },
+      "type": "object"
+    }
+  },
   "roadmap_intake": {
     "description": "Turn each open issue with no priority label into a roadmap item, or file a new candidate: intake sets the labels, adds a reason comment and names a possible duplicate for a person to close. It writes nothing without --confirm. Details: docs/roadmap/intake.md.",
     "input_schema": {
