@@ -3,13 +3,19 @@
 from __future__ import annotations
 
 import json
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 
 import pytest
+from opentelemetry.sdk.environment_variables import (
+    OTEL_EXPORTER_OTLP_ENDPOINT,
+    OTEL_EXPORTER_OTLP_LOGS_ENDPOINT,
+    OTEL_EXPORTER_OTLP_METRICS_ENDPOINT,
+    OTEL_EXPORTER_OTLP_TRACES_ENDPOINT,
+)
 from typer.testing import CliRunner
 
 from devops_cli.commands.review import _init_logfire_if_enabled
-from devops_cli.config.settings import Settings, get_logfire_token
+from devops_cli.config.settings import Settings
 from devops_cli.exceptions.telemetry import LogfireConfigurationError
 from devops_cli.main import app
 from devops_cli.telemetry.logfire import (
@@ -24,7 +30,6 @@ from devops_cli.telemetry.tracer import (
     get_recent_spans,
     record_completed_span,
 )
-from tests.support.fakes.keyring import FakeKeyring
 
 
 @pytest.fixture
@@ -34,62 +39,57 @@ def runner() -> CliRunner:
 
 def test_logfire_status_model() -> None:
     """Validate LogfireStatus model serialization and defaults."""
-    status = LogfireStatus(
-        enabled=True,
-        token_configured=True,
-        send_to_logfire=True,
-        active_spans_count=3,
-    )
+    status = LogfireStatus(enabled=True, active_spans_count=3)
 
-    assert status.model_dump() == {
-        "enabled": True,
-        "token_configured": True,
-        "send_to_logfire": True,
-        "active_spans_count": 3,
-    }
-
-
-def test_logfire_bridge_configuration_with_token() -> None:
-    """Verify LogfireBridge configuration with token provided via argument."""
-    bridge = LogfireBridge()
-    with (
-        patch("logfire.configure") as mock_configure,
-        patch("logfire.instrument_pydantic_ai") as mock_pydantic_ai,
-    ):
-        bridge.configure(token="test-secret-token", send_to_logfire=True)
-        assert bridge.is_active() is True
-        mock_configure.assert_called_once()
-        mock_pydantic_ai.assert_called_once()
-
-        status = bridge.get_status()
-        assert status.enabled is True
-        assert status.token_configured is True
-        assert status.send_to_logfire is True
+    assert status.model_dump() == {"enabled": True, "active_spans_count": 3}
 
 
 @pytest.mark.usefixtures("keyring_store")
-def test_logfire_bridge_configuration_without_token_fallback() -> None:
-    """Verify LogfireBridge falls back gracefully to send_to_logfire=False when no token exists."""
+def test_the_bridge_sends_nothing_to_logfire_cloud_also_with_a_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify the bridge turns Logfire's cloud off and passes no token, also when one is set."""
+    monkeypatch.setenv("LOGFIRE_TOKEN", "pylf_v1_us_example")
     bridge = LogfireBridge()
-    settings = Settings()
-    settings.telemetry.logfire = True
 
     with (
-        patch("logfire.configure") as mock_configure,
-        patch.dict("os.environ", {"LOGFIRE_TOKEN": "", "DEVOPS_CLI_TELEMETRY_LOGFIRE_TOKEN": ""}),
+        patch("logfire.configure") as configure,
+        patch("logfire.instrument_pydantic_ai") as instrument,
     ):
-        bridge.configure(settings=settings)
-        assert bridge.is_active() is True
-        mock_configure.assert_called_once()
-        call_kwargs = mock_configure.call_args.kwargs
-        assert (
-            call_kwargs.get("send_to_logfire") is False
-            or call_kwargs.get("send_to_logfire") == "if-token-present"
-        )
+        bridge.configure(settings=Settings())
 
-        status = bridge.get_status()
-        assert status.enabled is True
-        assert status.token_configured is False
+    kwargs = configure.call_args.kwargs
+    assert (kwargs["send_to_logfire"], kwargs.get("token"), instrument.called) == (
+        False,
+        None,
+        True,
+    )
+    assert bridge.get_status().model_dump() == {"enabled": True, "active_spans_count": ANY}
+
+
+@pytest.mark.parametrize(
+    "variable",
+    [
+        OTEL_EXPORTER_OTLP_ENDPOINT,
+        OTEL_EXPORTER_OTLP_TRACES_ENDPOINT,
+        OTEL_EXPORTER_OTLP_METRICS_ENDPOINT,
+        OTEL_EXPORTER_OTLP_LOGS_ENDPOINT,
+    ],
+)
+def test_the_bridge_refuses_to_start_when_logfire_would_add_its_own_exporter(
+    monkeypatch: pytest.MonkeyPatch, variable: str
+) -> None:
+    """Verify the bridge does not configure Logfire while a variable names an OTLP endpoint."""
+    monkeypatch.setenv(variable, "http://collector.example.com:4318")
+    bridge = LogfireBridge()
+
+    with (
+        patch("logfire.configure") as configure,
+        pytest.raises(LogfireConfigurationError, match=variable),
+    ):
+        bridge.configure(settings=Settings())
+
+    assert (configure.called, bridge.is_active()) == (False, False)
 
 
 def test_logfire_otel_bridge_processor_span_forwarding() -> None:
@@ -157,8 +157,7 @@ def test_logfire_cli_subcommand_table_and_json(runner: CliRunner) -> None:
     json_result = runner.invoke(app, ["telemetry", "logfire", "--json"])
     assert json_result.exit_code == 0
     data = json.loads(json_result.output)
-    assert "enabled" in data
-    assert "token_configured" in data
+    assert set(data) == {"enabled", "active_spans_count"}
 
 
 def test_review_commands_support_logfire_flag(runner: CliRunner) -> None:
@@ -265,63 +264,9 @@ def test_logfire_bridge_configure_exception_raises_logfire_configuration_error()
     bridge = LogfireBridge()
     with patch("logfire.configure", side_effect=RuntimeError("Logfire initialization error")):
         with pytest.raises(LogfireConfigurationError) as exc_info:
-            bridge.configure(token="bad-token")
+            bridge.configure(settings=Settings())
         assert "Failed to configure Logfire bridge" in str(exc_info.value)
         assert bridge.is_active() is False
-
-
-def test_get_logfire_token_resolution_order(keyring_store: FakeKeyring) -> None:
-    """Verify the unified resolution order: keyring > vault > environment > settings.
-
-    Every managed credential now walks the same provider chain. This replaced a
-    logfire-specific ladder that placed `settings.telemetry.logfire_token` above the bare
-    `LOGFIRE_TOKEN` environment variable; the environment is an override mechanism and now
-    consistently outranks committed configuration for all secrets.
-    """
-    from devops_cli.security.secrets import reset_resolver
-
-    settings = Settings()
-    reset_resolver()
-
-    # 1. Keyring is canonical and outranks everything else.
-    keyring_store.values["logfire_token"] = "keyring-token"
-    with (
-        patch.dict(
-            "os.environ",
-            {"DEVOPS_CLI_TELEMETRY_LOGFIRE_TOKEN": "env-cli-token", "LOGFIRE_TOKEN": "env-token"},
-        ),
-    ):
-        settings.telemetry.logfire_token = "config-token"
-        assert get_logfire_token(settings) == "keyring-token"
-    del keyring_store.values["logfire_token"]
-
-    # 2. The project-scoped environment variable is consulted before the generic one.
-    with (
-        patch.dict(
-            "os.environ",
-            {"DEVOPS_CLI_TELEMETRY_LOGFIRE_TOKEN": "env-cli-token", "LOGFIRE_TOKEN": "env-token"},
-        ),
-    ):
-        settings.telemetry.logfire_token = "config-token"
-        assert get_logfire_token(settings) == "env-cli-token"
-
-    # 3. The generic environment variable now outranks committed configuration.
-    with (
-        patch.dict(
-            "os.environ", {"DEVOPS_CLI_TELEMETRY_LOGFIRE_TOKEN": "", "LOGFIRE_TOKEN": "env-token"}
-        ),
-    ):
-        settings.telemetry.logfire_token = "config-token"
-        assert get_logfire_token(settings) == "env-token"
-
-    # 4. Configuration is the last resort.
-    with (
-        patch.dict("os.environ", {"DEVOPS_CLI_TELEMETRY_LOGFIRE_TOKEN": "", "LOGFIRE_TOKEN": ""}),
-    ):
-        settings.telemetry.logfire_token = "config-token"
-        assert get_logfire_token(settings) == "config-token"
-
-    reset_resolver()
 
 
 def test_init_logfire_if_enabled_error_handling() -> None:

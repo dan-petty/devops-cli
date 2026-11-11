@@ -1785,7 +1785,7 @@ Review a git branch diff.
 | `append_cache` | `boolean` | No | `False` | Append cached response to the LLM prompt as context instead of using it directly as the final response. |
 | `concurrency` | `integer` | No | - | Max concurrent workers for parallel review. Through the gateway it is capped at the gateway's backend slots. |
 | `parallel` | `boolean` | No | `True` | Execute multi-file review stages concurrently using async worker pool. |
-| `logfire` | `boolean` | No | - | Enable or disable Logfire structured observability and agent turn tracing. |
+| `logfire` | `boolean` | No | - | Turn the local Logfire SDK on or off for the agent spans. Its spans go to the collector, never to Logfire's cloud. |
 
 ### `review_export_feedback`
 
@@ -1868,7 +1868,7 @@ Review source files directly (no git required).
 | `debounce_ms` | `integer` | No | `500` | Debounce window in milliseconds for filesystem watcher. |
 | `concurrency` | `integer` | No | - | Max concurrent workers for parallel review. Through the gateway it is capped at the gateway's backend slots. |
 | `parallel` | `boolean` | No | `True` | Execute multi-file review stages concurrently using async worker pool. |
-| `logfire` | `boolean` | No | - | Enable or disable Logfire structured observability and agent turn tracing. |
+| `logfire` | `boolean` | No | - | Turn the local Logfire SDK on or off for the agent spans. Its spans go to the collector, never to Logfire's cloud. |
 
 ### `review_pr`
 
@@ -1899,7 +1899,7 @@ Review a GitHub pull request.
 | `append_cache` | `boolean` | No | `False` | Append cached response to the LLM prompt as context instead of using it directly as the final response. |
 | `concurrency` | `integer` | No | - | Max concurrent workers for parallel review. Through the gateway it is capped at the gateway's backend slots. |
 | `parallel` | `boolean` | No | `True` | Execute multi-file review stages concurrently using async worker pool. |
-| `logfire` | `boolean` | No | - | Enable or disable Logfire structured observability and agent turn tracing. |
+| `logfire` | `boolean` | No | - | Turn the local Logfire SDK on or off for the agent spans. Its spans go to the collector, never to Logfire's cloud. |
 
 ### `review_stats`
 

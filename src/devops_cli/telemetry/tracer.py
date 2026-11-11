@@ -50,6 +50,7 @@ from devops_cli.telemetry.exporter import (
 )
 from devops_cli.telemetry.propagation import (
     TraceContext,
+    confine_api_propagation,
     extract_env,
     extract_headers,
     inject_env,
@@ -834,6 +835,7 @@ def _enter_span(trace_id: str, span_id: str) -> Token[Context]:
     """Make an own span the active span of this context; return the token `_leave_span` takes."""
     from opentelemetry import context, trace
 
+    confine_api_propagation()
     span_context = trace.SpanContext(
         trace_id=int(trace_id, 16),
         span_id=int(span_id, 16),

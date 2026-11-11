@@ -19,7 +19,7 @@ class TelemetryError(DevOpsCLIError):
 
 
 class LogfireConfigurationError(TelemetryError):
-    """Raised when Logfire configuration fails or credentials cannot be retrieved."""
+    """Raised when the Logfire bridge cannot start."""
 
     error_code = "LOGFIRE_CONFIG_ERROR"
 

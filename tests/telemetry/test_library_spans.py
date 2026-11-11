@@ -9,20 +9,25 @@ from typing import Any
 from unittest.mock import patch
 
 import httpx2
+from fastmcp import Context, FastMCP
+from opentelemetry import baggage, context, propagate, trace
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from pydantic_ai import Agent
 from pydantic_ai.messages import ModelMessage, ModelResponse, TextPart, ToolCallPart
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 from pydantic_ai.models.openai import OpenAIChatModel
+from pydantic_ai.models.test import TestModel
 from pydantic_ai.usage import RequestUsage
 
 from devops_cli.ai.client.factory import build_agent
 from devops_cli.ai.providers import create_pydantic_ai_provider
 from devops_cli.ai.pydantic_ai_bridge import resolve_pydantic_ai_model
+from devops_cli.config.settings import Settings
 from devops_cli.dry_run.state import mark_dry_run_invocation
 from devops_cli.http.egress import EgressLevel
 from devops_cli.http.entry import async_http_client
+from devops_cli.roadmap.mcp import RoadmapMcpToolset
 from devops_cli.telemetry.library_spans import install_library_spans
 from devops_cli.telemetry.logfire import get_logfire_bridge
 from devops_cli.telemetry.tracer import trace_span
@@ -106,7 +111,7 @@ def test_a_dry_run_exports_no_agent_span(otlp: FakeCollector) -> None:
 def test_the_logfire_bridge_exports_its_spans_through_the_seam(otlp: FakeCollector) -> None:
     """Verify the Logfire bridge owns the agent spans and hands its spans to the collector."""
     with patch("logfire.configure") as configure, patch("logfire.instrument_pydantic_ai"):
-        get_logfire_bridge().configure(token="unused", send_to_logfire=False)
+        get_logfire_bridge().configure(settings=Settings())
     # Logfire puts the processors it is given on its own provider, as this one does.
     provider = TracerProvider()
     for processor in configure.call_args.kwargs["additional_span_processors"]:
@@ -168,3 +173,55 @@ def test_trace_context_goes_to_the_gateway_and_no_other_host(
     http_span = _by_name(otlp.spans)["POST"]
     assert gateway["traceparent"] == f"00-{http_span.trace_id}-{http_span.span_id}-01"
     assert "traceparent" not in sent["https://example.com/other"]
+
+
+# The `_meta` keys of W3C trace context and baggage.
+TRACE_CONTEXT_KEYS = frozenset({"traceparent", "tracestate", "baggage"})
+
+
+async def _call_a_roadmap_tool_in_a_row_span() -> list[frozenset[str]]:
+    """Run an agent that calls one tool of a roadmap MCP server in a row span with baggage; return
+    the `_meta` keys of each tool request that the server got."""
+    server = FastMCP("roadmap")
+    requests: list[frozenset[str]] = []
+
+    @server.tool
+    def read_item(ctx: Context) -> str:
+        """Read one item."""
+        meta = ctx.request_context.meta if ctx.request_context is not None else None
+        requests.append(frozenset(meta or {}))
+        return TOOL_REPLY
+
+    agent = Agent(TestModel(call_tools=["read_item"]), toolsets=[RoadmapMcpToolset(server)])
+    token = context.attach(baggage.set_baggage("roadmap.item", "4242"))
+    try:
+        with trace_span("service.job"):
+            await agent.run("read item 4242")
+    finally:
+        context.detach(token)
+    return requests
+
+
+def test_an_mcp_request_in_a_row_span_carries_no_trace_context(otlp: FakeCollector) -> None:
+    """Verify an MCP tool request in a row span holds no trace context or baggage in its `_meta`."""
+    install_library_spans()
+
+    requests = asyncio.run(_call_a_roadmap_tool_in_a_row_span())
+
+    assert [keys & TRACE_CONTEXT_KEYS for keys in requests] == [frozenset()]
+
+
+def test_the_global_propagator_reads_incoming_trace_context_and_injects_none(
+    otlp: FakeCollector,
+) -> None:
+    """Verify the global propagator in a row span still extracts a `traceparent`, as a FastAPI
+    server span attaches it, and injects nothing."""
+    outgoing: dict[str, str] = {}
+    with trace_span("service.job"):
+        incoming = propagate.extract(
+            {"traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"}
+        )
+        propagate.inject(outgoing, context=incoming)
+
+    parent = trace.get_current_span(incoming).get_span_context()
+    assert (format(parent.trace_id, "032x"), outgoing) == ("4bf92f3577b34da6a3ce929d0e0e4736", {})

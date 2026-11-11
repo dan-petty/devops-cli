@@ -12,7 +12,8 @@ Issue #4515: devops-cli exports its own spans through its own tracer (`src/devop
 - `Agent.instrument_all` turns on the pydantic-ai spans, with `include_content` from `telemetry.capture_llm_content`, no binary content, no model request parameters and no metrics.
 - The MCP client keeps its native spans, which now reach the provider. The gateway client gets the OpenTelemetry httpx instrumentor; no other client gets it.
 - The tracer keeps the ids of the open span in the OpenTelemetry API context, not in its own context variables. The context variables are deleted. `export_encoded` sends an encoded request on the calling thread and counts it. `flush` also exports the waiting library spans.
-- The Logfire bridge (the `--logfire` option of the review commands) adds the seam processor, so the agent spans also reach the collector.
+- The Logfire bridge (the `--logfire` option of the review commands) adds the seam processor, so the agent spans also reach the collector. It runs Logfire as a local SDK: `send_to_logfire=False`, no token, and no start while an `OTEL_EXPORTER_OTLP_*ENDPOINT` variable is set. `telemetry.logfire_token`, `telemetry.logfire_send_to_logfire`, `get_logfire_token` and the `logfire_token` keyring entry are deleted.
+- The global propagator of the OpenTelemetry API injects nothing, so an MCP request carries no trace context. The gateway client injects the trace context and baggage of its HTTP client span with its own propagator.
 - Deleted, with no replacement: `logfire_agent_turn`, `AgentTurnHandle`, `render_agent_turn_table`, `render_agent_turn_panel`, the token and turn counters of the bridge, the rows of `devops telemetry logfire` that showed them, and `devops telemetry test --logfire`.
 - The OTLP fake decodes a protobuf trace request. The contract suite gets a protobuf case.
 - New direct dependencies, at the locked versions: `opentelemetry-exporter-otlp-proto-common==1.45.1` and `opentelemetry-instrumentation-httpx==0.66b1`.
@@ -25,7 +26,8 @@ Issue #4515: devops-cli exports its own spans through its own tracer (`src/devop
 
 ## Impact
 
-- `src/devops_cli/telemetry/library_spans.py` (new), `telemetry/tracer.py`, `telemetry/exporter.py`, `telemetry/logfire.py`, `telemetry/__init__.py`, `telemetry/telemetry_plans.py`
+- `src/devops_cli/telemetry/library_spans.py` (new), `telemetry/tracer.py`, `telemetry/exporter.py`, `telemetry/logfire.py`, `telemetry/propagation.py`, `telemetry/__init__.py`, `telemetry/telemetry_plans.py`
+- `src/devops_cli/config/settings.py` and `config/env.py` (the Logfire token only), `src/devops_cli/exceptions/telemetry.py` (a docstring)
 - `src/devops_cli/ai/pydantic_ai_bridge.py` (`resolve_pydantic_ai_model` only), `src/devops_cli/ai/providers/__init__.py` (the gateway client only)
 - `src/devops_cli/commands/telemetry.py`, `src/devops_cli/lang/en/help.py`, `src/devops_cli/docs/generator.py`
 - `pyproject.toml`, `uv.lock`; `tests/support/fakes/otlp.py`, `tests/conftest.py`, tests under `tests/telemetry/` and `tests/commands/`
@@ -41,6 +43,8 @@ Issue #4515: devops-cli exports its own spans through its own tracer (`src/devop
 - **MCP.** The MCP SDK 2.3.0 opens client spans and puts the context in `_meta` (`site:mcp/shared/jsonrpc_dispatcher.py:387-393`), and fastmcp 4.1.2 has `client_span` (`site:fastmcp/client/telemetry.py:13`). Both use the global provider, so `logfire.instrument_mcp` would make a second span for each call.
 - **httpx for one host.** `opentelemetry-instrumentation-httpx` 0.66b1 has `HTTPX2ClientInstrumentor.instrument_client` for one `httpx2` client (`site:opentelemetry/instrumentation/httpx/__init__.py:83,1556,1775`). The gateway client is unpooled and made only for the gateway (`ai/providers/__init__.py`, `gateway_caller`).
 - **Why not `logfire.configure`.** Logfire 5.2.0 adds the stock `OTLPSpanExporter`, a metric reader and a log processor whenever `OTEL_EXPORTER_OTLP_ENDPOINT` is set (`site:logfire/_internal/config.py:1412-1430`). devops-cli reads that variable as a fallback endpoint, so a person who sets it would send each span twice, past the egress-checked client (SECURITY.md) and the dry-run rule (#412).
+- **MCP requests carry trace context.** With an own span in the API context, fastmcp's `inject_trace_context` returned a `traceparent` (a scratch run on 64540f6a), and a new test saw `traceparent` and `baggage` in the `_meta` of a roadmap MCP tool request. `opentelemetry.propagate.set_global_textmap` replaces the global propagator, and a `TextMapPropagator` with an empty `inject` sends nothing.
+- **Logfire's cloud.** Before this change the bridge set `send_to_logfire=True` when a token was set (`telemetry/logfire.py`, `elif resolved_token`). With `send_to_logfire=False`, Logfire adds no cloud exporter, also with `LOGFIRE_TOKEN` set (`site:logfire/_internal/config.py:1230`).
 - **Import cost.** `pydantic_ai` already imports logfire and the OpenTelemetry SDK (measured in one interpreter: 0 s extra after `import pydantic_ai`), so the module adds no import to a process that builds a model. The startup gate (#858) keeps the SDK out of `--help`.
 
 ## Existing Tool Considered

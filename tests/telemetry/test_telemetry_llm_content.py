@@ -135,7 +135,7 @@ def test_logfire_bridge_scrubbing_and_content_inclusion() -> None:
         patch("logfire.configure") as mock_configure,
         patch("logfire.instrument_pydantic_ai") as mock_pydantic_ai,
     ):
-        bridge.configure(settings=settings_false, token="token-test", send_to_logfire=True)
+        bridge.configure(settings=settings_false)
         mock_configure.assert_called_once()
         scrubbing = mock_configure.call_args.kwargs.get("scrubbing")
         assert isinstance(scrubbing, logfire.ScrubbingOptions)
@@ -152,7 +152,7 @@ def test_logfire_bridge_scrubbing_and_content_inclusion() -> None:
         patch("logfire.configure") as mock_configure,
         patch("logfire.instrument_pydantic_ai") as mock_pydantic_ai,
     ):
-        bridge.configure(settings=settings_true, token="token-test", send_to_logfire=True)
+        bridge.configure(settings=settings_true)
         mock_configure.assert_called_once()
         scrubbing = mock_configure.call_args.kwargs.get("scrubbing")
         assert isinstance(scrubbing, logfire.ScrubbingOptions)

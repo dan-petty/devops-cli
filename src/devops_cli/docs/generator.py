@@ -1209,7 +1209,11 @@ class DocGenerator:
             "omit the text of prompts, replies, tool arguments and tool results by default. "
             "They keep the roles, the part types, the tool names and the tool definitions "
             "(`gen_ai.tool.definitions`). With the `--logfire` option of the review commands, "
-            "Logfire also scrubs private host patterns. To record the text for debugging, set "
+            "Logfire makes the agent spans as a local SDK: it scrubs private host patterns, "
+            "hands its spans to the same exporter as the own spans and sends nothing to "
+            "Logfire's cloud. The option stops with an error while an "
+            "`OTEL_EXPORTER_OTLP_*ENDPOINT` variable is set, because Logfire then adds its own "
+            "OTLP exporter. To record the text for debugging, set "
             "`telemetry.capture_llm_content` to `true` (`devops config set "
             "telemetry.capture_llm_content true`).",
             "- **Library Spans**: pydantic-ai, the MCP client and the LLM gateway client make "
@@ -1226,8 +1230,11 @@ class DocGenerator:
             "the library spans share the OpenTelemetry context: an agent span nests under the "
             "span that was open when the agent ran, and an own span in a tool nests under the "
             "`execute_tool` span. Only the gateway client puts `traceparent` and `baggage` "
-            "headers on its requests for these spans. The process sets no "
-            "`OTEL_EXPORTER_OTLP_ENDPOINT` for them and sends nothing to Logfire's cloud.",
+            "headers on its requests for these spans. The global propagator of the "
+            "OpenTelemetry API injects nothing, so an MCP request carries no `traceparent` or "
+            "`baggage` in its `_meta`, and an MCP server span starts its own trace. The process "
+            "sets no `OTEL_EXPORTER_OTLP_ENDPOINT` for them and sends nothing to Logfire's "
+            "cloud.",
             "- **Usage Errors**: The message of a usage error quotes the arguments, such as "
             "`Got unexpected extra argument (<value>)` from the parser or a `typer.BadParameter` "
             "that a command raises. Thus the command spans record the class of the error "

@@ -1941,7 +1941,10 @@ class ReviewCommandHelp:
         "gateway's backend slots."
     )
     parallel: str = "Execute multi-file review stages concurrently using async worker pool."
-    logfire: str = "Enable or disable Logfire structured observability and agent turn tracing."
+    logfire: str = (
+        "Turn the local Logfire SDK on or off for the agent spans. Its spans go to the "
+        "collector, never to Logfire's cloud."
+    )
 
 
 @dataclass(frozen=True)

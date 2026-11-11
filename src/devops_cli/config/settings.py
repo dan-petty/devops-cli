@@ -434,8 +434,6 @@ class TelemetryConfig(BaseModel):
         "Off by default to prevent exposure of sensitive data",
     )
     logfire: bool = False
-    logfire_token: str | None = None
-    logfire_send_to_logfire: bool | str = "if-token-present"
 
 
 class CIConfig(BaseModel):
@@ -2122,11 +2120,6 @@ def get_runs_index_password(settings: Settings) -> str | None:
 def get_gitea_admin_password(settings: Settings) -> str | None:
     """Resolve the password of Gitea's admin user."""
     return _resolve("gitea.admin_password", settings)
-
-
-def get_logfire_token(settings: Settings) -> str | None:
-    """Resolve the Logfire telemetry write token."""
-    return _resolve("telemetry.logfire_token", settings)
 
 
 def get_cloudflare_api_token(settings: Settings) -> str | None:

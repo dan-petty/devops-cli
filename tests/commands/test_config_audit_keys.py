@@ -73,7 +73,7 @@ def test_config_audit_keys_json_output() -> None:
         "keys" in data,
         "is_compliant" in data,
         len(data["keys"]),
-    ) == (True, True, True, 26)
+    ) == (True, True, True, 25)
 
     keys = {k["key"] for k in data["keys"]}
     assert (
@@ -88,7 +88,6 @@ def test_config_audit_keys_json_output() -> None:
         "valkey.password" in keys,
         "runs.index_password" in keys,
         "gitea.admin_password" in keys,
-        "telemetry.logfire_token" in keys,
         "cloudflare.api_token" in keys,
         "service.webhook_secrets" in keys,
         "service.github_app.private_key" in keys,
@@ -100,7 +99,6 @@ def test_config_audit_keys_json_output() -> None:
         "mcp.stage_token" in keys,
         "mcp.implement_token" in keys,
     ) == (
-        True,
         True,
         True,
         True,

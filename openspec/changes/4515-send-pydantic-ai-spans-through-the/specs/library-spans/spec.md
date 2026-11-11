@@ -27,16 +27,28 @@ Library spans SHALL go to the collector through the exporter of the process's tr
 - **THEN** the collector gets the span it encodes, on the path of the trace signal
 
 ### Requirement: Trace context goes to the gateway only
-The requests of the LLM gateway client SHALL carry the `traceparent` of their HTTP client span. The library span instrumentation SHALL put no `traceparent` on a request of another client.
+The requests of the LLM gateway client SHALL carry the `traceparent` of their HTTP client span. The global propagator of the OpenTelemetry API SHALL inject nothing, so no other request, an MCP request included, SHALL get a `traceparent` or `baggage` from the library span instrumentation.
 
 #### Scenario: A gateway call and a call to another host
 - **WHEN** an agent calls the gateway and then the same span sends a request to another host
 - **THEN** the gateway request carries the `traceparent` of its `POST` span, and the other request carries none
 
+#### Scenario: An MCP tool call in a row span
+- **WHEN** an agent calls a tool of a roadmap MCP server in a row span that holds baggage
+- **THEN** the `_meta` of the tool request holds no `traceparent`, `tracestate` or `baggage`
+
 ### Requirement: The Logfire bridge exports through the exporter of the tracer
-When the `--logfire` option of a review command turns on the Logfire bridge, Logfire SHALL own the agent spans, and the bridge SHALL hand its spans to the collector through the exporter of the tracer.
+When the `--logfire` option of a review command turns on the Logfire bridge, Logfire SHALL own the agent spans, and the bridge SHALL hand its spans to the collector through the exporter of the tracer. The bridge SHALL send nothing to Logfire's cloud and pass no token. While an `OTEL_EXPORTER_OTLP_*ENDPOINT` variable is set, the bridge SHALL NOT configure Logfire, because Logfire then adds a stock OTLP exporter.
 
 #### Scenario: A span of the Logfire bridge
 - **WHEN** the Logfire bridge is on and an agent span ends under a row span
 - **THEN** the collector gets the agent span under the row span
 - **AND** the library span setup sets no provider of its own
+
+#### Scenario: A Logfire token is set
+- **WHEN** `LOGFIRE_TOKEN` is set and the bridge starts
+- **THEN** the bridge configures Logfire with `send_to_logfire=False` and no token
+
+#### Scenario: An OTLP endpoint variable is set
+- **WHEN** `OTEL_EXPORTER_OTLP_ENDPOINT` or a signal endpoint variable is set and the bridge starts
+- **THEN** the bridge stops with `LogfireConfigurationError`, which names the variable, and does not configure Logfire

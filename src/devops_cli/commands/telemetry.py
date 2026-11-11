@@ -129,15 +129,6 @@ def telemetry_status_cmd(
                     lf_status.enabled, label="Active" if lf_status.enabled else "Inactive"
                 ),
             ],
-            [
-                "Logfire Token",
-                format_status_badge(
-                    lf_status.token_configured,
-                    label="Configured (Keyring/Env)"
-                    if lf_status.token_configured
-                    else "Not Configured",
-                ),
-            ],
         ],
     )
     if tempo_url:
@@ -234,16 +225,6 @@ def telemetry_logfire_cmd(
                     status.enabled, label="Active" if status.enabled else "Inactive"
                 ),
             ],
-            [
-                "Token Configured",
-                format_status_badge(
-                    status.token_configured,
-                    label="Configured (Keyring/Env)"
-                    if status.token_configured
-                    else "Not Configured",
-                ),
-            ],
-            ["Send to Logfire", str(status.send_to_logfire)],
         ],
     )
 

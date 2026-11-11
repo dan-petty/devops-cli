@@ -90,13 +90,6 @@ CREDENTIALS: tuple[Credential, ...] = (
         "gitea/gitea-admin (stored in OS keyring)",
     ),
     Credential(
-        "telemetry.logfire_token",
-        "Logfire write token (stored in OS keyring)",
-        aliases=("LOGFIRE_TOKEN",),
-        in_file=True,
-        keyring="logfire_token",
-    ),
-    Credential(
         "cloudflare.api_token",
         "Cloudflare API Token (stored in OS keyring)",
         aliases=("CLOUDFLARE_API_TOKEN",),

@@ -19,8 +19,11 @@ the own span that was open when the agent ran, and an own span in a tool nests u
   `telemetry.capture_llm_content`, off by default (#606). No binary content, no model request
   parameters and no metrics.
 - MCP: fastmcp and the MCP SDK make their spans through the global provider.
-- httpx: `instrument_gateway_client` instruments the LLM gateway's client only, so trace context
-  and baggage go to the gateway and to no other host.
+- httpx: `instrument_gateway_client` instruments the LLM gateway's client only.
+- Trace context: the global propagator of the API injects nothing (`confine_api_propagation`), so
+  no MCP request carries a `traceparent` or `baggage` in its `_meta`. The gateway client puts the
+  trace context and baggage of its HTTP client span on each request with its own propagator, so
+  they go to the gateway and to no other host.
 """
 
 from __future__ import annotations
@@ -31,25 +34,32 @@ from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any, cast
 
 from opentelemetry import trace
+from opentelemetry.baggage.propagation import W3CBaggagePropagator
 from opentelemetry.exporter.otlp.proto.common.trace_encoder import encode_spans
 from opentelemetry.metrics import NoOpMeterProvider
+from opentelemetry.propagators.composite import CompositePropagator
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import ReadableSpan, TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor, SpanExporter, SpanExportResult
+from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
 
 from devops_cli.config.defaults import DEFAULT_OTEL_DRAIN_TIMEOUT_SECONDS
 from devops_cli.dry_run.state import in_dry_run_invocation
 from devops_cli.telemetry.exporter import PROTOBUF_CONTENT_TYPE, OtlpSignal
+from devops_cli.telemetry.propagation import confine_api_propagation
 from devops_cli.telemetry.tracer import get_tracer
 
 if TYPE_CHECKING:
     import httpx2
+    from opentelemetry.instrumentation.httpx import RequestInfo
 
 _LOCK = threading.Lock()
 # The provider of the process. Each export goes to the tracer of that time.
 _PROVIDER: TracerProvider | None = None
 # Whether pydantic-ai agents make spans now. A reset turns them off, not the provider.
 _AGENTS_INSTRUMENTED = False
+# The trace context and baggage of a gateway request. The global propagator injects nothing.
+_GATEWAY_PROPAGATOR = CompositePropagator([TraceContextTextMapPropagator(), W3CBaggagePropagator()])
 
 
 class SeamSpanExporter(SpanExporter):
@@ -84,6 +94,7 @@ def _provider() -> TracerProvider:
     """The provider of the process, made and set as the global provider on the first call."""
     global _PROVIDER
     if _PROVIDER is None:
+        confine_api_propagation()
         # The tracer's shutdown at exit flushes these spans before it closes its exporter.
         _PROVIDER = TracerProvider(resource=_library_resource(), shutdown_on_exit=False)
         _PROVIDER.add_span_processor(BatchSpanProcessor(SeamSpanExporter()))
@@ -133,11 +144,20 @@ def library_span_processor() -> BatchSpanProcessor | None:
     return BatchSpanProcessor(SeamSpanExporter())
 
 
+async def _send_trace_context(_span: trace.Span, request: RequestInfo) -> None:
+    """Put the trace context and baggage of the open HTTP client span on a gateway request.
+
+    The instrumentor calls this hook in the span, before it copies the headers of the request.
+    """
+    if request.headers is not None:
+        _GATEWAY_PROPAGATOR.inject(request.headers)
+
+
 def instrument_gateway_client(client: httpx2.AsyncClient) -> None:
     """Make HTTP client spans for the requests of the gateway client, with their trace context.
 
-    Only this client gets the instrumentation, so no other host gets a `traceparent` or a
-    `baggage` header from it.
+    Only this client gets the instrumentation and the trace context, so no other host gets a
+    `traceparent` or a `baggage` header.
     """
     provider = install_library_spans()
     if provider is None:
@@ -146,7 +166,10 @@ def instrument_gateway_client(client: httpx2.AsyncClient) -> None:
 
     # The instrumentor types its argument as a legacy httpx client, also for httpx2.
     HTTPX2ClientInstrumentor.instrument_client(
-        cast(Any, client), tracer_provider=provider, meter_provider=NoOpMeterProvider()
+        cast(Any, client),
+        tracer_provider=provider,
+        meter_provider=NoOpMeterProvider(),
+        request_hook=_send_trace_context,
     )
 
 

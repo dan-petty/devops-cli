@@ -138,6 +138,7 @@ _PROCESS_STATE_RESETS: dict[str, tuple[str, ...]] = {
     "devops_cli.security.secrets": ("reset_resolver",),
     "devops_cli.telemetry.library_spans": ("reset_library_spans",),
     "devops_cli.telemetry.logfire": ("reset_logfire_bridge",),
+    "devops_cli.telemetry.propagation": ("reset_api_propagation",),
     "devops_cli.telemetry.tracer": ("clear_span_buffer", "remove_exporter", "reset_tracer"),
     "devops_cli.tools_lock": ("reset_tools_lock_cache",),
     "devops_cli.valkey.cache": ("reset_shared_cache_tier",),

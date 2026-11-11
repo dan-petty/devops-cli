@@ -1,4 +1,8 @@
-"""Native Pydantic Logfire structured AI observability bridge for devops-cli."""
+"""Native Pydantic Logfire structured AI observability bridge for devops-cli.
+
+The bridge runs Logfire as a local SDK: its spans go to the cluster collector through the exporter
+seam (`library_spans.library_span_processor`) and never to Logfire's cloud.
+"""
 
 from __future__ import annotations
 
@@ -10,7 +14,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from devops_cli.config.settings import Settings, get_logfire_token, load_settings
+from devops_cli.config.settings import Settings, load_settings
 from devops_cli.exceptions.telemetry import LogfireConfigurationError
 from devops_cli.security.sanitizer import PRIVATE_HOST_PATTERNS
 from devops_cli.telemetry.tracer import _to_otlp_any_value, record_completed_span
@@ -25,8 +29,6 @@ class LogfireStatus(BaseModel):
     """Status model reporting the state of the Logfire bridge."""
 
     enabled: bool = False
-    token_configured: bool = False
-    send_to_logfire: bool | str = "if-token-present"
     active_spans_count: int = 0
 
 
@@ -88,45 +90,56 @@ class LogfireOTelBridgeProcessor:
 
 
 class LogfireBridge:
-    """Manages configuration, secret resolution, instrumentation, and metrics for Logfire."""
+    """Manages the configuration, instrumentation and status of the local Logfire SDK."""
 
     def __init__(self) -> None:
         self._enabled: bool = False
-        self._token_configured: bool = False
-        self._send_to_logfire: bool | str = "if-token-present"
 
-    def configure(
-        self,
-        settings: Settings | None = None,
-        token: str | None = None,
-        send_to_logfire: bool | str | None = None,
-        console: bool = False,
-    ) -> None:
-        """Configure and activate the Logfire bridge with graceful fallback."""
+    def configure(self, settings: Settings | None = None, console: bool = False) -> None:
+        """Configure Logfire as a local SDK and activate the bridge.
+
+        The bridge sets `send_to_logfire=False` and passes no token, so nothing goes to Logfire's
+        cloud. It refuses to start while an `OTEL_EXPORTER_OTLP_*ENDPOINT` variable is set,
+        because Logfire then adds a stock OTLP exporter beside the seam.
+        """
         active_settings = settings or load_settings()
-        resolved_token = token or get_logfire_token(active_settings) or os.getenv("LOGFIRE_TOKEN")
-        self._token_configured = bool(resolved_token)
+        from opentelemetry.sdk.environment_variables import (
+            OTEL_EXPORTER_OTLP_ENDPOINT,
+            OTEL_EXPORTER_OTLP_LOGS_ENDPOINT,
+            OTEL_EXPORTER_OTLP_METRICS_ENDPOINT,
+            OTEL_EXPORTER_OTLP_TRACES_ENDPOINT,
+        )
 
-        if send_to_logfire is not None:
-            effective_send = send_to_logfire
-        elif resolved_token:
-            effective_send = True
-        else:
-            effective_send = False
-
-        self._send_to_logfire = effective_send
+        # When one of these names an endpoint, `logfire.configure` adds the stock OTLP exporter
+        # of that signal, which skips the egress-checked client and the dry-run rule (#412).
+        endpoints = (
+            OTEL_EXPORTER_OTLP_ENDPOINT,
+            OTEL_EXPORTER_OTLP_TRACES_ENDPOINT,
+            OTEL_EXPORTER_OTLP_METRICS_ENDPOINT,
+            OTEL_EXPORTER_OTLP_LOGS_ENDPOINT,
+        )
+        stock = [name for name in endpoints if os.getenv(name)]
+        if stock:
+            raise LogfireConfigurationError(
+                f"The Logfire bridge did not start: with {', '.join(stock)} set, Logfire adds its "
+                "own OTLP exporter, which skips the egress check and the dry-run rule. Unset "
+                "the variable and set `telemetry.endpoint`, or run without --logfire."
+            )
 
         try:
             import logfire
 
             from devops_cli.telemetry.library_spans import library_span_processor
+            from devops_cli.telemetry.propagation import confine_api_propagation
+
+            # Logfire wraps the global propagator, so it also sends no trace context.
+            confine_api_propagation()
 
             # The cluster collector gets the agent spans too, through the exporter seam.
             seam = library_span_processor()
             processors = [LogfireOTelBridgeProcessor(), *([seam] if seam is not None else [])]
             logfire.configure(
-                send_to_logfire=effective_send,  # type: ignore[arg-type]
-                token=resolved_token,
+                send_to_logfire=False,
                 console=None if console else False,
                 additional_span_processors=processors,  # type: ignore[arg-type]
                 inspect_arguments=False,
@@ -177,12 +190,7 @@ class LogfireBridge:
         """Return current status of the Logfire bridge."""
         from devops_cli.telemetry.tracer import get_recent_spans
 
-        return LogfireStatus(
-            enabled=self._enabled,
-            token_configured=self._token_configured,
-            send_to_logfire=self._send_to_logfire,
-            active_spans_count=len(get_recent_spans()),
-        )
+        return LogfireStatus(enabled=self._enabled, active_spans_count=len(get_recent_spans()))
 
 
 def get_logfire_bridge() -> LogfireBridge:

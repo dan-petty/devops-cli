@@ -25,9 +25,18 @@ Kind: behavior.
 - [x] 3.2 Add the seam processor to the Logfire bridge. Delete `logfire_agent_turn`, `AgentTurnHandle`, the render helpers, the token and turn counters of the bridge, their status rows and `devops telemetry test --logfire`, with their tests.
   - Verification: `$ uv run devops ci test tests/telemetry/test_telemetry_logfire.py tests/commands/test_telemetry_monitoring_dry_run.py tests/ai/mcp/test_mcp_tool_listing.py`
 
-## 4. Documentation
+## 4. Review fixes: no Logfire cloud, no trace context to MCP
+
+Kind: behavior.
+
+- [x] 4.1 Add failing tests: the bridge configures Logfire with `send_to_logfire=False` and no token while `LOGFIRE_TOKEN` is set; the bridge refuses to start while an `OTEL_EXPORTER_OTLP_*ENDPOINT` variable is set; an MCP tool request in a row span with baggage holds no `traceparent`, `tracestate` or `baggage` in its `_meta`.
+  - Verification: `$ uv run devops ci test tests/telemetry/test_telemetry_logfire.py tests/telemetry/test_library_spans.py`
+- [x] 4.2 Make the bridge local only and delete `telemetry.logfire_token`, `telemetry.logfire_send_to_logfire`, `get_logfire_token`, the `logfire_token` keyring entry and the token rows of the bridge status. Add `confine_api_propagation` and call it before an own span enters the API context, before the library provider is made and before the bridge configures Logfire; the gateway client injects with its own propagator in the instrumentor's request hook.
+  - Verification: `$ uv run devops ci test tests/telemetry tests/security/test_config_declarations.py tests/commands/test_config_audit_keys.py tests/ai/mcp/test_mcp_tool_listing.py`
+
+## 5. Documentation
 
 Kind: docs.
 
-- [x] 4.1 Describe library spans in the doc generator (docs/TELEMETRY.md), ARCHITECTURE.md, docs/TESTING.md and the OpenTelemetry page of the knowledge base; regenerate the command docs.
+- [x] 5.1 Describe library spans in the doc generator (docs/TELEMETRY.md), ARCHITECTURE.md, docs/TESTING.md and the OpenTelemetry page of the knowledge base; regenerate the command docs.
   - Verification: `$ uv run devops docs generate --check`

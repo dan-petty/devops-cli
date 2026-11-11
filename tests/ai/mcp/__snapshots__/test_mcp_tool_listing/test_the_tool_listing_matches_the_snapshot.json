@@ -4342,7 +4342,7 @@
             }
           ],
           "default": null,
-          "description": "Enable or disable Logfire structured observability and agent turn tracing."
+          "description": "Turn the local Logfire SDK on or off for the agent spans. Its spans go to the collector, never to Logfire's cloud."
         },
         "no_cache": {
           "default": false,
@@ -4581,7 +4581,7 @@
             }
           ],
           "default": null,
-          "description": "Enable or disable Logfire structured observability and agent turn tracing."
+          "description": "Turn the local Logfire SDK on or off for the agent spans. Its spans go to the collector, never to Logfire's cloud."
         },
         "no_cache": {
           "default": false,
@@ -4714,7 +4714,7 @@
             }
           ],
           "default": null,
-          "description": "Enable or disable Logfire structured observability and agent turn tracing."
+          "description": "Turn the local Logfire SDK on or off for the agent spans. Its spans go to the collector, never to Logfire's cloud."
         },
         "no_cache": {
           "default": false,
