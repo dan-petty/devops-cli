@@ -1,0 +1,49 @@
+{
+  "log": {
+    "warnings": "error",
+    "verbosity": "verbose"
+  },
+  "source": [
+    "design/tokens/dark.tokens.json"
+  ],
+  "platforms": {
+    "docs": {
+      "transformGroup": "css",
+      "buildPath": "docs/assets/css/",
+      "files": [
+        {
+          "destination": "tokens-dark.css",
+          "format": "css/variables",
+          "options": {
+            "selector": [
+              "@media (prefers-color-scheme: dark)",
+              ":root:not([data-theme=\"light\"])"
+            ],
+            "outputReferences": true
+          }
+        }
+      ]
+    },
+    "package": {
+      "transformGroup": "css",
+      "buildPath": "src/devops_cli/design/",
+      "files": [
+        {
+          "destination": "tokens-dark.css",
+          "format": "css/variables",
+          "options": {
+            "selector": [
+              "@media (prefers-color-scheme: dark)",
+              ":root:not([data-theme=\"light\"])"
+            ],
+            "outputReferences": true
+          }
+        },
+        {
+          "destination": "tokens-dark.json",
+          "format": "json/flat"
+        }
+      ]
+    }
+  }
+}

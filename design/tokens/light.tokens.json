@@ -1,0 +1,562 @@
+{
+  "$schema": "https://www.designtokens.org/schemas/2025.10/format.json",
+  "$description": "devops-cli design tokens, light theme. Same names as the other theme (CI checks it).",
+  "color": {
+    "$type": "color",
+    "bg": {
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "hex": "#ffffff"
+      },
+      "$description": "Page and chart background."
+    },
+    "surface": {
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [
+          0.9647,
+          0.9647,
+          0.9529
+        ],
+        "hex": "#f6f6f3"
+      },
+      "$description": "Code blocks, callouts, table header band."
+    },
+    "border": {
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [
+          0.8627,
+          0.8627,
+          0.8392
+        ],
+        "hex": "#dcdcd6"
+      },
+      "$description": "Decorative rules and gridlines only (no 3:1 need)."
+    },
+    "border-strong": {
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [
+          0.5255,
+          0.5255,
+          0.498
+        ],
+        "hex": "#86867f"
+      },
+      "$description": "Control borders and chart axes.",
+      "$extensions": {
+        "devops-cli": {
+          "contrast": {
+            "min": 3.0,
+            "on": [
+              "color.bg",
+              "color.surface"
+            ]
+          }
+        }
+      }
+    },
+    "fg": {
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [
+          0.1098,
+          0.1098,
+          0.102
+        ],
+        "hex": "#1c1c1a"
+      },
+      "$description": "Body text; a single chart series.",
+      "$extensions": {
+        "devops-cli": {
+          "contrast": {
+            "min": 4.5,
+            "on": [
+              "color.bg",
+              "color.surface"
+            ]
+          }
+        }
+      }
+    },
+    "fg-muted": {
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [
+          0.3725,
+          0.3725,
+          0.349
+        ],
+        "hex": "#5f5f59"
+      },
+      "$description": "Secondary text, captions, ticks.",
+      "$extensions": {
+        "devops-cli": {
+          "contrast": {
+            "min": 4.5,
+            "on": [
+              "color.bg",
+              "color.surface"
+            ]
+          }
+        }
+      }
+    },
+    "accent": {
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [
+          0.0431,
+          0.4314,
+          0.5412
+        ],
+        "hex": "#0b6e8a"
+      },
+      "$description": "Links, focus ring, the one highlighted series.",
+      "$extensions": {
+        "devops-cli": {
+          "contrast": {
+            "min": 4.5,
+            "on": [
+              "color.bg",
+              "color.surface"
+            ]
+          }
+        }
+      }
+    },
+    "focus": {
+      "$value": "{color.accent}",
+      "$description": "Focus outline, 2 px.",
+      "$extensions": {
+        "devops-cli": {
+          "contrast": {
+            "min": 3.0,
+            "on": [
+              "color.bg",
+              "color.surface"
+            ]
+          }
+        }
+      }
+    },
+    "status": {
+      "ok": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.0,
+            0.4784,
+            0.3686
+          ],
+          "hex": "#007a5e"
+        },
+        "$description": "Status ok. Never a chart series.",
+        "$extensions": {
+          "devops-cli": {
+            "contrast": {
+              "min": 4.5,
+              "on": [
+                "color.bg",
+                "color.surface"
+              ]
+            }
+          }
+        }
+      },
+      "warn": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.5804,
+            0.3843,
+            0.0
+          ],
+          "hex": "#946200"
+        },
+        "$description": "Status warn; warn threshold lines.",
+        "$extensions": {
+          "devops-cli": {
+            "contrast": {
+              "min": 4.5,
+              "on": [
+                "color.bg",
+                "color.surface"
+              ]
+            }
+          }
+        }
+      },
+      "error": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.702,
+            0.149,
+            0.1176
+          ],
+          "hex": "#b3261e"
+        },
+        "$description": "Status error; page threshold lines.",
+        "$extensions": {
+          "devops-cli": {
+            "contrast": {
+              "min": 4.5,
+              "on": [
+                "color.bg",
+                "color.surface"
+              ]
+            }
+          }
+        }
+      },
+      "info": {
+        "$value": "{color.fg-muted}",
+        "$description": "Status info: neutral, not blue.",
+        "$extensions": {
+          "devops-cli": {
+            "contrast": {
+              "min": 4.5,
+              "on": [
+                "color.bg",
+                "color.surface"
+              ]
+            }
+          }
+        }
+      },
+      "ok-bg": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.8941,
+            0.949,
+            0.9255
+          ],
+          "hex": "#e4f2ec"
+        },
+        "$description": "Tint behind an ok callout."
+      },
+      "warn-bg": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.9804,
+            0.9412,
+            0.8549
+          ],
+          "hex": "#faf0da"
+        },
+        "$description": "Tint behind a warn callout."
+      },
+      "error-bg": {
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.9843,
+            0.9098,
+            0.902
+          ],
+          "hex": "#fbe8e6"
+        },
+        "$description": "Tint behind an error callout."
+      }
+    },
+    "syntax": {
+      "comment": {
+        "$value": "{color.fg-muted}",
+        "$description": "Code comments (italic).",
+        "$extensions": {
+          "devops-cli": {
+            "contrast": {
+              "min": 4.5,
+              "on": [
+                "color.surface"
+              ]
+            }
+          }
+        }
+      },
+      "string": {
+        "$value": "{color.accent}",
+        "$description": "Strings and literals.",
+        "$extensions": {
+          "devops-cli": {
+            "contrast": {
+              "min": 4.5,
+              "on": [
+                "color.surface"
+              ]
+            }
+          }
+        }
+      },
+      "keyword": {
+        "$value": "{color.fg}",
+        "$description": "Keywords (semibold).",
+        "$extensions": {
+          "devops-cli": {
+            "contrast": {
+              "min": 4.5,
+              "on": [
+                "color.surface"
+              ]
+            }
+          }
+        }
+      }
+    },
+    "data": {
+      "cat": {
+        "3": {
+          "$value": {
+            "colorSpace": "srgb",
+            "components": [
+              0.0,
+              0.1765,
+              0.6118
+            ],
+            "hex": "#002d9c"
+          },
+          "$description": "Series 3, blue. Carbon blue.80 (@carbon/colors 11.61.0, Apache-2.0). Theme-aware targets only.",
+          "$extensions": {
+            "devops-cli": {
+              "contrast": {
+                "min": 3.0,
+                "on": [
+                  "color.bg",
+                  "color.surface"
+                ]
+              }
+            }
+          }
+        }
+      },
+      "neutral": {
+        "$value": "{color.fg-muted}",
+        "$description": "Other, baseline, context series.",
+        "$extensions": {
+          "devops-cli": {
+            "contrast": {
+              "min": 3.0,
+              "on": [
+                "color.bg",
+                "color.surface"
+              ]
+            }
+          }
+        }
+      },
+      "seq": {
+        "1": {
+          "$value": {
+            "colorSpace": "srgb",
+            "components": [
+              0.9961,
+              0.9098,
+              0.2196
+            ],
+            "hex": "#fee838"
+          }
+        },
+        "2": {
+          "$value": {
+            "colorSpace": "srgb",
+            "components": [
+              0.8706,
+              0.7882,
+              0.3451
+            ],
+            "hex": "#dec958"
+          }
+        },
+        "3": {
+          "$value": {
+            "colorSpace": "srgb",
+            "components": [
+              0.7373,
+              0.6824,
+              0.4235
+            ],
+            "hex": "#bcae6c"
+          }
+        },
+        "4": {
+          "$value": {
+            "colorSpace": "srgb",
+            "components": [
+              0.6078,
+              0.5804,
+              0.4627
+            ],
+            "hex": "#9b9476"
+          }
+        },
+        "5": {
+          "$value": {
+            "colorSpace": "srgb",
+            "components": [
+              0.4902,
+              0.4863,
+              0.4706
+            ],
+            "hex": "#7d7c78"
+          }
+        },
+        "6": {
+          "$value": {
+            "colorSpace": "srgb",
+            "components": [
+              0.3804,
+              0.3961,
+              0.4353
+            ],
+            "hex": "#61656f"
+          }
+        },
+        "7": {
+          "$value": {
+            "colorSpace": "srgb",
+            "components": [
+              0.2627,
+              0.3059,
+              0.4235
+            ],
+            "hex": "#434e6c"
+          }
+        },
+        "8": {
+          "$value": {
+            "colorSpace": "srgb",
+            "components": [
+              0.102,
+              0.2196,
+              0.4353
+            ],
+            "hex": "#1a386f"
+          }
+        },
+        "9": {
+          "$value": {
+            "colorSpace": "srgb",
+            "components": [
+              0.0,
+              0.1333,
+              0.3059
+            ],
+            "hex": "#00224e"
+          }
+        },
+        "$description": "cividis (Nunez et al. 2018), 9 steps; step 1 = lowest value; the highest value has the most contrast in each theme."
+      },
+      "div": {
+        "1": {
+          "$value": {
+            "colorSpace": "srgb",
+            "components": [
+              0.698,
+              0.0941,
+              0.1686
+            ],
+            "hex": "#b2182b"
+          }
+        },
+        "2": {
+          "$value": {
+            "colorSpace": "srgb",
+            "components": [
+              0.8392,
+              0.3765,
+              0.302
+            ],
+            "hex": "#d6604d"
+          }
+        },
+        "3": {
+          "$value": {
+            "colorSpace": "srgb",
+            "components": [
+              0.9569,
+              0.6471,
+              0.5098
+            ],
+            "hex": "#f4a582"
+          }
+        },
+        "4": {
+          "$value": {
+            "colorSpace": "srgb",
+            "components": [
+              0.9922,
+              0.8588,
+              0.7804
+            ],
+            "hex": "#fddbc7"
+          }
+        },
+        "5": {
+          "$value": {
+            "colorSpace": "srgb",
+            "components": [
+              0.9686,
+              0.9686,
+              0.9686
+            ],
+            "hex": "#f7f7f7"
+          }
+        },
+        "6": {
+          "$value": {
+            "colorSpace": "srgb",
+            "components": [
+              0.8196,
+              0.898,
+              0.9412
+            ],
+            "hex": "#d1e5f0"
+          }
+        },
+        "7": {
+          "$value": {
+            "colorSpace": "srgb",
+            "components": [
+              0.5725,
+              0.7725,
+              0.8706
+            ],
+            "hex": "#92c5de"
+          }
+        },
+        "8": {
+          "$value": {
+            "colorSpace": "srgb",
+            "components": [
+              0.2627,
+              0.5765,
+              0.7647
+            ],
+            "hex": "#4393c3"
+          }
+        },
+        "9": {
+          "$value": {
+            "colorSpace": "srgb",
+            "components": [
+              0.1294,
+              0.4,
+              0.6745
+            ],
+            "hex": "#2166ac"
+          }
+        },
+        "$description": "ColorBrewer RdBu (Apache-2.0), reversed. Step 1 = worse (red), 5 = no change, 9 = better (blue)."
+      }
+    }
+  }
+}

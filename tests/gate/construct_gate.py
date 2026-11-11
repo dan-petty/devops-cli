@@ -71,6 +71,9 @@ CONST_TEST_CONSTRUCT_RULES: Final[tuple[str, ...]] = (
     "test-function-has-assertion",
     "test-pytest-raises-checks-error",
 )
+# The hand-written CSS of the package, which reads only token variables (docs/DESIGN.md). The token
+# CSS that Style Dictionary writes is beside the package module, outside this folder.
+CONST_DESIGN_CSS_FILES: Final[tuple[str, ...]] = ("src/devops_cli/design/css/**",)
 # The review and scanner packages, which take the working directory from the command layer (#2098).
 CONST_REVIEW_CWD_READ_FILES: Final[tuple[str, ...]] = (
     "src/devops_cli/ai/review/**",
@@ -81,6 +84,7 @@ CONST_AST_GREP_RULE_FILES: Final[dict[str, tuple[str, ...]]] = {
     **dict.fromkeys(CONST_NET_CONSTRUCT_RULES, ("src/**",)),
     **dict.fromkeys(CONST_TEST_CONSTRUCT_RULES, ("tests/**",)),
     "review-cwd-read": CONST_REVIEW_CWD_READ_FILES,
+    "css-color-literal": CONST_DESIGN_CSS_FILES,
 }
 
 _RULES_DIR = REPO_ROOT / ".ast-grep" / "rules"
@@ -95,6 +99,7 @@ _OTHER_TREE = {
     "src/devops_cli/ai/review": _COMMAND_LAYER,
     "src/devops_cli/review": _COMMAND_LAYER,
     "src/devops_cli/security": _COMMAND_LAYER,
+    "src/devops_cli/design/css": "src",
 }
 _CWD_READ = "from pathlib import Path\n\nroot = Path.cwd()\n"
 _ELAPSED_UPPER_BOUND = (
@@ -113,11 +118,20 @@ _TEST_PYTEST_RAISES_CHECKS_ONLY_TYPE = (
 
 
 class Violation(NamedTuple):
-    """One source that breaks one rule, and the tree that the rule holds."""
+    """One source that breaks one rule, the tree that the rule holds, and the suffix of the file
+    that holds the source, which names its language."""
 
     rule: str
     tree: str
     source: str
+    suffix: str = ".py"
+
+    def scratch_file(self, number: int, *, twin: bool = False) -> str:
+        """The scratch file of violation `number`: `v<n>` in the tree of the rule, or its twin
+        `o<n>` in the other tree."""
+        if twin:
+            return f"{_OTHER_TREE[self.tree]}/o{number}{self.suffix}"
+        return f"{self.tree}/v{number}{self.suffix}"
 
 
 # One violation of each rule, and the tree that the rule holds.
@@ -143,6 +157,7 @@ VIOLATIONS: Final[tuple[Violation, ...]] = (
     Violation("review-cwd-read", "src/devops_cli/ai/review", _CWD_READ),
     Violation("review-cwd-read", "src/devops_cli/review", _CWD_READ),
     Violation("review-cwd-read", "src/devops_cli/security", _CWD_READ),
+    Violation("css-color-literal", "src/devops_cli/design/css", "a { color: #1c1c1a; }\n", ".css"),
 )
 
 
@@ -165,8 +180,8 @@ def scan_problems(reported: Mapping[str, set[str]]) -> list[str]:
     """
     found: list[str] = []
     for number, violation in enumerate(VIOLATIONS):
-        inside = f"{violation.tree}/v{number}.py"
-        outside = f"{_OTHER_TREE[violation.tree]}/o{number}.py"
+        inside = violation.scratch_file(number)
+        outside = violation.scratch_file(number, twin=True)
         if violation.rule not in reported.get(inside, set()):
             found.append(f"{violation.rule}: no report for a violation in {violation.tree}")
         if violation.rule in reported.get(outside, set()):
@@ -180,11 +195,8 @@ def _write_scratch(project: Path) -> None:
         yaml.safe_dump({"ruleDirs": [str(_RULES_DIR)]}), encoding="utf-8"
     )
     for number, violation in enumerate(VIOLATIONS):
-        for tree, name in (
-            (violation.tree, f"v{number}"),
-            (_OTHER_TREE[violation.tree], f"o{number}"),
-        ):
-            scratch = project / tree / f"{name}.py"
+        for name in (violation.scratch_file(number), violation.scratch_file(number, twin=True)):
+            scratch = project / name
             scratch.parent.mkdir(parents=True, exist_ok=True)
             scratch.write_text(violation.source, encoding="utf-8")
 

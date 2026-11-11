@@ -1,0 +1,44 @@
+/**
+ * Do not edit directly, this file was auto-generated.
+ */
+
+:root {
+  --color-bg: #ffffff; /** Page and chart background. */
+  --color-surface: #f6f6f3; /** Code blocks, callouts, table header band. */
+  --color-border: #dcdcd6; /** Decorative rules and gridlines only (no 3:1 need). */
+  --color-border-strong: #86867f; /** Control borders and chart axes. */
+  --color-fg: #1c1c1a; /** Body text; a single chart series. */
+  --color-fg-muted: #5f5f59; /** Secondary text, captions, ticks. */
+  --color-accent: #0b6e8a; /** Links, focus ring, the one highlighted series. */
+  --color-status-ok: #007a5e; /** Status ok. Never a chart series. */
+  --color-status-warn: #946200; /** Status warn; warn threshold lines. */
+  --color-status-error: #b3261e; /** Status error; page threshold lines. */
+  --color-status-ok-bg: #e4f2ec; /** Tint behind an ok callout. */
+  --color-status-warn-bg: #faf0da; /** Tint behind a warn callout. */
+  --color-status-error-bg: #fbe8e6; /** Tint behind an error callout. */
+  --color-data-cat-3: #002d9c; /** Series 3, blue. Carbon blue.80 (@carbon/colors 11.61.0, Apache-2.0). Theme-aware targets only. */
+  --color-data-seq-1: #fee838;
+  --color-data-seq-2: #dec958;
+  --color-data-seq-3: #bcae6c;
+  --color-data-seq-4: #9b9476;
+  --color-data-seq-5: #7d7c78;
+  --color-data-seq-6: #61656f;
+  --color-data-seq-7: #434e6c;
+  --color-data-seq-8: #1a386f;
+  --color-data-seq-9: #00224e;
+  --color-data-div-1: #b2182b;
+  --color-data-div-2: #d6604d;
+  --color-data-div-3: #f4a582;
+  --color-data-div-4: #fddbc7;
+  --color-data-div-5: #f7f7f7;
+  --color-data-div-6: #d1e5f0;
+  --color-data-div-7: #92c5de;
+  --color-data-div-8: #4393c3;
+  --color-data-div-9: #2166ac;
+  --color-focus: var(--color-accent); /** Focus outline, 2 px. */
+  --color-status-info: var(--color-fg-muted); /** Status info: neutral, not blue. */
+  --color-syntax-comment: var(--color-fg-muted); /** Code comments (italic). */
+  --color-syntax-string: var(--color-accent); /** Strings and literals. */
+  --color-syntax-keyword: var(--color-fg); /** Keywords (semibold). */
+  --color-data-neutral: var(--color-fg-muted); /** Other, baseline, context series. */
+}

@@ -1461,6 +1461,67 @@ def test_a_pull_request_that_changes_the_site_builds_it_with_the_pages_builder()
     )
 
 
+DESIGN_FILTER = [
+    "design/**",
+    "src/devops_cli/tools_lock/style-dictionary/**",
+    "src/devops_cli/design/**",
+    "docs/assets/css/**",
+    "k8s/startpage/**",
+    "k8s/monitoring/dashboards/**",
+    ".github/labels.yml",
+    "Makefile",
+    ".github/workflows/ci.yml",
+]
+
+
+def test_the_design_tokens_job_builds_the_tokens_only_when_a_path_of_its_filter_changes() -> None:
+    """docs/DESIGN.md, "Token pipeline": the job builds the tokens with the pinned Style Dictionary
+    and fails when a committed output is not the build. It runs for every pull request and does
+    its steps only when a path of its filter changed. Each step limit is shorter than the job
+    limit, so the step that hangs stops first and shows its name. The diff step names a directory
+    that holds each output of each Style Dictionary config, so an output that the diff does not
+    see cannot be added."""
+    job = _load_workflow(WORKFLOWS_DIR / "ci.yml")["jobs"]["design-tokens"]
+    detect, *steps = job["steps"]
+    runs = {step["name"]: step.get("run", "") for step in steps}
+    diff = next(text for text in runs.values() if "git diff --exit-code" in text)
+    checked = [PurePosixPath(path) for path in shlex.split(diff.splitlines()[-1].split(" -- ")[1])]
+    outputs = [
+        PurePosixPath(platform["buildPath"], file["destination"])
+        for config in sorted(Path("design/sd").glob("*.json"))
+        for platform in json.loads(config.read_text(encoding="utf-8"))["platforms"].values()
+        for file in platform["files"]
+    ]
+
+    assert (
+        job["name"],
+        job["if"],
+        job["permissions"],
+        detect["uses"],
+        yaml.safe_load(detect["with"]["filters"]),
+        {step.get("if") for step in steps},
+        [
+            step["name"]
+            for step in steps
+            if step.get("timeout-minutes", 0) >= job["timeout-minutes"]
+        ],
+        [runs[name] for name in ("Build the Design Tokens", "Run the Design Tests")],
+        len(outputs),
+        [str(path) for path in outputs if not any(path.is_relative_to(root) for root in checked)],
+    ) == (
+        "Design Tokens",
+        "github.event_name == 'pull_request'",
+        {"contents": "read", "pull-requests": "read"},
+        PATHS_FILTER,
+        {"design": DESIGN_FILTER},
+        {"steps.changes.outputs.design == 'true'"},
+        [],
+        ["make design-tokens", "uv run pytest tests/design -n 0"],
+        11,
+        [],
+    )
+
+
 def test_a_pull_request_that_changes_an_image_pin_resolves_each_pinned_image() -> None:
     """A wrong image tag under `k8s/` fails only when Argo CD syncs, so the `image-pins` job runs
     `devops k8s image-pins` on the pull request first. It runs for every pull request and checks

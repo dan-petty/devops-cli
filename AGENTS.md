@@ -1,6 +1,6 @@
 # AGENTS.md — devops-cli
 
-devops-cli is a Python command-line tool, `devops`, that automates workstation, GitHub, Kubernetes and code-review work. It is alpha before `1.0.0`: it keeps no backward compatibility, so a change removes the old path and adds no shim.
+devops-cli is a Python command-line tool, `devops`, that automates workstation, GitHub, Kubernetes and code-review work. It is alpha before `1.0.0`: a change removes the old path and adds no shim.
 
 > **Canonical Source**: This file is the single source of truth for AI agent instructions. [CLAUDE.md](./CLAUDE.md), [GEMINI.md](./GEMINI.md) and [.github/copilot-instructions.md](./.github/copilot-instructions.md) are pointers to this file. Each rule lives in one document only.
 
@@ -31,9 +31,10 @@ devops-cli is a Python command-line tool, `devops`, that automates workstation, 
 | set up, name a branch, write a pull request title, run one check, change a command | [CONTRIBUTING.md](CONTRIBUTING.md) |
 | write or change a test | [docs/TESTING.md](docs/TESTING.md) |
 | write code: errors, subprocesses, HTTP, models, prompts, constants | [ARCHITECTURE.md](ARCHITECTURE.md), [CONTRIBUTING.md](CONTRIBUTING.md) |
+| style an artifact | [docs/DESIGN.md](docs/DESIGN.md) |
 | handle secrets, egress, private data, sandboxes or telemetry | [SECURITY.md](SECURITY.md) |
 | take an issue to release, or a pull request to merge | [docs/ROADMAP_WORKFLOW.md](docs/ROADMAP_WORKFLOW.md), [docs/SDLC.md](docs/SDLC.md) Phase 6 |
-| plan and record the item a pull request delivers, as an OpenSpec change | [openspec/config.yaml](openspec/config.yaml) |
+| plan and record each item as an OpenSpec change | [openspec/config.yaml](openspec/config.yaml) |
 | file an issue | `devops roadmap intake`, in the shape of [bug_report.yml](.github/ISSUE_TEMPLATE/bug_report.yml) or [feature_request.yml](.github/ISSUE_TEMPLATE/feature_request.yml) |
 | run a routine task or audit | [docs/ROUTINE_TASKS.md](docs/ROUTINE_TASKS.md) |
 | use a project term, or need the reason for a decision | [CONTEXT.md](CONTEXT.md), [docs/adr/](docs/adr/) |

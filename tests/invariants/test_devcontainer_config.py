@@ -166,3 +166,23 @@ def test_the_image_build_installs_the_tools_with_native_steps_under_usr_local() 
         unhashed_python,
         unlocked_npm,
     ) == (False, True, True, [], [], [])
+
+
+def test_the_image_puts_the_locked_style_dictionary_on_path() -> None:
+    """`make design-tokens` runs `style-dictionary` from PATH (docs/DESIGN.md, "Token pipeline").
+    Its lock is no entry of `tools.lock`, so the image installs it from the lock directory with
+    the same native steps as a Node tool of the lock."""
+    dockerfile = (DEVCONTAINER / "Dockerfile").read_text(encoding="utf-8").replace("\\\n    ", "")
+    lock_dir = "src/devops_cli/tools_lock/style-dictionary"
+
+    assert [
+        line
+        for line in (
+            f"COPY {lock_dir}/package.json {lock_dir}/package-lock.json /opt/style-dictionary/",
+            "RUN cd /opt/style-dictionary && npm ci --ignore-scripts",
+            "COPY --from=npm-tools /opt/style-dictionary /usr/local/share/devops-tools/style-dictionary",
+            "ln -s ../share/devops-tools/style-dictionary/node_modules/.bin/style-dictionary "
+            "/usr/local/bin/style-dictionary",
+        )
+        if line not in dockerfile
+    ] == []

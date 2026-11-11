@@ -2316,6 +2316,22 @@ def _validate_ci_workflow_parity(workflow_data: dict[str, Any]) -> None:
             "Verify Built Site Pages and Links",
         ): "Path-filtered verification of index.html, no raw markdown, and links with lychee (#2070)",
         (
+            "design-tokens",
+            "Install Style Dictionary",
+        ): "Installs the Style Dictionary lock outside the checkout; the lock is no entry of tools.lock (#4738)",
+        (
+            "design-tokens",
+            "Build the Design Tokens",
+        ): "Path-filtered make design-tokens when a design file changes (#4738)",
+        (
+            "design-tokens",
+            "Check the Committed Token Outputs",
+        ): "Git diff of the committed token outputs against the build (#4738)",
+        (
+            "design-tokens",
+            "Run the Design Tests",
+        ): "Path-filtered pytest of tests/design after the build; the test row runs them too (#4738)",
+        (
             "image-pins",
             "Install Helm",
         ): "Installs the pinned helm that renders the chart Applications, with the lock's installer",

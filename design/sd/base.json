@@ -1,0 +1,43 @@
+{
+  "log": {
+    "warnings": "error",
+    "verbosity": "verbose"
+  },
+  "source": [
+    "design/tokens/base.tokens.json"
+  ],
+  "platforms": {
+    "docs": {
+      "transformGroup": "css",
+      "buildPath": "docs/assets/css/",
+      "files": [
+        {
+          "destination": "tokens-base.css",
+          "format": "css/variables",
+          "options": {
+            "selector": ":root",
+            "outputReferences": true
+          }
+        }
+      ]
+    },
+    "package": {
+      "transformGroup": "css",
+      "buildPath": "src/devops_cli/design/",
+      "files": [
+        {
+          "destination": "tokens-base.css",
+          "format": "css/variables",
+          "options": {
+            "selector": ":root",
+            "outputReferences": true
+          }
+        },
+        {
+          "destination": "tokens-base.json",
+          "format": "json/flat"
+        }
+      ]
+    }
+  }
+}

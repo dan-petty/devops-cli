@@ -1,0 +1,392 @@
+{
+  "$schema": "https://www.designtokens.org/schemas/2025.10/format.json",
+  "$description": "devops-cli design tokens: values that do not change with the theme. DTCG Format 2025.10. Built by Style Dictionary 5.7.1.",
+  "font": {
+    "family": {
+      "$type": "fontFamily",
+      "serif": {
+        "$value": [
+          "Source Serif 4",
+          "Source Serif Pro",
+          "Iowan Old Style",
+          "Charter",
+          "Georgia",
+          "serif"
+        ],
+        "$description": "Reading text of reports and docs pages. Adobe, OFL-1.1."
+      },
+      "sans": {
+        "$value": [
+          "Source Sans 3",
+          "Source Sans Pro",
+          "system-ui",
+          "-apple-system",
+          "Segoe UI",
+          "Helvetica Neue",
+          "Arial",
+          "sans-serif"
+        ],
+        "$description": "Interface text: headings, tables, captions, chart text. Adobe, OFL-1.1."
+      },
+      "mono": {
+        "$value": [
+          "Source Code Pro",
+          "ui-monospace",
+          "SFMono-Regular",
+          "Menlo",
+          "Consolas",
+          "Liberation Mono",
+          "monospace"
+        ],
+        "$description": "Code, identifiers, hashes. Adobe, OFL-1.1."
+      }
+    },
+    "weight": {
+      "$type": "fontWeight",
+      "regular": {
+        "$value": 400
+      },
+      "semibold": {
+        "$value": 600
+      }
+    },
+    "size": {
+      "$type": "dimension",
+      "xs": {
+        "$value": {
+          "value": 0.75,
+          "unit": "rem"
+        }
+      },
+      "sm": {
+        "$value": {
+          "value": 0.875,
+          "unit": "rem"
+        }
+      },
+      "md": {
+        "$value": {
+          "value": 1,
+          "unit": "rem"
+        }
+      },
+      "lg": {
+        "$value": {
+          "value": 1.125,
+          "unit": "rem"
+        }
+      },
+      "xl": {
+        "$value": {
+          "value": 1.375,
+          "unit": "rem"
+        }
+      },
+      "2xl": {
+        "$value": {
+          "value": 1.75,
+          "unit": "rem"
+        }
+      },
+      "3xl": {
+        "$value": {
+          "value": 2.25,
+          "unit": "rem"
+        }
+      }
+    },
+    "line-height": {
+      "$type": "number",
+      "tight": {
+        "$value": 1.2
+      },
+      "ui": {
+        "$value": 1.4
+      },
+      "code": {
+        "$value": 1.5
+      },
+      "reading": {
+        "$value": 1.6
+      }
+    }
+  },
+  "space": {
+    "$type": "dimension",
+    "1": {
+      "$value": {
+        "value": 0.25,
+        "unit": "rem"
+      }
+    },
+    "2": {
+      "$value": {
+        "value": 0.5,
+        "unit": "rem"
+      }
+    },
+    "3": {
+      "$value": {
+        "value": 0.75,
+        "unit": "rem"
+      }
+    },
+    "4": {
+      "$value": {
+        "value": 1,
+        "unit": "rem"
+      }
+    },
+    "6": {
+      "$value": {
+        "value": 1.5,
+        "unit": "rem"
+      }
+    },
+    "8": {
+      "$value": {
+        "value": 2,
+        "unit": "rem"
+      }
+    },
+    "12": {
+      "$value": {
+        "value": 3,
+        "unit": "rem"
+      }
+    },
+    "16": {
+      "$value": {
+        "value": 4,
+        "unit": "rem"
+      }
+    }
+  },
+  "size": {
+    "$type": "dimension",
+    "measure": {
+      "$value": {
+        "value": 40,
+        "unit": "rem"
+      },
+      "$description": "Reading column, about 70 characters."
+    },
+    "wide": {
+      "$value": {
+        "value": 60,
+        "unit": "rem"
+      },
+      "$description": "Figures and tables."
+    },
+    "full": {
+      "$value": {
+        "value": 72,
+        "unit": "rem"
+      },
+      "$description": "Page frame and dashboards."
+    },
+    "margin": {
+      "$value": {
+        "value": 15,
+        "unit": "rem"
+      },
+      "$description": "Margin-note column at breakpoint.lg."
+    },
+    "gutter": {
+      "$value": {
+        "value": 1,
+        "unit": "rem"
+      },
+      "$description": "Side gutter at every width."
+    },
+    "target": {
+      "$value": {
+        "value": 1.5,
+        "unit": "rem"
+      },
+      "$description": "Smallest interactive target, 24 px (WCAG 2.2 SC 2.5.8)."
+    },
+    "chart-min": {
+      "$value": {
+        "value": 40,
+        "unit": "rem"
+      },
+      "$description": "Design width of a static chart; under it the chart scrolls in its own box so text stays 12 px."
+    }
+  },
+  "breakpoint": {
+    "$type": "dimension",
+    "md": {
+      "$value": {
+        "value": 40,
+        "unit": "rem"
+      }
+    },
+    "lg": {
+      "$value": {
+        "value": 75,
+        "unit": "rem"
+      }
+    }
+  },
+  "radius": {
+    "$type": "dimension",
+    "none": {
+      "$value": {
+        "value": 0,
+        "unit": "px"
+      }
+    },
+    "sm": {
+      "$value": {
+        "value": 2,
+        "unit": "px"
+      }
+    }
+  },
+  "border": {
+    "width": {
+      "$type": "dimension",
+      "hairline": {
+        "$value": {
+          "value": 1,
+          "unit": "px"
+        }
+      },
+      "focus": {
+        "$value": {
+          "value": 2,
+          "unit": "px"
+        }
+      }
+    }
+  },
+  "motion": {
+    "duration": {
+      "$type": "duration",
+      "fast": {
+        "$value": {
+          "value": 120,
+          "unit": "ms"
+        }
+      }
+    },
+    "easing": {
+      "$type": "cubicBezier",
+      "standard": {
+        "$value": [
+          0.2,
+          0,
+          0,
+          1
+        ]
+      }
+    }
+  },
+  "chart": {
+    "stroke": {
+      "$type": "dimension",
+      "data": {
+        "$value": {
+          "value": 1.5,
+          "unit": "px"
+        }
+      },
+      "highlight": {
+        "$value": {
+          "value": 2.5,
+          "unit": "px"
+        }
+      },
+      "grid": {
+        "$value": {
+          "value": 1,
+          "unit": "px"
+        }
+      },
+      "reference": {
+        "$value": {
+          "value": 1,
+          "unit": "px"
+        }
+      }
+    },
+    "band-opacity": {
+      "$type": "number",
+      "$value": 0.2,
+      "$description": "Fill opacity of a measured interval band."
+    },
+    "font-size": {
+      "$type": "dimension",
+      "tick": {
+        "$value": "{font.size.xs}"
+      },
+      "label": {
+        "$value": "{font.size.sm}"
+      },
+      "title": {
+        "$value": "{font.size.md}"
+      }
+    },
+    "max-series": {
+      "$type": "number",
+      "$value": 3,
+      "$description": "Most colored series in one chart; more go to Other, small multiples or a table."
+    }
+  },
+  "color": {
+    "$type": "color",
+    "data": {
+      "cat": {
+        "1": {
+          "$value": {
+            "colorSpace": "srgb",
+            "components": [
+              0.6431,
+              0.3882,
+              0.949
+            ],
+            "hex": "#a463f2"
+          },
+          "$description": "Series 1, purple. Observable 10 slot 7 (d3-scale-chromatic schemeObservable10, ISC). Same in both themes and in Grafana.",
+          "$extensions": {
+            "devops-cli": {
+              "contrast": {
+                "min": 3.0,
+                "on": [
+                  "color.bg",
+                  "color.surface"
+                ],
+                "grafana": true
+              }
+            }
+          }
+        },
+        "2": {
+          "$value": {
+            "colorSpace": "srgb",
+            "components": [
+              0.9059,
+              0.1608,
+              0.5412
+            ],
+            "hex": "#e7298a"
+          },
+          "$description": "Series 2, pink. ColorBrewer Dark2 slot 4 (Apache-2.0). Same in both themes and in Grafana.",
+          "$extensions": {
+            "devops-cli": {
+              "contrast": {
+                "min": 3.0,
+                "on": [
+                  "color.bg",
+                  "color.surface"
+                ],
+                "grafana": true
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

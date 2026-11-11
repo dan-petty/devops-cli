@@ -245,6 +245,10 @@ COPY src/devops_cli/tools_lock/openspec/package.json src/devops_cli/tools_lock/o
 RUN cd /opt/openspec && npm ci --ignore-scripts
 COPY src/devops_cli/tools_lock/devcontainers-cli/package.json src/devops_cli/tools_lock/devcontainers-cli/package-lock.json /opt/devcontainers-cli/
 RUN cd /opt/devcontainers-cli && npm ci --ignore-scripts
+# Style Dictionary builds the design tokens (`make design-tokens`, docs/DESIGN.md). Its lock is no
+# entry of tools.lock: Renovate updates it.
+COPY src/devops_cli/tools_lock/style-dictionary/package.json src/devops_cli/tools_lock/style-dictionary/package-lock.json /opt/style-dictionary/
+RUN cd /opt/style-dictionary && npm ci --ignore-scripts
 
 FROM debian:sid
 
@@ -285,8 +289,10 @@ COPY --from=ghcr.io/astral-sh/uv:0.13.6 /uv /uvx /usr/local/bin/
 COPY --from=tools /out/bin/ /usr/local/bin/
 COPY --from=npm-tools /opt/openspec /usr/local/share/devops-tools/openspec
 COPY --from=npm-tools /opt/devcontainers-cli /usr/local/share/devops-tools/devcontainers-cli
+COPY --from=npm-tools /opt/style-dictionary /usr/local/share/devops-tools/style-dictionary
 RUN ln -s ../share/devops-tools/openspec/node_modules/.bin/openspec /usr/local/bin/openspec && \
-    ln -s ../share/devops-tools/devcontainers-cli/node_modules/.bin/devcontainer /usr/local/bin/devcontainer
+    ln -s ../share/devops-tools/devcontainers-cli/node_modules/.bin/devcontainer /usr/local/bin/devcontainer && \
+    ln -s ../share/devops-tools/style-dictionary/node_modules/.bin/style-dictionary /usr/local/bin/style-dictionary
 
 # Python tools install into a virtual environment of their own from the hashed requirements file,
 # and `--require-hashes` refuses a distribution that the file does not name.
