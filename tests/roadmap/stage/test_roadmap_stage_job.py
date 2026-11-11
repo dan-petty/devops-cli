@@ -4,6 +4,8 @@ each item once by its result, and fails for the items that failed (#2659)."""
 from __future__ import annotations
 
 import json
+import logging
+import re
 import time
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
@@ -17,6 +19,7 @@ from devops_cli.github.rate_limiter import get_github_rate_limiter
 from devops_cli.roadmap import run
 from devops_cli.roadmap.refine.refine import NextStep
 from devops_cli.roadmap.run import MODEL_LANE_ROWS, FailureLedger, JobOutcome, run_due_jobs
+from devops_cli.roadmap.stage.stage import LeftOut, StageApplied, StagePlan, emit_stage_results
 from devops_cli.roadmap.stage.stage_change import StageSplit
 from devops_cli.roadmap.stage.stage_verify import Verification
 from devops_cli.roadmap.stores.store import ItemField, RefineRecordKey, StageRecordKey
@@ -470,3 +473,51 @@ def test_a_false_field_absence_returns_the_item_without_model_call(
         "defines the field `labels` at src/devops_cli/model.py:2" in comment.body
         for comment in store.comments_on(target)
     )
+
+
+def _labelled(otlp: FakeCollector) -> list[tuple[str, str, float]]:
+    """Each point of the stage counter as (result, reason, value), sorted."""
+    return sorted(
+        (attrs["result"], attrs["reason"], value)
+        for attrs, value in otlp.points(ROADMAP_STAGE_TOTAL.name)
+    )
+
+
+def test_a_skipped_item_counts_under_the_kind_of_its_reason(otlp: FakeCollector) -> None:
+    """A left-out, returned or rejected item names its reason; another result has none (#4521)."""
+    from devops_cli.roadmap.stage.stage_left_out import LeftOutKind
+
+    plan = StagePlan(STAGE_REPO, left_out=(LeftOut(1, "", kind=LeftOutKind.TITLE_TYPE),))
+
+    emit_stage_results(plan, StageApplied(staged=(2,), returned=(3,), rejected=(4,)), STAGE_REPO)
+
+    assert _labelled(otlp) == [
+        ("skipped", "rejected", 1.0),
+        ("skipped", "returned", 1.0),
+        ("skipped", "title_type", 1.0),
+        ("staged", "none", 1.0),
+    ]
+
+
+def test_a_round_logs_the_reason_of_a_left_out_item_once_until_it_changes(
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    otlp: FakeCollector,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Three rounds leave one item out; the third for another reason (#4521). Each round counts
+    the item, and only a new reason writes a log line."""
+    number = seed_stageable(store, "security(roadmap): the job drops a comment")
+
+    with caplog.at_level(logging.INFO):
+        _round(store, stage_repo)
+        _round(store, stage_repo)
+        store.add_label(number, "needs-split")
+        _round(store, stage_repo)
+
+    lines = [r.getMessage() for r in caplog.records if r.getMessage().startswith("stage left out")]
+    assert [re.findall(r"(?:item|reason)=(\S+)", line) for line in lines] == [
+        [f"#{number}", "title_type"],
+        [f"#{number}", "needs_split"],
+    ]
+    assert _labelled(otlp) == [("skipped", "needs_split", 1.0), ("skipped", "title_type", 2.0)]

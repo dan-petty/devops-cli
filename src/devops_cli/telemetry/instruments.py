@@ -317,7 +317,9 @@ ROADMAP_STAGE_TOTAL = Instrument(
     "written as a branch and a draft pull request, needs_split for an item stopped on a task "
     "group over the budget, failed for an item that failed in the plan or in the writes, "
     "degenerate for an item whose plan reply was a placeholder in every text (the job sent no "
-    "second request), and skipped for an item the job left out with a reason. A plan with no write counts nothing",
+    "second request), and skipped for an item the job left out with a reason. The label reason "
+    "names the rule of a skipped item, such as title_type, held, failed_lately, queue_full, "
+    "returned or rejected, and is none for the other results. A plan with no write counts nothing",
 )
 ROADMAP_STAGE_PLAN_RECORD_TOTAL = Instrument(
     "devops_cli_roadmap_stage_plan_record_total",
