@@ -8,13 +8,12 @@ did not cause. A success clears the three keys. `--item` overrules the wait.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import httpx2
 import pytest
-import time_machine
 
 from devops_cli.ai.client.models import (
     AIClientError,
@@ -32,6 +31,7 @@ from devops_cli.roadmap.refine.refine import (
     select_candidates,
 )
 from devops_cli.roadmap.stores.store import RefineRecordKey
+from tests.support.fakes.clock import ClockFake
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.roadmap_refine import (
     GATEWAY_ATTEMPTS,
@@ -54,11 +54,17 @@ HOUR = timedelta(hours=1)
 TIMEOUT = httpx2.Response(504, text="Gateway Timeout")
 
 
-@pytest.fixture
-def clock() -> Iterator[time_machine.Traveller]:
-    """Time stands still at `START` until a test moves it."""
-    with time_machine.travel(START, tick=False) as traveller:
-        yield traveller
+@pytest.fixture(autouse=True)
+def _time_stands_still_at_start(clock: ClockFake) -> None:
+    """Build on the shared `clock` fixture: do not shadow it, or the retry waits of the model
+    client run for real (#4459). The wall clock reads `START` until a test or a wait moves it."""
+    clock.move_to(START)
+
+
+def _waited(clock: ClockFake) -> timedelta:
+    """The time the retry waits of the rounds so far moved the clock. A failure is recorded after
+    its retries, so its time is `START` plus this wait plus the shifts of the test."""
+    return timedelta(seconds=sum(clock.waits))
 
 
 def _marks(store: InMemoryRoadmapStore, number: int) -> tuple[str | None, ...]:
@@ -111,7 +117,7 @@ def test_a_timeout_records_class_step_and_time_and_does_not_mark_the_item_as_at_
     git_repo: Path,
     store: InMemoryRoadmapStore,
     scripted_gateway: Callable[..., list[httpx2.Request]],
-    clock: time_machine.Traveller,
+    clock: ClockFake,
 ) -> None:
     """The three keys ride on one marks write, the plan says it has a write, and the item holds no
     failed body hash: the timeout says nothing about its text (#1526)."""
@@ -126,14 +132,15 @@ def test_a_timeout_records_class_step_and_time_and_does_not_mark_the_item_as_at_
         _marks(store, first),
         require_item(store, first).job_record.get(RefineRecordKey.FAILED_BODY_HASH),
         store.writes.count("set_marks") - before,
-    ) == (True, (START.isoformat(), "investigate", "provider"), None, 1)
+        bool(clock.waits),
+    ) == (True, ((START + _waited(clock)).isoformat(), "investigate", "provider"), None, 1, True)
 
 
 def test_the_next_round_skips_the_item_until_the_time_passes_and_takes_the_others(
     git_repo: Path,
     store: InMemoryRoadmapStore,
     scripted_gateway: Callable[..., list[httpx2.Request]],
-    clock: time_machine.Traveller,
+    clock: ClockFake,
 ) -> None:
     """A provider failure waits 1 hour: 59 minutes later the round sends no request for the item
     and lists it as waiting to retry, and at 1 hour the round takes it again."""
@@ -160,7 +167,7 @@ def test_the_next_round_skips_the_item_until_the_time_passes_and_takes_the_other
         [],
         [first],
         2 * GATEWAY_ATTEMPTS,
-        ((START + HOUR).isoformat(), "investigate", "provider"),
+        ((START + HOUR + _waited(clock)).isoformat(), "investigate", "provider"),
     )
 
 
@@ -168,20 +175,21 @@ def test_a_success_clears_the_three_keys(
     git_repo: Path,
     store: InMemoryRoadmapStore,
     scripted_gateway: Callable[..., list[httpx2.Request]],
-    clock: time_machine.Traveller,
+    clock: ClockFake,
 ) -> None:
     (first,) = seed_new_items(store, ("P1-High",))
     answers: dict[int | None, Answer] = {first: TIMEOUT}
     scripted_gateway(answers)
     refine_round(store, git_repo)
     failed = _marks(store, first)
+    failed_at = START + _waited(clock)
     del answers[first]
     clock.shift(2 * HOUR)
 
     refine_round(store, git_repo)
 
     assert (failed, _marks(store, first), require_item(store, first).status) == (
-        (START.isoformat(), "investigate", "provider"),
+        (failed_at.isoformat(), "investigate", "provider"),
         (None, None, None),
         "Ready",
     )
@@ -191,7 +199,7 @@ def test_a_reply_that_never_validates_waits_six_hours_and_the_marks_ride_on_one_
     git_repo: Path,
     store: InMemoryRoadmapStore,
     scripted_gateway: Callable[..., list[httpx2.Request]],
-    clock: time_machine.Traveller,
+    clock: ClockFake,
 ) -> None:
     """The failure that the item's text caused records the failed body hash and the three keys in
     one write, and the second try waits for the 6 hours of class `parser`."""
@@ -205,6 +213,7 @@ def test_a_reply_that_never_validates_waits_six_hours_and_the_marks_ride_on_one_
         store.writes.count("set_marks") - before,
     )
     asked = len(sent)
+    failed_at = START + _waited(clock)
 
     clock.shift(6 * HOUR - MINUTE)
     refine_round(store, git_repo)
@@ -213,7 +222,7 @@ def test_a_reply_that_never_validates_waits_six_hours_and_the_marks_ride_on_one_
     refine_round(store, git_repo)
 
     assert (recorded, held, len(sent) > asked) == (
-        ((START.isoformat(), "investigate", "parser"), True, 1),
+        ((failed_at.isoformat(), "investigate", "parser"), True, 1),
         0,
         True,
     )
@@ -223,7 +232,7 @@ def test_the_second_failure_on_the_same_body_hands_the_wait_to_the_body_edit(
     git_repo: Path,
     store: InMemoryRoadmapStore,
     scripted_gateway: Callable[..., list[httpx2.Request]],
-    clock: time_machine.Traveller,
+    clock: ClockFake,
 ) -> None:
     """The second failure settles the item to wait on an edit, so the three keys are cleared and
     only a person's edit ends the wait (#1526)."""
@@ -244,7 +253,7 @@ def test_a_body_edit_ends_the_wait_after_a_failure_that_the_text_caused(
     git_repo: Path,
     store: InMemoryRoadmapStore,
     scripted_gateway: Callable[..., list[httpx2.Request]],
-    clock: time_machine.Traveller,
+    clock: ClockFake,
 ) -> None:
     (first,) = seed_new_items(store, ("P1-High",))
     scripted_gateway({first: SCHEMA_MISS})
@@ -276,7 +285,7 @@ def test_a_body_edit_ends_the_wait_after_a_failure_that_the_text_caused(
 )
 def test_the_wait_follows_the_recorded_class(
     store: InMemoryRoadmapStore,
-    clock: time_machine.Traveller,
+    clock: ClockFake,
     failed_class: str | None,
     ago: timedelta,
     taken: bool,
@@ -295,7 +304,7 @@ def test_the_wait_follows_the_recorded_class(
 
 
 def test_a_failure_time_that_is_no_time_holds_the_item_for_no_time(
-    store: InMemoryRoadmapStore, clock: time_machine.Traveller
+    store: InMemoryRoadmapStore, clock: ClockFake
 ) -> None:
     (first,) = seed_new_items(store, ("P1-High",))
     store.set_marks(
@@ -308,9 +317,7 @@ def test_a_failure_time_that_is_no_time_holds_the_item_for_no_time(
     assert [item.number for item in selected] == [first]
 
 
-def test_item_option_overrules_the_wait(
-    store: InMemoryRoadmapStore, clock: time_machine.Traveller
-) -> None:
+def test_item_option_overrules_the_wait(store: InMemoryRoadmapStore, clock: ClockFake) -> None:
     (first,) = seed_new_items(store, ("P1-High",))
     store.set_marks(
         require_item(store, first),
@@ -323,7 +330,7 @@ def test_item_option_overrules_the_wait(
 
 
 def test_explain_gives_the_time_after_which_refine_takes_the_item_again(
-    store: InMemoryRoadmapStore, clock: time_machine.Traveller
+    store: InMemoryRoadmapStore, clock: ClockFake
 ) -> None:
     (first,) = seed_new_items(store, ("P1-High",))
     store.set_marks(
@@ -341,7 +348,7 @@ def test_explain_gives_the_time_after_which_refine_takes_the_item_again(
 
 
 def test_a_round_whose_model_call_worked_clears_the_keys_of_an_earlier_failure(
-    git_repo: Path, store: InMemoryRoadmapStore, clock: time_machine.Traveller
+    git_repo: Path, store: InMemoryRoadmapStore, clock: ClockFake
 ) -> None:
     """A round that fails a form check made its model call, so the earlier timeout is over. The
     job failure records its own tries and the three keys are cleared."""
@@ -367,7 +374,7 @@ def test_a_round_whose_model_call_worked_clears_the_keys_of_an_earlier_failure(
 
 
 def test_a_placeholder_failure_still_records_nothing(
-    store: InMemoryRoadmapStore, clock: time_machine.Traveller
+    store: InMemoryRoadmapStore, clock: ClockFake
 ) -> None:
     """A placeholder reply is a fault of the model (#3478): the rule of no record stands, and the
     next round asks the model again."""
