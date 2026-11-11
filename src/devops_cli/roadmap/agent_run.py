@@ -33,7 +33,7 @@ from pydantic_ai.messages import (
 
 from devops_cli.ai.client.models import AIClientError, AICredentialsError
 from devops_cli.ai.schema_reflection import ViolationText
-from devops_cli.ai.spend import track_request_spend
+from devops_cli.ai.spend import model_answer_labels, track_request_spend
 from devops_cli.config.constants import (
     CONST_AI_GATEWAY_PROVIDER,
     CONST_ROADMAP_RUN_ERROR_CHARS,
@@ -385,13 +385,6 @@ def _outcome_of(
     return (ToolOutcome.OK if text.strip() else ToolOutcome.EMPTY), len(text), None
 
 
-def _is_fallback(asked: str, answered: str) -> bool:
-    """Whether `answered`, the model that a reply names, is another model than `asked`. A
-    gateway may name the asked model under a provider prefix (`ollama_chat/<asked>`), which is
-    no fallback."""
-    return answered != asked and not answered.endswith(f"/{asked}")
-
-
 def record_run_spend(
     model: Any, messages: Sequence[ModelMessage], seconds: float, *, stage: str
 ) -> None:
@@ -401,8 +394,8 @@ def record_run_spend(
 
     The record keeps the model asked for in `model` and the model of the last reply that names
     one in `served_model`. Each reply that names its model adds one count to
-    `devops_cli_ai_model_answers_total`, with the labels asked, answered and fallback, so a slot
-    that reads one model while a gateway fallback answers with another shows (#4205). The prompt
+    `devops_cli_ai_model_answers_total`, with the labels asked, answered, fallback and row, so a
+    slot that reads one model while a gateway fallback answers with another shows (#4205). The prompt
     tokens that the provider read from its cache cost the cached input rate (#4403)."""
     from devops_cli.telemetry.instruments import AI_MODEL_ANSWERS_TOTAL, emit
 
@@ -415,7 +408,7 @@ def record_run_spend(
         emit(
             AI_MODEL_ANSWERS_TOTAL,
             1,
-            {"asked": asked, "answered": name, "fallback": str(_is_fallback(asked, name)).lower()},
+            model_answer_labels(asked, name),
         )
     served_by = getattr(model, "served_by", None)
     track_request_spend(

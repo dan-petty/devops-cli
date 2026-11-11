@@ -33,6 +33,7 @@ from devops_cli.config.defaults import (
     DEFAULT_AI_SPEND_DB_FILENAME,
 )
 from devops_cli.config.settings import load_settings, setting_default
+from devops_cli.github.request_scope import request_labels
 
 if TYPE_CHECKING:
     from pydantic_ai.messages import FinishReason
@@ -956,7 +957,8 @@ def track_request_spend(
     from. The tokens carry `local`, and no process sends a price for them: the cluster prices
     local tokens at one reference for every process (#1672). ``cache_read_tokens``, the part of
     ``prompt_tokens`` that the provider read from its cache, costs the cached input rate of the
-    price (#4403).
+    price (#4403). The metrics carry `row`, the job row of the Service whose work sent the
+    request, or `other` outside a row (#4475).
     """
     from opentelemetry.semconv._incubating.attributes.gen_ai_attributes import (
         GenAiOperationNameValues,
@@ -1049,6 +1051,7 @@ def track_request_spend(
         "server": server,
         "backend": backend_name(served_by),
         "operation": operation.value,
+        "row": request_labels()["row"],
     }
     emit(AI_REQUESTS_TOTAL, 1, source | {"cached": str(cached).lower()})
     tokens = source | {"local": str(pricing_source == CONST_PRICING_SOURCE_LOCAL).lower()}
@@ -1062,3 +1065,17 @@ def track_request_spend(
     # exists before the first hosted request and a dashboard shows $0, not "No data" (#1631).
     emit(AI_SPEND_USD_TOTAL, cost, source)
     return rec
+
+
+def model_answer_labels(asked: str, answered: str) -> dict[str, str]:
+    """The labels of one count of `devops_cli_ai_model_answers_total`: the model that the client
+    asked for, the model that the reply names, whether they differ, and the job row that sent the
+    request, as on the token and spend series. A gateway may name the asked model under a provider
+    prefix (`ollama_chat/<asked>`), which is no fallback (#4205)."""
+    fallback = answered != asked and not answered.endswith(f"/{asked}")
+    return {
+        "asked": asked,
+        "answered": answered,
+        "fallback": str(fallback).lower(),
+        "row": request_labels()["row"],
+    }

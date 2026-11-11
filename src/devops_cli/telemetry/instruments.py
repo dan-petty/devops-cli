@@ -92,22 +92,22 @@ AI_REQUESTS_TOTAL = Instrument(
     InstrumentKind.COUNTER,
     "1",
     "LLM calls and embedding requests, by operation (chat or embeddings), provider, model, server, "
-    "serving backend and whether the cache answered",
+    "serving backend, whether the cache answered and row: the job row that sent the request",
 )
 AI_TOKENS_TOTAL = Instrument(
     "devops_cli_ai_tokens_total",
     InstrumentKind.COUNTER,
     "1",
     "LLM and embedding tokens, by operation (chat or embeddings), type (prompt or completion), "
-    "provider, model, server, backend and local: true when a local model ran them. The AI spend "
-    "dashboard prices local tokens as savings at the reference price that its constant "
+    "provider, model, server, backend, row and local: true when a local model ran them. The AI "
+    "spend dashboard prices local tokens as savings at the reference price that its constant "
     "reference_price_usd_per_token holds for their operation and type",
 )
 AI_SPEND_USD_TOTAL = Instrument(
     "devops_cli_ai_spend_usd_total",
     InstrumentKind.COUNTER,
     "USD",
-    "Approximate LLM and embedding spend, by operation, provider, model, server and backend. "
+    "Approximate LLM and embedding spend, by operation, provider, model, server, backend and row. "
     "Each request that a model answers adds to it, and a local request adds 0. A hosted gateway "
     "call is priced at the deployment model that the gateway names, and its model label is the "
     "model that the client asked for, such as the route name. A prompt token that the provider "
@@ -117,9 +117,10 @@ AI_MODEL_ANSWERS_TOTAL = Instrument(
     "devops_cli_ai_model_answers_total",
     InstrumentKind.COUNTER,
     "1",
-    "Model replies of an agent run, by the model that the client asked for (asked), the model "
-    "that the reply names (answered) and whether they differ (fallback: true when a gateway "
-    "fallback answered). A slot that reads one model while another answers shows as fallback true",
+    "Model replies of an agent run, one for each model request, by the model that the client asked "
+    "for (asked), the model that the reply names (answered), whether they differ (fallback: true "
+    "when a gateway fallback answered) and the job row that sent the request (row). A slot that "
+    "reads one model while another answers shows as fallback true",
 )
 AI_JSON_REPAIRS_TOTAL = Instrument(
     "devops_cli_ai_json_repairs_total",

@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
-from devops_cli.ai.spend.ledger import SpendLedger, get_spend_ledger, track_request_spend
+from devops_cli.ai.spend.ledger import (
+    SpendLedger,
+    get_spend_ledger,
+    model_answer_labels,
+    track_request_spend,
+)
 from devops_cli.ai.spend.models import (
     HardwarePayoffSummary,
     LifetimeSpendReport,
@@ -43,6 +48,7 @@ __all__ = [
     "get_pricing_registry",
     "get_spend_ledger",
     "is_local",
+    "model_answer_labels",
     "resolve_spend_stage",
     "stage_scope",
     "track_request_spend",
