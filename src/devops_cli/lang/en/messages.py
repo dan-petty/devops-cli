@@ -5439,6 +5439,16 @@ class IssueMessages:
 
 
 @dataclass(frozen=True)
+class GhMetricsMessages:
+    """Messages of `devops gh metrics`."""
+
+    telemetry_filtered: str = (
+        "--emit-telemetry sends the project series of the whole repository, so it refuses "
+        "{option}. Remove {option}, or remove --emit-telemetry."
+    )
+
+
+@dataclass(frozen=True)
 class ProjectMessages:
     """`devops gh project sync` and `devops gh project reconcile` (#892)."""
 
@@ -5696,6 +5706,7 @@ class LanguageCatalog:
     roadmap: RoadmapMessages = field(default_factory=RoadmapMessages)
     project: ProjectMessages = field(default_factory=ProjectMessages)
     issues: IssueMessages = field(default_factory=IssueMessages)
+    gh_metrics: GhMetricsMessages = field(default_factory=GhMetricsMessages)
 
 
 MESSAGES = LanguageCatalog()

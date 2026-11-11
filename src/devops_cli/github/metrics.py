@@ -31,11 +31,13 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_STATUS_VALUES,
     CONST_ROADMAP_TYPE_LABEL_PREFIX,
 )
+from devops_cli.config.defaults import DEFAULT_PROJECT_METRICS_RELEASE_LIMIT
 from devops_cli.core.process import acts_as_github_app, run_subprocess
 from devops_cli.core.repo import find_worktree_root, get_repo_origin_name
 from devops_cli.exceptions.git import GitHubOperationError
 from devops_cli.github.client import GhCliClient, parse_paginated_json
 from devops_cli.github.error_classifier import is_gh_refused_by_token
+from devops_cli.github.repo_ref import RepoRef
 from devops_cli.roadmap.stores import store as roadmap_store
 from devops_cli.roadmap.stores.store import (
     Change,
@@ -799,7 +801,7 @@ def get_repository_traffic_metrics(repo: str) -> TrafficSummaryMetric:
 def collect_project_metrics_report(
     root: Path | None = None,
     repo: str | None = None,
-    release_limit: int = 10,
+    release_limit: int = DEFAULT_PROJECT_METRICS_RELEASE_LIMIT,
     ci_limit: int = 50,
     milestone_filter: str | None = None,
     store: RoadmapStore | None = None,
@@ -894,8 +896,9 @@ def project_metrics_requests(
     return requests
 
 
-_sent_item_series: set[tuple[tuple[str, str], ...]] = set()
-"""The labels of each items series that the last snapshot of this process sent."""
+_sent_item_series: dict[str, set[tuple[tuple[str, str], ...]]] = {}
+"""The labels of each items series that the last snapshot of each repository sent in this
+process, by the `repo` label of the repository."""
 
 
 def reset_sent_item_series() -> None:
@@ -903,76 +906,71 @@ def reset_sent_item_series() -> None:
     _sent_item_series.clear()
 
 
-def _emit_item_counts(items: list[ItemCountMetric]) -> None:
-    """Send the item counts, and 0 once for each label set that the last snapshot sent and this
-    one lacks: Prometheus keeps the last sample of a series that stops, so `last_over_time`
-    would keep counting the items that left that label set (#2263)."""
+def _emit_item_counts(repo: dict[str, str], items: list[ItemCountMetric]) -> None:
+    """Send the item counts of one repository, and 0 once for each label set that the last
+    snapshot of the same repository sent and this one lacks: Prometheus keeps the last sample
+    of a series that stops, so `last_over_time` would keep counting the items that left that
+    label set (#2263). The label sets of another repository get no 0 (#4690)."""
     series = {tuple(item.labels().items()) for item in items}
-    for gone in _sent_item_series - series:
-        emit(PROJECT_ITEMS, 0.0, dict(gone))
+    for gone in _sent_item_series.get(repo["repo"], set()) - series:
+        emit(PROJECT_ITEMS, 0.0, {**repo, **dict(gone)})
     for item in items:
-        emit(PROJECT_ITEMS, float(item.count), item.labels())
-    _sent_item_series.clear()
-    _sent_item_series.update(series)
+        emit(PROJECT_ITEMS, float(item.count), {**repo, **item.labels()})
+    _sent_item_series[repo["repo"]] = series
 
 
-def _emit_traffic(traffic: TrafficSummaryMetric) -> None:
-    """Send the traffic gauges. A report that collected no traffic sends none, so a panel shows
-    no data and not 0 visitors (#2752)."""
-    emit(PROJECT_TRAFFIC_VIEWS, float(traffic.views_count))
-    emit(PROJECT_TRAFFIC_VIEWS_UNIQUES, float(traffic.views_uniques))
-    emit(PROJECT_TRAFFIC_CLONES, float(traffic.clones_count))
-    emit(PROJECT_TRAFFIC_CLONES_UNIQUES, float(traffic.clones_uniques))
+def _emit_traffic(repo: dict[str, str], traffic: TrafficSummaryMetric) -> None:
+    """Send the traffic gauges of one repository. A report that collected no traffic sends
+    none, so a panel shows no data and not 0 visitors (#2752)."""
+    emit(PROJECT_TRAFFIC_VIEWS, float(traffic.views_count), repo)
+    emit(PROJECT_TRAFFIC_VIEWS_UNIQUES, float(traffic.views_uniques), repo)
+    emit(PROJECT_TRAFFIC_CLONES, float(traffic.clones_count), repo)
+    emit(PROJECT_TRAFFIC_CLONES_UNIQUES, float(traffic.clones_uniques), repo)
     for ref in traffic.referrers:
-        emit(PROJECT_TRAFFIC_REFERRERS, float(ref.count), {"referrer": ref.referrer})
+        emit(PROJECT_TRAFFIC_REFERRERS, float(ref.count), {**repo, "referrer": ref.referrer})
     for p in traffic.paths:
-        emit(PROJECT_TRAFFIC_PATHS, float(p.count), {"path": p.path})
+        emit(PROJECT_TRAFFIC_PATHS, float(p.count), {**repo, "path": p.path})
 
 
-def _emit_item_ages(report: ProjectMetricsReport) -> None:
+def _emit_item_ages(repo: dict[str, str], report: ProjectMetricsReport) -> None:
     """Send the age and the number of the oldest Item of each pair, and the age of the oldest
     claim (#2919). A report that read no label events sends none, so a panel shows no data and
     not 0."""
     for age in report.item_ages:
-        labels = {"repo": report.repo, "state": age.state, "plan": str(age.plan).lower()}
+        labels = {**repo, "state": age.state, "plan": str(age.plan).lower()}
         emit(ROADMAP_ITEM_AGE, age.age_seconds, labels)
         emit(ROADMAP_OLDEST_ITEM, float(age.number), labels)
     if report.claim_age_seconds is not None:
-        emit(ROADMAP_CLAIM_AGE, report.claim_age_seconds, {"repo": report.repo})
+        emit(ROADMAP_CLAIM_AGE, report.claim_age_seconds, repo)
 
 
 def emit_project_metrics_telemetry(report: ProjectMetricsReport) -> None:
-    """Emit project and engineering velocity metrics over OpenTelemetry to Prometheus."""
-    emit(PROJECT_RELEASES, float(report.total_releases))
-    emit(PROJECT_STARS, float(report.traffic.stars))
-    emit(PROJECT_FORKS, float(report.traffic.forks))
+    """Emit project and engineering velocity metrics over OpenTelemetry to Prometheus.
+
+    Each point carries the casefolded `owner/name` of the report as `repo` (ADR 0022). The
+    metrics row of the Service sends the reports of several repositories from one process, and
+    with no `repo` label they overwrote each other's series (#4690)."""
+    repo = {"repo": RepoRef(report.repo).key}
+    emit(PROJECT_RELEASES, float(report.total_releases), repo)
+    emit(PROJECT_STARS, float(report.traffic.stars), repo)
+    emit(PROJECT_FORKS, float(report.traffic.forks), repo)
     if report.traffic.traffic_collected:
-        _emit_traffic(report.traffic)
+        _emit_traffic(repo, report.traffic)
 
     for rel in report.releases:
-        emit(PROJECT_COMMITS, float(rel.commit_count), {"release": rel.tag})
-        emit(PROJECT_PRS, float(rel.pr_count), {"release": rel.tag})
+        release = {**repo, "release": rel.tag}
+        emit(PROJECT_COMMITS, float(rel.commit_count), release)
+        emit(PROJECT_PRS, float(rel.pr_count), release)
         if rel.days_since_prev > 0:
-            emit(
-                PROJECT_RELEASE_INTERVAL_DAYS,
-                rel.days_since_prev,
-                {"release": rel.tag},
-            )
+            emit(PROJECT_RELEASE_INTERVAL_DAYS, rel.days_since_prev, release)
 
     for run in report.workflow_runs:
-        emit(
-            PROJECT_CI_RUNS,
-            float(run.passed),
-            {"workflow": run.workflow, "status": "completed", "conclusion": "success"},
-        )
-        emit(
-            PROJECT_CI_RUNS,
-            float(run.failed),
-            {"workflow": run.workflow, "status": "completed", "conclusion": "failure"},
-        )
+        completed = {**repo, "workflow": run.workflow, "status": "completed"}
+        emit(PROJECT_CI_RUNS, float(run.passed), {**completed, "conclusion": "success"})
+        emit(PROJECT_CI_RUNS, float(run.failed), {**completed, "conclusion": "failure"})
 
-    _emit_item_counts(report.items)
-    _emit_item_ages(report)
+    _emit_item_counts(repo, report.items)
+    _emit_item_ages(repo, report)
 
 
 __all__ = [

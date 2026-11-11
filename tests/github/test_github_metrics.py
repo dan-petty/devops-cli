@@ -48,6 +48,7 @@ from devops_cli.github.metrics import (
 from devops_cli.roadmap.stores.github_store import GitHubRoadmapStore
 from devops_cli.roadmap.stores.store import Change, ItemField, RoadmapStore, StageRecordKey
 from devops_cli.telemetry.instruments import (
+    INSTRUMENTS,
     PROJECT_FORKS,
     PROJECT_ITEM_LABELS,
     PROJECT_ITEMS,
@@ -600,10 +601,10 @@ def test_emit_project_metrics_telemetry(otlp: FakeCollector) -> None:
     assert expected_instruments.issubset(instrument_names)
 
 
-def _snapshot(*items: ItemCountMetric) -> ProjectMetricsReport:
-    """A report that holds only `items`."""
+def _snapshot(*items: ItemCountMetric, repo: str = REPO) -> ProjectMetricsReport:
+    """A report of `repo` that holds only `items`."""
     return ProjectMetricsReport(
-        repo=REPO, generated_at="2026-10-26 00:00:00 UTC", items=list(items)
+        repo=repo, generated_at="2026-10-26 00:00:00 UTC", items=list(items)
     )
 
 
@@ -653,10 +654,120 @@ def test_a_label_set_with_no_items_is_sent_as_zero_once(otlp: FakeCollector) -> 
     )
 
 
-def test_cli_gh_metrics_formats_tables_and_json(
-    cli: CliRunnerFixture, process_fake: ProcessFake, roadmap_store: InMemoryRoadmapStore
+def _repo_items(otlp: FakeCollector, already_read: int = 0) -> dict[tuple[str, ...], float]:
+    """The value of each items series that the client sent after the first `already_read`
+    points, by its `repo` and then its label values in the order of `PROJECT_ITEM_LABELS`."""
+    points = otlp.points(PROJECT_ITEMS.name)[already_read:]
+    return {
+        (attrs.get("repo", ""), *(attrs[label] for label in PROJECT_ITEM_LABELS)): value
+        for attrs, value in points
+    }
+
+
+def _full_report(repo: str, stars: int) -> ProjectMetricsReport:
+    """A report of `repo` that fills every project gauge, the traffic gauges included."""
+    return ProjectMetricsReport(
+        repo=repo,
+        generated_at="2026-11-11 00:00:00 UTC",
+        total_releases=1,
+        releases=[
+            ReleaseCadenceMetric(
+                tag="v0.2.0",
+                published_at="2026-11-01",
+                days_since_prev=2.0,
+                commit_count=5,
+                pr_count=4,
+            )
+        ],
+        workflow_runs=[
+            WorkflowRunMetric(
+                workflow="CI", total_runs=2, passed=2, failed=0, other=0, pass_rate=100.0
+            )
+        ],
+        items=[ItemCountMetric(state="open", type="bug", count=1)],
+        traffic=TrafficSummaryMetric(
+            views_count=10,
+            views_uniques=4,
+            clones_count=5,
+            clones_uniques=2,
+            stars=stars,
+            forks=1,
+            referrers=[TrafficReferrerMetric(referrer="example.com", count=3, uniques=1)],
+            paths=[TrafficPathMetric(path="/docs", title="Docs", count=4, uniques=2)],
+        ),
+    )
+
+
+PROJECT_INSTRUMENT_NAMES = tuple(
+    instrument.name
+    for instrument in INSTRUMENTS
+    if instrument.name.startswith("devops_cli_project_")
+)
+
+
+def test_each_project_gauge_holds_one_series_for_each_repository(otlp: FakeCollector) -> None:
+    """The metrics row sends the project gauges of 7 repositories from one process. With no
+    `repo` label they shared one series and overwrote each other, so the stars read 1 where
+    GitHub gave 2 (#4690)."""
+    emit_project_metrics_telemetry(_full_report("Example/One", stars=2))
+    emit_project_metrics_telemetry(_full_report("Example/Two", stars=7))
+
+    repos = {
+        name: {attrs.get("repo") for attrs, _ in otlp.points(name)}
+        for name in PROJECT_INSTRUMENT_NAMES
+    }
+    stars = {(attrs.get("repo"), value) for attrs, value in otlp.points(PROJECT_STARS.name)}
+
+    assert (len(repos), repos, stars) == (
+        14,
+        {name: {"example/one", "example/two"} for name in PROJECT_INSTRUMENT_NAMES},
+        {("example/one", 2.0), ("example/two", 7.0)},
+    )
+
+
+def test_a_report_sends_no_zero_for_the_label_sets_of_another_repository(
+    otlp: FakeCollector,
 ) -> None:
-    """Verify devops gh metrics execution with interactive and JSON outputs."""
+    """A report sends 0 only for the label sets that its own repository sent before (#4690)."""
+    emit_project_metrics_telemetry(
+        _snapshot(ItemCountMetric(state="open", type="bug", count=1), repo="Example/One")
+    )
+    sent = len(otlp.points(PROJECT_ITEMS.name))
+    emit_project_metrics_telemetry(
+        _snapshot(ItemCountMetric(state="closed", type="feature", count=3), repo="Example/Two")
+    )
+
+    assert _repo_items(otlp, sent) == {("example/two", "", "closed", "feature", ""): 3.0}
+
+
+def test_a_label_set_that_leaves_a_repository_is_sent_as_zero_for_it_once(
+    otlp: FakeCollector,
+) -> None:
+    """A label set that a report of one repository drops gets one 0 for that repository, and
+    the same label set of another repository keeps its value (#4690)."""
+    opened = ItemCountMetric(state="open", type="bug", count=1)
+    closed = ItemCountMetric(state="closed", type="bug", count=1)
+
+    emit_project_metrics_telemetry(_snapshot(opened, repo="Example/One"))
+    emit_project_metrics_telemetry(_snapshot(opened, repo="Example/Two"))
+    sent = len(otlp.points(PROJECT_ITEMS.name))
+    emit_project_metrics_telemetry(_snapshot(closed, repo="Example/One"))
+    second = _repo_items(otlp, sent)
+    sent = len(otlp.points(PROJECT_ITEMS.name))
+    emit_project_metrics_telemetry(_snapshot(closed, repo="Example/One"))
+    third = _repo_items(otlp, sent)
+
+    assert (second, third) == (
+        {
+            ("example/one", "", "open", "bug", ""): 0.0,
+            ("example/one", "", "closed", "bug", ""): 1.0,
+        },
+        {("example/one", "", "closed", "bug", ""): 1.0},
+    )
+
+
+def _answer_metrics_reads(process_fake: ProcessFake) -> None:
+    """Answer each read of `devops gh metrics --repo example/repo`."""
     process_fake.answer(
         ["gh", "api", "rate_limit"],
         ProcessAnswer(stdout=_fresh_quota_payload()),
@@ -709,6 +820,59 @@ def test_cli_gh_metrics_formats_tables_and_json(
             stdout=json.dumps({"stargazers_count": 15, "forks_count": 4, "open_issues_count": 10})
         ),
     )
+
+
+@pytest.mark.parametrize(
+    ("option", "value"),
+    [("--milestone", "2026-11"), ("--limit", "5")],
+    ids=["milestone", "limit"],
+)
+def test_the_command_refuses_a_filtered_snapshot_for_telemetry(
+    cli: CliRunnerFixture,
+    process_fake: ProcessFake,
+    otlp: FakeCollector,
+    option: str,
+    value: str,
+) -> None:
+    """A filtered snapshot in the project series reads as the whole project: a snapshot of one
+    milestone stays in the dashboard range for 30 days (#4690). The command refuses it before
+    any request."""
+    result = cli(
+        "gh", "metrics", "--repo", "example/repo", "--emit-telemetry", option, value
+    )  # fmt: skip
+
+    sent = [name for name in PROJECT_INSTRUMENT_NAMES if otlp.points(name)]
+    assert (result.exit_code != 0, option in result.output, process_fake.calls, sent) == (
+        True,
+        True,
+        [],
+        [],
+    )
+
+
+@pytest.mark.parametrize("limit", [(), ("--limit", "10")], ids=["no limit", "default limit"])
+def test_the_command_sends_the_snapshot_with_the_default_limit(
+    cli: CliRunnerFixture,
+    process_fake: ProcessFake,
+    roadmap_store: InMemoryRoadmapStore,
+    otlp: FakeCollector,
+    limit: tuple[str, ...],
+) -> None:
+    """A `--limit` equal to its default asks for the same series, so the command sends it,
+    with the repository of the report as `repo` (#4690)."""
+    _answer_metrics_reads(process_fake)
+
+    result = cli("gh", "metrics", "--repo", "example/repo", "--emit-telemetry", *limit)
+
+    stars = {(attrs.get("repo"), value) for attrs, value in otlp.points(PROJECT_STARS.name)}
+    assert (result.exit_code, stars) == (0, {("example/repo", 15.0)})
+
+
+def test_cli_gh_metrics_formats_tables_and_json(
+    cli: CliRunnerFixture, process_fake: ProcessFake, roadmap_store: InMemoryRoadmapStore
+) -> None:
+    """Verify devops gh metrics execution with interactive and JSON outputs."""
+    _answer_metrics_reads(process_fake)
 
     # 1. Plain text / tables
     result_tables = cli("gh", "metrics", "--repo", "example/repo", "--emit-telemetry")
@@ -936,7 +1100,10 @@ def test_a_report_without_traffic_sends_no_traffic_series(
     assert (
         {s.name: otlp.points(s.name) for s in TRAFFIC_SERIES},
         [otlp.points(s.name) for s in (PROJECT_STARS, PROJECT_FORKS)],
-    ) == ({s.name: [] for s in TRAFFIC_SERIES}, [[({}, 0.0)], [({}, 0.0)]])
+    ) == (
+        {s.name: [] for s in TRAFFIC_SERIES},
+        [[({"repo": "example/repo"}, 0.0)], [({"repo": "example/repo"}, 0.0)]],
+    )
 
 
 def test_a_report_with_traffic_sends_the_traffic_series(

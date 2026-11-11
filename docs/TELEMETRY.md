@@ -53,6 +53,11 @@ Only `devops gh metrics --emit-telemetry`, run with a person's `gh` login, sends
 six `devops_cli_project_traffic_*` gauges. The roadmap Service sends none, because its
 token cannot read traffic. A traffic panel shows the last value that a workstation
 sent, and that value can be old.
+Each `devops_cli_project_*` series carries the casefolded `owner/name` of its
+repository as `repo`, because the metrics row sends the snapshots of several
+repositories from one process. With `--emit-telemetry`, `devops gh metrics`
+refuses `--milestone` and a `--limit` other than its default, so no filtered
+snapshot enters these series.
 Prometheus 3 stores each histogram as a
 native histogram under the instrument's own name, with no `_bucket`, `_sum` or
 `_count` series; query it with `histogram_quantile`, `histogram_avg` and
@@ -132,20 +137,20 @@ writes by name.
 | `devops_cli_rag_ingest_last_success_timestamp_seconds` | Gauge | `s` | Timestamp of the last successful RAG repository ingestion run, by repo. |
 | `devops_cli_vulnerability_lookups_total` | Counter | `1` | Packages looked up in a vulnerability database, by source, status and batch: true when one batch request looked them up. |
 | `devops_cli_threat_intel_lookups_total` | Counter | `1` | Domains that a threat-intelligence source was asked about, by source and status: ok, unavailable or failed. A domain that the cache answered is not counted. |
-| `devops_cli_project_releases` | Gauge | `1` | Total project releases tracked. |
-| `devops_cli_project_commits` | Gauge | `1` | Project commits count by release. |
-| `devops_cli_project_prs` | Gauge | `1` | Project pull requests merged by release. |
-| `devops_cli_project_ci_runs` | Gauge | `1` | CI workflow runs by name, status and conclusion. |
-| `devops_cli_project_items` | Gauge | `1` | Roadmap items, the issues with a priority label, by release, state, type and priority. The release is the first v* tag whose commits close the item. A label is empty when the item has no value for it. |
-| `devops_cli_project_release_interval_days` | Histogram | `d` | Days elapsed between consecutive project releases. |
-| `devops_cli_project_traffic_views` | Gauge | `1` | GitHub repository total page views count. |
-| `devops_cli_project_traffic_views_uniques` | Gauge | `1` | GitHub repository unique visitors count. |
-| `devops_cli_project_traffic_clones` | Gauge | `1` | GitHub repository total git clones count. |
-| `devops_cli_project_traffic_clones_uniques` | Gauge | `1` | GitHub repository unique cloners count. |
-| `devops_cli_project_traffic_referrers` | Gauge | `1` | GitHub repository traffic referrals count by referrer source. |
-| `devops_cli_project_traffic_paths` | Gauge | `1` | GitHub repository traffic page views by content path. |
-| `devops_cli_project_stars` | Gauge | `1` | GitHub repository stargazers count. |
-| `devops_cli_project_forks` | Gauge | `1` | GitHub repository forks count. |
+| `devops_cli_project_releases` | Gauge | `1` | Total project releases tracked, by repo. |
+| `devops_cli_project_commits` | Gauge | `1` | Project commits count by repo and release. |
+| `devops_cli_project_prs` | Gauge | `1` | Project pull requests merged by repo and release. |
+| `devops_cli_project_ci_runs` | Gauge | `1` | CI workflow runs by repo, workflow, status and conclusion. |
+| `devops_cli_project_items` | Gauge | `1` | Roadmap items, the issues with a priority label, by repo, release, state, type and priority. The repo is the casefolded owner/name of the repository. The release is the first v* tag whose commits close the item. A label is empty when the item has no value for it. |
+| `devops_cli_project_release_interval_days` | Histogram | `d` | Days elapsed between consecutive project releases, by repo and release. |
+| `devops_cli_project_traffic_views` | Gauge | `1` | GitHub repository total page views count, by repo. |
+| `devops_cli_project_traffic_views_uniques` | Gauge | `1` | GitHub repository unique visitors count, by repo. |
+| `devops_cli_project_traffic_clones` | Gauge | `1` | GitHub repository total git clones count, by repo. |
+| `devops_cli_project_traffic_clones_uniques` | Gauge | `1` | GitHub repository unique cloners count, by repo. |
+| `devops_cli_project_traffic_referrers` | Gauge | `1` | GitHub repository traffic referrals count by repo and referrer source. |
+| `devops_cli_project_traffic_paths` | Gauge | `1` | GitHub repository traffic page views by repo and content path. |
+| `devops_cli_project_stars` | Gauge | `1` | GitHub repository stargazers count, by repo. |
+| `devops_cli_project_forks` | Gauge | `1` | GitHub repository forks count, by repo. |
 | `devops_cli_upstream_service_status` | Gauge | `1` | Upstream cloud service operational status severity code (0=none/operational, 1=minor, 2=major, 3=critical) by service and indicator. |
 | `devops_cli_upstream_component_status` | Gauge | `1` | Upstream cloud service component status code (0=operational, 1=degraded, 2=partial_outage, 3=major_outage) by service and component. |
 | `devops_cli_research_open_findings` | Gauge | `1` | Open research findings, by severity: the advisories that affect a pin of the project. `devops research sweep` sets one value for each severity of the scale, with zero for a severity that has no finding. It sets none when a lookup got no answer. |

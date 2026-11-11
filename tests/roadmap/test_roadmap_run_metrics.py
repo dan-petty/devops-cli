@@ -105,8 +105,19 @@ def test_the_metrics_job_walks_the_version_tags_of_its_own_clone(
         (True, True, timedelta(minutes=DEFAULT_ROADMAP_METRICS_INTERVAL_MINUTES)),
         ("metrics",),
         True,
-        [({}, 2.0)],
-        [({"release": "", "state": "open", "type": "feature", "priority": "P2-Medium"}, 1.0)],
+        [({"repo": REPO}, 2.0)],
+        [
+            (
+                {
+                    "repo": REPO,
+                    "release": "",
+                    "state": "open",
+                    "type": "feature",
+                    "priority": "P2-Medium",
+                },
+                1.0,
+            )
+        ],
         [],
     )
 
@@ -190,4 +201,4 @@ def test_the_metrics_job_of_the_app_asks_no_traffic_endpoint(
         otlp.points(PROJECT_TRAFFIC_VIEWS.name),
         otlp.points(PROJECT_STARS.name),
         [record.getMessage() for record in caplog.records if record.levelno >= logging.WARNING],
-    ) == ([], [], [({}, 0.0)], [])
+    ) == ([], [], [({"repo": REPO}, 0.0)], [])
