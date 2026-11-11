@@ -59,7 +59,7 @@ def test_a_scenario_that_names_code_with_no_behavior_test_is_refused() -> None:
     spec = _spec_with([scenario])
     proposal = make_stage_proposal(specs=[spec], groups=[_group()])
 
-    problems = check_proposal(proposal, ["comment-thread"], TREE)
+    problems = check_proposal(proposal, ["comment-thread"], TREE, registry=())
 
     matching = [p for p in problems if "The loki mode" in p and "_loki_mode" in p]
     assert len(matching) == 1
@@ -74,7 +74,7 @@ def test_a_scenario_that_names_a_command_has_no_scenario_problem() -> None:
     spec = _spec_with([scenario])
     proposal = make_stage_proposal(specs=[spec], groups=[_group()])
 
-    problems = check_proposal(proposal, ["comment-thread"], TREE)
+    problems = check_proposal(proposal, ["comment-thread"], TREE, registry=())
 
     assert not any("The loki mode" in p or "_loki_mode" in p for p in problems)
 
@@ -89,7 +89,7 @@ def test_a_behavior_group_that_names_the_code_in_test_has_no_scenario_problem() 
     group = _group(test="Write `test_loki` testing `_loki_mode` in `tests/test_sample.py`")
     proposal = make_stage_proposal(specs=[spec], groups=[group])
 
-    problems = check_proposal(proposal, ["comment-thread"], TREE)
+    problems = check_proposal(proposal, ["comment-thread"], TREE, registry=())
 
     assert not any("The loki mode" in p or "_loki_mode" in p for p in problems)
 
@@ -109,7 +109,11 @@ def _scenario_problems_of(
 ) -> list[str]:
     scenario = StageScenario(name="A scope that no label declares", when=when, then=then)
     proposal = make_stage_proposal(specs=[_spec_with([scenario])], groups=[group or _group()])
-    return [p for p in check_proposal(proposal, ["comment-thread"], tree) if "no behavior" in p]
+    return [
+        p
+        for p in check_proposal(proposal, ["comment-thread"], tree, registry=())
+        if "no behavior" in p
+    ]
 
 
 def test_a_data_file_in_the_when_that_no_group_touches_needs_no_test_text() -> None:

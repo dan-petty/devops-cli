@@ -9,7 +9,7 @@
 
 ## 2. Tests: the stage gate tests give their table
 
-- [ ] 2.1 Pass `registry=()` to each call of `check_proposal`, `check_gates` and `gate_arguments` in `tests/roadmap/stage/` that does not test the registry gate, and give the table of the checkout to the test of a new roadmap limit
+- [x] 2.1 Pass `registry=()` to each call of `check_proposal`, `check_gates` and `gate_arguments` in `tests/roadmap/stage/` that does not test the registry gate, and give the table of the checkout to the test of a new roadmap limit
   - Verification: `$ uv run devops ci test tests/roadmap/stage`
 
 ## Workflow follow-up

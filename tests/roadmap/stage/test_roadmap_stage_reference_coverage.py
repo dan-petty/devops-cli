@@ -23,7 +23,7 @@ def test_a_quoted_reference_file_with_no_task_or_decision_is_refused() -> None:
     ]
     proposal = make_stage_proposal(feasibility=feasibility)
 
-    problems = check_proposal(proposal, ["comment-thread"], TREE)
+    problems = check_proposal(proposal, ["comment-thread"], TREE, registry=())
 
     matching = [p for p in problems if path in p]
     assert len(matching) == 1
@@ -43,7 +43,7 @@ def test_a_quoted_reference_file_named_in_a_decision_is_accepted() -> None:
     ]
     proposal = make_stage_proposal(feasibility=feasibility, decisions=decisions)
 
-    problems = check_proposal(proposal, ["comment-thread"], TREE)
+    problems = check_proposal(proposal, ["comment-thread"], TREE, registry=())
 
     assert not any(path in p for p in problems)
 
@@ -56,6 +56,6 @@ def test_a_quoted_reference_file_under_archive_is_skipped() -> None:
     ]
     proposal = make_stage_proposal(feasibility=feasibility)
 
-    problems = check_proposal(proposal, ["comment-thread"], TREE)
+    problems = check_proposal(proposal, ["comment-thread"], TREE, registry=())
 
     assert not any(path in p for p in problems)

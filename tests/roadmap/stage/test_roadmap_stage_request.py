@@ -248,14 +248,18 @@ def test_model_json_unchanged_on_the_return_of_a_refused_reply(
 
 def _gates(request: StageRequest) -> dict[ProposalGate, list[str]]:
     """The problems of each gate for a plan that every gate of the request refuses."""
-    return check_gates(make_stage_proposal(), **gate_arguments(request, TREE, known=KNOWN))
+    return check_gates(
+        make_stage_proposal(), **gate_arguments(request, TREE, known=KNOWN, registry=())
+    )
 
 
 def test_gates_from_request_equal_the_direct_call() -> None:
     request = _request()
     proposal = make_stage_proposal()
 
-    from_request = check_proposal(proposal, **gate_arguments(request, TREE, known=KNOWN))
+    from_request = check_proposal(
+        proposal, **gate_arguments(request, TREE, known=KNOWN, registry=())
+    )
 
     direct = check_proposal(
         proposal,
@@ -265,6 +269,7 @@ def test_gates_from_request_equal_the_direct_call() -> None:
         probes=(SAMPLE_PROBE,),
         overlaps=(PULL,),
         plan_creates={"tests/test_sample.py": 3308},
+        registry=(),
     )
     assert from_request == direct
     assert len(direct) >= 4
@@ -314,6 +319,7 @@ def test_gates_from_request_pass_the_keyword_inputs_through() -> None:
         requirements={"comment-thread": {"Keep"}},
         read_text=texts.get,
         constants={"CONST_PANEL_LIMIT": 3},
+        registry=(),
     )
 
     assert arguments["known"] == KNOWN
@@ -329,14 +335,18 @@ def test_gates_from_request_pass_the_manifest_references_through() -> None:
         "k8s/logging/networkpolicy.yaml": ("tests/commands/k8s/test_k8s_logging_stack.py",)
     }
 
-    arguments = gate_arguments(_request(), TREE, known=KNOWN, manifest_references=references)
+    arguments = gate_arguments(
+        _request(), TREE, known=KNOWN, manifest_references=references, registry=()
+    )
 
     assert arguments["manifest_references"] == references
 
 
 def test_gates_from_request_pass_the_module_tests_through() -> None:
     """The tests of each changed module reach the `paths` gate (#3414)."""
-    arguments = gate_arguments(_request(), TREE, known=KNOWN, module_tests={MODULE: (MODULE_TEST,)})
+    arguments = gate_arguments(
+        _request(), TREE, known=KNOWN, module_tests={MODULE: (MODULE_TEST,)}, registry=()
+    )
 
     assert arguments["module_tests"] == {MODULE: (MODULE_TEST,)}
 
@@ -348,8 +358,10 @@ def test_a_request_round_trips_through_json_so_a_gate_runs_again_from_a_file() -
 
     assert again == request
     assert check_proposal(
-        make_stage_proposal(), **gate_arguments(again, TREE, known=KNOWN)
-    ) == check_proposal(make_stage_proposal(), **gate_arguments(request, TREE, known=KNOWN))
+        make_stage_proposal(), **gate_arguments(again, TREE, known=KNOWN, registry=())
+    ) == check_proposal(
+        make_stage_proposal(), **gate_arguments(request, TREE, known=KNOWN, registry=())
+    )
 
 
 # ── The keys are checked ──────────────────────────────────────────────────────

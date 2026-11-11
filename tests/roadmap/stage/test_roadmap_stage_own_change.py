@@ -36,7 +36,9 @@ def test_a_group_that_changes_the_own_change_folder_is_refused() -> None:
     group = _construct(changes=[path, "src/devops_cli/sample.py"])
     proposal = make_stage_proposal().model_copy(update={"groups": [group]})
 
-    problems = check_proposal(proposal, ["comment-thread"], TREE, change="3321-plan-check")
+    problems = check_proposal(
+        proposal, ["comment-thread"], TREE, change="3321-plan-check", registry=()
+    )
 
     matching = [p for p in problems if path in p and "3321-plan-check" in p]
     assert len(matching) == 1
@@ -47,7 +49,9 @@ def test_a_task_code_span_that_names_the_own_change_folder_is_refused() -> None:
     group = _construct(implementation=f"Write `{path}`.")
     proposal = make_stage_proposal(groups=[group])
 
-    problems = check_proposal(proposal, ["comment-thread"], TREE, change="3321-plan-check")
+    problems = check_proposal(
+        proposal, ["comment-thread"], TREE, change="3321-plan-check", registry=()
+    )
 
     matching = [p for p in problems if "Group 1" in p and path in p]
     assert len(matching) == 1
@@ -58,6 +62,8 @@ def test_a_group_that_names_another_change_folder_has_no_own_change_problem() ->
     group = _construct(implementation=f"Read `{path}`.")
     proposal = make_stage_proposal(groups=[group])
 
-    problems = check_proposal(proposal, ["comment-thread"], TREE, change="3321-plan-check")
+    problems = check_proposal(
+        proposal, ["comment-thread"], TREE, change="3321-plan-check", registry=()
+    )
 
     assert not any("own change" in p.lower() or "3321-plan-check" in p for p in problems)

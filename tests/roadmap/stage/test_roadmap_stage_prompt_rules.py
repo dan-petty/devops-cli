@@ -303,7 +303,7 @@ def _delta_plan(path: str) -> list[str]:
         }
     )
     proposal = make_stage_proposal(groups=[group], skip_specs=False)
-    return check_proposal(proposal, [], StagedTree([path, "src/devops_cli/sample.py"]))
+    return check_proposal(proposal, [], StagedTree([path, "src/devops_cli/sample.py"]), registry=())
 
 
 def _refused_prefixes() -> list[str]:
@@ -345,6 +345,7 @@ def test_the_check_refuses_a_spec_delta_for_root_documents() -> None:
         proposal,
         [],
         StagedTree(["SECURITY.md", "CONTRIBUTING.md", "src/devops_cli/sample.py"]),
+        registry=(),
     )
     assert any("These paths need no spec delta" in problem for problem in problems)
 
@@ -373,6 +374,7 @@ def test_the_check_refuses_a_spec_delta_for_knowledge_base_manual_and_tests() ->
                 "src/devops_cli/sample.py",
             ]
         ),
+        registry=(),
     )
     assert any("These paths need no spec delta" in problem for problem in problems)
 
@@ -401,6 +403,7 @@ def test_the_check_accepts_skip_specs_for_knowledge_base_manual_and_tests() -> N
                 "src/devops_cli/sample.py",
             ]
         ),
+        registry=(),
     )
     assert not any("spec delta" in problem for problem in problems)
 
@@ -684,6 +687,7 @@ def test_the_plan_check_refuses_no_word_of_a_requirement_text() -> None:
         proposal_with_every,
         known=[s.capability for s in proposal.specs],
         tree=StagedTree(proposal.groups[0].changes),
+        registry=(),
     )
     assert not any("every" in p.lower() for p in problems)
 

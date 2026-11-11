@@ -71,7 +71,12 @@ def test_a_group_that_creates_the_module_in_another_place_moves_it(created: str)
     ],
 )
 def test_the_files_of_a_tool_or_a_record_need_no_task_group(path: str) -> None:
-    assert check_proposal(make_stage_proposal(), ["comment-thread"], TREE, references=[path]) == []
+    assert (
+        check_proposal(
+            make_stage_proposal(), ["comment-thread"], TREE, references=[path], registry=()
+        )
+        == []
+    )
 
 
 @pytest.mark.parametrize(
@@ -79,6 +84,8 @@ def test_the_files_of_a_tool_or_a_record_need_no_task_group(path: str) -> None:
     ["docs/ROADMAP_WORKFLOW.md", "tests/roadmap/test_x.py", "src/devops_cli/roadmap/caller.py"],
 )
 def test_any_other_file_that_names_a_moved_module_still_needs_a_task_group(path: str) -> None:
-    problems = check_proposal(make_stage_proposal(), ["comment-thread"], TREE, references=[path])
+    problems = check_proposal(
+        make_stage_proposal(), ["comment-thread"], TREE, references=[path], registry=()
+    )
 
     assert any(path in problem for problem in problems)

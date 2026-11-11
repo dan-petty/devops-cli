@@ -64,13 +64,14 @@ from devops_cli.roadmap.stage.stage_left_out import LeftOutKind
 from devops_cli.roadmap.stage.stage_paths import StagedTree
 from devops_cli.roadmap.stage.stage_plan_record import delete_plan_record, plan_record_path
 from devops_cli.roadmap.stage.stage_references import reference_answer, reference_files
-from devops_cli.roadmap.stage.stage_registry import RegistryCount
+from devops_cli.roadmap.stage.stage_registry import RegistryCount, registry_table
 from devops_cli.roadmap.stage.stage_toolbox import ToolboxClient, ToolboxModel
 from devops_cli.roadmap.stage.stage_validate import validate_change
 from devops_cli.roadmap.stores.store import ItemField
 from tests.support.builders import make_stage_proposal, stage_summary_limit
 from tests.support.fakes.github import github_json
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
+from tests.support.paths import REPO_ROOT
 from tests.support.roadmap_implement import merge_plan
 from tests.support.roadmap_stage import (
     NO_FILES,
@@ -797,7 +798,7 @@ def test_the_rules_of_a_spec_delta_are_checked() -> None:
         }
     )
 
-    problems = check_proposal(make_stage_proposal(specs=[bad]), [], SAMPLE_TREE)
+    problems = check_proposal(make_stage_proposal(specs=[bad]), [], SAMPLE_TREE, registry=())
 
     assert problems == [
         "The capability comment-thread is not in openspec/specs/, so its entry needs a purpose "
@@ -809,13 +810,13 @@ def test_the_rules_of_a_spec_delta_are_checked() -> None:
 
 
 def test_a_spec_delta_goes_with_an_observable_change() -> None:
-    assert check_proposal(make_stage_proposal(skip_specs=True), [], SAMPLE_TREE) == [
+    assert check_proposal(make_stage_proposal(skip_specs=True), [], SAMPLE_TREE, registry=()) == [
         "skip_specs is true, and the reply still gives specs."
     ]
-    assert check_proposal(make_stage_proposal(specs=[]), [], SAMPLE_TREE) == [
+    assert check_proposal(make_stage_proposal(specs=[]), [], SAMPLE_TREE, registry=()) == [
         "skip_specs is false, and the reply gives no spec delta."
     ]
-    assert check_proposal(make_stage_proposal(), ["comment-thread"], SAMPLE_TREE) == []
+    assert check_proposal(make_stage_proposal(), ["comment-thread"], SAMPLE_TREE, registry=()) == []
 
 
 def test_a_plan_that_names_a_defect_type_member_passes() -> None:
@@ -852,7 +853,7 @@ def test_a_plan_that_names_a_defect_type_member_passes() -> None:
         ],
         groups=[group],
     )
-    assert check_proposal(proposal, ["comment-thread"], tree) == []
+    assert check_proposal(proposal, ["comment-thread"], tree, registry=()) == []
 
 
 def test_a_task_that_names_a_message_needs_the_message_file() -> None:
@@ -1047,7 +1048,12 @@ def test_a_plan_with_no_gate_change_needs_no_gate_defect_quote() -> None:
 def test_an_existing_capability_takes_requirements_with_no_purpose() -> None:
     spec = make_stage_proposal().specs[0].model_copy(update={"purpose": None})
 
-    assert check_proposal(make_stage_proposal(specs=[spec]), ["comment-thread"], SAMPLE_TREE) == []
+    assert (
+        check_proposal(
+            make_stage_proposal(specs=[spec]), ["comment-thread"], SAMPLE_TREE, registry=()
+        )
+        == []
+    )
     files = render_change(
         "1-x", make_stage_proposal(specs=[spec]), ["comment-thread"], created=TODAY.date()
     )
@@ -2118,7 +2124,7 @@ def _changing(*paths: str) -> StageProposal:
 def test_a_spec_delta_on_a_change_of_tests_workflows_documents_or_plans_is_refused(
     path: str,
 ) -> None:
-    assert check_proposal(_changing(path), [], _tree(path)) == [NO_SPEC_PROBLEM]
+    assert check_proposal(_changing(path), [], _tree(path), registry=()) == [NO_SPEC_PROBLEM]
 
 
 def test_a_spec_delta_on_every_path_of_every_group_that_needs_none_is_refused() -> None:
@@ -2127,19 +2133,19 @@ def test_a_spec_delta_on_every_path_of_every_group_that_needs_none_is_refused() 
         what_changes=[f"`{path}` changes." for path in (NO_SPEC_PATHS[0], NO_SPEC_PATHS[2])],
     )
 
-    assert check_proposal(proposal, [], _tree(*NO_SPEC_PATHS)) == [NO_SPEC_PROBLEM]
+    assert check_proposal(proposal, [], _tree(*NO_SPEC_PATHS), registry=()) == [NO_SPEC_PROBLEM]
 
 
 def test_a_spec_delta_stays_when_one_changed_path_is_source_code() -> None:
     paths = ("tests/test_sample.py", "src/devops_cli/sample.py")
 
-    assert check_proposal(_changing(*paths), [], _tree(*paths)) == []
+    assert check_proposal(_changing(*paths), [], _tree(*paths), registry=()) == []
 
 
 def test_a_change_with_no_spec_delta_on_test_paths_is_accepted() -> None:
     proposal = _changing(NO_SPEC_PATHS[0]).model_copy(update={"skip_specs": True, "specs": []})
 
-    assert check_proposal(proposal, [], _tree(*NO_SPEC_PATHS)) == []
+    assert check_proposal(proposal, [], _tree(*NO_SPEC_PATHS), registry=()) == []
 
 
 # ── The evidence of a negative search (#3410) ────────────────────────────────
@@ -2181,6 +2187,7 @@ def _search_problems(proposal: StageProposal, evidence: Any) -> list[str]:
         ["comment-thread"],
         tree,
         search_evidence=evidence,
+        registry=(),
     )
 
 
@@ -2237,7 +2244,7 @@ def test_an_added_requirement_that_the_base_spec_has_is_refused() -> None:
     base = {"comment-thread": ["The job keeps every comment", "Another requirement"]}
 
     problems = check_proposal(
-        make_stage_proposal(), ["comment-thread"], SAMPLE_TREE, requirements=base
+        make_stage_proposal(), ["comment-thread"], SAMPLE_TREE, requirements=base, registry=()
     )
 
     assert problems == [DUPLICATE_PROBLEM]
@@ -2247,7 +2254,11 @@ def test_an_added_requirement_is_compared_with_its_own_capability_by_name() -> N
     base = {"comment-thread": ["A new name"], "other": ["The job keeps every comment"]}
 
     problems = check_proposal(
-        make_stage_proposal(), ["comment-thread", "other"], SAMPLE_TREE, requirements=base
+        make_stage_proposal(),
+        ["comment-thread", "other"],
+        SAMPLE_TREE,
+        requirements=base,
+        registry=(),
     )
 
     assert problems == []
@@ -2259,7 +2270,11 @@ def test_a_modified_requirement_may_keep_the_name_the_base_spec_has() -> None:
     base = {"comment-thread": ["The job keeps every comment"]}
 
     problems = check_proposal(
-        make_stage_proposal(specs=[moved]), ["comment-thread"], SAMPLE_TREE, requirements=base
+        make_stage_proposal(specs=[moved]),
+        ["comment-thread"],
+        SAMPLE_TREE,
+        requirements=base,
+        registry=(),
     )
 
     assert problems == []
@@ -2461,7 +2476,9 @@ def _mapping(*texts: str, group: int | str = 1) -> list[dict[str, object]]:
 def test_a_reply_that_maps_two_of_three_criteria_is_refused() -> None:
     proposal = make_stage_proposal(criteria=_mapping("First criterion.", "Second criterion."))
 
-    problems = check_proposal(proposal, ["comment-thread"], SAMPLE_TREE, issue_body=THREE_CRITERIA)
+    problems = check_proposal(
+        proposal, ["comment-thread"], SAMPLE_TREE, issue_body=THREE_CRITERIA, registry=()
+    )
 
     assert problems == [MISSING_THIRD]
 
@@ -2472,12 +2489,15 @@ def test_a_reply_that_maps_three_criteria_is_accepted() -> None:
     )
 
     assert (
-        check_proposal(proposal, ["comment-thread"], SAMPLE_TREE, issue_body=THREE_CRITERIA) == []
+        check_proposal(
+            proposal, ["comment-thread"], SAMPLE_TREE, issue_body=THREE_CRITERIA, registry=()
+        )
+        == []
     )
 
 
 def test_the_check_reads_no_criterion_when_the_caller_gives_no_body() -> None:
-    assert check_proposal(make_stage_proposal(), ["comment-thread"], SAMPLE_TREE) == []
+    assert check_proposal(make_stage_proposal(), ["comment-thread"], SAMPLE_TREE, registry=()) == []
 
 
 def test_tasks_md_lists_each_criterion_with_its_group_before_the_follow_up() -> None:
@@ -2575,7 +2595,11 @@ def test_check_proposal_refuses_path_an_open_plan_creates() -> None:
     plan = make_stage_proposal()
 
     problems = check_proposal(
-        plan, ["comment-thread"], SAMPLE_TREE, plan_creates={"tests/test_sample.py": 3308}
+        plan,
+        ["comment-thread"],
+        SAMPLE_TREE,
+        plan_creates={"tests/test_sample.py": 3308},
+        registry=(),
     )
 
     assert len(problems) == 1
@@ -2583,7 +2607,11 @@ def test_check_proposal_refuses_path_an_open_plan_creates() -> None:
     assert "#3308" in problems[0]
     assert (
         check_proposal(
-            plan, ["comment-thread"], SAMPLE_TREE, plan_creates={"src/devops_cli/other.py": 3308}
+            plan,
+            ["comment-thread"],
+            SAMPLE_TREE,
+            plan_creates={"src/devops_cli/other.py": 3308},
+            registry=(),
         )
         == []
     )
@@ -2670,7 +2698,8 @@ def test_check_proposal_refuses_a_new_roadmap_limit_without_ratchet_task() -> No
         )
     )
     plan = make_stage_proposal(groups=[group])
-    problems = check_proposal(plan, ["comment-thread"], tree)
+    registry = registry_table(REPO_ROOT)
+    problems = check_proposal(plan, ["comment-thread"], tree, registry=registry)
     assert any("tests/roadmap/test_roadmap_limit_classes.py" in p for p in problems)
 
     group_with_task = group.model_copy(
@@ -2680,7 +2709,7 @@ def test_check_proposal_refuses_a_new_roadmap_limit_without_ratchet_task() -> No
         }
     )
     plan_with_task = make_stage_proposal(groups=[group_with_task])
-    problems_with_task = check_proposal(plan_with_task, ["comment-thread"], tree)
+    problems_with_task = check_proposal(plan_with_task, ["comment-thread"], tree, registry=registry)
     assert not any("tests/roadmap/test_roadmap_limit_classes.py" in p for p in problems_with_task)
 
 
@@ -2696,7 +2725,9 @@ def test_check_proposal_refuses_a_plan_number_differing_from_a_constant() -> Non
         update={"added": [req.model_copy(update={"scenarios": [scenario_40]})]}
     )
     proposal_40 = make_stage_proposal(specs=[spec_40])
-    problems = check_proposal(proposal_40, ["comment-thread"], SAMPLE_TREE, constants=constants)
+    problems = check_proposal(
+        proposal_40, ["comment-thread"], SAMPLE_TREE, constants=constants, registry=()
+    )
     assert problems == ["SUMMARY_MAX_CHARS is 60 in the staged tree, but the plan says 40."]
 
     scenario_60 = req.scenarios[0].model_copy(
@@ -2706,11 +2737,19 @@ def test_check_proposal_refuses_a_plan_number_differing_from_a_constant() -> Non
         update={"added": [req.model_copy(update={"scenarios": [scenario_60]})]}
     )
     proposal_60 = make_stage_proposal(specs=[spec_60])
-    assert check_proposal(proposal_60, ["comment-thread"], SAMPLE_TREE, constants=constants) == []
+    assert (
+        check_proposal(
+            proposal_60, ["comment-thread"], SAMPLE_TREE, constants=constants, registry=()
+        )
+        == []
+    )
 
     # Returns none for a proposal with no constants
-    assert check_proposal(proposal_40, ["comment-thread"], SAMPLE_TREE, constants={}) == []
-    assert check_proposal(proposal_40, ["comment-thread"], SAMPLE_TREE) == []
+    assert (
+        check_proposal(proposal_40, ["comment-thread"], SAMPLE_TREE, constants={}, registry=())
+        == []
+    )
+    assert check_proposal(proposal_40, ["comment-thread"], SAMPLE_TREE, registry=()) == []
 
     # Returns none for the text of a task group that holds 40
     group_40 = (
@@ -2719,7 +2758,12 @@ def test_check_proposal_refuses_a_plan_number_differing_from_a_constant() -> Non
         .model_copy(update={"implementation": "Set `SUMMARY_MAX_CHARS` to 40 in code."})
     )
     proposal_task = make_stage_proposal(groups=[group_40])
-    assert check_proposal(proposal_task, ["comment-thread"], SAMPLE_TREE, constants=constants) == []
+    assert (
+        check_proposal(
+            proposal_task, ["comment-thread"], SAMPLE_TREE, constants=constants, registry=()
+        )
+        == []
+    )
 
 
 # ── Reference probe and move derivation (#3373) ──────────────────────────────
@@ -2775,7 +2819,9 @@ def test_check_proposal_refuses_probed_path_that_no_group_changes() -> None:
     path = "tests/roadmap/test_x.py"
     proposal = make_stage_proposal()
 
-    problems = check_proposal(proposal, ["comment-thread"], SAMPLE_TREE, references=[path])
+    problems = check_proposal(
+        proposal, ["comment-thread"], SAMPLE_TREE, references=[path], registry=()
+    )
     assert any(path in p for p in problems)
 
 
@@ -2788,7 +2834,7 @@ def test_check_proposal_model_attributes() -> None:
         .model_copy(update={"implementation": "Read `PullStatus.labels` to check labels."})
     )
     proposal_labels = make_stage_proposal(groups=[group_labels])
-    problems = check_proposal(proposal_labels, ["comment-thread"], tree, models=models)
+    problems = check_proposal(proposal_labels, ["comment-thread"], tree, models=models, registry=())
     assert len(problems) == 1
     assert "PullStatus.labels" in problems[0]
     assert "src/devops_cli/github/client.py" in problems[0]
@@ -2798,7 +2844,10 @@ def test_check_proposal_model_attributes() -> None:
         update={"changes": [*group_labels.changes, "src/devops_cli/github/client.py"]}
     )
     proposal_with_client = make_stage_proposal(groups=[group_with_client])
-    assert check_proposal(proposal_with_client, ["comment-thread"], tree, models=models) == []
+    assert (
+        check_proposal(proposal_with_client, ["comment-thread"], tree, models=models, registry=())
+        == []
+    )
 
     # A group that names PullStatus.state returns no problem
     group_state = (
@@ -2807,10 +2856,12 @@ def test_check_proposal_model_attributes() -> None:
         .model_copy(update={"implementation": "Read `PullStatus.state` to check state."})
     )
     proposal_state = make_stage_proposal(groups=[group_state])
-    assert check_proposal(proposal_state, ["comment-thread"], tree, models=models) == []
+    assert (
+        check_proposal(proposal_state, ["comment-thread"], tree, models=models, registry=()) == []
+    )
 
     # A call with no models returns no problem
-    assert check_proposal(proposal_labels, ["comment-thread"], tree) == []
+    assert check_proposal(proposal_labels, ["comment-thread"], tree, registry=()) == []
 
 
 @pytest.mark.usefixtures("openspec")

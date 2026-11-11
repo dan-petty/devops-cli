@@ -54,7 +54,7 @@ def _move(verify: str = f"uv run devops ci test {_TEST}") -> StageGroup:
 
 
 def _check(groups: list[StageGroup], tree: StagedTree = TREE) -> list[str]:
-    return check_proposal(make_stage_proposal(groups=groups), [], tree)
+    return check_proposal(make_stage_proposal(groups=groups), [], tree, registry=())
 
 
 # ── The prefix coverage rule ──────────────────────────────────────────────────

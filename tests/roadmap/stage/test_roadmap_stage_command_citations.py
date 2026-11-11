@@ -120,10 +120,10 @@ def test_placeholder_argument_is_accepted() -> None:
 def test_check_proposal_refuses_unknown_command_under_citation_gate() -> None:
     plan = make_stage_proposal(feasibility=["The probe cites `uv run devops ai ast-graph --help`."])
 
-    found = check_gates(plan, KNOWN, TREE)
+    found = check_gates(plan, KNOWN, TREE, registry=())
 
     assert any("ast-graph" in p for p in found[ProposalGate.CITATION])
-    assert any("ast-graph" in p for p in check_proposal(plan, KNOWN, TREE))
+    assert any("ast-graph" in p for p in check_proposal(plan, KNOWN, TREE, registry=()))
 
 
 def test_plan_passes_content_problems() -> None:
