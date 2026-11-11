@@ -2,11 +2,11 @@
 
 ## Decisions
 
-- **A default factory with the validated data.** `step_token_ceiling` keeps the type `int` and gets `default_factory=_twice_the_step_budget`, which reads `step_token_budget` from the validated data. The field is declared after the budget, so the data holds the loaded budget, from a config file or a variable. Each reader of the field gets an `int`, and the validator `_token_settings_agree` keeps its one comparison.
+- **No stored default.** `step_token_ceiling` is `int | None` with the default None. The property `token_ceiling` gives `step_token_ceiling`, or twice `step_token_budget` when it is None. `StepBudget` is the one reader, and it reads the property. The validator `_token_settings_agree` compares only a ceiling that a source sets: an unset ceiling is twice the budget, so it is never below it. The rule lives in the property only.
 - **The factor is a constant.** `CONST_ROADMAP_IMPLEMENT_CEILING_FACTOR` (2) is a rule, not a value that a person tunes: a person tunes the ceiling itself. Twice the budget always leaves room for the extension of half the budget.
 
 ## Rejected alternatives
 
-- **`int | None` with the default None, resolved in the after-validator.** The model has `validate_assignment=True`, so an assignment in an after-validator runs the validators again. Each reader would also get `int | None` and need a second resolution of the same rule.
-- **Resolve None in `StepBudget`.** The loaded settings and `CONFIGURATION.md` would show no ceiling, and the validator could not compare an unset ceiling, so the rule would live in two places.
-- **A `mode="before"` validator that fills the ceiling.** It reads the raw input, where a variable gives the budget as text, so it would parse the budget a second time before pydantic validates it.
+- **A `default_factory` that reads the validated budget.** The factory runs one time, when the model is built. `devops config set` of the budget assigns it with `validate_assignment=True`, and the validator then compared the new budget with the old ceiling and refused it.
+- **Write the ceiling again in the after-validator.** An assignment in an after-validator runs the validators again, and a write past it puts the twice value into the dump. `save_settings` then writes it into the config file on the next `devops config set`, and the next change of the budget above it fails.
+- **A `mode="before"` validator that fills the ceiling.** It reads the raw input, where a variable gives the budget as text, so it would parse the budget a second time before pydantic validates it. Its value also goes into the dump.

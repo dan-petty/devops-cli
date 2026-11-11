@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: The ceiling of a step budget is a setting
-The setting `roadmap.implement.step_token_ceiling` SHALL set the most tokens, in the unit of `step_token_budget`, that a step may reach with its one extension. It SHALL have the variable `DEVOPS_CLI_ROADMAP_IMPLEMENT_STEP_TOKEN_CEILING`. When no config file and no variable sets it, the ceiling SHALL be twice the loaded `step_token_budget`. A ceiling below `roadmap.implement.step_token_budget` SHALL be refused.
+The setting `roadmap.implement.step_token_ceiling` SHALL set the most tokens, in the unit of `step_token_budget`, that a step may reach with its one extension. It SHALL have the variable `DEVOPS_CLI_ROADMAP_IMPLEMENT_STEP_TOKEN_CEILING`. When no config file and no variable sets it, the ceiling SHALL be twice the loaded `step_token_budget`, also after a change of the budget, and the settings SHALL not store it. A ceiling below `roadmap.implement.step_token_budget` SHALL be refused.
 
 #### Scenario: The default ceiling
 - **WHEN** no config file and no variable sets the ceiling or the step budget
@@ -18,6 +18,10 @@ The setting `roadmap.implement.step_token_ceiling` SHALL set the most tokens, in
 #### Scenario: The whole extension
 - **WHEN** `step_token_budget` is 12000000, nothing sets the ceiling, and the step makes progress at its budget
 - **THEN** the extension holds a budget of 18000000 tokens and says that the ceiling did not cut it
+
+#### Scenario: A change of the step budget by `devops config set`
+- **WHEN** nothing sets the ceiling and `devops config set roadmap.implement.step_token_budget 20000000` runs
+- **THEN** the command exits 0, the config file gets the budget and no ceiling, and the ceiling is 40000000
 
 #### Scenario: A variable for the ceiling
 - **WHEN** the variable `DEVOPS_CLI_ROADMAP_IMPLEMENT_STEP_TOKEN_CEILING` holds 9000000

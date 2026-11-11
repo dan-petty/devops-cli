@@ -1021,12 +1021,6 @@ class RoadmapStageConfig(BaseModel):
         return entries
 
 
-def _twice_the_step_budget(data: dict[str, Any]) -> int:
-    """The default of `step_token_ceiling`: twice the `step_token_budget` that the settings hold, so
-    a person who sets only the budget gets the whole extension (#4505)."""
-    return CONST_ROADMAP_IMPLEMENT_CEILING_FACTOR * int(data["step_token_budget"])
-
-
 class RoadmapImplementConfig(BaseModel):
     model_config = ConfigDict(extra="ignore", validate_assignment=True, hide_input_in_errors=True)
 
@@ -1049,9 +1043,9 @@ class RoadmapImplementConfig(BaseModel):
         default=DEFAULT_ROADMAP_IMPLEMENT_STEP_TOKEN_BUDGET,
         ge=1,
     )
-    step_token_ceiling: Annotated[int, Variable()] = Field(
-        description="The most input tokens that one implementation step may reach with its one extension. A step that reaches `step_token_budget` gets one extension of half the budget when its last 20 tool calls hold at least one successful edit and at most 3 refused commands (the rule `implement.extension`), and the extension stops at this ceiling. It must not be below `step_token_budget`. When no config file and no variable sets it, it is twice `step_token_budget`. The item budget still holds",
-        default_factory=_twice_the_step_budget,
+    step_token_ceiling: Annotated[int | None, Variable()] = Field(
+        description="The most input tokens that one implementation step may reach with its one extension. A step that reaches `step_token_budget` gets one extension of half the budget when its last 20 tool calls hold at least one successful edit and at most 3 refused commands (the rule `implement.extension`), and the extension stops at this ceiling. It must not be below `step_token_budget`. When no config file and no variable sets it, it is twice `step_token_budget`, also after a change of the budget. The item budget still holds",
+        default=None,
         ge=1,
     )
     item_token_budget: Annotated[int, Variable()] = Field(
@@ -1202,10 +1196,20 @@ class RoadmapImplementConfig(BaseModel):
 
     @model_validator(mode="after")
     def _token_settings_agree(self) -> RoadmapImplementConfig:
-        """The ceiling of a step is not below its budget, so the one extension never lowers it."""
-        if self.step_token_ceiling < self.step_token_budget:
+        """A ceiling that a source sets is not below the budget, so the one extension never lowers
+        it. An unset ceiling is twice the budget (`token_ceiling`), so it needs no check."""
+        if self.step_token_ceiling is not None and self.step_token_ceiling < self.step_token_budget:
             raise ValueError("step_token_ceiling must not be below step_token_budget")
         return self
+
+    @property
+    def token_ceiling(self) -> int:
+        """The ceiling of the one extension of a step: `step_token_ceiling`, or twice
+        `step_token_budget` when no source sets it (#4505). The settings do not store the twice
+        value, so a change of the budget (`devops config set`) moves it and writes no ceiling."""
+        if self.step_token_ceiling is None:
+            return CONST_ROADMAP_IMPLEMENT_CEILING_FACTOR * self.step_token_budget
+        return self.step_token_ceiling
 
     @field_validator("effort")
     @classmethod

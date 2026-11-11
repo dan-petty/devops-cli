@@ -145,7 +145,7 @@ class StepBudget:
         self.extension: BudgetExtension | None = None
         self._progress = progress
         self._budget = limits.step_token_budget
-        self._ceiling = limits.step_token_ceiling
+        self._ceiling = limits.token_ceiling
         self._step_limit = self._budget
         # The reason of the stop at the token budget of the step, once the rule has halted.
         self._stop: str | None = None
