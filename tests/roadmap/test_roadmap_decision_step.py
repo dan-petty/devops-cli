@@ -4,6 +4,8 @@ that fails open, and the cuts as data."""
 from __future__ import annotations
 
 import json
+import queue
+import threading
 from typing import TYPE_CHECKING
 
 import pytest
@@ -19,6 +21,7 @@ from devops_cli.roadmap.decision_step import (
     decide_all,
     probabilities_of,
 )
+from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -66,6 +69,40 @@ def test_the_requests_are_answered_in_order_and_each_is_one_request(jev: JevFake
         {"a": 0.7, "b": 0.1},
     ]
     assert sorted(jev.asked) == [["a"], ["a", "b"], ["b"]]
+
+
+def test_a_shared_model_serves_every_request_on_one_event_loop(jev: JevFake) -> None:
+    """The provider of a model binds its lock and its client to the loop that first uses them, and
+    a wait on that lock from another loop does not wake (#4513)."""
+    decide_all([_request("a"), _request("b"), _request("a", "b")], model=jev.model)
+
+    assert len(jev.loops) == 3
+    assert len(set(jev.loops)) == 1
+
+
+def test_a_request_that_is_never_answered_ends_in_timeout_error(jev: JevFake) -> None:
+    """The timeout of `decide_all` ends a request that the endpoint never answers, so the step
+    fails open and the caller does not wait for good (#4513). The call runs in a thread of the
+    test: with no limit, the test fails at the bound and then releases the held request."""
+    jev.hold()
+    outcome: queue.Queue[object] = queue.Queue()
+
+    def call() -> None:
+        try:
+            outcome.put(decide_all([_request("a")], model=jev.model, timeout=0.01))
+        except Exception as exc:  # the test asserts on the error that the call raised
+            outcome.put(exc)
+
+    caller = threading.Thread(target=call, daemon=True)
+    caller.start()
+    try:
+        result = outcome.get(timeout=THREAD_HANDOFF_BOUND_SECONDS)
+    finally:
+        jev.release()
+        caller.join(THREAD_HANDOFF_BOUND_SECONDS)
+
+    assert type(result) is TimeoutError
+    assert jev.asked == []
 
 
 def test_a_failed_request_raises_so_the_step_can_fail_open(jev: JevFake) -> None:

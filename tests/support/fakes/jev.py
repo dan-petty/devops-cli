@@ -3,12 +3,14 @@
 Doubles the `/v1/systemone` endpoint that `SystemOneModel` posts to. The fake is a transport under
 the real model, so the request body is built and the answers are validated by the library for
 real: an answer the real endpoint would not send fails the test the way it fails in production.
-It answers every question of a request from the picks a test gives, records each request, and
-fails a request on demand, without a socket.
+It answers every question of a request from the picks a test gives, records each request and
+the event loop that sent it, fails a request on demand, and holds a request open until the test
+releases it, without a socket.
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 import threading
 from collections.abc import Iterator
@@ -54,6 +56,10 @@ class JevFake:
         self.requests: list[dict[str, Any]] = []
         self.status: int | None = None
         self.error: Exception | None = None
+        self.loops: list[asyncio.AbstractEventLoop] = []
+        self._held = False
+        self._waiting: list[tuple[asyncio.AbstractEventLoop, asyncio.Event]] = []
+        self._lock = threading.Lock()
         self._server: ThreadingHTTPServer | None = None
         self.model: SystemOneModel = SystemOneModel(
             CONST_AI_JEV_MODEL,
@@ -74,6 +80,30 @@ class JevFake:
     def unreachable(self, error: Exception) -> None:
         """Raise this transport error for every request."""
         self.error = error
+
+    def hold(self) -> None:
+        """Keep every request open until `release`, as an endpoint that never answers does."""
+        self._held = True
+
+    def release(self) -> None:
+        """Answer the held requests and hold no more. A thread other than the one that sends the
+        requests can call it."""
+        with self._lock:
+            self._held = False
+            for loop, answered in self._waiting:
+                loop.call_soon_threadsafe(answered.set)
+
+    async def _wait_while_held(self) -> None:
+        with self._lock:
+            if not self._held:
+                return
+            entry = (asyncio.get_running_loop(), asyncio.Event())
+            self._waiting.append(entry)
+        try:
+            await entry[1].wait()
+        finally:
+            with self._lock:
+                self._waiting.remove(entry)
 
     @property
     def asked(self) -> list[list[str]]:
@@ -114,9 +144,11 @@ class JevFake:
         usage = {"input_tokens": 64, "output_tokens": len(answers)}
         return 200, {"model": CONST_AI_JEV_MODEL, "answers": answers, "usage": usage}
 
-    def _handle(self, request: httpx2.Request) -> httpx2.Response:
+    async def _handle(self, request: httpx2.Request) -> httpx2.Response:
+        self.loops.append(asyncio.get_running_loop())
         if self.error is not None:
             raise self.error
+        await self._wait_while_held()
         status, payload = self._reply(json.loads(request.content))
         return httpx2.Response(status, json=payload)
 

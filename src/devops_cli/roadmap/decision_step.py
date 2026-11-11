@@ -7,9 +7,11 @@ questions. The step builds the evidence and the questions. This module holds the
   in the repository with the model, the date and the numbers that gave them.
 - `band_of`: the band for the probabilities of a case. A probability under `continue_below` for
   every question is *continue*. One at or above `flag_at` is *flag*. Any other case is *review*.
-- `decide_all`: one request for each piece of evidence, sent at the same time. Each request uses
-  its own model and closes it on the loop that used it, so a second request does not meet a
-  closed loop (#4319). Any error raises, and the step then fails open to the existing path.
+- `decide_all`: one request for each piece of evidence, sent at the same time on one event loop in
+  the calling thread. A model that the requests share binds its lock and its client to the loop
+  that first uses them, so all of its requests stay on that loop (#4513). With no model given,
+  each request builds its own model and closes it on that loop (#4319). `timeout` bounds each
+  request. Any error raises, and the step then fails open to the existing path.
 
 The module sends no text of an answer anywhere. A Jev answer is evidence and never the only
 control of a path.
@@ -20,7 +22,6 @@ from __future__ import annotations
 import asyncio
 import json
 from collections.abc import Mapping, Sequence
-from concurrent.futures import ThreadPoolExecutor
 from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final, Self, cast
@@ -35,7 +36,11 @@ from pydantic_ai.models.decision import (
     NoulAnswer,
 )
 
-from devops_cli.config.constants import CONST_AI_JEV_MODEL, CONST_ROADMAP_DECISION_STEP_CONCURRENCY
+from devops_cli.config.constants import (
+    CONST_AI_JEV_MODEL,
+    CONST_ROADMAP_DECISION_STEP_CONCURRENCY,
+    CONST_ROADMAP_JEV_TIMEOUT_SECONDS,
+)
 from devops_cli.exceptions.base import DevOpsCLIError
 from devops_cli.lang import MESSAGES
 
@@ -143,23 +148,46 @@ async def _decide_closing(
             await client.aclose()
 
 
-def _decide_one(
+async def _decide_one(
     request: DecisionRequest,
     model: DecisionModel[Any] | None,
     model_name: str,
     settings: Settings | None,
     timeout: float,
+    slots: asyncio.Semaphore,
 ) -> DecisionResponse:
     """The one place that sends a request of a decision step. A model that this call builds from
     `model_name` serves this request only, and the call closes its client on the loop of the
-    request (#4319)."""
+    request (#4319). `timeout` bounds the whole request, so a request that does not end raises
+    `TimeoutError` (#4513)."""
     from devops_cli.ai.jev import create_jev_model
 
-    decider = model or create_jev_model(model_name, settings=settings)
-    options = cast(
-        DecisionModelSettings, {**(getattr(decider, "settings", None) or {}), "timeout": timeout}
+    async with slots:
+        decider = model or create_jev_model(model_name, settings=settings)
+        options = cast(
+            DecisionModelSettings,
+            {**(getattr(decider, "settings", None) or {}), "timeout": timeout},
+        )
+        async with asyncio.timeout(timeout):
+            return await _decide_closing(request, decider, options, own=model is None)
+
+
+async def _decide_gathered(
+    requests: Sequence[DecisionRequest],
+    model: DecisionModel[Any] | None,
+    model_name: str,
+    settings: Settings | None,
+    timeout: float,
+) -> list[DecisionResponse]:
+    slots = asyncio.Semaphore(CONST_ROADMAP_DECISION_STEP_CONCURRENCY)
+    return list(
+        await asyncio.gather(
+            *(
+                _decide_one(request, model, model_name, settings, timeout, slots)
+                for request in requests
+            )
+        )
     )
-    return asyncio.run(_decide_closing(request, decider, options, own=model is None))
 
 
 def decide_all(
@@ -168,19 +196,15 @@ def decide_all(
     model: DecisionModel[Any] | None = None,
     model_name: str = CONST_AI_JEV_MODEL,
     settings: Settings | None = None,
-    timeout: float = 30.0,
+    timeout: float = CONST_ROADMAP_JEV_TIMEOUT_SECONDS,
 ) -> list[DecisionResponse]:
-    """The responses of the decision model to `requests`, in order, sent at the same time. With no
-    `model`, each request builds its own model, the one that `model_name` names, from `settings`.
-    The first error raises."""
+    """The responses of the decision model to `requests`, in order, sent at the same time on one
+    event loop in the calling thread. With no `model`, each request builds its own model, the one
+    that `model_name` names, from `settings`. A request that takes longer than `timeout` seconds
+    raises `TimeoutError`. The first error raises."""
     if not requests:
         return []
-    with ThreadPoolExecutor(max_workers=CONST_ROADMAP_DECISION_STEP_CONCURRENCY) as pool:
-        futures = [
-            pool.submit(_decide_one, request, model, model_name, settings, timeout)
-            for request in requests
-        ]
-        return [future.result() for future in futures]
+    return asyncio.run(_decide_gathered(requests, model, model_name, settings, timeout))
 
 
 __all__ = [
