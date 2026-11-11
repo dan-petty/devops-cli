@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: A Jev screen may skip the model review of a plan
-The screen before the model review of a plan SHALL be the decision point `stage.verify_screen` of the registry, and `roadmap.decisions` SHALL hold its mode. With the mode `on` and `ai.decision_model` set, the stage job SHALL ask the decision model nine yes/no questions about a digest of the input of the review, in one request, before the review, and SHALL skip the review when no probability reaches its fitted cut. Any other band SHALL run the review. With `shadow`, the stage job SHALL ask the decision model, write one decision record and one count, run the review, and write one outcome record with the identifier of the decision and the result of the review. With `off`, the default, or with `ai.decision_model` empty, the stage job SHALL make no request to a decision model, write no record and no count, and run the review.
+The screen before the model review of a plan SHALL be the decision point `stage.verify_screen`, with its mode in `roadmap.decisions`. With the mode `on` and `ai.decision_model` set, the stage job SHALL ask the decision model nine yes/no questions about a digest of the input of the review in one request, and SHALL skip the review when no probability reaches its fitted cut. With any other mode or band, or with `ai.decision_model` empty, the review SHALL run.
 
 #### Scenario: The setting is off
 - **WHEN** the stage job reviews a plan and `stage.verify_screen` is not in `roadmap.decisions`
