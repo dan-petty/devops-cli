@@ -267,7 +267,7 @@ Executed on workspace initialization (DevContainer startup) or on-demand.
 - **Methodology**:
   - Validates GitHub Pages deployment health and verifies local publishing assets (`docs/_config.yml` and `docs/`).
   - Audits live open issues for missing taxonomy labels (`type/*`, `scope/*`) or a missing `priority/*` label.
-  - On demand only: audits remote GitHub Projects v2 boards and views against `.github/project-template.json` to prevent configuration drift. No roadmap job reads the board ([`SDLC.md`](SDLC.md), Phase 1, Status Lives on GitHub).
+  - On demand only: audits remote GitHub Projects v2 boards and views against `.github/project-template.json` to prevent configuration drift. See [`SDLC.md`](SDLC.md), Phase 1, Status Lives on GitHub.
 - **Commands**:
   ```bash
   devops gh pages status

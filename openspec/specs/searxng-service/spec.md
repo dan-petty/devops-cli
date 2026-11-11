@@ -80,11 +80,11 @@ Every file of `k8s/devops/searxng/` SHALL be in its `kustomization.yaml`, in `k8
 - **THEN** the lists name the same files
 
 ### Requirement: A bump of the image tells the person what to check
-The Renovate configuration SHALL hold a rule for the image whose pull request text names the 14-day age of the tag and the refresh of the engine names file.
+The Renovate configuration SHALL hold a rule for the image whose pull request text names the refresh of the engine names file and names no age of the tag.
 
 #### Scenario: The note is missing
 - **WHEN** a test reads `.github/renovate.json`
-- **THEN** one rule matches the image and its note names both checks
+- **THEN** one rule matches the image, its note names the engine names file, and its note does not hold `days old`
 
 ### Requirement: The ConfigMap explains the two log lines of the start
 The file `k8s/devops/searxng/configmap.yaml` SHALL hold a comment, outside the text of `settings.yml`, that names the ERROR "X-Forwarded-For nor X-Real-IP header is set!" with its source `searx/botdetection/trusted_proxies.py`, and the WARNING for a missing `limiter.toml` with its source `searx/botdetection/config.py`, and that says both are harmless with the limiter off.

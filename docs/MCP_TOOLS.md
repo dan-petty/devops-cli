@@ -115,6 +115,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`review_path`](#review-path) | `true` | Review source files directly (no git required). |
 | [`review_pr`](#review-pr) | `false` | Review a GitHub pull request. |
 | [`review_stats`](#review-stats) | `true` | Compute and display review accuracy statistics across saved sessions. |
+| [`roadmap_consolidate`](#roadmap-consolidate) | `true` | Propose groups of open items that share a root cause, and write the plan to a local file. A model proposes and then tries to refute each shortlist, code checks the answers, and nothing changes on GitHub. Details: docs/roadmap/consolidate.md. |
 | [`roadmap_intake`](#roadmap-intake) | `false` | Turn each open issue with no priority label into a roadmap item, or file a new candidate: intake sets the labels, adds a reason comment and names a possible duplicate for a person to close. It writes nothing without --confirm. Details: docs/roadmap/intake.md. |
 | [`roadmap_refine`](#roadmap-refine) | `false` | Refine roadmap items to Ready: investigate open questions with tools that read the code and the documentation, then write the design, tasks and acceptance criteria to GitHub. Without --confirm, refine prints its plan only. Details: docs/roadmap/refine.md. |
 | [`roadmap_run`](#roadmap-run) | `false` | Run the roadmap jobs that are due, in order: metrics, then intake, refine and the alternatives check, and record each one's last success. Intake is due on an issue reopened or a new issue, and decides at most 5 candidates a run and keeps a record of those it left beside the schedule; refine is due every 17 minutes, on a first run, and after an intake that placed a critical fix or a P0 item; retitle is due every 61 minutes and on a first run; the alternatives check is due every 719 minutes and on a first run, and checks at most roadmap.alternatives.first_pass_limit items while an item has no check, and roadmap.alternatives.limit items after. Without --confirm, or with --dry-run, prints the due list and runs nothing. |
@@ -1912,6 +1913,21 @@ Compute and display review accuracy statistics across saved sessions.
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `reviews_dir` | `string` | No | - | Directory containing review sessions. |
+
+### `roadmap_consolidate`
+
+Propose groups of open items that share a root cause, and write the plan to a local file. A model proposes and then tries to refute each shortlist, code checks the answers, and nothing changes on GitHub. Details: docs/roadmap/consolidate.md.
+
+**Annotations:** `readOnlyHint: true`
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `repo` | `string` | No | - | Repository as owner/name (default: this checkout's origin). |
+| `ref` | `string` | No | - | Branch, tag or commit to check the cited paths and lines against (default: the default branch of origin). The plan records its commit. |
+| `limit` | `integer` | No | - | Maximum number of shortlists to judge with the model in this run (default: 10). A shortlist that an earlier plan judged costs no call and does not count. |
+| `dry_run` | `boolean` | No | `False` | Make no request: print the requests a run makes, with placeholders. |
 
 ### `roadmap_intake`
 
