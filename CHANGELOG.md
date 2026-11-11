@@ -2,6 +2,30 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.112.3](https://github.com/dan-petty/devops-cli/compare/v0.112.2...v0.112.3) (2026-11-11)
+
+
+### Bug Fixes
+
+* **ai:** record the duration of each agent model request ([#4717](https://github.com/dan-petty/devops-cli/issues/4717)) ([1930b71](https://github.com/dan-petty/devops-cli/commit/1930b71c015111f8c17197eaee3f122b244ed711))
+* **devcontainer:** poll the Docker daemon through the clock ([#4721](https://github.com/dan-petty/devops-cli/issues/4721)) ([be32268](https://github.com/dan-petty/devops-cli/commit/be322688c1502ec6a066c3362535a900337581d3))
+* **roadmap:** confine repair fix turns to the plan files ([#4689](https://github.com/dan-petty/devops-cli/issues/4689)) ([d2e7597](https://github.com/dan-petty/devops-cli/commit/d2e759743fc02b5ae2cf029336e96aea78e3e030))
+* **roadmap:** name the nearest test of a module ([#4696](https://github.com/dan-petty/devops-cli/issues/4696)) ([b746c95](https://github.com/dan-petty/devops-cli/commit/b746c95ccc77d99ea2e25baf02b88200a21422cf))
+* **roadmap:** scoped intake reads a bounded page count ([#4740](https://github.com/dan-petty/devops-cli/issues/4740)) ([f89ccc5](https://github.com/dan-petty/devops-cli/commit/f89ccc51d9812f16b5c495295af915bef4fa6480))
+* **roadmap:** stage context reads runner facts from the package ([#4723](https://github.com/dan-petty/devops-cli/issues/4723)) ([05e09dc](https://github.com/dan-petty/devops-cli/commit/05e09dcc9dbc1ddc8f727b4f94b4a77083ea67da))
+* **roadmap:** stage holds an item where openspec is not set up ([#4749](https://github.com/dan-petty/devops-cli/issues/4749)) ([45bd54a](https://github.com/dan-petty/devops-cli/commit/45bd54afc774905f33b9e259f6106a1772f238fe))
+* **roadmap:** trace gate reads a tool call citation ([#4694](https://github.com/dan-petty/devops-cli/issues/4694)) ([5c71ad4](https://github.com/dan-petty/devops-cli/commit/5c71ad4e3c1420d35caa85c724bfb95e79c95d03))
+
+
+### Performance Improvements
+
+* **ci:** cancel superseded CodeQL runs and idle triggers ([#4763](https://github.com/dan-petty/devops-cli/issues/4763)) ([c951368](https://github.com/dan-petty/devops-cli/commit/c9513687441f8c5fb1d4eef66a127637295de0f3))
+
+
+### Code Refactoring
+
+* **ai:** delete orphan prompts and the prompt fallbacks ([#4710](https://github.com/dan-petty/devops-cli/issues/4710)) ([38a1b13](https://github.com/dan-petty/devops-cli/commit/38a1b13404c65f48aa361066b99f594f318c7f10))
+
 ## [0.112.2](https://github.com/dan-petty/devops-cli/compare/v0.112.1...v0.112.2) (2026-11-11)
 
 
