@@ -1,0 +1,40 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: plugin-barman-cloud
+  namespace: argocd
+  annotations:
+    # Syncs after cert-manager, whose CRDs the chart's Issuer and Certificates need. The dry run
+    # is skipped as well, for the first sync before the CRDs exist.
+    argocd.argoproj.io/sync-wave: "1"
+  finalizers:
+  - resources-finalizer.argocd.argoproj.io
+spec:
+  project: homelab-system
+  sources:
+  - repoURL: https://cloudnative-pg.github.io/charts
+    chart: plugin-barman-cloud
+    targetRevision: 0.8.1
+    helm:
+      valueFiles:
+      - $values/k8s/cnpg-system/plugin-barman-cloud-values.yaml
+  - repoURL: https://github.com/dan-petty/devops-cli
+    targetRevision: main
+    ref: values
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: cnpg-system
+  syncPolicy:
+    automated:
+      enabled: true
+      prune: true
+      selfHeal: true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+    syncOptions:
+    - SkipDryRunOnMissingResource=true
+    - ServerSideApply=true

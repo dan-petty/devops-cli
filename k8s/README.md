@@ -11,12 +11,12 @@ Kustomize + Helm-based configurations for deploying infrastructure management (`
 
 | Stack | Components | Namespaces | Default Ports |
 | :--- | :--- | :--- | :--- |
-| **`infra`** *(Default)* | ArgoCD (backed by Valkey), Argo Workflows controller, Grafana k8s-monitoring (Alloy + kube-state-metrics + node-exporter), Prometheus server, Grafana, Alertmanager, Grafana Pyroscope, NVIDIA DCGM Exporter, OpenTelemetry Collector, Grafana Tempo, CloudNativePG operator | `argocd`, `argo-workflows`, `monitoring`, `otel`, `cnpg-system` | `8080` (ArgoCD), `8030` (Grafana), `8090` (Prometheus), `4040` (Pyroscope), `3200` (Tempo) |
+| **`infra`** *(Default)* | ArgoCD (backed by Valkey), Argo Workflows controller, Grafana k8s-monitoring (Alloy + kube-state-metrics + node-exporter), Prometheus server, Grafana, Alertmanager, Grafana Pyroscope, NVIDIA DCGM Exporter, OpenTelemetry Collector, Grafana Tempo, CloudNativePG operator, cert-manager and the Barman Cloud plugin ([CloudNativePG Backup Plugin](#cloudnativepg-backup-plugin)) | `argocd`, `argo-workflows`, `monitoring`, `otel`, `cnpg-system`, `cert-manager` | `8080` (ArgoCD), `8030` (Grafana), `8090` (Prometheus), `4040` (Pyroscope), `3200` (Tempo) |
 | **`llm`** | Ollama (per-VRAM-tier DaemonSets), LLM Gateway (LiteLLM) with its CloudNativePG database, Open-WebUI, Qdrant Vector DB, Valkey Cache | `llm` | `11434` (Ollama), `3000` (WebUI), `6333` (Qdrant), `6379` (Valkey) |
 | **`logging`** | Loki (pod and journal logs shipped by the `infra` stack's Alloy `alloy-logs` DaemonSet) | `logging` | `3100` (Loki) |
 | **`gitea`** | Gitea: the internal forge and container registry ([Gitea](#gitea)) | `gitea` | `3000` (Gitea HTTP, in the cluster) |
 | **`chat`** | Mattermost Team Edition on CloudNativePG ([Mattermost](#mattermost)) | `mattermost`, `mattermost-operator` | `8065` (Mattermost HTTP, in the cluster) |
-| **`all`** | All components from the stacks above, and the `devops` stack | `argocd`, `argo-workflows`, `monitoring`, `otel`, `llm`, `logging`, `gitea`, `devops`, `mattermost`, `cnpg-system`, `mattermost-operator` | All ports above |
+| **`all`** | All components from the stacks above, and the `devops` stack | `argocd`, `argo-workflows`, `monitoring`, `otel`, `llm`, `logging`, `gitea`, `devops`, `mattermost`, `cnpg-system`, `mattermost-operator`, `cert-manager` | All ports above |
 
 Register each manifest, Helm release and post-Helm step that runs in the cluster in `MANIFESTS_BY_STACK`, `HELM_RELEASES_BY_STACK` or `POST_HELM_BY_STACK` (`src/devops_cli/commands/k8s/stack_lifecycle.py`), so that `devops k8s deploy-stack --stack all` deploys it with the `infra`, `llm`, `logging`, `devops`, `gitea` and `chat` stacks. deploy-stack applies a file of `MANIFESTS_BY_STACK` with `kubectl apply -f` and a kustomization directory with `kubectl apply -k`.
 
@@ -282,7 +282,7 @@ Alloy, run by the `k8s-monitoring` release (`monitoring/k8s-monitoring-values.ya
 | otel-collector | Its own `otel-collector` release (`otel/values.yaml`), scraped by the Prometheus server's `kubernetes-pods` job, which keeps only namespace `otel` | devops-cli exports delta temporality, and Alloy's `deltatocumulative` is experimental only, so k8s-monitoring cannot replace the collector (#1132). The server scrapes it, not Alloy, so the collector's export failures stay visible when Alloy is what fails |
 | prometheus-operator-crds | Its own release, installed first | The `argocd`, `argo-workflows`, `llm-gateway`, `pyroscope` and `qdrant` ServiceMonitors need the `monitoring.coreos.com` CRDs, which k8s-monitoring 4.x no longer ships |
 
-cloudflared, Traefik, Alertmanager, roadmap-service and `llm/valkey` (`redis-exporter` sidecar on port 9121) are found by annotation autodiscovery (#1130, #551), through the `prometheus.io/*` annotations their plain manifests carry, each with the pod's `app.kubernetes.io/name` as its job; CoreDNS comes through `clusterMetrics.kubeDNS`.
+cloudflared, Traefik, Alertmanager, roadmap-service, the three cert-manager pods (port 9402) and `llm/valkey` (`redis-exporter` sidecar on port 9121) are found by annotation autodiscovery (#1130, #551), through the `prometheus.io/*` annotations their plain manifests carry, each with the pod's `app.kubernetes.io/name` as its job; CoreDNS comes through `clusterMetrics.kubeDNS`.
 
 `devops prometheus targets` reads the server's `/api/v1/targets`, so it lists only the server's two jobs; Alloy's targets appear in Prometheus as their `up` series.
 
@@ -1038,7 +1038,7 @@ Mattermost Team Edition runs under Argo CD from the Mattermost Operator on Cloud
 ### What runs where
 
 - **Operator**: `mattermost-operator` runs in namespace `mattermost-operator`.
-- **Database Operator**: `cloudnative-pg` runs in namespace `cnpg-system`. It also runs the gateway database of stack `llm`, so deploy-stack installs it with stack `infra`.
+- **Database Operator**: `cloudnative-pg` runs in namespace `cnpg-system`. It also runs the gateway database of stack `llm`, so deploy-stack installs it with stack `infra`. The Barman Cloud plugin runs beside it ([CloudNativePG Backup Plugin](#cloudnativepg-backup-plugin)).
 - **Workload**: `Mattermost` runs in namespace `mattermost`.
 - **Database**: CloudNativePG `Cluster` named `mattermost-db` runs in namespace `mattermost`.
 - **Volume**: PVC `mattermost-files` stores uploaded files on `local-path`.
@@ -1070,6 +1070,27 @@ Mattermost Team Edition runs under Argo CD from the Mattermost Operator on Cloud
   kubectl -n mattermost exec deploy/mattermost -- mmctl --local user change-password <user> --password <new>
   ```
 - **Teardown**: On a cluster without Argo CD, `teardown-stack --stack chat` deletes the database and the files claim.
+
+## CloudNativePG Backup Plugin
+
+CloudNativePG 1.32.0 removes the in-tree `barmanObjectStore` (CloudNativePG release-1.30 documentation, `docs/src/appendixes/backup_barmanobjectstore.md`). A `Cluster` backs up and archives its WAL through the [Barman Cloud plugin](https://github.com/cloudnative-pg/plugin-barman-cloud) (Apache-2.0). The plugin gets its TLS certificates from [cert-manager](https://github.com/cert-manager/cert-manager) (Apache-2.0). Both run with stack `infra`. No database uses the plugin yet: the backup of a database adds an `ObjectStore` and the `plugins` entry of its `Cluster`.
+
+| Helm release and Argo CD Application | Chart | Namespace | Purpose |
+| :--- | :--- | :--- | :--- |
+| `cert-manager` | `jetstack/cert-manager` v1.21.3 | `cert-manager` | Issues the server and client certificates of the plugin. The plugin chart brings its own self-signed `Issuer`, so there is no `ClusterIssuer` and no ACME account. |
+| `plugin-barman-cloud` | `cloudnative-pg/plugin-barman-cloud` 0.8.1 (plugin v0.15.1) | `cnpg-system` | The plugin. It must run in the namespace of the operator. The operator finds it through Service `barman-cloud`, which has the label `cnpg.io/pluginName: barman-cloud.cloudnative-pg.io`. The chart adds CRD `objectstores.barmancloud.cnpg.io`. |
+
+- **Order.** deploy-stack installs `cloudnative-pg`, then `cert-manager`, then `plugin-barman-cloud`. The start-up check Job of cert-manager holds `--wait` until the webhook answers, so the plugin chart can create its `Issuer` and `Certificate` objects. Argo CD syncs Application `plugin-barman-cloud` in sync wave 1, after `cert-manager`. It skips the dry run of a kind that has no CRD yet (`SkipDryRunOnMissingResource=true`), and it retries a failed sync five times.
+- **CRDs.** The cert-manager chart installs its CRDs with `helm.sh/resource-policy: keep` (`crds.keep`), because a deleted CRD deletes every `Certificate` and `Issuer` in the cluster. Helm keeps them when the release is removed, and Argo CD reads the annotation as `Delete=false`.
+- **Pod Security.** Namespaces `cert-manager` and `cnpg-system` enforce `restricted`. The pods of both charts meet it with the default values. cert-manager keeps its leader election lease in namespace `cert-manager` (`global.leaderElection.namespace`), so the chart writes no Role in `kube-system`.
+- **Network.** `cert-manager/networkpolicy.yaml` admits only the metrics scrape of `monitoring` on 9402, and lets the pods reach only CoreDNS and the API server. The issuers are self-signed, so no pod calls an ACME server. `cert-manager/networkpolicy-webhook.yaml` admits any peer on TCP 10250 to the webhook pods alone: the API server calls the webhook from the host network of the control-plane node, and no selector names that address. `cnpg-system/networkpolicy.yaml` selects the plugin pod alone. Only the operator reaches its gRPC port 9090, and the pod reaches only CoreDNS and the API server. The instance pods need no rule there, because the plugin sidecar runs in the instance pod. The sidecar, not the plugin pod, sends the backups to the object store, so the perimeter of each database namespace gets that egress rule with its backup. The operator in `cnpg-system` has no policy.
+- **Metrics.** Alloy scrapes the three cert-manager pods through their `prometheus.io/*` annotations ([Scrape Ownership](#scrape-ownership)).
+- **Check.**
+  ```bash
+  kubectl get crd | grep -E 'cert-manager.io|barmancloud.cnpg.io'
+  kubectl -n cnpg-system get certificate   # barman-cloud-client and barman-cloud-server are Ready
+  kubectl -n argocd get application cert-manager plugin-barman-cloud
+  ```
 
 ## Teardown
 
@@ -1389,7 +1410,7 @@ Off the home network, `kubectl` reaches the API server through the tunnel as a T
 
 ```
 k8s/
-├── kustomization.yaml        # Root kustomize: applies namespaces, cloudflared
+├── kustomization.yaml        # Root kustomize: applies namespaces, cloudflared, and the perimeters of cert-manager and cnpg-system
 ├── namespaces.yaml           # Namespace definitions with Prune=false,Delete=false
 ├── agents/                   # Agent sessions: read-only ServiceAccount and view ClusterRoleBinding under restricted Pod Security
 │   ├── kustomization.yaml
@@ -1405,6 +1426,15 @@ k8s/
 │   ├── deployment.yaml       # Multi-replica non-root cloudflared deployment
 │   ├── pdb.yaml              # PodDisruptionBudget: a drain keeps one tunnel replica up
 │   └── networkpolicy.yaml    # Network isolation for tunnel ingress and egress
+├── cert-manager/             # cert-manager, the certificates of the Barman Cloud plugin (#4764)
+│   ├── kustomization.yaml    # The two perimeters, as the root kustomization applies them
+│   ├── values.yaml           # Helm values for jetstack/cert-manager: kept CRDs, leader election in its namespace
+│   ├── networkpolicy.yaml    # Default-deny perimeter: the metrics scrape in, DNS and the API server out
+│   └── networkpolicy-webhook.yaml # The webhook pods: TCP 10250 in from any peer, for the API server
+├── cnpg-system/              # The Barman Cloud plugin of CloudNativePG (#4764)
+│   ├── kustomization.yaml    # The plugin perimeter, as the root kustomization applies it
+│   ├── plugin-barman-cloud-values.yaml # Helm values for cloudnative-pg/plugin-barman-cloud
+│   └── networkpolicy.yaml    # The plugin pod: the operator in on 9090, DNS and the API server out
 ├── gitea/                    # Gitea, the internal forge and container registry (#1081); not in the root kustomization
 │   ├── kustomization.yaml    # The perimeter, as Application gitea-manifests syncs it
 │   ├── values.yaml           # Helm values for gitea-charts/gitea: SQLite in WAL mode, rootless, no SSH, packages on, no domain

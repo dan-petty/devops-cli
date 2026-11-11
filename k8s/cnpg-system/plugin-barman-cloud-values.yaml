@@ -1,0 +1,17 @@
+# CloudNativePG Barman Cloud plugin Helm values (#4764).
+# Chart: cloudnative-pg/plugin-barman-cloud (0.8.1, plugin v0.15.1)
+# Repo:  https://cloudnative-pg.github.io/charts
+#
+# CloudNativePG 1.32 removes the in-tree `barmanObjectStore`, so a database backs up through this
+# plugin. The plugin must run in the namespace of the operator (`cnpg-system`). Its chart renders a
+# self-signed cert-manager Issuer and the server and client Certificates of the plugin, so the
+# release installs after cert-manager (k8s/cert-manager/values.yaml). The chart's pod already meets
+# Pod Security `restricted`. networkpolicy.yaml in this directory admits only the operator.
+
+resources:
+  requests:
+    cpu: 10m
+    memory: 64Mi
+  limits:
+    cpu: 200m
+    memory: 256Mi

@@ -49,6 +49,8 @@ spec:
       namespace: mattermost-operator
     - server: https://kubernetes.default.svc
       namespace: cnpg-system
+    - server: https://kubernetes.default.svc
+      namespace: cert-manager
   orphanedResources:
     warn: true
     ignore:
@@ -144,6 +146,7 @@ spec:
     - https://traefik.github.io/charts
     - https://cloudnative-pg.github.io/charts
     - https://helm.mattermost.com
+    - https://charts.jetstack.io
   destinations:
     - server: https://kubernetes.default.svc
       namespace: kube-system
@@ -171,3 +174,5 @@ spec:
       namespace: cnpg-system
     - server: https://kubernetes.default.svc
       namespace: mattermost-operator
+    - server: https://kubernetes.default.svc
+      namespace: cert-manager

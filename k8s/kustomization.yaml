@@ -5,3 +5,5 @@ resources:
   - namespaces.yaml
   - mattermost-operator-limitrange.yaml
   - cloudflared
+  - cert-manager
+  - cnpg-system

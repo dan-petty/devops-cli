@@ -80,6 +80,7 @@ HELM_REPOS_BY_STACK: dict[str, dict[str, str]] = {
         "nvidia-dcgm": "https://nvidia.github.io/dcgm-exporter/helm-charts",
         "traefik": "https://traefik.github.io/charts",
         "cloudnative-pg": "https://cloudnative-pg.github.io/charts",
+        "jetstack": "https://charts.jetstack.io",
     },
     "llm": {
         "open-webui": "https://open-webui.github.io/helm-charts",
@@ -127,6 +128,24 @@ HELM_RELEASES_BY_STACK: dict[str, list[dict[str, str]]] = {
             "namespace": "cnpg-system",
             "values": str(DEFAULT_K8S_DIR / "mattermost" / "cloudnative-pg-values.yaml"),
             "version": "0.29.1",
+        },
+        # The TLS certificates of the Barman Cloud plugin. Its start-up check Job holds `--wait`
+        # until the webhook answers, so the plugin chart below can create its Issuer.
+        {
+            "name": "cert-manager",
+            "chart": "jetstack/cert-manager",
+            "namespace": "cert-manager",
+            "values": str(DEFAULT_K8S_DIR / "cert-manager" / "values.yaml"),
+            "version": "v1.21.3",
+        },
+        # The backup plugin of CloudNativePG runs in the operator's namespace, and its chart renders
+        # cert-manager objects, so it comes after both releases above (#4764).
+        {
+            "name": "plugin-barman-cloud",
+            "chart": "cloudnative-pg/plugin-barman-cloud",
+            "namespace": "cnpg-system",
+            "values": str(DEFAULT_K8S_DIR / "cnpg-system" / "plugin-barman-cloud-values.yaml"),
+            "version": "0.8.1",
         },
         {
             "name": "argocd",

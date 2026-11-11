@@ -1,0 +1,53 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: plugin-barman-cloud
+  namespace: cnpg-system
+  labels:
+    app.kubernetes.io/part-of: devops-cli-stack
+spec:
+  # The Barman Cloud plugin alone. The CloudNativePG operator in the same namespace has no policy.
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: plugin-barman-cloud
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # 1. The operator calls the gRPC server of the plugin over mutual TLS on 9090. The instance
+    #    pods talk to the plugin sidecar in their own pod, so they need no rule here. The peer is a
+    #    pod selector alone, as in the crawl4ai perimeter (#3884).
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: cloudnative-pg
+      ports:
+        - protocol: TCP
+          port: 9090
+  egress:
+    # 1. CoreDNS
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # 2. The Kubernetes API server: the plugin watches ObjectStores and Clusters and writes the
+    #    Role of each instance. Its address is a node address, which no pod selector names, so the
+    #    rule excludes the metadata address. The sidecar, not this pod, reaches the object store.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 169.254.169.254/32
+      ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 6443

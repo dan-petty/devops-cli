@@ -167,6 +167,14 @@ spec:
       ports:
         - protocol: TCP
           port: 8080
+    # cert-manager metrics (#4764)
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: cert-manager
+      ports:
+        - protocol: TCP
+          port: 9402
     # 5. Allow egress to cloudflared namespace for Cloudflare Tunnel metrics scraping
     - to:
         - namespaceSelector:

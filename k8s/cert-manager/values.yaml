@@ -1,0 +1,61 @@
+# cert-manager Helm values (#4764).
+# Chart: jetstack/cert-manager (v1.21.3)
+# Repo:  https://charts.jetstack.io
+#
+# cert-manager issues the TLS certificates of the CloudNativePG Barman Cloud plugin
+# (k8s/cnpg-system/plugin-barman-cloud-values.yaml). The plugin chart brings its own self-signed
+# Issuer, so no ClusterIssuer and no ACME account is set here. The chart's pods already meet Pod
+# Security `restricted`: non-root, the RuntimeDefault seccomp profile, no privilege escalation,
+# all capabilities dropped and a read-only root file system.
+#
+# The namespace perimeter (networkpolicy.yaml, networkpolicy-webhook.yaml in this directory) is
+# applied before the chart, so the chart's own NetworkPolicies stay off.
+
+# The chart installs the CRDs and keeps them when the release goes: a deleted CRD deletes every
+# Certificate and Issuer in the cluster.
+crds:
+  enabled: true
+  keep: true
+
+# The leader election lease stays in the namespace of the release, so the chart writes no Role
+# in kube-system.
+global:
+  leaderElection:
+    namespace: cert-manager
+
+resources:
+  requests:
+    cpu: 10m
+    memory: 64Mi
+  limits:
+    cpu: 200m
+    memory: 256Mi
+
+webhook:
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      cpu: 100m
+      memory: 128Mi
+
+cainjector:
+  resources:
+    requests:
+      cpu: 10m
+      memory: 64Mi
+    limits:
+      cpu: 100m
+      memory: 256Mi
+
+# The post-install Job waits until the webhook answers, so `helm upgrade --install --wait` of
+# deploy-stack returns only when the plugin chart can create its Issuer and Certificates.
+startupapicheck:
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      cpu: 100m
+      memory: 64Mi
