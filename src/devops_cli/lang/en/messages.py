@@ -4143,7 +4143,7 @@ class RoadmapMessages:
     )
     stage_problem_missing_test_file: str = (
         "The test path `{path}` names no file of the staged commit. Correct the path or add the "
-        "test file."
+        "test file. {hint}"
     )
     stage_problem_missing_caller: str = (
         "The plan changes `{function}` and leaves out `{path}`, which calls it."

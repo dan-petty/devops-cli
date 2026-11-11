@@ -9,6 +9,7 @@ from typing import Any
 import pytest
 
 from devops_cli.ai.task_loader import load_task_prompt
+from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.stage.stage_change import (
     STAGE_EVAL_REPLAY,
     STAGE_EVAL_TRIGGER_PATHS,
@@ -558,6 +559,36 @@ def test_a_changed_docstring_naming_a_missing_test_file_is_refused() -> None:
     tree = StagedTree(["src/devops_cli/sample.py", "tests/test_sample.py"])
     problems = check_proposal(plan, ["comment-thread"], tree, read_text=read_text)
     assert any("tests/test_missing_example.py" in p for p in problems)
+
+
+def _stale_test_path_problem(path: str, files: list[str]) -> str:
+    """The problem that a changed docstring naming `path` gets on a tree of `files`."""
+    group = make_stage_proposal().groups[0]
+    source = f'def helper():\n    """See `{path}`."""\n'
+    read_text = {"src/devops_cli/sample.py": source}.get
+    problems = check_proposal(
+        make_stage_proposal(groups=[group]),
+        ["comment-thread"],
+        StagedTree(["src/devops_cli/sample.py", *files]),
+        read_text=read_text,
+    )
+    (problem,) = [p for p in problems if p.startswith(f"The test path `{path}`")]
+    return problem
+
+
+def test_a_missing_test_path_names_the_file_of_the_same_name() -> None:
+    problem = _stale_test_path_problem(
+        "tests/test_item_grounding.py", ["tests/github/test_item_grounding.py"]
+    )
+    hint = MESSAGES.roadmap.stage_path_same_name.format(
+        names="`tests/github/test_item_grounding.py`"
+    )
+    assert problem.endswith(hint)
+
+
+def test_a_missing_test_path_with_no_file_of_the_same_name_says_so() -> None:
+    problem = _stale_test_path_problem("tests/test_absent.py", ["tests/test_sample.py"])
+    assert problem.endswith(MESSAGES.roadmap.stage_path_no_same_name)
 
 
 def test_a_changed_source_with_syntax_error_is_ignored() -> None:

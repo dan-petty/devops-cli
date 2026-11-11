@@ -82,6 +82,7 @@ from devops_cli.roadmap.stage.stage_paths import (
     existing_test_problems,
     own_change_problems,
     path_problems,
+    same_name_hint,
 )
 from devops_cli.roadmap.stage.stage_registry import (
     RegistryCount,
@@ -2104,8 +2105,12 @@ def _stale_test_path_problems(
             content = read_text(path)
             if content:
                 texts.extend(_docstrings_in(content))
-    missing = missing_test_paths(tree, texts)
-    return [MESSAGES.roadmap.stage_problem_missing_test_file.format(path=path) for path in missing]
+    return [
+        MESSAGES.roadmap.stage_problem_missing_test_file.format(
+            path=path, hint=same_name_hint(tree, path)
+        )
+        for path in missing_test_paths(tree, texts)
+    ]
 
 
 def creates_problems(groups: Sequence[StageGroup], creators: Mapping[str, int]) -> list[str]:
