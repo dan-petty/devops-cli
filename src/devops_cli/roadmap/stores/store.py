@@ -227,7 +227,10 @@ class StageRecordKey(StrEnum):
     holds the time of the failure and the type of its error (#3493), the step that failed
     (`stage.failed_step`, `plan` or `apply`) and the failure class (`stage.failed_class`, a
     `FailureClass` value from the type of the error, #4056), until a run stages the item or stops
-    it on the budget. `stage.text_hash` is the hash of the text that the plan came from
+    it on the budget. `stage.plan_defects` counts the `plan_defect` failures of the item on the
+    body whose hash `stage.plan_defects_body` holds (#4491): a body edit starts a new count, and
+    the job clears both keys when it stages the item or returns it to New at the limit.
+    `stage.text_hash` is the hash of the text that the plan came from
     (#3503). When a person closes the plan pull request with no merge, the job clears every key and
     records the rejection in `stage.rejected` as JSON (#3503): the pull request, the hash of the
     text that the plan came from, the time of the close and the files that the reason names. The
@@ -248,6 +251,8 @@ class StageRecordKey(StrEnum):
     FAILED_ERROR = "stage.failed_error"
     FAILED_STEP = "stage.failed_step"
     FAILED_CLASS = "stage.failed_class"
+    PLAN_DEFECTS = "stage.plan_defects"
+    PLAN_DEFECTS_BODY = "stage.plan_defects_body"
     TEXT_HASH = "stage.text_hash"
     REJECTED = "stage.rejected"
     PENDING = "stage.pending"

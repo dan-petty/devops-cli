@@ -3301,6 +3301,10 @@ CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS: Final[int] = 2
 # back with its problem this many times, for the first reply and for the revision of each repair
 # round. A reply that is refused after the last return ends the item.
 CONST_ROADMAP_STAGE_GATE_RETURNS: Final[int] = 1
+# The `plan_defect` failures of one item on the same body (#4491): the failure that reaches this
+# count returns the item to New with the problems of its refused replies. In 48 hours, 5 of the 6
+# plans that staged came after 2 refused plans, and 27 items failed more than 2 times.
+CONST_ROADMAP_STAGE_PLAN_DEFECT_LIMIT: Final[int] = 3
 # The recall floor of the verification pass (#3039, #3207): the share of the blocker and major
 # defects of the golden set that the pass must find. `docs/ROADMAP_WORKFLOW.md` states the same floor.
 CONST_ROADMAP_VERIFY_RECALL_FLOOR: Final[float] = 0.9

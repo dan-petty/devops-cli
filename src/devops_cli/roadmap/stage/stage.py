@@ -25,6 +25,12 @@ another measure does not count. A run takes at most `--limit`
 items, highest priority first. `--item` takes the one item it names when that item is open and
 Ready.
 
+**Refused plans.** The job counts the `plan_defect` failures of an item on the same body
+(`stage.plan_defects`, #4491). The failure that reaches `CONST_ROADMAP_STAGE_PLAN_DEFECT_LIMIT`
+returns the item to New with one comment that lists the problems of the last plan, so the model
+lane goes to the other Ready items. A body edit starts a new count, and a failure of another
+class leaves the count as it is.
+
 **Plan.** For each item the job plans a `StageProposal` with an agent that reads the repository
 before it answers (`ai.for_task("stage")`, prompt `roadmap_stage_change.md`, and the read-only
 tools of `stage_tools`, with the prompt `roadmap_stage_tools.md`, #3037). A plan run has a budget
@@ -103,6 +109,8 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_STAGE_COMMENT_MARKER,
     CONST_ROADMAP_STAGE_CONTEXT_MAX_TOKENS,
     CONST_ROADMAP_STAGE_GATE_RETURNS,
+    CONST_ROADMAP_STAGE_PLAN_DEFECT_LIMIT,
+    CONST_ROADMAP_STAGE_REFUSED_PROBLEM_MAX_CHARS,
     CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS,
     CONST_ROADMAP_STATUS_NEW,
     CONST_ROADMAP_STATUS_READY,
@@ -133,7 +141,7 @@ from devops_cli.github.session import get_github_session
 from devops_cli.lang import MESSAGES
 from devops_cli.openspec.tool import OpenSpecTool, isolated_openspec
 from devops_cli.roadmap.agent_run import RunTrace, TraceFacts, body_error_text
-from devops_cli.roadmap.body_hash import body_hashes
+from devops_cli.roadmap.body_hash import body_hashes, hash_text, without_alternatives
 from devops_cli.roadmap.claim import claimed_by
 from devops_cli.roadmap.clone_git import branch_authors, default_branch, git
 from devops_cli.roadmap.commit_title import commit_summary, commit_type
@@ -831,7 +839,11 @@ class StageFailure:
     text. `item` is the item itself, when the job read it, so that the job records the failure in
     the job record of the item (#3493). `failure_class` comes from the type of the error, and
     `step` names the step that failed (#4056). `degenerate` is true for an item whose plan reply was
-    a placeholder in every text, which the metric counts apart from a failure (#4204)."""
+    a placeholder in every text, which the metric counts apart from a failure (#4204). `problems`
+    holds the problem of each reply of the plan that the checks refused, masked and cut as the
+    refused-reply file keeps it: the return at the limit of refused plans quotes them (#4491).
+    `stopped_by_checks` is true when the checks refused the last reply, so `reason` only repeats
+    the last problem."""
 
     number: int
     title: str
@@ -841,6 +853,8 @@ class StageFailure:
     failure_class: FailureClass = field(kw_only=True)
     step: StepName = field(kw_only=True)
     degenerate: bool = field(default=False, kw_only=True)
+    problems: tuple[str, ...] = field(default=(), kw_only=True, compare=False, repr=False)
+    stopped_by_checks: bool = field(default=False, kw_only=True, compare=False, repr=False)
 
 
 @dataclass(frozen=True)
@@ -1065,6 +1079,18 @@ class _Planner:
         # The replies of the item in hand that the checks refused, with their problems, from the
         # first ask to the last revision of a repair round (#4312).
         self._refused: list[tuple[StageProposal, str]] = []
+        self._stopped_by_checks = False
+
+    @property
+    def refused_problems(self) -> tuple[str, ...]:
+        """The problem of each reply of the item in hand that the checks refused, in order."""
+        return tuple(problem for _, problem in self._refused)
+
+    @property
+    def stopped_by_checks(self) -> bool:
+        """True when the item in hand stopped because the checks refused its last reply, and not
+        for a later stop such as a stopped plan run (#4491)."""
+        return self._stopped_by_checks
 
     def plan(self, target: StageTarget) -> StagedChange | OverBudget | Blocked | FalsePremise:
         """The change of `target`, or the group that stops it. A reply the checks refuse goes back
@@ -1077,6 +1103,7 @@ class _Planner:
         self._premise = None
         self._traces.clear()
         self._refused = []
+        self._stopped_by_checks = False
         kept, key = self._kept(target)
         # A plain client has no trace and its gate is off, on a hit as on a miss.
         self._kept_facts = (
@@ -1208,6 +1235,7 @@ class _Planner:
             self._note_refused(target, floor, "refused")
             refused.append((outcome.reply, outcome.problem))
             if returns == CONST_ROADMAP_STAGE_GATE_RETURNS:
+                self._stopped_by_checks = True
                 self._keep_refused(target, key, refused)
                 raise _stage_error(invalid.format(problem=outcome.problem), target)
             returns += 1
@@ -1743,11 +1771,17 @@ def openspec_tool() -> Iterator[OpenSpecTool | None]:
 
 
 def _failure_of(
-    target: StageTarget, exc: AIClientError | RoadmapStageError | ToolExecutionError
+    target: StageTarget,
+    exc: AIClientError | RoadmapStageError | ToolExecutionError,
+    refused: Sequence[str] = (),
+    *,
+    stopped_by_checks: bool = False,
 ) -> StageFailure:
     """The failure that `exc` made of the item. A model's error says its class and the count of
     schema violations, never the reply. A failed model call says its error code, its HTTP status
-    or timeout and its message, with each quoted part hidden (#4338)."""
+    or timeout and its message, with each quoted part hidden (#4338). `refused` is the problem of
+    each reply that the checks refused, which the failure keeps masked and cut, and
+    `stopped_by_checks` says that the refusal of the last one is `exc` (#4491)."""
     if isinstance(exc, StructuredOutputValidationError):
         reason = violation_summary(exc)
     elif isinstance(exc, AIClientError):
@@ -1771,6 +1805,11 @@ def _failure_of(
         failure_class=failure_class_of(exc),
         step=StepName.PLAN,
         degenerate=isinstance(exc, RoadmapStageDegenerateError),
+        problems=tuple(
+            mask_secrets(problem)[:CONST_ROADMAP_STAGE_REFUSED_PROBLEM_MAX_CHARS]
+            for problem in refused
+        ),
+        stopped_by_checks=stopped_by_checks,
     )
 
 
@@ -1807,7 +1846,12 @@ def _plan_each(
         except AICredentialsError:
             raise
         except (AIClientError, RoadmapStageError, ToolExecutionError) as exc:
-            result = _failure_of(target, exc)
+            result = _failure_of(
+                target,
+                exc,
+                planner.refused_problems,
+                stopped_by_checks=planner.stopped_by_checks,
+            )
         if writer is not None:
             writer.settle(target, result)
         if isinstance(result, StageFailure):
@@ -2514,6 +2558,8 @@ def _stage_one(
             StageRecordKey.FAILED_ERROR: None,
             StageRecordKey.FAILED_STEP: None,
             StageRecordKey.FAILED_CLASS: None,
+            StageRecordKey.PLAN_DEFECTS: None,
+            StageRecordKey.PLAN_DEFECTS_BODY: None,
             StageRecordKey.REJECTED: None,
             StageRecordKey.PENDING: None,
         },
@@ -2696,18 +2742,85 @@ def _return_premise(store: RoadmapStore, premise: FalsePremise) -> None:
 def _record_failures(store: RoadmapStore, failures: Sequence[StageFailure], now: datetime) -> None:
     """Record each failure in the job record of its item: the time, the type of the error (#3493),
     the step and the failure class (#4056), in one write. The item waits for the wait of its class, and the job goes on with the others. A
+    `plan_defect` failure also writes its count on the body (#4491), and the failure that reaches
+    `CONST_ROADMAP_STAGE_PLAN_DEFECT_LIMIT` returns the item to New in place of that write. A
     write that fails here is no failure of an item: it ends the run, and the round counts it."""
     for failure in failures:
-        if failure.item is not None:
-            store.set_marks(
-                failure.item,
-                {
-                    StageRecordKey.FAILED_AT: now.isoformat(),
-                    StageRecordKey.FAILED_ERROR: failure.error,
-                    StageRecordKey.FAILED_STEP: failure.step.value,
-                    StageRecordKey.FAILED_CLASS: failure.failure_class.value,
-                },
-            )
+        item = failure.item
+        if item is None:
+            continue
+        marks: dict[StageRecordKey, str | None] = {
+            StageRecordKey.FAILED_AT: now.isoformat(),
+            StageRecordKey.FAILED_ERROR: failure.error,
+            StageRecordKey.FAILED_STEP: failure.step.value,
+            StageRecordKey.FAILED_CLASS: failure.failure_class.value,
+        }
+        if failure.failure_class is not FailureClass.PLAN_DEFECT:
+            store.set_marks(item, marks)
+            continue
+        count, body = _plan_defects(item)
+        if count >= CONST_ROADMAP_STAGE_PLAN_DEFECT_LIMIT:
+            _return_plan_defects(store, item, failure, count, marks)
+            continue
+        marks |= {StageRecordKey.PLAN_DEFECTS: str(count), StageRecordKey.PLAN_DEFECTS_BODY: body}
+        store.set_marks(item, marks)
+
+
+def _plan_defects(item: Item) -> tuple[int, str]:
+    """The count of the `plan_defect` failures of `item` with one more, and the hash of the body
+    that they failed on (#4491). The hash covers the body without the block of the alternatives
+    job, so an edit of a person or of refine starts a new count. A count that is no number counts
+    as none."""
+    body = hash_text(without_alternatives(item.body))
+    record = item.job_record
+    if record.get(StageRecordKey.PLAN_DEFECTS_BODY) != body:
+        return 1, body
+    recorded = record.get(StageRecordKey.PLAN_DEFECTS) or ""
+    return (int(recorded) if recorded.isdecimal() else 0) + 1, body
+
+
+def _return_plan_defects(
+    store: RoadmapStore,
+    item: Item,
+    failure: StageFailure,
+    count: int,
+    marks: Mapping[StageRecordKey, str | None],
+) -> None:
+    """Return `item` to New after its `count`th refused plan on the same body
+    (#4491): post the problems of the last plan in order, then set New with the failure `marks`
+    and no count. The problems are those of the refused replies, and then the reason of the
+    failure, unless the checks refused the last reply and the reason only repeats its problem. The
+    comment goes first, so a failed write never leaves a return that no one was told about. Refine
+    gives the comment to its model when it looks at the item again (#3483)."""
+    texts = MESSAGES.roadmap
+    problems = failure.problems
+    if not (failure.stopped_by_checks and problems):
+        problems = (*problems, failure.reason or failure.error)
+    store.comment(
+        item.number,
+        f"{CONST_ROADMAP_STAGE_COMMENT_MARKER}\n\n"
+        + texts.stage_returned_plan_defects.format(
+            count=count,
+            limit=CONST_ROADMAP_STAGE_PLAN_DEFECT_LIMIT,
+            problems="\n".join(f"- {safe_text(problem)}" for problem in problems),
+        ),
+    )
+    store.set_field(
+        item,
+        ItemField.STATUS,
+        CONST_ROADMAP_STATUS_NEW,
+        marks={
+            **marks,
+            StageRecordKey.PLAN_DEFECTS: None,
+            StageRecordKey.PLAN_DEFECTS_BODY: None,
+        },
+    )
+    logger.info(
+        texts.stage_returned_plan_defects_log,
+        item.number,
+        count,
+        CONST_ROADMAP_STAGE_PLAN_DEFECT_LIMIT,
+    )
 
 
 class StageWriter:

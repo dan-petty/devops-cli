@@ -3449,6 +3449,18 @@ class RoadmapMessages:
         "- #{number} {title}: the body states that a class field is absent that the staging "
         "commit defines."
     )
+    # The return of an item whose plans failed on the same body for a plan defect (#4491).
+    stage_returned_plan_defects: str = (
+        "The stage job could not plan this item {count} times on the same body, and the limit "
+        "is {limit}. The stage job returns the item to New and plans no change. These are the "
+        "problems of the last plan, in sequence. The last problem stopped the plan:"
+        "\n\n{problems}\n\n"
+        "Refine reads this comment when it looks at the item again. After a second return on "
+        "the same body, only a reply or a body edit makes refine look at the item again."
+    )
+    stage_returned_plan_defects_log: str = (
+        "stage item returned after refused plans: item=#%d count=%d limit=%d"
+    )
     stage_left_premise: str = (
         "The body of the item says that a class field is absent, and the staging commit "
         "defines it: {evidence}"
