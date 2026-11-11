@@ -1,7 +1,9 @@
-"""The trace gate reads the subject of `reads` (#4314).
+"""The trace gate reads the subject and the object of a read word (#4314, #4495).
 
-A sentence that says what code does ("it reads `.github/labels.yml`") is no claim that the run
-read a file. A claim of the run or of the author ("I read", "the run read") still is.
+A sentence that says what code, the plan, a group or the probe does ("it reads
+`.github/labels.yml`", "this plan reads `x.py` in group 2") is no claim that the run read a file. A
+claim of the run or of the author ("I read", "the run read", "`read_file` of", "`x.py` was read")
+still is, and the gate judges the path that the read takes as its object.
 """
 
 from __future__ import annotations
@@ -10,9 +12,11 @@ from typing import Any
 
 import pytest
 
+from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.agent_run import TraceFacts
 from devops_cli.roadmap.stage.stage_change import StageProposal, check_proposal
 from devops_cli.roadmap.stage.stage_paths import StagedTree
+from devops_cli.roadmap.tools import HOLDER_STAGE_EXTENDED, tool_names
 from tests.support.builders import make_stage_proposal
 
 TREE = StagedTree(["src/devops_cli/sample.py", ".github/labels.yml"])
@@ -21,7 +25,8 @@ NO_CALLS = TraceFacts()
 
 def _problems(sentence: str, trace: TraceFacts | None = NO_CALLS) -> list[str]:
     plan: StageProposal = make_stage_proposal(feasibility=[sentence])
-    keywords: dict[str, Any] = {"trace": trace}
+    # An empty registry keeps the registry gate from parsing each test file of the repository.
+    keywords: dict[str, Any] = {"trace": trace, "registry": []}
     return check_proposal(plan, ["comment-thread"], TREE, **keywords)
 
 
@@ -64,3 +69,196 @@ def test_a_claim_of_the_run_is_true_when_the_run_read_the_path() -> None:
     )
 
     assert _problems("I read `src/devops_cli/sample.py` and found it.", trace) == []
+
+
+# The trace gate parses the subject and the object of each read word (#4495). The trace holds every
+# tool of the toolbox and the path `src/devops_cli/sample.py`, so only a claim of another path fails.
+ALL_TOOLS = TraceFacts(
+    tools=frozenset(tool_names(HOLDER_STAGE_EXTENDED)),
+    paths=frozenset({"src/devops_cli/sample.py"}),
+)
+
+
+def _read_refusals(sentence: str) -> list[str]:
+    """The refusals of the trace gate for a read claim in `sentence`: the other gates judge paths
+    that this tree does not hold."""
+    return [p for p in _problems(sentence, ALL_TOOLS) if "but the run did not read it" in p]
+
+
+@pytest.mark.parametrize(
+    "sentence",
+    [
+        # The plan, a group, a test case, the probe or a line of a file is the subject: no claim of
+        # the run. The first four are refused records of the stage job (#4442, #3388, #3389).
+        "This plan reads `tests/ai/client/test_ai_client_finish_reasons.py` in group 2.",
+        "`search_code` for `devops_cli.lang.en.messages` shows the import line "
+        "`tests/roadmap/implement/test_roadmap_implement_amend.py:5:from x import y`, so the "
+        "group that changes the catalog reads that test.",
+        "`search_code` of `### Registry places` gave "
+        "`tests/roadmap/stage/test_roadmap_stage_plan.py:553:assert x`, so the new case reads "
+        "the request context in that test module.",
+        "The probe of the stream type reads, word for word: The path "
+        "`src/devops_cli/ai/client/network.py` is a file of the staging commit.",
+        "`search_code` for `get_pull_files` showed the other readers at "
+        "`src/devops_cli/ai/review/runner.py:470`, which keep the pulls files read.",
+        "Groups 1 and 3 read `src/devops_cli/other.py` and keep it.",
+        "The code that reads `src/devops_cli/other.py` is `load_config`.",
+        "The replay reads `src/devops_cli/other.py` and runs no git.",
+        "Line 20 of `docs/adr/0008-workflows.md` reads `Temporal: rejected`.",
+        "All checks ran on `origin/main` with Ruff 0.16.8.",
+        # `read-only` is no read word (#3049).
+        "`k8s/devops/cronjob-runner.yaml` runs the pod as user 1000 with a read-only root.",
+        # A list of verbs shares the subject of its first verb, here the replay.
+        "The replay lists `src/a.py`, checks `src/b.py` and reads `src/c.py`.",
+        # The object of the read is no path, and the path after it is in another clause (#3453).
+        "`read_file` of that prompt at lines 24 and 26 shows the key list, and `search_code` "
+        "with `Adds:` returned one hit in `src/devops_cli/commands/tf.py`.",
+    ],
+)
+def test_a_read_word_whose_subject_or_object_is_not_a_read_of_the_run_is_no_claim(
+    sentence: str,
+) -> None:
+    assert _read_refusals(sentence) == []
+
+
+@pytest.mark.parametrize(
+    ("sentence", "path"),
+    [
+        ("I read `src/missing.py` and found the function.", "src/missing.py"),
+        ("We read `src/missing.py` first.", "src/missing.py"),
+        ("The plan run read `src/missing.py` and found it.", "src/missing.py"),
+        ("Read `src/missing.py` for the seam.", "src/missing.py"),
+        ("Reading `src/missing.py` shows the seam.", "src/missing.py"),
+        ("This is confirmed by reading `src/missing.py` at the base.", "src/missing.py"),
+        ("`src/missing.py` was read on the base.", "src/missing.py"),
+        ("The same read shows `src/missing.py:def load`, which loads it.", "src/missing.py"),
+        ("The read of lines 1 to 9 shows `src/missing.py:3:x = 1`.", "src/missing.py"),
+        ("`read_file` of `src/missing.py` line 478 shows the reader.", "src/missing.py"),
+        ("The code is `load`, which the planner read in `src/missing.py`.", "src/missing.py"),
+        # Each read claim of a sentence is judged, not only the first path of the sentence.
+        (
+            "I read `src/devops_cli/sample.py`, and the same read of `src/missing.py` shows it.",
+            "src/missing.py",
+        ),
+        ("This plan reads `src/other.py`, and I read `src/missing.py`.", "src/missing.py"),
+        # A read whose object is a pronoun reads the last path before it.
+        (
+            "`file_symbols` of `src/missing.py` lists `load`, and `read_file` of it shows it.",
+            "src/missing.py",
+        ),
+        ("The issue cites `src/missing.py`, and `read_file` shows that line.", "src/missing.py"),
+        # A list of verbs shares the subject of its first verb, here the run or its author.
+        ("I listed the folder, opened the test and read `src/missing.py`.", "src/missing.py"),
+        (
+            "The planner listed `src/`, searched for `load` and read `src/missing.py`.",
+            "src/missing.py",
+        ),
+        (
+            "I searched for `load`, found two hits and read `src/missing.py` in full.",
+            "src/missing.py",
+        ),
+        # A noun read has no subject, whatever word comes before it.
+        ("A quick read of `src/missing.py` shows the seam.", "src/missing.py"),
+        ("A careful read of `src/missing.py` shows the seam.", "src/missing.py"),
+        ("Both reads of `src/missing.py` show the seam.", "src/missing.py"),
+        (
+            "The probe printed `None`, and the same read of `.claude/settings.local.json` "
+            "printed `None`.",
+            ".claude/settings.local.json",
+        ),
+        # A participle after a comma or a path is a passive of the path before it, and a verb of a
+        # list after a passive is a passive too.
+        ("The file `src/missing.py`, read at the base, shows the seam.", "src/missing.py"),
+        (
+            "The action (commit `ed142fd0`, `src/missing.py` read from GitHub) has it.",
+            "src/missing.py",
+        ),
+        ("The pin `src/missing.py` (v4.0.3) was copied to a folder and read.", "src/missing.py"),
+        # A span of the tool `read_file` and its path is a read claim of that path.
+        ("`read_file src/missing.py` shows `def load(`.", "src/missing.py"),
+        (
+            "`read_file src/devops_cli/sample.py` and `read_file src/missing.py` show the seam.",
+            "src/missing.py",
+        ),
+    ],
+)
+def test_a_read_claim_of_the_run_with_no_read_of_its_object_is_refused(
+    sentence: str, path: str
+) -> None:
+    problems = _read_refusals(sentence)
+
+    assert len(problems) == 1
+    assert f"`{path}` was read" in problems[0]
+
+
+# The object of a read ends at a verb of its result, such as `shows`: a path in the result is a
+# line of the file that the read took, not the file. A read with no path in its object takes the
+# last path before it (#4495). The first sentence is of the plan of #3252.
+TELEMETRY_READ = (
+    'The probe answered "The path `docs/TELEMETRY.md` is a file of the staging commit", and '
+    '`read_file` on it showed the row `devops_cli_github_requests_total` and the text "Each '
+    'metric is an entry of `INSTRUMENTS` in `src/devops_cli/telemetry/instruments.py`", so a '
+    "cited metric name appears in more than one file."
+)
+PARTICIPLE_READ = "`src/x.py`, read with `read_file`, shows the rule that `src/y.py` calls."
+# A read whose object is a pronoun takes the path before it, whatever verb starts its result.
+PRONOUN_READ = '`docs/a.md` is a file, and `read_file` on it revealed the text "see `src/b.py`".'
+
+
+@pytest.mark.parametrize(
+    ("sentence", "read", "refused"),
+    [
+        (TELEMETRY_READ, "docs/TELEMETRY.md", None),
+        (TELEMETRY_READ, "src/devops_cli/telemetry/instruments.py", "docs/TELEMETRY.md"),
+        (PARTICIPLE_READ, "src/x.py", None),
+        (PARTICIPLE_READ, "src/y.py", "src/x.py"),
+        (PRONOUN_READ, "docs/a.md", None),
+        (PRONOUN_READ, "src/b.py", "docs/a.md"),
+    ],
+    ids=[
+        "3252-read",
+        "3252-not-read",
+        "participle-read",
+        "participle-not-read",
+        "pronoun-read",
+        "pronoun-not-read",
+    ],
+)
+def test_a_path_in_the_result_of_a_read_is_not_its_object(
+    sentence: str, read: str, refused: str | None
+) -> None:
+    trace = TraceFacts(tools=frozenset(tool_names(HOLDER_STAGE_EXTENDED)), paths=frozenset({read}))
+
+    problems = [p for p in _problems(sentence, trace) if "but the run did not read it" in p]
+
+    expected = (
+        [] if refused is None else [MESSAGES.roadmap.stage_problem_trace_path.format(path=refused)]
+    )
+    assert problems == expected
+
+
+# A search match shows one line. A read that takes a match line through a pronoun, or the tool
+# `read_file`, claims the whole file, so the match line gives it no support (#4495, #3205).
+MATCH_LINE = "src/devops_cli/commands/roadmap.py:813"
+MATCHED_ONLY = TraceFacts(
+    tools=frozenset(tool_names(HOLDER_STAGE_EXTENDED)), lines=frozenset({MATCH_LINE})
+)
+
+
+@pytest.mark.parametrize(
+    "sentence",
+    [
+        f"`search_code` for `def plan` returned `{MATCH_LINE}:def plan(`, and `read_file` on it "
+        "showed the command bodies.",
+        f"`search_code` returned `{MATCH_LINE}:def plan(`, so I read the whole file.",
+        f"`search_code` returned `{MATCH_LINE}:def plan(`; I then read that file in full.",
+        "`read_file` on `src/devops_cli/commands/roadmap.py` showed the command bodies.",
+        f"`read_file` of `{MATCH_LINE}:def plan(` showed the command bodies.",
+    ],
+)
+def test_a_match_line_supports_no_read_of_the_whole_file(sentence: str) -> None:
+    problems = [p for p in _problems(sentence, MATCHED_ONLY) if "but the run did not read it" in p]
+
+    assert problems == [
+        MESSAGES.roadmap.stage_problem_trace_path.format(path="src/devops_cli/commands/roadmap.py")
+    ]

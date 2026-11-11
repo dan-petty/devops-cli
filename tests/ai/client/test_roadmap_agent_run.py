@@ -24,6 +24,7 @@ from pydantic_ai.messages import (
     RetryPromptPart,
     TextPart,
     ToolCallPart,
+    ToolReturnPart,
     UserPromptPart,
 )
 from pydantic_ai.models.function import FunctionModel
@@ -332,6 +333,45 @@ def test_trace_facts_from_a_zero_call_trace() -> None:
 
     assert facts.tools == frozenset()
     assert facts.paths == frozenset()
+
+
+# A search tool answers each match as `path:line:content` (#4495).
+_HITS = "tests/roadmap/test_amend.py:5:from x import y\nsrc/devops_cli/b.py:12:    y()\n"
+
+
+@pytest.mark.parametrize(
+    ("tool", "answer", "lines"),
+    [
+        ("search_code", _HITS, {"tests/roadmap/test_amend.py:5", "src/devops_cli/b.py:12"}),
+        ("callers", "src/devops_cli/c.py:40:    plan_item(x)", {"src/devops_cli/c.py:40"}),
+        ("search_code", "No match.", set()),
+        ("read_issue", "The body cites src/devops_cli/d.py:3:x = 1", set()),
+        ("read_issue", "src/devops_cli/d.py:3:x = 1", set()),
+        ("read_file", "3: x = 1", set()),
+    ],
+)
+def test_trace_facts_hold_the_match_lines_of_a_search_answer(
+    tool: str, answer: str, lines: set[str]
+) -> None:
+    assert TraceFacts is not None, "TraceFacts is required"
+    messages: list[ModelMessage] = [
+        _tool_reply(1, 1, ToolCallPart(tool, {"text": "x"}, tool_call_id="c1")),
+        ModelRequest(parts=[ToolReturnPart(tool, answer, tool_call_id="c1")]),
+    ]
+    trace = RunTrace()
+    trace.absorb(messages, tools={tool})
+
+    assert TraceFacts.of(trace).lines == lines
+
+
+def test_a_call_with_no_answer_adds_no_match_line() -> None:
+    assert TraceFacts is not None, "TraceFacts is required"
+    trace = RunTrace()
+    trace.absorb(
+        [_tool_reply(1, 1, ToolCallPart("search_code", {"text": "x"}))], tools={"search_code"}
+    )
+
+    assert TraceFacts.of(trace).lines == frozenset()
 
 
 _ANSWERS_SERIES = "devops_cli_ai_model_answers_total"

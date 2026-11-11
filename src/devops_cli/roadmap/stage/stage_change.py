@@ -1716,8 +1716,82 @@ def content_problems(proposal: StageProposal, probes: Sequence[str] = ()) -> lis
 _NEGATION: Final[re.Pattern[str]] = re.compile(
     r"\b(?:not|never|no|without|neither|nor)\b", re.IGNORECASE
 )
+# A read word is a form of `read` or `ran`, or the tool `read_file`. A `read` before a hyphen is a
+# part of another word, such as `read-only` (#4495).
 _READ_WORD: Final[re.Pattern[str]] = re.compile(
-    r"\b(?:read|reads|reading|ran|read_file)\b", re.IGNORECASE
+    r"\b(?:read|reads|reading|ran|read_file)\b(?!-)", re.IGNORECASE
+)
+# The subject of a read word is the words after the last mark or word that starts its clause
+# (#4495). A relative pronoun, `and` or `or` with no word after it, as in "the code that reads" or
+# "it fetches the head and reads", shares the subject of the words before it. A comma does so for a
+# verb, as in "this plan cites `x`, reads `y`", but not for `reading`, which is its own subject.
+_CLAUSE_START: Final[re.Pattern[str]] = re.compile(
+    r"[,;:()]|\b(?:and|or|but|so|because|since|while|whereas|when|once|if|then|after|before|by"
+    r"|that|which|who)\b",
+    re.IGNORECASE,
+)
+_SHARED_SUBJECT: Final[frozenset[str]] = frozenset({"that", "which", "who", "and", "or"})
+# The words of a subject that name no reader: an article, a determiner, an auxiliary verb or an
+# adverb. A subject of these words only names no reader, as a noun read ("the same read") or a
+# passive ("`x.py` was read") does, and the read is the run's (#4495).
+_NO_READER: Final[frozenset[str]] = frozenset(
+    {
+        *("a", "an", "the", "this", "these", "those", "each", "every", "same", "one", "its"),
+        *("first", "second", "third", "last", "another", "earlier", "previous", "full", "direct"),
+        *("is", "are", "was", "were", "be", "been", "being", "has", "have", "had"),
+        *("do", "does", "did", "can", "could", "will", "would", "should", "must", "may"),
+        *("also", "then", "only", "already", "now", "again", "still", "just", "fully", "directly"),
+    }
+)
+# The words of a subject that name the run or its author: a read with such a subject, or with no
+# subject, is a claim of the run (#4495).
+_RUN_READERS: Final[frozenset[str]] = frozenset(
+    {"i", "we", "me", "us", "my", "our", "run", "runs", "planner", "agent"}
+)
+# The auxiliary verbs of a passive read, as in "`x.py` was read": the run read the subject.
+_PASSIVE: Final[frozenset[str]] = frozenset({"is", "are", "was", "were", "be", "been", "being"})
+# The end of the object of a read word: a `;`, or a comma before a word that starts a new clause, as
+# in "`read_file` of the prompt shows the rule, and `search_code` returned `x.py`" (#4495).
+_OBJECT_END: Final[re.Pattern[str]] = re.compile(
+    r";|,\s*(?:and|or|but|so|because|since|while|whereas|then|which|where)\b", re.IGNORECASE
+)
+# A verb that starts the result of a read, as in "`read_file` on it showed the text `x.py`" or
+# "`x.py`, read with `read_file`, shows `y.py`". A path in the result is a part of what the read
+# took, not the file that it read (#4495).
+_RESULT_VERB: Final[re.Pattern[str]] = re.compile(
+    r"\b(?:shows|showed|shown|gives|gave|returns|returned|finds|found|lists|listed|prints|printed"
+    r"|says|said|answers|answered|reports|reported|confirms|confirmed|holds|held|contains"
+    r"|contained)\b",
+    re.IGNORECASE,
+)
+# The start of a list of verbs: a `;`, `:` or parenthesis, or a word that starts a new clause. A
+# comma, `and`, `or` and a preposition such as `after` or `by` are a part of the list, as in "I
+# listed `src/`, added `x` after `y`, and read `z.py`", so its subject is before all of them (#4495).
+_LIST_START: Final[re.Pattern[str]] = re.compile(
+    r"[;:()]|\b(?:but|so|because|since|while|whereas|when|once|if|that|which|who)\b", re.IGNORECASE
+)
+# The marks with no word between them and a read word that make the read word a verb of a list.
+_LIST_MARKS: Final[frozenset[str]] = frozenset({",", "and", "or"})
+# The word after a noun read: `of`, as in "a quick read of `x.py`", or a verb of its result, as in
+# "the first read shows". A noun read has no subject, so it is a read of the run (#4495).
+_NOUN_READ_NEXT: Final[re.Pattern[str]] = re.compile(
+    rf"\s+(?:of\b|{_RESULT_VERB.pattern})", re.IGNORECASE
+)
+# A preposition after a participle `read` that follows a comma or a code span, as in "`x.py`, read
+# at the base, shows" or "`x.py` read from GitHub". The participle is a passive of the path before
+# it (#4495).
+_PARTICIPLE_NEXT: Final[re.Pattern[str]] = re.compile(
+    r"\s+(?:at|with|in|on|from|by|through|via|into|over|under|for|during|after|before)\b",
+    re.IGNORECASE,
+)
+# A pronoun at the start of the object of a read, after the closing backtick of `read_file` and one
+# preposition: `it`, `them`, or `that`, `this`, `these`, `those` or `the same` before a noun, as in
+# "`read_file` on it revealed `x.py`". The read takes the path before it, not the path after the
+# pronoun (#4495).
+_PRONOUN_OBJECT: Final[re.Pattern[str]] = re.compile(
+    r"`?\s*(?:(?:on|of|in|at|from|with)\s+)?"
+    r"(?:(?:it|them)\b|(?:that|this|these|those|the\s+same)\s+(?!(?:the|an?)\b)[a-z])",
+    re.IGNORECASE,
 )
 # The present tense of `read` with a code span, `it` or `which` before it says what code does, such
 # as "it reads `.github/labels.yml`". It is no claim that the run read the file (#4314).
@@ -1749,34 +1823,66 @@ def _is_path_span(span: str) -> bool:
     return "/" in span or any(span.endswith(ext) for ext in _PATH_EXTENSIONS)
 
 
+# A citation of one line, `path:line` or `path:line:text`, as a search match shows it (#4495).
+_CITED_LINE: Final[re.Pattern[str]] = re.compile(rf"^(?P<path>{_CITED_PATH}):(?P<line>\d+)(?::|$)")
+
+
+def _citation(span: str, stage_tools: Collection[str]) -> str:
+    """The citation of a code span: the span without a toolbox tool name before it, as in
+    `read_file path`, and without a leading `./` (#4463)."""
+    tool, _, rest = span.partition(" ")
+    if tool in stage_tools and rest.strip():
+        span = rest.strip()
+    return span.removeprefix("./")
+
+
 def _claimed_path(span: str, stage_tools: Collection[str]) -> str:
     """The path that a code span claims: the path of a `path:line:text`, `path:line`,
     `path:start-end` or `path:def name` citation, else the span. A toolbox tool name before the
     path, as in `read_file path`, a leading `./` and a trailing `/` are no part of it (#4463)."""
-    tool, _, rest = span.partition(" ")
-    if tool in stage_tools and rest.strip():
-        span = rest.strip()
-    span = span.removeprefix("./")
+    span = _citation(span, stage_tools)
     cited = _CITATION_PATH.match(span)
     return (cited["path"] if cited else span).rstrip("/")
 
 
+def _same_path(seen: str, claimed: str) -> bool:
+    """Whether a path that the run saw is the claimed path: it equals it, or ends with it after a
+    `/`, so a claim that names a file or the end of its path is true."""
+    return seen == claimed or seen.endswith(f"/{claimed}")
+
+
 def _was_read(path: str, trace: TraceFacts) -> bool:
-    """Whether the run read `path`: a read path equals it, or ends with it after a `/`, so a
-    claim that names a file or the end of its path is true. A trailing `/` of a directory that
-    the run listed is no part of the path (#4463)."""
-    return any(
-        read.rstrip("/") == path or read.rstrip("/").endswith(f"/{path}") for read in trace.paths
-    )
+    """Whether the run read `path`. A trailing `/` of a directory that the run listed is no part of
+    the path (#4463)."""
+    return any(_same_path(read.rstrip("/"), path) for read in trace.paths)
+
+
+def _was_seen(span: str, stage_tools: Collection[str], trace: TraceFacts, *, by_line: bool) -> bool:
+    """Whether the run saw what the code span cites: it read the path, or, when `by_line`, the span
+    cites one line, `path:line` or `path:line:text`, that a search match of the run showed (#4495).
+    A match shows one line, so it supports no claim of the whole file or of a line range."""
+    if _was_read(_claimed_path(span, stage_tools), trace):
+        return True
+    if not by_line:
+        return False
+    cited = _CITED_LINE.match(_citation(span, stage_tools))
+    line = f"{cited['path']}:{cited['line']}" if cited else None
+    return line is not None and any(_same_path(match, line) for match in trace.lines)
 
 
 def _claim_words(sentence: str, stage_tools: set[str]) -> str:
-    """The sentence with each code span blanked, except a span that names a tool of the toolbox. A
-    word inside a quoted line of code is no claim of the plan."""
-    return _CODE_SPAN.sub(
-        lambda m: m.group(0) if m.group(1).strip() in stage_tools else " " * len(m.group(0)),
-        sentence,
-    )
+    """The sentence with each code span blanked, except the name of a tool of the toolbox at the
+    start of a span, as in `read_file` or `read_file path` (#4495). A word inside a quoted line of
+    code is no claim of the plan."""
+
+    def blank(span: re.Match[str]) -> str:
+        tool = span.group(1).strip().partition(" ")[0]
+        if tool not in stage_tools:
+            return " " * len(span.group(0))
+        start = span.group(0).index(tool) + len(tool)
+        return span.group(0)[:start] + " " * (len(span.group(0)) - start)
+
+    return _CODE_SPAN.sub(blank, sentence)
 
 
 def _is_code_reading(sentence: str, read: re.Match[str]) -> bool:
@@ -1787,20 +1893,145 @@ def _is_code_reading(sentence: str, read: re.Match[str]) -> bool:
     )
 
 
+def _reader_words(text: str) -> list[str]:
+    """The words of `text` that can name a reader: each word that is not in `_NO_READER`."""
+    return [w for w in re.findall(r"[a-z0-9_]+", text.lower()) if w not in _NO_READER]
+
+
+def _subject(claim: str, read: re.Match[str]) -> tuple[int, list[str]]:
+    """The start of the clause of `read` in `claim`, and the words of its subject that can name a
+    reader. A relative pronoun with no word after it takes the subject of the words before it, as
+    in "the code that reads". A comma, `and` or `or` with no word after it makes `read` a verb of a
+    list, and the subject is in the words back to the start of the list, as in "I listed `src/`,
+    opened the test and read `x.py`" (#4495)."""
+    shared = _SHARED_SUBJECT if read.group().lower() == "reading" else {*_SHARED_SUBJECT, ","}
+    text = claim[: read.start()]
+    while True:
+        marks = list(_CLAUSE_START.finditer(text))
+        mark = marks[-1] if marks else None
+        start = mark.end() if mark else 0
+        words = _reader_words(text[start:])
+        if words or mark is None or mark.group().lower() not in shared:
+            return start, words
+        text = text[: mark.start()]
+        if mark.group().lower() in _LIST_MARKS:
+            starts = list(_LIST_START.finditer(text))
+            start = starts[-1].end() if starts else 0
+            return start, _reader_words(text[start:])
+
+
+def _is_passive(claim: str, read: re.Match[str], clause: int) -> bool:
+    """Whether `read` is the participle of a passive, as in "`x.py` was read" or "is also read". A
+    verb of a list after a passive, as in "`x.py` was copied and read", is a passive too (#4495)."""
+    if read.group().lower() != "read":
+        return False
+    words = re.findall(r"[a-z]+", claim[: read.start()].lower())
+    while words and words[-1] in _NO_READER and words[-1] not in _PASSIVE:
+        words.pop()
+    if words and words[-1] in _LIST_MARKS:
+        return not _PASSIVE.isdisjoint(re.findall(r"[a-z]+", claim[clause : read.start()].lower()))
+    return bool(words) and words[-1] in _PASSIVE
+
+
+def _is_participle(sentence: str, read: re.Match[str]) -> bool:
+    """Whether `read` is a participle after a comma or a code span, as in "`x.py`, read at the
+    base, shows" or "`x.py` read from GitHub": a passive of the path before it (#4495)."""
+    return (
+        read.group().lower() == "read"
+        and sentence[: read.start()].rstrip().endswith((",", "`"))
+        and bool(_PARTICIPLE_NEXT.match(sentence, read.end()))
+    )
+
+
+def _is_noun_read(sentence: str, read: re.Match[str]) -> bool:
+    """Whether `read` is a noun, as in "a quick read of `x.py`" or "the first read shows" (#4495)."""
+    return read.group().lower() in ("read", "reads") and bool(
+        _NOUN_READ_NEXT.match(sentence, read.end())
+    )
+
+
+def _object_span(
+    claim: str,
+    read: re.Match[str],
+    spans: Sequence[tuple[int, str]],
+    stage_tools: set[str],
+    clause: int,
+    *,
+    passive: bool,
+    participle: bool,
+) -> tuple[str, bool] | None:
+    """The code span of the path that `read` reads, and whether the read names that span itself
+    (#4495). The tool name of a span `read_file path` reads that span. A participle reads the last
+    path before it, and a passive the first path of its subject. Else the read takes the first
+    path of its object, which ends at a verb of its result. A read with no path in its object, or
+    with a pronoun before the path, as in "`read_file` on it showed", reads the last path before
+    it, and a read with no such path, as in "the same read shows `x.py:3`", reads the first path
+    of its result. Those reads do not name the span. None when the sentence cites no such path."""
+    ends = _OBJECT_END.search(claim, read.end())
+    end = ends.start() if ends else len(claim)
+    result = _RESULT_VERB.search(claim, read.end(), end)
+    stop = result.start() if result else end
+    paths = [
+        (pos, span)
+        for pos, span in spans
+        if span not in stage_tools and _is_path_span(_claimed_path(span, stage_tools))
+    ]
+    inside = [span for pos, span in paths if pos == read.start() - 1]
+    if inside:
+        return inside[0], True
+    earlier = [span for pos, span in paths if pos < read.start()]
+    if participle and earlier:
+        return earlier[-1], True
+    subject = [span for pos, span in paths if clause <= pos < read.start()]
+    if passive and subject:
+        return subject[0], True
+    obj = [(pos, span) for pos, span in paths if read.end() <= pos < stop]
+    if obj and not (earlier and _PRONOUN_OBJECT.match(claim, read.end(), obj[0][0])):
+        return obj[0][1], True
+    if earlier:
+        return earlier[-1], False
+    after = [span for pos, span in paths if read.end() <= pos < end]
+    return (after[0], False) if after else None
+
+
+def _is_run_read(
+    sentence: str, read: re.Match[str], subject: Sequence[str], *, passive: bool
+) -> bool:
+    """Whether `read` claims a read of the run: it is the tool `read_file`, a `passive` or a
+    participle, a noun, or a read whose `subject` is empty or names the run or its author, such as
+    `I` or `the run`. A read whose subject is other words, such as `this plan`, `the group` or `the
+    probe`, says what code or the plan does (#4495)."""
+    if read.group().lower() == "read_file" or passive or _is_noun_read(sentence, read):
+        return True
+    return not subject or not _RUN_READERS.isdisjoint(subject)
+
+
 def _uncalled_path(
     sentence: str, spans: Sequence[tuple[int, str]], stage_tools: set[str], trace: TraceFacts
 ) -> str | None:
-    """The first uncalled path cited in `sentence`, or None when negated or all called."""
+    """The first path that a read claim of the run in `sentence` names and that the run did not
+    see, or None. A negated read, a read of code (#4314) and a read whose subject is no reader of
+    the run are no claim, and a claim judges only the path of its object (#4495). A search match
+    line supports only a read that names that line: not `read_file`, and not a read that takes
+    the line through a pronoun or from its result, because those claim the whole file."""
     claim = _claim_words(sentence, stage_tools)
-    if not any(
-        not _NEGATION.search(claim[: read.end()]) and not _is_code_reading(sentence, read)
-        for read in _READ_WORD.finditer(claim)
-    ):
-        return None
-    for _pos, span in spans:
-        path = _claimed_path(span, stage_tools)
-        if span not in stage_tools and _is_path_span(path):
-            return None if _was_read(path, trace) else path
+    for read in _READ_WORD.finditer(claim):
+        if _NEGATION.search(claim[: read.end()]) or _is_code_reading(sentence, read):
+            continue
+        clause, subject = _subject(claim, read)
+        passive = _is_passive(claim, read, clause)
+        participle = _is_participle(sentence, read)
+        if not _is_run_read(sentence, read, subject, passive=passive or participle):
+            continue
+        found = _object_span(
+            claim, read, spans, stage_tools, clause, passive=passive, participle=participle
+        )
+        if found is None:
+            continue
+        span, named = found
+        by_line = named and read.group().lower() != "read_file"
+        if not _was_seen(span, stage_tools, trace, by_line=by_line):
+            return _claimed_path(span, stage_tools)
     return None
 
 
