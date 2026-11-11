@@ -1,5 +1,5 @@
 """Decision points (ADR 0020): the resolver chain of a point, its records and its one counter, the
-join of a decision with its outcome, and the registry that checks the modes."""
+join of a decision with its outcome, and the registry of the points."""
 
 from __future__ import annotations
 
@@ -289,25 +289,8 @@ def test_the_registry_refuses_a_catalogue_above_60_series(tmp_path: Path) -> Non
         Registry(points)
 
 
-def test_the_registry_refuses_a_key_that_names_no_point(tmp_path: Path) -> None:
+def test_the_registry_gives_the_fitted_cuts_of_a_point(tmp_path: Path) -> None:
     registry = Registry([_point(_cuts(tmp_path))])
-
-    with pytest.raises(ValueError, match=r"demo\.typo.*demo\.point"):
-        registry.check({"demo.typo": "shadow"})
-
-
-def test_the_registry_refuses_on_for_a_point_with_no_fitted_cuts(tmp_path: Path) -> None:
-    registry = Registry([_point(tmp_path / "not_fitted.json", name="stage.unfitted")])
-
-    with pytest.raises(ValueError, match=r"stage\.unfitted.*not_fitted\.json"):
-        registry.check({"stage.unfitted": "on"})
-    registry.check({"stage.unfitted": "shadow"})
-
-
-def test_the_registry_accepts_on_for_a_point_with_fitted_cuts(tmp_path: Path) -> None:
-    registry = Registry([_point(_cuts(tmp_path))])
-
-    registry.check({"demo.point": "on"})
 
     fitted = registry.point("demo.point").thresholds()
     assert (fitted.step, fitted.fitted, sorted(fitted.cuts)) == (
