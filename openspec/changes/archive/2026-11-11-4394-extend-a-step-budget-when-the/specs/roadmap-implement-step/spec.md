@@ -1,32 +1,7 @@
 ## MODIFIED Requirements
 
-### Requirement: The budgets of a step and of an item are settings
-The settings `roadmap.implement.step_token_budget`, `item_token_budget`, `step_time_limit_seconds` and `item_time_limit_seconds` SHALL set the input tokens and the seconds that a step and a run of an item may use. The setting `roadmap.implement.step_token_ceiling` SHALL set the most input tokens that a step may reach with its one extension. Each SHALL have a variable named `DEVOPS_CLI_` and the key in upper case. The defaults SHALL be 8000000, 20000000, 5400, 12600 and 16000000.
-
-A value below 1 SHALL be refused. An item time limit above `roadmap.implement.deadline_ceiling_seconds` SHALL be refused too, and so SHALL a ceiling below `step_token_budget`.
-
-#### Scenario: The defaults
-- **WHEN** no config file and no variable sets a budget
-- **THEN** the step budget is 8000000 tokens, the item budget is 20000000 tokens, the step limit is 5400 seconds, the item limit is 12600 seconds and the ceiling is 16000000 tokens
-
-#### Scenario: A variable
-- **WHEN** the variable `DEVOPS_CLI_ROADMAP_IMPLEMENT_STEP_TOKEN_BUDGET` holds 5000
-- **THEN** the step budget is 5000
-
-#### Scenario: A budget of zero
-- **WHEN** the config file sets `step_token_budget` to 0
-- **THEN** loading the settings fails and the message names the setting
-
-#### Scenario: An item limit above the ceiling of the Job
-- **WHEN** the config file sets `item_time_limit_seconds` above `deadline_ceiling_seconds`
-- **THEN** loading the settings fails and the message names `item_time_limit_seconds`
-
-#### Scenario: A ceiling below the step budget
-- **WHEN** the config file sets `step_token_budget` to 5000 and `step_token_ceiling` to 4999
-- **THEN** loading the settings fails and the message names `step_token_ceiling`
-
 ### Requirement: A step that spends a budget stops and names it
-Before each model request, the step SHALL compare the input tokens of the replies so far, and the seconds since it began, with the budgets of the step and of the item. When one is spent, the step SHALL make no request, stop with the class `limit_reached`, and write a reason that names the setting and its value. The one exception is the token budget of the step, which the rule `implement.extension` can extend one time. The tokens of earlier steps of the run SHALL count for the item budget, and the seconds since the run began for the item limit. The step SHALL reset the checkout as for any stop.
+Before each model request, the step SHALL compare its input tokens and its seconds with the budgets of the step and of the item. When one is spent, the step SHALL make no request, stop with the class `limit_reached` and name the setting and its value, unless the rule `implement.extension` extends the token budget of the step. The item budget SHALL count the tokens of the earlier steps, and the item limit the seconds since the run began. The step SHALL reset the checkout as for any stop.
 
 #### Scenario: The token budget of the step
 - **WHEN** `step_token_budget` is 50, the first reply of the model reports more than 50 input tokens, and the step made fewer than 20 tool calls
@@ -53,6 +28,21 @@ Before each model request, the step SHALL compare the input tokens of the replie
 - **THEN** the repair turn makes no request and the step stops with the class `limit_reached`
 
 ## ADDED Requirements
+
+### Requirement: The ceiling of a step budget is a setting
+The setting `roadmap.implement.step_token_ceiling` SHALL set the most input tokens that a step may reach with its one extension. It SHALL have the variable `DEVOPS_CLI_ROADMAP_IMPLEMENT_STEP_TOKEN_CEILING`. Its default SHALL be 16000000, twice the default step budget. A ceiling below `roadmap.implement.step_token_budget` SHALL be refused.
+
+#### Scenario: The default ceiling
+- **WHEN** no config file and no variable sets the ceiling
+- **THEN** the ceiling is 16000000 tokens
+
+#### Scenario: A variable for the ceiling
+- **WHEN** the variable `DEVOPS_CLI_ROADMAP_IMPLEMENT_STEP_TOKEN_CEILING` holds 9000000
+- **THEN** the ceiling is 9000000
+
+#### Scenario: A ceiling below the step budget
+- **WHEN** the config file sets `step_token_budget` to 5000 and `step_token_ceiling` to 4999
+- **THEN** loading the settings fails and the message names `step_token_ceiling`
 
 ### Requirement: A step that makes progress gets one extension of its token budget
 When a step reaches `roadmap.implement.step_token_budget` and no other budget is spent, the step SHALL read the digest of its last 20 tool calls from its tool log. With at least 1 successful edit and at most 3 refused commands, the step SHALL raise its token budget one time by 50 percent of the budget, up to `roadmap.implement.step_token_ceiling`, and go on. The rule is the only resolver of the decision point `implement.extension`, and no decision model takes part.

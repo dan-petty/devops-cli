@@ -11,7 +11,7 @@ A step of the implement job stops at `roadmap.implement.step_token_budget` with 
 - New setting `roadmap.implement.step_token_ceiling` (default 16000000, twice the default step budget), with a variable. The settings refuse a ceiling below the step budget. Only a person sets it.
 - The outcome of the step holds the extension. The record `implement.spend` keeps it for each step. The ready comment and the stop comment list each extension with its budgets and counts only. The Job log has one line for each extension.
 - New counter `devops_cli_roadmap_implement_extension_total` with the label `decision` (`extended` or `halted`): 2 series.
-- This is the decision point `implement.extension` of ADR 0020. Its resolver is the rule. The decision model stays unused: the rule makes no error on the labelled data, so a model has nothing to add. The registry of ADR 0020 does not exist yet. When it lands, it registers this point with the rule as its resolver and the constants as its data.
+- This is the decision point `implement.extension` of ADR 0020. Its resolver is the rule. The decision model stays unused: the rule makes no error on the labelled data, so a model has nothing to add. The registry of decision points (#4453) does not hold this point yet. The catalogue of ADR 0020 registers it after this change merges, in its own item, with the rule as its resolver, no model, and the constants as its data. Until then, `roadmap.decisions` does not control the point.
 - The digest comes from the tool log of the step, not from `implement_trace.py`, which #4393 changes.
 - The change fits one pull request.
 
