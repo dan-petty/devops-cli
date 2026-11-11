@@ -348,6 +348,12 @@ DEFAULT_AI_CONNECT_TIMEOUT_SECONDS: float = 5.0
 # runs longer, so the 1 s bound meant for local services failed live reads. It stays well under
 # the 30 s gh's own dialer allows.
 DEFAULT_GH_SESSION_CONNECT_TIMEOUT_SECONDS: float = 10.0
+# The GitHub session's read timeout (#4626): the longest wait for each chunk of an answer. GitHub
+# ends a REST request that it cannot process in 10 s, so a read that waits longer gets no answer.
+# The bound is shorter than each call around a GitHub read, such as the watch of the checks of the
+# implement job (`DEFAULT_ROADMAP_IMPLEMENT_MONITOR_TIMEOUT_SECONDS`), so the read fails first and
+# the call around it gets its error. Downloads keep `DEFAULT_HTTP_TIMEOUT_SECONDS`.
+DEFAULT_GH_SESSION_READ_TIMEOUT_SECONDS: float = 60.0
 DEFAULT_POOL_TIMEOUT_SECONDS: float = 1.0
 DEFAULT_REVIEW_TIMEOUT_SECONDS: float = 1200.0
 DEFAULT_SUBPROCESS_TIMEOUT_SECONDS: float = 1800.0  # 30 minutes (kubectl, helm, minikube, git, gh)

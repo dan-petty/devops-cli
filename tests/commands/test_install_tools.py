@@ -28,6 +28,7 @@ from devops_cli.commands.install_tools import (
     install_python_tool,
 )
 from devops_cli.commands.install_tools import app as install_tools_app
+from devops_cli.config.defaults import DEFAULT_HTTP_TIMEOUT_SECONDS
 from devops_cli.exceptions import (
     ChecksumMismatchError,
     DependencyError,
@@ -778,6 +779,18 @@ def test_download_refuses_any_hop_that_is_not_https(web: WebFake, url: str) -> N
         _download(url)
 
     assert [hop for hop in web.requested if hop.startswith("http://")] == []
+
+
+def test_a_download_keeps_the_entry_points_read_timeout(web: WebFake) -> None:
+    """A release archive is a large body from the release host, not an answer of the GitHub API:
+    its read waits up to `DEFAULT_HTTP_TIMEOUT_SECONDS`, and the shorter read bound of the GitHub
+    session (#4626) does not reach it."""
+    web.page("https://example.com/tool.tar.gz", "binary")
+
+    _download("https://example.com/tool.tar.gz")
+
+    (sent,) = web.sent
+    assert sent.extensions["timeout"]["read"] == DEFAULT_HTTP_TIMEOUT_SECONDS
 
 
 def test_download_refuses_a_private_answer_whatever_the_flag(

@@ -79,6 +79,7 @@ from devops_cli.config.defaults import (
     DEFAULT_GH_SESSION_CONNECT_TIMEOUT_SECONDS,
     DEFAULT_GH_SESSION_ETAG_CACHE_BYTES,
     DEFAULT_GH_SESSION_ETAG_CACHE_SIZE,
+    DEFAULT_GH_SESSION_READ_TIMEOUT_SECONDS,
 )
 from devops_cli.core.process import GitHubIdentity
 from devops_cli.exceptions.base import DevOpsCLIError
@@ -186,14 +187,18 @@ async def refuse_other_origins(request: httpx2.Request) -> None:
 def session_client() -> httpx2.AsyncClient:
     """The session's client from the HTTP entry point at the public level, following redirects
     under the origin hook and pinning the REST API version. It connects within
-    `DEFAULT_GH_SESSION_CONNECT_TIMEOUT_SECONDS`, a public-internet bound, and keeps the
-    entry point's read timeout; a connect that still fails is not retried."""
+    `DEFAULT_GH_SESSION_CONNECT_TIMEOUT_SECONDS`, a public-internet bound, and waits at most
+    `DEFAULT_GH_SESSION_READ_TIMEOUT_SECONDS` for each read, because GitHub ends a REST request
+    after 10 s. A connect or a read that fails by its timeout is not retried."""
     options: ClientOptions = {
         "follow_redirects": True,
         "headers": {CONST_GITHUB_HEADER_API_VERSION: CONST_GITHUB_API_VERSION},
         "event_hooks": {"request": [refuse_other_origins]},
     }
-    timeout = request_timeout(connect=DEFAULT_GH_SESSION_CONNECT_TIMEOUT_SECONDS)
+    timeout = request_timeout(
+        connect=DEFAULT_GH_SESSION_CONNECT_TIMEOUT_SECONDS,
+        read=DEFAULT_GH_SESSION_READ_TIMEOUT_SECONDS,
+    )
     return async_http_client(EgressLevel.PUBLIC, timeout=timeout, **options)
 
 
