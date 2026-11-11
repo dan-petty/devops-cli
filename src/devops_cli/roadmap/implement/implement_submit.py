@@ -113,6 +113,7 @@ from devops_cli.roadmap.implement.implement_deadline import manage_deadlines
 from devops_cli.roadmap.implement.implement_size import RunnerSize, plan_file_count, runner_size
 from devops_cli.roadmap.plan_read import tasks_at
 from devops_cli.roadmap.planned import PlannedChanges, read_planned_changes
+from devops_cli.roadmap.round_log import log_implement_attempt
 from devops_cli.roadmap.stage.stage import StageFailure
 from devops_cli.roadmap.status_sync import StatusFacts, derive_status, sync_statuses
 from devops_cli.roadmap.stop_clear import clear_stops
@@ -326,6 +327,20 @@ def _report(
             },
         )
     _emit_implement_metrics(repo, item, state, failure, new_tokens)
+    log_implement_attempt(
+        item.number,
+        state=state,
+        failure_class=failure.value if failure else None,
+        repair_rounds=_repair_rounds(item),
+        tokens=new_tokens,
+        digest=digest,
+    )
+
+
+def _repair_rounds(item: Item) -> int:
+    """The repair rounds that the record of `item` holds, or 0 when it holds no number."""
+    recorded = _record(item, ImplementRecordKey.REPAIR_ROUNDS) or ""
+    return int(recorded) if recorded.isdigit() else 0
 
 
 def _emit_implement_metrics(
@@ -336,18 +351,12 @@ def _emit_implement_metrics(
         CONST_SERVICE_METRIC_IMPLEMENT_JOBS,
         labels={"repo": repo, "item_class": item_class, "result": state},
     )
-    repair_rounds_raw = _record(item, ImplementRecordKey.REPAIR_ROUNDS)
-    if repair_rounds_raw is not None:
-        try:
-            repair_rounds = int(repair_rounds_raw)
-            if repair_rounds > 0:
-                GLOBAL_METRICS.increment_counter(
-                    CONST_SERVICE_METRIC_IMPLEMENT_REPAIR_ROUNDS,
-                    repair_rounds,
-                    labels={"repo": repo, "item_class": item_class},
-                )
-        except ValueError, TypeError:
-            pass
+    if (repair_rounds := _repair_rounds(item)) > 0:
+        GLOBAL_METRICS.increment_counter(
+            CONST_SERVICE_METRIC_IMPLEMENT_REPAIR_ROUNDS,
+            repair_rounds,
+            labels={"repo": repo, "item_class": item_class},
+        )
     if new_tokens > 0:
         GLOBAL_METRICS.increment_counter(
             CONST_SERVICE_METRIC_IMPLEMENT_TOKENS,

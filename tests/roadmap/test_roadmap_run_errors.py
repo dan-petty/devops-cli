@@ -19,6 +19,7 @@ from devops_cli.exceptions import (
     ConfigurationError,
     GitOperationError,
     RoadmapRunError,
+    RoadmapStageError,
 )
 from devops_cli.exceptions.git import GitHubOperationError
 from devops_cli.roadmap.run import (
@@ -239,3 +240,30 @@ def test_service_job_unreadable_github_roadmap_propagates_unchanged(
         )
 
     assert not isinstance(exc_info.value, ConfigurationError)
+
+
+def test_the_error_line_of_a_round_names_every_failed_item(
+    seeded_store: InMemoryRoadmapStore, tmp_path: Path, git_sim: SimulatedGit
+) -> None:
+    """The first line of an error is cut, so the numbers of its failed items follow it (#4535)."""
+
+    def fail_stage(**_: Any) -> JobOutcome:
+        raise RoadmapStageError(
+            "Stage failed for 3 items: #1 (RoadmapStageError): " + "x" * 300 + "\nmore, #2, #3",
+            failed_items=[1, 2, 3],
+        )
+
+    table = build_stub_table({"stage": fail_stage})
+
+    with pytest.raises(RoadmapRunError) as exc_info:
+        run_due_jobs(
+            REPO,
+            seeded_store,
+            batch={OPENED: 1},
+            table=table,
+            data_dir=tmp_path / "data",
+            now=NOW,
+        )
+
+    # The first line keeps its first 256 characters: 50 of the text and 206 of the reason.
+    assert str(exc_info.value).endswith("): " + "x" * 206 + " (failed items: #1, #2, #3)")

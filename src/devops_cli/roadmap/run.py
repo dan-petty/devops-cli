@@ -134,6 +134,7 @@ from devops_cli.roadmap.release_comments import comment_releases
 from devops_cli.roadmap.release_feed import GitHubReleaseFeed
 from devops_cli.roadmap.release_roll import cluster_digests
 from devops_cli.roadmap.retitle import apply_retitle, build_retitle_model, plan_retitle
+from devops_cli.roadmap.round_log import log_failed_item
 from devops_cli.roadmap.service_stop import service_stopping, stop_before
 
 # `stage` imports the model client, which imports pydantic_ai too: import it here for the same
@@ -629,6 +630,8 @@ def _run_stage_adapter(
     )
     applied = writer.applied()
     emit_stage_results(plan, applied, repo=repo)
+    for failure in (*plan.failed, *applied.failed):
+        log_failed_item(failure.number, failure.step.value, failure.failure_class.value)
     synced = (
         sync_statuses(store, repo=repo, planned=plan.planned) if plan.planned is not None else None
     )
@@ -1397,10 +1400,15 @@ def identity_refused(exc: BaseException) -> bool:
 
 
 def _format_error_line(exc: BaseException) -> str:
-    """The first line of an exception's message, masked and capped at 256 chars."""
+    """The first line of an exception's message, masked and capped at 256 chars. The numbers of
+    the failed items of an error that has them follow the cut, so a long reason of the first item
+    hides no other item (#4535)."""
     lines = str(exc).strip().splitlines()
-    first = lines[0] if lines else type(exc).__name__
-    return mask_secrets(first)[:256]
+    first = mask_secrets(lines[0] if lines else type(exc).__name__)[:256]
+    items: Sequence[int] = getattr(exc, "failed_items", ())
+    if not items:
+        return first
+    return f"{first} (failed items: {', '.join(f'#{number}' for number in items)})"
 
 
 def _failed_result(exc: BaseException) -> str:

@@ -205,3 +205,50 @@ def test_each_refused_revision_logs_one_line(
 
     lines = [r.getMessage() for r in caplog.records if "stage reply refused" in r.getMessage()]
     assert [line.rsplit(" ", 1)[1] for line in lines] == ["result=refused", "result=refused"]
+
+
+def _counts(caplog: pytest.LogCaptureFixture, event: str) -> list[str]:
+    """The fields of each log line of `event`, with the version cut off (#4535)."""
+    return [
+        r.getMessage().removeprefix(f"{event}: ").rsplit(" version=", 1)[0]
+        for r in caplog.records
+        if r.getMessage().startswith(f"{event}: ")
+    ]
+
+
+def test_a_review_round_and_a_pass_after_a_return_each_log_one_line_with_counts(
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    verifier: ModelFake,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    model_fake.answer(make_stage_proposal(), _refused(), make_stage_proposal(summary="Repaired"))
+    verifier.answer(_returns_plan(), Verification())
+
+    with caplog.at_level(logging.INFO):
+        _plan(store, stage_repo, model_fake, verifier)
+
+    assert _counts(caplog, "stage review round") == [
+        "item=#1 round=0 findings=1 returned=1 open=1",
+        "item=#1 round=1 findings=0 returned=0 open=0",
+    ]
+    assert _counts(caplog, "stage gate returns") == ["item=#1 returns=1 result=passed"]
+
+
+def test_a_revision_that_stays_refused_logs_its_returns_as_refused(
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    verifier: ModelFake,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    model_fake.answer(make_stage_proposal(), _refused(), _refused())
+    verifier.answer(_returns_plan(), Verification())
+
+    with caplog.at_level(logging.INFO):
+        _plan(store, stage_repo, model_fake, verifier)
+
+    assert _counts(caplog, "stage gate returns") == [
+        f"item=#1 returns={CONST_ROADMAP_STAGE_GATE_RETURNS} result=refused"
+    ]

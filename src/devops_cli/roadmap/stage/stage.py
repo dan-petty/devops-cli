@@ -165,6 +165,7 @@ from devops_cli.roadmap.refine.refine import (
     stage_comment_text,
 )
 from devops_cli.roadmap.refine.refine_investigation import task_window
+from devops_cli.roadmap.round_log import log_gate_returns, log_review_round
 from devops_cli.roadmap.service_stop import raise_if_service_stops
 from devops_cli.roadmap.stage.stage_change import (
     CHANGE_TASK,
@@ -1204,11 +1205,13 @@ class _Planner:
                 self._stop_degenerate(target, key, refused, proposal, floor)
             outcome = self._settle(target, proposal, request, trace=self._trace_facts())
             if not isinstance(outcome, _Refused):
+                log_gate_returns(target.item.number, returns, passed=True)
                 return outcome
             self._note_refused(target, floor, "refused")
             refused.append((outcome.reply, outcome.problem))
             if returns == CONST_ROADMAP_STAGE_GATE_RETURNS:
                 self._keep_refused(target, key, refused)
+                log_gate_returns(target.item.number, returns, passed=False)
                 raise _stage_error(invalid.format(problem=outcome.problem), target)
             returns += 1
             again = {
@@ -1315,9 +1318,11 @@ class _Planner:
         `CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS` times (#3039), and a revision that stays refused
         stops the item. Every finding of each round stays on the change for the comment (#3039). The last
         review judges the last plan, so only its open findings keep the draft with
-        `plan/needs-fix` (#3264)."""
+        `plan/needs-fix` (#3264). Each review logs one line with its counts (#4535)."""
+        number = target.item.number
         seen, returned, open_ = self._review(target, change, verifier)
-        for _ in range(CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS):
+        log_review_round(number, 0, findings=len(seen), returned=len(returned), open_=len(open_))
+        for round_ in range(1, CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS + 1):
             if not returned:
                 break
             revised = self._repaired(target, request, change, open_, key)
@@ -1325,6 +1330,9 @@ class _Planner:
                 return revised
             change = revised
             findings, returned, open_ = self._review(target, change, verifier)
+            log_review_round(
+                number, round_, findings=len(findings), returned=len(returned), open_=len(open_)
+            )
             seen = [*seen, *findings]
         return replace(change, findings=tuple(dict.fromkeys(seen)), open_findings=tuple(open_))
 
