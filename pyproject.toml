@@ -84,6 +84,12 @@ dependencies = [
     "opentelemetry-instrumentation-httpx==0.66b1",
 ]
 
+[project.optional-dependencies]
+# The readers of `devops roadmap review run` (#4686): lizard measures the complexity of the hot
+# files of a window. `uv sync --all-groups --all-extras` (the dev setup and CI), the devcontainer
+# image and the Service image install the extra.
+review = ["lizard==1.24.3"]
+
 [project.scripts]
 devops = "devops_cli.entry:main"
 
@@ -344,6 +350,8 @@ DEP002 = [
     "tree-sitter-dockerfile",
     "tree-sitter-yaml",
     "openai",
+    # lizard ships no type information, so roadmap/project_review/facts.py loads it by name.
+    "lizard",
 ]
 DEP003 = [
     "pydantic_evals",

@@ -11,3 +11,12 @@
 *.pdf binary
 *.tar.gz binary
 *.whl binary
+
+# Generated files: a tool writes them, and nobody edits them by hand. GitHub folds their diffs,
+# and `devops roadmap review run` counts their lines apart from the other lines.
+uv.lock linguist-generated
+**/package-lock.json linguist-generated
+CHANGELOG.md linguist-generated
+.release-please-manifest.json linguist-generated
+docs/CLI_REFERENCE.md linguist-generated
+docs/commands/*.md linguist-generated
