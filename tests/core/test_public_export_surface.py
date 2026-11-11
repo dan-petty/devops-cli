@@ -49,11 +49,14 @@ def _declared_exports(node: DunderAll) -> list[str]:
 
 
 def _names_bound_by(node: ast.AST) -> set[str]:
-    """Names a single statement binds, covering the four statement kinds that can bind one."""
+    """Names a single statement binds, covering the five statement kinds that can bind one: an
+    import, a definition, an assignment, an annotated assignment and a `type` alias."""
     if isinstance(node, ast.Import | ast.ImportFrom):
         return {alias.asname or alias.name.split(".")[0] for alias in node.names}
     if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
         return {node.name}
+    if isinstance(node, ast.TypeAlias):
+        return {node.name.id}
     if isinstance(node, ast.Assign):
         return {t.id for t in node.targets if isinstance(t, ast.Name)}
     if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):

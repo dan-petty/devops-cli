@@ -21,32 +21,30 @@ from devops_cli.config.constants import (
     CONST_AI_JEV_DEFAULT_BOOLEAN_THRESHOLD,
     CONST_AI_JEV_DEFAULT_ROUTE_THRESHOLD,
     CONST_AI_JEV_MODEL,
+    CONST_AI_JEV_MODEL_TARGETS,
     CONST_AI_JEV_SYSTEM_ONE_PREFIXES,
     CONST_AI_PYDANTIC_MODEL_PREFIXES,
     CONST_URL_GITHUB_COPILOT_API_BASE,
     CONST_URL_TYPESAFE_API_BASE,
 )
-from devops_cli.config.settings import AIConfig, Settings, get_ai_api_key, load_settings
+from devops_cli.config.settings import (
+    AIConfig,
+    Settings,
+    get_ai_api_key,
+    is_decision_model_name,
+    load_settings,
+)
 from devops_cli.exceptions import ConfigurationError
 
 logger = logging.getLogger(__name__)
 
 _CLAUDE_GROUP_NAME_PREFIX = "openai-chat:claude-"
-_JEV_MODEL_TARGETS = ("typesafe/jev-", "jev-")
 
 
 def _gateway_prefix(model_str: str) -> str | None:
     """The gateway (`litellm` or `portkey`) a model name's prefix names, or None."""
     prefix, sep, _ = model_str.partition(":")
     return prefix if sep and prefix in CONST_AI_GATEWAY_URL_SETTINGS else None
-
-
-def _is_jev_model_str(model_str: str) -> bool:
-    """Whether a raw model string names a TypeSafe Jev or System One model."""
-    prefix, sep, target = model_str.partition(":")
-    if sep:
-        return prefix in CONST_AI_JEV_SYSTEM_ONE_PREFIXES or target.startswith(_JEV_MODEL_TARGETS)
-    return model_str.startswith(_JEV_MODEL_TARGETS)
 
 
 def _model_prefix_and_target(model_str: str, ai_cfg: AIConfig) -> tuple[str, str]:
@@ -67,7 +65,7 @@ def _model_prefix_and_target(model_str: str, ai_cfg: AIConfig) -> tuple[str, str
         return ai_cfg.gateway_provider, model_str
     if sep and is_pydantic_ai_provider(prefix):
         return prefix, target
-    if model_str.startswith(_JEV_MODEL_TARGETS) and ai_cfg.provider == "ollama":
+    if model_str.startswith(CONST_AI_JEV_MODEL_TARGETS) and ai_cfg.provider == "ollama":
         return ai_cfg.gateway_provider, model_str
     return CONST_AI_PYDANTIC_MODEL_PREFIXES.get(ai_cfg.provider, ""), model_str
 
@@ -125,11 +123,8 @@ def _claude_group_model(name: str, provider_factory: Any) -> Any:
 
 
 def _is_jev_decision_name(name: str) -> bool:
-    """Whether `name` names a TypeSafe Jev or System One decision model."""
-    prefix, sep, target = name.partition(":")
-    if not sep:
-        return False
-    return prefix in CONST_AI_JEV_SYSTEM_ONE_PREFIXES or target.startswith(_JEV_MODEL_TARGETS)
+    """Whether the prefixed `name` names a TypeSafe Jev or System One decision model."""
+    return ":" in name and is_decision_model_name(name)
 
 
 def _jev_decision_model(name: str, provider_factory: Any) -> Any:
@@ -221,7 +216,7 @@ def _resolve_string_model(model_str: str, active_settings: Settings) -> Any:
     `ollama:` one or any other under provider `ollama` on Ollama, the rest remotely."""
     if (
         not _gateway_prefix(model_str)
-        and not _is_jev_model_str(model_str)
+        and not is_decision_model_name(model_str)
         and (model_str.startswith("ollama:") or active_settings.ai.provider == "ollama")
     ):
         return _resolve_ollama_model(model_str, active_settings)
@@ -263,7 +258,11 @@ def resolve_pydantic_ai_model(
             if cleaned.startswith("auto:")
             else active_settings.ai.model
         )
-        if not fallback_target or fallback_target == "auto" or _is_jev_model_str(fallback_target):
+        if (
+            not fallback_target
+            or fallback_target == "auto"
+            or is_decision_model_name(fallback_target)
+        ):
             fallback_target = CONST_AI_GATEWAY_DEFAULT_ROUTE
         return build_auto_tool_model(
             fallback_target,

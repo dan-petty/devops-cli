@@ -35,7 +35,7 @@ from pydantic_ai.models.decision import (
     NoulAnswer,
 )
 
-from devops_cli.config.constants import CONST_ROADMAP_DECISION_STEP_CONCURRENCY
+from devops_cli.config.constants import CONST_AI_JEV_MODEL, CONST_ROADMAP_DECISION_STEP_CONCURRENCY
 from devops_cli.exceptions.base import DevOpsCLIError
 from devops_cli.lang import MESSAGES
 
@@ -146,14 +146,16 @@ async def _decide_closing(
 def _decide_one(
     request: DecisionRequest,
     model: DecisionModel[Any] | None,
+    model_name: str,
     settings: Settings | None,
     timeout: float,
 ) -> DecisionResponse:
-    """The one place that sends a request to Jev. When `decide_with_jev` of `ai.jev` (#4331) lands,
-    its call replaces the body of this function."""
+    """The one place that sends a request of a decision step. A model that this call builds from
+    `model_name` serves this request only, and the call closes its client on the loop of the
+    request (#4319)."""
     from devops_cli.ai.jev import create_jev_model
 
-    decider = model or create_jev_model(settings=settings)
+    decider = model or create_jev_model(model_name, settings=settings)
     options = cast(
         DecisionModelSettings, {**(getattr(decider, "settings", None) or {}), "timeout": timeout}
     )
@@ -164,16 +166,19 @@ def decide_all(
     requests: Sequence[DecisionRequest],
     *,
     model: DecisionModel[Any] | None = None,
+    model_name: str = CONST_AI_JEV_MODEL,
     settings: Settings | None = None,
     timeout: float = 30.0,
 ) -> list[DecisionResponse]:
-    """The responses of Jev to `requests`, in order, sent at the same time. With no `model`, each
-    request builds its own from `settings`. The first error raises."""
+    """The responses of the decision model to `requests`, in order, sent at the same time. With no
+    `model`, each request builds its own model, the one that `model_name` names, from `settings`.
+    The first error raises."""
     if not requests:
         return []
     with ThreadPoolExecutor(max_workers=CONST_ROADMAP_DECISION_STEP_CONCURRENCY) as pool:
         futures = [
-            pool.submit(_decide_one, request, model, settings, timeout) for request in requests
+            pool.submit(_decide_one, request, model, model_name, settings, timeout)
+            for request in requests
         ]
         return [future.result() for future in futures]
 

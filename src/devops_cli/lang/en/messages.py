@@ -4776,16 +4776,42 @@ class RoadmapMessages:
         "Cost of a plan (cuts: {fitted}): {alone} USD with the reviewer alone, {cascade} USD "
         "with the screen."
     )
-    decision_step_secret: str = "The digest of the plan holds a secret, so no request goes to Jev."
+    decision_point_secret: str = (
+        "The digest of the decision point {point} holds a secret, so no request goes to the "
+        "decision model."
+    )
+    decision_point_failed: str = (
+        "The decision point {point} could not decide for {subject}, so the current behavior "
+        "runs: {error}"
+    )
+    decision_point_name: str = (
+        "The name {name!r} of a decision point is not of the form <area>.<what>."
+    )
+    decision_point_bands: str = (
+        "The decision point {point} must say what each band does: continue, review and flag."
+    )
+    decision_point_no_resolver: str = (
+        "The decision point {point} has no resolver: it has no rule, and it asks no decision model "
+        "or no decision model is configured."
+    )
+    decision_point_off: str = (
+        "The resolver chain of the decision point {point} does not run in the mode off."
+    )
+    decision_point_twice: str = "The registry holds the decision point {point} two times."
+    decision_point_series: str = (
+        "The registry of decision points can write {count} label sets of "
+        "devops_cli_decision_point_total, more than the bound of {bound}."
+    )
+    decision_point_unknown: str = (
+        "roadmap.decisions names no registered decision point: {names}. The registered points "
+        "are: {points}."
+    )
+    decision_point_unfitted: str = (
+        "The decision point {point} has no fitted cuts at {path}, so its mode cannot be on. Use "
+        "shadow until a fit writes the file."
+    )
     decision_step_no_cut: str = "A decision step has answers with no cut: {names}."
     decision_step_no_answer: str = "Jev gave no answer for: {names}."
-    decision_step_failed: str = (
-        "The {step} step could not ask Jev about item #{item}, so the existing path runs: {error}"
-    )
-    decision_step_band: str = (
-        "The {step} step gave item #{item} the band {band}. Questions at their flag cut: "
-        "{flagged}. Highest probability: {top}."
-    )
     intake_jev_choice_reason: str = "Jev chose {choice} with a probability of {probability:.0%}."
     intake_jev_score_reason: str = "Jev scored {level} with a confidence of {confidence:.0%}."
     intake_jev_duplicate_reason: str = (

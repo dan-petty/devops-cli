@@ -199,6 +199,7 @@ AI code review, multi-agent pipelines, RAG semantic search, and embeddings.
 |---|---|---|---|---|
 | `provider` | `str` | `ollama` | `DEVOPS_CLI_AI_PROVIDER` | AI provider (ollama | claude | copilot | openai) |
 | `model` | `str` | `qwen3.8:27b` | `DEVOPS_CLI_AI_MODEL` | Default AI model name |
+| `decision_model` | `str` | `` | `DEVOPS_CLI_AI_DECISION_MODEL` | The decision model of the registered decision points of the roadmap jobs (ADR 0020), such as `typesafe/jev-1.14`: a System One model that answers closed questions with a calibrated probability and writes no text. The gateway serves it by name. Empty means no decision model: no point sends a request, and a point with no rule does what the job did before the point. A model that writes text is refused |
 | `api_key` | `Union` | - | `DEVOPS_CLI_AI_API_KEY` | - |
 | `reference_model` | `str` | `gpt-4o` | `DEVOPS_CLI_AI_REFERENCE_MODEL` | Hosted chat model whose genai-prices price values the local chat tokens in the AI spend reports |
 | `reference_embedding_model` | `str` | `text-embedding-3-small` | `DEVOPS_CLI_AI_REFERENCE_EMBEDDING_MODEL` | Hosted embedding model whose genai-prices price values the local embedding tokens in the AI spend reports |
@@ -277,11 +278,12 @@ roadmap configuration settings.
 | Option | Type | Default | Environment Variable | Description |
 |---|---|---|---|---|
 | `alternatives` | `AlternativesConfig` | `limit=5 first_pass_limit=20 recheck_days=30 retry_days=3` | - | - |
-| `stage` | `RoadmapStageConfig` | `filter=['status=ready'] limit=3 planned_limit=20 step_tokens=64000 toolset='extended' mcp=False jev_screen='off' jev_completeness=False` | - | - |
+| `stage` | `RoadmapStageConfig` | `filter=['status=ready'] limit=3 planned_limit=20 step_tokens=64000 toolset='extended' mcp=False jev_completeness=False` | - | - |
 | `implement` | `RoadmapImplementConfig` | `effort=['low', 'medium'] in_runner=False repair_rounds=3 step_token_budget=8000000 item_token_budget=20000000 step_time_limit_seconds=5400 item_time_limit_seconds=12600 digest_clears_per_class=1 digest_clears_per_item=3 continuations_per_item=2 ladder={'edit': ['devops-coder'], 'repair': ['devops-coder']} request_timeout_seconds=1200 command_timeout_seconds=1800 monitor_timeout_seconds=3600 deadline_stall_seconds=4200 deadline_extension_seconds=5400 deadline_ceiling_seconds=14400 max_memory_limit='8Gi' mcp=False` | - | - |
 | `inbox` | `RoadmapInboxConfig` | `draft_days=7 wait_days=7` | - | - |
 | `intake` | `RoadmapIntakeConfig` | `jev='off'` | - | - |
 | `mcp` | `RoadmapMcpConfig` | `url=None timeout_seconds=30.0` | - | - |
+| `decisions` | `dict` | `{}` | `DEVOPS_CLI_ROADMAP_DECISIONS` | The mode of each decision point of the roadmap jobs (ADR 0020), by the name of the point, as a JSON object such as `{"stage.verify_screen": "shadow"}`. `off` runs nothing. `shadow` runs the resolver chain (a proven rule, then the model of `ai.decision_model`, then the current behavior), records its band and the real result, and changes nothing. `on` lets the band act. A point that is not in the mapping is off. A key that names no registered point stops the settings from loading, and so does `on` for a point whose fitted cuts file is not in the repository |
 
 ## Firecrawl Configuration (`firecrawl`)
 
