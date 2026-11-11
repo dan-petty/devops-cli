@@ -9,6 +9,9 @@ Kind: behavior. Changes: `tests/invariants/test_hermetic_floor.py`, `tests/suppo
 - [x] 1.2 Record the real home in `isolate_home` and give it to each xdist worker. Add the home write guard. Move the audit event table into `tests/support/file_changes.py` and read it in the three guards.
   - Verification: `$ uv run devops ci test tests/invariants/test_hermetic_floor.py tests/config/test_isolation_tripwire.py`
 
+- [x] 1.3 Write a failing test: in a pytester run, a test that replaces `os.lstat` with a function that removes a file passes, and the function runs once. Then compare the written path with no file system call in the hook.
+  - Verification: `$ uv run devops ci test tests/invariants/test_hermetic_floor.py tests/git/test_repos_worktrees.py tests/git/test_repos_worktrees_reclaim.py`
+
 ## 2. A support helper writes only inside a pytest run
 
 Kind: behavior. Changes: `tests/invariants/test_hermetic_floor.py`, `tests/support/home_write_guard.py`, `tests/support/tools.py`, `tests/support/config.py`.

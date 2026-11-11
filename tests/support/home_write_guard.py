@@ -16,6 +16,12 @@ pytester starts, the HOME that pytester sets, which is the real home of that run
 `PYTEST_CURRENT_TEST` and shows the stack. The test also fails at teardown, because a refused
 write in another thread fails no test by itself.
 
+The hook calls no function that a test can replace. A test replaces `os.lstat` with a function
+that removes a file, and `os.path.realpath` calls `os.lstat`, so a hook that resolved the path
+started itself again until Python stopped it at the recursion limit. The hook compares the written path, made absolute and
+normalized with no file system call, with the given and the resolved form of each root. It does
+not follow a symbolic link in the written path.
+
 A support helper can also run outside pytest, where no floor isolates HOME: on 2026-11-09 a
 helper called from plain Python wrote stubs over 18 real tools. So a helper that writes to a path
 that it does not get from its caller, such as a path that devops-cli resolves, calls
@@ -46,17 +52,20 @@ from tests.support.paths import REPO_ROOT
 
 @dataclass
 class _Run:
-    """The resolved temporary directory and real home of a pytest run, and whether a test of the
-    run runs."""
+    """The resolved temporary directory of a pytest run, the forms of its real home and of the
+    roots that it writes to itself, and whether a test of the run runs."""
 
     root: str
-    home: str
+    homes: tuple[str, ...]
+    kept: tuple[str, ...]
     testing: bool = False
 
 
 _RUNS: list[_Run] = []
 _REFUSED: list[str] = []
 _HOOKS: list[object] = []
+# The hook's own reference, so a test that replaces `os.getcwd` changes no check.
+_GETCWD = os.getcwd
 
 
 def _within(path: str, root: str) -> bool:
@@ -64,9 +73,20 @@ def _within(path: str, root: str) -> bool:
     return path == root or path.startswith(f"{root}{os.sep}")
 
 
-def _kept_roots() -> tuple[str, ...]:
-    """The resolved roots that a run writes to itself: the checkout with its common git
-    directory, and the interpreter with its bytecode cache."""
+def _forms(*roots: str | Path) -> tuple[str, ...]:
+    """The absolute form of each root as given and its resolved form."""
+    forms = (form for root in roots for form in (os.path.abspath(root), os.path.realpath(root)))
+    return tuple(dict.fromkeys(forms))
+
+
+def _written(path: str) -> str:
+    """The written `path`, made absolute and normalized with no file system call."""
+    return os.path.normpath(path if os.path.isabs(path) else os.path.join(_GETCWD(), path))
+
+
+def _kept_roots() -> tuple[str | Path, ...]:
+    """The roots that a run writes to itself: the checkout with its common git directory, and
+    the interpreter with its bytecode cache."""
     interpreter = (
         sys.prefix,
         sys.base_prefix,
@@ -74,8 +94,7 @@ def _kept_roots() -> tuple[str, ...]:
         sys.base_exec_prefix,
         sys.pycache_prefix,
     )
-    roots: list[str | Path] = [*checkout_roots(REPO_ROOT), *(root for root in interpreter if root)]
-    return tuple(dict.fromkeys(os.path.realpath(root) for root in roots))
+    return (*checkout_roots(REPO_ROOT), *(root for root in interpreter if root))
 
 
 def hold_to_the_run(path: Path) -> None:
@@ -97,12 +116,12 @@ def hold_to_the_run(path: Path) -> None:
 
 
 def _refuse(path: str) -> None:
-    """Record the refused write for the test's teardown and fail the test at the write."""
+    """Record the refused write of the written `path` for the test's teardown and fail the test
+    at the write."""
     test = os.environ.get("PYTEST_CURRENT_TEST", "(no test)")
     message = (
-        f"write under the real home outside the run's temporary directory: "
-        f"{os.path.realpath(path)} (test: {test}). Write under `tmp_path` or under HOME, which "
-        "the floor puts in the run."
+        f"write under the real home outside the run's temporary directory: {path} "
+        f"(test: {test}). Write under `tmp_path` or under HOME, which the floor puts in the run."
     )
     _REFUSED.append(message)
     pytest.fail(message)
@@ -112,7 +131,6 @@ def _install() -> None:
     """Add the audit hook once per process."""
     if _HOOKS:
         return
-    kept = _kept_roots()
 
     def guard(event: str, args: tuple[Any, ...]) -> None:
         if not _RUNS or not _RUNS[-1].testing:
@@ -121,11 +139,11 @@ def _install() -> None:
         if path is None:
             return
         run = _RUNS[-1]
-        resolved = os.path.realpath(path)
-        if _within(resolved, run.home) and not any(
-            _within(resolved, root) for root in (run.root, *kept)
+        written = _written(path)
+        if any(_within(written, home) for home in run.homes) and not any(
+            _within(written, root) for root in run.kept
         ):
-            _refuse(path)
+            _refuse(written)
 
     _HOOKS.append(guard)
     sys.addaudithook(guard)
@@ -134,9 +152,13 @@ def _install() -> None:
 def pytest_configure(config: pytest.Config) -> None:
     """Hold writes under the real home to this run's temporary directory."""
     _install()
-    real_home: Path = config.stash[REAL_HOME]
+    root = run_temp_root(config)
     _RUNS.append(
-        _Run(root=os.path.realpath(run_temp_root(config)), home=os.path.realpath(real_home))
+        _Run(
+            root=os.path.realpath(root),
+            homes=_forms(config.stash[REAL_HOME]),
+            kept=_forms(root, *_kept_roots()),
+        )
     )
 
 
