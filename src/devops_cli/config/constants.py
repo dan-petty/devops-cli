@@ -3368,6 +3368,12 @@ CONST_ROADMAP_IMPLEMENT_TOOL_RETRIES: Final[int] = 5
 # refusals count no tool retry, so this total is the stop of a model that loops on a refused
 # command. A step of one item keeps one count across its extra turns.
 CONST_ROADMAP_IMPLEMENT_MAX_REFUSALS: Final[int] = 30
+# The commands that the shell may refuse in a row, with no accepted tool call between them, before
+# the run ends (#4043). A model that repeats a refused command asks again in every reply, and each
+# reply holds the whole history: one run spent 8,022,108 tokens in 77 requests on 4 refused
+# commands. The count spans the step, extra turns included, and any tool call that is not refused
+# resets it. The total limit above still stops a model that alternates refused and accepted calls.
+CONST_ROADMAP_IMPLEMENT_MAX_CONSECUTIVE_REFUSALS: Final[int] = 3
 # The rule of the decision point `implement.extension` (ADR 0020, #4394). A step that reaches
 # `roadmap.implement.step_token_budget` gets one extension of this percent of the budget, up to
 # `roadmap.implement.step_token_ceiling`, when its last tool calls hold at least the edits and at

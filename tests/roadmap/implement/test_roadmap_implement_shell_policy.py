@@ -17,7 +17,7 @@ from typer.testing import CliRunner
 
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config.constants import (
-    CONST_ROADMAP_IMPLEMENT_MAX_REFUSALS,
+    CONST_ROADMAP_IMPLEMENT_MAX_CONSECUTIVE_REFUSALS,
 )
 from devops_cli.main import app
 from devops_cli.roadmap.implement.implement_shell_policy import (
@@ -241,11 +241,12 @@ def test_a_refused_argument_counts_as_a_refused_command_of_its_program(
 
     assert (outcome.status, outcome.requests, is_clean_at(checkout, head)) == (
         StepStatus.STOPPED,
-        CONST_ROADMAP_IMPLEMENT_MAX_REFUSALS + 1,
+        CONST_ROADMAP_IMPLEMENT_MAX_CONSECUTIVE_REFUSALS,
         True,
     )
     assert outcome.reason.endswith(
-        f"\nRefused commands: find {CONST_ROADMAP_IMPLEMENT_MAX_REFUSALS + 1}. Other retries: 0."
+        f"\nRefused commands: find {CONST_ROADMAP_IMPLEMENT_MAX_CONSECUTIVE_REFUSALS}. "
+        "Other retries: 0."
     )
 
 

@@ -25,7 +25,9 @@ tool result and adds no tool retry (#3271), so `ShellRefusal` tells the log of e
 (`refuse`) and the line of the call says `refused`. A refusal of a file tool, such as a path outside
 the root, is an other retry. The reason of a stopped step holds both counts, so a person sees at
 once which program the model kept asking for. The step ends when the refusals pass
-`CONST_ROADMAP_IMPLEMENT_MAX_REFUSALS`.
+`CONST_ROADMAP_IMPLEMENT_MAX_REFUSALS`, or at
+`CONST_ROADMAP_IMPLEMENT_MAX_CONSECUTIVE_REFUSALS` refusals in a row (#4043): a call that is not refused
+resets that count.
 
 The log keeps the tool name and the outcome of the last `CONST_ROADMAP_IMPLEMENT_EXTENSION_CALLS`
 calls (#4394). `progress` gives their counts, the digest that the rule of the extension of the
@@ -69,6 +71,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_IMPLEMENT_LOG_COMMAND_READ_CHARS,
     CONST_ROADMAP_IMPLEMENT_LOG_COMMAND_WORDS,
     CONST_ROADMAP_IMPLEMENT_LOG_REASON_CHARS,
+    CONST_ROADMAP_IMPLEMENT_MAX_CONSECUTIVE_REFUSALS,
     CONST_ROADMAP_IMPLEMENT_MAX_REFUSALS,
     CONST_ROADMAP_IMPLEMENT_REASON_PATHS,
     CONST_ROADMAP_IMPLEMENT_REFUSED_PROGRAMS,
@@ -326,7 +329,8 @@ class ToolCallLog:
     agent is paused: the step uses it to keep the work in progress (#3054). `parser_failures` counts
     the tool calls of the current tier that the provider could not parse (#3053); the tier loop
     of the step sets it to 0 for each tier. `recent` holds the tool name and the outcome of the
-    last calls of the step, over all its turns and tiers (#4394)."""
+    last calls of the step, over all its turns and tiers (#4394). `refused_run` counts the shell
+    refusals in a row: a call that returns and is not refused resets it (#4043)."""
 
     root: Path | None = None
     refused: Counter[str] = field(default_factory=Counter[str])
@@ -336,6 +340,7 @@ class ToolCallLog:
     removed: list[str] = field(default_factory=list[str])
     trace: ImplementTrace | None = None
     refusals: set[str] = field(default_factory=set[str])
+    refused_run: int = 0
     before_request: Callable[[], None] | None = None
     fail_to_pass: BaseReplay | None = None
     verified: list[VerifiedCommand] = field(default_factory=list[VerifiedCommand])
@@ -461,7 +466,7 @@ class ToolCallLog:
     ) -> Any:
         """Run the call, write its line, and pass on the result or the error. The call that
         exceeds the limit of retries reaches here as `UnexpectedModelBehavior`. A refused call
-        that passes the limit of refusals ends the run in the same way."""
+        that passes a limit of refusals ends the run in the same way."""
         shown = self._shown(args)
         program = logged_program(command_word(shown))
         if command := logged_command(shown):
@@ -491,9 +496,16 @@ class ToolCallLog:
         refused = call.tool_call_id in self.refusals
         self.refusals.discard(call.tool_call_id)
         outcome = ToolOutcome.REFUSED if refused else ToolOutcome.OK
+        self.refused_run = self.refused_run + 1 if refused else 0
         shell = call.tool_name == IMPLEMENT_SHELL_TOOL
         status = shell_exit_status(result) if shell and not refused else None
         self._note(call.tool_name, program, outcome, digest=argument_digest(call), status=status)
+        if refused and self.refused_run >= CONST_ROADMAP_IMPLEMENT_MAX_CONSECUTIVE_REFUSALS:
+            raise UnexpectedModelBehavior(
+                MESSAGES.roadmap.implement_refusal_consecutive_limit.format(
+                    limit=CONST_ROADMAP_IMPLEMENT_MAX_CONSECUTIVE_REFUSALS
+                )
+            )
         if refused and sum(self.refused.values()) > CONST_ROADMAP_IMPLEMENT_MAX_REFUSALS:
             raise UnexpectedModelBehavior(
                 MESSAGES.roadmap.implement_refusal_limit.format(

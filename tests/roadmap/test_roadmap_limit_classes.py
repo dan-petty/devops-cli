@@ -320,6 +320,10 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
         "guard",
         "refused shell commands of one step; a refusal counts no tool retry, so this ends a loop",
     ),
+    "CONST_ROADMAP_IMPLEMENT_MAX_CONSECUTIVE_REFUSALS": (
+        "guard",
+        "refused shell commands in a row, with no accepted tool call between them (#4043); this ends a tight loop early",
+    ),
     "CONST_ROADMAP_IMPLEMENT_EXTENSION_CALLS": (
         "other",
         "the tool calls that the rule implement.extension reads (#4394); it gives room, no run is cut by it",

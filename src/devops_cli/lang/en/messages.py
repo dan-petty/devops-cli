@@ -2840,6 +2840,9 @@ class RoadmapMessages:
     implement_refusal_limit: str = (
         "Too many commands refused by policy in one step: the limit is {limit}."
     )
+    implement_refusal_consecutive_limit: str = (
+        "Too many consecutive commands refused by policy: the limit is {limit}."
+    )
     implement_refusal_argument: str = (
         "Command '{program}' has the argument '{argument}', which the shell does not allow. "
         "{instead}"
