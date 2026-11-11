@@ -53,6 +53,29 @@ def test_a_constant_counts_as_a_definition(repo: StageRepo) -> None:
     assert f"`LIMIT` is defined at {LIVE}:4" in probe.text
 
 
+SCOUT = "src/scout.rs"
+SCOUT_SOURCE = "#[test]\nfn scout_reaches_target() {\n    assert!(true);\n}\n"
+
+
+def test_a_rust_function_counts_as_a_definition(repo: StageRepo) -> None:
+    repo.track({SCOUT: SCOUT_SOURCE})
+
+    probe = _probe(repo, "Fix `scout_reaches_target`.")
+
+    assert f"`scout_reaches_target` is defined at {SCOUT}:2" in probe.text
+    assert probe.missing == ()
+
+
+def test_an_identifier_that_the_bound_leaves_undecided_is_not_probed(repo: StageRepo) -> None:
+    names = {f"src/devops_cli/f{i}.py": "x = 1\n" for i in range(9)}
+    repo.track({**names, SCOUT: SCOUT_SOURCE})
+    body = " ".join(f"`{name}`" for name in names) + " `scout_reaches_target`"
+
+    probe = _probe(repo, body)
+
+    assert (probe.commands, probe.missing, probe.skipped) == (10, (), ("scout_reaches_target",))
+
+
 def test_a_deleted_path_names_the_commit_that_deleted_it(repo: StageRepo) -> None:
     probe = _probe(repo, f"Fix `{GONE}`.")
 

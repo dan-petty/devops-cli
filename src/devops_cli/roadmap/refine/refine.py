@@ -121,6 +121,7 @@ from markdown_it import MarkdownIt
 from markdown_it.token import Token
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from devops_cli.ai.ast.engine import EXT_TO_LANG
 from devops_cli.ai.client import LLMClient, get_llm_client
 from devops_cli.ai.client.factory import get_task_model
 from devops_cli.ai.client.models import (
@@ -145,6 +146,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_P3_PRIORITY,
     CONST_ROADMAP_REFINE_COMMENT_CAP_WINDOW_HOURS,
     CONST_ROADMAP_REFINE_COMMENT_MARKER,
+    CONST_ROADMAP_REFINE_DEFINITIONS_PER_SYMBOL,
     CONST_ROADMAP_REFINE_END_MARKER,
     CONST_ROADMAP_REFINE_FAILURE_MAX_CHARS,
     CONST_ROADMAP_REFINE_HELD_STATUSES,
@@ -760,8 +762,11 @@ def _collect_identifiers(source: Path, sha: str, body: str) -> list[str]:
 # The files of a test: under `tests/`, or named like a test (#3012).
 _TEST_DIR: Final[str] = "tests/"
 _TEST_FILE_PATTERNS: Final[tuple[str, ...]] = ("test_*.py", "*_test.py")
-# The files that name a symbol: Python files, which is where an item's symbols live (#3012).
-SYMBOL_PATHSPEC: Final[str] = "*.py"
+# The files that name a symbol: the source files of each language that tree-sitter reads (#3012,
+# #4638). Markdown is no source, and its headings define no code.
+SYMBOL_PATHSPECS: Final[tuple[str, ...]] = tuple(
+    f"*{ext}" for ext, language in EXT_TO_LANG.items() if language != "markdown"
+)
 _SPECS_DIR: Final[str] = "openspec/specs"
 _REQUIREMENT_RE = re.compile(r"^### Requirement:[ \t]*(.+?)[ \t]*$", re.MULTILINE)
 # The root of the modules that a capability name covers, such as `src/devops_cli/roadmap/refine/refine.py`.
@@ -775,12 +780,12 @@ def _paths_of(output: str, sha: str) -> list[str]:
 
 
 def _grep_files(
-    source: Path, sha: str, needles: Sequence[str], pathspec: str, *, word: bool = False
+    source: Path, sha: str, needles: Sequence[str], pathspecs: Sequence[str], *, word: bool = False
 ) -> list[str]:
-    """The sorted paths of the files at `sha` under `pathspec` that hold one of `needles`."""
+    """The sorted paths of the files at `sha` under `pathspecs` that hold one of `needles`."""
     flags = ["-l", "-z", "-F", *(["-w"] if word else [])]
     needle_args = [arg for needle in needles for arg in ("-e", needle)]
-    code, out = git_result(source, "grep", *flags, *needle_args, sha, "--", pathspec)
+    code, out = git_result(source, "grep", *flags, *needle_args, sha, "--", *pathspecs)
     return _paths_of(out, sha) if code == 0 and out else []
 
 
@@ -791,9 +796,9 @@ def _is_test_path(path: str) -> bool:
     )
 
 
-def _symbol_section(ident: str, paths: Sequence[str]) -> str | None:
-    """The tests, then the callers, that reference `ident`: at most the bound of paths in all,
-    and the count of those left out."""
+def _symbol_section(ident: str, paths: Sequence[str], defined: Sequence[str] = ()) -> str | None:
+    """The places that define `ident`, then the tests and the callers that reference it: at most
+    the bound of each, and the count of those left out."""
     tests = [p for p in paths if _is_test_path(p)]
     callers = [p for p in paths if not _is_test_path(p)]
     shown_tests = tests[:CONST_ROADMAP_REFINE_MAX_PATHS_PER_SYMBOL]
@@ -802,6 +807,12 @@ def _symbol_section(ident: str, paths: Sequence[str]) -> str | None:
     if not shown_tests and not shown_callers:
         return None
     lines = [f"### Tests and callers of `{ident}`"]
+    if defined:
+        shown_defined = defined[:CONST_ROADMAP_REFINE_DEFINITIONS_PER_SYMBOL]
+        more = len(defined) - len(shown_defined)
+        lines.append(
+            f"Defined at: {', '.join(shown_defined)}" + (f" ({more} more)" if more else "")
+        )
     for title, group in (("Tests:", shown_tests), ("Callers:", shown_callers)):
         if group:
             lines += [title, *(f"- {p}" for p in group)]
@@ -812,11 +823,25 @@ def _symbol_section(ident: str, paths: Sequence[str]) -> str | None:
     return "\n".join(lines)
 
 
+def _definition_places(source: Path, sha: str, ident: str) -> list[str]:
+    """The `<path>:<line>` of each definition of `ident` at `sha`."""
+    # The definition lookup reads `git_result` and `SYMBOL_PATHSPECS` of this module.
+    from devops_cli.roadmap.premise import definition_lines
+
+    lines = definition_lines(source, sha, ident) or ()
+    return [":".join(line.removeprefix(f"{sha}:").split(":", 2)[:2]) for line in lines]
+
+
 def _collect_symbol_sections(source: Path, sha: str, body: str) -> list[str]:
-    """For each identifier the item cites, the Python test files and caller files that name it."""
+    """For each identifier the item cites, its definitions and the test files and caller files that
+    name it."""
     idents = sorted(cited_identifiers(body))[:5]
     sections = (
-        _symbol_section(ident, _grep_files(source, sha, [ident], SYMBOL_PATHSPEC, word=True))
+        _symbol_section(
+            ident,
+            _grep_files(source, sha, [ident], SYMBOL_PATHSPECS, word=True),
+            _definition_places(source, sha, ident),
+        )
         for ident in idents
     )
     return [section for section in sections if section]
@@ -843,7 +868,7 @@ def _capabilities_of_files(source: Path, sha: str, cited: Sequence[str]) -> list
     known = {PurePosixPath(p).parent.name for p in listed if p.endswith("/spec.md")}
     keys = {key for path in cited if (key := _module_capability_key(path))}
     by_name = {c for c in known if any(k == c or k.startswith(f"{c}-") for k in keys)}
-    by_path = {PurePosixPath(p).parent.name for p in _grep_files(source, sha, cited, _SPECS_DIR)}
+    by_path = {PurePosixPath(p).parent.name for p in _grep_files(source, sha, cited, [_SPECS_DIR])}
     return sorted(by_name | (by_path & known))
 
 
