@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from pathlib import Path
+
+import time_machine
 
 from devops_cli.core.repo import (
     _own_source_dir,
+    create_store_file,
     install_own_source_dir,
     own_source_state,
     reset_own_source_dir,
@@ -52,3 +56,15 @@ def test_a_reset_of_the_caches_keeps_the_installed_source_directory(tmp_path: Pa
     reset_own_source_dir()
 
     assert (kept, _own_source_dir() == tmp_path) == (tmp_path, False)
+
+
+@time_machine.travel(datetime(2026, 11, 11, 3, 32, 13, tzinfo=UTC), tick=False)
+def test_two_store_files_of_one_second_are_two_files(isolate_data_dir: Path) -> None:
+    """The store folder does not exist yet, and both calls read the same second (#4488)."""
+    first = create_store_file("roadmap_eval/verify")
+    second = create_store_file("roadmap_eval/verify")
+
+    assert first != second
+    assert first.parent == second.parent == isolate_data_dir / "roadmap_eval" / "verify"
+    assert all(path.name.startswith("20261111T033213Z-") for path in (first, second))
+    assert all(path.suffix == ".json" and path.is_file() for path in (first, second))

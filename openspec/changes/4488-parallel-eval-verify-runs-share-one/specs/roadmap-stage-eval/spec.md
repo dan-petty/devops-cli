@@ -4,8 +4,8 @@
 `devops roadmap eval verify` SHALL create a report file with a name unique to the run in the verify store folder when `--resume` is absent, and SHALL write every later report of that run to the file that it created.
 
 #### Scenario: Two runs start in one second
-- **WHEN** Two runs start with no `--resume`, and the clock reads one second.
-- **THEN** Each run gets a different `.json` path in the verify store folder, and both files exist.
+- **WHEN** Two runs start with no `--resume` while the clock reads one second, and both write their reports.
+- **THEN** The verify store folder holds two `.json` reports, and each report holds only the cases of its run.
 
 #### Scenario: A case ends and the report is written
 - **WHEN** A run without `--resume` ends a case and writes the report.
@@ -22,9 +22,5 @@
 The store file helper SHALL create the store folder when it is absent, SHALL create the file exclusively, and SHALL give each call in one second a different name.
 
 #### Scenario: The helper runs two times in one second
-- **WHEN** The helper is called two times with one fixed moment, and the store folder is absent.
+- **WHEN** The helper is called two times while the clock reads one second, and the store folder is absent.
 - **THEN** The helper creates the folder, returns two different paths, and both files exist.
-
-#### Scenario: The helper runs after an earlier call
-- **WHEN** The helper is called with the same moment as an earlier call.
-- **THEN** The earlier file stays, and the helper returns a new path.
