@@ -1422,6 +1422,22 @@ def test_init_scaffolds_claude_settings_matching_the_repository_settings(
     assert (result.exit_code, scaffolded) == (0, committed)
 
 
+def test_init_scaffolds_claude_settings_that_stop_the_uv_noise_lines(
+    runner: CliRunner, tmp_path: Path
+) -> None:
+    """The VS Code extension starts Claude Code with `VIRTUAL_ENV` set to the main `.venv`, so
+    `uv run` in a worktree warns and advises `--active`. The image sets `UV_COMPILE_BYTECODE=1`,
+    so each `uv run` prints a `Bytecode compiled` line. uv reads an empty `VIRTUAL_ENV` as unset."""
+    result = runner.invoke(app, ["init", str(tmp_path), "--name", "test-project"])
+
+    env = json.loads((tmp_path / ".claude" / "settings.json").read_text(encoding="utf-8"))["env"]
+    assert (result.exit_code, env.get("VIRTUAL_ENV"), env.get("UV_COMPILE_BYTECODE")) == (
+        0,
+        "",
+        "0",
+    )
+
+
 class SubprocessCallsRecorder:
     def __init__(self, fake: ProcessFake) -> None:
         self.fake = fake
