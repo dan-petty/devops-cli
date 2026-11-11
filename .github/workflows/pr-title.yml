@@ -52,6 +52,7 @@ jobs:
             config
             contributing
             deps
+            design
             devcontainer
             docker
             docs

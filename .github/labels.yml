@@ -185,6 +185,10 @@
   color: "DCDCD6"
   description: "The research agent: the pins of the project and the news about them"
 
+- name: "scope/design"
+  color: "DCDCD6"
+  description: "The design spec, its tokens and their build"
+
 # ── Release Labels ──────────────────────────────────────────────────────────
 - name: "autorelease: pending"
   color: "DCDCD6"
