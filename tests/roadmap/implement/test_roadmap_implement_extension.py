@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import yaml
 from pydantic import ValidationError
 
 from devops_cli.config import constants, env
@@ -114,7 +115,51 @@ def _budget(
 def test_the_ceiling_is_twice_the_default_step_budget() -> None:
     implement = load_settings().roadmap.implement
 
-    assert implement.step_token_ceiling == 2 * implement.step_token_budget == 16_000_000
+    assert implement.token_ceiling == 2 * implement.step_token_budget == 16_000_000
+
+
+def test_with_no_ceiling_set_the_ceiling_is_twice_the_configured_step_budget(
+    config: Callable[..., Path],
+) -> None:
+    config(roadmap={"implement": {"step_token_budget": 17_000_000}})
+
+    assert load_settings().roadmap.implement.token_ceiling == 34_000_000
+
+
+def test_a_variable_that_sets_only_the_step_budget_gives_twice_it_as_the_ceiling(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("DEVOPS_CLI_ROADMAP_IMPLEMENT_STEP_TOKEN_BUDGET", "17000000")
+
+    assert load_settings().roadmap.implement.token_ceiling == 34_000_000
+
+
+def test_config_set_of_a_step_budget_above_the_loaded_ceiling_moves_the_ceiling(
+    cli: Callable[..., Any], isolate_devops_cli_config: Path
+) -> None:
+    """`devops config set` of a step budget above twice the loaded one exits 0, writes only the
+    budget, and the unset ceiling follows it (#4505)."""
+    result = cli("config", "set", "roadmap.implement.step_token_budget", "20000000")
+
+    written = yaml.safe_load(isolate_devops_cli_config.read_text(encoding="utf-8"))
+    assert (result.exit_code, written["roadmap"]["implement"]) == (
+        0,
+        {"step_token_budget": 20_000_000},
+    )
+    assert load_settings().roadmap.implement.token_ceiling == 40_000_000
+
+
+def test_a_step_budget_with_no_ceiling_set_gets_its_whole_extension(
+    config: Callable[..., Path], counted: list[tuple[str, float]]
+) -> None:
+    config(roadmap={"implement": {"step_token_budget": 12_000_000}})
+    budget = StepBudget(progress=lambda: _digest(2, 0))
+    budget.add(12_000_000)
+
+    assert budget.spent() is None
+    assert budget.extension == BudgetExtension(
+        limit=12_000_000, budget=18_000_000, calls=20, edits=2, refused=0
+    )
 
 
 def test_the_ceiling_has_a_variable_named_after_its_setting(
