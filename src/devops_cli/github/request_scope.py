@@ -5,7 +5,8 @@ request, token, spend and answer series, so they name the job row of a model req
 The roadmap Service sends the requests of every repository and every job row from one process,
 so the request counter names who sent each one: an alert on the Service's writes then finds the
 repository and the row that spent them. A worker of the Service names its repository for the
-rounds it runs, and a round names each job row while the row runs. A value that no scope names
+rounds it runs, and a round names each job row while the row runs. A scoped update of a webhook
+delivery names its job as the row, such as intake (#4522). A value that no scope names
 is `other`. The Service makes a worker only for each repository of `service.repos`, and a round
 runs only the rows of its due table, so each label has a bounded set of values.
 

@@ -7,11 +7,15 @@ from __future__ import annotations
 from datetime import timedelta
 from pathlib import Path
 
+import httpx2
 import pytest
 
+from devops_cli.ai.client import LLMClient
 from devops_cli.config.constants import (
     CONST_SERVICE_LANE_TRIAGE,
 )
+from devops_cli.config.settings import AIConfig
+from devops_cli.roadmap.intake.intake_model import GatewayIntakeModel, ModelProposal
 from devops_cli.roadmap.run import (
     SCOPED_UPDATES,
     JobOutcome,
@@ -23,6 +27,10 @@ from devops_cli.roadmap.stores.store import (
     CloseReason,
     ItemField,
 )
+from tests.support.fakes.embeddings import FakeEmbedder
+from tests.support.fakes.http import WebFake
+from tests.support.fakes.otlp import FakeCollector
+from tests.support.llm_stream_fakes import serve_llm
 from tests.support.roadmap_run import (
     NOW,
     REPO_DIR,
@@ -175,3 +183,48 @@ def test_a_scoped_update_keeps_the_entries_and_the_pending_flag_a_capped_round_l
         [1, 2, 3, 4, 5, 6],
         [titles[6]],
     )
+
+
+_AI_SERIES = (
+    "devops_cli_ai_requests_total",
+    "devops_cli_ai_tokens_total",
+    "devops_cli_ai_spend_usd_total",
+)
+
+
+def test_the_model_requests_of_a_scoped_intake_carry_the_intake_row(
+    tmp_path: Path, web: WebFake, embedder: FakeEmbedder, otlp: FakeCollector
+) -> None:
+    """Test first for #4522: the model request of the scoped intake of an `issues.opened`
+    delivery names the row `intake` on its request, token and spend series, as the job counter
+    of the same update does, and not `other`."""
+    store, _, _ = make_candidates(1)
+    proposal = ModelProposal(
+        type="type/feature",
+        type_reason="it adds a capability.",
+        priority="P2-Medium",
+        priority_reason="useful, not urgent.",
+        value="Medium",
+        value_reason="it helps maintainers.",
+        effort="Low",
+        effort_reason="one module.",
+    )
+    reply = {
+        "model": "gpt-4o",
+        "choices": [{"message": {"content": proposal.model_dump_json()}, "finish_reason": "stop"}],
+        "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+    }
+    serve_llm(web, lambda _request: httpx2.Response(200, json=reply))
+    client = LLMClient(
+        AIConfig(provider="openai", model="gpt-4o", api_base_url="https://example.com/v1"),
+        api_key="sk-test",
+        cache_enabled=False,
+    )
+    model = GatewayIntakeModel(AIConfig(), embedder=embedder, client=client)
+
+    run_scoped_update(webhook_delivery("opened", 1), store, data_dir=tmp_path, now=NOW, model=model)
+
+    assert {
+        name: sorted({attributes["row"] for attributes, _ in otlp.points(name)})
+        for name in _AI_SERIES
+    } == {name: ["intake"] for name in _AI_SERIES}

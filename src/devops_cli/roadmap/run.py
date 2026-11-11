@@ -906,7 +906,8 @@ def run_scoped_update(
 
     The update reads the repository's intake record beside its `schedule.json` in `data_dir`,
     and writes no job's last success: the reconciling poll still judges every change made since
-    each job's last round, so a scoped update never hides a change it did not handle."""
+    each job's last round, so a scoped update never hides a change it did not handle. Its model
+    and GitHub requests name its job as their row, as the job counter does (#4522)."""
     update = SCOPED_UPDATES.get((delivery.event, delivery.action))
     if update is None:
         return None
@@ -917,13 +918,14 @@ def run_scoped_update(
         error_cls=GitOperationError,
     )
     try:
-        outcome = update.runner(
-            store,
-            delivery,
-            repo_dir=schedule_path.parent,
-            now=now or datetime.now(UTC),
-            model=model,
-        )
+        with request_scope(row=update.job):
+            outcome = update.runner(
+                store,
+                delivery,
+                repo_dir=schedule_path.parent,
+                now=now or datetime.now(UTC),
+                model=model,
+            )
     except Exception as exc:
         _count_job(delivery.repo, update.lane, update.job, _failed_result(exc))
         raise
