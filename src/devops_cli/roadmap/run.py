@@ -15,8 +15,9 @@ candidate its last round left (`IntakeRecord`, kept beside `schedule.json`). A r
 decides at most `DEFAULT_ROADMAP_INTAKE_LIMIT` candidates. Refine is due every 17 minutes, on a first
 run, and in a round where intake placed a critical fix or a P0 item (#1515). Stage, the row after
 refine, is due every 37 minutes, on a first run, and in a round where refine set an item Ready (#2659).
-Retitle, the row before stage, is due every 61 minutes and on a first run, and shortens at most
-`DEFAULT_ROADMAP_RETITLE_LIMIT` long title summaries, so stage reads the new titles (#3535).
+Retitle, the row before stage, is due every 61 minutes and on a first run. It examines at most
+`DEFAULT_ROADMAP_RETITLE_LIMIT` items: it shortens a long title summary (#3535) and corrects a title
+type that the branch types do not list (#4508), so stage reads the new titles.
 The alternatives row is due every 719 minutes and on a first run, and checks at most
 `roadmap.alternatives.first_pass_limit` items while an item has no check, else
 `roadmap.alternatives.limit` items after (#2652). Every clone tracks origin's default branch.
@@ -607,8 +608,9 @@ def _run_refine_adapter(
 
 
 def _run_retitle_adapter(store: RoadmapStore, repo: str = "", **_: Any) -> JobOutcome:
-    """Shorten the title summary of at most `DEFAULT_ROADMAP_RETITLE_LIMIT` open items, as
-    `devops roadmap retitle --confirm` does, with the model of that command (#3535). The row runs
+    """Shorten the long title summary, or correct the unlisted title type (#4508), of at most
+    `DEFAULT_ROADMAP_RETITLE_LIMIT` open items, as `devops roadmap retitle --confirm` does, with
+    the model of that command (#3535). The row runs
     before the stage row, so the stage job reads the new titles in the same round. It reads and
     writes the store only, so it needs no clone."""
     plan = plan_retitle(

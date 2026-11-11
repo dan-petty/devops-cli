@@ -304,7 +304,7 @@ def test_an_item_with_a_folder_on_the_default_branch_is_left_out_by_its_issue_nu
     [
         ("the job drops a comment", "Conventional Commit type"),
         ("fix(roadmap): ✨", "word for the branch name"),
-        ("wip: the job drops a comment", "Conventional Commit type"),
+        ("wip: the job drops a comment", "The title type `wip` is not a type of the project"),
     ],
 )
 def test_a_title_that_gives_no_branch_name_is_left_out(

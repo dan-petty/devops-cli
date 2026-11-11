@@ -4967,7 +4967,7 @@
             }
           ],
           "default": null,
-          "description": "Specific issue number to refine instead of selecting by priority. Refine refines it when it is open and New or Ready, even when nothing changed since its last round, whoever opened it, and however many comments refine wrote on it."
+          "description": "Specific issue number to refine instead of selecting by priority. Refine refines it when it is open and New or Ready, even when nothing changed since its last round, whoever opened it, and however many comments refine wrote on it. It does not refine an item whose title type the branch types do not list."
         },
         "limit": {
           "default": 7,

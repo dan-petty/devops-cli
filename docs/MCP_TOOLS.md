@@ -1948,7 +1948,7 @@ Refine roadmap items to Ready: investigate open questions with tools that read t
 |---|---|---|---|---|
 | `repo` | `string` | No | - | Repository as owner/name (default: this checkout's origin). |
 | `source` | `string` | No | `.` | Path to the repository checkout (defaults to current directory). |
-| `item` | `integer` | No | - | Specific issue number to refine instead of selecting by priority. Refine refines it when it is open and New or Ready, even when nothing changed since its last round, whoever opened it, and however many comments refine wrote on it. |
+| `item` | `integer` | No | - | Specific issue number to refine instead of selecting by priority. Refine refines it when it is open and New or Ready, even when nothing changed since its last round, whoever opened it, and however many comments refine wrote on it. It does not refine an item whose title type the branch types do not list. |
 | `limit` | `integer` | No | `7` | Maximum number of items to refine in this run (default 7). |
 | `dry_run` | `boolean` | No | `False` | Make no request and change no git ref: print what refine would plan and run, with placeholders. |
 | `confirm` | `boolean` | No | `False` | Refine the items and write the proposed designs to GitHub. Without it, refine prints its plan only. |

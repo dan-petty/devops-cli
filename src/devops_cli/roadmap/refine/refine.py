@@ -9,6 +9,8 @@ refine round has recorded, which refine confirms Ready or sets back to New. It l
 that are Blocked or started, items that an account that the jobs do not trust opened (GitHub's
 `author_association` is not OWNER, MEMBER or COLLABORATOR, and the author login is neither
 `service.github_app.bot_login` nor `github-actions[bot]`), which wait on a person (#2478, #3502),
+items whose title type `CONST_BRANCH_TYPES` does not list, which wait for `devops roadmap
+retitle` or a person to write a listed type, because the stage job cannot take them (#4508),
 items whose section a person edited (`check_person_edits`), items unchanged since their last
 round that still wait on their next step, and items on which refine wrote
 `CONST_ROADMAP_REFINE_MAX_COMMENTS_PER_ITEM` comments in the last 24 hours, which wait on a person
@@ -18,7 +20,7 @@ call (#1539). The cap reads the comments of each item that the selection would t
 the selection. Apply records, logs and counts once each comment that the cap stops: the comment
 that would answer the item's newest comment. `--item` refines the item it names whenever it is
 open, New or Ready, whoever opened it and however many comments refine wrote on it, since a
-person asked for it.
+person asked for it. It does not refine an item whose title type is not listed.
 
 A Ready proposal for an item that one of the two bots opened goes through a review before the item
 is Ready (`refine_judge`, #3502): an approval is recorded as `RefineRecordKey.JUDGE`, and a refusal
@@ -184,6 +186,7 @@ from devops_cli.roadmap.body_hash import (
     hash_text,
     is_unchanged,
 )
+from devops_cli.roadmap.commit_title import corrected_title, unlisted_type_reason
 from devops_cli.roadmap.failure import FailureClass, StepName, failure_class_of, retry_after
 from devops_cli.roadmap.intake.intake import (
     IntakePlan,
@@ -326,7 +329,7 @@ class NextStep(StrEnum):
     a form check, or a question that is no person's stayed open) and a later round tries again.
     `FAILED`: the job failed `CONST_ROADMAP_REFINE_MAX_TRIES` times on the same body, and only a
     body edit ends the wait (#3632). `NONE`: refine changes no item that is closed, In Progress,
-    Done or Blocked.
+    Done or Blocked, or whose title type `devops roadmap retitle` corrects (#4508).
     """
 
     READY = "ready"
@@ -1686,7 +1689,8 @@ def _select_single_candidate(
     store: RoadmapStore, item_number: int
 ) -> tuple[list[Item], list[WaitingItem]]:
     """The item `--item` names: refined whenever it is open, New or Ready, since a person asked
-    for it, however little changed since its last round (#1758)."""
+    for it, however little changed since its last round (#1758). An item whose title type is not
+    listed waits (#4508): the stage job could not take it."""
     item = store.item(item_number)
     if item is None:
         return [], []
@@ -1696,7 +1700,8 @@ def _select_single_candidate(
     if item.status in CONST_ROADMAP_REFINE_HELD_STATUSES:
         held = texts.refine_held_status.format(status=item.status)
         return [], [WaitingItem(item, NextStep.NONE, (held,))]
-    return [item], []
+    title_wait = _title_type_wait(item)
+    return ([], [title_wait]) if title_wait is not None else ([item], [])
 
 
 def _recorded_step(item: Item) -> NextStep | None:
@@ -1998,6 +2003,20 @@ def _outside_author(item: Item) -> WaitingItem | None:
     return WaitingItem(item, NextStep.PERSON, (detail,))
 
 
+def _title_type_wait(item: Item) -> WaitingItem | None:
+    """The wait of an item whose title type `CONST_BRANCH_TYPES` does not list, or None (#4508).
+    The stage job cannot take such an item, so refine does not set it Ready and asks no model.
+    `devops roadmap retitle` writes the correction of the type, and the item waits on nothing
+    that refine does (`NONE`); for a type with no correction, the job comments and the item waits
+    on a person. The title is read in each round, so the first round after a title with a
+    listed type takes the item."""
+    reason = unlisted_type_reason(item.title)
+    if reason is None:
+        return None
+    step = NextStep.PERSON if corrected_title(item.title) is None else NextStep.NONE
+    return WaitingItem(item, step, (MESSAGES.roadmap.refine_left_title_type.format(reason=reason),))
+
+
 def _comment_cap(item: Item, comments: Sequence[IssueComment]) -> WaitingItem | None:
     """The wait of an item on which refine wrote `CONST_ROADMAP_REFINE_MAX_COMMENTS_PER_ITEM`
     comments in the last `CONST_ROADMAP_REFINE_COMMENT_CAP_WINDOW_HOURS` hours, or None.
@@ -2075,10 +2094,10 @@ class _Selection:
         return self.comments[number]
 
     def consider(self, item: Item) -> None:
-        """Take `item` unless an account that the jobs do not trust opened it (#2478), its model call
-        failed less than the wait of the failure class ago (#4061), its wait
-        is not over, a person edited its section (#1515), or refine wrote its cap of comments on
-        it in the last 24 hours (#2475)."""
+        """Take `item` unless an account that the jobs do not trust opened it (#2478), its title
+        type is not listed (#4508), its model call failed less than the wait of the failure class
+        ago (#4061), its wait is not over, a person edited its section (#1515), or refine wrote
+        its cap of comments on it in the last 24 hours (#2475)."""
         outside = _outside_author(item)
         if outside is not None:
             told = any(
@@ -2086,6 +2105,10 @@ class _Selection:
                 for comment in self.comments_on(item.number)
             )
             self.waiting.append(replace(outside, notice=not told))
+            return
+        title_wait = _title_type_wait(item)
+        if title_wait is not None:
+            self.waiting.append(title_wait)
             return
         failed_lately = _failed_lately(item, datetime.now(UTC))
         if failed_lately is not None:

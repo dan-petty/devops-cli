@@ -63,6 +63,15 @@ Two kinds of item wait for a person. Only `--item` refines them:
 
 `--item` refines an open New or Ready item even when nothing changed since its last round.
 
+## Items with an unlisted title type
+
+Refine does not refine an item whose title type the branch types do not list, such as `security(ssh): ...`, also with `--item`. The stage job cannot take such an item, because its branch has no type. The round makes no model call for the item and does not set it Ready. The report and `devops roadmap explain` give the reason `invalid-title-type`:
+
+- For a type that has a correction, `devops roadmap retitle` writes the corrected title, such as `fix(security): ...`. Refine has nothing to do until then.
+- For another type, the retitle job comments on the item, and the item waits on a person to edit the title.
+
+Refine reads the title in each round, so the first round after a title with a listed type refines the item.
+
 ## Parts that cannot be built now
 
 A part of an item can be one that nobody can build or decide now. When the rest of the item is Ready, refine moves that part to new issues through intake. Each new issue starts with `Split from #<issue>.`. Refine names the new issues in its Ready comment and records them as `refine.deferred`.

@@ -13,6 +13,8 @@ A text that looks like it holds a secret is refused.
 
 A new candidate whose title has a Conventional Commit type and a summary of more than 60 characters is refused with `--title`. An emoji counts as two. The message names the length and the limit, and intake files no issue. The stage job and the implement job leave out an item with such a title, so the filer writes a shorter summary. `devops roadmap retitle` shortens the title of an open item that already has a long summary (see [the retitle job](#the-retitle-job)).
 
+Intake does not refuse a title whose type the branch types do not list, such as `security(ssh): ...`, also with a long summary. `devops roadmap retitle` corrects the type of the new item, and refine does not set the item Ready while the type is not listed.
+
 ## What intake writes
 
 For each candidate, intake sets these fields on GitHub:
@@ -117,14 +119,16 @@ The issue events report no opened issue, so the poll reads the newest issue from
 
 ## The retitle job
 
-`devops roadmap retitle` shortens the title summary of open items that has more than 60 characters. The stage job and the implement job leave out such an item, and the check `Semantic PR title` refuses its delivery title.
+`devops roadmap retitle` shortens the title summary of open items that has more than 60 characters. The stage job and the implement job leave out such an item, and the check `Semantic PR title` refuses its delivery title. The job also corrects a title type that the branch types do not list. The stage job leaves out an item with such a type, because its branch has no type.
 
-- It takes the open items with a Conventional Commit type, the lowest number first, at most `--limit` (25) in a run. `--item` names one item.
-- It keeps the type and the scope and writes only the summary. The new title passes `title_problems` of `src/devops_cli/roadmap/pull_form.py`.
+- It takes the open items whose title has a Conventional Commit type and a summary of more than 60 characters, and the open items whose title type is not listed, also with a short summary. It takes the lowest number first, at most `--limit` (25) in a run. `--item` names one item.
+- For a listed type, it keeps the type and the scope and writes only the summary. The new title passes `title_problems` of `src/devops_cli/roadmap/pull_form.py`.
+- For an unlisted type that has a correction in the table of `src/devops_cli/roadmap/commit_title.py`, it writes the correction in place of the type and the scope, and keeps the summary: `security(ssh): x` becomes `fix(security): x`. It makes no model call for a short summary. It shortens a long summary of the corrected title in the same run, as for a listed type. When it cannot shorten it, it writes the corrected title with the old summary, and a later run shortens it. The comment names the old type and the types of the project.
+- For an unlisted type that has no correction, it does not change the title. It comments once with the type and the types of the project, and a person edits the title.
 - A Planned item takes the summary of the title of its plan pull request (`plan #<issue> <summary>`), which its job record names. The job makes no model call for it. When that title gives no valid summary, the job leaves the item and comments the reason once.
 - Another item gets one request to the `triage` model, and one more with the faults of the first reply. A reply that fails twice leaves the item.
-- It leaves a title that someone changed after the last comment of a job. It reads the title changes on the timeline of the item.
-- When it leaves an item, it writes the mark `retitle.skipped` once. The value is a hash of the title, the body and the `stage.pr` mark. The selection leaves the item out while the hash holds, so a later round reads nothing of it and makes no model request for it. A change to the title, the body or `stage.pr` selects it again. A comment does not.
+- It leaves a title that someone changed after the last comment of a job. It reads the title changes on the timeline of the item. When that title has an unlisted type, it comments once with the type, because the stage job cannot take the item.
+- When it leaves an item (a person's edit, no plan title, no usable reply of the model, or a type with no correction), it writes the mark `retitle.skipped` once. It also writes one warning log line with the reason key: `invalid-title-type` for an unlisted type, else `long-title`. The value of the mark is a hash of the title, the body and the `stage.pr` mark. The selection leaves the item out while the hash holds, so a later round reads nothing of it and makes no model request for it. A change to the title, the body or `stage.pr` selects it again. A comment does not.
 - Without `--confirm` it prints the new titles and writes nothing. With `--confirm` it writes each title and one comment with the marker `<!-- devops roadmap retitle -->`. `--dry-run` makes no request.
 - The Service runs the job as the row `retitle` of the model lane. The row is due on a first run and every 61 minutes. It runs after `refine` and before `stage`, so the stage job reads the new titles in the same round. Each run takes at most 25 items and writes as `--confirm` does. The row needs no clone.
 

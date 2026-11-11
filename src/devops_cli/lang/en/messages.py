@@ -2410,6 +2410,10 @@ class RoadmapMessages:
         "a collaborator, the Service App's bot and github-actions[bot]. A person refines this "
         "item with --item {number}."
     )
+    refine_left_title_type: str = (
+        "{reason} Refine does not set the item Ready while its title has this type "
+        "(invalid-title-type). The first round after the title change refines it."
+    )
     refine_outside_notice: str = (
         "{marker}\nRefine leaves this item alone. Its author is {author}, and its association "
         "with the repository is {association}. A refine round refines only the items that "
@@ -2536,12 +2540,17 @@ class RoadmapMessages:
         "change."
     )
     retitle_title: str = "# Retitle for {repo}"
-    retitle_none: str = "No open item has a title summary over {limit} characters."
+    retitle_none: str = (
+        "No open item has a title summary over {limit} characters or a title type that the "
+        "branch types do not list."
+    )
     retitle_changes_heading: str = "Titles to change:"
     retitle_change_line: str = "- #{number}: `{old}` becomes `{new}`"
     retitle_skips_heading: str = "Items left as they are:"
     retitle_skip_line: str = "- #{number} {title}: {reason}"
-    retitle_left: str = "{count} more item(s) have a long title. Run again to examine them."
+    retitle_left: str = (
+        "{count} more item(s) have a long title or an unlisted type. Run again to examine them."
+    )
     retitle_applied: str = "Changed {count} title(s)."
     retitle_reason_person_edit: str = (
         "A person changed the title after the last job comment. The job keeps it."
@@ -2554,6 +2563,30 @@ class RoadmapMessages:
         "The model gave no summary that passes the title check: {problems}"
     )
     retitle_reason_changed: str = "The title changed after the run read it."
+    retitle_reason_type_unknown: str = "The job has no correction for the type `{type}`."
+    retitle_source_title: str = "the title before the change"
+    retitle_comment_type_changed: str = (
+        "{marker}\nThe job changed the type of the title. The type `{type}` is not a type of the "
+        "project, so the stage job could not take this item. The types are: {types}.\n\n"
+        "- Before: `{old}`\n- After: `{new}`\n- Source of the summary: {source}"
+    )
+    retitle_comment_type_skipped: str = (
+        "{marker}\nThe type `{type}` of the title is not a type of the project, so the stage job "
+        "cannot take this item. The types are: {types}. The job did not change the title. "
+        "{reason}\n\nA person edits the title.{correction}"
+    )
+    title_type_correction: str = " Write the title as `{title}`."
+    title_type_unlisted: str = (
+        "The title type `{type}` is not a type of the project, so the branch has no type. {then}"
+    )
+    title_type_next_correction: str = (
+        "`devops roadmap retitle` writes `{title}`, or names that title in a comment when a "
+        "person set the title."
+    )
+    title_type_next_comment: str = (
+        "`devops roadmap retitle` comments on the item, and a person edits the title."
+    )
+    retitle_log_left: str = "Retitle left #{number} ({key}): {reason}"
     retitle_source_plan: str = "the title of plan pull request #{pull}"
     retitle_source_model: str = "the background model"
     retitle_comment_changed: str = (
@@ -4650,7 +4683,8 @@ class RoadmapMessages:
             "retitled": "a person did not change the title since the last job comment",
             "retitle_skipped": (
                 "the run leaves the item: a person changed its title, its plan pull request has "
-                "no usable title, or the model gave no summary that passes the title form"
+                "no usable title, the model gave no summary that passes the title form, or the "
+                "job has no correction for its title type"
             ),
             "as_app": "the process acts as the GitHub App",
             "consolidate_cited": "the model cites a path with a line",
@@ -4674,7 +4708,9 @@ class RoadmapMessages:
             "evidence": "for each piece of evidence the model cites",
             "alternatives_item": "for each item the run checks, at most --limit",
             "adr_file": "for each file of the directory, once a run",
-            "retitle_item": "for each item with a long title, at most --limit",
+            "retitle_item": (
+                "for each item with a long title or an unlisted title type, at most --limit"
+            ),
             "consolidate_member": "for each member of a shortlist that GitHub marks as reopened",
             "consolidate_shortlist": "for each shortlist the cache lacks, at most --limit",
             "consolidate_citation": "for each path with a line that the model cites",
