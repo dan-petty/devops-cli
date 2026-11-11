@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.110.0](https://github.com/dan-petty/devops-cli/compare/v0.109.1...v0.110.0) (2026-11-11)
+
+
+### Features
+
+* **roadmap:** a shadow mode for the Jev intake labels ([#4438](https://github.com/dan-petty/devops-cli/issues/4438)) ([6cf9251](https://github.com/dan-petty/devops-cli/commit/6cf9251d9ba0dcf663d0fee35d6a378af338c3d6))
+
 ## [0.109.1](https://github.com/dan-petty/devops-cli/compare/v0.109.0...v0.109.1) (2026-11-11)
 
 
