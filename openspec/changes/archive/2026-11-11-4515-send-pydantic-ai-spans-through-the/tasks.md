@@ -31,7 +31,7 @@ Kind: behavior.
 
 - [x] 4.1 Add failing tests: the bridge configures Logfire with `send_to_logfire=False` and no token while `LOGFIRE_TOKEN` is set; the bridge refuses to start while an `OTEL_EXPORTER_OTLP_*ENDPOINT` variable is set; an MCP tool request in a row span with baggage holds no `traceparent`, `tracestate` or `baggage` in its `_meta`.
   - Verification: `$ uv run devops ci test tests/telemetry/test_telemetry_logfire.py tests/telemetry/test_library_spans.py`
-- [x] 4.2 Make the bridge local only and delete `telemetry.logfire_token`, `telemetry.logfire_send_to_logfire`, `get_logfire_token`, the `logfire_token` keyring entry and the token rows of the bridge status. Add `confine_api_propagation` and call it before an own span enters the API context, before the library provider is made and before the bridge configures Logfire; the gateway client injects with its own propagator in the instrumentor's request hook.
+- [x] 4.2 Make the bridge local only and delete `telemetry.logfire_token`, `telemetry.logfire_send_to_logfire`, `get_logfire_token`, the `logfire_token` keyring entry and the token rows of the bridge status. Add `confine_api_propagation`, with `reset_api_propagation` in the reset list of `tests/conftest.py`, and call it before an own span enters the API context, before the library provider is made and before the bridge configures Logfire; the gateway client injects with its own propagator in the instrumentor's request hook.
   - Verification: `$ uv run devops ci test tests/telemetry tests/security/test_config_declarations.py tests/commands/test_config_audit_keys.py tests/ai/mcp/test_mcp_tool_listing.py`
 
 ## 5. Documentation
