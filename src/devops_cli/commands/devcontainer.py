@@ -9,7 +9,6 @@ import re
 import shutil
 import subprocess
 import tempfile
-import time
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated
@@ -43,6 +42,7 @@ from devops_cli.config.constants import (
 from devops_cli.config.defaults import DEFAULT_CURRENT_PATH
 from devops_cli.config.metadata import get_project_python_version
 from devops_cli.config.settings import load_settings
+from devops_cli.core import clock
 from devops_cli.core.cli import new_typer, repo_label
 from devops_cli.core.process import run_subprocess
 from devops_cli.core.serialization import strip_json_comments
@@ -912,11 +912,11 @@ def _wait_for_docker_daemon(timeout_seconds: int = 45) -> bool:
     """Poll for Docker daemon availability up to timeout_seconds."""
     from devops_cli.docker.engine import get_engine
 
-    start_time = time.monotonic()
-    while time.monotonic() - start_time < timeout_seconds:
+    start_time = clock.monotonic()
+    while clock.monotonic() - start_time < timeout_seconds:
         if get_engine().ping():
             return True
-        time.sleep(2)
+        clock.sleep(2)
     return False
 
 

@@ -342,6 +342,7 @@ class TestDevcontainerCli:
         tmp_path: Path,
         process_fake: ProcessFake,
         docker_daemon: DockerEngineFake,
+        clock: ClockFake,
     ) -> None:
         """devops devcontainer bootstrap-k8s must warn if Docker daemon is not running."""
         docker_daemon.unreachable = True
@@ -349,6 +350,17 @@ class TestDevcontainerCli:
         result = runner.invoke(app, ["bootstrap-k8s", "--workspace", str(tmp_path)])
         assert result.exit_code == 0
         assert "Docker daemon is not running" in result.output
+        assert clock.waits == [2.0] * 23
+
+    def test_wait_for_docker_daemon_default_timeout_is_45_seconds(
+        self, docker_daemon: DockerEngineFake, clock: ClockFake
+    ) -> None:
+        """With no timeout argument the poll runs until 45 s pass on the clock seam."""
+        from devops_cli.commands.devcontainer import _wait_for_docker_daemon
+
+        docker_daemon.unreachable = True
+        assert _wait_for_docker_daemon() is False
+        assert clock.waits == [2.0] * 23
 
     def test_wait_for_docker_daemon_polls_engine_ping(
         self, docker_daemon: DockerEngineFake
