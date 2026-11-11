@@ -219,7 +219,7 @@ def test_the_refusal_of_a_find_that_runs_a_program_names_the_argument_and_the_wa
     store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
 ) -> None:
     script = ModelScript(
-        tool_call("shell", command="find . -name '*.py' -exec rm {} +"), say("Done.")
+        tool_call("run_command", command="find . -name '*.py' -exec rm {} +"), say("Done.")
     )
 
     _step(store, checkout, script)
@@ -235,7 +235,7 @@ def test_a_refused_argument_counts_as_a_refused_command_of_its_program(
     store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
 ) -> None:
     head = git(checkout, "rev-parse", "HEAD")
-    script = ModelScript(tool_call("shell", command="find . -delete"))
+    script = ModelScript(tool_call("run_command", command="find . -delete"))
 
     outcome = _step(store, checkout, script)
 
@@ -281,7 +281,7 @@ def test_a_read_only_program_reaches_the_process_edge_and_returns_its_output(
     started: list[str],
     command: str,
 ) -> None:
-    script = ModelScript(tool_call("shell", command=command), say("Done."))
+    script = ModelScript(tool_call("run_command", command=command), say("Done."))
 
     _step(store, checkout, script)
 
@@ -307,7 +307,7 @@ def test_the_shell_of_the_agent_refuses_a_command_that_starts_with_a_bang(
     started: list[str],
     command: str,
 ) -> None:
-    script = ModelScript(tool_call("shell", command=command), say("Done."))
+    script = ModelScript(tool_call("run_command", command=command), say("Done."))
 
     _step(store, checkout, script)
 
@@ -325,7 +325,7 @@ def test_a_redirect_or_an_expansion_gives_a_refusal_and_starts_no_process(
     started: list[str],
     command: str,
 ) -> None:
-    script = ModelScript(tool_call("shell", command=command), say("Done."))
+    script = ModelScript(tool_call("run_command", command=command), say("Done."))
 
     _step(store, checkout, script)
 
@@ -516,7 +516,7 @@ def test_a_local_command_reaches_the_process_edge_and_is_no_refusal(
     started: list[str],
 ) -> None:
     command = "uv run devops ai repomap"
-    script = ModelScript(tool_call("shell", command=command), say("Done."))
+    script = ModelScript(tool_call("run_command", command=command), say("Done."))
 
     outcome = _step(store, checkout, script)
 

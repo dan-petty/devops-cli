@@ -25,7 +25,7 @@ The provider can fail inside a stream when it cannot read a tool call of the mod
 
 The command refuses to start when the inputs do not fit the window of the task, or when the checkout has uncommitted changes.
 
-**The shell.** The shell of the agent runs only `git`, `uv`, `ruff` and `mypy`, with a scratch home. [The shell of a step](../ROADMAP_WORKFLOW.md#the-shell-of-a-step) lists the programs.
+**The shell.** The shell of the agent, the tool `run_command`, runs only `git`, `uv`, `ruff` and `mypy`, with a scratch home. A call waits until its command ends, up to `roadmap.implement.command_timeout_seconds`, so the agent has no log to poll (#4493). [The shell of a step](../ROADMAP_WORKFLOW.md#the-shell-of-a-step) lists the programs.
 
 **Exit checks.** When the agent returns, the command runs these checks:
 

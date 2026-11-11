@@ -1091,7 +1091,7 @@ class RoadmapImplementConfig(BaseModel):
         ge=1,
     )
     command_timeout_seconds: Annotated[int, Variable()] = Field(
-        description="The seconds that one command of an implementation step may run: a verification command, a static check, a hook or a scoped check of the project. A command that runs past it stops the step or fails the check",
+        description="The seconds that one command of an implementation step may run: a command of the shell of the agent (`run_command`), a verification command, a static check, a hook or a scoped check of the project. A command of the agent that runs past it is killed, and the call says so. Any other command that runs past it stops the step or fails the check",
         default=DEFAULT_ROADMAP_IMPLEMENT_COMMAND_TIMEOUT_SECONDS,
         ge=1,
     )

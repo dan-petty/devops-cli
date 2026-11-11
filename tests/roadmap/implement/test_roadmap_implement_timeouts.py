@@ -1,8 +1,8 @@
 """The time limits of the implement job are settings with their own variables (#3206).
 
-The model call, the command of a step and the watch of the checks of a pull request each read
-their limit from `roadmap.implement`, so a person changes it with a variable or the config file
-and no code change.
+The model call, the command of a step, the shell of its agent and the watch of the checks of a pull
+request each read their limit from `roadmap.implement`, so a person changes it with a variable or
+the config file and no code change.
 """
 
 from __future__ import annotations
@@ -14,6 +14,8 @@ from typing import Any
 
 import pytest
 from pydantic import ValidationError
+from pydantic_ai.workspaces import CommandResult
+from pydantic_ai.workspaces.local import LocalWorkspaceBackend
 
 from devops_cli.config import env
 from devops_cli.config.settings import load_settings
@@ -25,7 +27,7 @@ from devops_cli.roadmap.implement.implement_step import StepOutcome, run_step
 from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.implement_step import WINDOW
-from tests.support.model_script import ModelScript, say
+from tests.support.model_script import ModelScript, say, tool_call
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
@@ -126,6 +128,53 @@ def test_a_scoped_check_that_runs_out_of_time_names_the_limit_of_the_setting(
     )
 
     assert (result.passed, "41" in result.log) == (False, True)
+
+
+def _workspace_waits(monkeypatch: pytest.MonkeyPatch) -> list[float | None]:
+    """The wait of each command that reaches the process edge of the workspace. No process starts."""
+    waits: list[float | None] = []
+
+    async def run(
+        self: object, command: str, *, timeout: float | None = None, **_options: object
+    ) -> CommandResult:
+        waits.append(timeout)
+        return CommandResult(exit_code=0, stdout="ran", stderr="")
+
+    monkeypatch.setattr(LocalWorkspaceBackend, "run", run)
+    return waits
+
+
+def test_a_shell_call_of_a_step_waits_for_its_command_up_to_the_command_limit_of_the_setting(
+    implement_store: InMemoryRoadmapStore,
+    implement_checkout: Path,
+    implement_programs: ProcessFake,
+    config: Callable[..., Path],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The persistent `shell` tool of the harness returned after 270 s with a PID and a log, and
+    the agent read the log again and again (#4493). The tool `run_command` waits until its command
+    ends and returns the output. The step sets the wait: a wait that the model gives, short, long or
+    not valid, gives way to the setting."""
+    config(roadmap={"implement": {"command_timeout_seconds": 41}})
+    waits = _workspace_waits(monkeypatch)
+    script = ModelScript(
+        tool_call("run_command", command="git status"),
+        tool_call("run_command", command="git status", timeout_seconds=5),
+        tool_call("run_command", command="git status", timeout_seconds=99999),
+        tool_call("run_command", command="git status", timeout_seconds=0),
+        say("Done."),
+    )
+
+    run_step(
+        implement_store,
+        item=1,
+        group=1,
+        source=implement_checkout,
+        model=script.model(),
+        window=WINDOW,
+    )
+
+    assert (waits, script.tool_answers()) == ([41] * 4, ["[stdout]\nran"] * 4)
 
 
 def _settled(*, timed_out: bool) -> PRMonitorResult:

@@ -210,7 +210,7 @@ def test_a_read_pipe_reaches_the_process_edge_and_returns_its_output(
     started: list[str],
     command: str,
 ) -> None:
-    script = ModelScript(tool_call("shell", command=command), say("Done."))
+    script = ModelScript(tool_call("run_command", command=command), say("Done."))
 
     _step(store, checkout, script)
 
@@ -227,7 +227,7 @@ def test_a_pipe_to_another_program_gives_a_refusal_and_starts_no_process(
     started: list[str],
     command: str,
 ) -> None:
-    script = ModelScript(tool_call("shell", command=command), say("Done."))
+    script = ModelScript(tool_call("run_command", command=command), say("Done."))
 
     _step(store, checkout, script)
 
@@ -243,11 +243,11 @@ def test_a_refused_pipe_counts_as_a_refused_command_of_its_first_program(
     started: list[str],
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    script = ModelScript(tool_call("shell", command="git status | sh"), say("Done."))
+    script = ModelScript(tool_call("run_command", command="git status | sh"), say("Done."))
 
     _step(store, checkout, script)
 
-    assert "Tool call: shell, program git, refused." in capsys.readouterr().err
+    assert "Tool call: run_command, program git, refused." in capsys.readouterr().err
 
 
 def test_a_denied_operator_after_a_read_pipe_is_refused_for_that_operator(
@@ -256,7 +256,7 @@ def test_a_denied_operator_after_a_read_pipe_is_refused_for_that_operator(
     programs: ProcessFake,
     started: list[str],
 ) -> None:
-    script = ModelScript(tool_call("shell", command="git status | head; ls"), say("Done."))
+    script = ModelScript(tool_call("run_command", command="git status | head; ls"), say("Done."))
 
     _step(store, checkout, script)
 
@@ -271,7 +271,7 @@ def test_the_prefix_cd_checkout_is_dropped_before_the_command_runs(
     started: list[str],
 ) -> None:
     script = ModelScript(
-        tool_call("shell", command=f"cd {checkout} && git status | head"), say("Done.")
+        tool_call("run_command", command=f"cd {checkout} && git status | head"), say("Done.")
     )
 
     _step(store, checkout, script)
@@ -290,7 +290,9 @@ def test_a_chain_after_the_checkout_prefix_is_refused(
     started: list[str],
     suffix: str,
 ) -> None:
-    script = ModelScript(tool_call("shell", command=f"cd {checkout} && {suffix}"), say("Done."))
+    script = ModelScript(
+        tool_call("run_command", command=f"cd {checkout} && {suffix}"), say("Done.")
+    )
 
     _step(store, checkout, script)
 
@@ -304,7 +306,7 @@ def test_a_change_to_another_directory_is_still_refused(
     programs: ProcessFake,
     started: list[str],
 ) -> None:
-    script = ModelScript(tool_call("shell", command="cd src && ls"), say("Done."))
+    script = ModelScript(tool_call("run_command", command="cd src && ls"), say("Done."))
 
     _step(store, checkout, script)
 

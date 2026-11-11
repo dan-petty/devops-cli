@@ -69,7 +69,7 @@ def _refusal(
     command: str, store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
 ) -> str:
     """The text that the model reads after the shell refuses `command`."""
-    script = ModelScript(tool_call("shell", command=command), say("Done."))
+    script = ModelScript(tool_call("run_command", command=command), say("Done."))
     _step(store, checkout, script)
     (answer,) = script.tool_answers()
     return answer
@@ -131,12 +131,42 @@ def test_the_refusal_of_an_unknown_program_lists_the_allowed_programs_and_the_uv
     )
 
 
+OPERATOR = (
+    "Run one command in each call. Do not chain commands. "
+    "Do not use `cd`: every command runs in the checkout. "
+    "The shell reads the whole text, so a `;`, a new line or a heredoc in the code of "
+    "`python -c` is refused too. Write that code to a file under `.data/agent/scratch/` and run "
+    "`uv run python <file>`."
+)
+
+
 def test_the_refusal_of_an_operator_states_the_rule_of_one_command_in_each_call(
     store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
 ) -> None:
     assert _refusal("git status; git log", store, checkout, programs) == (
-        "Shell operator ';' is not allowed. Run one command in each call. "
-        "Do not chain commands. Do not use `cd`: every command runs in the checkout."
+        f"Shell operator ';' is not allowed. {OPERATOR}"
+    )
+
+
+@pytest.mark.parametrize(
+    ("command", "operator"),
+    [
+        ("uv run python -c 'import os; print(os.sep)'", "';'"),
+        ("uv run python -c 'import os\nprint(os.sep)'", "'\\n'"),
+        ("uv run python - <<EOF\nprint(1)\nEOF", "'\\n'"),
+    ],
+)
+def test_the_refusal_of_python_code_names_the_operator_in_the_code_and_a_script_file(
+    store: InMemoryRoadmapStore,
+    checkout: Path,
+    programs: ProcessFake,
+    command: str,
+    operator: str,
+) -> None:
+    """The harness reads an operator as plain text, so a `;` or a new line in quotes is refused.
+    The hint named only a chain of commands, and the agent sent the same code again (#4493)."""
+    assert _refusal(command, store, checkout, programs) == (
+        f"Shell operator {operator} is not allowed. {OPERATOR}"
     )
 
 
@@ -176,7 +206,7 @@ def test_a_refusal_comes_back_as_a_tool_result_and_not_as_a_retry(
 ) -> None:
     """A tool result is a success for pydantic-ai, so the refusal adds nothing to the retry count
     of the shell (#3271)."""
-    script = ModelScript(tool_call("shell", command="python -V"), say("Done."))
+    script = ModelScript(tool_call("run_command", command="python -V"), say("Done."))
 
     outcome = _step(store, checkout, script)
 
@@ -197,7 +227,7 @@ def test_more_refusals_than_the_retry_limit_do_not_stop_the_run(
     model then ends its reply (#3271). The step has no change to commit, so it stops for that
     reason and not for the retries."""
     refusals = CONST_ROADMAP_IMPLEMENT_TOOL_RETRIES * 3
-    script = ModelScript(*[tool_call("shell", command="python -V")] * refusals, say("Done."))
+    script = ModelScript(*[tool_call("run_command", command="python -V")] * refusals, say("Done."))
 
     outcome = _step(store, checkout, script)
 
@@ -210,7 +240,7 @@ def test_a_real_failure_of_a_tool_still_counts_as_a_retry(
     store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
 ) -> None:
     script = ModelScript(
-        *[tool_call("shell", command="python -V")] * 3,
+        *[tool_call("run_command", command="python -V")] * 3,
         *[tool_call("read_file")] * (CONST_ROADMAP_IMPLEMENT_TOOL_RETRIES + 1),
     )
 
@@ -225,7 +255,7 @@ def test_the_model_gets_the_limit_of_refusals_with_a_hint_and_the_next_call_ends
 ) -> None:
     head = git(checkout, "rev-parse", "HEAD")
     limit = CONST_ROADMAP_IMPLEMENT_MAX_REFUSALS
-    script = ModelScript(tool_call("shell", command="python -V"))
+    script = ModelScript(tool_call("run_command", command="python -V"))
 
     outcome = _step(store, checkout, script)
 
@@ -246,7 +276,7 @@ def test_the_model_gets_the_limit_of_refusals_with_a_hint_and_the_next_call_ends
 def test_the_stop_of_the_refusal_limit_is_in_the_class_of_a_refused_tool(
     store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
 ) -> None:
-    script = ModelScript(tool_call("shell", command="python -V"))
+    script = ModelScript(tool_call("run_command", command="python -V"))
 
     outcome = _step(store, checkout, script)
 

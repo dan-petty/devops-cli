@@ -38,6 +38,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_IMPLEMENT_TOOL_MAX_CHARS,
     CONST_ROADMAP_IMPLEMENT_TURN_RESERVE_TOKENS,
 )
+from devops_cli.config.settings import load_settings
 from devops_cli.exceptions.roadmap import RoadmapImplementError
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.failure import FailureClass
@@ -498,7 +499,10 @@ ALLOWED_HINT = (
 )
 OPERATOR_HINT = (
     "Run one command in each call. Do not chain commands. "
-    "Do not use `cd`: every command runs in the checkout."
+    "Do not use `cd`: every command runs in the checkout. "
+    "The shell reads the whole text, so a `;`, a new line or a heredoc in the code of "
+    "`python -c` is refused too. Write that code to a file under `.data/agent/scratch/` and run "
+    "`uv run python <file>`."
 )
 
 
@@ -507,8 +511,8 @@ def test_the_shell_tool_refuses_a_program_outside_the_allowlist_and_the_run_goes
 ) -> None:
     """A refused command starts no process: the process floor fails a test that starts one."""
     script = ModelScript(
-        tool_call("shell", command="curl http://example.com"),
-        tool_call("shell", command="git status; curl http://example.com"),
+        tool_call("run_command", command="curl http://example.com"),
+        tool_call("run_command", command="git status; curl http://example.com"),
         say("Done."),
     )
 
@@ -529,8 +533,8 @@ def test_the_shell_tool_refuses_the_devops_cli_and_openspec(
 ) -> None:
     """The shell reaches no command that writes to GitHub: `devops gh` is not on its list."""
     script = ModelScript(
-        tool_call("shell", command="devops gh api -X POST repos/example/roadmap/issues"),
-        tool_call("shell", command="openspec archive 1-sample-change"),
+        tool_call("run_command", command="devops gh api -X POST repos/example/roadmap/issues"),
+        tool_call("run_command", command="openspec archive 1-sample-change"),
         say("Done."),
     )
 
@@ -610,6 +614,9 @@ def test_the_agent_of_a_step_runs_its_shell_in_that_environment(
     shells = [leaf for leaf in leaves if isinstance(leaf, Shell)]
     assert [shell.env for shell in shells] == [shell_environment(tmp_path / "home")]
     assert [shell.allowed_commands for shell in shells] == [list(IMPLEMENT_SHELL_PROGRAMS)]
+    assert [(list(shell.tools), shell.default_timeout) for shell in shells] == [
+        (["run_command"], load_settings().roadmap.implement.command_timeout_seconds)
+    ]
 
 
 def test_a_commit_that_the_agent_makes_is_reset_and_the_step_commits_the_work(
@@ -725,6 +732,8 @@ def test_a_tasks_file_with_bytes_that_are_not_text_is_written_back_and_the_group
 def test_the_agent_has_the_file_tools_and_the_shell_and_no_delegate(
     store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
 ) -> None:
+    """The shell is `run_command`, which waits for its command. The persistent `shell` tool of the
+    harness, with its background mode and its handles to a log, is not offered (#4493)."""
     script = ModelScript(say("Done."))
 
     _step(store, checkout, script)
@@ -734,7 +743,7 @@ def test_the_agent_has_the_file_tools_and_the_shell_and_no_delegate(
         "grep",
         "list_files",
         "read_file",
-        "shell",
+        "run_command",
         "write_file",
     ]
 
@@ -1241,7 +1250,7 @@ def test_a_model_that_keeps_calling_a_refused_program_stops_with_the_message_and
     may have done: the shell refuses it up to the limit of refusals, and the next call ends the run
     (#3271)."""
     head = git(checkout, "rev-parse", "HEAD")
-    script = ModelScript(tool_call("shell", command="pytest tests/test_sample.py"))
+    script = ModelScript(tool_call("run_command", command="pytest tests/test_sample.py"))
 
     outcome = _step(store, checkout, script)
 
@@ -1259,7 +1268,7 @@ def test_the_reason_counts_the_refused_commands_by_program_from_the_most_refused
 ) -> None:
     script = ModelScript(
         *(
-            tool_call("shell", command=f"{program} x")
+            tool_call("run_command", command=f"{program} x")
             for program in "cd python cd python python python".split()
         ),
         BROKE,
@@ -1276,7 +1285,7 @@ def test_the_reason_joins_the_programs_beyond_the_limit_to_other(
     """Five programs, one of them twice: the reason lists four, and the fifth joins `other`."""
     script = ModelScript(
         *(
-            tool_call("shell", command=f"{name} x")
+            tool_call("run_command", command=f"{name} x")
             for name in ("pytest", "rg", "pip", "cd", "python3", "python3")
         ),
         BROKE,
@@ -1293,7 +1302,7 @@ def test_the_reason_joins_the_programs_beyond_the_limit_to_other(
 def test_a_first_word_that_is_no_known_program_is_counted_as_other_and_never_shown(
     store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
 ) -> None:
-    script = ModelScript(tool_call("shell", command="API_KEY=hunter2 uv run x"), BROKE)
+    script = ModelScript(tool_call("run_command", command="API_KEY=hunter2 uv run x"), BROKE)
 
     outcome = _step(store, checkout, script)
 
@@ -1307,7 +1316,7 @@ def test_a_short_word_that_is_no_known_program_is_counted_as_other_and_never_sho
 ) -> None:
     """A password that the model read from a file is a short bare word, and the mask of secrets
     leaves it as it is. The reason goes to a comment on GitHub, so it must not show the word."""
-    script = ModelScript(tool_call("shell", command="hunter2password x"), BROKE)
+    script = ModelScript(tool_call("run_command", command="hunter2password x"), BROKE)
 
     outcome = _step(store, checkout, script)
 
@@ -1462,7 +1471,8 @@ def test_a_long_message_of_the_error_is_cut_and_the_counts_stay_in_the_reason(
 ) -> None:
     long = "x" * (3 * constants.CONST_ROADMAP_RUN_ERROR_CHARS)
     script = ModelScript(
-        tool_call("shell", command="pytest tests/test_sample.py"), UnexpectedModelBehavior(long)
+        tool_call("run_command", command="pytest tests/test_sample.py"),
+        UnexpectedModelBehavior(long),
     )
 
     outcome = _step(store, checkout, script)
@@ -1477,7 +1487,7 @@ def test_the_counts_cover_the_repair_turn(
     store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
 ) -> None:
     _ruff_fails(programs)
-    refused = tool_call("shell", command="pytest tests/test_sample.py")
+    refused = tool_call("run_command", command="pytest tests/test_sample.py")
     script = ModelScript(refused, tool_calls(*WORK), say(FORGOT), refused)
 
     outcome = _step(store, checkout, script)

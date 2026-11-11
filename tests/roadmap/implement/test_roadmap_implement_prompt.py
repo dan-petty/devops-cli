@@ -11,6 +11,8 @@ from __future__ import annotations
 import pytest
 
 from devops_cli.ai.task_loader import load_task_prompt
+from devops_cli.config.settings import setting_default
+from devops_cli.roadmap.implement.implement_shell_policy import HARNESS_DENIED_OPERATORS
 from devops_cli.roadmap.step_files import code_spans
 from tests.support.paths import REPO_ROOT
 
@@ -185,13 +187,46 @@ def test_the_prompt_promises_no_extra_turn_for_a_tick_and_says_the_job_ticks_the
     assert "The job ticks every task of your group when the exit checks of the group pass" in prompt
 
 
-def test_the_prompt_says_a_shell_call_returns_when_its_command_ends() -> None:
-    """The runner harness waits for each command, so an agent polling with sleep or tail wastes
-    budget and keeps the pod alive (#4079)."""
+def test_the_prompt_says_a_shell_call_waits_for_its_command_up_to_the_command_limit() -> None:
+    """The persistent `shell` tool of the harness returned after 270 s with a PID and a log, so the
+    rule "a shell call returns when its command ends" was false, and the agent polled the log
+    (#4079, #4493). The step gives `run_command`, which waits up to the command limit of the step,
+    and the rule still forbids a poll."""
     prompt = load_task_prompt(PROMPT)
+    limit = setting_default("roadmap.implement.command_timeout_seconds")
+    rule = next(line for line in prompt.splitlines() if line.startswith("- Run a command with"))
 
-    assert "A shell call returns when its command ends." in prompt
-    assert "`sleep`" in prompt
-    assert "`time.sleep`" in prompt
-    assert "repeated `tail`" in prompt
-    assert "forbidden" in prompt
+    assert "`run_command`" in rule
+    assert "The call waits until the command ends" in rule
+    assert f"`roadmap.implement.command_timeout_seconds` ({limit} seconds by default)" in rule
+    assert [
+        word for word in ("`sleep`", "`time.sleep`", "repeated `tail`") if word not in rule
+    ] == []
+    assert "forbidden" in rule
+    assert ("A shell call returns when its command ends." in prompt, "270" in prompt) == (
+        False,
+        False,
+    )
+
+
+def test_the_prompt_gives_the_number_of_extra_turns_that_a_step_allows() -> None:
+    """The prompt promised one more turn for an error of `ruff check` or `mypy`. A step gives up to
+    `roadmap.implement.repair_rounds` extra turns, for each failed check and hook (#4493)."""
+    prompt = load_task_prompt(PROMPT)
+    rounds = setting_default("roadmap.implement.repair_rounds")
+
+    assert "you get one more turn with the text of the error" not in prompt
+    assert f"`roadmap.implement.repair_rounds` ({rounds} by default)" in prompt
+
+
+def test_the_prompt_says_before_the_first_call_that_the_shell_refuses_a_heredoc() -> None:
+    """The base instructions of `Coder` tell the model to check behavior with a heredoc. The shell
+    refuses a new line and a `;` as operators, also inside quotes, so it refused each heredoc and
+    each code of `python -c` on more than one line, and each refusal counts toward the limit
+    (#4493). The prompt states the rule and the script file before the first call."""
+    prompt = load_task_prompt(PROMPT)
+    rule = next((line for line in prompt.splitlines() if "heredoc" in line), "")
+    named = ("`python -c`", "a new line", "`;`", f"`{SCRATCH_DIRECTORY}`", "`uv run python <file>`")
+
+    assert {"\n", ";"} <= set(HARNESS_DENIED_OPERATORS)
+    assert [word for word in named if word not in rule] == []

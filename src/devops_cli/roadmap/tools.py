@@ -118,7 +118,9 @@ TOOLS: Final[dict[str, ToolEntry]] = {
     "grep": _read(
         "Finds a text in the files of the workspace and lists each match with its line.", _IMPLEMENT
     ),
-    "shell": _write("Runs a command of the allowlist in the workspace.", _IMPLEMENT),
+    "run_command": _write(
+        "Runs a command of the allowlist in the workspace and waits until it ends.", _IMPLEMENT
+    ),
     # The reads of GitHub, which every job role holds.
     "gh_issues_list": _read(
         "Lists the issues of the repository on GitHub, with their labels and milestone.",

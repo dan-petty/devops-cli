@@ -73,7 +73,7 @@ SPIN = {
 EDGES = {"no edit": (0, 0), "no edit and 3 refused": (0, 3), "4 refused": (1, 4)}
 
 READ = ("read_file", {"path": "src/sample.py"})
-REFUSED = ("shell", {"command": "pytest tests/test_sample.py"})
+REFUSED = ("run_command", {"command": "pytest tests/test_sample.py"})
 
 
 def _digest(edits: int, refused: int) -> ProgressDigest:
