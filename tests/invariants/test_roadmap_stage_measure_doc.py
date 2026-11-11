@@ -34,8 +34,8 @@ def test_the_acceptable_score_has_a_recall_threshold_a_good_plan_rule_and_a_live
     [
         "`ai.tasks.stage.model`",
         "`DEVOPS_CLI_AI_TASK_STAGE_MODEL`",
-        "devops roadmap eval stage --model claude-sonnet-5-5 --no-toolbox",
-        "devops roadmap eval verify --model claude-sonnet-5-5",
+        "devops roadmap eval stage --model <baseline-model> --no-toolbox",
+        "devops roadmap eval verify --model <baseline-model>",
         "#3066",
         "#3060",
     ],

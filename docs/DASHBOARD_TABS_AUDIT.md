@@ -162,11 +162,11 @@ The table lists the audit decision for each tab.
 
 | Tab | Open Tool | Verdict | Follow-up Issue Title |
 | :--- | :--- | :--- | :--- |
-| Kubernetes | k9s 0.51.0 | Replace | `refactor(ui): remove the k8s tab in favour of k9s` |
+| Kubernetes | k9s 0.51.0 | Replace | Done: the tab is removed (#4263) |
 | Docker | lazydocker | Replace | `refactor(ui): remove the docker tab in favour of lazydocker` |
 | Telemetry | Grafana (chart 14.0.1) | Replace | `refactor(ui): remove the telemetry tab in favour of Grafana` |
 | Valkey | valkey-cli | Keep | None (tab stays) |
-| Logs | Grafana Loki (chart 20.0.2) | Replace | `refactor(ui): remove the logs tab in favour of Grafana Loki` |
+| Logs | Grafana Loki (chart 20.0.2) | Replace | Done: the tab is removed (#4263) |
 
 ### Reason for Retaining Valkey Tab
 
@@ -174,20 +174,9 @@ The Valkey tab stays because no open terminal user interface covers continuous c
 
 ### Follow-up Issue Commands
 
-A person runs these commands after merge to file the follow-up issues:
+File each follow-up that is not done with `devops roadmap intake`, as [AGENTS.md](../AGENTS.md) rule 11 says, after a search for an open issue:
 
 ```bash
-devops gh issues create --title "refactor(ui): remove the k8s tab in favour of k9s" --body "Audit in docs/DASHBOARD_TABS_AUDIT.md (#1885) recommends removing the Kubernetes tab in favour of k9s."
-```
-
-```bash
-devops gh issues create --title "refactor(ui): remove the docker tab in favour of lazydocker" --body "Audit in docs/DASHBOARD_TABS_AUDIT.md (#1885) recommends removing the Docker tab in favour of lazydocker."
-```
-
-```bash
-devops gh issues create --title "refactor(ui): remove the telemetry tab in favour of Grafana" --body "Audit in docs/DASHBOARD_TABS_AUDIT.md (#1885) recommends removing the Telemetry tab in favour of Grafana dashboards."
-```
-
-```bash
-devops gh issues create --title "refactor(ui): remove the logs tab in favour of Grafana Loki" --body "Audit in docs/DASHBOARD_TABS_AUDIT.md (#1885) recommends removing the Logs tab in favour of Grafana Loki."
+devops roadmap intake --title "refactor(ui): remove the docker tab in favour of lazydocker" --body-file <file> --confirm
+devops roadmap intake --title "refactor(ui): remove the telemetry tab in favour of Grafana" --body-file <file> --confirm
 ```

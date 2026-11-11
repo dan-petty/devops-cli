@@ -222,7 +222,7 @@ A tier's pods schedule only on a node whose labels satisfy the tier's required n
 | `ollama-96gib` | `96Gi`, `100Gi` … `124Gi` in steps of 4 | any | no |
 | `ollama-128gib` | `128Gi` | any | no |
 
-**Serves** says whether a node of the cluster satisfies the tier, so that the tier has a pod. Every client that names an Ollama Service names one that selects a serving tier: the CLI defaults, the `ollama-ingress` backend, the gateway's `api_base` targets and the devcontainer's `ollama.endpoint`. `tests/test_k8s_llm_gateway.py` checks this against the column. When a host goes offline or a tier gets a node, change the column. The test then names each client to move.
+**Serves** says whether a node of the cluster satisfies the tier, so that the tier has a pod. Every client that names an Ollama Service names one that selects a serving tier: the CLI defaults, the `ollama-ingress` backend, the gateway's `api_base` targets and the devcontainer's `ollama.endpoint`. `tests/ai/benchmark/test_k8s_llm_gateway.py` checks this against the column. When a host goes offline or a tier gets a node, change the column. The test then names each client to move.
 
 `ollama-16gib` has a node, and its **Serves** value is `no` because its host is unstable. A cordon does not stop a DaemonSet pod, so the gateway, the review slots and the devcontainer name no Service of this tier. The DaemonSet and its Services stay, so a revert of the change that removed the clients brings the tier back.
 
@@ -242,7 +242,7 @@ The cache Valkey keeps at most 1536 MiB of data (`--maxmemory`), three quarters 
 
 devops-cli's cache Valkey (`llm/valkey-devops.yaml`) holds the caches of the roadmap Service and the cluster jobs: the embeddings that `EmbeddingsEngine` writes, and the threat-intelligence reads. Each round of the Service and each job is a new process with an empty memory cache, so without it intake embeds every item of the roadmap again on each round. The devops ConfigMap names it in `valkey.url`, and its password reaches the pods from `devops/devops-cli` as `DEVOPS_CLI_VALKEY_PASSWORD`, the variable of `valkey.password`. Its policy `valkey-devops-perimeter` admits namespace `devops` on TCP 6379 and the `monitoring` namespace on the exporter port 9121, and allows no egress. `llm-default-perimeter` leaves its pods out, and `devops-default-perimeter` lets namespace `devops` reach namespace `llm` on 6379 beside the gateway's 4000. It keeps at most 96 MiB of data, three quarters of its 128Mi limit, writes no RDB or AOF, and at the bound evicts the least recently used key (`--maxmemory-policy allkeys-lru`): an evicted key costs one more embedding request. It can't share the cache Valkey, which must not evict Open WebUI's state.
 
-Qdrant requires the key of `llm/qdrant-api-key` (see Cluster Secrets) on every REST and gRPC request. Only `/`, `/healthz`, `/readyz`, `/livez` and the files of its web UI need no key. The qdrant container reads the key as `QDRANT__SERVICE__API_KEY` through `env` in `llm/values-qdrant.yaml`. Open WebUI is the only workload under `k8s/` that names the Qdrant Service, and it sends the key as `QDRANT_API_KEY`. Alloy scrapes `/metrics` with the key as a bearer token, and devops-cli sends keyring `qdrant_api_key`, which the push keeps equal to the Secret. `tests/test_k8s_qdrant_security.py` fails on a top-level key of `llm/values-qdrant.yaml` that the pinned chart (`tests/fixtures/charts/qdrant/`) does not declare, because Helm drops such a key with no error.
+Qdrant requires the key of `llm/qdrant-api-key` (see Cluster Secrets) on every REST and gRPC request. Only `/`, `/healthz`, `/readyz`, `/livez` and the files of its web UI need no key. The qdrant container reads the key as `QDRANT__SERVICE__API_KEY` through `env` in `llm/values-qdrant.yaml`. Open WebUI is the only workload under `k8s/` that names the Qdrant Service, and it sends the key as `QDRANT_API_KEY`. Alloy scrapes `/metrics` with the key as a bearer token, and devops-cli sends keyring `qdrant_api_key`, which the push keeps equal to the Secret. `tests/commands/k8s/test_k8s_qdrant_security.py` fails on a top-level key of `llm/values-qdrant.yaml` that the pinned chart (`tests/fixtures/charts/qdrant/`) does not declare, because Helm drops such a key with no error.
 
 Every tier runs ollama as UID and GID 10001, which no host login account uses, with RuntimeDefault seccomp, no privilege escalation, all capabilities dropped and a read-only root filesystem; `/tmp` is an emptyDir. `HOME` is `/home/ollama`, so the key and `models/` stay in the hostPath `/var/lib/ollama` on each GPU node, mounted at `/home/ollama/.ollama`. `fsGroup` does not apply to a hostPath volume, so the initContainer `own-model-directory` gives that directory to 10001 at every start (`chown -R`). It runs as root with `CAP_CHOWN` alone, no privilege escalation and a read-only root filesystem, and exits before ollama starts. It is the one exception to kube-linter's `run-as-non-root` in `ollama-profiles.yaml`, recorded in the manifest's header rather than suppressed with an ignore annotation.
 
@@ -299,7 +299,7 @@ Dashboards live in `monitoring/dashboards/`. Its `kustomization.yaml` generates 
 
 On a cluster Argo CD manages, its `monitoring` Application applies them; the root kustomization leaves them out, so the `base` Application does not own them as well. Without Argo CD, `devops k8s deploy-stack --stack infra` (or `all`) applies the `monitoring` kustomization, which lists the namespace's perimeter and `dashboards`, right after the root kustomization creates the `monitoring` namespace, and `teardown-stack` removes them with that namespace. Grafana holds these dashboards as provisioned and refuses to save over them, so change the JSON file and deploy again. To provision another dashboard, add it to a generator entry; each ConfigMap must stay under the 262,144 bytes kubectl's last-applied annotation allows.
 
-The AI spend dashboard (`ai-spend.json`) prices local savings in Prometheus. It multiplies the tokens that a local model ran (`devops_cli_ai_tokens_total{local="true"}`) by its hidden constant `reference_price_usd_per_token`, a PromQL vector of one price for each operation and token type. Each price is genai-prices' price of the default reference model of its operation (`gpt-4o` for chat, `text-embedding-3-small` for embeddings), so every process that sends tokens, and every time range in the retention window, is priced at one reference. A recording rule has samples only from its first evaluation, so the dashboard holds the prices and Prometheus records none. The savings queries also count the series from before the `local` label (#1672) that the gateway served, because the gateway serves only local models, and they count a series without the `operation` label as chat. Remove that mapping when `count(last_over_time(devops_cli_ai_tokens_total{local=""}[30d]))` is empty. `tests/test_k8s_monitoring_dashboards.py` fails when a price of the dashboard differs from genai-prices.
+The AI spend dashboard (`ai-spend.json`) prices local savings in Prometheus. It multiplies the tokens that a local model ran (`devops_cli_ai_tokens_total{local="true"}`) by its hidden constant `reference_price_usd_per_token`, a PromQL vector of one price for each operation and token type. Each price is genai-prices' price of the default reference model of its operation (`gpt-4o` for chat, `text-embedding-3-small` for embeddings), so every process that sends tokens, and every time range in the retention window, is priced at one reference. A recording rule has samples only from its first evaluation, so the dashboard holds the prices and Prometheus records none. The savings queries also count the series from before the `local` label (#1672) that the gateway served, because the gateway serves only local models, and they count a series without the `operation` label as chat. Remove that mapping when `count(last_over_time(devops_cli_ai_tokens_total{local=""}[30d]))` is empty. `tests/prometheus/test_k8s_monitoring_dashboards.py` fails when a price of the dashboard differs from genai-prices.
 
 The AI spend dashboard counts every caller of the gateway, not only devops-cli. AI Requests in Range and Tokens Processed in Range take a call through the gateway from the gateway's own series (`litellm_proxy_total_requests_metric_total` with a 2xx `status_code`, and `litellm_total_tokens_metric_total`), and add from devops-cli's series only its calls that bypassed the gateway. The Gateway Traffic from Every Caller row shows the gateway's attempts by status, so a 408 or a 5xx is visible, and its requests and tokens by `end_user`. Every caller sends the gateway's one master key, so the gateway tells callers apart by the end-user id that a request names: devops-cli sends its OTel service name (`devops-cli`, `devops-cli-job` or `roadmap-service`) in `x-litellm-end-user-id`, and the gateway config sets `enable_end_user_cost_tracking_prometheus_only` to put it on the `end_user` label. A caller that names no end user, such as Open WebUI, shows as `unnamed`. The coverage stat is devops-cli's own count of its replied gateway calls over the gateway's count.
 
@@ -321,7 +321,7 @@ devops grafana dashboards sync                            # posts every file in 
 ```
 `sync` exits 1 if any dashboard failed. It reports the provisioned dashboards as skipped, not failed.
 
-`tests/test_stack_dashboards.py` checks every query in `llm-stack.json`, `otel-collector.json`, `prometheus-server.json`, `coredns.json`, `ingress-tunnel.json`, `k8s-views-global.json`, `k8s-views-namespaces.json` and `k8s-views-nodes.json` against captures of these exporters in `tests/fixtures/metrics/` (filtered by `tests/fixtures/k8s_monitoring/cluster_metrics/` and `includeMetrics` for cAdvisor, kube-state-metrics and the kubelet): each series it selects, each label it matches or groups by, and the scrape in the table. No query falls back to a constant such as `or vector(0)`, so a panel without data reads "No data" rather than zero, and a panel drawn against a limit extends its axis to that limit. The gateway's failure, cooldown and fallback panels, Qdrant's REST request rate and latency panels, and the collector's span export failures (`noValue: "none recorded"`) stay empty until the first such event.
+`tests/commands/k8s/test_stack_dashboards.py` checks every query in `llm-stack.json`, `otel-collector.json`, `prometheus-server.json`, `coredns.json`, `ingress-tunnel.json`, `k8s-views-global.json`, `k8s-views-namespaces.json` and `k8s-views-nodes.json` against captures of these exporters in `tests/fixtures/metrics/` (filtered by `tests/fixtures/k8s_monitoring/cluster_metrics/` and `includeMetrics` for cAdvisor, kube-state-metrics and the kubelet): each series it selects, each label it matches or groups by, and the scrape in the table. No query falls back to a constant such as `or vector(0)`, so a panel without data reads "No data" rather than zero, and a panel drawn against a limit extends its axis to that limit. The gateway's failure, cooldown and fallback panels, Qdrant's REST request rate and latency panels, and the collector's span export failures (`noValue: "none recorded"`) stay empty until the first such event.
 
 ## Log and Metric Retention
 
@@ -478,7 +478,7 @@ node_systemd_unit_state{state="failed"} == 1                               # Pro
 
 ## Alerting
 
-Alertmanager runs from the prometheus chart (`alertmanager` in `monitoring/prometheus-values.yaml`), and Grafana reads it as the `Alertmanager` datasource. The rules are in the same file, under `serverFiles.alerting_rules.yml`; `tests/test_k8s_monitoring_alerting.py` pins them and checks that each selects only series that a scrape or the OpenTelemetry collector in `k8s/` serves. No rule watches the controller manager, scheduler or proxy: k3s runs them inside its server process, so nothing scrapes them and such a rule would fire on the missing target.
+Alertmanager runs from the prometheus chart (`alertmanager` in `monitoring/prometheus-values.yaml`), and Grafana reads it as the `Alertmanager` datasource. The rules are in the same file, under `serverFiles.alerting_rules.yml`; `tests/prometheus/test_k8s_monitoring_alerting.py` pins them and checks that each selects only series that a scrape or the OpenTelemetry collector in `k8s/` serves. No rule watches the controller manager, scheduler or proxy: k3s runs them inside its server process, so nothing scrapes them and such a rule would fire on the missing target.
 
 | Alert | Fires when | For | Severity |
 | :--- | :--- | :--- | :--- |
@@ -590,7 +590,7 @@ In Grafana, Alerting > Silences with the `Alertmanager` datasource selected does
 
 ## Cluster Secrets
 
-Every Secret the stacks read comes from the workstation's OS keyring. `devops k8s push-secrets` writes them (workstation keyring → cluster, the reverse of `devops k8s sync-secrets`), and `devops k8s deploy-stack` runs the same push right after the namespaces, before any manifest or Helm release. One table in `src/devops_cli/k8s/cluster_secrets.py` lists them, and a test fails on any Secret a manifest or values file here references without a row:
+Every Secret the stacks read comes from the workstation's OS keyring. `devops k8s push-secrets` writes them (workstation keyring → cluster, the reverse of `devops k8s sync-secrets`), and `devops k8s deploy-stack` runs the same push right after the namespaces, before any manifest or Helm release. One table in `src/devops_cli/k8s/cluster_secrets.py` lists them, and a test fails on any Secret a manifest or values file here references without a row. Add a new secret as a row with a generator, so that `push-secrets` makes its value: an agent writes no secret value, and a person runs `uv run devops k8s push-secrets` after the merge. The table:
 
 | Secret | Key | Source | Required | When the keyring has no value | Stack | Restarted when it changes |
 |---|---|---|---|---|---|---|
@@ -744,24 +744,8 @@ Then the route reads the body. It refuses a body of more than 25 MiB (413), a si
 
 The `/roadmap` slash command in Mattermost inspects each repository's roadmap service state, answered in-cluster through the service's webhook router (#1395).
 
-1. In Mattermost, add a custom slash command (System Console > Integrations > Slash Commands):
-   - Command Trigger Word: `roadmap`
-   - Request URL: `http://roadmap-service.devops.svc.cluster.local:8000/webhooks/mattermost`
-   - Request Method: `POST`
-2. Save the command and copy the generated token.
-3. Save the token in the workstation keyring:
-   ```bash
-   uv run devops config set mattermost.command_token
-   ```
-4. Push the secret to the cluster:
-   ```bash
-   uv run devops k8s push-secrets --stack devops
-   ```
-   Or update only the devops secret:
-   ```bash
-   uv run devops k8s push-secrets --only devops/devops-cli
-   ```
-5. In Mattermost, run `/roadmap` or `/roadmap status` to show the state of all repositories and lanes, or `/roadmap status <repo>` for one repository. The Service answers with an ephemeral reply.
+1. Run `uv run devops k8s bootstrap-mattermost --admin-user <user> --context <context>`. It creates the slash command `/roadmap` with the request URL `http://roadmap-service.devops.svc.cluster.local:8000/webhooks/mattermost`, saves its token in the keyring as `mattermost.command_token`, and pushes the Secrets (`--no-push-secrets` skips the push). `--dry-run` shows the steps and changes nothing.
+2. In Mattermost, run `/roadmap` or `/roadmap status` to show the state of all repositories and lanes, or `/roadmap status <repo>` for one repository. The Service answers with an ephemeral reply.
 
 #### Alerts
 
@@ -886,6 +870,10 @@ The rule group `crawl4ai` in `monitoring/prometheus-values.yaml` watches the pag
 - **The log.** `kubectl -n devops logs deploy/searxng` shows the engines that failed. A line `CAPTCHA` from `duckduckgo` or `Suspended: access denied` from `github` means that the engine refused the pod address for a while. The pod answers with the other engines, and the search passes to the next provider when no engine gives a hit. The start prints a warning that `/var/cache/searxng` is not owned by `searxng:searxng`: the group of the volume is 977 (`fsGroup`), and the pod writes to it.
 - **The limits.** Measured with the pinned image under the controls of the pod: it idles at 114 MiB, 20 queries one after another peak at 117 MiB, and 10 at once peak at 122 MiB and 0.8 CPU. The Deployment asks for 192 Mi and 50m, with the limits 384 Mi and 1 CPU. Measure again on the cluster after the first sync.
 
+### MCP server
+
+Deployment `mcp-server` (`k8s/devops/mcp-server/`) runs `devops mcp serve --transport streamable-http --port 8001 --allow-remote` with one replica. Each job role has its own endpoint, `/<role>/mcp`, for the roles `planning`, `implementation` and `review`, and an endpoint holds only the tools of its role (`src/devops_cli/ai/mcp/roles.py`). [SECURITY.md](../SECURITY.md#mcp-server-on-the-network) gives the bearer token, the NetworkPolicies and the role tables. A client reads the base URL from `roadmap.mcp.url` and stops a tool call after `roadmap.mcp.timeout_seconds` (default 30). [Cluster Secrets](#cluster-secrets) tells how a person makes the token.
+
 ### Agent sessions
 
 `k8s/agents/` defines read-only identity and boundaries for autonomous AI agent sessions running against the cluster:
@@ -897,7 +885,7 @@ The rule group `crawl4ai` in `monitoring/prometheus-values.yaml` watches the pag
 
 ## Argo Workflows
 
-`k8s/argo-workflows/` installs the [Argo Workflows](https://argo-workflows.readthedocs.io/) controller in its own namespace, `argo-workflows`, with one WorkflowTemplate that measures what a Workflow costs. [ADR 0008](../docs/adr/0008-argo-workflows-run-the-roadmap-jobs-after-a-measured-go.md) records why and what result counts as a go (#1535). No roadmap job runs on it yet.
+`k8s/argo-workflows/` installs the [Argo Workflows](https://argo-workflows.readthedocs.io/) controller in its own namespace, `argo-workflows`, with WorkflowTemplate `devops-cli-version`, which measured what a Workflow costs. [ADR 0008](../docs/adr/0008-argo-workflows-run-the-roadmap-jobs-after-a-measured-go.md) records why and what result counts as a go (#1535), and [ADR 0021](../docs/adr/0021-the-roadmap-service-is-a-webhook-router-cluster-pods-run-the-roadmap-jobs-and-valkey-holds-their-shared-state.md) records the go and the move of the roadmap jobs (#4517). No roadmap job runs on it yet. Namespace `devops` holds WorkflowTemplate and CronWorkflow `rag-ingest` (#4180), but the controller watches only namespace `argo-workflows` (`singleNamespace`), so it does not run them.
 
 - **Controller.** The argo-helm chart `argo-workflows`, pinned in Application `argo-workflows`, with `argo-workflows/values.yaml`: one replica that the Recreate strategy replaces, so two controllers never run, watching only namespace `argo-workflows` (`singleNamespace`). It has no argo-server, database or workflow archive. Its CRDs are the chart's minimal ones, kept when the release is uninstalled.
 - **Namespace.** `argo-workflows` enforces Pod Security `restricted` and carries `Prune=false,Delete=false` (`namespaces.yaml`). The `homelab` project lists it as a destination.
@@ -964,7 +952,7 @@ Record these, each batch apart:
 - The change in the second counter across the burst, which must be 0, and any `argo submit` that fails with a 429 or a 5xx.
 - The controller's CPU and memory, from `kubectl top` or the cAdvisor series Alloy already scrapes (`container_cpu_usage_seconds_total`, `container_memory_working_set_bytes`).
 
-Go when the warm p95 is at most 30 seconds and the burst finished with no 429 or 5xx. Post the numbers and the verdict as a comment on [#1535](https://github.com/dan-petty/devops-cli/issues/1535). After a go, file the later steps with `devops roadmap intake`; after a no-go, the owner chooses between re-scoping the engine and the runner-up in ADR 0008.
+Go when the warm p95 is at most 30 seconds and the burst finished with no 429 or 5xx. The measurement of 2026-11-11 gave a warm p95 of 11 s, and the owner recorded the go on [#1535](https://github.com/dan-petty/devops-cli/issues/1535). [ADR 0021](../docs/adr/0021-the-roadmap-service-is-a-webhook-router-cluster-pods-run-the-roadmap-jobs-and-valkey-holds-their-shared-state.md) records the numbers and the later steps (tracker #4517).
 
 ## Gitea
 
@@ -1070,7 +1058,7 @@ Mattermost Team Edition runs under Argo CD from the Mattermost Operator on Cloud
    kubectl patch pv "$(kubectl -n mattermost get pvc -l cnpg.io/cluster=mattermost-db -o jsonpath='{.items[0].spec.volumeName}')" -p '{"spec":{"persistentVolumeReclaimPolicy":"Retain"}}'
    kubectl patch pv "$(kubectl -n mattermost get pvc mattermost-files -o jsonpath='{.spec.volumeName}')" -p '{"spec":{"persistentVolumeReclaimPolicy":"Retain"}}'
    ```
-5. Create the primary team and the channels `alerts` and `deploys`. Create each incoming webhook with "Lock to this channel" (#1390).
+5. Run `uv run devops k8s bootstrap-mattermost --admin-user <user> --context <context>`. It creates the team (`--team`, default `homelab`), the channels `alerts` and `deploys`, an incoming webhook for each channel that is locked to its channel (#1390), and the slash command `/roadmap`. It saves the tokens in the keyring and pushes the Secrets.
 
 ### Operations
 
@@ -1106,6 +1094,8 @@ Argo CD maintains the declared state of the homelab cluster directly from this r
 2. **`cluster` (`k8s/argocd/bootstrap/cluster.yaml`)**: Tracks `main`. Syncs project RBAC boundaries (`k8s/argocd/apps/projects.yaml`) and all 27 leaf Applications (11 raw leaf applications and 16 multi-source Helm applications).
 
 When the root `cluster` Application is present in the cluster, `devops k8s deploy-stack` delegates manifest and Helm reconciliation to Argo CD, and `devops k8s teardown-stack` refuses execution to prevent configuration drift.
+
+An object in the cluster that git does not hold is drift: remove it, or add it to git. Back up the data on a PersistentVolume before you delete its claim. Public access goes through the Cloudflare tunnel and Cloudflare Access, and only the owner changes the Cloudflare configuration.
 
 ### Homelab Values at Deploy Time
 
@@ -1151,7 +1141,7 @@ devops k8s deploy-stack --stack devops
 
 #### When a pull request merges into `main`
 
-1. The Applications track `main` (`tests/test_k8s_argocd_apps.py` holds them there), so a merge moves `main` forward and the host patches stay in place. Run `devops k8s deploy-stack --stack devops --argocd-revision <branch>` from a checkout of the pull request's branch, right before merging, when the pull request changes `k8s/devops/configmap.example.yaml` (the ConfigMap follows only deploy-stack) or adds, removes, renames or reorders an Ingress or IngressRoute, or a host in one. If the pull request moved a host that `main` also renders, the Application shows the ComparisonError `testing value <pointer> failed` until the merge, and its live Ingresses stay as they were.
+1. The Applications track `main` (`tests/invariants/test_k8s_argocd_apps.py` holds them there), so a merge moves `main` forward and the host patches stay in place. Run `devops k8s deploy-stack --stack devops --argocd-revision <branch>` from a checkout of the pull request's branch, right before merging, when the pull request changes `k8s/devops/configmap.example.yaml` (the ConfigMap follows only deploy-stack) or adds, removes, renames or reorders an Ingress or IngressRoute, or a host in one. If the pull request moved a host that `main` also renders, the Application shows the ComparisonError `testing value <pointer> failed` until the merge, and its live Ingresses stay as they were.
 2. Merge. Argo CD builds `main` with the staged hosts.
 3. The service image changes only with a release. When the release pull request merges, the `Release` workflow's run on `main` builds, smoke-tests, scans, pushes and attests the service image, then tags it with the release tag and `latest` ([`RELEASE_CYCLE.md`](../RELEASE_CYCLE.md)). Within one poll of `latest` moving, Image Updater puts the `devops` Application on the new digest ([Service Image Updates](#service-image-updates)), and roadmap-service, which uses the Recreate strategy, is down only while its pod restarts. Until then both workloads keep the previous release's digest: the merge's own sync changes no image, and nothing is committed. A person who re-runs a failed publish job moves both tags when it passes, and Image Updater rolls the workloads onto the new digest.
 4. Check: `devops argo cd apps status devops` and `devops argo cd apps status ingress` are Synced and Healthy and exit 0. For `devops`, the command also reads the digest that `service:latest` names in GHCR and exits 1 when the Application's `spec.source.kustomize.images` pins another one, so ImageUpdater `devops` stopped updating ([Service Image Updates](#service-image-updates)). `kubectl get ingress,ingressroute -A -o yaml | grep example.com` prints nothing, and `kubectl -n devops get configmap devops-cli-config -o yaml` holds the configured repositories and the template values of `main` (gateway URL, models, context windows).
@@ -1251,7 +1241,7 @@ devops argo cd apps sync <app-name>
 
 ### Pausing an Application
 
-Every Application sets `enabled: true` under `spec.syncPolicy.automated` in git, and `tests/test_k8s_argocd_apps.py` pins it. The value is in the parent's last-applied configuration, so a different value in the cluster is drift. `cluster` is the parent of the Applications in `k8s/argocd/apps/`, and `bootstrap` is the parent of `cluster` and of itself.
+Every Application sets `enabled: true` under `spec.syncPolicy.automated` in git, and `tests/invariants/test_k8s_argocd_apps.py` pins it. The value is in the parent's last-applied configuration, so a different value in the cluster is drift. `cluster` is the parent of the Applications in `k8s/argocd/apps/`, and `bootstrap` is the parent of `cluster` and of itself.
 
 - Pause an Application in git: set `enabled: false` in its manifest and merge the change. While it is paused, the `ArgoCdAutoSyncDisabled` alert fires after 15 minutes.
 - Do not pause an Application in the Argo CD UI or API. Its parent shows it OutOfSync and turns automated sync on again at its next self-heal.
@@ -1425,7 +1415,10 @@ k8s/
 │   ├── configmap.example.yaml # devops-cli config template: deploy-stack renders ConfigMap devops-cli-config from it and config.yaml
 │   ├── cronjob.yaml          # Suspended CronJob devops-cli, the template of every cluster job
 │   ├── cronjob-runner.yaml   # Suspended CronJob devops-cli-runner, the template of the implement job's runner Job
+│   ├── cronworkflow-rag-ingest.yaml # CronWorkflow rag-ingest: runs WorkflowTemplate rag-ingest every 3 minutes
 │   ├── networkpolicy.yaml    # Default-deny perimeter: DNS, the gateway and public HTTPS out; skips the crawl4ai and searxng pods
+│   ├── networkpolicy-rag-ingest.yaml # Lets the rag-ingest pods reach Qdrant on TCP 6333
+│   ├── workflowtemplate-rag-ingest.yaml # WorkflowTemplate rag-ingest: keeps the RAG index current
 │   ├── crawl4ai/             # Crawl4AI page-text service: Deployment, Service and the NetworkPolicies of the pod and of its one client
 │   │   ├── kustomization.yaml
 │   │   ├── deployment.yaml

@@ -99,7 +99,7 @@ flowchart LR
     subgraph FastMCPServer["devops-cli FastMCP Server"]
         Router["Tool Router (Stdio / SSE)"]
         Bridge["Lazy Loaded Subcommand Bridge"]
-        Registry["Tool Registry (25+ DevOps Tools)"]
+        Registry["Tool Registry (docs/MCP_TOOLS.md)"]
     end
 
     ExternalAgents <-->|JSON-RPC| Router
@@ -152,6 +152,7 @@ flowchart TD
 - **Structured Metrics & Telemetry**: Integrates with Prometheus query endpoints (`devops prometheus`) and Grafana dashboards (`devops grafana`) to monitor workstation and cluster health. The API calls sit in the domain packages, behind public clients (`prometheus/client.py`, `grafana/client.py` and `argo/client.py`), and the commands only resolve settings and print. Each client builds its httpx2 client through the HTTP entry point, so the `web` fixture answers it in a test.
 - **Gated CI Quality Gate**: Automated enforcement of Python 3.14 runtime, Ruff formatting, Mypy strict typing, documentation freshness, test coverage, and static security scanning (`devops ci`).
 - **Releases by release-please**: release-please derives each version and the changelog from the Conventional Commit titles on `main`, and a scheduled workflow merges its release pull request every 6 hours when it passes the guards ([`RELEASE_CYCLE.md`](RELEASE_CYCLE.md)). devops-cli holds no release code.
+- **Nested Time Limits**: Each inner time limit is shorter than the limit around it, with a margin. The bound of one test is shorter than its step, and the step is shorter than the `timeout-minutes` of its job. The step limit of a roadmap Job is shorter than its item limit, and the item limit is shorter than the deadline of the Job. A client timeout is shorter than the timeout of the gateway, and that timeout is shorter than the time limit of the tunnel. A limit that wraps a call, such as the timeout of an MCP tool call, is longer than each read that the call makes. Then the inner limit stops first, with a clean exit and a diagnostic.
 
 ---
 
@@ -161,7 +162,7 @@ To ensure complete stylistic cohesion, maintainability, and zero boilerplate pro
 
 ### 1. Declarative CLI Command Dispatch & OpenTelemetry Instrumentation
 Every command is registered on a `new_typer()` app (`OTelTyper`, `devops_cli/core/cli.py`), which wraps it in a `cli.<command>` OpenTelemetry span:
-- Each command handles `--dry-run` itself via `is_dry_run()` / `render_dry_run_result()`.
+- Each command handles `--dry-run` itself via `is_dry_run()` / `render_dry_run_result()`. A dry run sends no external request, a read included, and prints the requests that a real run would send. Each command declares its dry-run class with the decorator `@dry_run_class` (`request-plan` or `no-external-request`), and `tests/fixtures/dry_run_gaps.json` lists the commands that do not declare one yet; that list only gets shorter (`tests/invariants/test_dry_run_class_ratchet.py`).
 - Automatic OpenTelemetry span wrapping with standardized span attributes: the command, its command path and the number of arguments, never an argument value ([docs/TELEMETRY.md](docs/TELEMETRY.md)).
 - The one exit seam: the wrapper reports a `DevOpsCLIError` that a command, or a callback that runs as a command, raises. It prints the error's message in one error line, with any Rich markup in it escaped, and exits with the error's `exit_code`, with no traceback. Every command app is a `new_typer()` app, so every command passes through it. An exception that is not a `DevOpsCLIError` propagates. A command of a `new_typer()` app, or a command group that the `devops` entry point loads, stops with one error line and exit status 1 when the working directory of the process no longer exists, and its body does not run. A help query skips the check.
 - Commands that offer machine-readable output declare their own `--format` (table/json/yaml via `devops_cli.output.serialization.emit_serialized`) or `--json` flag. There is no global `--format` option.
@@ -206,8 +207,15 @@ The review workflow runs as `ReviewPipelineOrchestrator` methods (pre-analysis, 
 `devops_cli.http.entry` is the one entry point that builds httpx2 clients: `http_client` and `async_http_client` build them unpooled, or pooled when the caller names a `key` (`devops_cli.http.pool` keeps the pool, with its public reset `close_shared_clients` and its `atexit` close). Each client takes its transport from one seam, `devops_cli.http.client`: the egress transport of its level, so each address it dials is checked at the connect and on every redirect hop (see SSRF Guardrails above), or the transport that a test installed with `install_transport`. The seam's type is httpx2's own transport interface (`httpx2.BaseTransport`, `httpx2.AsyncBaseTransport`). `install_transport` and `remove_transport` close the pooled clients first, so no client built earlier keeps the old transport. Nothing in `http/` builds a client or reads a setting at import: the egress level is read when a client is built. `request_headers` and `veto_request` add the User-Agent and `traceparent` header, and the veto of a scheme other than http and https, for a caller that sends a request itself, as Vault's does (`security/vault_http.py`). For every client:
 - Native HTTP/2 connection pooling with persistent keepalive and backoff retries where supported.
 - Connect-time egress checks by level (public, loopback-allowed, private-allowed), with cloud metadata addresses refused at every level.
-- Automatic W3C `traceparent` header injection for distributed trace waterfalls.
+- `request_headers` adds the W3C `traceparent` header for a caller that sends a request itself. Of the other clients, only the LLM gateway client sends trace context (section 7.3, Library spans).
 - A client backs off with jitter on HTTP 429 and obeys `Retry-After`. It caches idempotent reads under `.data/` or in Valkey.
 
 ### 6. Files
 Check the size of a file before you read it into memory (`MAX_REPOMAP_FILE_SIZE_BYTES`, 50 MiB). Resolve a path inside a root with `safe_resolve_subpath` (`devops_cli.core.paths`), which refuses a symlink or `..` that leaves the root.
+
+### 7. Service Work and Shared State
+- **Jobs and Workflows**: Design new Service work as a Kubernetes Job or an Argo Workflow that an event or a CronWorkflow starts. Do not add a loop to the Service pod ([ADR 0021](docs/adr/0021-the-roadmap-service-is-a-webhook-router-cluster-pods-run-the-roadmap-jobs-and-valkey-holds-their-shared-state.md)).
+- **Service tasks**: Each automated task is a unit of its own. It selects its own items and needs no coordinator. It is idempotent, and each comment that it writes holds its marker. It has a limit on the items of a run, on the model spend and on the time, and its time limit is shorter than its deadline. It keeps an audit trail that a person can read, and it stays consistent when it stops before its end.
+- **Source of truth**: GitHub holds the truth, and the issues, the labels and the releases show the state of the project. Valkey is a cache and a coordination store, and it never holds the only copy of a decision.
+- **Shared capabilities**: A shared capability, such as the Valkey cache, Gitea, the cluster or a content store, is eventually consistent, and it falls back to a local tier when its shared part is down. Its design gives the tiers, the read path and the write path, the behavior in an outage, the rule of convergence and conflict, the versions of its keys, the TTLs, the size limits, the cleanup and a test of the fallback.
+- **Repository names**: Each name, label, annotation, Valkey key, Qdrant collection or telemetry value that holds a repository comes from one `RepoRef` (`src/devops_cli/github/repo_ref.py`, [ADR 0022](docs/adr/0022-one-repository-reference-names-the-objects-labels-and-keys-of-each-repository.md)). Code does not parse `owner/name` itself.
