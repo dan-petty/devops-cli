@@ -192,6 +192,7 @@ from devops_cli.roadmap.stage.stage_form import (
 )
 from devops_cli.roadmap.stage.stage_github import StageGitHub
 from devops_cli.roadmap.stage.stage_jev_screen import ScreenCase, record_review, screen_of
+from devops_cli.roadmap.stage.stage_left_out import LeftOutKind, log_left_out
 from devops_cli.roadmap.stage.stage_models import model_fields, referenced_classes
 from devops_cli.roadmap.stage.stage_moved import MovedPath, moved_paths
 from devops_cli.roadmap.stage.stage_overlap import (
@@ -380,11 +381,14 @@ def _slug_of(title: str) -> str:
 
 @dataclass(frozen=True)
 class LeftOut:
-    """An issue the job did not stage, and why. `title` is empty for an issue that is no item."""
+    """An issue the job did not stage, and why. `title` is empty for an issue that is no item.
+    `kind` names the rule that left the stage item out, as the metric and the log line name it
+    (#4521); it is a name of `reason`, so two items compare by their text only."""
 
     number: int
     reason: str
     title: str = ""
+    kind: LeftOutKind = field(default=LeftOutKind.OTHER, compare=False)
 
 
 @dataclass(frozen=True)
@@ -493,26 +497,37 @@ class _Judge:
         self._now = now
         self._rejected_now = rejected
 
-    def reason(self, item: Item, *, named: bool) -> str | None:
-        """Why the job leaves `item` out, or None when it may stage it. A person who names the
-        item (`--item`) overrules the record of an earlier split."""
-        checks = [
-            self._not_ready,
-            self._claimed,
-            self._needs_split,
-            self._tracker,
-            self._author,
-            self._title,
-            self._dependency,
-            self._recorded_blocker,
-            self._planned_on_default,
-            *([] if named else [self._rejected]),
-            self._held,
-            self._secret,
+    def reason(self, item: Item, *, named: bool) -> tuple[LeftOutKind, str] | None:
+        """The kind and the text of the reason the job leaves `item` out, or None when it may
+        stage it. A person who names the item (`--item`) overrules the record of an earlier
+        split."""
+        kind = LeftOutKind
+        checks: list[tuple[LeftOutKind, Callable[[Item], str | None]]] = [
+            (kind.NOT_READY, self._not_ready),
+            (kind.CLAIMED, self._claimed),
+            (kind.NEEDS_SPLIT, self._needs_split),
+            (kind.TRACKER, self._tracker),
+            (kind.AUTHOR, self._author),
+            (kind.UNJUDGED, self._unjudged),
+            (kind.TITLE_TYPE, self._title_type),
+            (kind.TITLE_LONG, self._title_long),
+            (kind.TITLE_SLUG, self._title_slug),
+            (kind.DEPENDENCY, self._dependency),
+            (kind.BLOCKED, self._recorded_blocker),
+            (kind.PLANNED, self._planned_on_default),
+            *([] if named else [(kind.REJECTED, self._rejected)]),
+            (kind.HELD, self._held),
+            (kind.REDACTED, self._secret),
         ]
         if not named:
-            checks += [self._recorded_split, self._failed_lately, self._queue_full]
-        return next((why for check in checks if (why := check(item)) is not None), None)
+            checks += [
+                (kind.RECORDED_SPLIT, self._recorded_split),
+                (kind.FAILED_LATELY, self._failed_lately),
+                (kind.QUEUE_FULL, self._queue_full),
+            ]
+        return next(
+            ((name, why) for name, check in checks if (why := check(item)) is not None), None
+        )
 
     def _not_ready(self, item: Item) -> str | None:
         if item.status == CONST_ROADMAP_STATUS_READY:
@@ -537,23 +552,27 @@ class _Judge:
         return MESSAGES.roadmap.stage_left_tracker if is_tracker else None
 
     def _author(self, item: Item) -> str | None:
-        """An account that the jobs do not trust opened the item, or a bot opened it and no
-        review of refine approved it (#3502)."""
+        """An account that the jobs do not trust opened the item (#3502)."""
         texts = MESSAGES.roadmap
-        if not is_trusted(item):
-            return texts.stage_left_author.format(
-                author=item.author_login or texts.refine_author_unknown,
-                association=item.author_association or texts.refine_author_unknown,
-            )
-        return None if is_approved(item) else texts.stage_left_unjudged
+        if is_trusted(item):
+            return None
+        return texts.stage_left_author.format(
+            author=item.author_login or texts.refine_author_unknown,
+            association=item.author_association or texts.refine_author_unknown,
+        )
 
-    def _title(self, item: Item) -> str | None:
-        texts = MESSAGES.roadmap
-        if commit_type(item.title) is None:
-            return texts.stage_left_title_type
-        if (too_long := long_title_reason(item.title)) is not None:
-            return too_long
-        return None if _slug_of(item.title) else texts.stage_left_title_slug
+    def _unjudged(self, item: Item) -> str | None:
+        """A bot opened the item and no review of refine approved it (#3502)."""
+        return None if is_approved(item) else MESSAGES.roadmap.stage_left_unjudged
+
+    def _title_type(self, item: Item) -> str | None:
+        return MESSAGES.roadmap.stage_left_title_type if commit_type(item.title) is None else None
+
+    def _title_long(self, item: Item) -> str | None:
+        return long_title_reason(item.title)
+
+    def _title_slug(self, item: Item) -> str | None:
+        return None if _slug_of(item.title) else MESSAGES.roadmap.stage_left_title_slug
 
     def _dependency(self, item: Item) -> str | None:
         open_issues = [
@@ -668,16 +687,17 @@ def _named_item(judge: _Judge, store: RoadmapStore, number: int) -> StageSelecti
     """The selection of `--item`: the item when it is open and Ready, else why not."""
     texts = MESSAGES.roadmap
     item = store.item(number)
-    why: str | None
+    why: tuple[LeftOutKind, str] | None
     if item is None:
-        why = texts.item_left_not_item
+        why = (LeftOutKind.NOT_ITEM, texts.item_left_not_item)
     elif item.state is not GitHubState.OPEN:
-        why = texts.item_left_closed
+        why = (LeftOutKind.CLOSED, texts.item_left_closed)
     else:
         why = judge.reason(item, named=True)
     if item is not None and why is None:
         return StageSelection(selected=(_target_of(item),))
-    return StageSelection(left_out=(LeftOut(number, why or "", item.title if item else ""),))
+    kind, text = why or (LeftOutKind.OTHER, "")
+    return StageSelection(left_out=(LeftOut(number, text, item.title if item else "", kind),))
 
 
 def select_stageable(
@@ -715,13 +735,19 @@ def select_stageable(
     if item_number is not None:
         return _named_item(judge, store, item_number)
 
+    kinds: dict[int, LeftOutKind] = {}
+
     def verdict(item: Item) -> StageTarget | str:
         why = judge.reason(item, named=False)
-        return _target_of(item) if why is None else why
+        if why is None:
+            return _target_of(item)
+        kinds[item.number], text = why
+        return text
 
     named = [item for item in opened if filters.matches(item)]
     walked = walk_named(named, verdict, limit, probe=probe)
-    return StageSelection(walked.taken, walked.left_out, walked.beyond)
+    left_out = tuple(replace(left, kind=kinds[left.number]) for left in walked.left_out)
+    return StageSelection(walked.taken, left_out, walked.beyond)
 
 
 # ── The plan of one item ──────────────────────────────────────────────────────
@@ -2860,11 +2886,29 @@ def stage_results(plan: StagePlan, applied: StageApplied) -> dict[int, StageResu
     return results
 
 
+def skipped_reasons(plan: StagePlan, applied: StageApplied) -> dict[int, tuple[LeftOutKind, str]]:
+    """The kind and the text of the reason of each item that `stage_results` counts as skipped
+    (#4521): the reason of the selection, or the write that returned or rejected the item."""
+    reasons = {left.number: (left.kind, left.reason) for left in plan.left_out}
+    reasons |= {number: (LeftOutKind.RETURNED, "") for number in applied.returned}
+    reasons |= {number: (LeftOutKind.REJECTED, "") for number in applied.rejected}
+    return {
+        number: reasons.get(number, (LeftOutKind.OTHER, ""))
+        for number, result in stage_results(plan, applied).items()
+        if result is StageResult.SKIPPED
+    }
+
+
 def emit_stage_results(plan: StagePlan, applied: StageApplied, repo: str = "") -> None:
-    """Add 1 to `devops_cli_roadmap_stage_total` for each item of a run that wrote, by repository
-    and result (#2659, #3069). A plan with no write counts nothing."""
-    for result in stage_results(plan, applied).values():
-        emit(ROADMAP_STAGE_TOTAL, 1, {"result": result.value, "repo": repo})
+    """Add 1 to `devops_cli_roadmap_stage_total` for each item of a run that wrote, by repository,
+    result and the kind of the reason of a skipped item (#2659, #3069, #4521), and log the reason
+    of a skipped item when its kind changes. A plan with no write counts nothing."""
+    results = stage_results(plan, applied)
+    reasons = skipped_reasons(plan, applied)
+    for number, result in results.items():
+        kind = reasons[number][0] if number in reasons else LeftOutKind.NONE
+        emit(ROADMAP_STAGE_TOTAL, 1, {"result": result.value, "reason": kind.value, "repo": repo})
+    log_left_out(repo, reasons, results)
 
 
 # ── The report ────────────────────────────────────────────────────────────────
@@ -3029,6 +3073,7 @@ __all__ = [
     "read_stage_selection",
     "render_stage_plan",
     "select_stageable",
+    "skipped_reasons",
     "stage_results",
     "task_window",
     "unmatched_items",

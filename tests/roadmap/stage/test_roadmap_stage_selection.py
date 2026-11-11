@@ -675,3 +675,32 @@ def test_closed_recorded_blocker_does_not_leave_item_out(store: InMemoryRoadmapS
     selection = _select(store)
 
     assert _numbers(selection) == [number]
+
+
+def test_each_left_out_item_carries_the_kind_of_its_reason(store: InMemoryRoadmapStore) -> None:
+    """The kind is a bounded name of the rule that left the item out, for the metric label and
+    the log line of the Service (#4521)."""
+    untyped = _seed(store, "security(roadmap): the job drops a comment")
+    held = _seed(store, "fix(roadmap): the job drops a label")
+    split = _seed(store, labels=(*BUG, "needs-split"))
+
+    def holder(issue: int, _branch: str) -> str | None:
+        return "The branch holds it." if issue == held else None
+
+    selection = _select(store, holder_of=holder)
+
+    assert {left.number: left.kind for left in selection.left_out} == {
+        untyped: "title_type",
+        held: "held",
+        split: "needs_split",
+    }
+
+
+def test_a_named_issue_that_is_closed_or_no_item_carries_its_kind(
+    store: InMemoryRoadmapStore,
+) -> None:
+    closed = _seed(store, state=GitHubState.CLOSED)
+
+    kinds = [left.kind for number in (closed, 99) for left in _select(store, item=number).left_out]
+
+    assert kinds == ["closed", "not_item"]
