@@ -1,28 +1,30 @@
 """`devops roadmap stage`: failure taxonomy and runner capabilities in staging context (#3258).
 
 Staging context includes the failure class table and action rules when the plan cites retry,
-review, stop, tier or failure. It includes runner capability facts (image tools, NOT_IN_RUNNER,
-and pod security settings) when the plan cites a command or tool name. Both are derived from
-repository files at the staged commit, and fail when a source moves or is missing.
+review, stop, tier or failure. It includes the runner tools and NOT_IN_RUNNER when the plan cites a
+command or tool name. Both come from the installed modules, because the runner image is the
+devops-cli image for every repository (#4628). The Dockerfile packages and the pod security
+settings come from the staged commit, and only when that commit is a devops-cli commit.
 """
 
 from __future__ import annotations
 
-import pytest
-
-from devops_cli.exceptions import RoadmapStageError
+from devops_cli.roadmap.runner_tools import NOT_IN_RUNNER
 from devops_cli.roadmap.stage.stage_context_facts import (
-    FAILURE_TAXONOMY_PATH,
     RUNNER_DOCKERFILE_PATH,
     RUNNER_POD_MANIFEST_PATH,
     RUNNER_TOOLS_PATH,
-    build_failure_taxonomy_context,
-    build_runner_capabilities_context,
     collect_stage_facts_context,
     should_include_failure_taxonomy,
     should_include_runner_capabilities,
 )
 from tests.support.paths import REPO_ROOT
+
+
+def _no_file(path: str) -> str | None:
+    """The read of a staged commit that holds none of the devops-cli files."""
+    del path
+    return None
 
 
 def _real_repo_read(path: str) -> str | None:
@@ -80,45 +82,50 @@ def test_review_command_plan_gets_runner_capabilities_in_context() -> None:
     assert "bwrap" in context or "semgrep" in context
 
 
-def test_source_move_fails_naming_failure_py() -> None:
-    def fake_read(path: str) -> str | None:
-        if path == FAILURE_TAXONOMY_PATH:
-            return None
-        return _real_repo_read(path)
+def test_a_retry_text_gets_the_failure_taxonomy_from_a_commit_of_another_repository() -> None:
+    context = collect_stage_facts_context("Add a retry to the backup script", _no_file)
 
-    with pytest.raises(RoadmapStageError) as exc_info:
-        build_failure_taxonomy_context(fake_read)
-    assert FAILURE_TAXONOMY_PATH in str(exc_info.value)
+    assert "### Failure taxonomy" in context
+    assert "- `provider`: `retry`" in context
 
 
-def test_source_move_fails_naming_runner_tools() -> None:
-    def fake_read(path: str) -> str | None:
-        if path == RUNNER_TOOLS_PATH:
-            return None
-        return _real_repo_read(path)
+def test_a_uv_text_gets_the_runner_tools_from_a_commit_of_another_repository() -> None:
+    context = collect_stage_facts_context("Install the tools with uv", _no_file)
 
-    with pytest.raises(RoadmapStageError) as exc_info:
-        build_runner_capabilities_context(fake_read)
-    assert RUNNER_TOOLS_PATH in str(exc_info.value)
+    assert "- Runner tools: `uv`, " in context
+    assert f"- `helm`: {NOT_IN_RUNNER['helm']}" in context
+    assert "Installed packages" not in context
+    assert "Pod security settings" not in context
 
 
-def test_source_move_fails_naming_pod_manifest() -> None:
-    def fake_read(path: str) -> str | None:
-        if path == RUNNER_POD_MANIFEST_PATH:
-            return None
-        return _real_repo_read(path)
+def test_the_dockerfile_of_another_repository_gives_no_image_facts() -> None:
+    """Only a commit that holds `runner_tools.py` describes the runner image. Another repository
+    can hold a Dockerfile and a pod manifest for its own image."""
+    other = {
+        RUNNER_DOCKERFILE_PATH: "FROM example.com/base AS runner\nRUN apt-get install -y git\n",
+        RUNNER_POD_MANIFEST_PATH: _real_repo_read(RUNNER_POD_MANIFEST_PATH),
+    }
 
-    with pytest.raises(RoadmapStageError) as exc_info:
-        build_runner_capabilities_context(fake_read)
-    assert RUNNER_POD_MANIFEST_PATH in str(exc_info.value)
+    context = collect_stage_facts_context("Install the tools with uv", other.get)
+
+    assert "### Runner capabilities" in context
+    assert "Installed packages" not in context
+    assert "Pod security settings" not in context
 
 
-def test_source_move_fails_naming_dockerfile() -> None:
-    def fake_read(path: str) -> str | None:
-        if path == RUNNER_DOCKERFILE_PATH:
-            return None
-        return _real_repo_read(path)
+def test_each_not_in_runner_line_holds_its_reason_text() -> None:
+    context = collect_stage_facts_context("Run devops review on the diff", _real_repo_read)
 
-    with pytest.raises(RoadmapStageError) as exc_info:
-        build_runner_capabilities_context(fake_read)
-    assert RUNNER_DOCKERFILE_PATH in str(exc_info.value)
+    lines = context.splitlines()
+    missing = [
+        prog for prog, reason in NOT_IN_RUNNER.items() if f"- `{prog}`: {reason}" not in lines
+    ]
+
+    assert missing == []
+
+
+def test_the_runner_fact_files_exist_in_the_repository() -> None:
+    """A move of a fact file of the staged commit fails here, and not in a Job of the Service."""
+    paths = (RUNNER_TOOLS_PATH, RUNNER_DOCKERFILE_PATH, RUNNER_POD_MANIFEST_PATH)
+
+    assert [path for path in paths if not (REPO_ROOT / path).is_file()] == []

@@ -331,21 +331,6 @@ The golden set SHALL hold a case that moves a module and leaves a string literal
 - **WHEN** the replay runs the new case
 - **THEN** the `paths` gate refuses the plan and the report marks the defect `caught`
 
-### Requirement: The live run reads the runner facts in the checkout
-The live run SHALL build the facts context of a case with the same builder as the stage job. It SHALL read each source file of that context at the commit of the case, and when the commit lacks the file, in the checkout of the run. The stage job SHALL read the staged commit only. A file that neither the commit nor the checkout holds SHALL end the case `refused` with the path.
-
-#### Scenario: A commit that lacks the fact files
-- **WHEN** a case commit holds no `src/devops_cli/roadmap/failure.py` and no `src/devops_cli/roadmap/runner_tools.py`, the checkout holds both, and the issue text cites a failure word and a tool
-- **THEN** the case reaches the model and does not end `refused`
-
-#### Scenario: A file that the checkout lacks too
-- **WHEN** neither the commit nor the checkout holds `src/devops_cli/roadmap/runner_tools.py`
-- **THEN** the case ends `refused` and the reason names `src/devops_cli/roadmap/runner_tools.py`
-
-#### Scenario: The job keeps its error
-- **WHEN** the stage job plans an item and the staged commit lacks `src/devops_cli/roadmap/failure.py`
-- **THEN** the job raises `RoadmapStageError` and makes no model call
-
 ### Requirement: The live report counts the degenerate cases
 The live run SHALL end a case with the outcome `degenerate` when the stage planner stops it on a reply that is a placeholder in every text, and the report SHALL show the count of such cases in the line of how the cases ended, `0` when there are none.
 
@@ -479,3 +464,18 @@ The golden set SHALL hold the plan of pull request #4435 as a case whose `issue`
 #### Scenario: The replay catches the long requirement
 - **WHEN** `uv run devops roadmap eval stage --replay` runs on the whole set
 - **THEN** the defect of the case of #3462 is caught by the gate `paths`, and the command exits 0
+
+### Requirement: The live run reads the image facts in the checkout
+The live run SHALL build the facts context of a case with the same builder as the stage job. It SHALL read each runner image fact file of that context at the commit of the case, and when the commit lacks the file, in the checkout of the run. The stage job SHALL read the staged commit only. A case or an item whose commit lacks a fact file SHALL still reach the model.
+
+#### Scenario: A commit that lacks the fact files
+- **WHEN** a case commit holds no `src/devops_cli/roadmap/failure.py` and no `src/devops_cli/roadmap/runner_tools.py`, the checkout holds both, and the issue text cites a failure word and a tool
+- **THEN** the case reaches the model and does not end `refused`
+
+#### Scenario: A checkout that lacks the module files too
+- **WHEN** neither the commit nor the checkout holds `src/devops_cli/roadmap/failure.py` or `src/devops_cli/roadmap/runner_tools.py`, and the issue text cites a failure word and a tool
+- **THEN** the case reaches the model and does not end `refused`
+
+#### Scenario: The job plans an item whose commit lacks the module files
+- **WHEN** the stage job plans an item and the staged commit holds neither `src/devops_cli/roadmap/failure.py` nor `src/devops_cli/roadmap/runner_tools.py`
+- **THEN** the job makes a model call and raises no `RoadmapStageError`

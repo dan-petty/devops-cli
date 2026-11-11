@@ -1,9 +1,11 @@
-"""The golden set and the facts context of the stage job (#4207).
+"""The golden set and the facts context of the stage job (#4207, #4628).
 
-The stage context holds the failure classes and the runner facts, and the job reads them at the
-staged commit. A golden case is frozen at an old commit that can lack the files, so the live run
-of the set reads them at the commit of the case and then in the checkout of the run. The run uses
-the same builder as the job; the job keeps its loud error when a staged source is missing.
+The stage context holds the failure classes and the runner facts. The failure classes, the runner
+tools and NOT_IN_RUNNER come from the installed modules, so a case commit that lacks
+`failure.py` or `runner_tools.py` still reaches the model. The Dockerfile packages and the pod
+security settings come from the files of a devops-cli commit: the live run of the set reads them
+at the commit of the case and then in the checkout of the run, and the job reads the staged
+commit only.
 """
 
 from __future__ import annotations
@@ -14,10 +16,8 @@ from typing import TYPE_CHECKING
 import pytest
 
 from devops_cli.ai.client.models import AIClientError
-from devops_cli.exceptions import RoadmapStageError
 from devops_cli.roadmap.stage.stage import plan_item
 from devops_cli.roadmap.stage.stage_context_facts import (
-    FAILURE_TAXONOMY_PATH,
     RUNNER_DOCKERFILE_PATH,
     RUNNER_POD_MANIFEST_PATH,
     RUNNER_TOOLS_PATH,
@@ -39,15 +39,15 @@ if TYPE_CHECKING:
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
+_FAILURE_PATH = "src/devops_cli/roadmap/failure.py"
 _FACT_FILES = (
-    FAILURE_TAXONOMY_PATH,
+    _FAILURE_PATH,
     RUNNER_TOOLS_PATH,
     RUNNER_DOCKERFILE_PATH,
     RUNNER_POD_MANIFEST_PATH,
 )
 # An issue that cites a failure word and a tool name, so the context holds both fact sections.
 _BODY = "The job retries a failed review. Run `devops review` in the runner."
-_REASON = "Staged source moved or missing"
 
 
 def _client(model_fake: ModelFake) -> StageClient:
@@ -95,19 +95,19 @@ def _stage(
 @pytest.mark.parametrize(
     "absent_at_commit",
     [
-        pytest.param((FAILURE_TAXONOMY_PATH, RUNNER_TOOLS_PATH), id="failure-and-runner-tools"),
+        pytest.param((_FAILURE_PATH, RUNNER_TOOLS_PATH), id="failure-and-runner-tools"),
         pytest.param((RUNNER_TOOLS_PATH,), id="runner-tools"),
-        pytest.param((FAILURE_TAXONOMY_PATH,), id="failure"),
+        pytest.param((_FAILURE_PATH,), id="failure"),
     ],
 )
-def test_a_case_whose_commit_lacks_fact_files_reads_them_in_the_checkout_and_reaches_the_model(
+def test_a_case_whose_commit_lacks_fact_files_reaches_the_model(
     stage_repo: StageRepo,
     model_fake: ModelFake,
     openspec_fake: OpenSpecFake,
     absent_at_commit: tuple[str, ...],
 ) -> None:
-    """The commit of the case lacks files that the head of the repository holds. The case reads
-    them there and reaches the model: the three shapes of the 42 refused cases (#4207)."""
+    """The commit of the case lacks files that the head of the repository holds. The case reaches
+    the model: the three shapes of the 42 refused cases (#4207)."""
     old = _stage(stage_repo, absent_at_commit=absent_at_commit)
     case = _case(stage_repo, old)
     model_fake.answer(AIClientError("the model is down"))
@@ -117,35 +117,33 @@ def test_a_case_whose_commit_lacks_fact_files_reads_them_in_the_checkout_and_rea
     assert (run.outcome, run.reason, model_fake.call_count) == (Outcome.FAILED, "AIClientError", 1)
 
 
-def test_a_fact_file_that_the_checkout_lacks_too_still_ends_the_case_refused_with_its_path(
+def test_a_case_whose_checkout_lacks_the_module_files_too_reaches_the_model(
     stage_repo: StageRepo, model_fake: ModelFake, openspec_fake: OpenSpecFake
 ) -> None:
-    """The fallback is the checkout of the run. A file that neither the commit nor the checkout
-    holds is a moved source, and the case ends `refused` with the path, as in the job."""
-    old = _stage(
-        stage_repo,
-        absent_at_commit=(RUNNER_TOOLS_PATH,),
-        absent_at_head=(RUNNER_TOOLS_PATH,),
-    )
+    """The failure classes and the runner tools come from the installed modules, so neither the
+    commit nor the checkout must hold `failure.py` or `runner_tools.py` (#4628)."""
+    modules = (_FAILURE_PATH, RUNNER_TOOLS_PATH)
+    old = _stage(stage_repo, absent_at_commit=modules, absent_at_head=modules)
     case = _case(stage_repo, old)
     model_fake.answer(AIClientError("the model is down"))
 
     run = run_case(case, _client(model_fake), stage_repo.clone)
 
-    assert (run.outcome, model_fake.call_count) == (Outcome.REFUSED, 0)
-    assert f"{_REASON}: {RUNNER_TOOLS_PATH}" in run.reason
+    assert (run.outcome, run.reason, model_fake.call_count) == (Outcome.FAILED, "AIClientError", 1)
 
 
-def test_the_job_still_raises_when_a_fact_file_is_absent_at_the_staged_commit(
+def test_the_job_reaches_the_model_when_the_staged_commit_lacks_the_module_files(
     stage_repo: StageRepo, model_fake: ModelFake, openspec_fake: OpenSpecFake
 ) -> None:
-    """The job reads the staged commit only. It never falls back to a checkout, so a source that
-    moved fails the item loudly (#3258)."""
-    old = _stage(stage_repo, absent_at_commit=(FAILURE_TAXONOMY_PATH,))
+    """The job reads the staged commit only, and a commit of another repository holds no
+    devops-cli module. The job still plans the item (#4628)."""
+    modules = (_FAILURE_PATH, RUNNER_TOOLS_PATH)
+    old = _stage(stage_repo, absent_at_commit=modules, absent_at_head=modules)
     case = _case(stage_repo, old)
     stage_repo.git("switch", "-q", "--detach", old)
+    model_fake.answer(AIClientError("the model is down"))
 
-    with pytest.raises(RoadmapStageError, match=_REASON):
+    with pytest.raises(AIClientError, match="the model is down"):
         plan_item(
             item_of(case),
             client=_client(model_fake),
@@ -153,7 +151,7 @@ def test_the_job_still_raises_when_a_fact_file_is_absent_at_the_staged_commit(
             sha=old,
         )
 
-    assert model_fake.call_count == 0
+    assert model_fake.call_count == 1
 
 
 def _holds(commit: str, path: str) -> bool:
@@ -172,7 +170,7 @@ def _one_case_of_each_missing_shape(cases: list[StageCase]) -> list[StageCase]:
     case reads the whole tree, so the test runs one case of each shape and not all 48."""
     shapes: dict[tuple[bool, bool], StageCase] = {}
     for case in cases:
-        has_failure = _holds(case.base_commit, FAILURE_TAXONOMY_PATH)
+        has_failure = _holds(case.base_commit, _FAILURE_PATH)
         has_tools = _holds(case.base_commit, RUNNER_TOOLS_PATH)
         if not (has_failure and has_tools):
             shapes.setdefault((has_failure, has_tools), case)
