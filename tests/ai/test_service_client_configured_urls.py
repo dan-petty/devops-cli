@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -120,7 +121,7 @@ def test_review_path_unconfigured_exits_nonzero_and_names_setting(
 
 
 def test_gateway_only_config_routes_all_calls_to_gateway(
-    isolate_devops_cli_config: Any,
+    config: Callable[..., Path],
     web: WebFake,
 ) -> None:
     """With gateway-only config, the `web` fake verifies calls go to gateway URL and never localhost:11434."""
@@ -128,18 +129,17 @@ def test_gateway_only_config_routes_all_calls_to_gateway(
     from devops_cli.ai.rag.embeddings import EmbeddingsEngine
     from devops_cli.config.settings import load_settings
 
-    existing_cfg = isolate_devops_cli_config.read_text(encoding="utf-8")
-    isolate_devops_cli_config.write_text(
-        existing_cfg + "\nai:\n"
-        "  provider: gateway\n"
-        "  gateway_url: https://192.0.2.1:4000/v1\n"
-        "  ollama_urls: []\n"
-        "  allow_private_network: true\n"
-        "  cache:\n"
-        "    enabled: false\n",
-        encoding="utf-8",
+    # The `ai` section of the test's config file takes these keys. A second `ai` key in the file
+    # would stop the load (#4481).
+    config(
+        ai={
+            "provider": "gateway",
+            "gateway_url": "https://192.0.2.1:4000/v1",
+            "ollama_urls": [],
+            "allow_private_network": True,
+            "cache": {"enabled": False},
+        }
     )
-    reset_settings_cache()
     settings = load_settings()
 
     def answer(request: httpx2.Request) -> httpx2.Response:

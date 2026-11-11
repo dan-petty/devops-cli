@@ -7,6 +7,7 @@ any smaller value from reaching the native client.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -21,18 +22,18 @@ from devops_cli.exceptions import ConfigurationError
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
 
-def _configure_qdrant(config: Path, timeout: float) -> None:
-    """Append a `qdrant` section to the test's config file, at an address that needs no DNS."""
-    section = f"qdrant:\n  url: http://127.0.0.1:6333\n  timeout: {timeout}\n"
-    config.write_text(config.read_text(encoding="utf-8") + section, encoding="utf-8")
+def _configure_qdrant(config: Callable[..., Path], timeout: float) -> None:
+    """Merge a `qdrant` address that needs no DNS and `timeout` into the `qdrant` section of the
+    test's config file. A second `qdrant` key in the file would stop the load (#4481)."""
+    config(qdrant={"url": "http://127.0.0.1:6333", "timeout": timeout})
 
 
 def test_the_qdrant_timeout_is_read_from_the_config_file_and_the_environment(
-    isolate_devops_cli_config: Path, monkeypatch: pytest.MonkeyPatch
+    config: Callable[..., Path], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Verify the default is 300 s, a config file sets it, and the environment overrides that."""
     default = settings_module.load_settings().qdrant.timeout
-    _configure_qdrant(isolate_devops_cli_config, 450)
+    _configure_qdrant(config, 450)
     from_file = settings_module.load_settings().qdrant.timeout
     monkeypatch.setenv("DEVOPS_CLI_QDRANT_TIMEOUT", "600")
     from_env = settings_module.load_settings().qdrant.timeout
@@ -73,12 +74,12 @@ def test_a_qdrant_timeout_in_the_config_file_must_be_positive() -> None:
     ],
 )
 def test_each_builder_gives_its_qdrant_client_the_configured_timeout(
-    build: object, isolate_devops_cli_config: Path
+    build: object, config: Callable[..., Path]
 ) -> None:
     """The review investigation, the `rag_search` tool, `devops ai rag query` and the library
     vector store build their client with `resolve_rag_components`; indexing's upserts and
     deletes go through `resolve_qdrant_client`. Both pass `qdrant.timeout`, not the default."""
-    _configure_qdrant(isolate_devops_cli_config, 450)
+    _configure_qdrant(config, 450)
 
     client = build()  # type: ignore[operator]
 
