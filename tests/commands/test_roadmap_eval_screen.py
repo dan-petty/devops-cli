@@ -59,5 +59,5 @@ def test_a_fit_from_a_report_makes_no_request(
     result = cli("roadmap", "eval", "screen", "--from", str(report))
 
     assert result.exit_code == 0
-    assert "No screen can skip more than 0 of 57 reviews" in " ".join(result.output.split())
+    assert "No screen can skip more than 0 of 58 reviews" in " ".join(result.output.split())
     assert jev.requests == []

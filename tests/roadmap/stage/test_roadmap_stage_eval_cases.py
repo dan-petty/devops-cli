@@ -45,11 +45,14 @@ from tests.support.paths import REPO_ROOT
 # job without stating runner capabilities in feasibility.
 # The case of #3408 is the plan of #3405 before the author corrected its design: the design restates
 # the `missing_path` rule of the cited verification prompt and gets it wrong.
+# Pull request 4435 is the plan of #3462 as merged: a MODIFIED requirement text of 543 characters
+# that the strict validation of the spec refuses after the archive (#4524).
 EVALUATED_PULLS = frozenset(
     {2975, 2976, 2977, 2978, 2979, 2980, 2981, 2982, 2983, 2984, 2985, 2986, 2987, 2988, 2989}
     | {2990, 2991, 2992, 2993, 2994, 2995, 2996, 2997, 2998, 2999, 3001, 3002}
     | {2719, 2761, 2766, 2857, 2858, 2859, 2870, 2958, 2971, 2972}
     | {3167, 3173, 3174, 3183, 3205, 3247, 3278, 3328, 3331, 3344, 3378, 3408, 3411, 3412, 3435}
+    | {4435}
 )
 SHA_LENGTH = 40
 FULL_HASH = re.compile(r"[0-9a-f]{40}")
@@ -64,8 +67,8 @@ def test_the_set_holds_the_reviewed_plans_and_five_good_ones(cases: list[StageCa
     reviewed = {case.pull for case in cases if case.verdict is not Verdict.GOOD}
     good = [case for case in cases if case.verdict is Verdict.GOOD]
 
-    assert (frozenset(reviewed), len(cases), len(good)) == (EVALUATED_PULLS, 57, 5)
-    assert len(EVALUATED_PULLS) == 52
+    assert (frozenset(reviewed), len(cases), len(good)) == (EVALUATED_PULLS, 58, 5)
+    assert len(EVALUATED_PULLS) == 53
 
 
 def test_a_good_case_is_the_twin_of_a_reviewed_case_and_has_no_defect(

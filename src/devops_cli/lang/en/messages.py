@@ -3947,6 +3947,11 @@ class RoadmapMessages:
         "modify. Add the requirements instead."
     )
     stage_problem_keyword: str = "The requirement {requirement} does not say SHALL or MUST."
+    # A requirement text that the strict OpenSpec validation of the spec refuses (#4524).
+    stage_problem_requirement_long: str = (
+        "The text of the requirement {requirement} has {length} characters, and the most is "
+        "{limit}. Move the details into a scenario, or split the requirement."
+    )
     stage_problem_text_short: str = (
         "The text of {field} has {length} characters, and the least is {least}. Write a real "
         "sentence."
