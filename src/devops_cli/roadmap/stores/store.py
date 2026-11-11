@@ -56,6 +56,7 @@ from devops_cli.lang import MESSAGES
 
 if TYPE_CHECKING:
     from devops_cli.roadmap.stores.github_store import GhRunner
+    from devops_cli.roadmap.stores.listing_snapshot import IncrementalListing
 
 logger = logging.getLogger(__name__)
 
@@ -1101,8 +1102,9 @@ _INSTALLED_STORE_FACTORY: StoreFactory | None = None
 def install_roadmap_store(factory: StoreFactory) -> None:
     """Open every roadmap store through `factory` until `reset_roadmap_store`.
 
-    `get_roadmap_store(repo, runner=runner)` then returns `factory(repo, runner=runner)`. A test
-    installs the in-memory store this way (ADR 0007).
+    `get_roadmap_store(repo, runner=runner, listing=listing)` then returns
+    `factory(repo, runner=runner, listing=listing)`. A test installs the in-memory store this way
+    (ADR 0007).
     """
     global _INSTALLED_STORE_FACTORY
     _INSTALLED_STORE_FACTORY = factory
@@ -1115,18 +1117,21 @@ def reset_roadmap_store() -> None:
     _INSTALLED_STORE_FACTORY = None
 
 
-def get_roadmap_store(repo: str, *, runner: GhRunner | None = None) -> RoadmapStore:
-    """Open the roadmap store for `repo`, its `gh` commands through `runner` when one is given.
+def get_roadmap_store(
+    repo: str, *, runner: GhRunner | None = None, listing: IncrementalListing | None = None
+) -> RoadmapStore:
+    """Open the roadmap store for `repo`, its `gh` commands through `runner` when one is given,
+    and every issue read through `listing`, a snapshot and its changes, when one is given (#4448).
 
     Every caller builds its store here. The installed factory, if any, answers instead of GitHub.
     """
     if _INSTALLED_STORE_FACTORY is not None:
-        return _INSTALLED_STORE_FACTORY(repo, runner=runner)
+        return _INSTALLED_STORE_FACTORY(repo, runner=runner, listing=listing)
     from devops_cli.roadmap.stores.github_store import GitHubRoadmapStore
 
     if runner is None:
-        return GitHubRoadmapStore(repo)
-    return GitHubRoadmapStore(repo, runner=runner)
+        return GitHubRoadmapStore(repo, listing=listing)
+    return GitHubRoadmapStore(repo, runner=runner, listing=listing)
 
 
 __all__ = [

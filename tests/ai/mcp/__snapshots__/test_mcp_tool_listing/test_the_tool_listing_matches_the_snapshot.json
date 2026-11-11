@@ -4852,6 +4852,11 @@
           ],
           "type": "string"
         },
+        "full": {
+          "default": false,
+          "description": "Read the whole issue listing and replace the snapshot of it under the data directory. Without it, a run reads only the issues changed since the snapshot.",
+          "type": "boolean"
+        },
         "issue": {
           "anyOf": [
             {

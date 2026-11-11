@@ -67,6 +67,11 @@ from devops_cli.roadmap.intake.intake_model import build_intake_model
 from devops_cli.roadmap.intake.intake_requests import SpendMeter
 from devops_cli.roadmap.request_plan import render_dry_run
 from devops_cli.roadmap.stores import store as roadmap_store
+from devops_cli.roadmap.stores.listing_snapshot import (
+    FileSnapshotStore,
+    IncrementalListing,
+    snapshot_root,
+)
 from devops_cli.roadmap.stores.store import RoadmapStore
 
 app = new_typer(help=HELP.roadmap.app, no_args_is_help=True)
@@ -101,6 +106,12 @@ def _open_store(repo: str | None) -> tuple[str, RoadmapStore]:
     return target, roadmap_store.get_roadmap_store(target)
 
 
+def _intake_listing(*, full: bool) -> IncrementalListing:
+    """How intake reads every issue: the snapshot under the data directory and the issues changed
+    since it, or the whole listing on `full` (#4448)."""
+    return IncrementalListing(FileSnapshotStore(snapshot_root()), full=full)
+
+
 def _one_mode(**modes: bool) -> None:
     """Refuse more than one mode flag."""
     if sum(modes.values()) > 1:
@@ -129,11 +140,12 @@ def _intake_dry_run(
     issues: Collection[int],
     new: NewCandidate | None,
     limit: int | None,
+    full: bool,
 ) -> None:
     """Print the requests an intake run makes, making none: no store opens, no model is built."""
     target = _target(repo)
     with _exit_on_failure("Could not plan intake"):
-        planned = dry_run_intake(target, ref=ref, issues=issues, new=new, limit=limit)
+        planned = dry_run_intake(target, ref=ref, issues=issues, new=new, limit=limit, full=full)
     render_intake_dry_run(planned, repo=target)
 
 
@@ -159,6 +171,7 @@ def intake_cmd(
     limit: Annotated[
         int | None, typer.Option("--limit", min=1, help=HELP.roadmap.intake_limit)
     ] = None,
+    full: Annotated[bool, typer.Option("--full", help=HELP.roadmap.intake_full)] = False,
     dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.roadmap.intake_dry_run)] = False,
     plan_only: Annotated[bool, typer.Option("--plan", help=HELP.roadmap.intake_plan)] = False,
     confirm: Annotated[bool, typer.Option("--confirm", help=HELP.roadmap.intake_confirm)] = False,
@@ -178,11 +191,11 @@ def intake_cmd(
         with _exit_on_failure("Could not plan intake"):
             new.refuse_long_summary()
     if dry_run or is_dry_run():
-        _intake_dry_run(repo, ref, issue or (), new, limit)
+        _intake_dry_run(repo, ref, issue or (), new, limit, full)
         return
     if not (plan_only or confirm):
         print_info(MESSAGES.roadmap.intake_plain_note)
-    _intake(repo, ref, issue or (), new, limit, confirm=confirm)
+    _intake(repo, ref, issue or (), new, limit, confirm=confirm, full=full)
 
 
 def _intake(
@@ -193,11 +206,13 @@ def _intake(
     limit: int | None,
     *,
     confirm: bool,
+    full: bool,
 ) -> None:
     with _exit_on_failure("Could not plan intake"):
         # Counts from here the requests the identity's ledger paces, gh's and the session's.
         meter = SpendMeter()
-        target, store = _open_store(repo)
+        target = _target(repo)
+        store = roadmap_store.get_roadmap_store(target, listing=_intake_listing(full=full))
         plan = plan_intake(
             store,
             repo=target,

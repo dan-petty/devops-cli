@@ -23,9 +23,12 @@ from devops_cli.roadmap.intake.intake_model import (
     ProposalRequest,
 )
 from devops_cli.roadmap.intake.intake_requests import Spend, SpendMeter
+from devops_cli.roadmap.stores.github_store import GitHubRoadmapStore
+from devops_cli.roadmap.stores.store import install_roadmap_store
 from tests.support.fakes.github import GitHubApiFake, github_json
 from tests.support.fakes.keyring import FakeKeyring
 from tests.support.fakes.process import ProcessAnswer, ProcessFake
+from tests.support.roadmap_github_store import RecordedGh, issue_payload, labeled
 from tests.support.roadmap_intake import LATER, REPO, FakeModel, Roadmap
 
 
@@ -204,3 +207,24 @@ def test_intake_confirm_over_existing_issues_exits_zero_when_skipped(
     fake_model.proposals["An existing issue"] = {"type": "type/perf"}
     output = run_intake("--confirm", exit_code=0)
     assert f"#{issue} An existing issue: skipped, nothing written" in output
+
+
+def test_a_run_reads_the_changes_since_the_last_run_and_full_reads_the_whole_listing(
+    github_api: GitHubApiFake, fake_model: FakeModel, run_intake: Callable[..., str]
+) -> None:
+    """The first run reads the whole listing and keeps a snapshot; `--full` reads the whole
+    listing again; a later run reads only the issues changed since the snapshot (#4448)."""
+    install_roadmap_store(
+        lambda repo, runner=None, **options: GitHubRoadmapStore(
+            repo, runner=RecordedGh({}), **options
+        )
+    )
+    item = labeled(issue_payload(1, updated_at="2026-01-01T09:00:00Z"), "priority/p2-medium")
+    listing = f"/repos/{REPO}/issues?state=all"
+    github_api.route("GET", f"{listing}&per_page=100", github_json([item]))
+    since = "2026-01-01T08:59:00Z"
+    changed = f"{listing}&sort=updated&direction=desc&since={since}&per_page=100"
+    github_api.route("GET", changed, github_json([]))
+    for flags in ((), ("--full",), ()):
+        run_intake("--plan", *flags)
+    assert [request.url.params.get("since") for request in github_api.sent] == [None, None, since]

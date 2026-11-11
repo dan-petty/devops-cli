@@ -35,6 +35,7 @@ from devops_cli.dry_run.requests import PlannedRequest, both, render_request_pla
 from devops_cli.git.branch_authors import LOG_FORMAT
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.stores import github_store as gh
+from devops_cli.roadmap.stores.listing_snapshot import CHANGED_LISTING, FULL_LISTING
 from devops_cli.roadmap.stores.store import CloseReason
 
 _GH = "gh"
@@ -155,7 +156,14 @@ class StoreRequests:
     def every_issue(self) -> Requests:
         """The listing of every issue, which a store reads the first time it needs it."""
         unread = MESSAGES.roadmap.plan_conditions["issues_unread"]
-        return within(self._issues("state=all"), unread)
+        return within(self._issues(FULL_LISTING), unread)
+
+    def changed_issues(self) -> Requests:
+        """The listing of the issues changed since the watermark of the snapshot, which a store
+        with an incremental listing reads in place of every issue (#4448)."""
+        unread = MESSAGES.roadmap.plan_conditions["issues_unread"]
+        since = MESSAGES.roadmap.intake_placeholder_watermark
+        return within(self._issues(CHANGED_LISTING.format(since=since)), unread)
 
     def items(self, *, milestone: str | None = None) -> Requests:
         """Every Item, or the Items of the milestone numbered `milestone`, a placeholder."""

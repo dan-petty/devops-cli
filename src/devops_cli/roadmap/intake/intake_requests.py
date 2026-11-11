@@ -27,6 +27,7 @@ from dataclasses import dataclass, field, replace
 from enum import StrEnum
 
 from devops_cli.config.constants import CONST_ROADMAP_LABELS_PATH
+from devops_cli.config.defaults import DEFAULT_ROADMAP_INTAKE_SNAPSHOT_MAX_AGE_HOURS
 from devops_cli.dry_run.requests import PlannedRequest, both
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.intake.intake_model import (
@@ -55,6 +56,7 @@ class _Steps:
 
     repo: str
     ref: str | None
+    full: bool = False
 
     @property
     def at(self) -> str:
@@ -92,8 +94,16 @@ class _Steps:
 
     def reads(self) -> list[PlannedRequest]:
         """The reads every run makes before it decides any candidate: every issue, once, which
-        gives the candidates and the items alike."""
-        return self.step("issues", self.store.issues())
+        gives the candidates and the items alike. Without `full`, a run reads the issues changed
+        since the snapshot of the listing when one is fit to read from, else every issue (#4448)."""
+        if self.full:
+            return self.step("issues", self.store.issues())
+        no_snapshot = MESSAGES.roadmap.intake_request_conditions["no_snapshot"]
+        hours = str(DEFAULT_ROADMAP_INTAKE_SNAPSHOT_MAX_AGE_HOURS)
+        return [
+            *self.step("changed_issues", self.store.changed_issues(), hours=hours),
+            *self.step("issues", self.store.issues(), when=no_snapshot),
+        ]
 
     def decisions(self, subjects: Sequence[str], *, new: bool, repeat: str) -> list[PlannedRequest]:
         """The reads and model calls that decide each candidate, in the order a run makes them."""
@@ -178,12 +188,13 @@ def planned_requests(
     each: bool = False,
     limit: int | None = None,
     parent: int | None = None,
+    full: bool = False,
 ) -> tuple[tuple[PlannedRequest, ...], tuple[PlannedRequest, ...]]:
     """The requests a run over `subjects` makes, as reads and model calls, then the writes
     `--confirm` adds after them; `new` when the one subject is a candidate that is not an issue
     yet, and `each` when the one subject stands for every candidate, its requests repeated for
-    each, or for the `limit` oldest."""
-    steps = _Steps(repo=repo, ref=ref)
+    each, or for the `limit` oldest; `full` when the run reads the whole listing (#4448)."""
+    steps = _Steps(repo=repo, ref=ref, full=full)
     texts = MESSAGES.roadmap
     limited = texts.intake_repeat_limited.format(limit=limit) if limit is not None else ""
     repeat = (limited or texts.intake_repeat_candidate) if each else ""

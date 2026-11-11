@@ -803,6 +803,12 @@ DEFAULT_ROADMAP_INTAKE_SHORTLIST: int = 5
 DEFAULT_ROADMAP_INTAKE_TEXT_CHARS: int = 4000
 DEFAULT_ROADMAP_INTAKE_EXCERPT_CHARS: int = 600
 DEFAULT_ROADMAP_INTAKE_REASON_CHARS: int = 240
+# The snapshot of the issue listing that `devops roadmap intake` keeps between runs (#4448): a
+# snapshot whose last full read is older than the max age is read in full again, so an issue that
+# left the repository leaves the snapshot. Each incremental read starts the overlap before the
+# watermark, so a change that GitHub lists late is read again.
+DEFAULT_ROADMAP_INTAKE_SNAPSHOT_MAX_AGE_HOURS: int = 24
+DEFAULT_ROADMAP_INTAKE_SNAPSHOT_OVERLAP_SECONDS: int = 60
 # `devops roadmap consolidate` (#1127): the most members one shortlist holds, and the most open
 # items that may cite one path or one identifier before it counts as common to every item.
 DEFAULT_ROADMAP_CONSOLIDATE_MEMBERS: int = 10

@@ -78,6 +78,18 @@ devops roadmap eval jev --from-shadow
 
 The command reads every issue of the repository (GitHub reads, no model request, no write). For each field it prints how often Jev and the `triage` model agree, how often each equals the label the issue holds now, how often only one of them does, and how often Jev is right in each band of its probability (below 60%, 60 to 75%, 75 to 90%, 90% and above). For the duplicate it counts the flags of each model against the issues that GitHub shows closed as a duplicate. The final label is a weak truth: intake writes the `triage` label, and a label that no person changed counts as final. Read the columns "only Jev" and "only triage" first.
 
+## The issue listing
+
+Intake compares each candidate with every item and with every issue closed as not planned, so each run needs every issue of the repository. `devops roadmap intake` keeps a snapshot of the issue listing in `roadmap/listing/<owner>/<name>.json` under the data directory. The snapshot holds the parsed record of each issue and pull request, the version of devops-cli that wrote it, the time of its last full read and a watermark.
+
+- A run reads only the issues and pull requests that changed since the watermark: `state=all`, `sort=updated`, `direction=desc` and `since=<watermark>`. Each changed issue replaces its record, so intake parses only the bodies of the changed issues. When 100 or fewer issues changed, the read is one request.
+- The new watermark is the earlier of the start of the read and the newest `updated_at` that GitHub gave, less 60 seconds. Thus a local clock ahead of GitHub's clock skips no change.
+- GitHub does not move the `updated_at` of a parent when a sub-issue joins or leaves it. A changed issue that joined or left a parent moves the sub-issue count of that parent by one.
+- A run reads the whole listing and writes a new snapshot when no snapshot is kept, when the snapshot cannot be read, when another version wrote it, when its last full read is 24 hours old or older, and on `--full`. The full read removes an issue that left the repository.
+- The snapshot is a copy of GitHub, which stays the source of truth. A snapshot that intake cannot read or write gives a warning. A failed write keeps the earlier file, because intake writes a temporary file and renames it.
+
+The Service does not use the snapshot: its poll reads the whole listing. `SnapshotStore` in `src/devops_cli/roadmap/stores/listing_snapshot.py` is the seam for a store that the Service can share.
+
 ## A failed write
 
 A write of GitHub can fail for one candidate, for example with a status 502. Intake skips that candidate, places the others, and then the run fails and names it.
@@ -112,6 +124,7 @@ The Service keeps the failure in its intake record, beside `schedule.json`, and 
 | Duplicate verdict, report lines, no close, retry of a stopped run, the source of a part | [roadmap-intake-duplicates](../../openspec/specs/roadmap-intake-duplicates/spec.md) |
 | Type and scope labels from the title | [roadmap-intake-title-labels](../../openspec/specs/roadmap-intake-title-labels/spec.md) |
 | The reply of the model | [roadmap-intake-reply-schema](../../openspec/specs/roadmap-intake-reply-schema/spec.md) |
+| The snapshot of the issue listing and the read of the changed issues | [roadmap-intake-listing](../../openspec/specs/roadmap-intake-listing/spec.md) |
 | Intake of one issue on an `issues` event of GitHub | [roadmap-scoped-updates](../../openspec/specs/roadmap-scoped-updates/spec.md) |
 | The disk cache of the embeddings | [embedding-disk-cache](../../openspec/specs/embedding-disk-cache/spec.md) |
 | Jev for the proposal fields, and the comparison with the `triage` model | [roadmap-intake-jev](../../openspec/specs/roadmap-intake-jev/spec.md) |
