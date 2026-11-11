@@ -26,7 +26,7 @@ So the engine is Argo Workflows, and this record has no plan for a no-go. It ame
 - **ADR 0009.** The delivery target of the roadmap consumer creates a unit of work or sets a due mark. It does not put a trigger on a lane. The router records a delivery id only after the create succeeds or gets 409. The stateless router step (#4575) deletes the Mattermost provider and its `/roadmap` command: the owner decided this on 2026-11-11, after 0 uses in 7 days. Each other rule of ADR 0009 stays.
 - **ADR 0017.** A scoped update runs in a pod of its own under the intake mutex of its repository, not on a lane. Intake is also due when a new issue opens (#4540), so a lost scoped update waits at most one sweep. Lines 14 and 19 of ADR 0017 name the model lane for scoped intake, but the code uses the triage lane (`SCOPED_UPDATES` in `src/devops_cli/roadmap/run.py`). Line 20 gives a poll of 151 seconds. That is the default of `service.poll_interval_seconds`, and the live ConfigMap sets 300 seconds. This record corrects those three lines, and the text of ADR 0017 stays as it was. Each other rule of ADR 0017 stays: a scoped update writes no last success, and it records what it decided.
 
-ADR 0001, ADR 0002, ADR 0015 and ADR 0016 stay as they are. GitHub stays the source of truth.
+ADR 0001, ADR 0015 and ADR 0016 stay as they are. GitHub stays the source of truth.
 
 The naming record of #4533 owns the object names, the labels, the Valkey key forms, the mutex names and the service names that this record uses. Until that record merges, tracker #4517 holds those rules. The pull request that merges second adds the link between the two records.
 
@@ -84,9 +84,9 @@ Facts measured from 2026-11-04 to 2026-11-11:
 - **A new instance, `valkey-roadmap`,** holds the coordination state: Valkey 9.1.3, AOF with `appendfsync everysec`, `noeviction`, a 2Gi `local-path` volume on the node of the sweep volume, three ACL users (`router`, `sweep`, `agent`) and ingress only from namespace `devops`. The three passwords are generated credentials of `devops k8s push-secrets`. `valkey-devops` stays the cache that can evict keys.
 - **Rules.**
   1. Valkey holds a copy, a lock, a counter, a due mark, a cache or unfinished work. It never holds the only copy of a decision.
-  2. A job reads GitHub before it writes GitHub. A Valkey value never replaces that read (ADR 0002).
+  2. A job reads GitHub before it writes GitHub. A Valkey value never replaces that read (ADR 0016).
   3. When Valkey and GitHub do not agree, GitHub wins.
-  4. A lock makes the window of a lost update smaller, but it does not close it. Each job record write reads the record back, and writes again when a mark of its writer is missing. The guard of ADR 0002 covers the field labels only.
+  4. A lock makes the window of a lost update smaller, but it does not close it. Each job record write reads the record back, and writes again when a mark of its writer is missing. The guard of ADR 0016 covers the field labels only.
   5. A job that can post two times reads its marker before it posts.
   6. Each key has a TTL, or one owner that deletes it.
   7. No credential goes into Valkey. Each pod makes its own installation token.
