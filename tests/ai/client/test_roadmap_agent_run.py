@@ -379,6 +379,7 @@ def test_a_fallback_answer_is_counted_with_the_model_that_answered(
                 "asked": "claude-sonnet-5-5",
                 "answered": "deepseek-v4.1-flash-1017",
                 "fallback": "true",
+                "row": "other",
             },
         )
     ]
@@ -399,7 +400,9 @@ def test_the_asked_model_with_a_provider_prefix_is_no_fallback(
     """Verify a reply that names the asked model under a provider prefix counts as no fallback."""
     emitted = _answers(monkeypatch, asked, [_answered(answered)])
 
-    assert emitted == [(1, {"asked": asked, "answered": answered, "fallback": "false"})]
+    assert emitted == [
+        (1, {"asked": asked, "answered": answered, "fallback": "false", "row": "other"})
+    ]
 
 
 def test_each_reply_of_a_run_is_counted_under_the_model_that_answered_it(

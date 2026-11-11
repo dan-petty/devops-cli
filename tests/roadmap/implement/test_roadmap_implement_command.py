@@ -14,6 +14,7 @@ from devops_cli.ai.client import factory
 from devops_cli.config.constants import CONST_ROADMAP_IMPLEMENT_MAX_REQUESTS
 from devops_cli.roadmap.implement.implement_step import StepOutcome, StepStatus, render_outcome
 from devops_cli.roadmap.stores.store import ImplementRecordKey, ItemField
+from tests.support.fakes.otlp import FakeCollector
 from tests.support.fakes.process import ProcessAnswer, ProcessFake
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.implement_step import BODY, DOCS, command_text, git, the_whole_group
@@ -306,6 +307,22 @@ def test_confirm_in_a_runner_takes_the_item_to_a_ready_pull_request(
     assert result.exit_code == 0
     assert "Took 1 item(s) to a ready pull request, stopped 0." in result.output
     assert job_world.pull.ready_calls == [("pr", "ready", str(PULL), "--repo", STAGE_REPO)]
+
+
+def test_confirm_in_a_runner_counts_its_model_requests_under_the_implement_row(
+    cli: Callable[..., Any], job_world: JobWorld, otlp: FakeCollector
+) -> None:
+    """The runner Job of an item names the implement row on its AI series, as a row of the
+    Service names its own, so a query splits implement tokens from stage tokens (#4475)."""
+    factory.set_llm_client_override(ModelScript(say("Stuck.")).model())
+
+    _job(cli, job_world, "--confirm")
+
+    assert {
+        attributes["row"]
+        for name in ("devops_cli_ai_tokens_total", "devops_cli_ai_model_answers_total")
+        for attributes, _ in otlp.points(name)
+    } == {"implement"}
 
 
 def test_confirm_reports_a_stopped_item_and_exits_0(

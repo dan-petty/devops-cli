@@ -53,6 +53,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_REFINE_MAX_SEARCH_QUERIES,
     CONST_ROADMAP_RUN_ERROR_CHARS,
 )
+from devops_cli.github.request_scope import request_scope
 from devops_cli.roadmap.agent_run import (
     RunLimit,
     RunTrace,
@@ -81,6 +82,7 @@ from devops_cli.roadmap.refine.refine_investigation import (
 from devops_cli.roadmap.stores.store import ItemField
 from tests.support.fakes.http import WebFake
 from tests.support.fakes.keyring import FakeKeyring
+from tests.support.fakes.otlp import FakeCollector
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.length_stop import length_stopped_model
 from tests.support.scripted_model import Script, call
@@ -864,6 +866,36 @@ def test_the_runs_usage_reaches_the_spend_ledger_for_each_model_request(
         ("agent_run", "analysis", "function", "unknown", 1, 1),
         ("agent_run", "analysis", "function", "unknown", 1, 1),
     ]
+
+
+def test_each_model_request_of_the_run_counts_its_answer_one_time_under_its_row(
+    git_repo: Path, spend_ledger: SpendLedger, otlp: FakeCollector
+) -> None:
+    """A stage, refine or alternatives run counts one answer and writes one spend record for each
+    model request, under the job row that sent it (#4475)."""
+    script = Script(call("list_files", directory="src"), _SETTLED)
+    model = script.model()
+
+    with request_scope(row="refine"):
+        _investigate(git_repo, script, model)
+
+    assert (
+        otlp.points("devops_cli_ai_model_answers_total"),
+        len(_spend_rows(spend_ledger)),
+    ) == (
+        [
+            (
+                {
+                    "asked": model.model_name,
+                    "answered": model.model_name,
+                    "fallback": "false",
+                    "row": "refine",
+                },
+                2,
+            )
+        ],
+        2,
+    )
 
 
 def test_a_gateway_models_run_is_recorded_under_the_gateway(

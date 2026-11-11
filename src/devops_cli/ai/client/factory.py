@@ -194,7 +194,10 @@ def build_agent(
     name: str | None = None,
     **kwargs: Any,
 ) -> Any:
-    """Build a configured pydantic-ai Agent with per-request spend tracking (#2489)."""
+    """Build a configured pydantic-ai Agent with per-request spend tracking (#2489). Each model
+    request writes one spend record, with the prompt tokens that the provider read from its cache,
+    and a reply that names its model adds one count to `devops_cli_ai_model_answers_total`, as the
+    run of an implement step does (#4475)."""
     from pydantic_ai import Agent, RunContext
     from pydantic_ai.capabilities import Hooks
     from pydantic_ai.messages import ModelResponse
@@ -218,13 +221,16 @@ def build_agent(
     ) -> ModelResponse:
         from urllib.parse import urlsplit
 
-        from devops_cli.ai.spend.ledger import track_request_spend
+        from devops_cli.ai.spend.ledger import model_answer_labels, track_request_spend
         from devops_cli.config.constants import CONST_AI_GATEWAY_PROVIDER
+        from devops_cli.telemetry.instruments import AI_MODEL_ANSWERS_TOTAL, emit
 
         m = request_context.model
         asked = str(getattr(m, "model_name", getattr(m, "model_id", "unknown")))
         served_by = getattr(m, "served_by", None)
         answered = response.model_name
+        if answered:
+            emit(AI_MODEL_ANSWERS_TOTAL, 1, model_answer_labels(asked, answered))
         track_request_spend(
             provider=CONST_AI_GATEWAY_PROVIDER
             if served_by
@@ -235,6 +241,7 @@ def build_agent(
             prompt_tokens=getattr(response.usage, "input_tokens", 0),
             completion_tokens=getattr(response.usage, "output_tokens", 0),
             reasoning_tokens=getattr(response.usage, "output_reasoning_tokens", 0),
+            cache_read_tokens=getattr(response.usage, "cache_read_tokens", 0),
             request_type=request_type,
             stage=stage,
         )

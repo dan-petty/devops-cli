@@ -1,5 +1,6 @@
 """The repository and the job row whose work sends a GitHub request, as the `repo` and `row`
-labels of `devops_cli_github_requests_total` (#2475).
+labels of `devops_cli_github_requests_total` (#2475). The row is also the `row` label of the AI
+request, token, spend and answer series, so they name the job row of a model request (#4475).
 
 The roadmap Service sends the requests of every repository and every job row from one process,
 so the request counter names who sent each one: an alert on the Service's writes then finds the

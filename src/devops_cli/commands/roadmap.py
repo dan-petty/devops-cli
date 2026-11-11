@@ -746,8 +746,10 @@ def _implement_job(
 
     from devops_cli.ai.client import get_llm_client
     from devops_cli.ai.client.factory import get_task_model, get_tier_model
+    from devops_cli.github.request_scope import request_scope
 
-    with _exit_on_failure("Could not run the job"):
+    # The runner Job does the work of the implement row, so its series name that row (#4475).
+    with _exit_on_failure("Could not run the job"), request_scope(row="implement"):
         applied = apply_implement(
             store,
             plan,
