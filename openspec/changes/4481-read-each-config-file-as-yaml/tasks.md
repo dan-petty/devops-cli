@@ -13,7 +13,7 @@ Kind: behavior. Reads: `src/devops_cli/config/round_trip.py`. Changes: `src/devo
 
 Kind: documents. Changes: `src/devops_cli/docs/generator.py`, `docs/CONFIGURATION.md`, `docs/roadmap/intake.md`.
 
-- [ ] 2.1 State in the generated configuration reference (`docs/generator.py`, `docs/CONFIGURATION.md`) and in `docs/roadmap/intake.md` that a config file is read as YAML 1.2, so a bare `off`, `on`, `yes` or `no` is a string.
+- [x] 2.1 State in the generated configuration reference (`docs/generator.py`, `docs/CONFIGURATION.md`) and in `docs/roadmap/intake.md` that a config file is read as YAML 1.2, so a bare `off`, `on`, `yes` or `no` is a string.
   - Verification: `$ uv run devops docs generate --check`
 
 ## Workflow follow-up
