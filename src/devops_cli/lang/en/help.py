@@ -1381,12 +1381,17 @@ class RoadmapCommandHelp:
         "(all, and the blocker and major ones), whether the recall of the blocker and major "
         "defects reaches the floor, the recall for each type, and the findings on the good plans. "
         "It matches each finding to one labeled defect of the same type. It stores the report as "
-        "JSON under the data directory. It calls the model of the verification task through the "
+        "JSON under the data directory and writes it again when each case ends, so a stopped run "
+        "keeps the cases that ended. It calls the model of the verification task through the "
         "gateway, one agent run per case, with one request for each model reply. It leaves out "
         "a case that holds no commit and names it in the report. A change of the model or of "
         "the prompt states this score."
     )
     eval_verify_model: str = "Model for the verification task. Without it, the configured model."
+    eval_verify_resume: str = (
+        "A report of this command. Run only the cases that the report lacks or that failed in it, "
+        "and update the report in place. The model of the run must be the model of the report."
+    )
     eval_screen: str = (
         "Score the Jev screen before the verify step against the reviewer alone. For each case "
         "of the golden set the command asks Jev the questions of the screen about the digest of "

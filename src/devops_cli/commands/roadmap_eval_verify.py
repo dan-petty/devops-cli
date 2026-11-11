@@ -2,7 +2,9 @@
 
 The command runs the pass on each case of `tests/fixtures/roadmap_eval/stage/` with the model of
 the `verification` task, or with `--model`, and prints the recall of the labeled defects and the
-findings on the good plans. It stores the score as JSON under the data directory.
+findings on the good plans. It stores the score as JSON under the data directory, and writes the
+file again when each case ends. `--resume` takes such a file, runs only the cases that the file
+lacks or that failed in it, and updates the file in place (#4344).
 """
 
 from __future__ import annotations
@@ -15,11 +17,14 @@ import typer
 
 from devops_cli.core.repo import find_repo_root, resolve_store_path
 from devops_cli.dry_run import dry_run_class, is_dry_run, render_request_plan
+from devops_cli.exceptions import ConfigurationError
 from devops_cli.lang import HELP, MESSAGES
-from devops_cli.output import print_error, print_info, write_stdout
+from devops_cli.output import print_error, print_info, write_stdout, write_text_file
 
 if TYPE_CHECKING:
     from devops_cli.config.settings import Settings
+    from devops_cli.roadmap.stage.stage_eval_cases import StageCase
+    from devops_cli.roadmap.stage.stage_verify_eval import CaseOutcome
 
 _STORE = "roadmap_eval/verify"
 _TASK = "verification"
@@ -40,6 +45,26 @@ def _review_model(settings: Settings, model: str | None) -> Any:
     return get_task_model(_TASK, settings=settings.model_copy(update={"ai": ai}))
 
 
+def _now() -> str:
+    return datetime.now(UTC).isoformat(timespec="seconds")
+
+
+def _with_stored(
+    every: list[StageCase], chosen: list[StageCase], stored: tuple[CaseOutcome, ...], path: Path
+) -> list[StageCase]:
+    """The cases that `names` and `limit` chose, and each case that the resumed report holds, in
+    the order of the set, so that the report keeps every case it held. A case of the report that
+    the set lacks raises `ConfigurationError`."""
+    held = {outcome.name for outcome in stored}
+    if lacking := sorted(held - {case.name for case in every}):
+        raise ConfigurationError(
+            MESSAGES.roadmap.verify_eval_resume_unknown.format(path=path, names=", ".join(lacking)),
+            details={"path": str(path), "cases": lacking},
+        )
+    names = held | {case.name for case in chosen}
+    return [case for case in every if case.name in names]
+
+
 def _run(
     cases_dir: Path | None,
     names: tuple[str, ...],
@@ -47,6 +72,7 @@ def _run(
     *,
     model: str | None,
     source: Path | None,
+    resume: Path | None,
     dry_run: bool,
     as_json: bool,
 ) -> None:
@@ -62,32 +88,49 @@ def _run(
     from devops_cli.roadmap.stage.stage_toolbox import ToolboxModel
     from devops_cli.roadmap.stage.stage_verify_eval import (
         evaluate_cases,
+        pending_cases,
         planned_verify_calls,
         render_verify,
+        resumed_outcomes,
         verify_json,
     )
 
-    cases, left_out = cases_with_commit(select_cases(load_cases(cases_dir), names, limit))
     settings = load_settings()
+    name = model or settings.ai.for_task(_TASK).model
+    every = load_cases(cases_dir)
+    chosen = select_cases(every, names, limit)
+    done: tuple[CaseOutcome, ...] = ()
+    if resume is not None:
+        done = resumed_outcomes(resume, name)
+        chosen = _with_stored(every, chosen, done, resume)
+    cases, left_out = cases_with_commit(chosen)
     gateway = gateway_address(settings.ai)
     if dry_run:
+        pending = pending_cases(cases, done)
         render_request_plan(
-            MESSAGES.roadmap.verify_eval_dry_run.format(gateway=gateway, cases=len(cases)),
-            planned_verify_calls(cases, gateway),
+            MESSAGES.roadmap.verify_eval_dry_run.format(gateway=gateway, cases=len(pending)),
+            planned_verify_calls(pending, gateway),
             [note] if (note := left_out_note(left_out)) else [],
         )
         return
     client = get_llm_client(task=_TASK, settings=settings, model=model)
-    name = model or settings.ai.for_task(_TASK).model
     review = ToolboxModel(_review_model(settings, model))
+    target = resume or resolve_store_path(f"{_STORE}/{datetime.now(UTC):%Y%m%dT%H%M%SZ}.json")
+    print_info(MESSAGES.roadmap.verify_eval_storing.format(path=target))
     score = evaluate_cases(
-        name, cases, client, source or find_repo_root(), toolbox=review, left_out=left_out
+        name,
+        cases,
+        client,
+        source or find_repo_root(),
+        toolbox=review,
+        left_out=left_out,
+        done=done,
+        store=lambda ended: write_text_file(
+            target, verify_json(ended, gateway=gateway, taken=_now())
+        ),
     )
-    now = datetime.now(UTC)
-    report = verify_json(score, gateway=gateway, taken=now.isoformat(timespec="seconds"))
-    target = resolve_store_path(f"{_STORE}/{now:%Y%m%dT%H%M%SZ}.json")
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(report, encoding="utf-8")
+    report = verify_json(score, gateway=gateway, taken=_now())
+    write_text_file(target, report)
     write_stdout(report if as_json else render_verify(score, gateway=gateway))
     print_info(MESSAGES.roadmap.stage_eval_stored.format(path=target))
     if score.failed:
@@ -116,6 +159,10 @@ def verify_cmd(
     source: Annotated[
         Path | None, typer.Option("--source", help=HELP.roadmap.eval_stage_source)
     ] = None,
+    resume: Annotated[
+        Path | None,
+        typer.Option("--resume", exists=True, dir_okay=False, help=HELP.roadmap.eval_verify_resume),
+    ] = None,
 ) -> None:
     """Score the verification pass on the golden set of the stage job."""
     _run(
@@ -124,6 +171,7 @@ def verify_cmd(
         limit,
         model=model,
         source=source,
+        resume=resume,
         dry_run=dry_run or is_dry_run(),
         as_json=as_json,
     )
