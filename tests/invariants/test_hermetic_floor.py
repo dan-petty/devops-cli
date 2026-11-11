@@ -639,6 +639,42 @@ def test_a_write_under_the_real_home_fails_at_the_write_naming_the_test(
     assert _tree(real_home) == before
 
 
+def test_the_home_write_guard_calls_no_function_that_a_test_replaces(
+    pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A test that replaces `os.lstat` with a function that removes a file, as the worktree
+    reclaim tests do, passes. The guard checks the removal and calls no replaced function, so the
+    function runs once and the removal does not start the guard again (#4739)."""
+    result = _run_with_floor(
+        pytester,
+        monkeypatch,
+        """
+        import os
+
+        def test_replaces_lstat_with_a_function_that_removes_a_file(tmp_path, monkeypatch):
+            doomed = tmp_path / "doomed.txt"
+            doomed.write_text("doomed\\n", encoding="utf-8")
+            real_lstat = os.lstat
+            calls = []
+
+            def removing_lstat(path, *args, **kwargs):
+                calls.append(os.fspath(path))
+                if os.fspath(path) == os.fspath(doomed) and doomed.exists():
+                    doomed.unlink()
+                return real_lstat(path, *args, **kwargs)
+
+            monkeypatch.setattr(os, "lstat", removing_lstat)
+            try:
+                os.lstat(doomed)
+            except FileNotFoundError:
+                pass
+            assert calls == [os.fspath(doomed)]
+            assert not doomed.exists()
+        """,
+    )
+    result.assert_outcomes(passed=1)
+
+
 def test_a_support_helper_writes_nothing_outside_the_run(
     pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch
 ) -> None:
