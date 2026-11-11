@@ -126,11 +126,6 @@ class DecisionPoint[T]:
             *((Resolver.MODEL,) if self.asks_model else ()),
         )
 
-    @property
-    def fitted(self) -> bool:
-        """Whether the cuts file of the point is in the repository."""
-        return self.cuts.is_file()
-
     def series(self) -> frozenset[tuple[str, str, str, str]]:
         """The label sets (point, resolver, band, mode) that the point can count: each band for
         each of its resolvers, and `none` for the fallback, in the modes `shadow` and `on`."""
