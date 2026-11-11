@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.112.1](https://github.com/dan-petty/devops-cli/compare/v0.112.0...v0.112.1) (2026-11-11)
+
+
+### Bug Fixes
+
+* **roadmap:** the trace gate reads the subject of a read ([#4544](https://github.com/dan-petty/devops-cli/issues/4544)) ([4330ee4](https://github.com/dan-petty/devops-cli/commit/4330ee43b3de4b8e7977b5485e258e66548cd49a))
+
 ## [0.112.0](https://github.com/dan-petty/devops-cli/compare/v0.111.0...v0.112.0) (2026-11-11)
 
 
