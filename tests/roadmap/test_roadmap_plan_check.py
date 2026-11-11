@@ -19,6 +19,7 @@ from devops_cli.lang import MESSAGES
 from devops_cli.openspec.tool import OpenSpecTool
 from devops_cli.roadmap.plan_check import PlanCheckResult, plan_check
 from devops_cli.roadmap.stage.stage_change import (
+    REQUIREMENT_MAX_CHARS,
     StageGroup,
     StageProposal,
     measure_groups,
@@ -440,6 +441,22 @@ def test_an_openspec_problem_is_reported(stage_repo: StageRepo) -> None:
     result = _run(stage_repo, _facts(stage_repo, sha=sha), tool=_Tool(report))
 
     assert [(p.path, p.rule) for p in result.problems] == [(CHANGE, "openspec")]
+
+
+def test_a_requirement_over_the_openspec_limit_is_reported(stage_repo: StageRepo) -> None:
+    """The validation of a change passes a requirement text over the limit, and the strict
+    validation of the spec refuses it after the archive (#4524)."""
+    spec = make_stage_proposal().specs[0]
+    long = spec.added[0].model_copy(update={"text": "The job SHALL keep " + "a" * 524})
+    plan = make_stage_proposal(specs=[spec.model_copy(update={"added": [long]})])
+    sha = _push(stage_repo, _change(plan))
+
+    result = _run(stage_repo, _facts(stage_repo, sha=sha))
+
+    expected = MESSAGES.roadmap.stage_problem_requirement_long.format(
+        requirement=long.name, length=543, limit=REQUIREMENT_MAX_CHARS
+    )
+    assert [(p.rule, p.message) for p in result.problems] == [("stage", expected)]
 
 
 # ── The issue that the plan depends on (#3224) ────────────────────────────────

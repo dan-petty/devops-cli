@@ -51,8 +51,9 @@ _WHOLE_SET_REPLAY = "replay" + "_all(CASES)"
 _MODULE_FIXTURE = '@pytest.fixture(scope="module")'
 # The defects of the whole set that a gate judges, and all of them, after #3395 records the
 # placeholder summary of case 3167 at the kind gate. The case of #3408 adds one defect that no gate
-# judges.
-JUDGED_BASELINE: Final[tuple[int, int]] = (81, 318)
+# judges. The case of #3462 adds one defect that the `paths` gate judges: a requirement text over
+# the OpenSpec limit (#4524).
+JUDGED_BASELINE: Final[tuple[int, int]] = (82, 319)
 
 
 @pytest.fixture(scope="module")
@@ -259,7 +260,7 @@ def test_a_defect_of_a_type_that_waited_for_a_gate_is_judged_or_says_why_not(
     judged = [d for d in defects if d.gate is not GateName.NONE]
     unjudged = [d for d in defects if d.gate is GateName.NONE]
 
-    assert len(defects) == 75
+    assert len(defects) == 76
     assert all(d.gate is GateName.PATHS and d.message for d in judged)
     assert all(d.reason for d in unjudged)
     assert not any(d.reason for d in judged)
@@ -273,7 +274,7 @@ def test_the_counts_of_each_type_are_the_baseline_that_a_change_of_a_gate_beats(
     counts = {t.type: (t.caught, t.missed, t.unjudged) for t in report.by_type()}
 
     assert counts[DefectType.MISSING_PATH] == (37, 0, 0)
-    assert counts[DefectType.SPEC_DELTA_WRONG] == (6, 0, 19)
+    assert counts[DefectType.SPEC_DELTA_WRONG] == (7, 0, 19)
     assert counts[DefectType.VERIFY_FORM] == (6, 0, 12)
     assert counts[DefectType.TASK_ORDER] == (1, 0, 8)
     assert counts[DefectType.IGNORES_EXISTING_CODE] == (0, 0, 23)

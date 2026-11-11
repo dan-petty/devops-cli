@@ -1,0 +1,11 @@
+{
+ "tracked": [
+  "src/devops_cli/core/test_selection.py",
+  "src/devops_cli/roadmap/stage/stage_change.py",
+  "tests/roadmap/stage/test_roadmap_stage_content.py",
+  "tests/support/builders.py"
+ ],
+ "capabilities": [
+  "roadmap-stage"
+ ]
+}

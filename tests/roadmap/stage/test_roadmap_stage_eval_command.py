@@ -75,10 +75,10 @@ def test_the_replay_exits_0_and_lists_what_each_gate_caught(cli: Cli) -> None:
     result = _eval(cli, "--replay")
 
     assert result.exit_code == 0, result.output
-    assert "replay through the gates: 57 case(s), 5 good" in result.output
+    assert "replay through the gates: 58 case(s), 5 good" in result.output
     assert "paths    #3010" in result.output
     assert "spec_delta_wrong" in result.output
-    assert "Defects that a gate judges: 81 of 318 (25%)." in result.output
+    assert "Defects that a gate judges: 82 of 319 (26%)." in result.output
     assert "Defects that wait for a gate" not in result.output
     assert "Good plans that every gate accepts: 5 of 5." in result.output
     assert "Result: every gate refuses what it must refuse." in result.output
@@ -97,7 +97,7 @@ def test_the_replay_as_json_holds_the_totals_of_each_gate(cli: Cli) -> None:
         ("prompt_keys", 0),
     ]
     assert report["failures"] == []
-    assert report["defects"] == {"judged": 81, "known": 318}
+    assert report["defects"] == {"judged": 82, "known": 319}
     assert {t["type"]: (t["caught"], t["missed"], t["unjudged"]) for t in report["types"]}[
         "verify_form"
     ] == (6, 0, 12)

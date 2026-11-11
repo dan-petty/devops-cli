@@ -1,0 +1,33 @@
+{
+ "issue": 3462,
+ "pull": 4435,
+ "title": "docs(openspec): plan #3462 Accept a test helper group in the plan check",
+ "change": "3462-accept-a-test-only-group-that",
+ "merge_commit": "776054bc8e01dbd90734c830e64935a7be646c07",
+ "base_commit": "3180bf14830cb5bb08c84e6657f46947a4be5a95",
+ "verdict": "needs-fix",
+ "scores": {
+  "premise_ok": 5,
+  "fidelity": 5,
+  "task_quality": 4,
+  "rule_compliance": 3,
+  "accuracy": 4
+ },
+ "state": "merged",
+ "summary": "The spec delta modifies the requirement `A test-only other group names its test function` of `roadmap-stage` with a text of 543 characters. Every stage gate accepted the plan, and the implement run stopped at `openspec archive`: the strict validation of the merged spec refuses a requirement text over 500 characters.",
+ "notes": [
+  "The plan is the folder of PR #4435 as merged. The case reads it back with the plan reader, so its summary is the title of the pull request.",
+  "The implement run (PR #4465) did both groups and stopped at the archive. A person shortened the text to 451 characters, and the archive then passed (#4524)."
+ ],
+ "defects": [
+  {
+   "type": "spec_delta_wrong",
+   "severity": "major",
+   "where": "specs/roadmap-stage/spec.md, MODIFIED requirement",
+   "problem": "The text of the MODIFIED requirement has 543 characters. `openspec archive` merges it into the spec, and `openspec validate --all --strict` refuses a requirement text over 500 characters.",
+   "evidence": "The text of `A test-only other group names its test function` has 543 characters, and the archive of the implement run failed with \"Requirement text is very long (>500 characters)\".",
+   "gate": "paths",
+   "message": "The text of the requirement A test-only other group names its test function has 543 characters"
+  }
+ ]
+}

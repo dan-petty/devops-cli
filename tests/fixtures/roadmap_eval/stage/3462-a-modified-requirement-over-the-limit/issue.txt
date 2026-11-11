@@ -1,0 +1,20 @@
+# Item #3462: fix(roadmap): accept a test-only group that changes a test helper
+
+## Problem or Motivation
+
+The rule planned for #3433 refuses an `other` group whose every changed path is under `tests/` and whose `implementation` names no test function in a code span. The rule catches the conditional group that caused #3433. It also refuses a valid group that changes only a test helper, a fixture or `tests/support/builders.py`, because the implementation names a helper and no test function. A helper-only group is a valid `other` group, and the planner cannot write one after this rule lands.
+
+## Proposed Solution & Architectural Design
+
+1. When every path of an `other` group is under `tests/`, accept the group when its implementation names a test function in a code span, in the bare form or after a path.
+2. Accept the group when one changed path under `tests/` is not a test module, because the group edits a fixture or a helper rather than a test case.
+3. Keep the refusal for a group whose implementation names only a test file path and no function.
+4. Add cases to `tests/roadmap/test_roadmap_stage_content.py` for a helper group and for the conditional group.
+
+## Target Subsystem
+
+`src/devops_cli/roadmap/stage_change.py`, `tests/roadmap/test_roadmap_stage_content.py`
+
+## Existing Tool Considered
+
+No open, maintained tool covers this need. The rule extends `content_problems` with the same test seam as #3433.

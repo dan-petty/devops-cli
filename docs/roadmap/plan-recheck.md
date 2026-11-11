@@ -111,7 +111,7 @@ Each refusal of a `new-plan` folder prints with the name of its gate, in square 
 
 | Gate | What it refuses |
 | :--- | :--- |
-| `spec-delta` | A spec delta that the plan needs and lacks, or that it does not need, or a bad requirement or capability. |
+| `spec-delta` | A spec delta that the plan needs and lacks, or that it does not need, or a bad requirement or capability. A requirement text over the 500 characters that the strict OpenSpec validation of a spec allows is a bad requirement (#4524). |
 | `content` | A text that is too short or a placeholder, a `feasibility` that quotes no probe line, a task that names a message and changes no message file, and a plan that builds its own code and gives no cost. |
 | `citation` | A citation of a file that the staged commit does not hold as cited: a `path:line:text` line with other text, or a `path:def name` symbol that the file lacks. |
 | `form` | A task text of one word, a `verify` command outside the project form, and a new test module outside the mirror directories. |

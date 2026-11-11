@@ -3,8 +3,8 @@ change it renders, and the measure of each task group against the step budget.
 
 The reply is one `StageProposal`. `check_proposal` finds what the rules of `openspec/config.yaml`
 ask and a schema cannot say: a Purpose on a new capability, a MODIFIED requirement only on a
-capability that exists, a spec delta only when the change is observable, a base requirement that
-still names a command that an added requirement removes (#3287), a path that is a file of the
+capability that exists, a spec delta only when the change is observable, a requirement text no
+longer than the limit of OpenSpec (#4524), a base requirement that still names a command that an added requirement removes (#3287), a path that is a file of the
 staged commit or that a group creates (`stage_paths`), and a citation of a line or a symbol that
 the staged file does not hold (#3422). `render_change` turns the reply into the files of
 `openspec/changes/<issue>-<slug>/`. `measure_groups` counts the
@@ -120,6 +120,10 @@ STAGE_SUMMARY_MAX_CHARS: Final[int] = SUMMARY_MAX_CHARS - summary_length(
 BODY_MAX_CHARS: Final[int] = 800
 # The fewest characters of the Purpose of a new capability, so archive never writes TBD.
 PURPOSE_MIN_CHARS: Final[int] = 50
+# The most characters of the text of a requirement: `MAX_REQUIREMENT_TEXT_LENGTH` of OpenSpec
+# (`core/validation/constants.js`). `openspec validate --strict` refuses a longer text in a spec,
+# and `openspec archive` merges each ADDED and MODIFIED requirement into the spec (#4524).
+REQUIREMENT_MAX_CHARS: Final[int] = 500
 # The tokens of one estimated line of a file that a task group creates. The stage adds them to the
 # measure of the group, so a large new file counts before the implement Job reads it (#3265).
 CREATED_LINE_TOKENS: Final[int] = 32
@@ -736,6 +740,25 @@ def _duplicate_problems(spec: StageSpec, requirements: Mapping[str, Collection[s
     ]
 
 
+def _js_length(text: str) -> int:
+    """The length of `text` as OpenSpec measures it: a JavaScript string counts UTF-16 code units,
+    so a character outside the Basic Multilingual Plane counts two."""
+    return len(text.encode("utf-16-le")) // 2
+
+
+def _length_problems(spec: StageSpec) -> list[str]:
+    """One problem for each ADDED and MODIFIED requirement of `spec` whose text has more than
+    `REQUIREMENT_MAX_CHARS` characters. The validation of a change passes such a text, and the
+    strict validation of the spec refuses it after `openspec archive` (#4524)."""
+    return [
+        MESSAGES.roadmap.stage_problem_requirement_long.format(
+            requirement=requirement.name.strip(), length=length, limit=REQUIREMENT_MAX_CHARS
+        )
+        for requirement in (*spec.added, *spec.modified)
+        if (length := _js_length(requirement.text.strip())) > REQUIREMENT_MAX_CHARS
+    ]
+
+
 # An added requirement that removes a command or an option says MUST NOT or SHALL NOT, and it names
 # the command in a code span that starts with `devops ` or with `--` (#3287).
 _REMOVAL_WORDS: Final[tuple[str, ...]] = ("MUST NOT", "SHALL NOT")
@@ -815,6 +838,7 @@ def _delta_problems(
         )
     for spec in proposal.specs:
         problems.extend(_spec_problems(spec, known))
+        problems.extend(_length_problems(spec))
         problems.extend(_duplicate_problems(spec, requirements))
         problems.extend(
             _stale_command_problems(spec, (requirement_texts or {}).get(spec.capability, {}))
