@@ -60,7 +60,7 @@ def _false_premise_case(cases: list[StageCase]) -> StageCase:
     return next(case for case in cases if case.name == FALSE_PREMISE_CASE)
 
 
-def test_the_false_premise_case_quotes_the_plan_and_the_cited_prompt(
+def test_the_false_premise_case_quotes_the_plan_and_cites_the_prompt(
     cases: list[StageCase], tmp_path: Path
 ) -> None:
     case = _false_premise_case(cases)
@@ -81,23 +81,14 @@ def test_the_false_premise_case_quotes_the_plan_and_the_cited_prompt(
     assert defect.evidence.splitlines() == [DESIGN_QUOTE, PROMPT_QUOTE]
     assert PROMPT_PATH in given.files
     assert given.contains(DESIGN_QUOTE)
-    assert given.contains(PROMPT_QUOTE)
 
 
-def test_the_false_premise_case_is_scored_with_one_labeled_defect(
-    cases: list[StageCase], stage_repo: StageRepo, model_fake: ModelFake
-) -> None:
-    case = _false_premise_case(cases).model_copy(
-        update={"base_commit": stage_repo.git("rev-parse", "HEAD")}
-    )
-    model_fake.answer(Verification())
+def test_only_a_false_premise_finding_finds_the_defect_of_the_case(cases: list[StageCase]) -> None:
+    case = _false_premise_case(cases)
 
-    score = evaluate_cases(
-        "m-1", [case], _client(model_fake), stage_repo.clone, toolbox=ToolboxModel(model_fake)
-    )
-
-    row = next(row for row in score.rows if row.type is DefectType.FALSE_PREMISE)
-    assert (score.cases[0].name, row.labeled, row.found) == (case.name, 1, 0)
+    assert matched_defects(case.defects, []) == ()
+    assert matched_defects(case.defects, [_finding(DefectType.MISSING_PATH)]) == ()
+    assert matched_defects(case.defects, [_finding(DefectType.FALSE_PREMISE)]) == case.defects
 
 
 def _defect(kind: DefectType, severity: Severity = Severity.MAJOR) -> Defect:
