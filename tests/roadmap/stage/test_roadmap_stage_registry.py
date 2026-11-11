@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
+import ast
+import sys
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
+from types import CodeType
 
 from devops_cli.roadmap.stage.stage_registry import (
     counts_in,
@@ -64,6 +69,54 @@ def test_counts_in_handles_non_tuple_and_short_entries(tmp_path: Path) -> None:
         "REGISTRY_COUNTS = (('only_one',), ('two', 'items'))\n", encoding="utf-8"
     )
     assert counts_in(short_entry) == ()
+
+
+# PEP 669 gives six tool ids, 0 to 5.
+_MONITORING_TOOL_IDS = range(6)
+
+
+@contextmanager
+def _parsed_texts() -> Iterator[list[object]]:
+    """The first argument of each call of `ast.parse` in the block. `sys.monitoring` (PEP 669)
+    reports each call, so the test replaces no function."""
+    monitoring = sys.monitoring
+    tool = next(tool for tool in _MONITORING_TOOL_IDS if monitoring.get_tool(tool) is None)
+    texts: list[object] = []
+
+    def on_call(_code: CodeType, _offset: int, called: object, first: object) -> None:
+        if called is ast.parse:
+            texts.append(first)
+
+    monitoring.use_tool_id(tool, "registry-parse-calls")
+    monitoring.register_callback(tool, monitoring.events.CALL, on_call)
+    monitoring.set_events(tool, monitoring.events.CALL)
+    try:
+        yield texts
+    finally:
+        monitoring.set_events(tool, monitoring.events.NO_EVENTS)
+        monitoring.register_callback(tool, monitoring.events.CALL, None)
+        monitoring.free_tool_id(tool)
+
+
+def test_a_module_that_does_not_name_the_counts_is_not_parsed(tmp_path: Path) -> None:
+    module = tmp_path / "test_plain.py"
+    module.write_text("def test_plain() -> None:\n    assert True\n", encoding="utf-8")
+
+    with _parsed_texts() as parsed:
+        assert counts_in(module) == ()
+
+    assert parsed == []
+
+
+def test_a_module_that_names_the_counts_only_in_a_comment_gives_no_entry(tmp_path: Path) -> None:
+    module = tmp_path / "test_comment.py"
+    text = "# REGISTRY_COUNTS = (('prefix', 'CONST_', 'tests/test_x.py'),)\nVALUE = 1\n"
+    module.write_text(text, encoding="utf-8")
+
+    with _parsed_texts() as parsed:
+        assert counts_in(module) == ()
+
+    assert parsed == [text]
 
 
 def test_registry_table_nonexistent_dir(tmp_path: Path) -> None:
