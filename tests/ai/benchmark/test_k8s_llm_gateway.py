@@ -1277,6 +1277,18 @@ _HOSTED_PORTS = frozenset({("TCP", 443, None)})
 # The database of the virtual keys: the pods of CloudNativePG Cluster llm-gateway-db, on 5432 (#1635).
 _DATABASE_PEER = {"podSelector": {"matchLabels": {"cnpg.io/cluster": "llm-gateway-db"}}}
 _DATABASE_PORTS = frozenset({("TCP", 5432, None)})
+# The spans of the `otel` callback: the OpenTelemetry Collector pods on OTLP/HTTP, never the
+# namespace, so no span reaches Tempo past the Collector rule that deletes key data (#4518).
+_COLLECTOR_PEER = {
+    "namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "otel"}},
+    "podSelector": {
+        "matchLabels": {
+            "app.kubernetes.io/name": "opentelemetry-collector",
+            "app.kubernetes.io/instance": "otel-collector",
+        }
+    },
+}
+_COLLECTOR_PORTS = frozenset({("TCP", 4318, None)})
 
 EgressPort = tuple[str, object, object]
 BackendTarget = tuple[dict[str, str], int]
@@ -1366,6 +1378,12 @@ def _peer_violation(
             if ports == _DATABASE_PORTS
             else f"the database peer admits {sorted(map(str, ports))}"
         )
+    if peer == _COLLECTOR_PEER:
+        return (
+            None
+            if ports == _COLLECTOR_PORTS
+            else f"the collector peer admits {sorted(map(str, ports))}"
+        )
     labels = _pod_labels(peer)
     if not labels:
         return f"{peer} is not a same-namespace podSelector with matchLabels alone"
@@ -1396,7 +1414,8 @@ def _egress_violations(
     `to` and `ports`. A peer is the kube-system DNS peer on UDP and TCP 53, or a same-namespace
     podSelector whose labels are a subset of some backend Service's selector, on those
     backends' targetPorts alone, or the one public-address ipBlock on TCP 443 for the hosted
-    models, with its private ranges excluded. No other ipBlock passes.
+    models, with its private ranges excluded, or the Collector pods on TCP 4318. No other ipBlock
+    passes.
     """
     spec = policy["spec"]
     selected = (spec.get("podSelector") or {}).get("matchLabels") or {}
@@ -1441,7 +1460,8 @@ def gateway_egress() -> tuple[dict[str, Any], list[BackendTarget], dict[str, str
 def test_gateway_egress_admits_nothing_else(
     gateway_egress: tuple[dict[str, Any], list[BackendTarget], dict[str, str]],
 ) -> None:
-    """The gateway reaches its backends and DNS, and nothing else.
+    """The gateway reaches its backends, DNS, its key database, the hosted providers and the span
+    Collector, and nothing else.
 
     The policy carried an ipBlock rule for every private address on 11434 and 8000, which
     kube-router matches against pod addresses, so every pod on those ports was reachable (#795).

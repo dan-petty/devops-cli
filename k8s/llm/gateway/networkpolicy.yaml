@@ -18,7 +18,8 @@ spec:
   ingress:
     # The gateway is the authenticated entry point for LAN clients (via its NodePort), Open WebUI,
     # devops-cli workloads and monitoring. LiteLLM rejects requests without the master key, so the
-    # API port admits any source; egress below stays limited to the inference backends.
+    # API port admits any source; egress below stays limited to the inference backends, the key
+    # database, the hosted providers and the span Collector.
     - ports:
         - protocol: TCP
           port: 4000
@@ -44,6 +45,20 @@ spec:
       ports:
         - protocol: TCP
           port: 5432
+    # Spans of the `otel` callback go to the OpenTelemetry Collector pods on OTLP/HTTP (#4518).
+    # The rule names the Collector pods, not the namespace, so no span goes to Tempo past the
+    # Collector rule that deletes key data.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: otel
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: opentelemetry-collector
+              app.kubernetes.io/instance: otel-collector
+      ports:
+        - protocol: TCP
+          port: 4318
     # The hosted model groups (#3113) call the providers over HTTPS. A NetworkPolicy cannot name
     # a host, so the rule admits TCP 443 to any public address. It excludes every private range,
     # which kube-router matches against pod addresses (#795), and the cloud metadata address.
