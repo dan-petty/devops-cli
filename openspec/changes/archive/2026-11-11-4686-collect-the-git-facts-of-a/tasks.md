@@ -23,7 +23,7 @@
 
 ## 4. Other: the extra review and the generated files
 
-- [x] 4.1 Add lizard 1.24.3 in the optional extra `review` of `pyproject.toml`, in the dev group, in `uv.lock`, in the devcontainer image and in the Service image, and mark the generated files `linguist-generated` in `.gitattributes`
+- [x] 4.1 Add lizard 1.24.3 in the optional extra `review` of `pyproject.toml`, in `uv.lock`, in the devcontainer image and in the Service image, and mark the generated files `linguist-generated` in `.gitattributes`
   - Verification: `$ uv lock --check`
 
 ## 5. Documents
