@@ -13,6 +13,7 @@ import threading
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from datetime import UTC, datetime, timedelta
 from functools import partial
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -48,6 +49,12 @@ from devops_cli.github.project_read import GraphQLBudget, require_budget
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.run import JobOutcome
 from devops_cli.roadmap.service_stop import service_stopping
+from devops_cli.roadmap.stores.listing_snapshot import (
+    FileSnapshotStore,
+    IncrementalListing,
+    SnapshotStore,
+)
+from devops_cli.roadmap.stores.store import RoadmapStore, install_roadmap_store
 from devops_cli.server.json_logs import JsonLogFormatter
 from devops_cli.server.routes.webhooks import (
     DeliveryLRUCache,
@@ -74,6 +81,7 @@ from devops_cli.telemetry.tracer import (
     reset_tracer,
 )
 from tests.support.fakes.otlp import metric_points
+from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.service_stop import stop_error
 from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS, wait_until
 
@@ -1922,6 +1930,45 @@ def test_a_subscribed_issues_delivery_runs_its_scoped_update_and_queues_no_full_
         42,
     )
     assert f"-{TRIAGE_LANE}" in thread_name
+
+
+def test_a_scoped_update_reads_every_issue_through_the_snapshot_in_the_state_dir(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Test first for #3670: the store of a scoped update reads every issue through the listing
+    snapshot that the Service keeps in its state directory, the one the triage lane's intake
+    reads, and the update keeps its records beside it."""
+    snapshots: list[SnapshotStore | None] = []
+    data_dirs: list[Any] = []
+
+    def store(repo: str, *, listing: IncrementalListing | None = None, **_: Any) -> RoadmapStore:
+        snapshots.append(None if listing is None else listing.snapshots)
+        return InMemoryRoadmapStore()
+
+    def fake_scoped(delivery: Any, store: Any, **kwargs: Any) -> Any:
+        data_dirs.append(kwargs.get("data_dir"))
+        return None
+
+    install_roadmap_store(store)
+    monkeypatch.setattr("devops_cli.roadmap.run.run_scoped_update", fake_scoped)
+    state_dir = tmp_path / "roadmap"
+    app = create_service_app(
+        jobs=_unblocked_lanes().jobs(),
+        settings=_make_settings(repos=[REPO_A]),
+        secrets={REPO_A: "secret-1"},
+        state_dir=state_dir,
+    )
+    with TestClient(app) as client:
+        payload = _event_payload("opened", issue={"number": 42})
+        response = _github_post(client, "issues", payload, "scoped-listing")
+        settled = _lanes_settled(app)
+
+    assert (response.status_code, settled, snapshots, data_dirs) == (
+        202,
+        True,
+        [FileSnapshotStore(state_dir / "listing")],
+        [tmp_path],
+    )
 
 
 @pytest.mark.parametrize("action", ["opened", "reopened"])

@@ -67,11 +67,7 @@ from devops_cli.roadmap.intake.intake_model import build_intake_model
 from devops_cli.roadmap.intake.intake_requests import SpendMeter
 from devops_cli.roadmap.request_plan import render_dry_run
 from devops_cli.roadmap.stores import store as roadmap_store
-from devops_cli.roadmap.stores.listing_snapshot import (
-    FileSnapshotStore,
-    IncrementalListing,
-    snapshot_root,
-)
+from devops_cli.roadmap.stores.listing_snapshot import intake_listing
 from devops_cli.roadmap.stores.store import RoadmapStore
 
 app = new_typer(help=HELP.roadmap.app, no_args_is_help=True)
@@ -104,12 +100,6 @@ def _open_store(repo: str | None) -> tuple[str, RoadmapStore]:
     """The repository and its roadmap store."""
     target = _target(repo)
     return target, roadmap_store.get_roadmap_store(target)
-
-
-def _intake_listing(*, full: bool) -> IncrementalListing:
-    """How intake reads every issue: the snapshot under the data directory and the issues changed
-    since it, or the whole listing on `full` (#4448)."""
-    return IncrementalListing(FileSnapshotStore(snapshot_root()), full=full)
 
 
 def _one_mode(**modes: bool) -> None:
@@ -212,7 +202,7 @@ def _intake(
         # Counts from here the requests the identity's ledger paces, gh's and the session's.
         meter = SpendMeter()
         target = _target(repo)
-        store = roadmap_store.get_roadmap_store(target, listing=_intake_listing(full=full))
+        store = roadmap_store.get_roadmap_store(target, listing=intake_listing(full=full))
         plan = plan_intake(
             store,
             repo=target,

@@ -1,5 +1,5 @@
 """The scoped update that a webhook delivery runs at once, and the poll that reconciles after it
-(#1533).
+(#1533). The scoped intake reads every issue through the listing snapshot (#3670).
 """
 
 from __future__ import annotations
@@ -22,17 +22,23 @@ from devops_cli.roadmap.run import (
     WebhookDelivery,
     read_intake_record,
     run_scoped_update,
+    service_state_dir,
 )
+from devops_cli.roadmap.stores.github_store import GitHubRoadmapStore
+from devops_cli.roadmap.stores.listing_snapshot import intake_listing
 from devops_cli.roadmap.stores.store import (
     CloseReason,
     ItemField,
 )
 from tests.support.fakes.embeddings import FakeEmbedder
+from tests.support.fakes.github import API, RunnerSession
 from tests.support.fakes.http import WebFake
 from tests.support.fakes.otlp import FakeCollector
 from tests.support.llm_stream_fakes import serve_llm
+from tests.support.roadmap_intake import FINISHED, on_github
 from tests.support.roadmap_run import (
     NOW,
+    REPO,
     REPO_DIR,
     TWENTY_MINUTES_AGO,
     IntakeModel,
@@ -283,3 +289,43 @@ def test_the_model_requests_of_a_scoped_intake_carry_the_intake_row(
         name: sorted({attributes["row"] for attributes, _ in otlp.points(name)})
         for name in _AI_SERIES
     } == {name: ["intake"] for name in _AI_SERIES}
+
+
+def test_a_scoped_intake_with_a_kept_snapshot_reads_only_the_issues_changed_since_it(
+    tmp_path: Path,
+) -> None:
+    """Test first for #3670: the intake of the Service reads every issue through the snapshot in
+    its state directory. With a snapshot of 250 items kept, the delivery of a new issue sends one
+    listing request, of the issues changed since the watermark, and no read of the whole
+    listing; the new issue is placed."""
+    github, _ = on_github()
+    for number in range(1, 251):
+        changed = NOW - timedelta(days=2, minutes=number)
+        github.seed_issue(number, f"feat: item {number}", labels=FINISHED, updated_at=changed)
+    listing = intake_listing(service_state_dir(tmp_path))
+
+    def store() -> GitHubRoadmapStore:
+        return GitHubRoadmapStore(
+            REPO, runner=github, session=RunnerSession(github), listing=listing
+        )
+
+    store().issues()
+    github.seed_issue(251, "feat: new idea", updated_at=NOW)
+    start = len(github.calls)
+
+    run_scoped_update(
+        webhook_delivery("opened", 251), store(), data_dir=tmp_path, now=NOW, model=IntakeModel()
+    )
+
+    listings = [
+        args[0]
+        for args in github.calls[start:]
+        if args[0].startswith(f"{API}/repos/{REPO}/issues?")
+    ]
+    assert (listings, [label for label in github.labels(251) if "priority" in label]) == (
+        [
+            f"{API}/repos/{REPO}/issues?state=all&sort=updated&direction=desc"
+            "&since=2026-10-02T11:58:00Z&per_page=100"
+        ],
+        ["priority/p2-medium"],
+    )

@@ -1,27 +1,32 @@
-"""The snapshot of a repository's issue listing that `devops roadmap intake` keeps between runs
-(#4448).
+"""The snapshot of a repository's issue listing that intake keeps between runs (#4448, #3670).
 
-A CLI run is a new process, so the conditional answers of the GitHub session (#1692) are gone at
-its start, and a full read of `state=all` costs one request for each 100 issues and a parse of
-each body. With a snapshot, a run reads only the issues and pull requests that GitHub changed
+A full read of `state=all` costs one request for each 100 issues and a parse of each body. A CLI
+run is a new process, so the conditional answers of the GitHub session (#1692) are gone at its
+start; the Service sends each page again in each intake round, and a 304 answer passes the rate
+limiter too. With a snapshot, a run reads only the issues and pull requests that GitHub changed
 since the snapshot's watermark, through the `since` parameter of the REST listing, and keeps the
 parsed record of every other issue. GitHub stays the source of truth (ADR 0001): the snapshot is a
 copy of the listing that any run can drop and read again in full.
 
 A run reads the whole listing when no snapshot is kept, when the snapshot cannot be read, when
-another version of devops-cli wrote it, when its last full read is older than
-`DEFAULT_ROADMAP_INTAKE_SNAPSHOT_MAX_AGE_HOURS`, and on `--full`. The full read removes an issue
-that left the repository, and a change that moved no `updated_at`.
+its records have another schema than `IssueRecord` (`LISTING_SCHEMA_KEY`), when its last full read
+is older than `DEFAULT_ROADMAP_INTAKE_SNAPSHOT_MAX_AGE_HOURS`, and on `--full`. The full read
+removes an issue that left the repository, and a change that moved no `updated_at`. A release that
+keeps the schema keeps the snapshot.
 
-`SnapshotStore` is the seam of the place that keeps the snapshots: a file under the data
-directory for the CLI (`FileSnapshotStore`), and a shared store for the Service later (#4517).
+`SnapshotStore` is the seam of the place that keeps the snapshots. `FileSnapshotStore` keeps them
+in the state directory of the roadmap: under the data directory for `devops roadmap intake`, and on
+the Service's volume for the intake of the triage lane and the scoped intake of a delivery. A
+shared store for the pods of the Service can plug in later (#4517).
 """
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Final, Protocol
@@ -32,7 +37,6 @@ from devops_cli.config.defaults import (
     DEFAULT_ROADMAP_INTAKE_SNAPSHOT_MAX_AGE_HOURS,
     DEFAULT_ROADMAP_INTAKE_SNAPSHOT_OVERLAP_SECONDS,
 )
-from devops_cli.config.metadata import get_version
 from devops_cli.core.paths import validate_no_path_traversal
 from devops_cli.lang import MESSAGES
 from devops_cli.output.file_writer import write_bytes_file
@@ -44,6 +48,15 @@ logger = logging.getLogger(__name__)
 FULL_LISTING: Final = "state=all"
 # The query of the issues and pull requests changed at or after `since`, the newest change first.
 CHANGED_LISTING: Final = f"{FULL_LISTING}&sort=updated&direction=desc&since={{since}}"
+
+# The directory of the snapshots in the state directory of the roadmap.
+_SNAPSHOT_DIRNAME: Final = "listing"
+
+# The key of the schema of the records that a snapshot holds: the first 16 hex characters of the
+# sha256 of the JSON schema of `IssueRecord`. A snapshot with another key is read again in full.
+LISTING_SCHEMA_KEY: Final = hashlib.sha256(
+    json.dumps(IssueRecord.model_json_schema(), sort_keys=True).encode()
+).hexdigest()[:16]
 
 _MAX_AGE: Final = timedelta(hours=DEFAULT_ROADMAP_INTAKE_SNAPSHOT_MAX_AGE_HOURS)
 _OVERLAP: Final = timedelta(seconds=DEFAULT_ROADMAP_INTAKE_SNAPSHOT_OVERLAP_SECONDS)
@@ -58,14 +71,14 @@ def changed_listing(since: datetime) -> str:
 
 
 class ListingSnapshot(BaseModel):
-    """The issue listing of `repo` as a run read it: each issue's parsed record, the version of
-    devops-cli that parsed them, the time of the last full read, and the watermark that the next
-    run reads the changes from."""
+    """The issue listing of `repo` as a run read it: each issue's parsed record, the key of the
+    schema of the records, the time of the last full read, and the watermark that the next run
+    reads the changes from."""
 
     model_config = ConfigDict(frozen=True)
 
     repo: str
-    version: str
+    schema_key: str
     full_at: datetime
     watermark: datetime
     issues: tuple[IssueRecord, ...]
@@ -129,11 +142,14 @@ def _report(message: str, path: Path, error: Exception) -> None:
     logger.warning(message.format(path=path, reason=reason))
 
 
-def snapshot_root(data_dir: Path | str | None = None) -> Path:
-    """Where the CLI keeps the snapshots: `roadmap/listing` under the data directory."""
-    from devops_cli.roadmap.run import service_state_dir
+def snapshot_root(state_dir: Path | None = None) -> Path:
+    """Where the snapshots are kept: `listing` in `state_dir`, the state directory of the
+    roadmap, which is `roadmap` under the data directory when it is None."""
+    if state_dir is None:
+        from devops_cli.roadmap.run import service_state_dir
 
-    return service_state_dir(data_dir) / "listing"
+        state_dir = service_state_dir()
+    return state_dir / _SNAPSHOT_DIRNAME
 
 
 def _now() -> datetime:
@@ -149,7 +165,7 @@ class IncrementalListing:
     snapshots: SnapshotStore
     full: bool = False
     clock: Callable[[], datetime] = _now
-    version: str = field(default_factory=get_version)
+    schema_key: str = LISTING_SCHEMA_KEY
 
     def read(
         self, repo: str, read_issues: Callable[[str], list[IssueRecord]]
@@ -168,9 +184,9 @@ class IncrementalListing:
         return listed
 
     def _fit(self, held: ListingSnapshot | None, now: datetime) -> ListingSnapshot | None:
-        """`held` when a run can read the changes from it: this version wrote it, and its last
-        full read is younger than the max age."""
-        if held is None or held.version != self.version or now - held.full_at >= _MAX_AGE:
+        """`held` when a run can read the changes from it: its records have this schema, and its
+        last full read is younger than the max age."""
+        if held is None or held.schema_key != self.schema_key or now - held.full_at >= _MAX_AGE:
             return None
         return held
 
@@ -185,12 +201,20 @@ class IncrementalListing:
         self.snapshots.save(
             ListingSnapshot(
                 repo=repo,
-                version=self.version,
+                schema_key=self.schema_key,
                 full_at=full_at,
                 watermark=newest - _OVERLAP,
                 issues=tuple(listed.values()),
             )
         )
+
+
+def intake_listing(state_dir: Path | None = None, *, full: bool = False) -> IncrementalListing:
+    """How intake reads every issue: the snapshot that `state_dir` keeps, see `snapshot_root`, and
+    the issues changed since its watermark, or the whole listing on `full`. `devops roadmap
+    intake`, the triage lane of the Service and the scoped intake of a delivery read through it
+    (#4448, #3670)."""
+    return IncrementalListing(FileSnapshotStore(snapshot_root(state_dir)), full=full)
 
 
 def merged(held: Sequence[IssueRecord], changed: Sequence[IssueRecord]) -> dict[int, IssueRecord]:
@@ -221,11 +245,13 @@ def merged(held: Sequence[IssueRecord], changed: Sequence[IssueRecord]) -> dict[
 __all__ = [
     "CHANGED_LISTING",
     "FULL_LISTING",
+    "LISTING_SCHEMA_KEY",
     "FileSnapshotStore",
     "IncrementalListing",
     "ListingSnapshot",
     "SnapshotStore",
     "changed_listing",
+    "intake_listing",
     "merged",
     "snapshot_root",
 ]
