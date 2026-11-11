@@ -641,13 +641,14 @@ def require_value(field: ItemField, value: str | None, operation: str) -> None:
 
 # ── The record block ──────────────────────────────────────────────────────────
 
-_RECORD_BLOCK = re.compile(
-    rf"<!-- {re.escape(CONST_ROADMAP_RECORD_MARKER)} (?P<record>.*?) -->", re.DOTALL
-)
+# The text that opens the record block. A body that does not hold it has no record block.
+_RECORD_OPENER = f"<!-- {CONST_ROADMAP_RECORD_MARKER} "
+_RECORD_BLOCK = re.compile(rf"{re.escape(_RECORD_OPENER)}(?P<record>.*?) -->", re.DOTALL)
 _LINE_BREAK = re.compile(r"\r\n|\r|\n")
-# GitHub's Markdown is CommonMark: `html_block` is a real comment, `code_inline`, `fence` and
-# `code_block` are text that only shows one.
-_BODY_MARKDOWN: Final = MarkdownIt("commonmark")
+# GitHub's Markdown is CommonMark: `html_block` is a real comment, `fence` and `code_block` are
+# text that only shows one. The record block is a top-level block, so the parser reads only the
+# blocks: the core rule `inline` is off, and a quote in a code span stays inside its paragraph.
+_BODY_MARKDOWN: Final = MarkdownIt("commonmark").disable("inline")
 _RECORD_SEPARATORS = ("\r\n\r\n", "\n\n")
 _JOB_RECORD = TypeAdapter(JobRecord)
 # The job record keys this version reads; the others are another version's, kept as they are.
@@ -683,8 +684,12 @@ def split_record(body: str, *, issue: str = "an issue") -> tuple[str, dict[str, 
     when the body has no block, or when the block holds no JSON object, which a warning names.
 
     The record block is the comment at the end of the body. The writer's separator before it
-    goes with it, so a body read back after `with_record` is the body written.
+    goes with it, so a body read back after `with_record` is the body written. A body that does
+    not hold the block's opening text is not parsed: most issues and every pull request of a
+    listing have no record (#4445).
     """
+    if _RECORD_OPENER not in body:
+        return body, {}
     span = _record_block_span(body)
     found = _RECORD_BLOCK.fullmatch(body[span[0] : span[1]].strip()) if span else None
     if span is None or found is None:
