@@ -10,7 +10,7 @@
 - `decode` reads the sums. A trace with no sum, such as one from before this change, decodes with sums of zero. A sum that is not a number stops the decode with `TraceDecodeError`.
 - A trace that is decoded and encoded again adds no sum twice: the decoded sums are the start of the sums of the next encode, the same as `dropped`.
 - `trace_totals` adds the dropped sums to the sums of the kept events. The sums of a set of events come from one class, `TraceSums`, for the kept events and for the dropped events.
-- The line beside the totals says that the totals include the dropped events.
+- The line beside the totals says that the totals include the dropped events. For a trace that holds no dropped sum, such as one from before this change, the line says that the totals leave them out.
 
 The change fits one pull request.
 
@@ -30,7 +30,7 @@ None.
 - Code: `src/devops_cli/roadmap/implement/implement_trace.py`, `src/devops_cli/roadmap/explain.py`, `src/devops_cli/lang/en/messages.py`
 - Tests: `tests/roadmap/implement/test_roadmap_implement_trace.py`, `tests/roadmap/test_roadmap_explain.py`, `tests/roadmap/test_roadmap_explain_command.py`, `tests/support/roadmap_implement.py`
 - Specs: `openspec/specs/roadmap-explain/spec.md`, `openspec/specs/roadmap-implement-job/spec.md`
-- Documents: `docs/ROADMAP_WORKFLOW.md`
+- Documents: `docs/ROADMAP_WORKFLOW.md`, `docs/roadmap/implement.md`
 - The bound of the trace does not change. The sums take their characters from the bound, so a long trace keeps a few fewer events.
 
 ## Feasibility

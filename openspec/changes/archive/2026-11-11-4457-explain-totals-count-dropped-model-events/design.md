@@ -15,4 +15,3 @@
 - Raise the bound or keep more model events. A longer run still drops them, and the bound protects the size of the issue body.
 - Count only the model events and leave out the attempt events. The bound drops attempt events when no model event is left, and the totals would then be wrong again.
 - Write the four keys always. Every trace that fits the bound would change its form for no gain.
-- Change the text in `docs/roadmap/implement.md`. Its sentence about the bound stays true, and pull request #4526 changes the same line.

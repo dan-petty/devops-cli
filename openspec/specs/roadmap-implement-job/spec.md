@@ -933,7 +933,7 @@ For each pull request, after the job sets the title and the body, it SHALL add t
 - **THEN** the plan lists the read of the pull request, the read of `.github/labels.yml`, the request that adds a label and the request that removes one, and the run makes no request
 
 ### Requirement: The job keeps the trace of its run
-The job SHALL clear `implement.trace` when a run starts, and SHALL write it with each record of a passed group, with a stop and with the ready mark. The value SHALL be JSON with the events and the count `dropped`. When the value is longer than `CONST_ROADMAP_IMPLEMENT_TRACE_CHARS` characters, the job SHALL drop the oldest `model` events first, then the oldest other events, and count them in `dropped`.
+The job SHALL clear `implement.trace` when a run starts, and SHALL write it with each record of a passed group, with a stop and with the ready mark. The value SHALL be JSON with the events and the count `dropped`. When the value is longer than `CONST_ROADMAP_IMPLEMENT_TRACE_CHARS` characters, the job SHALL drop the oldest `model` events first, then the oldest other events, count them in `dropped`, and keep the sums of their tokens, seconds, repair rounds and outcomes.
 
 #### Scenario: A trace that is too long
 - **WHEN** a run makes more events than fit in `CONST_ROADMAP_IMPLEMENT_TRACE_CHARS` characters
@@ -958,6 +958,10 @@ The job SHALL clear `implement.trace` when a run starts, and SHALL write it with
 #### Scenario: A Job that ends after a group
 - **WHEN** the Service ends a Job after the record of group 1 and before the stop
 - **THEN** the record holds the events of group 1
+
+#### Scenario: The sums of dropped events
+- **WHEN** the bound drops model events of 2,030,000 tokens and 400 seconds in all, and no attempt event
+- **THEN** the value holds `dropped_tokens` 2030000 and `dropped_seconds` 400.0 and no dropped attempt sum, and a value that is decoded and written again holds the same sums
 
 ### Requirement: The stop comment shows a table of the steps
 The stop comment SHALL hold the table of the comment on the pull request, after the lines of the failure class and before the reason. The row of the step that stopped SHALL be in it. The last failing command SHALL be the command of the last `check` event with an exit status other than 0, or the name of the check of the pull request that failed.

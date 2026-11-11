@@ -16,8 +16,12 @@ The command SHALL report the token total, the seconds total, the repair-round co
 - **THEN** the trace decodes with no error, and the totals are the sums of the kept events
 
 ### Requirement: Dropped events beside the totals
-The command SHALL state the number of events that the trace bound dropped, beside the totals, and SHALL say that the totals include them.
+The command SHALL state the number of events that the trace bound dropped, beside the totals. When the trace holds a sum of its dropped events, the line SHALL say that the totals include them. Otherwise the line SHALL say that the totals leave them out.
 
 #### Scenario: Trace with dropped events
-- **WHEN** the trace of the fixture item reports 12 dropped events
+- **WHEN** the trace of the fixture item reports 12 dropped events and a dropped sum
 - **THEN** the output names 12 dropped events and says that the totals include them
+
+#### Scenario: Trace with dropped events and no dropped sum
+- **WHEN** the trace of the fixture item reports 12 dropped events and no dropped sum, as a trace from before the sums
+- **THEN** the output names 12 dropped events and says that the totals leave them out
