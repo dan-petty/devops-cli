@@ -67,6 +67,8 @@ def test_application_projects_and_destinations() -> None:
         "traefik",
         "cloudnative-pg",
         "mattermost-operator",
+        "cert-manager",
+        "plugin-barman-cloud",
     }
 
     for name, app in apps.items():
@@ -181,7 +183,8 @@ def test_git_sources_and_revisions() -> None:
 def _assert_helm_app_matches_release(
     app: dict[str, Any], release: dict[str, str], name: str
 ) -> None:
-    semver_re = re.compile(r"^\d+\.\d+\.\d+$")
+    # cert-manager publishes its chart versions with a leading `v` (v1.21.3).
+    semver_re = re.compile(r"^v?\d+\.\d+\.\d+$")
     sources = app.get("spec", {}).get("sources", [])
     helm_sources = [s for s in sources if "chart" in s]
     assert len(helm_sources) == 1, f"{name} expected 1 Helm source"
@@ -744,6 +747,89 @@ def test_the_template_application_syncs_after_the_chart_that_brings_its_crds() -
     assert waves["argo-workflows"] < waves["argo-workflows-manifests"]
 
 
+def test_every_application_source_is_a_repository_its_project_allows() -> None:
+    """Argo CD refuses a source whose repository is not in the `sourceRepos` of the project."""
+    projects = {
+        doc["metadata"]["name"]: doc["spec"]["sourceRepos"]
+        for doc in _load_yaml_all(APPS_DIR / "projects.yaml")
+        if doc.get("kind") == "AppProject"
+    }
+    refused = [
+        (name, source["repoURL"])
+        for name, application in _all_applications().items()
+        if application["spec"]["project"] != "default"
+        for source in [
+            *application["spec"].get("sources", []),
+            *([application["spec"]["source"]] if "source" in application["spec"] else []),
+        ]
+        if source["repoURL"] not in projects[application["spec"]["project"]]
+    ]
+
+    assert refused == []
+
+
+def test_deploy_stack_installs_the_barman_cloud_plugin_after_the_operator_and_cert_manager() -> (
+    None
+):
+    """The plugin chart renders a cert-manager Issuer and Certificates, and the plugin must run in
+    the namespace of the CloudNativePG operator. So stack `infra` installs it after both, in
+    `cnpg-system`, and no other stack lists the three releases (#4764)."""
+    releases = {
+        stack: [release["name"] for release in stack_releases]
+        for stack, stack_releases in HELM_RELEASES_BY_STACK.items()
+    }
+    namespaces = {
+        release["name"]: release["namespace"]
+        for stack_releases in HELM_RELEASES_BY_STACK.values()
+        for release in stack_releases
+    }
+    infra = releases["infra"]
+    elsewhere = {name for stack, names in releases.items() if stack != "infra" for name in names}
+
+    assert (
+        infra.index("cloudnative-pg") < infra.index("plugin-barman-cloud"),
+        infra.index("cert-manager") < infra.index("plugin-barman-cloud"),
+        namespaces["cert-manager"],
+        namespaces["plugin-barman-cloud"] == namespaces["cloudnative-pg"],
+        elsewhere & {"cloudnative-pg", "cert-manager", "plugin-barman-cloud"},
+    ) == (True, True, "cert-manager", True, set())
+
+
+def test_argo_cd_syncs_the_barman_cloud_plugin_after_cert_manager() -> None:
+    """The app-of-apps applies the plugin in a later sync wave than cert-manager, and the plugin
+    skips the dry run, which fails before the cert-manager CRDs exist (#4764)."""
+    applications = _all_applications()
+    waves = {
+        name: int(
+            applications[name]["metadata"]
+            .get("annotations", {})
+            .get("argocd.argoproj.io/sync-wave", "0")
+        )
+        for name in ("cert-manager", "plugin-barman-cloud")
+    }
+
+    assert (
+        waves["cert-manager"] < waves["plugin-barman-cloud"],
+        applications["plugin-barman-cloud"]["spec"]["syncPolicy"]["syncOptions"],
+        applications["cert-manager"]["spec"]["syncPolicy"]["syncOptions"],
+    ) == (
+        True,
+        ["SkipDryRunOnMissingResource=true", "ServerSideApply=true"],
+        ["ServerSideApply=true"],
+    )
+
+
+def test_cert_manager_keeps_its_crds_and_its_leader_election_in_its_namespace() -> None:
+    """The chart installs the CRDs and keeps them when the release goes. The leader election
+    lease stays in namespace cert-manager, so the chart writes no Role in kube-system (#4764)."""
+    values = _load_yaml(K8S_DIR / "cert-manager" / "values.yaml")
+
+    assert (values["crds"], values["global"]["leaderElection"]["namespace"]) == (
+        {"enabled": True, "keep": True},
+        "cert-manager",
+    )
+
+
 def test_the_push_is_the_one_owner_of_the_notifications_secret() -> None:
     """`devops k8s push-secrets` writes `argocd/argocd-notifications-secret` (#2000). The chart
     creates no Secret of that name, also once notifications are turned on, and Argo CD ignores the
@@ -809,14 +895,14 @@ def test_homelab_project_destinations() -> None:
 
 
 def test_mattermost_namespaces_in_namespaces_yaml() -> None:
-    """k8s/namespaces.yaml declares mattermost, cnpg-system, and mattermost-operator with restricted Pod Security."""
+    """k8s/namespaces.yaml declares mattermost, cnpg-system, mattermost-operator and cert-manager with restricted Pod Security."""
     docs = [
         d
         for d in yaml.safe_load_all((K8S_DIR / "namespaces.yaml").read_text(encoding="utf-8"))
         if d
     ]
     by_name = {d["metadata"]["name"]: d for d in docs if d.get("kind") == "Namespace"}
-    for ns_name in ("mattermost", "cnpg-system", "mattermost-operator"):
+    for ns_name in ("mattermost", "cnpg-system", "mattermost-operator", "cert-manager"):
         assert ns_name in by_name, f"Missing namespace {ns_name} in k8s/namespaces.yaml"
         labels = by_name[ns_name]["metadata"].get("labels", {})
         assert labels.get("pod-security.kubernetes.io/enforce") == "restricted"

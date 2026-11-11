@@ -1,0 +1,51 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: cert-manager-default-perimeter
+  namespace: cert-manager
+  labels:
+    app.kubernetes.io/part-of: devops-cli-stack
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # 1. Alloy scrapes the controller, the webhook and the cainjector on 9402: their pods carry
+    #    the `prometheus.io/*` keys (k8s/monitoring/k8s-monitoring-values.yaml).
+    #    networkpolicy-webhook.yaml admits the API server to the webhook.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 9402
+  egress:
+    # 1. CoreDNS
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # 2. The Kubernetes API server, the only peer of the controller, the cainjector and the
+    #    start-up check. Its address is a node address, which no pod selector names, so the rule
+    #    has the form of the Argo CD perimeter and excludes the metadata address. The issuers are
+    #    self-signed, so no pod calls an ACME server.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 169.254.169.254/32
+      ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 6443

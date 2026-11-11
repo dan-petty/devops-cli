@@ -328,6 +328,38 @@ _CHART_TOKENS: dict[
     ("argocd-image-updater", "1.3.1"): (
         TokenSite("controller", _when(), "ClusterRole argocd-image-updater"),
     ),
+    # Each pod takes the token value of its ServiceAccount: the values leave the pod field unset.
+    # The start-up check Job is a post-install hook, which Argo CD runs.
+    ("cert-manager", "v1.21.3"): (
+        TokenSite(
+            "controller",
+            _token("serviceAccount.automountServiceAccountToken", True),
+            "ClusterRole cert-manager-controller-certificates",
+        ),
+        TokenSite(
+            "webhook",
+            _token("webhook.serviceAccount.automountServiceAccountToken", True),
+            "ClusterRole cert-manager-webhook:subjectaccessreviews",
+        ),
+        TokenSite(
+            "cainjector",
+            _token(
+                "cainjector.serviceAccount.automountServiceAccountToken",
+                True,
+                ("cainjector.enabled", True),
+            ),
+            "ClusterRole cert-manager-cainjector",
+        ),
+        TokenSite(
+            "startupapicheck",
+            _token(
+                "startupapicheck.serviceAccount.automountServiceAccountToken",
+                True,
+                ("startupapicheck.enabled", True),
+            ),
+            "Role cert-manager-startupapicheck:create-cert",
+        ),
+    ),
     ("cloudnative-pg", "0.29.1"): (
         TokenSite("cloudnative-pg", _when(), "ClusterRole cnpg-cloudnative-pg"),
     ),
@@ -382,6 +414,11 @@ _CHART_TOKENS: dict[
     ),
     ("opentelemetry-collector", "0.175.0"): (
         TokenSite("collector", _token("serviceAccount.automountServiceAccountToken", True)),
+    ),
+    # Chart 0.8.1 has no token value. The plugin watches ObjectStores and writes the Role of each
+    # database through the API.
+    ("plugin-barman-cloud", "0.8.1"): (
+        TokenSite("plugin-barman-cloud", _when(), "ClusterRole plugin-barman-cloud"),
     ),
     ("prometheus-operator-crds", "32.0.1"): (),
     ("prometheus", "29.35.0"): (
