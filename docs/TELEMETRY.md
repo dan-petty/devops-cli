@@ -165,6 +165,7 @@ the job row of the Service whose work sent the model request, as on
 `devops_cli_github_requests_total`. In the Service, the rows intake, refine, retitle,
 stage and alternatives send model requests. The runner Job of an item sends
 implement. A request outside a row, such as one of a command line, sends other.
+The scoped update of an `issues` webhook delivery sends intake, the row of its job.
 A reply that names its model adds 1 to the answer count, one time: an agent that
 `build_agent` makes, such as the run of a stage, refine or alternatives row, counts
 each request, and an implement step counts the replies of its run. A chat call of
