@@ -22,5 +22,5 @@ Kind: behavior. Changes: `tests/invariants/test_hermetic_floor.py`, `tests/suppo
 
 Kind: documents. Changes: `docs/TESTING.md`.
 
-- [ ] 3.1 Name the home write guard and the rule for a support helper in the hermetic floor of `docs/TESTING.md`.
+- [x] 3.1 Name the home write guard and the rule for a support helper in the hermetic floor of `docs/TESTING.md`.
   - Verification: `$ uv run devops ci docs`
