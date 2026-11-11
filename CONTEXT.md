@@ -146,6 +146,18 @@ _Avoid_: building, executing
 The pod of a cluster Job in which the implement job runs its steps. The Service creates the Job from CronJob `devops-cli-runner`, for one Staged or Planned item, and creates no second Job for a repository while one runs. The shell of a step checks only the first word of a command and is no security boundary, so the runner is the sandbox: the pod has no Kubernetes token, the installation token of the job names one repository, the step's shell gets none of the job's variables, and the job process is not dumpable. The setting `roadmap.implement.in_runner` says a process is one.
 _Avoid_: agent host, worker
 
+**Unit of work**:
+One pod that runs one roadmap job for one item, one issue or one batch of intake candidates (ADR 0021). Only the router and the sweep create a unit. The labels of its repository, its job and its item find it, so an item never gets a second unit. A unit judges its item again at its start, writes its marks and its failure entry, and writes no last success.
+_Avoid_: task, worker, job (a job is what the unit runs)
+
+**Sweep**:
+The reconcile round that a cluster schedule starts every 5 minutes, and that the router or a due mark starts sooner (ADR 0021). It runs the short rows of each repository, creates a unit of work for each long row that has work and no unit, and writes the last success of each job. Until #4574 merges, the poll of the Service does this work.
+_Avoid_: poll, tick, cron
+
+**Due mark**:
+A key in Valkey that makes a job of a repository due before its interval ends (ADR 0021). A unit of work that makes more work due sets it, as intake does for refine and refine does for stage. The router sets it for a sweep that exists, and during a hold. The next sweep reads it and creates the unit. A due mark has a TTL and is never the only copy of a decision.
+_Avoid_: trigger, chain, flag
+
 **Service**:
 The long-running devops-cli deployment that runs the roadmap jobs when they are due, as found by webhook or by polling.
 _Avoid_: runner, bot, daemon, worker
