@@ -96,3 +96,25 @@ def test_a_second_intake_run_over_settled_items_sends_no_embedding_request_with_
         sent.append(sum(1 for r in web.sent[before:] if r.url.path == "/v1/embeddings"))
 
     assert (sent, [d.outcome for d in plan.decisions]) == (embedding_requests, [Outcome.PLACE])
+
+
+@pytest.mark.usefixtures("keyring_store")
+def test_a_second_intake_run_reads_the_embeddings_from_the_data_directory(
+    roadmap: Roadmap, web: WebFake
+) -> None:
+    """Each run builds its own embedder, as each CLI run does. The configured Valkey refuses
+    each connection, as on a workstation, so only the disk cache under the data directory holds
+    the vectors of the first run (#4447)."""
+    web.serve(_embeddings_server)
+    roadmap.finished("Retry policy for the gateway")
+    roadmap.finished("Dashboard for the gateway")
+    roadmap.issue("feat: cache the embeddings")
+    ai = AIConfig(provider="gateway", gateway_url="https://example.com/v1")
+    sent: list[int] = []
+    for _run in range(2):
+        before = len(web.sent)
+        model = GatewayIntakeModel(ai, api_key="sk-test", client=_Proposer())
+        plan = plan_intake(roadmap.store, repo=REPO, model=model)
+        sent.append(sum(1 for r in web.sent[before:] if r.url.path == "/v1/embeddings"))
+
+    assert (sent, [d.outcome for d in plan.decisions]) == ([1, 0], [Outcome.PLACE])

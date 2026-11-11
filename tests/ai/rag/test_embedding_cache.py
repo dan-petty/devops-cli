@@ -60,6 +60,19 @@ def test_the_memory_cache_drops_the_text_used_least_recently(web: WebFake) -> No
     assert [inputs(request) for request in sent] == [["a"], ["b"], ["c"], ["b"]]
 
 
+def test_the_memory_cache_holds_one_intake_comparison_set(web: WebFake) -> None:
+    """An intake run embeds about 1,800 texts; a second call in the same process sends none."""
+    sent = serve(web, gateway_reply)
+    engine = gateway_engine()
+    texts = [f"item {number}" for number in range(1800)]
+    engine.embed_texts(texts)
+    first_run = len(sent)
+
+    engine.embed_texts(texts)
+
+    assert len(sent) == first_run
+
+
 def test_a_second_engine_reads_vectors_from_valkey_and_sends_nothing(
     valkey_client: ValkeyClient, web: WebFake
 ) -> None:

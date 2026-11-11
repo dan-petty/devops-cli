@@ -29,6 +29,8 @@ A label that a person set stays. Intake sets no milestone, because a person plan
 
 The model compares each candidate with the items and with the issues that a person closed as not planned. It does not compare a candidate with an issue that has sub-issues, because the sub-issues deliver that issue.
 
+To find the nearest items, intake embeds each item and each candidate. The embedder looks for each vector in the memory of the process, then in Valkey, then in the file `ai/embeddings.db` under the data directory. Only the texts that no cache holds go to the embedding model. The file keeps the vectors between two runs, so a run sends only the texts that changed since an earlier run. Its key is the provider, the model name that the request sends and the SHA-256 of the text, so a changed text, another model or another provider is a miss. A stored vector with a length that differs from the length of the model is a miss too. The file is a cache only: you can delete it at any time. A run removes each vector that no run used for 30 days.
+
 The model can name a possible duplicate. Intake then places the candidate as usual, and the report and the reason comment name the possible original for a person to close. Intake never closes an issue and never drops a candidate. This holds for a new candidate too: intake files it even when it is a possible duplicate.
 
 A run can stop after it filed a new candidate. The next run finds the open issue that has the same title and body, and places that issue. It files no second issue.
@@ -111,5 +113,6 @@ The Service keeps the failure in its intake record, beside `schedule.json`, and 
 | Type and scope labels from the title | [roadmap-intake-title-labels](../../openspec/specs/roadmap-intake-title-labels/spec.md) |
 | The reply of the model | [roadmap-intake-reply-schema](../../openspec/specs/roadmap-intake-reply-schema/spec.md) |
 | Intake of one issue on an `issues` event of GitHub | [roadmap-scoped-updates](../../openspec/specs/roadmap-scoped-updates/spec.md) |
+| The disk cache of the embeddings | [embedding-disk-cache](../../openspec/specs/embedding-disk-cache/spec.md) |
 | Jev for the proposal fields, and the comparison with the `triage` model | [roadmap-intake-jev](../../openspec/specs/roadmap-intake-jev/spec.md) |
 | The evaluation of the duplicate verdict | `devops roadmap eval intake`, in [roadmap-intake-duplicates](../../openspec/specs/roadmap-intake-duplicates/spec.md) |

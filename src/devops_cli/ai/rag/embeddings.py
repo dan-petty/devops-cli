@@ -15,7 +15,7 @@ from concurrent.futures import as_completed
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from functools import partial
-from typing import Any, Literal, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
 
 import httpx2
 from cachetools import LRUCache
@@ -87,6 +87,9 @@ from devops_cli.telemetry.instruments import (
     emit,
 )
 from devops_cli.valkey.cache import ValkeyCacheTier, shared_cache_tier
+
+if TYPE_CHECKING:
+    from devops_cli.ai.rag.embedding_disk_cache import EmbeddingDiskCache
 
 logger = logging.getLogger(__name__)
 # Retry jitter, drawn from the operating system's source: it guards nothing, and no seed is shared
@@ -396,11 +399,12 @@ def _count_batch_resize(batch_size: int, action: str) -> None:
     emit(RAG_EMBEDDING_BATCH_RESIZES_TOTAL, 1.0, {"action": action})
 
 
-def _count_cache_lookups(*, memory: int, valkey: int, misses: int) -> None:
+def _count_cache_lookups(*, memory: int, valkey: int, disk: int, misses: int) -> None:
     """Add each lookup result that has texts to the embedding cache lookup counter."""
     for count, attributes in (
         (memory, {"result": "hit", "tier": "memory"}),
         (valkey, {"result": "hit", "tier": "valkey"}),
+        (disk, {"result": "hit", "tier": "disk"}),
         (misses, {"result": "miss"}),
     ):
         if count:
@@ -457,6 +461,7 @@ class EmbeddingsEngine:
         cache_size: int = DEFAULT_RAG_EMBEDDING_CACHE_SIZE,
         valkey_client: Any = _DEFAULT_VALKEY,
         batch_size: int = DEFAULT_RAG_EMBEDDING_BATCH_SIZE,
+        disk_cache: EmbeddingDiskCache | None = None,
     ) -> None:
         if ai_config is None:
             try:
@@ -494,6 +499,8 @@ class EmbeddingsEngine:
         self._dimension: int | None = None
         self._cache = _EmbeddingLRUCache(maxsize=cache_size)
         self._l2 = self._init_cache_tier(valkey_client)
+        # The disk tier, after Valkey: only a caller that keeps vectors between runs gives one.
+        self._disk = disk_cache
         self._configured_batch_size = max(DEFAULT_RAG_EMBEDDING_MIN_BATCH_SIZE, batch_size)
         self._current_batch_size = self._configured_batch_size
         self._consecutive_successes: int = 0
@@ -663,10 +670,10 @@ class EmbeddingsEngine:
             key = self._valkey_key(text, model, is_query=is_query)
             self._l2.set(key, json.dumps(vector), ex=DEFAULT_VALKEY_EMBEDDING_TTL_SECONDS)
 
-    def _partition_with_valkey_l2(
+    def _partition_with_cache_tiers(
         self, texts: list[str], *, is_query: bool = False
     ) -> tuple[dict[int, list[float]], list[int], list[str]]:
-        """Partition texts through L1 in-memory cache and L2 Valkey chunk cache.
+        """Partition texts through the memory cache, then Valkey, then the disk cache.
 
         Each text counts once on `devops_cli_embedding_cache_lookups_total`: as a hit of the tier
         that held it, or as a miss.
@@ -685,10 +692,45 @@ class EmbeddingsEngine:
                     miss_indices.append(idx)
                     miss_texts.append(text)
 
+        valkey_hits = len(cached) - memory_hits
+        if miss_texts and self._disk is not None:
+            miss_indices, miss_texts = self._read_disk_tier(
+                self._disk, cached, miss_indices, miss_texts, is_query=is_query
+            )
+
         _count_cache_lookups(
-            memory=memory_hits, valkey=len(cached) - memory_hits, misses=len(miss_texts)
+            memory=memory_hits,
+            valkey=valkey_hits,
+            disk=len(cached) - memory_hits - valkey_hits,
+            misses=len(miss_texts),
         )
         return cached, miss_indices, miss_texts
+
+    def _read_disk_tier(
+        self,
+        disk: EmbeddingDiskCache,
+        cached: dict[int, list[float]],
+        miss_indices: list[int],
+        miss_texts: list[str],
+        *,
+        is_query: bool = False,
+    ) -> tuple[list[int], list[str]]:
+        """Put each vector that the disk cache holds in `cached`, the memory cache and Valkey.
+
+        Returns the indices and the texts that the disk cache does not hold.
+        """
+        found = disk.get_many(self._disk_cache_model(), miss_texts)
+        still_indices: list[int] = []
+        still_texts: list[str] = []
+        for idx, text, vector in zip(miss_indices, miss_texts, found, strict=True):
+            if vector is None:
+                still_indices.append(idx)
+                still_texts.append(text)
+                continue
+            cached[idx] = vector
+            self._cache.put(text, self.model, vector, is_query=is_query)
+            self._set_valkey_embedding(text, self.model, vector, is_query=is_query)
+        return still_indices, still_texts
 
     @property
     def dimension(self) -> int:
@@ -913,7 +955,7 @@ class EmbeddingsEngine:
             },
         ):
             prefixed_texts = self._apply_model_prefix(texts, is_query=is_query)
-            cached, miss_indices, miss_texts = self._partition_with_valkey_l2(
+            cached, miss_indices, miss_texts = self._partition_with_cache_tiers(
                 prefixed_texts, is_query=is_query
             )
             emit(EMBEDDING_CACHE_SIZE, self._cache.size)
@@ -940,11 +982,25 @@ class EmbeddingsEngine:
         *,
         is_query: bool = False,
     ) -> None:
-        """Store fresh embeddings into in-memory L1 and Valkey L2."""
+        """Store fresh embeddings in the memory cache, Valkey and the disk cache."""
         for miss_idx, sent_text, vector in zip(miss_indices, miss_texts, fresh, strict=True):
             self._cache.put(sent_text, self.model, vector, is_query=is_query)
             self._set_valkey_embedding(sent_text, self.model, vector, is_query=is_query)
             cached[miss_idx] = vector
+        if self._disk is not None:
+            self._disk.put_many(self._disk_cache_model(), list(zip(miss_texts, fresh, strict=True)))
+
+    def _disk_cache_model(self) -> str:
+        """The model key of the disk cache: the provider and the model name that the request sends.
+
+        A direct OpenAI request sends another name than the gateway for the same configured model,
+        so the vectors of the one are no hit for the other (#4546).
+        """
+        provider = self.ai_config.provider.lower()
+        is_gateway = self._is_gateway_provider()
+        if is_gateway or provider in ("openai", "copilot"):
+            return f"{provider}/{self._openai_request_model(is_gateway)}"
+        return f"{provider}/{self.model}"
 
     def embed_query(self, text: str) -> list[float]:
         """Generate vector embedding for a single search query with LRU cache acceleration."""
@@ -1095,10 +1151,14 @@ class EmbeddingsEngine:
         endpoint = (
             f"{base_url}/embeddings" if base_url.endswith("/v1") else f"{base_url}/v1/embeddings"
         )
-        model = self.model
+        return endpoint, self._openai_request_model(is_gateway)
+
+    def _openai_request_model(self, is_gateway: bool) -> str:
+        """The model name that an OpenAI-compatible request sends for the configured model."""
+        model = str(self.model)
         if not is_gateway and model in ("all-minilm", "qwen3-embedding:0.6b"):
-            model = "text-embedding-3-small"
-        return endpoint, model
+            return "text-embedding-3-small"
+        return model
 
     def _post_openai_batch_with_retry(
         self, endpoint: str, headers: dict[str, str], model: str, batch: list[str]

@@ -22,7 +22,7 @@ devops-cli SHALL send each OTLP metric through `emit()` with an instrument that 
 - **THEN** the instrument check names that call
 
 ### Requirement: Embedding cache lookups count each text once
-`devops_cli_embedding_cache_lookups_total` SHALL count each text that an embedding request looks up, one time, by `result`: `hit` or `miss`. A hit SHALL also carry `tier`: `memory` for the in-process cache, or `valkey` for the Valkey cache. A request SHALL add a value only for a result that has texts. No other metric SHALL count embedding cache hits or misses.
+`devops_cli_embedding_cache_lookups_total` SHALL count each text that an embedding request looks up, one time, by `result`: `hit` or `miss`. A hit SHALL also carry `tier`: `memory` for the in-process cache, `valkey` for the Valkey cache, or `disk` for the disk cache. A request SHALL add a value only for a result that has texts. No other metric SHALL count embedding cache hits or misses.
 
 #### Scenario: Three hits and two misses
 - **WHEN** an embedding request gets five texts, three of which the in-process cache holds
@@ -31,6 +31,10 @@ devops-cli SHALL send each OTLP metric through `emit()` with an instrument that 
 #### Scenario: A hit from Valkey
 - **WHEN** an embedding request gets one text that only the Valkey cache holds
 - **THEN** `devops_cli_embedding_cache_lookups_total` gets the one point `{result="hit", tier="valkey"}` 1
+
+#### Scenario: A hit from the disk cache
+- **WHEN** an embedding request gets two texts, one of which only the disk cache holds
+- **THEN** `devops_cli_embedding_cache_lookups_total` gets the points `{result="hit", tier="disk"}` 1 and `{result="miss"}` 1, one time each
 
 ### Requirement: The devops-cli dashboard shows the embedding cache hit share
 The devops-cli dashboard SHALL have the panel "Embedding Cache Hit Share", which divides the embedding cache hits of the last hour by the lookups of the last hour, and shows 0 for an hour with lookups and no hits.
