@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.114.1](https://github.com/dan-petty/devops-cli/compare/v0.114.0...v0.114.1) (2026-11-11)
+
+
+### Performance Improvements
+
+* **tests:** parse the source trees once per worker ([#4850](https://github.com/dan-petty/devops-cli/issues/4850)) ([7a163a7](https://github.com/dan-petty/devops-cli/commit/7a163a727045da73e4f5356fbf60c7c2d91f7895))
+
+
+### Code Refactoring
+
+* **roadmap:** the package declares the workflow labels ([#4818](https://github.com/dan-petty/devops-cli/issues/4818)) ([89926ff](https://github.com/dan-petty/devops-cli/commit/89926ffb5c498e1142b84bceb3458bd911bd10cd))
+
 ## [0.114.0](https://github.com/dan-petty/devops-cli/compare/v0.113.0...v0.114.0) (2026-11-11)
 
 
