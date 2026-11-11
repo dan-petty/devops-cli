@@ -71,8 +71,6 @@ DECISION_PREFIX: Final[str] = "decision "
 OUTCOME_PREFIX: Final[str] = "decision outcome "
 _NAME: Final[re.Pattern[str]] = re.compile(r"[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*")
 _ERROR_CHARS: Final[int] = 300
-# The folder that a path of the package is shown from in an error: `src` of the checkout.
-_SHOWN_FROM: Final[Path] = Path(__file__).resolve().parents[2]
 
 
 class Mode(StrEnum):
@@ -92,11 +90,6 @@ class Resolver(StrEnum):
 
 
 type Rule = Callable[[Mapping[str, Any]], Band | None]
-
-
-def _shown(path: Path) -> str:
-    """`path` from the `src` folder of the checkout, or whole when it is not under it."""
-    return str(path.relative_to(_SHOWN_FROM)) if path.is_relative_to(_SHOWN_FROM) else str(path)
 
 
 @dataclass(frozen=True)
@@ -132,11 +125,6 @@ class DecisionPoint[T]:
             *((Resolver.RULE,) if self.rule else ()),
             *((Resolver.MODEL,) if self.asks_model else ()),
         )
-
-    @property
-    def fitted(self) -> bool:
-        """Whether the cuts file of the point is in the repository."""
-        return self.cuts.is_file()
 
     def series(self) -> frozenset[tuple[str, str, str, str]]:
         """The label sets (point, resolver, band, mode) that the point can count: each band for
@@ -442,25 +430,6 @@ class Registry:
     def point(self, name: str) -> DecisionPoint[Any]:
         """The point of `name`."""
         return self._points[name]
-
-    def check(self, modes: Mapping[str, str]) -> None:
-        """Refuse a key of `modes` that names no point, and the mode `on` for a point whose cuts
-        file is not in the repository. The error names the key or the point and the file."""
-        unknown = sorted(set(modes) - set(self._points))
-        if unknown:
-            raise ValueError(
-                MESSAGES.roadmap.decision_point_unknown.format(
-                    names=", ".join(unknown), points=", ".join(self.names)
-                )
-            )
-        for name, mode in modes.items():
-            point = self._points[name]
-            if Mode(mode) is Mode.ON and not point.fitted:
-                raise ValueError(
-                    MESSAGES.roadmap.decision_point_unfitted.format(
-                        point=name, path=_shown(point.cuts)
-                    )
-                )
 
 
 __all__ = [

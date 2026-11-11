@@ -115,7 +115,7 @@ def test_a_mode_that_is_not_off_shadow_or_on_is_refused() -> None:
 def test_the_registry_holds_each_point_with_its_fitted_cuts() -> None:
     for name in REGISTRY.names:
         point = REGISTRY.point(name)
-        assert point.fitted
+        assert point.cuts.is_file()
         assert point.thresholds().step == name
     assert REGISTRY.names == ("stage.verify_screen",)
     assert REGISTRY.series_count == 8

@@ -1412,11 +1412,12 @@ class RoadmapConfig(BaseModel):
     @classmethod
     def _check_decisions(cls, value: dict[str, DecisionMode]) -> dict[str, DecisionMode]:
         """Refuse a key that names no registered decision point, and `on` for a point with no
-        fitted cuts. The registry imports the points, so it loads only when a key is set."""
+        fitted cuts. The light table of the points loads only when a key is set, and it imports no
+        point module and no pydantic_ai (#4501)."""
         if value:
-            from devops_cli.roadmap.decision_registry import REGISTRY
+            from devops_cli.roadmap.decision_table import check_modes
 
-            REGISTRY.check(value)
+            check_modes(value)
         return value
 
 

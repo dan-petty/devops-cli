@@ -178,7 +178,11 @@ def test_the_screen_is_the_registered_point_with_the_cuts_of_its_data_file() -> 
     screen = screen_of(settings)
 
     assert REGISTRY.point("stage.verify_screen") is VERIFY_SCREEN
-    assert (VERIFY_SCREEN.cuts, VERIFY_SCREEN.fitted, VERIFY_SCREEN.rule) == (CUTS_FILE, True, None)
+    assert (VERIFY_SCREEN.cuts, VERIFY_SCREEN.cuts.is_file(), VERIFY_SCREEN.rule) == (
+        CUTS_FILE,
+        True,
+        None,
+    )
     assert screen is not None
     assert (screen.point, screen.mode) == (VERIFY_SCREEN, Mode.SHADOW)
 

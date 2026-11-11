@@ -384,6 +384,34 @@ print("__R__" + json.dumps("pydantic_ai" in sys.modules))
         "__R__",
     ),
     ScriptProbe(
+        "a config file with roadmap.decisions loads no pydantic_ai (#4501)",
+        """
+import json
+import os
+import sys
+import tempfile
+from pathlib import Path
+
+with tempfile.TemporaryDirectory() as folder:
+    config = Path(folder) / "devops-cli.yaml"
+    config.write_text("roadmap:\\n  decisions:\\n    stage.verify_screen: shadow\\n")
+    os.environ["DEVOPS_CLI_CONFIG"] = str(config)
+    import devops_cli.entry
+
+    try:
+        devops_cli.entry.main(["config", "get", "ai.provider"])
+    except SystemExit:
+        pass
+    loaded = "pydantic_ai" in sys.modules
+    from devops_cli.config.settings import load_settings
+
+    print("__R__" + json.dumps([loaded, load_settings().roadmap.decisions]))
+""",
+        [False, {"stage.verify_screen": "shadow"}],
+        "__R__",
+        drop_env=("DEVOPS_CLI_ROADMAP_DECISIONS",),
+    ),
+    ScriptProbe(
         "exceptions.ai imports pydantic_ai on the first use of ModelRetry",
         """
 import json
