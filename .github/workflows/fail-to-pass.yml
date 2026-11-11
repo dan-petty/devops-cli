@@ -17,9 +17,11 @@ permissions:
   contents: read
 
 # The release pull request changes no file under src/, so the path filter never starts this
-# workflow for it.
+# workflow for it. An edit of the body alone changes neither the replay nor the job condition: its
+# run takes a group of its own, so it cannot cancel the replay of the head, and its job is skipped.
+# An edit of the title or the base runs the job again (#4651).
 concurrency:
-  group: fail-to-pass-${{ github.ref }}
+  group: fail-to-pass-${{ github.ref }}-${{ github.event.action == 'edited' && !github.event.changes.title && !github.event.changes.base && github.run_id || 'head' }}
   cancel-in-progress: true
 
 env:
@@ -29,8 +31,11 @@ env:
 jobs:
   fail-to-pass:
     name: Fail-to-Pass Check
-    # The titles that CONST_DEFECT_TITLE_PATTERN reads as a fix. startsWith ignores case.
-    if: ${{ startsWith(github.event.pull_request.title, 'fix(') || startsWith(github.event.pull_request.title, 'fix:') || startsWith(github.event.pull_request.title, 'fix!') }}
+    # No edit of the body alone, and a title that CONST_DEFECT_TITLE_PATTERN reads as a fix.
+    # startsWith ignores case.
+    if: >-
+      ${{ !(github.event.action == 'edited' && !github.event.changes.title && !github.event.changes.base)
+      && (startsWith(github.event.pull_request.title, 'fix(') || startsWith(github.event.pull_request.title, 'fix:') || startsWith(github.event.pull_request.title, 'fix!')) }}
     runs-on: ubuntu-26.04
     timeout-minutes: 20
 
