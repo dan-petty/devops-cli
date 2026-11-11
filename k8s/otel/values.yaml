@@ -70,6 +70,29 @@ config:
     deltatocumulative:
       max_stale: 1h
 
+    # Deletes gateway key data from each span before Tempo stores it (#4518). The LiteLLM `otel`
+    # callback writes each key of its request metadata as `metadata.<key>`, also with message
+    # logging off: the hash, alias, user and team of the API key, and the `x-` headers of the
+    # request (https://docs.litellm.ai/docs/observability/opentelemetry_integration). A refused
+    # key puts its SHA-256 hash in the error text of the span and of its exception event, so
+    # gateway spans and events lose each 64-digit hex value. The key rules apply to all services:
+    # no devops-cli span holds such an attribute. Span and span event statements are separate
+    # groups, because a group with both runs once per event and skips a span with no event.
+    # A failed statement drops the batch (propagate), so no span leaves with the data.
+    # Functions: delete_matching_keys and replace_all_patterns of OTTL (contrib v0.161.0).
+    transform/key_data:
+      error_mode: propagate
+      trace_statements:
+        - context: span
+          statements:
+            - delete_matching_keys(span.attributes, "^metadata[.](user_api_key_|requester_custom_headers)")
+            - delete_matching_keys(span.attributes, "(?i)(authorization|api[-_]?key)")
+            - replace_all_patterns(span.attributes, "value", "[0-9a-fA-F]{64}", "<redacted>") where resource.attributes["service.name"] == "llm-gateway"
+        - context: spanevent
+          statements:
+            - delete_matching_keys(spanevent.attributes, "(?i)(authorization|api[-_]?key)")
+            - replace_all_patterns(spanevent.attributes, "value", "[0-9a-fA-F]{64}", "<redacted>") where resource.attributes["service.name"] == "llm-gateway"
+
   exporters:
     # Send traces to Tempo in-cluster (local dev/homelab uses internal gRPC with insecure: true;
     # for production clusters, enable TLS certificates via cert-manager and set insecure: false).
@@ -102,7 +125,7 @@ config:
     pipelines:
       traces:
         receivers: [otlp]
-        processors: [memory_limiter, batch]
+        processors: [memory_limiter, transform/key_data, batch]
         exporters: [otlp_grpc/tempo]
 
       metrics:
@@ -115,7 +138,7 @@ config:
         processors: [memory_limiter, batch]
         exporters: [otlp_http/loki]
 
-# ClusterIP: In-cluster workloads export to otel-collector.otel.svc.cluster.local.
+# ClusterIP: In-cluster workloads export to otel-collector-opentelemetry-collector.otel.svc.cluster.local.
 # Workstation export uses `devops k8s port-forward` or ingress routing.
 service:
   type: ClusterIP

@@ -202,7 +202,16 @@ model_list:
 litellm_settings:
   # Per-deployment requests, failures and latency at /metrics/, scraped by Prometheus. The
   # Ollama nodes export no metrics of their own, so this is how their load is seen.
-  callbacks: ["prometheus"]
+  # `otel` sends a span for each request, with its queue, retry and fallback time, to the
+  # OpenTelemetry Collector that the OTEL_* variables of the Deployment name (#4518). A request
+  # with a `traceparent` header gets its span as a child of the caller's span. LiteLLM writes the
+  # key hash, the key alias and the request headers on each span, and the Collector deletes them
+  # before Tempo (k8s/otel/values.yaml).
+  callbacks: ["prometheus", "otel"]
+  # Keep the prompt and the reply off every span: this forces the `NO_CONTENT` capture mode of
+  # the `otel` callback, over any other content setting
+  # (https://docs.litellm.ai/docs/observability/opentelemetry_integration).
+  turn_off_message_logging: true
   require_auth_for_metrics_endpoint: false
   # Write the end-user id that a request names as the `end_user` label of the request and token
   # series. Every caller sends the master key, so this label is how the AI spend dashboard tells

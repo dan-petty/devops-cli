@@ -96,6 +96,15 @@ spec:
               value: "True"
             - name: LITELLM_TELEMETRY
               value: "False"
+            # The `otel` callback (config.yaml) sends its spans over OTLP/HTTP to the Service of
+            # the in-cluster Collector, which deletes the key data on them before Tempo (#4518).
+            # LiteLLM metrics and events stay off: they are not set here.
+            - name: OTEL_EXPORTER_OTLP_PROTOCOL
+              value: http/protobuf
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: http://otel-collector-opentelemetry-collector.otel.svc.cluster.local:4318
+            - name: OTEL_SERVICE_NAME
+              value: llm-gateway
           ports:
             - name: http
               containerPort: 4000
