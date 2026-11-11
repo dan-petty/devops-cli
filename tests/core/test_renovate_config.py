@@ -64,11 +64,9 @@ def test_kubernetes_updates_carry_the_infra_label_and_the_chore_prefix() -> None
     )
 
 
-def test_a_searxng_bump_tells_the_person_to_check_the_tag_age_and_refresh_the_engine_names() -> (
-    None
-):
-    """The file sets no minimum release age, and SearXNG publishes many tags a day, so the text of
-    the pull request carries the check (#3924)."""
+def test_a_searxng_bump_tells_the_person_to_refresh_the_engine_names_and_names_no_tag_age() -> None:
+    """The tests hold the engine names of the pinned image, so the text of the pull request carries
+    the refresh (#3924). The project sets no minimum release age, so the text names none (#4810)."""
     (rule,) = [
         r
         for r in _renovate()["packageRules"]
@@ -78,9 +76,20 @@ def test_a_searxng_bump_tells_the_person_to_check_the_tag_age_and_refresh_the_en
 
     assert (
         "docker.io/searxng/searxng" in rule["matchPackageNames"],
-        "at least 14 days old" in note,
+        "days old" in note,
         "tests/fixtures/searxng/default_engine_names.txt" in note,
-    ) == (True, True, True)
+    ) == (True, False, True)
+
+
+def test_renovate_sets_no_minimum_release_age() -> None:
+    """A release with a security or bug fix gets its pull request on the day it is published
+    (CONTRIBUTING.md, Dependency Versions). `config:best-practices` adds an age to npm (#4810)."""
+    renovate = _renovate()
+
+    assert (
+        "minimumReleaseAge" in json.dumps(renovate),
+        "config:best-practices" in renovate["extends"],
+    ) == (False, False)
 
 
 def _applications_that_pin_a_chart() -> list[str]:
