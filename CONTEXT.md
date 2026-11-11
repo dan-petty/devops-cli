@@ -158,6 +158,10 @@ _Avoid_: poll, tick, cron
 A key in Valkey that makes a job of a repository due before its interval ends (ADR 0021). A unit of work that makes more work due sets it, as intake does for refine and refine does for stage. The router sets it for a sweep that exists, and during a hold. The next sweep reads it and creates the unit. A due mark has a TTL and is never the only copy of a decision.
 _Avoid_: trigger, chain, flag
 
+**Project brain**:
+The index of what the alternatives checks found, with the caches of the GitHub answers and the tool facts that they read (ADR 0023). The check of one item reads a digest of it before its model call. Two scheduled runs, `brain-daily` and `brain-weekly`, keep it. Valkey holds it. Each entry has a durable copy on GitHub: the block of its item, or a hidden block on the tracker issue of its repository.
+_Avoid_: memory, knowledge base (the knowledge base is the reference corpus of the AI commands)
+
 **Service**:
 The long-running devops-cli deployment that runs the roadmap jobs when they are due, as found by webhook or by polling.
 _Avoid_: runner, bot, daemon, worker

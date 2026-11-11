@@ -1,5 +1,7 @@
 # One repository reference names the objects, labels and keys of each repository
 
+Amended on 2026-11-11 by [ADR 0023](0023-the-project-brain-is-a-derived-index-in-two-cache-tiers-and-two-scheduled-runs-keep-it.md). Section 2 gets the row `brain`.
+
 The roadmap Service works on 7 repositories of 1 owner. The move of its work to Kubernetes Jobs, Argo Workflows and Valkey (#4517) adds Jobs, Workflows, locks, Valkey keys, labels and telemetry values for each repository. This record gives one rule for each name, label, annotation, key and telemetry value that holds a repository. One value type, `RepoRef` in `src/devops_cli/github/repo_ref.py`, builds them.
 
 ## Status
@@ -53,7 +55,7 @@ The names must obey these limits:
 - **Slug.** Casefold. Change each run of characters outside `[a-z0-9]` to `-`. Remove `-` from both ends. Cut to the budget, then remove `-` from the end. If nothing is left, use `x`.
 - **Unit name** (the one Job or Workflow of a row for one item, issue or batch): `devops-cli-<row>-<slug(name)>[-<n>]-<h10(key, n, input key)>`, 63 characters or fewer. The same inputs give the same name, so a second create gets 409, and this covers a create that timed out but succeeded. The labels, not the name, find the unit of an item.
 - **Ad hoc name**: `devops-cli-<what>-<slug(name)>[-<n>]-<6 random hex>`. Only a Job of `devops k8s run-job` and the runner Job use it, until the implement Workflow (#3105) replaces the runner Job.
-- The rows are `implement`, `stage`, `refine`, `alternatives`, `intake`, `sweep` and `metrics`. A unit with no item has no `-<n>`.
+- The rows are `implement`, `stage`, `refine`, `alternatives`, `intake`, `sweep`, `metrics` and `brain` (ADR 0023). A unit with no item has no `-<n>`.
 - The prefix `devops-cli-` keeps each name in the Argo CD orphan glob `devops-cli-*`. The slug is cut, and the hash keeps the identity. With the longest row, `alternatives`, and a 6-digit item, the slug of a long name is cut to 21 characters, and the unit name has 63 characters.
 
 ### 3. Labels, annotation and service name

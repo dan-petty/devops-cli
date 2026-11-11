@@ -1,5 +1,7 @@
 # A decision point is a unit of a workflow with a resolver chain, and a rule goes before a decision model
 
+Amended on 2026-11-11 by [ADR 0023](0023-the-project-brain-is-a-derived-index-in-two-cache-tiers-and-two-scheduled-runs-keep-it.md). Its section 7 adds three points to the catalogue, in `shadow` only.
+
 TypeSafe Jev (`typesafe/jev-1.14`) is a System One decision model. ADR 0019 says how a step uses it: short closed questions about evidence that tools extract. The pilots that followed put Jev on top of steps that a generation model still runs. This record changes the unit of design. A workflow has named **decision points**. A point has a resolver chain: a deterministic rule first, a decision model second and the current behavior of the generation workflow last. This record builds no code. The registry and the first point on it are the next two items.
 
 ## Status

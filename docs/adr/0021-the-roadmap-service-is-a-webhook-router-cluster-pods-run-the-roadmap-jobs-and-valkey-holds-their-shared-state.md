@@ -1,5 +1,7 @@
 # The roadmap Service is a webhook router, cluster pods run the roadmap jobs, and Valkey holds their shared state
 
+Amended on 2026-11-11 by [ADR 0023](0023-the-project-brain-is-a-derived-index-in-two-cache-tiers-and-two-scheduled-runs-keep-it.md). The unit table gets the rows `brain-daily` and `brain-weekly`. A CronWorkflow is not a unit, so the rule that only the router and the sweep create units stays.
+
 This record amends ADR 0003, ADR 0008, ADR 0009 and ADR 0017. The Status section gives each change.
 
 The roadmap Service runs every roadmap job in one pod. About 19 releases and ConfigMap edits a day restart that pod. Each restart stops the rounds that run in it, and a stage round runs for 21 minutes at the median. This record moves each job out of the Service pod into a pod of its own on Argo Workflows, and it moves the state that the jobs share into Valkey. The Service keeps only the webhook router.
@@ -63,6 +65,8 @@ Facts measured from 2026-11-04 to 2026-11-11:
 | intake | one batch of at most 5 candidates | the sweep |
 | scoped intake | one issue | the router |
 | metrics and the two status pages | all repositories | a schedule every 15 minutes |
+| `brain-daily`: repair, signals, consolidate and evaluate (ADR 0023) | all repositories of the brain | a schedule at 02:30 UTC every day; the sweep, for the due mark `brain-repair` or `brain-consolidate`, with that task only, at most once a day for each mark |
+| `brain-weekly`: aggregate and improve (ADR 0023) | all repositories of the brain | a schedule at 01:00 UTC every Monday |
 | `stage_ready`, `release_comments`, `retitle`, the redelivery | steps of the sweep | the sweep |
 | sweep | all repositories, or one repository for a hint | a schedule every 5 minutes; the router; a due mark |
 | implement | one item, as the runner Job; one Workflow for each item with #3105 | the sweep |
@@ -72,7 +76,7 @@ Facts measured from 2026-11-04 to 2026-11-11:
 - **A unit judges its item again at its start.** It runs the full selection of its job, narrowed to one item, so every selection rule applies. The `--item` option stays for a person.
 - **Only the sweep writes the last success of a job.** A unit writes its marks and its failure entry.
 - **The sweep deletes a failed unit** when the failure ledger allows a retry, so a failed unit does not block its item.
-- **The engine parts.** A WorkflowTemplate for each job. CronWorkflows with `schedules` for the sweep and the metrics; Argo v4.0 removed the singular `schedule`. `synchronization.mutexes` for the intake and implement jobs of each repository and for each item. The ConfigMap semaphores `agent` and `triage`. `retryStrategy` for faults of the infrastructure, and a deadline on each template.
+- **The engine parts.** A WorkflowTemplate for each job. CronWorkflows with `schedules` for the sweep, the metrics and the two brain runs; Argo v4.0 removed the singular `schedule`. `synchronization.mutexes` for the intake and implement jobs of each repository and for each item. The ConfigMap semaphores `agent` and `triage`. `retryStrategy` for faults of the infrastructure, and a deadline on each template.
 - **`Strict`, not `Secure`.** Under `Secure`, a running Workflow fails when its WorkflowTemplate changes, and each release changes the image digest of the templates.
 - **Before the engine step**, stage runs as a plain Job from a suspended CronJob template, as the runner Job of implement does. The Job list is its lock, and at most one stage Job runs at a time.
 - **An agent pod has no API token** in its main container. It gets only the Secret keys that its job needs. The sweep runs as ServiceAccount `roadmap-service`. An admission policy admits from that account only units of the roadmap templates, with arguments only.
