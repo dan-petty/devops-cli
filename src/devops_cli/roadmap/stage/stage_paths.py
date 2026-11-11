@@ -83,6 +83,8 @@ _MANIFEST_SUFFIX: Final[str] = ".yaml"
 _SOURCE_TOP: Final[str] = "src/"
 _MODULE_SUFFIX: Final[str] = ".py"
 _TESTS_TOP: Final[str] = "tests/"
+# A module has a mirror in `tests/` when a folder holds it: the file name and one folder.
+_MIRROR_MIN_PARTS: Final[int] = 2
 # The name forms of a test module. A fixture under `tests/` holds the names of a manifest too, and
 # it asserts on nothing, so the record names no fixture.
 _TEST_MODULE_PATTERNS: Final[tuple[str, ...]] = ("test_*.py", "*_test.py")
@@ -510,10 +512,10 @@ def _importing_tests(
     read: Callable[[str], str],
     search: Callable[[str], Sequence[str]],
     known: frozenset[str],
-) -> set[str]:
-    """The test modules that import one of `exporters`, at any depth of the test. A test that
-    imports `a.b.c` holds the words `a.b` and `c` in each import form, so `search` finds the
-    candidates and `ast` reads their imports."""
+) -> dict[str, frozenset[str]]:
+    """The test modules that import one of `exporters`, at any depth of the test, each with the
+    names of `exporters` that it imports. A test that imports `a.b.c` holds the words `a.b` and `c`
+    in each import form, so `search` finds the candidates and `ast` reads their imports."""
     candidates: set[str] = set()
     for name in exporters:
         parent, _, leaf = name.rpartition(".")
@@ -521,7 +523,9 @@ def _importing_tests(
         candidates |= {path for path in holders if _is_test_module(path)}
     trees = {Path(path): _parse(read(path)) for path in sorted(candidates)}
     edges = build_import_graph(trees, root=Path(), function_bodies=True, known=known).edges
-    return {path for path in candidates if edges[_test_name(path)] & set(exporters)}
+    names = set(exporters)
+    imported = {path: frozenset(edges[_test_name(path)] & names) for path in candidates}
+    return {path: used for path, used in imported.items() if used}
 
 
 def _test_name(path: str) -> str:
@@ -536,6 +540,35 @@ def _module_imports(path: str, read: Callable[[str], str], known: frozenset[str]
     return edges.edges[_dotted_name(path)]
 
 
+def _mirror_of(module: str) -> tuple[str, str] | None:
+    """The mirror test and the mirror folder of the module `module` under `src/`:
+    `src/devops_cli/lang/en/messages.py` mirrors to `tests/lang/en/test_messages.py` in
+    `tests/lang/en/`. A module at the top of the package has no mirror folder and no mirror test."""
+    _package, *folders = PurePosixPath(module).relative_to(_SOURCE_TOP).parts
+    if len(folders) < _MIRROR_MIN_PARTS:
+        return None
+    mirror = PurePosixPath(_TESTS_TOP, *folders)
+    return str(mirror.with_name(f"test_{mirror.name}")), f"{mirror.parent}/"
+
+
+def _nearest_first(module: str, direct: Mapping[str, frozenset[str]]) -> list[str]:
+    """The tests of `direct`, which import the module `module` or a package that exports it,
+    nearest first: the mirror test, a test that imports the module by its own name, a test in the
+    mirror folder, then the rest. Tests of equal closeness keep path order."""
+    mirror, folder = _mirror_of(module) or ("", "")
+    dotted = _dotted_name(module)
+
+    def closeness(test: str) -> tuple[bool, bool, bool, str]:
+        return (
+            test != mirror,
+            dotted not in direct[test],
+            not (folder and test.startswith(folder)),
+            test,
+        )
+
+    return sorted(direct, key=closeness)
+
+
 def record_module_tests(
     groups: Sequence[StageGroup], tree: StagedTree, search: Callable[[str], Sequence[str]]
 ) -> dict[str, tuple[str, ...]]:
@@ -545,7 +578,10 @@ def record_module_tests(
     `tests/roadmap/implement/test_roadmap_implement_step.py` imports
     `devops_cli.roadmap.step_files`. A test of another module that the plan changes, and that
     imports the module, runs it too: a group that changes `follow.py` and the messages that it shows
-    names the test of `follow.py`. A test that holds the name in a string or a path, as
+    names the test of `follow.py`, and that test comes after each test that imports `follow.py`.
+    The tests of a module come nearest first (#4519): the mirror test, a test that imports the
+    module by its own name, a test in the mirror folder, then the rest, each group in path order,
+    so the problem of the gate names the test that the reader of the module expects. A test that holds the name in a string or a path, as
     `tests/commands/test_new.py` holds `src/devops_cli/lang/en/messages.py`, is no test of the
     module. `search` gives the files that hold a literal as a word, as `git grep -F -w` does, and
     it runs once for each literal. A tree that cannot read its files records nothing, so the gate
@@ -572,9 +608,10 @@ def record_module_tests(
     modules: dict[str, tuple[str, ...]] = {}
     for path in changed:
         users = [other for other in changed if imports[other] & exporters[path]]
-        tests = direct[path].union(*(direct[other] for other in users))
-        if tests:
-            modules[path] = tuple(sorted(tests))
+        own = _nearest_first(path, direct[path])
+        users_only = {test for other in users for test in direct[other]}.difference(own)
+        if tests := (*own, *sorted(users_only)):
+            modules[path] = tests
     return modules
 
 
