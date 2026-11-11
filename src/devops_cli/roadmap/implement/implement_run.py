@@ -124,6 +124,7 @@ from devops_cli.roadmap.implement.implement_amend import (
     parse_request,
 )
 from devops_cli.roadmap.implement.implement_base_replay import BaseStatus
+from devops_cli.roadmap.implement.implement_fix_scope import RepairScope, repair_scope
 from devops_cli.roadmap.implement.implement_hooks import install_hook_environments, trusted_config
 from devops_cli.roadmap.implement.implement_limits import BudgetExtension, ItemSpend, new_tokens
 from devops_cli.roadmap.implement.implement_pull import (
@@ -1649,7 +1650,7 @@ class _ItemRun:
         for _round in range(budget):
             if watch.kind is not WatchKind.FAILED or watch.check is None:
                 break
-            self._repair_after_push(pull, watch.check)
+            self._repair_after_push(pull, watch.check, rounds)
             rounds += 1
             watch = self._watch(pull)
         if watch.kind is not WatchKind.READY:
@@ -1664,13 +1665,36 @@ class _ItemRun:
                 timer.fail()
         return watch
 
-    def _repair_after_push(self, pull: int, check: PRCheckItem) -> None:
-        """One repair round for the failed check `check` of the pull request: a fix step, the push
-        (with the scoped checks), and a comment that shows the round."""
-        self._fix(check.name, failed_log(self.repo, check))
+    def _repair_after_push(self, pull: int, check: PRCheckItem, rounds: int) -> None:
+        """One repair round for the failed check `check` of the pull request, after `rounds` rounds:
+        a fix step, the push (with the scoped checks), and a comment that shows the round. A check
+        whose log names no path of the repair scope gets no fix step: the item stops with no model
+        request (#4028)."""
+        log = failed_log(self.repo, check)
+        scope = self._repair_scope()
+        if not scope.names(log):
+            reason = MESSAGES.roadmap.implement_stop_check_outside_scope.format(
+                check=check.name, scope=scope.listing()
+            )
+            raise _StopError(
+                self.step,
+                reason,
+                check=check.name,
+                check_log=log,
+                repair_rounds=rounds,
+                failure_class=FailureClass.OUTSIDE_PLAN,
+            )
+        self._fix(check.name, log)
         self._push()
         self._comment(pull)
         self.step = MESSAGES.roadmap.implement_step_names["checks"]
+
+    def _repair_scope(self) -> RepairScope:
+        """The paths of the plan and the change folder, which a fix turn may change (#4028). A fix
+        turn runs after the archive, so the folder may be the archived one."""
+        change = find_change(self.path, self.number, archived=True)
+        groups = parse_task_groups((change / "tasks.md").read_text(encoding="utf-8"))
+        return repair_scope(groups, change.relative_to(self.path).as_posix())
 
     def _fix(self, check: str, log: str) -> None:
         self.step = MESSAGES.roadmap.implement_step_fix
