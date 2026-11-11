@@ -254,6 +254,7 @@ class LLMResponse(str):
     completion_tokens: int | None
     total_tokens: int | None
     reasoning_tokens: int | None
+    cache_read_tokens: int | None
     cached: bool
     eval_duration_ms: float | None
     prompt_eval_duration_ms: float | None
@@ -281,6 +282,7 @@ class LLMResponse(str):
         reasoning_tokens: int | None = None,
         served_model: str | None = None,
         origin: httpx2.Origin | None = None,
+        cache_read_tokens: int | None = None,
     ) -> LLMResponse:
         obj = str.__new__(cls, content)
         obj.processing_seconds = processing_seconds
@@ -294,6 +296,9 @@ class LLMResponse(str):
         obj.completion_tokens = completion_tokens
         obj.total_tokens = total_tokens
         obj.reasoning_tokens = reasoning_tokens
+        # The part of `prompt_tokens` that the provider read from its cache; None when the reply
+        # names none.
+        obj.cache_read_tokens = cache_read_tokens
         obj.eval_duration_ms = eval_duration_ms
         obj.prompt_eval_duration_ms = prompt_eval_duration_ms
         obj.cached = cached

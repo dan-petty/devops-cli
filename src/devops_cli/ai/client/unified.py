@@ -512,6 +512,7 @@ class LLMClient(
             stage=resolve_spend_stage(None, getattr(self._config, "task_name", None)),
             finish_reason=res.finish_reason,
             reasoning_tokens=r_tokens,
+            cache_read_tokens=getattr(res, "cache_read_tokens", None) or 0,
         )
         if rec is not None:
             span_handle.set_attribute("llm.usage.cost_usd", rec.cost_usd)
@@ -1078,12 +1079,14 @@ class LLMClient(
             p_tokens = usage.prompt_tokens
             c_tokens = usage.completion_tokens
             r_tokens = usage.reasoning_tokens or 0
+            cache_tokens = usage.cache_read_tokens or 0
         else:
             p_tokens = sum(count_tokens(m.content) for m in messages) + (
                 count_tokens(system) if system else 0
             )
             c_tokens = count_tokens(accumulated_text)
             r_tokens = 0
+            cache_tokens = 0
             from devops_cli.ai.thinking_stream import extract_think_blocks
 
             inner_thinks, _ = extract_think_blocks(accumulated_text)
@@ -1111,6 +1114,7 @@ class LLMClient(
             stage=resolve_spend_stage(None, getattr(self._config, "task_name", None)),
             finish_reason=finish_reason,
             reasoning_tokens=r_tokens,
+            cache_read_tokens=cache_tokens,
         )
         if rec is not None:
             span_h.set_attribute("llm.usage.cost_usd", rec.cost_usd)

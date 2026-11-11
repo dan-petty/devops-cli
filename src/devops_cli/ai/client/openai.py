@@ -321,6 +321,10 @@ class OpenAICompatProviderMixin(BaseLLMProviderMixin):
             usage = parsed.usage
             details = getattr(usage, "completion_tokens_details", None) if usage else None
             reasoning_tokens = getattr(details, "reasoning_tokens", None) if details else None
+            prompt_details = getattr(usage, "prompt_tokens_details", None) if usage else None
+            cache_read_tokens = (
+                getattr(prompt_details, "cached_tokens", None) if prompt_details else None
+            )
             origin = httpx2.URL(self._api_base()).origin
 
             raw_finish = getattr(first_choice, "finish_reason", None) if first_choice else None
@@ -341,6 +345,7 @@ class OpenAICompatProviderMixin(BaseLLMProviderMixin):
                 model=parsed.model,
                 finish_reason=finish_reason,
                 reasoning_tokens=reasoning_tokens,
+                cache_read_tokens=cache_read_tokens,
             )
 
     def _openai_compat_stream(
@@ -417,6 +422,8 @@ def _record_stream_chunk_usage(chunk: Any) -> None:
         return
     details = getattr(usage, "completion_tokens_details", None)
     r_tok = getattr(details, "reasoning_tokens", None) if details else None
+    prompt_details = getattr(usage, "prompt_tokens_details", None)
+    cached_tok = getattr(prompt_details, "cached_tokens", None) if prompt_details else None
     p_tok = getattr(usage, "prompt_tokens", None)
     c_tok = getattr(usage, "completion_tokens", None)
     t_tok = getattr(usage, "total_tokens", None)
@@ -427,6 +434,7 @@ def _record_stream_chunk_usage(chunk: Any) -> None:
                 completion_tokens=c_tok,
                 total_tokens=t_tok,
                 reasoning_tokens=r_tok,
+                cache_read_tokens=cached_tok,
             )
         )
 
