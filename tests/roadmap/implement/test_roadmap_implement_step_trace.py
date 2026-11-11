@@ -6,14 +6,23 @@ The model is a pydantic-ai `FunctionModel` from `ModelScript`. Git runs for real
 
 from __future__ import annotations
 
+import json
 import subprocess
 from pathlib import Path
 from typing import Any
 
 import pytest
+from pydantic_ai import Agent
 
+from devops_cli.config.constants import CONST_ROADMAP_IMPLEMENT_TRACE_CHARS
 from devops_cli.roadmap.implement.implement_step import StepOutcome, StepStatus, run_step
-from devops_cli.roadmap.implement.implement_trace import ImplementTrace, TraceEvent, TraceEventKind
+from devops_cli.roadmap.implement.implement_tool_log import ToolCallLog
+from devops_cli.roadmap.implement.implement_trace import (
+    ImplementTrace,
+    TraceEvent,
+    TraceEventKind,
+    decode,
+)
 from tests.support.base_replay import (
     BEHAVIOR_TASKS,
     BEHAVIOR_TICKED,
@@ -253,3 +262,118 @@ def test_a_base_run_is_a_check_event_with_its_status(
         StepStatus.DONE,
         [("pytest on base: tests/test_shout.py", 1)],
     )
+
+
+# ── The order of the events and the trace of a long run (#4393) ──────────────────────────
+
+
+def _kinds(trace: ImplementTrace) -> list[str]:
+    return [str(event.kind) for event in trace.events]
+
+
+def test_the_events_of_a_run_are_in_the_order_of_the_run(
+    store: InMemoryRoadmapStore, checkout: Path
+) -> None:
+    trace = ImplementTrace(step="group 1")
+    script = ModelScript(
+        tool_call("read_file", path="src/sample.py"),
+        tool_calls(
+            ("read_file", {"path": "src/sample.py"}), ("read_file", {"path": "src/sample.py"})
+        ),
+        say("Done."),
+    )
+
+    _step(store, checkout, script, trace)
+
+    assert _kinds(trace) == [
+        "model",
+        "tool",
+        "model",
+        "tool",
+        "tool",
+        "model",
+        "attempt",
+    ]
+
+
+def test_a_long_run_keeps_its_tool_events_in_the_trace(
+    store: InMemoryRoadmapStore, checkout: Path
+) -> None:
+    """101 requests and 150 tool calls do not fit the bound (#4393). The model events go first, so
+    the newest tool calls and the attempt stay in the order of the run. On the base the bound took
+    the oldest events, and the 150 tool calls, which the step added before the model events, went
+    first."""
+    trace = ImplementTrace(step="group 1")
+    read = ("read_file", {"path": "src/sample.py"})
+    replies = [tool_calls(read, read) if number % 2 else tool_calls(read) for number in range(100)]
+    script = ModelScript(*replies, say("Done."))
+
+    _step(store, checkout, script, trace)
+    text = trace.encode()
+    kept = decode(text)
+
+    kinds = _kinds(kept)
+    tools = [event for event in trace.events if event.kind is TraceEventKind.TOOL]
+    assert len(text) <= CONST_ROADMAP_IMPLEMENT_TRACE_CHARS
+    assert len(tools) == 150
+    assert sum(event.kind is TraceEventKind.MODEL for event in trace.events) == 101
+    assert "model" not in kinds
+    assert kinds.count("tool") >= 60
+    assert kept.events[:-1] == tools[-kinds.count("tool") :]
+    assert kinds[-1] == "attempt"
+    assert kept.dropped == 101 + 150 - kinds.count("tool")
+
+
+def _shell_result(code: int | None) -> str:
+    """What the shell of the harness returns for a command that ends: the handles, then the
+    status line that the supervisor wrote. A command with no status yet has no such line."""
+    handles = (
+        "PID: 7 (supervisor; use `kill -- -7` to stop the whole process tree)\nOutput: o\nStatus: s"
+    )
+    if code is None:
+        return handles
+    return f"output text\n{handles}\n{json.dumps({'pid': 7, 'exit_code': code})}"
+
+
+@pytest.mark.parametrize(
+    ("result", "status"),
+    [
+        pytest.param(_shell_result(0), 0, id="zero"),
+        pytest.param(_shell_result(128), 128, id="failed"),
+        pytest.param(_shell_result(None), None, id="no-status-yet"),
+        pytest.param("PID: 7\n" + json.dumps({"pid": 7, "exit_code": None}), None, id="running"),
+        pytest.param("a result that is no shell result", None, id="plain-text"),
+        pytest.param('{"exit_code": true}', None, id="a-flag-is-no-status"),
+    ],
+)
+def test_a_shell_call_has_the_exit_status_that_the_shell_reports(
+    result: str, status: int | None
+) -> None:
+    def shell(command: str) -> str:
+        return result
+
+    trace = ImplementTrace(step="group 1")
+    Agent(
+        ModelScript(tool_call("shell", command="git status"), say("Done.")).model(),
+        tools=[shell],
+        capabilities=[ToolCallLog(trace=trace).hooks()],
+    ).run_sync("go")
+
+    (event,) = _of(trace, TraceEventKind.TOOL)
+    assert event.fields.get("status") == status
+    assert "output text" not in trace.encode()
+
+
+def test_a_tool_that_is_no_shell_has_no_exit_status() -> None:
+    def read_file(path: str) -> str:
+        return _shell_result(1)
+
+    trace = ImplementTrace(step="group 1")
+    Agent(
+        ModelScript(tool_call("read_file", path="a"), say("Done.")).model(),
+        tools=[read_file],
+        capabilities=[ToolCallLog(trace=trace).hooks()],
+    ).run_sync("go")
+
+    (event,) = _of(trace, TraceEventKind.TOOL)
+    assert "status" not in event.fields

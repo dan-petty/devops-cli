@@ -82,11 +82,15 @@ The command SHALL call no model, SHALL write nothing to GitHub or to git, and SH
 - **THEN** the filter reason does not appear for either job
 
 ### Requirement: The trace option prints the trace of the last run
-`explain <issue> --trace` SHALL print the events of `implement.trace` in the record of the issue, oldest first, one line each, then the count of events that the bound dropped, and SHALL print no verdict. With no trace it SHALL say so and exit 0. A trace that is not readable SHALL stop the command with exit status 1 and an error that names `implement.trace`.
+`explain <issue> --trace` SHALL print the events of `implement.trace` in the record of the issue, oldest first, one line each, then the count of events that the bound dropped, and SHALL print no verdict. A `tool` event that holds an exit status SHALL show it in its line. With no trace it SHALL say so and exit 0. A trace that is not readable SHALL stop the command with exit status 1 and an error that names `implement.trace`.
 
 #### Scenario: A trace
 - **WHEN** the record of issue 7 holds a trace of a model call, a tool call and a check, and `explain 7 --trace` runs
 - **THEN** the output has three lines in that order, each with its step, and no `yes` or `no` of a job
+
+#### Scenario: A shell call with an exit status
+- **WHEN** the trace holds a `tool` event of a shell call with the exit status 128
+- **THEN** its line says `exit status 128`
 
 #### Scenario: Dropped events
 - **WHEN** the trace holds `dropped` 12

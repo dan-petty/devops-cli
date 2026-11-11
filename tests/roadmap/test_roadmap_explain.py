@@ -476,6 +476,21 @@ def test_the_trace_of_an_item_gives_one_line_for_each_event_in_order(job_world: 
     assert (job_world.store.job_writes, job_world.store.comments_on(number)) == before
 
 
+def test_a_shell_call_with_an_exit_status_shows_it_in_the_line(job_world: JobWorld) -> None:
+    number = _seed(job_world)
+    trace = ImplementTrace(step="group 1")
+    trace.tool_call("shell", "git", "abc123abc123", "ok", status=128)
+    trace.tool_call("shell", "git", "abc123abc123", "ok", status=0)
+    _record_trace(job_world, number, trace.encode())
+
+    report = render_trace(read_trace(job_world.store, number), number=number)
+
+    assert report.splitlines() == [
+        "group 1: tool shell (program git), ok (exit status 128)",
+        "group 1: tool shell (program git), ok (exit status 0)",
+    ]
+
+
 def test_the_trace_says_how_many_earlier_events_the_bound_dropped(job_world: JobWorld) -> None:
     number = _seed(job_world)
     _record_trace(job_world, number, '{"events":[],"dropped":12}')
