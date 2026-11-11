@@ -11,7 +11,7 @@ from __future__ import annotations
 import pytest
 
 from devops_cli.ai.task_loader import load_task_prompt
-from devops_cli.exceptions.ai import TaskPromptNotFoundError
+from devops_cli.exceptions.base import DevOpsCLIError
 
 
 def test_a_prompt_of_the_tasks_folder_loads_with_its_text() -> None:
@@ -27,6 +27,9 @@ def test_a_prompt_of_the_tasks_folder_loads_with_its_text() -> None:
     ids=["missing", "outside-the-folder"],
 )
 def test_a_name_that_is_not_a_prompt_of_the_folder_raises(name: str) -> None:
-    """Verify a missing name, and a name outside the tasks folder, raise and name the prompt."""
-    with pytest.raises(TaskPromptNotFoundError, match=r"missing\.md|role\.md"):
+    """Verify a missing name, and a name outside the tasks folder, raise
+    `TaskPromptNotFoundError` that names the prompt."""
+    with pytest.raises(DevOpsCLIError, match=r"missing\.md|role\.md") as raised:
         load_task_prompt(name)
+
+    assert raised.value.error_code == "TASK_PROMPT_NOT_FOUND"
