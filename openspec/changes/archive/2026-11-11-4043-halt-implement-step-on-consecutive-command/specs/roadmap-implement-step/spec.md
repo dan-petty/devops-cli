@@ -14,7 +14,7 @@ The implement step SHALL end the run as stopped when the shell policy refuses `C
 ## MODIFIED Requirements
 
 ### Requirement: A run that reaches a limit ends stopped
-`UsageLimits` SHALL cap a run, extra turn included, at `CONST_ROADMAP_IMPLEMENT_MAX_REQUESTS` requests and `CONST_ROADMAP_IMPLEMENT_MAX_TOOL_CALLS` tool calls. A run that reaches a limit, exceeds the retries of a tool, has more than `CONST_ROADMAP_IMPLEMENT_MAX_REFUSALS` shell refusals in the step, or has `CONST_ROADMAP_IMPLEMENT_MAX_CONSECUTIVE_REFUSALS` shell refusals in a row, SHALL end as stopped, and the step SHALL reset the checkout. The reason SHALL hold the class and the `message` of the error, masked and cut to `CONST_ROADMAP_RUN_ERROR_CHARS` characters.
+`UsageLimits` SHALL cap a run, extra turn included, at `CONST_ROADMAP_IMPLEMENT_MAX_REQUESTS` requests and `CONST_ROADMAP_IMPLEMENT_MAX_TOOL_CALLS` tool calls. A run that reaches a limit, exceeds the retries of a tool, or exceeds a limit of shell refusals (total or in a row), SHALL end as stopped, and the step SHALL reset the checkout. The reason SHALL hold the class and the `message` of the error, masked and cut to `CONST_ROADMAP_RUN_ERROR_CHARS` characters.
 
 #### Scenario: A model that never ends
 - **WHEN** the model calls a tool in every reply
