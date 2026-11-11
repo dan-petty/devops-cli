@@ -17,6 +17,7 @@ from devops_cli.roadmap.implement.implement_trace import (
     argument_digest,
     decode,
 )
+from tests.support.roadmap_implement import long_run_trace
 
 
 def _compact(event: TraceEvent) -> str:
@@ -129,7 +130,7 @@ def test_the_bound_drops_the_oldest_other_events_when_no_model_event_is_left(
         if number % 10 == 9:
             trace.tool_call("shell", "git", f"{number:012d}", "ok")
     tools = [_compact(event) for event in trace.events if event.kind is TraceEventKind.TOOL]
-    frame = len('{"events":[],"dropped":102}')
+    frame = len('{"events":[],"dropped":102,"dropped_tokens":12000,"dropped_seconds":100.0}')
     monkeypatch.setattr(
         implement_trace,
         "CONST_ROADMAP_IMPLEMENT_TRACE_CHARS",
@@ -167,9 +168,79 @@ def test_a_decoded_trace_keeps_its_dropped_count() -> None:
     assert json.loads(trace.encode())["dropped"] == 5
 
 
+def test_a_trace_that_fits_the_bound_writes_no_dropped_sums() -> None:
+    assert set(json.loads(_trace().encode())) == {"events", "dropped"}
+
+
+def test_the_bound_keeps_the_tokens_and_the_seconds_of_the_model_events_that_it_drops() -> None:
+    """#4457: the bound drops every model event of a long run, and the encoded value keeps the
+    sum of their tokens and of their seconds."""
+    text = long_run_trace().encode()
+    data = json.loads(text)
+
+    assert len(text) <= CONST_ROADMAP_IMPLEMENT_TRACE_CHARS
+    assert [event["kind"] for event in data["events"]].count("model") == 0
+    assert (data["dropped_tokens"], data["dropped_seconds"]) == (2_030_000, 400.0)
+    assert "dropped_repair_rounds" not in data
+    assert "dropped_outcomes" not in data
+
+
+def test_the_bound_keeps_the_rounds_and_the_outcomes_of_the_attempts_that_it_drops(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """#4457: when the bound drops attempt events, the encoded value keeps their repair rounds
+    and their outcomes."""
+    trace = ImplementTrace(step="group 1")
+    trace.attempt(1, "standard", "check_failed", "ruff check . exited 1", repair=True)
+    trace.attempt(2, "standard", "check_failed", "ruff check . exited 1", repair=True)
+    trace.attempt(3, "standard", "", "", repair=False)
+    monkeypatch.setattr(implement_trace, "CONST_ROADMAP_IMPLEMENT_TRACE_CHARS", 200)
+
+    text = trace.encode()
+    data = json.loads(text)
+
+    assert len(text) <= 200
+    assert data["events"] == [trace.events[-1].as_dict()]
+    assert (data["dropped"], data["dropped_repair_rounds"], data["dropped_outcomes"]) == (
+        2,
+        2,
+        {"failed": 2},
+    )
+
+
+def test_a_decoded_trace_keeps_its_dropped_sums_once() -> None:
+    """#4457: a trace that is read back and encoded again adds no dropped sum twice."""
+    stored = (
+        '{"events":[],"dropped":5,"dropped_tokens":100,"dropped_seconds":2.5,'
+        '"dropped_repair_rounds":1,"dropped_outcomes":{"failed":1}}'
+    )
+    trace = decode(stored)
+    trace.retry("x")
+
+    data = json.loads(trace.encode())
+
+    assert {key: value for key, value in data.items() if key != "events"} == {
+        "dropped": 5,
+        "dropped_tokens": 100,
+        "dropped_seconds": 2.5,
+        "dropped_repair_rounds": 1,
+        "dropped_outcomes": {"failed": 1},
+    }
+
+
 @pytest.mark.parametrize(
     "text",
-    ["not json", "[]", '{"events":3}', '{"events":[1]}', '{"events":[{"kind":"x","step":""}]}'],
+    [
+        "not json",
+        "[]",
+        '{"events":3}',
+        '{"events":[1]}',
+        '{"events":[{"kind":"x","step":""}]}',
+        '{"events":[],"dropped_tokens":"many"}',
+        '{"events":[],"dropped_seconds":true}',
+        '{"events":[],"dropped_outcomes":[1]}',
+        '{"events":[],"dropped_outcomes":{"failed":"one"}}',
+    ],
 )
 def test_text_that_is_not_a_trace_raises_one_error(text: str) -> None:
     with pytest.raises(TraceDecodeError, match=r"."):

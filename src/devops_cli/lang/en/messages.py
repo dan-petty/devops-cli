@@ -2289,7 +2289,10 @@ class RoadmapMessages:
         "round(s), {failed} failed and {passed} passed outcome(s)."
     )
     explain_totals_dropped: str = (
-        "{count} earlier event(s) are not kept, so the totals leave them out."
+        "{count} earlier event(s) are not kept in the trace, and the totals include them."
+    )
+    explain_totals_dropped_unsummed: str = (
+        "{count} earlier event(s) are not kept in the trace, and the totals leave them out."
     )
     explain_totals_none: str = "Issue #{number} has no recorded implement run, so it has no totals."
     explain_json_with_trace: str = (

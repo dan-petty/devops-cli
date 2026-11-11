@@ -19,7 +19,6 @@ the Service keeps it on its own volume: the command does not read it.
 
 from __future__ import annotations
 
-from collections import Counter
 from collections.abc import Collection, Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -41,6 +40,7 @@ from devops_cli.roadmap.implement.implement_trace import (
     TraceDecodeError,
     TraceEvent,
     TraceEventKind,
+    TraceSums,
     decode,
 )
 from devops_cli.roadmap.planned import PlannedChanges, read_planned_changes
@@ -63,28 +63,30 @@ class JobVerdict(NamedTuple):
 class TraceTotals:
     """The totals of the last implement run, from its trace (#3217): the tokens in and out, the
     seconds of the model calls, the repair rounds, the count of each attempt outcome, and the
-    events that the trace bound dropped. The totals leave the dropped events out."""
+    events that the trace bound dropped. The totals include the dropped events when the trace holds
+    their sums (#4457). `dropped_summed` is False for a trace with no such sums, as one from before
+    #4457."""
 
     tokens_total: int
     seconds_total: float
     repair_rounds: int
     outcomes: dict[str, int]
     dropped: int
+    dropped_summed: bool
 
 
 def trace_totals(trace: ImplementTrace) -> TraceTotals:
     """The totals of `trace` (#3217): the tokens and the seconds of its model events, the repair
-    rounds and the outcomes of its attempt events, and the events that the bound dropped."""
-    models = [event.fields for event in trace.events if event.kind is TraceEventKind.MODEL]
-    attempts = [event.fields for event in trace.events if event.kind is TraceEventKind.ATTEMPT]
+    rounds and the outcomes of its attempt events, and the events that the bound dropped. The
+    sums of the dropped events are added, so a long run keeps its totals (#4457)."""
+    sums = TraceSums.of(trace.events) + trace.dropped_sums
     return TraceTotals(
-        tokens_total=sum(
-            int(fields.get("tokens_in", 0)) + int(fields.get("tokens_out", 0)) for fields in models
-        ),
-        seconds_total=round(sum(float(fields.get("seconds", 0)) for fields in models), 1),
-        repair_rounds=sum(1 for fields in attempts if fields.get("next") == "repair"),
-        outcomes=dict(Counter(str(fields.get("outcome", "")) for fields in attempts)),
+        tokens_total=sums.tokens,
+        seconds_total=sums.seconds,
+        repair_rounds=sums.repair_rounds,
+        outcomes=sums.outcomes,
         dropped=trace.dropped,
+        dropped_summed=trace.dropped_sums != TraceSums(),
     )
 
 
@@ -322,7 +324,12 @@ def _totals_lines(explained: Explanation) -> list[str]:
         )
     ]
     if totals.dropped:
-        lines.append(texts.explain_totals_dropped.format(count=totals.dropped))
+        dropped = (
+            texts.explain_totals_dropped
+            if totals.dropped_summed
+            else texts.explain_totals_dropped_unsummed
+        )
+        lines.append(dropped.format(count=totals.dropped))
     return lines
 
 

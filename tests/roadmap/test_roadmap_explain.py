@@ -41,6 +41,7 @@ from devops_cli.roadmap.stores.store import (
 from tests.support.roadmap_implement import (
     TITLE,
     JobWorld,
+    long_run_trace,
     push_staged_branch,
     route_pull_status,
     seed_staged,
@@ -593,14 +594,51 @@ def test_the_report_names_the_totals_of_the_last_run(job_world: JobWorld) -> Non
 def test_the_report_names_the_events_that_the_bound_dropped_beside_the_totals(
     job_world: JobWorld,
 ) -> None:
+    """#4457: the trace holds the sums of its dropped events, so the totals include them."""
+    number = _seed(job_world)
+    _record_trace(job_world, number, '{"events":[],"dropped":12,"dropped_tokens":100}')
+
+    report = render_explanation(_explain(job_world, number))
+
+    assert report.splitlines()[-1] == (
+        "12 earlier event(s) are not kept in the trace, and the totals include them."
+    )
+
+
+def test_the_report_of_a_trace_with_no_dropped_sums_says_that_the_totals_leave_them_out(
+    job_world: JobWorld,
+) -> None:
+    """#4457: a trace from before the sums holds only the count of its dropped events, so the
+    totals leave them out."""
     number = _seed(job_world)
     _record_trace(job_world, number, '{"events":[],"dropped":12}')
 
     report = render_explanation(_explain(job_world, number))
 
     assert report.splitlines()[-1] == (
-        "12 earlier event(s) are not kept, so the totals leave them out."
+        "12 earlier event(s) are not kept in the trace, and the totals leave them out."
     )
+
+
+def test_the_totals_of_a_long_run_count_the_events_that_the_bound_dropped(
+    job_world: JobWorld,
+) -> None:
+    """#4457: the bound drops every model event of a long run, and the totals still give the
+    tokens and the seconds of the full run."""
+    number = _seed(job_world)
+    trace = long_run_trace()
+    _record_trace(job_world, number, trace.encode())
+
+    totals = _explain(job_world, number).totals
+
+    assert totals is not None
+    assert totals.dropped > 0
+    assert (
+        totals.tokens_total,
+        totals.seconds_total,
+        totals.repair_rounds,
+        totals.outcomes,
+    ) == (2_030_000, 400.0, 0, {"failed": 1})
 
 
 def test_an_item_with_no_recorded_run_says_so_and_gives_no_totals(job_world: JobWorld) -> None:
