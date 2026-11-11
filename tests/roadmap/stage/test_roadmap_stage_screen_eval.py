@@ -116,7 +116,7 @@ def test_the_data_file_of_the_cuts_names_the_model_the_cases_and_the_numbers() -
     )
 
     assert (data["step"], data["model"], data["fitted"], data["cases"]) == (
-        "verify_screen",
+        "stage.verify_screen",
         "typesafe/jev-1.14",
         "2026-11-10",
         4,

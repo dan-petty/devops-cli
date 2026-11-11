@@ -553,6 +553,11 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
         "kept",
         "the Jev requests of one decision step that run at the same time; protects the gateway",
     ),
+    "CONST_ROADMAP_DECISION_POINT_MAX_SERIES": (
+        "kept",
+        "the bound of ADR 0020 on the label sets of devops_cli_decision_point_total; protects the "
+        "metrics store from a high count of series, and no run is cut by it",
+    ),
     "CONST_ROADMAP_STAGE_JEV_TIMEOUT_SECONDS": (
         "kept",
         "the wait for the Jev request of the verify screen; a stuck call runs the review",

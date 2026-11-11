@@ -37,6 +37,9 @@ from devops_cli.config.constants import (
     CONST_AI_GATEWAY_HOSTED_MODELS,
     CONST_AI_GATEWAY_PROVIDER,
     CONST_AI_GATEWAY_VIRTUAL_MODELS,
+    CONST_AI_JEV_MODEL,
+    CONST_AI_JEV_MODEL_TARGETS,
+    CONST_AI_JEV_SYSTEM_ONE_PREFIXES,
     CONST_ROADMAP_IMPLEMENT_DEADLINE_CAP_SECONDS,
     CONST_ROADMAP_IMPLEMENT_STEP_CLASSES,
     CONST_ROADMAP_SIZE_OPTIONS,
@@ -118,7 +121,6 @@ from devops_cli.config.defaults import (
     DEFAULT_ROADMAP_INTAKE_JEV,
     DEFAULT_ROADMAP_MCP_TIMEOUT_SECONDS,
     DEFAULT_ROADMAP_STAGE_FILTER,
-    DEFAULT_ROADMAP_STAGE_JEV_SCREEN,
     DEFAULT_ROADMAP_STAGE_LIMIT,
     DEFAULT_ROADMAP_STAGE_PLANNED_LIMIT,
     DEFAULT_ROADMAP_STAGE_STEP_TOKENS,
@@ -141,6 +143,7 @@ from devops_cli.config.defaults import (
     DEFAULT_VALKEY_TIMEOUT_SECONDS,
     DEFAULT_VALKEY_URL,
     DEFAULT_WORKSPACE_FILE,
+    DecisionMode,
     JevMode,
     SearchProviderName,
     StageToolset,
@@ -694,6 +697,19 @@ class AIPriceOverride(BaseModel):
     )
 
 
+def is_decision_model_name(name: str) -> bool:
+    """Whether `name` names a System One decision model, such as TypeSafe Jev: `typesafe/jev-1.14`,
+    `jev-…`, a name with the prefix `typesafe:` or `system-one:`, or a gateway route of a Jev
+    model, such as `litellm:typesafe/jev-1.14`. `resolve_pydantic_ai_model` builds a
+    `SystemOneModel` for such a name."""
+    prefix, sep, target = name.partition(":")
+    if sep:
+        return prefix in CONST_AI_JEV_SYSTEM_ONE_PREFIXES or target.startswith(
+            CONST_AI_JEV_MODEL_TARGETS
+        )
+    return name.startswith(CONST_AI_JEV_MODEL_TARGETS)
+
+
 class AIConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid", frozen=False, validate_assignment=True, hide_input_in_errors=True
@@ -703,6 +719,10 @@ class AIConfig(BaseModel):
     )
     model: Annotated[str, Variable()] = Field(
         default=DEFAULT_AI_MODEL, description="Default AI model name"
+    )
+    decision_model: Annotated[str, Variable()] = Field(
+        default="",
+        description="The decision model of the registered decision points of the roadmap jobs (ADR 0020), such as `typesafe/jev-1.14`: a System One model that answers closed questions with a calibrated probability and writes no text. The gateway serves it by name. Empty means no decision model: no point sends a request, and a point with no rule does what the job did before the point. A model that writes text is refused",
     )
     api_key: str | None = Field(default=None, repr=False)
     reference_model: Annotated[str, Variable()] = Field(
@@ -783,6 +803,18 @@ class AIConfig(BaseModel):
     rag: AIRAGConfig = AIRAGConfig()
     cache: AICacheConfig = AICacheConfig()
     task_name: str | None = None
+
+    @field_validator("decision_model")
+    @classmethod
+    def _check_decision_model(cls, value: str) -> str:
+        """Refuse a name that is not a System One decision model."""
+        name = value.strip()
+        if name and not is_decision_model_name(name):
+            raise ValueError(
+                f"ai.decision_model {name!r} names no System One decision model: name one such as "
+                f"{CONST_AI_JEV_MODEL!r}, or leave it empty for no decision model"
+            )
+        return name
 
     @model_validator(mode="before")
     @classmethod
@@ -975,10 +1007,6 @@ class RoadmapStageConfig(BaseModel):
     mcp: Annotated[bool, Variable()] = Field(
         description="Whether the stage job adds the remote tools of its role from the MCP server",
         default=False,
-    )
-    jev_screen: Annotated[JevMode, Variable()] = Field(
-        description="What a TypeSafe Jev screen does before the model review of a plan in the stage job (ADR 0019). `off` makes no Jev request. `shadow` asks Jev, logs and counts its band beside the result of the review, and always runs the review. `on` skips the review when the band is continue. An error of Jev runs the review. Jev never rejects a plan",
-        default=DEFAULT_ROADMAP_STAGE_JEV_SCREEN,
     )
     jev_completeness: Annotated[bool, Variable()] = Field(
         description="Whether the stage_ready row asks TypeSafe Jev if a green plan draft delivers each acceptance criterion of its issue, before it marks the draft ready. A criterion in doubt, a weak test score or an error of Jev keeps the draft a draft and posts one note; the check never marks a draft ready, merges or closes",
@@ -1318,6 +1346,37 @@ class RoadmapConfig(BaseModel):
     inbox: RoadmapInboxConfig = Field(default_factory=RoadmapInboxConfig)
     intake: RoadmapIntakeConfig = Field(default_factory=RoadmapIntakeConfig)
     mcp: RoadmapMcpConfig = Field(default_factory=RoadmapMcpConfig)
+    decisions: Annotated[dict[str, DecisionMode], Variable()] = Field(
+        default_factory=dict,
+        description='The mode of each decision point of the roadmap jobs (ADR 0020), by the name of the point, as a JSON object such as `{"stage.verify_screen": "shadow"}`. `off` runs nothing. `shadow` runs the resolver chain (a proven rule, then the model of `ai.decision_model`, then the current behavior), records its band and the real result, and changes nothing. `on` lets the band act. A point that is not in the mapping is off. A key that names no registered point stops the settings from loading, and so does `on` for a point whose fitted cuts file is not in the repository',
+    )
+
+    @field_validator("decisions", mode="before")
+    @classmethod
+    def _parse_decisions(cls, value: Any) -> Any:
+        """Read the modes from a JSON object, as a variable and `devops config set` give them."""
+        if isinstance(value, str):
+            try:
+                parsed = json.loads(value)
+            except json.JSONDecodeError as exc:
+                raise ValueError(
+                    f"roadmap.decisions must be a JSON object of point name to mode: {exc.msg}"
+                ) from exc
+            if not isinstance(parsed, dict):
+                raise ValueError("roadmap.decisions must be a JSON object of point name to mode")
+            return parsed
+        return value
+
+    @field_validator("decisions")
+    @classmethod
+    def _check_decisions(cls, value: dict[str, DecisionMode]) -> dict[str, DecisionMode]:
+        """Refuse a key that names no registered decision point, and `on` for a point with no
+        fitted cuts. The registry imports the points, so it loads only when a key is set."""
+        if value:
+            from devops_cli.roadmap.decision_registry import REGISTRY
+
+            REGISTRY.check(value)
+        return value
 
 
 class DataConfig(BaseModel):

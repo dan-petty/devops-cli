@@ -1,55 +1,48 @@
-"""A Jev screen before the model review of a plan: pilot 1 of the decision steps (#4282, ADR 0019).
+"""The verify screen: the decision point `stage.verify_screen` before the model review of a plan
+(pilot 1 of the decision steps, #4282, ADR 0019, ADR 0020).
 
 The model review (`stage_verify`) is an agent with read tools, and it runs for every plan. The
-screen decides, before it runs, one of three bands:
+screen gives, before it runs, one of three bands:
 
 - *continue*: no question of the screen reaches its cut, so the review may be skipped;
 - *review*: a question reaches its `continue_below` cut, so the review runs as before;
-- *flag*: a question reaches its `flag_at` cut, so the review runs and the log names the question.
+- *flag*: a question reaches its `flag_at` cut, so the review runs and the record names the
+  question.
 
 The evidence is a digest that code builds from the input of the review: the criteria of the issue,
 the groups of the plan, and the facts of tools about each group (the paths that the repository
-does not hold, and whether the verify command names a test file of the group). One Jev request
-asks the ten closed yes/no questions of `QUESTIONS` about the digest. The cuts of each question are
+does not hold, and whether the verify command names a test file of the group). One request asks
+the nine closed yes/no questions of `QUESTIONS` about the digest. The cuts of each question are
 fitted on the golden set and stored in `jev_screen_cuts.json` (`devops roadmap eval screen`).
 
-The setting `roadmap.stage.jev_screen` has three values. `off` makes no Jev request. `shadow` asks
-Jev, logs and counts the band beside the result of the review, and always runs the review. `on`
-skips the review for the band *continue*. Any error, timeout or missing answer of Jev runs the
-review (fail open). Jev never rejects a plan and is no security control: the text of a plan can
-mislead it.
+The registry of decision points runs the screen (`decision_point`). Its mode is
+`roadmap.decisions["stage.verify_screen"]`, and the decision model is `ai.decision_model`. With the
+mode `off` or no decision model, the screen sends no request and the review runs. With `shadow`,
+the review always runs, and the record of the decision and the record of the result of the review
+share an identifier. With `on`, the band *continue* skips the review. Any error, timeout or missing
+answer runs the review (fail open). The screen never rejects a plan and is no security control:
+the text of a plan can mislead the decision model.
 """
 
 from __future__ import annotations
 
-import json
-import logging
 from collections.abc import Collection, Mapping
 from dataclasses import dataclass
-from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final
 
 from pydantic_ai.models.decision import DecisionRequest, NoulQuestion
 
 from devops_cli.config.constants import CONST_ROADMAP_STAGE_JEV_TIMEOUT_SECONDS
-from devops_cli.lang import MESSAGES
-from devops_cli.roadmap.decision_step import (
-    FAILED,
-    Band,
-    DecisionStepError,
-    Thresholds,
-    band_of,
-    decide_all,
-    probabilities_of,
+from devops_cli.roadmap.decision_point import (
+    DecisionPoint,
+    DecisionRecord,
+    ResolverChain,
+    chain_of,
+    record_outcome,
 )
+from devops_cli.roadmap.decision_step import Band, Thresholds
 from devops_cli.roadmap.stage.stage_criteria import acceptance_criteria
-from devops_cli.security.sanitizer import mask_secrets
-from devops_cli.telemetry.instruments import (
-    ROADMAP_DECISION_STEP_REVIEW_TOTAL,
-    ROADMAP_DECISION_STEP_TOTAL,
-    emit,
-)
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -59,9 +52,6 @@ if TYPE_CHECKING:
     from devops_cli.config.settings import Settings
     from devops_cli.roadmap.stage.stage_verify import VerificationInput
 
-logger = logging.getLogger(__name__)
-
-STEP: Final[str] = "verify_screen"
 CUTS_FILE: Final[Path] = Path(__file__).with_name("jev_screen_cuts.json")
 # The size limits of the pieces of the digest, in characters.
 _CRITERION_CHARS: Final[int] = 300
@@ -96,16 +86,6 @@ QUESTIONS: Final[Mapping[str, str]] = {
     "contrived_test": "Does a test only repeat the code, test a mock, or pass whatever the code does?",
     "other": "Does the plan have a defect that fits no other question?",
 }
-# The questions that decide the band. The others are asked and logged.
-DECIDING: Final[frozenset[str]] = frozenset(QUESTIONS)
-
-
-class ScreenMode(StrEnum):
-    """The values of `roadmap.stage.jev_screen`."""
-
-    OFF = "off"
-    SHADOW = "shadow"
-    ON = "on"
 
 
 def _groups(plan: Mapping[str, Any]) -> list[Mapping[str, Any]]:
@@ -177,137 +157,69 @@ def digest(given: VerificationInput, known: Collection[str]) -> dict[str, Any]:
     }
 
 
+@dataclass(frozen=True)
+class ScreenCase:
+    """The input of the screen: the input of the review, and the paths of the repository."""
+
+    given: VerificationInput
+    known: Collection[str]
+
+
+def _evidence(case: ScreenCase) -> dict[str, Any]:
+    return digest(case.given, case.known)
+
+
+VERIFY_SCREEN: Final[DecisionPoint[ScreenCase]] = DecisionPoint(
+    name="stage.verify_screen",
+    questions={name: NoulQuestion(instructions=text) for name, text in QUESTIONS.items()},
+    evidence=_evidence,
+    bands={
+        Band.CONTINUE: "Skip the model review of the plan.",
+        Band.REVIEW: "Run the model review of the plan.",
+        Band.FLAG: "Run the model review, and name the questions at their flag cut in the record.",
+    },
+    cuts=CUTS_FILE,
+    timeout=CONST_ROADMAP_STAGE_JEV_TIMEOUT_SECONDS,
+)
+
+
 def request_of(given: VerificationInput, known: Collection[str]) -> DecisionRequest:
     """The one request of the screen: the digest and the questions of `QUESTIONS`. A digest that
     holds a secret raises `DecisionStepError`, because the request leaves the cluster for the
     hosted model (SECURITY.md)."""
-    state = digest(given, known)
-    text = json.dumps(state, ensure_ascii=False)
-    if mask_secrets(text) != text:
-        raise DecisionStepError(MESSAGES.roadmap.decision_step_secret)
-    return DecisionRequest(
-        state=state,
-        questions={name: NoulQuestion(instructions=text) for name, text in QUESTIONS.items()},
-    )
+    return VERIFY_SCREEN.request(digest(given, known))
 
 
 def cuts() -> Thresholds:
     """The fitted cuts of the screen, from the data file of the repository."""
-    return Thresholds.load(CUTS_FILE)
+    return VERIFY_SCREEN.thresholds()
 
 
-@dataclass(frozen=True)
-class ScreenResult:
-    """The band of one screen, the probability of each question and the questions at their flag
-    cut."""
-
-    band: Band
-    probabilities: Mapping[str, float]
-    flagged: tuple[str, ...]
+def screen_of(
+    settings: Settings, *, model: DecisionModel[Any] | None = None
+) -> ResolverChain[ScreenCase] | None:
+    """The resolver chain of the screen under `settings`, or None when the point does not run."""
+    return chain_of(VERIFY_SCREEN, settings, model=model)
 
 
-def result_of(probabilities: Mapping[str, float], fitted: Thresholds) -> ScreenResult:
-    """The result for `probabilities` under the cuts of `fitted`."""
-    flagged = tuple(name for name, cut in fitted.cuts.items() if probabilities[name] >= cut.flag_at)
-    return ScreenResult(band_of(probabilities, fitted.cuts), dict(probabilities), flagged)
-
-
-class JevScreener:
-    """Screens the input of a review. `model` is a Jev model for a test; with none, each request
-    builds its own from `settings`."""
-
-    def __init__(
-        self,
-        mode: ScreenMode,
-        *,
-        fitted: Thresholds | None = None,
-        model: DecisionModel[Any] | None = None,
-        settings: Settings | None = None,
-    ) -> None:
-        self._mode = mode
-        self._fitted = fitted or cuts()
-        self._model = model
-        self._settings = settings
-
-    @property
-    def skips(self) -> bool:
-        """Whether a *continue* band skips the review."""
-        return self._mode is ScreenMode.ON
-
-    def screen(self, given: VerificationInput, known: Collection[str]) -> ScreenResult | None:
-        """The result for `given`, with `known` the paths of the repository, or None when Jev fails: the error is logged and counted, and the
-        review runs."""
-        try:
-            request = request_of(given, known)
-            (response,) = decide_all(
-                [request],
-                model=self._model,
-                settings=self._settings,
-                timeout=CONST_ROADMAP_STAGE_JEV_TIMEOUT_SECONDS,
-            )
-            result = result_of(probabilities_of(response), self._fitted)
-        except FAILED as exc:
-            logger.warning(
-                MESSAGES.roadmap.decision_step_failed.format(
-                    step=STEP, item=given.number, error=f"{type(exc).__name__}: {exc}"[:300]
-                )
-            )
-            emit(
-                ROADMAP_DECISION_STEP_TOTAL,
-                1,
-                {"step": STEP, "mode": self._mode.value, "band": "error"},
-            )
-            return None
-        emit(
-            ROADMAP_DECISION_STEP_TOTAL,
-            1,
-            {"step": STEP, "mode": self._mode.value, "band": result.band.value},
-        )
-        logger.info(
-            MESSAGES.roadmap.decision_step_band.format(
-                step=STEP,
-                item=given.number,
-                band=result.band.value,
-                flagged=",".join(result.flagged) or "-",
-                top=max(result.probabilities, key=lambda name: result.probabilities[name]),
-            )
-        )
-        return result
-
-    def record_review(self, result: ScreenResult | None, open_findings: Sequence[object]) -> None:
-        """In shadow mode, count whether the review found an open defect where the screen gave
-        `result`. This is the false-clear rate of the screen, read from the real reviews."""
-        if self._mode is ScreenMode.SHADOW and result is not None:
-            emit(
-                ROADMAP_DECISION_STEP_REVIEW_TOTAL,
-                1,
-                {
-                    "step": STEP,
-                    "band": result.band.value,
-                    "reviewer": "found" if open_findings else "clean",
-                },
-            )
-
-
-def screener_of(settings: Settings) -> JevScreener | None:
-    """The screener for the setting `roadmap.stage.jev_screen`, or None when it is off."""
-    mode = ScreenMode(settings.roadmap.stage.jev_screen)
-    if mode is ScreenMode.OFF:
-        return None
-    return JevScreener(mode, settings=settings)
+def record_review(decision: DecisionRecord, open_findings: Sequence[object]) -> None:
+    """Write the outcome record of `decision`: the review found an open defect, or none."""
+    record_outcome(
+        decision,
+        must_run=bool(open_findings),
+        weight=len(open_findings),
+        result="found" if open_findings else "clean",
+    )
 
 
 __all__ = [
     "CUTS_FILE",
-    "DECIDING",
     "QUESTIONS",
-    "STEP",
-    "JevScreener",
-    "ScreenMode",
-    "ScreenResult",
+    "VERIFY_SCREEN",
+    "ScreenCase",
     "cuts",
     "digest",
+    "record_review",
     "request_of",
-    "result_of",
-    "screener_of",
+    "screen_of",
 ]

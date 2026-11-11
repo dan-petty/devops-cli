@@ -134,6 +134,10 @@ _Avoid_: chunk, phase
 The pure function that decides when any draft pull request is ready for review: stage plan, implement, agent or person. Completeness comes first (for an implement pull request, every task group ticked and the change archived), then passing checks, then any extra check. The implement job, the stage row and `devops pr ready` ask it.
 _Avoid_: ready check, draft gate
 
+**Decision point**:
+A named place of a roadmap job where the job picks one band of a closed set: continue, review or flag. The registry holds each point with its fixed questions, its evidence builder, what each band does and its cuts file. A resolver chain answers it: a proven rule, then the decision model that `ai.decision_model` names, then the current behavior. Its mode in `roadmap.decisions` is off, shadow or on. A point returns a band and never a text (ADR 0020).
+_Avoid_: gate, judge, pilot
+
 **Implementing**:
 Taking a Staged or Planned item to a ready pull request: one step for each task group that has an unticked task, the documentation, the archive, the push, the body that closes the issue, the watch of the checks, at most one fix step, draft readiness, and `gh pr ready`. A step may ask for a bounded change of its plan, or for a split when its inputs exceed the limit. A false premise returns the item to New with its evidence. The job ticks each task of a group whose exit checks pass, so a tick that the agent forgets does not stop the step. A step keeps each ticked task whose verification passes as a `wip:` commit that the job pushes, and a stop discards only the work after the last one. A stopped item is Blocked, names the work it kept, shows the masked diff of the work it discarded, and waits for the comment `implement: retry`. For a stop whose class a retry can fix, it waits for a continuation or a new runner image, within the limits of the Service. A person merges.
 _Avoid_: building, executing

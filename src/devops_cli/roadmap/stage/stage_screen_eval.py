@@ -41,7 +41,7 @@ from devops_cli.roadmap.decision_fit import (
 from devops_cli.roadmap.decision_step import Cut, Thresholds, decide_all, probabilities_of
 from devops_cli.roadmap.refine.refine_investigation import task_window
 from devops_cli.roadmap.stage.stage_eval_cases import Severity, StageCase, Verdict
-from devops_cli.roadmap.stage.stage_jev_screen import STEP, request_of
+from devops_cli.roadmap.stage.stage_jev_screen import VERIFY_SCREEN, request_of
 from devops_cli.roadmap.stage.stage_verify import Finding, VerificationInput
 from devops_cli.roadmap.stage.stage_verify_eval import matched_defects
 
@@ -374,7 +374,7 @@ def fitted_cuts(
     cuts = RULES[SHIPPED_RULE](fit_cases(rows))
     full = cascade_score(rows, cuts)
     thresholds = Thresholds(
-        step=STEP,
+        step=VERIFY_SCREEN.name,
         model=jev_model,
         fitted=day,
         cases=full.reviewed,

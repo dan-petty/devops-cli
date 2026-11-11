@@ -29,7 +29,9 @@ data:
       # no text. TypeSafe Jev (`typesafe/jev-1.14`) is the decision model of this project. A
       # workflow uses the model that `ai.decision_model` names, only at a registered decision
       # point, and a deterministic rule goes first (ADR 0020). With `ai.decision_model` empty,
-      # every point does what it does today. `devops ai ask-jev` asks Jev directly.
+      # every point does what it does today. `devops ai ask-jev` asks Jev directly. This section
+      # refuses a key that it does not know, so `decision_model` goes here only after the image
+      # that knows the key runs in the cluster (#4446).
       # A model call is sent at most two times. The gateway already retries a failed call of
       # the group up to 5 times (router_settings.num_retries in k8s/llm/gateway/config.yaml), so
       # a client retry adds a layer on a call that the provider bills (k8s/README.md, LLM Gateway).
@@ -140,16 +142,19 @@ data:
         planned_limit: 20
         step_tokens: 64000
         toolset: extended
-        # A TypeSafe Jev screen before the model review of a plan (#4282, ADR 0019): `off` makes no
-        # request, `shadow` logs and counts its band beside the review, `on` skips the review for
-        # the band continue. Turn it on only after a person reads the comparison in the pull request.
-        jev_screen: "off"
       # What TypeSafe Jev does in intake (#4395, ADR 0019): `off` makes no request, `shadow` keeps
       # the triage model for every label and records the Jev answers in the job record of each
       # issue (`devops roadmap eval jev --from-shadow` reads them), `on` lets Jev decide. Jev
       # must not decide yet. An image from before #4395 refuses `shadow`: roll the image first.
       intake:
         jev: "off"
+      # The mode of each decision point (ADR 0020): `off`, `shadow` or `on`. The verify screen
+      # (`stage.verify_screen`) asks the decision model before the model review of a plan. In
+      # `shadow` the review always runs and the log records the band and the result of the review.
+      # A point asks no model while `ai.decision_model` is empty. Turn a point `on` only after a
+      # person reads its shadow records and its fit.
+      decisions:
+        stage.verify_screen: shadow
       # The alternatives row takes `first_pass_limit` items in a round while an item has no
       # check, and `limit` items after, when every item has a check and a round only rechecks.
       alternatives:

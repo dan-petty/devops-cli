@@ -2814,6 +2814,8 @@ CONST_AI_JEV_DEFAULT_ROUTE_THRESHOLD: Final[float] = 0.75
 CONST_AI_JEV_DEFAULT_BOOLEAN_THRESHOLD: Final[float] = 0.50
 CONST_AI_JEV_HIGH_RISK_THRESHOLD: Final[float] = 0.90
 CONST_AI_JEV_SYSTEM_ONE_PREFIXES: Final[frozenset[str]] = frozenset({"system-one", "typesafe"})
+# The starts of the name of a TypeSafe Jev model with no provider prefix, as `typesafe/jev-1.14`.
+CONST_AI_JEV_MODEL_TARGETS: Final[tuple[str, ...]] = ("typesafe/jev-", "jev-")
 # `devops ai ask-jev` and the MCP tool `ai_ask_jev` (#4306): the bounds of one request. The bounds
 # keep a request small: the command refuses a larger input before it sends anything. The model
 # profile of Jev allows at most 255 options and 10 levels.
@@ -3703,6 +3705,9 @@ CONST_ROADMAP_JEV_TIMEOUT_SECONDS: Final[float] = 30.0
 CONST_ROADMAP_JEV_EVAL_MAX_CALLS: Final[int] = 160
 # The Jev requests of one decision step that run at the same time (ADR 0019).
 CONST_ROADMAP_DECISION_STEP_CONCURRENCY: Final[int] = 8
+# The most label sets of `devops_cli_decision_point_total` that the registry of decision points
+# may write: the bound of the catalogue of ADR 0020 (four points of 8 series and two of 14).
+CONST_ROADMAP_DECISION_POINT_MAX_SERIES: Final[int] = 60
 # The timeout in seconds of the Jev request of the verify screen (#4282).
 CONST_ROADMAP_STAGE_JEV_TIMEOUT_SECONDS: Final[float] = 30.0
 # The price of Jev in USD for a million input tokens, from the owner on 2026-11-09, for the cost
