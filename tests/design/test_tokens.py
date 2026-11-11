@@ -5,6 +5,7 @@ and the light and the dark theme hold the same names in the sources and in every
 from __future__ import annotations
 
 from devops_cli.design import THEME_MODES, tokens
+from devops_cli.roadmap.workflow_labels import LabelColor
 from tests.support.design_tokens import (
     CSS_FILES,
     DOCS_TOKEN_CSS_DIR,
@@ -63,3 +64,11 @@ def test_the_docs_site_and_the_package_hold_the_same_token_css() -> None:
         if (DOCS_TOKEN_CSS_DIR / f"tokens-{file}.css").read_bytes()
         != (PACKAGE_DESIGN_DIR / f"tokens-{file}.css").read_bytes()
     ] == []
+
+
+def test_each_label_color_is_a_light_token_color() -> None:
+    """A label takes the light hex value of a token (docs/DESIGN.md, "Rules for each target"), so
+    a token change that a label color does not follow fails here."""
+    light = {str(value).removeprefix("#").upper() for value in tokens("light").values()}
+
+    assert sorted(color.name for color in LabelColor if color.value not in light) == []
