@@ -30,8 +30,11 @@ data:
       # workflow uses the model that `ai.decision_model` names, only at a registered decision
       # point, and a deterministic rule goes first (ADR 0020). With `ai.decision_model` empty,
       # every point does what it does today. `devops ai ask-jev` asks Jev directly. This section
-      # refuses a key that it does not know, so `decision_model` goes here only after the image
-      # that knows the key runs in the cluster (#4446).
+      # refuses a key that it does not know, and the Service, runner and MCP server images all
+      # load this ConfigMap. Thus `decision_model` goes here only after all three images know the
+      # key (#4446): #4397 holds the `Live since` comment of its release (Service and runner), and
+      # `kubectl -n devops exec deploy/mcp-server -- devops config get ai.decision_model` prints
+      # an empty value and no error (MCP server). docs/roadmap/stage.md gives the order.
       # A model call is sent at most two times. The gateway already retries a failed call of
       # the group up to 5 times (router_settings.num_retries in k8s/llm/gateway/config.yaml), so
       # a client retry adds a layer on a call that the provider bills (k8s/README.md, LLM Gateway).
