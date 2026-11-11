@@ -978,7 +978,6 @@ def test_ci_workflow_parallelizes_quality_gates() -> None:
         "test",
         "devcontainer",
         "service-image",
-        "service-image-test",
         "runner-image",
     }.issubset(jobs.keys())
     # No `needs:` between them, so they start concurrently rather than in sequence. The one wait is
@@ -990,7 +989,6 @@ def test_ci_workflow_parallelizes_quality_gates() -> None:
             "test-shard",
             "devcontainer",
             "service-image",
-            "service-image-test",
             "runner-image",
         )
     )
@@ -1036,20 +1034,38 @@ def test_service_image_ci_job_invariants() -> None:
 
 
 def test_service_image_test_ci_job_invariants() -> None:
-    """The CI service-image-test job builds the service stage locally and runs the sharded test
-    suite inside `devops-cli-service:local` without pushing or interpolating ${{ in scripts (#1643)."""
+    """The service-image-test job builds the service stage locally and runs the sharded test
+    suite inside `devops-cli-service:local` without pushing or interpolating ${{ in scripts (#1643).
+
+    It is in a workflow of its own, so the native `paths` filter stops a pull request that changes
+    only src/ before a job starts, and no push to a pull request of ci.yml starts it (#4644)."""
     import yaml
 
     ci = yaml.safe_load(Path(".github/workflows/ci.yml").read_text(encoding="utf-8")) or {}
-    job = ci["jobs"]["service-image-test"]
+    workflow = (
+        yaml.safe_load(Path(".github/workflows/service-image-test.yml").read_text(encoding="utf-8"))
+        or {}
+    )
+    job = workflow["jobs"]["service-image-test"]
 
     assert (
+        "service-image-test" in ci["jobs"],
+        workflow[True]["pull_request"]["types"],
+        workflow[True]["pull_request"]["branches"],
+        workflow.get("concurrency"),
         job.get("if"),
         job.get("permissions"),
         job.get("strategy"),
     ) == (
-        "github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'",
-        {"contents": "read", "pull-requests": "read"},
+        False,
+        ["opened", "synchronize", "reopened"],
+        ["main"],
+        {
+            "group": "${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}",
+            "cancel-in-progress": True,
+        },
+        None,
+        {"contents": "read"},
         {"fail-fast": False, "matrix": {"shard": [1, 2, 3, 4, 5, 6]}},
     )
 
@@ -2226,14 +2242,6 @@ def _validate_ci_workflow_parity(workflow_data: dict[str, Any]) -> None:
             "Detect Image Content Changes",
         ): "Git diff to check changed service image sources",
         ("service-image", "Run Service Image Smoke Test"): "Docker container curl/smoke tests",
-        (
-            "service-image-test",
-            "Install Service Image Test Dependencies",
-        ): "Exports locked dev dependencies and installs pinned promtool and kubectl for service image test shards (#1643)",
-        (
-            "service-image-test",
-            "Run Test Suite in Service Image",
-        ): "Runs sharded pytest suite inside built devops-cli-service:local trixie image (#1643)",
         (
             "runner-image",
             "Detect Image Content Changes",
