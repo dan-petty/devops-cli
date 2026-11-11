@@ -10,7 +10,7 @@ import pytest
 
 from devops_cli.roadmap.implement.implement_trace import ImplementTrace
 from devops_cli.roadmap.stores.store import ImplementRecordKey, ItemField
-from tests.support.roadmap_implement import JobWorld
+from tests.support.roadmap_implement import JobWorld, long_run_trace
 from tests.support.roadmap_stage import STAGE_REPO
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
@@ -184,6 +184,19 @@ def test_the_json_option_gives_the_totals_of_the_last_run(cli: Cli, job_world: J
         "outcomes": {"failed": 1, "passed": 1},
         "dropped": 0,
     }
+
+
+def test_the_json_totals_of_a_long_run_count_the_events_that_the_bound_dropped(
+    cli: Cli, job_world: JobWorld
+) -> None:
+    """#4457: the JSON object of a long run gives the tokens and the seconds of the full run."""
+    _with_trace(job_world, long_run_trace().encode())
+
+    result = _explain(cli, job_world, job_world.number, "--json")
+
+    assert result.exit_code == 0, result.output
+    data = json.loads(result.output)
+    assert (data["tokens_total"], data["seconds_total"]) == (2_030_000, 400.0)
 
 
 def test_the_report_without_json_names_the_same_totals(cli: Cli, job_world: JobWorld) -> None:

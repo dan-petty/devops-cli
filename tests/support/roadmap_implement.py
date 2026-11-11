@@ -24,6 +24,7 @@ from pydantic_ai.messages import ModelResponse
 from devops_cli.github.rate_limiter import get_github_rate_limiter
 from devops_cli.roadmap.implement.implement import parse_implement_filters, plan_implement
 from devops_cli.roadmap.implement.implement_run import ImplementApplied, apply_implement
+from devops_cli.roadmap.implement.implement_trace import ImplementTrace
 from devops_cli.roadmap.stores.store import ItemField, StageRecordKey
 from tests.support.fakes.clock import ClockFake
 from tests.support.fakes.github import API, GitHubApiFake, github_json
@@ -296,6 +297,22 @@ def a_fix() -> tuple[ModelResponse, ModelResponse]:
         tool_calls(("write_file", {"path": "src/devops_cli/shout.py", "content": changed})),
         say("Fixed the check."),
     )
+
+
+def long_run_trace() -> ImplementTrace:
+    """The trace of a long run (#4457): 100 model events of 20,000 input tokens, 300 output
+    tokens and 4 seconds, each followed by one or two shell calls (150 in all), then a failed
+    attempt. Its totals are 2,030,000 tokens and 400.0 seconds, and the bound of the trace drops
+    every model event."""
+    trace = ImplementTrace(step="group 1")
+    calls = 0
+    for number in range(100):
+        trace.model_call("model-a", 20_000, 300, 4.0)
+        for _ in range(1 if number % 2 else 2):
+            trace.tool_call("shell", "git", f"{calls:012x}", "ok", status=0)
+            calls += 1
+    trace.attempt(1, "model-a", "limit_reached", "the step made too many requests", repair=False)
+    return trace
 
 
 # ── Pull request 5, as GitHub answers the watch of the job ────────────────────────────────

@@ -11,17 +11,19 @@ holds no argument and no output. A tool call shows as the digest of its masked a
 reader still sees that the model made the same call twice, and no path or secret reaches an issue
 body. A shell call also holds the exit status of its command, when the shell reports one. Every
 text of an event goes through `bounded_text` and `mask_private_hosts` and is escaped to one line.
-The encoded trace is JSON with the events and the count `dropped`. It holds at most
-`CONST_ROADMAP_IMPLEMENT_TRACE_CHARS` characters. The oldest model events go first, as they are
-many and show no progress, then the oldest of the other events, as a run fails at its end. The
-tool, check, retry and attempt events show what the run did, and the spend of the job record keeps
-the tokens of the run (#4393).
+The encoded trace is JSON with the events, the count `dropped` and the sums of the dropped events.
+It holds at most `CONST_ROADMAP_IMPLEMENT_TRACE_CHARS` characters. The oldest model events go
+first, as they are many and show no progress, then the oldest of the other events, as a run fails
+at its end. The tool, check, retry and attempt events show what the run did (#4393). The sums keep
+the tokens and the seconds of the dropped model events, and the repair rounds and the outcomes of
+the dropped attempt events, so the totals of a long run stay whole (#4457).
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
+from collections import Counter
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -45,6 +47,7 @@ __all__ = [
     "TraceDecodeError",
     "TraceEvent",
     "TraceEventKind",
+    "TraceSums",
     "argument_digest",
     "decode",
     "last_failing_command",
@@ -82,6 +85,54 @@ class TraceEvent:
         return {"kind": str(self.kind), "step": self.step, **self.fields}
 
 
+@dataclass(frozen=True)
+class TraceSums:
+    """The sums that the totals of a run take from its events (#4457): the tokens and the seconds
+    of the model events, and the repair rounds and the count of each outcome of the attempt
+    events."""
+
+    tokens: int = 0
+    seconds: float = 0.0
+    repair_rounds: int = 0
+    outcomes: dict[str, int] = field(default_factory=dict[str, int])
+
+    @classmethod
+    def of(cls, events: Iterable[TraceEvent]) -> TraceSums:
+        """The sums of `events`."""
+        tokens, seconds, rounds = 0, 0.0, 0
+        outcomes: Counter[str] = Counter()
+        for event in events:
+            fields = event.fields
+            if event.kind is TraceEventKind.MODEL:
+                tokens += int(fields.get("tokens_in", 0)) + int(fields.get("tokens_out", 0))
+                seconds += float(fields.get("seconds", 0))
+            elif event.kind is TraceEventKind.ATTEMPT:
+                rounds += int(fields.get("next") == "repair")
+                outcomes[str(fields.get("outcome", ""))] += 1
+        return cls(tokens, round(seconds, 1), rounds, dict(outcomes))
+
+    def __add__(self, other: TraceSums) -> TraceSums:
+        return TraceSums(
+            self.tokens + other.tokens,
+            round(self.seconds + other.seconds, 1),
+            self.repair_rounds + other.repair_rounds,
+            dict(Counter(self.outcomes) + Counter(other.outcomes))
+            if other.outcomes
+            else self.outcomes,
+        )
+
+    def dropped_fields(self) -> dict[str, Any]:
+        """The sums as the keys of an encoded trace that hold its dropped events. A sum of zero is
+        not written, so a trace that fits the bound keeps its form."""
+        fields: dict[str, Any] = {
+            "dropped_tokens": self.tokens,
+            "dropped_seconds": self.seconds,
+            "dropped_repair_rounds": self.repair_rounds,
+            "dropped_outcomes": self.outcomes,
+        }
+        return {key: value for key, value in fields.items() if value}
+
+
 def argument_digest(call: ToolCallPart) -> str:
     """The first 12 hexadecimal characters of the SHA-256 of the masked argument of `call`. A
     secret-named value never enters it, as `argument_json` hides it first."""
@@ -101,12 +152,13 @@ def _compact(value: object) -> str:
 @dataclass
 class ImplementTrace:
     """The events of one run, in order. `step` labels the events that follow it. `dropped` counts
-    the events that an earlier `encode` took out, so a trace that is read back and extended keeps
-    its count."""
+    the events that an earlier `encode` took out, and `dropped_sums` holds their sums, so a trace
+    that is read back and extended keeps both."""
 
     step: str = ""
     events: list[TraceEvent] = field(default_factory=list[TraceEvent])
     dropped: int = 0
+    dropped_sums: TraceSums = field(default_factory=TraceSums)
 
     def _add(self, kind: TraceEventKind, **fields: Any) -> None:
         self.events.append(TraceEvent(kind, _line(self.step, 64), fields))
@@ -185,10 +237,11 @@ class ImplementTrace:
         self._add(TraceEventKind.ATTEMPT, **fields)
 
     def encode(self) -> str:
-        """The trace as JSON, `{"events": [...], "dropped": n}`, not longer than
-        `CONST_ROADMAP_IMPLEMENT_TRACE_CHARS` characters. The oldest model events go first, then
-        the oldest of the other events (#4393). The kept events stay in the order of the run, and
-        the others are added to `dropped`."""
+        """The trace as JSON, `{"events": [...], "dropped": n}` and the sums of the dropped
+        events, not longer than `CONST_ROADMAP_IMPLEMENT_TRACE_CHARS` characters. The oldest model
+        events go first, then the oldest of the other events (#4393). The kept events stay in the
+        order of the run, the others are added to `dropped`, and their sums to the dropped sums
+        (#4457)."""
         pieces = [_compact(event.as_dict()) for event in self.events]
         total = sum(len(piece) + 1 for piece in pieces)
         first = sorted(
@@ -196,17 +249,21 @@ class ImplementTrace:
             key=lambda index: self.events[index].kind is not TraceEventKind.MODEL,
         )
         gone: set[int] = set()
+        sums = self.dropped_sums
         for index in first:
-            if total + self._frame(len(gone)) <= CONST_ROADMAP_IMPLEMENT_TRACE_CHARS:
+            if total + len(self._text("", len(gone), sums)) <= CONST_ROADMAP_IMPLEMENT_TRACE_CHARS:
                 break
             total -= len(pieces[index]) + 1
             gone.add(index)
+            sums += TraceSums.of([self.events[index]])
         kept = ",".join(piece for index, piece in enumerate(pieces) if index not in gone)
-        return f'{{"events":[{kept}],"dropped":{self.dropped + len(gone)}}}'
+        return self._text(kept, len(gone), sums)
 
-    def _frame(self, gone: int) -> int:
-        """The characters of the JSON around the events when `gone` events are dropped."""
-        return len(f'{{"events":[],"dropped":{self.dropped + gone}}}')
+    def _text(self, kept: str, gone: int, sums: TraceSums) -> str:
+        """The JSON of the trace with the `kept` events, when `gone` events are dropped and `sums`
+        holds the sums of all dropped events."""
+        tail = _compact(sums.dropped_fields())[1:-1]
+        return f'{{"events":[{kept}],"dropped":{self.dropped + gone}{"," if tail else ""}{tail}}}'
 
 
 def decode(text: str) -> ImplementTrace:
@@ -219,7 +276,7 @@ def decode(text: str) -> ImplementTrace:
     if not isinstance(data, dict) or not isinstance(data.get("events"), list):
         raise TraceDecodeError("no list of events")
     dropped = data.get("dropped", 0)
-    if not isinstance(dropped, int) or isinstance(dropped, bool):
+    if not _whole(dropped):
         raise TraceDecodeError("dropped is not a number")
     events: list[TraceEvent] = []
     for raw in data["events"]:
@@ -231,7 +288,27 @@ def decode(text: str) -> ImplementTrace:
             raise TraceDecodeError(f"unknown kind {raw.get('kind')!r}") from error
         fields = {key: value for key, value in raw.items() if key not in ("kind", "step")}
         events.append(TraceEvent(kind, raw["step"], fields))
-    return ImplementTrace(events=events, dropped=dropped)
+    return ImplementTrace(events=events, dropped=dropped, dropped_sums=_dropped_sums(data))
+
+
+def _whole(value: object) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _dropped_sums(data: dict[str, Any]) -> TraceSums:
+    """The sums of the dropped events of an encoded trace (#4457). A trace with no such key, as
+    one from before #4457, has sums of zero."""
+    tokens = data.get("dropped_tokens", 0)
+    seconds = data.get("dropped_seconds", 0)
+    rounds = data.get("dropped_repair_rounds", 0)
+    outcomes = data.get("dropped_outcomes", {})
+    if not (_whole(tokens) and _whole(rounds) and (_whole(seconds) or isinstance(seconds, float))):
+        raise TraceDecodeError("a dropped sum is not a number")
+    if not isinstance(outcomes, dict) or not all(_whole(count) for count in outcomes.values()):
+        raise TraceDecodeError("dropped_outcomes is not a count for each outcome")
+    return TraceSums(
+        tokens, float(seconds), rounds, {str(key): count for key, count in outcomes.items()}
+    )
 
 
 @dataclass(frozen=True)
