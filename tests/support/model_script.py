@@ -5,13 +5,16 @@ every request after that. A reply is a `ModelResponse`, an exception that the re
 `InStream` error, which the request raises after its stream has begun, or `Hang`, which never
 answers. The model streams, as the harness's `Coder` and the jobs' runs ask for it. The script
 keeps the messages of each request, the names of the function tools each request offered, and the
-model settings of each request.
+model settings of each request. A script with `cached` input tokens gives each streamed reply that
+many more input tokens, all read from the cache of the provider, as a gateway reply reports them
+when the provider caches the prefix of the conversation (#4387).
 """
 
 from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator, Callable, Mapping
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Any
 
@@ -23,7 +26,9 @@ from pydantic_ai.messages import (
     ToolCallPart,
     ToolReturnPart,
 )
+from pydantic_ai.models import StreamedResponse
 from pydantic_ai.models.function import AgentInfo, DeltaToolCall, DeltaToolCalls, FunctionModel
+from pydantic_ai.usage import RequestUsage
 
 
 def tool_calls(*calls: tuple[str, dict[str, Any]]) -> ModelResponse:
@@ -57,6 +62,21 @@ class _Hanging(Exception):
     """Raised inside the script to tell the stream that the request must hang."""
 
 
+class _CachedModel(FunctionModel):
+    """A `FunctionModel` whose streamed replies report `cached` more input tokens, all of them read
+    from the cache of the provider."""
+
+    def __init__(self, script: ModelScript, cached: int) -> None:
+        super().__init__(script, stream_function=script.stream)
+        self.cached = cached
+
+    @asynccontextmanager
+    async def request_stream(self, *args: Any, **kwargs: Any) -> AsyncIterator[StreamedResponse]:
+        async with super().request_stream(*args, **kwargs) as response:
+            response._usage += RequestUsage(input_tokens=self.cached, cache_read_tokens=self.cached)
+            yield response
+
+
 class ModelScript:
     """The scripted replies of a model, and what the model was asked."""
 
@@ -64,11 +84,14 @@ class ModelScript:
         self,
         *replies: ModelResponse | Exception | InStream | Hang,
         effects: Mapping[int, Callable[[], None]] | None = None,
+        cached: int = 0,
     ) -> None:
         """`effects` maps the number of a request to what the agent's shell would have done by
-        then, such as a commit. It runs before that request is answered."""
+        then, such as a commit. It runs before that request is answered. `cached` is the input
+        tokens of each streamed reply that the provider read from its cache."""
         self.replies = replies
         self.effects = dict(effects or {})
+        self.cached = cached
         self.seen: list[list[ModelMessage]] = []
         self.tools_offered: list[list[str]] = []
         self.settings_seen: list[dict[str, Any]] = []
@@ -121,6 +144,8 @@ class ModelScript:
 
     def model(self) -> FunctionModel:
         """A `FunctionModel` that answers through this script, streamed or not."""
+        if self.cached:
+            return _CachedModel(self, self.cached)
         return FunctionModel(self, stream_function=self.stream)
 
     def tool_answers(self) -> list[str]:

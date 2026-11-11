@@ -1039,17 +1039,17 @@ class RoadmapImplementConfig(BaseModel):
         ge=0,
     )
     step_token_budget: Annotated[int, Variable()] = Field(
-        description="The most input tokens that the replies of one implementation step may report, summed over all its requests, its repair rounds and its tiers. Before each request the step compares its count with this budget. A step that has spent it gets one extension when its last tool calls show progress (see `step_token_ceiling`). Otherwise, and at the end of the extension, it stops with the class `limit_reached`, and the stop names this setting",
+        description="The most new tokens that the replies of one implementation step may report, summed over all its requests, its repair rounds and its tiers. The new tokens of a reply are its input tokens that the provider did not read from its cache, and its output tokens. Before each request the step compares its count with this budget. A step that has spent it gets one extension when its last tool calls show progress (see `step_token_ceiling`). Otherwise, and at the end of the extension, it stops with the class `limit_reached`, and the stop names this setting",
         default=DEFAULT_ROADMAP_IMPLEMENT_STEP_TOKEN_BUDGET,
         ge=1,
     )
     step_token_ceiling: Annotated[int | None, Variable()] = Field(
-        description="The most input tokens that one implementation step may reach with its one extension. A step that reaches `step_token_budget` gets one extension of half the budget when its last 20 tool calls hold at least one successful edit and at most 3 refused commands (the rule `implement.extension`), and the extension stops at this ceiling. It must not be below `step_token_budget`. When no config file and no variable sets it, it is twice `step_token_budget`, also after a change of the budget. The item budget still holds",
+        description="The most new tokens (see `step_token_budget`) that one implementation step may reach with its one extension. A step that reaches `step_token_budget` gets one extension of half the budget when its last 20 tool calls hold at least one successful edit and at most 3 refused commands (the rule `implement.extension`), and the extension stops at this ceiling. It must not be below `step_token_budget`. When no config file and no variable sets it, it is twice `step_token_budget`, also after a change of the budget. The item budget still holds",
         default=None,
         ge=1,
     )
     item_token_budget: Annotated[int, Variable()] = Field(
-        description="The most input tokens that all the steps of one run of an item may use, the fix steps included. A step that starts after the budget is spent makes no request, and the item stops with the class `limit_reached`. A new run after a stop starts a new count",
+        description="The most new tokens (see `step_token_budget`) that all the steps of one run of an item may use, the fix steps included. A step that starts after the budget is spent makes no request, and the item stops with the class `limit_reached`. A new run after a stop starts a new count",
         default=DEFAULT_ROADMAP_IMPLEMENT_ITEM_TOKEN_BUDGET,
         ge=1,
     )

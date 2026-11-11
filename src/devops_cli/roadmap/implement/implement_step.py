@@ -451,12 +451,15 @@ class StepStatus(StrEnum):
 
 
 class TierSpend(BaseModel):
-    """The requests and tokens that one tier of the ladder spent for a step (#3060)."""
+    """The requests and tokens that one tier of the ladder spent for a step (#3060).
+    `cache_read_tokens` is the part of `input_tokens` that the provider read from its cache
+    (#4387)."""
 
     model_config = ConfigDict(frozen=True)
 
     requests: int = 0
     input_tokens: int = 0
+    cache_read_tokens: int = 0
     output_tokens: int = 0
 
     def plus(self, run: _Run) -> TierSpend:
@@ -464,6 +467,7 @@ class TierSpend(BaseModel):
         return TierSpend(
             requests=self.requests + run.requests,
             input_tokens=self.input_tokens + run.input_tokens,
+            cache_read_tokens=self.cache_read_tokens + run.cache_read_tokens,
             output_tokens=self.output_tokens + run.output_tokens,
         )
 
@@ -483,7 +487,8 @@ class StepOutcome(BaseModel):
     0 when no request got a reply. `planned_requests` are the requests a dry run lists. `fail_to_pass` is the replay of a behavior group's tests on its base commit,
     and `verified` holds the verify commands of a group of kind `other`, of a done step (#3042).
     `extension` is the one extension of the token budget that the step got, with the counts that
-    gave it (#4394), or None."""
+    gave it (#4394), or None. `cache_read_tokens` is the part of `input_tokens` that the provider
+    read from its cache (#4387)."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -499,6 +504,7 @@ class StepOutcome(BaseModel):
     requests: int = 0
     tool_calls: int = 0
     input_tokens: int = 0
+    cache_read_tokens: int = 0
     output_tokens: int = 0
     removed: tuple[str, ...] = ()
     repair_rounds: int = 0
@@ -685,13 +691,15 @@ class _Run:
     `reason`: the output cap, or what the classifier reads in the text of the error (#3476). The
     tier decision and the stop of the step read this one class. `first_request_tokens` is the input
     tokens of the first request that got a reply, which is the size of that request (#3499), and 0
-    when no request got one."""
+    when no request got one. `cache_read_tokens` is the part of `input_tokens` that the provider
+    read from its cache (#4387)."""
 
     reason: str
     last_message: str
     requests: int
     input_tokens: int
     output_tokens: int
+    cache_read_tokens: int = 0
     tool_calls: int = 0
     conversation: Conversation | None = None
     resend: Conversation | None = None
@@ -709,6 +717,7 @@ class _Run:
             requests=self.requests + later.requests,
             input_tokens=self.input_tokens + later.input_tokens,
             output_tokens=self.output_tokens + later.output_tokens,
+            cache_read_tokens=self.cache_read_tokens + later.cache_read_tokens,
             first_request_tokens=self.first_request_tokens or later.first_request_tokens,
             tool_calls=self.tool_calls + later.tool_calls,
             conversation=later.conversation,
@@ -917,6 +926,7 @@ def _run_turn(
         requests=len(replies),
         input_tokens=sum(reply.usage.input_tokens for reply in replies),
         output_tokens=sum(reply.usage.output_tokens for reply in replies),
+        cache_read_tokens=sum(reply.usage.cache_read_tokens for reply in replies),
         first_request_tokens=replies[0].usage.input_tokens if replies else 0,
         tool_calls=_tool_calls(replies),
         conversation=kept,
@@ -1991,6 +2001,7 @@ def _attempt(
         requests=total.requests,
         tool_calls=tool_calls,
         input_tokens=total.input_tokens,
+        cache_read_tokens=total.cache_read_tokens,
         output_tokens=total.output_tokens,
         first_request_tokens=first_request,
         removed=tuple(log.removed),
