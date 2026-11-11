@@ -854,8 +854,9 @@ class CICommandHelp:
     )
     job_time_repo: str = "Repository as owner/name. Default: the origin of the current checkout."
     job_time_job: str = (
-        "Name of the check whose time is read: the job of that name, timed from the first start "
-        "of it or of its shard jobs named '<name> (...)'."
+        "Name of the check whose time is read: the run time of the job of that name plus the run "
+        "time of the slowest of its shard jobs named '<name> (...)'. Time in the queue is shown "
+        "but not counted."
     )
     job_time_workflow: str = "Workflow file that holds the job."
     job_time_branch: str = "Branch whose push runs are read."

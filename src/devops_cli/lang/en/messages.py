@@ -1842,6 +1842,10 @@ class CIMessages:
         "Over the limit: the last {count} runs of {job} took {mean:.0f} s on average, "
         "and the limit is {limit:.0f} s."
     )
+    job_time_queue: str = (
+        "The jobs of {job} also waited {queue:.0f} s on average for a runner. "
+        "The limit does not count this time."
+    )
     job_time_short: str = (
         "Only {found} of the last {wanted} runs of {job} could be read from {workflow} on "
         "{branch}, so the mean says nothing yet."
@@ -3814,6 +3818,17 @@ class RoadmapMessages:
         "The release ledger {path} can't be read ({reason}), so the release_comments row does "
         "not run. Repair it, or remove it: the next round then reads the comments of each issue "
         "and posts none twice."
+    )
+    pr_conflicts_comment: str = (
+        "<!-- devops roadmap pr_conflicts -->\n"
+        "Pull request #{number} has merge conflicts with `{base}` at commit `{head}`. GitHub "
+        "cannot merge it. Rebase the branch onto the current `{base}`, resolve the conflicts and "
+        "push the branch."
+    )
+    pr_conflicts_ledger_unreadable: str = (
+        "The conflict ledger {path} can't be read ({reason}), so the pr_conflicts row does not "
+        "run. Repair it, or remove it: the next round then comments again on each pull request "
+        "that has conflicts."
     )
     release_roll_failed: str = (
         "the release_comments row could not check the images of {count} release(s): {releases}"

@@ -2500,8 +2500,11 @@ def _print_job_time_report(report: JobTimeReport, *, workflow: str, branch: str)
     """Show the seconds of each run read, then say whether the mean is inside the limit."""
     print_table(
         title=MESSAGES.ci.job_time_title.format(job=report.job, workflow=workflow, branch=branch),
-        columns=["Run ID", "Seconds"],
-        rows=[[str(run.run_id), f"{run.seconds:.0f}"] for run in report.runs],
+        columns=["Run ID", "Seconds", "Queue seconds"],
+        rows=[
+            [str(run.run_id), f"{run.seconds:.0f}", f"{run.queue_seconds:.0f}"]
+            for run in report.runs
+        ],
     )
     if not report.complete:
         print_error(
@@ -2520,6 +2523,8 @@ def _print_job_time_report(report: JobTimeReport, *, workflow: str, branch: str)
         "mean": report.mean_seconds,
         "limit": report.limit_seconds,
     }
+    queue = MESSAGES.ci.job_time_queue.format(job=report.job, queue=report.mean_queue_seconds)
+    print_info(queue, safe=True)
     if report.passes:
         print_success(MESSAGES.ci.job_time_ok.format(**figures))
     else:

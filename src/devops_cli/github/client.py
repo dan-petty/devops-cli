@@ -77,7 +77,9 @@ class PullStatus(BaseModel):
     """Whether a pull request is open, a draft, or merged (#2665), the commit of its head
     (#2865), the labels it holds (#3264), its title and body (#3395), and when it closed
     (#3503). `head_sha` is empty when GitHub names no head, and `closed_at` is None for a pull
-    request that is open."""
+    request that is open. `mergeable` and `mergeable_state` are GitHub's merge state, and
+    `base_ref` and `default_branch` are the branch it merges into and the default branch of
+    that repository (#4027)."""
 
     model_config = ConfigDict(validate_by_name=True, validate_by_alias=True)
 
@@ -90,6 +92,12 @@ class PullStatus(BaseModel):
     head_ref: str = Field(default="", validation_alias=AliasPath("head", "ref"))
     labels: tuple[str, ...] = ()
     closed_at: datetime | None = None
+    mergeable: bool | None = None
+    mergeable_state: str = ""
+    base_ref: str = Field(default="", validation_alias=AliasPath("base", "ref"))
+    default_branch: str = Field(
+        default="", validation_alias=AliasPath("base", "repo", "default_branch")
+    )
 
     @field_validator("labels", mode="before")
     @classmethod
@@ -240,10 +248,12 @@ class _OpenItemPage(BaseModel):
 
 
 class JobRunTime(BaseModel):
-    """How long a job took in one workflow run, from its start to its end (#2699)."""
+    """How long a check ran in one workflow run (#2699), and how long its jobs waited in the queue
+    for a runner (#4634). The limit applies to `seconds` only."""
 
     run_id: int
     seconds: float
+    queue_seconds: float = 0.0
 
 
 # The conclusions of a job that ran to an end: it passed, failed, or hit its time limit. A skipped or
@@ -264,6 +274,13 @@ class _JobTiming(BaseModel):
     conclusion: str | None = None
     started_at: datetime | None = None
     completed_at: datetime | None = None
+
+    @property
+    def ran_seconds(self) -> float | None:
+        """The seconds from the start of the job on its runner to its end; None without both."""
+        if self.started_at is None or self.completed_at is None:
+            return None
+        return (self.completed_at - self.started_at).total_seconds()
 
 
 class _RunJobs(BaseModel):
@@ -510,8 +527,8 @@ class GitHubClient:
     def get_job_run_times(
         self, repo: str, *, workflow: str, branch: str, job: str, count: int
     ) -> list[JobRunTime]:
-        """How long `job` took in each of the last `count` completed `push` runs of `workflow` on
-        `branch` where it ran to an end, newest first (#2699).
+        """How long `job` ran, and how long it waited in the queue, in each of the last `count`
+        completed `push` runs of `workflow` on `branch` where it ran to an end, newest first (#2699).
 
         The job's own conclusion decides, not the run's. A job that ended `success`, `failure` or
         `timed_out` counts, so a run that failed for another job, such as the guard that reads
@@ -532,20 +549,23 @@ class GitHubClient:
         times: list[JobRunTime] = []
         for item in self._session.paginate(listing, iterable_key="workflow_runs"):
             run = _read_as(_WorkflowRunRef, item, path=listing)
-            seconds = self._job_seconds(repo, run.id, job)
-            if seconds is not None:
-                times.append(JobRunTime(run_id=run.id, seconds=seconds))
+            took = self._job_run_time(repo, run.id, job)
+            if took is not None:
+                times.append(took)
             if len(times) >= count:
                 break
         return times
 
-    def _job_seconds(self, repo: str, run_id: int, job: str) -> float | None:
-        """The seconds the check `job` took in the run `run_id`; None if it did not run to an end.
+    def _job_run_time(self, repo: str, run_id: int, job: str) -> JobRunTime | None:
+        """How long the check `job` ran in the run `run_id`, and how long it waited in the queue;
+        None if it did not run to an end.
 
         A check that runs in shards (#3050) is the job `job`, which joins them, and the shard jobs
-        named `<job> (…)`. Its time runs from the first start of any of them to the end of `job`:
-        the join lasts a minute, and its own time would hide the wait for the shards. A run with
-        no shard job is timed from the start of `job`.
+        named `<job> (…)`. The shards run side by side and the join starts after the last of them,
+        so the check ran for its slowest shard plus the join. The rest of the span, from the first
+        start of any of them to the end of `job`, is time in the queue: the account runs a fixed
+        number of jobs at one time, so a shard or the join can wait long for a runner (#4634). A
+        run with no shard job ran for the time of `job` alone.
         """
         path = _repo_path(repo, f"actions/runs/{run_id}/jobs?per_page={DEFAULT_GH_REST_PER_PAGE}")
         jobs = _read_as(_RunJobs, self._session.rest("GET", path), path=path).jobs
@@ -554,14 +574,16 @@ class GitHubClient:
         )
         if last is None or last.started_at is None or last.completed_at is None:
             return None
-        starts = [
-            j.started_at
+        shards = [
+            j
             for j in jobs
-            if j.started_at is not None
-            and j.conclusion != "skipped"
-            and (j is last or j.name.startswith(f"{job} ("))
+            if j.name.startswith(f"{job} (") and j.conclusion != "skipped" and j.started_at
         ]
-        return (last.completed_at - min(starts)).total_seconds()
+        slowest = max((s for j in shards if (s := j.ran_seconds) is not None), default=0.0)
+        seconds = slowest + (last.completed_at - last.started_at).total_seconds()
+        first = min([last.started_at, *(j.started_at for j in shards if j.started_at)])
+        span = (last.completed_at - first).total_seconds()
+        return JobRunTime(run_id=run_id, seconds=seconds, queue_seconds=span - seconds)
 
     # ── Issue reads of the stage planner (#3238) ──────────────────────────────
 

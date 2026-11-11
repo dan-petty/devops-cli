@@ -238,8 +238,8 @@ def test_a_run_with_no_lane_adds_the_row_seconds_sample_too(
 
 
 def test_the_row_seconds_series_of_a_repository_are_bounded_by_the_rows_and_results() -> None:
-    """The label `row` holds one of the 11 rows of the due table and `result` one of 3 values, so
-    one repository adds at most 33 series. The histogram is exponential, which Prometheus 3 stores
+    """The label `row` holds one of the 12 rows of the due table and `result` one of 3 values, so
+    one repository adds at most 36 series. The histogram is exponential, which Prometheus 3 stores
     as one native histogram per series, so the buckets add none."""
     from devops_cli.config.constants import (
         CONST_SERVICE_JOB_RESULT_ERROR,
@@ -253,7 +253,7 @@ def test_the_row_seconds_series_of_a_repository_are_bounded_by_the_rows_and_resu
         CONST_SERVICE_JOB_RESULT_STOPPED,
     }
 
-    assert (len({row.name for row in DEFAULT_DUE_TABLE}), len(results)) == (11, 3)
+    assert (len({row.name for row in DEFAULT_DUE_TABLE}), len(results)) == (12, 3)
 
 
 def test_the_row_seconds_instrument_is_declared_and_documented() -> None:

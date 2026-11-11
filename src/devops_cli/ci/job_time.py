@@ -3,7 +3,7 @@
 AGENTS.md rule 5 makes a check that averages more than 5 minutes a P0 bug. A pull request cannot
 show that: its own run is one sample. The check reads the last runs of the job on the branch from
 GitHub's Actions API instead, and passes only when it read all that it asked for and their mean is
-inside the limit.
+inside the limit. The time in the queue is reported, but the limit does not apply to it (#4634).
 """
 
 from __future__ import annotations
@@ -28,6 +28,12 @@ class JobTimeReport:
     def mean_seconds(self) -> float:
         """The mean of the runs read; 0 when none was read."""
         return sum(run.seconds for run in self.runs) / len(self.runs) if self.runs else 0.0
+
+    @property
+    def mean_queue_seconds(self) -> float:
+        """The mean time the jobs of the runs read waited in the queue; 0 when none was read. The
+        limit does not apply to it (#4634)."""
+        return sum(run.queue_seconds for run in self.runs) / len(self.runs) if self.runs else 0.0
 
     @property
     def complete(self) -> bool:

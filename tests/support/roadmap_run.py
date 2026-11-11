@@ -507,6 +507,7 @@ DEFAULT_JOB_NAMES = (
     "release_comments",
     "github_status",
     "cloudflare_status",
+    "pr_conflicts",
     "intake",
     "refine",
 )
