@@ -4289,7 +4289,7 @@ devops ai review path [OPTIONS] <targets>
 | `--debounce-ms` | `integer` | `500` | Debounce window in milliseconds for filesystem watcher. |
 | `--concurrency`, `-c` | `integer` | - | Max concurrent workers for parallel review. Through the gateway it is capped at the gateway's backend slots. |
 | `--parallel` / `--no-parallel` | `boolean` | `True` | Execute multi-file review stages concurrently using async worker pool. |
-| `--logfire` / `--no-logfire` | `boolean` | - | Enable or disable Logfire structured observability and agent turn tracing. |
+| `--logfire` / `--no-logfire` | `boolean` | - | Turn the local Logfire SDK on or off for the agent spans. Its spans go to the collector, never to Logfire's cloud. |
 
 #### `devops ai review branch`
 
@@ -4327,7 +4327,7 @@ devops ai review branch [OPTIONS] <branch_name>
 | `--append-cache` | `boolean` | - | Append cached response to the LLM prompt as context instead of using it directly as the final response. |
 | `--concurrency`, `-c` | `integer` | - | Max concurrent workers for parallel review. Through the gateway it is capped at the gateway's backend slots. |
 | `--parallel` / `--no-parallel` | `boolean` | `True` | Execute multi-file review stages concurrently using async worker pool. |
-| `--logfire` / `--no-logfire` | `boolean` | - | Enable or disable Logfire structured observability and agent turn tracing. |
+| `--logfire` / `--no-logfire` | `boolean` | - | Turn the local Logfire SDK on or off for the agent spans. Its spans go to the collector, never to Logfire's cloud. |
 
 #### `devops ai review pr`
 
@@ -4365,7 +4365,7 @@ devops ai review pr [OPTIONS] <number>
 | `--append-cache` | `boolean` | - | Append cached response to the LLM prompt as context instead of using it directly as the final response. |
 | `--concurrency`, `-c` | `integer` | - | Max concurrent workers for parallel review. Through the gateway it is capped at the gateway's backend slots. |
 | `--parallel` / `--no-parallel` | `boolean` | `True` | Execute multi-file review stages concurrently using async worker pool. |
-| `--logfire` / `--no-logfire` | `boolean` | - | Enable or disable Logfire structured observability and agent turn tracing. |
+| `--logfire` / `--no-logfire` | `boolean` | - | Turn the local Logfire SDK on or off for the agent spans. Its spans go to the collector, never to Logfire's cloud. |
 
 #### `devops ai review findings`
 
@@ -6163,7 +6163,7 @@ devops review path [OPTIONS] <targets>
 | `--debounce-ms` | `integer` | `500` | Debounce window in milliseconds for filesystem watcher. |
 | `--concurrency`, `-c` | `integer` | - | Max concurrent workers for parallel review. Through the gateway it is capped at the gateway's backend slots. |
 | `--parallel` / `--no-parallel` | `boolean` | `True` | Execute multi-file review stages concurrently using async worker pool. |
-| `--logfire` / `--no-logfire` | `boolean` | - | Enable or disable Logfire structured observability and agent turn tracing. |
+| `--logfire` / `--no-logfire` | `boolean` | - | Turn the local Logfire SDK on or off for the agent spans. Its spans go to the collector, never to Logfire's cloud. |
 
 ### `devops review branch`
 
@@ -6201,7 +6201,7 @@ devops review branch [OPTIONS] <branch_name>
 | `--append-cache` | `boolean` | - | Append cached response to the LLM prompt as context instead of using it directly as the final response. |
 | `--concurrency`, `-c` | `integer` | - | Max concurrent workers for parallel review. Through the gateway it is capped at the gateway's backend slots. |
 | `--parallel` / `--no-parallel` | `boolean` | `True` | Execute multi-file review stages concurrently using async worker pool. |
-| `--logfire` / `--no-logfire` | `boolean` | - | Enable or disable Logfire structured observability and agent turn tracing. |
+| `--logfire` / `--no-logfire` | `boolean` | - | Turn the local Logfire SDK on or off for the agent spans. Its spans go to the collector, never to Logfire's cloud. |
 
 ### `devops review pr`
 
@@ -6239,7 +6239,7 @@ devops review pr [OPTIONS] <number>
 | `--append-cache` | `boolean` | - | Append cached response to the LLM prompt as context instead of using it directly as the final response. |
 | `--concurrency`, `-c` | `integer` | - | Max concurrent workers for parallel review. Through the gateway it is capped at the gateway's backend slots. |
 | `--parallel` / `--no-parallel` | `boolean` | `True` | Execute multi-file review stages concurrently using async worker pool. |
-| `--logfire` / `--no-logfire` | `boolean` | - | Enable or disable Logfire structured observability and agent turn tracing. |
+| `--logfire` / `--no-logfire` | `boolean` | - | Turn the local Logfire SDK on or off for the agent spans. Its spans go to the collector, never to Logfire's cloud. |
 
 ### `devops review findings`
 
@@ -9542,7 +9542,7 @@ devops telemetry connect [OPTIONS]
 
 ### `devops telemetry logfire`
 
-**Display Logfire structured observability bridge status and token metrics.**
+**Display the status of the Logfire bridge.**
 
 ```bash
 devops telemetry logfire [OPTIONS]
@@ -9568,7 +9568,6 @@ devops telemetry test [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--name`, `-n` | `string` | `devops-cli.manual_test` | Name for test span. |
-| `--logfire` | `boolean` | - | Emit test span via Logfire bridge. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops telemetry profile`

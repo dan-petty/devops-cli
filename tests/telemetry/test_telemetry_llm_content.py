@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Generator
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from typing import Any
 from unittest.mock import patch
 
@@ -134,7 +135,7 @@ def test_logfire_bridge_scrubbing_and_content_inclusion() -> None:
         patch("logfire.configure") as mock_configure,
         patch("logfire.instrument_pydantic_ai") as mock_pydantic_ai,
     ):
-        bridge.configure(settings=settings_false, token="token-test", send_to_logfire=True)
+        bridge.configure(settings=settings_false)
         mock_configure.assert_called_once()
         scrubbing = mock_configure.call_args.kwargs.get("scrubbing")
         assert isinstance(scrubbing, logfire.ScrubbingOptions)
@@ -151,7 +152,7 @@ def test_logfire_bridge_scrubbing_and_content_inclusion() -> None:
         patch("logfire.configure") as mock_configure,
         patch("logfire.instrument_pydantic_ai") as mock_pydantic_ai,
     ):
-        bridge.configure(settings=settings_true, token="token-test", send_to_logfire=True)
+        bridge.configure(settings=settings_true)
         mock_configure.assert_called_once()
         scrubbing = mock_configure.call_args.kwargs.get("scrubbing")
         assert isinstance(scrubbing, logfire.ScrubbingOptions)
@@ -214,7 +215,7 @@ def _has_prompt_preview_host(host: str) -> bool:
 
 
 def test_pydantic_agent_keeps_private_host_out_of_telemetry_when_capture_off(
-    web: WebFake, config: Any, otlp: Any
+    web: WebFake, config: Any, otlp: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Drive LLMClient and assert hostname is in no Logfire or tracer attribute."""
     captured_logfire_spans: list[Any] = []
@@ -225,6 +226,10 @@ def test_pydantic_agent_keeps_private_host_out_of_telemetry_when_capture_off(
     clear_span_buffer()
     import logfire
 
+    # logfire.configure patches `submit` of both executors for the whole process, so a span
+    # context reaches each later worker thread; the originals come back at teardown.
+    monkeypatch.setattr(ThreadPoolExecutor, "submit", ThreadPoolExecutor.submit)
+    monkeypatch.setattr(ProcessPoolExecutor, "submit", ProcessPoolExecutor.submit)
     logfire.configure(
         send_to_logfire=False,
         additional_span_processors=[_CapturingSpanProcessor(captured_logfire_spans)],

@@ -17,8 +17,9 @@ from __future__ import annotations
 
 import os
 import secrets
+import threading
 from dataclasses import dataclass
-from typing import Final
+from typing import TYPE_CHECKING, Final
 
 from devops_cli.config.constants import (
     CONST_SPAN_ID_HEX_LENGTH,
@@ -35,7 +36,14 @@ from devops_cli.config.constants import (
     CONST_TRACESTATE_MAX_MEMBERS,
 )
 
+if TYPE_CHECKING:
+    from opentelemetry.propagators.textmap import TextMapPropagator
+
 _HEX_DIGITS: Final[frozenset[str]] = frozenset("0123456789abcdef")
+
+_API_PROPAGATION_LOCK = threading.Lock()
+# The global propagator that `confine_api_propagation` replaced, or None before it runs.
+_REPLACED_PROPAGATOR: TextMapPropagator | None = None
 
 
 def _is_lower_hex(value: str, length: int) -> bool:
@@ -220,8 +228,70 @@ def extract_env(env: dict[str, str] | None = None) -> TraceContext | None:
     return parse_traceparent(raw, state)
 
 
+def confine_api_propagation() -> None:
+    """Make the global propagator of the OpenTelemetry API inject nothing, once.
+
+    A library injects the context of the open span through this propagator: the MCP SDK and
+    fastmcp put `traceparent` and `baggage` in the `_meta` of each MCP request. Trace context and
+    baggage go to the LLM gateway only, through the propagator that
+    `library_spans.instrument_gateway_client` gives the gateway client. The propagator still
+    extracts with the propagator it replaces, because a server span, such as FastAPI's, attaches
+    the context that it extracts. A process calls this before it puts a span in the API context
+    or sets a tracer provider.
+    """
+    global _REPLACED_PROPAGATOR
+    if _REPLACED_PROPAGATOR is not None:
+        return
+    from opentelemetry import propagate
+    from opentelemetry.context import Context
+    from opentelemetry.propagators import textmap
+
+    with _API_PROPAGATION_LOCK:
+        if _REPLACED_PROPAGATOR is not None:
+            return
+        incoming = propagate.get_global_textmap()
+
+        class _ExtractOnlyPropagator(textmap.TextMapPropagator):
+            """Extract with the replaced propagator; inject nothing."""
+
+            def extract(
+                self,
+                carrier: textmap.CarrierT,
+                context: Context | None = None,
+                getter: textmap.Getter[textmap.CarrierT] = textmap.default_getter,
+            ) -> Context:
+                return incoming.extract(carrier, context, getter=getter)
+
+            def inject(
+                self,
+                carrier: textmap.CarrierT,
+                context: Context | None = None,
+                setter: textmap.Setter[textmap.CarrierT] = textmap.default_setter,
+            ) -> None:
+                return None
+
+            @property
+            def fields(self) -> set[str]:
+                return set()
+
+        propagate.set_global_textmap(_ExtractOnlyPropagator())
+        _REPLACED_PROPAGATOR = incoming
+
+
+def reset_api_propagation() -> None:
+    """Put back the global propagator that `confine_api_propagation` replaced (used for testing)."""
+    global _REPLACED_PROPAGATOR
+    with _API_PROPAGATION_LOCK:
+        replaced, _REPLACED_PROPAGATOR = _REPLACED_PROPAGATOR, None
+    if replaced is not None:
+        from opentelemetry import propagate
+
+        propagate.set_global_textmap(replaced)
+
+
 __all__ = [
     "TraceContext",
+    "confine_api_propagation",
     "extract_env",
     "extract_headers",
     "generate_span_id",
@@ -230,5 +300,6 @@ __all__ = [
     "inject_headers",
     "new_trace_context",
     "parse_traceparent",
+    "reset_api_propagation",
     "sanitize_tracestate",
 ]

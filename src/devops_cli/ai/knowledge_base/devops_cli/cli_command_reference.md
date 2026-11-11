@@ -81,7 +81,7 @@ This document provides an overview of the main command groups implemented in `de
 | | `devops tls homelab` | Generate complete Homelab TLS bundle | `--output-dir`, `--domain`, `--ip` |
 | | `devops tls inspect` | Inspect X.509 certificate expiry & SANs | `cert_file` |
 | **`telemetry`** | `devops telemetry status` | Check OpenTelemetry & Tempo status | |
-| | `devops telemetry test` | Emit a test span and metric to the collector | `--name`, `--logfire` |
+| | `devops telemetry test` | Emit a test span and metric to the collector | `--name` |
 | | `devops telemetry profile` | Profile subcommand execution latency & CPU | `command` |
 | **`docs`** | `devops docs generate` | Regenerate CLI docs & sync README | `--sync-readme`, `--check` |
 | | `devops docs check` | Validate documentation matches CLI surface | |

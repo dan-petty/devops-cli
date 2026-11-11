@@ -1941,7 +1941,10 @@ class ReviewCommandHelp:
         "gateway's backend slots."
     )
     parallel: str = "Execute multi-file review stages concurrently using async worker pool."
-    logfire: str = "Enable or disable Logfire structured observability and agent turn tracing."
+    logfire: str = (
+        "Turn the local Logfire SDK on or off for the agent spans. Its spans go to the "
+        "collector, never to Logfire's cloud."
+    )
 
 
 @dataclass(frozen=True)
@@ -2022,8 +2025,7 @@ class TelemetryCommandHelp:
         "(e.g. 'devops k8s contexts'), and any other program is refused."
     )
     trace_id: str = "Trace ID to read from Tempo and show, instead of running a command."
-    logfire: str = "Display Logfire structured observability bridge status and token metrics."
-    test_logfire: str = "Emit test span via Logfire bridge."
+    logfire: str = "Display the status of the Logfire bridge."
     semconv: str = "The GenAI semantic conventions that LLM span attributes are checked against."
     semconv_commit: str = (
         "Full 40-character commit SHA of open-telemetry/semantic-conventions-genai to resolve."

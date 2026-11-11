@@ -15,14 +15,10 @@ if TYPE_CHECKING:
         inject_traceparent_headers,
     )
     from devops_cli.telemetry.logfire import (
-        AgentTurnHandle,
         LogfireBridge,
         LogfireOTelBridgeProcessor,
         LogfireStatus,
         get_logfire_bridge,
-        logfire_agent_turn,
-        render_agent_turn_panel,
-        render_agent_turn_table,
         reset_logfire_bridge,
     )
     from devops_cli.telemetry.logging_bridge import (
@@ -96,14 +92,10 @@ _ATTR_MAP: dict[str, tuple[str, str]] = {
     "generate_trace_id": ("devops_cli.telemetry.context", "generate_trace_id"),
     "generate_traceparent": ("devops_cli.telemetry.context", "generate_traceparent"),
     "inject_traceparent_headers": ("devops_cli.telemetry.context", "inject_traceparent_headers"),
-    "AgentTurnHandle": ("devops_cli.telemetry.logfire", "AgentTurnHandle"),
     "LogfireBridge": ("devops_cli.telemetry.logfire", "LogfireBridge"),
     "LogfireOTelBridgeProcessor": ("devops_cli.telemetry.logfire", "LogfireOTelBridgeProcessor"),
     "LogfireStatus": ("devops_cli.telemetry.logfire", "LogfireStatus"),
     "get_logfire_bridge": ("devops_cli.telemetry.logfire", "get_logfire_bridge"),
-    "logfire_agent_turn": ("devops_cli.telemetry.logfire", "logfire_agent_turn"),
-    "render_agent_turn_panel": ("devops_cli.telemetry.logfire", "render_agent_turn_panel"),
-    "render_agent_turn_table": ("devops_cli.telemetry.logfire", "render_agent_turn_table"),
     "reset_logfire_bridge": ("devops_cli.telemetry.logfire", "reset_logfire_bridge"),
     "TraceCorrelationFilter": ("devops_cli.telemetry.logging_bridge", "TraceCorrelationFilter"),
     "attach_trace_correlation_filter": (
@@ -186,7 +178,6 @@ def __getattr__(name: str) -> Any:
 
 __all__ = [
     "GLOBAL_METRICS",
-    "AgentTurnHandle",
     "ContextPropagatingThread",
     "ContextPropagatingThreadPoolExecutor",
     "InMemoryMetricsRegistry",
@@ -228,7 +219,6 @@ __all__ = [
     "inject_headers",
     "inject_trace_context",
     "inject_traceparent_headers",
-    "logfire_agent_turn",
     "new_trace_context",
     "normalize_tempo_spans",
     "parse_traceparent",
@@ -237,8 +227,6 @@ __all__ = [
     "profile_http_pool_workload",
     "query_tempo_trace",
     "record_completed_span",
-    "render_agent_turn_panel",
-    "render_agent_turn_table",
     "render_waterfall_bar",
     "reset_logfire_bridge",
     "reset_tracer",

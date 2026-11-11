@@ -236,6 +236,15 @@ _KEYRING_OF_LATER_CREDENTIALS = {
 }
 
 
+# Credentials removed after the declaration moved onto the fields, with their variables.
+_KEYRING_OF_REMOVED_CREDENTIALS = {
+    "telemetry.logfire_token": "logfire_token",  # #4515: the Logfire bridge sends to no cloud
+}
+_VARIABLES_OF_REMOVED_CREDENTIALS = frozenset(
+    {"DEVOPS_CLI_TELEMETRY_LOGFIRE_TOKEN", "LOGFIRE_TOKEN"}  # #4515
+)
+
+
 def _variables_read() -> set[str]:
     credential_variables = {var for ref in build_secret_registry().values() for var in ref.env_vars}
     specs = {spec.env_var for spec in env.get_all_env_var_specs()}
@@ -246,12 +255,17 @@ def test_the_variables_are_those_before_one_for_each_read_option_that_had_none_a
     None
 ):
     assert sorted(_variables_read()) == sorted(
-        _VARIABLES_BEFORE | _VARIABLES_ADDED | _VARIABLES_OF_LATER_SETTINGS
+        (_VARIABLES_BEFORE | _VARIABLES_ADDED | _VARIABLES_OF_LATER_SETTINGS)
+        - _VARIABLES_OF_REMOVED_CREDENTIALS
     )
 
 
 def test_the_keyring_entries_and_the_secret_keys_are_those_before_and_later_ones() -> None:
-    keyring = {**_KEYRING_BEFORE, **_KEYRING_OF_LATER_CREDENTIALS}
+    keyring = {
+        option: name
+        for option, name in {**_KEYRING_BEFORE, **_KEYRING_OF_LATER_CREDENTIALS}.items()
+        if option not in _KEYRING_OF_REMOVED_CREDENTIALS
+    }
     assert (env.keyring_names(), sorted(env.secret_keys())) == (keyring, sorted(keyring))
 
 
@@ -344,12 +358,12 @@ def test_a_variable_added_for_a_read_option_sets_it(monkeypatch: pytest.MonkeyPa
 def test_env_var_for_option_names_the_variable_of_a_setting_and_of_a_credential() -> None:
     assert (
         env.env_var_for_option("ai.tasks.chat.provider"),
-        env.env_var_for_option("telemetry.logfire_token"),
+        env.env_var_for_option("cloudflare.api_token"),
         env.env_var_for_option("data.dir"),
         env.env_var_for_option("ai.temperature"),
     ) == (
         "DEVOPS_CLI_AI_TASK_CHAT_PROVIDER",
-        "DEVOPS_CLI_TELEMETRY_LOGFIRE_TOKEN",
+        "DEVOPS_CLI_CLOUDFLARE_API_TOKEN",
         "DEVOPS_CLI_DATA_DIR",
         None,
     )

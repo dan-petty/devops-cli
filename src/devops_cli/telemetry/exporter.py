@@ -29,6 +29,8 @@ from devops_cli.config.defaults import DEFAULT_OTEL_HTTP_TIMEOUT_SECONDS
 from devops_cli.exceptions.telemetry import OtlpExportError, OtlpProtocolError
 
 JSON_CONTENT_TYPE = "application/json"
+# The body of an OTLP/HTTP protobuf request, which the library span exporter sends.
+PROTOBUF_CONTENT_TYPE = "application/x-protobuf"
 CONNECT_FAILED = "Cannot connect to the collector"
 NO_ANSWER_IN_TIME = "The collector did not answer in time"
 PROBE_FAILED = "Connection probe failed"
@@ -207,6 +209,7 @@ __all__ = [
     "JSON_CONTENT_TYPE",
     "NO_ANSWER_IN_TIME",
     "PROBE_FAILED",
+    "PROTOBUF_CONTENT_TYPE",
     "HttpOtlpExporter",
     "OtlpExporter",
     "OtlpSignal",

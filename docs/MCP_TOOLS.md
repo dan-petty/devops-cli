@@ -136,7 +136,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`security_intel_package`](#security-intel-package) | `true` | Query the OSV.dev vulnerability database for package CVE intelligence. |
 | [`ssh_audit`](#ssh-audit) | `true` | List the managed SSH keys of the project prefix with their age and rotation status. |
 | [`ssh_status`](#ssh-status) | `true` | Show the active SSH key and days until rotation. |
-| [`telemetry_logfire`](#telemetry-logfire) | `true` | Display Logfire structured observability bridge status and token metrics. |
+| [`telemetry_logfire`](#telemetry-logfire) | `true` | Display the status of the Logfire bridge. |
 | [`telemetry_profile`](#telemetry-profile) | `true` | Run a devops-cli command, or name a trace, and show its span waterfall as Tempo recorded it. |
 | [`telemetry_status`](#telemetry-status) | `true` | Check OpenTelemetry collector health, Tempo endpoint, and trace propagation status. |
 | [`telemetry_test`](#telemetry-test) | `false` | Emit a test OpenTelemetry trace span and metric to the configured collector. |
@@ -1785,7 +1785,7 @@ Review a git branch diff.
 | `append_cache` | `boolean` | No | `False` | Append cached response to the LLM prompt as context instead of using it directly as the final response. |
 | `concurrency` | `integer` | No | - | Max concurrent workers for parallel review. Through the gateway it is capped at the gateway's backend slots. |
 | `parallel` | `boolean` | No | `True` | Execute multi-file review stages concurrently using async worker pool. |
-| `logfire` | `boolean` | No | - | Enable or disable Logfire structured observability and agent turn tracing. |
+| `logfire` | `boolean` | No | - | Turn the local Logfire SDK on or off for the agent spans. Its spans go to the collector, never to Logfire's cloud. |
 
 ### `review_export_feedback`
 
@@ -1868,7 +1868,7 @@ Review source files directly (no git required).
 | `debounce_ms` | `integer` | No | `500` | Debounce window in milliseconds for filesystem watcher. |
 | `concurrency` | `integer` | No | - | Max concurrent workers for parallel review. Through the gateway it is capped at the gateway's backend slots. |
 | `parallel` | `boolean` | No | `True` | Execute multi-file review stages concurrently using async worker pool. |
-| `logfire` | `boolean` | No | - | Enable or disable Logfire structured observability and agent turn tracing. |
+| `logfire` | `boolean` | No | - | Turn the local Logfire SDK on or off for the agent spans. Its spans go to the collector, never to Logfire's cloud. |
 
 ### `review_pr`
 
@@ -1899,7 +1899,7 @@ Review a GitHub pull request.
 | `append_cache` | `boolean` | No | `False` | Append cached response to the LLM prompt as context instead of using it directly as the final response. |
 | `concurrency` | `integer` | No | - | Max concurrent workers for parallel review. Through the gateway it is capped at the gateway's backend slots. |
 | `parallel` | `boolean` | No | `True` | Execute multi-file review stages concurrently using async worker pool. |
-| `logfire` | `boolean` | No | - | Enable or disable Logfire structured observability and agent turn tracing. |
+| `logfire` | `boolean` | No | - | Turn the local Logfire SDK on or off for the agent spans. Its spans go to the collector, never to Logfire's cloud. |
 
 ### `review_stats`
 
@@ -2244,7 +2244,7 @@ Show the active SSH key and days until rotation.
 
 ### `telemetry_logfire`
 
-Display Logfire structured observability bridge status and token metrics.
+Display the status of the Logfire bridge.
 
 **Annotations:** `readOnlyHint: true`
 
@@ -2290,7 +2290,6 @@ Emit a test OpenTelemetry trace span and metric to the configured collector.
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `name` | `string` | No | `devops-cli.manual_test` | Name for test span. |
-| `logfire` | `boolean` | No | `False` | Emit test span via Logfire bridge. |
 | `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `tf_apply`

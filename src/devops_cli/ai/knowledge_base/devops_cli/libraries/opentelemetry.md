@@ -49,6 +49,7 @@ In `devops-cli`:
 ## 4. Key Concepts & Core Patterns
 
 1. **`TracerProvider` & `BatchSpanProcessor`**: Coordinates span lifecycle and delivers batches to an OTLP exporter asynchronously. The devops-cli tracer (`telemetry/tracer.py`) builds OTLP/JSON export requests and hands them to the exporter in `telemetry/exporter.py`, which posts them to the `/v1/traces`, `/v1/metrics` and `/v1/logs` paths of `telemetry.endpoint` through the egress-checked HTTP client. devops-cli sends no OTLP over gRPC: `OTEL_EXPORTER_OTLP_PROTOCOL=grpc`, or an endpoint with the `grpc` scheme or port `4317`, turns export off with a warning that names the setting. Tests read exports from the OTLP fake (`tests/support/fakes/otlp.py`, fixture `otlp`).
+   Library spans (pydantic-ai, the MCP client, the gateway client) use an SDK `TracerProvider` with a `BatchSpanProcessor` (`telemetry/library_spans.py`). Its `SeamSpanExporter` encodes each batch with `encode_spans` from `opentelemetry-exporter-otlp-proto-common` and hands the protobuf body to the same exporter. The own spans keep their ids in the OpenTelemetry API context, so library spans nest under them. The global propagator injects nothing (`confine_api_propagation`), so only the gateway client, with its own propagator, sends `traceparent` and `baggage`.
 2. **`@trace_span` Decorator & Context Manager**:
    ```python
    with trace_span("review.persona_review", attributes={"persona": "devsecops", "diff_lines": 120}):

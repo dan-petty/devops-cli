@@ -18,7 +18,6 @@ from collections import deque
 from collections.abc import Callable, Generator
 from concurrent.futures import Future, ThreadPoolExecutor
 from concurrent.futures import wait as wait_futures
-from contextvars import ContextVar
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypeVar
 
@@ -51,6 +50,7 @@ from devops_cli.telemetry.exporter import (
 )
 from devops_cli.telemetry.propagation import (
     TraceContext,
+    confine_api_propagation,
     extract_env,
     extract_headers,
     inject_env,
@@ -59,6 +59,10 @@ from devops_cli.telemetry.propagation import (
 )
 
 if TYPE_CHECKING:
+    from contextvars import Token
+
+    from opentelemetry.context import Context
+
     from devops_cli.config.settings import TelemetryConfig
 
 logger = logging.getLogger(__name__)
@@ -812,8 +816,50 @@ def _normalize_and_deduplicate_attributes(attrs: dict[str, Any]) -> None:
     _sync_attribute_aliases(attrs)
 
 
-_current_trace_id_ctx: ContextVar[str | None] = ContextVar("otel_current_trace_id", default=None)
-_current_span_id_ctx: ContextVar[str | None] = ContextVar("otel_current_span_id", default=None)
+def _active_span_ids() -> tuple[str | None, str | None]:
+    """The trace id and span id of the span open in this context, an own span or a library span.
+
+    The OpenTelemetry API context is the one context of the process. An own span puts its ids
+    there as a non-recording span, and a library span, such as a pydantic-ai model or tool span,
+    is there while it is open. So each kind of span finds the other as its parent.
+    """
+    from opentelemetry import trace
+
+    context = trace.get_current_span().get_span_context()
+    if not context.is_valid:
+        return None, None
+    return format(context.trace_id, "032x"), format(context.span_id, "016x")
+
+
+def _enter_span(trace_id: str, span_id: str) -> Token[Context]:
+    """Make an own span the active span of this context; return the token `_leave_span` takes."""
+    from opentelemetry import context, trace
+
+    confine_api_propagation()
+    span_context = trace.SpanContext(
+        trace_id=int(trace_id, 16),
+        span_id=int(span_id, 16),
+        is_remote=False,
+        trace_flags=trace.TraceFlags(trace.TraceFlags.SAMPLED),
+    )
+    return context.attach(trace.set_span_in_context(trace.NonRecordingSpan(span_context)))
+
+
+def _leave_span(token: Token[Context]) -> None:
+    from opentelemetry import context
+
+    context.detach(token)
+
+
+def _flush_library_spans(timeout: float) -> None:
+    """Export the library spans that wait in their batch, when this process has library spans.
+
+    The library span module imports the OpenTelemetry SDK, which a command that makes no
+    library span does not load (#858), so this reads it only when the process loaded it.
+    """
+    library_spans = sys.modules.get("devops_cli.telemetry.library_spans")
+    if library_spans is not None:
+        library_spans.flush_library_spans(timeout)
 
 
 class OTelTelemetryClient:
@@ -930,18 +976,24 @@ class OTelTelemetryClient:
         """Return standardized OpenTelemetry resource attributes."""
         return self._cached_resource_attributes
 
+    def resource_attributes(self) -> dict[str, str]:
+        """The resource attributes of the own spans, as plain values."""
+        return {
+            attribute["key"]: attribute["value"]["stringValue"]
+            for attribute in self._cached_resource_attributes
+        }
+
     @property
     def current_trace_id(self) -> str | None:
-        return _current_trace_id_ctx.get()
+        return _active_span_ids()[0]
 
     @property
     def current_span_id(self) -> str | None:
-        return _current_span_id_ctx.get()
+        return _active_span_ids()[1]
 
     def current_trace_context(self) -> TraceContext:
         """Return the active trace context, starting a new one if no span is open."""
-        trace_id = _current_trace_id_ctx.get()
-        span_id = _current_span_id_ctx.get()
+        trace_id, span_id = _active_span_ids()
         if trace_id and span_id:
             return TraceContext(trace_id=trace_id, span_id=span_id)
         return new_trace_context()
@@ -1181,18 +1233,20 @@ class OTelTelemetryClient:
     ) -> tuple[str | None, str | None]:
         """Resolve the parent trace and span for a new span, in precedence order.
 
-        An explicit argument wins, then a context supplied by the caller, then the span
-        open on this thread, and only then the context inherited from a parent process. The
-        inherited value is validated before adoption: it is ambient input, and a malformed
-        one would otherwise be carried into trace ids and exported as though it were real.
+        An explicit argument wins, then a context supplied by the caller, then the span open
+        in this context, an own span or a library span, and only then the context inherited
+        from a parent process. The inherited value is validated before adoption: it is ambient
+        input, and a malformed one would otherwise be carried into trace ids and exported as
+        though it were real.
         """
         if parent_context:
             supplied = extract_headers(parent_context)
             if supplied:
                 return supplied.trace_id, supplied.span_id
 
-        parent_trace = parent_trace_id or _current_trace_id_ctx.get()
-        parent_id = parent_span_id or _current_span_id_ctx.get()
+        active_trace, active_span = _active_span_ids()
+        parent_trace = parent_trace_id or active_trace
+        parent_id = parent_span_id or active_span
         if parent_trace:
             return parent_trace, parent_id
 
@@ -1226,8 +1280,7 @@ class OTelTelemetryClient:
         span_id = _generate_span_id()
         start_nano = int(time.time() * 1e9)
 
-        token_trace = _current_trace_id_ctx.set(trace_id)
-        token_span = _current_span_id_ctx.set(span_id)
+        context_token = _enter_span(trace_id, span_id)
 
         attrs = dict(attributes or {})
         _enrich_span_attributes(attrs, name=name, depth_offset=2)
@@ -1258,8 +1311,7 @@ class OTelTelemetryClient:
             raise
         finally:
             end_nano = int(time.time() * 1e9)
-            _current_trace_id_ctx.reset(token_trace)
-            _current_span_id_ctx.reset(token_span)
+            _leave_span(context_token)
 
             _normalize_and_deduplicate_attributes(attrs)
 
@@ -1308,17 +1360,24 @@ class OTelTelemetryClient:
                 )
             return self._executor
 
-    def _send_payload_sync(self, path: str, payload: dict[str, Any]) -> None:
-        """Hand one export request to the exporter, and count how it fared."""
+    def export_encoded(self, signal: OtlpSignal, body: bytes, content_type: str) -> bool:
+        """Hand one encoded export request to the exporter on this thread, count how it fared,
+        and return whether the collector took it."""
         if not self.enabled:
-            return
+            return False
         try:
-            self._exporter.export(OtlpSignal(path), json_body(payload), JSON_CONTENT_TYPE)
-            self.export_successes += 1
+            self._exporter.export(signal, body, content_type)
         except Exception as exc:
             self.export_failures += 1
             self.last_export_error = str(exc) or type(exc).__name__
-            logger.debug("OTel payload send failed to %s%s: %s", self.endpoint, path, exc)
+            logger.debug("OTel payload send failed to %s%s: %s", self.endpoint, signal, exc)
+            return False
+        self.export_successes += 1
+        return True
+
+    def _send_payload_sync(self, path: str, payload: dict[str, Any]) -> None:
+        """Hand one OTLP/JSON export request to the exporter."""
+        self.export_encoded(OtlpSignal(path), json_body(payload), JSON_CONTENT_TYPE)
 
     def _send_payload(self, path: str, payload: dict[str, Any]) -> None:
         """Send payload asynchronously via background thread executor to prevent blocking CLI execution.
@@ -1373,9 +1432,11 @@ class OTelTelemetryClient:
             self._sdk_instruments.clear()
 
     def flush(self, timeout: float = DEFAULT_OTEL_DRAIN_TIMEOUT_SECONDS) -> None:
-        """Export buffered SDK metrics and wait, up to ``timeout`` seconds, for queued exports to finish."""
+        """Export buffered SDK metrics and library spans, and wait, up to ``timeout`` seconds,
+        for queued exports to finish."""
         with self._flush_lock:
             self._flush_sdk_metrics()
+            _flush_library_spans(timeout)
             pending = [f for f in list(self._pending) if not f.done()]
             if pending:
                 wait_futures(pending, timeout=timeout)
@@ -1500,6 +1561,10 @@ def reset_tracer() -> None:
 
     detach_otel_logging_handler()
     global _GLOBAL_TRACER
+    if _GLOBAL_TRACER is not None:
+        # Library spans go out through the tracer that `get_tracer` returns, so they go out
+        # before the dropped tracer stops being that tracer.
+        _flush_library_spans(DEFAULT_OTEL_DRAIN_TIMEOUT_SECONDS)
     dropped, _GLOBAL_TRACER = _GLOBAL_TRACER, None
     if dropped is not None:
         dropped.shutdown()
@@ -1562,29 +1627,8 @@ def traced(
 
 def get_current_span_context() -> dict[str, str | None]:
     """Retrieve the current active span and trace IDs as a dictionary."""
-    tid = _current_trace_id_ctx.get()
-    sid = _current_span_id_ctx.get()
-    if tid and sid:
-        return {"trace_id": tid, "span_id": sid}
-
-    try:
-        from opentelemetry import trace
-
-        current_span = trace.get_current_span()
-        if current_span and current_span.is_recording():
-            ctx = current_span.get_span_context()
-            if ctx.is_valid and ctx.trace_id and ctx.span_id:
-                return {
-                    "trace_id": format(ctx.trace_id, "032x"),
-                    "span_id": format(ctx.span_id, "016x"),
-                }
-    except Exception:
-        pass
-
-    return {
-        "trace_id": tid,
-        "span_id": sid,
-    }
+    trace_id, span_id = _active_span_ids()
+    return {"trace_id": trace_id, "span_id": span_id}
 
 
 def shutdown_tracer(timeout_millis: int = DEFAULT_OTEL_SHUTDOWN_TIMEOUT_MS) -> None:
