@@ -43,13 +43,14 @@ files that its tasks name, each packed to at most `CONST_ROADMAP_IMPLEMENT_FILE_
 (`step_files`). A group still over the budget stops the item (`OverBudget`). The job validates the
 change with `openspec validate --strict` in a scratch directory when the binary is on `PATH`; a
 failure goes back to the model `roadmap.stage.gate_returns` times, and a failure after the last
-return stops the item. A reply the rules refuse (`check_proposal`) takes the same returns. A group that changes no file, has a blank text, or
-breaks the rules of its kind (`GroupKind`: a `behavior` group has a test and changes a path under
-`src/`, and an `other` group has no test and one of `verify` and `process`) fails the schema of
-the reply, and `chat_structured` sends it back once (`_REPLY_RETURNS`). A reply that names a path
-that is no file of the staged commit, and that no group up to its own creates (`stage_paths`), is
-sent back in the same way: the problem lists the files with the same name, and a second reply with
-a missing path stops the item, so no draft opens. The groups of a split are checked in the same
+return stops the item. A reply the rules refuse (`check_proposal`) takes the same returns. A group
+that changes no file, has a blank text, or breaks the rules of its kind (`GroupKind`: a `behavior`
+group has a test and changes a path under `src/`, and an `other` group has no test and one of
+`verify` and `process`) fails the schema of the reply, and `chat_structured` sends it back once
+(`_REPLY_RETURNS`). A reply that names a path that is no file of the staged commit, and that no
+group up to its own creates (`stage_paths`), is sent back as a refused reply: the problem lists the
+files with the same name, and a missing path after the last return stops the item, so no draft
+opens. The groups of a split are checked in the same
 way. After the checks, the model review of the plan (`stage_verify`, #3153) reads the issue, the
 plan and the files that the plan cites, and reads the repository with the read tools, on the model
 of the task `verification` (#3039). A finding of the type `missing_path`, `false_premise`,
@@ -1413,8 +1414,8 @@ class _Planner:
         key: str | None,
     ) -> StagedChange | OverBudget:
         """The plan of one repair round: the planner gets the plan and each open finding of the
-        review. Its revision goes back once with the problem when the checks refuse it, as a first
-        reply does, and a revision that stays refused is kept and stops the item (#4348)."""
+        review. Its revision goes back with the problem when the checks refuse it, as a first reply
+        does, and a revision that stays refused is kept and stops the item (#4348)."""
         again = {
             **request.for_model(),
             "previous": change.proposal.model_dump(),
