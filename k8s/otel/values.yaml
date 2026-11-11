@@ -76,8 +76,12 @@ config:
     # request (https://docs.litellm.ai/docs/observability/opentelemetry_integration). A refused
     # key puts its SHA-256 hash in the error text of the span and of its exception event, so
     # gateway spans and events lose each 64-digit hex value. The key rules apply to all services:
-    # no devops-cli span holds such an attribute. Span and span event statements are separate
-    # groups, because a group with both runs once per event and skips a span with no event.
+    # no devops-cli span holds such an attribute. A management endpoint span of the gateway gets
+    # each field of the request body as `request.<field>` and of the response as `response.<field>`
+    # (#4539): the raw key of `/key/block` and the callback secrets of `/team/{team_id}/callback`.
+    # Only those hooks write the two prefixes, so gateway spans lose all of them. Span and span
+    # event statements are separate groups, because a group with both runs once per event and
+    # skips a span with no event.
     # A failed statement drops the batch (propagate), so no span leaves with the data.
     # Functions: delete_matching_keys and replace_all_patterns of OTTL (contrib v0.161.0).
     transform/key_data:
@@ -87,6 +91,7 @@ config:
           statements:
             - delete_matching_keys(span.attributes, "^metadata[.](user_api_key_|requester_custom_headers)")
             - delete_matching_keys(span.attributes, "(?i)(authorization|api[-_]?key)")
+            - delete_matching_keys(span.attributes, "^(request|response)[.]") where resource.attributes["service.name"] == "llm-gateway"
             - replace_all_patterns(span.attributes, "value", "[0-9a-fA-F]{64}", "<redacted>") where resource.attributes["service.name"] == "llm-gateway"
         - context: spanevent
           statements:

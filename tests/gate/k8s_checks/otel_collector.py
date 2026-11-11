@@ -27,7 +27,10 @@ KEY_HASH = hashlib.sha256(b"sk-example").hexdigest()
 # (litellm/types/utils.py) as `metadata.<key>`, also with message logging off. A refused key puts
 # its hash in the error text (litellm/proxy/auth/user_api_key_auth.py), which goes to the
 # `exception` attribute and to the exception event. The header names are the OpenTelemetry form
-# of a request header, which an HTTP server instrumentation writes when it captures headers.
+# of a request header, which an HTTP server instrumentation writes when it captures headers. The
+# management hooks write each field of a management request body as `request.<field>` and of its
+# response as `response.<field>` (#4539): `/key/block` gets the raw key, `/team/{team_id}/callback`
+# gets the callback secrets, and its response holds the team row with those secrets.
 GATEWAY_KEY_ATTRIBUTES: dict[str, Any] = {
     "metadata.user_api_key_hash": KEY_HASH,
     "metadata.user_api_key_alias": "devops-cli",
@@ -42,6 +45,10 @@ GATEWAY_KEY_ATTRIBUTES: dict[str, Any] = {
     "metadata.requester_custom_headers": '{"x-litellm-end-user-id": "roadmap-service"}',
     "http.request.header.authorization": "Bearer sk-example",
     "http.request.header.x-api-key": "sk-example",
+    "request.key": "sk-example",
+    "request.callback_vars": '{"langfuse_secret_key": "example"}',
+    "response.data": '{"metadata": {"callback_settings": {"callback_vars": {"langfuse_secret_key": '
+    '"example"}}}}',
 }
 
 
@@ -65,6 +72,7 @@ OTHER_SERVICE_ATTRIBUTES: dict[str, Any] = {
     "vcs.commit": "0123456789abcdef0123456789abcdef01234567",
     "review.digest": KEY_HASH,
     "gen_ai.provider.name": "gateway",
+    "request.id": "example",
 }
 
 
