@@ -855,6 +855,12 @@ DEFAULT_PYPI_TIMEOUT_SECONDS: float = 10.0
 DEFAULT_ROADMAP_MCP_TIMEOUT_SECONDS: float = 30.0
 # The most items one stage run takes (#2654).
 DEFAULT_ROADMAP_STAGE_LIMIT: int = 3
+# The returns of a reply that the stage checks refuse (#4204, #4348, #4802): the planner sends the
+# refused reply back with its problem this many times, for the first reply and for the revision of
+# each repair round. A reply that is refused after the last return ends the item. In 7 days to
+# 2026-11-11, one return ended 66 of about 110 failed stage rounds, and in 8 of 10 sampled items the
+# returned reply had fewer problems; a plan with problems in two modules needs a third reply.
+DEFAULT_ROADMAP_STAGE_GATE_RETURNS: int = 3
 # The most Planned items before the stage job plans only P0 and P1 items (#3487, #3692). The
 # Service delivers about two items a day, so 20 items wait about ten days: a plan that waits longer
 # meets a changed default branch, and `messages.py` and `stage_change.py` appear in most plans.
@@ -1079,8 +1085,10 @@ DEFAULT_SERVICE_POLL_INTERVAL_SECONDS: Final[int] = 151
 # stays under that.
 DEFAULT_SERVICE_GITHUB_REQUESTS_PER_HOUR: Final[int] = 500
 # How many rounds in a row a roadmap job may fail before the Service stops running it until its
-# input changes (#2161).
-DEFAULT_SERVICE_MAX_FAILED_ROUNDS: Final[int] = 3
+# input changes or its retry time comes (#2161, #4065). One failed item fails a whole stage round,
+# so 3 rounds suspended the stage row 25 times in 7 days to 2026-11-11; 6 rounds of the stage row
+# take about 3.7 hours (#4802).
+DEFAULT_SERVICE_MAX_FAILED_ROUNDS: Final[int] = 6
 # The most model calls the Service keeps in flight at once. The Service's model tier serves one
 # call at a time, so one keeps a lane's call from queueing at the gateway, where a stall timer
 # would refuse it, and lets it wait in the Service instead (#2564).

@@ -657,7 +657,8 @@ def test_a_job_that_failed_its_limit_of_rounds_does_not_run_until_its_input_chan
             round_of(_WEBHOOK if step == 0 else _POLL, START + timedelta(minutes=step))
         assert raised.value.error_code == "DEVOPS_CLI_ERROR"
     assert len(calls) == DEFAULT_SERVICE_MAX_FAILED_ROUNDS
-    assert len([r for r in caplog.records if "failed 3 rounds in a row" in r.getMessage()]) == 1
+    suspends = f"failed {DEFAULT_SERVICE_MAX_FAILED_ROUNDS} rounds in a row"
+    assert len([r for r in caplog.records if suspends in r.getMessage()]) == 1
 
     # The poll that follows brings no new input: the job stays silent, and the round succeeds.
     round_of(_POLL, START + timedelta(minutes=10))
@@ -669,6 +670,28 @@ def test_a_job_that_failed_its_limit_of_rounds_does_not_run_until_its_input_chan
         round_of(_WEBHOOK, START + timedelta(minutes=20))
     assert raised.value.error_code == "DEVOPS_CLI_ERROR"
     assert len(calls) == DEFAULT_SERVICE_MAX_FAILED_ROUNDS + 1
+
+
+def test_a_row_runs_six_failed_rounds_in_a_row_before_a_suspension_by_default() -> None:
+    """Verify the default of `service.max_failed_rounds` is 6: one failed item fails a whole
+    stage round, so 3 rounds suspended the stage row 25 times in 7 days (#4802)."""
+    assert (ServiceConfig().max_failed_rounds, FailureLedger().limit) == (6, 6)
+
+
+def test_the_ledger_takes_its_limit_of_failed_rounds_from_the_setting(
+    config: Callable[..., Path],
+) -> None:
+    """Verify `service.max_failed_rounds` sets the failed rounds in a row that suspend a row, so
+    the owner can tune it in the ConfigMap (#4802)."""
+    config(service={"max_failed_rounds": 4})
+    ledger = FailureLedger()
+    for minute in range(3):
+        ledger.failed(REPO_A, "stage", "a", _CAUSE, START + timedelta(minutes=minute))
+    third = START + timedelta(minutes=2)
+    assert (ledger.limit, ledger.suspended(REPO_A, "stage", "a", third)) == (4, False)
+    fourth = START + timedelta(minutes=3)
+    ledger.failed(REPO_A, "stage", "a", _CAUSE, fourth)
+    assert ledger.suspended(REPO_A, "stage", "a", fourth)
 
 
 def test_a_success_clears_the_record_of_failed_rounds() -> None:
@@ -790,9 +813,12 @@ def test_the_line_that_suspends_a_row_names_the_cause_of_each_round(
 ) -> None:
     caplog.set_level(logging.WARNING, logger="devops_cli.roadmap.run")
     rounds = _Rounds(
-        GitHubOperationError("read"), RoadmapRefineError("model"), GitHubOperationError("write")
+        GitHubOperationError("read"),
+        RoadmapRefineError("model"),
+        GitHubOperationError("write"),
+        limit=3,
     )
-    for _ in range(DEFAULT_SERVICE_MAX_FAILED_ROUNDS):
+    for _ in range(3):
         rounds.fail(tmp_path)
 
     (line,) = [r.getMessage() for r in caplog.records if "rounds in a row" in r.getMessage()]
@@ -833,7 +859,7 @@ def test_the_failure_file_of_an_earlier_version_loads_and_the_ledger_writes_caus
     record = tmp_path / CONST_SERVICE_FAILURES_FILENAME
     record.write_text(json.dumps([[REPO_A, "refine", 3, "abc"]]), encoding="utf-8")
 
-    kept = FailureLedger(record=record)
+    kept = FailureLedger(limit=3, record=record)
     assert kept.suspended(REPO_A, "refine", "abc", START)
     assert (
         _gauge(

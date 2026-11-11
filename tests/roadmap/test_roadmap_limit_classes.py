@@ -52,6 +52,8 @@ REMOVED: Final[tuple[str, ...]] = (
     "CONST_ROADMAP_IMPLEMENT_MONITOR_TIMEOUT_SECONDS",
     # The default ceiling follows the loaded step budget: `CONST_ROADMAP_IMPLEMENT_CEILING_FACTOR`.
     "DEFAULT_ROADMAP_IMPLEMENT_STEP_TOKEN_CEILING",
+    # The returns of a refused stage reply are a setting: `DEFAULT_ROADMAP_STAGE_GATE_RETURNS`.
+    "CONST_ROADMAP_STAGE_GATE_RETURNS",
 )
 
 LIMITS: Final[dict[str, tuple[str, str]]] = {
@@ -71,10 +73,6 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
     "CONST_ROADMAP_REFINE_INVESTIGATION_RETRIES": (
         "kept",
         "retries for a reply that breaks the schema; a stuck model fails again",
-    ),
-    "CONST_ROADMAP_STAGE_GATE_RETURNS": (
-        "kept",
-        "returns of one refused reply to the planner; it bounds the cost of one reply, whether it is a first reply or the revision of a repair round",
     ),
     "CONST_ROADMAP_STAGE_PLAN_DEFECT_LIMIT": (
         "kept",
@@ -256,6 +254,10 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
     ),
     "DEFAULT_ROADMAP_STAGE_STEP_TOKENS": ("window", "was 40,000; half of the implement window"),
     "DEFAULT_ROADMAP_STAGE_LIMIT": ("setting", "items of one stage round; already a setting"),
+    "DEFAULT_ROADMAP_STAGE_GATE_RETURNS": (
+        "setting",
+        "returns of one refused reply to the planner; the owner tunes it toward 80% stage success (#4802)",
+    ),
     "DEFAULT_ROADMAP_STAGE_PLANNED_LIMIT": (
         "setting",
         "open Planned items at which the stage job plans only P0 and P1 items; already a setting",

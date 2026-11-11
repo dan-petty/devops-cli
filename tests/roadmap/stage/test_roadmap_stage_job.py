@@ -353,13 +353,12 @@ def test_three_rounds_that_try_items_and_plan_none_suspend_the_row(
     _seed_six(store, openspec_fake)
     monkeypatch.setenv("DEVOPS_CLI_ROADMAP_STAGE_LIMIT", "1")
     model_fake.answer(AIClientError("the model is down"))
-    ledger = FailureLedger()
+    ledger = FailureLedger(limit=3)
 
     outcomes = _rounds(store, stage_repo, ledger, tmp_path, 3, monkeypatch)
 
     assert outcomes == ["RoadmapRunError"] * 3
     assert ledger.causes(STAGE_REPO, "stage") == ("plan_defect",) * 3
-    assert ledger.limit == 3
 
 
 def test_three_rounds_that_fail_outside_any_item_suspend_the_row(

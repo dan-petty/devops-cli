@@ -272,7 +272,7 @@ def test_the_comment_states_the_graphql_requests_of_the_overlap_read(
     assert "1 GraphQL request(s)" in comment
 
 
-def test_an_item_whose_plan_names_a_missing_path_twice_gets_no_branch_and_no_draft(
+def test_an_item_whose_plan_names_a_missing_path_after_each_return_gets_no_branch_and_no_draft(
     store: InMemoryRoadmapStore, stage_repo: StageRepo, model_fake: ModelFake, opened: GitHubApiFake
 ) -> None:
     group = make_stage_proposal().groups[0]
@@ -287,7 +287,7 @@ def test_an_item_whose_plan_names_a_missing_path_twice_gets_no_branch_and_no_dra
     assert opened.requested == []
     assert _pushed(stage_repo) == ["main"]
     assert _comments(store) == []
-    assert model_fake.call_count == 2
+    assert model_fake.call_count == 1 + 3
 
 
 def test_the_comment_says_when_openspec_did_not_validate_the_change(

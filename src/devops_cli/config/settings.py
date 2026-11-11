@@ -122,6 +122,7 @@ from devops_cli.config.defaults import (
     DEFAULT_ROADMAP_INTAKE_JEV,
     DEFAULT_ROADMAP_MCP_TIMEOUT_SECONDS,
     DEFAULT_ROADMAP_STAGE_FILTER,
+    DEFAULT_ROADMAP_STAGE_GATE_RETURNS,
     DEFAULT_ROADMAP_STAGE_LIMIT,
     DEFAULT_ROADMAP_STAGE_PLANNED_LIMIT,
     DEFAULT_ROADMAP_STAGE_STEP_TOKENS,
@@ -132,6 +133,7 @@ from devops_cli.config.defaults import (
     DEFAULT_SEARCH_LANGUAGE,
     DEFAULT_SEARCH_PROVIDERS,
     DEFAULT_SERVICE_GITHUB_REQUESTS_PER_HOUR,
+    DEFAULT_SERVICE_MAX_FAILED_ROUNDS,
     DEFAULT_SERVICE_MODEL_CALL_CONCURRENCY,
     DEFAULT_SERVICE_POLL_INTERVAL_SECONDS,
     DEFAULT_SSH_KEY_DIR,
@@ -995,6 +997,11 @@ class RoadmapStageConfig(BaseModel):
         default=DEFAULT_ROADMAP_STAGE_PLANNED_LIMIT,
         ge=1,
     )
+    gate_returns: Annotated[int, Variable()] = Field(
+        description="How many times a plan run sends a reply that the stage checks refuse back to the planner with its problem, for the first reply and for the revision of each repair round; a reply that is refused after the last return ends the item with the class plan_defect",
+        default=DEFAULT_ROADMAP_STAGE_GATE_RETURNS,
+        ge=0,
+    )
     step_tokens: Annotated[int, Variable()] = Field(
         description="The most tokens that the inputs of one implementation step may hold: the step's instructions, the AGENTS.md of the repository and the documents it routes the group to, the item, the change folder and the packed files of one task group; `devops roadmap stage` splits a task group over it",
         default=DEFAULT_ROADMAP_STAGE_STEP_TOKENS,
@@ -1247,6 +1254,11 @@ class ServiceConfig(BaseModel):
     model_call_concurrency: Annotated[int, Variable()] = Field(
         description="The most model calls the Service keeps in flight at once; a lane that waits does so in the Service, where no stall timer runs",
         default=DEFAULT_SERVICE_MODEL_CALL_CONCURRENCY,
+        ge=1,
+    )
+    max_failed_rounds: Annotated[int, Variable()] = Field(
+        description="How many rounds in a row a roadmap job may fail before the Service suspends it until its input changes or its retry time comes; the retry time is the last failed round plus the wait of its failure class",
+        default=DEFAULT_SERVICE_MAX_FAILED_ROUNDS,
         ge=1,
     )
 

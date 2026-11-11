@@ -74,7 +74,7 @@ def test_a_ledger_record_with_an_implement_entry_loads_and_keeps_the_row_suspend
         [entry[:3] for entry in kept],
         calls,
         loaded,
-    ) == ([[REPO, "implement", FailureLedger().limit]], ["implement"] * 3, 1.0)
+    ) == ([[REPO, "implement", FailureLedger().limit]], ["implement"] * FailureLedger().limit, 1.0)
 
 
 def test_the_ledger_record_holds_the_causes_and_a_restart_loads_them(tmp_path: Path) -> None:
@@ -101,7 +101,7 @@ def test_a_ledger_record_in_the_old_format_loads_with_unknown_causes(tmp_path: P
     record = tmp_path / CONST_SERVICE_FAILURES_FILENAME
     record.write_text(json.dumps([[REPO, "stage", 3, "input"]]), encoding="utf-8")
 
-    ledger = FailureLedger(record=record)
+    ledger = FailureLedger(limit=3, record=record)
 
     assert (ledger.suspended(REPO, "stage", "input", NOW), ledger.causes(REPO, "stage")) == (
         True,
@@ -158,5 +158,5 @@ def test_a_suspended_implement_row_runs_again_on_a_later_poll_round_when_the_fau
             "cloudflare_status",
             "pr_conflicts",
         ),
-        4,
+        failures.limit + 1,
     )

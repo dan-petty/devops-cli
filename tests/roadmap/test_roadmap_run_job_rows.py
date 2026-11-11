@@ -178,7 +178,7 @@ def test_the_release_comments_adapter_comments_a_release_and_keeps_its_ledger(
     assert (tmp_path / "release_comments.json").is_file()
 
 
-def test_three_rounds_with_a_404_on_a_new_release_suspend_no_row(
+def test_rounds_with_a_404_on_a_new_release_up_to_the_limit_suspend_no_row(
     process_fake: ProcessFake,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -234,4 +234,4 @@ def test_three_rounds_with_a_404_on_a_new_release_suspend_no_row(
     assert (
         failures.holds_failure(REPO, "release_comments"),
         [names.count("release_comments") for names in ran],
-    ) == (False, [1, 1, 1])
+    ) == (False, [1] * failures.limit)

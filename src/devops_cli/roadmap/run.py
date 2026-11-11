@@ -93,7 +93,6 @@ from devops_cli.config.defaults import (
     DEFAULT_ROADMAP_RETITLE_LIMIT,
     DEFAULT_ROADMAP_STAGE_INTERVAL_MINUTES,
     DEFAULT_ROADMAP_STAGE_READY_INTERVAL_MINUTES,
-    DEFAULT_SERVICE_MAX_FAILED_ROUNDS,
 )
 from devops_cli.config.settings import load_settings
 from devops_cli.core import clock
@@ -1178,7 +1177,8 @@ class FailureLedger:
     """How many rounds in a row each roadmap job failed, and the input it failed on (#2161).
 
     A job that fails `limit` rounds in a row does not run until its input is not the one it
-    failed on, or until its retry time (#4065). New input is a webhook trigger, a change to an
+    failed on, or until its retry time (#4065). Without a `limit`, the ledger reads the setting
+    `service.max_failed_rounds` (#4802). New input is a webhook trigger, a change to an
     item the job reads, or a comment of a person (#2754). The retry time is the time of the last
     failed round plus `RETRY_AFTER` of the failure class of that round: after it, the job runs one
     probe round. A failed probe round sets a new retry time, and a success clears the job's
@@ -1194,9 +1194,9 @@ class FailureLedger:
     entry keeps the rule of the input digest alone.
     """
 
-    def __init__(
-        self, limit: int = DEFAULT_SERVICE_MAX_FAILED_ROUNDS, record: Path | None = None
-    ) -> None:
+    def __init__(self, limit: int | None = None, record: Path | None = None) -> None:
+        if limit is None:
+            limit = load_settings().service.max_failed_rounds
         self._limit = limit
         self._record = record
         self._lock = threading.Lock()

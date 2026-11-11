@@ -1466,7 +1466,7 @@ def test_a_summary_that_repeats_plan_in_the_title_goes_back_to_the_model_once(
     assert change.title == "docs(openspec): plan #1 Stop the job dropping a comment"
 
 
-def test_a_summary_with_the_issue_number_goes_back_and_a_second_one_stops_the_item(
+def test_a_summary_with_the_issue_number_goes_back_and_stops_the_item_after_the_last_return(
     store: InMemoryRoadmapStore,
     item: int,
     stage_repo: StageRepo,
@@ -1477,9 +1477,10 @@ def test_a_summary_with_the_issue_number_goes_back_and_a_second_one_stops_the_it
 
     plan = _plan(store, stage_repo)
 
-    first, second = _requests(model_fake)
+    first, *returned = _requests(model_fake)
     assert "problem" not in first
-    assert "repeats the issue number `#1`" in second["problem"]
+    assert len(returned) == 3
+    assert all("repeats the issue number `#1`" in ask["problem"] for ask in returned)
     assert plan.ready == ()
 
 
@@ -1511,7 +1512,7 @@ def test_a_path_that_the_commit_lacks_goes_back_with_the_file_of_the_same_name(
     assert len(plan.ready) == 1
 
 
-def test_a_second_reply_with_a_missing_path_stops_the_item(
+def test_a_missing_path_after_the_last_return_stops_the_item(
     store: InMemoryRoadmapStore,
     item: int,
     stage_repo: StageRepo,
@@ -1527,7 +1528,7 @@ def test_a_second_reply_with_a_missing_path_stops_the_item(
     assert (plan.ready, plan.over_budget) == ((), ())
     assert (failure.number, failure.error) == (item, "RoadmapStageError")
     assert "`tests/security/test_scanner_tool_executor.py`" in failure.reason
-    assert model_fake.call_count == 2
+    assert model_fake.call_count == 1 + 3
 
 
 def test_a_path_in_a_verify_command_is_checked_and_a_created_path_passes(
@@ -1677,22 +1678,28 @@ def test_a_failed_validation_goes_back_to_the_model_once(
     ]
 
 
-def test_a_second_failed_validation_stops_the_item(
+def test_a_failed_validation_after_the_last_return_stops_the_item(
     store: InMemoryRoadmapStore,
     item: int,
     stage_repo: StageRepo,
     model_fake: ModelFake,
     openspec: OpenSpecFake,
 ) -> None:
-    openspec.script_sequence(VALIDATE, (1, "ERROR: first\n"), (1, "ERROR: second\n"))
+    openspec.script_sequence(
+        VALIDATE,
+        (1, "ERROR: first\n"),
+        (1, "ERROR: second\n"),
+        (1, "ERROR: third\n"),
+        (1, "ERROR: last\n"),
+    )
     model_fake.answer(make_stage_proposal())
 
     plan = _plan(store, stage_repo)
 
     (failure,) = plan.failed
     assert plan.ready == ()
-    assert model_fake.call_count == 2
-    assert "ERROR: second" in failure.reason
+    assert model_fake.call_count == 1 + 3
+    assert "ERROR: last" in failure.reason
     assert "ERROR: first" not in failure.reason
 
 

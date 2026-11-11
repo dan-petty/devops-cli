@@ -769,7 +769,7 @@ def test_retry_after_gives_each_class_its_wait() -> None:
     } == {
         FailureClass.PROVIDER: 1,
         FailureClass.PARSER: 6,
-        FailureClass.PLAN_DEFECT: 6,
+        FailureClass.PLAN_DEFECT: 1,
         FailureClass.CI_INFRA: 1,
         FailureClass.HEAD_MOVED: 0,
     }

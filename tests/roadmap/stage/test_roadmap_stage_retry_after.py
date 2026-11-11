@@ -33,7 +33,7 @@ HOUR = timedelta(hours=1)
 WAIT_OF = {
     FailureClass.PROVIDER: HOUR,
     FailureClass.PARSER: 6 * HOUR,
-    FailureClass.PLAN_DEFECT: 6 * HOUR,
+    FailureClass.PLAN_DEFECT: HOUR,
     FailureClass.CI_INFRA: HOUR,
     FailureClass.HEAD_MOVED: timedelta(0),
 }
@@ -97,15 +97,19 @@ def test_a_failed_item_waits_for_the_time_of_its_class(failure_class: FailureCla
     assert (taken_before, taken_at) == (wait == timedelta(0), True)
 
 
-def test_a_provider_error_waits_one_hour_and_a_refused_plan_waits_six(
+def test_a_refused_plan_waits_one_hour_and_a_reply_that_breaks_the_schema_waits_six(
     store: InMemoryRoadmapStore,
 ) -> None:
-    provider = seed_stageable(store, "fix(roadmap): the provider fails")
+    """A refused plan waits 1 hour, so the job plans it again in the second round after the
+    failure, as for a provider error (#4802)."""
     refused = seed_stageable(store, "fix(roadmap): the plan is refused")
-    _fail(store, provider, ago=HOUR, failure_class=FailureClass.PROVIDER.value)
+    parser = seed_stageable(store, "fix(roadmap): the reply breaks the schema")
+    waits = seed_stageable(store, "fix(roadmap): the plan was refused just now")
     _fail(store, refused, ago=HOUR, failure_class=FailureClass.PLAN_DEFECT.value)
+    _fail(store, parser, ago=HOUR, failure_class=FailureClass.PARSER.value)
+    _fail(store, waits, ago=HOUR - MINUTE, failure_class=FailureClass.PLAN_DEFECT.value)
 
-    assert _selected(store) == [provider]
+    assert _selected(store) == [refused]
 
 
 def test_an_item_that_changed_while_the_job_worked_does_not_wait(
@@ -182,7 +186,7 @@ def test_explain_gives_the_time_of_the_class_that_the_record_holds(job_world: Jo
         implement_limit=1,
     )
 
-    until = (failed_at + 6 * HOUR).astimezone(UTC).strftime("%Y-%m-%d %H:%M")
+    until = (failed_at + HOUR).astimezone(UTC).strftime("%Y-%m-%d %H:%M")
     assert explained.stage == JobVerdict(
         False,
         f"The last plan or write of the item failed (RoadmapStageError). "
