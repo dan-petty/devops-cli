@@ -54,11 +54,14 @@ from devops_cli.config.constants import (
     CONST_GIT_CLI,
     CONST_ROADMAP_INTAKE_BATCH_KEYS,
     CONST_ROADMAP_INTAKE_RECORD_FILENAME,
+    CONST_ROADMAP_REFINE_BATCH_KEYS,
     CONST_ROADMAP_REFINE_DUE_STAMP,
+    CONST_ROADMAP_RETITLE_BATCH_KEYS,
     CONST_ROADMAP_RUN_CLONE_DIRNAME,
     CONST_ROADMAP_RUN_MODEL_CLONE_DIRNAME,
     CONST_ROADMAP_RUN_STATE_FILENAME,
     CONST_ROADMAP_RUN_TRIAGE_CLONE_DIRNAME,
+    CONST_ROADMAP_STAGE_BATCH_KEYS,
     CONST_SERVICE_CAUSE_UNKNOWN,
     CONST_SERVICE_FAILURES_FILENAME,
     CONST_SERVICE_JOB_RESULT_ERROR,
@@ -805,6 +808,7 @@ STATUS_LANE_ROWS: tuple[JobRow, ...] = (
     JobRow(
         name="implement",
         interval=timedelta(minutes=DEFAULT_ROADMAP_IMPLEMENT_INTERVAL_MINUTES),
+        batch_keys=CONST_ROADMAP_STAGE_BATCH_KEYS,
         runner=_run_implement_adapter,
         needs_clone=True,
         first_run_due=True,
@@ -860,6 +864,7 @@ MODEL_LANE_ROWS: tuple[JobRow, ...] = (
     JobRow(
         name="refine",
         interval=timedelta(minutes=DEFAULT_ROADMAP_REFINE_INTERVAL_MINUTES),
+        batch_keys=CONST_ROADMAP_REFINE_BATCH_KEYS,
         runner=_run_refine_adapter,
         needs_clone=True,
         first_run_due=True,
@@ -868,12 +873,14 @@ MODEL_LANE_ROWS: tuple[JobRow, ...] = (
     JobRow(
         name="retitle",
         interval=timedelta(minutes=DEFAULT_ROADMAP_RETITLE_INTERVAL_MINUTES),
+        batch_keys=CONST_ROADMAP_RETITLE_BATCH_KEYS,
         runner=_run_retitle_adapter,
         first_run_due=True,
     ),
     JobRow(
         name="stage",
         interval=timedelta(minutes=DEFAULT_ROADMAP_STAGE_INTERVAL_MINUTES),
+        batch_keys=CONST_ROADMAP_STAGE_BATCH_KEYS,
         runner=_run_stage_adapter,
         needs_clone=True,
         first_run_due=True,
@@ -910,6 +917,14 @@ SCOPED_UPDATES: Mapping[tuple[str, str], ScopedUpdate] = MappingProxyType(
 )
 """The scoped update of each event and action that has one (ADR 0017). An event or action that
 is not here keeps its delivery a hint that makes a whole round due."""
+
+
+def scoped_update_wakes_model_lane(delivery: WebhookDelivery, outcome: JobOutcome | None) -> bool:
+    """Whether the model lane runs a round after the scoped update of `delivery` (#4412): after an
+    edit, which changes the text that refine and retitle read, and after a placement of a critical
+    fix or a P0 item, which stamps `refine_due`. The triage lane's scoped update wakes no other
+    lane itself."""
+    return delivery.action == "edited" or (outcome is not None and outcome.placed_critical_or_p0)
 
 
 def run_scoped_update(
@@ -1716,6 +1731,7 @@ __all__ = [
     "parse_due_tuple",
     "run_due_jobs",
     "run_scoped_update",
+    "scoped_update_wakes_model_lane",
     "service_job",
     "service_jobs",
     "service_state_dir",

@@ -35,6 +35,7 @@ from devops_cli.config.constants import (
     CONST_SERVICE_CHAT_RESULT_USAGE,
     CONST_SERVICE_DELIVERY_LRU_CAPACITY,
     CONST_SERVICE_EVENT_OTHER,
+    CONST_SERVICE_LANE_MODEL,
     CONST_SERVICE_MAX_BODY_BYTES,
     CONST_SERVICE_METRIC_CHAT_COMMANDS,
     CONST_SERVICE_METRIC_TRIGGERS,
@@ -278,7 +279,12 @@ def roadmap_consumer(service_manager: ServiceManager) -> WebhookConsumer:
             CONST_SERVICE_METRIC_TRIGGERS,
             labels={"repo": repo, "source": CONST_SERVICE_SOURCE_WEBHOOK},
         )
-        from devops_cli.roadmap.run import SCOPED_UPDATES, WebhookDelivery, run_scoped_update
+        from devops_cli.roadmap.run import (
+            SCOPED_UPDATES,
+            WebhookDelivery,
+            run_scoped_update,
+            scoped_update_wakes_model_lane,
+        )
         from devops_cli.roadmap.stores.store import get_roadmap_store
 
         scoped = SCOPED_UPDATES.get((event, action))
@@ -298,7 +304,15 @@ def roadmap_consumer(service_manager: ServiceManager) -> WebhookConsumer:
             def run_scoped() -> None:
                 store = get_roadmap_store(repo)
                 data_dir = service_manager.state_dir.parent if service_manager.state_dir else None
-                run_scoped_update(delivery, store, data_dir=data_dir)
+                outcome = run_scoped_update(delivery, store, data_dir=data_dir)
+                if scoped_update_wakes_model_lane(delivery, outcome):
+                    service_manager.enqueue_trigger(
+                        repo,
+                        CONST_SERVICE_SOURCE_WEBHOOK,
+                        event,
+                        action,
+                        lane=CONST_SERVICE_LANE_MODEL,
+                    )
 
             if service_manager.enqueue_scoped(repo, scoped.lane, run_scoped):
                 return

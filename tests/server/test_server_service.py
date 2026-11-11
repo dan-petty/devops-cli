@@ -46,6 +46,7 @@ from devops_cli.exceptions import ConfigurationError, RoadmapRunError, ServiceSt
 from devops_cli.exceptions.git import GitHubRateLimitError
 from devops_cli.github.project_read import GraphQLBudget, require_budget
 from devops_cli.lang import MESSAGES
+from devops_cli.roadmap.run import JobOutcome
 from devops_cli.roadmap.service_stop import service_stopping
 from devops_cli.server.json_logs import JsonLogFormatter
 from devops_cli.server.routes.webhooks import (
@@ -1879,7 +1880,8 @@ def test_a_subscribed_issues_delivery_runs_its_scoped_update_and_queues_no_full_
     action: str, monkeypatch: pytest.MonkeyPatch, roadmap_store: Any
 ) -> None:
     """A delivery of `issues` opened, edited or reopened with an issue number runs its scoped update
-    on the triage lane worker, and queues no full round on any lane (ADR 0017, #1533, #1534)."""
+    on the triage lane worker, and queues no full round on any lane; an edit wakes the model lane
+    alone (ADR 0017, #1533, #1534, #4412)."""
     ran_updates: list[tuple[Any, str]] = []
 
     def fake_scoped(delivery: Any, store: Any, **kwargs: Any) -> Any:
@@ -1905,7 +1907,11 @@ def test_a_subscribed_issues_delivery_runs_its_scoped_update_and_queues_no_full_
         202,
         {"status": "accepted"},
         True,
-        {STATUS_LANE: [], TRIAGE_LANE: [], MODEL_LANE: []},
+        {
+            STATUS_LANE: [],
+            TRIAGE_LANE: [],
+            MODEL_LANE: [("webhook", "issues", action)] * (action == "edited"),
+        },
         1,
     )
     delivery, thread_name = ran_updates[0]
@@ -1916,6 +1922,30 @@ def test_a_subscribed_issues_delivery_runs_its_scoped_update_and_queues_no_full_
         42,
     )
     assert f"-{TRIAGE_LANE}" in thread_name
+
+
+@pytest.mark.parametrize("action", ["opened", "reopened"])
+def test_a_critical_placement_wakes_the_model_lane_alone(
+    action: str, monkeypatch: pytest.MonkeyPatch, roadmap_store: Any
+) -> None:
+    """A scoped update that places a critical fix or a P0 item enqueues the delivery's key on the
+    model lane, and on no other lane (#4412)."""
+    monkeypatch.setattr(
+        "devops_cli.roadmap.run.run_scoped_update",
+        lambda delivery, store, **kwargs: JobOutcome(placed_critical_or_p0=True),
+    )
+    lanes = _unblocked_lanes()
+    app = _lanes_app(lanes)
+    with TestClient(app) as client:
+        response = _github_post(
+            client, "issues", _event_payload(action, issue={"number": 42}), f"critical-{action}"
+        )
+        settled = _lanes_settled(app)
+    assert (response.status_code, settled, _webhook_keys(lanes)) == (
+        202,
+        True,
+        {STATUS_LANE: [], TRIAGE_LANE: [], MODEL_LANE: [("webhook", "issues", action)]},
+    )
 
 
 @pytest.mark.parametrize(
