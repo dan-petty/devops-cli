@@ -471,12 +471,14 @@ def test_the_trace_of_an_item_gives_one_line_for_each_event_in_order(job_world: 
     lines = report.splitlines()
     assert len(lines) == 3
     assert lines[0] == "group 1: model model-a, 100/20 tokens, 1.5 s"
-    assert lines[1] == "group 1: tool shell (program ruff), refused"
+    assert lines[1] == "group 1: tool shell (program ruff) [argument abc123abc123], refused"
     assert lines[2] == "group 1: check ruff check ., exit status 1"
     assert (job_world.store.job_writes, job_world.store.comments_on(number)) == before
 
 
 def test_a_shell_call_with_an_exit_status_shows_it_in_the_line(job_world: JobWorld) -> None:
+    """#4393: the line of a tool call shows the digest of its argument, so a reader sees that the
+    model made the same call twice, and the exit status of a shell call."""
     number = _seed(job_world)
     trace = ImplementTrace(step="group 1")
     trace.tool_call("shell", "git", "abc123abc123", "ok", status=128)
@@ -486,9 +488,22 @@ def test_a_shell_call_with_an_exit_status_shows_it_in_the_line(job_world: JobWor
     report = render_trace(read_trace(job_world.store, number), number=number)
 
     assert report.splitlines() == [
-        "group 1: tool shell (program git), ok (exit status 128)",
-        "group 1: tool shell (program git), ok (exit status 0)",
+        "group 1: tool shell (program git) [argument abc123abc123], ok (exit status 128)",
+        "group 1: tool shell (program git) [argument abc123abc123], ok (exit status 0)",
     ]
+
+
+def test_a_tool_call_with_no_digest_shows_no_argument(job_world: JobWorld) -> None:
+    number = _seed(job_world)
+    _record_trace(
+        job_world,
+        number,
+        '{"events":[{"kind":"tool","step":"g","tool":"edit_file","outcome":"ok"}],"dropped":0}',
+    )
+
+    report = render_trace(read_trace(job_world.store, number), number=number)
+
+    assert report.splitlines() == ["g: tool edit_file, ok"]
 
 
 def test_the_trace_says_how_many_earlier_events_the_bound_dropped(job_world: JobWorld) -> None:
