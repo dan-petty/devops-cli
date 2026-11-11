@@ -2,8 +2,10 @@
 
 Intake gives an issue its labels with this rule, and `devops pr create` gives a pull request the
 same labels. The type of the title gives the `type/*` label (`CONST_ROADMAP_COMMIT_TYPE_LABELS`
-maps each type) and its scope gives `scope/<scope>`. A label that `.github/labels.yml` does not
-declare is never given, and a scope with no declared label is reported, not hidden.
+maps each type) and its scope gives `scope/<scope>`. The package declares the `type/*` labels
+(`roadmap/workflow_labels.py`, #4652) and `.github/labels.yml` declares the `scope/*` labels. A
+label that neither declares is never given, and a scope with no declared label is reported, not
+hidden.
 """
 
 from __future__ import annotations
@@ -16,12 +18,11 @@ from pydantic import TypeAdapter
 
 from devops_cli.config.constants import (
     CONST_ROADMAP_COMMIT_TYPE_LABELS,
-    CONST_ROADMAP_EPIC_LABEL,
     CONST_ROADMAP_SCOPE_LABEL_PREFIX,
-    CONST_ROADMAP_TYPE_LABEL_PREFIX,
 )
 from devops_cli.github.labels import LabelSpec
 from devops_cli.roadmap.commit_title import commit_scope, commit_type
+from devops_cli.roadmap.workflow_labels import with_workflow_labels
 
 _LABEL_SPECS = TypeAdapter(list[LabelSpec])
 
@@ -42,24 +43,15 @@ class TitleLabels:
 
 
 def declared_label_specs(text: str) -> list[LabelSpec]:
-    """The labels that the text of `.github/labels.yml` declares. Text that is not YAML raises
-    `yaml.YAMLError`, and YAML that is no list of label specs raises `pydantic.ValidationError`."""
-    return _LABEL_SPECS.validate_python(yaml.safe_load(text))
+    """The workflow labels of the package, then each label that the text of `.github/labels.yml`
+    declares and no workflow label names. Text that is not YAML raises `yaml.YAMLError`, and YAML
+    that is no list of label specs raises `pydantic.ValidationError`."""
+    return with_workflow_labels(_LABEL_SPECS.validate_python(yaml.safe_load(text)))
 
 
 def declared_label_names(text: str) -> tuple[str, ...]:
-    """The names of the labels that the text of `.github/labels.yml` declares, with the errors of
-    `declared_label_specs`."""
+    """The names of the labels of `declared_label_specs`, with its errors."""
     return tuple(spec.name for spec in declared_label_specs(text))
-
-
-def declared_type_labels(declared: Collection[str]) -> tuple[str, ...]:
-    """The `type/*` labels that `declared` holds, `type/epic` aside."""
-    return tuple(
-        name
-        for name in declared
-        if name.startswith(CONST_ROADMAP_TYPE_LABEL_PREFIX) and name != CONST_ROADMAP_EPIC_LABEL
-    )
 
 
 def requested_labels(title: str) -> tuple[str | None, str | None]:

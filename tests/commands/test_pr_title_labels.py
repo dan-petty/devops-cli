@@ -53,11 +53,12 @@ def test_the_labels_of_a_title_are_its_type_then_its_scope() -> None:
     assert title_labels("fix(ai): a title", DECLARED).labels == ("type/bug", "scope/ai")
 
 
-def test_the_declared_names_come_from_the_labels_file() -> None:
+def test_the_declared_names_are_the_workflow_labels_then_those_of_the_labels_file() -> None:
     from devops_cli.roadmap.title_labels import declared_label_names
+    from devops_cli.roadmap.workflow_labels import WORKFLOW_LABELS
 
     text = '- name: "type/bug"\n  color: "d73a4a"\n- name: "scope/ai"\n  color: "0e8a16"\n'
-    assert declared_label_names(text) == ("type/bug", "scope/ai")
+    assert declared_label_names(text) == (*(spec.name for spec in WORKFLOW_LABELS), "scope/ai")
 
 
 # ── devops pr create ───────────────────────────────────────────────────────────
@@ -165,7 +166,10 @@ def test_create_reads_the_labels_file_on_the_base_branch(
     on_base = '- name: "scope/ai"\n  color: "ededed"\n'
     roadmap_store.seed_file(LABELS_PATH, on_base, ref="feat/base")
     result, _ = _create(runner, "docs(ai): a title", "--base", "feat/base")
-    assert (result.exit_code, _labeled(roadmap_store)) == (0, {(pull, "scope/ai")})
+    assert (result.exit_code, _labeled(roadmap_store)) == (
+        0,
+        {(pull, "type/docs"), (pull, "scope/ai")},
+    )
 
 
 @pytest.mark.usefixtures("status")
@@ -335,7 +339,7 @@ def test_labels_file_declares_scope_git() -> None:
         label for label in labels if isinstance(label, dict) and label.get("name") == "scope/git"
     ]
     assert len(git_labels) == 1
-    assert git_labels[0]["color"] == "24292E"
+    assert git_labels[0]["color"] == "DCDCD6"
     assert git_labels[0]["description"] != ""
 
 

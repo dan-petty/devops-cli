@@ -5321,17 +5321,13 @@ class RoadmapMessages:
     intake_labels_unreadable: str = "{repo}'s {path} can't be read as label specs: {error}"
     intake_labels_missing: str = (
         "{repo} has no {path} at {ref}. Intake decides no candidate without it: the file must "
-        "declare the type/* labels intake may assign."
+        "declare the scope/* labels intake may assign."
     )
     intake_type_from_title: str = "The `{prefix}` prefix of the title gives the type."
     intake_scope_from_title: str = "The `({scope})` scope of the title gives the scope."
     intake_scope_undeclared: str = (
         "The title has the scope `{scope}`, and {path} declares no {label} label. Add the label "
         "to the file to give the scope to this item."
-    )
-    intake_labels_untyped: str = (
-        "{repo}'s {path} at {ref} declares no type/* label other than type/epic. Intake decides "
-        "no candidate without one: the file must declare the type/* labels intake may assign."
     )
     milestone_missing: str = "No milestone has the title or number {name!r}."
     milestone_title_taken: str = "Another milestone already has the title {title!r}."

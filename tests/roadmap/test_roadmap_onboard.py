@@ -12,6 +12,7 @@ from devops_cli.config.constants import (
     CONST_GITHUB_APP_PRIVATE_KEY_ENV,
     CONST_ROADMAP_LABELS_PATH,
 )
+from devops_cli.roadmap.workflow_labels import WORKFLOW_LABELS
 from tests.support.fakes.github import (
     GitHubApiFake,
     github_json,
@@ -22,16 +23,13 @@ from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 REPO = "example/roadmap"
 OWNER, NAME = REPO.split("/")
 VALID_LABELS_YAML = """
-- name: type/feature
-  color: "0052cc"
-  description: "A feature"
-- name: type/bug
-  color: "d73a4a"
-  description: "A bug"
 - name: scope/cli
-  color: "0e8a16"
+  color: "dcdcd6"
   description: "CLI"
 """
+ROW_3 = "3. .github/labels.yml is on the default branch and is valid"
+ROW_4 = "4. Every workflow label and every label of .github/labels.yml exists on GitHub"
+WORKFLOW = [(spec.name, spec.color, spec.description) for spec in WORKFLOW_LABELS]
 
 
 def _seed_valid_repo(
@@ -53,13 +51,9 @@ def _seed_valid_repo(
         store.seed_file(CONST_ROADMAP_LABELS_PATH, labels_yml)
     if include_clear_status:
         store.seed_file(".github/workflows/clear-status.yml", "name: Clear Status\n")
-    if repo_labels is None:
-        store.seed_label("type/feature", "0052cc", "A feature")
-        store.seed_label("type/bug", "d73a4a", "A bug")
-        store.seed_label("scope/cli", "0e8a16", "CLI")
-    else:
-        for name, color, desc in repo_labels:
-            store.seed_label(name, color, desc)
+    seeded = [*WORKFLOW, ("scope/cli", "dcdcd6", "CLI")] if repo_labels is None else repo_labels
+    for name, color, desc in seeded:
+        store.seed_label(name, color, desc)
 
 
 def test_onboard_all_prerequisites_present_exits_0(
@@ -79,11 +73,8 @@ def test_onboard_all_prerequisites_present_exits_0(
     assert result.exit_code == 0, result.output
     assert "1. Issues are turned on: present" in result.stdout
     assert "2. The App devops-cli-service is installed on the repository: present" in result.stdout
-    assert (
-        "3. .github/labels.yml is on the default branch, is valid, and declares a type/* label other than type/epic: present"
-        in result.stdout
-    )
-    assert "4. Every label of that file exists on GitHub: present" in result.stdout
+    assert f"{ROW_3}: present" in result.stdout
+    assert f"{ROW_4}: present" in result.stdout
     assert (
         "5. .github/workflows/clear-status.yml is on the default branch: present" in result.stdout
     )
@@ -168,13 +159,9 @@ def test_onboard_as_app_present_and_missing(
         (None, "labels.yml is missing"),
         ("invalid: [yaml: broken", "labels.yml is not YAML"),
         ("not_a_list: true", "labels.yml is not a list of labels"),
-        (
-            '- name: scope/cli\n  color: "000000"\n- name: type/epic\n  color: "111111"\n',
-            "labels.yml has no type/* label other than type/epic",
-        ),
     ],
 )
-def test_onboard_invalid_labels_file_makes_row_3_missing_and_row_4_not_readable(
+def test_onboard_invalid_labels_file_makes_row_3_missing_and_row_4_checks_the_workflow_labels(
     cli: Callable[..., Any],
     roadmap_store: InMemoryRoadmapStore,
     github_api: GitHubApiFake,
@@ -188,11 +175,27 @@ def test_onboard_invalid_labels_file_makes_row_3_missing_and_row_4_not_readable(
     result = cli("roadmap", "onboard", "--repo", REPO, "--plan")
 
     assert result.exit_code == 1
-    assert (
-        f"3. .github/labels.yml is on the default branch, is valid, and declares a type/* label other than type/epic: missing ({expected_reason})"
-        in result.stdout
+    assert f"{ROW_3}: missing ({expected_reason})" in result.stdout
+    assert f"{ROW_4}: present" in result.stdout
+
+
+def test_onboard_row_4_lists_a_workflow_label_that_github_lacks(
+    cli: Callable[..., Any],
+    roadmap_store: InMemoryRoadmapStore,
+    github_api: GitHubApiFake,
+    config: Callable[..., Path],
+) -> None:
+    held = [label for label in WORKFLOW if label[0] != "status/planned"]
+    _seed_valid_repo(roadmap_store, github_api, repo_labels=[*held, ("scope/cli", "dcdcd6", "CLI")])
+    config(service={"repos": [REPO]})
+
+    result = cli("roadmap", "onboard", "--repo", REPO, "--plan")
+
+    assert (result.exit_code, f"{ROW_4}: missing (1 label(s) missing)" in result.stdout) == (
+        1,
+        True,
     )
-    assert "4. Every label of that file exists on GitHub: not readable" in result.stdout
+    assert "Missing labels:\n  - status/planned\n" in result.stdout
 
 
 def test_onboard_confirm_creates_missing_labels_and_keeps_differing(
@@ -201,14 +204,15 @@ def test_onboard_confirm_creates_missing_labels_and_keeps_differing(
     github_api: GitHubApiFake,
     config: Callable[..., Path],
 ) -> None:
-    # 2 missing labels: type/feature, scope/cli.
+    # 2 missing labels: status/planned, scope/cli.
     # 1 differing label: type/bug exists with different color ("ffffff").
-    _seed_valid_repo(
-        roadmap_store,
-        github_api,
-        repo_labels=[("type/bug", "ffffff", "A bug")],
-    )
-    github_api.route("POST", f"/repos/{REPO}/labels", github_json({"name": "type/feature"}))
+    held = [
+        ("type/bug", "ffffff", "A bug") if name == "type/bug" else (name, color, desc)
+        for name, color, desc in WORKFLOW
+        if name != "status/planned"
+    ]
+    _seed_valid_repo(roadmap_store, github_api, repo_labels=held)
+    github_api.route("POST", f"/repos/{REPO}/labels", github_json({"name": "status/planned"}))
     config(service={"repos": [REPO]})
 
     result = cli("roadmap", "onboard", "--repo", REPO, "--confirm")

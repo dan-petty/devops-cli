@@ -3,8 +3,8 @@
 Onboarding checks six prerequisites:
 1. Issues are turned on.
 2. The App devops-cli-service is installed on the repository.
-3. .github/labels.yml is on the default branch, is valid, and declares a type/* label other than type/epic.
-4. Every label of that file exists on GitHub.
+3. .github/labels.yml is on the default branch and is valid.
+4. Every workflow label of the package and every label of that file exists on GitHub (#4652).
 5. .github/workflows/clear-status.yml is on the default branch.
 6. The repository is in service.repos.
 
@@ -28,16 +28,16 @@ from devops_cli.github.labels import LabelSpec, diff_labels
 from devops_cli.github.session import GitHubSession, get_github_session
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.stores.store import RoadmapStore
-from devops_cli.roadmap.title_labels import declared_label_specs, declared_type_labels
+from devops_cli.roadmap.title_labels import declared_label_specs
+from devops_cli.roadmap.workflow_labels import WORKFLOW_LABELS
 
 _CLEAR_STATUS_PATH: Final[str] = ".github/workflows/clear-status.yml"
 _ROW_1_PREREQUISITE: Final[str] = "Issues are turned on"
 _ROW_2_PREREQUISITE: Final[str] = "The App devops-cli-service is installed on the repository"
-_ROW_3_PREREQUISITE: Final[str] = (
-    ".github/labels.yml is on the default branch, is valid, and declares a "
-    "type/* label other than type/epic"
+_ROW_3_PREREQUISITE: Final[str] = ".github/labels.yml is on the default branch and is valid"
+_ROW_4_PREREQUISITE: Final[str] = (
+    "Every workflow label and every label of .github/labels.yml exists on GitHub"
 )
-_ROW_4_PREREQUISITE: Final[str] = "Every label of that file exists on GitHub"
 _ROW_5_PREREQUISITE: Final[str] = ".github/workflows/clear-status.yml is on the default branch"
 _ROW_6_PREREQUISITE: Final[str] = "The repository is in service.repos"
 
@@ -166,37 +166,19 @@ def _check_row_3(
             None,
         )
 
-    types = declared_type_labels(tuple(s.name for s in specs))
-    if not types:
-        return (
-            OnboardingRow(
-                3,
-                _ROW_3_PREREQUISITE,
-                "missing",
-                reason="labels.yml has no type/* label other than type/epic",
-            ),
-            None,
-        )
-
     return OnboardingRow(3, _ROW_3_PREREQUISITE, "present"), specs
 
 
 def _check_row_4(
     store: RoadmapStore,
-    row_3: OnboardingRow,
     specs: list[LabelSpec] | None,
 ) -> tuple[OnboardingRow, tuple[LabelSpec, ...], tuple[LabelSpec, ...]]:
-    """Check whether every declared label exists on GitHub."""
-    if row_3.state != "present" or specs is None:
-        return (
-            OnboardingRow(4, _ROW_4_PREREQUISITE, "not readable", reason=row_3.reason),
-            (),
-            (),
-        )
-
+    """Check whether every workflow label and every label of the file exists on GitHub. With no
+    usable file (`specs` None), the row checks the workflow labels."""
+    desired = specs if specs is not None else list(WORKFLOW_LABELS)
     try:
         existing = [label.model_dump() for label in store.repository_labels()]
-        to_create, to_update, _ = diff_labels(specs, existing)
+        to_create, to_update, _ = diff_labels(desired, existing)
         missing = tuple(to_create)
         differing = tuple(to_update)
         if not missing:
@@ -259,7 +241,7 @@ def check_onboarding(
     row_1 = _check_row_1(active_session, repo)
     row_2 = _check_row_2(active_session, repo)
     row_3, specs = _check_row_3(store)
-    row_4, missing_labels, differing_labels = _check_row_4(store, row_3, specs)
+    row_4, missing_labels, differing_labels = _check_row_4(store, specs)
     row_5 = _check_row_5(store)
     row_6 = _check_row_6(repo, active_settings)
 
@@ -317,6 +299,10 @@ def render_onboarding(
     if applied and applied.created_labels:
         lines.append("")
         lines.append(f"Created {len(applied.created_labels)} label(s).")
+    elif applied is None and report.missing_labels:
+        lines.append("")
+        lines.append("Missing labels:")
+        lines.extend(f"  - {spec.name}" for spec in report.missing_labels)
 
     if report.differing_labels:
         lines.append("")

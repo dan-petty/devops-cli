@@ -7926,7 +7926,7 @@ devops gh labels list [OPTIONS]
 
 #### `devops gh labels sync`
 
-**Synchronize repository labels against the declarative YAML schema.**
+**Synchronize repository labels with the workflow labels and the declarative YAML schema.**
 
 ```bash
 devops gh labels sync [OPTIONS]

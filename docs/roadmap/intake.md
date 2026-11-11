@@ -51,7 +51,7 @@ One request holds a question for each field that has a fixed list:
 
 | Field | Question | Answer |
 | :--- | :--- | :--- |
-| Type | Pick one of the `type/*` labels of `.github/labels.yml`. Asked only when the title and the issue give no type. | The label |
+| Type | Pick one of the `type/*` labels of the package (`roadmap/workflow_labels.py`). Asked only when the title and the issue give no type. | The label |
 | Priority | Pick one of `P1-High`, `P2-Medium` and `P3-Low`. | The priority |
 | Value, Effort | Score a rubric of three levels. | The level, rounded |
 | Duplicate | One yes/no question for each nearest item. | A possible original, when the probability reaches 0.90 |

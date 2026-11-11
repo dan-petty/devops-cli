@@ -86,7 +86,7 @@ When a case's model call fails, `devops roadmap eval intake` SHALL show that cas
 - **THEN** the table shows that case with its error, the other cases have their verdicts, and the command exits 1
 
 ### Requirement: An evaluation run reads the labels of the checkout
-`devops roadmap eval intake` SHALL read the type labels from `.github/labels.yml` at the root of the checkout it runs in, and SHALL send no GitHub request and no embedding request. With no such file it SHALL stop before any model call with an error that names the file.
+`devops roadmap eval intake` SHALL take the type labels from the package and read `.github/labels.yml` at the root of the checkout it runs in, and SHALL send no GitHub request and no embedding request. With no such file it SHALL stop before any model call with an error that names the file.
 
 #### Scenario: A checkout with no labels file
 - **WHEN** the command runs in a directory with no `.github/labels.yml`

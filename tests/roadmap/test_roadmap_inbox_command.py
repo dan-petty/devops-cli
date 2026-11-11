@@ -16,6 +16,7 @@ from devops_cli.roadmap.stores.store import (
     encode_job_record,
     with_record,
 )
+from devops_cli.roadmap.workflow_labels import WORKFLOW_LABELS
 from tests.support.fakes.github import API
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 
@@ -32,8 +33,7 @@ def _plan_pull(store: InMemoryRoadmapStore) -> int:
 def test_the_report_lists_a_ready_plan_pull_request_with_its_step(
     cli: Callable[..., Any], roadmap_store: InMemoryRoadmapStore
 ) -> None:
-    roadmap_store.seed_file(CONST_ROADMAP_LABELS_PATH, "- name: type/bug\n  color: D73A4A\n")
-    roadmap_store.seed_label("type/bug", "D73A4A")
+    _seed_labels(roadmap_store)
     pull = _plan_pull(roadmap_store)
 
     result = cli("roadmap", "inbox", "--repo", REPO)
@@ -73,8 +73,10 @@ def test_the_inbox_takes_no_write_option(cli: Callable[..., Any], flag: str) -> 
 
 
 def _seed_labels(store: InMemoryRoadmapStore) -> None:
-    store.seed_file(CONST_ROADMAP_LABELS_PATH, "- name: type/bug\n  color: D73A4A\n")
-    store.seed_label("type/bug", "D73A4A")
+    store.seed_file(CONST_ROADMAP_LABELS_PATH, "- name: scope/cli\n  color: DCDCD6\n")
+    store.seed_label("scope/cli", "DCDCD6")
+    for spec in WORKFLOW_LABELS:
+        store.seed_label(spec.name, spec.color, spec.description)
 
 
 def test_without_repo_the_inbox_reads_each_service_repo(
