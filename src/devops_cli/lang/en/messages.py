@@ -4974,6 +4974,21 @@ class RoadmapMessages:
     verify_eval_failed: str = (
         "{failed} case(s) could not run. The score counts their defects as not found."
     )
+    verify_eval_storing: str = (
+        "The run writes each case to {path} when the case ends. To continue a stopped run, give "
+        "this file to --resume."
+    )
+    verify_eval_resume_unread: str = (
+        "The file {path} is not a report of devops roadmap eval verify."
+    )
+    verify_eval_resume_model: str = (
+        "The report {path} is of the model {stored}, not of {model}. The scores of two models must "
+        "not mix: resume it with --model {stored}, or start a new run."
+    )
+    verify_eval_resume_unknown: str = (
+        "The report {path} holds cases that the set lacks: {names}. Resume it with the set of its "
+        "run (--cases)."
+    )
     # `devops roadmap eval completeness` (#4308).
     jev_eval_title: str = (
         "# Jev completeness check on the labelled set: {cases} case(s), the model {model} at "

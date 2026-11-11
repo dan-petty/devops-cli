@@ -7,21 +7,27 @@ a common type does not cover every defect of that type. The match is by type and
 recall is the matched defects over the labeled ones. A finding on a `good` plan is a false alarm,
 and the score counts those that would return the plan to the planner.
 
-pydantic-evals runs the cases and scores each one with the evaluator `Recall`, as the evaluation
-of the duplicate judgement of intake does. It is imported only when a run starts.
+pydantic-evals runs the cases, and its per-case hook (`CaseLifecycle.teardown`) gives each case to
+the caller when the case ends, so the caller stores the report after each case and a stop keeps
+the cases that ended. A later run reads a stored report (`resumed_outcomes`) and runs only the
+cases that it lacks or that failed in it (#4344). pydantic-evals is imported only when a run
+starts.
 """
 
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, replace
+from collections.abc import Callable, Iterable, Sequence
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Final
+from typing import TYPE_CHECKING, Any, Final
+
+from pydantic import BaseModel, ConfigDict, ValidationError
 
 from devops_cli.ai.client.models import AICredentialsError
 from devops_cli.config.constants import CONST_ROADMAP_VERIFY_RECALL_FLOOR
 from devops_cli.dry_run import PlannedRequest
+from devops_cli.exceptions import ConfigurationError
 from devops_cli.lang import MESSAGES
 from devops_cli.openspec.tool import OpenSpecTool
 from devops_cli.roadmap.clone_git import checkout_at
@@ -38,6 +44,9 @@ from devops_cli.roadmap.stage.stage_eval_cases import (
 from devops_cli.roadmap.stage.stage_toolbox import ToolboxClient, ToolboxModel, review
 from devops_cli.roadmap.stage.stage_verify import Finding, VerificationInput, returning
 
+if TYPE_CHECKING:
+    from pydantic_evals.reporting import ReportCase, ReportCaseFailure
+
 _DATASET_NAME: Final[str] = "stage_verification"
 _OPERATION: Final[str] = "roadmap.eval.stage-verify"
 _TASK: Final[str] = "verification"
@@ -49,6 +58,7 @@ _BY_SEVERITY: Final[tuple[Severity, ...]] = (
     Severity.NIT,
 )
 _SERIOUS: Final[frozenset[Severity]] = frozenset({Severity.BLOCKER, Severity.MAJOR})
+_NOT_RUN: Final[str] = "not run"
 
 
 def matched_defects(defects: Sequence[Defect], findings: Sequence[Finding]) -> tuple[Defect, ...]:
@@ -155,14 +165,49 @@ class VerifyScore:
         return sum(case.returning for case in self.cases if case.good)
 
 
-def _recall_scores(case: StageCase, output: CaseVerification) -> dict[str, int]:
-    """The scores of one case: the defects found, in all and for each type, and the serious
-    ones."""
-    found = matched_defects(case.defects, output.findings)
-    scores = {"found": len(found), "serious_found": sum(d.severity in _SERIOUS for d in found)}
-    for kind in DefectType:
-        scores[f"found.{kind.value}"] = sum(defect.type is kind for defect in found)
-    return scores
+def verify_score(
+    model: str,
+    cases: Sequence[StageCase],
+    outcomes: Iterable[CaseOutcome],
+    *,
+    left_out: tuple[str, ...] = (),
+) -> VerifyScore:
+    """The score of `cases` from the outcome of each case: the defects that the findings of each
+    case find, by type and in all. A case with no outcome counts as a case that did not run."""
+    by_name = {outcome.name: outcome for outcome in outcomes}
+    ended = tuple(by_name.get(case.name) or _not_run(case) for case in cases)
+    defects = [defect for case in cases for defect in case.defects]
+    found = [
+        defect
+        for case, outcome in zip(cases, ended, strict=True)
+        for defect in matched_defects(case.defects, outcome.findings)
+    ]
+    rows = tuple(
+        TypeRecall(kind, sum(d.type is kind for d in defects), sum(d.type is kind for d in found))
+        for kind in DefectType
+    )
+    return VerifyScore(
+        model,
+        rows,
+        sum(d.severity in _SERIOUS for d in defects),
+        sum(d.severity in _SERIOUS for d in found),
+        ended,
+        left_out,
+    )
+
+
+def _not_run(case: StageCase, error: str = "") -> CaseOutcome:
+    """The outcome of a case whose call failed with `error`, or that did not run."""
+    return CaseOutcome(
+        case.name, case.verdict is Verdict.GOOD, len(case.defects), 0, error=error or _NOT_RUN
+    )
+
+
+def pending_cases(cases: Sequence[StageCase], done: Iterable[CaseOutcome]) -> list[StageCase]:
+    """The cases that a run with the stored outcomes `done` runs: each case with no outcome, or
+    whose call failed."""
+    kept = {outcome.name for outcome in done if not outcome.error}
+    return [case for case in cases if case.name not in kept]
 
 
 def evaluate_cases(
@@ -173,28 +218,46 @@ def evaluate_cases(
     *,
     toolbox: ToolboxModel,
     left_out: tuple[str, ...] = (),
+    done: Iterable[CaseOutcome] = (),
+    store: Callable[[VerifyScore], object] | None = None,
 ) -> VerifyScore:
     """Run the pass on each case, one at a time, and score it. A call that fails ends its case
     as failed. Rejected credentials stop the run. The pass of each case is an agent of the `toolbox`
     model with the read tools of the job on the checkout of the case, so the score measures the
     pass that the job runs (#3039). `client` answers a call that is not for the pass. `left_out`
-    names the cases that the caller did not pass, as they hold no commit; the score reports them."""
+    names the cases that the caller did not pass, as they hold no commit; the score reports them.
+
+    `done` holds the outcomes of a stored report: the run keeps each one whose call did not fail
+    and runs only the other cases. `store` gets the score of the cases that ended, at the start
+    and again when each case ends, so a stop of the run keeps them (#4344). A case that ran after
+    the credentials were rejected is not stored."""
+    ended = {outcome.name: outcome for outcome in done if not outcome.error}
+
+    def keep(outcome: CaseOutcome | None = None) -> None:
+        if outcome is not None:
+            ended[outcome.name] = outcome
+        if store is not None:
+            closed = [case for case in cases if case.name in ended]
+            store(verify_score(model, closed, ended.values(), left_out=left_out))
+
+    keep()
     with openspec_tool() as tool:
-        score = _scored(model, cases, client, repository, toolbox, tool)
-    return replace(score, left_out=left_out)
+        _run_cases(pending_cases(cases, ended.values()), client, repository, toolbox, tool, keep)
+    return verify_score(model, cases, ended.values(), left_out=left_out)
 
 
-def _scored(
-    model: str,
+def _run_cases(
     cases: Sequence[StageCase],
     client: StageClient,
     repository: Path,
     toolbox: ToolboxModel,
     tool: OpenSpecTool | None,
-) -> VerifyScore:
-    """The score of the pass on `cases`, with `tool` for the specs that `read_spec` reads."""
+    ended: Callable[[CaseOutcome], None],
+) -> None:
+    """Run the pass on `cases`, with `tool` for the specs that `read_spec` reads, and give the
+    outcome of each case to `ended` when the case ends."""
     from pydantic_evals import Case, Dataset
-    from pydantic_evals.evaluators import Evaluator, EvaluatorContext
+    from pydantic_evals.lifecycle import CaseLifecycle
 
     by_name = {case.name: case for case in cases}
     rejected: list[AICredentialsError] = []
@@ -227,68 +290,77 @@ def _scored(
             raise
         return CaseVerification(tuple(findings), len(returning(findings, read)))
 
-    by_name = {case.name: case for case in cases}
+    class Store(CaseLifecycle[str, CaseVerification, StageCase]):
+        """Gives the outcome of the case to `ended` when the case ends. A stop of the run in
+        the case gives no result, and the case is not stored."""
 
-    class Recall(Evaluator[str, CaseVerification, StageCase]):
-        """The defects of the case that the findings found."""
-
-        def evaluate(
-            self, ctx: EvaluatorContext[str, CaseVerification, StageCase]
-        ) -> Mapping[str, int]:
-            return _recall_scores(by_name[ctx.inputs], ctx.output)
+        async def teardown(
+            self,
+            result: ReportCase[str, CaseVerification, StageCase]
+            | ReportCaseFailure[str, CaseVerification, StageCase]
+            | None,
+        ) -> None:
+            if result is not None and not rejected:
+                ended(_outcome(by_name[result.name], result))
 
     dataset: Dataset[str, CaseVerification, StageCase] = Dataset(
         name=_DATASET_NAME,
         cases=[Case(name=case.name, inputs=case.name, metadata=case) for case in cases],
-        evaluators=[Recall()],
     )
-    report = dataset.evaluate_sync(task, max_concurrency=1, progress=False)
+    dataset.evaluate_sync(task, max_concurrency=1, progress=False, lifecycle=Store)
     if rejected:
         raise rejected[0]
-    ran = {item.name: item for item in report.cases}
-    failed = {item.name: item.error_message for item in report.failures}
-    outcomes: list[CaseOutcome] = []
-    found_by_type = dict.fromkeys(DefectType, 0)
-    for case in cases:
-        item = ran.get(case.name)
-        if item is None:
-            outcomes.append(
-                CaseOutcome(
-                    case.name,
-                    case.verdict is Verdict.GOOD,
-                    len(case.defects),
-                    0,
-                    error=failed.get(case.name, "") or "not run",
-                )
-            )
-            continue
-        scores = {name: int(result.value) for name, result in item.scores.items()}
-        for kind in DefectType:
-            found_by_type[kind] += scores[f"found.{kind.value}"]
-        outcomes.append(
-            CaseOutcome(
-                case.name,
-                case.verdict is Verdict.GOOD,
-                len(case.defects),
-                scores["found"],
-                item.output.findings,
-                item.output.returning,
-            )
+
+
+def _outcome(
+    case: StageCase,
+    result: ReportCase[str, CaseVerification, StageCase]
+    | ReportCaseFailure[str, CaseVerification, StageCase],
+) -> CaseOutcome:
+    """The outcome of `case` from the result of its run."""
+    from pydantic_evals.reporting import ReportCaseFailure
+
+    if isinstance(result, ReportCaseFailure):
+        return _not_run(case, result.error_message)
+    output = result.output
+    return CaseOutcome(
+        case.name,
+        case.verdict is Verdict.GOOD,
+        len(case.defects),
+        len(matched_defects(case.defects, output.findings)),
+        output.findings,
+        output.returning,
+    )
+
+
+class _StoredReport(BaseModel):
+    """The part of a report of `verify_json` that a resumed run reads."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    model: str
+    cases: tuple[CaseOutcome, ...]
+
+
+def resumed_outcomes(path: Path, model: str) -> tuple[CaseOutcome, ...]:
+    """The case outcomes of the report in `path`, which `verify_json` wrote for `model`. A file
+    that is not such a report, or a report of another model, raises `ConfigurationError`, as the
+    scores of two models must not mix."""
+    try:
+        stored = _StoredReport.model_validate_json(path.read_text(encoding="utf-8"))
+    except ValidationError as exc:
+        raise ConfigurationError(
+            MESSAGES.roadmap.verify_eval_resume_unread.format(path=path),
+            details={"path": str(path), "errors": exc.error_count()},
+        ) from exc
+    if stored.model != model:
+        raise ConfigurationError(
+            MESSAGES.roadmap.verify_eval_resume_model.format(
+                path=path, stored=stored.model, model=model
+            ),
+            details={"path": str(path), "stored": stored.model, "model": model},
         )
-    serious = [d for case in cases for d in case.defects if d.severity in _SERIOUS]
-    serious_found = sum(
-        _score_of(ran, case.name, "serious_found") for case in cases if case.name in ran
-    )
-    rows = tuple(
-        TypeRecall(kind, sum(d.type is kind for c in cases for d in c.defects), found_by_type[kind])
-        for kind in DefectType
-    )
-    return VerifyScore(model, rows, len(serious), serious_found, tuple(outcomes))
-
-
-def _score_of(ran: Mapping[str, Any], name: str, score: str) -> int:
-    """The integer score `score` of the evaluated case `name`."""
-    return int(ran[name].scores[score].value)
+    return stored.cases
 
 
 def _percent(value: float | None) -> str:

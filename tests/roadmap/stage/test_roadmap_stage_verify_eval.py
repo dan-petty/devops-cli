@@ -247,6 +247,50 @@ def test_rejected_credentials_stop_the_run(
         _evaluate([case], model_fake, stage_repo)
 
 
+class _Stop(BaseException):
+    """A stop of the process in the middle of a case, such as an interrupt."""
+
+
+def _named(cases: list[StageCase], repo: StageRepo, *names: str) -> list[StageCase]:
+    """One case for each name, each with one defect and its name as its issue body, so a test
+    knows the case of a model call from its request."""
+    return [
+        _case(cases, repo, name, (_defect(DefectType.OTHER),)).model_copy(
+            update={"issue_body": name}
+        )
+        for name in names
+    ]
+
+
+def test_a_stop_in_the_third_case_keeps_the_two_cases_that_ended(
+    cases: list[StageCase], stage_repo: StageRepo, model_fake: ModelFake
+) -> None:
+    run = _named(cases, stage_repo, "a-first", "b-second", "c-third")
+
+    def stop(_prompt: str) -> Verification:
+        raise _Stop
+
+    model_fake.answer(Verification(findings=[_finding(DefectType.OTHER)]), Verification(), stop)
+    stored: list[VerifyScore] = []
+
+    with pytest.RaisesGroup(_Stop, allow_unwrapped=True, flatten_subgroups=True):
+        evaluate_cases(
+            "m-1",
+            run,
+            _client(model_fake),
+            stage_repo.clone,
+            toolbox=ToolboxModel(model_fake),
+            store=stored.append,
+        )
+
+    assert [[case.name for case in score.cases] for score in stored] == [
+        [],
+        ["a-first"],
+        ["a-first", "b-second"],
+    ]
+    assert (stored[-1].labeled, stored[-1].found, stored[-1].failed) == (2, 1, 0)
+
+
 # ── The command ───────────────────────────────────────────────────────────────
 
 
@@ -325,6 +369,211 @@ def test_a_run_with_a_failed_call_exits_1_after_the_other_cases(
     assert result.exit_code == 1
     assert "1 case(s) could not run" in result.output
     assert model_fake.call_count == 2
+
+
+def _run_set(cli: Cli, repo: StageRepo, folder: Path, *args: str) -> Any:
+    """`devops roadmap eval verify` on the set in `folder`, with the commits of `repo`."""
+    return _verify(cli, "--cases", str(folder), "--source", str(repo.clone), *args)
+
+
+def _reports(data_dir: Path) -> list[Path]:
+    return sorted((data_dir / "roadmap_eval" / "verify").glob("*.json"))
+
+
+def _read(path: Path) -> dict[str, Any]:
+    return cast("dict[str, Any]", json.loads(path.read_text(encoding="utf-8")))
+
+
+def _bodies(fake: ModelFake) -> list[str]:
+    return [json.loads(sent.prompt)["body"] for sent in fake.calls]
+
+
+def test_the_report_holds_a_case_with_its_findings_when_the_case_ends(
+    cli: Cli,
+    tmp_path: Path,
+    cases: list[StageCase],
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    isolate_data_dir: Path,
+) -> None:
+    folder = _write_set(tmp_path, *_named(cases, stage_repo, "a-first", "b-second"))
+    seen: list[dict[str, Any]] = []
+
+    def second(_prompt: str) -> Verification:
+        seen.extend(_read(path) for path in _reports(isolate_data_dir))
+        return Verification()
+
+    model_fake.answer(Verification(findings=[_finding(DefectType.OTHER)]), second)
+
+    result = _run_set(cli, stage_repo, folder)
+
+    assert result.exit_code == 0, result.output
+    (report,) = seen
+    assert [case["name"] for case in report["cases"]] == ["a-first"]
+    assert report["cases"][0]["findings"][0]["type"] == "other"
+    assert f"each case to {_reports(isolate_data_dir)[0]}" in result.output
+
+
+def test_a_resumed_run_runs_only_the_failed_and_the_missing_cases_and_updates_the_report(
+    cli: Cli,
+    tmp_path: Path,
+    cases: list[StageCase],
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    isolate_data_dir: Path,
+) -> None:
+    first, second, third, fourth = _named(
+        cases, stage_repo, "a-first", "b-second", "c-third", "d-fourth"
+    )
+    folder = _write_set(tmp_path, first, second, third)
+    model_fake.answer(
+        Verification(findings=[_finding(DefectType.OTHER)]),
+        Verification(),
+        AIClientError("The model failed."),
+    )
+    assert _run_set(cli, stage_repo, folder, "--model", "m-1").exit_code == 1
+    (path,) = _reports(isolate_data_dir)
+    before = _read(path)["cases"]
+    _write_set(tmp_path, fourth)
+    model_fake.reset()
+    model_fake.answer(Verification(findings=[_finding(DefectType.OTHER)]))
+
+    result = _run_set(cli, stage_repo, folder, "--model", "m-1", "--resume", str(path))
+
+    assert result.exit_code == 0, result.output
+    assert _bodies(model_fake) == ["c-third", "d-fourth"]
+    report = _read(path)
+    assert [case["name"] for case in report["cases"]] == [
+        "a-first",
+        "b-second",
+        "c-third",
+        "d-fourth",
+    ]
+    assert report["cases"][:2] == before[:2]
+    assert (report["labeled"], report["found"], report["failed"]) == (4, 3, 0)
+    assert _reports(isolate_data_dir) == [path]
+    assert "Recall of the labeled defects: 3 of 4 (75%)" in result.output
+
+
+def test_a_resumed_run_keeps_the_cases_of_the_report_that_the_selection_lacks(
+    cli: Cli,
+    tmp_path: Path,
+    cases: list[StageCase],
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    isolate_data_dir: Path,
+) -> None:
+    folder = _write_set(tmp_path, *_named(cases, stage_repo, "a-first", "b-second"))
+    model_fake.answer(Verification(findings=[_finding(DefectType.OTHER)]))
+    assert _run_set(cli, stage_repo, folder, "--case", "a-first").exit_code == 0
+    (path,) = _reports(isolate_data_dir)
+    model_fake.reset()
+    model_fake.answer(Verification())
+
+    result = _run_set(cli, stage_repo, folder, "--case", "b-second", "--resume", str(path))
+
+    assert result.exit_code == 0, result.output
+    assert _bodies(model_fake) == ["b-second"]
+    assert [case["name"] for case in _read(path)["cases"]] == ["a-first", "b-second"]
+
+
+def test_rejected_credentials_on_the_second_case_keep_the_first_case_in_the_report(
+    cli: Cli,
+    tmp_path: Path,
+    cases: list[StageCase],
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    isolate_data_dir: Path,
+) -> None:
+    folder = _write_set(tmp_path, *_named(cases, stage_repo, "a-first", "b-second", "c-third"))
+    model_fake.answer(Verification(), AICredentialsError("rejected"))
+
+    result = _run_set(cli, stage_repo, folder)
+
+    assert result.exit_code != 0
+    (path,) = _reports(isolate_data_dir)
+    assert [case["name"] for case in _read(path)["cases"]] == ["a-first"]
+    assert model_fake.call_count == 2
+
+
+def test_a_resume_of_a_report_of_another_model_exits_1_and_makes_no_call(
+    cli: Cli,
+    tmp_path: Path,
+    cases: list[StageCase],
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    isolate_data_dir: Path,
+) -> None:
+    folder = _write_set(tmp_path, *_named(cases, stage_repo, "a-first"))
+    model_fake.answer(Verification())
+    assert _run_set(cli, stage_repo, folder, "--model", "m-1").exit_code == 0
+    (path,) = _reports(isolate_data_dir)
+    model_fake.reset()
+
+    result = _run_set(cli, stage_repo, folder, "--model", "m-2", "--resume", str(path))
+
+    assert result.exit_code == 1
+    assert "m-1" in result.output
+    assert "m-2" in result.output
+    assert model_fake.call_count == 0
+
+
+def test_a_resume_of_a_report_with_a_case_that_the_set_lacks_exits_1_and_names_it(
+    cli: Cli,
+    tmp_path: Path,
+    cases: list[StageCase],
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    isolate_data_dir: Path,
+) -> None:
+    folder = _write_set(tmp_path, *_named(cases, stage_repo, "a-first"))
+    model_fake.answer(Verification())
+    assert _run_set(cli, stage_repo, folder).exit_code == 0
+    (path,) = _reports(isolate_data_dir)
+    other = _write_set(tmp_path / "other", *_named(cases, stage_repo, "b-second"))
+    model_fake.reset()
+
+    result = _run_set(cli, stage_repo, other, "--resume", str(path))
+
+    assert result.exit_code == 1
+    assert "a-first" in result.output
+    assert model_fake.call_count == 0
+
+
+def test_a_resume_of_a_file_that_is_not_a_report_exits_1(
+    cli: Cli, tmp_path: Path, model_fake: ModelFake
+) -> None:
+    path = tmp_path / "report.json"
+    path.write_text('{"cases": []}', encoding="utf-8")
+
+    result = _verify(cli, "--resume", str(path), "--dry-run")
+
+    assert result.exit_code == 1
+    assert str(path) in result.output
+    assert model_fake.call_count == 0
+
+
+def test_the_dry_run_of_a_resume_lists_only_the_cases_that_would_run(
+    cli: Cli,
+    tmp_path: Path,
+    cases: list[StageCase],
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    isolate_data_dir: Path,
+) -> None:
+    folder = _write_set(tmp_path, *_named(cases, stage_repo, "a-first", "b-second"))
+    model_fake.answer(Verification())
+    assert _run_set(cli, stage_repo, folder, "--case", "a-first").exit_code == 0
+    (path,) = _reports(isolate_data_dir)
+    model_fake.reset()
+
+    result = _run_set(cli, stage_repo, folder, "--resume", str(path), "--dry-run")
+
+    assert result.exit_code == 0, result.output
+    assert "verifies 1 case(s)" in result.output
+    assert "verification of the case b-second" in result.output
+    assert "verification of the case a-first" not in result.output
+    assert model_fake.call_count == 0
 
 
 def test_the_dry_run_makes_no_model_call_and_names_the_case(
