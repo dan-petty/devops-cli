@@ -1,22 +1,34 @@
-"""`devops roadmap retitle` (#3486): shorten the long title of an open item.
+"""`devops roadmap retitle` (#3486, #4508): shorten the long title of an open item, and correct a
+title type that `CONST_BRANCH_TYPES` does not list.
 
 The stage job and the implement job leave out an item whose title summary is over
 `SUMMARY_MAX_CHARS` characters (`long_title_reason`), and the check `Semantic PR title` refuses
 the delivery title at the push. No other job shortened such a title, so a person had to edit it.
 This job does it, and `devops roadmap intake` refuses a new candidate with a long summary.
 
-**Selection.** An open Item whose title has a Conventional Commit type and a summary over the
-limit, the lowest number first, at most `--limit` a run. `--item` names the one item to examine.
+The stage job also leaves out an item whose title type is not listed, such as `security(ssh): x`,
+because its branch has no type. Such an item waited with no comment (#4508). This job writes
+the correction of `corrected_title` (`fix(security)`) with no model call, and shortens a long
+summary of the corrected title in the same round. It comments once on an unlisted type that has
+no correction, and a person corrects it. Refine does not set such an item Ready, and intake
+keeps a new candidate with it, because this job corrects it.
+
+**Selection.** An open Item whose title has an unlisted type, or a Conventional Commit type and a
+summary over the limit, the lowest number first, at most `--limit` a run. `--item` names the one
+item to examine.
 
 **The skip mark (#4038).** When the job leaves an item (a person's edit, no plan title, no usable
-reply of the model), `apply_retitle` writes `retitle.skipped` in the job record of the item, once.
+reply of the model, a type with no correction), `apply_retitle` writes `retitle.skipped` in the
+job record of the item, and one log line with the reason, once.
 The value is `skip_hash`: a hash of the title, the body and the `stage.pr` mark. The selection
 leaves out an item while the mark equals the current hash, so a later round reads no comment of
 it, makes no model request for it, and does not let it hold a place of `--limit`. A change to the
 title, the body or the `stage.pr` mark selects the item again. A comment does not.
 
-**The source of the new summary.** The job keeps the type and the scope, and writes only the
-summary (`build_title`), so `title_problems` holds for the new title.
+**The source of the new summary.** The job keeps the type and the scope of a listed type (or of
+the corrected title), and writes only the summary (`build_title`), so `title_problems` holds for
+the new title. When the summary of a corrected title stays too long, the job writes the corrected
+title with its old summary, and the next round shortens it as for any listed type.
 
 - A Planned item takes the summary of the title of its plan pull request, which the job record
   names (`stage.pr`). The stage job bounds that summary (`STAGE_SUMMARY_MAX_CHARS`). The job makes
@@ -46,6 +58,7 @@ from pydantic import BaseModel, ConfigDict
 
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config.constants import (
+    CONST_BRANCH_TYPES,
     CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER,
     CONST_ROADMAP_JOB_COMMENT_MARKERS,
     CONST_ROADMAP_RETITLE_COMMENT_MARKER,
@@ -61,7 +74,12 @@ from devops_cli.exceptions.base import DevOpsCLIError
 from devops_cli.exceptions.validation import ValidationError
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.body_hash import hash_text
-from devops_cli.roadmap.commit_title import commit_summary, commit_type
+from devops_cli.roadmap.commit_title import (
+    commit_summary,
+    commit_type,
+    corrected_title,
+    unlisted_type,
+)
 from devops_cli.roadmap.intake.intake_model import gateway_address
 from devops_cli.roadmap.pull_form import SUMMARY_MAX_CHARS, build_title, summary_length
 from devops_cli.roadmap.stores.store import (
@@ -79,6 +97,10 @@ _PROMPT = "roadmap_retitle.md"
 _ATTEMPTS = 2
 # The markers of the comments that a job wrote: those of a person do not count.
 _JOB_MARKERS = (*CONST_ROADMAP_JOB_COMMENT_MARKERS, CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER)
+# The reason keys of the log line of a skip (#4508): a title type that the stage job cannot take,
+# and a title summary over the limit.
+_KEY_TYPE = "invalid-title-type"
+_KEY_LONG = "long-title"
 
 
 class RetitleReply(BaseModel):
@@ -173,7 +195,8 @@ class TitleSkip:
 @dataclass(frozen=True)
 class RetitlePlan:
     """What a run decided: the new titles, the items it left, and how many items with a long
-    title the limit left for a later run. A dry run holds the requests of a run instead."""
+    title or an unlisted type the limit left for a later run. A dry run holds the requests of a run
+    instead."""
 
     repo: str
     changes: tuple[TitleChange, ...] = ()
@@ -200,15 +223,24 @@ def _is_skipped(item: Item) -> bool:
     return item.job_record.get(RetitleRecordKey.SKIPPED) == skip_hash(item)
 
 
-def long_title_items(store: RoadmapStore, item_number: int | None = None) -> list[Item]:
-    """The open Items with a Conventional Commit type and a summary over the limit, the lowest
-    number first, without an item whose skip mark holds. With `item_number`, only that item,
-    when it is one of them."""
+def _needs_retitle(title: str) -> bool:
+    """Whether `title` has an unlisted type, or a Conventional Commit type and a summary over the
+    limit."""
+    if unlisted_type(title) is not None:
+        return True
+    return (
+        commit_type(title) is not None and summary_length(commit_summary(title)) > SUMMARY_MAX_CHARS
+    )
+
+
+def retitle_items(store: RoadmapStore, item_number: int | None = None) -> list[Item]:
+    """The open Items whose title has an unlisted type, or a Conventional Commit type and a
+    summary over the limit, the lowest number first, without an item whose skip mark holds. With
+    `item_number`, only that item, when it is one of them."""
     found = [
         item
         for item in store.open_items()
-        if commit_type(item.title) is not None
-        and summary_length(commit_summary(item.title)) > SUMMARY_MAX_CHARS
+        if _needs_retitle(item.title)
         and item_number in (None, item.number)
         and not _is_skipped(item)
     ]
@@ -228,13 +260,13 @@ def person_changed_title(comments: Sequence[IssueComment], renamed_at: datetime 
     return last is None or renamed_at > last
 
 
-def _request(item: Item, problems: Sequence[str]) -> str:
-    """The JSON the model sees: the title, the summary, the limit, the start of the body and the
-    faults of the last reply."""
+def _request(item: Item, title: str, problems: Sequence[str]) -> str:
+    """The JSON the model sees: the title to shorten, its summary, the limit, the start of the
+    body and the faults of the last reply."""
     return json.dumps(
         {
-            "title": item.title,
-            "summary": commit_summary(item.title),
+            "title": title,
+            "summary": commit_summary(title),
             "limit": SUMMARY_MAX_CHARS,
             "body": item.body[:DEFAULT_ROADMAP_INTAKE_TEXT_CHARS],
             "problems": list(problems),
@@ -244,61 +276,90 @@ def _request(item: Item, problems: Sequence[str]) -> str:
     )
 
 
-def _title_with(item: Item, summary: str) -> tuple[str | None, str]:
-    """The title of `item` with `summary` as its summary, or None and the problems that the title
-    form finds."""
+def _title_with(title: str, summary: str) -> tuple[str | None, str]:
+    """`title` with `summary` as its summary, or None and the problems that the title form
+    finds."""
     try:
-        return build_title(item.title, summary, None), ""
+        return build_title(title, summary, None), ""
     except ValidationError as exc:
         return None, str(exc)
 
 
-def _plan_title(store: RoadmapStore, item: Item) -> TitleChange | TitleSkip:
-    """The title of a Planned item from the title of its plan pull request. The stage job writes
-    that title as `plan #<issue> <summary>`, and bounds the summary."""
+def _plan_title(store: RoadmapStore, item: Item, title: str) -> TitleChange | TitleSkip:
+    """`title`, the title of a Planned item, with the summary of the title of its plan pull
+    request. The stage job writes that title as `plan #<issue> <summary>`, and bounds the
+    summary."""
     texts = MESSAGES.roadmap
     recorded = item.job_record.get(StageRecordKey.PR)
     if not (recorded and recorded.isdecimal()):
         return TitleSkip(item, texts.retitle_reason_no_pull, comment=True)
     pull = int(recorded)
-    title = store.pull_title(pull)
+    pull_title = store.pull_title(pull)
     lead = texts.stage_title_lead.format(number=item.number)
-    summary = commit_summary(title or "")
+    summary = commit_summary(pull_title or "")
     if not summary.startswith(lead):
         reason = texts.retitle_reason_pull_title.format(
             pull=pull, problems=f"it does not start with `{lead.strip()}`."
         )
         return TitleSkip(item, reason, comment=True)
-    new, problems = _title_with(item, summary.removeprefix(lead))
+    new, problems = _title_with(title, summary.removeprefix(lead))
     if new is None:
         reason = texts.retitle_reason_pull_title.format(pull=pull, problems=problems)
         return TitleSkip(item, reason, comment=True)
     return TitleChange(item, new, texts.retitle_source_plan.format(pull=pull))
 
 
-def _model_title(model: RetitleModel, item: Item) -> TitleChange | TitleSkip:
-    """The title of an item that has no plan: the reply of the model that passes the title form.
-    The second request carries the faults of the first reply."""
+def _model_title(model: RetitleModel, item: Item, title: str) -> TitleChange | TitleSkip:
+    """`title`, the title of an item that has no plan, with the reply of the model that passes the
+    title form. The second request carries the faults of the first reply."""
     problems = ""
     for _ in range(_ATTEMPTS):
-        reply = model.summarize(_request(item, [problems] if problems else []))
-        new, problems = _title_with(item, reply.summary)
+        reply = model.summarize(_request(item, title, [problems] if problems else []))
+        new, problems = _title_with(title, reply.summary)
         if new is not None:
             return TitleChange(item, new, MESSAGES.roadmap.retitle_source_model)
     reason = MESSAGES.roadmap.retitle_reason_model_failed.format(problems=problems)
     return TitleSkip(item, reason)
 
 
+def _shortened(
+    store: RoadmapStore, model: RetitleModel, item: Item, title: str
+) -> TitleChange | TitleSkip:
+    """`title` with a short summary: the plan's for a Planned item, else the model's."""
+    if item.status == "Planned":
+        return _plan_title(store, item, title)
+    return _model_title(model, item, title)
+
+
+def _typed(store: RoadmapStore, model: RetitleModel, item: Item) -> TitleChange | TitleSkip:
+    """An item whose title type is not listed (#4508): the corrected title, with no model call
+    when its summary is short. A long summary is shortened; when that fails, the corrected title
+    keeps its old summary, so the stage job reads a listed type and a later round shortens it.
+    A type with no correction leaves the item with a comment."""
+    texts = MESSAGES.roadmap
+    typed = corrected_title(item.title)
+    if typed is None:
+        reason = texts.retitle_reason_type_unknown.format(type=unlisted_type(item.title))
+        return TitleSkip(item, reason, comment=True)
+    kept = TitleChange(item, typed, texts.retitle_source_title)
+    if summary_length(commit_summary(typed)) <= SUMMARY_MAX_CHARS:
+        return kept
+    shortened = _shortened(store, model, item, typed)
+    return shortened if isinstance(shortened, TitleChange) else kept
+
+
 def _decide(store: RoadmapStore, model: RetitleModel, item: Item) -> TitleChange | TitleSkip:
-    """One item: the person's edit first, which costs no token, then the plan's title or the
-    model's."""
+    """One item: the person's edit first, which costs no token, then the correction of an
+    unlisted type, then the plan's title or the model's. A person's title with an unlisted type
+    stays, and the comment names the type, because the stage job cannot take it."""
     texts = MESSAGES.roadmap
     comments = store.comments_on(item.number)
+    unlisted = unlisted_type(item.title) is not None
     if person_changed_title(comments, store.last_renamed_at(item.number)):
-        return TitleSkip(item, texts.retitle_reason_person_edit)
-    if item.status == "Planned":
-        return _plan_title(store, item)
-    return _model_title(model, item)
+        return TitleSkip(item, texts.retitle_reason_person_edit, comment=unlisted)
+    if unlisted:
+        return _typed(store, model, item)
+    return _shortened(store, model, item, item.title)
 
 
 def plan_retitle(
@@ -309,10 +370,10 @@ def plan_retitle(
     item_number: int | None = None,
     limit: int | None = None,
 ) -> RetitlePlan:
-    """Decide the items with a long title, at most `limit` of them (`DEFAULT_ROADMAP_RETITLE_LIMIT`
-    by default), writing nothing."""
+    """Decide the items with a long title or an unlisted type, at most `limit` of them
+    (`DEFAULT_ROADMAP_RETITLE_LIMIT` by default), writing nothing."""
     cap = DEFAULT_ROADMAP_RETITLE_LIMIT if limit is None else limit
-    found = long_title_items(store, item_number)
+    found = retitle_items(store, item_number)
     changes: list[TitleChange] = []
     skips: list[TitleSkip] = []
     for item in found[:cap]:
@@ -327,6 +388,16 @@ def plan_retitle(
 
 
 def _comment_of(change: TitleChange) -> str:
+    kind = unlisted_type(change.item.title)
+    if kind is not None:
+        return MESSAGES.roadmap.retitle_comment_type_changed.format(
+            marker=CONST_ROADMAP_RETITLE_COMMENT_MARKER,
+            type=kind,
+            types=", ".join(CONST_BRANCH_TYPES),
+            old=change.item.title,
+            new=change.title,
+            source=change.source,
+        )
     return MESSAGES.roadmap.retitle_comment_changed.format(
         marker=CONST_ROADMAP_RETITLE_COMMENT_MARKER,
         length=change.old_length,
@@ -338,7 +409,18 @@ def _comment_of(change: TitleChange) -> str:
 
 
 def _skip_comment_of(skip: TitleSkip) -> str:
-    return MESSAGES.roadmap.retitle_comment_skipped.format(
+    texts = MESSAGES.roadmap
+    kind = unlisted_type(skip.item.title)
+    if kind is not None:
+        typed = corrected_title(skip.item.title)
+        return texts.retitle_comment_type_skipped.format(
+            marker=CONST_ROADMAP_RETITLE_COMMENT_MARKER,
+            type=kind,
+            types=", ".join(CONST_BRANCH_TYPES),
+            reason=skip.reason,
+            correction=texts.title_type_correction.format(title=typed) if typed else "",
+        )
+    return texts.retitle_comment_skipped.format(
         marker=CONST_ROADMAP_RETITLE_COMMENT_MARKER,
         length=summary_length(commit_summary(skip.item.title)),
         limit=SUMMARY_MAX_CHARS,
@@ -353,7 +435,9 @@ def _changed_since_read(store: RoadmapStore, change: TitleChange) -> bool:
 
 def apply_retitle(store: RoadmapStore, plan: RetitlePlan) -> int:
     """Write each new title and one comment on its item, and one comment for each skip that says
-    so, unless the item already holds that comment. Each skip also gets the skip mark, in one write.
+    so, unless the item already holds that comment. Each skip also gets the skip mark, in one write,
+    and one log line with its reason key: the selection leaves out a marked item, so the line comes
+    once.
     An item whose title changed since the plan read it is left. Returns the number of titles
     written."""
     written = 0
@@ -368,6 +452,13 @@ def apply_retitle(store: RoadmapStore, plan: RetitlePlan) -> int:
         store.comment(change.item.number, _comment_of(change))
         written += 1
     for skip in plan.skips:
+        key = _KEY_TYPE if unlisted_type(skip.item.title) is not None else _KEY_LONG
+        logger.warning(
+            MESSAGES.roadmap.retitle_log_left.format(
+                number=skip.item.number, key=key, reason=skip.reason
+            ),
+            extra={"reason": key},
+        )
         body = _skip_comment_of(skip)
         if skip.comment and all(c.body != body for c in store.comments_on(skip.item.number)):
             store.comment(skip.item.number, body)
@@ -421,9 +512,9 @@ __all__ = [
     "apply_retitle",
     "build_retitle_model",
     "dry_run_retitle",
-    "long_title_items",
     "person_changed_title",
     "plan_retitle",
     "render_retitle_plan",
+    "retitle_items",
     "skip_hash",
 ]

@@ -1452,7 +1452,8 @@ class RoadmapCommandHelp:
     refine_item: str = (
         "Specific issue number to refine instead of selecting by priority. Refine refines it "
         "when it is open and New or Ready, even when nothing changed since its last round, "
-        "whoever opened it, and however many comments refine wrote on it."
+        "whoever opened it, and however many comments refine wrote on it. It does not refine an "
+        "item whose title type the branch types do not list."
     )
     refine_limit: str = "Maximum number of items to refine in this run (default 7)."
     refine_source: str = "Path to the repository checkout (defaults to current directory)."
@@ -1500,16 +1501,19 @@ class RoadmapCommandHelp:
     consolidate_confirm: str = "Write the decline of --decline to the job record of the anchor."
     consolidate_dry_run: str = "Make no request: print the requests a run makes, with placeholders."
     retitle: str = (
-        "Shorten the title summary of open items that is over 60 characters. The job keeps the type "
-        "and the scope. A Planned item takes the summary of its plan pull request title and needs no "
-        "model call; another item gets one model call. The job leaves a title that a person changed "
-        "after the last job comment. An item that the job leaves gets the mark retitle.skipped, and "
-        "the job does not select it again until its title, body or plan pull request changes. "
-        "Without --confirm, it prints the new titles and writes nothing."
+        "Shorten the title summary of open items that is over 60 characters, and correct a title "
+        "type that the branch types do not list. The job keeps the type and the scope of a listed "
+        "type. It writes fix(security) in place of the type security, with no model call, and "
+        "comments once on another unlisted type. A Planned item takes the summary of its plan pull "
+        "request title and needs no model call; another item gets one model call. The job leaves a "
+        "title that a person changed after the last job comment. An item that the job leaves gets "
+        "the mark retitle.skipped and one log line with the reason, and the job does not select it "
+        "again until its title, body or plan pull request changes. Without --confirm, it prints the "
+        "new titles and writes nothing."
     )
     retitle_item: str = (
         "Specific issue number to examine instead of selecting. Retitle examines it when it is "
-        "open and its title summary is over the limit."
+        "open and its title summary is over the limit or its title type is not listed."
     )
     retitle_limit: str = (
         "Maximum number of items to examine in this run (default: 25). The lowest numbers go first."

@@ -144,7 +144,7 @@ from devops_cli.roadmap.agent_run import RunTrace, TraceFacts, body_error_text
 from devops_cli.roadmap.body_hash import body_hashes, hash_text, without_alternatives
 from devops_cli.roadmap.claim import claimed_by
 from devops_cli.roadmap.clone_git import branch_authors, default_branch, git
-from devops_cli.roadmap.commit_title import commit_summary, commit_type
+from devops_cli.roadmap.commit_title import commit_summary, commit_type, unlisted_type_reason
 from devops_cli.roadmap.decision_point import ResolverChain
 from devops_cli.roadmap.decision_step import Band
 from devops_cli.roadmap.digest_clears import has_digest_clear
@@ -575,7 +575,11 @@ class _Judge:
         return None if is_approved(item) else MESSAGES.roadmap.stage_left_unjudged
 
     def _title_type(self, item: Item) -> str | None:
-        return MESSAGES.roadmap.stage_left_title_type if commit_type(item.title) is None else None
+        """A title with no type of `CONST_BRANCH_TYPES`: the reason names an unlisted type and what
+        `devops roadmap retitle` does for it (#4508)."""
+        if commit_type(item.title) is not None:
+            return None
+        return unlisted_type_reason(item.title) or MESSAGES.roadmap.stage_left_title_type
 
     def _title_long(self, item: Item) -> str | None:
         return long_title_reason(item.title)

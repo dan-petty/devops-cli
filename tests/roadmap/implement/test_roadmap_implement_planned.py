@@ -361,16 +361,30 @@ def test_a_planned_item_with_one_group_ticked_is_selected(
     assert [n for n, _, _ in _targets(plan)] == [number]
 
 
+@pytest.mark.parametrize(
+    ("title", "reason"),
+    [
+        ("the job drops a comment", "The title has no Conventional Commit type"),
+        (
+            "security(roadmap): the job drops a comment",
+            "`devops roadmap retitle` writes `fix(security): the job drops a comment`",
+        ),
+    ],
+)
 def test_a_planned_item_whose_title_has_no_type_is_left_out(
-    store: InMemoryRoadmapStore, repo: StageRepo, github_api: GitHubApiFake
+    store: InMemoryRoadmapStore,
+    repo: StageRepo,
+    github_api: GitHubApiFake,
+    title: str,
+    reason: str,
 ) -> None:
-    number = seed_staged(store, record=False, title="the job drops a comment")
+    number = seed_staged(store, record=False, title=title)
     merge_plan(repo, number)
 
     plan = _plan(store, repo)
 
     assert plan.selected == ()
-    assert "Conventional Commit type" in _reasons(plan)[number]
+    assert reason in _reasons(plan)[number]
 
 
 def test_a_planned_item_with_a_long_title_summary_is_left_out_before_any_work(

@@ -10,7 +10,7 @@ from typing import Any
 
 import pytest
 
-from devops_cli.roadmap.retitle import RetitleReply, apply_retitle, long_title_items, plan_retitle
+from devops_cli.roadmap.retitle import RetitleReply, apply_retitle, plan_retitle, retitle_items
 from devops_cli.roadmap.stores.store import ItemField, StageRecordKey
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore, JobWrite
 
@@ -112,7 +112,7 @@ def _skip_marks(store: InMemoryRoadmapStore) -> list[JobWrite]:
 
 
 def _numbers(store: InMemoryRoadmapStore) -> list[int]:
-    return [item.number for item in long_title_items(store)]
+    return [item.number for item in retitle_items(store)]
 
 
 # The three reasons for a skip each leave one mark, and the next round does not take the item.

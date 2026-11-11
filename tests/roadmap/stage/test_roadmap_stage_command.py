@@ -138,15 +138,36 @@ def test_the_command_plans_with_the_model_of_the_stage_task_as_a_toolbox_model(
     assert "## To stage" in result.output
 
 
+@pytest.mark.parametrize(
+    ("title", "reason"),
+    [
+        (
+            "The board is slow",
+            "The title has no Conventional Commit type, so the branch has no type.",
+        ),
+        (
+            "wip: no type",
+            "The title type `wip` is not a type of the project, so the branch has no type. "
+            "`devops roadmap retitle` comments on the item, and a person edits the title.",
+        ),
+        (
+            "security(ssh): verify node host keys",
+            "The title type `security` is not a type of the project, so the branch has no type. "
+            "`devops roadmap retitle` writes `fix(security): verify node host keys`, or names "
+            "that title in a comment when a person set the title.",
+        ),
+    ],
+)
 def test_a_left_out_item_is_reported_with_its_reason(
-    cli: Cli, roadmap_store: InMemoryRoadmapStore, stage_repo: StageRepo
+    cli: Cli, roadmap_store: InMemoryRoadmapStore, stage_repo: StageRepo, title: str, reason: str
 ) -> None:
-    seed_stageable(roadmap_store, "wip: no type")
+    """The reason names the retitle job only for a type that the job selects (#4508)."""
+    seed_stageable(roadmap_store, title)
 
     result = _stage(cli, stage_repo, "--plan")
 
     assert "## Left out" in result.output
-    assert "- #1 wip: no type: The title has no Conventional Commit type" in result.output
+    assert f"- #1 {title}: {reason}" in result.output
 
 
 def test_why_lists_the_items_that_matched_no_filter_apart_from_the_left_out_items(

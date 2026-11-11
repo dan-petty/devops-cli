@@ -81,7 +81,7 @@ from devops_cli.github.session import get_github_session
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.claim import claimed_by
 from devops_cli.roadmap.clone_git import branch_authors
-from devops_cli.roadmap.commit_title import commit_type
+from devops_cli.roadmap.commit_title import commit_type, unlisted_type_reason
 from devops_cli.roadmap.plan_read import (
     PlanReadError,
     change_root,
@@ -352,7 +352,7 @@ class _Judge:
         texts = MESSAGES.roadmap
         type_ = commit_type(item.title)
         if type_ is None:
-            return texts.stage_left_title_type
+            return unlisted_type_reason(item.title) or texts.stage_left_title_type
         if (too_long := long_title_reason(item.title)) is not None:
             return too_long
         branch = branch_name(item.number, type_, folder.partition("-")[2])
