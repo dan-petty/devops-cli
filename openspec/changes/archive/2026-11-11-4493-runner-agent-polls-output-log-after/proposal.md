@@ -20,6 +20,7 @@ Two more defects of the same prompt and shell:
 - The tool name changes in `IMPLEMENT_LOCAL_TOOL_NAMES` and in the tool registry `roadmap/tools.py`. The lines of the Job log read `Tool call: run_command, ...`.
 - The prompt states the wait of `run_command` with its setting and default, keeps the ban on `sleep`, `time.sleep` and a repeated `tail`, says that a `timeout_seconds` of the model has no effect, and gives the count of extra turns with `roadmap.implement.repair_rounds`.
 - The hint of an operator refusal names a `;`, a new line and a heredoc in the code of `python -c`, and tells the agent to write that code to a file under `.data/agent/scratch/` and run `uv run python <file>`.
+- The prompt states before the first call that the shell refuses a heredoc and code of `python -c` that holds a `;` or a new line, and names the script file. The base instructions of `Coder` (`coder/_instructions.py`) tell the model to check behavior with a heredoc, and the step keeps them.
 - The digest of the budget extension (#4394) counts a refused command by its outcome, not by its tool name, so its count does not change.
 
 The change fits one pull request.
@@ -32,14 +33,14 @@ None.
 
 ### Modified Capabilities
 
-- `roadmap-implement-step`: The implement prompt forbids polling; A shell call in a trace holds its exit status; A run that reaches a limit ends stopped; A call with a command writes the command to the Job log before it runs; The shell of a step waits for its command up to the command limit (added); The operator refusal names the code of python -c (added); The implement prompt gives the count of extra turns (added)
+- `roadmap-implement-step`: The implement prompt forbids polling; A shell call in a trace holds its exit status; A run that reaches a limit ends stopped; A call with a command writes the command to the Job log before it runs; The shell of a step waits for its command up to the command limit (added); The operator refusal names the code of python -c (added); The implement prompt gives the count of extra turns (added); The implement prompt names the refusal of a heredoc (added); The operator refusal names the code of python -c (added); The implement prompt gives the count of extra turns (added)
 
 ## Impact
 
 - Code: `src/devops_cli/roadmap/implement/implement_step.py`, `src/devops_cli/roadmap/implement/implement_shell_policy.py`, `src/devops_cli/roadmap/implement/implement_shell_refusal.py`, `src/devops_cli/roadmap/implement/implement_tool_log.py`, `src/devops_cli/roadmap/tools.py`, `src/devops_cli/lang/en/messages.py`, `src/devops_cli/config/settings.py` (description only)
 - Prompt: `src/devops_cli/ai/tasks/roadmap_implement_step.md`
 - Tests: `tests/roadmap/implement/` (the tool name in the scripts of a real step, the wait, the exit status, the prompt and the hint)
-- Documents: `docs/ROADMAP_WORKFLOW.md`, `docs/roadmap/implement.md`, `docs/ENV_VARS.md` (generated)
+- Documents: `docs/ROADMAP_WORKFLOW.md`, `docs/roadmap/implement.md`, `docs/ENV_VARS.md` (generated), the knowledge base page `src/devops_cli/ai/knowledge_base/devops_cli/libraries/pydantic_ai_harness.md`
 - Operations: no setting is added, removed or renamed, so the live ConfigMap needs no change. A Loki query on `Tool call: shell` finds no line after the release; the query for polls reads `Tool call: run_command`.
 
 ## Feasibility

@@ -122,3 +122,10 @@ The implement prompt SHALL state that a step has at most `roadmap.implement.repa
 #### Scenario: The prompt names the setting of the extra turns
 - **WHEN** A test reads `src/devops_cli/ai/tasks/roadmap_implement_step.md`
 - **THEN** The prompt names `roadmap.implement.repair_rounds` with its default and holds no promise of one more turn
+
+### Requirement: The implement prompt names the refusal of a heredoc
+The implement prompt SHALL state that the shell refuses a new line, a heredoc, and code of `python -c` that holds a `;` or a new line. It SHALL tell the agent to write that code to a file under `.data/agent/scratch/` and to run `uv run python <file>`. The rule SHALL win over the base instructions of `Coder`, which tell the agent to use a heredoc.
+
+#### Scenario: The prompt names the heredoc before the first call
+- **WHEN** A test reads `src/devops_cli/ai/tasks/roadmap_implement_step.md`
+- **THEN** The prompt names a heredoc, `python -c`, a new line, a `;`, `.data/agent/scratch/` and `uv run python <file>`, and the shell refuses a new line and a `;`

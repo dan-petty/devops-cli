@@ -19,13 +19,17 @@ Reads: `src/devops_cli/ai/tasks/roadmap_implement_step.md`, `src/devops_cli/lang
   - Verification: `$ uv run devops ci test tests/roadmap/implement/test_roadmap_implement_prompt.py tests/roadmap/implement/test_roadmap_implement_shell_refusal.py`
 - [x] 2.2 Correct the rule of the shell call and the rule of the extra turns in the prompt, and add the `python -c` causes to the operator hint
   - Verification: `$ uv run devops ci test tests/roadmap/implement/test_roadmap_implement_prompt.py tests/roadmap/implement/test_roadmap_implement_shell_refusal.py`
+- [x] 2.3 Add the test that the prompt names the refusal of a heredoc and of `python -c` code with a `;` or a new line, then add that rule to the prompt before the first call
+  - Verification: `$ uv run devops ci test tests/roadmap/implement/test_roadmap_implement_prompt.py`
 
 ## 3. Documents
 
-Reads: `docs/ROADMAP_WORKFLOW.md`, `docs/roadmap/implement.md`, `src/devops_cli/config/settings.py`. Changes: the same files and `docs/ENV_VARS.md`.
+Reads: `docs/ROADMAP_WORKFLOW.md`, `docs/roadmap/implement.md`, `src/devops_cli/config/settings.py`, `src/devops_cli/ai/knowledge_base/devops_cli/libraries/pydantic_ai_harness.md`. Changes: the same files and `docs/ENV_VARS.md`.
 
 - [x] 3.1 Say in `docs/ROADMAP_WORKFLOW.md` and `docs/roadmap/implement.md` that the shell of a step is `run_command` and waits up to the command limit, add the shell of the agent to the description of `command_timeout_seconds`, and regenerate the reference
   - Verification: `$ uv run devops ci docs`
+- [x] 3.2 Say in the knowledge base page of the harness that the step registers `run_command` with the command limit in place of `shell`, and that the base instructions of `Coder` name a heredoc and a poll
+  - Verification: `$ uv run devops ci test tests/review/test_kb_manuals_metadata.py`
 
 ## Criteria
 
