@@ -4,7 +4,7 @@
 
 - Bound the field in `ShadowAnswer`. This is the single point of validation: `observed_issues` already counts a `ValidationError` as unreadable, and `ShadowObservation` validates its answers when intake builds it.
 - Keep `ShadowAnswer` a `NamedTuple`. Callers construct and unpack it as a tuple, and only the model that holds it validates it.
-- `ShadowIntakeModel.observation` catches `ValidationError`, because the bound can now raise there.
+- `ShadowIntakeModel.observation` keeps its catch list. The only source of a probability there is the Jev decision model, which already refuses a value out of range, so a `ValidationError` cannot occur there.
 
 ## Rejected alternatives
 

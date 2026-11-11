@@ -27,7 +27,7 @@ from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, datetime
 from typing import Annotated, Any, NamedTuple, Self, cast
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field
 from pydantic_ai.models.decision import (
     ChoiceAnswer,
     DecisionModel,
@@ -195,7 +195,7 @@ class ShadowIntakeModel:
         try:
             response = self._jev.answers(request)
             observation = observation_of(request, response, triage, duplicate, self._now())
-        except (*FAILED, ShadowError, ValidationError) as exc:
+        except (*FAILED, ShadowError) as exc:
             logger.warning(
                 MESSAGES.roadmap.intake_jev_shadow_failed.format(
                     error=f"{type(exc).__name__}: {exc}"[:300]

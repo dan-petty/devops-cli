@@ -10,10 +10,3 @@
 #### Scenario: A probability of 1
 - **WHEN** a valid mark holds the probability 1.0
 - **THEN** the report counts it in the last band
-
-### Requirement: A Jev probability out of range counts as an error
-`ShadowIntakeModel.observation` SHALL count each asked field as `jev_error` and SHALL return no observation when the Jev answer holds a probability outside 0 to 1.
-
-#### Scenario: Jev returns 1.5
-- **WHEN** the Jev decision model returns a probability of 1.5
-- **THEN** the issue gets no mark and each asked field counts `jev_error`

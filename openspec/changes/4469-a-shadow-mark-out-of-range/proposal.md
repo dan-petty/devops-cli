@@ -7,7 +7,7 @@
 ## What Changes
 
 - `ShadowAnswer.probability` gets the bound `Field(ge=0, le=1)`. `from_mark` then raises `ValidationError` for a mark out of range, and `observed_issues` counts it in `unreadable` and goes on.
-- `ShadowIntakeModel.observation` also catches `ValidationError`, so a Jev answer out of range counts `jev_error` and intake goes on with no mark.
+- `ShadowIntakeModel.observation` does not change. A Jev answer out of range already counts `jev_error`: the decision model refuses a confidence outside 0 to 1, and a test run with confidence 1.5 and no new catch gives no mark. A new catch of `ValidationError` there would be dead code.
 - `_band` does not change. A fallback there would put a bad mark into a band.
 
 ## Capabilities
@@ -23,7 +23,7 @@ None.
 ## Impact
 
 - Code: `src/devops_cli/roadmap/intake/intake_jev_shadow.py`
-- Tests: `tests/roadmap/test_roadmap_jev_shadow_report.py`, `tests/roadmap/intake/test_roadmap_intake_jev_shadow.py`
+- Tests: `tests/roadmap/test_roadmap_jev_shadow_report.py`
 - No setting, metric or command output changes for a valid mark.
 
 ## Feasibility

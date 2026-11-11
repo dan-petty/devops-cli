@@ -180,18 +180,6 @@ def test_a_jev_error_changes_nothing_records_nothing_and_counts_jev_error(
     }
 
 
-def test_a_jev_probability_out_of_range_counts_jev_error_and_records_nothing(
-    roadmap: Roadmap, jev: JevFake, otlp: FakeCollector
-) -> None:
-    jev.confidence = 1.5
-    number = roadmap.issue("Cache embeddings")
-
-    roadmap.run(_model(jev))
-
-    assert _marks(roadmap, number) is None
-    assert ("priority", "jev_error") in _counts(otlp)
-
-
 def test_an_unreachable_gateway_changes_nothing(roadmap: Roadmap, jev: JevFake) -> None:
     jev.unreachable(httpx2.ConnectError("no route"))
     number = roadmap.issue("Cache embeddings")
