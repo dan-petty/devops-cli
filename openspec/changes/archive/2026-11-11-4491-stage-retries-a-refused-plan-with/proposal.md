@@ -9,7 +9,7 @@ In 48 hours (2026-11-08T23:45Z to 2026-11-10T23:45Z) the stage row failed 47 ful
 ## What Changes
 
 - The stage job counts the `plan_defect` failures of an item on the same body. The new job record keys are `stage.plan_defects`, the count, and `stage.plan_defects_body`, the hash of the body without the block of the alternatives job. A body edit starts a new count. A failure of another class keeps the count and its own `RETRY_AFTER` wait.
-- The failure that reaches `CONST_ROADMAP_STAGE_PLAN_DEFECT_LIMIT` (3) returns the item to New in the same round. The job posts one comment that lists the problems of the refused replies of the last plan, or the reason of the failure when it kept none. Then it sets New with the failure marks and clears the count. A log line `stage item returned after refused plans` names the item and the count.
+- The failure that reaches `CONST_ROADMAP_STAGE_PLAN_DEFECT_LIMIT` (3) returns the item to New in the same round. The job posts one comment that lists the problems of the refused replies of the last plan in sequence, and then the reason of the failure unless the checks refused the last reply. Then it sets New with the failure marks and clears the count. A log line `stage item returned after refused plans` names the item and the count.
 - A staged item clears the count.
 - `StageFailure` keeps the problems of the refused replies of its plan, masked and cut as the refused-reply file keeps them.
 - New messages `stage_returned_plan_defects` and `stage_returned_plan_defects_log`. The comment is observable, so the change has a spec delta.
@@ -27,7 +27,7 @@ None.
 ## Impact
 
 - Code: `src/devops_cli/roadmap/stage/stage.py`, `src/devops_cli/roadmap/stores/store.py`, `src/devops_cli/config/constants.py`, `src/devops_cli/lang/en/messages.py`
-- Tests: `tests/roadmap/stage/test_roadmap_stage_plan_defect_limit.py`
+- Tests: `tests/roadmap/stage/test_roadmap_stage_plan_defect_limit.py`, `tests/roadmap/test_roadmap_limit_classes.py` (the class `kept` of the new limit)
 - Documents: `docs/roadmap/stage.md`, `docs/ROADMAP_WORKFLOW.md`
 - The row breaker of `src/devops_cli/roadmap/run.py` and the gates do not change. #4463 and #4467 cover the gate false positives.
 - The change fits one pull request.

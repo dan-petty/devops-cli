@@ -16,7 +16,7 @@ When the stage job records a `plan_defect` failure, it SHALL write in the same w
 - **THEN** the job record holds `stage.plan_defects` 2 and `stage.failed_class` `provider`
 
 ### Requirement: The limit of refused plans returns the item to New
-The `plan_defect` failure that brings the count to `CONST_ROADMAP_STAGE_PLAN_DEFECT_LIMIT` (3) SHALL return the item to New in the same round. The job SHALL post one comment that lists, one line each and with no handle that pings, the problems of the refused replies of the last plan, or the reason of the failure when it kept none. It SHALL then set New with the failure keys and clear both count keys.
+The `plan_defect` failure that brings the count to `CONST_ROADMAP_STAGE_PLAN_DEFECT_LIMIT` (3) SHALL return the item to New in the same round. The job SHALL post one comment that lists in sequence, one line each and with no handle that pings, the problems of the refused replies of the last plan and then the reason of the failure, unless the checks refused the last reply. It SHALL then set New with the failure keys and clear both count keys.
 
 #### Scenario: The third refused plan
 - **WHEN** an item has 2 `plan_defect` failures on its body and a round of the Service refuses its plan again
@@ -25,6 +25,10 @@ The `plan_defect` failure that brings the count to `CONST_ROADMAP_STAGE_PLAN_DEF
 #### Scenario: A failure with no refused reply
 - **WHEN** the failure at the limit holds no problem of a refused reply
 - **THEN** the comment lists the reason of the failure
+
+#### Scenario: A plan run that stops after a refused reply
+- **WHEN** the checks refuse the first reply of the last plan and the second plan run stops
+- **THEN** the comment lists the problem of the refused reply and then the reason of the stop
 
 #### Scenario: A problem that names a handle
 - **WHEN** a problem at the limit holds a handle and a line break
