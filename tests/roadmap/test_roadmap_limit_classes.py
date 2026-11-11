@@ -76,6 +76,10 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
         "kept",
         "returns of one refused reply to the planner; it bounds the cost of one reply, whether it is a first reply or the revision of a repair round",
     ),
+    "CONST_ROADMAP_STAGE_PLAN_DEFECT_LIMIT": (
+        "kept",
+        "stops a stage job that refuses the plan of one body again and again, so the item returns to New and the model lane goes to the other items",
+    ),
     "CONST_ROADMAP_STAGE_REFUSED_REPLY_MAX_BYTES": (
         "kept",
         "the size of a refused reply that the job keeps for a person; protects the data volume",
