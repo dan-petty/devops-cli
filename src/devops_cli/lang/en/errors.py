@@ -33,6 +33,17 @@ class GitErrorMessages:
     outside_boundary: str = "Error: Target path '{target}' is outside allowed boundaries."
     exceeds_max_size: str = "Error: Target file '{target}' exceeds maximum size ({max_mb}MB)."
     github_repo_parse_failed: str = "Could not parse GitHub repo owner/name from remote URL: {raw}"
+    repository_name_invalid: str = (
+        "'{text}' is not a GitHub repository as owner/name. Each part holds only ASCII "
+        "letters, digits, '-', '_' and '.', no part is '.' or '..', and the owner holds no '.'."
+    )
+    repository_key_part_invalid: str = (
+        "The key part '{part}' is empty or holds '/' or a glob character (*, ?, [, ], \\). Such "
+        "a part could make the key of one repository match the key patterns of another."
+    )
+    repository_name_word_invalid: str = (
+        "The word '{word}' of an object name is not a DNS label of {limit} characters or fewer."
+    )
     target_path_outside_repo: str = "Error: Target path '{dest}' is outside repository boundary."
     github_unauthenticated: str = (
         "GitHub is not authenticated: `gh auth token` printed no token (exit status {status}). "
@@ -86,6 +97,13 @@ class ConfigErrorMessages:
     )
     implement_effort_repeated: str = (
         "The setting roadmap.implement.effort holds '{value}' twice. Give each effort once."
+    )
+    service_repo_invalid: str = (
+        "The setting service.repos holds '{value}'. That is not a GitHub repository as owner/name."
+    )
+    service_repo_repeated: str = (
+        "The setting service.repos names the repository {key} twice, as '{first}' and "
+        "'{second}'. GitHub names ignore case. Give each repository once."
     )
     not_yaml: str = "{action}: {path} is not valid YAML ({error_type}){location}."
     not_yaml_load: str = "Cannot load the settings"

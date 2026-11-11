@@ -30,8 +30,6 @@ from devops_cli.exceptions import ConfigurationError
             ["org/repo1", "org/repo2"],
             id="one-item-list-json-string",
         ),
-        pytest.param(["[not-json]"], ["[not-json]"], id="one-item-list-broken-json"),
-        pytest.param(["[not-json"], ["[not-json"], id="one-item-list-unclosed-bracket"),
     ],
 )
 def test_parse_repos_handles_various_input_shapes(
@@ -40,6 +38,33 @@ def test_parse_repos_handles_various_input_shapes(
     """Verify ServiceConfig._parse_repos correctly parses JSON, comma-separated, and list strings."""
     config = ServiceConfig(repos=input_repos)
     assert config.repos == expected
+
+
+@pytest.mark.parametrize(
+    "input_repos",
+    [
+        pytest.param(["Owner/Repo", "owner/repo"], id="two-spellings"),
+        pytest.param(["owner/repo", "owner/repo"], id="same-entry-twice"),
+        pytest.param(["[not-json]"], id="broken-json"),
+        pytest.param(["[not-json"], id="unclosed-bracket"),
+        pytest.param(["no-owner"], id="no-owner"),
+        pytest.param(["owner/repo/extra"], id="three-parts"),
+    ],
+)
+def test_service_repos_refuses_an_entry_that_is_no_new_repository(
+    input_repos: list[str],
+) -> None:
+    """Each entry of `service.repos` is `owner/name`, and no two entries name one repository
+    (#4533). The error names the setting."""
+    with pytest.raises(ValidationError, match=r"service\.repos"):
+        ServiceConfig(repos=input_repos)
+
+
+def test_service_repos_keeps_the_github_spelling_of_each_entry() -> None:
+    assert ServiceConfig(repos=["Owner/Repo", "owner/.github"]).repos == [
+        "Owner/Repo",
+        "owner/.github",
+    ]
 
 
 def test_dotted_set_rejects_top_level_section_assignment() -> None:

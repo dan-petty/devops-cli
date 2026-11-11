@@ -160,6 +160,8 @@ from devops_cli.config.yaml_errors import load_yaml
 from devops_cli.core.dns_names import OptionalConfiguredDomain
 from devops_cli.core.untrusted_trees import reads_untrusted_trees
 from devops_cli.exceptions import ConfigurationError
+from devops_cli.exceptions.validation import ValidationError as DevOpsValidationError
+from devops_cli.github.repo_ref import RepoRef
 from devops_cli.lang import ERRORS
 from devops_cli.roadmap.implement.implement_size import MIN_MEMORY_LIMIT_GI
 from devops_cli.roadmap.stage.stage_filter import split_filter_entry
@@ -1278,6 +1280,30 @@ class ServiceConfig(BaseModel):
                     pass
             return [str(item) for item in v if item]
         return []
+
+    @field_validator("repos")
+    @classmethod
+    def _repos_are_distinct_repositories(cls, values: list[str]) -> list[str]:
+        """Each entry is `owner/name` (`RepoRef`), and no two entries name one repository, also
+        in two spellings, so each repository gets one set of names and keys (#4533)."""
+        seen: dict[RepoRef, str] = {}
+        for value in values:
+            try:
+                repo = RepoRef(value)
+            except DevOpsValidationError as exc:
+                raise DevOpsValidationError(
+                    ERRORS.config.service_repo_invalid.format(value=value[:80]),
+                    field="service.repos",
+                ) from exc
+            if repo in seen:
+                raise DevOpsValidationError(
+                    ERRORS.config.service_repo_repeated.format(
+                        key=repo.key, first=seen[repo], second=value
+                    ),
+                    field="service.repos",
+                )
+            seen[repo] = value
+        return values
 
 
 class AlternativesConfig(BaseModel):

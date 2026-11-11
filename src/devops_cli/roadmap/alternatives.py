@@ -102,6 +102,7 @@ from devops_cli.config.settings import load_settings
 from devops_cli.dry_run.requests import PlannedRequest
 from devops_cli.exceptions.git import GitHubOperationError, GitHubRateLimitError
 from devops_cli.exceptions.roadmap import RoadmapAlternativesError
+from devops_cli.github.repo_ref import is_name_segment, is_repository_name
 from devops_cli.http.egress import EgressLevel
 from devops_cli.http.entry import http_client
 from devops_cli.lang import MESSAGES
@@ -128,8 +129,6 @@ from devops_cli.roadmap.stores.store import (
     Item,
     RoadmapStore,
     Verdict,
-    is_name_segment,
-    is_repository_name,
 )
 from devops_cli.roadmap.trust import is_approved, is_trusted, trusted_replies
 from devops_cli.telemetry.instruments import (
