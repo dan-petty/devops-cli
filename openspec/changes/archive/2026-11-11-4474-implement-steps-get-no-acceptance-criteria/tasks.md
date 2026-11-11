@@ -2,7 +2,7 @@
 
 ## 1. Give the step the refined criteria and no comment
 
-Kind: behavior. Reads: `src/devops_cli/roadmap/step_files.py`, `src/devops_cli/roadmap/refine/refine.py`. Changes: `src/devops_cli/roadmap/implement/implement_step.py`, `tests/roadmap/implement/test_roadmap_implement_step.py`, `tests/roadmap/implement/__snapshots__/test_roadmap_implement_step.ambr`, `tests/fixtures/roadmap/issue_bodies/refined.md`, `tests/fixtures/roadmap/issue_bodies/form-with-criteria.md`, `tests/fixtures/roadmap/issue_bodies/no-section.md`.
+Kind: behavior. Reads: `src/devops_cli/roadmap/step_files.py`, `src/devops_cli/roadmap/refine/refine.py`. Changes: `src/devops_cli/roadmap/implement/implement_step.py`, `tests/roadmap/implement/test_roadmap_implement_step.py`, `tests/roadmap/implement/__snapshots__/test_roadmap_implement_step.ambr`, `tests/fixtures/roadmap/issue_bodies/refined.txt`, `tests/fixtures/roadmap/issue_bodies/form-with-criteria.txt`, `tests/fixtures/roadmap/issue_bodies/no-section.txt`.
 
 - [x] 1.1 In `tests/roadmap/implement/test_roadmap_implement_step.py`, assert with three real body shapes that `issue_inputs` holds each refined requirement with its scenario lines and holds no HTML comment, and snapshot the whole text
   - Verification: `$ uv run devops ci test tests/roadmap/implement/test_roadmap_implement_step.py` fails on the base
