@@ -46,6 +46,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_SCOPE_LABEL_PREFIX,
 )
 from devops_cli.core.paths import safe_resolve_subpath
+from devops_cli.core.test_selection import is_test_module
 from devops_cli.docs.inventory import explicit_classes
 from devops_cli.exceptions.roadmap import RoadmapStageError
 from devops_cli.git.branch_form import is_valid_slug
@@ -1455,17 +1456,15 @@ def _is_test_function_span(span: str) -> bool:
 
 
 def _test_only_group_problems(proposal: StageProposal) -> list[str]:
-    """What is wrong with an `other` group that changes only tests (#3433): its implementation must
-    name the test function that it updates in a code span."""
+    """What is wrong with an `other` group that changes only test modules (#3433): its
+    implementation must name the test function that it updates in a code span. A group that
+    changes a test helper or a fixture is no test-only group (#3462)."""
     problems: list[str] = []
     for group in proposal.groups:
         if (
             group.kind is GroupKind.OTHER
             and group.changes
-            and all(
-                p.startswith("tests/") and not p.startswith("tests/fixtures/")
-                for p in group.changes
-            )
+            and all(p.startswith(_TESTS_DIRECTORY) and is_test_module(p) for p in group.changes)
         ):
             if not any(_is_test_function_span(span) for span in code_spans(group.implementation)):
                 problems.append(MESSAGES.roadmap.stage_problem_test_only.format(title=group.title))
