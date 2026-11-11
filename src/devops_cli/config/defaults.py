@@ -745,6 +745,9 @@ DEFAULT_ARGO_FLEET_NAME: str = "default-fleet"
 DEFAULT_ARGO_FLEET_CONCURRENCY: int = 3
 # `gh label list` stops at 30 unless asked for more; .github/labels.yml alone holds 31.
 DEFAULT_GH_LABEL_LIST_LIMIT: int = 1000
+# The releases that `devops gh metrics` reads. `--emit-telemetry` refuses another value, so the
+# project series holds the same releases as the snapshots of the metrics row (#4690).
+DEFAULT_PROJECT_METRICS_RELEASE_LIMIT: int = 10
 DEFAULT_PR_UPDATE_HEAD_POLL_ATTEMPTS: int = 6
 DEFAULT_PR_UPDATE_HEAD_POLL_INTERVAL_SECONDS: float = 5.0
 DEFAULT_GH_SUBPROCESS_TIMEOUT_SECONDS: float = 30.0

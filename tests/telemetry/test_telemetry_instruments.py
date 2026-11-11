@@ -535,6 +535,18 @@ def test_the_items_panels_group_only_by_labels_the_gauge_sends() -> None:
     assert grouped - set(PROJECT_ITEM_LABELS) == set()
 
 
+def test_each_project_instrument_names_the_repo_label() -> None:
+    """Each project gauge carries the repository of its report as `repo`, so the description
+    that the dashboards read names it, and the items gauge also names its own labels (#4690)."""
+    project = [i for i in INSTRUMENTS if i.name.startswith("devops_cli_project_")]
+    unnamed = [i.name for i in project if not re.search(r"\brepo\b", i.description)]
+    items_labels = [
+        label for label in PROJECT_ITEM_LABELS if label not in PROJECT_ITEMS.description
+    ]
+
+    assert (len(project), unnamed, items_labels) == (14, [], [])
+
+
 def test_the_release_panel_shows_an_item_in_no_release_as_unreleased() -> None:
     """An item that no release closed has an empty `release`, which a legend shows as a blank
     (#2702)."""

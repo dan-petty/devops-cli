@@ -25,6 +25,7 @@ from devops_cli.config.defaults import (
     DEFAULT_GH_API_PAGINATE_TIMEOUT_SECONDS,
     DEFAULT_GH_LABEL_LIST_LIMIT,
     DEFAULT_GH_SUBPROCESS_TIMEOUT_SECONDS,
+    DEFAULT_PROJECT_METRICS_RELEASE_LIMIT,
     DEFAULT_TABLE_FORMAT,
 )
 from devops_cli.core.cli import new_typer
@@ -2179,13 +2180,28 @@ def _handle_metrics_dry_run(
     render_request_plan(f"Plan for project metrics ({target_repo})", planned)
 
 
+def _refuse_filtered_snapshot(emit_telemetry: bool, limit: int, milestone: str | None) -> None:
+    """Refuse a snapshot for telemetry that a filter cuts: the project series reads as the whole
+    repository, and a filtered snapshot stays in the time range of the dashboard (#4690)."""
+    if not emit_telemetry:
+        return
+    if milestone is not None:
+        raise ValidationError(
+            MESSAGES.gh_metrics.telemetry_filtered.format(option="--milestone"), field="milestone"
+        )
+    if limit != DEFAULT_PROJECT_METRICS_RELEASE_LIMIT:
+        raise ValidationError(
+            MESSAGES.gh_metrics.telemetry_filtered.format(option="--limit"), field="limit"
+        )
+
+
 @app.command("metrics")
 @dry_run_class("request-plan")
 def project_metrics_cmd(
     limit: Annotated[
         int,
         typer.Option("--limit", "-l", help="Number of recent releases to inspect"),
-    ] = 10,
+    ] = DEFAULT_PROJECT_METRICS_RELEASE_LIMIT,
     ci_limit: Annotated[
         int,
         typer.Option("--ci-limit", help="Number of recent CI workflow runs to inspect"),
@@ -2216,6 +2232,7 @@ def project_metrics_cmd(
     ] = False,
 ) -> None:
     """Display comprehensive project metrics including release frequency, PRs, commits, CI pass rates, milestones, and roadmap Items."""
+    _refuse_filtered_snapshot(emit_telemetry, limit, milestone)
     target_repo = _resolve_repo(repo)
     if dry_run or is_dry_run():
         _handle_metrics_dry_run(target_repo, ci_limit, output_format, json_output)

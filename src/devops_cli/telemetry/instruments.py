@@ -583,32 +583,33 @@ PROJECT_RELEASES = Instrument(
     "devops_cli_project_releases",
     InstrumentKind.GAUGE,
     "1",
-    "Total project releases tracked",
+    "Total project releases tracked, by repo",
 )
 PROJECT_COMMITS = Instrument(
     "devops_cli_project_commits",
     InstrumentKind.GAUGE,
     "1",
-    "Project commits count by release",
+    "Project commits count by repo and release",
 )
 PROJECT_PRS = Instrument(
     "devops_cli_project_prs",
     InstrumentKind.GAUGE,
     "1",
-    "Project pull requests merged by release",
+    "Project pull requests merged by repo and release",
 )
 PROJECT_CI_RUNS = Instrument(
     "devops_cli_project_ci_runs",
     InstrumentKind.GAUGE,
     "1",
-    "CI workflow runs by name, status and conclusion",
+    "CI workflow runs by repo, workflow, status and conclusion",
 )
 PROJECT_ITEMS = Instrument(
     "devops_cli_project_items",
     InstrumentKind.GAUGE,
     "1",
-    "Roadmap items, the issues with a priority label, by release, state, type and "
+    "Roadmap items, the issues with a priority label, by repo, release, state, type and "
     "priority. "
+    "The repo is the casefolded owner/name of the repository. "
     "The release is the first v* tag whose commits close the item. "
     "A label is empty when the item has no value for it",
 )
@@ -618,55 +619,55 @@ PROJECT_RELEASE_INTERVAL_DAYS = Instrument(
     "devops_cli_project_release_interval_days",
     InstrumentKind.HISTOGRAM,
     "d",
-    "Days elapsed between consecutive project releases",
+    "Days elapsed between consecutive project releases, by repo and release",
 )
 PROJECT_TRAFFIC_VIEWS = Instrument(
     "devops_cli_project_traffic_views",
     InstrumentKind.GAUGE,
     "1",
-    "GitHub repository total page views count",
+    "GitHub repository total page views count, by repo",
 )
 PROJECT_TRAFFIC_VIEWS_UNIQUES = Instrument(
     "devops_cli_project_traffic_views_uniques",
     InstrumentKind.GAUGE,
     "1",
-    "GitHub repository unique visitors count",
+    "GitHub repository unique visitors count, by repo",
 )
 PROJECT_TRAFFIC_CLONES = Instrument(
     "devops_cli_project_traffic_clones",
     InstrumentKind.GAUGE,
     "1",
-    "GitHub repository total git clones count",
+    "GitHub repository total git clones count, by repo",
 )
 PROJECT_TRAFFIC_CLONES_UNIQUES = Instrument(
     "devops_cli_project_traffic_clones_uniques",
     InstrumentKind.GAUGE,
     "1",
-    "GitHub repository unique cloners count",
+    "GitHub repository unique cloners count, by repo",
 )
 PROJECT_TRAFFIC_REFERRERS = Instrument(
     "devops_cli_project_traffic_referrers",
     InstrumentKind.GAUGE,
     "1",
-    "GitHub repository traffic referrals count by referrer source",
+    "GitHub repository traffic referrals count by repo and referrer source",
 )
 PROJECT_TRAFFIC_PATHS = Instrument(
     "devops_cli_project_traffic_paths",
     InstrumentKind.GAUGE,
     "1",
-    "GitHub repository traffic page views by content path",
+    "GitHub repository traffic page views by repo and content path",
 )
 PROJECT_STARS = Instrument(
     "devops_cli_project_stars",
     InstrumentKind.GAUGE,
     "1",
-    "GitHub repository stargazers count",
+    "GitHub repository stargazers count, by repo",
 )
 PROJECT_FORKS = Instrument(
     "devops_cli_project_forks",
     InstrumentKind.GAUGE,
     "1",
-    "GitHub repository forks count",
+    "GitHub repository forks count, by repo",
 )
 UPSTREAM_SERVICE_STATUS = Instrument(
     "devops_cli_upstream_service_status",
