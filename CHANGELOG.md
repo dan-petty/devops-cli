@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.113.0](https://github.com/dan-petty/devops-cli/compare/v0.112.3...v0.113.0) (2026-11-11)
+
+
+### Features
+
+* **roadmap:** detect merge conflicts on open ready pull requests ([#4766](https://github.com/dan-petty/devops-cli/issues/4766)) ([3f72e76](https://github.com/dan-petty/devops-cli/commit/3f72e769a5f0dc1979e4df734a497a2ae4ab2178))
+
+
+### Bug Fixes
+
+* **ci:** run the job-time alarm on the schedule only ([#4774](https://github.com/dan-petty/devops-cli/issues/4774)) ([60c0847](https://github.com/dan-petty/devops-cli/commit/60c08475b2a1fa381a9c7f3104f960391e1a8852))
+
+
+### Performance Improvements
+
+* **roadmap:** parse only the test modules that name the registry ([#4778](https://github.com/dan-petty/devops-cli/issues/4778)) ([4b28980](https://github.com/dan-petty/devops-cli/commit/4b2898043f2f2c06dba87d68e51a3067654c9044))
+
 ## [0.112.3](https://github.com/dan-petty/devops-cli/compare/v0.112.2...v0.112.3) (2026-11-11)
 
 
