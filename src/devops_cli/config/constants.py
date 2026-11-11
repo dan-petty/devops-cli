@@ -3369,6 +3369,10 @@ CONST_ROADMAP_IMPLEMENT_EXTENSION_CALLS: Final[int] = 20
 CONST_ROADMAP_IMPLEMENT_EXTENSION_MIN_EDITS: Final[int] = 1
 CONST_ROADMAP_IMPLEMENT_EXTENSION_MAX_REFUSED: Final[int] = 3
 CONST_ROADMAP_IMPLEMENT_EXTENSION_PERCENT: Final[int] = 50
+# When no config file and no variable sets `roadmap.implement.step_token_ceiling`, the ceiling is
+# this many times the loaded `step_token_budget` (#4505). Twice the budget leaves room for the whole
+# extension of half the budget, whatever budget a person sets.
+CONST_ROADMAP_IMPLEMENT_CEILING_FACTOR: Final[int] = 2
 # How many times in a row a step sends a model request again when the provider fails it inside an
 # open stream with the status 400 (#2794): a tool call that the model ended early, which the next
 # sample can make whole. The resend adds to the retries of the client (`ai.max_retries`, #2500).

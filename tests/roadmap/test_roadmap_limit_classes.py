@@ -50,6 +50,8 @@ REMOVED: Final[tuple[str, ...]] = (
     "CONST_ROADMAP_IMPLEMENT_REQUEST_TIMEOUT_SECONDS",
     "CONST_ROADMAP_IMPLEMENT_COMMAND_TIMEOUT_SECONDS",
     "CONST_ROADMAP_IMPLEMENT_MONITOR_TIMEOUT_SECONDS",
+    # The default ceiling follows the loaded step budget: `CONST_ROADMAP_IMPLEMENT_CEILING_FACTOR`.
+    "DEFAULT_ROADMAP_IMPLEMENT_STEP_TOKEN_CEILING",
 )
 
 LIMITS: Final[dict[str, tuple[str, str]]] = {
@@ -473,9 +475,9 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
         "setting",
         "a setting (#3053); above the largest done step (5.9 million), below the stops (7 to 10 million)",
     ),
-    "DEFAULT_ROADMAP_IMPLEMENT_STEP_TOKEN_CEILING": (
-        "setting",
-        "a setting (#4394); twice the default step budget; the one extension of a step stops at it",
+    "CONST_ROADMAP_IMPLEMENT_CEILING_FACTOR": (
+        "other",
+        "a policy value (#4505): the default of the ceiling setting is twice the loaded step budget",
     ),
     "DEFAULT_ROADMAP_IMPLEMENT_ITEM_TOKEN_BUDGET": (
         "setting",

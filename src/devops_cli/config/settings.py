@@ -40,6 +40,7 @@ from devops_cli.config.constants import (
     CONST_AI_JEV_MODEL,
     CONST_AI_JEV_MODEL_TARGETS,
     CONST_AI_JEV_SYSTEM_ONE_PREFIXES,
+    CONST_ROADMAP_IMPLEMENT_CEILING_FACTOR,
     CONST_ROADMAP_IMPLEMENT_DEADLINE_CAP_SECONDS,
     CONST_ROADMAP_IMPLEMENT_STEP_CLASSES,
     CONST_ROADMAP_SIZE_OPTIONS,
@@ -116,7 +117,6 @@ from devops_cli.config.defaults import (
     DEFAULT_ROADMAP_IMPLEMENT_REQUEST_TIMEOUT_SECONDS,
     DEFAULT_ROADMAP_IMPLEMENT_STEP_TIME_LIMIT_SECONDS,
     DEFAULT_ROADMAP_IMPLEMENT_STEP_TOKEN_BUDGET,
-    DEFAULT_ROADMAP_IMPLEMENT_STEP_TOKEN_CEILING,
     DEFAULT_ROADMAP_INBOX_DRAFT_DAYS,
     DEFAULT_ROADMAP_INBOX_WAIT_DAYS,
     DEFAULT_ROADMAP_INTAKE_JEV,
@@ -1021,6 +1021,12 @@ class RoadmapStageConfig(BaseModel):
         return entries
 
 
+def _twice_the_step_budget(data: dict[str, Any]) -> int:
+    """The default of `step_token_ceiling`: twice the `step_token_budget` that the settings hold, so
+    a person who sets only the budget gets the whole extension (#4505)."""
+    return CONST_ROADMAP_IMPLEMENT_CEILING_FACTOR * int(data["step_token_budget"])
+
+
 class RoadmapImplementConfig(BaseModel):
     model_config = ConfigDict(extra="ignore", validate_assignment=True, hide_input_in_errors=True)
 
@@ -1044,8 +1050,8 @@ class RoadmapImplementConfig(BaseModel):
         ge=1,
     )
     step_token_ceiling: Annotated[int, Variable()] = Field(
-        description="The most input tokens that one implementation step may reach with its one extension. A step that reaches `step_token_budget` gets one extension of half the budget when its last 20 tool calls hold at least one successful edit and at most 3 refused commands (the rule `implement.extension`), and the extension stops at this ceiling. It must not be below `step_token_budget`. The item budget still holds",
-        default=DEFAULT_ROADMAP_IMPLEMENT_STEP_TOKEN_CEILING,
+        description="The most input tokens that one implementation step may reach with its one extension. A step that reaches `step_token_budget` gets one extension of half the budget when its last 20 tool calls hold at least one successful edit and at most 3 refused commands (the rule `implement.extension`), and the extension stops at this ceiling. It must not be below `step_token_budget`. When no config file and no variable sets it, it is twice `step_token_budget`. The item budget still holds",
+        default_factory=_twice_the_step_budget,
         ge=1,
     )
     item_token_budget: Annotated[int, Variable()] = Field(
