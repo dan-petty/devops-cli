@@ -34,6 +34,11 @@ def _finding() -> Finding:
     )
 
 
+# A Trivy scan that finds nothing. No recorded Trivy run is in `scanner_fake`, so a test that
+# starts `scan trivy` scripts this one, and the scan has the same result on every host (#4321).
+_CLEAN_TRIVY_RUN = ToolAnswer(stdout=json.dumps({"Results": []}))
+
+
 def _zizmor_finding() -> ZizmorFinding:
     # A rule outside the blocking set, so `scan workflows` exits 0.
     return ZizmorFinding(
@@ -54,19 +59,25 @@ def test_scan_dry_run(runner: CliRunner) -> None:
 
 
 @pytest.mark.usefixtures("cached_default_ruleset")
-def test_scan_individual_tools(tmp_path: Path, runner: CliRunner) -> None:
-    """Verify scan tool dispatching for trivy, secrets, and semgrep."""
-    res_trivy = runner.invoke(scan_app, ["trivy", str(tmp_path), "--json"])
-    assert res_trivy.exit_code == 0
+def test_scan_individual_tools(
+    tmp_path: Path, scanner_fake: ScannerFake, runner: CliRunner
+) -> None:
+    """Each of `scan trivy`, `scan secrets` and `scan sast` starts its own scanner, and a dry run
+    of `scan secrets` starts none. `scanner_fake` answers each scanner, so no test reaches a
+    scanner that the host has installed (#4321)."""
+    scanner_fake.script("trivy", _CLEAN_TRIVY_RUN)
 
-    res_secrets = runner.invoke(scan_app, ["secrets", str(tmp_path), "--json"])
-    assert res_secrets.exit_code == 0
-
-    res_sast = runner.invoke(scan_app, ["sast", str(tmp_path), "--json"])
-    assert res_sast.exit_code == 0
-
+    exit_codes = [
+        runner.invoke(scan_app, [sub, str(tmp_path), "--json"]).exit_code
+        for sub in ("trivy", "secrets", "sast")
+    ]
     res_secrets_dry = runner.invoke(main_app, ["--dry-run", "scan", "secrets", str(tmp_path)])
-    assert res_secrets_dry.exit_code == 0
+
+    assert (
+        exit_codes,
+        res_secrets_dry.exit_code,
+        [Path(run.argv[0]).name for run in scanner_fake.runs],
+    ) == ([0, 0, 0], 0, ["trivy", "gitleaks", "semgrep"])
 
 
 def test_scan_clean_and_dry_run(tmp_path: Path, runner: CliRunner) -> None:
@@ -147,22 +158,21 @@ def test_scan_serialized_outcome_model(status: str, reason: str) -> None:
 @pytest.mark.usefixtures("cached_default_ruleset")
 @pytest.mark.parametrize("sub", ["trivy", "secrets", "sast"])
 def test_scan_serialized_output_holds_status_reason_and_findings(
-    tmp_path: Path, sub: str, runner: CliRunner
+    tmp_path: Path, sub: str, scanner_fake: ScannerFake, runner: CliRunner
 ) -> None:
-    """JSON and YAML output of devops scan holds status, reason, and findings (#2107)."""
+    """JSON and YAML output of devops scan holds status, reason, and findings (#2107). Each
+    scanner is answered by `scanner_fake` with a clean run, so the scan ran on every host
+    (#4321)."""
+    scanner_fake.script("trivy", _CLEAN_TRIVY_RUN)
+    clean = {"status": "ran", "reason": "", "findings": []}
+
     res_json = runner.invoke(scan_app, [sub, str(tmp_path), "--json"])
     assert res_json.exit_code == 0, res_json.output
-    data_json = json.loads(res_json.stdout)
-    assert "status" in data_json
-    assert "reason" in data_json
-    assert "findings" in data_json
+    assert json.loads(res_json.stdout) == clean
 
     res_yaml = runner.invoke(scan_app, [sub, str(tmp_path), "--format", "yaml"])
     assert res_yaml.exit_code == 0, res_yaml.output
-    data_yaml = yaml.safe_load(res_yaml.stdout)
-    assert "status" in data_yaml
-    assert "reason" in data_yaml
-    assert "findings" in data_yaml
+    assert yaml.safe_load(res_yaml.stdout) == clean
 
 
 @pytest.mark.usefixtures("cached_default_ruleset")
