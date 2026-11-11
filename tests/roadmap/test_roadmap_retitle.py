@@ -364,13 +364,10 @@ def _use_model(monkeypatch: pytest.MonkeyPatch, model: FakeModel) -> None:
     monkeypatch.setattr("devops_cli.roadmap.run.build_retitle_model", lambda: model)
 
 
-def test_the_retitle_row_sits_between_refine_and_stage_of_the_model_lane() -> None:
+def test_the_retitle_row_comes_just_before_stage_of_the_model_lane() -> None:
     names = [row.name for row in MODEL_LANE_ROWS]
 
-    assert (names.index("refine") + 1, names.index("stage") - 1) == (
-        names.index("retitle"),
-        names.index("retitle"),
-    )
+    assert names.index("stage") - 1 == names.index("retitle")
     assert any(row.name == "retitle" for row in DEFAULT_DUE_TABLE)
 
 

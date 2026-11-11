@@ -14,6 +14,7 @@ from unittest.mock import patch
 import pytest
 
 from devops_cli.config.constants import (
+    CONST_ROADMAP_STAGE_DUE_STAMP,
     CONST_ROADMAP_WEBHOOK_EVENTS,
 )
 from devops_cli.exceptions import (
@@ -47,6 +48,7 @@ from tests.support.roadmap_run import (
     TWENTY_MINUTES_AGO,
     poll_round,
     read_schedule,
+    recorded,
     stamp_successes,
 )
 
@@ -98,9 +100,9 @@ def _stamp_the_default_table(
 def test_the_table_runs_the_lanes_in_order_and_names_no_release_job() -> None:
     """The status lane's metrics, implement, stage_ready, release_comments, github_status,
     cloudflare_status and pr_conflicts rows run first, then
-    the triage lane's intake row, then the model lane's refine, retitle, stage and alternatives
+    the triage lane's intake row, then the model lane's retitle, stage, refine and alternatives
     rows; no row closes items, cuts or starts a release
-    (#1360, #1534, #2652, #2659, #2667, #2757, #2865, #3535)."""
+    (#1360, #1534, #2652, #2659, #2667, #2757, #2865, #3535, #4796)."""
     assert (
         [row.name for row in DEFAULT_DUE_TABLE],
         DEFAULT_DUE_TABLE == (*STATUS_LANE_ROWS, *TRIAGE_LANE_ROWS, *MODEL_LANE_ROWS),
@@ -115,9 +117,9 @@ def test_the_table_runs_the_lanes_in_order_and_names_no_release_job() -> None:
             "cloudflare_status",
             "pr_conflicts",
             "intake",
-            "refine",
             "retitle",
             "stage",
+            "refine",
             "alternatives",
         ],
         True,
@@ -283,7 +285,7 @@ def test_stage_is_due_at_its_interval_after_its_last_success_on_a_first_run_and_
     cli: Callable[..., Any],
 ) -> None:
     """The stage row is due 37 min after its last success, not at 36, and on a first run; the
-    CLI's dry run lists it after refine (#2659)."""
+    CLI's dry run lists it before refine (#2659, #4796)."""
     table = build_stub_table(include_refine=True, include_stage=True)
 
     def due(stage_age: timedelta | None) -> tuple[str, ...]:
@@ -308,7 +310,7 @@ def test_stage_is_due_at_its_interval_after_its_last_success_on_a_first_run_and_
         at_36,
         first,
         result.exit_code,
-        "Due: intake, refine, stage\n" in result.output,
+        "Due: intake, stage, refine\n" in result.output,
     ) == (
         ("stage",),
         (),
@@ -318,55 +320,69 @@ def test_stage_is_due_at_its_interval_after_its_last_success_on_a_first_run_and_
     )
 
 
-def test_stage_is_due_in_a_round_where_refine_set_an_item_ready(
+def test_stage_runs_before_refine_and_is_due_in_the_round_after_refine_set_an_item_ready(
     seeded_store: InMemoryRoadmapStore, tmp_path: Path
 ) -> None:
-    """Five minutes after its last success the stage row is due in the round where refine set an
-    item Ready, and not in a round where refine set none (#2659)."""
-    t61 = NOW - timedelta(minutes=61)
+    """With both rows due, the round runs stage before refine. A refine that set an item Ready
+    stamps `stage_due`, so a round five minutes later runs stage again; a refine that set none
+    leaves stage not due (#2659, #4796)."""
+    ran: list[str] = []
 
-    def round_with(refine: JobOutcome) -> tuple[str, ...]:
+    def rounds(set_ready: bool) -> tuple[tuple[str, ...], tuple[str, ...]]:
         stamp_successes(
-            tmp_path,
-            intake=NOW - timedelta(minutes=5),
-            refine=t61,
-            stage=NOW - timedelta(minutes=5),
+            tmp_path, intake=NOW - timedelta(minutes=5), refine=OVER_AGO, stage=OVER_AGO
         )
-        table = build_stub_table({"refine": lambda **_: refine}, include_stage=True)
-        return poll_round(seeded_store, tmp_path, table=table)
+        table = build_stub_table(
+            {
+                "refine": recorded(ran, "refine", lambda **_: JobOutcome(set_ready=set_ready)),
+                "stage": recorded(ran, "stage"),
+            }
+        )
+        first = poll_round(seeded_store, tmp_path, table=table)
+        return first, poll_round(
+            seeded_store, tmp_path, table=table, now=NOW + timedelta(minutes=5)
+        )
 
-    assert (round_with(JobOutcome(set_ready=True)), round_with(JobOutcome())) == (
-        ("refine", "stage"),
-        ("refine",),
+    assert (rounds(True), rounds(False), ran[:2]) == (
+        (("stage", "refine"), ("stage",)),
+        (("stage", "refine"), ()),
+        ["stage", "refine"],
     )
 
 
-def test_stage_is_due_in_a_round_where_refine_set_an_item_ready_and_failed_another(
+def test_a_refine_round_that_set_an_item_ready_and_failed_another_makes_stage_due(
     seeded_store: InMemoryRoadmapStore, tmp_path: Path
 ) -> None:
-    """A refine round that fails an item after it set another Ready still makes the stage row
-    due in that round, and the round still fails for refine (#2659)."""
+    """A refine round that fails an item after it set another Ready still stamps `stage_due`, and
+    the round still fails for refine (#2659, #4796)."""
     stamp_successes(
         tmp_path,
         intake=NOW - timedelta(minutes=5),
-        refine=NOW - timedelta(minutes=61),
+        refine=OVER_AGO,
         stage=NOW - timedelta(minutes=5),
     )
-    ran: list[str] = []
 
     def failing_refine(**_: Any) -> JobOutcome:
         raise RoadmapRefineError("refine failed", failed_items=[7], readied_count=1)
 
-    def stage(**_: Any) -> JobOutcome:
-        ran.append("stage")
-        return JobOutcome()
-
-    table = build_stub_table({"refine": failing_refine, "stage": stage}, include_stage=True)
+    table = build_stub_table({"refine": failing_refine}, include_stage=True)
 
     with pytest.raises(RoadmapRunError) as raised:
         poll_round(seeded_store, tmp_path, table=table)
+    later = run_due_jobs(
+        REPO,
+        seeded_store,
+        table=table,
+        data_dir=tmp_path,
+        dry_run=True,
+        now=NOW + timedelta(minutes=5),
+    )
 
-    assert (raised.value.failed_jobs, ran) == (("refine",), ["stage"])
+    assert (
+        raised.value.failed_jobs,
+        read_schedule(tmp_path).get(CONST_ROADMAP_STAGE_DUE_STAMP),
+        later,
+    ) == (("refine",), NOW.isoformat(), ("stage", "refine"))
 
 
 def test_failure_isolation_and_cli_exit(

@@ -161,7 +161,7 @@ def test_the_row_follows_metrics_on_the_status_lane_runs_on_a_clone_and_is_due_e
             "pr_conflicts",
         ],
         ["intake"],
-        ["refine", "retitle", "stage", "alternatives"],
+        ["retitle", "stage", "refine", "alternatives"],
         True,
         True,
         timedelta(minutes=7),
