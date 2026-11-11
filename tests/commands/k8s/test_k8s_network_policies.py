@@ -24,6 +24,8 @@ TARGET_NAMESPACES = (
     "argo-workflows",
     "gitea",
     "mattermost",
+    "cert-manager",
+    "cnpg-system",
 )
 METADATA_SSRF_IP = "169.254.169.254/32"
 TRAEFIK_PEER = {
@@ -182,7 +184,9 @@ def test_monitoring_ingress_admits_no_world_cidr() -> None:
     ) == ([], [([TRAEFIK_PEER], MONITORING_TRAEFIK_PORTS)])
 
 
-@pytest.mark.parametrize("namespace", ("argocd", "otel", "argo-workflows", "gitea"))
+@pytest.mark.parametrize(
+    "namespace", ("argocd", "otel", "argo-workflows", "gitea", "cert-manager", "cnpg-system")
+)
 def test_ingress_admits_no_world_cidr(namespace: str) -> None:
     """Verify ingress perimeter defines no ingress ipBlocks (#1371).
 
@@ -199,11 +203,14 @@ def test_ingress_admits_no_world_cidr(namespace: str) -> None:
     assert cidrs == []
 
 
-@pytest.mark.parametrize("namespace", ["argocd", "cloudflared", "argo-workflows"])
+@pytest.mark.parametrize(
+    "namespace", ["argocd", "cloudflared", "argo-workflows", "cert-manager", "cnpg-system"]
+)
 def test_api_server_egress_admits_6443_through_ipblock(namespace: str) -> None:
     """Argo CD reconciles through the API server (#1371), cloudflared carries the tunnel's
     `k8s.<domain>` TCP route to it (#1595), and the Argo Workflows controller and the executors
-    of its Workflows reach it (#1535).
+    of its Workflows reach it (#1535). cert-manager and the Barman Cloud plugin are controllers
+    that work only through it (#4764).
 
     Namespace-only selectors (default, kube-system) never match the node IP the
     `kubernetes` service resolves to. An ipBlock peer with metadata SSRF protection
@@ -838,3 +845,113 @@ def test_only_the_roadmap_service_may_send_to_port_8080_of_searxng() -> None:
             [{"matchLabels": {"app.kubernetes.io/name": "searxng"}}],
         )
     }
+
+
+def _policies_in(path: Path) -> dict[str, dict[str, Any]]:
+    """The spec of each NetworkPolicy in a file, by name."""
+    return {
+        doc["metadata"]["name"]: doc["spec"]
+        for doc in yaml.safe_load_all(path.read_text(encoding="utf-8"))
+        if isinstance(doc, dict) and doc.get("kind") == "NetworkPolicy"
+    }
+
+
+_DNS_EGRESS = {
+    "to": [
+        {
+            "namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "kube-system"}},
+            "podSelector": {"matchLabels": {"k8s-app": "kube-dns"}},
+        }
+    ],
+    "ports": [{"protocol": "UDP", "port": 53}, {"protocol": "TCP", "port": 53}],
+}
+_API_SERVER_EGRESS = {
+    "to": [{"ipBlock": {"cidr": "0.0.0.0/0", "except": [METADATA_SSRF_IP]}}],
+    "ports": [{"protocol": "TCP", "port": 443}, {"protocol": "TCP", "port": 6443}],
+}
+
+
+def test_the_cert_manager_perimeter_admits_monitoring_on_9402_and_reaches_dns_and_the_api() -> None:
+    """Every pod of namespace cert-manager takes only the metrics scrape of monitoring on 9402,
+    and reaches only CoreDNS and the API server. The issuers are self-signed, so no pod calls an
+    ACME server (#4764)."""
+    spec = _policies_in(K8S_DIR / "cert-manager" / "networkpolicy.yaml")[
+        "cert-manager-default-perimeter"
+    ]
+
+    assert (spec["podSelector"], spec["policyTypes"], spec["ingress"], spec["egress"]) == (
+        {},
+        ["Ingress", "Egress"],
+        [
+            {
+                "from": [
+                    {
+                        "namespaceSelector": {
+                            "matchLabels": {"kubernetes.io/metadata.name": "monitoring"}
+                        }
+                    }
+                ],
+                "ports": [{"protocol": "TCP", "port": 9402}],
+            }
+        ],
+        [_DNS_EGRESS, _API_SERVER_EGRESS],
+    )
+
+
+def test_only_the_cert_manager_webhook_takes_any_peer_and_only_on_10250() -> None:
+    """The API server calls the webhook from the host network of the control-plane node. No
+    selector names that address, and kube-router admits host traffic only to pods on the same
+    node, so the rule names no peer. It selects the webhook pods alone and opens TCP 10250 alone
+    (#4764)."""
+    spec = _policies_in(K8S_DIR / "cert-manager" / "networkpolicy-webhook.yaml")[
+        "cert-manager-webhook"
+    ]
+
+    assert (spec["podSelector"], spec["policyTypes"], spec["ingress"]) == (
+        {
+            "matchLabels": {
+                "app.kubernetes.io/name": "webhook",
+                "app.kubernetes.io/component": "webhook",
+            }
+        },
+        ["Ingress"],
+        [{"ports": [{"protocol": "TCP", "port": 10250}]}],
+    )
+
+
+def test_monitoring_egress_allows_cert_manager_port_9402() -> None:
+    """The cert-manager pods carry the `prometheus.io/*` keys, so Alloy scrapes them on 9402, and
+    the monitoring perimeter lets the scrape out (#4764)."""
+    spec = yaml.safe_load((K8S_DIR / "monitoring" / "networkpolicy.yaml").read_text("utf-8"))[
+        "spec"
+    ]
+    ports = [
+        (port["protocol"], port["port"])
+        for rule in spec["egress"]
+        if {"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "cert-manager"}}}
+        in rule.get("to", [])
+        for port in rule.get("ports", [])
+    ]
+
+    assert ports == [("TCP", 9402)]
+
+
+def test_only_the_cloudnative_pg_operator_reaches_the_barman_cloud_plugin() -> None:
+    """The operator calls the gRPC server of the plugin over mutual TLS on 9090. The instance
+    pods talk to the plugin sidecar in their own pod, so no other peer is admitted. The plugin
+    reaches only CoreDNS and the API server (#4764)."""
+    spec = _policies_in(K8S_DIR / "cnpg-system" / "networkpolicy.yaml")["plugin-barman-cloud"]
+
+    assert (spec["podSelector"], spec["policyTypes"], spec["ingress"], spec["egress"]) == (
+        {"matchLabels": {"app.kubernetes.io/name": "plugin-barman-cloud"}},
+        ["Ingress", "Egress"],
+        [
+            {
+                "from": [
+                    {"podSelector": {"matchLabels": {"app.kubernetes.io/name": "cloudnative-pg"}}}
+                ],
+                "ports": [{"protocol": "TCP", "port": 9090}],
+            }
+        ],
+        [_DNS_EGRESS, _API_SERVER_EGRESS],
+    )

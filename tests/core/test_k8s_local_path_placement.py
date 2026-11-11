@@ -108,11 +108,13 @@ CHART_CLAIMS: dict[
     ("argo-cd", "10.9.6"): (),
     ("argo-workflows", "2.0.13"): (),
     ("argocd-image-updater", "1.3.1"): (),
+    ("cert-manager", "v1.21.3"): (),
     ("cloudnative-pg", "0.29.1"): (),
     ("dcgm-exporter", "4.8.4"): (),
     # Chart 12.7.0 turns persistence on by default; 13.x turns it off.
     ("gitea", "12.7.0"): (ClaimSite("gitea", _on(("persistence.enabled", True)), "affinity"),),
     ("opentelemetry-collector", "0.175.0"): (),
+    ("plugin-barman-cloud", "0.8.1"): (),
     ("prometheus-operator-crds", "32.0.1"): (),
     ("grafana", "14.0.1"): (ClaimSite("grafana", _on(("persistence.enabled", False)), "affinity"),),
     ("k8s-monitoring", "4.5.2"): _alloy_collectors,
