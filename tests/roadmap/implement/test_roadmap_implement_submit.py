@@ -1677,3 +1677,33 @@ def test_job_reporting_updates_and_resets_consecutive_failures_gauge(
     _end(kube, "Complete", index=1)
     _round(store, staged_repo)
     assert _consecutive_failures_count("parser") == 0
+
+
+def test_each_ended_job_logs_one_attempt_line_with_its_counts_and_digest(
+    store: InMemoryRoadmapStore,
+    staged_repo: StageRepo,
+    api: GitHubApiFake,
+    kube: FakeCluster,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The line holds counts, the state, the class and the runner digest, and no log text
+    (#4535)."""
+    number = seed_staged(store)
+    _roll(kube, DIGEST_A)
+    _round(store, staged_repo)
+    name = _jobs(kube)[0]["metadata"]["name"]
+    store.set_field(_held(store, number), ItemField.STATUS, "In Progress")
+    _end(kube, "Failed")
+    kube.core.answers["list_namespaced_pod"] = [pod(f"{name}-x1", namespace="devops")]
+    kube.core.answers["read_namespaced_pod_log"] = "MemoryError: Cannot allocate memory\n"
+
+    with caplog.at_level(logging.INFO):
+        _round(store, staged_repo)
+
+    lines = [
+        r.getMessage() for r in caplog.records if r.getMessage().startswith("implement attempt")
+    ]
+    assert [line.rsplit(" version=", 1)[0] for line in lines] == [
+        f"implement attempt: repo={STAGE_REPO} item=#{number} state=failed class=oom "
+        f"repair_rounds=0 tokens=0 digest={DIGEST_A}"
+    ]
