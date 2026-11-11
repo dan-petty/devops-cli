@@ -551,26 +551,38 @@ def test_a_spec_naming_a_missing_test_file_is_refused() -> None:
     assert any("tests/test_missing_example.py" in p for p in problems)
 
 
-def test_a_changed_docstring_naming_a_missing_test_file_is_refused() -> None:
-    group = make_stage_proposal().groups[0]
-    plan = make_stage_proposal(groups=[group])
-    source = 'def helper():\n    """See `tests/test_missing_example.py`."""\n    pass\n'
+def test_a_test_path_in_the_base_docstring_of_a_changed_file_is_not_refused() -> None:
+    """The plan cannot change the base text of a file it changes, so a missing test path in a
+    base docstring is no problem of the plan (#4791)."""
+    plan = make_stage_proposal()
+    source = 'def helper():\n    """See `tests/test_x.py`."""\n'
     read_text = {"src/devops_cli/sample.py": source}.get
     tree = StagedTree(["src/devops_cli/sample.py", "tests/test_sample.py"])
     problems = check_proposal(plan, ["comment-thread"], tree, read_text=read_text, registry=())
-    assert any("tests/test_missing_example.py" in p for p in problems)
+    stale = MESSAGES.roadmap.stage_problem_missing_test_file.split("`", 1)[0]
+    assert not [p for p in problems if p.startswith(stale)]
 
 
 def _stale_test_path_problem(path: str, files: list[str]) -> str:
-    """The problem that a changed docstring naming `path` gets on a tree of `files`."""
-    group = make_stage_proposal().groups[0]
-    source = f'def helper():\n    """See `{path}`."""\n'
-    read_text = {"src/devops_cli/sample.py": source}.get
+    """The problem that a spec naming `path` gets on a tree of `files`."""
+    spec = StageSpec(
+        capability="comment-thread",
+        added=[
+            StageRequirement(
+                name="A requirement",
+                text=f"The system SHALL test `{path}`.",
+                scenarios=[
+                    StageScenario(
+                        name="A scenario", when="A condition holds.", then="The system passes."
+                    )
+                ],
+            )
+        ],
+    )
     problems = check_proposal(
-        make_stage_proposal(groups=[group]),
+        make_stage_proposal(specs=[spec]),
         ["comment-thread"],
         StagedTree(["src/devops_cli/sample.py", *files]),
-        read_text=read_text,
         registry=(),
     )
     (problem,) = [p for p in problems if p.startswith(f"The test path `{path}`")]
@@ -590,26 +602,6 @@ def test_a_missing_test_path_names_the_file_of_the_same_name() -> None:
 def test_a_missing_test_path_with_no_file_of_the_same_name_says_so() -> None:
     problem = _stale_test_path_problem("tests/test_absent.py", ["tests/test_sample.py"])
     assert problem.endswith(MESSAGES.roadmap.stage_path_no_same_name)
-
-
-def test_a_changed_source_with_syntax_error_is_ignored() -> None:
-    group = make_stage_proposal().groups[0]
-    plan = make_stage_proposal(groups=[group])
-    read_text = {"src/devops_cli/sample.py": "def broken_syntax(:\n"}.get
-    tree = StagedTree(["src/devops_cli/sample.py", "tests/test_sample.py"])
-    problems = check_proposal(plan, ["comment-thread"], tree, read_text=read_text, registry=())
-    assert not any("stage_problem_missing_test_file" in p for p in problems)
-
-
-def test_a_changed_docstring_naming_an_existing_test_file_passes() -> None:
-    group = make_stage_proposal().groups[0]
-    plan = make_stage_proposal(groups=[group])
-    read_text = {
-        "src/devops_cli/sample.py": '"""See `tests/roadmap/test_roadmap_limit_classes.py`."""\n'
-    }.get
-    tree = StagedTree(["src/devops_cli/sample.py", "tests/roadmap/test_roadmap_limit_classes.py"])
-    problems = check_proposal(plan, ["comment-thread"], tree, read_text=read_text, registry=())
-    assert not any("tests/roadmap/test_roadmap_limit_classes.py" in p for p in problems)
 
 
 def test_an_other_group_that_changes_a_case_path_is_refused_with_the_manifest_kind() -> None:
