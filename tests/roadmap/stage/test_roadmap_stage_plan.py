@@ -33,14 +33,17 @@ from devops_cli.exceptions.git import GitOperationError
 from devops_cli.exceptions.roadmap import RoadmapStageError
 from devops_cli.git.worktree_add import issue_holder, read_remote_heads
 from devops_cli.github.rate_limiter import get_github_rate_limiter
+from devops_cli.lang import MESSAGES
 from devops_cli.openspec.tool import isolated_openspec
 from devops_cli.roadmap.stage.stage import (
+    LeftOut,
     StagedChange,
     StagePlan,
     _read_staged_file,
     parse_filters,
     plan_item,
     plan_stage,
+    render_stage_plan,
 )
 from devops_cli.roadmap.stage.stage_change import (
     CREATED_LINE_TOKENS,
@@ -57,6 +60,7 @@ from devops_cli.roadmap.stage.stage_change import (
     render_change,
 )
 from devops_cli.roadmap.stage.stage_criteria import StageCriterion
+from devops_cli.roadmap.stage.stage_left_out import LeftOutKind
 from devops_cli.roadmap.stage.stage_paths import StagedTree
 from devops_cli.roadmap.stage.stage_plan_record import delete_plan_record, plan_record_path
 from devops_cli.roadmap.stage.stage_references import reference_answer, reference_files
@@ -586,6 +590,38 @@ def test_an_item_with_a_stray_local_branch_with_a_commit_of_its_own_is_left_out(
     assert branch in plan.left_out[0].reason
     assert "1 commit" in plan.left_out[0].reason
     assert model_fake.call_count == 0
+
+
+def test_a_repository_without_openspec_holds_a_named_item_and_the_plan_names_the_file(
+    store: InMemoryRoadmapStore, item: int, stage_repo: StageRepo, model_fake: ModelFake
+) -> None:
+    """With no `openspec/config.yaml` on the default branch, the job writes no plan, also for an
+    item that `--item` names, and the plan names the file that onboarding adds (#4629)."""
+    stage_repo.untrack("openspec/config.yaml")
+    reason = MESSAGES.roadmap.stage_left_no_openspec.format(
+        path="openspec/config.yaml", branch="main"
+    )
+
+    plan = _plan(store, stage_repo, item=item)
+
+    assert (plan.ready, plan.left_out, plan.missing, model_fake.call_count) == (
+        (),
+        (LeftOut(item, reason, "fix(roadmap): the job drops a comment", LeftOutKind.NO_OPENSPEC),),
+        ("openspec/config.yaml",),
+        0,
+    )
+    assert render_stage_plan(plan).splitlines()[3] == reason
+
+
+def test_a_repository_with_openspec_names_no_missing_file(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo
+) -> None:
+    """A default branch that holds `openspec/config.yaml`, as the one of devops-cli does, gives a
+    plan with no missing file and no line about it (#4629)."""
+    plan = _plan(store, stage_repo)
+
+    assert plan.missing == ()
+    assert MESSAGES.roadmap.stage_left_no_openspec.split("{")[0] not in render_stage_plan(plan)
 
 
 @pytest.mark.usefixtures("openspec")

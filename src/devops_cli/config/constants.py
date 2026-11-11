@@ -5239,6 +5239,8 @@ CONST_KB_SHA_DIGEST_LENGTH: Final[int] = 16
 # planning conventions for every agent.
 CONST_OPENSPEC_DIR: Final[str] = "openspec"
 CONST_OPENSPEC_CONFIG_FILENAME: Final[str] = "config.yaml"
+# `openspec init` writes this file, so it marks a repository that uses OpenSpec (#4629).
+CONST_OPENSPEC_CONFIG_PATH: Final[str] = f"{CONST_OPENSPEC_DIR}/{CONST_OPENSPEC_CONFIG_FILENAME}"
 CONST_OPENSPEC_CHANGES_DIR: Final[str] = "openspec/changes"
 # Where `openspec archive` moves a change, and where it writes the living specs. Only the pull
 # request that closes a change writes either, and only for that change (ADR 0010).

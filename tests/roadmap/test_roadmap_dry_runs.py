@@ -563,7 +563,7 @@ def test_the_stage_plan_reads_the_change_folders_of_the_default_branch_with_one_
 
     reads, _ = stage_requests(REPO)
 
-    trees = [request.argv for request in reads if "ls-tree" in request.argv]
+    trees = [request.argv for request in reads if "openspec/changes/" in request.argv]
     assert trees == [
         (
             "git",
@@ -576,6 +576,27 @@ def test_the_stage_plan_reads_the_change_folders_of_the_default_branch_with_one_
             "openspec/changes/archive/",
         )
     ]
+
+
+def test_the_stage_plan_reads_whether_the_default_branch_holds_the_openspec_config() -> None:
+    """The job holds every item of a repository with no `openspec/config.yaml` (#4629)."""
+    from devops_cli.roadmap.request_plan import explain_requests, stage_requests
+
+    config = (
+        "git",
+        "-C",
+        "<model-clone>",
+        "ls-tree",
+        "--name-only",
+        "origin/main",
+        "--",
+        "openspec/config.yaml",
+    )
+
+    for reads, _ in (stage_requests(REPO), explain_requests(REPO, item=7)):
+        assert [request.argv for request in reads if "openspec/config.yaml" in request.argv] == [
+            config
+        ]
 
 
 def test_the_stage_plan_moves_the_clone_to_the_staged_commit_and_starts_each_branch_there() -> None:

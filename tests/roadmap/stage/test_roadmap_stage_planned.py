@@ -201,7 +201,9 @@ def test_a_round_reads_the_tree_once_for_many_items(
 
     _plan(store, stage_repo)
 
-    assert len([call for call in process_fake.calls if "ls-tree" in call.argv]) == 1
+    trees = [call.argv for call in process_fake.calls if "ls-tree" in call.argv]
+    assert len([argv for argv in trees if "openspec/changes/" in argv]) == 1
+    assert len([argv for argv in trees if "openspec/config.yaml" in argv]) == 1
 
 
 def test_a_stale_stage_record_with_no_plan_on_main_stages_the_item_again(

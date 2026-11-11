@@ -3459,6 +3459,11 @@ class RoadmapMessages:
     stage_filter_form: str = "'{option}' is not in the form family=value."
     stage_status_none: str = "none"
     stage_left_not_ready: str = "Status {status}: the stage job takes only Ready items."
+    # The hold of a repository that does not use OpenSpec (#4629).
+    stage_left_no_openspec: str = (
+        "The repository has no {path} on {branch}, so the stage job writes no plan for it. "
+        "Onboarding adds the file (#3770)."
+    )
     stage_left_needs_split: str = (
         "The item has the label needs-split. Refine proposed a split, and a person makes it first."
     )
@@ -3825,6 +3830,7 @@ class RoadmapMessages:
             "remote_heads": "the branches of origin",
             "fetch_default": "fetch the default branch, to read its plans",
             "default_plans": "the change folders of the default branch",
+            "openspec_config": "whether the default branch holds openspec/config.yaml: with no file, the job holds every item",
             "move_clone": "move the clone to the staged commit, the default branch of origin",
             "tracked_files": "the tracked files of the clone, to check the paths of each plan",
             "open_pulls": "the open pull requests and their files, to find an overlap",

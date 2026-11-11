@@ -521,3 +521,30 @@ def test_a_round_logs_the_reason_of_a_left_out_item_once_until_it_changes(
         [f"#{number}", "needs_split"],
     ]
     assert _labelled(otlp) == [("skipped", "needs_split", 1.0), ("skipped", "title_type", 2.0)]
+
+
+def test_a_round_in_a_repository_without_openspec_holds_each_item_and_reports_the_file(
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    otlp: FakeCollector,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A default branch with no `openspec/config.yaml` gets no plan (#4629): the round pushes no
+    branch and calls no model, it records the hold of each item, and its outcome names the file
+    for onboarding."""
+    stage_repo.untrack("openspec/config.yaml")
+    number = seed_stageable(store)
+
+    with caplog.at_level(logging.INFO):
+        outcome = _round(store, stage_repo)
+
+    lines = [r.getMessage() for r in caplog.records if r.getMessage().startswith("stage left out")]
+    assert outcome == JobOutcome(missing=("openspec/config.yaml",))
+    assert _pushed(stage_repo) == ["main"]
+    assert model_fake.calls == []
+    assert _labelled(otlp) == [("skipped", "no_openspec", 1.0)]
+    assert [re.findall(r"(?:item|reason)=(\S+)", line) for line in lines] == [
+        [f"#{number}", "no_openspec"]
+    ]
+    assert "openspec/config.yaml" in lines[0]
