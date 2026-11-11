@@ -1,8 +1,8 @@
 """Roadmap job evaluation, scheduling, checkout management, and execution.
 
 The due table runs the status lane's rows, metrics, implement, stage_ready, release_comments,
-github_status, cloudflare_status and pr_conflicts, before the model lane's, intake, refine, retitle,
-stage and alternatives, so a burst of candidates never holds back the metrics (#1360), and a slow model never holds back the implement or stage_ready row
+github_status, cloudflare_status and pr_conflicts, before the model lane's, intake, retitle, stage,
+refine and alternatives, so a burst of candidates never holds back the metrics (#1360), and a slow model never holds back the implement or stage_ready row
 (#2757, #2865). The row stage_ready marks a green stage draft pull request ready. The row
 release_comments comments the version, and the time it runs, on the issues of a release (#2917).
 The row pr_conflicts comments once on a ready delivery pull request with merge conflicts (#4027).
@@ -14,8 +14,10 @@ Each row is due by its interval, by a webhook hint in the batch, or by its due r
 judges the changes made since the row last succeeded: intake's is an issue reopened, or a fresh
 candidate its last round left (`IntakeRecord`, kept beside `schedule.json`). A round's intake
 decides at most `DEFAULT_ROADMAP_INTAKE_LIMIT` candidates. Refine is due every 17 minutes, on a first
-run, and in a round where intake placed a critical fix or a P0 item (#1515). Stage, the row after
-refine, is due every 37 minutes, on a first run, and in a round where refine set an item Ready (#2659).
+run, and in a round where intake placed a critical fix or a P0 item (#1515). Stage, the row before
+refine, is due every 37 minutes, on a first run, and after a round in which refine set an item Ready
+(#2659): that round stamps `stage_due` in `schedule.json`. Stage runs before refine, so the first
+round of a new pod stages before refine takes its items (#4796).
 Retitle, the row before stage, is due every 61 minutes and on a first run. It examines at most
 `DEFAULT_ROADMAP_RETITLE_LIMIT` items: it shortens a long title summary (#3535) and corrects a title
 type that the branch types do not list (#4508), so stage reads the new titles.
@@ -63,6 +65,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_RUN_STATE_FILENAME,
     CONST_ROADMAP_RUN_TRIAGE_CLONE_DIRNAME,
     CONST_ROADMAP_STAGE_BATCH_KEYS,
+    CONST_ROADMAP_STAGE_DUE_STAMP,
     CONST_SERVICE_CAUSE_UNKNOWN,
     CONST_SERVICE_FAILURES_FILENAME,
     CONST_SERVICE_JOB_RESULT_ERROR,
@@ -199,7 +202,8 @@ class JobOutcome:
     """Outcome of running one roadmap job: whether it placed a critical fix or a P0 item (intake),
     whether it set an item Ready (refine), and the project files that the default branch of the
     repository lacks (stage, #4629). A later row of the round reads the outcome, so `missing` is
-    the record that can start the onboarding of the repository (#4664)."""
+    the record that can start the onboarding of the repository (#4664). An outcome that set an
+    item Ready stamps `stage_due` (#4796)."""
 
     placed_critical_or_p0: bool = False
     set_ready: bool = False
@@ -453,15 +457,9 @@ def _refine_cross_job(outcomes: Mapping[str, JobOutcome]) -> bool:
     return intake_outcome is not None and intake_outcome.placed_critical_or_p0
 
 
-def _stage_cross_job(outcomes: Mapping[str, JobOutcome]) -> bool:
-    """Staging is due in a round where refine set an item Ready (#2659)."""
-    refine_outcome = outcomes.get("refine")
-    return refine_outcome is not None and refine_outcome.set_ready
-
-
 def _outcome_of_failure(exc: Exception) -> JobOutcome:
-    """What a failed job still did that a later row follows: a refine run that failed for one
-    item has set the others Ready, and the stage row is due in that round (#2659)."""
+    """What a failed job still did that the round follows: a refine run that failed for one
+    item has set the others Ready, and the round stamps `stage_due` for them (#2659)."""
     if isinstance(exc, RoadmapRefineError):
         return JobOutcome(set_ready=exc.readied_count > 0)
     return JobOutcome()
@@ -621,7 +619,7 @@ def _run_retitle_adapter(store: RoadmapStore, repo: str = "", **_: Any) -> JobOu
     """Shorten the long title summary, or correct the unlisted title type (#4508), of at most
     `DEFAULT_ROADMAP_RETITLE_LIMIT` open items, as `devops roadmap retitle --confirm` does, with
     the model of that command (#3535). The row runs
-    before the stage row, so the stage job reads the new titles in the same round. It reads and
+    just before the stage row, so the stage job reads the new titles in the same round. It reads and
     writes the store only, so it needs no clone."""
     plan = plan_retitle(
         store, repo=repo, model=build_retitle_model(), limit=DEFAULT_ROADMAP_RETITLE_LIMIT
@@ -893,15 +891,6 @@ TRIAGE_LANE_ROWS: tuple[JobRow, ...] = (
 
 MODEL_LANE_ROWS: tuple[JobRow, ...] = (
     JobRow(
-        name="refine",
-        interval=timedelta(minutes=DEFAULT_ROADMAP_REFINE_INTERVAL_MINUTES),
-        batch_keys=CONST_ROADMAP_REFINE_BATCH_KEYS,
-        runner=_run_refine_adapter,
-        needs_clone=True,
-        first_run_due=True,
-        cross_job_predicate=_refine_cross_job,
-    ),
-    JobRow(
         name="retitle",
         interval=timedelta(minutes=DEFAULT_ROADMAP_RETITLE_INTERVAL_MINUTES),
         batch_keys=CONST_ROADMAP_RETITLE_BATCH_KEYS,
@@ -915,7 +904,15 @@ MODEL_LANE_ROWS: tuple[JobRow, ...] = (
         runner=_run_stage_adapter,
         needs_clone=True,
         first_run_due=True,
-        cross_job_predicate=_stage_cross_job,
+    ),
+    JobRow(
+        name="refine",
+        interval=timedelta(minutes=DEFAULT_ROADMAP_REFINE_INTERVAL_MINUTES),
+        batch_keys=CONST_ROADMAP_REFINE_BATCH_KEYS,
+        runner=_run_refine_adapter,
+        needs_clone=True,
+        first_run_due=True,
+        cross_job_predicate=_refine_cross_job,
     ),
     JobRow(
         name="alternatives",
@@ -924,8 +921,10 @@ MODEL_LANE_ROWS: tuple[JobRow, ...] = (
         first_run_due=True,
     ),
 )
-"""The rows that call the model, which answers one call at a time: intake, refine, retitle, stage and the
-daily check for alternative tools (#2652)."""
+"""The rows that call the model, which answers one call at a time: intake, retitle, stage, refine
+and the daily check for alternative tools (#2652). Stage runs before refine: a round of 7 refine
+items takes 35 to 65 minutes and refine is due again when it ends, so with refine first the first
+round of each new pod held the lane before stage had a turn (#4796)."""
 
 DEFAULT_DUE_TABLE: tuple[JobRow, ...] = (*STATUS_LANE_ROWS, *TRIAGE_LANE_ROWS, *MODEL_LANE_ROWS)
 """Every row, the status lane's first: what `devops roadmap run` runs in one round."""
@@ -1013,7 +1012,7 @@ def build_stub_table(
 ) -> tuple[JobRow, ...]:
     """The due table's rows, in its order, each running `runners`' stub for its job: metrics,
     implement, stage_ready, release_comments, github_status, cloudflare_status, pr_conflicts,
-    intake, refine, retitle, stage and alternatives.
+    intake, retitle, stage, refine and alternatives.
     Intake is always in; the others are added when asked for or given a stub."""
     r = runners or {}
     add_retitle = include_retitle if include_retitle is not None else ("retitle" in r)
@@ -1103,13 +1102,20 @@ class _Poll:
 
     def is_due(self, row: JobRow) -> bool:
         """Whether `row` is due before any other row runs: by its interval, a hint in the
-        batch, or its due rule over the changes since its own last success."""
+        batch, a stamp of another row, or its due rule over the changes since its own last
+        success. Intake runs before refine, so its `refine_due` must be newer than refine's last
+        success. Refine runs after stage, so a `stage_due` of the round in which stage last
+        succeeded still makes stage due (#4796)."""
         last = self.schedule.get(row.name)
         if _is_interval_due(row, last, self.now) or _batch_matches(self.batch, row):
             return True
         if row.name == "refine":
             refine_due = self.schedule.get(CONST_ROADMAP_REFINE_DUE_STAMP)
             if refine_due is not None and (last is None or refine_due > last):
+                return True
+        if row.name == "stage":
+            stage_due = self.schedule.get(CONST_ROADMAP_STAGE_DUE_STAMP)
+            if stage_due is not None and (last is None or stage_due >= last):
                 return True
         if row.due_rule is None:
             return False
@@ -1506,6 +1512,13 @@ def _observe_row(repo: str, row: str, started: float | None, result: str) -> Non
     )
 
 
+def _stamp_stage_due(schedule_path: Path, outcome: JobOutcome, at: datetime) -> None:
+    """Stamp `stage_due` at `at`, the time of the round, when `outcome` set an item Ready, so the
+    stage row, which runs before refine, is due in the next round (#2659, #4796)."""
+    if outcome.set_ready:
+        _record_success(schedule_path, CONST_ROADMAP_STAGE_DUE_STAMP, at)
+
+
 def _execute_due_rows(
     rows: Sequence[JobRow],
     initially_due: Mapping[str, bool],
@@ -1529,7 +1542,8 @@ def _execute_due_rows(
     person (#2754). A refusal of the identity ends the round at once: no later job sends a
     request. Each row runs in the request scope of its name, so its GitHub requests count under
     it (#2475). Once the Service stops, no due row starts: the round ends with the stop, and the
-    rows it did not start stay due for the next pod (#4485)."""
+    rows it did not start stay due for the next pod (#4485). A row whose outcome set an item Ready,
+    also a failed one, stamps `stage_due` (#2659, #4796)."""
     succeeded_jobs: list[str] = []
     failed_jobs: list[str] = []
     outcomes: dict[str, JobOutcome] = {}
@@ -1573,6 +1587,7 @@ def _execute_due_rows(
                     now=current_time,
                 )
             outcomes[row.name] = outcome or JobOutcome()
+            _stamp_stage_due(schedule_path, outcomes[row.name], current_time)
             succeeded_jobs.append(row.name)
             _record_success(schedule_path, row.name, current_time)
             failures.succeeded(repo, row.name)
@@ -1583,6 +1598,7 @@ def _execute_due_rows(
             _count_job(repo, lane, row.name, _failed_result(exc))
             _observe_row(repo, row.name, started, _failed_result(exc))
             outcomes[row.name] = _outcome_of_failure(exc)
+            _stamp_stage_due(schedule_path, outcomes[row.name], current_time)
             _count_failure(failures, repo, row.name, inputs[row.name], exc, current_time)
             if row.needs_clone and clone_path is None:
                 clone_error = exc

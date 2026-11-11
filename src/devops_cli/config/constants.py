@@ -3597,6 +3597,10 @@ CONST_ROADMAP_RUN_TRIAGE_CLONE_DIRNAME: Final[str] = "triage-clone"
 # lane's `clone` (#1532).
 CONST_ROADMAP_RUN_MODEL_CLONE_DIRNAME: Final[str] = "model-clone"
 CONST_ROADMAP_REFINE_DUE_STAMP: Final[str] = "refine_due"
+# The key in `schedule.json` of the time of a round in which refine set an item Ready. The stage
+# row runs before refine on the model lane, so this stamp makes it due in the next round (#2659,
+# #4796).
+CONST_ROADMAP_STAGE_DUE_STAMP: Final[str] = "stage_due"
 CONST_ROADMAP_INTAKE_BATCH_KEYS: Final[tuple[tuple[str, str, str], ...]] = (
     ("webhook", "issues", "opened"),
     ("webhook", "issues", "reopened"),

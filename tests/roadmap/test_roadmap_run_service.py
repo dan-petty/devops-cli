@@ -100,7 +100,7 @@ def test_service_wiring(
                 "pr_conflicts",
             ],
             ["intake"],
-            ["refine", "retitle", "stage", "alternatives"],
+            ["retitle", "stage", "refine", "alternatives"],
         ],
     )
 

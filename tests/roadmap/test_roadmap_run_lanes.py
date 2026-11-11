@@ -320,7 +320,7 @@ def test_each_lanes_success_stays_in_schedule_json_when_their_rounds_interleave(
         )
         assert (triage_round, model_round) == (
             ("intake",),
-            ("refine", "retitle", "stage", "alternatives"),
+            ("retitle", "stage", "refine", "alternatives"),
         )
         return JobOutcome()
 

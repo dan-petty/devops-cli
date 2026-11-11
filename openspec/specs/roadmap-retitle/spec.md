@@ -87,11 +87,11 @@ The implement job SHALL leave out a Planned item whose title summary is longer t
 - **THEN** the inbox output includes the item
 
 ### Requirement: A Service row runs the job
-The model lane SHALL hold a row named `retitle` after `refine` and before `stage`, and `DEFAULT_DUE_TABLE` SHALL include it.
+The model lane SHALL hold a row named `retitle` just before `stage`, and `DEFAULT_DUE_TABLE` SHALL include it.
 
 #### Scenario: Row order
 - **WHEN** `MODEL_LANE_ROWS` is read.
-- **THEN** it holds `retitle` between `refine` and `stage`, and `DEFAULT_DUE_TABLE` holds it too.
+- **THEN** it holds `retitle` just before `stage`, and `DEFAULT_DUE_TABLE` holds it too.
 
 ### Requirement: The row is due by its interval
 The `retitle` row SHALL be due on its first run and when its last success is at least `DEFAULT_ROADMAP_RETITLE_INTERVAL_MINUTES` (61) old.

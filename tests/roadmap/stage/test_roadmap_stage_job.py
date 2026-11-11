@@ -79,28 +79,21 @@ def _pushed(repo: StageRepo) -> list[str]:
     return repo.origin_git("branch", "--format=%(refname:short)").split()
 
 
-def test_the_row_follows_retitle_runs_on_a_clone_and_is_due_every_37_minutes_and_on_a_first_run() -> (
+def test_the_row_follows_retitle_before_refine_runs_on_a_clone_and_is_due_every_37_minutes() -> (
     None
 ):
+    """The stage row runs after retitle and before refine, so a new pod's first round stages
+    first; a refine that set an item Ready makes it due through `stage_due`, not in the same
+    round (#2659, #4796)."""
     names = [row.name for row in MODEL_LANE_ROWS]
     assert (
         names[names.index("retitle") + 1],
+        names[names.index("stage") + 1],
         STAGE_ROW.needs_clone,
         STAGE_ROW.first_run_due,
         STAGE_ROW.interval,
-        STAGE_ROW.cross_job_predicate is not None,
-    ) == ("stage", True, True, timedelta(minutes=37), True)
-
-
-def test_the_cross_job_rule_follows_the_set_ready_of_refine() -> None:
-    rule = STAGE_ROW.cross_job_predicate
-    assert rule is not None
-    assert (
-        rule({"refine": JobOutcome(set_ready=True)}),
-        rule({"refine": JobOutcome()}),
-        rule({"intake": JobOutcome(placed_critical_or_p0=True)}),
-        rule({}),
-    ) == (True, False, False, False)
+        STAGE_ROW.cross_job_predicate,
+    ) == ("stage", "refine", True, True, timedelta(minutes=37), None)
 
 
 def test_a_round_stages_the_items_the_settings_name_and_counts_each_once(
