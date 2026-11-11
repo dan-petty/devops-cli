@@ -4890,6 +4890,16 @@ CONST_OSV_CONFIG_FILE_NAMES: Final[tuple[str, ...]] = ("osv-scanner.toml",)
 CONST_TRIVY_CACHE_DIR_ENV: Final[str] = "TRIVY_CACHE_DIR"
 CONST_TRIVY_CACHE_DIR_NAME: Final[str] = "trivy"
 CONST_TRIVY_CONFIG_SCAN_TYPE: Final[str] = "config"
+# The ignore file of the IaC scan: an entry holds the path, the `statement` and `expired_at` of one
+# finding, and Trivy reads it only when it is named with `--ignorefile` (#4401).
+CONST_TRIVY_CONFIG_IGNORE_FILE: Final[str] = ".trivyignore.yaml"
+# The tool name that GitHub code scanning shows for the `trivy config` results of the SARIF upload.
+CONST_TRIVY_CONFIG_ALERT_TOOL: Final[str] = "Trivy-config"
+# The most issues that one run of `devops scan alerts` files, so a first run over a long list of
+# alerts files a few and leaves the rest for the next run (#4401).
+CONST_TRIVY_CONFIG_ALERT_ISSUES_PER_RUN: Final[int] = 5
+# The labels of an issue that `devops scan alerts` files; intake sets the rest.
+CONST_TRIVY_CONFIG_ALERT_ISSUE_LABELS: Final[tuple[str, ...]] = ("type/bug", "scope/security")
 CONST_TRIVY_CHECKS_METADATA: Final[tuple[str, ...]] = ("policy", "metadata.json")
 CONST_TRIVY_DB_METADATA: Final[tuple[str, ...]] = ("db", "metadata.json")
 

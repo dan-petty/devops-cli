@@ -77,6 +77,17 @@ A scanner can name a finding that no update of the pinned package solves yet. Th
 
 **Report.** The pull request comment lists each ignore that the agent added, its expiry and its tracking issue. The final message of the agent says the same.
 
+## Judging a Trivy-config Alert
+
+The `Security Scan` step of CI uploads the results of `trivy config` to code scanning. Each result is an alert of the tool `Trivy-config`. The workflow `.github/workflows/trivy-config-alerts.yml` runs `devops scan alerts` each day, after the CI run on `main` that uploaded the alerts. The command files one issue for each rule and file that has open alerts and no open issue: at most 5 in one run, the worst severity first. The title is `fix(security): judge Trivy-config <rule-id> in <path>`.
+
+**Who judges, and in what time.** The owner judges a CRITICAL alert within 24 hours. An agent judges an alert of severity HIGH, MEDIUM or LOW within 14 days. After 14 days the owner decides.
+
+**What judging means.** Do one of these, and close the issue with it:
+1. Fix the file in a pull request that closes the issue. This is the first choice.
+2. If the fix breaks the workload or needs a change that is not released yet, add an entry to `.trivyignore.yaml`. Give it the rule `id`, the `paths` of the file, a `statement` that holds the reason and the tracking issue, and an `expired_at` date. `devops scan report` names this file, and Trivy stops applying an entry after its date. An agent follows the limits of "A Finding with No Fix": 3 days, renewed at most up to 14 days in all, never for a CRITICAL alert, never for a secret. A longer date is the decision of the owner, and the `statement` names that decision.
+3. A person dismisses the alert in code scanning, with a reason. An agent does not dismiss an alert.
+
 ## Reporting a Vulnerability
 
 We deeply appreciate responsible security disclosures. If you discover a security vulnerability within DevOps CLI:

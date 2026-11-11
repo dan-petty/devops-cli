@@ -1555,6 +1555,12 @@ class ScanMessages:
     semgrep_file_not_scanned: str = "Semgrep did not list the file as scanned"
     injection_executing: str = "Scanning '{target}' for prompt-injection smuggling vectors..."
     injection_passed: str = "✓ No prompt-injection smuggling vectors detected."
+    alerts_dry_run_heading: str = "Requests that `devops scan alerts` would make"
+    alerts_no_repo: str = "No repository: pass --repo owner/name or run in a clone of one."
+    alerts_none_open: str = "No open Trivy-config alert."
+    alerts_filed: str = "Filed #{number}: {title}"
+    alerts_held: str = "Open issue holds: {title}"
+    alerts_left: str = "Left for the next run: {title}"
 
 
 @dataclass(frozen=True)

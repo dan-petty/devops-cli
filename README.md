@@ -339,6 +339,7 @@ and excessive permissions fail it, and every other finding is shown. |
 |  | `devops scan injection [OPTIONS] <target>` | Scan target files for prompt-injection smuggling vectors and canary tokens. |
 |  | `devops scan report [OPTIONS] <target>` | Run every registered scanner and report deduplicated, correlated findings. |
 |  | `devops scan sarif [OPTIONS] <document>` | Ingest a SARIF document from any tool and report it in the unified taxonomy. |
+|  | `devops scan alerts [OPTIONS]` | File one issue for each open Trivy-config code scanning alert group that has none. |
 | [**ai**](docs/commands/ai.md) | `devops ai config [OPTIONS]` | Show or update AI provider configuration. |
 |  | `devops ai models [OPTIONS]` | List available models for the configured provider. |
 |  | `devops ai preload [OPTIONS]` | Preload configured model into VRAM across all configured Ollama servers. |

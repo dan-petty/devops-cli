@@ -17,6 +17,7 @@ from devops_cli.config.constants import (
     CONST_TRIVY_CACHE_DIR_ENV,
     CONST_TRIVY_CACHE_DIR_NAME,
     CONST_TRIVY_CHECKS_METADATA,
+    CONST_TRIVY_CONFIG_IGNORE_FILE,
     CONST_TRIVY_CONFIG_SCAN_TYPE,
     CONST_TRIVY_DB_METADATA,
     CONST_TRIVY_NO_DB_ERROR,
@@ -226,6 +227,23 @@ class TrivyConfigScanner(TrivyScanner):
 
     name: str = "trivy-config"
     scan_type: ClassVar[str] = CONST_TRIVY_CONFIG_SCAN_TYPE
+
+    def build_command(
+        self,
+        target_path: Path,
+        scan_type: str | None = None,
+        severity: str = DEFAULT_TRIVY_SEVERITIES,
+        **kwargs: Any,
+    ) -> list[str]:
+        """The `trivy config` command. It names `.trivyignore.yaml` of its directory when that
+        file exists: Trivy reads the entries with a path, a `statement` and `expired_at` only from
+        a YAML file that `--ignorefile` names (#4401)."""
+        cmd = super().build_command(target_path, scan_type, severity, **kwargs)
+        cwd = kwargs.get("cwd")
+        ignore = Path(cwd) / CONST_TRIVY_CONFIG_IGNORE_FILE if cwd else None
+        if ignore is not None and ignore.is_file():
+            cmd.extend(("--ignorefile", str(ignore)))
+        return cmd
 
 
 def run_trivy_scan(

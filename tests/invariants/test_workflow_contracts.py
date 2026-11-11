@@ -32,6 +32,7 @@ from tests.support.markdown_examples import CodeSnippet, devops_commands
 WORKFLOWS_DIR = Path(".github/workflows")
 RELEASE_PATH = WORKFLOWS_DIR / "release.yml"
 AUDIT_PATH = WORKFLOWS_DIR / "defect-pr-hardening-audit.yml"
+ALERTS_PATH = WORKFLOWS_DIR / "trivy-config-alerts.yml"
 
 
 def _load_workflow(path: Path) -> dict[str, Any]:
@@ -1996,3 +1997,27 @@ def test_the_test_job_uploads_the_coverage_xml_report() -> None:
         "if-no-files-found": "warn",
         "retention-days": 7,
     }
+
+
+def test_the_alert_workflow_runs_every_day_and_has_no_workflow_run_trigger() -> None:
+    """zizmor reports a `workflow_run` trigger as a HIGH finding, one more alert with no judge."""
+    triggers = _load_workflow(ALERTS_PATH)["on"]
+
+    assert triggers["schedule"] == [{"cron": "0 6 * * *"}]
+    assert "workflow_run" not in triggers
+
+
+def test_the_alert_workflow_holds_only_the_permissions_it_needs() -> None:
+    workflow = _load_workflow(ALERTS_PATH)
+
+    assert workflow["permissions"] == {
+        "contents": "read",
+        "security-events": "read",
+        "issues": "write",
+    }
+
+
+def test_the_alert_workflow_runs_the_filer_command() -> None:
+    text = ALERTS_PATH.read_text(encoding="utf-8")
+
+    assert "uv run devops scan alerts" in text

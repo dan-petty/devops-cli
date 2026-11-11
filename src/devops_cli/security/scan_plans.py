@@ -6,6 +6,10 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from devops_cli.config.commands import build_trivy_scan_cmd
+from devops_cli.config.constants import (
+    CONST_TRIVY_CONFIG_ALERT_ISSUE_LABELS,
+    CONST_TRIVY_CONFIG_ALERT_TOOL,
+)
 from devops_cli.config.defaults import (
     DEFAULT_SEMGREP_CONFIG,
     DEFAULT_TRIVY_HIGH_SEVERITY,
@@ -34,6 +38,37 @@ def plan_trivy_scan(
             target=f"trivy {scan_type}",
             argv=tuple(cmd),
         )
+    ]
+
+
+def plan_scan_alerts(repo: str | None = None) -> list[PlannedRequest]:
+    """Planned requests for `devops scan alerts` (#4401): the session reads the open alerts of the
+    `Trivy-config` tool and the open issues, then files one issue for each group with none. The
+    requests go through the GitHub session, not gh, so they hold no argv."""
+    target = repo or ":owner/:repo"
+    labels = ", ".join(CONST_TRIVY_CONFIG_ALERT_ISSUE_LABELS)
+    return [
+        PlannedRequest(
+            method="GET",
+            target=(
+                f"repos/{target}/code-scanning/alerts?state=open"
+                f"&tool_name={CONST_TRIVY_CONFIG_ALERT_TOOL}"
+            ),
+            repeat="for each page",
+        ),
+        PlannedRequest(
+            method="GET",
+            target=f"repos/{target}/issues?state=open",
+            repeat="for each page",
+            condition="an alert is open",
+        ),
+        PlannedRequest(
+            method="POST",
+            target=f"repos/{target}/issues",
+            stdin=f'{{"title": "<title of the group>", "body": "<group>", "labels": [{labels}]}}',
+            condition="no open issue holds the title of a group",
+            repeat="for each group, up to the limit",
+        ),
     ]
 
 

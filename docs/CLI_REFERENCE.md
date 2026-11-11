@@ -3721,6 +3721,22 @@ devops scan sarif [OPTIONS] <document>
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
+### `devops scan alerts`
+
+**File one issue for each open Trivy-config code scanning alert group that has none.**
+
+```bash
+devops scan alerts [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--repo`, `-R` | `string` | - | Repository (owner/name); the origin of the current directory by default. |
+| `--limit` | `integer` | `5` | The most issues that one run files; the worst severity goes first. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
 ---
 
 ## devops ai
