@@ -25,9 +25,9 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, datetime
-from typing import Any, NamedTuple, Self, cast
+from typing import Annotated, Any, NamedTuple, Self, cast
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from pydantic_ai.models.decision import (
     ChoiceAnswer,
     DecisionModel,
@@ -68,11 +68,11 @@ class ShadowError(ValueError):
 
 
 class ShadowAnswer(NamedTuple):
-    """One field of an observation: the answer of Jev, its probability, and the answer of the
-    triage model. An empty text is no answer: for the duplicate, no item reaches the threshold."""
+    """One field of an observation: the answer of Jev, its probability (from 0 to 1), and the
+    answer of the triage model. An empty text is no answer: for the duplicate, no item reaches the threshold."""
 
     jev: str
-    probability: float
+    probability: Annotated[float, Field(ge=0, le=1)]
     triage: str
 
     @property

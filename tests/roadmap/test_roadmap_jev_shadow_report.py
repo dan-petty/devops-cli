@@ -5,9 +5,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import pytest
+
 from devops_cli.roadmap.intake.intake_jev_shadow import ShadowIntakeModel
 from devops_cli.roadmap.jev_shadow_report import (
     BANDS,
+    _band,
     observed_issues,
     render_report,
     report_of,
@@ -104,6 +107,26 @@ def test_a_mark_that_cannot_be_read_is_counted_and_skipped(roadmap: Roadmap, jev
     observed, unreadable = observed_issues(roadmap.store.issues())
 
     assert (observed, unreadable) == ([], 1)
+
+
+@pytest.mark.parametrize("probability", [1.5, -0.1])
+def test_a_mark_with_a_probability_out_of_range_is_counted_and_skipped(
+    roadmap: Roadmap, probability: float
+) -> None:
+    bad = roadmap.issue("Cache embeddings")
+    good = roadmap.issue("Pin the base image")
+    mark = '{"at":"2026-11-10T12:00:00Z","answers":{"priority":["P1-High",%s,"P2-Medium"]}}'
+    ok = mark % "0.8"
+    roadmap.store.set_marks(roadmap.item(bad), {IntakeRecordKey.JEV_SHADOW: mark % probability})
+    roadmap.store.set_marks(roadmap.item(good), {IntakeRecordKey.JEV_SHADOW: ok})
+
+    observed, unreadable = observed_issues(roadmap.store.issues())
+
+    assert ([each.number for each in observed], unreadable) == ([good], 1)
+
+
+def test_a_probability_of_one_is_in_the_last_band() -> None:
+    assert _band(1.0) == len(BANDS) - 1
 
 
 def test_an_open_issue_without_a_record_is_not_listed(roadmap: Roadmap) -> None:
