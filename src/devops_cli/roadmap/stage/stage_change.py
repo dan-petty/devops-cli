@@ -24,6 +24,7 @@ from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date
 from enum import StrEnum
+from functools import reduce
 from itertools import pairwise
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Annotated, Any, Final, Self, assert_never
@@ -1711,10 +1712,10 @@ _PATH_EXTENSIONS: Final[tuple[str, ...]] = (
 )
 
 
-# A citation span starts with its path: `path:line:text` or `path:def name`. The trace gate judges
-# the path, because the prompt asks for these forms and a run reads the file, not the citation.
+# A citation span starts with its path: `path:line:text`, `path:line`, `path:start-end` or
+# `path:def name`. The trace gate judges the path, because a run reads the file, not the citation.
 _CITATION_PATH: Final[re.Pattern[str]] = re.compile(
-    rf"^(?P<path>{_CITED_PATH}):(?:\d+:|(?:def|class)\s)"
+    rf"^(?P<path>{_CITED_PATH}):(?:\d+(?:-\d+)?(?::|$)|(?:def|class)\s)"
 )
 
 
@@ -1723,17 +1724,25 @@ def _is_path_span(span: str) -> bool:
     return "/" in span or any(span.endswith(ext) for ext in _PATH_EXTENSIONS)
 
 
-def _claimed_path(span: str) -> str:
-    """The path that a code span claims: the path of a `path:line:text` or `path:def name`
-    citation, else the span, without a leading `./`."""
+def _claimed_path(span: str, stage_tools: Collection[str]) -> str:
+    """The path that a code span claims: the path of a `path:line:text`, `path:line`,
+    `path:start-end` or `path:def name` citation, else the span. A toolbox tool name before the
+    path, as in `read_file path`, a leading `./` and a trailing `/` are no part of it (#4463)."""
+    tool, _, rest = span.partition(" ")
+    if tool in stage_tools and rest.strip():
+        span = rest.strip()
+    span = span.removeprefix("./")
     cited = _CITATION_PATH.match(span)
-    return (cited["path"] if cited else span).removeprefix("./")
+    return (cited["path"] if cited else span).rstrip("/")
 
 
 def _was_read(path: str, trace: TraceFacts) -> bool:
     """Whether the run read `path`: a read path equals it, or ends with it after a `/`, so a
-    claim that names a file or the end of its path is true."""
-    return any(read == path or read.endswith(f"/{path}") for read in trace.paths)
+    claim that names a file or the end of its path is true. A trailing `/` of a directory that
+    the run listed is no part of the path (#4463)."""
+    return any(
+        read.rstrip("/") == path or read.rstrip("/").endswith(f"/{path}") for read in trace.paths
+    )
 
 
 def _claim_words(sentence: str, stage_tools: set[str]) -> str:
@@ -1764,7 +1773,7 @@ def _uncalled_path(
     ):
         return None
     for _pos, span in spans:
-        path = _claimed_path(span)
+        path = _claimed_path(span, stage_tools)
         if span not in stage_tools and _is_path_span(path):
             return None if _was_read(path, trace) else path
     return None
@@ -1793,16 +1802,26 @@ def _sentence_trace_problem(sentence: str, stage_tools: set[str], trace: TraceFa
     return None
 
 
-def _trace_problems(proposal: StageProposal, trace: TraceFacts | None) -> list[str]:
-    """What is wrong with the claims of `proposal.feasibility` compared to `trace` (#3266)."""
+def _sentences(text: str) -> list[str]:
+    """The sentences of `text`, with each run of white space as one space."""
+    return [s for s in re.split(r"(?<=[.!?])\s+", _squash(text)) if s]
+
+
+def _trace_problems(
+    proposal: StageProposal, trace: TraceFacts | None, probes: Sequence[str] = ()
+) -> list[str]:
+    """What is wrong with the claims of `proposal.feasibility` compared to `trace` (#3266). A
+    sentence of `probes` that the plan quotes is the text of the probe and no claim of the plan,
+    so the gate removes it before it reads the claim (#4463)."""
     if trace is None:
         return []
     stage_tools = set(tool_names(HOLDER_STAGE_EXTENDED))
+    quoted = [s.rstrip(".!?") for line in probes for s in _sentences(line) if s.rstrip(".!?")]
     problems: list[str] = []
     for line in proposal.feasibility:
-        sentences = (s.strip() for s in re.split(r"(?<=[.!?])\s+", line) if s.strip())
-        for sentence in sentences:
-            if problem := _sentence_trace_problem(sentence, stage_tools, trace):
+        for sentence in _sentences(line):
+            claim = reduce(lambda text, probe: text.replace(probe, ""), quoted, sentence)
+            if problem := _sentence_trace_problem(claim, stage_tools, trace):
                 problems.append(problem)
     return problems
 
@@ -1947,7 +1966,7 @@ def check_gates(
             registry if registry is not None else registry_table(Path.cwd()),
         ),
         ProposalGate.CONSTANTS: constant_problems(plan_texts(proposal), constants or {}),
-        ProposalGate.TRACE: _trace_problems(proposal, trace),
+        ProposalGate.TRACE: _trace_problems(proposal, trace, probes),
     }
 
 
