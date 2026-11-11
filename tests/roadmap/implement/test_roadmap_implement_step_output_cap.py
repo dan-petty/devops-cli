@@ -284,7 +284,7 @@ def test_a_cut_reply_after_other_replies_names_the_cap_and_keeps_the_counts(
     served: Any,
     small_cap: int,
 ) -> None:
-    refused = Reply(calls=(("shell", {"command": "pytest tests/test_sample.py"}),))
+    refused = Reply(calls=(("run_command", {"command": "pytest tests/test_sample.py"}),))
     model, _ = served(refused, Reply(text="Now I think.", endless=True))
 
     outcome = _step(store, checkout, model)

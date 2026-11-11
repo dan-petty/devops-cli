@@ -4,7 +4,7 @@ applies_to:
 sources:
   - "https://github.com/pydantic/pydantic-ai"
   - "https://pydantic.dev/docs/ai/harness/"
-reviewed: "2026-10-29"
+reviewed: "2026-11-11"
 tags:
   - "pydantic-ai-harness"
   - "pydantic-ai"
@@ -31,7 +31,7 @@ tags:
 
 In `devops-cli`, `devops roadmap implement` uses two parts:
 
-- `Coder` gives an agent six tools: `read_file`, `write_file`, `edit_file`, `list_files`, `grep` and `shell`. It also gives the context controls `ClearToolResults` and `ToolOutputLimits`.
+- `Coder` gives an agent six tools: `read_file`, `write_file`, `edit_file`, `list_files`, `grep` and the persistent shell tool `shell`. It also gives the context controls `ClearToolResults` and `ToolOutputLimits`. The step registers the tool `run_command` of `Shell` in place of `shell`. A call of `run_command` waits until its command ends, up to the command limit of the step, and has no background mode.
 - `LocalWorkspace` of pydantic-ai gives the tools a checkout on this machine. The step passes the checkout as the working directory.
 
 The project builds no agent loop of its own. It builds only the inputs of a step, its exit checks and its report.
@@ -52,12 +52,13 @@ The project builds no agent loop of its own. It builds only the inputs of a step
 
 1. **Version pin.** Each release of the harness pins `pydantic-ai-slim` to the same number. So `pydantic-ai-harness==0.59.0` fits `pydantic-ai==2.59.0`. Move the two pins together.
 2. **Workspace.** `Coder` fails at the start of a run that has no workspace. Attach `LocalWorkspace(<dir>)` next to it.
-3. **Tuning `Coder`.** `Coder` is a combined capability. `visit_and_replace` swaps one of its parts. The step swaps `Shell` for one with `allowed_commands` and `denied_operators`, `ClearToolResults` and `WarnNearLimits` for copies with `context_window` set, and the `ToolOutputLimits` band for a smaller cap.
+3. **Tuning `Coder`.** `Coder` is a combined capability. `visit_and_replace` swaps one of its parts. The step swaps `Shell` for one with `tools=["run_command"]`, `default_timeout` set to the command limit `roadmap.implement.command_timeout_seconds`, `allowed_commands` and `denied_operators`, `ClearToolResults` and `WarnNearLimits` for copies with `context_window` set, and the `ToolOutputLimits` band for a smaller cap.
 4. **`delegate_task`.** `Coder(sub_agents=False)` leaves it out, so one agent run is one budget.
 5. **Instruction files.** `Coder(repo_context=False)` does not load `AGENTS.md` and similar files of the checkout into the context.
 6. **Shell checks.** `Shell` tests the first word of a command against `allowed_commands`, and tests `denied_operators` as text in the command. The harness states that these checks are best-effort and are not a security boundary. Isolation comes from the environment of the process. A command such as `uv run python -c` still runs code, and a process of the same user can read the environment of the job. So the implement job (`devops roadmap implement`, with no `--group`) runs a step only when `roadmap.implement.in_runner` is true, which only the pod of a runner Job sets. The job runs its `git`, GitHub and `gh` calls in its own process, never in the shell of the agent.
 7. **Directories.** `write_file` does not create a directory. A shell command creates it.
 8. **Streaming.** The harness drives the model with streamed requests. A `FunctionModel` in a test needs a `stream_function`.
+9. **Base instructions.** `Coder` puts its own instructions before the `instructions` of the step. They tell the model to check behavior with a heredoc and to poll a long command. The shell of the step refuses a new line, and `run_command` waits for its command, so the prompt of the step forbids both.
 
 ---
 

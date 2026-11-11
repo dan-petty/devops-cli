@@ -2795,7 +2795,10 @@ class RoadmapMessages:
     )
     implement_refusal_operator: str = (
         "Run one command in each call. Do not chain commands. "
-        "Do not use `cd`: every command runs in the checkout."
+        "Do not use `cd`: every command runs in the checkout. "
+        "The shell reads the whole text, so a `;`, a new line or a heredoc in the code of "
+        "`python -c` is refused too. Write that code to a file under `.data/agent/scratch/` and run "
+        "`uv run python <file>`."
     )
     implement_refusal_pipe: str = (
         "Shell operator '|' is not allowed{before}. A pipe may end in {programs}."

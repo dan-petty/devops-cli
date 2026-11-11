@@ -263,6 +263,11 @@ def _file_redirect(words: list[str]) -> str | None:
     return None
 
 
+# The tool of the harness that runs a command of the agent. It waits until the command ends, up to
+# the command limit of the step, and returns the output (#4493). The persistent tool `shell`
+# returned after 270 s with a PID and a log, and the agent read the log again and again.
+IMPLEMENT_SHELL_TOOL = "run_command"
+
 PIPE = "|"
 # The denied operators that the harness checks as plain text: all but the pipe, which
 # `pipe_refusal` reads word by word.

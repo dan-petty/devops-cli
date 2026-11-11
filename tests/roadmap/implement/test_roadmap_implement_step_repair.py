@@ -337,7 +337,7 @@ def test_the_instructions_say_that_a_failed_static_check_gets_one_turn(
 ) -> None:
     inputs = build_step_inputs(store, item=1, group=1, source=checkout, window=WINDOW)
 
-    assert "you get one more turn with the text of the error" in inputs.instructions
+    assert "you get an extra turn with the text of the error" in inputs.instructions
 
 
 def test_the_failure_text_in_the_message_is_masked(

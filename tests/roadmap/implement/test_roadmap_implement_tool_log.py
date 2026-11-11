@@ -69,15 +69,15 @@ def test_a_refused_program_is_logged_by_name_with_its_first_arguments(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     script = ModelScript(
-        tool_call("shell", command="pytest tests/test_sample.py --flag=sentinel-value"),
+        tool_call("run_command", command="pytest tests/test_sample.py --flag=sentinel-value"),
         say("Done."),
     )
 
     _step(store, checkout, script)
 
     assert _lines(capsys) == [
-        "Tool call: shell, started: pytest tests/test_sample.py --flag=<masked>",
-        "Tool call: shell, program pytest, refused.",
+        "Tool call: run_command, started: pytest tests/test_sample.py --flag=<masked>",
+        "Tool call: run_command, program pytest, refused.",
     ]
 
 
@@ -208,13 +208,13 @@ def test_a_secret_as_the_first_word_never_reaches_the_log_of_a_step(
     programs: ProcessFake,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    script = ModelScript(tool_call("shell", command="API_KEY=hunter2 uv run x"), say("Done."))
+    script = ModelScript(tool_call("run_command", command="API_KEY=hunter2 uv run x"), say("Done."))
 
     _step(store, checkout, script)
 
     assert _lines(capsys) == [
-        "Tool call: shell, started: other",
-        f"Tool call: shell, program {logged_program('API_KEY=hunter2')}, refused.",
+        "Tool call: run_command, started: other",
+        f"Tool call: run_command, program {logged_program('API_KEY=hunter2')}, refused.",
     ]
 
 
@@ -355,17 +355,17 @@ def test_the_line_of_a_command_is_written_before_the_call_runs(
     cause (#2806)."""
     seen: list[list[str]] = []
 
-    def shell(command: str) -> str:
+    def run_command(command: str) -> str:
         seen.append(_lines(capsys))
         return "the output"
 
     Agent(
-        ModelScript(tool_call("shell", command="uv run pytest -n 48"), say("Done.")).model(),
-        tools=[shell],
+        ModelScript(tool_call("run_command", command="uv run pytest -n 48"), say("Done.")).model(),
+        tools=[run_command],
         capabilities=[ToolCallLog().hooks()],
     ).run_sync("go")
 
-    assert seen == [["Tool call: shell, started: uv run pytest -n 48"]]
+    assert seen == [["Tool call: run_command, started: uv run pytest -n 48"]]
 
 
 def test_a_secret_in_an_argument_never_reaches_the_line_of_a_command(
@@ -684,11 +684,13 @@ def test_the_log_names_the_program_after_the_prefix_cd_checkout_and_not_the_cd(
 ) -> None:
     """The prefix `cd <checkout> &&` is dropped before the command runs (#3520), so the log shows
     the program that the model asked for."""
-    script = ModelScript(tool_call("shell", command=f"cd {checkout} && python -V"), say("Done."))
+    script = ModelScript(
+        tool_call("run_command", command=f"cd {checkout} && python -V"), say("Done.")
+    )
 
     _step(store, checkout, script)
 
     assert _lines(capsys) == [
-        "Tool call: shell, started: python -V",
-        "Tool call: shell, program python, refused.",
+        "Tool call: run_command, started: python -V",
+        "Tool call: run_command, program python, refused.",
     ]

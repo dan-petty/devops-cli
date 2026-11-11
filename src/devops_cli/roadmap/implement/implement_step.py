@@ -9,7 +9,8 @@ the item's title, problem and acceptance criteria, the change's `proposal.md`, `
 first request and refuses a step that does not fit the window of `ai.tasks.implement`.
 
 The run is one pydantic-ai agent on the harness's `Coder`, tuned where its parts are public: a
-shell with an allowlist, a smaller cap on each tool result, and the window of the task. The step
+shell with an allowlist that waits for each command up to the command limit, a smaller cap on each
+tool result, and the window of the task. The step
 judges the exit, not the model: the tasks of the group change only in their checkboxes, the
 verification commands pass, the static checks pass on the changed files, and the hooks pass. Then
 the job ticks every task of the group (#3488), so a model that did the work and forgot the ticks
@@ -137,6 +138,7 @@ from devops_cli.roadmap.implement.implement_output_cap import output_cap_hooks
 from devops_cli.roadmap.implement.implement_shell_policy import (
     HARNESS_DENIED_OPERATORS,
     IMPLEMENT_SHELL_PROGRAMS,
+    IMPLEMENT_SHELL_TOOL,
     fill_prompt,
     read_verification,
     shown,
@@ -539,15 +541,21 @@ def shell_environment(home: Path) -> dict[str, str]:
 
 
 def _tune(
-    capability: AbstractCapability[None], window: int, home: Path
+    capability: AbstractCapability[None], window: int, home: Path, command_timeout: float
 ) -> AbstractCapability[None]:
     """One part of `Coder`, changed for a step: the shell takes the allowlist, the scratch home
     and the refusal of the operators that start a second command (the pipe is read by `ShellRefusal`),
     the tool results get the cap of
-    a step, and the context controls get the window of the task, in place of the registry's."""
+    a step, and the context controls get the window of the task, in place of the registry's. The
+    shell is the tool `run_command`, which waits until its command ends, up to `command_timeout`
+    seconds, and then kills it. The persistent tool `shell` of `Coder` returned after 270 s with a
+    PID and a log, and had a background mode with no notice at the end, so the agent polled the log
+    (#4493). Neither tool keeps a working directory or a variable from one call to the next."""
     if isinstance(capability, Shell):
         return replace(
             capability,
+            tools=[IMPLEMENT_SHELL_TOOL],
+            default_timeout=command_timeout,
             allowed_commands=list(IMPLEMENT_SHELL_PROGRAMS),
             denied_commands=[],
             denied_operators=list(HARNESS_DENIED_OPERATORS),
@@ -614,7 +622,7 @@ def _tier_for_attempt(
 
 
 IMPLEMENT_LOCAL_TOOL_NAMES: Final[frozenset[str]] = frozenset(
-    {"read_file", "write_file", "edit_file", "list_files", "grep", "shell"}
+    {"read_file", "write_file", "edit_file", "list_files", "grep", IMPLEMENT_SHELL_TOOL}
 )
 
 
@@ -630,7 +638,8 @@ def build_agent(
     mcp_toolset: AbstractToolset[Any] | None = None,
 ) -> Agent[None, str]:
     """The agent of a step: `Coder` on a local workspace at `source`, whose shell runs with the
-    scratch `home`, the hint that a refusal of the shell adds (#2773), and the hooks of `log` for its
+    scratch `home` and waits for each command up to `roadmap.implement.command_timeout_seconds`
+    (#4493), the hint that a refusal of the shell adds (#2773), and the hooks of `log` for its
     tool calls (#2758). It has no `delegate_task` tool, so the limits of a run cover the whole step,
     and it loads no instruction file of the checkout, so its context is the inputs of the step. Each
     model call has an output cap, a share of `window`, and a deadline (#2869). Before each request the
@@ -639,9 +648,11 @@ def build_agent(
     from pydantic_ai_harness.coder import Coder
 
     coder = Coder[None](instructions=instructions, repo_context=False, sub_agents=False)
+    command_timeout = load_settings().roadmap.implement.command_timeout_seconds
     # The visitor replaces leaves and removes none, so the tree is never empty.
     tuned = cast(
-        AbstractCapability[None], coder.visit_and_replace(lambda leaf: _tune(leaf, window, home))
+        AbstractCapability[None],
+        coder.visit_and_replace(lambda leaf: _tune(leaf, window, home, command_timeout)),
     )
     toolsets = [mcp_toolset] if mcp_toolset is not None else None
     return Agent(
@@ -656,7 +667,7 @@ def build_agent(
         capabilities=[
             LocalWorkspace(source),
             tuned,
-            ShellRefusal(log, source),
+            ShellRefusal(log, source, command_timeout),
             log.hooks(),
             output_cap_hooks(output_cap(window)),
             limit_hooks(budget),

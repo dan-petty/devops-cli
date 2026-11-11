@@ -233,7 +233,7 @@ The shell tool SHALL run a command with a pipe when each stage after the first i
 
 #### Scenario: The tools of the agent
 - **WHEN** the step makes its first request
-- **THEN** the function tools offered are `read_file`, `write_file`, `edit_file`, `list_files`, `grep` and `shell`, and no `delegate_task`
+- **THEN** the function tools offered are `edit_file`, `grep`, `list_files`, `read_file`, `run_command` and `write_file`, and no `delegate_task`
 
 #### Scenario: The extra turn shares the budget
 - **WHEN** the first turn used all but one of the model requests and the extra turn needs two
@@ -404,12 +404,12 @@ The agent SHALL write one line to the standard error stream when each tool call 
 Before a call that has a `command` runs, the agent SHALL write the line `Tool call: <tool>, started: <command>`. The command SHALL be the first word and at most `CONST_ROADMAP_IMPLEMENT_LOG_COMMAND_WORDS` words, escaped and cut to `CONST_ROADMAP_IMPLEMENT_LOG_COMMAND_CHARS` characters. The line SHALL hide each secret, the value of each `name=value` word that is not a number, and each word with a space. When the first word is no known program, the command SHALL be `other`.
 
 #### Scenario: A refused program
-- **WHEN** the model calls the shell tool with `pytest tests/test_sample.py`, and then ends its run
-- **THEN** the standard error stream holds the lines "Tool call: shell, started: pytest tests/test_sample.py" and "Tool call: shell, program pytest, refused."
+- **WHEN** the model calls `run_command` with `pytest tests/test_sample.py`, and then ends its run
+- **THEN** the standard error stream holds the lines "Tool call: run_command, started: pytest tests/test_sample.py" and "Tool call: run_command, program pytest, refused."
 
 #### Scenario: The line comes before the call
-- **WHEN** the model calls the shell tool with `uv run pytest -n 48`, and the tool is still running
-- **THEN** the standard error stream holds the line "Tool call: shell, started: uv run pytest -n 48" and no line with an outcome
+- **WHEN** the model calls `run_command` with `uv run pytest -n 48`, and the tool is still running
+- **THEN** the standard error stream holds the line "Tool call: run_command, started: uv run pytest -n 48" and no line with an outcome
 
 #### Scenario: A long command
 - **WHEN** the command has more words than `CONST_ROADMAP_IMPLEMENT_LOG_COMMAND_WORDS`, or more characters than `CONST_ROADMAP_IMPLEMENT_LOG_COMMAND_CHARS`
@@ -1440,11 +1440,11 @@ The step classes SHALL be `edit`, which is a group of a change, and `repair`, wh
 - **THEN** the settings are refused with a message that the ladder names no step class with that key
 
 ### Requirement: The implement prompt forbids polling
-The implement prompt SHALL state that a shell call returns when its command ends, and MUST forbid polling with `sleep`, `time.sleep` or a repeated `tail`.
+The implement prompt SHALL state that a call of the tool `run_command` waits until its command ends, up to `roadmap.implement.command_timeout_seconds` with the default of that setting, and MUST forbid polling with `sleep`, `time.sleep` or a repeated `tail`. It MUST NOT state that a shell call returns when its command ends with no limit.
 
 #### Scenario: The prompt holds the no-poll rule
 - **WHEN** A test reads `src/devops_cli/ai/tasks/roadmap_implement_step.md`
-- **THEN** The prompt says that a shell call returns when its command ends, and names sleep, time.sleep and a repeated tail as ways not to poll.
+- **THEN** The rule names `run_command`, the wait until the command ends, the setting with its default, and sleep, time.sleep and a repeated tail as forbidden, and the prompt holds no "270"
 
 ### Requirement: A step reads the test form that a task names
 The implement step SHALL read the test file and the case count that each task of its group names, and SHALL compare that count with the number of items that a pytest collection reports for the file.
@@ -1495,14 +1495,18 @@ The step SHALL add the model event of a reply when the reply comes, so that the 
 - **THEN** the encoded trace is not longer than the bound, it holds no `model` event, it holds the newest `tool` events in the order of the run and then the `attempt` event, and `dropped` counts the 101 model events and the older tool events
 
 ### Requirement: A shell call in a trace holds its exit status
-The `tool` event of a `shell` call whose result ends with the status line of the shell SHALL hold `status`, the exit code of the command, and no text of its output. A call with no such line, and a call of another tool, SHALL hold no `status`.
+The `tool` event of a `run_command` call SHALL hold `status`, the exit code of the command, and no text of its output: the code of the last line `[exit code: <n>]`, else 0. A call whose command ran past its wait, a refused call and a call of another tool SHALL hold no `status`.
 
 #### Scenario: The exit status of a shell call
-- **WHEN** the result of a `shell` call ends with the status line that holds the exit code 128
+- **WHEN** the result of a `run_command` call ends with the line `[exit code: 128]`
 - **THEN** the `tool` event holds `status` 128 and no text of the output
 
+#### Scenario: A command that exits with 0
+- **WHEN** the result of a `run_command` call has no line of an exit code
+- **THEN** the `tool` event holds `status` 0
+
 #### Scenario: A shell call with no status
-- **WHEN** the result of a `shell` call has no status line, or the line holds no exit code
+- **WHEN** the result of a `run_command` call ends with the line of the timeout
 - **THEN** the `tool` event holds no `status`
 
 ### Requirement: The ceiling of a step budget is a setting
@@ -1608,3 +1612,35 @@ The issue section of the user message of a step SHALL hold the title of the item
 #### Scenario: A body with no wanted section
 - **WHEN** the body holds only the sections of the bug form and the alternatives block
 - **THEN** the issue section holds the whole body without the two marker lines of the alternatives block
+
+### Requirement: The shell of a step waits for its command up to the command limit
+The agent of a step SHALL offer the tool `run_command` of the harness as its one shell tool, and no shell tool with a background mode. A call SHALL wait until its command ends, up to `roadmap.implement.command_timeout_seconds`, and the harness SHALL kill a command that runs longer. The step SHALL set the wait of each call to that setting, whatever wait the model gives. The allowlist and the refusals of the shell SHALL apply to the tool.
+
+#### Scenario: The tools of the agent
+- **WHEN** a step offers its tools to the model
+- **THEN** the tools are `edit_file`, `grep`, `list_files`, `read_file`, `run_command` and `write_file`
+
+#### Scenario: A wait from the model
+- **WHEN** `roadmap.implement.command_timeout_seconds` is 41 and the model calls `run_command` with no wait, and with the waits 5, 99999 and 0
+- **THEN** each command reaches the workspace with the wait 41, and the run goes on
+
+### Requirement: The operator refusal names the code of python -c
+The hint of a refusal for an operator SHALL state that a `;`, a new line or a heredoc in the code of `python -c` is refused too. It SHALL tell the agent to write that code to a file under `.data/agent/scratch/` and to run `uv run python <file>`.
+
+#### Scenario: A new line in the code of python -c
+- **WHEN** the model calls `run_command` with `uv run python -c` and code that holds a new line
+- **THEN** the refusal names the operator, states the rule of one command in each call, and holds the hint about the code of `python -c` and the script file
+
+### Requirement: The implement prompt gives the count of extra turns
+The implement prompt SHALL state that a step has at most `roadmap.implement.repair_rounds` extra turns, with the default of that setting, and that each failed check or hook takes one. It MUST NOT promise one more turn for an error of `ruff check` or `mypy`.
+
+#### Scenario: The prompt names the setting of the extra turns
+- **WHEN** A test reads `src/devops_cli/ai/tasks/roadmap_implement_step.md`
+- **THEN** The prompt names `roadmap.implement.repair_rounds` with its default and holds no promise of one more turn
+
+### Requirement: The implement prompt names the refusal of a heredoc
+The implement prompt SHALL state that the shell refuses a new line, a heredoc, and code of `python -c` that holds a `;` or a new line. It SHALL tell the agent to write that code to a file under `.data/agent/scratch/` and to run `uv run python <file>`. The rule SHALL win over the base instructions of `Coder`, which tell the agent to use a heredoc.
+
+#### Scenario: The prompt names the heredoc before the first call
+- **WHEN** A test reads `src/devops_cli/ai/tasks/roadmap_implement_step.md`
+- **THEN** The prompt names a heredoc, `python -c`, a new line, a `;`, `.data/agent/scratch/` and `uv run python <file>`, and the shell refuses a new line and a `;`

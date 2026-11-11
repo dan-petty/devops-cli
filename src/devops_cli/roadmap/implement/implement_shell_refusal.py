@@ -14,6 +14,11 @@ words hold a refused argument, such as `find -exec` (#3072). It adds only text f
 of the shell to `CONST_ROADMAP_RUN_ERROR_CHARS`, as the text echoes the first word of the command,
 or the whole command for an interactive one, with no limit. It tells the log of the step about
 each refusal, and the log counts it and ends the step at `CONST_ROADMAP_IMPLEMENT_MAX_REFUSALS`.
+
+It also sets the wait of each call of the shell tool to the command limit of the step (#4493). The
+tool takes a wait from the model, and its description gives 30 s as the default. A short wait kills
+a test run that is still good, a long wait keeps the Job log silent past the stall limit, and a wait
+of 0 makes the workspace raise an error that ends the run.
 """
 
 from __future__ import annotations
@@ -33,11 +38,15 @@ from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.implement.implement_shell_policy import (
     IMPLEMENT_SHELL_PROGRAMS,
     IMPLEMENT_SHELL_REPLACEMENTS,
+    IMPLEMENT_SHELL_TOOL,
     pipe_refusal,
     refused_argument,
     without_checkout_prefix,
 )
 from devops_cli.roadmap.implement.implement_tool_log import ToolCallLog, command_word
+
+# The argument of the shell tool that holds its wait. The step replaces it with its command limit.
+_SHELL_TIMEOUT_ARGUMENT = "timeout_seconds"
 
 
 def refusal_hint(word: str) -> str:
@@ -59,6 +68,7 @@ class _RefusingToolset(WrapperToolset[None]):
 
     log: ToolCallLog
     checkout: Path | None = None
+    timeout: float | None = None
 
     async def call_tool(
         self, name: str, tool_args: dict[str, Any], ctx: RunContext[None], tool: ToolsetTool[None]
@@ -66,7 +76,10 @@ class _RefusingToolset(WrapperToolset[None]):
         """Run the call. A command with a refused argument, and a command that the shell refuses
         by policy (a `PermissionError` is the cause of its `ModelRetry`), come back as text and
         are noted in the log. Any other result or error passes on. The exact prefix
-        `cd <checkout> &&` is removed, and a pipe is read here and not by the harness (#3520)."""
+        `cd <checkout> &&` is removed, and a pipe is read here and not by the harness (#3520). A
+        call of the shell tool waits `timeout` seconds, whatever wait the model gave (#4493)."""
+        if name == IMPLEMENT_SHELL_TOOL and self.timeout is not None:
+            tool_args = {**tool_args, _SHELL_TIMEOUT_ARGUMENT: self.timeout}
         command = tool_args.get("command")
         if isinstance(command, str):
             if self.checkout is not None:
@@ -101,10 +114,12 @@ class _RefusingToolset(WrapperToolset[None]):
 class ShellRefusal(AbstractCapability[None]):
     """The capability that returns a refusal of the shell as a tool result with the hint. It adds
     no tool retry. `log` counts the refusals and ends the step when they pass the limit. `checkout`
-    is the checkout of the step: a command may start with `cd <checkout> &&`."""
+    is the checkout of the step: a command may start with `cd <checkout> &&`. `timeout` is the wait
+    in seconds of each call of the shell tool, or None to keep the wait of the call."""
 
     log: ToolCallLog
     checkout: Path | None = None
+    timeout: float | None = None
 
     def get_wrapper_toolset(self, toolset: AbstractToolset[None]) -> AbstractToolset[None]:
-        return _RefusingToolset(toolset, self.log, self.checkout)
+        return _RefusingToolset(toolset, self.log, self.checkout, self.timeout)

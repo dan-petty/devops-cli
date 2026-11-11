@@ -39,7 +39,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
-import json
+import re
 import secrets
 import shlex
 import time
@@ -82,6 +82,7 @@ from devops_cli.roadmap.implement.implement_limits import ProgressDigest
 from devops_cli.roadmap.implement.implement_shell_policy import (
     IMPLEMENT_ALLOWED_PROGRAMS,
     IMPLEMENT_SHELL_REPLACEMENTS,
+    IMPLEMENT_SHELL_TOOL,
     NEGATIVE_SEARCH_WORD,
     without_checkout_prefix,
 )
@@ -101,6 +102,11 @@ _KNOWN_PROGRAMS = frozenset(
 
 # The tools whose call with the outcome ok is a successful edit, for the digest of progress (#4394).
 _EDIT_TOOLS = frozenset({"write_file", "edit_file"})
+
+# The last lines of a result of the shell tool: a command that exited with a status other than 0,
+# and a command that ran past its wait (#4493). The harness writes them in `ShellToolset.run_command`.
+_EXIT_CODE_LINE = re.compile(r"\[exit code: (-?\d+)\]")
+_TIMED_OUT_LINE = "[Command timed out after "
 
 # The key of the digest that stands for an unknown first word. It lives in this process only.
 _DIGEST_KEY = secrets.token_bytes(16)
@@ -242,17 +248,20 @@ def retry_text(error: BaseException) -> str:
 
 
 def shell_exit_status(result: object) -> int | None:
-    """The exit status that the shell of the harness reports in `result` (#4393), or None. The
-    shell ends the result of a command with the line that its supervisor wrote, a JSON object with
-    `exit_code`. A command that has not ended, a result with no such line and a result that is no
-    text give none."""
-    if not isinstance(result, str) or not (lines := result.strip().splitlines()):
+    """The exit status that the shell tool of the harness reports in `result` (#4393, #4493), or
+    None. `run_command` ends the result of a command that exits with a status other than 0 with the
+    line `[exit code: <n>]`. It ends the result of a command that ran past its wait with the line of
+    the timeout: the harness killed that command, so it has no status. Any other text is the result
+    of a command that exited with 0. A result that is no text gives none. The output of a command
+    that exits with 0 can end with a line of the same form, so the status is evidence for the
+    trace, and no decision of the step reads it."""
+    if not isinstance(result, str):
         return None
-    try:
-        status = json.loads(lines[-1]).get("exit_code")
-    except ValueError, AttributeError:
+    last = result.rstrip().rpartition("\n")[2]
+    if last.startswith(_TIMED_OUT_LINE):
         return None
-    return status if isinstance(status, int) and not isinstance(status, bool) else None
+    found = _EXIT_CODE_LINE.fullmatch(last)
+    return int(found.group(1)) if found is not None else 0
 
 
 def checkout_path(root: Path | None, path: str) -> str:
@@ -482,7 +491,8 @@ class ToolCallLog:
         refused = call.tool_call_id in self.refusals
         self.refusals.discard(call.tool_call_id)
         outcome = ToolOutcome.REFUSED if refused else ToolOutcome.OK
-        status = shell_exit_status(result) if call.tool_name == "shell" and not refused else None
+        shell = call.tool_name == IMPLEMENT_SHELL_TOOL
+        status = shell_exit_status(result) if shell and not refused else None
         self._note(call.tool_name, program, outcome, digest=argument_digest(call), status=status)
         if refused and sum(self.refused.values()) > CONST_ROADMAP_IMPLEMENT_MAX_REFUSALS:
             raise UnexpectedModelBehavior(

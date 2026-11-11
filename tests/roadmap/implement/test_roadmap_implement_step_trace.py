@@ -6,7 +6,6 @@ The model is a pydantic-ai `FunctionModel` from `ModelScript`. Git runs for real
 
 from __future__ import annotations
 
-import json
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -123,15 +122,18 @@ def test_a_refused_command_and_a_retried_edit_are_tool_events(
 ) -> None:
     trace = ImplementTrace(step="group 1")
     script = ModelScript(
-        tool_calls(("shell", {"command": "pytest tests/test_sample.py"}), MISSING_EDIT),
+        tool_calls(("run_command", {"command": "pytest tests/test_sample.py"}), MISSING_EDIT),
         say("Done."),
     )
 
     _step(store, checkout, script, trace)
 
     tools = {e.fields["tool"]: e.fields for e in _of(trace, TraceEventKind.TOOL)}
-    assert (tools["shell"]["outcome"], tools["shell"]["program"]) == ("refused", "pytest")
-    assert "reason" not in tools["shell"]
+    assert (tools["run_command"]["outcome"], tools["run_command"]["program"]) == (
+        "refused",
+        "pytest",
+    )
+    assert "reason" not in tools["run_command"]
     assert tools["edit_file"]["outcome"] == "retry"
     assert "old_text not found" in tools["edit_file"]["reason"]
 
@@ -140,8 +142,8 @@ def test_the_same_call_twice_has_one_digest_and_no_event_holds_the_command(
     store: InMemoryRoadmapStore, checkout: Path
 ) -> None:
     trace = ImplementTrace(step="group 1")
-    same = ("shell", {"command": "pytest tests/test_sample.py --flag=sentinel-value"})
-    other = ("shell", {"command": "pytest tests/other_sentinel.py"})
+    same = ("run_command", {"command": "pytest tests/test_sample.py --flag=sentinel-value"})
+    other = ("run_command", {"command": "pytest tests/other_sentinel.py"})
     script = ModelScript(tool_calls(same, same, other), say("Done."))
 
     _step(store, checkout, script, trace)
@@ -325,37 +327,36 @@ def test_a_long_run_keeps_its_tool_events_in_the_trace(
 
 
 def _shell_result(code: int | None) -> str:
-    """What the shell of the harness returns for a command that ends: the handles, then the
-    status line that the supervisor wrote. A command with no status yet has no such line."""
-    handles = (
-        "PID: 7 (supervisor; use `kill -- -7` to stop the whole process tree)\nOutput: o\nStatus: s"
-    )
+    """What the tool `run_command` of the harness returns: the labelled output, then the line of the
+    exit code when it is not 0. A command that ran past its wait ends with the line of the timeout,
+    and the harness killed it, so it has no exit status."""
     if code is None:
-        return handles
-    return f"output text\n{handles}\n{json.dumps({'pid': 7, 'exit_code': code})}"
+        return "[stdout]\noutput text\n[Command timed out after 41s]"
+    if code == 0:
+        return "[stdout]\noutput text"
+    return f"[stdout]\noutput text\n[stderr]\nfatal\n[exit code: {code}]"
 
 
 @pytest.mark.parametrize(
     ("result", "status"),
     [
         pytest.param(_shell_result(0), 0, id="zero"),
+        pytest.param("(no output)", 0, id="no-output"),
         pytest.param(_shell_result(128), 128, id="failed"),
-        pytest.param(_shell_result(None), None, id="no-status-yet"),
-        pytest.param("PID: 7\n" + json.dumps({"pid": 7, "exit_code": None}), None, id="running"),
-        pytest.param("a result that is no shell result", None, id="plain-text"),
-        pytest.param('{"exit_code": true}', None, id="a-flag-is-no-status"),
+        pytest.param(_shell_result(-9), -9, id="signal"),
+        pytest.param(_shell_result(None), None, id="timed-out"),
     ],
 )
 def test_a_shell_call_has_the_exit_status_that_the_shell_reports(
     result: str, status: int | None
 ) -> None:
-    def shell(command: str) -> str:
+    def run_command(command: str) -> str:
         return result
 
     trace = ImplementTrace(step="group 1")
     Agent(
-        ModelScript(tool_call("shell", command="git status"), say("Done.")).model(),
-        tools=[shell],
+        ModelScript(tool_call("run_command", command="git status"), say("Done.")).model(),
+        tools=[run_command],
         capabilities=[ToolCallLog(trace=trace).hooks()],
     ).run_sync("go")
 
