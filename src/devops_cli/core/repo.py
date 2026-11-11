@@ -7,6 +7,8 @@ import hashlib
 import logging
 import os
 import stat
+import tempfile
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -482,6 +484,23 @@ def resolve_store_path(
         data_dir = setting_default("data.dir")
 
     return resolve_data_path(data_dir / name, start_path=start_path)
+
+
+def create_store_file(folder: str | Path, suffix: str = ".json") -> Path:
+    """Create an empty file with a new name in the store folder `folder`, and return its path (#4488).
+
+    The folder is resolved with `resolve_store_path` and created when it is absent. The name
+    starts with the UTC time of the call, `%Y%m%dT%H%M%SZ`, and `tempfile.mkstemp` adds a unique
+    part and creates the file exclusively, so two calls of one second, also from two processes,
+    get two files.
+    """
+    store = resolve_store_path(folder)
+    store.mkdir(parents=True, exist_ok=True)
+    handle, name = tempfile.mkstemp(
+        prefix=f"{datetime.now(UTC):%Y%m%dT%H%M%SZ}-", suffix=suffix, dir=store
+    )
+    os.close(handle)
+    return Path(name)
 
 
 def read_gitignore_patterns(repo_root: Path) -> list[str]:

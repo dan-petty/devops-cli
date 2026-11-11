@@ -2,9 +2,10 @@
 
 The command runs the pass on each case of `tests/fixtures/roadmap_eval/stage/` with the model of
 the `verification` task, or with `--model`, and prints the recall of the labeled defects and the
-findings on the good plans. It stores the score as JSON under the data directory, and writes the
-file again when each case ends. `--resume` takes such a file, runs only the cases that the file
-lacks or that failed in it, and updates the file in place (#4344).
+findings on the good plans. It stores the score as JSON in a new file of its own under the data
+directory, also when another run starts in the same second (#4488), and writes the file again when
+each case ends. `--resume` takes such a file, runs only the cases that the file lacks or that
+failed in it, and updates the file in place (#4344).
 """
 
 from __future__ import annotations
@@ -15,7 +16,7 @@ from typing import TYPE_CHECKING, Annotated, Any
 
 import typer
 
-from devops_cli.core.repo import find_repo_root, resolve_store_path
+from devops_cli.core.repo import create_store_file, find_repo_root
 from devops_cli.dry_run import dry_run_class, is_dry_run, render_request_plan
 from devops_cli.exceptions import ConfigurationError
 from devops_cli.lang import HELP, MESSAGES
@@ -115,7 +116,7 @@ def _run(
         return
     client = get_llm_client(task=_TASK, settings=settings, model=model)
     review = ToolboxModel(_review_model(settings, model))
-    target = resume or resolve_store_path(f"{_STORE}/{datetime.now(UTC):%Y%m%dT%H%M%SZ}.json")
+    target = resume or create_store_file(_STORE)
     print_info(MESSAGES.roadmap.verify_eval_storing.format(path=target))
     score = evaluate_cases(
         name,

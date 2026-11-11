@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import json
+import threading
 from collections.abc import Callable
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 import pytest
+import time_machine
 
 from devops_cli.ai.client import factory
 from devops_cli.ai.client.models import AIClientError, AICredentialsError
@@ -37,6 +40,7 @@ from tests.support.fakes.model import ModelFake
 from tests.support.paths import REPO_ROOT
 from tests.support.roadmap_stage import StageRepo
 from tests.support.scripted_model import Script, call
+from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS
 
 if TYPE_CHECKING:
     from devops_cli.config.settings import AIConfig
@@ -412,6 +416,37 @@ def test_the_report_holds_a_case_with_its_findings_when_the_case_ends(
     assert [case["name"] for case in report["cases"]] == ["a-first"]
     assert report["cases"][0]["findings"][0]["type"] == "other"
     assert f"each case to {_reports(isolate_data_dir)[0]}" in result.output
+
+
+@time_machine.travel(datetime(2026, 11, 11, 3, 32, 13, tzinfo=UTC), tick=False)
+def test_two_runs_that_start_in_one_second_keep_their_cases_in_two_reports(
+    cli: Cli,
+    tmp_path: Path,
+    cases: list[StageCase],
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    isolate_data_dir: Path,
+) -> None:
+    """The second run starts and writes its report on its own thread while the first run waits
+    for its model, as two processes with their own `--case` options do (#4488)."""
+    folder = _write_set(tmp_path, *_named(cases, stage_repo, "a-first", "b-second"))
+    other: list[Any] = []
+
+    def first(_prompt: str) -> Verification:
+        second = threading.Thread(
+            target=lambda: other.append(_run_set(cli, stage_repo, folder, "--case", "b-second"))
+        )
+        second.start()
+        second.join(timeout=THREAD_HANDOFF_BOUND_SECONDS)
+        return Verification(findings=[_finding(DefectType.OTHER)])
+
+    model_fake.answer(first, Verification())
+
+    result = _run_set(cli, stage_repo, folder, "--case", "a-first")
+
+    assert (result.exit_code, other[0].exit_code) == (0, 0), result.output + other[0].output
+    held = [[case["name"] for case in _read(path)["cases"]] for path in _reports(isolate_data_dir)]
+    assert sorted(held) == [["a-first"], ["b-second"]]
 
 
 def test_a_resumed_run_runs_only_the_failed_and_the_missing_cases_and_updates_the_report(
