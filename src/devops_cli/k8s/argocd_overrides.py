@@ -1,11 +1,11 @@
 """Argo CD Application overrides that carry the homelab's hosts from the active config.
 
-The repository names every Ingress and IngressRoute host under the placeholder domain
-(``CONST_K8S_TEMPLATE_DOMAIN_PLACEHOLDER``). ``devops k8s deploy-stack`` builds what each
-homelab Application renders at the revision Argo CD builds, and writes the configured domain onto
-the Application as Kustomize JSON patches in ``spec.source.kustomize``, which the ``cluster``
-app-of-apps leaves alone (``k8s/argocd/bootstrap/cluster.yaml``). No homelab value enters git
-(#1290).
+The repository names every Ingress and IngressRoute host, and each Deployment environment value
+that holds a host, under the placeholder domain (``CONST_K8S_TEMPLATE_DOMAIN_PLACEHOLDER``).
+``devops k8s deploy-stack`` builds what each homelab Application renders at the revision Argo CD
+builds, and writes the configured domain onto the Application as Kustomize JSON patches in
+``spec.source.kustomize``, which the ``cluster`` app-of-apps leaves alone
+(``k8s/argocd/bootstrap/cluster.yaml``). No homelab value enters git (#1290, #4542).
 """
 
 from __future__ import annotations
@@ -25,7 +25,11 @@ from devops_cli.config.constants import (
     CONST_K8S_ARGOCD_FETCH_TIMEOUT_SECONDS,
 )
 from devops_cli.exceptions.k8s import KubernetesContextError
-from devops_cli.k8s.template import normalize_domain, render_manifest_template
+from devops_cli.k8s.template import (
+    holds_template_domain_value,
+    normalize_domain,
+    render_manifest_template,
+)
 
 Run = Callable[..., subprocess.CompletedProcess[str]]
 """Runs a command as ``devops_cli.commands.k8s.cluster_runtime._run_cmd`` does."""
@@ -109,9 +113,27 @@ def render_at_revision(source: ApplicationSource, workdir: Path, run: Run) -> st
     return _stdout(run, ["kubectl", "kustomize", str(target)])
 
 
+def _env_fields(pod_spec: dict[str, Any]) -> list[tuple[str, str]]:
+    """The JSON pointer and value of each container ``env[].value`` that holds the placeholder."""
+    return [
+        (f"/spec/template/spec/{group}/{i}/env/{j}/value", var["value"])
+        for group in ("initContainers", "containers")
+        for i, container in enumerate(pod_spec.get(group) or [])
+        if isinstance(container, dict)
+        for j, var in enumerate(container.get("env") or [])
+        if isinstance(var, dict)
+        and isinstance(var.get("value"), str)
+        and holds_template_domain_value(var["value"])
+    ]
+
+
 def _host_fields(doc: dict[str, Any]) -> list[tuple[str, str]]:
-    """The JSON pointer and value of every host an Ingress, IngressRoute, or Mattermost routes."""
+    """The JSON pointer and value of every host an Ingress, IngressRoute, or Mattermost routes,
+    and of each environment value of a Deployment's containers that holds the placeholder (#4542).
+    """
     spec = doc.get("spec") or {}
+    if doc.get("kind") == "Deployment":
+        return _env_fields((spec.get("template") or {}).get("spec") or {})
     if doc.get("kind") == "Ingress":
         rules = [
             (f"/spec/rules/{i}/host", rule["host"])
@@ -149,14 +171,15 @@ def _target(doc: dict[str, Any]) -> dict[str, str]:
 
 
 def host_patches(rendered: str, domain: str) -> list[dict[str, Any]]:
-    """One Kustomize JSON patch per object in `rendered` that routes a host under the placeholder.
+    """One Kustomize JSON patch per object in `rendered` that routes a host under the placeholder,
+    or whose containers hold the placeholder in an environment value.
 
-    Each such host is first tested, then replaced by the same host under `domain`, substituted
-    as ``render_manifest_template`` does for native deploys. A host that git has since reordered
-    or removed within its object fails the Application's manifest generation instead of routing
-    to another backend. Kustomize skips a patch whose object no longer exists, and nothing covers
-    an object or host git adds, so deploy-stack runs again once such a change reaches the
-    Application's revision.
+    Each such host or value is first tested, then replaced by the same text under `domain`,
+    substituted as ``render_manifest_template`` does for native deploys. A host or value that git
+    has since reordered or removed within its object fails the Application's manifest generation
+    instead of routing to another backend. Kustomize skips a patch whose object no longer exists,
+    and nothing covers an object, host or value git adds, so deploy-stack runs again once such a
+    change reaches the Application's revision.
     """
     configured = normalize_domain(domain)
     patches = []

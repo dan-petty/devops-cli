@@ -106,6 +106,73 @@ def test_each_placeholder_host_is_checked_then_set_to_the_configured_domain() ->
     ]
 
 
+START_PAGE = """\
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: start
+  namespace: start
+  annotations:
+    note: start.example.com
+spec:
+  template:
+    spec:
+      initContainers:
+        - name: wait
+          env:
+            - name: TARGET
+              value: start.example.com
+      containers:
+        - name: homepage
+          args: ["--host", "start.example.com"]
+          env:
+            - name: MY_POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: HOMEPAGE_VAR_DOMAIN
+              value: example.com
+            - name: PORT
+              value: "3000"
+            - name: HOMEPAGE_ALLOWED_HOSTS
+              value: $(MY_POD_IP):3000,start.example.com
+"""
+
+
+def test_each_placeholder_env_value_is_checked_then_set_to_the_configured_domain() -> None:
+    """Only the env values of a Deployment that hold the placeholder change: not a value
+    without it, and not the placeholder in an annotation or an argument (#4542)."""
+    containers = "/spec/template/spec/containers/0/env"
+    init = "/spec/template/spec/initContainers/0/env"
+    deployment = {"group": "apps", "version": "v1", "kind": "Deployment"}
+    assert _decoded(host_patches(START_PAGE, DOMAIN)) == [
+        (
+            {**deployment, "name": "start", "namespace": "start"},
+            [
+                {"op": "test", "path": f"{init}/0/value", "value": "start.example.com"},
+                {"op": "replace", "path": f"{init}/0/value", "value": "start.example.org"},
+                {"op": "test", "path": f"{containers}/1/value", "value": "example.com"},
+                {"op": "replace", "path": f"{containers}/1/value", "value": "example.org"},
+                {
+                    "op": "test",
+                    "path": f"{containers}/3/value",
+                    "value": "$(MY_POD_IP):3000,start.example.com",
+                },
+                {
+                    "op": "replace",
+                    "path": f"{containers}/3/value",
+                    "value": "$(MY_POD_IP):3000,start.example.org",
+                },
+            ],
+        )
+    ]
+
+
+def test_a_deployment_whose_env_values_hold_no_placeholder_gets_no_patch() -> None:
+    plain = START_PAGE.replace("example.com", "example.net")
+    assert host_patches(plain, DOMAIN) == []
+
+
 def test_a_domain_that_is_not_a_hostname_is_refused() -> None:
     with pytest.raises(KubernetesContextError, match="Invalid domain name"):
         host_patches(RENDERED, "not a domain")
