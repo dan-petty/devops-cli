@@ -517,20 +517,6 @@ class Closure(BaseModel):
     duplicate_of: int | None = None
 
 
-def is_name_segment(text: str) -> bool:
-    """Whether `text` is one name as GitHub and PyPI spell one: ASCII letters, digits, `-`, `_`
-    and `.`, and not `.` or `..`. Such a text is one safe segment of a URL path (#2650)."""
-    return text not in {"", ".", ".."} and all(
-        char.isascii() and (char.isalnum() or char in "-_.") for char in text
-    )
-
-
-def is_repository_name(text: str) -> bool:
-    """Whether `text` is `owner/name`, each part a name (`is_name_segment`)."""
-    parts = text.split("/")
-    return len(parts) == 2 and all(is_name_segment(part) for part in parts)
-
-
 class RepositoryFacts(BaseModel):
     """What GitHub says of a repository that an item might use as a tool (#2650): its license,
     when it was last pushed to, whether it is archived, its stars, and its latest release."""
@@ -1166,8 +1152,6 @@ __all__ = [
     "find_milestone",
     "get_roadmap_store",
     "install_roadmap_store",
-    "is_name_segment",
-    "is_repository_name",
     "item_of",
     "milestone_edits",
     "milestone_order",

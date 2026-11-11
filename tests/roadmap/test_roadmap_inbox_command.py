@@ -131,7 +131,7 @@ def test_a_service_repo_that_is_not_owner_name_fails_before_any_read(
 
     result = cli("roadmap", "inbox")
 
-    assert (result.exit_code, "service.repos" in result.output) == (1, True)
+    assert (result.exit_code, "service.repos" in str(result.exception)) == (1, True)
     assert roadmap_store_repos == []
 
 

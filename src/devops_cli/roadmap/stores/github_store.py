@@ -56,6 +56,7 @@ from devops_cli.exceptions.git import (
 from devops_cli.github.check_verdict import read_check_runs
 from devops_cli.github.error_classifier import classify_gh_failure, gh_http_status
 from devops_cli.github.rate_limiter import run_gh
+from devops_cli.github.repo_ref import is_repository_name
 from devops_cli.github.session import get_github_session
 from devops_cli.roadmap.stores.store import (
     Candidate,
@@ -80,7 +81,6 @@ from devops_cli.roadmap.stores.store import (
     decode_job_record,
     encode_job_record,
     find_milestone,
-    is_repository_name,
     item_of,
     milestone_edits,
     milestone_order,

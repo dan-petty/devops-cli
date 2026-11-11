@@ -1070,6 +1070,12 @@ CONST_STATUS_COMMAND_SERVICES: Final[tuple[str, ...]] = ("all", "github", "cloud
 
 # ── Kubernetes & RFC 1123 Patterns ────────────────────────────────────────────
 CONST_K8S_LABEL_RE: re.Pattern[str] = re.compile(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$")
+# A label value of Kubernetes: empty, or 63 characters or fewer that start and end with an
+# alphanumeric, with `-`, `_` and `.` between (https://kubernetes.io/docs/concepts/overview/
+# working-with-objects/labels/#syntax-and-character-set). The client library has no public check.
+CONST_K8S_LABEL_VALUE_RE: re.Pattern[str] = re.compile(
+    r"^(?:[A-Za-z0-9](?:[-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?)?$"
+)
 CONST_K8S_SUBDOMAIN_RE: re.Pattern[str] = re.compile(r"^[a-z0-9]([a-z0-9.\-]{0,251}[a-z0-9])?$")
 CONST_K8S_NODE_ROLE_LABEL_PREFIX = "node-role.kubernetes.io/"
 # What the llm stack's Ollama tiers select GPU nodes by (#1367): the extended resource and labels
@@ -2319,8 +2325,10 @@ CONST_PROMQL_KEYWORDS: Final[frozenset[str]] = CONST_PROMQL_GROUPING_KEYWORDS | 
 )
 
 # ── Cache Key Namespacing ────────────────────────────────────────────────────
-# Root prefix for every cache key this project writes, so a shared Valkey instance can
-# be swept per-project and keys never collide with another tenant's.
+# The prefix of the keys of the workstation run index (`ai/run_store.py`) only. Each Valkey
+# instance has one owner, so the instance is the namespace of its keys: the caches of
+# `valkey-devops` start with `valkey:`, and the roadmap Service keys start with `roadmap:v1:`
+# (`github/repo_ref.py`, ADR 0022).
 CONST_CACHE_NAMESPACE_ROOT: Final[str] = "devops-cli"
 
 # ── Source & Test Tree Layout ────────────────────────────────────────────────

@@ -4414,7 +4414,6 @@ class RoadmapMessages:
     inbox_no_repos: str = (
         "The inbox has no repository to read. Set service.repos, or pass --repo owner/name."
     )
-    inbox_bad_repo: str = "The service.repos entry {entry} is not owner/name."
     inbox_footer: str = (
         "Not listed: an image digest that is not rolled yet. "
         "Run `devops argo cd apps status devops` to read it."

@@ -1028,18 +1028,12 @@ def inbox_cmd(
 
 def _inbox_repos(repo: str | None, configured: Sequence[str]) -> list[str]:
     """The repositories the inbox reads: `--repo` alone when it is given, else each entry of
-    `service.repos`. An empty list fails and names the setting, and so does an entry that is not
-    `owner/name`, before any store opens (#3494)."""
+    `service.repos`. An empty list fails and names the setting before any store opens (#3494).
+    The settings refuse an entry that is not `owner/name` (#4533)."""
     if repo is not None:
         return [_target(repo)]
     if not configured:
         raise ConfigurationError(MESSAGES.roadmap.inbox_no_repos, key="service.repos")
-    for entry in configured:
-        owner, _, name = entry.partition("/")
-        if not owner or not name or "/" in name:
-            raise ConfigurationError(
-                MESSAGES.roadmap.inbox_bad_repo.format(entry=entry), key="service.repos"
-            )
     return list(configured)
 
 
