@@ -6,7 +6,7 @@ Closes #4700. Test modules walk `src/` or `tests/` with `rglob("*.py")` and call
 
 ## What Changes
 
-- The tests that read `src/` get the trees from `parsed_source_trees`: the gauge, metric and emit checks of `test_telemetry_instruments.py`.
+- The tests that read `src/` get the trees from `parsed_source_trees`: the gauge, metric and emit checks of `test_telemetry_instruments.py`. The gauge check makes its name tables once, not once for each module, and the emit check stops at a module that imports no `emit`.
 - The other walks of Python files call `parse_python_file`: `test_source_tree.py` (patch, private import and `CliRunner` checks), `test_roadmap_runner_tools.py`, `test_edge_fixtures.py`, `test_github_session.py`, `test_ai_spend_pricing.py`, `test_test_selection.py`, and the fallbacks of `tests/gate/tree_checks/module_independence.py` and `tests/gate/swallowed_failures.py`.
 - `test_project_and_tree_fixtures_are_distinct` reads every module of `tests/`. It moves from `tests/invariants/test_hermetic_floor.py` to the `test-tree` row of `devops ci` as `tests/gate/tree_checks/fixture_names.py`, which reads the trees that the row parses once. A probe check of the logic goes with it.
 - `test_every_import_of_a_roadmap_module_names_a_module_that_exists` and its helpers are deleted.

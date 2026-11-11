@@ -2,7 +2,7 @@
 
 ## 1. Refactor: parse each file once (test-only edits)
 
-- [x] 1.1 Read `parsed_source_trees` in the gauge, metric and emit checks of `tests/telemetry/test_telemetry_instruments.py`
+- [x] 1.1 Read `parsed_source_trees` in the gauge, metric and emit checks of `tests/telemetry/test_telemetry_instruments.py`; make the gauge name tables once, and stop the emit check at a module that imports no `emit`
   - Verification: `$ uv run devops ci test tests/telemetry/test_telemetry_instruments.py`
 - [x] 1.2 Call `parse_python_file` in the walks of `test_source_tree.py`, `test_roadmap_runner_tools.py`, `test_edge_fixtures.py`, `test_github_session.py`, `test_ai_spend_pricing.py` and `test_test_selection.py`
   - Verification: `$ uv run devops ci test tests/invariants/test_source_tree.py tests/roadmap/test_roadmap_runner_tools.py tests/scaffold/test_edge_fixtures.py tests/github/test_github_session.py tests/ai/spend/test_ai_spend_pricing.py tests/commands/test_test_selection.py`

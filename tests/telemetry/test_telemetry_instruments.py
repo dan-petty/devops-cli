@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import ast
 import contextlib
+import functools
 import json
 import re
 import sqlite3
@@ -266,8 +267,10 @@ def _resolve_gauge_call_arg(
     return None
 
 
-def _scraped_gauge_names_in_tree(tree: ast.AST) -> set[str]:
-    """Return gauge names that an AST records into an in-memory registry or exposes via Prometheus."""
+@functools.cache
+def _gauge_name_tables() -> tuple[dict[str, str], dict[str, Any]]:
+    """The string constants of `config/constants.py` and the names of the instruments module,
+    which a gauge call can name its gauge by. Each module of `src/` reads the same tables."""
     import devops_cli.telemetry.instruments as inst_mod
     from devops_cli.config import constants
 
@@ -276,8 +279,12 @@ def _scraped_gauge_names_in_tree(tree: ast.AST) -> set[str]:
         for name in dir(constants)
         if isinstance(getattr(constants, name), str)
     }
-    inst_dict = {name: getattr(inst_mod, name) for name in dir(inst_mod)}
+    return const_dict, {name: getattr(inst_mod, name) for name in dir(inst_mod)}
 
+
+def _scraped_gauge_names_in_tree(tree: ast.AST) -> set[str]:
+    """Return gauge names that an AST records into an in-memory registry or exposes via Prometheus."""
+    const_dict, inst_dict = _gauge_name_tables()
     names: set[str] = set()
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call) or not node.args:
@@ -458,6 +465,8 @@ def _emits_with_a_resource_label(tree: ast.AST, label: str) -> list[str]:
     """Each `emit()` call of a module, as `<label>:<line>`, whose attributes have the key `job` or
     `instance`: in a dict display, in a name that holds one, or in a dict that `**` unpacks."""
     emit_names, _ = _declared_instrument_imports(tree)
+    if not emit_names:
+        return []
     assigned: dict[str, list[ast.expr]] = {}
     for node in ast.walk(tree):
         if isinstance(node, ast.Assign) and len(node.targets) == 1:
