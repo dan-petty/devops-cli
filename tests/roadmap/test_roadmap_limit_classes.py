@@ -546,6 +546,14 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
         "the excerpt of a candidate that the model reads",
     ),
     "DEFAULT_ROADMAP_INTAKE_REASON_CHARS": ("kept", "the reason of a decision in a comment"),
+    "DEFAULT_ROADMAP_INTAKE_SNAPSHOT_MAX_AGE_HOURS": (
+        "other",
+        "a policy value (#4448): the age of the issue listing snapshot that makes a run read in full",
+    ),
+    "DEFAULT_ROADMAP_INTAKE_SNAPSHOT_OVERLAP_SECONDS": (
+        "other",
+        "a policy value (#4448): the overlap of the read of the changed issues; it cuts no work",
+    ),
     "DEFAULT_ROADMAP_INTAKE_LIMIT": ("kept", "candidates of one round"),
     "DEFAULT_ROADMAP_REFINE_LIMIT": ("raised", "was 3; items of one round"),
     "DEFAULT_ROADMAP_INBOX_DRAFT_DAYS": (

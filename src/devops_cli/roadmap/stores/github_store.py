@@ -57,6 +57,7 @@ from devops_cli.github.check_verdict import read_check_runs
 from devops_cli.github.error_classifier import classify_gh_failure, gh_http_status
 from devops_cli.github.rate_limiter import run_gh
 from devops_cli.github.session import get_github_session
+from devops_cli.roadmap.stores.listing_snapshot import FULL_LISTING, IncrementalListing
 from devops_cli.roadmap.stores.store import (
     Candidate,
     Change,
@@ -658,10 +659,13 @@ class GitHubRoadmapStore(RoadmapStore):
         *,
         runner: GhRunner = run_gh,
         session: ListingSession | None = None,
+        listing: IncrementalListing | None = None,
     ) -> None:
         self._repo = repo
         # The REST listings are read through this session, or the process's when it is None.
         self._session = session
+        # How every issue is read: in full when None, else from a snapshot and its changes.
+        self._incremental = listing
         self._runner = runner
         # Every issue and pull request by number, read once when first needed.
         self._all: dict[int, IssueRecord] | None = None
@@ -1111,9 +1115,14 @@ class GitHubRoadmapStore(RoadmapStore):
     # ── Reads ──
 
     def _every_issue(self) -> list[IssueRecord]:
-        """Every issue and pull request, read the first time the store needs them."""
+        """Every issue and pull request, read the first time the store needs them: the whole
+        listing, or the store's snapshot and the issues changed since it (#4448)."""
         if self._all is None:
-            self._all = {issue.number: issue for issue in self._read_issues("state=all")}
+            self._all = (
+                {issue.number: issue for issue in self._read_issues(FULL_LISTING)}
+                if self._incremental is None
+                else self._incremental.read(self._repo, self._read_issues)
+            )
         return list(self._all.values())
 
     def _read_or_none[PayloadT](

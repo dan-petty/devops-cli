@@ -87,9 +87,13 @@ def test_a_dry_run_is_an_intake_plan_of_planned_requests_with_placeholders() -> 
         (IntakePlan, True, (), False),
         (
             "REST read",
-            "every issue, open and closed, with its labels and job record: the candidates and "
-            "the items",
-            ("GET", f"{API}/repos/{REPO}/issues?state=all&per_page=100"),
+            "the issues changed since the snapshot of the listing, the newest change first, "
+            "which replace their records in the snapshot: the candidates and the items",
+            (
+                "GET",
+                f"{API}/repos/{REPO}/issues?state=all&sort=updated&direction=desc"
+                "&since=<the watermark of the snapshot>&per_page=100",
+            ),
         ),
         True,
         {"for each candidate: an open issue with no Priority"},
@@ -100,9 +104,33 @@ def test_a_dry_run_is_an_intake_plan_of_planned_requests_with_placeholders() -> 
     )
 
 
+@pytest.mark.parametrize("full", [False, True])
+def test_a_dry_run_reads_the_changes_since_the_snapshot_or_else_every_issue(full: bool) -> None:
+    """Without `--full`, a run reads the issues changed since a snapshot that it can read from,
+    and every issue when it holds none; with `--full`, it reads every issue (#4448)."""
+    reads = dry_run_intake(REPO, full=full).requests
+    listings = [
+        (r.argv[1].split("?")[1], r.condition) for r in reads if "/issues?" in "".join(r.argv)
+    ]
+    unread = "the run has not read every issue yet"
+    changed = (
+        "state=all&sort=updated&direction=desc&since=<the watermark of the snapshot>&per_page=100",
+        "the data directory holds a snapshot of the listing that this version wrote, and its "
+        f"last full read is less than 24 hours old and {unread}",
+    )
+    whole = (
+        "state=all&per_page=100",
+        unread
+        if full
+        else f"the data directory holds no such snapshot of the listing and {unread}",
+    )
+    assert listings == ([whole] if full else [changed, whole])
+
+
 # The store operation each planned request stands for.
 STORE_OPERATIONS: dict[str, str] = {
     "issues": "issues",
+    "changed_issues": "issues",
     "closures": "closures",
     "embed": "embed",
     "embed_new": "embed",

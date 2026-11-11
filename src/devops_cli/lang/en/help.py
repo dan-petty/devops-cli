@@ -1277,6 +1277,10 @@ class RoadmapCommandHelp:
         "Who files the new candidate: an agent's is labeled source/agent; a person's is not."
     )
     intake_confirm: str = "Plan as --plan does, then make the writes on GitHub."
+    intake_full: str = (
+        "Read the whole issue listing and replace the snapshot of it under the data directory. "
+        "Without it, a run reads only the issues changed since the snapshot."
+    )
     intake_plan: str = (
         "Read GitHub and call the model, print each planned change and what the run spent, and "
         "write nothing. Intake without a mode flag does this."

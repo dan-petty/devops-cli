@@ -5135,6 +5135,7 @@ class RoadmapMessages:
     intake_placeholder_default_branch: str = "the default branch"
     intake_placeholder_each: str = "<the candidate>"
     intake_placeholder_filed: str = "<the filed issue>"
+    intake_placeholder_watermark: str = "<the watermark of the snapshot>"
     intake_placeholder_fields: tuple[str, ...] = (
         "Status New",
         "Value <the proposed Value>",
@@ -5145,6 +5146,10 @@ class RoadmapMessages:
             "issues": (
                 "every issue, open and closed, with its labels and job record: the candidates "
                 "and the items"
+            ),
+            "changed_issues": (
+                "the issues changed since the snapshot of the listing, the newest change first, "
+                "which replace their records in the snapshot: the candidates and the items"
             ),
             "closures": "the closes and reopens on {subject}'s timeline",
             "embed": (
@@ -5175,6 +5180,11 @@ class RoadmapMessages:
     intake_request_conditions: dict[str, str] = field(
         default_factory=lambda: {
             "candidate": "the run has a candidate",
+            "changed_issues": (
+                "the data directory holds a snapshot of the listing that this version wrote, and "
+                "its last full read is less than {hours} hours old"
+            ),
+            "no_snapshot": "the data directory holds no such snapshot of the listing",
             "embed": "the run has a candidate",
             "evidence": "the model cites any",
             "comments": "{subject} is placed",
@@ -5199,6 +5209,13 @@ class RoadmapMessages:
     )
     intake_failed_item: str = "{name} ({error})"
     intake_failed_new: str = '"{title}"'
+    intake_snapshot_unreadable: str = (
+        "Intake reads the whole issue listing, because it cannot read the snapshot {path}: {reason}"
+    )
+    intake_snapshot_unsaved: str = (
+        "Intake did not keep the snapshot {path}, so the next run reads the changes since the "
+        "earlier snapshot: {reason}"
+    )
     triage_awaiting_intake: str = (
         "Issues awaiting intake get their type and Priority from `devops roadmap intake`."
     )

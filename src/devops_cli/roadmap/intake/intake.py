@@ -1332,12 +1332,13 @@ def dry_run_intake(
     issues: Collection[int] = (),
     new: NewCandidate | None = None,
     limit: int | None = None,
+    full: bool = False,
 ) -> IntakePlan:
     """The plan a dry run returns: no request made, the requests a run on `repo` over every
     candidate, only `issues`, or only the `new` candidate makes, in order, with placeholders for
-    what a read gives; with `limit`, its per-candidate requests say they are for that many. A
-    `new` candidate whose text looks like it holds a secret raises `SecurityError`, as it does
-    for a run."""
+    what a read gives; with `limit`, its per-candidate requests say they are for that many, and
+    with `full`, the run reads the whole listing. A `new` candidate whose text looks like it
+    holds a secret raises `SecurityError`, as it does for a run."""
     each = new is None and not issues
     if new is not None:
         new.refuse_secrets()
@@ -1355,6 +1356,7 @@ def dry_run_intake(
         each=each,
         limit=limit,
         parent=source_parent,
+        full=full,
     )
     return IntakePlan(decisions=(), limit=limit, dry_run=True, requests=reads, writes=writes)
 

@@ -3,11 +3,13 @@ GitHub store otherwise (#3746)."""
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 import pytest
 
 from devops_cli.roadmap.stores.github_store import GitHubRoadmapStore
+from devops_cli.roadmap.stores.listing_snapshot import FileSnapshotStore, IncrementalListing
 from devops_cli.roadmap.stores.store import (
     get_roadmap_store,
     install_roadmap_store,
@@ -36,22 +38,23 @@ def test_an_installed_factory_answers_for_every_repository() -> None:
     )
 
 
-def test_an_installed_factory_receives_the_runner() -> None:
-    """The runner a caller gives reaches the factory, so a factory can build the GitHub store
-    over it."""
+def test_an_installed_factory_receives_the_runner_and_the_listing(tmp_path: Path) -> None:
+    """The runner and the listing a caller gives reach the factory, so a factory can build the
+    GitHub store over them."""
     received: list[Any] = []
+    listing = IncrementalListing(FileSnapshotStore(tmp_path))
 
     def runner(*_: Any, **__: Any) -> None:
         raise AssertionError("the factory runs no gh")
 
-    def factory(repo: str, *, runner: Any = None) -> InMemoryRoadmapStore:
-        received.append(runner)
+    def factory(repo: str, *, runner: Any = None, listing: Any = None) -> InMemoryRoadmapStore:
+        received.append((runner, listing))
         return InMemoryRoadmapStore()
 
     install_roadmap_store(factory)
-    get_roadmap_store(REPO, runner=runner)
+    get_roadmap_store(REPO, runner=runner, listing=listing)
 
-    assert received == [runner]
+    assert received == [(runner, listing)]
 
 
 def test_a_reset_opens_the_github_store_again() -> None:
