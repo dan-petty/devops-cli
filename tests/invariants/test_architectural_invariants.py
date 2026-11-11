@@ -1626,12 +1626,17 @@ def _stage_from_image(stage: Sequence[Sequence[str]]) -> str | None:
 
 
 def _service_dockerfile_debian_release(dockerfile_text: str) -> tuple[str | None, list[str]]:
-    """Verify `Dockerfile` stages name one Debian release and return `(release, problems)`."""
+    """Verify `Dockerfile` stages name one Debian release and return `(release, problems)`.
+
+    A stage that builds on another stage takes the base image at the end of that chain.
+    """
     parsed = _dockerfile_stages(dockerfile_text)
     releases: dict[str, str] = {}
     problems: list[str] = []
     for name in _SERVICE_DEBIAN_STAGES:
         image = _stage_from_image(parsed.get(name, ()))
+        while image in parsed:
+            image = _stage_from_image(parsed[image])
         release = _debian_release_of_image(image) if image is not None else None
         if release is None:
             problems.append(f"Dockerfile stage {name!r} names no Debian release: {image!r}")

@@ -211,7 +211,7 @@ def test_service_and_devcontainer_dockerfiles_populate_tiktoken_cache() -> None:
 
     assert (
         "TIKTOKEN_CACHE_DIR=/app/.cache/tiktoken" in service_dockerfile,
-        "COPY --from=builder /app/.cache/tiktoken /app/.cache/tiktoken" in service_dockerfile,
+        "COPY --from=deps /app/.cache/tiktoken /app/.cache/tiktoken" in service_dockerfile,
         "cl100k_base" in service_dockerfile and "o200k_base" in service_dockerfile,
         "TIKTOKEN_CACHE_DIR=" in devcontainer_dockerfile,
         "cl100k_base" in devcontainer_dockerfile and "o200k_base" in devcontainer_dockerfile,

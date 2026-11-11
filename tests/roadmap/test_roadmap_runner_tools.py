@@ -232,6 +232,10 @@ def _runner() -> list[list[str]]:
     return stages(_text("Dockerfile"))["runner"]
 
 
+def _stage(name: str) -> list[list[str]]:
+    return stages(_text("Dockerfile"))[name]
+
+
 def _runs(stage: list[list[str]]) -> list[str]:
     return [" ".join(words[1:]) for words in stage if words[0].upper() == "RUN"]
 
@@ -266,7 +270,7 @@ def test_a_tool_whose_release_fails_the_scan_of_the_image_is_left_out_with_the_r
 
 
 def test_the_apt_packages_of_the_runner_are_the_apt_tools_of_the_table() -> None:
-    (install,) = (run for run in _runs(_runner()) if "apt-get install" in run)
+    (install,) = (run for run in _runs(_stage("runner-deps")) if "apt-get install" in run)
     words = shlex.split(install.split("apt-get install")[1].split("&&")[0])
     packages = {word for word in words if not word.startswith("-")} - {"ca-certificates"}
 
@@ -277,8 +281,8 @@ def test_the_runner_installs_the_tools_of_the_lock_that_the_table_holds_and_the_
     None
 ):
     held = {t.name for t in RUNNER_TOOLS if t.source is ToolSource.TOOLS_LOCK}
-    in_runner = " ".join(_runs(_runner()))
-    in_service = " ".join(_runs(stages(_text("Dockerfile"))["service"]))
+    in_runner = " ".join(_runs(_stage("runner-tools")))
+    in_service = " ".join(_runs(_stage("service")) + _runs(_stage("service-deps")))
 
     assert (
         [name for name in sorted(held - {"openspec"}) if f"--tool {name}" not in in_runner],
