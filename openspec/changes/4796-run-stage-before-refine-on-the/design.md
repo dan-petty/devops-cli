@@ -9,7 +9,7 @@
 
 ## Rejected alternatives
 
-- **A time bound on a refine round** (for example, take no new item after 17 minutes). The lane model gives stage 0.87 to 1.14 rounds an hour, but refine falls to 3.0 to 3.9 items an hour also when no restart occurs. It breaks the limit of 7 items that #4426 asked for, and it does not help the first round of a new pod.
+- **A time bound on a refine round** (for example, take no new item after 17 minutes). The lane model gives stage 0.87 to 1.15 rounds an hour and refine 3.0 to 4.6 items an hour. With no restart, refine falls to 3.0 to 3.9 items an hour, where the order alone keeps 4.6 to 5.6. It breaks the limit of 7 items that #4426 asked for, and it does not help the first round of a new pod.
 - **Round robin with the start time of each row in `schedule.json`.** The lane model gives stage 0.82 to 0.95 rounds an hour and refine 4.6 to 5.4 items an hour. It needs a new record of each row's last start, and it still lets refine run first after a restart when stage ran last before it. Stage is the row that limits the plan pull requests (149 Ready items, 0 Planned), so the simpler order that favours stage is the better trade.
 - **Stage in its own lane in the Service.** It needs a fourth worker, a fourth clone and a cross-lane stamp, and the model slot (`service.model_call_concurrency` 1) is shared by all lanes, so both rows slow down. #4559 moves stage into its own Job, which is the full fix.
 - **Lower refine's limit or interval.** It reverts the owner's decision in #4426.
