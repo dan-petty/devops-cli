@@ -36,6 +36,7 @@ PROBE = "def f(): pass"
 TREE = StagedTree(["src/devops_cli/sample.py", "tests/test_sample.py"])
 MESSAGES_FILE = "src/devops_cli/lang/en/messages.py"
 PLAN_CHECK_FILE = "src/devops_cli/roadmap/stage/stage_change.py"
+TEST_FILE = "tests/roadmap/stage/test_roadmap_stage_content.py"
 SELF_ACCEPTANCE_TEST = (
     "Write a test that builds the plan's own `StageProposal` and asserts that `content_problems` "
     "returns no problem for it, and verify that `src/devops_cli/sample.py` fails on the base"
@@ -800,6 +801,27 @@ def test_an_other_group_with_a_source_path_and_no_named_test_is_accepted() -> No
     assert content_problems(make_stage_proposal(groups=[group])) == []
 
 
+def test_a_test_only_other_group_that_changes_a_test_helper_is_accepted() -> None:
+    group = _test_only_group(
+        title="Add the stage group builder",
+        changes=["tests/support/builders.py"],
+        implementation="Add `make_stage_group` to `tests/support/builders.py`.",
+    )
+
+    assert content_problems(make_stage_proposal(groups=[group])) == []
+
+
+def test_a_test_only_other_group_that_names_only_a_test_file_path_is_refused() -> None:
+    group = _test_only_group(
+        implementation="Update `tests/roadmap/stage/test_roadmap_stage_content.py`.",
+    )
+
+    problems = content_problems(make_stage_proposal(groups=[group]))
+
+    assert len(problems) == 1
+    assert "Keep the roadmap stage tests green" in problems[0]
+
+
 def test_a_feasibility_line_that_claims_a_read_without_trace_call_is_refused() -> None:
     agent_run = "src/devops_cli/roadmap/agent_run.py"
     plan = make_stage_proposal(feasibility=[f"The run read `{agent_run}` to check the premise."])
@@ -883,6 +905,42 @@ def test_content_problems_accepts_this_plans_own_proposal() -> None:
         ),
         groups=[group],
     )
+    assert content_problems(plan) == []
+
+
+def test_content_problems_accepts_the_helper_rules_own_proposal() -> None:
+    """The plan's own acceptance test (#3404): the plan builds its own `StageProposal` and asserts
+    that `content_problems` returns no problem for it."""
+    sample = make_stage_proposal()
+    group = sample.groups[0].model_copy(
+        update={
+            "title": "Accept a test helper group in the plan check",
+            "kind": GroupKind.BEHAVIOR,
+            "changes": [PLAN_CHECK_FILE, TEST_FILE],
+            "creates": [],
+            "creates_lines": {},
+            "verify": f"uv run devops ci test {TEST_FILE}",
+            "test": (
+                "Write `test_a_test_only_other_group_that_changes_a_test_helper_is_accepted` in "
+                f"`{TEST_FILE}` first, build the plan's own `StageProposal`, assert that "
+                "`content_problems` returns no problem for it, and verify that "
+                "`src/devops_cli/sample.py` fails on the base"
+            ),
+        }
+    )
+    plan = make_stage_proposal(
+        summary="Accept a test helper group in the plan check",
+        why=(
+            "Issue #3462: the plan check refuses an `other` group that changes only a test helper, "
+            "because its implementation names a helper and no test function."
+        ),
+        what_changes=[
+            f"`{PLAN_CHECK_FILE}` judges only an `other` group whose paths are test modules.",
+            f"`{TEST_FILE}` gains the case of a helper group and of a path-only group.",
+        ],
+        groups=[group],
+    )
+
     assert content_problems(plan) == []
 
 
