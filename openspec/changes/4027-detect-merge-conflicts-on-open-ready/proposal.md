@@ -6,7 +6,7 @@ The roadmap Service marks a delivery pull request ready when its checks pass. A 
 
 ## What Changes
 
-- A new status-lane row, `pr_conflicts`, runs after `cloudflare_status`. It is due every 13 minutes and on a first run, calls no model and needs no clone.
+- A new status-lane row, `pr_conflicts`, runs after `cloudflare_status`. It is due every 19 minutes and on a first run, calls no model and needs no clone.
 - A round lists the open pull requests and reads each one that is not a draft. It takes only a delivery pull request: one into the default branch whose body closes exactly one issue, and that issue is an open Item.
 - A conflict gets one comment that names the default branch and the head commit. The ledger `pr_conflicts.json` beside `schedule.json` keeps the head commit of each conflict that has its comment. The row comments again for a new head commit, or for a conflict that returns after a round with no conflict.
 - A clean pull request that is only behind the default branch gets no action. The row sends no update-branch request. The issue design asked for a catch-up update, but docs/SDLC.md (Phase 1) and the owner requirement of 2026-11-11 forbid a catch-up update of an open pull request: every push starts the required checks again.
@@ -25,7 +25,7 @@ The roadmap Service marks a delivery pull request ready when its checks pass. A 
 ## Impact
 
 - Code: `src/devops_cli/roadmap/pr_conflicts.py` (new), `src/devops_cli/roadmap/run.py`, `src/devops_cli/github/merge_readiness.py`, `src/devops_cli/github/client.py` (`PullStatus` holds the merge state, the base branch and the default branch), `src/devops_cli/roadmap/implement/implement_pull.py`, `src/devops_cli/telemetry/instruments.py`, the constants, the defaults and the messages.
-- GitHub requests: one listing of the open pull requests, one read of each open pull request that is not a draft, one read of the issue that a candidate closes, and one comment for each new conflict, every 13 minutes.
+- GitHub requests: one listing of the open pull requests, one read of each open pull request that is not a draft, one read of the issue that a candidate closes, and one comment for each new conflict, every 19 minutes.
 - Documents: k8s/README.md, CONTEXT.md, docs/TELEMETRY.md.
 - No setting, manifest, ConfigMap or Secret changes. The new ledger file is written on the volume of the Service at the first round.
 - The change fits one pull request.

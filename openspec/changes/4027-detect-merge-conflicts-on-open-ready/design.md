@@ -9,7 +9,7 @@
 - **A delivery pull request closes exactly one open Item.** `closing_numbers` of `release_feed.py` reads `Closes`, `Fixes` or `Resolves` at the start of a line. A plan pull request closes nothing, and the release pull request closes nothing, so the row skips them.
 - **One conflict judgment.** `merge_conflict(mergeable, mergeable_state)` in `merge_readiness.py` returns True for a conflict, None for a state that GitHub has not computed, and False else. The readiness verdict, the implement watch and the row call it, so the three cannot disagree.
 - **A ledger beside `schedule.json`.** `pr_conflicts.json` maps the number of each conflicted delivery pull request to the head commit of its comment. A round drops the entry of a pull request with no conflict, keeps the entry of an unknown state, and drops the entries of pull requests that it no longer judges. The round writes the ledger also when a read fails, so a comment that it posted is not posted again. This follows `release_comments.json`.
-- **Interval 13 minutes.** GitHub computes the mergeable state after a read asks for it, so a new conflict shows within two rounds. A round costs about two reads for each ready pull request.
+- **Interval 19 minutes.** Each interval of the Service is a prime that no other row uses (#2965), and 19 is free. GitHub computes the mergeable state after a read asks for it, so a new conflict shows within two rounds, at most 38 minutes. A round costs about two reads for each ready pull request.
 - **A gauge, no dashboard.** The row sends `devops_cli_roadmap_conflicted_pulls` by `repo`, as `record_coverage` sends the alternatives gauges.
 
 ## Rejected alternatives
