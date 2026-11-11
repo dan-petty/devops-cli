@@ -34,7 +34,9 @@ module with no test passes.
 
 A plan that adds a parameter to a function also lists each file under `src/` that calls the
 function (#3307). `changed_functions` reads a task clause that adds a parameter, an argument or a
-keyword to a function, and `StagedTree.callers` reads the calls with `ast` (#4467).
+keyword to a function (#4467), or that adds one code span in parameter shape, as `name` or
+`name: Type = default` (#4529). `StagedTree.callers` reads the calls with `ast`, and a name that no
+module defines with `def`, as a class or an enum, has no caller.
 """
 
 from __future__ import annotations
@@ -337,16 +339,45 @@ _NAME_SPAN: Final[re.Pattern[str]] = re.compile(r"`([A-Za-z_]\w*)`")
 _PARAMETER_WORD: Final[re.Pattern[str]] = re.compile(
     r"\b(?:parameter|argument|keyword)s?\b", re.IGNORECASE
 )
+# The added part of a clause that is one code span, alone or after `the` (#4529).
+_ONE_SPAN: Final[re.Pattern[str]] = re.compile(r"(?:the\s+)?`([^`]+)`", re.IGNORECASE)
+
+
+def _is_parameter_span(what: str) -> bool:
+    """Whether `what`, the added part of a clause, is one code span that `ast` reads as the
+    parameters of a `def`, as `name` or `name: Type = default`, and none of them is a constant in
+    capitals. A decorator, an option and `UPPER = value` are no parameter (#4529)."""
+    span = _ONE_SPAN.fullmatch(what)
+    if span is None:
+        return False
+    match _parse(f"def _({span[1]}): pass").body:
+        case [ast.FunctionDef(args=arguments)]:
+            names = [
+                arg.arg
+                for arg in (
+                    *arguments.posonlyargs,
+                    *arguments.args,
+                    arguments.vararg,
+                    *arguments.kwonlyargs,
+                    arguments.kwarg,
+                )
+                if arg is not None
+            ]
+            return bool(names) and not any(name.isupper() for name in names)
+    return False
 
 
 def changed_functions(groups: Sequence[StageGroup]) -> list[str]:
-    """The function names that task texts of `groups` add a parameter to: each name of a clause
-    `add ... to `name`` whose added part says parameter, argument or keyword (#4467)."""
+    """The names that task texts of `groups` add a parameter to: each name of a clause
+    `add ... to `name`` whose added part says parameter, argument or keyword (#4467), or is one
+    code span in parameter shape (#4529). The caller search drops a name that no module defines
+    with `def`, as a class or an enum."""
     functions: list[str] = []
     for group in groups:
         for text in (group.test, group.implementation, group.documentation, group.process):
             for match in _ADD_TO.finditer(text or ""):
-                if _PARAMETER_WORD.search(match["what"]) is None:
+                what = match["what"]
+                if _PARAMETER_WORD.search(what) is None and not _is_parameter_span(what):
                     continue
                 functions.extend(_NAME_SPAN.findall(match["names"]))
     return list(dict.fromkeys(functions))

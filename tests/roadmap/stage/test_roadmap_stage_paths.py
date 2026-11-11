@@ -581,10 +581,7 @@ def test_a_plan_that_leaves_out_a_caller_is_refused(tmp_path: Path) -> None:
     )
     tree = _git_checkout(tmp_path)
 
-    group = _group(
-        changes=["src/a.py"],
-        test="Add the keyword `probes` to `check_proposal`",
-    )
+    group = _group(changes=["src/a.py"], test="Add `probes` to `check_proposal`")
     problems = path_problems([group], tree)
 
     assert any("check_proposal" in p and "src/b.py" in p for p in problems)
@@ -620,11 +617,38 @@ def test_caller_check_skipped_when_tree_has_no_checkout() -> None:
     assert not any("check_proposal" in p for p in problems)
 
 
-# Each task text of the refused replies, and the functions that it adds a parameter to (#4467). A
-# task names a function in a clause `add ... to `name`` that says parameter, argument or keyword; a
-# member, a field or a property of a class is no parameter, and a clause ends at `.`, `:` or `;`.
+# Each task text of the refused replies and the archived tasks, and the names that it adds a
+# parameter to (#4467, #4529). A task names a function in a clause `add ... to `name`` that says
+# parameter, argument or keyword, or that adds one code span in parameter shape. A decorator, an
+# option, a constant and a property are no parameter, and a clause ends at `.`, `:` or `;`.
 _CHANGED_FUNCTION_CASES = [
     pytest.param("Add a probes parameter to `check_proposal`", ["check_proposal"], id="parameter"),
+    pytest.param("Add `known` to `build_import_graph`", ["build_import_graph"], id="name-span"),
+    pytest.param(
+        "Add `sampling: CallSampling | None = None` to `_retry_chat_dispatch`",
+        ["_retry_chat_dispatch"],
+        id="typed-span-with-a-default",
+    ),
+    pytest.param(
+        "In `claude.py`, add `sampling: CallSampling | None = None` to `_build_anthropic_kwargs` "
+        "and `_claude_messages`",
+        ["_build_anthropic_kwargs", "_claude_messages"],
+        id="typed-span-to-two-functions",
+    ),
+    pytest.param(
+        "Add the `verifier` to `plan_stage` and to the planner of `stage.py`",
+        ["plan_stage"],
+        id="span-after-the",
+    ),
+    pytest.param(
+        'Add `@dry_run_class("request-plan")` to `run_benchmark`', [], id="decorator-span"
+    ),
+    pytest.param("Add `--take-ownership` to `_build_helm_upgrade_cmd`", [], id="option-span"),
+    pytest.param(
+        "Add `_criteria_section` and pass the criteria to `_tasks_file`",
+        [],
+        id="span-and-other-words",
+    ),
     pytest.param(
         'Add `claim_texts(proposal)`, the member `CLASS_CLAIM = "class-claim"` of `ProposalGate`, '
         "and the keyword `class_text` to `check_gates`",
@@ -648,7 +672,9 @@ _CHANGED_FUNCTION_CASES = [
         id="property-of-a-class",
     ),
     pytest.param(
-        "add `constant_claims` to `StageProposal` with an empty default", [], id="field-of-a-model"
+        "add `constant_claims` to `StageProposal` with an empty default",
+        ["StageProposal"],
+        id="field-of-a-model-read-as-a-name",
     ),
     pytest.param(
         "Add `_Run.missing_check(call_site, check)`: it reads the definition, and when no command "
@@ -678,6 +704,25 @@ def test_the_caller_check_reads_only_a_parameter_that_a_task_adds(
     from devops_cli.roadmap.stage.stage_paths import changed_functions
 
     assert changed_functions([_group(implementation=text)]) == functions
+
+
+def test_a_field_of_a_model_has_no_caller_problem(tmp_path: Path) -> None:
+    """The clause reads `StageProposal`, and no module defines it with `def` (#4529)."""
+    src_dir = tmp_path / "src"
+    src_dir.mkdir(parents=True, exist_ok=True)
+    (src_dir / "a.py").write_text("class StageProposal:\n    groups: list = []\n", encoding="utf-8")
+    (src_dir / "b.py").write_text(
+        "from a import StageProposal\n\nplan = StageProposal()\n", encoding="utf-8"
+    )
+    tree = _git_checkout(tmp_path)
+
+    group = _group(
+        changes=["src/a.py"],
+        test="add `constant_claims` to `StageProposal` with an empty default",
+    )
+    problems = path_problems([group], tree)
+
+    assert not any("StageProposal" in p for p in problems)
 
 
 # The files under `src/` that hold the name of a function as a word, and whether each calls it
