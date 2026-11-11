@@ -58,7 +58,7 @@ import subprocess
 import tempfile
 import textwrap
 import time
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -123,7 +123,7 @@ from devops_cli.roadmap.implement.implement_amend import (
 )
 from devops_cli.roadmap.implement.implement_base_replay import BaseStatus
 from devops_cli.roadmap.implement.implement_hooks import install_hook_environments, trusted_config
-from devops_cli.roadmap.implement.implement_limits import ItemSpend
+from devops_cli.roadmap.implement.implement_limits import BudgetExtension, ItemSpend
 from devops_cli.roadmap.implement.implement_pull import (
     Answer,
     ChangeFacts,
@@ -331,6 +331,26 @@ def _files_lines(files: Sequence[str]) -> str:
     return "\n".join(lines)
 
 
+def _extension_section(steps: Sequence[Mapping[str, Any]]) -> str:
+    """The part of a comment that names each step of `steps` that got the one extension of its
+    token budget (#4394), with the budgets and the counts that gave it, or empty when no step
+    did. `steps` are the steps of the record `implement.spend`, the earlier Jobs included."""
+    texts = MESSAGES.roadmap
+    lines = []
+    for step in steps:
+        if not (held := step.get("extension")):
+            continue
+        extension = BudgetExtension.model_validate(held)
+        lines.append(
+            texts.implement_extension_step.format(
+                step=step.get("step", ""),
+                cut=texts.implement_extension_cut if extension.ceiling else "",
+                **extension.model_dump(exclude={"ceiling"}),
+            )
+        )
+    return texts.implement_extension_section.format(lines="\n".join(lines)) if lines else ""
+
+
 def _check_section(check: str, log: str) -> str:
     """The first part of the stop comment: the failed check, and the end of its log when the stop
     has one. Empty when no check is known (#3476)."""
@@ -395,6 +415,18 @@ def _tail(text: str) -> str:
 
 def _step_label(group: int) -> str:
     return MESSAGES.roadmap.implement_step_group.format(group=group)
+
+
+def _step_spend(outcome: StepOutcome) -> dict[str, Any]:
+    """The entry of a step in the record `implement.spend`: its label, the size of its first
+    request (#3499), and the one extension of its token budget when it got one (#4394)."""
+    entry: dict[str, Any] = {
+        "step": _outcome_label(outcome),
+        "first_request_tokens": outcome.first_request_tokens,
+    }
+    if outcome.extension is not None:
+        entry["extension"] = outcome.extension.model_dump()
+    return entry
 
 
 def _outcome_label(outcome: StepOutcome) -> str:
@@ -587,10 +619,7 @@ class _ItemRun:
                 + sum(o.output_tokens for o in self.outcomes),
                 "steps": [
                     *self.earlier.steps,
-                    *(
-                        {"step": _outcome_label(o), "first_request_tokens": o.first_request_tokens}
-                        for o in self.outcomes
-                    ),
+                    *(_step_spend(o) for o in self.outcomes),
                 ],
                 "tiers": tiers,
             }
@@ -1662,7 +1691,10 @@ class _ItemRun:
         self.store.comment(
             self.number,
             MESSAGES.roadmap.implement_comment_finished.format(
-                marker=CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER, pull=pull, **spend
+                marker=CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER,
+                pull=pull,
+                extensions=_extension_section(spend["steps"]),
+                **spend,
             ),
         )
 
@@ -1736,6 +1768,7 @@ class _ItemRun:
         elif any(_step_label(a.group) == stop.step for a in self.amendments):
             taken = FailureAction.AMEND
         left = stop.action_left if stop.action_left is not None else left_action(klass, taken)
+        spend = self._spend()
         print_muted(
             texts.implement_failure_trace.format(
                 failure_class=klass.value,
@@ -1756,6 +1789,7 @@ class _ItemRun:
                     tier_changes=stop.tier_changes,
                 ),
                 table=self._stop_table(stop),
+                extensions=_extension_section(json.loads(spend)["steps"]),
                 reason=reason,
                 last=last or texts.implement_comment_last_none,
                 diff=_diff_section(stop),
@@ -1770,7 +1804,7 @@ class _ItemRun:
             ImplementRecordKey.CONFLICT: json.dumps(list(stop.conflict_files))
             if stop.conflict_files
             else None,
-            ImplementRecordKey.SPEND: self._spend(),
+            ImplementRecordKey.SPEND: spend,
             ImplementRecordKey.TRACE: self.trace.encode(),
             ImplementRecordKey.REPAIR_ROUNDS: sum(o.repair_rounds for o in self.outcomes)
             + stop.repair_rounds,

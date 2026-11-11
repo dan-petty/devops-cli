@@ -116,6 +116,7 @@ from devops_cli.config.defaults import (
     DEFAULT_ROADMAP_IMPLEMENT_REQUEST_TIMEOUT_SECONDS,
     DEFAULT_ROADMAP_IMPLEMENT_STEP_TIME_LIMIT_SECONDS,
     DEFAULT_ROADMAP_IMPLEMENT_STEP_TOKEN_BUDGET,
+    DEFAULT_ROADMAP_IMPLEMENT_STEP_TOKEN_CEILING,
     DEFAULT_ROADMAP_INBOX_DRAFT_DAYS,
     DEFAULT_ROADMAP_INBOX_WAIT_DAYS,
     DEFAULT_ROADMAP_INTAKE_JEV,
@@ -1039,8 +1040,13 @@ class RoadmapImplementConfig(BaseModel):
         ge=0,
     )
     step_token_budget: Annotated[int, Variable()] = Field(
-        description="The most input tokens that the replies of one implementation step may report, summed over all its requests, its repair rounds and its tiers. Before each request the step compares its count with this budget. A step that has spent it stops with the class `limit_reached`, and the stop names this setting",
+        description="The most input tokens that the replies of one implementation step may report, summed over all its requests, its repair rounds and its tiers. Before each request the step compares its count with this budget. A step that has spent it gets one extension when its last tool calls show progress (see `step_token_ceiling`). Otherwise, and at the end of the extension, it stops with the class `limit_reached`, and the stop names this setting",
         default=DEFAULT_ROADMAP_IMPLEMENT_STEP_TOKEN_BUDGET,
+        ge=1,
+    )
+    step_token_ceiling: Annotated[int, Variable()] = Field(
+        description="The most input tokens that one implementation step may reach with its one extension. A step that reaches `step_token_budget` gets one extension of half the budget when its last 20 tool calls hold at least one successful edit and at most 3 refused commands (the rule `implement.extension`), and the extension stops at this ceiling. It must not be below `step_token_budget`. The item budget still holds",
+        default=DEFAULT_ROADMAP_IMPLEMENT_STEP_TOKEN_CEILING,
         ge=1,
     )
     item_token_budget: Annotated[int, Variable()] = Field(
@@ -1187,6 +1193,13 @@ class RoadmapImplementConfig(BaseModel):
             )
         if self.item_time_limit_seconds > self.deadline_ceiling_seconds:
             raise ValueError("item_time_limit_seconds must not be above deadline_ceiling_seconds")
+        return self
+
+    @model_validator(mode="after")
+    def _token_settings_agree(self) -> RoadmapImplementConfig:
+        """The ceiling of a step is not below its budget, so the one extension never lowers it."""
+        if self.step_token_ceiling < self.step_token_budget:
+            raise ValueError("step_token_ceiling must not be below step_token_budget")
         return self
 
     @field_validator("effort")

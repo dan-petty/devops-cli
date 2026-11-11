@@ -855,6 +855,9 @@ DEFAULT_ROADMAP_IMPLEMENT_REPAIR_ROUNDS: int = 3
 # time of the item is below the ceiling of the Job, so the stop of the budget comes before the
 # deadline of the Job ends the run without a comment.
 DEFAULT_ROADMAP_IMPLEMENT_STEP_TOKEN_BUDGET: int = 8_000_000
+# The most input tokens that one step may reach with its one extension (#4394): twice the default
+# step budget. Only a person changes it; the rule of the extension never raises it.
+DEFAULT_ROADMAP_IMPLEMENT_STEP_TOKEN_CEILING: int = 2 * DEFAULT_ROADMAP_IMPLEMENT_STEP_TOKEN_BUDGET
 DEFAULT_ROADMAP_IMPLEMENT_ITEM_TOKEN_BUDGET: int = 20_000_000
 DEFAULT_ROADMAP_IMPLEMENT_STEP_TIME_LIMIT_SECONDS: int = 5400
 DEFAULT_ROADMAP_IMPLEMENT_ITEM_TIME_LIMIT_SECONDS: int = 12600

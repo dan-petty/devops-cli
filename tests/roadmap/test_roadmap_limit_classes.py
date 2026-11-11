@@ -314,6 +314,22 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
         "guard",
         "refused shell commands of one step; a refusal counts no tool retry, so this ends a loop",
     ),
+    "CONST_ROADMAP_IMPLEMENT_EXTENSION_CALLS": (
+        "other",
+        "the tool calls that the rule implement.extension reads (#4394); it gives room, no run is cut by it",
+    ),
+    "CONST_ROADMAP_IMPLEMENT_EXTENSION_MIN_EDITS": (
+        "other",
+        "the edits that the rule implement.extension asks for (#4394); no run is cut by it",
+    ),
+    "CONST_ROADMAP_IMPLEMENT_EXTENSION_MAX_REFUSED": (
+        "other",
+        "the refused commands that the rule implement.extension allows (#4394); no run is cut by it",
+    ),
+    "CONST_ROADMAP_IMPLEMENT_EXTENSION_PERCENT": (
+        "other",
+        "the size of the one extension of a step budget (#4394); the ceiling bounds it, no run is cut by it",
+    ),
     "CONST_ROADMAP_IMPLEMENT_MODEL_RESENDS": (
         "kept",
         "resends of a request that the provider failed with the status 400",
@@ -456,6 +472,10 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
     "DEFAULT_ROADMAP_IMPLEMENT_STEP_TOKEN_BUDGET": (
         "setting",
         "a setting (#3053); above the largest done step (5.9 million), below the stops (7 to 10 million)",
+    ),
+    "DEFAULT_ROADMAP_IMPLEMENT_STEP_TOKEN_CEILING": (
+        "setting",
+        "a setting (#4394); twice the default step budget; the one extension of a step stops at it",
     ),
     "DEFAULT_ROADMAP_IMPLEMENT_ITEM_TOKEN_BUDGET": (
         "setting",

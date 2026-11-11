@@ -27,6 +27,10 @@ the root, is an other retry. The reason of a stopped step holds both counts, so 
 once which program the model kept asking for. The step ends when the refusals pass
 `CONST_ROADMAP_IMPLEMENT_MAX_REFUSALS`.
 
+The log keeps the tool name and the outcome of the last `CONST_ROADMAP_IMPLEMENT_EXTENSION_CALLS`
+calls (#4394). `progress` gives their counts, the digest that the rule of the extension of the
+step budget reads: the successful edits and the refused commands. The digest holds counts only.
+
 The line goes to the console stream, not to `logging`: a `devops` process has no handler for the
 level INFO, so such a line would never reach the Job log.
 """
@@ -60,6 +64,7 @@ from pydantic_ai.models import ModelRequestContext
 from pydantic_ai.tools import ToolDefinition
 
 from devops_cli.config.constants import (
+    CONST_ROADMAP_IMPLEMENT_EXTENSION_CALLS,
     CONST_ROADMAP_IMPLEMENT_LOG_COMMAND_CHARS,
     CONST_ROADMAP_IMPLEMENT_LOG_COMMAND_READ_CHARS,
     CONST_ROADMAP_IMPLEMENT_LOG_COMMAND_WORDS,
@@ -73,6 +78,7 @@ from devops_cli.lang import MESSAGES
 from devops_cli.output import print_muted
 from devops_cli.roadmap.agent_run import bounded_text
 from devops_cli.roadmap.implement.implement_base_replay import BaseReplay, VerifiedCommand
+from devops_cli.roadmap.implement.implement_limits import ProgressDigest
 from devops_cli.roadmap.implement.implement_shell_policy import (
     IMPLEMENT_ALLOWED_PROGRAMS,
     IMPLEMENT_SHELL_REPLACEMENTS,
@@ -93,6 +99,9 @@ _KNOWN_PROGRAMS = frozenset(
 )
 
 
+# The tools whose call with the outcome ok is a successful edit, for the digest of progress (#4394).
+_EDIT_TOOLS = frozenset({"write_file", "edit_file"})
+
 # The key of the digest that stands for an unknown first word. It lives in this process only.
 _DIGEST_KEY = secrets.token_bytes(16)
 _DIGEST_CHARS = 12
@@ -106,6 +115,20 @@ class ToolOutcome(StrEnum):
     REFUSED = "refused"
     RETRY = "retry"
     FAILED = "failed"
+
+
+def progress_digest(calls: Sequence[tuple[str, ToolOutcome]]) -> ProgressDigest | None:
+    """The counts of the last `CONST_ROADMAP_IMPLEMENT_EXTENSION_CALLS` of `calls`, each a tool name
+    and an outcome: the successful edits and the refused commands (#4394). None when there are
+    fewer calls than that, as the counts of a short window say little."""
+    window = calls[-CONST_ROADMAP_IMPLEMENT_EXTENSION_CALLS:]
+    if len(window) < CONST_ROADMAP_IMPLEMENT_EXTENSION_CALLS:
+        return None
+    return ProgressDigest(
+        calls=len(window),
+        edits=sum(tool in _EDIT_TOOLS and outcome is ToolOutcome.OK for tool, outcome in window),
+        refused=sum(outcome is ToolOutcome.REFUSED for _, outcome in window),
+    )
 
 
 def is_policy_refusal(error: BaseException) -> bool:
@@ -293,7 +316,8 @@ class ToolCallLog:
     before each model request, when the tool calls of the last reply have all returned and the
     agent is paused: the step uses it to keep the work in progress (#3054). `parser_failures` counts
     the tool calls of the current tier that the provider could not parse (#3053); the tier loop
-    of the step sets it to 0 for each tier."""
+    of the step sets it to 0 for each tier. `recent` holds the tool name and the outcome of the
+    last calls of the step, over all its turns and tiers (#4394)."""
 
     root: Path | None = None
     refused: Counter[str] = field(default_factory=Counter[str])
@@ -309,6 +333,13 @@ class ToolCallLog:
     parser_failures: int = 0
     replied: set[int] = field(default_factory=set[int])
     asked: float = 0.0
+    recent: deque[tuple[str, ToolOutcome]] = field(
+        default_factory=lambda: deque(maxlen=CONST_ROADMAP_IMPLEMENT_EXTENSION_CALLS)
+    )
+
+    def progress(self) -> ProgressDigest | None:
+        """The digest of the last calls of the step, or None when it made too few (#4394)."""
+        return progress_digest(tuple(self.recent))
 
     def refuse(self, tool_call_id: str | None) -> None:
         """Note that the shell refused the call with this id and returned the refusal as a result.
@@ -380,6 +411,7 @@ class ToolCallLog:
         and write the line of the call."""
         if self.trace is not None:
             self.trace.tool_call(tool, program, digest, str(outcome), reason, status)
+        self.recent.append((tool, outcome))
         if outcome is ToolOutcome.REFUSED:
             self.refused[program] += 1
         self.retried += outcome is ToolOutcome.RETRY

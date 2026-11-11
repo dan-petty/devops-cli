@@ -468,6 +468,17 @@ ROADMAP_INTAKE_JEV_FIELDS_TOTAL = Instrument(
     "item. Nothing counts while the setting is off. The metric adds at most 25 series: 5 fields "
     "and 5 outcomes. One mode writes 10 (on) or 15 (shadow) of them",
 )
+ROADMAP_IMPLEMENT_EXTENSION_TOTAL = Instrument(
+    "devops_cli_roadmap_implement_extension_total",
+    InstrumentKind.COUNTER,
+    "1",
+    "Decisions of the rule implement.extension (#4394), one count for each time an implement step "
+    "reaches its token budget, by decision: extended (the step got its one extension) or halted "
+    "(the step stopped with the class limit_reached). A step that reaches the end of its "
+    "extension counts halted, so one step counts at most two decisions. A decision adds 1 to its "
+    "series and 0 to the other, so both series exist from the first decision. The metric adds 2 "
+    "series",
+)
 ROADMAP_STAGE_GATE_REFUSALS_TOTAL = Instrument(
     "devops_cli_roadmap_stage_gate_refusals_total",
     InstrumentKind.COUNTER,
@@ -717,6 +728,7 @@ INSTRUMENTS: tuple[Instrument, ...] = (
     ROADMAP_INTAKE_CANDIDATES_TOTAL,
     ROADMAP_JEV_COMPLETENESS_TOTAL,
     ROADMAP_INTAKE_JEV_FIELDS_TOTAL,
+    ROADMAP_IMPLEMENT_EXTENSION_TOTAL,
     ROADMAP_STAGE_GATE_REFUSALS_TOTAL,
     EMBEDDING_CACHE_LOOKUPS_TOTAL,
     EMBEDDING_CACHE_SIZE,
