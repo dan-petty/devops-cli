@@ -31,3 +31,7 @@ The command supports four modes:
 - `--dry-run`: Makes zero requests to GitHub and renders the planned reads and writes.
 
 You can pass at most one mode flag at a time.
+
+## A missing dependency that a job finds
+
+A Service row can find a project-management dependency that the repository lacks. The stage job reads `openspec/config.yaml` at the default branch in each round (`uses_openspec`). With no file, it writes no plan for an item of the repository, and each item gets a reason that names the file. The stage row also names the file in its outcome (`JobOutcome.missing`), which the later rows of the round read. A later row can start the onboarding of the repository from this record (#4664). #3770 makes onboarding add `openspec/config.yaml`. The hold ends when the file is on the default branch.

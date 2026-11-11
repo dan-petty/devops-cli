@@ -23,6 +23,7 @@ from dataclasses import dataclass, replace
 
 from devops_cli.ai.web_search import first_configured_provider
 from devops_cli.config.constants import (
+    CONST_OPENSPEC_CONFIG_PATH,
     CONST_ROADMAP_ADR_DIRECTORY,
     CONST_ROADMAP_ALTERNATIVES_MAX_FACT_READS,
     CONST_ROADMAP_ALTERNATIVES_MAX_SEARCHES,
@@ -630,6 +631,25 @@ def retitle_requests(
     return tuple(reads), tuple(writes)
 
 
+def _openspec_config_read(clone: str) -> PlannedRequest:
+    """The read of whether the default branch holds `openspec/config.yaml` (#4629): with no file,
+    the stage job holds every item."""
+    return PlannedRequest(
+        "git",
+        MESSAGES.roadmap.stage_requests["openspec_config"],
+        argv=(
+            "git",
+            "-C",
+            clone,
+            "ls-tree",
+            "--name-only",
+            "origin/main",
+            "--",
+            CONST_OPENSPEC_CONFIG_PATH,
+        ),
+    )
+
+
 def stage_requests(
     repo: str,
     *,
@@ -680,6 +700,7 @@ def stage_requests(
             "openspec/changes/",
             "openspec/changes/archive/",
         ),
+        _openspec_config_read(clone),
         planned_session_read(
             f"/repos/{repo}/pulls/{_p('pull')}",
             req["plan_state"],
@@ -955,16 +976,17 @@ def explain_requests(
 ) -> tuple[tuple[PlannedRequest, ...], tuple[PlannedRequest, ...]]:
     """What `devops roadmap explain` reads, in order (#2911). It makes no write and no model call.
     It reads what the plan of the implement job reads, which covers the clone, the issues, the
-    branches and the change folders, and the open issue that a stage item depends on. The
-    command reads the heads of `origin` and the plans once and gives them to both jobs, so the list
-    holds each read once. With `trace` it reads the one issue and nothing else (#3032)."""
+    branches and the change folders, whether the default branch holds `openspec/config.yaml`
+    (#4629), and the open issue that a stage item depends on. The command reads the heads of
+    `origin` and the plans once and gives them to both jobs, so the list holds each read once.
+    With `trace` it reads the one issue and nothing else (#3032)."""
     if trace:
         return tuple(StoreRequests(repo).issue(f"#{item}")), ()
     reads, _ = implement_requests(repo, item=item)
     store = StoreRequests(repo)
     blockers = within(store.issue(_p("blocker")), repeat=MESSAGES.roadmap.plan_repeat["blocker"])
     refine = [*store.comments_on(f"#{item}"), *_wait_reads(store)]
-    return (*reads, *blockers, *refine), ()
+    return (*reads, _openspec_config_read("<model-clone>"), *blockers, *refine), ()
 
 
 def plan_recheck_requests(

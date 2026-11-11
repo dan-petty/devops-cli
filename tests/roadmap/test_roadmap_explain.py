@@ -247,6 +247,21 @@ def test_a_rejected_plan_is_the_reason_of_the_stage_job_and_names_the_pull_reque
     assert "#7" in explained.stage.reason
 
 
+def test_a_repository_without_openspec_is_the_reason_of_the_stage_job(
+    job_world: JobWorld,
+) -> None:
+    """The stage job holds each item of a repository whose default branch has no
+    `openspec/config.yaml`, and explain prints that reason (#4629)."""
+    job_world.repo.untrack("openspec/config.yaml")
+    number = _seed(job_world)
+
+    explained = _explain(job_world, number)
+
+    assert explained.stage == JobVerdict(
+        False, TEXTS.stage_left_no_openspec.format(path="openspec/config.yaml", branch="main")
+    )
+
+
 def test_a_closed_issue_and_a_missing_issue_give_the_shared_reasons(job_world: JobWorld) -> None:
     closed = _seed(job_world, state=GitHubState.CLOSED)
 

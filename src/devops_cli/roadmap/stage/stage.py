@@ -13,7 +13,7 @@ checks of the draft have passed (`stage_ready`).
 families all apply. With no `--filter` the job takes the filter of the setting
 `roadmap.stage.filter`, by default every Ready item. It leaves out an item
 that is not Ready, whatever the filter says: a `status` filter can only narrow the Ready items.
-It also leaves out an item that an agent or a person claimed with an `owner/*` label (#2910), an item with the label `needs-split`, a tracker (sub-issues or the label `type/epic`), an item whose author has no write access
+It also leaves out an item that an agent or a person claimed with an `owner/*` label (#2910), every item of a repository whose default branch holds no `openspec/config.yaml` (`uses_openspec`, #4629), an item with the label `needs-split`, a tracker (sub-issues or the label `type/epic`), an item whose author has no write access
 (the model reads the body), an item whose "Dependencies" section names an open issue, a held item
 (`worktree_add.issue_holder`, which also counts a stray local branch of the new name with a commit that `origin` lacks), an item whose plan a person rejected until its text or a file that the reason names changes (`stage_rejected`, #3503), an item whose plan is already on the default branch or whose
 change is archived there (`planned.read_planned_changes`, one read of the tree for the round), an
@@ -101,6 +101,7 @@ from devops_cli.ai.context_budget import truncate_to_token_limit
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config.commands import BIN_OPENSPEC
 from devops_cli.config.constants import (
+    CONST_OPENSPEC_CONFIG_PATH,
     CONST_ROADMAP_EPIC_LABEL,
     CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS,
     CONST_ROADMAP_PLANNED_LIMIT_PRIORITIES,
@@ -139,6 +140,7 @@ from devops_cli.git.worktree_add import (
 from devops_cli.github.client import CreatedPull
 from devops_cli.github.session import get_github_session
 from devops_cli.lang import MESSAGES
+from devops_cli.openspec.project import uses_openspec
 from devops_cli.openspec.tool import OpenSpecTool, isolated_openspec
 from devops_cli.roadmap.agent_run import RunTrace, TraceFacts, body_error_text
 from devops_cli.roadmap.body_hash import body_hashes, hash_text, without_alternatives
@@ -498,6 +500,7 @@ class _Judge:
         queue: PlannedQueue,
         now: datetime,
         rejected: Mapping[int, RejectedPlan],
+        missing: tuple[str, ...] = (),
     ) -> None:
         self._store = store
         self._holder_of = holder_of
@@ -505,6 +508,7 @@ class _Judge:
         self._queue = queue
         self._now = now
         self._rejected_now = rejected
+        self._missing = missing
 
     def reason(self, item: Item, *, named: bool) -> tuple[LeftOutKind, str] | None:
         """The kind and the text of the reason the job leaves `item` out, or None when it may
@@ -514,6 +518,7 @@ class _Judge:
         checks: list[tuple[LeftOutKind, Callable[[Item], str | None]]] = [
             (kind.NOT_READY, self._not_ready),
             (kind.CLAIMED, self._claimed),
+            (kind.NO_OPENSPEC, self._no_openspec),
             (kind.NEEDS_SPLIT, self._needs_split),
             (kind.TRACKER, self._tracker),
             (kind.AUTHOR, self._author),
@@ -548,6 +553,16 @@ class _Judge:
         """An agent or a person holds the item (#2910): the Service takes no claimed item."""
         owner = claimed_by(item)
         return None if owner is None else MESSAGES.roadmap.item_left_claimed.format(owner=owner)
+
+    def _no_openspec(self, _item: Item) -> str | None:
+        """The default branch holds no `openspec/config.yaml` (#4629): a plan is an OpenSpec change,
+        so the job holds every item until onboarding adds the file. `--item` does not overrule
+        this hold."""
+        if CONST_OPENSPEC_CONFIG_PATH not in self._missing:
+            return None
+        return MESSAGES.roadmap.stage_left_no_openspec.format(
+            path=CONST_OPENSPEC_CONFIG_PATH, branch=self._planned.default
+        )
 
     def _needs_split(self, item: Item) -> str | None:
         return (
@@ -725,6 +740,7 @@ def select_stageable(
     probe: int | None = None,
     now: datetime | None = None,
     rejected: Mapping[int, RejectedPlan] | None = None,
+    missing: tuple[str, ...] = (),
 ) -> StageSelection:
     """The items to stage, up to `limit`, and those the filter names that the job leaves out.
 
@@ -735,6 +751,8 @@ def select_stageable(
     item that failed less than the wait of its failure class before `now` waits (#3493, #4060). An
     item whose plan a person rejected waits for a change of its text or of a file that the reason
     names; `rejected` holds the rejections of this run that the record does not hold yet (#3503).
+    `missing` holds the project files that the default branch lacks: with no
+    `openspec/config.yaml` the job takes no item (#4629).
     """
     opened = _open_items(store)
     judge = _Judge(
@@ -744,6 +762,7 @@ def select_stageable(
         PlannedQueue(planned_count(opened), planned_limit),
         now or datetime.now(UTC),
         rejected or {},
+        missing,
     )
     if item_number is not None:
         return _named_item(judge, store, item_number)
@@ -912,7 +931,8 @@ class KeptBranch:
 @dataclass(frozen=True)
 class StagePlan:
     """What a run does: the changes ready to write, the items stopped on a group over the budget,
-    the items that failed, and the issues left out with their reasons."""
+    the items that failed, and the issues left out with their reasons. `missing` holds the project
+    files that the default branch lacks, which onboarding adds (#4629)."""
 
     repo: str
     sha: str = ""
@@ -931,6 +951,7 @@ class StagePlan:
     blocked: tuple[Blocked, ...] = ()
     premise: tuple[FalsePremise, ...] = ()
     rejections: tuple[Rejection, ...] = ()
+    missing: tuple[str, ...] = ()
 
 
 def _stage_error(message: str, target: StageTarget) -> RoadmapStageError:
@@ -2005,12 +2026,14 @@ def _heads_after(heads: str, rejections: Iterable[Rejection]) -> str:
 
 class StageRead(NamedTuple):
     """What the stage job reads before it asks the model: the commit of the default branch, the
-    heads of `origin`, the plans on the default branch, and the selection."""
+    heads of `origin`, the plans on the default branch, the selection, and the project files that
+    the default branch lacks (#4629)."""
 
     sha: str
     heads: str
     planned: PlannedChanges
     selection: StageSelection
+    missing: tuple[str, ...]
 
 
 def read_stage_selection(
@@ -2032,11 +2055,14 @@ def read_stage_selection(
     to GitHub. `plan_stage` and `devops roadmap explain` read the selection through this one
     function. A caller that read the heads of `origin` or the plans already passes them in, so
     that a command that judges both jobs reads each once. The staged commit is the default branch
-    of `origin` after the fetch, not the HEAD of the clone (#3301)."""
+    of `origin` after the fetch, not the HEAD of the clone (#3301). A staged commit with no
+    `openspec/config.yaml` holds every item, and the read names the file as missing (#4629)."""
     inspect_checkout(source, repo)  # refuses a clone whose origin is not `repo`
     heads = read_remote_heads(source) if heads is None else heads
     planned = read_planned_changes(source, operation=_GIT_OPERATION) if planned is None else planned
     sha = _git(source, "rev-parse", f"origin/{planned.default}")
+    openspec = uses_openspec(source, sha, operation=_GIT_OPERATION)
+    missing = () if openspec else (CONST_OPENSPEC_CONFIG_PATH,)
     selection = select_stageable(
         store,
         filters=filters,
@@ -2048,8 +2074,9 @@ def read_stage_selection(
         probe=probe,
         now=now,
         rejected=rejected,
+        missing=missing,
     )
-    return StageRead(sha, heads, planned, selection)
+    return StageRead(sha, heads, planned, selection, missing)
 
 
 def plan_stage(
@@ -2094,7 +2121,7 @@ def plan_stage(
     planned = read_planned_changes(checkout, operation=_GIT_OPERATION)
     rejections = _rejections(store, repo, checkout, heads, planned, item_number)
     with observe_step(repo, _ROW, StepName.SELECT):
-        sha, heads, planned, selection = read_stage_selection(
+        sha, heads, planned, selection, missing = read_stage_selection(
             store,
             repo=repo,
             source=checkout,
@@ -2122,6 +2149,7 @@ def plan_stage(
         unmatched=unmatched,
         failed=tuple(_write_failure(f.item, f.error) for f in rejections.failures),
         rejections=rejections.found,
+        missing=missing,
     )
     if writer is not None:
         writer.begin(plan, {target.item.number for target in selection.selected})
@@ -3066,6 +3094,12 @@ def render_stage_plan(plan: StagePlan) -> str:
     ]
     if plan.sha:
         lines.append(texts.stage_staged_commit.format(sha=plan.sha))
+    if CONST_OPENSPEC_CONFIG_PATH in plan.missing and plan.planned is not None:
+        lines.append(
+            texts.stage_left_no_openspec.format(
+                path=CONST_OPENSPEC_CONFIG_PATH, branch=plan.planned.default
+            )
+        )
     ready = [
         texts.stage_ready_line.format(
             number=c.target.item.number,

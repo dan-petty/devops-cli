@@ -67,6 +67,12 @@ class StageRepo:
         self.git("commit", "-q", "-m", "track files")
         self.git("push", "-q", "origin", "main")
 
+    def untrack(self, *paths: str) -> None:
+        """Delete `paths`, commit to `main` and push, as a repository that lacks them."""
+        self.git("rm", "-q", *paths)
+        self.git("commit", "-q", "-m", "untrack files")
+        self.git("push", "-q", "origin", "main")
+
     def push_branch(self, branch: str, *, author: str = "Person") -> None:
         """Push one more commit by `author` to `branch` of `origin`, as another clone does; the
         branch starts at `main` when `origin` has none."""

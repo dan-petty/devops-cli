@@ -23,6 +23,7 @@ class LeftOutKind(StrEnum):
     CLOSED = "closed"
     NOT_READY = "not_ready"
     CLAIMED = "claimed"
+    NO_OPENSPEC = "no_openspec"
     NEEDS_SPLIT = "needs_split"
     TRACKER = "tracker"
     AUTHOR = "author"

@@ -194,10 +194,13 @@ def parse_due_tuple(output: str) -> tuple[str, ...]:
 @dataclass(frozen=True)
 class JobOutcome:
     """Outcome of running one roadmap job: whether it placed a critical fix or a P0 item (intake),
-    and whether it set an item Ready (refine)."""
+    whether it set an item Ready (refine), and the project files that the default branch of the
+    repository lacks (stage, #4629). A later row of the round reads the outcome, so `missing` is
+    the record that can start the onboarding of the repository (#4664)."""
 
     placed_critical_or_p0: bool = False
     set_ready: bool = False
+    missing: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -636,7 +639,8 @@ def _run_stage_adapter(
     waits for the wait of its failure class (`RETRY_AFTER`); the job fails, once the others are written, only
     when it tried items and handled none (#3493). A failure that no item explains, such as an
     outage, ends the run at once. Each item is written when it is planned, so a stop of the
-    Service loses at most the item in progress (#4034)."""
+    Service loses at most the item in progress (#4034). The outcome names the project files that
+    the default branch lacks, such as `openspec/config.yaml`, for onboarding (#4629)."""
     source = _job_clone("stage", clone_path)
     writer = StageWriter(store, source)
     plan = plan_stage(
@@ -658,7 +662,7 @@ def _run_stage_adapter(
     raise_for_failed_round(plan, applied)
     if synced is not None:
         raise_for_failed(synced.failed, summary=MESSAGES.roadmap.status_sync_failed)
-    return JobOutcome()
+    return JobOutcome(missing=plan.missing)
 
 
 def _run_implement_adapter(
