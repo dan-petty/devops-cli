@@ -96,6 +96,17 @@ A write of GitHub can fail for one candidate, for example with a status 502. Int
 
 The Service keeps the failure in its intake record, beside `schedule.json`, and not in the job record of the issue. The issue is a candidate, not an item, so it gets no mark. The record holds the step (`place`), the failure class (`ci_infra` for an error of GitHub), the count of failures in a row and the time of the last one. The next rounds leave the candidate out until the wait of the class has passed (`RETRY_AFTER` in `roadmap/failure.py`: 1 hour for `ci_infra`). They make no triage call and no embedding call for it, and the candidate does not make intake due. After the wait, intake decides the candidate again. A candidate that is placed, closed or no candidate any more loses its entry. A change that a person made to the Item while the job worked is no failure and leaves no entry. A webhook update of the issue keeps the wait, and `devops roadmap intake` keeps no record, so it waits for nothing.
 
+## When the Service runs intake
+
+The Service runs intake as the row `intake` of the triage lane. A webhook delivery of `issues` `opened`, `edited` or `reopened` runs intake of its one issue at once (ADR 0017). The poll runs the whole job when one of these is true:
+
+- The last run is 29 minutes old or older.
+- An issue reopened since the last run.
+- The last run left a fresh candidate.
+- The repository has an issue newer than the newest issue that a run saw.
+
+The issue events report no opened issue, so the poll reads the newest issue from the first page of the issue listing, newest first, 10 entries a page. The read is conditional, so a page that did not change costs a 304. A pull request does not count. An issue that 10 or more newer pull requests push off the page waits for the 29-minute interval. The intake record keeps the newest issue that a run saw, as it was when the run started. A scoped update does not change it, so the poll still runs intake when a delivery of an older issue was lost. When a scoped update already decided the new issue, the run does not decide it again and sends no model request for it.
+
 ## The three modes
 
 | Flag | What the run does |

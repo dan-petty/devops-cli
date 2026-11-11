@@ -964,6 +964,11 @@ class RoadmapStore(Protocol):
         """The issue changes made at or after `since`, oldest first, without those
         `except_actor` made."""
 
+    def newest_issue_number(self) -> int | None:
+        """The number of the newest issue, open or closed, that is no pull request, or None when
+        the store finds none. The issue events report no opened issue, so intake reads this
+        number to learn that a new issue opened (#4540)."""
+
     def label_changes(self, number: int) -> list[Change]:
         """The labeled and unlabeled changes of issue `number`, oldest first. The time a label was
         set is the time of its last labeled change that no unlabeled change of that label

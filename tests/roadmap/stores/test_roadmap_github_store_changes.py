@@ -1,5 +1,5 @@
 """The label and state changes that the GitHub roadmap store reads from the issue events since a
-time (#1335).
+time (#1335), and the newest issue that it reads from the issue listing (#4540).
 """
 
 from __future__ import annotations
@@ -24,7 +24,13 @@ from tests.support.fakes.github import (
     github_json,
     next_page,
 )
-from tests.support.roadmap_github_store import EVENTS, REPO, over_github, recorded_store
+from tests.support.roadmap_github_store import (
+    EVENTS,
+    REPO,
+    issue_payload,
+    over_github,
+    recorded_store,
+)
 
 # ── Changes ───────────────────────────────────────────────────────────────────
 
@@ -196,3 +202,38 @@ def test_changes_since_raises_when_the_events_outrun_the_page_cap(
     with pytest.raises(GitHubUnreadError, match=f"runs past {cap} pages"):
         store.changes_since(datetime(2026, 10, 1, tzinfo=UTC))
     assert len(github_api.sent) == cap
+
+
+# ── The newest issue (#4540) ──────────────────────────────────────────────────
+
+
+NEWEST_LISTING = f"/repos/{REPO}/issues?state=all&sort=created&direction=desc&per_page=10"
+
+
+def _pull(number: int) -> dict[str, Any]:
+    return issue_payload(number, pull_request={"url": f"{API}/repos/{REPO}/pulls/{number}"})
+
+
+@pytest.mark.parametrize(
+    ("page", "newest"),
+    [
+        ([_pull(12), _pull(11), issue_payload(10), _pull(9)], 10),
+        ([_pull(number) for number in range(20, 10, -1)], None),
+        ([], None),
+    ],
+    ids=["after-two-pulls", "ten-pulls", "empty"],
+)
+def test_the_newest_issue_is_read_from_one_page_newest_first_without_its_pulls(
+    github_api: GitHubApiFake, page: list[dict[str, Any]], newest: int | None
+) -> None:
+    """The store reads the newest issue from the first page of the issue listing, newest first,
+    and leaves out the pull requests on it. A page of ten pull requests, or an empty one, gives no
+    issue, and the linked page is never asked for."""
+    second = f"{NEWEST_LISTING}&page=2"
+    github_api.route("GET", NEWEST_LISTING, github_json(page, headers=next_page(second)))
+    github_api.route("GET", second, github_json({"message": "page 2 must not be read"}, status=500))
+    store, _ = over_github()
+    assert (store.newest_issue_number(), github_api.requested) == (
+        newest,
+        [f"GET {API}{NEWEST_LISTING}"],
+    )

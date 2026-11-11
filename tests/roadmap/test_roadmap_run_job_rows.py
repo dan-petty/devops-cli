@@ -99,6 +99,24 @@ def test_the_dry_run_of_the_cli_lists_the_alternatives_row(
     ) == (0, True)
 
 
+def test_the_dry_run_of_the_cli_lists_the_read_of_the_newest_issue(
+    seeded_store: InMemoryRoadmapStore,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    cli: Callable[..., Any],
+) -> None:
+    """The dry run lists the read of the newest issue after the read of the issue events: both
+    judge which jobs are due (#4540)."""
+    monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("COLUMNS", "400")
+
+    output = cli(["roadmap", "run", "--dry-run", "-R", REPO]).output
+    events = output.find(f"/repos/{REPO}/issues/events")
+    newest = output.find(f"/repos/{REPO}/issues?state=all&sort=created&direction=desc&per_page=10")
+
+    assert (events > -1, newest > events) == (True, True)
+
+
 RELEASE_COMMENTS_ROW = next(row for row in STATUS_LANE_ROWS if row.name == "release_comments")
 
 

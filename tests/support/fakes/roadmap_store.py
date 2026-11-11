@@ -76,7 +76,7 @@ from devops_cli.roadmap.stores.store import (
 )
 
 # The reads that `fail_read` can fail.
-READS = frozenset({"changes_since", "repository_is_private"})
+READS = frozenset({"changes_since", "newest_issue_number", "repository_is_private"})
 
 DEFAULT_ROADMAP_MEMORY_REPO = "example/roadmap"
 DEFAULT_ROADMAP_MEMORY_ACTOR = "devops-cli"
@@ -238,7 +238,8 @@ class InMemoryRoadmapStore(RoadmapStore):
 
     def fail_read(self, read: str, error: Exception | None) -> None:
         """Make every call of the store method `read` raise `error`, until `error` is None. The
-        reads that can fail are `repository_is_private` and `changes_since`."""
+        reads that can fail are `repository_is_private`, `changes_since` and
+        `newest_issue_number`."""
         if read not in READS:
             raise ValueError(f"{read} is no read that the fake can fail.")
         if error is None:
@@ -767,6 +768,13 @@ class InMemoryRoadmapStore(RoadmapStore):
             for change in self._roadmap.changes
             if change.at >= cutoff and (skipped is None or change.actor != skipped)
         ]
+
+    def newest_issue_number(self) -> int | None:
+        """The highest number of an issue that is no pull request, or None when none is seeded
+        (#4540)."""
+        self._readable("newest_issue_number")
+        issues = self._roadmap.issues.values()
+        return max((issue.number for issue in issues if not issue.pull_request), default=None)
 
     def label_changes(self, number: int) -> list[Change]:
         """The labeled and unlabeled changes of issue `number` that its writes recorded, oldest

@@ -328,6 +328,16 @@ def test_items_are_the_issues_with_a_priority_label_and_candidates_the_open_issu
     ) == ([placed, done], [(candidate, ("type/bug", "status/new"))], None, None, None)
 
 
+def test_the_newest_issue_is_the_highest_number_that_is_no_pull_request(world: World) -> None:
+    """The newest issue is the issue with the highest number, open or closed, Item or not, and a
+    newer pull request does not count (#4540). A repository with no issue has none."""
+    before = world.store.newest_issue_number()
+    world.seed("placed", labels=("priority/p2-medium",))
+    newest = world.seed("closed off the roadmap", state=GitHubState.CLOSED)
+    world.seed_pull("a pull request", head_ref="feat/3-a-change")
+    assert (before, world.store.newest_issue_number()) == (None, newest)
+
+
 def test_an_item_carries_the_count_of_comments_on_its_issue(world: World) -> None:
     """Only a comment moves the count: an edit of the body does not, so a job tells a new
     comment from its own record write without a read of the comments (#3667)."""
