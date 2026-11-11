@@ -1,0 +1,142 @@
+{
+ "summary": "Require the message file a task names",
+ "pull_request_body": "The stage check accepts a plan whose task text names a `MESSAGES.roadmap` entry while no group changes `src/devops_cli/lang/en/messages.py`. The deterministic check passes, and the verification pass keeps the plan a draft instead of returning it, so a person edits the plan. This change adds a deterministic problem to `content_problems` in `src/devops_cli/roadmap/stage_change.py`: when a task text names `MESSAGES.roadmap` and no group lists the message file, the check returns a problem that names `src/devops_cli/lang/en/messages.py`. The verification prompt `src/devops_cli/ai/tasks/roadmap_stage_verify.md` names `missing_path` for a code change that needs a file the plan does not change, so the pass returns the plan to the planner once. Plans: #3405",
+ "why": "A plan can name a `MESSAGES.roadmap` message in a task text and change no file that defines it, and the stage check accepts it (#3405). The verification pass sees the defect but does not return the plan to the planner, so a person has to edit the plan by hand.",
+ "what_changes": [
+  "`content_problems` in `src/devops_cli/roadmap/stage_change.py` returns a problem that names `src/devops_cli/lang/en/messages.py` when a rendered task text names `MESSAGES.roadmap` and no group lists that file.",
+  "The check matches the bare `MESSAGES.roadmap` group and a dotted attribute after it, across the task texts that render into `tasks.md`.",
+  "`src/devops_cli/ai/tasks/roadmap_stage_verify.md` names `missing_path` for a code change that needs a file that the plan does not change.",
+  "`tests/roadmap/test_roadmap_stage_plan.py` holds one case for a plan that names a message without the file and one for a plan that names it with the file.",
+  "The change carries a spec delta: `content_problems` and the verification prompt are behavior that a consumer of the stage job observes."
+ ],
+ "skip_specs": false,
+ "feasibility": [
+  "The probe `content_problems` is defined at src/devops_cli/roadmap/stage_change.py:554:def content_problems(proposal: StageProposal, probes: Sequence[str] = ()) -> list[str]: confirms the function that the issue extends, at the path the issue cites.",
+  "The probe `The path src/devops_cli/roadmap/stage_change.py is a file of the staging commit.` confirms the check module.",
+  "The probe `The path src/devops_cli/lang/en/messages.py is a file of the staging commit.` confirms the file that holds the `RoadmapMessages` catalog and the `MESSAGES.roadmap` entry.",
+  "The probe `The path src/devops_cli/ai/tasks/roadmap_stage_verify.md is a file of the staging commit.` confirms the verification prompt.",
+  "The probe `The path tests/roadmap/test_roadmap_stage_plan.py is a file of the staging commit.` confirms the test module beside the existing stage plan tests.",
+  "The probe `The path MESSAGES.roadmap is no file of the staging commit. No commit in the history deleted or renamed it.` shows that the name is a catalog attribute and not a path, so the check reads it in prose and names `src/devops_cli/lang/en/messages.py` as the file.",
+  "First check: `uv run devops ci test tests/roadmap/test_roadmap_stage_plan.py` runs the new stage plan cases against the real code.",
+  "Second check: `uv run devops ci test tests/roadmap/test_roadmap_stage_content.py` runs the existing content problems cases, which the change must keep passing.",
+  "Third check: `uv run devops openspec check` validates the change folder."
+ ],
+ "existing_tool": "No open, maintained tool resolves a message name in the prose of a plan to the file that defines it, and the stage check already reads the task texts, so the change extends `content_problems` in `src/devops_cli/roadmap/stage_change.py`. It deletes no internal code.",
+ "builds_own": false,
+ "decisions": [
+  {
+   "decision": "Read the task texts that render into `tasks.md` (test, implementation, documentation, verify, process) for a `MESSAGES.roadmap` name, and match the bare group with an optional dotted attribute.",
+   "reason": "The example task names the bare group and adds no message file line, so a scan of dotted names only would miss it, and a scan of the whole reply would fire on a summary that mentions the catalog with no code change."
+  },
+  {
+   "decision": "Name `src/devops_cli/lang/en/messages.py` in the problem text, and accept the plan when any group lists it in `changes`.",
+   "reason": "The catalog of the roadmap messages is the file that defines `MESSAGES.roadmap`, so the file is the one path a task that names a message needs."
+  },
+  {
+   "decision": "Name `missing_path` in the verification prompt for a code change that needs a file that the plan does not change.",
+   "reason": "The defect type exists already and names exactly this defect, so the prompt and the validator name the same kinds and the pass returns the plan once."
+  },
+  {
+   "decision": "Add the new cases to `tests/roadmap/test_roadmap_stage_plan.py` and keep `tests/roadmap/test_roadmap_stage_content.py` passing.",
+   "reason": "The stage plan tests already build plans and call `content_problems`, so the new cases reuse their fixtures and sit in the mirror folder of `src/devops_cli/roadmap/`."
+  }
+ ],
+ "rejected": [
+  {
+   "alternative": "Scan only dotted message names such as `MESSAGES.roadmap.foo`.",
+   "evidence": "The example of the issue, the plan of the pull request for #3343, names the bare `MESSAGES.roadmap` group and adds no message file line, so a dotted-only scan would accept it."
+  },
+  {
+   "alternative": "Type the defect `other` in the verification pass, as the pass did for that plan.",
+   "evidence": "The issue states that the stage comment named the finding, the draft stayed open, and a person had to edit the plan, so `other` does not return the plan."
+  },
+  {
+   "alternative": "Add a new defect type beside the nine that the prompt and the validator hold.",
+   "evidence": "The existing `missing_path` type names a code change that needs a file the plan does not change, and a new type would need a matching change in the validator."
+  }
+ ],
+ "specs": [
+  {
+   "capability": "roadmap-stage",
+   "purpose": null,
+   "added": [
+    {
+     "name": "The stage check names the message file a task needs",
+     "text": "The stage check SHALL return a problem that names `src/devops_cli/lang/en/messages.py` when a rendered task text of a group names `MESSAGES.roadmap` and no group lists that file in `changes`.",
+     "scenarios": [
+      {
+       "name": "A task text names a message without the message file",
+       "when": "A plan has a task text that names `MESSAGES.roadmap` and no group lists `src/devops_cli/lang/en/messages.py` in `changes`.",
+       "then": "`content_problems` returns a problem that names `src/devops_cli/lang/en/messages.py`."
+      },
+      {
+       "name": "A task text names a message with the message file",
+       "when": "A plan has a task text that names `MESSAGES.roadmap` and a group lists `src/devops_cli/lang/en/messages.py` in `changes`.",
+       "then": "`content_problems` returns no problem about `src/devops_cli/lang/en/messages.py`."
+      },
+      {
+       "name": "A task text names a dotted message entry",
+       "when": "A plan has a task text that names `MESSAGES.roadmap.some_entry` and no group lists `src/devops_cli/lang/en/messages.py` in `changes`.",
+       "then": "`content_problems` returns a problem that names `src/devops_cli/lang/en/messages.py`."
+      }
+     ]
+    },
+    {
+     "name": "The verification prompt names the missing path of a needed file",
+     "text": "The verification prompt `src/devops_cli/ai/tasks/roadmap_stage_verify.md` SHALL name `missing_path` for a code change that needs a file that the plan does not change.",
+     "scenarios": [
+      {
+       "name": "The prompt names the missing path type",
+       "when": "The verification prompt `src/devops_cli/ai/tasks/roadmap_stage_verify.md` is read.",
+       "then": "The prompt states that a code change that needs an unchanged file is a `missing_path` finding."
+      }
+     ]
+    }
+   ],
+   "modified": []
+  }
+ ],
+ "groups": [
+  {
+   "title": "Return the message-file problem from the stage content check",
+   "kind": "behavior",
+   "reads": [
+    "src/devops_cli/roadmap/stage_change.py",
+    "src/devops_cli/lang/en/messages.py",
+    "tests/roadmap/test_roadmap_stage_plan.py",
+    "tests/support/roadmap_stage.py"
+   ],
+   "changes": [
+    "src/devops_cli/roadmap/stage_change.py",
+    "tests/roadmap/test_roadmap_stage_plan.py"
+   ],
+   "creates": [],
+   "creates_lines": {},
+   "test": "Add two cases to `tests/roadmap/test_roadmap_stage_plan.py`: one where a task text names `MESSAGES.roadmap` and no group lists `src/devops_cli/lang/en/messages.py`, which must return a problem naming that file, and one where a group lists it, which must return no such problem",
+   "implementation": "In `content_problems` in `src/devops_cli/roadmap/stage_change.py`, collect the rendered task texts of every group and match `MESSAGES.roadmap` with an optional dotted attribute. When a text matches and no group lists `src/devops_cli/lang/en/messages.py` in `changes`, append a problem that names the file",
+   "documentation": null,
+   "verify": "uv run devops ci test tests/roadmap/test_roadmap_stage_plan.py",
+   "process": null
+  },
+  {
+   "title": "Name missing_path in the verification prompt",
+   "kind": "other",
+   "reads": [
+    "src/devops_cli/ai/tasks/roadmap_stage_verify.md",
+    "src/devops_cli/roadmap/stage_change.py"
+   ],
+   "changes": [
+    "src/devops_cli/ai/tasks/roadmap_stage_verify.md"
+   ],
+   "creates": [],
+   "creates_lines": {},
+   "test": null,
+   "implementation": "Add a line to `src/devops_cli/ai/tasks/roadmap_stage_verify.md` that types a code change which needs a file the plan does not change as `missing_path`, so the pass returns the plan to the planner once",
+   "documentation": null,
+   "verify": "uv run devops ci test tests/roadmap/test_roadmap_stage_task_verification.py",
+   "process": null
+  }
+ ],
+ "criteria": [],
+ "dependencies": []
+}

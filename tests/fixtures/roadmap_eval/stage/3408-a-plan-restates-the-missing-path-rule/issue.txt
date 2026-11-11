@@ -1,0 +1,87 @@
+# Item #3405: fix(roadmap): the stage check names the message file a plan must change
+
+## Problem or Motivation
+
+A plan can add a problem text to `MESSAGES.roadmap` and change no file that defines the message. The deterministic check accepts the plan, and the verification pass keeps the plan a draft but does not return it to the planner.
+
+The plan of PR #3349 (for #3343) is an example. Task 1.2 said "Use the existing `MESSAGES.roadmap` entries for the text", and task 1.2 added no `src/devops_cli/lang/en/messages.py` line. The verification pass found the defect and typed it `other` at group 1. The stage comment named the finding, the draft stayed open, and a person had to edit the plan.
+
+`content_problems` in `src/devops_cli/roadmap/stage_change.py` does not resolve a message name that a task text names. The verification pass does not return a plan for a file that a cited code change needs and the plan does not change.
+
+## Proposed Solution & Architectural Design
+
+1. In `content_problems` in `src/devops_cli/roadmap/stage_change.py`, when a task text names a `MESSAGES.roadmap` entry and no group changes `src/devops_cli/lang/en/messages.py`, return a problem that names the file.
+2. In `src/devops_cli/ai/tasks/roadmap_stage_verify.md`, name `missing_path` for a code change that needs a file that the plan does not change, so the verification pass returns the plan to the planner once.
+3. Add a case in `tests/roadmap/test_roadmap_stage_plan.py` for a plan that names a new message without the lang file, and one for a plan that names it with the lang file.
+
+## Target Subsystem
+
+SDLC, Git & PR Governance
+
+## Existing Tool Considered
+
+No open, maintained tool resolves a message name in the prose of a plan to the file that defines it. The stage check already reads the task texts, so the change extends `content_problems`. It deletes no internal code. Estimated cost: 5,000 tokens to build, 1,000 tokens to keep and fix, and 3 hours elapsed.
+
+<!-- devops-roadmap-refine:start -->
+<!-- checked-at: sha=4e0e24359208160d2ac0be443259ea76bf4c5d1d -->
+## Proposed design
+
+### Problem statement
+The stage check accepts a plan that names a `MESSAGES.roadmap` message but changes no `src/devops_cli/lang/en/messages.py` file. The verification pass keeps the plan a draft and does not return it to the planner. The change adds a deterministic problem and names `missing_path` in the verification prompt.
+
+### Acceptance criteria
+
+### Requirement: Stage check requires the message file
+The stage check MUST return a problem that names `src/devops_cli/lang/en/messages.py` when a task text names a `MESSAGES.roadmap` entry and no task group changes that file.
+
+#### Scenario: Task text names a message without the message file
+- **WHEN** A plan has a task text that names `MESSAGES.roadmap` and no group lists `src/devops_cli/lang/en/messages.py` in `changes`.
+- **THEN** `content_problems` returns a problem that names `src/devops_cli/lang/en/messages.py`.
+
+### Requirement: Stage check accepts the message file
+The stage check MUST NOT return the message-file problem when a task group changes `src/devops_cli/lang/en/messages.py`.
+
+#### Scenario: Task text names a message with the message file
+- **WHEN** A plan has a task text that names `MESSAGES.roadmap` and a group lists `src/devops_cli/lang/en/messages.py` in `changes`.
+- **THEN** `content_problems` returns no problem about `src/devops_cli/lang/en/messages.py`.
+
+### Requirement: Verification prompt names missing_path
+The verification prompt MUST name `missing_path` for a code change that needs a file that the plan does not change.
+
+#### Scenario: Prompt names the missing path type
+- **WHEN** The verification prompt `src/devops_cli/ai/tasks/roadmap_stage_verify.md` is read.
+- **THEN** The prompt states that a code change needing an unchanged file is a `missing_path` finding.
+
+### Requirement: Stage plan tests cover both message-file cases
+The stage plan tests MUST cover a plan that names a message without the message file and a plan that names it with the message file.
+
+#### Scenario: Both message-file cases run
+- **WHEN** The tests in `tests/roadmap/test_roadmap_stage_plan.py` run.
+- **THEN** They assert the problem when the file is absent and its absence when the file is present.
+
+### Existing Tool Considered
+No alternatives check has run. No open, maintained tool resolves a message name in the prose of a plan to the file that defines it. The stage check already reads the task texts, so the change extends `content_problems`. The written cost is 5,000 tokens to build, 1,000 tokens to keep and fix, and 3 hours.
+
+### Key questions
+- **Which task text does the stage check scan for a `MESSAGES.roadmap` name?**: Scan the task texts that render into `tasks.md`: `test`, `implementation`, `documentation`, `verify` and `process`. Match `MESSAGES.roadmap` with an optional dotted attribute. The bare group counts because the example task names it. (best practice) [sources: src/devops_cli/roadmap/stage_change.py, src/devops_cli/lang/en/messages.py]
+  - Chosen: Scan the rendered task texts and match the bare group. The example task names `MESSAGES.roadmap` and adds no message file line.
+  - Rejected: Scan only dotted message names. The example task names no dotted attribute, so the check would miss it.
+  - Rejected: Scan the whole reply. A summary or a decision can mention the catalog without a code change.
+- **Which file must a plan change when a task text names a `MESSAGES.roadmap` name?**: `src/devops_cli/lang/en/messages.py`, which holds the `RoadmapMessages` catalog. [sources: src/devops_cli/lang/en/messages.py, src/devops_cli/roadmap/stage_change.py]
+- **How does the verification prompt classify a code change that needs a file that the plan does not change?**: As `missing_path`. The prompt names it so an evidence-backed finding returns the plan to the planner once. (best practice) [sources: src/devops_cli/ai/tasks/roadmap_stage_verify.md, src/devops_cli/roadmap/stage_change.py]
+  - Chosen: Name `missing_path`. The existing `missing_path` type names the defect.
+  - Rejected: Use `other`. The example typed the defect `other`, and the pass did not return the plan.
+  - Rejected: Add a new defect type. The prompt and the validator must name the same kinds, and a new type needs more code.
+- **Where do the tests for both message-file cases go?**: `tests/roadmap/test_roadmap_stage_plan.py`, beside the existing stage plan tests. [sources: tests/roadmap/test_roadmap_stage_plan.py, src/devops_cli/roadmap/stage_change.py]
+
+### Fit
+Fits in one pull request.
+
+### Suspected block
+None.
+
+### Dependencies
+None.
+<!-- devops-roadmap-refine:end -->
+
+<!-- devops-roadmap-record {"Effort": "Low", "Owner": "Service", "Priority": "P2-Medium", "Status": "In Review", "Value": "Medium", "implement.branch": "fix/3405-the-stage-check-names-the-message", "implement.job": "devops-cli-runner-20261104-123855-95e8", "implement.job_digest": "sha256:68ba10ea2a5e3536c67a726812a8aaac645a24539797eb2a7cf907c8762cdf68", "implement.job_state": null, "implement.trace": null, "refine.alternatives_asked": null, "refine.block_paths": null, "refine.blocked_by": null, "refine.body_hash": "d0c3cbde81dbbf979dc45da45c1592304fe442ef5a072877f71b2ace8004cecc", "refine.failed_body_hash": null, "refine.needs_split": "false", "refine.next_step": "ready", "refine.section_hash": "836321e3af9b311f59a17004c46425847699e991305691581818a039ff1ab70b", "stage.branch": null, "stage.file_cap": null, "stage.groups": null, "stage.needs_fix": null, "stage.needs_split": null, "stage.pr": null, "stage.ready": null, "stage.sha": null} -->

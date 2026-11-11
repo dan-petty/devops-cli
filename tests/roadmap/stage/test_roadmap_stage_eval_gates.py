@@ -50,8 +50,9 @@ CASES: Final[list[StageCase]] = load_cases(REPO_ROOT / CASES_DIRECTORY)
 _WHOLE_SET_REPLAY = "replay" + "_all(CASES)"
 _MODULE_FIXTURE = '@pytest.fixture(scope="module")'
 # The defects of the whole set that a gate judges, and all of them, after #3395 records the
-# placeholder summary of case 3167 at the kind gate.
-JUDGED_BASELINE: Final[tuple[int, int]] = (81, 317)
+# placeholder summary of case 3167 at the kind gate. The case of #3408 adds one defect that no gate
+# judges.
+JUDGED_BASELINE: Final[tuple[int, int]] = (81, 318)
 
 
 @pytest.fixture(scope="module")

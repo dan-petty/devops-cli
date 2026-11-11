@@ -25,7 +25,7 @@ from devops_cli.roadmap.stage.stage_eval_cases import (
     load_cases,
 )
 from devops_cli.roadmap.stage.stage_toolbox import ToolboxModel
-from devops_cli.roadmap.stage.stage_verify import Finding, Verification
+from devops_cli.roadmap.stage.stage_verify import Finding, Verification, VerificationInput
 from devops_cli.roadmap.stage.stage_verify_eval import (
     VerifyScore,
     evaluate_cases,
@@ -48,6 +48,47 @@ pytestmark = pytest.mark.usefixtures("keyring_store", "openspec_fake")
 Cli = Callable[..., Any]
 SET = REPO_ROOT / CASES_DIRECTORY
 SAMPLE_QUOTE = "return comments[:-1]"
+FALSE_PREMISE_CASE = "3408-a-plan-restates-the-missing-path-rule"
+PROMPT_PATH = "src/devops_cli/ai/tasks/roadmap_stage_verify.md"
+DESIGN_QUOTE = "The existing `missing_path` type names a code change that needs a file the plan does not change"
+PROMPT_QUOTE = (
+    "`missing_path`: the plan names a file that does not exist and that no earlier group creates."
+)
+
+
+def _false_premise_case(cases: list[StageCase]) -> StageCase:
+    return next(case for case in cases if case.name == FALSE_PREMISE_CASE)
+
+
+def test_the_false_premise_case_quotes_the_plan_and_cites_the_prompt(
+    cases: list[StageCase], tmp_path: Path
+) -> None:
+    case = _false_premise_case(cases)
+    (defect,) = case.defects
+    source = tmp_path / "source"
+    (source / PROMPT_PATH).parent.mkdir(parents=True)
+    (source / PROMPT_PATH).write_text(f"- {PROMPT_QUOTE}\n", encoding="utf-8")
+
+    given = VerificationInput.of(
+        number=case.issue,
+        title=case.title,
+        body=case.issue_body,
+        plan=case.plan,
+        source=source,
+    )
+
+    assert (defect.type, defect.gate) == (DefectType.FALSE_PREMISE, GateName.NONE)
+    assert defect.evidence.splitlines() == [DESIGN_QUOTE, PROMPT_QUOTE]
+    assert PROMPT_PATH in given.files
+    assert given.contains(DESIGN_QUOTE)
+
+
+def test_only_a_false_premise_finding_finds_the_defect_of_the_case(cases: list[StageCase]) -> None:
+    case = _false_premise_case(cases)
+
+    assert matched_defects(case.defects, []) == ()
+    assert matched_defects(case.defects, [_finding(DefectType.MISSING_PATH)]) == ()
+    assert matched_defects(case.defects, [_finding(DefectType.FALSE_PREMISE)]) == case.defects
 
 
 def _defect(kind: DefectType, severity: Severity = Severity.MAJOR) -> Defect:

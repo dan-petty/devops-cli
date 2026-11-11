@@ -1,0 +1,14 @@
+{
+ "tracked": [
+  "src/devops_cli/roadmap/stage_change.py",
+  "src/devops_cli/lang/en/messages.py",
+  "src/devops_cli/ai/tasks/roadmap_stage_verify.md",
+  "tests/roadmap/test_roadmap_stage_plan.py",
+  "tests/roadmap/test_roadmap_stage_content.py",
+  "tests/roadmap/test_roadmap_stage_task_verification.py",
+  "tests/support/roadmap_stage.py"
+ ],
+ "capabilities": [
+  "roadmap-stage"
+ ]
+}
