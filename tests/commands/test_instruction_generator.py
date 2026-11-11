@@ -145,6 +145,40 @@ def test_generate_pointer_stub() -> None:
     ) == ([], True)
 
 
+def _stub_prose(stub: str) -> str:
+    """The text of a stub as one line, without the quote marks and the line breaks."""
+    return " ".join(line.removeprefix(">").strip() for line in stub.splitlines() if line)
+
+
+def test_a_stub_with_an_import_line_says_agents_md_is_loaded_and_one_without_says_read_it() -> None:
+    """A tool that expands the import line already holds AGENTS.md in its context, so its stub
+    tells it not to read the file again. A tool with no import line is told to read it (#4471)."""
+    with_import = _stub_prose(
+        generate_pointer_stub(
+            title="Sample — Claude Instructions",
+            tool_name="Claude Code",
+            filename=CONST_CLAUDE_MD_FILENAME,
+            canonical_relpath="./AGENTS.md",
+            import_line="@AGENTS.md",
+        )
+    )
+    without_import = _stub_prose(
+        generate_pointer_stub(
+            title="Sample — GitHub Copilot Instructions",
+            tool_name="GitHub Copilot",
+            filename=CONST_COPILOT_INSTRUCTIONS_PATH,
+            canonical_relpath="../AGENTS.md",
+        )
+    )
+    loaded = "The line `@AGENTS.md` in this file loads AGENTS.md into your context. Do not read it again."
+    assert (
+        loaded in with_import,
+        "Read that file." in with_import,
+        "Do not read it again." in without_import,
+        "Read that file." in without_import,
+    ) == (True, False, False, True)
+
+
 @pytest.mark.parametrize(
     ("target_file", "title_suffix", "tool_name", "canonical_link", "import_lines"),
     [

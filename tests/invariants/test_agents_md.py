@@ -193,6 +193,27 @@ def test_agents_md_premise_rule_closes_superseded_issues() -> None:
     )
 
 
+def test_agents_md_asks_for_small_tool_output_and_keeps_the_facts_the_reader_needs() -> None:
+    """Tool results are most of the tokens that an agent carries, so one rule asks each command
+    for less output, and it names the facts that a shorter output keeps (#4471)."""
+    content = (REPO_ROOT / "AGENTS.md").read_text(encoding="utf-8")
+    rules = [line for line in content.splitlines() if "**Keep tool output small.**" in line]
+    assert [
+        needle
+        for needle in (
+            "Search before you read",
+            "`git diff --stat`",
+            "`--jq`",
+            "`--limit`",
+            "Loki `limit`",
+            "error lines",
+            "`file:line`",
+            "failed test IDs",
+        )
+        if needle not in "".join(rules)
+    ] == []
+
+
 def test_agents_md_routes_each_kind_of_task_to_a_document_that_exists() -> None:
     """Each row of the routing table of AGENTS.md links a document, and each document it links
     exists, so a moved document fails here rather than in an agent's session (#1961)."""

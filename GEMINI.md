@@ -4,6 +4,7 @@
 
 > **This file is a pointer, not the source.** Gemini CLI looks specifically for
 > `GEMINI.md`, so this stub exists to redirect it. [AGENTS.md](./AGENTS.md)
-> holds the rules for every task and routes each task to the document that owns it. Read
-> that file. `devops ai agents` regenerates this stub and leaves an existing AGENTS.md alone
+> holds the rules for every task and routes each task to the document that owns it.
+> The line `@./AGENTS.md` in this file loads AGENTS.md into your context. Do not read it again.
+> `devops ai agents` regenerates this stub and leaves an existing AGENTS.md alone
 > unless `--force` is given; do not duplicate content here.
