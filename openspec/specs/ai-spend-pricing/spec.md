@@ -174,17 +174,6 @@ A reply of the `gateway` provider that names a deployment model in the `x-litell
 - **WHEN** the ledger holds one call that names `anthropic/claude-haiku-5-5` and no backend, and one call that names neither, both sent to `localhost:4000` through the `gateway` provider
 - **THEN** the report counts one local request
 
-### Requirement: The warning for an unpriced hosted model names the command that sets a price
-The warning that names a hosted model that neither genai-prices nor a price override prices SHALL give the command `devops ai cost set-price <model> <prompt_rate> <completion_rate>` with the model of the warning.
-
-#### Scenario: The DeepSeek group has no price
-- **WHEN** two replies name `openrouter/deepseek/deepseek-v4.1-flash-1017:floor` and no backend, and no price override exists
-- **THEN** both rows have the source `unknown` and a cost of $0, and one warning names the command `devops ai cost set-price`
-
-#### Scenario: A price override of the deployment model
-- **WHEN** a price override of `deepseek-v4.1-flash-1017:floor` is 0.05 USD input and 0.192 USD output per million tokens
-- **THEN** a call of 1,000,000 prompt and 1,000,000 completion tokens costs 0.242 USD with the source `custom_override`
-
 ### Requirement: A run records and counts the model that answered
 `record_run_spend` SHALL store the model name of the replies of a run in `served_model` of the spend record, and SHALL add 1 for each reply to `devops_cli_ai_model_answers_total` with the labels `asked`, `answered` and `fallback`. `fallback` SHALL be `true` when the answered model is neither the asked model nor the asked model under a provider prefix, and `false` otherwise. A reply with no model name SHALL add no count.
 
@@ -224,8 +213,8 @@ When a call through the gateway names no backend and no deployment model, and th
 - **THEN** the record is not local, has the deployment model `claude-sonnet-5-5`, the pricing source `genai_prices:anthropic` and a cost above $0
 
 #### Scenario: A run on a hosted group that nothing prices
-- **WHEN** an agent run on `deepseek-v4.1-flash-1017` through a gateway that is the cluster host gets replies that name no model
-- **THEN** the record is not local, has the pricing source `unknown` and a cost of $0, and one warning names the model
+- **WHEN** an agent run on `claude-sonnet-5-5` through a gateway that is the cluster host gets a reply that names `example-provider/unpriced-model`, a hosted model that nothing prices
+- **THEN** the record is not local, has the deployment model `example-provider/unpriced-model`, the pricing source `unknown` and a cost of $0, and one warning names the model
 
 #### Scenario: A run on a local group
 - **WHEN** an agent run on `devops-coder` through a gateway that is the cluster host gets replies that name no model
@@ -233,7 +222,7 @@ When a call through the gateway names no backend and no deployment model, and th
 
 #### Scenario: A reply that names another model
 - **WHEN** an agent run on `claude-sonnet-5-5` gets a reply that names `deepseek-v4.1-flash-1017`
-- **THEN** the record has the deployment model `deepseek-v4.1-flash-1017` and the pricing source `unknown`
+- **THEN** the record has the deployment model `deepseek-v4.1-flash-1017` and the pricing source `builtin:hosted_group_prices`
 
 ### Requirement: The setting ai.price_overrides prices a model
 The AI configuration SHALL hold the setting `ai.price_overrides`, a map of model name to a prompt price and a completion price in USD per million tokens, each a finite number of 0 or more. The default SHALL be an empty map. The pricing registry SHALL price a model from this setting when `pricing_overrides.json` in the data directory holds no price for it.
@@ -282,3 +271,57 @@ The `devops ai cost report` and `devops ai cost roi` commands SHALL accept `--si
 #### Scenario: The MCP tool ai_cost_report accepts date range and grouping
 - **WHEN** the MCP tool `ai_cost_report` is called with `since`, `until`, and `by`
 - **THEN** it passes the options to the command line and returns the matching report
+
+### Requirement: A warning for a hosted model with no price names the command that sets a price
+The warning that names a hosted model that neither genai-prices, a built-in price nor a price override prices SHALL give the command `devops ai cost set-price <model> <prompt_rate> <completion_rate>` with the model of the warning.
+
+#### Scenario: A deployment model with no price
+- **WHEN** two replies name `openrouter/example-provider/unpriced-model:floor` and no backend, and no price override exists
+- **THEN** both rows have the source `unknown` and a cost of $0, and one warning names the command `devops ai cost set-price`
+
+#### Scenario: A price override of the deployment model
+- **WHEN** a price override of `unpriced-model:floor` is 0.05 USD input and 0.192 USD output per million tokens
+- **THEN** a call of 1,000,000 prompt and 1,000,000 completion tokens costs 0.242 USD with the source `custom_override`
+
+### Requirement: Every hosted gateway group has a price
+The pricing registry SHALL price every hosted group of `k8s/llm/gateway/config.yaml` with no setting and no price file, under the route name of the group and under its deployment model. For a group that genai-prices does not price, the registry SHALL take the built-in price of the group.
+
+#### Scenario: Each hosted group by both names
+- **WHEN** a reply of each hosted group of the gateway config names the route name, or the deployment model such as `openrouter/deepseek/deepseek-v4.1-flash-1017:floor`, and no backend, and no setting and no file price the model
+- **THEN** no call has the pricing source `unknown`
+
+#### Scenario: An agent run on the DeepSeek group
+- **WHEN** an agent run on `deepseek-v4.1-flash-1017` gets a reply that names `deepseek-v4.1-flash-1017` and uses 1,000,000 prompt tokens, 900,000 of them cached, and 100,000 completion tokens
+- **THEN** the record has the pricing source `builtin:hosted_group_prices` and a cost of 0.033477 USD, and `devops_cli_ai_spend_usd_total` adds 0.033477 with the `model` label `deepseek-v4.1-flash-1017`
+
+### Requirement: A price override wins over the built-in price of a group
+`pricing_overrides.json` SHALL win over `ai.price_overrides`, and both SHALL win over the built-in price of a hosted group.
+
+#### Scenario: A setting for the group
+- **WHEN** `ai.price_overrides` holds 1.00 USD prompt for `deepseek-v4.1-flash-1017`
+- **THEN** a call of 1,000,000 prompt tokens costs 1.00 USD with the source `settings:ai.price_overrides`
+
+### Requirement: Every model of the Service template is priced or local
+Every chat and embedding model that `k8s/devops/configmap.example.yaml` names SHALL be a group of the gateway config. A hosted group SHALL have a price, and a local group SHALL be local.
+
+#### Scenario: The models of the Service template
+- **WHEN** the models of `ai.model`, of each task and of each tier of the implement ladder in the template are read
+- **THEN** each is a group of the gateway config, no hosted group has the pricing source `unknown`, and each local group is local
+
+### Requirement: Cached prompt tokens cost the cached input rate
+A price SHALL hold an optional cached input rate in USD per million tokens. The cost of a request SHALL price its prompt tokens that the provider read from its cache at that rate, and its other prompt tokens at the prompt rate. A price with no cached input rate SHALL price every prompt token at the prompt rate. The cached tokens SHALL count inside the prompt tokens. A run of an agent SHALL give the cached tokens of its replies.
+
+#### Scenario: A price with a cached input rate
+- **WHEN** a price of 1.00 USD prompt and 0.10 USD cached input prices 1,000,000 prompt tokens, 600,000 of them cached
+- **THEN** the cost is 0.46 USD
+
+#### Scenario: A price with no cached input rate
+- **WHEN** a price of 1.00 USD prompt and no cached input rate prices 1,000,000 prompt tokens, 600,000 of them cached
+- **THEN** the cost is 1.00 USD
+
+### Requirement: The client price of a hosted group is the price in the gateway config
+For each hosted group whose gateway config sets an input price, the client cost of a call SHALL be the cost at the input, cached input and output prices of that group in `k8s/llm/gateway/config.yaml`.
+
+#### Scenario: A call with cached tokens
+- **WHEN** each hosted group that sets its prices prices a call of 10,000 prompt tokens, 6,000 of them cached, and 1,000 completion tokens
+- **THEN** the client cost of the call equals the cost at the prices of the gateway config, and the groups include `deepseek-v4.1-flash-1017`

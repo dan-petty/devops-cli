@@ -110,7 +110,8 @@ AI_SPEND_USD_TOTAL = Instrument(
     "Approximate LLM and embedding spend, by operation, provider, model, server and backend. "
     "Each request that a model answers adds to it, and a local request adds 0. A hosted gateway "
     "call is priced at the deployment model that the gateway names, and its model label is the "
-    "model that the client asked for, such as the route name",
+    "model that the client asked for, such as the route name. A prompt token that the provider "
+    "read from its cache costs the cached input rate of the model",
 )
 AI_MODEL_ANSWERS_TOTAL = Instrument(
     "devops_cli_ai_model_answers_total",

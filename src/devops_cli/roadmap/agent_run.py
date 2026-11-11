@@ -378,7 +378,8 @@ def record_run_spend(
     The record keeps the model asked for in `model` and the model of the last reply that names
     one in `served_model`. Each reply that names its model adds one count to
     `devops_cli_ai_model_answers_total`, with the labels asked, answered and fallback, so a slot
-    that reads one model while a gateway fallback answers with another shows (#4205)."""
+    that reads one model while a gateway fallback answers with another shows (#4205). The prompt
+    tokens that the provider read from its cache cost the cached input rate (#4403)."""
     from devops_cli.telemetry.instruments import AI_MODEL_ANSWERS_TOTAL, emit
 
     replies = [message for message in messages if isinstance(message, ModelResponse)]
@@ -400,6 +401,7 @@ def record_run_spend(
         served_model=answered[-1] if answered else None,
         prompt_tokens=sum(reply.usage.input_tokens for reply in replies),
         completion_tokens=sum(reply.usage.output_tokens for reply in replies),
+        cache_read_tokens=sum(reply.usage.cache_read_tokens for reply in replies),
         request_type="agent_run",
         duration_seconds=seconds,
         stage=stage,

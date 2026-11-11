@@ -179,9 +179,12 @@ model_list:
   # cheapest provider, `quantizations: [fp8]` keeps it to fp8 weights, and `data_collection: deny`
   # keeps it to providers that do not store or train on prompts. A provider that fails a filter is
   # skipped, so the price can be higher than the cheapest fp8 provider. The cost map of the pinned
-  # LiteLLM image lists no -1017 snapshot, so the group sets its window and the prices of the
-  # cheapest fp8 provider on 2026-11-02 (USD per token); OpenRouter reports the real cost of a call.
-  # A caller sets the reasoning effort (`ai.tasks.<task>.reasoning_effort`).
+  # LiteLLM image lists no -1017 snapshot, so the group sets its window and its prices (USD per
+  # token): the endpoint deepinfra/fp8/flex in the OpenRouter API on 2026-11-11, which is within 7%
+  # of the cost that OpenRouter reported for the calls of the group from 2026-11-08 to 2026-11-11.
+  # OpenRouter reports the real cost of a call. devops-cli prices the group at the same rates
+  # (`_HOSTED_GROUP_PRICES` in src/devops_cli/ai/spend/pricing.py), and a test fails when they
+  # differ. A caller sets the reasoning effort (`ai.tasks.<task>.reasoning_effort`).
   - model_name: deepseek-v4.1-flash-1017
     litellm_params:
       model: openrouter/deepseek/deepseek-v4.1-flash-1017:floor
@@ -192,9 +195,9 @@ model_list:
           data_collection: deny
     model_info:
       max_input_tokens: 1048576
-      input_cost_per_token: 5.0e-08
-      output_cost_per_token: 1.92e-07
-      cache_read_input_token_cost: 8.0e-09
+      input_cost_per_token: 7.84e-08
+      output_cost_per_token: 2.352e-07
+      cache_read_input_token_cost: 2.352e-09
       supports_response_schema: true
 litellm_settings:
   # Per-deployment requests, failures and latency at /metrics/, scraped by Prometheus. The
