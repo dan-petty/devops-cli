@@ -93,6 +93,11 @@ def test_the_name_of_the_read_tool_in_a_code_span_still_makes_the_claim() -> Non
         f"read_file {CONSTANTS}",
         f"read_file {CONSTANTS}:300-320",
         "file_symbols config/constants.py",
+        f'read_file("{CONSTANTS}", 60, 80)',
+        f"read_file('{CONSTANTS}', 60, 80)",
+        f'read_file( "{CONSTANTS}" )',
+        f'read_file("./{CONSTANTS}")',
+        f'read_file("{CONSTANTS}:300-320")',
     ],
 )
 def test_a_line_or_a_tool_call_citation_of_a_read_path_passes(span: str) -> None:
@@ -111,6 +116,8 @@ def test_each_toolbox_tool_name_before_a_read_path_passes(tool: str) -> None:
         "src/devops_cli/config/other.py:10-20",
         "read_file src/devops_cli/config/other.py",
         "read_file src/devops_cli/config/other.py:10-20",
+        'read_file("src/devops_cli/config/other.py", 60, 80)',
+        "read_file('src/devops_cli/config/other.py', 60, 80)",
         "src/devops_cli/config/",
     ],
 )
@@ -119,6 +126,25 @@ def test_a_line_or_a_tool_call_citation_of_an_unread_path_is_refused(span: str) 
 
     assert len(problems) == 1
     assert "did not read" in problems[0]
+
+
+def test_a_call_of_a_word_that_is_no_toolbox_tool_stays_in_the_path() -> None:
+    span = f'cat("{CONSTANTS}")'
+
+    problems = _problems(f"The run read `{span}` and found it.", READ_CONSTANTS)
+
+    assert len(problems) == 1
+    assert span in problems[0]
+
+
+def test_the_refusal_of_a_tool_call_names_the_path() -> None:
+    other = "src/devops_cli/config/other.py"
+
+    problems = _problems(
+        f'The run read `read_file("{other}", 60, 80)` and found it.', READ_CONSTANTS
+    )
+
+    assert f"`{other}`" in problems[0]
 
 
 def test_a_word_that_is_no_toolbox_tool_stays_in_the_path() -> None:
