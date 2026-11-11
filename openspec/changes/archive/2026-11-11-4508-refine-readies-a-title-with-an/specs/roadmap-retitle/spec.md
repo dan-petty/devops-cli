@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: Retitle corrects an unlisted title type
-The retitle job SHALL select an open item whose title type is not in `CONST_BRANCH_TYPES`, also when its summary is short. For a type that `CONST_ROADMAP_TITLE_TYPE_CORRECTIONS` maps, it SHALL write the mapped type and scope with the same summary and no model request, and one comment that names the old type and the types.
+The retitle job SHALL select an open item whose title type is not in `CONST_BRANCH_TYPES`, also when its summary is short. For a type that the correction table of `commit_title.py` maps, it SHALL write the mapped type and scope with the same summary and no model request, and one comment that names the old type and the types.
 
 #### Scenario: A security title with a short summary
 - **WHEN** the job runs with `--confirm` on an open item titled `security(ssh): verify node host keys`
@@ -36,16 +36,33 @@ For each item it leaves, the retitle job SHALL write one log line that names the
 - **WHEN** the job runs twice with `--confirm` on an item titled `wip(cli): finish the half-done work`
 - **THEN** the log holds one line for the item, and the line holds `invalid-title-type`
 
-### Requirement: Intake refuses an unlisted title type
-`devops roadmap intake --title` SHALL refuse a new candidate whose title type is not in `CONST_BRANCH_TYPES`, with a message that names the type, the types and the correction when one exists, and SHALL write no issue. A title with no type stays accepted.
+### Requirement: Intake keeps a candidate with an unlisted title type
+`devops roadmap intake --title` SHALL NOT refuse a new candidate because its title type is not in `CONST_BRANCH_TYPES`, also when its summary is over `SUMMARY_MAX_CHARS`. The retitle job corrects the type of the new item.
 
-#### Scenario: Intake with a security title
-- **WHEN** a new candidate has the title `security(ssh): verify node host keys`
-- **THEN** the command exits 1 with a message that holds `fix(security)`, and no issue is created
+#### Scenario: Intake with a long security title
+- **WHEN** a new candidate has the title `security(zsh): <summary of 80 characters>`
+- **THEN** the title check of intake refuses nothing
 
-### Requirement: The stage reason names the retitle job
-The reason of the stage job for a title with no listed type SHALL name `devops roadmap retitle` and the type it corrects.
+### Requirement: The stage reason names the unlisted title type
+For a title whose type is not in `CONST_BRANCH_TYPES`, the reason of the stage job and of the implement job SHALL name the type and `devops roadmap retitle`, with the corrected title when the type has a correction. For a title with no type, the reason SHALL NOT name the retitle job, because the job does not select that title.
 
-#### Scenario: The stage report of a title with no type
+#### Scenario: A security title
+- **WHEN** the stage job leaves out an item titled `security(ssh): verify node host keys`
+- **THEN** the report line names `security` and `fix(security): verify node host keys`
+
+#### Scenario: A type with no correction
 - **WHEN** the stage job leaves out an item titled `wip: no type`
-- **THEN** the report line holds "`devops roadmap retitle` corrects the type `security`"
+- **THEN** the report line names `wip` and says that `devops roadmap retitle` comments on the item
+
+#### Scenario: A title with no type
+- **WHEN** the stage job leaves out an item titled `The board is slow`
+- **THEN** the report line says "The title has no Conventional Commit type, so the branch has no type." and does not name the retitle job
+
+## MODIFIED Requirements
+
+### Requirement: Confirmed repair keeps type and scope
+With `--confirm`, the repair pass SHALL replace only the summary of a title whose type is in `CONST_BRANCH_TYPES`, keep that type and the scope, and write a title that passes `title_problems`. It SHALL write one comment with the marker of the job. A title with an unlisted type gets the type of "Retitle corrects an unlisted title type".
+
+#### Scenario: Confirmed repair
+- **WHEN** the repair pass runs with `--confirm` on an item titled `fix(roadmap): ...` with a 68-character summary
+- **THEN** the new title starts with `fix(roadmap): `, its summary has at most 60 characters, and `title_problems` returns no problem
