@@ -17,10 +17,17 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+import httpx2
 import pytest
 import time_machine
+from openai import APIConnectionError
 from pydantic_ai import Tool
-from pydantic_ai.exceptions import ModelHTTPError, UnexpectedModelBehavior
+from pydantic_ai.exceptions import (
+    ModelConnectionError,
+    ModelHTTPError,
+    ModelTimeoutError,
+    UnexpectedModelBehavior,
+)
 from pydantic_ai.messages import (
     ModelMessage,
     ModelMessagesTypeAdapter,
@@ -433,6 +440,65 @@ def test_a_failed_model_call_becomes_refines_own_error(
         _investigate(git_repo, Script(answer))
 
     assert type(caught.value) is raised
+
+
+def _transport_failure(
+    failure: type[ModelConnectionError], phase: Any, cause: Exception | None
+) -> ModelConnectionError:
+    """A failed transport as pydantic-ai raises it for the OpenAI client: its error, from the
+    error of the SDK, from the error of `httpx2`."""
+    error = failure(model_name="m", message="Connection error.", phase=phase)
+    if cause is not None:
+        request = httpx2.Request("POST", "https://gateway.example.com/v1/chat/completions")
+        sdk = APIConnectionError(request=request)
+        sdk.__cause__ = cause
+        error.__cause__ = sdk
+    return error
+
+
+@pytest.mark.parametrize(
+    ("answer", "message"),
+    [
+        (
+            _transport_failure(
+                ModelConnectionError,
+                "read",
+                httpx2.RemoteProtocolError("Server disconnected without sending a response."),
+            ),
+            "The investigation's model call failed (ModelConnectionError, phase read, "
+            "RemoteProtocolError: Server disconnected without sending a response.).",
+        ),
+        (
+            _transport_failure(ModelTimeoutError, "connect", httpx2.ConnectTimeout("")),
+            "The investigation's model call failed (ModelTimeoutError, phase connect, "
+            "ConnectTimeout).",
+        ),
+        (
+            _transport_failure(ModelConnectionError, None, None),
+            "The investigation's model call failed (ModelConnectionError).",
+        ),
+    ],
+    ids=["dropped-stream", "connect-timeout", "no-cause"],
+)
+def test_a_failed_transport_names_its_phase_and_its_error(
+    git_repo: Path, answer: ModelConnectionError, message: str
+) -> None:
+    with pytest.raises(AIClientError) as caught:
+        _investigate(git_repo, Script(answer))
+
+    assert str(caught.value) == message
+
+
+def test_the_error_of_a_failed_transport_hides_a_secret_in_its_text(git_repo: Path) -> None:
+    secret = "sk-" + "a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6"
+    answer = _transport_failure(
+        ModelConnectionError, "write", httpx2.WriteError(f"refused the key {secret}")
+    )
+
+    with pytest.raises(AIClientError) as caught:
+        _investigate(git_repo, Script(answer))
+
+    assert (secret in str(caught.value), "WriteError" in str(caught.value)) == (False, True)
 
 
 @pytest.mark.parametrize(

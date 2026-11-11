@@ -13,7 +13,13 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from pydantic_ai import RunContext
-from pydantic_ai.exceptions import AgentRunError, ModelAPIError, ModelHTTPError, ModelTimeoutError
+from pydantic_ai.exceptions import (
+    AgentRunError,
+    ModelAPIError,
+    ModelConnectionError,
+    ModelHTTPError,
+    ModelTimeoutError,
+)
 from pydantic_ai.messages import (
     AgentStreamEvent,
     ModelMessage,
@@ -50,15 +56,33 @@ async def drain_events(_ctx: RunContext[None], events: AsyncIterable[AgentStream
 
 def model_call_error(exc: ModelAPIError, subject: str) -> AIClientError:
     """The job's class for a failed model call of a run, with no text of the model's reply, and
-    with the HTTP status or the timeout of the call (#2562). `subject` names the run, such as
-    `The investigation's`."""
+    with the HTTP status or the timeout of the call (#2562). A failed transport also names its
+    phase and the error of the HTTP library, so a report tells a dropped stream from a refused
+    connection (#4345). `subject` names the run, such as `The investigation's`."""
     if isinstance(exc, ModelHTTPError) and exc.status_code in _REFUSED_KEY_STATUSES:
         return AICredentialsError(f"The model refused the key (HTTP {exc.status_code}).")
     return AIClientError(
-        f"{subject} model call failed ({type(exc).__name__}).",
+        f"{subject} model call failed ({type(exc).__name__}{_transport_cause(exc)}).",
         status=exc.status_code if isinstance(exc, ModelHTTPError) else None,
         timed_out=isinstance(exc, ModelTimeoutError),
     )
+
+
+def _transport_cause(exc: ModelAPIError) -> str:
+    """The phase of a failed transport and the first error of its chain, masked and cut, after a
+    comma, or an empty text. pydantic-ai keeps the error of the SDK as `__cause__`, and the SDK
+    keeps the error of the HTTP library as its own, so the first error is the one of the HTTP
+    library. A transport error holds no text of a model reply."""
+    if not isinstance(exc, ModelConnectionError) or exc.__cause__ is None:
+        return ""
+    first: BaseException = exc.__cause__
+    seen = {id(first)}
+    while first.__cause__ is not None and id(first.__cause__) not in seen:
+        first = first.__cause__
+        seen.add(id(first))
+    phase = f", phase {exc.phase}" if exc.phase else ""
+    text = bounded_text(str(first))
+    return f"{phase}, {type(first).__name__}" + (f": {text}" if text else "")
 
 
 def bounded_text(text: str) -> str:
