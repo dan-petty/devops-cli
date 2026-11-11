@@ -19,7 +19,7 @@ The provider can fail inside a stream when it cannot read a tool call of the mod
 
 - The `AGENTS.md` of the checkout.
 - The sections of the documents that `AGENTS.md` routes the group to. A test file brings `docs/TESTING.md`.
-- The title, the problem and the acceptance criteria of the item.
+- The title, the problem and the acceptance criteria of the item. The criteria hold each `Requirement:` section that refine writes, with its scenarios. The step removes the HTML comments of the body, such as the markers of the jobs.
 - The proposal, the design and the tasks of the change.
 - The group, and the files that the group names.
 

@@ -1,0 +1,51 @@
+## What changed
+
+The four host-state tests that this item listed are tracked in #3585. This item keeps the time budget of the pytest step.
+
+## Expected
+
+The pytest step of `devops ci` meets the 5-minute budget.
+
+<!-- devops-roadmap-refine:start -->
+<!-- checked-at: sha=d254410ca89a1a45afd81f1aa0cd3d68ffb146e0 -->
+## Proposed design
+
+### Problem statement
+The pytest step of `devops ci` takes 6m 53s, and the budget is 5 minutes. This change runs the suite in parallel workers.
+
+### Acceptance criteria
+
+### Requirement: Pytest command uses parallel workers
+The pytest command that `devops ci test` builds SHALL pass `-n auto` to pytest through `pytest-xdist`, which the project declares as a test dependency.
+
+#### Scenario: Built pytest command
+- **WHEN** A test reads the pytest arguments that `devops ci test` builds.
+- **THEN** The arguments hold `-n auto`.
+
+### Requirement: Suite meets the five-minute budget
+The pytest step of `devops ci test` SHALL finish in less than 300 seconds on the agent worktree host, with every test passing.
+
+#### Scenario: Full suite on the agent host
+- **WHEN** The full suite runs on the agent worktree host with the parallel command.
+- **THEN** The step reports less than 300 seconds and no failed test.
+
+### Existing Tool Considered
+pytest-xdist covers the duration through parallel workers. It is open and maintained.
+
+### Key questions
+- **Does the project declare pytest-xdist?**: Yes, as a test dependency. [sources: pyproject.toml]
+
+### Fit
+Fits in one pull request.
+
+### Suspected block
+None.
+
+### Dependencies
+None.
+<!-- devops-roadmap-refine:end -->
+
+<!-- devops-roadmap-alternatives:start -->
+Alternatives check of 2026-11-09: none.
+Tool: none found.
+<!-- devops-roadmap-alternatives:end -->
