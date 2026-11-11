@@ -564,22 +564,25 @@ def test_the_sessions_requests_are_vetted_at_the_public_egress_level(
     )
 
 
-def test_the_sessions_client_waits_a_public_connect_timeout_and_the_entry_points_read_timeout(
+def test_the_sessions_client_waits_a_public_connect_timeout_and_a_read_timeout_of_60_seconds(
     github_api: GitHubApiFake,
 ) -> None:
     """GitHub is reached over the public internet, where a lost SYN is resent after 1 s and a
     TLS handshake on a lossy link takes longer: the entry point's 1 s connect timeout, sized for
     local services, made reads fail with `ConnectTimeout` (2026-10-19). The session's client
-    connects within `DEFAULT_GH_SESSION_CONNECT_TIMEOUT_SECONDS` and keeps the entry point's read
-    timeout."""
+    connects within `DEFAULT_GH_SESSION_CONNECT_TIMEOUT_SECONDS`. GitHub ends a REST request after
+    10 s, so the client waits at most `DEFAULT_GH_SESSION_READ_TIMEOUT_SECONDS`, 60 s, for each
+    read, and not the entry point's hour (#4626)."""
     from devops_cli.config import defaults
 
     github_api.route("GET", "/user", github_json({"login": "octocat"}))
     get_github_session().rest("GET", "/user")
     (timeout,) = github_api.timeouts
-    assert (timeout["connect"], timeout["read"]) == (
+    read_bound = getattr(defaults, "DEFAULT_GH_SESSION_READ_TIMEOUT_SECONDS", None)
+    assert (timeout["connect"], timeout["read"], read_bound) == (
         getattr(defaults, "DEFAULT_GH_SESSION_CONNECT_TIMEOUT_SECONDS", None),
-        defaults.DEFAULT_HTTP_TIMEOUT_SECONDS,
+        read_bound,
+        60.0,
     )
 
 
