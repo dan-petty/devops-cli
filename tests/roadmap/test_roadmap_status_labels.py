@@ -2,20 +2,18 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-import yaml
 
 from devops_cli.github.merge_readiness import ClosingRead
 from devops_cli.roadmap import pull_status
 from devops_cli.roadmap.grounding import ClosingIssue
 from devops_cli.roadmap.stores.store import FIELD_VALUES, ItemField, field_label
+from devops_cli.roadmap.workflow_labels import WORKFLOW_LABELS
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 
 REPO = "example/roadmap"
-LABELS_FILE = Path(".github/labels.yml")
 SIX = ("New", "Ready", "Planned", "In Progress", "In Review", "Blocked")
 
 
@@ -23,8 +21,8 @@ def test_the_status_family_has_six_values_in_the_order_of_the_workflow() -> None
     assert FIELD_VALUES[ItemField.STATUS] == SIX
 
 
-def test_the_labels_file_declares_the_six_status_labels() -> None:
-    declared = {entry["name"] for entry in yaml.safe_load(LABELS_FILE.read_text("utf-8"))}
+def test_the_package_declares_the_six_status_labels() -> None:
+    declared = {spec.name for spec in WORKFLOW_LABELS}
 
     assert {field_label(ItemField.STATUS, value) for value in SIX} <= declared
     assert "status/planned" in declared
