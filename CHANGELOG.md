@@ -2,6 +2,35 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.111.0](https://github.com/dan-petty/devops-cli/compare/v0.110.0...v0.111.0) (2026-11-11)
+
+
+### Features
+
+* **roadmap:** a decision-point registry with a resolver chain ([#4453](https://github.com/dan-petty/devops-cli/issues/4453)) ([b73e97a](https://github.com/dan-petty/devops-cli/commit/b73e97ab1a5ef5618dcd0999563293734deb8491))
+* **roadmap:** eval verify stores each case and resumes ([#4451](https://github.com/dan-petty/devops-cli/issues/4451)) ([7c59565](https://github.com/dan-petty/devops-cli/commit/7c59565655067264e87f80379f54e9b4de4da9c1))
+* **roadmap:** extend a step budget when the run makes progress ([#4464](https://github.com/dan-petty/devops-cli/issues/4464)) ([c8ed108](https://github.com/dan-petty/devops-cli/commit/c8ed108d0962b0d162c87d4d804b57aad6c1990f))
+
+
+### Bug Fixes
+
+* **ai:** a failed model transport names its phase and its error ([#4460](https://github.com/dan-petty/devops-cli/issues/4460)) ([54743c4](https://github.com/dan-petty/devops-cli/commit/54743c44dd786ed98e71b6e8d974c131099f9db1))
+* **ai:** price the DeepSeek group and its cached input ([#4454](https://github.com/dan-petty/devops-cli/issues/4454)) ([3b1f6bd](https://github.com/dan-petty/devops-cli/commit/3b1f6bdf9de1d591c0469a14ea5fa7bebac9c86c))
+* **roadmap:** a Service stop lets the round in flight end ([#4489](https://github.com/dan-petty/devops-cli/issues/4489)) ([7851db8](https://github.com/dan-petty/devops-cli/commit/7851db81342f12452c2a0504cbb090dc8390c4cf))
+* **roadmap:** a stop rebases a checkout that a failed program left dirty ([#4497](https://github.com/dan-petty/devops-cli/issues/4497)) ([9b14af0](https://github.com/dan-petty/devops-cli/commit/9b14af0bc92cf1aeec04c0d580aa1f8641253de2))
+* **roadmap:** accept a test-only group that changes a test helper ([#4465](https://github.com/dan-petty/devops-cli/issues/4465)) ([74d358a](https://github.com/dan-petty/devops-cli/commit/74d358af52de57194996142b393d31486662fb93))
+* **roadmap:** implement steps get the refined acceptance criteria ([#4480](https://github.com/dan-petty/devops-cli/issues/4480)) ([0664e38](https://github.com/dan-petty/devops-cli/commit/0664e38a2048799f9903bed32200a99f475b26d7))
+* **roadmap:** implement takes a plan that needs a fix ([#4494](https://github.com/dan-petty/devops-cli/issues/4494)) ([c3f62a9](https://github.com/dan-petty/devops-cli/commit/c3f62a9d4c0a551069c1b342b9044492938cb3d9))
+* **roadmap:** stage and refine send no answer count or row ([#4484](https://github.com/dan-petty/devops-cli/issues/4484)) ([d9c8ee8](https://github.com/dan-petty/devops-cli/commit/d9c8ee8b453be01610c6001e16ae830c8e58cd1f))
+* **roadmap:** the trace gate reads the path of each citation form ([#4500](https://github.com/dan-petty/devops-cli/issues/4500)) ([dac1cb9](https://github.com/dan-petty/devops-cli/commit/dac1cb94c7dcb21cbf17ee8fa76ea4245b65e331))
+* **roadmap:** tool docstrings garble the answer format ([#4486](https://github.com/dan-petty/devops-cli/issues/4486)) ([2f6114f](https://github.com/dan-petty/devops-cli/commit/2f6114f4583f726993d4aa43061c22ca2532f8c5))
+
+
+### Performance Improvements
+
+* **roadmap:** parse only the bodies that hold a job record ([#4455](https://github.com/dan-petty/devops-cli/issues/4455)) ([c653bde](https://github.com/dan-petty/devops-cli/commit/c653bde8c7e6e014a17cb31e079c66f25fc365fb))
+* **tests:** evaluate hour-scale promtool tests every hour ([#4462](https://github.com/dan-petty/devops-cli/issues/4462)) ([0ac2f76](https://github.com/dan-petty/devops-cli/commit/0ac2f7623526018a6fa08aaef36beacf1d154dfb))
+
 ## [0.110.0](https://github.com/dan-petty/devops-cli/compare/v0.109.1...v0.110.0) (2026-11-11)
 
 
