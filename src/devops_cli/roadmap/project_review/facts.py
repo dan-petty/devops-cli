@@ -44,6 +44,7 @@ _HOTSPOT_ROWS: Final = 20
 _COMPLEXITY_FILES: Final = 10
 _NO_TYPE: Final = "other"
 _LIZARD: Final = "lizard"
+_LIZARD_LANGUAGES: Final = "lizard_languages"
 
 
 @dataclass
@@ -212,9 +213,9 @@ def complexity_fact(checkout: Path, window: ReviewWindow, rows: Sequence[Hotspot
     if importlib.util.find_spec(_LIZARD) is None:
         reason = MESSAGES.roadmap.review_lizard_missing
         return facts.not_ok("lizard.complexity", "ccn", query, FactStatus.SKIPPED, reason)
-    import lizard
-    import lizard_languages
-
+    # lizard ships no type information, so the review loads it by name.
+    lizard = importlib.import_module(_LIZARD)
+    lizard_languages = importlib.import_module(_LIZARD_LANGUAGES)
     read = [row for row in rows if lizard_languages.get_reader_for(row.path) is not None]
     measured: list[JsonValue] = []
     for row in read[:_COMPLEXITY_FILES]:
