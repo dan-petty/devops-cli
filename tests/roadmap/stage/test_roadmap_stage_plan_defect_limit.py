@@ -4,7 +4,9 @@ The job counts the `plan_defect` failures of an item on the same body in `stage.
 the hash of that body in `stage.plan_defects_body`. A body edit starts a new count, and a failure
 of another class leaves the count as it is. The failure that reaches
 `CONST_ROADMAP_STAGE_PLAN_DEFECT_LIMIT` returns the item to New with one comment that lists the
-problems of the refused replies, and clears the count. A staged item clears the count too.
+problems of the last plan: the problem of each refused reply, and then the reason of the failure
+when the checks did not refuse the last reply. It clears the count. A staged item clears the count
+too.
 """
 
 from __future__ import annotations
@@ -15,10 +17,9 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
-from devops_cli.config.constants import (
-    CONST_ROADMAP_STAGE_COMMENT_MARKER,
-    CONST_ROADMAP_STAGE_PLAN_DEFECT_LIMIT,
-)
+from devops_cli.config import constants
+from devops_cli.config.constants import CONST_ROADMAP_STAGE_COMMENT_MARKER
+from devops_cli.exceptions import RoadmapStageError
 from devops_cli.roadmap.failure import FailureClass, StepName
 from devops_cli.roadmap.run import _run_stage_adapter
 from devops_cli.roadmap.stage.stage import StageFailure, StagePlan
@@ -45,11 +46,22 @@ pytestmark = pytest.mark.usefixtures("keyring_store")
 
 # A time long past, so the wait of each failure has passed when a round of the Service runs.
 NOW = datetime(2026, 11, 1, 12, 0, tzinfo=UTC)
+
+
+def _limit() -> int:
+    """The limit of refused plans. It is new, so a test reads it when it runs."""
+    return constants.CONST_ROADMAP_STAGE_PLAN_DEFECT_LIMIT
+
+
 REASON = "The change fails its checks, also after a second try: Group 1 names no test."
 PROBLEMS = (
     "Group 1 changes `src/devops_cli/lang/en/messages.py` and names no existing test of that module.",
     "The Feasibility section names the tool `references`, but the run did not call it.",
 )
+# The reason of a plan run that stops after the checks refused a reply (#4491).
+STOP = "The plan run stopped: the run reached its request limit of 40."
+# A path that the plan changes and that the clone does not hold, so the `paths` gate refuses it.
+MISSING = "tests/test_missing.py"
 
 
 def _record(store: InMemoryRoadmapStore, number: int) -> dict[str, str]:
@@ -73,26 +85,35 @@ def _fail(
     number: int,
     failure_class: FailureClass = FailureClass.PLAN_DEFECT,
     problems: tuple[str, ...] = PROBLEMS,
+    *,
+    reason: str = REASON,
+    stopped_by_checks: bool = True,
 ) -> None:
-    """Write one failure of item `number`, as the job writes the failure of a plan."""
+    """Write one failure of item `number`, as the job writes the failure of a plan. By default the
+    checks refused the last reply, so `reason` is the refusal of the last problem."""
     item = store.item(number)
     assert item is not None
     failure = StageFailure(
         number,
         item.title,
         "RoadmapStageError",
-        REASON,
+        reason,
         item,
         failure_class=failure_class,
         step=StepName.PLAN,
         problems=problems,
+        stopped_by_checks=stopped_by_checks,
     )
     apply_stage(store, StagePlan(STAGE_REPO, failed=(failure,)), source=".", now=NOW)
 
 
 def _fail_to_the_limit(store: InMemoryRoadmapStore, number: int, *, less: int = 0) -> None:
-    for _ in range(CONST_ROADMAP_STAGE_PLAN_DEFECT_LIMIT - less):
+    for _ in range(_limit() - less):
         _fail(store, number)
+
+
+def _bullets(comment: str) -> list[str]:
+    return [line for line in comment.splitlines() if line.startswith("- ")]
 
 
 def _stage_comments(store: InMemoryRoadmapStore, number: int) -> list[str]:
@@ -105,7 +126,7 @@ def _stage_comments(store: InMemoryRoadmapStore, number: int) -> list[str]:
 
 def test_the_limit_is_three_refused_plans() -> None:
     # 5 of the 6 plans that staged in 48 hours came after 2 refused plans (#4491).
-    assert CONST_ROADMAP_STAGE_PLAN_DEFECT_LIMIT == 3
+    assert _limit() == 3
 
 
 def test_a_refused_plan_counts_one_with_the_hash_of_its_body() -> None:
@@ -161,7 +182,7 @@ def test_a_failure_of_another_class_keeps_the_count_and_its_wait(
 
     _fail(store, number, failure_class)
 
-    assert _count(store, number) == str(CONST_ROADMAP_STAGE_PLAN_DEFECT_LIMIT - 1)
+    assert _count(store, number) == str(_limit() - 1)
     assert _record(store, number)[StageRecordKey.FAILED_CLASS.value] == failure_class.value
     assert _status(store, number) == "Ready"
 
@@ -178,9 +199,19 @@ def test_the_refused_plan_at_the_limit_returns_the_item_to_new_with_its_problems
     assert StageRecordKey.PLAN_DEFECTS_BODY.value not in record
     assert record[StageRecordKey.FAILED_CLASS.value] == FailureClass.PLAN_DEFECT.value
     [comment] = _stage_comments(store, number)
-    assert f"{CONST_ROADMAP_STAGE_PLAN_DEFECT_LIMIT} times" in comment
-    for problem in PROBLEMS:
-        assert f"- {problem}" in comment
+    assert f"{_limit()} times" in comment
+    assert _bullets(comment) == [f"- {problem}" for problem in PROBLEMS]
+
+
+def test_a_failure_after_the_refused_replies_gives_its_reason_after_their_problems() -> None:
+    store = InMemoryRoadmapStore(repo=STAGE_REPO)
+    number = seed_stageable(store)
+    _fail_to_the_limit(store, number, less=1)
+
+    _fail(store, number, reason=STOP, stopped_by_checks=False)
+
+    [comment] = _stage_comments(store, number)
+    assert _bullets(comment) == [*(f"- {problem}" for problem in PROBLEMS), f"- {STOP}"]
 
 
 def test_a_refused_plan_with_no_kept_problem_gives_its_reason_as_the_evidence() -> None:
@@ -267,11 +298,43 @@ def test_a_round_returns_an_item_whose_plan_the_checks_refuse_at_the_limit(
     assert _status(store, 1) == "New"
     [comment] = _stage_comments(store, 1)
     # The problems of the refused replies, not the text of the error.
-    problems = [line for line in comment.splitlines() if line.startswith("- ")]
+    problems = _bullets(comment)
     assert problems
     assert all("closing keyword" in line for line in problems)
     assert "also after a second try" not in comment
     assert StageRecordKey.BRANCH.value in _record(store, 2)
+
+
+def test_a_round_gives_the_reason_of_a_plan_run_that_stops_after_a_refused_reply(
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    github_api: GitHubApiFake,
+    openspec_fake: OpenSpecFake,
+) -> None:
+    store = _two_items(InMemoryRoadmapStore(repo=STAGE_REPO), openspec_fake, github_api)
+    _fail_to_the_limit(store, 1, less=1)
+
+    def plan(prompt: str) -> Any:
+        request = json.loads(prompt)
+        if "plan" in request or request["number"] != 1:
+            return make_stage_proposal()
+        if "previous" in request:
+            raise RoadmapStageError(STOP)
+        group = make_stage_proposal().groups[0]
+        return make_stage_proposal(
+            groups=[group.model_copy(update={"changes": [*group.changes, MISSING]})]
+        )
+
+    no_findings(model_fake)
+    model_fake.answer(plan)
+
+    _run_stage_adapter(store, repo=STAGE_REPO, clone_path=stage_repo.clone)
+
+    assert _status(store, 1) == "New"
+    [comment] = _stage_comments(store, 1)
+    [refused, last] = _bullets(comment)
+    assert MISSING in refused
+    assert last == f"- {STOP}"
 
 
 def test_a_staged_item_clears_its_count(
