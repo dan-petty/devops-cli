@@ -12,7 +12,7 @@ All routine operations in `devops-cli` adhere to six core engineering tenets:
 3. **Strict Quality Assurance**: Changes must pass every check that `devops ci` runs before merging ([`SDLC.md`](SDLC.md), Phase 4, lists them).
 4. **Target Branch & Non-Merge Policy**: Every topic PR targets `main`, and nobody pushes to `main`. Only a person merges a pull request ([`AGENTS.md`](../AGENTS.md)).
 5. **Dynamic Documentation Freshness**: Command matrices, CLI reference guides, and FastMCP schemas are generated dynamically through code introspection (`devops docs generate`) and verified in CI (`devops docs check`).
-6. **Mandatory Defect Incident Tracking (Zero Unrecorded CLI Errors/Warnings)**: Whenever a CLI command produces an unhandled error, subcommand failure, crash, diagnostic warning, or unexpected behavior, agents and maintainers must first search the open issues (`devops gh api "search/issues?q=repo:<owner>/<repo>+is:issue+is:open+<check or error text>"`) and, when one covers the defect, comment there with the new evidence and file nothing. Else they must promptly file it as a candidate (`devops roadmap intake --title "fix(<scope>): …" --body-file <file> --confirm`), in the shape of the standardized bug report template. Intake checks it for a duplicate, labels its type, Status, Value, Effort and Priority, and puts it in the backlog; nobody sets a milestone or priority on the new issue by hand. File one candidate at a time, and link it to the work that found it. Do not fix it in the current pull request unless it blocks the task.
+6. **Mandatory Defect Incident Tracking (Zero Unrecorded CLI Errors/Warnings)**: Whenever a CLI command produces an unhandled error, subcommand failure, crash, diagnostic warning, or unexpected behavior, agents and maintainers must first search the open issues (`devops gh api "search/issues?q=repo:<owner>/<repo>+is:issue+is:open+<check or error text>"`) and, when one covers the defect, comment there with the new evidence and file nothing. Else they must promptly file it as a candidate (`devops roadmap intake --title "fix(<scope>): …" --body-file <file> --confirm`), in the shape of the standardized bug report template. Intake checks it for a duplicate, labels its type, Status, Value, Effort and Priority, and puts it in the backlog; nobody sets a milestone or priority on the new issue by hand. [`SDLC.md`](SDLC.md), Phase 1, Roadmap & Backlog Synchronization, gives the rules of a filed candidate.
 
 
 ---
@@ -52,7 +52,7 @@ The following matrix categorizes all project routine tasks by operational layer,
 | **Workspace & Sync** | Multi-Repo Synchronization | Daily / On Demand | `devops repos sync` / `devops repos list` | Pulls upstream changes across all managed repos | All repositories up to date |
 | **Workspace & Sync** | GitHub Pages Publishing & Readiness Audit | Pre-PR | `devops gh pages status` / `devops gh pages verify` | Inspects live publishing health, HTTPS enforcement, and validates `docs/_config.yml`, the site settings that the Pages build reads, and `docs/` | Clean verification; HTTPS strictly enforced |
 | **Workspace & Sync** | GitHub Issues Lifecycle & Triage Audit | Daily / Pre-PR | `devops gh issues triage` / `devops gh issues status` | Audits open issues for mandatory taxonomy labels (`type/*`, `scope/*`) and a `priority/*` label, and reports those with no `priority/*` label as awaiting intake | Zero untriaged open issues; `devops roadmap intake` clears those awaiting intake |
-| **Workspace & Sync** | GitHub Projects & Issues Views Sync & Audit | On Demand / Pre-PR | `devops gh project sync` / `devops gh project audit` / `devops gh views audit` | Provisions and links the board, reconciles card fields, and audits the 4 declarative project views | All projects and views populated with zero drift or empty state (`projects` & `issues/views`) |
+| **Workspace & Sync** | GitHub Projects & Issues Views Sync & Audit | On Demand | `devops gh project sync` / `devops gh project audit` / `devops gh views audit` | Provisions and links the board, reconciles card fields, and audits the 4 declarative project views | All projects and views populated with zero drift or empty state (`projects` & `issues/views`) |
 | **Workspace & Sync** | SSH Keys & Host Audit | On Demand | `devops ssh status` / `devops ssh audit` | Validates ED25519 keys, permissions, and GitHub keys | No keys past rotation_days |
 | **Workspace & Sync** | Roadmap Implement Job (Service) | Every 7 minutes (row `implement`) | `kubectl -n devops get jobs -l implement-repo` / `devops roadmap implement --repo <owner/name> --item <number> --confirm` | The Service makes one runner Job per repository at a time for a Staged or Planned item, reports each Job that ended on its item, and sets Blocked on an item whose Job left it eligible, then clears that stop on a retry, on a continuation of a Job with no result, or on a new runner image | No Job ends without a comment on its item; no item runs twice after a failed Job until a person comments `implement: retry`, the Service continues a Job with no result (at most `roadmap.implement.continuations_per_item` times), or one new runner image rolls out |
 | **Process** | Standards Pass | After a batch of decided workflow changes | `devops pr create` (one documents pull request) | Put each rule that people and agents can follow now in its owning document ([`AGENTS.md`](../AGENTS.md), Where to look). Text about a feature that is not built goes into the pull request of that feature. Each tracker gets one comment that lists the documents that its children must change | Each rule is in one document, and no document states a feature that `main` does not have |
@@ -80,7 +80,7 @@ flowchart TD
 
 #### Step-by-Step Order:
 1. **GitHub Project Bootstrap, Issue Grounding & Task State Setup**:
-   - **Inspect the Triage Queue**: Read the triage queue with `devops gh issues triage` (or FastMCP `gh_issues_triage`). The labels of each issue hold its state, and no step reads the project board.
+   - **Inspect the Triage Queue**: Read the triage queue with `devops gh issues triage` (or FastMCP `gh_issues_triage`). The labels of each issue hold its state, so this step does not read the project board.
    - **Ground Requirement in a GitHub Issue**: Every feature, bug fix, or refactor must map to an open issue that is a roadmap item: it holds a `priority/*` label.
      - If a matching issue exists: link the task to it and verify its taxonomy labels.
      - Without a matching issue: **FILE THE TASK AS A CANDIDATE** (`devops roadmap intake --title "<conventional title>" --body-file <file> --confirm` or FastMCP `roadmap_intake` with `mode="confirm"`). Intake files it (a possible duplicate too, which its reason comment names for a person to close), labels its type, Status, Priority, Value and Effort, and puts it in the backlog; set no milestone or priority on it yourself.
@@ -142,7 +142,6 @@ Executed at the final stage of work after all iterative feature modifications an
    - Verify the syntax and the required keys of `docs/_config.yml`, the one file of site settings that the Pages build reads, and the `docs/` publishing root, with `devops gh pages verify`.
    - Audit open issues for mandatory taxonomy labels (`type/*`, `scope/*`) and a `priority/*` label via `devops gh issues triage`, and run `devops roadmap intake` for those it reports as awaiting intake.
    - Inspect issue portfolio distribution via `devops gh issues status`.
-   - Validate remote project views template compliance via `devops gh views audit`.
 
 
 ---
@@ -268,7 +267,7 @@ Executed on workspace initialization (DevContainer startup) or on-demand.
 - **Methodology**:
   - Validates GitHub Pages deployment health and verifies local publishing assets (`docs/_config.yml` and `docs/`).
   - Audits live open issues for missing taxonomy labels (`type/*`, `scope/*`) or a missing `priority/*` label.
-  - Audits remote GitHub Projects v2 boards and views against `.github/project-template.json` to prevent configuration drift.
+  - On demand only: audits remote GitHub Projects v2 boards and views against `.github/project-template.json` to prevent configuration drift. No roadmap job reads the board ([`SDLC.md`](SDLC.md), Phase 1, Status Lives on GitHub).
 - **Commands**:
   ```bash
   devops gh pages status
