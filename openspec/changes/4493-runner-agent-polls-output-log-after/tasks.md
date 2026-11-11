@@ -8,6 +8,8 @@ Reads: `src/devops_cli/roadmap/implement/implement_step.py`, `src/devops_cli/roa
   - Verification: `$ uv run devops ci test tests/roadmap/implement/test_roadmap_implement_timeouts.py tests/roadmap/implement/test_roadmap_implement_step.py tests/roadmap/implement/test_roadmap_implement_step_trace.py`
 - [x] 1.2 Register only `run_command` with the wait of `roadmap.implement.command_timeout_seconds` in `_tune`, set the wait of each call in `ShellRefusal`, read the exit status of `run_command` in the tool log, and rename the tool in `IMPLEMENT_LOCAL_TOOL_NAMES` and the tool registry
   - Verification: `$ uv run devops ci test tests/roadmap/implement tests/roadmap/test_roadmap_tools.py tests/roadmap/test_roadmap_mcp.py`
+- [x] 1.3 Name the tool `run_command` in the test of the line that a call writes before it runs, so that the test and its scenario name the tool of the step
+  - Verification: `$ uv run devops ci test tests/roadmap/implement/test_roadmap_implement_tool_log.py`
 
 ## 2. The prompt and the refusal hint
 

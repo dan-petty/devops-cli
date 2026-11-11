@@ -355,17 +355,17 @@ def test_the_line_of_a_command_is_written_before_the_call_runs(
     cause (#2806)."""
     seen: list[list[str]] = []
 
-    def shell(command: str) -> str:
+    def run_command(command: str) -> str:
         seen.append(_lines(capsys))
         return "the output"
 
     Agent(
-        ModelScript(tool_call("shell", command="uv run pytest -n 48"), say("Done.")).model(),
-        tools=[shell],
+        ModelScript(tool_call("run_command", command="uv run pytest -n 48"), say("Done.")).model(),
+        tools=[run_command],
         capabilities=[ToolCallLog().hooks()],
     ).run_sync("go")
 
-    assert seen == [["Tool call: shell, started: uv run pytest -n 48"]]
+    assert seen == [["Tool call: run_command, started: uv run pytest -n 48"]]
 
 
 def test_a_secret_in_an_argument_never_reaches_the_line_of_a_command(

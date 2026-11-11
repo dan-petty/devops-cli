@@ -32,7 +32,7 @@ None.
 
 ### Modified Capabilities
 
-- `roadmap-implement-step`: The implement prompt forbids polling; A shell call in a trace holds its exit status; The shell of a step waits for its command up to the command limit (added); The operator refusal names the code of python -c (added); The implement prompt gives the count of extra turns (added)
+- `roadmap-implement-step`: The implement prompt forbids polling; A shell call in a trace holds its exit status; A run that reaches a limit ends stopped; A call with a command writes the command to the Job log before it runs; The shell of a step waits for its command up to the command limit (added); The operator refusal names the code of python -c (added); The implement prompt gives the count of extra turns (added)
 
 ## Impact
 
