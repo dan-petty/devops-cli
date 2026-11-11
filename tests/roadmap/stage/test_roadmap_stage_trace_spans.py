@@ -185,3 +185,29 @@ def test_a_probe_line_that_the_plan_does_not_quote_changes_no_claim() -> None:
 
     assert len(problems) == 2
     assert any("`src/devops_cli/other.py` was read" in p for p in problems)
+
+
+# A search match shows one line of a file: `search_code` and `callers` answer `path:line:content`
+# (#4495). A citation of that line is seen, and a claim of the whole file or of a range is not.
+MATCHED = "tests/roadmap/test_amend.py"
+SEARCHED = TraceFacts(tools=frozenset({"search_code"}), lines=frozenset({f"{MATCHED}:5"}))
+
+
+@pytest.mark.parametrize(
+    ("span", "refused"),
+    [
+        (f"{MATCHED}:5:from x import y", False),
+        (f"{MATCHED}:5", False),
+        ("roadmap/test_amend.py:5:from x import y", False),
+        (f"search_code {MATCHED}:5", False),
+        (MATCHED, True),
+        (f"{MATCHED}:6:import z", True),
+        (f"{MATCHED}:1-9", True),
+        (f"{MATCHED}:def test_amend", True),
+        ("tests/roadmap/test_other.py:5", True),
+    ],
+)
+def test_a_search_match_supports_a_citation_of_its_line_only(span: str, refused: bool) -> None:
+    problems = _problems(f"The run read `{span}` in the search answer.", SEARCHED)
+
+    assert any("did not read" in problem for problem in problems) is refused

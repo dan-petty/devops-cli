@@ -1154,7 +1154,7 @@ class _Planner:
         run = TraceFacts.of(RunTrace.combined(plans))
         if kept is None:
             return run
-        return TraceFacts(tools=kept.tools | run.tools, paths=kept.paths | run.paths)
+        return kept | run
 
     def _kept(self, target: StageTarget) -> tuple[StagePlanRecord | None, str | None]:
         """The kept plan of the item and its key, (None, None) for a run that keeps no file. A

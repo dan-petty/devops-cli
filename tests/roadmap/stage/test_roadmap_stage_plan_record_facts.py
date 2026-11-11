@@ -120,7 +120,7 @@ def test_a_plan_kept_after_a_run_that_called_a_tool_holds_the_tool_in_its_facts(
 
     data = json.loads(path.read_text(encoding="utf-8"))
 
-    assert data["facts"] == {"tools": ["read_issue"], "paths": []}
+    assert data["facts"] == {"tools": ["read_issue"], "paths": [], "lines": []}
 
 
 def _write_record(proposal: StageProposal, facts: dict[str, list[str]] | None) -> None:
@@ -179,7 +179,7 @@ def test_the_facts_hold_only_the_paths_that_the_feasibility_cites() -> None:
     planner.plan(_target())
 
     data = json.loads(_file().read_text(encoding="utf-8"))
-    assert data["facts"] == {"tools": ["read_file"], "paths": [cited]}
+    assert data["facts"] == {"tools": ["read_file"], "paths": [cited], "lines": []}
 
 
 def test_a_new_planner_model_is_a_miss() -> None:
@@ -192,3 +192,35 @@ def test_a_new_planner_model_is_a_miss() -> None:
 
     assert len(client.traces) == 1
     assert path.is_file()
+
+
+def test_the_facts_hold_the_search_match_lines_that_the_feasibility_cites() -> None:
+    cited, other = "src/devops_cli/sample.py:12", "src/devops_cli/other.py:3"
+    run = RunTrace(
+        tool_calls=[
+            ToolCallRecord("search_code", json.dumps({"text": "x"}), matches=(cited, other))
+        ],
+        row=PLAN_ROW,
+    )
+    plan = _plan(feasibility=[f"`search_code` showed `{cited}`, the line of the value."])
+    planner = _planner(_ScriptedToolbox([(plan, run)]))
+
+    planner.plan(_target())
+
+    data = json.loads(_file().read_text(encoding="utf-8"))
+    assert data["facts"] == {"tools": ["search_code"], "paths": [], "lines": [cited]}
+
+
+def test_a_revision_of_a_kept_plan_keeps_the_search_match_lines_of_its_run() -> None:
+    line = "src/devops_cli/sample.py:12"
+    claim = f"The run read `{line}` in the search answer."
+    _write_record(
+        _plan(unknown_file=True, feasibility=[claim]),
+        {"tools": ["search_code"], "paths": [], "lines": [line]},
+    )
+    fresh = _planner(_ScriptedToolbox([(_plan(feasibility=[claim]), RunTrace(row=PLAN_ROW))]))
+
+    change = fresh.plan(_target())
+
+    assert isinstance(change, StagedChange)
+    assert change.proposal.feasibility == [claim]

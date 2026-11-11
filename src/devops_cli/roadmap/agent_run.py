@@ -9,7 +9,7 @@ from collections import Counter
 from collections.abc import AsyncIterable, Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Any
+from typing import Any, Final
 from urllib.parse import urlsplit
 
 from pydantic_ai import RunContext
@@ -209,14 +209,16 @@ class RunLimit(StrEnum):
 @dataclass(frozen=True)
 class ToolCallRecord:
     """One tool call of a run: the tool, its argument as JSON, masked and cut, how the call ended,
-    the characters of its answer, after the cut of the tool (None for a call with no answer), and
-    its timeout in seconds when bounded (#3221)."""
+    the characters of its answer, after the cut of the tool (None for a call with no answer), its
+    timeout in seconds when bounded (#3221), and the `path:line` of each match line of the answer
+    of a search tool (#4495)."""
 
     name: str
     argument: str
     outcome: ToolOutcome = ToolOutcome.OK
     chars: int | None = None
     timeout: float | None = None
+    matches: tuple[str, ...] = ()
 
 
 @dataclass
@@ -316,7 +318,8 @@ class RunTrace:
         for part in reply.parts:
             if isinstance(part, ToolCallPart) and part.tool_name in tools:
                 argument = bounded_text(argument_json(part))
-                outcome, chars, timeout = _outcome_of(answers.get(part.tool_call_id))
+                answer = answers.get(part.tool_call_id)
+                outcome, chars, timeout = _outcome_of(answer)
                 self.tool_calls.append(
                     ToolCallRecord(
                         part.tool_name,
@@ -324,6 +327,7 @@ class RunTrace:
                         outcome,
                         chars,
                         timeout=timeout,
+                        matches=_match_lines(part.tool_name, answer),
                     )
                 )
 
@@ -358,6 +362,21 @@ def _answers(messages: Sequence[ModelMessage]) -> dict[str, ToolReturnPart | Ret
         for part in message.parts
         if isinstance(part, ToolReturnPart | RetryPromptPart)
     }
+
+
+# The tools of the stage planner that answer each match as one line, `path:line:content`: the
+# lines of the staged commit that a search showed to the run (#4495).
+_MATCH_TOOLS: Final[frozenset[str]] = frozenset({"search_code", "callers"})
+_MATCH_LINE: Final[re.Pattern[str]] = re.compile(r"^(?P<path>[^\s:]+):(?P<line>\d+):", re.MULTILINE)
+
+
+def _match_lines(tool: str, answer: ToolReturnPart | RetryPromptPart | None) -> tuple[str, ...]:
+    """The `path:line` of each match line of the answer of a search tool, in order and once each.
+    The answer of any other tool, a failed call and a call with no answer give none."""
+    if tool not in _MATCH_TOOLS or not isinstance(answer, ToolReturnPart):
+        return ()
+    text = answer.model_response_str()
+    return tuple(dict.fromkeys(f"{m['path']}:{m['line']}" for m in _MATCH_LINE.finditer(text)))
 
 
 def _outcome_of(
@@ -445,22 +464,34 @@ def _paths_in_argument(argument: str) -> set[str]:
 
 @dataclass(frozen=True)
 class TraceFacts:
-    """The tools and the paths of a run trace (#3266)."""
+    """The tools and the paths of a run trace (#3266), and the `path:line` of each line that a
+    search match showed to the run (#4495)."""
 
     tools: frozenset[str] = frozenset()
     paths: frozenset[str] = frozenset()
+    lines: frozenset[str] = frozenset()
 
     @classmethod
     def of(cls, trace: RunTrace) -> TraceFacts:
-        """The tool names and the path, directory and paths values of each tool call argument that
-        parses as a JSON object. A value that is no string, and an argument that is no JSON object,
-        adds nothing. The method never raises."""
+        """The tool names, the path, directory and paths values of each tool call argument that
+        parses as a JSON object, and the match lines of each search answer. A value that is no
+        string, and an argument that is no JSON object, adds nothing. The method never raises."""
         tools: set[str] = set()
         paths: set[str] = set()
+        lines: set[str] = set()
         for call in trace.tool_calls:
             tools.add(call.name)
             paths.update(_paths_in_argument(call.argument))
-        return cls(tools=frozenset(tools), paths=frozenset(paths))
+            lines.update(call.matches)
+        return cls(tools=frozenset(tools), paths=frozenset(paths), lines=frozenset(lines))
+
+    def __or__(self, other: TraceFacts) -> TraceFacts:
+        """The facts of both runs: their tools, paths and match lines joined."""
+        return TraceFacts(
+            tools=self.tools | other.tools,
+            paths=self.paths | other.paths,
+            lines=self.lines | other.lines,
+        )
 
 
 __all__ = [

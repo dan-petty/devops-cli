@@ -14,7 +14,7 @@ import hashlib
 import json
 from typing import TYPE_CHECKING, Any, Final, Self
 
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from devops_cli.ai.client.models import StructuredOutputValidationError
 from devops_cli.ai.schema_reflection import ViolationText
@@ -51,16 +51,18 @@ _STAGE_DIRECTORY: Final[str] = "stage"
 
 class PlanFacts(BaseModel):
     """The trace facts of the plan runs that made a kept plan (#4281): the names of the tools that
-    they called, and the paths that they read and that the Feasibility section of the plan cites.
-    The trace gate needs the facts of the run that made the claims, and a plan read from the file
-    has no run in the process. The file is bounded by the toolset and by the text of the plan:
-    `_uncalled_path` compares a code span of the Feasibility text with the paths, so a path that
-    the text does not hold supports no claim."""
+    they called, the paths that they read, and the `path:line` of the search matches that they saw
+    (#4495), each path and line only when the Feasibility section of the plan cites it. The trace
+    gate needs the facts of the run that made the claims, and a plan read from the file has no run
+    in the process. The file is bounded by the toolset and by the text of the plan:
+    `_uncalled_path` compares a code span of the Feasibility text with the paths and the lines, so
+    a path or a line that the text does not hold supports no claim."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     tools: list[str]
     paths: list[str]
+    lines: list[str] = Field(default_factory=list)
 
     @classmethod
     def of(cls, facts: TraceFacts | None, proposal: StageProposal) -> Self:
@@ -68,12 +70,16 @@ class PlanFacts(BaseModel):
         facts = facts or TraceFacts()
         text = "\n".join(proposal.feasibility)
         return cls(
-            tools=sorted(facts.tools), paths=sorted(path for path in facts.paths if path in text)
+            tools=sorted(facts.tools),
+            paths=sorted(path for path in facts.paths if path in text),
+            lines=sorted(line for line in facts.lines if line in text),
         )
 
     def trace(self) -> TraceFacts:
         """The facts for the trace gate."""
-        return TraceFacts(tools=frozenset(self.tools), paths=frozenset(self.paths))
+        return TraceFacts(
+            tools=frozenset(self.tools), paths=frozenset(self.paths), lines=frozenset(self.lines)
+        )
 
 
 class StagePlanRecord(BaseModel):
