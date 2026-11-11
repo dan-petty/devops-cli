@@ -4,8 +4,9 @@ The Service App and the workflows of the repository open items that no person wr
 sets such an item Ready only when a review approves the issue and the proposal. The review is the
 verification pass of the stage job (`stage_verify`) with the task slot `ai.tasks.verification`:
 it gets the issue and the proposal with no tool, and an open finding, one of `JUDGE_OPEN_TYPES` or a
-placeholder, that quotes a text of its input, refuses the item. A refusal keeps the item New and waits for
-a body edit, and one comment lists each finding with its evidence. An approval is recorded in the
+placeholder, that quotes a text of its input, refuses the item. A refusal keeps the item New and is
+a job failure of refine: the next round refines the item again with the findings, until the limit
+of tries (#4798). An approval is recorded in the
 job record of the item (`RefineRecordKey.JUDGE`), and the stage job, the implement job and the
 alternatives job take the item only with it.
 

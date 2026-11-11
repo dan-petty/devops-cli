@@ -150,6 +150,10 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
         "kept",
         "protects the job record of the issue and the inbox from a long error",
     ),
+    "CONST_ROADMAP_REFINE_JUDGE_FINDINGS_MAX_CHARS": (
+        "kept",
+        "protects the job record of the issue from a long list of findings of the review",
+    ),
     # ── Stage ─────────────────────────────────────────────────────────────────────────────
     "CONST_ROADMAP_STAGE_TOOL_MAX_CALLS": ("guard", "was 30; the window ends the run first"),
     "CONST_ROADMAP_STAGE_MAX_REQUESTS": ("guard", "was 40; the window ends the run first"),

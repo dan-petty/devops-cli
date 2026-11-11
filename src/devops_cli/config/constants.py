@@ -3203,6 +3203,10 @@ CONST_ROADMAP_REFINE_MAX_TRIES: Final[int] = 3
 # The most characters of the last error that the job record of a failed refine round keeps. The
 # text holds the calls of the read tools that found no source (#3632).
 CONST_ROADMAP_REFINE_FAILURE_MAX_CHARS: Final[int] = 300
+# The most characters of the open findings of a refused review that the job record of a refine
+# round keeps for the next round (#4798). The verification pass lists a few findings, each with its
+# quote.
+CONST_ROADMAP_REFINE_JUDGE_FINDINGS_MAX_CHARS: Final[int] = 2000
 # The budget of one item's investigation (#2398): its model requests and tool calls, the calls
 # one turn can make (the function tools go when fewer are left), and the lines and characters of
 # one tool answer, so the run stays inside the analysis context window. qwen3.8:27b made two

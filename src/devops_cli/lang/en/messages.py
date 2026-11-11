@@ -2356,12 +2356,6 @@ class RoadmapMessages:
                 "The next refine round looks at the item again when they close, or when a person "
                 "replies in a comment or edits the body."
             ),
-            "edit": (
-                "Refine cannot set this item to Ready at {sha}. A bot opened the item, so a "
-                "review of the issue and of the proposal must approve it first. The review "
-                "found the defects below. A person edits the body to answer them. The next "
-                "refine round looks at the item again only after a body edit."
-            ),
         }
     )
     # The last line of a next-step comment whose block cites code (#2005).
