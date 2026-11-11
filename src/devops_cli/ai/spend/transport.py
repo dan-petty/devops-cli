@@ -42,8 +42,9 @@ def record_failed_attempt(
     served_model = extract_served_model(headers)
     prompt_tokens = 0
     completion_tokens = 0
+    cache_read_tokens = 0
     if response is not None:
-        prompt_tokens, completion_tokens, served_model = _failed_attempt_usage(
+        prompt_tokens, completion_tokens, cache_read_tokens, served_model = _failed_attempt_usage(
             response, served_model, ctx.model
         )
 
@@ -56,6 +57,7 @@ def record_failed_attempt(
         served_model=served_model,
         prompt_tokens=prompt_tokens,
         completion_tokens=completion_tokens,
+        cache_read_tokens=cache_read_tokens,
         cached=False,
         request_type=ctx.request_type,
         duration_seconds=duration,
@@ -66,12 +68,14 @@ def record_failed_attempt(
 
 def _failed_attempt_usage(
     response: httpx2.Response, served_model: str | None, requested_model: str
-) -> tuple[int, int, str | None]:
+) -> tuple[int, int, int, str | None]:
     """Read the token usage of a failed attempt's reply body, and the model it names when the
-    headers named none and it differs from the requested model. A body that cannot be read
-    keeps what was read before the failure."""
+    headers named none and it differs from the requested model. The usage is the prompt, the
+    completion and the cached prompt tokens. A body that cannot be read keeps what was read
+    before the failure."""
     prompt_tokens = 0
     completion_tokens = 0
+    cache_read_tokens = 0
     try:
         try:
             response.read()
@@ -83,6 +87,9 @@ def _failed_attempt_usage(
             if isinstance(usage, dict):
                 prompt_tokens = int(usage.get("prompt_tokens") or 0)
                 completion_tokens = int(usage.get("completion_tokens") or 0)
+                details = usage.get("prompt_tokens_details")
+                if isinstance(details, dict):
+                    cache_read_tokens = int(details.get("cached_tokens") or 0)
             if not served_model:
                 err_obj = data.get("error")
                 err_dict = err_obj if isinstance(err_obj, dict) else {}
@@ -91,7 +98,7 @@ def _failed_attempt_usage(
                     served_model = str(m)
     except (ValueError, UnicodeDecodeError, httpx2.HTTPError, RuntimeError) as exc:
         logger.debug("Failed to parse response JSON: %s", exc)
-    return prompt_tokens, completion_tokens, served_model
+    return prompt_tokens, completion_tokens, cache_read_tokens, served_model
 
 
 class AttemptRecordingTransport(httpx2.BaseTransport):

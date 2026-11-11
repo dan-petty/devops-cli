@@ -520,3 +520,76 @@ def test_a_failed_attempt_whose_body_cannot_be_read_as_json_records_no_tokens(
     client.chat("system", "user", use_cache=False)
 
     assert _ledger_tokens(spend_ledger) == [("error", 0, 0, None), ("stop", 10, 5, "gpt-test")]
+
+
+# ── Cached prompt tokens of a chat call, at the cached input rate (#4442) ─────────────────────
+
+_DEEPSEEK = "deepseek-v4.1-flash-1017"
+_GATEWAY_URL = "https://llm.example.com/v1"
+_CACHED_USAGE = {
+    "prompt_tokens": 1_000_000,
+    "completion_tokens": 100_000,
+    "total_tokens": 1_100_000,
+    "prompt_tokens_details": {"cached_tokens": 900_000},
+}
+
+
+def _deepseek_reply(status: int = 200) -> httpx2.Response:
+    body: dict[str, Any] = {"model": _DEEPSEEK, "usage": _CACHED_USAGE}
+    if status == 200:
+        body["choices"] = [{"message": {"content": "ok"}, "finish_reason": "stop"}]
+    else:
+        body["error"] = {"message": "failed"}
+    return httpx2.Response(status, json=body)
+
+
+def _chat(client: LLMClient) -> None:
+    client.chat("sys", "user", use_cache=False)
+
+
+def _stream(client: LLMClient) -> None:
+    list(client.chat_messages_stream("sys", [ChatMessage(role="user", content="hi")]))
+
+
+@pytest.mark.parametrize(
+    ("statuses", "call", "rows"),
+    [
+        ([200], _chat, [("chat_dispatch", "stop", 0.033477)]),
+        ([200], _stream, [("stream", "stop", 0.033477)]),
+        (
+            [500, 200],
+            _chat,
+            [("chat_dispatch", "error", 0.033477), ("chat_dispatch", "stop", 0.033477)],
+        ),
+    ],
+    ids=["chat", "stream", "failed-attempt"],
+)
+def test_a_chat_call_on_the_deepseek_group_costs_its_cached_and_new_input_and_its_output(
+    statuses: list[int],
+    call: Callable[[LLMClient], None],
+    rows: list[tuple[str, str, float]],
+    spend_ledger: SpendLedger,
+    config: Callable[..., Any],
+    web: WebFake,
+) -> None:
+    """A chat call gives the ledger the prompt tokens that the reply names as cached, as an agent
+    run does (#4403). Of 1,000,000 prompt tokens, 900,000 come from the cache: 0.1 x 0.0784 +
+    0.9 x 0.002352 + 0.1 x 0.2352 USD for 100,000 completion tokens. A failed attempt whose error
+    body names its usage costs the same."""
+    config(ai={"gateway_url": _GATEWAY_URL})
+    client = LLMClient(
+        AIConfig(provider="gateway", model=_DEEPSEEK, gateway_url=_GATEWAY_URL),
+        api_key="sk-test",
+        cache_enabled=False,
+    )
+    replies = [_deepseek_reply(status) for status in statuses]
+    serve_llm(web, lambda request: replies.pop(0))
+
+    call(client)
+
+    with contextlib.closing(sqlite3.connect(spend_ledger.db_path)) as conn:
+        recorded = conn.execute(
+            "SELECT request_type, finish_reason, round(cost_usd, 6) FROM ai_spend_records"
+            " ORDER BY id"
+        ).fetchall()
+    assert recorded == rows
