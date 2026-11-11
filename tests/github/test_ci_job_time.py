@@ -329,52 +329,127 @@ def test_the_command_exits_1_when_fewer_runs_than_wanted_exist(
 
 
 def _route_sharded_run(
-    api: GitHubApiFake, shard_starts: list[str], aggregate: tuple[str, str], *, extra: list[Any]
+    api: GitHubApiFake,
+    shards: list[tuple[str, str]],
+    aggregate: tuple[str, str],
+    *,
+    extra: list[Any],
+    run_id: int = 100,
 ) -> None:
-    """Route one run whose check ran in shards: a job `Tests & Coverage (shard n of N)` that
-    started at each of `shard_starts`, the job `Tests & Coverage` from `aggregate[0]` to
+    """Route one run whose check ran in shards: a job `Tests & Coverage (shard n of N)` from the
+    start to the end of each of `shards`, the job `Tests & Coverage` from `aggregate[0]` to
     `aggregate[1]`, and the `extra` jobs."""
-    runs = [{"id": 100, "head_branch": "main", "event": "push"}]
+    runs = [{"id": run_id, "head_branch": "main", "event": "push"}]
     api.route("GET", _RUNS, github_json({"total_count": 1, "workflow_runs": runs}))
-    total = len(shard_starts)
+    total = len(shards)
     jobs = [
-        _job(f"{_JOB} (shard {n} of {total})", start, "2026-10-29T10:03:00Z")
-        for n, start in enumerate(shard_starts, start=1)
+        _job(f"{_JOB} (shard {n} of {total})", start, end)
+        for n, (start, end) in enumerate(shards, start=1)
     ]
     jobs.append(_job(_JOB, *aggregate))
     jobs.extend(extra)
-    api.route("GET", _jobs_path(100), github_json({"total_count": len(jobs), "jobs": jobs}))
+    api.route("GET", _jobs_path(run_id), github_json({"total_count": len(jobs), "jobs": jobs}))
 
 
-def test_a_run_with_shard_jobs_is_timed_from_the_first_shard_to_the_end_of_the_job(
+def _shards_ending_at_10_03(*starts: str) -> list[tuple[str, str]]:
+    return [(start, "2026-10-29T10:03:00Z") for start in starts]
+
+
+# The shard jobs and the join of `main` run 43018142394 of 2026-11-11. The account runs 20 jobs at
+# one time, so the shards started over 412 s and the join started 208 s after the last shard ended.
+_QUEUED_SHARDS = [
+    ("2026-11-11T12:12:49Z", "2026-11-11T12:19:56Z"),
+    ("2026-11-11T12:14:33Z", "2026-11-11T12:20:14Z"),
+    ("2026-11-11T12:17:53Z", "2026-11-11T12:23:53Z"),
+    ("2026-11-11T12:19:41Z", "2026-11-11T12:24:51Z"),
+]
+_QUEUED_JOIN = ("2026-11-11T12:28:19Z", "2026-11-11T12:29:04Z")
+
+
+def test_a_run_with_shard_jobs_is_timed_by_its_slowest_shard_and_the_join(
     github_api: GitHubApiFake,
 ) -> None:
-    """The job `Tests & Coverage` only joins the shards and lasts about a minute, so its own time
-    would hide the wait of a person. The time of the check runs from the first start of a shard to
-    the end of the job (#3050)."""
+    """The shards run side by side and the job `Tests & Coverage` joins them after the last one,
+    so the check ran for its slowest shard plus the join (#3050). The rest of the span, from the
+    first start of a shard to the end of the join, is time in the queue and is kept apart (#4634)."""
     _route_sharded_run(
         github_api,
-        ["2026-10-29T10:00:03Z", "2026-10-29T10:00:00Z", "2026-10-29T10:00:05Z"],
+        _shards_ending_at_10_03(
+            "2026-10-29T10:00:03Z", "2026-10-29T10:00:00Z", "2026-10-29T10:00:05Z"
+        ),
         ("2026-10-29T10:03:10Z", "2026-10-29T10:04:10Z"),
         extra=[],
     )
 
-    assert [run.seconds for run in _read(count=1)] == [250.0]
+    assert [(run.seconds, run.queue_seconds) for run in _read(count=1)] == [(240.0, 10.0)]
+
+
+def test_the_time_a_run_waited_for_runners_is_not_counted(github_api: GitHubApiFake) -> None:
+    """Run 43018142394 spans 975 s, but its slowest shard ran 427 s and the join 45 s: the check
+    ran 472 s, and the other 503 s are time in the queue (#4634)."""
+    _route_sharded_run(github_api, _QUEUED_SHARDS, _QUEUED_JOIN, extra=[], run_id=43018142394)
+
+    assert [(run.run_id, run.seconds, run.queue_seconds) for run in _read(count=1)] == [
+        (43018142394, 472.0, 503.0)
+    ]
+
+
+def test_a_shard_without_an_end_is_not_the_slowest_shard(github_api: GitHubApiFake) -> None:
+    """A shard that GitHub gives with a start and no end has no run time, so the slowest shard is
+    one that ended. Its start still opens the span of the run."""
+    runs = [{"id": 100, "head_branch": "main", "event": "push"}]
+    github_api.route("GET", _RUNS, github_json({"total_count": 1, "workflow_runs": runs}))
+    jobs = [
+        {
+            "name": f"{_JOB} (shard 1 of 2)",
+            "conclusion": "success",
+            "started_at": "2026-10-29T10:00:00Z",
+        },
+        _job(f"{_JOB} (shard 2 of 2)", "2026-10-29T10:00:10Z", "2026-10-29T10:02:10Z"),
+        _job(_JOB, "2026-10-29T10:03:00Z", "2026-10-29T10:04:00Z"),
+    ]
+    github_api.route("GET", _jobs_path(100), github_json({"total_count": 3, "jobs": jobs}))
+
+    assert [(run.seconds, run.queue_seconds) for run in _read(count=1)] == [(180.0, 60.0)]
 
 
 def test_a_job_with_a_longer_name_does_not_change_the_time_of_the_check(
     github_api: GitHubApiFake,
 ) -> None:
     """Only the job of the name and the jobs named `<name> (…)` belong to the check: a job named
-    `Tests & Coverage Report` that started earlier is not one of them."""
+    `Tests & Coverage Report` that started earlier and ran longer is not one of them."""
     _route_sharded_run(
         github_api,
-        ["2026-10-29T10:00:00Z"],
+        _shards_ending_at_10_03("2026-10-29T10:00:00Z"),
         ("2026-10-29T10:03:10Z", "2026-10-29T10:04:10Z"),
-        extra=[_job(f"{_JOB} Report", "2026-10-29T09:00:00Z", "2026-10-29T09:01:00Z")],
+        extra=[_job(f"{_JOB} Report", "2026-10-29T09:00:00Z", "2026-10-29T09:30:00Z")],
     )
 
-    assert [run.seconds for run in _read(count=1)] == [250.0]
+    assert [(run.seconds, run.queue_seconds) for run in _read(count=1)] == [(240.0, 10.0)]
+
+
+@pytest.mark.parametrize(
+    ("limit", "exit_code"),
+    [
+        pytest.param("480", 0, id="run-time-inside-the-limit"),
+        pytest.param("460", 1, id="run-time-over-the-limit"),
+    ],
+)
+def test_the_command_checks_the_run_time_and_prints_the_queue_time_on_its_own_line(
+    github_api: GitHubApiFake, cli: Callable[..., Any], limit: str, exit_code: int
+) -> None:
+    """The limit applies to the 472 s that the check ran, not to the span of 975 s. The 503 s in
+    the queue are shown on a line of their own, so a long queue is seen and does not fail the
+    check (#4634)."""
+    _route_sharded_run(github_api, _QUEUED_SHARDS, _QUEUED_JOIN, extra=[])
+
+    result = cli("ci", "job-time", "--repo", _REPO, "--runs", "1", "--limit", limit)
+
+    assert (
+        result.exit_code,
+        "took 472 s on average" in _said(result),
+        "also waited 503 s on average" in _said(result),
+    ) == (exit_code, True, True)
 
 
 def test_a_run_whose_aggregate_job_was_cancelled_is_left_out_though_its_shards_ran(
@@ -410,12 +485,11 @@ def test_a_dry_run_lists_the_requests_and_makes_none(
     )
 
 
-def test_the_workflow_runs_the_check_after_a_push_to_main_and_on_the_schedule_and_no_job_waits_for_it() -> (
-    None
-):
-    """The job reads main's history, which a pull request cannot change, so it runs for pushes and
-    for the daily schedule only, reads with a token that can read the Actions runs and nothing
-    else, and is the `needs` of no other job."""
+def test_the_workflow_runs_the_check_on_the_schedule_and_by_hand_and_no_job_waits_for_it() -> None:
+    """The job reads main's history, which no run of a push or a pull request changes. It runs on
+    the daily schedule and on a manual run only, so no push run of main turns red for the mean of
+    other runs (#4634). It reads with a token that can read the Actions runs and nothing else, and
+    is the `needs` of no other job."""
     workflow = yaml.safe_load((REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text("utf-8"))
     job = workflow["jobs"]["job-time"]
     waiting = [
@@ -428,11 +502,23 @@ def test_the_workflow_runs_the_check_after_a_push_to_main_and_on_the_schedule_an
         [step["run"] for step in job["steps"] if "devops ci job-time" in step.get("run", "")],
         waiting,
     ) == (
-        "github.event_name == 'push' || github.event_name == 'schedule'",
+        "github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'",
         {"contents": "read", "actions": "read"},
         ['uv run devops ci job-time --repo "$GITHUB_REPOSITORY"'],
         [],
     )
+
+
+def test_a_push_to_main_does_not_cancel_the_schedule_run() -> None:
+    """The concurrency group of `ci.yml` holds the event, so the schedule run, which holds the
+    check, and a push run of the same ref are in two groups, and a merge cancels only an older
+    push run (#4634)."""
+    workflow = yaml.safe_load((REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text("utf-8"))
+
+    assert workflow["concurrency"] == {
+        "group": "ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}",
+        "cancel-in-progress": True,
+    }
 
 
 def test_the_command_exits_1_and_asks_for_a_repository_when_the_checkout_has_no_origin(
