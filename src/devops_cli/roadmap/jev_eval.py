@@ -32,7 +32,8 @@ from devops_cli.roadmap.intake.intake_model import (
     ProposalRequest,
     UnusableProposalError,
 )
-from devops_cli.roadmap.title_labels import declared_label_specs, declared_type_labels
+from devops_cli.roadmap.title_labels import declared_label_specs
+from devops_cli.roadmap.workflow_labels import WORKFLOW_TYPE_LABELS
 
 # The label set, shipped with the package like the duplicate set.
 LABEL_CASES = files("devops_cli.roadmap").joinpath("intake_label_cases.json")
@@ -88,7 +89,7 @@ def load_label_cases() -> list[LabelCase]:
 
 def _request(case: LabelCase, labels: str) -> ProposalRequest:
     specs = declared_label_specs(labels)
-    types = declared_type_labels([spec.name for spec in specs])
+    types = WORKFLOW_TYPE_LABELS
     title = case.candidate.title
     return ProposalRequest(
         title=commit_summary(title) or title,

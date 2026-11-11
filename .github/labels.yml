@@ -1,343 +1,203 @@
-# GitHub Declarative Labels Schema for devops-cli
+# The labels of devops-cli: the scope labels and the release labels.
+# The package declares the workflow labels that the roadmap code reads or
+# writes (src/devops_cli/roadmap/workflow_labels.py, #4652), so this file
+# holds none of them. Each color is a design token color (LabelColor).
 # Synced via: devops gh labels sync
-
-# ── Type Labels ─────────────────────────────────────────────────────────────
-- name: "type/feature"
-  color: "0E8A16"
-  description: "New user-facing functionality or capability addition"
-
-- name: "type/bug"
-  color: "D73A4A"
-  description: "Defect, regression, or incorrect runtime behavior"
-
-- name: "type/security"
-  color: "B60205"
-  description: "Security vulnerability, CVE, or credential protection"
-
-- name: "type/refactor"
-  color: "1D76DB"
-  description: "Code simplification, deduplication, or structural reorganization"
-
-- name: "type/docs"
-  color: "0075CA"
-  description: "Documentation additions, guides, manuals, or README updates"
-
-- name: "type/infra"
-  color: "5319E7"
-  description: "Kubernetes, Docker, DevContainer, or OpenTofu infrastructure"
-
-- name: "type/test"
-  color: "FBCA04"
-  description: "Unit, integration, invariant, or benchmark test authoring"
-
-- name: "type/chore"
-  color: "CFD3D7"
-  description: "Dependency upgrades, tooling adjustments, or maintenance"
-
-- name: "type/epic"
-  color: "3E4B9E"
-  description: "High-level tracking epic or release parent issue coordinating deliverables"
 
 # ── Scope Labels ────────────────────────────────────────────────────────────
 - name: "scope/ai"
-  color: "6F42C1"
+  color: "DCDCD6"
   description: "AI review pipeline, personas, prompts, LLM client, or RAG"
 
 - name: "scope/k8s"
-  color: "326CE5"
+  color: "DCDCD6"
   description: "Kubernetes commands, Helm charts, pods, services, and policies"
 
 - name: "scope/security"
-  color: "E99695"
+  color: "DCDCD6"
   description: "Security linters (trivy, bandit, gitleaks, kubeconform) and Vault"
 
 - name: "scope/cli"
-  color: "C2E0C6"
+  color: "DCDCD6"
   description: "Core CLI framework, Typer subcommands, options, and tables"
 
 - name: "scope/review"
-  color: "D4C5F9"
+  color: "DCDCD6"
   description: "Multi-persona code review engine, verification, and findings"
 
 - name: "scope/config"
-  color: "BFD4F2"
+  color: "DCDCD6"
   description: "Settings, OS Keyring, environment variables, and defaults"
 
 - name: "scope/mcp"
-  color: "F9D0C4"
+  color: "DCDCD6"
   description: "Model Context Protocol tools, system resources, and prompts"
 
 - name: "scope/telemetry"
-  color: "FEF2C0"
+  color: "DCDCD6"
   description: "OpenTelemetry tracing spans, Prometheus metrics, and Jaeger"
 
 - name: "scope/github"
-  color: "24292E"
+  color: "DCDCD6"
   description: "GitHub Projects v2, Views, Milestones, Labels, and PR automation"
 
 - name: "scope/git"
-  color: "24292E"
+  color: "DCDCD6"
   description: "Git commands, git configuration, and git credential handling"
 
 - name: "scope/release"
-  color: "1D76DB"
+  color: "DCDCD6"
   description: "The release-please workflow, the changelog and the published artifacts"
 
 - name: "scope/ci"
-  color: "1D76DB"
+  color: "DCDCD6"
   description: "GitHub Actions workflows, pre-commit hooks, CI gates, and runners"
 
 - name: "scope/infra"
-  color: "5319E7"
+  color: "DCDCD6"
   description: "Docker container images, DevContainers, and infrastructure tooling"
 
 - name: "scope/roadmap"
-  color: "0E8A16"
+  color: "DCDCD6"
   description: "The roadmap jobs: intake, refine, stage, implement and the Service that runs them"
 
 - name: "scope/docs"
-  color: "0075CA"
+  color: "DCDCD6"
   description: "Documents, guides, ADRs and generated references"
 
 - name: "scope/agent"
-  color: "6F42C1"
+  color: "DCDCD6"
   description: "AI agent instructions, skills and agent tooling"
 
 - name: "scope/terraform"
-  color: "5319E7"
+  color: "DCDCD6"
   description: "OpenTofu modules and the infrastructure they declare"
 
 - name: "scope/monitoring"
-  color: "FEF2C0"
+  color: "DCDCD6"
   description: "Grafana, Prometheus, Loki, alerts and dashboards"
 
 - name: "scope/deps"
-  color: "CFD3D7"
+  color: "DCDCD6"
   description: "Dependency pins, upgrades and the supply chain"
 
 - name: "scope/service"
-  color: "C2E0C6"
+  color: "DCDCD6"
   description: "The long-running devops Service and its lanes"
 
 - name: "scope/devcontainer"
-  color: "5319E7"
+  color: "DCDCD6"
   description: "The DevContainer, its image and its features"
 
 - name: "scope/valkey"
-  color: "FBCA04"
+  color: "DCDCD6"
   description: "Valkey caches, queues and their keys"
 
 - name: "scope/agents"
-  color: "6F42C1"
+  color: "DCDCD6"
   description: "Agent instructions in AGENTS.md, skills and the agent hand-off"
 
 - name: "scope/argo"
-  color: "EF7B4D"
+  color: "DCDCD6"
   description: "Argo CD applications and Argo Workflows"
 
 - name: "scope/cloudflare"
-  color: "F6821F"
+  color: "DCDCD6"
   description: "Cloudflare tunnels, Access and DNS"
 
 - name: "scope/docker"
-  color: "0DB7ED"
+  color: "DCDCD6"
   description: "Docker and Podman commands and cleanup"
 
 - name: "scope/exceptions"
-  color: "B60205"
+  color: "DCDCD6"
   description: "Exception classes, error codes and exit codes"
 
 - name: "scope/gh"
-  color: "24292E"
+  color: "DCDCD6"
   description: "The devops gh commands"
 
 - name: "scope/lint"
-  color: "C5DEF5"
+  color: "DCDCD6"
   description: "Linters, formatters and their configuration"
 
 - name: "scope/openspec"
-  color: "0E8A16"
+  color: "DCDCD6"
   description: "OpenSpec changes, specs and their checks"
 
 - name: "scope/pr"
-  color: "24292E"
+  color: "DCDCD6"
   description: "The devops pr commands"
 
 - name: "scope/rag"
-  color: "6F42C1"
+  color: "DCDCD6"
   description: "The RAG index, retrieval and the knowledge base"
 
 - name: "scope/repos"
-  color: "24292E"
+  color: "DCDCD6"
   description: "The devops repos commands and worktrees"
 
 - name: "scope/sandbox"
-  color: "5319E7"
+  color: "DCDCD6"
   description: "The bubblewrap sandbox and its egress rules"
 
 - name: "scope/tests"
-  color: "FBCA04"
+  color: "DCDCD6"
   description: "The test suite, its fixtures, fakes and floor"
 
 - name: "scope/ui"
-  color: "C2E0C6"
+  color: "DCDCD6"
   description: "Terminal output, tables and the dashboard"
 
 - name: "scope/vault"
-  color: "E99695"
+  color: "DCDCD6"
   description: "Vault leases, secrets and their lifecycle"
 
 - name: "scope/argocd"
-  color: "EF7B4D"
+  color: "DCDCD6"
   description: "Argo CD sync, projects and the devops application"
 
 - name: "scope/contributing"
-  color: "0075CA"
+  color: "DCDCD6"
   description: "The rules of CONTRIBUTING.md and their checks"
 
 - name: "scope/fail-to-pass"
-  color: "B60205"
+  color: "DCDCD6"
   description: "The fail-to-pass replay of a fix"
 
 - name: "scope/scan"
-  color: "D93F0B"
+  color: "DCDCD6"
   description: "The devops scan command and its scanners"
 
 - name: "scope/sdlc"
-  color: "0E8A16"
+  color: "DCDCD6"
   description: "The software development life cycle and its phases"
 
 - name: "scope/gate"
-  color: "FBCA04"
+  color: "DCDCD6"
   description: "The quality gate and its checks"
 
 - name: "scope/output"
-  color: "C2E0C6"
+  color: "DCDCD6"
   description: "Output formats of commands: JSON, YAML and tables"
 
 - name: "scope/research"
-  color: "5319E7"
+  color: "DCDCD6"
   description: "The research agent: the pins of the project and the news about them"
 
+# ── Release Labels ──────────────────────────────────────────────────────────
 - name: "autorelease: pending"
-  color: "EDEDED"
+  color: "DCDCD6"
   description: "The release pull request that release-please keeps open"
 
 - name: "autorelease: tagged"
-  color: "EDEDED"
+  color: "DCDCD6"
   description: "A release pull request whose release release-please created"
 
 - name: "release-now"
-  color: "B60205"
+  color: "DCDCD6"
   description: "A person sets it on a fix pull request: its merge turns on auto-merge of the release pull request"
 
 - name: "hold-release"
-  color: "B60205"
+  color: "86867F"
   description: "A person sets it on the release pull request: the scheduled merge skips it"
-
-# ── Roadmap Item Fields (ADR 0016) ──────────────────────────────────────────
-# One label of each family holds a field of a roadmap item. A roadmap job that
-# sets a field replaces each label of the family with the label of the value.
-- name: "status/new"
-  color: "EDEDED"
-  description: "Status New: the item is not ready yet"
-
-- name: "status/ready"
-  color: "1D76DB"
-  description: "Status Ready: problem, acceptance criteria and an answer to each key question"
-
-- name: "status/planned"
-  color: "C2E0C6"
-  description: "Status Planned: the plan is merged and the item waits for its implementation"
-
-- name: "status/in-progress"
-  color: "BFDADC"
-  description: "Actively being designed or implemented by developer or agent"
-
-- name: "status/in-review"
-  color: "D4C5F9"
-  description: "Pull request open and undergoing multi-persona review or CI gates"
-
-- name: "status/blocked"
-  color: "E11D21"
-  description: "Execution blocked by external dependency or upstream review"
-
-- name: "priority/p0-critical"
-  color: "B60205"
-  description: "Urgent blockages, critical vulnerabilities, or release blockers"
-
-- name: "priority/p1-high"
-  color: "D93F0B"
-  description: "Priority P1: high-impact work for the next planned milestone"
-
-- name: "priority/p2-medium"
-  color: "FBCA04"
-  description: "Standard priority feature work and architectural improvements"
-
-- name: "priority/p3-low"
-  color: "0E8A16"
-  description: "Minor polish, low-severity improvements, and backlogged tasks"
-
-- name: "value/high"
-  color: "C2E0C6"
-  description: "Value High: the delivery of the item matters much"
-
-- name: "value/medium"
-  color: "FEF2C0"
-  description: "Value Medium"
-
-- name: "value/low"
-  color: "EDEDED"
-  description: "Value Low: the delivery of the item matters little"
-
-- name: "effort/high"
-  color: "F9D0C4"
-  description: "Effort High: much work, in one pull request"
-
-- name: "effort/medium"
-  color: "FEF2C0"
-  description: "Effort Medium"
-
-- name: "effort/low"
-  color: "C2E0C6"
-  description: "Effort Low: little work"
-
-# One label of the family `owner/*` claims an item (#2910). An item has at most one owner. A
-# person's claim beats the Service's claim, and the Service takes no claimed item.
-- name: "owner/service"
-  color: "BFDADC"
-  description: "Owner Service: the roadmap Service works on the item in a Job"
-
-- name: "owner/agent"
-  color: "5319E7"
-  description: "Owner Agent: an agentic coder works on the item"
-
-- name: "owner/human"
-  color: "0E8A16"
-  description: "Owner Human: a person works on the item"
-
-# ── Roadmap Labels ──────────────────────────────────────────────────────────
-- name: "needs-split"
-  color: "FBCA04"
-  description: "Too big for one pull request; split it before work starts"
-
-- name: "plan/needs-fix"
-  color: "D73A4A"
-  description: "The model review of the plan found an open finding; the plan stays in draft"
-
-- name: "source/agent"
-  color: "5319E7"
-  description: "Filed by an agent"
-
-# ── Review Feedback Labels ──────────────────────────────────────────────────
-- name: "review/approved"
-  color: "0E8A16"
-  description: "Code changes reviewed and approved across all personas"
-
-- name: "review/changes-requested"
-  color: "D73A4A"
-  description: "Findings or defects identified that require remediation"
-
-- name: "review/ai-reviewed"
-  color: "8A2BE2"
-  description: "Automated multi-persona AI review executed on changeset"

@@ -2171,7 +2171,7 @@
     }
   },
   "gh_labels_sync": {
-    "description": "Synchronize repository labels against the declarative YAML schema.",
+    "description": "Synchronize repository labels with the workflow labels and the declarative YAML schema.",
     "input_schema": {
       "additionalProperties": false,
       "properties": {

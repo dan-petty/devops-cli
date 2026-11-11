@@ -1,8 +1,7 @@
-"""The labels file that intake reads for the type labels it may assign (#1335)."""
+"""The labels file that intake reads for the scope labels it may assign (#1335, #4652)."""
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from typing import Any
 
 import pytest
@@ -18,14 +17,15 @@ from devops_cli.roadmap.intake.intake import (
     dry_run_intake,
     plan_intake,
 )
+from devops_cli.roadmap.workflow_labels import WORKFLOW_TYPE_LABELS
 from tests.support.roadmap_intake import REPO, FakeModel, Recorded, Roadmap, on_github
 
-# ── The type/* labels `.github/labels.yml` declares (#1358) ─────────────────────
+# ── The labels `.github/labels.yml` declares (#1358) ────────────────────────────
 
-LABELS_RULE = "must declare the type/* labels intake may assign"
+LABELS_RULE = "must declare the scope/* labels intake may assign"
 
 
-ONLY_EPIC = "- name: type/epic\n  color: '5319e7'\n  description: A parent of other items.\n"
+ONLY_SCOPE = "- name: scope/cli\n  color: 'dcdcd6'\n  description: The CLI.\n"
 
 
 def test_a_run_with_no_candidate_needs_no_labels_file() -> None:
@@ -38,21 +38,16 @@ def test_a_run_with_no_candidate_needs_no_labels_file() -> None:
     ("labels", "names", "ruled"),
     [
         (None, f"{REPO} has no .github/labels.yml at the default branch.", True),
-        (
-            ONLY_EPIC,
-            f"{REPO}'s .github/labels.yml at the default branch declares no type/* label",
-            True,
-        ),
         ("labels: none\n", f"{REPO}'s .github/labels.yml can't be read as label specs", False),
     ],
-    ids=["missing", "only-epic", "not-label-specs"],
+    ids=["missing", "not-label-specs"],
 )
 def test_a_labels_file_it_cant_use_stops_intake_before_any_read_or_model_call(
     labels: str | None, names: str, ruled: bool
 ) -> None:
     """The file is read at the run's first candidate, before its timeline read and the
     embedding call. Its error names the repository the run was given, the file and, for a
-    missing or type-less file, the rule."""
+    missing file, the rule."""
     roadmap = Roadmap(labels=labels)
     roadmap.issue("feat: export the board as CSV")
     ran: list[str] = []
@@ -71,18 +66,17 @@ def test_a_labels_file_it_cant_use_stops_intake_before_any_read_or_model_call(
     ) == ({"path": ".github/labels.yml"}, True, ruled, False, [], [])
 
 
-def test_intake_names_the_repository_whose_labels_file_declares_no_type(
-    opened: Roadmap, fake_model: FakeModel, run_intake: Callable[..., str]
-) -> None:
-    """The command hands the run its `--repo`, so the error names the repository."""
-    opened.store.seed_file(".github/labels.yml", ONLY_EPIC)
-    opened.issue("feat: export the board as CSV")
-    output = run_intake("--plan", exit_code=1)
+def test_intake_offers_the_package_types_when_the_labels_file_declares_none() -> None:
+    """The package declares the `type/*` labels, so a file with only scope labels still gives
+    the model every type to pick from, each with its description (#4652)."""
+    roadmap = Roadmap(labels=ONLY_SCOPE)
+    roadmap.issue("export the board as CSV")
+    model = FakeModel()
+    roadmap.plan(model)
     assert (
-        f"{REPO}'s .github/labels.yml at the default branch declares no type/* label" in output,
-        LABELS_RULE in output,
-        fake_model.requests,
-    ) == (True, True, [])
+        [request.types for request in model.requests],
+        [len(request.type_notes) for request in model.requests],
+    ) == ([WORKFLOW_TYPE_LABELS], [len(WORKFLOW_TYPE_LABELS)])
 
 
 def test_a_dry_runs_labels_read_waits_for_a_candidate_unless_it_has_a_title() -> None:

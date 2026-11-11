@@ -173,9 +173,9 @@ from devops_cli.roadmap.stores.store import (
 )
 from devops_cli.roadmap.title_labels import (
     declared_label_specs,
-    declared_type_labels,
     title_labels,
 )
+from devops_cli.roadmap.workflow_labels import WORKFLOW_TYPE_LABELS
 from devops_cli.security.sanitizer import redact_text
 from devops_cli.telemetry.instruments import ROADMAP_INTAKE_CANDIDATES_TOTAL, emit
 
@@ -568,9 +568,10 @@ class _Run:
 
     @cached_property
     def descriptions(self) -> dict[str, str]:
-        """The label names `.github/labels.yml` declares, each with its description. A file
-        that is missing or is no label specs is a configuration error naming the repository; any
-        other failed read stays GitHub's error (#1358)."""
+        """The workflow labels of the package and the labels `.github/labels.yml` declares, each
+        name with its description (#4652). A file that is missing or is no label specs is a
+        configuration error naming the repository; any other failed read stays GitHub's error
+        (#1358)."""
         path, texts = CONST_ROADMAP_LABELS_PATH, MESSAGES.roadmap
         where = {
             "repo": self.repo,
@@ -590,23 +591,13 @@ class _Run:
 
     @property
     def declared(self) -> tuple[str, ...]:
-        """The names of the labels `.github/labels.yml` declares."""
+        """The names of the workflow labels and of the labels `.github/labels.yml` declares."""
         return tuple(self.descriptions)
 
-    @cached_property
+    @property
     def types(self) -> tuple[str, ...]:
-        """The `type/*` labels the file declares, `type/epic` aside. A file that declares none is
-        a configuration error naming the repository (#1358)."""
-        types = declared_type_labels(self.declared)
-        if not types:
-            texts = MESSAGES.roadmap
-            untyped = texts.intake_labels_untyped.format(
-                repo=self.repo,
-                path=CONST_ROADMAP_LABELS_PATH,
-                ref=self.ref or texts.intake_placeholder_default_branch,
-            )
-            raise ConfigurationError(untyped, details={"path": CONST_ROADMAP_LABELS_PATH})
-        return types
+        """The `type/*` labels of the package, `type/epic` aside (#4652)."""
+        return WORKFLOW_TYPE_LABELS
 
     @cached_property
     def scopes(self) -> frozenset[str]:
@@ -1160,7 +1151,7 @@ class _Planner:
         A placed candidate that has sub-issues does not join the comparison set (#1985)."""
         if not subjects:
             return
-        _ = self.run.types
+        _ = self.run.descriptions
         checked = [_checked(self.run, subject) for subject in subjects]
         own = self._embed(subjects, checked)
         for subject, vector in zip(subjects, own, strict=True):

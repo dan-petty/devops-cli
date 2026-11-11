@@ -24,6 +24,7 @@ from devops_cli.roadmap.jev_eval import (
     planned_calls,
     render_comparison,
 )
+from devops_cli.roadmap.workflow_labels import WORKFLOW_TYPE_LABELS
 from tests.support.roadmap_intake import LABELS_YML, FakeModel
 
 if TYPE_CHECKING:
@@ -40,12 +41,11 @@ def _jev(jev: JevFake) -> JevIntakeModel:
 
 
 def test_the_label_set_holds_named_closed_issues_with_values_from_the_lists() -> None:
-    declared = LABELS_YML
     names = [case.name for case in LABEL_CASES]
     assert len(set(names)) == len(names) >= 20
     for case in LABEL_CASES:
         expected = case.expected
-        assert f'name: "{expected.type}"' in declared
+        assert expected.type in WORKFLOW_TYPE_LABELS
         assert expected.priority in CONST_ROADMAP_MODEL_PRIORITIES
         assert {expected.value, expected.effort} <= set(CONST_ROADMAP_SIZE_OPTIONS)
 

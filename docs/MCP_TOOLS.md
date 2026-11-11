@@ -55,7 +55,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`gh_issues_triage`](#gh-issues-triage) | `true` | Audit open issues for mandatory taxonomy labels, and report those with no priority/* label as awaiting intake. |
 | [`gh_issues_view`](#gh-issues-view) | `true` | Print one issue with its state, milestone, labels, assignees, dates and full body. |
 | [`gh_labels_list`](#gh-labels-list) | `true` | List all labels defined in the remote repository. |
-| [`gh_labels_sync`](#gh-labels-sync) | `false` | Synchronize repository labels against the declarative YAML schema. |
+| [`gh_labels_sync`](#gh-labels-sync) | `false` | Synchronize repository labels with the workflow labels and the declarative YAML schema. |
 | [`gh_milestones_close`](#gh-milestones-close) | `false` | Close the milestone with this title or number. |
 | [`gh_milestones_edit`](#gh-milestones-edit) | `false` | Edit a milestone's title, description, state, or due date; fields left out stay as they are. |
 | [`gh_milestones_list`](#gh-milestones-list) | `true` | List every milestone, by due date and then by number, with its issue completion rate. |
@@ -935,7 +935,7 @@ List all labels defined in the remote repository.
 
 ### `gh_labels_sync`
 
-Synchronize repository labels against the declarative YAML schema.
+Synchronize repository labels with the workflow labels and the declarative YAML schema.
 
 **Annotations:** `readOnlyHint: false`
 

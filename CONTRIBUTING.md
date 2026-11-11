@@ -189,7 +189,7 @@ This table holds the naming rules of the project. Each rule names the check that
 | `devops` command and option | Lowercase words joined by hyphens | None. |
 | Environment variable | `DEVOPS_CLI_` and the setting's dotted key in upper case, with `_` for `.`. A settings field declares its variable with a `Variable` marker (`src/devops_cli/config/env.py`) and its description with `Field(description=...)`; a credential is one entry of `CREDENTIALS` in the same module | `tests/security/test_config_declarations.py` holds the set of variables and keyring entries. `devops config show`, `devops config env` and `docs/ENV_VARS.md` are generated from the declarations. |
 | Metric | `devops_cli_<name>`; a counter ends in `_total` and no other metric does. Each metric is an entry of `INSTRUMENTS` in `src/devops_cli/telemetry/instruments.py`, sent with `emit()` | `tests/telemetry/test_telemetry_instruments.py` checks the `_total` suffix, and fails on a metric that a module writes by name or on an `emit()` of an instrument that `INSTRUMENTS` does not hold. |
-| Issue label | `<category>/<value>`, from `.github/labels.yml` | `devops gh labels sync`. |
+| Issue label | `<category>/<value>`: the workflow labels from `src/devops_cli/roadmap/workflow_labels.py`, the `scope/*` labels from `.github/labels.yml` | `devops gh labels sync`. |
 | Decision record | `docs/adr/<NNNN>-<slug>.md` | None. |
 | Release tag | `v<major>.<minor>.<patch>` | release-please writes it. Nobody tags by hand. |
 | Agent file, worktree and scratch script | Under `.data/agent/`. The worktree of an issue is `.data/agent/worktrees/w-<issue>`. | `.gitignore`. `devops repos worktrees add` makes the worktree, or takes over the staged branch of the issue. |

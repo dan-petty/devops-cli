@@ -22,11 +22,12 @@ from devops_cli.roadmap.stores.store import (
     encode_job_record,
     with_record,
 )
+from devops_cli.roadmap.workflow_labels import WORKFLOW_LABELS
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 
 REPO = "example/roadmap"
 NOW = datetime(2026, 11, 1, 12, 0, tzinfo=UTC)
-LABELS = "- name: type/bug\n  color: D73A4A\n  description: A defect\n"
+LABELS = "- name: scope/cli\n  color: DCDCD6\n  description: The CLI\n"
 
 
 def _ago(**span: float) -> datetime:
@@ -37,7 +38,9 @@ def _ago(**span: float) -> datetime:
 def store() -> InMemoryRoadmapStore:
     made = InMemoryRoadmapStore(repo=REPO, clock=lambda: NOW)
     made.seed_file(CONST_ROADMAP_LABELS_PATH, LABELS)
-    made.seed_label("type/bug", "D73A4A", "A defect")
+    made.seed_label("scope/cli", "DCDCD6", "The CLI")
+    for spec in WORKFLOW_LABELS:
+        made.seed_label(spec.name, spec.color, spec.description)
     return made
 
 
@@ -310,12 +313,12 @@ def test_labels_that_differ_are_one_line_with_the_age_of_the_labels_file(
 ) -> None:
     store.seed_file(
         CONST_ROADMAP_LABELS_PATH,
-        "- name: type/bug\n  color: '000000'\n  description: A defect\n"
+        "- name: scope/cli\n  color: '000000'\n  description: The CLI\n"
         "- name: scope/ci\n  color: 0E8A16\n",
     )
     store.seed_commit(CONST_ROADMAP_LABELS_PATH, at=_ago(days=4))
     (line,) = _lines(_read(store), InboxKind.LABELS)
-    assert (line.number, line.age, "scope/ci" in line.subject, "type/bug" in line.subject) == (
+    assert (line.number, line.age, "scope/ci" in line.subject, "scope/cli" in line.subject) == (
         None,
         timedelta(days=4),
         True,

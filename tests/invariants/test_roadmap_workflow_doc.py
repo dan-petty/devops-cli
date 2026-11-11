@@ -1,7 +1,7 @@
 """`docs/ROADMAP_WORKFLOW.md` is the one page that names the steps of an issue's life, and it stays
-true to the labels file and to the code (#2909, ADR 0016).
+true to the workflow labels and to the code (#2909, ADR 0016).
 
-The page must name each `status/*` and `owner/*` label of `.github/labels.yml`, each Status and
+The page must name each `status/*` and `owner/*` workflow label of the package (#4652), each Status and
 Owner value of the code, and each key of the job record. It must not name a label or a key that
 does not exist. A label or a key counts as named when a code span of the page holds exactly that
 text. The page also holds the eight steps, the three gates, a table of the transitions and one
@@ -28,11 +28,10 @@ from devops_cli.roadmap.stores.store import (
     StageRecordKey,
     field_label,
 )
-from devops_cli.roadmap.title_labels import declared_label_names
+from devops_cli.roadmap.workflow_labels import WORKFLOW_LABELS
 from tests.support.paths import REPO_ROOT
 
 DOCUMENT = REPO_ROOT / "docs" / "ROADMAP_WORKFLOW.md"
-LABELS_FILE = REPO_ROOT / ".github" / "labels.yml"
 STEPS = (
     "Capture",
     "Refine",
@@ -124,9 +123,8 @@ def _code_labels() -> set[str]:
 
 
 def _declared_labels() -> set[str]:
-    """The Status and Owner labels that `.github/labels.yml` declares."""
-    names = declared_label_names(LABELS_FILE.read_text(encoding="utf-8"))
-    return {name for name in names if name.startswith(LABEL_FAMILIES)}
+    """The Status and Owner workflow labels that the package declares."""
+    return {spec.name for spec in WORKFLOW_LABELS if spec.name.startswith(LABEL_FAMILIES)}
 
 
 def _is_record_key(span: str) -> bool:
@@ -136,8 +134,8 @@ def _is_record_key(span: str) -> bool:
 
 
 def workflow_problems(text: str) -> list[str]:
-    """Why the document `text` is out of step with the labels file and the code; empty when it
-    is in step."""
+    """Why the document `text` is out of step with the workflow labels and the code; empty when
+    it is in step."""
     tokens = _tokens(text)
     spans = _code_spans(tokens)
     declared = _declared_labels()
@@ -188,7 +186,7 @@ def _document() -> str:
     return DOCUMENT.read_text(encoding="utf-8")
 
 
-def test_labels_file_declares_the_status_and_owner_values_of_the_code() -> None:
+def test_the_package_declares_the_status_and_owner_values_of_the_code() -> None:
     assert _declared_labels() == _code_labels()
 
 

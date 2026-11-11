@@ -8,7 +8,7 @@ GitHub project governance in `devops-cli` standardizes repository metadata acros
 3. **GitHub Projects v2 Lifecycle**: Board creation, multi-board listing, reconciliation of Status and Priority on the board's cards from issue and pull request state and labels, and automated drift auditing against standardized template schemas.
 4. **Standardized Projects v2 Views**: Continuous auditing and synchronization of the 4 canonical views (`Sprint Kanban`, `Roadmap Timeline`, `Triage & Quality Table`, and `Value vs Effort Priority Matrix`) ensuring full alignment across `https://github.com/dan-petty/devops-cli/projects` and `https://github.com/dan-petty/devops-cli/issues/views`.
 5. **Roadmap Milestones**: GitHub is the roadmap's source of truth (ADR 0001). A milestone is a planning bucket that a person sets, with issue completion ratios and health metrics. A milestone never names a version, and no release reads one.
-6. **Declarative Label Taxonomy & PR Auditing**: Repository label synchronization driven by `.github/labels.yml`, enforcing strict categorization across `type/*`, `scope/*`, `priority/*`, `status/*`, and `review/*`.
+6. **Declarative Label Taxonomy & PR Auditing**: Repository label synchronization from two sources. The package declares the workflow labels that the roadmap code reads or writes (`type/*`, `status/*`, `priority/*`, `value/*`, `effort/*`, `owner/*`, `plan/needs-fix`, `needs-split` and `source/agent`, in `roadmap/workflow_labels.py`). `.github/labels.yml` declares the labels of the repository, such as `scope/*`.
 
 ---
 
@@ -110,7 +110,7 @@ devops gh views spec
 # List all labels defined in the remote repository
 devops gh labels list
 
-# Synchronize labels against declarative schema (.github/labels.yml)
+# Synchronize labels with the workflow labels and the declarative schema (.github/labels.yml)
 devops gh labels sync
 
 # Audit open pull requests for mandatory type/ and scope/ taxonomy labels

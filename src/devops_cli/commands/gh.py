@@ -274,10 +274,12 @@ def sync_labels(
         typer.Option("--dry-run", help="Preview label reconciliation without making changes"),
     ] = False,
 ) -> None:
-    """Synchronize repository labels against the declarative YAML schema."""
+    """Synchronize repository labels with the workflow labels and the declarative YAML schema."""
+    from devops_cli.roadmap.workflow_labels import with_workflow_labels
+
     target_repo = _resolve_repo(repo)
     try:
-        desired = load_label_specs(file)
+        desired = with_workflow_labels(load_label_specs(file))
     except Exception as exc:
         print_error(f"Failed to load labels schema: {exc}")
         raise typer.Exit(1) from exc
