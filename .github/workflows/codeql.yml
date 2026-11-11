@@ -19,6 +19,13 @@ on:
   schedule:
     - cron: "32 15 * * 0"
 
+# A newer push to a pull request cancels the analysis of the old head. A push to main and the
+# schedule each take a group of their own run, so every commit of main is analysed: in a shared
+# group, a newer run cancels a pending one even when cancel-in-progress is false (#4651).
+concurrency:
+  group: codeql-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: true
+
 jobs:
   analyze:
     name: Analyze (${{ matrix.language }})
@@ -28,6 +35,8 @@ jobs:
     #   - https://gh.io/using-larger-runners (GitHub.com only)
     # Consider using larger runners or machines with greater resources for possible analysis time improvements.
     runs-on: ubuntu-26.04
+    # The longest analysis of 96 measured jobs took 212 s (#4651).
+    timeout-minutes: 15
     permissions:
       # required for all workflows
       security-events: write

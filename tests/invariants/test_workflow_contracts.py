@@ -954,12 +954,18 @@ def test_fail_to_pass_starts_only_for_a_change_to_src_outside_the_knowledge_base
 ) -> None:
     """Only a change to the code under src/ can make a test fail on base, so the workflow starts
     for no other change, the release pull request among them (#1879). It keeps one concurrency
-    group for each ref, where a newer event cancels an older run (#1960)."""
+    group for each ref, where a newer event cancels an older run (#1960). The run of a body edit
+    takes a group of its own, so it cannot cancel the replay of the head (#4651)."""
     workflow = _load_workflow(WORKFLOWS_DIR / "fail-to-pass.yml")
     paths = workflow["on"]["pull_request"]["paths"]
     assert (_starts_on(paths, changed), workflow["concurrency"]) == (
         starts,
-        {"group": "fail-to-pass-${{ github.ref }}", "cancel-in-progress": True},
+        {
+            "group": "fail-to-pass-${{ github.ref }}-${{ "
+            + _BODY_EDIT
+            + " && github.run_id || 'head' }}",
+            "cancel-in-progress": True,
+        },
     )
 
 
@@ -1006,12 +1012,20 @@ def test_workflow_contract_fail_to_pass() -> None:
 # A job condition that only joins `startsWith(<pull request title>, '<prefix>')` terms with `||`.
 _TITLE_PREFIX_TERM = re.compile(r"startsWith\(github\.event\.pull_request\.title, '([^']+)'\)")
 
+# An edit of the body alone: it changes neither the replay nor the job condition (#4651).
+_BODY_EDIT = (
+    "github.event.action == 'edited' && !github.event.changes.title && !github.event.changes.base"
+)
+
 
 def _title_prefixes(condition: str) -> list[str]:
-    """The title prefixes of a job condition that only joins `startsWith` terms on the pull
-    request title with `||`, failing on any other form."""
-    expression = condition.strip().removeprefix("${{").removesuffix("}}").strip()
-    matches = [_TITLE_PREFIX_TERM.fullmatch(term.strip()) for term in expression.split("||")]
+    """The title prefixes of a job condition that skips a body edit and then only joins
+    `startsWith` terms on the pull request title with `||`, failing on any other form."""
+    expression = " ".join(condition.split()).removeprefix("${{ ").removesuffix(" }}")
+    guard = f"!({_BODY_EDIT}) && ("
+    assert (expression.startswith(guard), expression.endswith(")")) == (True, True), expression
+    terms = expression.removeprefix(guard).removesuffix(")").split("||")
+    matches = [_TITLE_PREFIX_TERM.fullmatch(term.strip()) for term in terms]
     assert all(matches), expression
     return [match.group(1) for match in matches if match]
 

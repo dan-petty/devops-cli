@@ -1,9 +1,7 @@
 name: Cleanup PR DevContainer
 
+# No workflow pushes a pr-<n> tag, so a closed pull request starts no run (#4651).
 on:
-  pull_request:
-    types:
-      - closed
   schedule:
     # Daily maintenance sweep at 04:00 UTC to clean any orphaned or stale PR tags
     - cron: "0 4 * * *"
@@ -46,7 +44,6 @@ jobs:
           INPUT_PR_NUMBER: ${{ github.event.inputs.pr_number }}
           INPUT_TAG: ${{ github.event.inputs.tag }}
           EVENT_NAME: ${{ github.event_name }}
-          CLOSING_PR_NUMBER: ${{ github.event.pull_request.number }}
           REPO: ${{ github.repository }}
         run: |
           if [ -n "$INPUT_PR_NUMBER" ]; then
@@ -85,12 +82,6 @@ jobs:
             EXCLUDE_TAGS="${BASE_EXCLUDE},${OPEN_PR_TAGS}"
           else
             EXCLUDE_TAGS="${BASE_EXCLUDE}"
-          fi
-
-          # If triggered by PR closure, guarantee closing PR is removed from exclusion
-          if [ "$EVENT_NAME" = "pull_request" ]; then
-            CLOSING_PR="pr-${CLOSING_PR_NUMBER}"
-            EXCLUDE_TAGS=$(echo "$EXCLUDE_TAGS" | tr ',' '\n' | grep -v "^${CLOSING_PR}$" | tr '\n' ',' | sed 's/,$//')
           fi
 
           echo "exclude_tags=${EXCLUDE_TAGS}" >> "$GITHUB_OUTPUT"
