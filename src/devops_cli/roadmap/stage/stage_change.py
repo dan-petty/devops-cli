@@ -15,7 +15,6 @@ reads.
 
 from __future__ import annotations
 
-import ast
 import re
 import shlex
 import string
@@ -2215,7 +2214,7 @@ def check_gates(
             *own_change_problems(proposal.groups, change),
             *_reference_problems(proposal),
             *_move_reference_problems(proposal, references),
-            *_stale_test_path_problems(proposal, tree, read_text),
+            *_stale_test_path_problems(proposal, tree),
             *model_problems(proposal, models),
         ],
         ProposalGate.WHAT_CHANGES: _what_changes_problems(proposal, tree),
@@ -2342,39 +2341,14 @@ def registry_problems(
     return problems
 
 
-def _docstrings_in(source: str) -> list[str]:
-    """The docstrings of module, functions and classes in `source`."""
-    try:
-        module_ast = ast.parse(source)
-    except SyntaxError:
-        return []
-    docs: list[str] = []
-    if doc := ast.get_docstring(module_ast):
-        docs.append(doc)
-    for node in ast.walk(module_ast):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-            if d := ast.get_docstring(node):
-                docs.append(d)
-    return docs
-
-
-def _stale_test_path_problems(
-    proposal: StageProposal,
-    tree: StagedTree,
-    read_text: Callable[[str], str | None] | None,
-) -> list[str]:
-    """One sentence for each test path in a docstring or a spec that names no file of the commit."""
-    texts = [spec_file(spec) for spec in proposal.specs]
-    if read_text is not None:
-        for path in (p for g in proposal.groups for p in g.changes if p.endswith(".py")):
-            content = read_text(path)
-            if content:
-                texts.extend(_docstrings_in(content))
+def _stale_test_path_problems(proposal: StageProposal, tree: StagedTree) -> list[str]:
+    """One sentence for each test path in a spec of the plan that names no file of the commit.
+    The base text of a changed file is not read: the plan cannot change it (#4791)."""
     return [
         MESSAGES.roadmap.stage_problem_missing_test_file.format(
             path=path, hint=same_name_hint(tree, path)
         )
-        for path in missing_test_paths(tree, texts)
+        for path in missing_test_paths(tree, [spec_file(spec) for spec in proposal.specs])
     ]
 
 
