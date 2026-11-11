@@ -20,12 +20,6 @@ from devops_cli.ai.research.models import (
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config.defaults import DEFAULT_AI_RESEARCH_DIR
 
-_DEFAULT_SYNTHESIS_SYSTEM = (
-    "You are a causal reasoning and state machine synthesis engine for software engineering. "
-    "Distill research observations into a structured mental model with explicit state transitions, "
-    "a causal DAG, and checkable invariant rules."
-)
-
 
 def topic_to_slug(topic: str) -> str:
     """Normalize a topic name into a safe filesystem slug."""
@@ -222,7 +216,7 @@ class MentalModelSynthesizer:
             raise ValueError("Observations must not be empty.")
 
         client = self.client or get_llm_client(task="research")
-        system_prompt = load_task_prompt("mental_model_synthesis.md") or _DEFAULT_SYNTHESIS_SYSTEM
+        system_prompt = load_task_prompt("mental_model_synthesis.md")
         user_prompt = _build_synthesis_prompt(stripped_topic, stripped_obs, existing_model)
 
         res = client.chat_structured(

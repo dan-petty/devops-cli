@@ -450,7 +450,6 @@ _AGENT_INSTRUCTION_GLOBS = (
     "openspec/config.yaml",
     "src/devops_cli/ai/knowledge_base/**/*.md",
     "src/devops_cli/ai/personas/**/*.md",
-    "src/devops_cli/ai/prompts/**/*.md",
     "src/devops_cli/ai/tasks/**/*.md",
 )
 

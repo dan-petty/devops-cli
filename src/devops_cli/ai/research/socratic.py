@@ -12,12 +12,6 @@ from devops_cli.ai.research.models import (
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config.defaults import DEFAULT_AI_SOCRATIC_MAX_PROBES
 
-_DEFAULT_SOCRATIC_SYSTEM = (
-    "You are a metacognitive Socratic inquiry engine for software engineering tasks. "
-    "Analyze the task to identify gaps, ambiguities, and underspecified contracts, "
-    "and formulate concise, targeted clarifying questions and concrete code lookup instructions."
-)
-
 
 def _build_user_prompt(
     task: str,
@@ -136,7 +130,7 @@ class SocraticFormulator:
             raise ValueError("Task description must not be empty.")
 
         client = self.client or get_llm_client(task="research")
-        system_prompt = load_task_prompt("socratic_inquiry.md") or _DEFAULT_SOCRATIC_SYSTEM
+        system_prompt = load_task_prompt("socratic_inquiry.md")
         user_prompt = _build_user_prompt(
             stripped_task,
             context=context,

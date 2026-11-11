@@ -190,6 +190,19 @@ class StructuredOutputSchemaError(DevOpsCLIError, ValueError):
     error_code = "STRUCTURED_OUTPUT_SCHEMA_INVALID"
 
 
+class TaskPromptNotFoundError(DevOpsCLIError):
+    """Raised when a prompt name is not a file of the `ai/tasks/` folder of the package."""
+
+    error_code = "TASK_PROMPT_NOT_FOUND"
+
+    def __init__(self, name: str) -> None:
+        self.name = name
+        super().__init__(
+            f"The task prompt {name!r} is not a file of the ai/tasks/ folder of devops-cli.",
+            details={"name": name},
+        )
+
+
 class PageTextError(DevOpsCLIError):
     """Raised when the Crawl4AI service returns no usable text for a page.
 
