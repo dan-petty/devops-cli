@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 from typing import Any, Final
 
 from devops_cli.security.sanitizer import mask_secrets
+from devops_cli.telemetry.logging_bridge import TraceCorrelationFilter
 
 CONTEXT_LOG_KEYS: Final[tuple[str, ...]] = (
     "repo",
@@ -22,6 +23,9 @@ CONTEXT_LOG_KEYS: Final[tuple[str, ...]] = (
     "duration_s",
     "result",
 )
+
+# The ids of the span open when the record was logged; `TraceCorrelationFilter` sets them.
+TRACE_LOG_KEYS: Final[tuple[str, ...]] = ("trace_id", "span_id")
 
 
 class JsonLogFormatter(logging.Formatter):
@@ -41,6 +45,9 @@ class JsonLogFormatter(logging.Formatter):
             val = getattr(record, key, None)
             if val is not None:
                 log_entry[key] = mask_secrets(str(val)) if isinstance(val, str) else val
+        for key in TRACE_LOG_KEYS:
+            if trace_value := getattr(record, key, ""):
+                log_entry[key] = trace_value
         return json.dumps(log_entry, separators=(",", ":"), ensure_ascii=False)
 
 
@@ -66,6 +73,9 @@ def service_log_config(log_level: str = "INFO") -> dict[str, Any]:
     """The service's logging, single-line JSON to stdout from the root, uvicorn and devops_cli
     loggers, as the `logging.config.dictConfig` schema uvicorn applies when it starts.
 
+    The `json` handler's `TraceCorrelationFilter` puts the ids of the open span on each record
+    the handler gets, also on one that propagates to the root, and the formatter writes them.
+
     Handing it to uvicorn as `log_config` leaves the process's logging alone until the server
     starts. Loggers that exist by then stay enabled.
     """
@@ -80,7 +90,10 @@ def service_log_config(log_level: str = "INFO") -> dict[str, Any]:
         "version": 1,
         "disable_existing_loggers": False,
         "formatters": {"json": {"()": JsonLogFormatter}},
-        "handlers": {"json": {"class": JsonLogStreamHandler, "formatter": "json"}},
+        "filters": {"trace": {"()": TraceCorrelationFilter}},
+        "handlers": {
+            "json": {"class": JsonLogStreamHandler, "formatter": "json", "filters": ["trace"]}
+        },
         "root": {"handlers": ["json"], "level": numeric_level},
         "loggers": loggers,
     }

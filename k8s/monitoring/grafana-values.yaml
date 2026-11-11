@@ -103,9 +103,19 @@ datasources:
         jsonData:
           maxLines: 1000
           derivedFields:
+            # A trace id in the line: `"trace_id":"<id>"` of a Service JSON line, or
+            # `trace_id=<id>` of a text line.
             - datasourceUid: tempo
-              matcherRegex: '(?:trace_id|traceId|traceID)[=:]\s*"?([a-f0-9]+)"?'
+              matcherType: regex
+              matcherRegex: '"?(?:trace_id|traceId|traceID)"?\s*[=:]\s*"?([0-9a-f]{32})"?'
               name: TraceID
+              url: "$${__value.raw}"
+            # The `trace_id` structured metadata of an OTLP log record. It is not a stream
+            # label: one value for each trace has no bound.
+            - datasourceUid: tempo
+              matcherType: label
+              matcherRegex: trace_id
+              name: TraceIDMetadata
               url: "$${__value.raw}"
       - name: Tempo
         type: tempo
