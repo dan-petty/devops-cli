@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.112.2](https://github.com/dan-petty/devops-cli/compare/v0.112.1...v0.112.2) (2026-11-11)
+
+
+### Bug Fixes
+
+* **github:** bound the GitHub session read at 60 seconds ([#4636](https://github.com/dan-petty/devops-cli/issues/4636)) ([a87442a](https://github.com/dan-petty/devops-cli/commit/a87442a090f687d00923564a72c0dd5f9d7b8026))
+* **roadmap:** bound the shadow mark probability to 0 to 1 ([#4655](https://github.com/dan-petty/devops-cli/issues/4655)) ([abf1166](https://github.com/dan-petty/devops-cli/commit/abf1166bbd0721ff6da01b51f684fec0b78dfe37))
+* **roadmap:** halt implement step on consecutive refusals ([#4659](https://github.com/dan-petty/devops-cli/issues/4659)) ([9bcf0f5](https://github.com/dan-petty/devops-cli/commit/9bcf0f5537b0a0b5d9adcd341b91aa7d7a4291f9))
+* **security:** file an issue for each Trivy-config alert group ([#4640](https://github.com/dan-petty/devops-cli/issues/4640)) ([a7668fe](https://github.com/dan-petty/devops-cli/commit/a7668fec0abf37c99733e95e62fed2fbde5c6a7c))
+* **service:** route issues webhooks past scoped intake ([#4631](https://github.com/dan-petty/devops-cli/issues/4631)) ([caf4c7e](https://github.com/dan-petty/devops-cli/commit/caf4c7e9cacf2849b07d26d9dfd4bc04c975e32f))
+
 ## [0.112.1](https://github.com/dan-petty/devops-cli/compare/v0.112.0...v0.112.1) (2026-11-11)
 
 
