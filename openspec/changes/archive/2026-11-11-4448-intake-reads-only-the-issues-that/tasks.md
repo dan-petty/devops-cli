@@ -2,7 +2,7 @@
 
 ## 1. Intake reads the issues changed since its snapshot
 
-Kind: behavior. Reads: `src/devops_cli/roadmap/stores/github_store.py`, `src/devops_cli/output/file_writer.py`, `src/devops_cli/github/session_transport.py`. Changes: `src/devops_cli/roadmap/stores/listing_snapshot.py` (new), `src/devops_cli/roadmap/stores/github_store.py`, `src/devops_cli/roadmap/stores/store.py`, `src/devops_cli/config/defaults.py`, `src/devops_cli/lang/en/messages.py`, `tests/roadmap/stores/test_listing_snapshot.py` (new), `tests/roadmap/stores/test_roadmap_store_install.py`.
+Kind: behavior. Reads: `src/devops_cli/roadmap/stores/github_store.py`, `src/devops_cli/output/file_writer.py`, `src/devops_cli/github/session_transport.py`. Changes: `src/devops_cli/roadmap/stores/listing_snapshot.py` (new), `src/devops_cli/roadmap/stores/github_store.py`, `src/devops_cli/roadmap/stores/store.py`, `src/devops_cli/config/defaults.py`, `src/devops_cli/lang/en/messages.py`, `tests/roadmap/stores/test_listing_snapshot.py` (new), `tests/roadmap/stores/test_roadmap_store_install.py`, `tests/roadmap/test_roadmap_limit_classes.py`.
 
 - [x] 1.1 Write tests: the first run reads the whole listing and keeps a snapshot; a later run reads only the changed issues and keeps the other records; the watermark; the full read on `--full`, on another version and on an old full read; the warning on an unreadable snapshot and on a failed write; the sub-issue count; the refused repository name; the factory gets the listing
   - Verification: `$ uv run devops ci test tests/roadmap/stores/test_listing_snapshot.py tests/roadmap/stores/test_roadmap_store_install.py` fails on the base
