@@ -182,12 +182,15 @@ def get_logfire_resource() -> str:
     )
 
 
+# Each `resource://gh/` resource waits longer than a GitHub session read
+# (`DEFAULT_GH_SESSION_READ_TIMEOUT_SECONDS`), so a read that gets no answer fails first and the
+# resource returns its error, not the timeout of the dispatch (#4678).
 @mcp.resource("resource://gh/pages/status")
 def get_gh_pages_resource() -> str:
     """Return live GitHub Pages publishing status, custom domain, and build health."""
     return _run_mcp_cmd(
         ["uv", "run", "devops", "gh", "pages", "status"],
-        timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
+        timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS,
     )
 
 
@@ -196,7 +199,7 @@ def get_gh_issues_resource() -> str:
     """Return aggregated open GitHub issues counts grouped by priority, type, and milestone."""
     return _run_mcp_cmd(
         ["uv", "run", "devops", "gh", "issues", "status"],
-        timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
+        timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS,
     )
 
 
@@ -205,7 +208,7 @@ def get_gh_project_resource() -> str:
     """Return live GitHub Projects v2 board configuration and field mappings."""
     return _run_mcp_cmd(
         ["uv", "run", "devops", "gh", "project", "status"],
-        timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
+        timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS,
     )
 
 
@@ -214,7 +217,7 @@ def get_gh_views_resource() -> str:
     """Return remote GitHub Projects views synchronization and audit status."""
     return _run_mcp_cmd(
         ["uv", "run", "devops", "gh", "views", "audit"],
-        timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
+        timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS,
     )
 
 
