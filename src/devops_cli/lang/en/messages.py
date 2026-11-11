@@ -2267,9 +2267,10 @@ class RoadmapMessages:
     # The report of `devops roadmap explain --trace` (#3032).
     explain_trace_none: str = "Issue #{number} has no trace of a run."
     explain_trace_model: str = "{step}: model {model}, {tokens_in}/{tokens_out} tokens, {seconds} s"
-    explain_trace_tool: str = "{step}: tool {tool}{program}, {outcome}{status}{reason}"
+    explain_trace_tool: str = "{step}: tool {tool}{program}{digest}, {outcome}{status}{reason}"
     explain_trace_tool_status: str = " (exit status {status})"
     explain_trace_tool_program: str = " (program {program})"
+    explain_trace_tool_digest: str = " [argument {digest}]"
     explain_trace_tool_reason: str = ": {reason}"
     explain_trace_check: str = "{step}: check {command}, {result}"
     explain_trace_check_status: str = "exit status {status}"
