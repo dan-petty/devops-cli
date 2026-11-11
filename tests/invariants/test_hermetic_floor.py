@@ -27,9 +27,13 @@ def _run_with_floor(
     monkeypatch: pytest.MonkeyPatch,
     source: str,
 ) -> pytest.RunResult:
-    """Run `source` inside `pytester` with the root conftest floor loaded in-process."""
-    home = os.environ.get("HOME", str(pytester.path))
-    monkeypatch.setenv("HOME", home)
+    """Run `source` inside `pytester` with the root conftest floor loaded in-process. The real
+    home of the inner run, the HOME that its floor replaces, is `pytester.path / "real-home"`.
+    pytester sets HOME to `pytester.path`, where the inner run writes its cache, so another
+    path under `pytester.path` lies outside both the inner run and its real home."""
+    real_home = pytester.path / "real-home"
+    real_home.mkdir(exist_ok=True)
+    monkeypatch.setenv("HOME", str(real_home))
     pytester.makepyfile(test_inner=source)
     return pytester.runpytest(
         "-p",
@@ -577,7 +581,6 @@ def test_a_write_under_the_real_home_fails_at_the_write_naming_the_test(
     outside = pytester.path / "outside"
     outside.mkdir()
     before = _tree(real_home)
-    monkeypatch.setenv("HOME", str(real_home))
     result = _run_with_floor(
         pytester,
         monkeypatch,

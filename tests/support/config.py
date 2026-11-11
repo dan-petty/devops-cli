@@ -55,12 +55,14 @@ def global_config() -> Iterator[Callable[[dict[str, Any]], None]]:
 
     from devops_cli.config.constants import CONST_CONFIG_PATH
     from devops_cli.config.settings import reset_settings_cache
+    from tests.support.home_write_guard import hold_to_the_run
 
     made = [
         d for d in (CONST_CONFIG_PATH.parent, *CONST_CONFIG_PATH.parent.parents) if not d.exists()
     ]
 
     def write(data: dict[str, Any]) -> None:
+        hold_to_the_run(CONST_CONFIG_PATH)
         CONST_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
         CONST_CONFIG_PATH.write_text(yaml.safe_dump(data), encoding="utf-8")
         reset_settings_cache()

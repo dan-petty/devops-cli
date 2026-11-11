@@ -21,13 +21,8 @@ import pytest
 
 from devops_cli.config.defaults import DEFAULT_AI_SPEND_DB_FILENAME
 from tests.support.bootstrap import run_temp_root
+from tests.support.file_changes import changed_path
 
-_FILE_CHANGE_EVENTS: dict[str, tuple[int, int | None]] = {
-    "open": (0, None),
-    "os.rename": (1, 3),
-    "os.remove": (0, 1),
-}
-_WRITE_FLAGS: int = os.O_WRONLY | os.O_RDWR | os.O_APPEND | os.O_CREAT | os.O_TRUNC
 _RUN_ROOTS: list[str] = []
 _REFUSED: list[str] = []
 _HOOKS: list[object] = []
@@ -58,17 +53,6 @@ def _extract_sqlite_path(db: Any) -> str | None:
     return db
 
 
-def _changed_path(event: str, args: tuple[Any, ...], spot: tuple[int, int | None]) -> str | None:
-    """The path an audit event changes, or None for an open that only reads."""
-    path_at, dir_fd_at = spot
-    if event == "open" and not args[2] & _WRITE_FLAGS:
-        return None
-    if dir_fd_at is not None and args[dir_fd_at] not in (None, -1):
-        return None
-    target = args[path_at]
-    return None if isinstance(target, int) else os.fsdecode(target)
-
-
 def _outside_the_run(path: str) -> bool:
     """Report whether `path` lies outside the temporary directory of the run in progress."""
     if not _RUN_ROOTS:
@@ -93,7 +77,6 @@ def _install() -> None:
     """Add the audit hook once per process."""
     if _HOOKS:
         return
-    events = _FILE_CHANGE_EVENTS
 
     def guard(event: str, args: tuple[Any, ...]) -> None:
         if event == "sqlite3.connect":
@@ -108,10 +91,7 @@ def _install() -> None:
                 _refuse(target)
             return
 
-        spot = events.get(event)
-        if spot is None:
-            return
-        path = _changed_path(event, args, spot)
+        path = changed_path(event, args)
         if (
             path is not None
             and _is_spend_db_name(os.path.basename(path))
