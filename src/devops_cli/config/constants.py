@@ -3581,6 +3581,22 @@ CONST_ROADMAP_INTAKE_BATCH_KEYS: Final[tuple[tuple[str, str, str], ...]] = (
     ("webhook", "issues", "opened"),
     ("webhook", "issues", "reopened"),
 )
+# The webhook keys that make the model lane's and the implement rows due (#4412): an edit changes
+# the text that refine and retitle read, a label change changes the set that refine, stage and
+# implement act on, and a close frees a `planned_limit` slot.
+CONST_ROADMAP_REFINE_BATCH_KEYS: Final[tuple[tuple[str, str, str], ...]] = (
+    ("webhook", "issues", "edited"),
+    ("webhook", "issues", "labeled"),
+    ("webhook", "issues", "unlabeled"),
+)
+CONST_ROADMAP_RETITLE_BATCH_KEYS: Final[tuple[tuple[str, str, str], ...]] = (
+    ("webhook", "issues", "edited"),
+)
+CONST_ROADMAP_STAGE_BATCH_KEYS: Final[tuple[tuple[str, str, str], ...]] = (
+    ("webhook", "issues", "labeled"),
+    ("webhook", "issues", "unlabeled"),
+    ("webhook", "issues", "closed"),
+)
 # The webhook events the roadmap jobs' batch keys name, the events the Service's roadmap consumer
 # takes (#1386): the issues events only.
 CONST_ROADMAP_WEBHOOK_EVENTS: Final[frozenset[str]] = frozenset(

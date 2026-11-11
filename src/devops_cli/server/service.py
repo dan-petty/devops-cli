@@ -852,12 +852,15 @@ class ServiceManager:
                 labels={"repo": repo, "source": CONST_SERVICE_SOURCE_POLL},
             )
 
-    def enqueue_trigger(self, repo: str, source: str, event: str, action: str) -> bool:
-        """Enqueue a trigger on every lane of the repository; False for an unmanaged one."""
-        if repo not in self.managed_repos:
+    def enqueue_trigger(
+        self, repo: str, source: str, event: str, action: str, *, lane: str | None = None
+    ) -> bool:
+        """Enqueue a trigger on every lane of the repository, or on `lane` alone; False for an
+        unmanaged repository or an unknown lane."""
+        if repo not in self.managed_repos or (lane is not None and lane not in self.jobs):
             return False
-        for lane in self.jobs:
-            self.workers[(repo, lane)].enqueue(source=source, event=event, action=action)
+        for name in self.jobs if lane is None else (lane,):
+            self.workers[(repo, name)].enqueue(source=source, event=event, action=action)
         return True
 
     def enqueue_scoped(self, repo: str, lane: str, scoped_func: Callable[[], None]) -> bool:
