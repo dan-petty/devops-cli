@@ -209,7 +209,12 @@ DEFAULT_RAG_EMBEDDING_MODEL = "qwen3-embedding:0.6b"
 # The models of `devops ai bundle-models`: the models that the default chat and embedding tasks
 # call, so an air-gapped devcontainer holds the models that the defaults name.
 DEFAULT_BUNDLE_MODELS: tuple[str, ...] = (DEFAULT_AI_MODEL, DEFAULT_RAG_EMBEDDING_MODEL)
-DEFAULT_RAG_EMBEDDING_CACHE_SIZE: int = 1024  # Max entries in in-memory embedding LRU cache
+# Max entries in the memory cache of embeddings. One intake run embeds about 1,800 texts (#4447).
+DEFAULT_RAG_EMBEDDING_CACHE_SIZE: int = 2048
+# The disk cache of embeddings under the data directory, which keeps the vectors of intake
+# between two CLI runs. A write removes each vector that no run used for 30 days (#4447).
+DEFAULT_RAG_EMBEDDING_DISK_CACHE_FILENAME: str = "embeddings.db"
+DEFAULT_RAG_EMBEDDING_DISK_CACHE_IDLE_SECONDS: int = 30 * 86400
 DEFAULT_RAG_EMBEDDING_TIMEOUT: float = 15.0  # Read timeout of one direct Ollama node, then failover
 # Read timeout of one embedding batch sent to the gateway or to an OpenAI-compatible API. On
 # 2026-10-23, the slowest batch that a gateway tier answered took 76 s, and a 30 s read timeout

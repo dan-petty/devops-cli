@@ -219,9 +219,11 @@ class GatewayIntakeModel:
     def _embedder(self) -> Embedder:
         if self._given_embedder is not None:
             return self._given_embedder
+        from devops_cli.ai.rag.embedding_disk_cache import embedding_disk_cache
         from devops_cli.ai.rag.embeddings import create_embedder
 
-        return create_embedder(self._ai, api_key=self._api_key)
+        # Each CLI run embeds the whole comparison set; the disk cache keeps its vectors (#4447).
+        return create_embedder(self._ai, api_key=self._api_key, disk_cache=embedding_disk_cache())
 
     @cached_property
     def _client(self) -> ProposalClient:

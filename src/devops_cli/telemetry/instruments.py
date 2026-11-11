@@ -494,7 +494,8 @@ EMBEDDING_CACHE_LOOKUPS_TOTAL = Instrument(
     InstrumentKind.COUNTER,
     "1",
     "Embedding cache lookups, one for each text that an embedding request gets, by result: hit "
-    "or miss. A hit names its tier: memory for the cache of the process, or valkey",
+    "or miss. A hit names its tier: memory for the cache of the process, valkey, or disk for "
+    "the cache file that keeps the vectors of intake between runs",
 )
 EMBEDDING_CACHE_SIZE = Instrument(
     "devops_cli_embedding_cache_size",
