@@ -66,6 +66,7 @@ from devops_cli.telemetry.instruments import (
 from devops_cli.telemetry.tracer import OTelTelemetryClient
 from tests.support.fakes.otlp import FakeCollector
 from tests.support.paths import REPO_ROOT
+from tests.support.trees import ParsedTreeMap
 from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS, wait_until
 
 DASHBOARDS = REPO_ROOT / "k8s" / "monitoring" / "dashboards"
@@ -292,22 +293,22 @@ def _scraped_gauge_names_in_tree(tree: ast.AST) -> set[str]:
     return names
 
 
-def _all_scraped_gauge_names() -> set[str]:
+def _all_scraped_gauge_names(trees: ParsedTreeMap) -> set[str]:
     """All gauge names recorded into in-memory registries or exposed via Prometheus in src/devops_cli."""
     gauges: set[str] = set()
-    src_dir = REPO_ROOT / "src" / "devops_cli"
-    for path in src_dir.rglob("*.py"):
-        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    for tree in trees.values():
         gauges |= _scraped_gauge_names_in_tree(tree)
     return gauges
 
 
-def test_no_gauge_reaches_prometheus_through_two_paths() -> None:
+def test_no_gauge_reaches_prometheus_through_two_paths(
+    parsed_source_trees: ParsedTreeMap,
+) -> None:
     """Each gauge reaches Prometheus through one path (#2288). A check fails when two paths send the same gauge name."""
     otlp_gauges = {
         instrument.name for instrument in INSTRUMENTS if instrument.kind is InstrumentKind.GAUGE
     }
-    scraped_gauges = _all_scraped_gauge_names()
+    scraped_gauges = _all_scraped_gauge_names(parsed_source_trees)
     shared = otlp_gauges & scraped_gauges
     assert shared == set(), f"Gauges sent through both OTLP and scrape paths: {sorted(shared)}"
 
@@ -378,7 +379,9 @@ def _metric_writes_outside_emit(tree: ast.AST, label: str) -> list[str]:
     return [f"{label}:{line}" for line in lines]
 
 
-def test_every_metric_is_a_declared_instrument_sent_through_emit() -> None:
+def test_every_metric_is_a_declared_instrument_sent_through_emit(
+    parsed_source_trees: ParsedTreeMap,
+) -> None:
     """Verify no module but the instruments module writes a metric by its name, and every
     `emit()` sends a declared instrument (#817).
 
@@ -388,12 +391,9 @@ def test_every_metric_is_a_declared_instrument_sent_through_emit() -> None:
     instruments_module = SRC / "telemetry" / "instruments.py"
     found = [
         call
-        for path in sorted(SRC.rglob("*.py"))
+        for path, tree in sorted(parsed_source_trees.items())
         if path != instruments_module
-        for call in _metric_writes_outside_emit(
-            ast.parse(path.read_text(encoding="utf-8"), filename=str(path)),
-            str(path.relative_to(SRC)),
-        )
+        for call in _metric_writes_outside_emit(tree, str(path.relative_to(SRC)))
     ]
     assert found == []
 
@@ -479,17 +479,16 @@ def _emits_with_a_resource_label(tree: ast.AST, label: str) -> list[str]:
     return [f"{label}:{line}" for line in sorted(named)]
 
 
-def test_no_emit_sends_an_attribute_that_the_resource_sets() -> None:
+def test_no_emit_sends_an_attribute_that_the_resource_sets(
+    parsed_source_trees: ParsedTreeMap,
+) -> None:
     """Verify no `emit()` call under `src/devops_cli/` sends the attribute `job` or `instance`
     (#3240). The collector sets both labels from the resource after it copies the attributes, so
     such an attribute never reaches Prometheus. The job row is the `row` label."""
     found = [
         call
-        for path in sorted(SRC.rglob("*.py"))
-        for call in _emits_with_a_resource_label(
-            ast.parse(path.read_text(encoding="utf-8"), filename=str(path)),
-            str(path.relative_to(SRC)),
-        )
+        for path, tree in sorted(parsed_source_trees.items())
+        for call in _emits_with_a_resource_label(tree, str(path.relative_to(SRC)))
     ]
     assert found == []
 

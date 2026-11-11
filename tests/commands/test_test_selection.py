@@ -33,6 +33,7 @@ from tests.support.ci_root import tracked_blobs
 from tests.support.fakes.process import ProcessFake
 from tests.support.paths import REPO_ROOT, TESTS_ROOT
 from tests.support.session_spawns import RecordedSpawn, record_spawns
+from tests.support.trees import parse_python_file
 
 pytestmark = pytest.mark.usefixtures("refuse_nested_test_runs")
 
@@ -1081,7 +1082,7 @@ def _collection_filters() -> list[str]:
     return [
         f"{path.relative_to(REPO_ROOT).as_posix()}:{node.lineno}"
         for path in plugins
-        for node in ast.walk(ast.parse(path.read_bytes()))
+        for node in ast.walk(parse_python_file(path))
         if _bound_name(node) in _COLLECTION_FILTERS
     ]
 

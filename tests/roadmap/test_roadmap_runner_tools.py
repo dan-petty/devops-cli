@@ -41,6 +41,7 @@ from devops_cli.tools_lock import load_tools_lock
 from tests.support.dockerfile import stages
 from tests.support.fakes.process import ProcessAnswer, ProcessFake
 from tests.support.paths import REPO_ROOT, TESTS_ROOT
+from tests.support.trees import parse_python_file
 
 HELD = set(tool_names())
 DECIDED = HELD | set(NOT_IN_RUNNER)
@@ -112,7 +113,7 @@ def _live_binaries() -> Iterator[str]:
         source = path.read_text(encoding="utf-8")
         if "mark.live(" not in source or path.name == "test_hermetic_floor.py":
             continue
-        for node in ast.walk(ast.parse(source)):
+        for node in ast.walk(parse_python_file(path)):
             if (
                 isinstance(node, ast.Call)
                 and isinstance(node.func, ast.Attribute)

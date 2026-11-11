@@ -50,6 +50,7 @@ from tests.support.fakes.github import (
 )
 from tests.support.github_identity import PINNED_GITHUB_TOKEN
 from tests.support.paths import REPO_ROOT
+from tests.support.trees import parse_python_file
 from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS, wait_until, wait_while_running
 
 _SRC = REPO_ROOT / "src" / "devops_cli"
@@ -126,12 +127,11 @@ def test_reset_forgets_the_identity(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def _github_client_calls(path: Path) -> list[str]:
     """`GitHubClient(...)` calls in one module, read with Python's parser."""
-    source = path.read_text(encoding="utf-8")
-    if "GitHubClient" not in source:
+    if "GitHubClient" not in path.read_text(encoding="utf-8"):
         return []
     return [
         str(path.relative_to(_SRC))
-        for node in ast.walk(ast.parse(source))
+        for node in ast.walk(parse_python_file(path))
         if isinstance(node, ast.Call)
         and isinstance(node.func, ast.Name)
         and node.func.id == "GitHubClient"

@@ -8,13 +8,14 @@ import importlib.util
 
 from devops_cli.scaffold.edges import EDGE_FIXTURES, edge_fixtures
 from tests.support.paths import TESTS_ROOT
+from tests.support.trees import parse_python_file
 
 
 def _shared_fixtures() -> set[str]:
     """The names of the pytest fixtures that `tests/support/` defines."""
     names: set[str] = set()
     for path in (TESTS_ROOT / "support").rglob("*.py"):
-        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+        for node in ast.walk(parse_python_file(path)):
             if isinstance(node, ast.FunctionDef) and any(
                 ast.unparse(decorator).startswith("pytest.fixture")
                 for decorator in node.decorator_list
