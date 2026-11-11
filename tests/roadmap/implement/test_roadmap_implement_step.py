@@ -585,14 +585,15 @@ def test_the_shell_gets_the_worker_bound_of_the_process(
 def test_the_agent_of_a_step_runs_its_shell_in_that_environment(
     tmp_path: Path, checkout: Path
 ) -> None:
+    log = ToolCallLog()
     agent = build_agent(
         ModelScript(say("x")).model(),
         checkout,
         "go",
         WINDOW,
         tmp_path / "home",
-        ToolCallLog(),
-        StepBudget(),
+        log,
+        StepBudget(progress=log.progress),
     )
 
     leaves: list[Any] = []

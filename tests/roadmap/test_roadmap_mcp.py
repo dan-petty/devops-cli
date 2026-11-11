@@ -288,7 +288,7 @@ def test_implement_step_build_agent_with_mcp(tmp_path: Path) -> None:
     mcp_toolset = RoadmapMcpToolset(server, local_tool_names=IMPLEMENT_LOCAL_TOOL_NAMES)
     model = TestModel()
     log = ToolCallLog()
-    budget = StepBudget()
+    budget = StepBudget(progress=log.progress)
     agent = build_agent(
         model,
         tmp_path,
@@ -364,6 +364,7 @@ def test_implement_attempt_builds_mcp_toolset_from_settings(
     monkeypatch.setattr("devops_cli.roadmap.implement.implement_step._turn", fake_turn)
     tg = TaskGroup(1, "title", "prompt", "text")
     inputs = StepInputs(tg, tmp_path, "tasks", "item", "inst", "msg", 1000)
+    log = ToolCallLog()
 
     with pytest.raises(RuntimeError, match="stop after turn"):
         _attempt(
@@ -373,11 +374,11 @@ def test_implement_attempt_builds_mcp_toolset_from_settings(
             inputs,
             1,
             None,  # type: ignore[arg-type]
-            ToolCallLog(),
+            log,
             tiers=(),
             model_for_tier=None,
             tier_health=lambda _: {},
-            limits=StepBudget(),
+            limits=StepBudget(progress=log.progress),
         )
 
     assert in_proc_toolset in captured.get("toolsets", [])

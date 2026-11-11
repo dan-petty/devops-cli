@@ -3346,6 +3346,19 @@ CONST_ROADMAP_IMPLEMENT_TOOL_RETRIES: Final[int] = 5
 # refusals count no tool retry, so this total is the stop of a model that loops on a refused
 # command. A step of one item keeps one count across its extra turns.
 CONST_ROADMAP_IMPLEMENT_MAX_REFUSALS: Final[int] = 30
+# The rule of the decision point `implement.extension` (ADR 0020, #4394). A step that reaches
+# `roadmap.implement.step_token_budget` gets one extension of this percent of the budget, up to
+# `roadmap.implement.step_token_ceiling`, when its last tool calls hold at least the edits and at
+# most the refused commands below. Pilot 3 gave the numbers: the Job logs of 14 days (2026-10-27
+# to 2026-11-10), 33 labelled checkpoints from 28 items. In the last 20 calls before the stop, each
+# of the 16 stops that a person finished later held at least 1 successful edit and at most 3
+# refused commands, and the stops that repeated refused commands held 4 or more. The rule makes no
+# error on the 16 (the 95% upper bound of the error rate is about 19%). One stop needed 3.7% more
+# tokens to finish; half of the budget gives room for a step that is further from its end.
+CONST_ROADMAP_IMPLEMENT_EXTENSION_CALLS: Final[int] = 20
+CONST_ROADMAP_IMPLEMENT_EXTENSION_MIN_EDITS: Final[int] = 1
+CONST_ROADMAP_IMPLEMENT_EXTENSION_MAX_REFUSED: Final[int] = 3
+CONST_ROADMAP_IMPLEMENT_EXTENSION_PERCENT: Final[int] = 50
 # How many times in a row a step sends a model request again when the provider fails it inside an
 # open stream with the status 400 (#2794): a tool call that the model ended early, which the next
 # sample can make whole. The resend adds to the retries of the client (`ai.max_retries`, #2500).

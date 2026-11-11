@@ -2727,6 +2727,39 @@ class RoadmapMessages:
     implement_stop_counts: str = "Refused commands: {refused}. Other retries: {retried}."
     implement_model_call_deadline: str = "{detail}, no complete reply in {seconds:g} seconds"
     implement_stop_limit: str = "The step spent its budget `{setting}={value}`."
+    implement_stop_limit_extended: str = (
+        "The step spent its budget `{setting}={value}` and its one extension to {budget} input "
+        "tokens."
+    )
+    implement_stop_limit_ceiling: str = (
+        "The step spent its budget `{setting}={value}` and its one extension to the ceiling "
+        "`{ceiling}={budget}`."
+    )
+    implement_stop_limit_no_room: str = (
+        "The step spent its budget `{setting}={value}`. It used {used} input tokens, so the "
+        "ceiling `{ceiling}={budget}` left no room for its one extension."
+    )
+    implement_stop_limit_unclear: str = (
+        "The step spent its budget `{setting}={value}`. It got no extension: its log holds "
+        "fewer than {calls} tool calls."
+    )
+    implement_stop_limit_halted: str = (
+        "The step spent its budget `{setting}={value}`. It got no extension: {edits} successful "
+        "edit(s) and {refused} refused command(s) in its last {calls} tool calls."
+    )
+    implement_extension_extended: str = (
+        "The step got one extension of its token budget (rule `implement.extension`), from "
+        "{limit} to {budget} input tokens: {edits} successful edit(s) and {refused} refused "
+        "command(s) in its last {calls} tool calls."
+    )
+    implement_extension_section: str = (
+        "\n\nBudget extensions (rule `implement.extension`):\n\n{lines}"
+    )
+    implement_extension_step: str = (
+        "- {step}: {limit} to {budget} input tokens{cut}. Trigger: {edits} successful edit(s) "
+        "and {refused} refused command(s) in the last {calls} tool calls."
+    )
+    implement_extension_cut: str = " (the ceiling)"
     implement_stop_rounds: str = (
         "The step used all its repair rounds: `roadmap.implement.repair_rounds={rounds}`."
     )
@@ -3121,7 +3154,8 @@ class RoadmapMessages:
     )
     implement_stop_push_failed: str = "\nThe push of the commits that passed failed too.\n{output}"
     implement_comment_stopped: str = (
-        "{marker}\nStopped at {step}.\n\n{check}{failure}\n\n{table}\n\nReason:\n\n{reason}\n\n"
+        "{marker}\nStopped at {step}.\n\n{check}{failure}\n\n{table}{extensions}\n\nReason:\n\n"
+        "{reason}\n\n"
         "Last message of the agent (a claim that no check verified): "
         "{last}{diff}\n\nThe item is Blocked, and the job will not run it. Fix the cause. "
         "Then comment `implement: retry`. The Service clears the stop on its own when a new runner "
@@ -3216,7 +3250,7 @@ class RoadmapMessages:
     implement_comment_finished: str = (
         "{marker}\nPull request #{pull} is ready for review. The checks passed.\n\n"
         "Spend: {requests} model requests, {input_tokens} input tokens, {output_tokens} output "
-        "tokens."
+        "tokens.{extensions}"
     )
     implement_pull_labels_failed: str = "Labels not updated: {error}"
     implement_pull_comment: str = "{marker}\n{run}\nThe steps of the job:\n\n{lines}"
