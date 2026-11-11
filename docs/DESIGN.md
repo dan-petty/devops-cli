@@ -27,7 +27,7 @@ Each color token holds its contrast rule in `$extensions.devops-cli.contrast`: `
 
 ### Build
 
-Style Dictionary 5.7.1 builds the tokens. `make design-tokens` runs one build for each config of `design/sd/`. Each config sets `log.warnings` to `"error"`, uses the transform group `css`, and uses only the built-in formats `css/variables` (with `outputReferences: true`) and `json/flat`. The group `web` is not used, because it writes `0.5rem` as `0.5px` in `json/flat`.
+Style Dictionary, at the version of its lock, builds the tokens. `make design-tokens` runs one build for each config of `design/sd/`. Each config sets `log.warnings` to `"error"`, uses the transform group `css`, and uses only the built-in formats `css/variables` (with `outputReferences: true`) and `json/flat`. The group `web` is not used, because it writes `0.5rem` as `0.5px` in `json/flat`.
 
 | Config | Source | Selector | Outputs |
 | :--- | :--- | :--- | :--- |
@@ -51,7 +51,7 @@ npm ci --ignore-scripts --prefix "$HOME/.local/share/style-dictionary"
 make design-tokens STYLE_DICTIONARY="$HOME/.local/share/style-dictionary/node_modules/.bin/style-dictionary"
 ```
 
-Renovate updates the lock 14 days after a release. The lock is no entry of `tools.lock`, so `devops install-tools` does not install it, and the `audit` row of `devops ci` does not audit it (#4777).
+Renovate opens a pull request for each new release of Style Dictionary, and the CI job "Design Tokens" fails when the release changes an output. The lock is no entry of `tools.lock`, so `devops install-tools` does not install it, and the `audit` row of `devops ci` does not audit it (#4777).
 
 ### Read the tokens in Python
 
@@ -67,7 +67,7 @@ Renovate updates the lock 14 days after a release. The lock is no entry of `tool
 ### Checks
 
 - **The CI job "Design Tokens"** runs on a pull request that changes a file of its path filter: `design/`, the lock, `src/devops_cli/design/`, `docs/assets/css/`, `k8s/startpage/`, `k8s/monitoring/dashboards/`, `.github/labels.yml`, the `Makefile` or `ci.yml`. It installs the lock, runs `make design-tokens`, fails when an output is not the build, and runs `tests/design`. It takes less than 1 minute.
-- **`tests/design`** checks with coloraide 8.13.1:
+- **`tests/design`** checks with coloraide:
   1. The light and the dark theme hold the same names in the sources, in the flat JSON and in each CSS file.
   2. Each contrast rule holds in both themes: 37 rules for each theme, 74 in total.
   3. The categorical colors pass the gates of [Categorical colors](#categorical-colors).
@@ -78,7 +78,7 @@ Renovate updates the lock 14 days after a release. The lock is no entry of `tool
 
 ## Palette
 
-WCAG 2.x contrast on the built values (coloraide 8.13.1). Each cell gives the hex value, then the ratio on `color.bg` and on `color.surface`.
+WCAG 2.x contrast on the built values, computed by coloraide. Each cell gives the hex value, then the ratio on `color.bg` and on `color.surface`.
 
 | Token | Use | Light | Dark | Needs |
 | :--- | :--- | :--- | :--- | :--- |

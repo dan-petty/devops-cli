@@ -1,6 +1,6 @@
 {
   "$schema": "https://www.designtokens.org/schemas/2025.10/format.json",
-  "$description": "devops-cli design tokens: values that do not change with the theme. DTCG Format 2025.10. Built by Style Dictionary 5.7.1.",
+  "$description": "devops-cli design tokens: values that do not change with the theme. DTCG Format 2025.10. Built by Style Dictionary (docs/DESIGN.md).",
   "font": {
     "family": {
       "$type": "fontFamily",

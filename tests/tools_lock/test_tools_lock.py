@@ -279,11 +279,12 @@ def test_renovate_leaves_every_node_tool_to_a_deliberate_bump() -> None:
     assert {"matchManagers": ["npm"], "enabled": False} in renovate["packageRules"]
 
 
-def test_renovate_updates_the_style_dictionary_lock_alone_after_14_days() -> None:
+def test_renovate_updates_the_style_dictionary_lock_alone() -> None:
     """The Style Dictionary lock is no entry of `tools.lock`, so Renovate can update it (owner
     decision 9 of #4735). A later rule wins in Renovate, so the rule for this lock comes after
-    the rule that stops npm, and it takes a release only when the release is 14 days old. The CI
-    job "Design Tokens" fails when the new version changes an output (docs/DESIGN.md)."""
+    the rule that stops npm. It sets no minimum release age (CONTRIBUTING.md, "Dependency
+    Versions"). The CI job "Design Tokens" fails when the new version changes an output
+    (docs/DESIGN.md)."""
     rules = json.loads((REPO_ROOT / ".github" / "renovate.json").read_text(encoding="utf-8"))[
         "packageRules"
     ]
@@ -301,7 +302,6 @@ def test_renovate_updates_the_style_dictionary_lock_alone_after_14_days() -> Non
                 "matchManagers": ["npm"],
                 "matchFileNames": ["src/devops_cli/tools_lock/style-dictionary/package.json"],
                 "enabled": True,
-                "minimumReleaseAge": "14 days",
             },
         )
     ]

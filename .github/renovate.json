@@ -44,8 +44,7 @@
       "description": "The Style Dictionary lock is no entry of tools.lock, so Renovate updates it (docs/DESIGN.md, Token pipeline). The CI job Design Tokens fails when the new version changes a built token file.",
       "matchManagers": ["npm"],
       "matchFileNames": ["src/devops_cli/tools_lock/style-dictionary/package.json"],
-      "enabled": true,
-      "minimumReleaseAge": "14 days"
+      "enabled": true
     },
     {
       "matchManagers": ["helm-values", "helmv3"],
