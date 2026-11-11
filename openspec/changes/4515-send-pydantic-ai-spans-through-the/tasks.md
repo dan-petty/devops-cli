@@ -4,7 +4,7 @@
 
 Kind: behavior.
 
-- [x] 1.1 Add failing tests (`tests/telemetry/test_library_spans.py`): an agent run with one tool call in a row span exports `invoke_agent`, `chat` and `execute_tool` under the row span, with token use, and the own span of the tool under `execute_tool`; the spans hold no prompt or tool text; a dry run sends nothing; the gateway request carries the `traceparent` of its HTTP span and a request to another host none; with the Logfire bridge on, the agent span still reaches the collector. Teach the OTLP fake to decode a protobuf trace request.
+- [x] 1.1 Add failing tests (`tests/telemetry/test_library_spans.py`): an agent run with one tool call in a row span exports `invoke_agent`, `chat` and `execute_tool` under the row span, with token use, and the own span of the tool under `execute_tool`; the spans hold no prompt or tool text; a dry run sends nothing; the gateway request carries the `traceparent` of its HTTP span and a request to another host none; the Logfire bridge owns the agent spans and hands its spans to the collector. Teach the OTLP fake to decode a protobuf trace request.
   - Verification: `$ uv run devops ci test tests/telemetry/test_library_spans.py`
 - [x] 1.2 Add `telemetry/library_spans.py` (`SeamSpanExporter`, `install_library_spans`, `instrument_gateway_client`, `library_span_processor`, `flush_library_spans`, `reset_library_spans`) and register its reset in `tests/conftest.py`. Add `PROTOBUF_CONTENT_TYPE`. Call `install_library_spans` in `resolve_pydantic_ai_model` and `instrument_gateway_client` on the gateway client. Add the dependencies `opentelemetry-exporter-otlp-proto-common` and `opentelemetry-instrumentation-httpx`.
   - Verification: `$ uv run devops ci test tests/telemetry/test_library_spans.py`
@@ -13,7 +13,7 @@ Kind: behavior.
 
 Kind: behavior.
 
-- [x] 2.1 Keep the ids of the open own span in the OpenTelemetry API context and delete the context variables of the tracer. Add `export_encoded` and `resource_attributes`; `flush` and `reset_tracer` export the waiting library spans.
+- [x] 2.1 Keep the ids of the open own span in the OpenTelemetry API context and delete the context variables of the tracer. Add `export_encoded` and `resource_attributes`; `flush` and `reset_tracer` export the waiting library spans. Lower the swallowed-failures ceilings of `tracer.py` and `logfire.py`.
   - Verification: `$ uv run devops ci test tests/telemetry`
 
 ## 3. The exporter contract and the Logfire bridge

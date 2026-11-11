@@ -33,9 +33,10 @@ The requests of the LLM gateway client SHALL carry the `traceparent` of their HT
 - **WHEN** an agent calls the gateway and then the same span sends a request to another host
 - **THEN** the gateway request carries the `traceparent` of its `POST` span, and the other request carries none
 
-### Requirement: Agent spans reach the collector with the Logfire bridge on
-When `devops review --logfire` configures the Logfire bridge, the agent spans SHALL also go to the collector through the exporter of the tracer.
+### Requirement: The Logfire bridge exports through the exporter of the tracer
+When the `--logfire` option of a review command turns on the Logfire bridge, Logfire SHALL own the agent spans, and the bridge SHALL hand its spans to the collector through the exporter of the tracer.
 
-#### Scenario: An agent run with the Logfire bridge on
-- **WHEN** the Logfire bridge is on and an agent runs in a row span
-- **THEN** the collector gets the `invoke_agent` span under the row span
+#### Scenario: A span of the Logfire bridge
+- **WHEN** the Logfire bridge is on and an agent span ends under a row span
+- **THEN** the collector gets the agent span under the row span
+- **AND** the library span setup sets no provider of its own

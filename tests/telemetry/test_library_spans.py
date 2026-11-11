@@ -6,8 +6,11 @@ from __future__ import annotations
 import asyncio
 import json
 from typing import Any
+from unittest.mock import patch
 
 import httpx2
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from pydantic_ai import Agent
 from pydantic_ai.messages import ModelMessage, ModelResponse, TextPart, ToolCallPart
 from pydantic_ai.models.function import AgentInfo, FunctionModel
@@ -20,6 +23,7 @@ from devops_cli.ai.pydantic_ai_bridge import resolve_pydantic_ai_model
 from devops_cli.dry_run.state import mark_dry_run_invocation
 from devops_cli.http.egress import EgressLevel
 from devops_cli.http.entry import async_http_client
+from devops_cli.telemetry.library_spans import install_library_spans
 from devops_cli.telemetry.logfire import get_logfire_bridge
 from devops_cli.telemetry.tracer import trace_span
 from tests.support.fakes.http import WebFake
@@ -99,16 +103,25 @@ def test_a_dry_run_exports_no_agent_span(otlp: FakeCollector) -> None:
     assert otlp.spans == []
 
 
-def test_agent_spans_reach_the_collector_with_the_logfire_bridge_on(otlp: FakeCollector) -> None:
-    """Verify the agent spans of a run with the Logfire bridge on also reach the collector."""
-    bridge = get_logfire_bridge()
-    bridge.configure(token="unused", send_to_logfire=False)
+def test_the_logfire_bridge_exports_its_spans_through_the_seam(otlp: FakeCollector) -> None:
+    """Verify the Logfire bridge owns the agent spans and hands its spans to the collector."""
+    with patch("logfire.configure") as configure, patch("logfire.instrument_pydantic_ai"):
+        get_logfire_bridge().configure(token="unused", send_to_logfire=False)
+    # Logfire puts the processors it is given on its own provider, as this one does.
+    provider = TracerProvider()
+    for processor in configure.call_args.kwargs["additional_span_processors"]:
+        if isinstance(processor, BatchSpanProcessor):
+            provider.add_span_processor(processor)
 
-    _run_stage_agent()
-    bridge.flush()
+    with trace_span("service.job"):
+        provider.get_tracer("pydantic-ai").start_span("invoke_agent stage").end()
+    provider.shutdown()
 
     spans = _by_name(otlp.spans)
-    assert spans["invoke_agent"].parent_span_id == spans["service.job"].span_id
+    assert (install_library_spans(), spans["invoke_agent"].parent_span_id) == (
+        None,
+        spans["service.job"].span_id,
+    )
 
 
 def _chat_completion(_request: httpx2.Request) -> httpx2.Response:

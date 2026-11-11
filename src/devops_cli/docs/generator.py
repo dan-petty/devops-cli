@@ -1208,8 +1208,8 @@ class DocGenerator:
             "`llm.prompt_preview` and `llm.response_preview` by default. The pydantic-ai spans "
             "omit the text of prompts, replies, tool arguments and tool results by default. "
             "They keep the roles, the part types, the tool names and the tool definitions "
-            "(`gen_ai.tool.definitions`). With `devops review --logfire`, Logfire also scrubs "
-            "private host patterns. To record the text for debugging, set "
+            "(`gen_ai.tool.definitions`). With the `--logfire` option of the review commands, "
+            "Logfire also scrubs private host patterns. To record the text for debugging, set "
             "`telemetry.capture_llm_content` to `true` (`devops config set "
             "telemetry.capture_llm_content true`).",
             "- **Library Spans**: pydantic-ai, the MCP client and the LLM gateway client make "

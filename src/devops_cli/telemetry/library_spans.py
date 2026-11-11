@@ -25,6 +25,7 @@ the own span that was open when the agent ran, and an own span in a tool nests u
 
 from __future__ import annotations
 
+import sys
 import threading
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any, cast
@@ -45,8 +46,7 @@ if TYPE_CHECKING:
     import httpx2
 
 _LOCK = threading.Lock()
-# The provider of the process. The OpenTelemetry API sets a global provider once for each
-# process, so this one stays after a reset, and each export goes to the tracer of that time.
+# The provider of the process. Each export goes to the tracer of that time.
 _PROVIDER: TracerProvider | None = None
 # Whether pydantic-ai agents make spans now. A reset turns them off, not the provider.
 _AGENTS_INSTRUMENTED = False
@@ -72,7 +72,8 @@ class SeamSpanExporter(SpanExporter):
 
 
 def _library_resource() -> Resource:
-    """The resource of the own spans, with the SDK's own `telemetry.sdk.*` attributes."""
+    """The resource of the own spans, with the SDK's `telemetry.sdk.*` attributes in place of the
+    tracer's."""
     own = get_tracer().resource_attributes()
     return Resource.create(
         {key: value for key, value in own.items() if not key.startswith("telemetry.sdk.")}
@@ -156,15 +157,24 @@ def flush_library_spans(timeout: float) -> None:
 
 
 def reset_library_spans() -> None:
-    """Export the waiting library spans and stop the agent spans (used for testing). The global
-    provider stays: the OpenTelemetry API sets it once for each process."""
-    global _AGENTS_INSTRUMENTED
-    flush_library_spans(DEFAULT_OTEL_DRAIN_TIMEOUT_SECONDS)
-    # The Logfire bridge instruments the agents too, so the default goes off either way.
-    from pydantic_ai import Agent
+    """Export the waiting library spans, shut the provider down and stop the agent spans (used
+    for testing).
 
-    Agent.instrument_all(False)
+    The OpenTelemetry API keeps the first global provider of the process, so after a reset the
+    native MCP spans reach no provider; the agent and gateway spans take theirs by argument.
+    """
+    global _AGENTS_INSTRUMENTED, _PROVIDER
+    dropped, _PROVIDER = _PROVIDER, None
+    if dropped is not None:
+        dropped.force_flush(int(DEFAULT_OTEL_DRAIN_TIMEOUT_SECONDS * 1000))
+        dropped.shutdown()
     _AGENTS_INSTRUMENTED = False
+    # The Logfire bridge instruments the agents too, so the default goes off either way. A
+    # process that did not load pydantic-ai has no default to turn off.
+    if "pydantic_ai" in sys.modules:
+        from pydantic_ai import Agent
+
+        Agent.instrument_all(False)
 
 
 __all__ = [

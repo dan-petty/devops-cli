@@ -12,7 +12,7 @@ Issue #4515: devops-cli exports its own spans through its own tracer (`src/devop
 - `Agent.instrument_all` turns on the pydantic-ai spans, with `include_content` from `telemetry.capture_llm_content`, no binary content, no model request parameters and no metrics.
 - The MCP client keeps its native spans, which now reach the provider. The gateway client gets the OpenTelemetry httpx instrumentor; no other client gets it.
 - The tracer keeps the ids of the open span in the OpenTelemetry API context, not in its own context variables. The context variables are deleted. `export_encoded` sends an encoded request on the calling thread and counts it. `flush` also exports the waiting library spans.
-- The Logfire bridge (`devops review --logfire`) adds the seam processor, so the agent spans also reach the collector.
+- The Logfire bridge (the `--logfire` option of the review commands) adds the seam processor, so the agent spans also reach the collector.
 - Deleted, with no replacement: `logfire_agent_turn`, `AgentTurnHandle`, `render_agent_turn_table`, `render_agent_turn_panel`, the token and turn counters of the bridge, the rows of `devops telemetry logfire` that showed them, and `devops telemetry test --logfire`.
 - The OTLP fake decodes a protobuf trace request. The contract suite gets a protobuf case.
 - New direct dependencies, at the locked versions: `opentelemetry-exporter-otlp-proto-common==1.45.1` and `opentelemetry-instrumentation-httpx==0.66b1`.
