@@ -46,6 +46,11 @@ has only its log, so the round classifies that log (`failure.py`), records the c
 and names the class and the action left in its comment. The runner pod is not scraped, so the Service
 counts.
 
+**Needs fix.** The plan leaves out a Staged item while its draft holds the label `plan/needs-fix`
+of a plan with an open finding (`implement.py`, #4477). The round returns such an item once for
+each draft, for the row to log, and records the draft in `implement.needs_fix`. A round that judges
+the item and does not leave it out for the label clears the mark, so a new label is logged again.
+
 **Status.** After it reports the Jobs, and again after it creates one, the round sets the Status
 label of each item from the record and the plans on the default branch (`status_sync.py`, #2920):
 Planned once the plan is merged, and In Progress as soon as the record names a Job. The round reads
@@ -98,7 +103,9 @@ from devops_cli.roadmap.fence import code_fence
 from devops_cli.roadmap.implement.consecutive_failures import get_consecutive_failures
 from devops_cli.roadmap.implement.implement import (
     GIT_OPERATION,
+    ImplementPlan,
     ImplementTarget,
+    NeedsFix,
     parse_implement_filters,
     plan_implement,
 )
@@ -134,7 +141,8 @@ class SubmitResult:
     """What a round did: the Jobs it reported, whether a running Job held it, the Job it created,
     and the item it left because an agent or a person claimed it after the plan (#2910), and the
     items whose Status it could not set, and the items whose stop it cleared (#2912). `effort` and
-    `fallback` name the effort pass that selected the item (#3385)."""
+    `fallback` name the effort pass that selected the item (#3385). `needs_fix` holds the items
+    that the round left out for the label `plan/needs-fix` and had not logged yet."""
 
     reported: tuple[str, ...] = ()
     waiting: bool = False
@@ -144,6 +152,7 @@ class SubmitResult:
     cleared: tuple[int, ...] = ()
     effort: str = ""
     fallback: bool = False
+    needs_fix: tuple[NeedsFix, ...] = ()
 
 
 def _record(item: Item, key: ImplementRecordKey) -> str | None:
@@ -426,6 +435,29 @@ def _create(
     return name
 
 
+def _note_needs_fix(store: RoadmapStore, plan: ImplementPlan) -> tuple[NeedsFix, ...]:
+    """The items that `plan` leaves out for the label `plan/needs-fix` and that no round noted for
+    the same draft. The round records the draft in `implement.needs_fix`, and clears the mark of
+    an item that the plan judged and did not leave out for the label."""
+    new = tuple(
+        held
+        for held in plan.needs_fix
+        if held.item.job_record.get(ImplementRecordKey.NEEDS_FIX) != str(held.pull)
+    )
+    for held in new:
+        store.set_marks(held.item, {ImplementRecordKey.NEEDS_FIX: str(held.pull)})
+    judged = {
+        *(left.number for left in plan.left_out),
+        *(target.item.number for target in plan.selected),
+        *plan.beyond,
+    }
+    free = judged - {held.item.number for held in plan.needs_fix}
+    for item in store.items():
+        if item.number in free and item.job_record.get(ImplementRecordKey.NEEDS_FIX) is not None:
+            store.set_marks(item, {ImplementRecordKey.NEEDS_FIX: None})
+    return new
+
+
 def _runs(api: ClusterJobs, label: str) -> bool:
     """Whether a runner Job of the repository with `label` has not ended."""
     jobs = api.list_jobs({CONST_ROADMAP_IMPLEMENT_JOB_LABEL: label})
@@ -464,11 +496,18 @@ def run_implement_round(
         limit=DEFAULT_ROADMAP_IMPLEMENT_LIMIT,
         planned=planned,
     )
+    needs_fix = _note_needs_fix(store, plan)
     if not plan.selected:
-        return SubmitResult(reported=reported, status_failed=failed, cleared=stops.cleared)
+        return SubmitResult(
+            reported=reported, status_failed=failed, cleared=stops.cleared, needs_fix=needs_fix
+        )
     if _runs(api, label):
         return SubmitResult(
-            reported=reported, waiting=True, status_failed=failed, cleared=stops.cleared
+            reported=reported,
+            waiting=True,
+            status_failed=failed,
+            cleared=stops.cleared,
+            needs_fix=needs_fix,
         )
     number = plan.selected[0].item.number
     size = _size_of(source, planned, plan.selected[0])
@@ -482,6 +521,7 @@ def run_implement_round(
         cleared=stops.cleared,
         effort=plan.effort,
         fallback=plan.fallback,
+        needs_fix=needs_fix,
     )
 
 

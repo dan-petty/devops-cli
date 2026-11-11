@@ -287,7 +287,9 @@ class ImplementRecordKey(StrEnum):
     the earlier Job: the next Job hands them to its first step and clears them.
     `implement.spend_counted` holds the tokens of `implement.spend` that the token counter already
     holds (#4200): the Service writes it when it reports a Job, and a retry and a return to New
-    clear it with the spend."""
+    clear it with the spend. `implement.needs_fix` holds the draft that the Service logged as left
+    out for the label `plan/needs-fix`, so it logs the item once (#4477); a round that judges
+    the item and does not leave it out for the label clears the mark."""
 
     GROUP = "implement.group"
     SHA = "implement.sha"
@@ -313,6 +315,7 @@ class ImplementRecordKey(StrEnum):
     DIGEST_CLEAR_COMMENTED_AT = "implement.digest_clear_commented_at"
     CONTINUATIONS = "implement.continuations"
     REPAIR_ROUNDS = "implement.repair_rounds"
+    NEEDS_FIX = "implement.needs_fix"
 
 
 class RetitleRecordKey(StrEnum):
