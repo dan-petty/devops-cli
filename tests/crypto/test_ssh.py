@@ -160,6 +160,18 @@ def test_a_config_file_in_a_directory_without_a_project_marker_names_no_prefix(
     assert get_ssh_key_prefix(workspace) == "my_plain_repo"
 
 
+def test_a_bare_no_in_the_project_config_file_is_the_key_prefix(tmp_path: Path) -> None:
+    """YAML 1.2, the version that a settings save writes, reads a bare `no` as a string. YAML 1.1
+    read it as `false`, so the key took the name of its directory (#4481)."""
+    from devops_cli.crypto.ssh_keys import get_ssh_key_prefix
+
+    workspace = tmp_path / "my_plain_repo"
+    (workspace / ".git").mkdir(parents=True)
+    (workspace / "config.yaml").write_text("ssh:\n  key_prefix: no\n", encoding="utf-8")
+
+    assert get_ssh_key_prefix(workspace) == "no"
+
+
 def test_devcontainer_name_survives_urls_next_to_comments(tmp_path: Path) -> None:
     """Verify the devcontainer name is the prefix when a string holds `//` beside real comments.
 

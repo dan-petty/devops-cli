@@ -223,6 +223,23 @@ def test_config_audit_keys_passes_a_nested_credential_that_holds_no_value(
     assert (result.exit_code, data["is_compliant"], data["plaintext_leaks"]) == (0, True, [])
 
 
+def test_config_audit_keys_finds_a_credential_whose_bare_value_yaml_1_1_reads_as_false(
+    cli: Callable[..., Any], isolate_devops_cli_config: Path
+) -> None:
+    """YAML 1.2 reads a bare `no` as a string, so the credential holds a value in plaintext. YAML
+    1.1 read it as `false`, and the audit found no leak (#4481)."""
+    isolate_devops_cli_config.write_text("ai:\n  api_key: no\n", encoding="utf-8")
+
+    result = cli("config", "audit-keys", "--json")
+
+    data = json.loads(result.stdout)
+    assert (result.exit_code, data["is_compliant"], data["plaintext_leaks"]) == (
+        1,
+        False,
+        [f"{isolate_devops_cli_config.resolve()}:ai.api_key"],
+    )
+
+
 def test_config_audit_keys_finds_no_secret_key_in_a_config_file_whose_document_is_a_list(
     tmp_path: Path,
 ) -> None:
