@@ -6,6 +6,8 @@
   - Verification: `$ uv run devops ci test tests/roadmap/stage/test_roadmap_stage_repair_return.py tests/roadmap/stage/test_roadmap_stage_round_log.py tests/roadmap/implement/test_roadmap_implement_submit.py`
 - [x] 1.2 Add `src/devops_cli/roadmap/round_log.py`, and call it from `_returned` and `_verified` in `src/devops_cli/roadmap/stage/stage.py`, from `_run_stage_adapter` in `src/devops_cli/roadmap/run.py` and from `_report` in `src/devops_cli/roadmap/implement/implement_submit.py`.
   - Verification: `$ uv run devops ci test tests/roadmap/stage/test_roadmap_stage_repair_return.py tests/roadmap/stage/test_roadmap_stage_round_log.py tests/roadmap/implement/test_roadmap_implement_submit.py`
+- [x] 1.3 Name the repository before the item in each line, from `repo` of `_report` and `_run_stage_adapter` and from `_pull_repo` of `_Planner`, because two repositories can have an item with the same number.
+  - Verification: `$ uv run devops ci test tests/roadmap/stage/test_roadmap_stage_repair_return.py tests/roadmap/stage/test_roadmap_stage_round_log.py tests/roadmap/implement/test_roadmap_implement_submit.py`
 
 ## 2. The error line names every failed item (behavior)
 

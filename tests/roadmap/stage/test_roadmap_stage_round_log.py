@@ -54,5 +54,5 @@ def test_each_item_that_a_round_failed_logs_one_line_with_its_step_and_class(
         r.getMessage() for r in caplog.records if r.getMessage().startswith("stage item failed")
     ]
     assert [line.rsplit(" version=", 1)[0] for line in lines] == [
-        f"stage item failed: item=#{number} step=plan class=plan_defect"
+        f"stage item failed: repo={STAGE_REPO} item=#{number} step=plan class=plan_defect"
     ]

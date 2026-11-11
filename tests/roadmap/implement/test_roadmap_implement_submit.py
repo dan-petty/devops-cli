@@ -1704,6 +1704,6 @@ def test_each_ended_job_logs_one_attempt_line_with_its_counts_and_digest(
         r.getMessage() for r in caplog.records if r.getMessage().startswith("implement attempt")
     ]
     assert [line.rsplit(" version=", 1)[0] for line in lines] == [
-        f"implement attempt: item=#{number} state=failed class=oom repair_rounds=0 tokens=0 "
-        f"digest={DIGEST_A}"
+        f"implement attempt: repo={STAGE_REPO} item=#{number} state=failed class=oom "
+        f"repair_rounds=0 tokens=0 digest={DIGEST_A}"
     ]

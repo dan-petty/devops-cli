@@ -328,6 +328,7 @@ def _report(
         )
     _emit_implement_metrics(repo, item, state, failure, new_tokens)
     log_implement_attempt(
+        repo,
         item.number,
         state=state,
         failure_class=failure.value if failure else None,

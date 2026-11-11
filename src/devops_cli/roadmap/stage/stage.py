@@ -1205,13 +1205,13 @@ class _Planner:
                 self._stop_degenerate(target, key, refused, proposal, floor)
             outcome = self._settle(target, proposal, request, trace=self._trace_facts())
             if not isinstance(outcome, _Refused):
-                log_gate_returns(target.item.number, returns, passed=True)
+                log_gate_returns(self._pull_repo, target.item.number, returns, passed=True)
                 return outcome
             self._note_refused(target, floor, "refused")
             refused.append((outcome.reply, outcome.problem))
             if returns == CONST_ROADMAP_STAGE_GATE_RETURNS:
                 self._keep_refused(target, key, refused)
-                log_gate_returns(target.item.number, returns, passed=False)
+                log_gate_returns(self._pull_repo, target.item.number, returns, passed=False)
                 raise _stage_error(invalid.format(problem=outcome.problem), target)
             returns += 1
             again = {
@@ -1321,7 +1321,14 @@ class _Planner:
         `plan/needs-fix` (#3264). Each review logs one line with its counts (#4535)."""
         number = target.item.number
         seen, returned, open_ = self._review(target, change, verifier)
-        log_review_round(number, 0, findings=len(seen), returned=len(returned), open_=len(open_))
+        log_review_round(
+            self._pull_repo,
+            number,
+            0,
+            findings=len(seen),
+            returned=len(returned),
+            open_=len(open_),
+        )
         for round_ in range(1, CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS + 1):
             if not returned:
                 break
@@ -1331,7 +1338,12 @@ class _Planner:
             change = revised
             findings, returned, open_ = self._review(target, change, verifier)
             log_review_round(
-                number, round_, findings=len(findings), returned=len(returned), open_=len(open_)
+                self._pull_repo,
+                number,
+                round_,
+                findings=len(findings),
+                returned=len(returned),
+                open_=len(open_),
             )
             seen = [*seen, *findings]
         return replace(change, findings=tuple(dict.fromkeys(seen)), open_findings=tuple(open_))

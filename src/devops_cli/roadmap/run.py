@@ -631,7 +631,7 @@ def _run_stage_adapter(
     applied = writer.applied()
     emit_stage_results(plan, applied, repo=repo)
     for failure in (*plan.failed, *applied.failed):
-        log_failed_item(failure.number, failure.step.value, failure.failure_class.value)
+        log_failed_item(repo, failure.number, failure.step.value, failure.failure_class.value)
     synced = (
         sync_statuses(store, repo=repo, planned=plan.planned) if plan.planned is not None else None
     )
