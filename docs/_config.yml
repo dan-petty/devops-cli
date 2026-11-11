@@ -1,5 +1,6 @@
-# The site settings of https://dan-petty.github.io/devops-cli/. GitHub Pages builds `main:/docs`
-# and runs Jekyll with no `--config` option, so Jekyll reads this file and no other. Keep every
+# The site settings of https://dan-petty.github.io/devops-cli/. `.github/workflows/pages.yml`
+# builds `docs/` with `actions/jekyll-build-pages`, which runs Jekyll with no `--config` option,
+# so Jekyll reads this file and no other. Keep every
 # site setting here: a setting in a different file has no effect, and Pages publishes that file
 # as a static file. `devops gh pages verify` checks this file.
 #

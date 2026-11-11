@@ -2,6 +2,8 @@
 
 [ADR 0013](0013-releases-use-release-please-as-it-ships-and-agents-stay-out.md) supersedes this ADR.
 
+Amended on 2026-11-11 ([#4656](https://github.com/dan-petty/devops-cli/issues/4656)): the owner decided that a workflow publishes the site. `.github/workflows/pages.yml` builds and deploys `docs/` on a push to `main` that changes `docs/` or the workflow, and the Pages source is GitHub Actions. This replaces the legacy build of `main:/docs` in the Pages item and in decision 12. The legacy build ran 3 jobs on each push to `main`.
+
 ADR 0012 supersedes [ADR 0011](0011-releases-come-from-trunk-towncrier-uv-and-semver-tags-instead-of-a-bespoke-cut.md). ADR 0011 kept a bespoke prepare workflow, `towncrier` fragments and the milestone title as the version, because the repository already used those conventions. The owner decided that a formal release orchestrator must derive the versions.
 
 Releases used to run through a `release/vX.Y.Z` integration branch. Topic pull requests merged into it. A cut commit (version, changelog, roadmap) reached it through its own pull request. A release pull request carried the branch to `main`. `release.yml` published on the push to `main`. [#1751](https://github.com/dan-petty/devops-cli/issues/1751) asked whether that model is right.
