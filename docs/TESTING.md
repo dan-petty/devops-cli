@@ -124,6 +124,14 @@ Every new test follows these rules. Some of them name a path, fixture or check t
 - An output whose whole text is the contract, such as a command's output, a rendered manifest or a prompt, is checked against a snapshot that syrupy stores. Any other expected value is a literal written in the test. A Pydantic model is snapshotted through `model_dump()` or syrupy's Amber Pydantic plugin.
 - A snapshot is regenerated, never edited by hand, with `uv run pytest <test-file> --snapshot-update --snapshot-file-lock`, and the commit says why it changed. The file lock is required: without it, an update under xdist can lose entries from a shared `.ambr` file ([syrupy issue 1237](https://github.com/syrupy-project/syrupy/issues/1237)).
 
+### Dashboard queries
+
+- `tests/prometheus/test_dashboard_queries.py` evaluates the queries of the Grafana dashboards on fixture series with the pinned promtool, and skips where promtool is not installed. A file `tests/fixtures/dashboard_queries/<dashboard>.yaml` holds the cases of `k8s/monitoring/dashboards/<dashboard>.json`. promtool runs once for each file.
+- A file has the format of a promtool unit test file with no rule file. To add a case, add a `promql_expr_test` entry with these keys: `panel` (the panel title), `ref_id` (the target refId), `expr` (the query of the target, copied from the dashboard with its variables), `variables`, `eval_time` and `exp_samples`.
+- `variables` gives `__range` and `__interval` as durations, such as `24h`, and each dashboard variable as the text that Grafana puts in its place, such as `(devops-cli|roadmap-service)` for All. Give `__interval` as Grafana calculates it for the panel, not less than the Min interval of the panel. The test calculates `__range_s`, `__range_ms`, `__interval_ms` and `__rate_interval` as Grafana does: `$__rate_interval` is max(`$__interval` + scrape interval, 4 x scrape interval), and the scrape interval is the Min step of the target, else the `timeInterval` of its data source in `k8s/monitoring/grafana-values.yaml`.
+- Put the series in a test group with `interval`, `input_series` and `shape`, the series shape that the group models: `sparse_counter`, `zero_start`, `counter_reset` or `snapshot_gauge`. Give the value that the panel must show in `exp_samples`, and say in a comment how you got it from the series.
+- When you change a covered query, change the `expr` of its cases in the same pull request. The test fails with the dashboard, the panel title and the refId of each case whose `expr` is not the query of its target.
+
 ### Hosts, sockets and the shared container
 
 - A mock host is `example.com`, with no subdomain.

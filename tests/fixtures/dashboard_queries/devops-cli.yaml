@@ -1,0 +1,93 @@
+# Cases of the panels of k8s/monitoring/dashboards/devops-cli.json, which
+# tests/prometheus/test_dashboard_queries.py evaluates with promtool (#4680). The test module tells
+# the format, and docs/TESTING.md tells how to add a case.
+#
+# Each test group models one series shape that the telemetry writes (#4675). Its series start at
+# 0 and have one sample each `interval`. A range selector holds the samples after its start and
+# up to its end, so `[86400s]` at 48h reads the samples from 24h15m to 48h.
+tests:
+  - name: the Service sends the spend counter once each 15 min
+    shape: sparse_counter
+    interval: 15m
+    input_series:
+      - series: 'devops_cli_ai_spend_usd_total{job="roadmap-service", server="gateway-a"}'
+        values: '100+0.5x192'
+      - series: 'devops_cli_ai_spend_usd_total{job="roadmap-service", server="gateway-b"}'
+        values: '20+0.25x192'
+      - series: 'devops_cli_ai_spend_usd_total{job="devops-cli", server="gateway-a"}'
+        values: '0+1x192'
+    promql_expr_test:
+      # 96 samples in 24 h: 96 x 0.5 + 96 x 0.25. The devops-cli job is not selected.
+      - panel: AI Spend in Range
+        ref_id: A
+        variables: {__range: 24h, job: roadmap-service}
+        expr: 'sum(increase(devops_cli_ai_spend_usd_total{job=~"$job"}[$__range])) or vector(0)'
+        eval_time: 48h
+        exp_samples:
+          - labels: '{}'
+            value: 72
+      # With All selected, Grafana puts the values of the variable as one regex.
+      - panel: AI Spend in Range
+        ref_id: A
+        variables: {__range: 24h, job: '(devops-cli|roadmap-service)'}
+        expr: 'sum(increase(devops_cli_ai_spend_usd_total{job=~"$job"}[$__range])) or vector(0)'
+        eval_time: 48h
+        exp_samples:
+          - labels: '{}'
+            value: 168
+
+  - name: a Service pod starts with a zero sample in the range
+    shape: zero_start
+    interval: 15m
+    input_series:
+      # The pod starts at 30h. The zero sample keeps its first 0.5 in the increase.
+      - series: 'devops_cli_ai_spend_usd_total{job="roadmap-service", server="gateway-a"}'
+        values: '_x120 0+0.5x72'
+    promql_expr_test:
+      - panel: AI Spend in Range
+        ref_id: A
+        variables: {__range: 24h, job: roadmap-service}
+        expr: 'sum(increase(devops_cli_ai_spend_usd_total{job=~"$job"}[$__range])) or vector(0)'
+        eval_time: 48h
+        exp_samples:
+          - labels: '{}'
+            value: 36
+
+  - name: the counter drops when a new Service pod starts
+    shape: counter_reset
+    interval: 15m
+    input_series:
+      # The counter reaches 150 at 25h. The new pod sends 0.5 at 25h15m and 46 at 48h.
+      - series: 'devops_cli_ai_spend_usd_total{job="roadmap-service", server="gateway-a"}'
+        values: '100+0.5x100 0.5+0.5x91'
+    promql_expr_test:
+      # 2 before the drop, from 148 at 24h to 150, and 46 after it.
+      - panel: AI Spend in Range
+        ref_id: A
+        variables: {__range: 24h, job: roadmap-service}
+        expr: 'sum(increase(devops_cli_ai_spend_usd_total{job=~"$job"}[$__range])) or vector(0)'
+        eval_time: 48h
+        exp_samples:
+          - labels: '{}'
+            value: 48
+
+  - name: the alternatives check writes its coverage gauge once each 15 min
+    shape: snapshot_gauge
+    interval: 15m
+    input_series:
+      - series: 'devops_cli_roadmap_alternatives_unchecked_items{job="roadmap-service", repo="example/one"}'
+        values: '9 8 8 7 5 3'
+      - series: 'devops_cli_roadmap_alternatives_unchecked_items{job="roadmap-service", repo="example/two"}'
+        values: '2 2 2 2 1 1'
+    promql_expr_test:
+      # At 80m, 5 min after the last snapshot, each repository shows its last value.
+      - panel: Alternatives Unchecked Items
+        ref_id: A
+        variables: {job: roadmap-service}
+        expr: 'sum by (repo) (last_over_time(devops_cli_roadmap_alternatives_unchecked_items{job=~"$job"}[1d]))'
+        eval_time: 80m
+        exp_samples:
+          - labels: '{repo="example/one"}'
+            value: 3
+          - labels: '{repo="example/two"}'
+            value: 1
