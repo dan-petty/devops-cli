@@ -180,13 +180,15 @@ def test_the_devops_cli_dashboards_are_found_by_their_queries() -> None:
 # caller's calls (#1668). tests/test_stack_dashboards.py checks them against the LiteLLM capture.
 _GATEWAY_SERIES_DASHBOARDS: frozenset[str] = frozenset({"ai-spend.json"})
 GATEWAY_SERIES_NAME = re.compile(r"\blitellm_[a-z0-9_]+")
+# A reference line, such as a limit, is a constant query (docs/DESIGN.md C14).
+REFERENCE_LINE = re.compile(r"vector\(\s*[0-9.]+\s*\)")
 
 
 @pytest.mark.parametrize("dashboard", _devops_cli_dashboards(), ids=lambda path: path.name)
 def test_every_dashboard_query_names_a_metric_devops_cli_sends(dashboard: Path) -> None:
     """Verify each query reads a counter or histogram series devops-cli sends over OTLP, a series
     that the Service gives on its /metrics route, or, on the AI spend dashboard, a series of the
-    gateway."""
+    gateway. A constant reference line, such as a limit, reads no series."""
     queries = _queries(dashboard)
     reads_gateway = dashboard.name in _GATEWAY_SERIES_DASHBOARDS
 
@@ -194,7 +196,9 @@ def test_every_dashboard_query_names_a_metric_devops_cli_sends(dashboard: Path) 
     unnamed = [
         q
         for q in queries
-        if not SERIES_NAME.search(q) and not (reads_gateway and GATEWAY_SERIES_NAME.search(q))
+        if not SERIES_NAME.search(q)
+        and not REFERENCE_LINE.fullmatch(q.strip())
+        and not (reads_gateway and GATEWAY_SERIES_NAME.search(q))
     ]
 
     assert (len(queries) > 0, sorted(unsent), unnamed) == (True, [], [])
@@ -643,21 +647,21 @@ def test_the_dashboards_chart_latency_errors_reviews_and_findings_devops_cli_sen
     """Verify each series sent but never charted is summed by the label asked for.
 
     The grouping must apply to that series, not to another in the same query, and the latency
-    panels chart command p50, p95 and p99, review p50 and p95, RAG p50 and p95 of whole queries
-    and RAG p95 of each stage (#975). Qdrant retries are charted by operation and error type.
+    panels chart command p50, p95 and p99, review p50 and p95, and RAG p50 and p95 of whole
+    queries and of each stage (#975, #4707). Qdrant retries are charted by operation and error type.
     AI requests and tokens are charted by operation, so chat and embeddings are told apart (#1623).
     The Ollama slot wait is charted at p95 by priority (#815).
     """
     wanted = {
-        ("devops_cli_command_duration_seconds", "command"),
+        ('devops_cli_command_duration_seconds{command=~"$command"}', "command"),
         (
             'devops_cli_subcommand_duration_seconds{command=~"$command",sub_command=~"$sub_command"}',
             "sub_command",
         ),
-        ('devops_cli_command_total{status="error"}', "command"),
+        ('devops_cli_command_total{command=~"$command",status="error"}', "command"),
         ("devops_cli_review_duration_seconds", "target_type"),
         ("devops_cli_findings_total", "severity"),
-        ('devops_cli_rag_query_duration_ms{stage=~"embedding|search|ranking"}', "stage"),
+        ('devops_cli_rag_query_duration_ms{stage=~"total|embedding|search|ranking"}', "stage"),
         ("devops_cli_qdrant_retries_total", "operation"),
         ("devops_cli_qdrant_retries_total", "error_type"),
         ("devops_cli_ai_requests_total", "operation"),
@@ -697,38 +701,50 @@ def _row_panels(dashboard: Path, row_title: str) -> list[dict[str, Any]]:
 
 
 def test_the_github_api_row_charts_requests_throttles_and_graphql_points() -> None:
-    """The GitHub API row shows the requests and the throttles by resource, the seconds spent
-    waiting before a retry, and the GraphQL points (#814)."""
+    """The GitHub API row shows the core requests that cost quota in each hour by job, beside the
+    free answers 304 and the Service budget, the requests of the other resources, the throttles
+    and the seconds spent waiting before a retry in the range, and the GraphQL points in each
+    hour beside the limit of a token (#814, #4707)."""
     panels = _row_panels(DASHBOARDS / "devops-cli.json", "GitHub API")
+    requests = 'increase(devops_cli_github_requests_total{job=~"$job",resource'
+    throttles = 'increase(devops_cli_github_throttle_wait_seconds{job=~"$job"}[$__range])'
 
-    assert {panel["title"]: _panel_queries(panel) for panel in panels} == {
-        "GitHub Requests by Resource": (
-            'sum by (resource) (increase(devops_cli_github_requests_total{job=~"$job"}[1h]))'
-        ),
-        "GitHub Throttles by Resource": (
-            "histogram_count(sum by (resource) "
-            '(increase(devops_cli_github_throttle_wait_seconds{job=~"$job"}[1h])))'
-        ),
-        "GitHub Throttle Wait by Resource": (
-            "histogram_sum(sum by (resource) "
-            '(increase(devops_cli_github_throttle_wait_seconds{job=~"$job"}[1h])))'
-        ),
-        "GitHub GraphQL Points": (
-            'sum(increase(devops_cli_github_graphql_points_total{job=~"$job"}[1h])) or vector(0)'
-        ),
+    assert {panel["title"]: [t["expr"] for t in panel["targets"]] for panel in panels} == {
+        "GitHub quota: core requests per hour": [
+            f'round(sum by (job) ({requests}="core",status!="304"}}[$__interval])))',
+            f'round(sum({requests}="core",status="304"}}[$__interval])))',
+            "max(last_over_time("
+            'devops_cli_service_budget_limit_requests{job=~"$job"}[$__interval]))',
+        ],
+        "GitHub quota: requests of the other resources per hour": [
+            f'round(sum by (resource) ({requests}=~"graphql|search",status!="304"}}[$__interval])))',
+            f'round(sum({requests}!~"core|graphql|search",status!="304"}}[$__interval])))',
+        ],
+        "Throttles: count in the range": [f"round(sum(histogram_count({throttles}))) or vector(0)"],
+        "Throttles: count and wait by resource in the range": [
+            f"round(histogram_count(sum by (resource) ({throttles})))",
+            f"histogram_sum(sum by (resource) ({throttles}))",
+        ],
+        "GitHub quota: GraphQL points per hour": [
+            "round(sum by (job) "
+            '(increase(devops_cli_github_graphql_points_total{job=~"$job"}[$__interval])))',
+            "vector(5000)",
+        ],
     }
 
 
 def test_a_command_group_without_errors_charts_a_zero_error_share() -> None:
-    """Verify a command group with runs and no error series shows 0, not a missing line.
+    """Verify a command group with runs and no error series shows 0, not a missing cell.
 
     Dividing two grouped sums keeps only the groups present on both sides, so a group that
     sent no error series dropped out; the numerator falls back to its runs times zero.
     """
     (query,) = [
-        _panel_queries(panel)
+        target["expr"]
         for panel in _panels(DASHBOARDS / "devops-cli.json")
-        if panel["title"] == "Command Error Share"
+        if panel["title"] == "Commands: calls, errors and latency in the range"
+        for target in panel["targets"]
+        if target["refId"] == "C"
     ]
     numerator, _, runs = query.rpartition(" / ")
 
@@ -761,15 +777,20 @@ def test_the_hit_share_panel_divides_cached_requests_by_all_requests_over_an_hou
     )
 
 
-def test_the_embedding_hit_share_panel_divides_hits_by_lookups_over_an_hour() -> None:
-    """Verify the embedding cache hit share is the hits of the last hour over its lookups, and
-    shows 0 for an hour with lookups and no hits (#817)."""
+def test_the_embedding_hit_share_panel_divides_hits_by_lookups_over_the_rate_interval() -> None:
+    """Verify the embedding cache hit share is the hits of each window over its lookups, and
+    shows 0 for a window with lookups and no hits (#817). The window is `$__rate_interval` with
+    a Min step of 15 min, so it holds the samples of at least an hour (#4707)."""
     panels = {panel["title"]: panel for panel in _panels(DASHBOARDS / "devops-cli.json")}
+    (target,) = panels["Cache: share of embedding lookups that hit"]["targets"]
 
-    assert _panel_queries(panels["Embedding Cache Hit Share"]) == (
-        '(sum(increase(devops_cli_embedding_cache_lookups_total{job=~"$job",result="hit"}[1h])) '
-        'or sum(increase(devops_cli_embedding_cache_lookups_total{job=~"$job"}[1h])) * 0) '
-        '/ sum(increase(devops_cli_embedding_cache_lookups_total{job=~"$job"}[1h]))'
+    assert (target["expr"], target["interval"]) == (
+        "(sum(increase(devops_cli_embedding_cache_lookups_total"
+        '{job=~"$job",result="hit"}[$__rate_interval])) '
+        'or sum(increase(devops_cli_embedding_cache_lookups_total{job=~"$job"}[$__rate_interval]))'
+        " * 0) "
+        '/ sum(increase(devops_cli_embedding_cache_lookups_total{job=~"$job"}[$__rate_interval]))',
+        "15m",
     )
 
 
@@ -894,21 +915,23 @@ def test_every_panel_counting_with_increase_states_its_limits(dashboard: Path) -
     )
 
 
-def test_duration_panels_chart_mean_and_sample_count_alongside_quantiles() -> None:
-    """Verify every duration panel in devops-cli.json charts the mean and the sample count of its
-    native histogram beside the quantiles."""
+def test_each_table_of_quantiles_states_the_count_of_its_calls() -> None:
+    """Verify each table of quantiles in devops-cli.json states the count of the calls beside
+    them (docs/DESIGN.md C9), and each time series of quantiles holds no count, because a count
+    and a duration do not share a y axis (#4707)."""
     duration_panels = [
         panel
         for panel in _panels(DASHBOARDS / "devops-cli.json")
         if "histogram_quantile(" in _panel_queries(panel)
     ]
-    missing = [
+    tables = [panel["title"] for panel in duration_panels if panel["type"] == "table"]
+    misplaced = [
         panel["title"]
         for panel in duration_panels
-        if "histogram_avg(" not in _panel_queries(panel)
-        or "histogram_count(" not in _panel_queries(panel)
+        if (panel["type"] == "table")
+        != ("histogram_count(" in _panel_queries(panel) or "_total" in _panel_queries(panel))
     ]
-    assert (len(duration_panels), missing) == (5, [])
+    assert (len(tables), len(duration_panels), misplaced) == (4, 5, [])
 
 
 def test_counters_are_monotonic_deltas_from_the_host_not_the_process(otlp: FakeCollector) -> None:
@@ -1495,7 +1518,7 @@ def test_the_planner_tool_panel_charts_the_calls_and_the_answer_size_of_the_stag
     """The panel "Planner Tool Calls and Answer Size" (#3240) charts the calls of each tool of the
     stage row by outcome, and the mean size of its answers on a second axis. It is in the row
     "Planner Tools" of the `devops-cli Telemetry` dashboard, which holds the other counters of
-    the Service. No panel of the dashboard overlaps another."""
+    the Service, below the rows of #4707. No panel of the dashboard overlaps another."""
     dashboard = DASHBOARDS / "devops-cli.json"
     (panel,) = [
         panel
@@ -1513,6 +1536,6 @@ def test_the_planner_tool_panel_charts_the_calls_and_the_answer_size_of_the_stag
             "histogram_avg(sum by (tool) "
             f"(increase(devops_cli_roadmap_tool_answer_chars{selector}[1h])))",
         ],
-        {"x": 0, "y": 95, "w": 24, "h": 8},
+        {"x": 0, "y": 108, "w": 24, "h": 8},
         [],
     )

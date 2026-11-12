@@ -17,8 +17,9 @@
         "x": 0,
         "y": 0
       },
-      "id": 1,
-      "title": "devops-cli Command & Pipeline Telemetry",
+      "id": 61,
+      "panels": [],
+      "title": "Golden signals: devops commands",
       "type": "row"
     },
     {
@@ -26,7 +27,7 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "Commands run per hour, by command group. Approximate, and low for sparse series: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing. Delta points from one process can arrive out of order, and totals then come out low (#792).",
+      "description": "The p50, p95 and p99 of the duration of the successful calls (status ok) of the selected job, command and sub-command, over a window of $__rate_interval, at least 1 h (Min step 15m). With All, the quantiles are of all the calls together. Metric: devops_cli_subcommand_duration_seconds. A run of a command group with no sub-command, such as devops ci, sends no point to this histogram (#5192).",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -34,45 +35,77 @@
           },
           "custom": {
             "axisCenteredZero": false,
+            "axisLabel": "Latency (s)",
             "drawStyle": "line",
-            "lineInterpolation": "smooth"
+            "fillOpacity": 0,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "showPoints": "auto"
           },
-          "unit": "short"
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "id": 62,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
         }
       },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "histogram_quantile(0.5, sum(rate(devops_cli_subcommand_duration_seconds{job=~\"$job\",command=~\"$command\",sub_command=~\"$sub_command\",status=\"ok\"}[$__rate_interval])))",
+          "refId": "A",
+          "legendFormat": "p50",
+          "interval": "15m"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "histogram_quantile(0.95, sum(rate(devops_cli_subcommand_duration_seconds{job=~\"$job\",command=~\"$command\",sub_command=~\"$sub_command\",status=\"ok\"}[$__rate_interval])))",
+          "refId": "B",
+          "legendFormat": "p95",
+          "interval": "15m"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "histogram_quantile(0.99, sum(rate(devops_cli_subcommand_duration_seconds{job=~\"$job\",command=~\"$command\",sub_command=~\"$sub_command\",status=\"ok\"}[$__rate_interval])))",
+          "refId": "C",
+          "legendFormat": "p99",
+          "interval": "15m"
+        }
+      ],
+      "title": "Latency: p50, p95 and p99 of successful calls",
+      "type": "timeseries",
       "gridPos": {
         "h": 8,
-        "w": 8,
+        "w": 12,
         "x": 0,
         "y": 1
-      },
-      "id": 2,
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
-        }
-      },
-      "title": "CLI Invocations by Command",
-      "type": "timeseries",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "sum by (command) (increase(devops_cli_command_total{job=~\"$job\"}[1h]))",
-          "legendFormat": "devops {{command}}",
-          "refId": "A"
-        }
-      ]
+      }
     },
     {
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "Review wall time over the last hour, by target type (branch, pr or path). Approximate: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing, and delta points from one process can arrive out of order (#792). The counts lost can fall in any bucket, so a quantile can come out high or low.",
+      "description": "The calls of the selected job, command and sub-command in each hour, ok and error together. Each bar is the hour before its time (Min interval 1h). Metric: histogram_count of devops_cli_subcommand_duration_seconds. A run of a command group with no sub-command, such as devops ci, sends no point to this histogram (#5192). Approximate: increase() needs two samples of a series inside its window, and delta points from one process can arrive out of order (#792), so a count can come out low.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -80,72 +113,59 @@
           },
           "custom": {
             "axisCenteredZero": false,
-            "drawStyle": "line",
-            "lineInterpolation": "smooth"
+            "axisLabel": "Calls per hour",
+            "drawStyle": "bars",
+            "fillOpacity": 50,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "showPoints": "never",
+            "barAlignment": -1
           },
-          "unit": "s"
+          "unit": "short",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "id": 63,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
         }
       },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "round(histogram_count(sum(increase(devops_cli_subcommand_duration_seconds{job=~\"$job\",command=~\"$command\",sub_command=~\"$sub_command\"}[$__interval]))))",
+          "refId": "A",
+          "legendFormat": "calls"
+        }
+      ],
+      "title": "Traffic: calls per hour",
+      "type": "timeseries",
+      "interval": "1h",
       "gridPos": {
         "h": 8,
-        "w": 8,
-        "x": 8,
+        "w": 12,
+        "x": 12,
         "y": 1
-      },
-      "id": 3,
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
-        }
-      },
-      "title": "AI Review Duration (p50, p95)",
-      "type": "timeseries",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "histogram_quantile(0.5, sum by (target_type) (increase(devops_cli_review_duration_seconds{job=~\"$job\"}[1h])))",
-          "legendFormat": "p50 {{target_type}}",
-          "refId": "A"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "histogram_quantile(0.95, sum by (target_type) (increase(devops_cli_review_duration_seconds{job=~\"$job\"}[1h])))",
-          "legendFormat": "p95 {{target_type}}",
-          "refId": "B"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "histogram_avg(sum by (target_type) (increase(devops_cli_review_duration_seconds{job=~\"$job\"}[1h])))",
-          "legendFormat": "mean {{target_type}}",
-          "refId": "C"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "histogram_count(sum by (target_type) (increase(devops_cli_review_duration_seconds{job=~\"$job\"}[1h])))",
-          "legendFormat": "count {{target_type}}",
-          "refId": "D"
-        }
-      ]
+      }
     },
     {
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "Whole RAG query time over the last hour, from embedding the query to the ranked results; RAG Query Stage Latency splits it by stage. Queries sent before #975 carry no stage and are left out: their buckets stopped at 5000 ms. Approximate: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing, and delta points from one process can arrive out of order (#792). The counts lost can fall in any bucket, so a quantile can come out high or low.",
+      "description": "The share of the calls of the selected job, command and sub-command that ended with the status error, over a window of $__rate_interval, at least 1 h (Min step 15m). A selection with calls and no error shows 0. Metric: devops_cli_subcommand_duration_seconds. A run of a command group with no sub-command, such as devops ci, sends no point to this histogram (#5192).",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -153,154 +173,58 @@
           },
           "custom": {
             "axisCenteredZero": false,
+            "axisLabel": "Error share (%)",
             "drawStyle": "line",
-            "lineInterpolation": "smooth"
+            "fillOpacity": 0,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "showPoints": "auto"
           },
-          "unit": "ms"
-        }
+          "unit": "percentunit",
+          "min": 0
+        },
+        "overrides": []
       },
-      "gridPos": {
-        "h": 8,
-        "w": 8,
-        "x": 16,
-        "y": 1
-      },
-      "id": 4,
+      "id": 64,
       "options": {
         "legend": {
+          "calcs": [],
           "displayMode": "list",
-          "placement": "bottom"
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
         }
       },
-      "title": "RAG Query Latency (p50, p95)",
-      "type": "timeseries",
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_quantile(0.5, sum(increase(devops_cli_rag_query_duration_ms{job=~\"$job\",stage=\"total\"}[1h])))",
-          "legendFormat": "p50",
-          "refId": "A"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "histogram_quantile(0.95, sum(increase(devops_cli_rag_query_duration_ms{job=~\"$job\",stage=\"total\"}[1h])))",
-          "legendFormat": "p95",
-          "refId": "B"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "histogram_avg(sum(increase(devops_cli_rag_query_duration_ms{job=~\"$job\",stage=\"total\"}[1h])))",
-          "legendFormat": "mean",
-          "refId": "C"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "histogram_count(sum(increase(devops_cli_rag_query_duration_ms{job=~\"$job\",stage=\"total\"}[1h])))",
-          "legendFormat": "count",
-          "refId": "D"
+          "expr": "(histogram_count(sum(rate(devops_cli_subcommand_duration_seconds{job=~\"$job\",command=~\"$command\",sub_command=~\"$sub_command\",status=\"error\"}[$__rate_interval]))) or histogram_count(sum(rate(devops_cli_subcommand_duration_seconds{job=~\"$job\",command=~\"$command\",sub_command=~\"$sub_command\"}[$__rate_interval]))) * 0) / histogram_count(sum(rate(devops_cli_subcommand_duration_seconds{job=~\"$job\",command=~\"$command\",sub_command=~\"$sub_command\"}[$__rate_interval])))",
+          "refId": "A",
+          "legendFormat": "error share",
+          "interval": "15m"
         }
-      ]
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "description": "Command wall time over the last hour, by command group. Approximate: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing, and delta points from one process can arrive out of order (#792). The counts lost can fall in any bucket, so a quantile can come out high or low.",
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "axisCenteredZero": false,
-            "drawStyle": "line",
-            "lineInterpolation": "smooth"
-          },
-          "unit": "s"
-        }
-      },
+      ],
+      "title": "Errors: share of calls that failed",
+      "type": "timeseries",
       "gridPos": {
         "h": 8,
         "w": 12,
         "x": 0,
         "y": 9
-      },
-      "id": 11,
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
-        }
-      },
-      "title": "Command Latency (p50, p95, p99)",
-      "type": "timeseries",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "histogram_quantile(0.5, sum by (command) (increase(devops_cli_command_duration_seconds{job=~\"$job\"}[1h])))",
-          "legendFormat": "p50 {{command}}",
-          "refId": "A"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "histogram_quantile(0.95, sum by (command) (increase(devops_cli_command_duration_seconds{job=~\"$job\"}[1h])))",
-          "legendFormat": "p95 {{command}}",
-          "refId": "B"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "histogram_quantile(0.99, sum by (command) (increase(devops_cli_command_duration_seconds{job=~\"$job\"}[1h])))",
-          "legendFormat": "p99 {{command}}",
-          "refId": "C"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "histogram_avg(sum by (command) (increase(devops_cli_command_duration_seconds{job=~\"$job\"}[1h])))",
-          "legendFormat": "mean {{command}}",
-          "refId": "D"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "histogram_count(sum by (command) (increase(devops_cli_command_duration_seconds{job=~\"$job\"}[1h])))",
-          "legendFormat": "count {{command}}",
-          "refId": "E"
-        }
-      ]
+      }
     },
     {
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "Share of the last hour's runs of each command group that ended in an error; a group with runs and no errors shows 0. Approximate: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing, and delta points from one process can arrive out of order (#792). The counts lost can fall on either side of the ratio, so a share can come out high or low.",
+      "description": "The GitHub requests of the roadmap Service in the last hour, as a share of its hourly budget service.github_requests_per_hour. The dashed line is the limit, 100 %. Only the Service keeps this budget: the cluster Jobs and the workstations do not count in it. Metrics: devops_cli_service_budget_spent_requests and devops_cli_service_budget_limit_requests. The panel shows the Service budget until #4752 records the rate limit of each GitHub answer.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -308,52 +232,398 @@
           },
           "custom": {
             "axisCenteredZero": false,
+            "axisLabel": "Budget used (%)",
             "drawStyle": "line",
-            "lineInterpolation": "smooth"
+            "fillOpacity": 0,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "showPoints": "auto"
           },
-          "max": 1,
-          "min": 0,
-          "unit": "percentunit"
+          "unit": "percentunit",
+          "min": 0
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "limit (100 %)"
+            },
+            "properties": [
+              {
+                "id": "custom.drawStyle",
+                "value": "line"
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "dash": [
+                    2,
+                    2
+                  ],
+                  "fill": "dash"
+                }
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 1
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              }
+            ]
+          }
+        ]
+      },
+      "id": 65,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
         }
       },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "max(last_over_time(devops_cli_service_budget_spent_requests{job=~\"$job\"}[$__rate_interval])) / max(last_over_time(devops_cli_service_budget_limit_requests{job=~\"$job\"}[$__rate_interval]))",
+          "refId": "A",
+          "legendFormat": "budget used"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "vector(1)",
+          "refId": "B",
+          "legendFormat": "limit (100 %)"
+        }
+      ],
+      "title": "Saturation: share of the Service GitHub budget used",
+      "type": "timeseries",
       "gridPos": {
         "h": 8,
         "w": 12,
         "x": 12,
         "y": 9
+      }
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 17
       },
-      "id": 12,
+      "id": 1,
+      "title": "Breakdown by command",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "The calls of each command in the time range, from the most calls down. Each run of devops counts once, also a run of a command group with no sub-command, such as devops ci, so a command can show more calls here than in the sub-command table. Metric: devops_cli_command_total. Approximate: increase() needs two samples of a series inside its window, and delta points from one process can arrive out of order (#792), so a count can come out low.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "min": 0,
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "id": 2,
       "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
-        }
+        "displayMode": "basic",
+        "minVizHeight": 16,
+        "namePlacement": "left",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [],
+          "fields": "/^Value$/",
+          "values": true
+        },
+        "showUnfilled": true,
+        "sizing": "auto",
+        "valueMode": "text"
       },
-      "title": "Command Error Share",
-      "type": "timeseries",
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "(sum by (command) (increase(devops_cli_command_total{job=~\"$job\",status=\"error\"}[1h])) or sum by (command) (increase(devops_cli_command_total{job=~\"$job\"}[1h])) * 0) / sum by (command) (increase(devops_cli_command_total{job=~\"$job\"}[1h]))",
-          "legendFormat": "devops {{command}}",
-          "refId": "A"
+          "expr": "round(sum by (command) (increase(devops_cli_command_total{job=~\"$job\",command=~\"$command\"}[$__range])))",
+          "refId": "A",
+          "legendFormat": "{{command}}",
+          "instant": true,
+          "range": false,
+          "format": "table"
         }
-      ]
+      ],
+      "title": "Traffic: calls of each command in the range",
+      "transformations": [
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "desc": true,
+                "field": "Value"
+              }
+            ]
+          }
+        }
+      ],
+      "type": "bargauge",
+      "gridPos": {
+        "h": 10,
+        "w": 8,
+        "x": 0,
+        "y": 18
+      }
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "For each command in the time range: the calls, the calls that ended in an error, the error share, and the p50, p95 and p99 of the duration of all the calls. The command histogram has no status, so its quantiles include the failed calls. The rows are sorted by errors, then by calls. Click a command to show its golden signals at the top of the dashboard. Metrics: devops_cli_command_total and devops_cli_command_duration_seconds. Approximate: increase() needs two samples of a series inside its window, and delta points from one process can arrive out of order (#792), so a share or a quantile can come out high or low.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto"
+          },
+          "unit": "short"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "command"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "Show the golden signals of ${__data.fields.command}",
+                    "url": "/d/devops-cli-telemetry/devops-cli-telemetry?${__url_time_range}&${job:queryparam}&var-command=${__data.fields.command}"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Error share"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percentunit"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "p50"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "p95"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "p99"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              }
+            ]
+          }
+        ]
+      },
+      "id": 11,
+      "options": {
+        "cellHeight": "sm",
+        "showHeader": true,
+        "sortBy": [
+          {
+            "desc": true,
+            "displayName": "Errors"
+          },
+          {
+            "desc": true,
+            "displayName": "Calls"
+          }
+        ]
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "round(sum by (command) (increase(devops_cli_command_total{job=~\"$job\",command=~\"$command\"}[$__range])))",
+          "refId": "A",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "round(sum by (command) (increase(devops_cli_command_total{job=~\"$job\",command=~\"$command\",status=\"error\"}[$__range])) or sum by (command) (increase(devops_cli_command_total{job=~\"$job\",command=~\"$command\"}[$__range])) * 0)",
+          "refId": "B",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "(sum by (command) (increase(devops_cli_command_total{job=~\"$job\",command=~\"$command\",status=\"error\"}[$__range])) or sum by (command) (increase(devops_cli_command_total{job=~\"$job\",command=~\"$command\"}[$__range])) * 0) / sum by (command) (increase(devops_cli_command_total{job=~\"$job\",command=~\"$command\"}[$__range]))",
+          "refId": "C",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "histogram_quantile(0.5, sum by (command) (increase(devops_cli_command_duration_seconds{job=~\"$job\",command=~\"$command\"}[$__range])))",
+          "refId": "D",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "histogram_quantile(0.95, sum by (command) (increase(devops_cli_command_duration_seconds{job=~\"$job\",command=~\"$command\"}[$__range])))",
+          "refId": "E",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "histogram_quantile(0.99, sum by (command) (increase(devops_cli_command_duration_seconds{job=~\"$job\",command=~\"$command\"}[$__range])))",
+          "refId": "F",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        }
+      ],
+      "title": "Commands: calls, errors and latency in the range",
+      "transformations": [
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "renameByName": {
+              "Value #A": "Calls",
+              "Value #B": "Errors",
+              "Value #C": "Error share",
+              "Value #D": "p50",
+              "Value #E": "p95",
+              "Value #F": "p99"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "desc": true,
+                "field": "Errors"
+              },
+              {
+                "desc": true,
+                "field": "Calls"
+              }
+            ]
+          }
+        }
+      ],
+      "type": "table",
+      "gridPos": {
+        "h": 10,
+        "w": 16,
+        "x": 8,
+        "y": 18
+      }
     },
     {
       "datasource": {
         "type": "loki",
         "uid": "loki"
       },
-      "description": "devops-cli error and warning logs from Loki with trace identifiers linked to Tempo.",
+      "description": "The log records of devops-cli in Loki at the level error, critical or fatal (detected_level), newest first, with the trace identifier linked to Tempo. Warnings are not shown.",
       "gridPos": {
         "h": 10,
         "w": 24,
         "x": 0,
-        "y": 17
+        "y": 28
       },
       "id": 20,
       "options": {
@@ -372,11 +642,11 @@
             "type": "loki",
             "uid": "loki"
           },
-          "expr": "{service_name=\"devops-cli\"}",
+          "expr": "{service_name=\"devops-cli\"} | detected_level=~\"error|critical|fatal\"",
           "refId": "A"
         }
       ],
-      "title": "devops-cli Error Stream",
+      "title": "Errors: error logs of devops-cli",
       "type": "logs"
     },
     {
@@ -385,7 +655,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 27
+        "y": 38
       },
       "id": 17,
       "title": "Sub-commands",
@@ -396,140 +666,217 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "Runs of each selected sub-command over the last hour, and the runs that ended with the status error. The sub-commands come from the series, so a new sub-command shows with no change to the dashboard. Approximate: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing, and delta points from one process can arrive out of order (#792), so a count can come out low.",
+      "description": "For each sub-command of the selected job, commands and sub-commands in the time range: the calls, the calls that ended with the status error, the error share, and the p50, p95 and p99 of the duration of the successful calls. The rows are sorted by errors, then by calls. Click a sub-command to show its golden signals at the top of the dashboard. The sub-commands come from the series, so a new sub-command shows with no change to the dashboard. Metric: devops_cli_subcommand_duration_seconds. Approximate: increase() needs two samples of a series inside its window, and delta points from one process can arrive out of order (#792), so a share or a quantile can come out high or low.",
       "fieldConfig": {
         "defaults": {
           "color": {
-            "mode": "palette-classic"
+            "mode": "thresholds"
           },
           "custom": {
-            "axisCenteredZero": false,
-            "drawStyle": "line",
-            "lineInterpolation": "smooth"
+            "align": "auto"
           },
           "unit": "short"
-        }
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 24,
-        "x": 0,
-        "y": 28
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "sub_command"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "Show the golden signals of ${__data.fields.sub_command}",
+                    "url": "/d/devops-cli-telemetry/devops-cli-telemetry?${__url_time_range}&${job:queryparam}&var-command=${__data.fields.command}&var-sub_command=${__data.fields.sub_command:percentencode}"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Error share"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percentunit"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "p50"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "p95"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "p99"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              }
+            ]
+          }
+        ]
       },
       "id": 18,
       "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
-        }
+        "cellHeight": "sm",
+        "showHeader": true,
+        "sortBy": [
+          {
+            "desc": true,
+            "displayName": "Errors"
+          },
+          {
+            "desc": true,
+            "displayName": "Calls"
+          }
+        ]
       },
-      "title": "Sub-command Calls",
-      "type": "timeseries",
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_count(sum by (sub_command) (increase(devops_cli_subcommand_duration_seconds{job=~\"$job\",command=~\"$command\",sub_command=~\"$sub_command\"}[1h])))",
-          "legendFormat": "{{sub_command}}",
-          "refId": "A"
+          "expr": "round(histogram_count(sum by (command, sub_command) (increase(devops_cli_subcommand_duration_seconds{job=~\"$job\",command=~\"$command\",sub_command=~\"$sub_command\"}[$__range]))))",
+          "refId": "A",
+          "instant": true,
+          "range": false,
+          "format": "table"
         },
         {
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_count(sum by (sub_command) (increase(devops_cli_subcommand_duration_seconds{job=~\"$job\",command=~\"$command\",sub_command=~\"$sub_command\",status=\"error\"}[1h])))",
-          "legendFormat": "errors {{sub_command}}",
-          "refId": "B"
-        }
-      ]
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "description": "Wall time of one sub-command over the last hour. The panel repeats for each sub-command that the sub_command variable selects. Approximate: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing, and delta points from one process can arrive out of order (#792). The counts lost can fall in any bucket, so a quantile can come out high or low.",
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
+          "expr": "round(histogram_count(sum by (command, sub_command) (increase(devops_cli_subcommand_duration_seconds{job=~\"$job\",command=~\"$command\",sub_command=~\"$sub_command\",status=\"error\"}[$__range]))) or histogram_count(sum by (command, sub_command) (increase(devops_cli_subcommand_duration_seconds{job=~\"$job\",command=~\"$command\",sub_command=~\"$sub_command\"}[$__range]))) * 0)",
+          "refId": "B",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
           },
-          "custom": {
-            "axisCenteredZero": false,
-            "drawStyle": "line",
-            "lineInterpolation": "smooth"
+          "expr": "(histogram_count(sum by (command, sub_command) (increase(devops_cli_subcommand_duration_seconds{job=~\"$job\",command=~\"$command\",sub_command=~\"$sub_command\",status=\"error\"}[$__range]))) or histogram_count(sum by (command, sub_command) (increase(devops_cli_subcommand_duration_seconds{job=~\"$job\",command=~\"$command\",sub_command=~\"$sub_command\"}[$__range]))) * 0) / histogram_count(sum by (command, sub_command) (increase(devops_cli_subcommand_duration_seconds{job=~\"$job\",command=~\"$command\",sub_command=~\"$sub_command\"}[$__range])))",
+          "refId": "C",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
           },
-          "unit": "s"
+          "expr": "histogram_quantile(0.5, sum by (command, sub_command) (increase(devops_cli_subcommand_duration_seconds{job=~\"$job\",command=~\"$command\",sub_command=~\"$sub_command\",status=\"ok\"}[$__range])))",
+          "refId": "D",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "histogram_quantile(0.95, sum by (command, sub_command) (increase(devops_cli_subcommand_duration_seconds{job=~\"$job\",command=~\"$command\",sub_command=~\"$sub_command\",status=\"ok\"}[$__range])))",
+          "refId": "E",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "histogram_quantile(0.99, sum by (command, sub_command) (increase(devops_cli_subcommand_duration_seconds{job=~\"$job\",command=~\"$command\",sub_command=~\"$sub_command\",status=\"ok\"}[$__range])))",
+          "refId": "F",
+          "instant": true,
+          "range": false,
+          "format": "table"
         }
-      },
+      ],
+      "title": "Sub-commands: calls, errors and latency in the range",
+      "transformations": [
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "renameByName": {
+              "Value #A": "Calls",
+              "Value #B": "Errors",
+              "Value #C": "Error share",
+              "Value #D": "p50",
+              "Value #E": "p95",
+              "Value #F": "p99"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "desc": true,
+                "field": "Errors"
+              },
+              {
+                "desc": true,
+                "field": "Calls"
+              }
+            ]
+          }
+        }
+      ],
+      "type": "table",
       "gridPos": {
-        "h": 8,
-        "w": 6,
+        "h": 10,
+        "w": 24,
         "x": 0,
-        "y": 36
-      },
-      "id": 27,
-      "maxPerRow": 4,
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
-        }
-      },
-      "repeat": "sub_command",
-      "repeatDirection": "h",
-      "title": "Telemetry: $sub_command",
-      "type": "timeseries",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "histogram_quantile(0.5, sum by (sub_command) (increase(devops_cli_subcommand_duration_seconds{job=~\"$job\",command=~\"$command\",sub_command=~\"$sub_command\"}[1h])))",
-          "legendFormat": "p50",
-          "refId": "A"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "histogram_quantile(0.95, sum by (sub_command) (increase(devops_cli_subcommand_duration_seconds{job=~\"$job\",command=~\"$command\",sub_command=~\"$sub_command\"}[1h])))",
-          "legendFormat": "p95",
-          "refId": "B"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "histogram_quantile(0.99, sum by (sub_command) (increase(devops_cli_subcommand_duration_seconds{job=~\"$job\",command=~\"$command\",sub_command=~\"$sub_command\"}[1h])))",
-          "legendFormat": "p99",
-          "refId": "C"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "histogram_avg(sum by (sub_command) (increase(devops_cli_subcommand_duration_seconds{job=~\"$job\",command=~\"$command\",sub_command=~\"$sub_command\"}[1h])))",
-          "legendFormat": "mean",
-          "refId": "D"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "histogram_count(sum by (sub_command) (increase(devops_cli_subcommand_duration_seconds{job=~\"$job\",command=~\"$command\",sub_command=~\"$sub_command\"}[1h])))",
-          "legendFormat": "count",
-          "refId": "E"
-        }
-      ]
+        "y": 39
+      }
     },
     {
       "collapsed": false,
@@ -537,7 +884,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 44
+        "y": 49
       },
       "id": 28,
       "title": "RAG Retrieval",
@@ -548,116 +895,226 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "p95 of each RAG query stage over the last hour: embedding the query through the gateway, searching the Qdrant collections, which run at once so the stage takes as long as the slower search, and ranking the results locally. Each line is its own quantile, so the stages' p95 need not add up to the whole query's. Approximate: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing, and delta points from one process can arrive out of order (#792). The counts lost can fall in any bucket, so a quantile can come out high or low.",
+      "description": "For each stage of a RAG query in the time range: the queries, and the p50, p95 and mean of the duration. total is the whole query, from embedding the query to the ranked results. embedding is the query embedding through the gateway. search is the Qdrant searches, which run at once, so the stage takes as long as the slower search. ranking is the local ranking of the results. Each quantile is its own, so the stages need not add up to total. Queries sent before #975 carry no stage and are left out. Metric: devops_cli_rag_query_duration_ms. Approximate: increase() needs two samples of a series inside its window, and delta points from one process can arrive out of order (#792), so a share or a quantile can come out high or low.",
       "fieldConfig": {
         "defaults": {
           "color": {
-            "mode": "palette-classic"
+            "mode": "thresholds"
           },
           "custom": {
-            "axisCenteredZero": false,
-            "drawStyle": "line",
-            "lineInterpolation": "smooth"
+            "align": "auto"
           },
-          "unit": "ms"
-        }
+          "unit": "short"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "p50"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "ms"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "p95"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "ms"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Mean"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "ms"
+              }
+            ]
+          }
+        ]
       },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 45
-      },
-      "id": 15,
+      "id": 4,
       "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
-        }
+        "cellHeight": "sm",
+        "showHeader": true,
+        "sortBy": [
+          {
+            "desc": true,
+            "displayName": "Queries"
+          }
+        ]
       },
-      "title": "RAG Query Stage Latency (p95)",
-      "type": "timeseries",
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_quantile(0.95, sum by (stage) (increase(devops_cli_rag_query_duration_ms{job=~\"$job\",stage=~\"embedding|search|ranking\"}[1h])))",
-          "legendFormat": "p95 {{stage}}",
-          "refId": "A"
+          "expr": "round(histogram_count(sum by (stage) (increase(devops_cli_rag_query_duration_ms{job=~\"$job\",stage=~\"total|embedding|search|ranking\"}[$__range]))))",
+          "refId": "A",
+          "instant": true,
+          "range": false,
+          "format": "table"
         },
         {
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_avg(sum by (stage) (increase(devops_cli_rag_query_duration_ms{job=~\"$job\",stage=~\"embedding|search|ranking\"}[1h])))",
-          "legendFormat": "mean {{stage}}",
-          "refId": "B"
+          "expr": "histogram_quantile(0.5, sum by (stage) (increase(devops_cli_rag_query_duration_ms{job=~\"$job\",stage=~\"total|embedding|search|ranking\"}[$__range])))",
+          "refId": "B",
+          "instant": true,
+          "range": false,
+          "format": "table"
         },
         {
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_count(sum by (stage) (increase(devops_cli_rag_query_duration_ms{job=~\"$job\",stage=~\"embedding|search|ranking\"}[1h])))",
-          "legendFormat": "count {{stage}}",
-          "refId": "C"
+          "expr": "histogram_quantile(0.95, sum by (stage) (increase(devops_cli_rag_query_duration_ms{job=~\"$job\",stage=~\"total|embedding|search|ranking\"}[$__range])))",
+          "refId": "C",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "histogram_avg(sum by (stage) (increase(devops_cli_rag_query_duration_ms{job=~\"$job\",stage=~\"total|embedding|search|ranking\"}[$__range])))",
+          "refId": "D",
+          "instant": true,
+          "range": false,
+          "format": "table"
         }
-      ]
+      ],
+      "title": "Latency: RAG query stages in the range",
+      "transformations": [
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "renameByName": {
+              "Value #A": "Queries",
+              "Value #B": "p50",
+              "Value #C": "p95",
+              "Value #D": "Mean"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "desc": true,
+                "field": "Queries"
+              }
+            ]
+          }
+        }
+      ],
+      "type": "table",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 50
+      }
     },
     {
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "Qdrant requests retried per hour after a transient error, by client operation and error type. The error type is the class of the error behind the retry, taken from inside the ResponseHandlingException the Qdrant client wraps transport errors in: RemoteProtocolError for a keep-alive connection the tunnel closed while idle, ConnectError for a refused connection, ReadTimeout for a request that waited out qdrant.timeout, 300 s by default. Each retry reconnects after a pause of 0.5 s times the attempt number, which a search spends in the search stage. Approximate, and low for sparse series: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing. Delta points from one process can arrive out of order, and totals then come out low (#792).",
+      "description": "Qdrant requests retried in the time range after a transient error, by client operation and error type, from the most down. The error type is the class of the error behind the retry, taken from inside the ResponseHandlingException the Qdrant client wraps transport errors in: RemoteProtocolError for a keep-alive connection the tunnel closed while idle, ConnectError for a refused connection, ReadTimeout for a request that waited out qdrant.timeout, 300 s by default. Each retry reconnects after a pause of 0.5 s times the attempt number, which a search spends in the search stage. Metric: devops_cli_qdrant_retries_total. Approximate: increase() needs two samples of a series inside its window, and delta points from one process can arrive out of order (#792), so a count can come out low.",
       "fieldConfig": {
         "defaults": {
           "color": {
             "mode": "palette-classic"
           },
-          "custom": {
-            "axisCenteredZero": false,
-            "drawStyle": "bars"
-          },
+          "min": 0,
           "unit": "short"
-        }
+        },
+        "overrides": []
       },
+      "id": 16,
+      "options": {
+        "displayMode": "basic",
+        "minVizHeight": 16,
+        "namePlacement": "left",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [],
+          "fields": "/^Value$/",
+          "values": true
+        },
+        "showUnfilled": true,
+        "sizing": "auto",
+        "valueMode": "text"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "round(sum by (operation, error_type) (increase(devops_cli_qdrant_retries_total{job=~\"$job\"}[$__range])))",
+          "refId": "A",
+          "legendFormat": "{{operation}} {{error_type}}",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        }
+      ],
+      "title": "Errors: Qdrant retries in the range",
+      "transformations": [
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "desc": true,
+                "field": "Value"
+              }
+            ]
+          }
+        }
+      ],
+      "type": "bargauge",
       "gridPos": {
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 45
-      },
-      "id": 16,
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
-        }
-      },
-      "title": "Qdrant Retries by Operation and Error",
-      "type": "timeseries",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "sum by (operation, error_type) (increase(devops_cli_qdrant_retries_total{job=~\"$job\"}[1h]))",
-          "legendFormat": "{{operation}} {{error_type}}",
-          "refId": "A"
-        }
-      ]
+        "y": 50
+      }
     },
     {
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "Share of the last hour's embedding cache lookups that a cache answered, from the memory cache of the process or from Valkey; an hour with lookups and no hits shows 0. Each text that an embedding request gets is one lookup. Approximate: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing, and delta points from one process can arrive out of order (#792). The counts lost can fall on either side of the ratio, so a share can come out high or low.",
+      "description": "The share of the embedding cache lookups that a cache answered, from the memory cache of the process or from Valkey, over a window of $__rate_interval, at least 1 h (Min step 15m). A window with lookups and no hits shows 0. Each text that an embedding request gets is one lookup. Metric: devops_cli_embedding_cache_lookups_total. Approximate: increase() needs two samples of a series inside its window, and delta points from one process can arrive out of order (#792), so a share or a quantile can come out high or low.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -665,40 +1122,52 @@
           },
           "custom": {
             "axisCenteredZero": false,
+            "axisLabel": "Hit share (%)",
             "drawStyle": "line",
-            "lineInterpolation": "smooth"
+            "fillOpacity": 0,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "showPoints": "auto"
           },
-          "max": 1,
+          "unit": "percentunit",
           "min": 0,
-          "unit": "percentunit"
-        }
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 53
+          "max": 1
+        },
+        "overrides": []
       },
       "id": 26,
       "options": {
         "legend": {
+          "calcs": [],
           "displayMode": "list",
-          "placement": "bottom"
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
         }
       },
-      "title": "Embedding Cache Hit Share",
-      "type": "timeseries",
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "(sum(increase(devops_cli_embedding_cache_lookups_total{job=~\"$job\",result=\"hit\"}[1h])) or sum(increase(devops_cli_embedding_cache_lookups_total{job=~\"$job\"}[1h])) * 0) / sum(increase(devops_cli_embedding_cache_lookups_total{job=~\"$job\"}[1h]))",
+          "expr": "(sum(increase(devops_cli_embedding_cache_lookups_total{job=~\"$job\",result=\"hit\"}[$__rate_interval])) or sum(increase(devops_cli_embedding_cache_lookups_total{job=~\"$job\"}[$__rate_interval])) * 0) / sum(increase(devops_cli_embedding_cache_lookups_total{job=~\"$job\"}[$__rate_interval]))",
+          "refId": "A",
           "legendFormat": "hit share",
-          "refId": "A"
+          "interval": "15m"
         }
-      ]
+      ],
+      "title": "Cache: share of embedding lookups that hit",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 58
+      }
     },
     {
       "collapsed": false,
@@ -706,7 +1175,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 61
+        "y": 66
       },
       "id": 5,
       "title": "AI Review Findings Breakdown",
@@ -717,185 +1186,353 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "Reviews run per hour, by target type (branch, pr or path). Approximate, and low for sparse series: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing. Delta points from one process can arrive out of order, and totals then come out low (#792).",
+      "description": "For each target type of a review (branch, pr or path) in the time range: the reviews, and the p50, p95 and mean of the review duration. Metric: devops_cli_review_duration_seconds. Approximate: increase() needs two samples of a series inside its window, and delta points from one process can arrive out of order (#792), so a share or a quantile can come out high or low.",
       "fieldConfig": {
         "defaults": {
           "color": {
-            "mode": "palette-classic"
+            "mode": "thresholds"
           },
           "custom": {
-            "axisCenteredZero": false,
-            "drawStyle": "bars"
+            "align": "auto"
           },
           "unit": "short"
-        }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "p50"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "p95"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Mean"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              }
+            ]
+          }
+        ]
       },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 62
-      },
-      "id": 13,
+      "id": 3,
       "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
-        }
+        "cellHeight": "sm",
+        "showHeader": true,
+        "sortBy": [
+          {
+            "desc": true,
+            "displayName": "Reviews"
+          }
+        ]
       },
-      "title": "Reviews by Target Type",
-      "type": "timeseries",
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_count(sum by (target_type) (increase(devops_cli_review_duration_seconds{job=~\"$job\"}[1h])))",
-          "legendFormat": "{{target_type}}",
-          "refId": "A"
+          "expr": "round(histogram_count(sum by (target_type) (increase(devops_cli_review_duration_seconds{job=~\"$job\"}[$__range]))))",
+          "refId": "A",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "histogram_quantile(0.5, sum by (target_type) (increase(devops_cli_review_duration_seconds{job=~\"$job\"}[$__range])))",
+          "refId": "B",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "histogram_quantile(0.95, sum by (target_type) (increase(devops_cli_review_duration_seconds{job=~\"$job\"}[$__range])))",
+          "refId": "C",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "histogram_avg(sum by (target_type) (increase(devops_cli_review_duration_seconds{job=~\"$job\"}[$__range])))",
+          "refId": "D",
+          "instant": true,
+          "range": false,
+          "format": "table"
         }
-      ]
+      ],
+      "title": "Latency: AI reviews by target type in the range",
+      "transformations": [
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "renameByName": {
+              "Value #A": "Reviews",
+              "Value #B": "p50",
+              "Value #C": "p95",
+              "Value #D": "Mean"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "desc": true,
+                "field": "Reviews"
+              }
+            ]
+          }
+        }
+      ],
+      "type": "table",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 67
+      }
     },
     {
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "Review findings per hour, stacked by severity. Approximate, and low for sparse series: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing. Delta points from one process can arrive out of order, and totals then come out low (#792). `review pr --post --no-reporting` records no findings metric, so those runs are missing (#791).",
+      "description": "Review findings in the time range, by severity (the label severity), from the most down. Metric: devops_cli_findings_total. Approximate: increase() needs two samples of a series inside its window, and delta points from one process can arrive out of order (#792), so a count can come out low. `review pr --post --no-reporting` records no findings metric, so those runs are missing (#791).",
       "fieldConfig": {
         "defaults": {
           "color": {
             "mode": "palette-classic"
           },
-          "custom": {
-            "axisCenteredZero": false,
-            "drawStyle": "bars",
-            "fillOpacity": 80,
-            "stacking": {
-              "group": "A",
-              "mode": "normal"
-            }
-          },
+          "min": 0,
           "unit": "short"
-        }
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 62
+        },
+        "overrides": []
       },
       "id": 14,
       "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
-        }
+        "displayMode": "basic",
+        "minVizHeight": 16,
+        "namePlacement": "left",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [],
+          "fields": "/^Value$/",
+          "values": true
+        },
+        "showUnfilled": true,
+        "sizing": "auto",
+        "valueMode": "text"
       },
-      "title": "Findings by Severity",
-      "type": "timeseries",
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (severity) (increase(devops_cli_findings_total{job=~\"$job\"}[1h]))",
+          "expr": "round(sum by (severity) (increase(devops_cli_findings_total{job=~\"$job\"}[$__range])))",
+          "refId": "A",
           "legendFormat": "{{severity}}",
-          "refId": "A"
+          "instant": true,
+          "range": false,
+          "format": "table"
         }
-      ]
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "description": "Review findings per hour, by producer. Approximate, and low for sparse series: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing. Delta points from one process can arrive out of order, and totals then come out low (#792). `review pr --post --no-reporting` records no findings metric, so those runs are missing (#791).",
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "axisCenteredZero": false,
-            "drawStyle": "bars"
-          },
-          "unit": "short"
-        }
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 70
-      },
-      "id": 6,
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
-        }
-      },
-      "title": "Findings by Persona",
-      "type": "timeseries",
-      "targets": [
+      ],
+      "title": "Findings: count by severity in the range",
+      "transformations": [
         {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "sum by (producer) (increase(devops_cli_findings_total{job=~\"$job\"}[1h]))",
-          "legendFormat": "{{producer}}",
-          "refId": "A"
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "desc": true,
+                "field": "Value"
+              }
+            ]
+          }
         }
-      ]
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "description": "Review findings per hour, by status. Approximate, and low for sparse series: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing. Delta points from one process can arrive out of order, and totals then come out low (#792). `review pr --post --no-reporting` records no findings metric, so those runs are missing (#791).",
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "axisCenteredZero": false,
-            "drawStyle": "bars"
-          },
-          "unit": "short"
-        }
-      },
+      ],
+      "type": "bargauge",
       "gridPos": {
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 70
+        "y": 67
+      }
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
       },
-      "id": 7,
+      "description": "Review findings in the time range, by persona (the label producer), from the most down. Metric: devops_cli_findings_total. Approximate: increase() needs two samples of a series inside its window, and delta points from one process can arrive out of order (#792), so a count can come out low. `review pr --post --no-reporting` records no findings metric, so those runs are missing (#791).",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "min": 0,
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "id": 6,
       "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
-        }
+        "displayMode": "basic",
+        "minVizHeight": 16,
+        "namePlacement": "left",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [],
+          "fields": "/^Value$/",
+          "values": true
+        },
+        "showUnfilled": true,
+        "sizing": "auto",
+        "valueMode": "text"
       },
-      "title": "Findings by Status (Verified vs Unverified vs Mitigated)",
-      "type": "timeseries",
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (status) (increase(devops_cli_findings_total{job=~\"$job\"}[1h]))",
-          "legendFormat": "{{status}}",
-          "refId": "A"
+          "expr": "round(sum by (producer) (increase(devops_cli_findings_total{job=~\"$job\"}[$__range])))",
+          "refId": "A",
+          "legendFormat": "{{producer}}",
+          "instant": true,
+          "range": false,
+          "format": "table"
         }
-      ]
+      ],
+      "title": "Findings: count by persona in the range",
+      "transformations": [
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "desc": true,
+                "field": "Value"
+              }
+            ]
+          }
+        }
+      ],
+      "type": "bargauge",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 75
+      }
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "Review findings in the time range, by status (the label status), from the most down. Metric: devops_cli_findings_total. Approximate: increase() needs two samples of a series inside its window, and delta points from one process can arrive out of order (#792), so a count can come out low. `review pr --post --no-reporting` records no findings metric, so those runs are missing (#791).",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "min": 0,
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "id": 7,
+      "options": {
+        "displayMode": "basic",
+        "minVizHeight": 16,
+        "namePlacement": "left",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [],
+          "fields": "/^Value$/",
+          "values": true
+        },
+        "showUnfilled": true,
+        "sizing": "auto",
+        "valueMode": "text"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "round(sum by (status) (increase(devops_cli_findings_total{job=~\"$job\"}[$__range])))",
+          "refId": "A",
+          "legendFormat": "{{status}}",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        }
+      ],
+      "title": "Findings: count by status in the range",
+      "transformations": [
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "desc": true,
+                "field": "Value"
+              }
+            ]
+          }
+        }
+      ],
+      "type": "bargauge",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 75
+      }
     },
     {
       "collapsed": false,
@@ -903,7 +1540,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 78
+        "y": 83
       },
       "id": 8,
       "title": "AI Spend & Economics",
@@ -944,7 +1581,7 @@
         "h": 6,
         "w": 12,
         "x": 0,
-        "y": 79
+        "y": 84
       },
       "id": 9,
       "options": {
@@ -997,7 +1634,7 @@
         "h": 6,
         "w": 12,
         "x": 12,
-        "y": 79
+        "y": 84
       },
       "id": 10,
       "options": {
@@ -1026,7 +1663,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 85
+        "y": 90
       },
       "id": 21,
       "title": "GitHub API",
@@ -1037,7 +1674,7 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "GitHub requests per hour that devops-cli sent, by rate-limit resource, such as core, graphql or search. Each attempt counts, and each retry counts again. A gh command and a request of the GitHub session both count. The read of /rate_limit does not count, because GitHub does not charge it. Approximate, and low for sparse series: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing. Delta points from one process can arrive out of order, and totals then come out low (#792).",
+      "description": "The GitHub core requests in each hour that cost quota, by job, beside the answers 304 that cost no quota (free (304)) and the hourly budget of the Service (Service budget limit, dashed). Only the requests of roadmap-service count in this budget. The Service and the cluster Jobs act as one GitHub App and share the rate limit of its installation, and a workstation (job devops-cli) uses the token of its person. Each attempt counts, and each retry counts again. Each bar is the hour before its time (Min interval 1h). Metric: devops_cli_github_requests_total, resource core. Approximate: increase() needs two samples of a series inside its window, and delta points from one process can arrive out of order (#792), so a count can come out low.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -1045,44 +1682,108 @@
           },
           "custom": {
             "axisCenteredZero": false,
-            "drawStyle": "line"
+            "axisLabel": "Requests per hour",
+            "drawStyle": "bars",
+            "fillOpacity": 50,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "showPoints": "never",
+            "barAlignment": -1
           },
-          "unit": "short"
-        }
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 6,
-        "x": 0,
-        "y": 86
+          "unit": "short",
+          "min": 0
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Service budget limit"
+            },
+            "properties": [
+              {
+                "id": "custom.drawStyle",
+                "value": "line"
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "dash": [
+                    2,
+                    2
+                  ],
+                  "fill": "dash"
+                }
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 1
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              }
+            ]
+          }
+        ]
       },
       "id": 22,
       "options": {
         "legend": {
+          "calcs": [],
           "displayMode": "list",
-          "placement": "bottom"
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
         }
       },
-      "title": "GitHub Requests by Resource",
-      "type": "timeseries",
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (resource) (increase(devops_cli_github_requests_total{job=~\"$job\"}[1h]))",
-          "legendFormat": "{{resource}}",
-          "refId": "A"
+          "expr": "round(sum by (job) (increase(devops_cli_github_requests_total{job=~\"$job\",resource=\"core\",status!=\"304\"}[$__interval])))",
+          "refId": "A",
+          "legendFormat": "{{job}}"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "round(sum(increase(devops_cli_github_requests_total{job=~\"$job\",resource=\"core\",status=\"304\"}[$__interval])))",
+          "refId": "B",
+          "legendFormat": "free (304)"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "max(last_over_time(devops_cli_service_budget_limit_requests{job=~\"$job\"}[$__interval]))",
+          "refId": "C",
+          "legendFormat": "Service budget limit"
         }
-      ]
+      ],
+      "title": "GitHub quota: core requests per hour",
+      "type": "timeseries",
+      "interval": "1h",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 91
+      }
     },
     {
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "Refused GitHub requests per hour that devops-cli sent again after a wait, by rate-limit resource. GitHub refused them with a rate limit, or the GitHub session got a 5xx for a read. Approximate, and low for sparse series: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing. Delta points from one process can arrive out of order, and totals then come out low (#792).",
+      "description": "The GitHub requests in each hour that cost quota, for the rate-limit resources other than core: graphql, search, and Other for each other resource, such as code_search and dependency_sbom. Each bar is the hour before its time (Min interval 1h). Metric: devops_cli_github_requests_total. Approximate: increase() needs two samples of a series inside its window, and delta points from one process can arrive out of order (#792), so a count can come out low.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -1090,44 +1791,228 @@
           },
           "custom": {
             "axisCenteredZero": false,
-            "drawStyle": "bars"
+            "axisLabel": "Requests per hour",
+            "drawStyle": "bars",
+            "fillOpacity": 50,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "showPoints": "never",
+            "barAlignment": -1
           },
-          "unit": "short"
+          "unit": "short",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "id": 66,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
         }
       },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "round(sum by (resource) (increase(devops_cli_github_requests_total{job=~\"$job\",resource=~\"graphql|search\",status!=\"304\"}[$__interval])))",
+          "refId": "A",
+          "legendFormat": "{{resource}}"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "round(sum(increase(devops_cli_github_requests_total{job=~\"$job\",resource!~\"core|graphql|search\",status!=\"304\"}[$__interval])))",
+          "refId": "B",
+          "legendFormat": "Other"
+        }
+      ],
+      "title": "GitHub quota: requests of the other resources per hour",
+      "type": "timeseries",
+      "interval": "1h",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 91
+      }
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "The GitHub requests in the time range that GitHub refused with a rate limit, or that got a 5xx for a read of the GitHub session, and that devops-cli sent again after a wait. A range with no throttle shows 0. Metric: histogram_count of devops_cli_github_throttle_wait_seconds. Approximate: increase() needs two samples of a series inside its window, and delta points from one process can arrive out of order (#792), so a count can come out low.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "id": 23,
+      "options": {
+        "colorMode": "none",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "round(sum(histogram_count(increase(devops_cli_github_throttle_wait_seconds{job=~\"$job\"}[$__range])))) or vector(0)",
+          "refId": "A",
+          "legendFormat": "throttles",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "title": "Throttles: count in the range",
+      "type": "stat",
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 0,
+        "y": 99
+      }
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "For each rate-limit resource in the time range: the throttles, and the seconds that devops-cli waited before it sent a refused request again. Metric: devops_cli_github_throttle_wait_seconds. Approximate: increase() needs two samples of a series inside its window, and delta points from one process can arrive out of order (#792), so a count can come out low.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto"
+          },
+          "unit": "short"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Wait"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              }
+            ]
+          }
+        ]
+      },
+      "id": 24,
+      "options": {
+        "cellHeight": "sm",
+        "showHeader": true,
+        "sortBy": [
+          {
+            "desc": true,
+            "displayName": "Throttles"
+          }
+        ]
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "round(histogram_count(sum by (resource) (increase(devops_cli_github_throttle_wait_seconds{job=~\"$job\"}[$__range]))))",
+          "refId": "A",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "histogram_sum(sum by (resource) (increase(devops_cli_github_throttle_wait_seconds{job=~\"$job\"}[$__range])))",
+          "refId": "B",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        }
+      ],
+      "title": "Throttles: count and wait by resource in the range",
+      "transformations": [
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "renameByName": {
+              "Value #A": "Throttles",
+              "Value #B": "Wait"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "desc": true,
+                "field": "Throttles"
+              }
+            ]
+          }
+        }
+      ],
+      "type": "table",
       "gridPos": {
         "h": 8,
         "w": 6,
         "x": 6,
-        "y": 86
-      },
-      "id": 23,
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
-        }
-      },
-      "title": "GitHub Throttles by Resource",
-      "type": "timeseries",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "histogram_count(sum by (resource) (increase(devops_cli_github_throttle_wait_seconds{job=~\"$job\"}[1h])))",
-          "legendFormat": "{{resource}}",
-          "refId": "A"
-        }
-      ]
+        "y": 99
+      }
     },
     {
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "Seconds per hour that devops-cli waited before it sent a refused GitHub request again, by rate-limit resource. Approximate, and low for sparse series: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing. Delta points from one process can arrive out of order, and totals then come out low (#792).",
+      "description": "The GraphQL points in each hour that GitHub reported in the rateLimit field of each answer, by job, beside the hourly limit of a token, 5,000 points (dashed). A GitHub App installation can have a higher limit. One query can cost many points, so the count of graphql requests does not show this cost. Each bar is the hour before its time (Min interval 1h). Metric: devops_cli_github_graphql_points_total. Approximate: increase() needs two samples of a series inside its window, and delta points from one process can arrive out of order (#792), so a count can come out low.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -1135,82 +2020,92 @@
           },
           "custom": {
             "axisCenteredZero": false,
-            "drawStyle": "bars"
+            "axisLabel": "Points per hour",
+            "drawStyle": "bars",
+            "fillOpacity": 50,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "showPoints": "never",
+            "barAlignment": -1
           },
-          "unit": "s"
-        }
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 6,
-        "x": 12,
-        "y": 86
-      },
-      "id": 24,
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
-        }
-      },
-      "title": "GitHub Throttle Wait by Resource",
-      "type": "timeseries",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "histogram_sum(sum by (resource) (increase(devops_cli_github_throttle_wait_seconds{job=~\"$job\"}[1h])))",
-          "legendFormat": "{{resource}}",
-          "refId": "A"
-        }
-      ]
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "description": "GraphQL points per hour that GitHub reported in the rateLimit field of each answer. One query can cost many points, so the count of graphql requests does not show this cost. Approximate, and low for sparse series: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing. Delta points from one process can arrive out of order, and totals then come out low (#792).",
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "axisCenteredZero": false,
-            "drawStyle": "line"
-          },
-          "unit": "short"
-        }
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 6,
-        "x": 18,
-        "y": 86
+          "unit": "short",
+          "min": 0
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "limit per token (5,000)"
+            },
+            "properties": [
+              {
+                "id": "custom.drawStyle",
+                "value": "line"
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "dash": [
+                    2,
+                    2
+                  ],
+                  "fill": "dash"
+                }
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 1
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              }
+            ]
+          }
+        ]
       },
       "id": 25,
       "options": {
         "legend": {
+          "calcs": [],
           "displayMode": "list",
-          "placement": "bottom"
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
         }
       },
-      "title": "GitHub GraphQL Points",
-      "type": "timeseries",
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(increase(devops_cli_github_graphql_points_total{job=~\"$job\"}[1h])) or vector(0)",
-          "legendFormat": "points",
-          "refId": "A"
+          "expr": "round(sum by (job) (increase(devops_cli_github_graphql_points_total{job=~\"$job\"}[$__interval])))",
+          "refId": "A",
+          "legendFormat": "{{job}}"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "vector(5000)",
+          "refId": "B",
+          "legendFormat": "limit per token (5,000)"
         }
-      ]
+      ],
+      "title": "GitHub quota: GraphQL points per hour",
+      "type": "timeseries",
+      "interval": "1h",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 99
+      }
     },
     {
       "collapsed": false,
@@ -1218,7 +2113,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 94
+        "y": 107
       },
       "id": 33,
       "title": "Planner Tools",
@@ -1260,7 +2155,7 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 95
+        "y": 108
       },
       "id": 34,
       "options": {
@@ -1298,7 +2193,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 103
+        "y": 116
       },
       "id": 35,
       "title": "Roadmap Service",
@@ -1326,7 +2221,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 104
+        "y": 117
       },
       "id": 36,
       "options": {
@@ -1371,7 +2266,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 104
+        "y": 117
       },
       "id": 37,
       "options": {
@@ -1416,7 +2311,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 104
+        "y": 117
       },
       "id": 38,
       "options": {
@@ -1461,7 +2356,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 112
+        "y": 125
       },
       "id": 39,
       "options": {
@@ -1515,7 +2410,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 112
+        "y": 125
       },
       "id": 40,
       "options": {
@@ -1560,7 +2455,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 112
+        "y": 125
       },
       "id": 41,
       "options": {
@@ -1605,7 +2500,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 120
+        "y": 133
       },
       "id": 42,
       "options": {
@@ -1650,7 +2545,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 120
+        "y": 133
       },
       "id": 43,
       "options": {
@@ -1695,7 +2590,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 120
+        "y": 133
       },
       "id": 44,
       "options": {
@@ -1740,7 +2635,7 @@
         "h": 8,
         "w": 6,
         "x": 0,
-        "y": 128
+        "y": 141
       },
       "id": 45,
       "options": {
@@ -1785,7 +2680,7 @@
         "h": 8,
         "w": 6,
         "x": 6,
-        "y": 128
+        "y": 141
       },
       "id": 46,
       "options": {
@@ -1830,7 +2725,7 @@
         "h": 8,
         "w": 6,
         "x": 12,
-        "y": 128
+        "y": 141
       },
       "id": 47,
       "options": {
@@ -1875,7 +2770,7 @@
         "h": 8,
         "w": 6,
         "x": 18,
-        "y": 128
+        "y": 141
       },
       "id": 48,
       "options": {
@@ -1920,7 +2815,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 136
+        "y": 149
       },
       "id": 53,
       "options": {
@@ -1965,7 +2860,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 136
+        "y": 149
       },
       "id": 54,
       "options": {
@@ -2010,7 +2905,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 136
+        "y": 149
       },
       "id": 60,
       "options": {
@@ -2039,7 +2934,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 144
+        "y": 157
       },
       "id": 49,
       "title": "Alternatives Check",
@@ -2067,7 +2962,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 145
+        "y": 158
       },
       "id": 50,
       "options": {
@@ -2112,7 +3007,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 145
+        "y": 158
       },
       "id": 51,
       "options": {
@@ -2157,7 +3052,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 145
+        "y": 158
       },
       "id": 52,
       "options": {
@@ -2195,7 +3090,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 153
+        "y": 166
       },
       "id": 55,
       "title": "Roadmap Job Success",
@@ -2235,7 +3130,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 154
+        "y": 167
       },
       "id": 56,
       "options": {
@@ -2311,7 +3206,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 154
+        "y": 167
       },
       "id": 57,
       "options": {
@@ -2377,7 +3272,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 154
+        "y": 167
       },
       "id": 58,
       "options": {
@@ -2448,7 +3343,7 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 162
+        "y": 175
       },
       "id": 59,
       "interval": "1d",
@@ -2474,7 +3369,7 @@
       ]
     }
   ],
-  "refresh": "10s",
+  "refresh": "1m",
   "schemaVersion": 38,
   "style": "dark",
   "tags": [
@@ -2485,15 +3380,15 @@
     "ai-spend"
   ],
   "time": {
-    "from": "now-1h",
+    "from": "now-24h",
     "to": "now"
   },
   "timepicker": {
     "refresh_intervals": [
-      "5s",
-      "10s",
-      "30s",
-      "1m"
+      "1m",
+      "5m",
+      "15m",
+      "1h"
     ]
   },
   "timezone": "browser",

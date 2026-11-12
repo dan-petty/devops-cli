@@ -860,7 +860,6 @@ def test_enhanced_dashboard_panels_and_visualizations() -> None:
     cli_command_var = any(
         v.get("name") == "command" for v in cli_dash.get("templating", {}).get("list", [])
     )
-    cli_repeat_panel = any(p.get("repeat") == "sub_command" for p in cli_dash.get("panels", []))
 
     assert (
         sre_flamegraphs,
@@ -869,7 +868,6 @@ def test_enhanced_dashboard_panels_and_visualizations() -> None:
         (gpu_custom.get("thresholdsStyle", {}).get("mode"), gpu_custom.get("axisSoftMax")),
         ingress_router_panel,
         cli_command_var,
-        cli_repeat_panel,
     ) == (
         [
             ("CPU Profiling Flamegraph (process_cpu)", 24),
@@ -882,7 +880,6 @@ def test_enhanced_dashboard_panels_and_visualizations() -> None:
         ],
         ("line", 20),
         ("line", 100),
-        True,
         True,
         True,
     )
@@ -1320,9 +1317,10 @@ def test_cli_dashboard_panels_do_not_overlap() -> None:
     ) == (True, True, True)
 
 
-def test_cli_dashboard_repeats_a_latency_panel_for_each_selected_sub_command() -> None:
-    """The sub-command row has one calls panel by `sub_command` and one latency panel that
-    repeats for each selected `sub_command`, titled with it and filtered to it (#2700)."""
+def test_cli_dashboard_shows_the_selected_sub_commands_in_one_table() -> None:
+    """The sub-command row has one table of the calls, errors and latency of each selected
+    `sub_command` in the range, filtered by `$job`, `$command` and `$sub_command`. No panel
+    repeats for each sub-command (#2700, #4707)."""
     row = _cli_dashboard_row("Sub-commands")
     selector = (
         'devops_cli_subcommand_duration_seconds{job=~"$job",command=~"$command",'
@@ -1332,16 +1330,12 @@ def test_cli_dashboard_repeats_a_latency_panel_for_each_selected_sub_command() -
     assert [
         (
             p["title"],
+            p["type"],
             p.get("repeat"),
-            p.get("repeatDirection"),
-            p.get("maxPerRow"),
-            all(selector in t["expr"] for t in p["targets"]),
+            all(selector in t["expr"] and t.get("instant") for t in p["targets"]),
         )
         for p in row
-    ] == [
-        ("Sub-command Calls", None, None, None, True),
-        ("Telemetry: $sub_command", "sub_command", "h", 4, True),
-    ]
+    ] == [("Sub-commands: calls, errors and latency in the range", "table", None, True)]
 
 
 def test_profiling_dashboards_query_pyroscope_service_name_without_created_by_name() -> None:
@@ -1409,12 +1403,17 @@ def test_loki_datasource_derived_field_links_to_tempo() -> None:
 
 
 def test_devops_cli_dashboard_includes_error_stream_panel() -> None:
-    """Verify devops-cli dashboard includes a Loki error stream logs panel (#813)."""
+    """Verify devops-cli dashboard includes a Loki logs panel of the error records only: the
+    levels error, critical and fatal, and no warnings (#813, #4707)."""
     cli_dash = json.loads((_REPO_DASHBOARDS / "devops-cli.json").read_text(encoding="utf-8"))
-    log_panels = [p for p in cli_dash["panels"] if p.get("type") == "logs"]
-    assert len(log_panels) >= 1
-    error_panel = next(p for p in log_panels if p.get("title") == "devops-cli Error Stream")
-    assert error_panel["datasource"]["uid"] == "loki"
-    targets = error_panel["targets"]
-    assert len(targets) >= 1
-    assert '{service_name="devops-cli"}' in targets[0]["expr"]
+    (error_panel,) = [p for p in cli_dash["panels"] if p.get("type") == "logs"]
+
+    assert (
+        error_panel["title"],
+        error_panel["datasource"]["uid"],
+        [t["expr"] for t in error_panel["targets"]],
+    ) == (
+        "Errors: error logs of devops-cli",
+        "loki",
+        ['{service_name="devops-cli"} | detected_level=~"error|critical|fatal"'],
+    )
