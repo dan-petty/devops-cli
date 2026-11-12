@@ -1,0 +1,38 @@
+---
+# The probe of the recorded check-mode runs of `devops infra plan` (#5124), in the layout of an infra
+# repo. Each play is one case: the k3s agent role of dan-petty/homelab, the changes and skips of a
+# demo unit, a reboot and a failed task. `state_dir` is a scratch folder that the recording gives
+# with -e. tests/support/infra.py says how to record the runs again.
+- name: Connect K3s Agent Nodes to Cluster
+  hosts: k3s_agent
+  gather_facts: false
+  roles:
+    - k3s_agent
+
+- name: Configure the demo unit
+  hosts: demo
+  gather_facts: false
+  roles:
+    - demo
+
+- name: Reboot the node
+  hosts: reboot
+  gather_facts: false
+  tasks:
+    - name: Reboot the host
+      ansible.builtin.reboot:
+        reboot_timeout: 900
+
+- name: Run a task that fails
+  hosts: failing
+  gather_facts: false
+  tasks:
+    - name: Write the failing config
+      ansible.builtin.copy:
+        content: "value: 1\n"
+        dest: "{{ state_dir }}/failing.yaml"
+        mode: "0644"
+    - name: Read the cluster state
+      ansible.builtin.command: /bin/false
+      check_mode: false
+      changed_when: false

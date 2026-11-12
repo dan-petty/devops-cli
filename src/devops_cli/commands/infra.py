@@ -158,3 +158,86 @@ def status(
     write_stdout("\n".join(render_status_header(report)) + "\n")
     columns, cells = status_table(report, ping=ping)
     print_table(columns=columns, rows=cells, caption=status_caption(ping=ping))
+
+
+@app.command("plan", help=HELP.infra.plan)
+@dry_run_class("request-plan")
+@trace_span("infra.plan")
+def plan(
+    repo: Annotated[str, typer.Argument(help=HELP.infra.plan_repo)],
+    playbook: Annotated[str, typer.Argument(help=HELP.infra.plan_playbook)],
+    limit: Annotated[str | None, typer.Option("--limit", help=HELP.infra.plan_limit)] = None,
+    tags: Annotated[str | None, typer.Option("--tags", help=HELP.infra.plan_tags)] = None,
+    ref: Annotated[str | None, typer.Option("--ref", help=HELP.infra.plan_ref)] = None,
+    path: Annotated[Path | None, typer.Option("--path", help=HELP.infra.onboard_path)] = None,
+    output_format: Annotated[
+        str, typer.Option("--format", "-f", help=HELP.options.format_type)
+    ] = CONST_OUTPUT_FORMAT_TABLE,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
+) -> None:
+    """Plan a playbook of an infra repo in check mode and keep the plan record."""
+    from devops_cli.config.settings import load_settings
+    from devops_cli.dry_run.requests import render_request_plan
+    from devops_cli.github.repo_ref import RepoRef, is_repository_name
+    from devops_cli.infra.infra_plans import plan_plan
+    from devops_cli.infra.onboard import default_checkout, resolve_target
+    from devops_cli.infra.plan import (
+        PlanRequest,
+        plan_entry,
+        plan_tables,
+        plans_folder,
+        render_plan_footer,
+        render_plan_header,
+        run_plan,
+    )
+    from devops_cli.models.infra import PlanStatus
+    from devops_cli.output import print_table
+    from devops_cli.output.serialization import emit_serialized, resolve_format
+
+    fmt = resolve_format(output_format)
+    settings = load_settings()
+    if dry_run or is_dry_run():
+        named = is_repository_name(repo)
+        entry = settings.infra.entry(RepoRef(repo)) if named else None
+        checkout = (
+            (path or (entry.path if entry else None) or default_checkout(RepoRef(repo), settings))
+            if named
+            else Path(repo)
+        )
+        plans = (
+            plans_folder(RepoRef(repo)) if named else Path("<data dir>/infra/<owner>/<name>/plans")
+        )
+        render_request_plan(
+            MESSAGES.infra.plan_plan_title.format(playbook=playbook, repo=repo, path=checkout),
+            plan_plan(
+                checkout,
+                origin_lookup=not named,
+                plans=plans,
+                playbook=playbook,
+                limit=limit,
+                tags=tags,
+                ref=ref,
+            ),
+            [MESSAGES.infra.plan_dry_run_note],
+            described=True,
+        )
+        return
+
+    target = resolve_target(repo, path=path, settings=settings)
+    entry = plan_entry(target, settings)
+    request = PlanRequest(playbook=playbook, limit=limit, tags=tags, ref=ref)
+    record, read = run_plan(target, entry, settings, request)
+    if fmt != CONST_OUTPUT_FORMAT_TABLE:
+        emit_serialized(record.model_dump(mode="json"), fmt)
+    else:
+        write_stdout("\n".join(render_plan_header(record, read)) + "\n")
+        host_columns, host_cells, task_columns, task_cells = plan_tables(record)
+        if host_cells:
+            print_table(columns=host_columns, rows=host_cells)
+        else:
+            write_stdout(MESSAGES.infra.plan_no_host + "\n")
+        if task_cells:
+            print_table(columns=task_columns, rows=task_cells, caption=MESSAGES.infra.plan_caption)
+        write_stdout("\n".join(render_plan_footer(record)) + "\n")
+    if record.status is PlanStatus.FAILED:
+        raise typer.Exit(1)

@@ -701,6 +701,30 @@ class InfraCommandHelp:
         "Connect to each host in service with SSH and read /run/reboot-required. An agent needs "
         "the agent access level plan or above."
     )
+    plan: str = (
+        "Run a playbook of an infra repo in check mode with diffs on its hosts in service, and "
+        "show for each host the changed tasks, the disruptive changes (reboot, "
+        "service-restart:<unit>, drain), the changes with the diff hidden and the tasks that "
+        "check mode skipped. The run exports a commit that origin holds, by default the head of "
+        "the default branch, never the working tree. It changes no host. The plan record and the "
+        "runner artifacts stay in <data dir>/infra/<owner>/<name>/plans/<id>/. An agent needs the "
+        "agent access level plan or above."
+    )
+    plan_repo: str = (
+        "The infra repo: owner/name, or the folder of a checkout, which its remote origin names."
+    )
+    plan_playbook: str = (
+        "The playbook, as a path from the repo root, such as ansible/playbooks/site.yaml."
+    )
+    plan_limit: str = (
+        "The hosts or groups to plan, as an Ansible host pattern. Default: all hosts. The hosts "
+        "of the group of hosts out of service are never in the plan."
+    )
+    plan_tags: str = "Run only the tasks with these Ansible tags, separated by commas."
+    plan_ref: str = (
+        "The ref at origin to plan: a branch of origin, or pull/<number>/head for the head of a "
+        "pull request. Default: the default branch."
+    )
 
 
 @dataclass(frozen=True)

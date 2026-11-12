@@ -16,6 +16,20 @@ private folder (#5162). `answer_default_branch` answers the git commands of that
 export writes the files of a folder, by default the checkout, as the tar file of `git archive`.
 The Ansible reads run in the export, so their answers name the export where the recording names
 `{root}`.
+
+`runner_events/<run>.jsonl` holds the job events of a recorded check-mode run of the pinned
+`ansible-runner` (#5124), one event on each line, in the order of their counter. The probe in
+`runner_events/probe/` is a small infra repo with one host for each case: the k3s agent role of
+dan-petty/homelab on node-3, the changes, skips and restart handler of a demo unit on node-1, a
+reboot on node-2 and a failed task on node-4. `agent` is the run with `--limit
+node-3.example.com:!offline` (exit code 0, status `successful`), and `site` is the run on all hosts
+(exit code 2, status `failed`). To record them again, copy the probe to `<scratch>/project`, make
+the folder `<scratch>/state` with the files `node-token` and `demo.yaml` (`value: 41`), and run
+`ansible-runner run <scratch> --playbook ansible/playbooks/site.yaml --ident <run> --limit <limit>
+--quiet "--cmdline=--check --diff -v -i ansible/inventory/hosts.ini -e state_dir=<scratch>/state"`
+with only `HOME`, `LANG` and the environment of `runner_env` set, and `probe/bin` first on PATH.
+Then put `{project}` in place of `<scratch>/project`, `/srv/example` in place of `<scratch>/state`,
+and `/root` in place of the home folder and its user.
 """
 
 from __future__ import annotations
@@ -35,6 +49,13 @@ from tests.support.paths import FIXTURES
 from tests.support.tools import link_at_pin
 
 INFRA_FIXTURES: Final[Path] = FIXTURES / "infra"
+RUNNER_EVENTS: Final[Path] = INFRA_FIXTURES / "runner_events"
+# The exit code and the status file of each recorded run.
+RECORDED_RUNS: Final[dict[str, tuple[int, str]]] = {
+    "agent": (0, "successful"),
+    "site": (2, "failed"),
+}
+_PROJECT_MARK: Final[str] = "{project}"
 INFRA_REPO_SHAPE: Final[Path] = INFRA_FIXTURES / "homelab_shape"
 KUBE_CONTEXT: Final[str] = "homelab-example"
 IN_SERVICE_HOSTS: Final[tuple[str, ...]] = tuple(f"192.0.2.{n}" for n in range(1, 5))
@@ -62,6 +83,35 @@ def recorded_read(name: str, root: Path) -> Any:
     """The recorded output `ansible_<name>.json`, with `root` in place of `{root}`."""
     text = (INFRA_FIXTURES / f"ansible_{name}.json").read_text(encoding="utf-8")
     return json.loads(text.replace("{root}", str(root)))
+
+
+def recorded_events(run: str, project: Path) -> list[dict[str, Any]]:
+    """The job events of the recorded run `run`, with `project` in place of `{project}`."""
+    text = (RUNNER_EVENTS / f"{run}.jsonl").read_text(encoding="utf-8")
+    return [json.loads(line) for line in text.replace(_PROJECT_MARK, str(project)).splitlines()]
+
+
+def answer_runner(fake: ProcessFake, bin_dir: Path, run: str, *, status: str | None = None) -> None:
+    """Answer `ansible-runner run <private data folder>` as the recorded run `run` ended: its job
+    events in `artifacts/<ident>/job_events/<counter>-<uuid>.json` with the project folder of the
+    call, its `status` and `rc` files, and its exit code. `status` gives another status file,
+    such as `timeout`."""
+    returncode, recorded = RECORDED_RUNS[run]
+
+    def answer(call: ProcessCall) -> ProcessAnswer:
+        private = Path(call.argv[2])
+        ident = call.argv[call.argv.index("--ident") + 1]
+        artifacts = private / "artifacts" / ident
+        job_events = artifacts / "job_events"
+        job_events.mkdir(parents=True)
+        for event in recorded_events(run, private / "project"):
+            name = f"{event['counter']}-{event['uuid']}.json"
+            (job_events / name).write_text(json.dumps(event), encoding="utf-8")
+        (artifacts / "status").write_text(status or recorded, encoding="utf-8")
+        (artifacts / "rc").write_text(str(returncode), encoding="utf-8")
+        return ProcessAnswer(returncode=returncode)
+
+    fake.answer([str(bin_dir / "ansible-runner"), "run"], answer)
 
 
 def answer_default_branch(

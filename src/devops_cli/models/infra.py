@@ -1,8 +1,10 @@
 """Pydantic models of `devops infra`: the commit that a command read (#5162), the onboarding
-report of an infra repo (#5121) and the status of its hosts (#5123)."""
+report of an infra repo (#5121), the status of its hosts (#5123) and the plan of a playbook
+(#5124)."""
 
 from __future__ import annotations
 
+from datetime import datetime
 from enum import StrEnum
 from typing import Any
 
@@ -25,8 +27,11 @@ class ReadCommit(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
-    ref: str = Field(description="The default branch at origin, as origin/<branch>")
-    commit: str = Field(description="The commit of the default branch that the command read")
+    ref: str = Field(
+        description="The ref at origin that the command read: origin/<branch>, by default the "
+        "default branch, or pull/<number>/head"
+    )
+    commit: str = Field(description="The commit of the ref that the command read")
     checkout_branch: str | None = Field(
         description="The branch of the checkout; none when HEAD is detached or has no commit"
     )
@@ -156,14 +161,123 @@ class StatusReport(BaseModel):
     )
 
 
+class PlanTask(BaseModel):
+    """One task of a playbook on one host, as its job events name it."""
+
+    model_config = ConfigDict(frozen=True)
+
+    name: str = Field(description="The name of the task")
+    path: str = Field(description="The file and line of the task, relative to the repo root")
+    action: str = Field(description="The module or action plugin that ran the task")
+
+
+class ChangedTask(PlanTask):
+    """A task that check mode shows as changed on a host."""
+
+    diff_hidden: bool = Field(
+        default=False,
+        description="Whether the plan holds no diff of the change, because the task sets "
+        "`diff: false` or `no_log`",
+    )
+
+
+class FailedTask(PlanTask):
+    """A task that failed on a host, or the task at which the host did not answer."""
+
+    reason: str | None = Field(default=None, description="The message of the result")
+    unreachable: bool = Field(default=False, description="Whether the host did not answer")
+
+
+class HostPlan(BaseModel):
+    """What a playbook does on one host, from the job events of its check-mode run."""
+
+    model_config = ConfigDict(frozen=True)
+
+    host: str = Field(description="The inventory host")
+    changed: tuple[ChangedTask, ...] = Field(
+        default=(), description="The tasks that check mode shows as changed, in run order"
+    )
+    disruptive: tuple[str, ...] = Field(
+        default=(),
+        description="The disruptive classes of the changes: reboot, service-restart:<unit> and "
+        "drain, in run order",
+    )
+    unchecked: tuple[PlanTask, ...] = Field(
+        default=(),
+        description="The tasks that check mode skipped, so the plan does not show what they do",
+    )
+    failed: tuple[FailedTask, ...] = Field(
+        default=(),
+        description="The tasks that failed, or the task at which the host did not answer",
+    )
+
+    @property
+    def hidden_diffs(self) -> tuple[ChangedTask, ...]:
+        """The changes whose diff the plan does not hold."""
+        return tuple(task for task in self.changed if task.diff_hidden)
+
+
+class PlanStatus(StrEnum):
+    """How the check-mode run of a plan ended. Only a plan that ended `ok` can be applied."""
+
+    OK = "ok"
+    FAILED = "failed"
+
+
+class PlanContent(BaseModel):
+    """The facts of a plan that its id covers: what ran, at which commit, and what it shows on
+    each host."""
+
+    model_config = ConfigDict(frozen=True)
+
+    repo: str = Field(description="The GitHub repository of the infra repo, as owner/name")
+    ref: str = Field(description="The ref at origin that the plan read")
+    commit: str = Field(description="The commit that the plan ran")
+    playbook: str = Field(description="The playbook, relative to the repo root")
+    limit: str | None = Field(description="The --limit that the caller gave; none for all hosts")
+    host_pattern: str = Field(
+        description="The host pattern that Ansible got: the limit, else all, and not the group "
+        "of hosts out of service"
+    )
+    tags: str | None = Field(description="The --tags that the caller gave; none for all tasks")
+    ansible_core: str | None = Field(
+        description="The ansible-core version of the tool environment; none when it is not the "
+        "pinned install"
+    )
+    inventory_hash: str = Field(
+        description="The SHA-256 of the inventory listing, with its groups and raw host variables"
+    )
+    status: PlanStatus = Field(description="How the check-mode run ended")
+    error: str | None = Field(
+        default=None, description="Why the run failed when no task names the failure"
+    )
+    hosts: tuple[HostPlan, ...] = Field(description="One entry for each host that the run reached")
+
+
+class InfraPlan(PlanContent):
+    """The plan record of a playbook of an infra repo: its facts, its id and when it ran."""
+
+    id: str = Field(description="The SHA-256 of the canonical JSON of the facts of the plan")
+    created: datetime = Field(description="When the plan ran, in UTC")
+    runner_ident: str = Field(description="The ansible-runner ident of the run's artifacts")
+    folder: str = Field(description="The folder of the plan record and the runner artifacts")
+
+
 __all__ = [
+    "ChangedTask",
+    "FailedTask",
     "HostPing",
+    "HostPlan",
     "HostStatus",
+    "InfraPlan",
     "NodeState",
     "OnboardReport",
     "OnboardRow",
     "OnboardState",
     "PingState",
+    "PlanContent",
+    "PlanStatus",
+    "PlanTask",
     "ReadCommit",
     "StatusReport",
 ]

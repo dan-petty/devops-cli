@@ -1,4 +1,4 @@
-"""Dry-run request plans of `devops infra` (#5121, #5123).
+"""Dry-run request plans of `devops infra` (#5121, #5123, #5124).
 
 A dry run starts no process and sends no request: it lists, in order, the commands that the real
 run starts, each value that only a read gives as a named placeholder.
@@ -16,6 +16,13 @@ from devops_cli.infra.ansible_facts import (
     inventory_argv,
 )
 from devops_cli.infra.onboard import KUBE_CONTEXTS_ARGV, known_hosts_file
+from devops_cli.infra.plan import (
+    PLAN_FILE,
+    PROJECT_FOLDER,
+    REQUIREMENTS_FILE,
+    galaxy_argv,
+    runner_argv,
+)
 from devops_cli.infra.repo_tree import read_commands
 from devops_cli.infra.status import REBOOT_REQUIRED_FILE, STAT_MODULE
 
@@ -116,4 +123,57 @@ def plan_status(
     return requests
 
 
-__all__ = ["plan_onboard", "plan_status"]
+def plan_plan(
+    checkout: Path,
+    *,
+    origin_lookup: bool,
+    plans: Path,
+    playbook: str,
+    limit: str | None,
+    tags: str | None,
+    ref: str | None,
+) -> list[PlannedRequest]:
+    """The requests of `devops infra plan` on the checkout at `checkout`: the export of the commit
+    into a new folder under `plans`, the inventory, the install of the pinned collections, the
+    check-mode run and the write of the plan record."""
+    tool = ansible_tool()
+    folder = plans / "<new folder>"
+    project = folder / PROJECT_FOLDER
+    requests = [_origin_lookup(checkout)] if origin_lookup else []
+    requests += read_commands(checkout, ref=ref, export=project)
+    requests += [
+        PlannedRequest(
+            method="EXEC",
+            target="the Ansible inventory of the export",
+            argv=tuple(inventory_argv(tool, ("<inventory>",))),
+        ),
+        PlannedRequest(
+            method="EXEC",
+            target="the install of the pinned collections",
+            argv=tuple(
+                galaxy_argv(tool, project / REQUIREMENTS_FILE, Path("<collections folder>"))
+            ),
+            condition=f"the repo has {REQUIREMENTS_FILE} and no install of it is kept",
+        ),
+        PlannedRequest(
+            method="EXEC",
+            target="the check-mode run of the playbook on the hosts in service",
+            argv=tuple(
+                runner_argv(
+                    tool,
+                    folder,
+                    playbook,
+                    ident="<ident>",
+                    pattern=f"{limit or 'all'}:!<offline group>",
+                    sources=("<inventory>",),
+                    tags=tags,
+                    key=Path("<key of devops ssh>"),
+                )
+            ),
+        ),
+        PlannedRequest(method="WRITE", target=str(plans / "<plan id>" / PLAN_FILE)),
+    ]
+    return requests
+
+
+__all__ = ["plan_onboard", "plan_plan", "plan_status"]

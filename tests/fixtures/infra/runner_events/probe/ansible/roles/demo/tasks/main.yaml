@@ -1,0 +1,29 @@
+---
+- name: Write the demo config
+  ansible.builtin.template:
+    src: demo.yaml.j2
+    dest: "{{ state_dir }}/demo.yaml"
+    mode: "0644"
+  notify: Restart the demo unit
+
+- name: Write the demo token with the diff hidden
+  ansible.builtin.copy:
+    content: "token\n"
+    dest: "{{ state_dir }}/demo-token"
+    mode: "0600"
+  diff: false
+
+- name: Write the demo secret with no log
+  ansible.builtin.copy:
+    content: "secret\n"
+    dest: "{{ state_dir }}/demo-secret"
+    mode: "0600"
+  no_log: true
+
+- name: Load the demo module
+  ansible.builtin.command: /bin/true
+  changed_when: true
+
+- name: Remove the old demo unit
+  ansible.builtin.command: /bin/true
+  when: false

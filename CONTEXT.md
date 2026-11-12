@@ -254,12 +254,24 @@ _Avoid_: baseline line, summary series
 ## Infrastructure
 
 **Infra repo**:
-A git repository with an Ansible inventory, its playbooks and roles, which `devops infra` manages. The setting `infra.repos` names each infra repo, its checkout and its agent access level. A command reads an infra repo at the head of its default branch at `origin`, never in the working tree of the checkout. dan-petty/homelab is one.
+A git repository with an Ansible inventory, its playbooks and roles, which `devops infra` manages. The setting `infra.repos` names each infra repo, its checkout and its agent access level. A command reads an infra repo at a commit that `origin` holds, by default the head of its default branch, never in the working tree of the checkout. dan-petty/homelab is one.
 _Avoid_: infra environment, inventory repo
 
 **Agent access level**:
 What an agent may do on the hosts of one infra repo: `none`, `plan`, `safe` or `full`. A repo with no level is at `none`. Only a person sets a level above `none`. It stops an agent error; it is not a security boundary.
 _Avoid_: approval level, permission, trust level
+
+**Infra plan**:
+The record of one check-mode run of a playbook of an infra repo at one commit: for each host the changed tasks, the disruptive classes, the unchecked tasks and the changes with the diff hidden, and whether the run ended `ok` or `failed`. Its id is the SHA-256 of its facts, without the time. `devops infra plan` writes it under `<data dir>/infra/<owner>/<name>/plans/<id>/` with the runner artifacts. Only a plan that ended `ok` can be applied.
+_Avoid_: dry run (a dry run makes no request), preview, check run
+
+**Disruptive class**:
+A change that takes a host out of service for a time, as the job events of a plan show it: `reboot`, `service-restart:<unit>` (a restart, reload or stop of a unit that `devops_infra_nondisruptive_units` does not list) or `drain`.
+_Avoid_: risky change, outage
+
+**Unchecked task**:
+A task that check mode skipped, such as a `command` with no `creates` or `removes`, so the plan does not show what it does in an apply. A task that a false `when` skipped is not unchecked.
+_Avoid_: skipped task
 
 **Project profile**:
 The facts of one repository that devops-cli reads: its type and the layout of its files. They merge from the field defaults, the type template in `src/devops_cli/templates/profiles/`, detection in the files of the repository and its own `.devops/project.toml`, and each value records its source. The config of devops-cli holds operational keys only, never a fact of a project.

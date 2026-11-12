@@ -55,3 +55,31 @@ devops infra status [OPTIONS] <repo>
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
+
+## `devops infra plan`
+
+**Run a playbook of an infra repo in check mode with diffs on its hosts in service, and show for each host the changed tasks, the disruptive changes (reboot, service-restart:\<unit\>, drain), the changes with the diff hidden and the tasks that check mode skipped. The run exports a commit that origin holds, by default the head of the default branch, never the working tree. It changes no host. The plan record and the runner artifacts stay in <data dir>/infra/\<owner\>/\<name\>/plans/\<id\>/. An agent needs the agent access level plan or above.**
+
+```bash
+devops infra plan [OPTIONS] <repo> <playbook>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<repo>` | `string` | Yes | The infra repo: owner/name, or the folder of a checkout, which its remote origin names. |
+| `<playbook>` | `string` | Yes | The playbook, as a path from the repo root, such as ansible/playbooks/site.yaml. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--limit` | `string` | - | The hosts or groups to plan, as an Ansible host pattern. Default: all hosts. The hosts of the group of hosts out of service are never in the plan. |
+| `--tags` | `string` | - | Run only the tasks with these Ansible tags, separated by commas. |
+| `--ref` | `string` | - | The ref at origin to plan: a branch of origin, or pull/\<number\>/head for the head of a pull request. Default: the default branch. |
+| `--path` | `path` | - | The folder of the checkout. Default: the path of the entry, else <repos.base_dir>/\<owner\>/\<name\>. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+---
