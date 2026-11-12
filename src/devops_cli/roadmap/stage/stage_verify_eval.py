@@ -42,7 +42,7 @@ from devops_cli.roadmap.stage.stage_eval_cases import (
     left_out_note,
 )
 from devops_cli.roadmap.stage.stage_toolbox import ToolboxClient, ToolboxModel, review
-from devops_cli.roadmap.stage.stage_verify import Finding, VerificationInput, returning
+from devops_cli.roadmap.stage.stage_verify import Finding, VerificationInput, open_findings
 
 if TYPE_CHECKING:
     from pydantic_evals.reporting import ReportCase, ReportCaseFailure
@@ -77,7 +77,7 @@ def matched_defects(defects: Sequence[Defect], findings: Sequence[Finding]) -> t
 @dataclass(frozen=True)
 class CaseVerification:
     """The output of the pass on one case: the findings, and how many of them would return the
-    plan to the planner."""
+    plan to the planner: the open findings (#5059)."""
 
     findings: tuple[Finding, ...]
     returning: int
@@ -288,7 +288,7 @@ def _run_cases(
         except AICredentialsError as exc:
             rejected.append(exc)
             raise
-        return CaseVerification(tuple(findings), len(returning(findings, read)))
+        return CaseVerification(tuple(findings), len(open_findings(findings, read)))
 
     class Store(CaseLifecycle[str, CaseVerification, StageCase]):
         """Gives the outcome of the case to `ended` when the case ends. A stop of the run in

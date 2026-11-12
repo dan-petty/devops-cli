@@ -182,6 +182,49 @@ def test_a_false_premise_with_a_quote_returns_the_plan_to_the_planner_once(
     )
 
 
+@pytest.mark.parametrize("kind", [DefectType.CRITERION_DROPPED, DefectType.SPEC_DELTA_WRONG])
+def test_a_quoted_open_finding_of_any_open_type_returns_the_plan_to_the_planner(
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    verifier: ModelFake,
+    kind: DefectType,
+) -> None:
+    """A finding that keeps the plan in draft also goes back to the planner, so the planner can
+    fix it before the draft opens (#5059)."""
+    model_fake.answer(make_stage_proposal(), make_stage_proposal(summary="Repaired plan"))
+    found = _finding(kind, ISSUE_QUOTE)
+    verifier.answer(Verification(findings=[found]), Verification())
+
+    plan = _plan(store, stage_repo, verifier)
+
+    _, second = _prompts(model_fake)
+    assert (kind.value in second["problem"], ISSUE_QUOTE in second["problem"]) == (True, True)
+    assert second["previous"]["summary"] == "Stop the job dropping a comment"
+    (change,) = plan.ready
+    assert (verifier.call_count, change.proposal.summary, change.open_findings) == (
+        2,
+        "Repaired plan",
+        (),
+    )
+
+
+def test_a_placeholder_finding_returns_the_plan_to_the_planner(
+    stage_repo: StageRepo, model_fake: ModelFake, verifier: ModelFake
+) -> None:
+    store = _placeholder_store()
+    model_fake.answer(make_stage_proposal(), make_stage_proposal(summary="Repaired plan"))
+    placeholder = _finding(DefectType.OTHER, "placeholder", where="tasks.md")
+    verifier.answer(Verification(findings=[placeholder]), Verification())
+
+    plan = _plan(store, stage_repo, verifier)
+
+    _, second = _prompts(model_fake)
+    assert "placeholder" in second["problem"]
+    (change,) = plan.ready
+    assert (change.proposal.summary, change.open_findings) == ("Repaired plan", ())
+
+
 def test_a_return_that_the_planner_answers_with_premise_failed_fails_the_item(
     store: InMemoryRoadmapStore, stage_repo: StageRepo, model_fake: ModelFake, verifier: ModelFake
 ) -> None:

@@ -9,12 +9,12 @@ of the golden set (`stage_eval_cases.DefectType`). A reply with another type fai
 also reads the repository with the read tools of the planner, and a quote may come from the answer
 of a tool (#3039). The review of refine (`refine_judge`) sends the same request with no tool.
 
-A finding of a type in `RETURN_TYPES` whose `quote` is a text of the input or of a tool answer
-(`VerificationInput.contains`) returns the plan to the planner, up to
-`CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS` times (#3039). An open
-finding keeps the plan from staging as clean: a finding of an open type, or one that reports a
-placeholder, keeps the plan in draft with the label `plan/needs-fix` (#3264). Every other
-finding is advice: the job lists it in its comment. The pass never merges and never marks a
+A finding is open when its type is in `OPEN_TYPES` and its `quote` is a text of the input or of
+a tool answer (`VerificationInput.contains`), or when it reports a placeholder that the request
+holds (#3264). Each open finding returns the plan to the planner, up to
+`CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS` times (#3039, #5059). An open finding of the last
+review keeps the plan in draft with the label `plan/needs-fix` (#3264). Every other finding is
+advice: the job lists it in its comment. The pass never merges and never marks a
 pull request ready. `devops roadmap eval verify` scores the pass on the golden set
 (`stage_verify_eval`).
 """
@@ -55,26 +55,22 @@ _VERIFY_TOOLS_TASK: Final[str] = "roadmap_stage_verify_tools.md"
 _ANSWER_LINE_PREFIX: Final[re.Pattern[str]] = re.compile(r"^(?:[^\s:]+:)?\d+:\s?", re.MULTILINE)
 # A reply that fails the schema goes back to the model once, as every reply of the stage job does.
 _REPLY_RETURNS: Final[int] = 1
-# The types that return the plan to the planner when a finding quotes its evidence. `task_order`
-# and `verify_form` join them, as the body of #3039 asks: a finding of either type changed no plan
-# before.
-RETURN_TYPES: Final[frozenset[DefectType]] = frozenset(
+# The types of an open finding when it quotes its evidence: the finding returns the plan to the
+# planner, and, in the last review, keeps the plan in draft. A finding that reports a placeholder is
+# open too (#3264). `task_order` and `verify_form` came with #3039, `spec_delta_wrong` with #3264
+# and `criterion_dropped` with #3448. Each open finding returns the plan (#5059): an open finding
+# that the planner never sees keeps the draft with `plan/needs-fix`, and no job repairs it.
+OPEN_TYPES: Final[frozenset[DefectType]] = frozenset(
     {
         DefectType.MISSING_PATH,
         DefectType.FALSE_PREMISE,
         DefectType.IGNORES_EXISTING_CODE,
         DefectType.TASK_ORDER,
         DefectType.VERIFY_FORM,
+        DefectType.SPEC_DELTA_WRONG,
+        DefectType.CRITERION_DROPPED,
     }
 )
-# The types that keep the plan in draft when a finding quotes its evidence. `spec_delta_wrong`
-# joins the return types, and a finding that reports a placeholder joins them all (#3264). So does
-# `criterion_dropped` (#3448): a plan that leaves an acceptance criterion undelivered must not
-# become ready.
-OPEN_TYPES: Final[frozenset[DefectType]] = RETURN_TYPES | {
-    DefectType.SPEC_DELTA_WRONG,
-    DefectType.CRITERION_DROPPED,
-}
 # The nine types that the verification prompt and reply schema name.
 VERIFY_TYPES: Final[frozenset[DefectType]] = OPEN_TYPES | {
     DefectType.CONTRIVED_TEST,
@@ -291,12 +287,6 @@ def verify(client: StageClient, given: VerificationInput) -> list[Finding]:
     return list(reply.findings)
 
 
-def returning(findings: Sequence[Finding], given: VerificationInput) -> list[Finding]:
-    """The findings that return the plan to the planner: a type of `RETURN_TYPES` and a quote
-    that is in the input or in a tool answer."""
-    return [f for f in findings if f.type in RETURN_TYPES and given.contains(f.quote)]
-
-
 def _reports_placeholder(finding: Finding) -> bool:
     """Whether the quote of `finding` is a placeholder text, such as `placeholder` or `x`."""
     return is_placeholder(finding.quote)
@@ -308,9 +298,10 @@ def open_findings(
     *,
     types: frozenset[DefectType] = OPEN_TYPES,
 ) -> list[Finding]:
-    """The findings that keep the plan in draft: a type of `types` with a quote that is in the
-    input or in a tool answer, or a placeholder that the request holds (#3264). A placeholder in a
-    file that a tool read is no defect of the plan. Any other finding is advice."""
+    """The findings that return the plan to the planner and keep it in draft: a type of `types`
+    with a quote that is in the input or in a tool answer, or a placeholder that the request holds
+    (#3264, #5059). A placeholder in a file that a tool read is no defect of the plan. Any other
+    finding is advice."""
     return [
         f
         for f in findings
@@ -361,7 +352,6 @@ def open_findings_section(findings: Sequence[Finding]) -> str:
 __all__ = [
     "OPEN_TYPES",
     "PLAN_NEEDS_FIX_LABEL",
-    "RETURN_TYPES",
     "Finding",
     "Verification",
     "VerificationInput",
@@ -373,6 +363,5 @@ __all__ = [
     "open_findings",
     "open_findings_section",
     "return_problem",
-    "returning",
     "verify",
 ]
