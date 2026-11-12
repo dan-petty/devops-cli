@@ -1,7 +1,9 @@
 """The global `--dry-run` flag and the `DEVOPS_CLI_DRY_RUN` variable of the root command.
 
-Every case runs a real command through the `cli` fixture. The process fake shows whether a
-command started a program: a dry run starts none.
+Every case runs a command through the `cli` fixture: a real command, or a stub of
+`tests/support/dry_run_stub.py` that keeps its dry-run state and prints what it gets. The table of
+argv shapes takes the place of a run of each real command under the root flag. The process fake
+shows whether a command started a program: a dry run starts none.
 """
 
 from __future__ import annotations
@@ -70,6 +72,60 @@ def test_global_dry_run_runs_a_command_that_makes_no_external_request(
     assert result.exit_code == 0
     assert "marked ran" in result.output
     assert "Would run delegated command" not in result.output
+
+
+@pytest.mark.parametrize(
+    ("args", "got"),
+    [
+        pytest.param(["shaped"], "name= force=False words=[]", id="no-argument"),
+        pytest.param(
+            ["shaped", "one", "two"], "name= force=False words=['one', 'two']", id="positionals"
+        ),
+        pytest.param(
+            ["shaped", "--name", "value", "one"],
+            "name=value force=False words=['one']",
+            id="option-with-a-value",
+        ),
+        pytest.param(
+            ["shaped", "one", "-n", "value"],
+            "name=value force=False words=['one']",
+            id="short-option-after-a-positional",
+        ),
+        pytest.param(
+            ["shaped", "--name=value"], "name=value force=False words=[]", id="equals-value"
+        ),
+        pytest.param(
+            ["shaped", "--name", "--dry-run"],
+            "name=--dry-run force=False words=[]",
+            id="option-value-that-is-the-flag",
+        ),
+        pytest.param(
+            ["shaped", "--force", "one"], "name= force=True words=['one']", id="boolean-flag"
+        ),
+        pytest.param(
+            ["shaped", "one", "--", "--dry-run", "two"],
+            "name= force=False words=['one', '--dry-run', 'two']",
+            id="separator",
+        ),
+        pytest.param(
+            ["nested", "shaped", "-n", "value", "one"],
+            "name=value force=False words=['one']",
+            id="nested-group",
+        ),
+        pytest.param(
+            ["shaped", "--dry-run", "one"], "name= force=False words=['one']", id="flag-given-twice"
+        ),
+    ],
+)
+def test_global_dry_run_reaches_the_command_in_each_shape_of_argv(
+    cli: Callable[..., Any], stub_commands: None, args: list[str], got: str
+) -> None:
+    """The root flag sets `--dry-run` of the command wherever its options, positionals and `--`
+    stand, and the command gets each other value as typed."""
+    result = cli("--dry-run", "stub", *args)
+
+    assert result.exit_code == 0, result.output
+    assert f"shaped dry_run=True {got}" in result.output
 
 
 def test_global_dry_run_previews_a_group_that_has_its_own_options(

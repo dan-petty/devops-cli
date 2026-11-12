@@ -11,12 +11,9 @@ rule (#412):
 from __future__ import annotations
 
 import json
-import socket
-import subprocess
 from pathlib import Path
 from typing import Any
 
-import httpx2
 import pytest
 from typer.testing import CliRunner
 
@@ -82,6 +79,8 @@ from devops_cli.commands.review import (
 )
 from devops_cli.dry_run import get_dry_run_class
 from devops_cli.main import app
+
+pytestmark = pytest.mark.usefixtures("refuse_requests")
 
 runner = CliRunner()
 
@@ -198,48 +197,6 @@ ALL_20_CALLBACKS: list[tuple[str, Any, str]] = [
     ("templates list", cmd_templates_list, "no-external-request"),
     ("verify", cmd_verify_finding, "no-external-request"),
 ]
-
-
-@pytest.fixture(autouse=True)
-def guard_no_external_calls(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Ensure dry-run previews make zero network, subprocess or database calls."""
-    real_run = subprocess.run
-    real_popen = subprocess.Popen
-    real_check_output = subprocess.check_output
-
-    def _block_socket(*args: Any, **kwargs: Any) -> None:
-        raise AssertionError("Network socket call attempted during dry-run preview")
-
-    def _block_subprocess(cmd: Any, *args: Any, **kwargs: Any) -> Any:
-        cmd_seq = cmd if isinstance(cmd, (list, tuple)) else [cmd]
-        first = str(cmd_seq[0]) if cmd_seq else ""
-        if Path(first).name == "git":
-            return real_run(cmd, *args, **kwargs)
-        raise AssertionError(f"Subprocess execution attempted during dry-run preview: {cmd}")
-
-    def _block_popen(cmd: Any, *args: Any, **kwargs: Any) -> Any:
-        cmd_seq = cmd if isinstance(cmd, (list, tuple)) else [cmd]
-        first = str(cmd_seq[0]) if cmd_seq else ""
-        if Path(first).name == "git":
-            return real_popen(cmd, *args, **kwargs)
-        raise AssertionError(f"Subprocess execution attempted during dry-run preview: {cmd}")
-
-    def _block_check_output(cmd: Any, *args: Any, **kwargs: Any) -> Any:
-        cmd_seq = cmd if isinstance(cmd, (list, tuple)) else [cmd]
-        first = str(cmd_seq[0]) if cmd_seq else ""
-        if Path(first).name == "git":
-            return real_check_output(cmd, *args, **kwargs)
-        raise AssertionError(f"Subprocess execution attempted during dry-run preview: {cmd}")
-
-    def _block_httpx(*args: Any, **kwargs: Any) -> None:
-        raise AssertionError("HTTP request attempted during dry-run preview")
-
-    monkeypatch.setattr(socket.socket, "connect", _block_socket)
-    monkeypatch.setattr(subprocess, "Popen", _block_popen)
-    monkeypatch.setattr(subprocess, "run", _block_subprocess)
-    monkeypatch.setattr(subprocess, "check_output", _block_check_output)
-    monkeypatch.setattr(httpx2.Client, "send", _block_httpx)
-    monkeypatch.setattr(httpx2.HTTPTransport, "handle_request", _block_httpx)
 
 
 def test_dry_run_classes_decorated() -> None:

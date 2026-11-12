@@ -58,17 +58,14 @@ SANDBOX_REQUEST_PLAN_COMMANDS = [
 
 
 @pytest.fixture
-def block_sandbox_externals(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Ensure no Docker engine, HTTP client, socket, or subprocess executes during dry run."""
+def block_sandbox_externals(monkeypatch: pytest.MonkeyPatch, refuse_requests: list[str]) -> None:
+    """Ensure no Docker engine client is made and no request is sent during dry run."""
 
     def _fail(*args: Any, **kwargs: Any) -> Any:
         raise AssertionError(f"External call attempted during dry-run: {args} {kwargs}")
 
     monkeypatch.setattr("docker.from_env", _fail)
     monkeypatch.setattr("docker.DockerClient", _fail)
-    monkeypatch.setattr("subprocess.run", _fail)
-    monkeypatch.setattr("subprocess.Popen", _fail)
-    monkeypatch.setattr("socket.getaddrinfo", _fail)
 
 
 @pytest.mark.parametrize("name,callback,_argv", SANDBOX_REQUEST_PLAN_COMMANDS)

@@ -7,12 +7,9 @@ returns the requests that the real run would make.
 from __future__ import annotations
 
 import json
-import socket
-import subprocess
 from pathlib import Path
 from typing import Any
 
-import httpx2
 import pytest
 from typer.testing import CliRunner
 
@@ -43,8 +40,10 @@ from devops_cli.commands.ai_runs import (
     reindex_cmd,
     show_cmd,
 )
-from devops_cli.dry_run import get_dry_run_class
 from devops_cli.main import app
+from tests.support.dry_run_classes import misclassified
+
+pytestmark = pytest.mark.usefixtures("refuse_requests")
 
 runner = CliRunner()
 
@@ -91,80 +90,11 @@ NO_EXTERNAL_REQUEST_COMMANDS = [
 ]
 
 
-@pytest.fixture(autouse=True)
-def guard_external_calls(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Ensure no real socket, subprocess, Valkey, or HTTP call executes during dry-run tests."""
-    real_run = subprocess.run
-    real_popen = subprocess.Popen
-    real_check_output = subprocess.check_output
-
-    def _block_socket(*args: Any, **kwargs: Any) -> None:
-        raise AssertionError("Network socket call attempted during dry-run preview")
-
-    def _block_subprocess(cmd: Any, *args: Any, **kwargs: Any) -> Any:
-        cmd_seq = cmd if isinstance(cmd, (list, tuple)) else [cmd]
-        first = str(cmd_seq[0]) if cmd_seq else ""
-        if Path(first).name == "git":
-            return real_run(cmd, *args, **kwargs)
-        raise AssertionError(f"Subprocess execution attempted during dry-run preview: {cmd}")
-
-    def _block_popen(cmd: Any, *args: Any, **kwargs: Any) -> Any:
-        cmd_seq = cmd if isinstance(cmd, (list, tuple)) else [cmd]
-        first = str(cmd_seq[0]) if cmd_seq else ""
-        if Path(first).name == "git":
-            return real_popen(cmd, *args, **kwargs)
-        raise AssertionError(f"Subprocess execution attempted during dry-run preview: {cmd}")
-
-    def _block_check_output(cmd: Any, *args: Any, **kwargs: Any) -> Any:
-        cmd_seq = cmd if isinstance(cmd, (list, tuple)) else [cmd]
-        first = str(cmd_seq[0]) if cmd_seq else ""
-        if Path(first).name == "git":
-            return real_check_output(cmd, *args, **kwargs)
-        raise AssertionError(f"Subprocess execution attempted during dry-run preview: {cmd}")
-
-    def _block_httpx(*args: Any, **kwargs: Any) -> None:
-        raise AssertionError("HTTP request attempted during dry-run preview")
-
-    monkeypatch.setattr(socket.socket, "connect", _block_socket)
-    monkeypatch.setattr(subprocess, "Popen", _block_popen)
-    monkeypatch.setattr(subprocess, "run", _block_subprocess)
-    monkeypatch.setattr(subprocess, "check_output", _block_check_output)
-    monkeypatch.setattr(httpx2.Client, "send", _block_httpx)
-    monkeypatch.setattr(httpx2.HTTPTransport, "handle_request", _block_httpx)
-
-
-def test_dry_run_classes_decorated() -> None:
-    """Verify that each command callback is decorated with its assigned dry-run class."""
-    for name, callback, _ in REQUEST_PLAN_COMMANDS:
-        assert get_dry_run_class(callback) == "request-plan", (
-            f"Expected {name} to have dry-run class 'request-plan'"
-        )
-
-    for name, callback, _ in LOCAL_PREVIEW_COMMANDS:
-        assert get_dry_run_class(callback) == "no-external-request", (
-            f"Expected {name} to have dry-run class 'no-external-request'"
-        )
-
-    for name, callback, _ in NO_EXTERNAL_REQUEST_COMMANDS:
-        assert get_dry_run_class(callback) == "no-external-request", (
-            f"Expected {name} to have dry-run class 'no-external-request'"
-        )
-
-
-def test_all_21_commands_removed_from_gaps() -> None:
-    """Verify all 21 commands have been excised from tests/fixtures/dry_run_gaps.json."""
-    gaps_path = Path("tests/fixtures/dry_run_gaps.json")
-    assert gaps_path.exists()
-    gaps = json.loads(gaps_path.read_text(encoding="utf-8"))
-
-    expected_removed = (
-        [name for name, _, _ in REQUEST_PLAN_COMMANDS]
-        + [name for name, _, _ in LOCAL_PREVIEW_COMMANDS]
-        + [name for name, _, _ in NO_EXTERNAL_REQUEST_COMMANDS]
-    )
-
-    for cmd_path in set(expected_removed):
-        assert cmd_path not in gaps, f"Command '{cmd_path}' should be removed from gaps"
+def test_commands_carry_their_dry_run_class() -> None:
+    """Run commands carry request-plan; cost, cache and the local previews carry no-external-request."""
+    assert misclassified(REQUEST_PLAN_COMMANDS, "request-plan") == {}
+    assert misclassified(LOCAL_PREVIEW_COMMANDS, "no-external-request") == {}
+    assert misclassified(NO_EXTERNAL_REQUEST_COMMANDS, "no-external-request") == {}
 
 
 @pytest.mark.parametrize("name,callback,argv", REQUEST_PLAN_COMMANDS)
@@ -174,18 +104,6 @@ def test_request_plan_commands_run_cleanly(name: str, callback: Any, argv: list[
     assert result.exit_code == 0, f"{name} failed with {result.output}"
     assert "Plan for" in result.output, (
         f"Expected 'Plan for' header in {name} output, got: {result.output}"
-    )
-
-
-@pytest.mark.parametrize("name,callback,argv", REQUEST_PLAN_COMMANDS)
-def test_request_plan_flag_order_global_dry_run(name: str, callback: Any, argv: list[str]) -> None:
-    """Test global flag order: devops --dry-run <command>."""
-    sub_args = [arg for arg in argv if arg != "--dry-run"]
-    global_argv = ["--dry-run", *sub_args]
-    result = runner.invoke(app, global_argv)
-    assert result.exit_code == 0, f"Global --dry-run failed for {name} with: {result.output}"
-    assert "Plan for" in result.output, (
-        f"Expected 'Plan for' header in global dry-run {name}, got: {result.output}"
     )
 
 

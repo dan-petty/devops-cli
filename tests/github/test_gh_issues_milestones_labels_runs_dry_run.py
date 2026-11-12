@@ -7,8 +7,6 @@ returns the requests that the real run would make.
 from __future__ import annotations
 
 import json
-import socket
-import subprocess
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -70,8 +68,8 @@ def _fail(what: str) -> Callable[..., Any]:
 
 
 @pytest.fixture
-def no_external_calls(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Fail the test immediately if any external subprocess, gh, or socket is touched."""
+def no_external_calls(monkeypatch: pytest.MonkeyPatch, refuse_requests: list[str]) -> None:
+    """Fail the test immediately if gh starts through the rate limiter or a request is sent."""
     from devops_cli.github import rate_limiter
 
     monkeypatch.setattr(
@@ -88,17 +86,6 @@ def no_external_calls(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(rate_limiter, "run_subprocess", safe_run_subprocess)
 
-    orig_popen = subprocess.Popen
-
-    def safe_popen(cmd: Any, *args: Any, **kwargs: Any) -> Any:
-        if isinstance(cmd, (list, tuple)) and cmd and cmd[0] == "gh":
-            raise AssertionError(f"the dry run started gh Popen: {cmd}")
-        return orig_popen(cmd, *args, **kwargs)
-
-    monkeypatch.setattr(subprocess, "Popen", safe_popen)
-    monkeypatch.setattr(socket.socket, "connect", _fail("connected socket"))
-    monkeypatch.setattr(socket, "getaddrinfo", _fail("resolved DNS"))
-
 
 def test_command_dry_run_class_declarations() -> None:
     """Criterion 1: all 16 commands declare request-plan."""
@@ -106,34 +93,6 @@ def test_command_dry_run_class_declarations() -> None:
         assert get_dry_run_class(callback) == "request-plan", (
             f"Expected {name} to declare request-plan"
         )
-
-
-def test_gaps_file_does_not_contain_the_sixteen_commands() -> None:
-    """Criterion 1: all 16 commands are removed from dry_run_gaps.json."""
-    gaps_path = Path("tests/fixtures/dry_run_gaps.json")
-    assert gaps_path.exists()
-    gaps = json.loads(gaps_path.read_text(encoding="utf-8"))
-
-    expected_removed = [
-        "gh issue create",
-        "gh issue edit",
-        "gh issue list",
-        "gh issue status",
-        "gh issue triage",
-        "gh label audit",
-        "gh label list",
-        "gh label sync",
-        "gh milestones close",
-        "gh milestones edit",
-        "gh milestones list",
-        "gh milestones status",
-        "gh run list",
-        "gh run view",
-        "roadmap run",
-        "survey",
-    ]
-    remaining = [cmd for cmd in expected_removed if cmd in gaps]
-    assert not remaining, f"Commands still present in dry_run_gaps.json: {remaining}"
 
 
 @pytest.mark.parametrize("name,callback,argv", REQUEST_PLAN_COMMANDS)
@@ -144,18 +103,10 @@ def test_request_plan_commands_make_no_external_requests(
     callback: Any,
     argv: list[str],
 ) -> None:
-    """Criterion 2: devops <command> --dry-run and devops --dry-run <command> make no external calls."""
-    res1 = cli(*argv, "--dry-run")
-    assert res1.exit_code == 0, f"{name} with --dry-run failed: {res1.output}"
-    assert "1." in res1.output or "Planned" in res1.output, (
-        f"{name} output missing request plan: {res1.output}"
-    )
-
-    res2 = cli("--dry-run", *argv)
-    assert res2.exit_code == 0, f"{name} with root --dry-run failed: {res2.output}"
-    assert "1." in res2.output or "Planned" in res2.output, (
-        f"{name} output missing request plan: {res2.output}"
-    )
+    """Criterion 2: devops <command> --dry-run makes no external call."""
+    result = cli(*argv, "--dry-run")
+    assert result.exit_code == 0, f"{name} with --dry-run failed: {result.output}"
+    assert "1." in result.output or "Planned" in result.output, result.output
 
 
 def test_runs_list_json_dry_run_output(

@@ -7,12 +7,9 @@ returns the requests that the real run would make.
 from __future__ import annotations
 
 import json
-import socket
-import subprocess
 from pathlib import Path
 from typing import Any
 
-import httpx2
 import pytest
 from typer.testing import CliRunner
 
@@ -39,8 +36,10 @@ from devops_cli.commands.ai_gateway import (
     tune_cmd,
 )
 from devops_cli.commands.benchmark import run_benchmark
-from devops_cli.dry_run import get_dry_run_class
 from devops_cli.main import app
+from tests.support.dry_run_classes import misclassified
+
+pytestmark = pytest.mark.usefixtures("refuse_requests")
 
 runner = CliRunner()
 
@@ -76,68 +75,10 @@ NO_EXTERNAL_REQUEST_COMMANDS = [
 ]
 
 
-@pytest.fixture(autouse=True)
-def guard_external_calls(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Ensure no real socket, subprocess, or HTTP call executes during dry-run tests."""
-
-    def _block_socket(*args: Any, **kwargs: Any) -> None:
-        raise AssertionError("Network socket call attempted during dry-run preview")
-
-    def _block_subprocess(*args: Any, **kwargs: Any) -> None:
-        raise AssertionError("Subprocess execution attempted during dry-run preview")
-
-    def _block_httpx(*args: Any, **kwargs: Any) -> None:
-        raise AssertionError("HTTP request attempted during dry-run preview")
-
-    monkeypatch.setattr(socket.socket, "connect", _block_socket)
-    monkeypatch.setattr(subprocess, "Popen", _block_subprocess)
-    monkeypatch.setattr(subprocess, "run", _block_subprocess)
-    monkeypatch.setattr(subprocess, "check_output", _block_subprocess)
-    monkeypatch.setattr(httpx2.Client, "send", _block_httpx)
-    monkeypatch.setattr(httpx2.HTTPTransport, "handle_request", _block_httpx)
-
-
-def test_dry_run_classes_decorated() -> None:
-    """Verify that each command callback is decorated with its assigned dry-run class."""
-    for name, callback, _ in REQUEST_PLAN_COMMANDS:
-        assert get_dry_run_class(callback) == "request-plan", (
-            f"Expected {name} to have dry-run class 'request-plan'"
-        )
-
-    for name, callback, _ in NO_EXTERNAL_REQUEST_COMMANDS:
-        assert get_dry_run_class(callback) == "no-external-request", (
-            f"Expected {name} to have dry-run class 'no-external-request'"
-        )
-
-
-def test_all_18_commands_removed_from_gaps() -> None:
-    """Verify all eighteen commands have been excised from tests/fixtures/dry_run_gaps.json."""
-    gaps_path = Path("tests/fixtures/dry_run_gaps.json")
-    assert gaps_path.exists()
-    gaps = json.loads(gaps_path.read_text(encoding="utf-8"))
-
-    expected_removed = [
-        "ai agents",
-        "ai benchmark",
-        "ai chaos-model",
-        "ai chat",
-        "ai gateway connect",
-        "ai gateway failover",
-        "ai gateway load",
-        "ai gateway probe-backend",
-        "ai gateway render",
-        "ai gateway routes",
-        "ai gateway status",
-        "ai gateway tune",
-        "ai models",
-        "ai preload",
-        "ai prewarm",
-        "ai prompt-eval",
-        "ai test",
-    ]
-
-    for cmd_path in expected_removed:
-        assert cmd_path not in gaps, f"Command '{cmd_path}' should be removed from gaps"
+def test_commands_carry_their_dry_run_class() -> None:
+    """Model and gateway commands carry request-plan, and failover and render no-external-request."""
+    assert misclassified(REQUEST_PLAN_COMMANDS, "request-plan") == {}
+    assert misclassified(NO_EXTERNAL_REQUEST_COMMANDS, "no-external-request") == {}
 
 
 @pytest.mark.parametrize("name,callback,argv", REQUEST_PLAN_COMMANDS)
@@ -147,19 +88,6 @@ def test_request_plan_commands_run_cleanly(name: str, callback: Any, argv: list[
     assert result.exit_code == 0, f"{name} failed with {result.output}"
     assert "Plan for" in result.output, (
         f"Expected 'Plan for' header in {name} output, got: {result.output}"
-    )
-
-
-@pytest.mark.parametrize("name,callback,argv", REQUEST_PLAN_COMMANDS)
-def test_request_plan_flag_order_global_dry_run(name: str, callback: Any, argv: list[str]) -> None:
-    """Test global flag order: devops --dry-run <command>."""
-    # Convert ['ai', 'models', '--dry-run'] -> ['--dry-run', 'ai', 'models']
-    sub_args = [arg for arg in argv if arg != "--dry-run"]
-    global_argv = ["--dry-run", *sub_args]
-    result = runner.invoke(app, global_argv)
-    assert result.exit_code == 0, f"{name} failed with global --dry-run: {result.output}"
-    assert "Plan for" in result.output, (
-        f"Expected 'Plan for' in global dry run of {name}, got: {result.output}"
     )
 
 

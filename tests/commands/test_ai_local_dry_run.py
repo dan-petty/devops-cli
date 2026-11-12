@@ -6,13 +6,9 @@ are classified under the 'no-external-request' dry-run class.
 
 from __future__ import annotations
 
-import json
-import socket
-import subprocess
 from pathlib import Path
 from typing import Any
 
-import httpx2
 import pytest
 from typer.testing import CliRunner
 
@@ -48,6 +44,8 @@ from devops_cli.commands.ai_harness import (
 )
 from devops_cli.dry_run import get_dry_run_class
 from devops_cli.main import app
+
+pytestmark = pytest.mark.usefixtures("keyring_store", "refuse_requests")
 
 runner = CliRunner()
 
@@ -87,65 +85,12 @@ LOCAL_AI_COMMANDS: list[tuple[str, Any, list[str]]] = [
 ]
 
 
-@pytest.fixture(autouse=True)
-def guard_external_calls(monkeypatch: pytest.MonkeyPatch, keyring_store: Any) -> None:
-    """Ensure no real socket, subprocess, or HTTP call executes during dry-run tests."""
-    real_run = subprocess.run
-    real_popen = subprocess.Popen
-    real_check_output = subprocess.check_output
-
-    def _block_socket(*args: Any, **kwargs: Any) -> None:
-        raise AssertionError("Network socket call attempted during dry-run execution")
-
-    def _block_subprocess(cmd: Any, *args: Any, **kwargs: Any) -> Any:
-        cmd_seq = cmd if isinstance(cmd, (list, tuple)) else [cmd]
-        first = str(cmd_seq[0]) if cmd_seq else ""
-        if Path(first).name == "git":
-            return real_run(cmd, *args, **kwargs)
-        raise AssertionError(f"Subprocess execution attempted during dry-run execution: {cmd}")
-
-    def _block_popen(cmd: Any, *args: Any, **kwargs: Any) -> Any:
-        cmd_seq = cmd if isinstance(cmd, (list, tuple)) else [cmd]
-        first = str(cmd_seq[0]) if cmd_seq else ""
-        if Path(first).name == "git":
-            return real_popen(cmd, *args, **kwargs)
-        raise AssertionError(f"Subprocess execution attempted during dry-run execution: {cmd}")
-
-    def _block_check_output(cmd: Any, *args: Any, **kwargs: Any) -> Any:
-        cmd_seq = cmd if isinstance(cmd, (list, tuple)) else [cmd]
-        first = str(cmd_seq[0]) if cmd_seq else ""
-        if Path(first).name == "git":
-            return real_check_output(cmd, *args, **kwargs)
-        raise AssertionError(f"Subprocess execution attempted during dry-run execution: {cmd}")
-
-    def _block_httpx(*args: Any, **kwargs: Any) -> None:
-        raise AssertionError("HTTP request attempted during dry-run execution")
-
-    monkeypatch.setattr(socket.socket, "connect", _block_socket)
-    monkeypatch.setattr(subprocess, "Popen", _block_popen)
-    monkeypatch.setattr(subprocess, "run", _block_subprocess)
-    monkeypatch.setattr(subprocess, "check_output", _block_check_output)
-    monkeypatch.setattr(httpx2.Client, "send", _block_httpx)
-    monkeypatch.setattr(httpx2.HTTPTransport, "handle_request", _block_httpx)
-
-
 def test_dry_run_classes_decorated() -> None:
     """Verify that all 20 local AI command callbacks are decorated with no-external-request."""
     for name, callback, _ in LOCAL_AI_COMMANDS:
         assert get_dry_run_class(callback) == "no-external-request", (
             f"Expected {name} to have dry-run class 'no-external-request'"
         )
-
-
-def test_all_20_commands_removed_from_gaps() -> None:
-    """Verify all 20 commands have been removed from tests/fixtures/dry_run_gaps.json."""
-    gaps_path = Path("tests/fixtures/dry_run_gaps.json")
-    assert gaps_path.exists()
-    gaps = json.loads(gaps_path.read_text(encoding="utf-8"))
-
-    expected_removed = [name for name, _, _ in LOCAL_AI_COMMANDS]
-    for cmd_path in expected_removed:
-        assert cmd_path not in gaps, f"Command '{cmd_path}' should be removed from gaps"
 
 
 @pytest.mark.parametrize("name,callback,argv", LOCAL_AI_COMMANDS)

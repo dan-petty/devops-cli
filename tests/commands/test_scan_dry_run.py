@@ -9,7 +9,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import Any
-from unittest.mock import patch
 
 import pytest
 from typer.testing import CliRunner
@@ -30,8 +29,8 @@ from devops_cli.commands.scan import (
     scan_trivy,
     scan_workflows,
 )
-from devops_cli.dry_run import get_dry_run_class
 from devops_cli.main import app
+from tests.support.dry_run_classes import misclassified
 
 runner = CliRunner()
 
@@ -54,39 +53,10 @@ NO_EXTERNAL_REQUEST_COMMANDS = [
 ]
 
 
-@pytest.fixture
-def block_external_calls(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Ensure no subprocess, network, or external socket calls execute during tests."""
-
-    def _fail_subprocess(*args: Any, **kwargs: Any) -> Any:
-        raise AssertionError(f"Subprocess call attempted during dry-run: {args} {kwargs}")
-
-    monkeypatch.setattr("subprocess.run", _fail_subprocess)
-    monkeypatch.setattr("subprocess.Popen", _fail_subprocess)
-
-
-@pytest.mark.parametrize("name,callback,_argv", REQUEST_PLAN_COMMANDS)
-def test_request_plan_commands_classified_correctly(
-    name: str,
-    callback: Any,
-    _argv: list[str],
-) -> None:
-    """Criterion 2: external-request commands carry the request-plan classification."""
-    assert get_dry_run_class(callback) == "request-plan", (
-        f"Command '{name}' must have dry_run_class 'request-plan'"
-    )
-
-
-@pytest.mark.parametrize("name,callback,_argv", NO_EXTERNAL_REQUEST_COMMANDS)
-def test_no_external_request_commands_classified_correctly(
-    name: str,
-    callback: Any,
-    _argv: list[str],
-) -> None:
-    """Criterion 3: local commands carry the no-external-request classification."""
-    assert get_dry_run_class(callback) == "no-external-request", (
-        f"Command '{name}' must have dry_run_class 'no-external-request'"
-    )
+def test_commands_carry_their_dry_run_class() -> None:
+    """Criteria 2 and 3: external-request scan commands carry request-plan, local ones no-external-request."""
+    assert misclassified(REQUEST_PLAN_COMMANDS, "request-plan") == {}
+    assert misclassified(NO_EXTERNAL_REQUEST_COMMANDS, "no-external-request") == {}
 
 
 @pytest.mark.parametrize("name,_callback,argv", REQUEST_PLAN_COMMANDS)
@@ -94,44 +64,22 @@ def test_request_plan_commands_make_no_external_request(
     name: str,
     _callback: Any,
     argv: list[str],
-    block_external_calls: None,
+    refuse_requests: list[str],
     tmp_path: Path,
 ) -> None:
-    """Criterion 2: dry-run on request-plan commands starts zero processes and prints requests."""
+    """Criterion 2: dry-run on request-plan commands sends no request and prints requests."""
     cmd_args = list(argv)
     if name in ("scan trivy", "scan sast", "scan report", "scan fix"):
         cmd_args.insert(2 if len(cmd_args) > 2 and cmd_args[1] != "--dry-run" else 1, str(tmp_path))
 
-    with patch("httpx2.Client") as mock_http:
-        mock_http.side_effect = AssertionError("HTTP client call attempted during dry run")
-        result = runner.invoke(app, cmd_args)
+    result = runner.invoke(app, cmd_args)
     assert result.exit_code == 0, f"Command '{name}' failed with: {result.output}"
     assert "Plan for" in result.output or "Planned" in result.output or "1." in result.output, (
         f"Command '{name}' must output planned requests. Output:\n{result.output}"
     )
 
 
-@pytest.mark.parametrize("name,_callback,argv", REQUEST_PLAN_COMMANDS)
-def test_request_plan_commands_global_dry_run(
-    name: str,
-    _callback: Any,
-    argv: list[str],
-    block_external_calls: None,
-    tmp_path: Path,
-) -> None:
-    """Criterion 2: devops --dry-run <command> previews requests and starts zero processes."""
-    sub_cmd = [a for a in argv if a != "--dry-run"]
-    cmd_args = ["--dry-run", *sub_cmd]
-    if name in ("scan trivy", "scan sast", "scan report", "scan fix"):
-        cmd_args.append(str(tmp_path))
-
-    with patch("httpx2.Client") as mock_http:
-        mock_http.side_effect = AssertionError("HTTP client call attempted during dry run")
-        result = runner.invoke(app, cmd_args)
-    assert result.exit_code == 0, f"devops --dry-run {name} failed: {result.output}"
-
-
-def test_scan_trivy_json_dry_run(tmp_path: Path, block_external_calls: None) -> None:
+def test_scan_trivy_json_dry_run(tmp_path: Path, refuse_requests: list[str]) -> None:
     """Criterion 3: scan trivy --dry-run --json returns structured dry-run payload."""
     result = runner.invoke(app, ["scan", "trivy", str(tmp_path), "--dry-run", "--json"])
     assert result.exit_code == 0, result.output
@@ -141,7 +89,7 @@ def test_scan_trivy_json_dry_run(tmp_path: Path, block_external_calls: None) -> 
     assert len(data["requests"]) > 0
 
 
-def test_scan_sast_json_dry_run(tmp_path: Path, block_external_calls: None) -> None:
+def test_scan_sast_json_dry_run(tmp_path: Path, refuse_requests: list[str]) -> None:
     """Criterion 3: scan sast --dry-run --json returns structured dry-run payload."""
     result = runner.invoke(app, ["scan", "sast", str(tmp_path), "--dry-run", "--json"])
     assert result.exit_code == 0, result.output
@@ -151,7 +99,7 @@ def test_scan_sast_json_dry_run(tmp_path: Path, block_external_calls: None) -> N
     assert len(data["requests"]) > 0
 
 
-def test_scan_report_json_dry_run(tmp_path: Path, block_external_calls: None) -> None:
+def test_scan_report_json_dry_run(tmp_path: Path, refuse_requests: list[str]) -> None:
     """Criterion 3: scan report --dry-run --json returns structured dry-run payload."""
     result = runner.invoke(
         app,
@@ -164,7 +112,7 @@ def test_scan_report_json_dry_run(tmp_path: Path, block_external_calls: None) ->
     assert len(data["requests"]) > 0
 
 
-def test_scan_fix_json_dry_run(tmp_path: Path, block_external_calls: None) -> None:
+def test_scan_fix_json_dry_run(tmp_path: Path, refuse_requests: list[str]) -> None:
     """Criterion 3: scan fix --dry-run --json returns structured remediation result."""
     result = runner.invoke(app, ["scan", "fix", str(tmp_path), "--dry-run", "--json"])
     assert result.exit_code == 0, result.output

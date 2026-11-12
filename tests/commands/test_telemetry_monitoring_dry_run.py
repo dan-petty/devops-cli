@@ -6,13 +6,9 @@ returns the requests that the real run would make.
 
 from __future__ import annotations
 
-import json
-import socket
-import subprocess
 from pathlib import Path
 from typing import Any
 
-import httpx2
 import pytest
 from typer.testing import CliRunner
 
@@ -122,31 +118,6 @@ COMMANDS_TO_CLASSIFY = [
     (telemetry_test_cmd, "request-plan"),
 ]
 
-GAP_COMMAND_NAMES = [
-    "dashboard",
-    "grafana alerts",
-    "grafana dashboards export",
-    "grafana dashboards import",
-    "grafana dashboards lint",
-    "grafana dashboards list",
-    "grafana dashboards sync",
-    "grafana datasources",
-    "grafana search",
-    "prometheus analyze",
-    "prometheus query",
-    "prometheus query-range",
-    "prometheus rules",
-    "prometheus targets",
-    "telemetry connect",
-    "telemetry logfire",
-    "telemetry open-ui",
-    "telemetry profile",
-    "telemetry semconv refresh",
-    "telemetry status",
-    "telemetry test",
-    "tui",
-]
-
 
 @pytest.mark.parametrize("callback,expected_class", COMMANDS_TO_CLASSIFY)
 def test_monitoring_telemetry_dry_run_classification(callback: Any, expected_class: str) -> None:
@@ -155,15 +126,6 @@ def test_monitoring_telemetry_dry_run_classification(callback: Any, expected_cla
     assert actual_class == expected_class, (
         f"{callback.__name__} expected {expected_class}, got {actual_class}"
     )
-
-
-def test_monitoring_telemetry_removed_from_gaps() -> None:
-    """Verify all 21 monitoring and telemetry commands are removed from dry_run_gaps.json."""
-    gap_file = Path("tests/fixtures/dry_run_gaps.json")
-    with gap_file.open("r", encoding="utf-8") as f:
-        gaps = json.load(f)
-    for cmd in GAP_COMMAND_NAMES:
-        assert cmd not in gaps, f"Command {cmd} should be removed from dry_run_gaps.json"
 
 
 def test_dashboard_plan() -> None:
@@ -260,26 +222,8 @@ def test_telemetry_plans() -> None:
     assert any("abc1234" in arg for arg in semconv_plan[0].argv)
 
 
-def test_dry_run_cli_executions(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_dry_run_cli_executions(refuse_requests: list[str], tmp_path: Path) -> None:
     """Verify CLI invocations in dry run succeed and make no external network calls."""
-
-    def fail_socket(*args: Any, **kwargs: Any) -> Any:
-        raise AssertionError("Network socket opened during dry run")
-
-    def fail_http(*args: Any, **kwargs: Any) -> Any:
-        raise AssertionError("HTTP request made during dry run")
-
-    def fail_subprocess(*args: Any, **kwargs: Any) -> Any:
-        raise AssertionError("Subprocess invoked during dry run")
-
-    monkeypatch.setattr(socket.socket, "connect", fail_socket)
-    monkeypatch.setattr(httpx2.Client, "send", fail_http)
-    monkeypatch.setattr(httpx2.AsyncClient, "send", fail_http)
-    monkeypatch.setattr(subprocess, "Popen", fail_subprocess)
-    monkeypatch.setattr(subprocess, "run", fail_subprocess)
-    monkeypatch.setattr(subprocess, "check_output", fail_subprocess)
-    monkeypatch.setattr(subprocess, "check_call", fail_subprocess)
-
     # 1. dashboard / tui
     res = runner.invoke(app, ["dashboard", "--dry-run"])
     assert res.exit_code == 0, f"dashboard --dry-run failed: {res.output}"

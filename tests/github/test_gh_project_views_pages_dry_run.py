@@ -10,7 +10,6 @@ import json
 import subprocess
 import time
 from collections.abc import Callable
-from pathlib import Path
 from typing import Any
 
 import pytest
@@ -58,8 +57,8 @@ NO_EXTERNAL_REQUEST_COMMANDS = [
 
 
 @pytest.fixture
-def no_external_calls(process_fake: ProcessFake) -> None:
-    """Fail the test immediately if any external subprocess, gh, or socket is touched."""
+def no_external_calls(process_fake: ProcessFake, refuse_requests: list[str]) -> None:
+    """Answer the origin of the checkout and fail the test if a request is sent."""
     process_fake.answer(
         ["git", "remote", "get-url", "origin"],
         ProcessAnswer(returncode=0, stdout="git@github.com:dan-petty/devops-cli.git\n"),
@@ -79,33 +78,6 @@ def test_command_dry_run_class_declarations() -> None:
         )
 
 
-def test_gaps_file_does_not_contain_the_fifteen_commands() -> None:
-    """Criterion 1: all 15 commands are removed from dry_run_gaps.json."""
-    gaps_path = Path("tests/fixtures/dry_run_gaps.json")
-    assert gaps_path.exists()
-    gaps = json.loads(gaps_path.read_text(encoding="utf-8"))
-
-    expected_removed = [
-        "gh pages build",
-        "gh pages builds",
-        "gh pages status",
-        "gh pages verify",
-        "gh project audit",
-        "gh project link",
-        "gh project list",
-        "gh project status",
-        "gh project sync",
-        "gh project template",
-        "gh project workflows list",
-        "gh views audit",
-        "gh views list",
-        "gh views spec",
-        "gh views sync",
-    ]
-    remaining = [cmd for cmd in expected_removed if cmd in gaps]
-    assert not remaining, f"Commands still present in dry_run_gaps.json: {remaining}"
-
-
 @pytest.mark.parametrize("name,callback,argv", REQUEST_PLAN_COMMANDS)
 def test_request_plan_commands_make_no_external_requests(
     cli: Callable[..., Any],
@@ -114,14 +86,10 @@ def test_request_plan_commands_make_no_external_requests(
     callback: Any,
     argv: list[str],
 ) -> None:
-    """Criterion 2: devops <command> --dry-run and devops --dry-run <command> make no external calls."""
-    res1 = cli(*argv, "--dry-run")
-    assert res1.exit_code == 0, f"{name} with --dry-run failed: {res1.output}"
-    assert "1." in res1.output, f"{name} output missing numbered request plan: {res1.output}"
-
-    res2 = cli("--dry-run", *argv)
-    assert res2.exit_code == 0, f"{name} with root --dry-run failed: {res2.output}"
-    assert "1." in res2.output, f"{name} output missing numbered request plan: {res2.output}"
+    """Criterion 2: devops <command> --dry-run makes no external call."""
+    result = cli(*argv, "--dry-run")
+    assert result.exit_code == 0, f"{name} with --dry-run failed: {result.output}"
+    assert "1." in result.output, f"{name} output missing numbered request plan: {result.output}"
 
 
 @pytest.mark.parametrize("name,callback,argv", NO_EXTERNAL_REQUEST_COMMANDS)

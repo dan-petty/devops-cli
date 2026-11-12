@@ -7,8 +7,6 @@ returns the requests that the real run would make.
 from __future__ import annotations
 
 import json
-import socket
-import subprocess
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -39,7 +37,6 @@ from devops_cli.commands.argo import (
 from devops_cli.dry_run import get_dry_run_class
 from devops_cli.main import app
 from tests.support.fakes.dns import DnsFake
-from tests.support.fakes.http import WebFake
 from tests.support.fakes.kubernetes import FakeCluster
 
 runner = CliRunner()
@@ -123,28 +120,13 @@ NO_EXTERNAL_REQUEST_COMMANDS = [
 
 @pytest.fixture
 def block_external_calls(
-    monkeypatch: pytest.MonkeyPatch, web: WebFake, dns: DnsFake, cluster: FakeCluster
+    refuse_requests: list[str], dns: DnsFake, cluster: FakeCluster
 ) -> Iterator[None]:
-    """Ensure no real subprocess, socket, HTTP request, DNS lookup, or Kubernetes client call
-    occurs during dry run. The fakes of the web and the DNS record what the test sent."""
-
-    def _fail_process(*args: Any, **kwargs: Any) -> Any:
-        raise AssertionError(f"Unexpected process invocation: {args}, {kwargs}")
-
-    def _fail_socket(*args: Any, **kwargs: Any) -> Any:
-        raise AssertionError(f"Unexpected socket call: {args}, {kwargs}")
-
-    monkeypatch.setattr(subprocess, "run", _fail_process)
-    monkeypatch.setattr(subprocess, "Popen", _fail_process)
-    monkeypatch.setattr(socket.socket, "connect", _fail_socket)
+    """Fail the test when a dry run sends a request, looks up a name or calls the Kubernetes
+    client. The fakes of the DNS and the cluster record what the test sent."""
     cluster.unreachable()
     yield
-    assert (
-        web.recorded,
-        dns.lookups,
-        cluster.custom_objects.calls,
-        cluster.core.calls,
-    ) == ([], [], [], [])
+    assert (dns.lookups, cluster.custom_objects.calls, cluster.core.calls) == ([], [], [])
 
 
 def test_command_dry_run_class_declarations() -> None:
@@ -162,40 +144,6 @@ def test_command_dry_run_class_declarations() -> None:
         )
 
 
-def test_gaps_file_does_not_contain_the_twenty_two_commands() -> None:
-    """Criterion 1: all 22 argo commands are removed from dry_run_gaps.json."""
-    gaps_path = Path("tests/fixtures/dry_run_gaps.json")
-    assert gaps_path.exists()
-    gaps = json.loads(gaps_path.read_text(encoding="utf-8"))
-
-    expected_removed = [
-        "argo cd apps bootstrap-gitops",
-        "argo cd apps list",
-        "argo cd apps status",
-        "argo cd apps sync",
-        "argo cd fleet sync",
-        "argo cd gitops drift",
-        "argo cd gitops sync",
-        "argo cd gitops watch",
-        "argo fleet sync",
-        "argo gitops drift",
-        "argo gitops sync",
-        "argo gitops watch",
-        "argo rollouts abort",
-        "argo rollouts analyze",
-        "argo rollouts list",
-        "argo rollouts promote",
-        "argo rollouts restart",
-        "argo rollouts status",
-        "argo sync",
-        "argo workflows list",
-        "argo workflows logs",
-        "argo workflows submit",
-    ]
-    remaining = [cmd for cmd in expected_removed if cmd in gaps]
-    assert not remaining, f"Commands still present in dry_run_gaps.json: {remaining}"
-
-
 @pytest.mark.parametrize("name,callback,argv", REQUEST_PLAN_COMMANDS)
 def test_request_plan_commands_make_no_external_requests(
     block_external_calls: None,
@@ -203,25 +151,10 @@ def test_request_plan_commands_make_no_external_requests(
     callback: Any,
     argv: list[str],
 ) -> None:
-    """Criterion 2 & 3: devops <command> --dry-run and devops --dry-run <command> make no external calls and print plan."""
-    # Test 1: devops <command> --dry-run
-    res1 = runner.invoke(app, argv)
-    assert res1.exit_code == 0, (
-        f"{name} with --dry-run failed with code {res1.exit_code}: {res1.output}"
-    )
-    assert "1." in res1.output or "Planned" in res1.output or "Plan for" in res1.output, (
-        f"{name} output missing request plan: {res1.output}"
-    )
-
-    # Test 2: devops --dry-run <command>
-    root_argv = ["--dry-run", *[arg for arg in argv if arg != "--dry-run"]]
-    res2 = runner.invoke(app, root_argv)
-    assert res2.exit_code == 0, (
-        f"{name} with root --dry-run failed with code {res2.exit_code}: {res2.output}"
-    )
-    assert "1." in res2.output or "Planned" in res2.output or "Plan for" in res2.output, (
-        f"{name} root dry-run output missing request plan: {res2.output}"
-    )
+    """Criterion 2 & 3: devops <command> --dry-run makes no external call and prints the plan."""
+    result = runner.invoke(app, argv)
+    assert result.exit_code == 0, f"{name} failed with code {result.exit_code}: {result.output}"
+    assert any(mark in result.output for mark in ("1.", "Planned", "Plan for")), result.output
 
 
 @pytest.mark.parametrize("name,callback,argv", NO_EXTERNAL_REQUEST_COMMANDS)

@@ -6,8 +6,6 @@ returns the requests that the real run would make.
 
 from __future__ import annotations
 
-import socket
-import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -55,8 +53,8 @@ from devops_cli.commands.kustomize import (
 from devops_cli.commands.kustomize import (
     diff as kustomize_diff,
 )
-from devops_cli.dry_run import get_dry_run_class
 from devops_cli.main import app
+from tests.support.dry_run_classes import misclassified
 
 runner = CliRunner()
 
@@ -94,45 +92,15 @@ NO_EXTERNAL_REQUEST_COMMANDS = [
 ]
 
 
-@pytest.fixture
-def block_external_calls(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Ensure no real subprocess, socket, or process executions occur during dry-run."""
-
-    def _fail_process(*args: Any, **kwargs: Any) -> Any:
-        raise AssertionError(f"Unexpected process invocation: {args}, {kwargs}")
-
-    def _fail_socket(*args: Any, **kwargs: Any) -> Any:
-        raise AssertionError(f"Unexpected socket call: {args}, {kwargs}")
-
-    monkeypatch.setattr(subprocess, "run", _fail_process)
-    monkeypatch.setattr(subprocess, "Popen", _fail_process)
-    monkeypatch.setattr(socket, "socket", _fail_socket)
-    monkeypatch.setattr(socket, "create_connection", _fail_socket)
-
-
-@pytest.mark.parametrize("cmd_name,callback,argv", REQUEST_PLAN_COMMANDS)
-def test_request_plan_commands_classified(cmd_name: str, callback: Any, argv: list[str]) -> None:
-    """Verify that external-request commands carry request-plan dry-run class."""
-    cls = get_dry_run_class(callback)
-    assert cls == "request-plan", (
-        f"Command '{cmd_name}' has dry-run class {cls!r}, expected 'request-plan'"
-    )
-
-
-@pytest.mark.parametrize("cmd_name,callback,argv", NO_EXTERNAL_REQUEST_COMMANDS)
-def test_no_external_request_commands_classified(
-    cmd_name: str, callback: Any, argv: list[str]
-) -> None:
-    """Verify that local commands carry no-external-request dry-run class."""
-    cls = get_dry_run_class(callback)
-    assert cls == "no-external-request", (
-        f"Command '{cmd_name}' has dry-run class {cls!r}, expected 'no-external-request'"
-    )
+def test_commands_carry_their_dry_run_class() -> None:
+    """Manifest commands that reach the cluster carry request-plan, and lint commands no-external-request."""
+    assert misclassified(REQUEST_PLAN_COMMANDS, "request-plan") == {}
+    assert misclassified(NO_EXTERNAL_REQUEST_COMMANDS, "no-external-request") == {}
 
 
 @pytest.mark.parametrize("cmd_name,callback,argv", REQUEST_PLAN_COMMANDS)
 def test_request_plan_commands_execute_offline(
-    cmd_name: str, callback: Any, argv: list[str], block_external_calls: None
+    cmd_name: str, callback: Any, argv: list[str], refuse_requests: list[str]
 ) -> None:
     """Executing --dry-run prints request plan and makes zero external requests."""
     res = runner.invoke(app, argv)

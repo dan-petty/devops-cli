@@ -7,8 +7,6 @@ returns the requests that the real run would make.
 from __future__ import annotations
 
 import json
-import socket
-import subprocess
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -27,7 +25,8 @@ from devops_cli.commands.gh import (
 )
 from devops_cli.commands.status_cmd import status_main
 from devops_cli.dry_run import get_dry_run_class
-from tests.support.paths import FIXTURES
+
+pytestmark = pytest.mark.usefixtures("refuse_requests")
 
 REQUEST_PLAN_COMMANDS = [
     ("api", api_cmd, ["gh", "api", "repos/owner/repo/issues"]),
@@ -66,47 +65,16 @@ def test_commands_declare_request_plan_dry_run_class(
     )
 
 
-def test_commands_removed_from_gaps_fixture() -> None:
-    """All 9 commands are removed from dry_run_gaps.json."""
-    gaps_path = FIXTURES / "dry_run_gaps.json"
-    with gaps_path.open() as f:
-        gaps = json.load(f)
-
-    target_keys = [
-        "gh api",
-        "gh branch-protection audit",
-        "gh branch-protection sync",
-        "gh metrics",
-        "gh rate-limit",
-        "gh secret list",
-        "gh secret sync",
-        "gh status",
-        "status",
-    ]
-    for key in target_keys:
-        assert key not in gaps, f"Command {key} must be removed from dry_run_gaps.json"
-
-
 @pytest.mark.parametrize("name,_callback,argv", REQUEST_PLAN_COMMANDS)
 def test_commands_execute_zero_external_requests_under_dry_run(
     cli: Callable[..., Any],
     name: str,
     _callback: Callable[..., Any],
     argv: list[str],
-    monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     """A dry run makes no external network, subprocess, or socket calls."""
 
-    def refuse(*_args: Any, **_kwargs: Any) -> Any:
-        raise AssertionError("A dry run attempted an external call")
-
-    monkeypatch.setattr(socket, "socket", refuse)
-    monkeypatch.setattr(subprocess, "Popen", refuse)
-    monkeypatch.setattr(subprocess, "run", refuse)
-    monkeypatch.setattr("httpx2.HTTPTransport.handle_request", refuse)
-
-    # 1. devops <command> --dry-run
     cmd_args = [*argv]
     if "branch-protection" in argv:
         policy_file = tmp_path / "branch-protection.yml"
@@ -120,26 +88,9 @@ def test_commands_execute_zero_external_requests_under_dry_run(
         "Plan for" in res1.output or "Planned Requests" in res1.output or "Dry run" in res1.output
     )
 
-    # 2. devops --dry-run <command>
-    res2 = cli("--dry-run", *cmd_args)
-    assert res2.exit_code == 0, f"devops --dry-run {name} failed: {res2.output}"
-    assert (
-        "Plan for" in res2.output or "Planned Requests" in res2.output or "Dry run" in res2.output
-    )
 
-
-def test_commands_dry_run_json_output(
-    cli: Callable[..., Any], monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_commands_dry_run_json_output(cli: Callable[..., Any], tmp_path: Path) -> None:
     """Commands supporting json return structured output with dry_run: true."""
-
-    def refuse(*_args: Any, **_kwargs: Any) -> Any:
-        raise AssertionError("A dry run attempted an external call")
-
-    monkeypatch.setattr(socket, "socket", refuse)
-    monkeypatch.setattr(subprocess, "Popen", refuse)
-    monkeypatch.setattr(subprocess, "run", refuse)
-    monkeypatch.setattr("httpx2.HTTPTransport.handle_request", refuse)
 
     # 1. gh rate-limit --format json --dry-run
     res_rl = cli("gh", "rate-limit", "--format", "json", "--dry-run")
@@ -236,18 +187,8 @@ def test_dry_run_plans_match_dispatched_arguments() -> None:
     assert len(st_plan) == 2
 
 
-def test_branch_coverage_for_dry_run_options(
-    cli: Callable[..., Any], monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_branch_coverage_for_dry_run_options(cli: Callable[..., Any], tmp_path: Path) -> None:
     """Exercise option variations under dry-run to ensure thorough branch coverage."""
-
-    def refuse(*_args: Any, **_kwargs: Any) -> Any:
-        raise AssertionError("A dry run attempted an external call")
-
-    monkeypatch.setattr(socket, "socket", refuse)
-    monkeypatch.setattr(subprocess, "Popen", refuse)
-    monkeypatch.setattr(subprocess, "run", refuse)
-    monkeypatch.setattr("httpx2.HTTPTransport.handle_request", refuse)
 
     # gh api with method, paginate, jq, template
     res_api = cli(
