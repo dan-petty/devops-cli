@@ -116,11 +116,16 @@ class _Store(InMemoryRoadmapStore):
         super().set_field(item, field, value, **options)
 
     def set_marks(
-        self, item: Item, marks: Mapping[Any, str | None], *, body: str | None = None
+        self,
+        item: Item,
+        marks: Mapping[Any, str | None],
+        *,
+        body: str | None = None,
+        **options: Any,
     ) -> None:
         if body is not None:
             self.order.append(f"body #{item.number}")
-        super().set_marks(item, marks, body=body)
+        super().set_marks(item, marks, body=body, **options)
 
 
 @pytest.fixture

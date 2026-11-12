@@ -1027,11 +1027,19 @@ class RoadmapStore(Protocol):
         """
 
     def set_marks(
-        self, item: Item, marks: Mapping[Any, str | int | None], *, body: str | None = None
+        self,
+        item: Item,
+        marks: Mapping[Any, str | int | None],
+        *,
+        body: str | None = None,
+        unchanged: ItemField | None = None,
     ) -> None:
         """Set or clear a job's marks in the Item's job record in one write, changing none of
         its fields. When `body` is given, it replaces the text before the record block in the
-        same write. It raises like `set_field` before the store changes anything."""
+        same write. It raises like `set_field` before the store changes anything. When
+        `unchanged` names a field that someone changed since the store read the Item, it raises
+        `RoadmapItemChangedError` before any write: the marks belong to a decision on the value
+        that the store read (ADR 0002, #5114)."""
 
     def issues(self) -> list[IssueRecord]:
         """Every issue of the repository, open and closed, Item or not; never pull requests."""

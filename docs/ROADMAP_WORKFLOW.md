@@ -44,7 +44,7 @@ Notes on the table:
 
 ## The transitions
 
-Each row is one change of the Status label of an Item. A job never reverts a label that a person set ([ADR 0016](adr/0016-labels-hold-the-roadmap-items-fields.md)). Every job and command writes the label through one writer, `write_status` in `src/devops_cli/roadmap/status_sync.py` (#5018). It writes the label only when it differs, and reads the issue again after the write. When another writer changed the label in between, the write fails with `ROADMAP_STATUS_LOST`, and the next round derives the Status again.
+Each row is one change of the Status label of an Item. A job never reverts a label that a person set ([ADR 0016](adr/0016-labels-hold-the-roadmap-items-fields.md)). Every job and command writes the label through one writer, `write_status` in `src/devops_cli/roadmap/status_sync.py` (#5018). It writes the label only when it differs, and reads the issue again after the write. When another writer changed the label in between, the write fails with `ROADMAP_STATUS_LOST`, and the next round derives the Status again. When the label is equal, the writer writes only the marks and the body of its caller. When someone changed the Status since its caller read the item, the writer writes nothing and fails with `ROADMAP_ITEM_CHANGED`, also when the label is equal (#5114).
 
 | From state | Event | To state | Actor |
 | :--- | :--- | :--- | :--- |

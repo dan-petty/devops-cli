@@ -873,12 +873,23 @@ class GitHubRoadmapStore(RoadmapStore):
             self._written[(item.number, field)] = value
 
     def set_marks(
-        self, item: Item, marks: Mapping[Any, str | int | None], *, body: str | None = None
+        self,
+        item: Item,
+        marks: Mapping[Any, str | int | None],
+        *,
+        body: str | None = None,
+        unchanged: ItemField | None = None,
     ) -> None:
         """Set or clear a job's marks in the Item's job record, as its issue holds it now, in
-        one `PATCH` of the body after one read of the issue."""
+        one `PATCH` of the body after one read of the issue. A field named by `unchanged` that
+        someone changed since the store read it raises before any write (ADR 0002)."""
+        operation = "roadmap.item.set_marks"
         with _JOB_RECORD_LOCK:
-            issue = self._require_issue(item.number, "roadmap.item.set_marks")
+            issue = self._require_issue(item.number, operation)
+            if unchanged is not None:
+                now = item_of(issue.record()).field_value(unchanged)
+                read = self._written.get((item.number, unchanged), item.field_value(unchanged))
+                require_unchanged(f"#{item.number}", unchanged, read, now, read, operation)
             self._edit_issue(issue, changes=marks, text=body)
 
     # ── Issues ──
