@@ -56,13 +56,13 @@ JOB_LIMIT_MINUTES = {
     ("ci.yml", "test-shard"): 20,  # 641 s
     ("ci.yml", "test"): 5,  # 63 s
     ("ci.yml", "job-time"): 5,  # 125 s
-    ("ci.yml", "devcontainer"): 20,  # 416 s; a build with no cache takes longer
     ("ci.yml", "service-image"): 12,  # 308 s
     ("ci.yml", "runner-image"): 12,  # 297 s
     ("ci.yml", "mcp-server-image"): 12,  # 331 s
     ("ci.yml", "dependency-freshness"): 5,  # 33 s
     ("ci.yml", "changed-tests"): 15,  # 797 s before #4509, 174 s after it
     ("service-image-test.yml", "service-image-test"): 20,  # 678 s
+    ("devcontainer-image.yml", "devcontainer"): 20,  # 416 s; a build with no cache takes longer
     ("rule-pack.yml", "rule-pack"): 5,  # 35 s on 2026-10-17; no rule changed after it
     ("docs-site.yml", "docs-site"): 5,  # 35 s
     ("image-pins.yml", "image-pins"): 5,  # 74 s
