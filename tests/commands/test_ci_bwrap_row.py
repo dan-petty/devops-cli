@@ -6,6 +6,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+import yaml
 from typer.testing import CliRunner
 
 from devops_cli.commands.ci import app, get_check_spec
@@ -26,17 +27,34 @@ def _programs(process_fake: ProcessFake) -> list[str]:
     return [call.argv[0] for call in process_fake.calls if call.argv[0] != "git"]
 
 
+def _test_bound(cmd: list[str]) -> int:
+    """The seconds that the row gives each test, from its `--timeout=` option."""
+    return int(next(word for word in cmd if word.startswith("--timeout=")).split("=")[1])
+
+
 def test_the_bwrap_row_runs_the_tests_marked_bwrap_of_the_sandbox_contract_suites() -> None:
     """The row selects the `bwrap` mark in the two contract suites of the sandbox, in one process,
-    and each file is in the tree."""
+    with a bound on each test, and each file is in the tree."""
     cmd = get_check_spec("bwrap").cmd
-    files = cmd[cmd.index("0") + 1 :]
+    files = [word for word in cmd if word.startswith("tests/")]
 
-    assert (cmd[: cmd.index("0") + 1], files, all((REPO_ROOT / f).is_file() for f in files)) == (
+    assert (cmd[:7], files, all((REPO_ROOT / f).is_file() for f in files)) == (
         ["uv", "run", "pytest", "-m", "bwrap", "-n", "0"],
         ["tests/sandbox/test_host_sandbox.py", "tests/ai/test_tool_executor_contract.py"],
         True,
     )
+
+
+def test_a_hung_bwrap_test_fails_before_the_gate_step_of_static_analysis_stops() -> None:
+    """`Static Analysis` runs the row on its GitHub-hosted runner, where bubblewrap can make the
+    sandbox. The bound of each test is shorter than the limit of the gate step, so a hung test
+    fails with its own report before the step stops the job."""
+    ci = yaml.safe_load((REPO_ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8"))
+    step = next(
+        step for step in ci["jobs"]["static"]["steps"] if "devops ci" in step.get("run", "")
+    )
+
+    assert _test_bound(get_check_spec("bwrap").cmd) < step["timeout-minutes"] * 60
 
 
 @pytest.mark.usefixtures("ci_root")

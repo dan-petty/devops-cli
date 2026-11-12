@@ -767,6 +767,10 @@ _BWRAP_SUITE_FILES: Final[tuple[str, ...]] = (
     "tests/sandbox/test_host_sandbox.py",
     "tests/ai/test_tool_executor_contract.py",
 )
+# The bound of each bwrap test, in seconds. `Static Analysis` runs the row on a GitHub-hosted
+# runner, and its gate step has a longer limit (`timeout-minutes` in `ci.yml`), so a hung test
+# fails with its own report before the step stops the job. The slowest test takes 2 s locally.
+_BWRAP_TEST_TIMEOUT_SECONDS: Final[int] = 60
 
 
 def _sandbox_host_refusal() -> str | None:
@@ -947,7 +951,17 @@ def get_check_specs() -> list[CheckSpec]:
         CheckSpec(
             name="bwrap",
             display_title=MESSAGES.ci.bwrap_contract,
-            cmd=["uv", "run", "pytest", "-m", "bwrap", "-n", "0", *_BWRAP_SUITE_FILES],
+            cmd=[
+                "uv",
+                "run",
+                "pytest",
+                "-m",
+                "bwrap",
+                "-n",
+                "0",
+                f"--timeout={_BWRAP_TEST_TIMEOUT_SECONDS}",
+                *_BWRAP_SUITE_FILES,
+            ],
             span_name="ci.step.bwrap",
             metric_step="bwrap",
             host_refusal=_sandbox_host_refusal,
