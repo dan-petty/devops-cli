@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: A paginated devops gh api read of a REST GET counts each page
-`devops gh api --paginate` SHALL read a REST GET of a path through the GitHub session, so that each page adds 1 to `devops_cli_github_requests_total` with the status of its answer. The session SHALL add `per_page=100` to the endpoint when the first `per_page` of its query has no value, as gh adds it, so that it reads the pages that gh reads. gh SHALL keep a GraphQL read, a write, an endpoint with a gh placeholder, a full URL, `--template`, `--cache` and any other gh flag. `--jq` SHALL run on each page.
+`devops gh api --paginate` SHALL read a REST GET of a path through the GitHub session, so that each page adds 1 to `devops_cli_github_requests_total` with the status of its answer. The session SHALL add `per_page=100` when the endpoint sets no `per_page`, as gh does. gh SHALL keep a GraphQL read, a write, an endpoint with a gh placeholder, a full URL, `--template`, `--cache` and any other gh flag. `--jq` SHALL run on each page.
 
 #### Scenario: A listing of 4 pages
 - **WHEN** `devops gh api 'repos/<owner>/<repo>/issues?state=open&per_page=1' --paginate` reads 4 linked pages from the GitHub fake
