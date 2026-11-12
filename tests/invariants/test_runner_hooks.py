@@ -59,13 +59,18 @@ def _dev_dependencies() -> set[str]:
 def test_every_local_hook_runs_a_tool_that_the_runner_image_holds() -> None:
     """A local hook that starts with `uv run` runs a dev dependency of the lock (the `runner` stage
     syncs the dev group) or the `devops` script. Any other local hook starts a program that the
-    runner image holds (`RUNNER_TOOLS`), as `sh` for `branch-current` (#4670). A hook that needs
-    another program fails here until the image holds the program (#3072)."""
+    runner image holds (`RUNNER_TOOLS`), as `sh` for `branch-current` (#4670). A hook under
+    coreutils `timeout` runs `timeout`, and the command after its limit is checked the same way
+    (#4775). A hook that needs another program fails here until the image holds the program
+    (#3072)."""
     provided = _dev_dependencies() | {"devops"}
     image = set(tool_names())
     unsupported = []
     for hook in _local_hooks():
         words = shlex.split(str(hook["entry"]))
+        if words[0] == "timeout":
+            unsupported += [] if "timeout" in image else [(hook["id"], "timeout")]
+            words = words[2:]
         if words[:2] == ["uv", "run"]:
             tool = words[2] if len(words) > 2 else ""
             held = PROVIDERS.get(tool) in provided

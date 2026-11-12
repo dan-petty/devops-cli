@@ -926,6 +926,50 @@ def test_the_workflow_checks_run_only_when_a_push_changes_a_workflow() -> None:
     ] == [True, True, False, False]
 
 
+# The default limit of the shell tool of an agent, which runs `git push` and so the pre-push
+# hooks, and the time that a push takes outside the hook limits: the start of pre-commit, the
+# transfer to GitHub, and the stop of the rows of two `devops ci` hooks after their limits, each
+# at most SIGINT, SIGTERM and the reap with 3 s each. An inner limit ends before the limit around
+# it (#4775).
+AGENT_SHELL_LIMIT_SECONDS = 120
+PUSH_OUTSIDE_HOOKS_SECONDS = 25
+TIMEOUT_LIMIT = re.compile(r"\btimeout (\d+) ")
+
+
+def _pre_push_overrun(hooks: list[dict[str, Any]]) -> list[str]:
+    """The id of each hook that runs with no coreutils `timeout` limit, and the total time when
+    the limits and the rest of the push do not end before the agent shell limit."""
+    limits = {
+        hook["id"]: [int(seconds) for seconds in TIMEOUT_LIMIT.findall(shlex.join(_argv(hook)))]
+        for hook in hooks
+    }
+    total = sum(map(sum, limits.values())) + PUSH_OUTSIDE_HOOKS_SECONDS
+    unbounded = [hook_id for hook_id, found in limits.items() if not found]
+    return unbounded + ([f"{total} s"] if total >= AGENT_SHELL_LIMIT_SECONDS else [])
+
+
+def test_the_pre_push_hooks_end_before_the_agent_shell_limit() -> None:
+    """Each pre-push hook runs under coreutils `timeout`, and the limits and the rest of the push
+    add up to less than the 120 s default limit of the agent shell. So a hook at its limit fails
+    with its name, and `devops ci` stops its rows, before the shell ends the push (#4775)."""
+    assert _pre_push_overrun(_pre_push_hooks()) == []
+
+
+def test_a_pre_push_sum_past_the_shell_limit_or_a_hook_with_no_limit_is_refused() -> None:
+    """The negative control: a total of 121 s and a hook with no limit are refused, and a total
+    of 119 s passes."""
+
+    def hooks(*entries: str) -> list[dict[str, Any]]:
+        return [{"id": f"h{index}", "entry": entry} for index, entry in enumerate(entries)]
+
+    hook_seconds = 121 - PUSH_OUTSIDE_HOOKS_SECONDS
+    assert (
+        _pre_push_overrun(hooks(f"timeout {hook_seconds - 6} sh -c true", "timeout 6 true")),
+        _pre_push_overrun(hooks(f"timeout {hook_seconds - 2} true")),
+        _pre_push_overrun(hooks("timeout 20 true", "uv run devops ci --check --only format")),
+    ) == (["121 s"], [], ["h1"])
+
+
 def test_a_misspelled_command_in_a_workflow_is_reported() -> None:
     """The negative control: extraction and resolution together report a command that does not
     exist, inside a command substitution and a compound line."""

@@ -141,6 +141,12 @@ RUNNER_TOOLS: tuple[RunnerTool, ...] = (
     _apt("jq", "test:live"),
     _locked("promtool", "gate:test"),
     _base("nice", "ci:security"),
+    _base(
+        "timeout",
+        "hook:branch-current",
+        "hook:devops-ci-pre-push",
+        "hook:devops-ci-workflows-pre-push",
+    ),
     _base("sh", "test:live"),
     _base("bash", "test:live"),
     _base("find", "test:live"),

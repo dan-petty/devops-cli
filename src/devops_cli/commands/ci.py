@@ -14,7 +14,7 @@ import subprocess
 import sys
 import threading
 import time
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Awaitable, Callable, Iterator, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any, Final
 
@@ -253,24 +253,30 @@ def _cancelled_by_stop_signals(
             signal.signal(sig, signal.SIG_DFL if handler is None else handler)
 
 
-async def _run_in_own_session(
-    cmd: list[str], root: Path, timeout: float, capture_output: bool, env: dict[str, str] | None
-) -> subprocess.CompletedProcess[str]:
-    """Run `cmd` in a session of its own, which a timeout, Ctrl-C, SIGTERM or SIGHUP stops as a
-    whole process group."""
+async def _until_stopped[T](run: Awaitable[T]) -> T:
+    """The result of `run`, which Ctrl-C, SIGTERM or SIGHUP cancels. A cancelled run stops each
+    child that it started in a session of its own with the child's whole process group, so a
+    supervisor such as coreutils `timeout` leaves no child running (#1669, #4775)."""
     task = asyncio.current_task()
 
     def cancel() -> None:
         if task is not None:
             task.cancel()
 
+    with _cancelled_by_stop_signals(asyncio.get_running_loop(), cancel):
+        return await run
+
+
+async def _run_in_own_session(
+    cmd: list[str], root: Path, timeout: float, capture_output: bool, env: dict[str, str] | None
+) -> subprocess.CompletedProcess[str]:
+    """Run `cmd` in a session of its own, which a timeout, Ctrl-C, SIGTERM or SIGHUP stops as a
+    whole process group."""
     from devops_cli.core.process import run_subprocess_async
 
-    with _cancelled_by_stop_signals(asyncio.get_running_loop(), cancel):
-        result: subprocess.CompletedProcess[str] = await run_subprocess_async(
-            cmd, cwd=root, timeout=timeout, capture_output=capture_output, env=env
-        )
-    return result
+    return await _until_stopped(
+        run_subprocess_async(cmd, cwd=root, timeout=timeout, capture_output=capture_output, env=env)
+    )
 
 
 def _session_returncode(
@@ -583,6 +589,17 @@ async def _execute_check_async(
                 timed_out=True,
                 timeout_seconds=float(timeout_val),
             )
+        except asyncio.CancelledError:
+            # A stop signal cancelled the gate, and the row's process group is stopped. The line
+            # names the row, because the supervisor that sent the signal names none (#4775).
+            from devops_cli.output import format_duration
+
+            stopped_after = format_duration(clock.monotonic() - start_time)
+            print_muted(
+                f"  {_format_check_badge(False)} [{check_spec.name}] {check_spec.display_title} (stopped after {stopped_after})"
+            )
+            sys.stdout.flush()
+            raise
 
 
 # =============================================================================
@@ -1511,14 +1528,19 @@ def all_checks(
         if not is_dry_run():
             print_info("Executing CI quality gates concurrently...")
             sys.stdout.flush()
-        results = asyncio.run(
-            _run_all_checks_async(
-                lint_fix=effective_fix,
-                format_fix=effective_fix,
-                docs_fix=effective_fix,
-                specs=selected_specs,
+        try:
+            results = asyncio.run(
+                _until_stopped(
+                    _run_all_checks_async(
+                        lint_fix=effective_fix,
+                        format_fix=effective_fix,
+                        docs_fix=effective_fix,
+                        specs=selected_specs,
+                    )
+                )
             )
-        )
+        except asyncio.CancelledError:
+            raise typer.Exit(CONST_EXIT_CANCELLED) from None
         _print_failures(results)
         _print_summary(results, total_elapsed=clock.monotonic() - start_time)
         _warn_when_over_budget(results)

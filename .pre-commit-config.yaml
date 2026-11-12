@@ -122,10 +122,12 @@ repos:
       # (#1752). A commit runs no tests (#2086). The required checks of CI run the test suite and
       # the other checks of `devops ci` before a merge, and `uv run devops ci` runs them by hand.
       # The runner Job of the implement job runs this stage with `pre-commit run` before it pushes
-      # (#3043).
+      # (#3043). coreutils `timeout` ends each check hook at its limit with SIGTERM, and `devops ci`
+      # then stops each row with its process group and names it. The limits of this stage add up
+      # to less than the 120 s default limit of the agent shell (#4775).
       - id: devops-ci-pre-push
         name: devops ci (fast static checks before a push)
-        entry: uv run devops ci --check --only lint,format
+        entry: timeout 40 uv run devops ci --check --only lint,format
         language: system
         stages: [pre-push]
         pass_filenames: false
@@ -137,7 +139,7 @@ repos:
       # apply to a push is not run.
       - id: devops-ci-workflows-pre-push
         name: devops ci (workflow checks before a push that changes a workflow)
-        entry: uv run devops ci --check --only actionlint,zizmor
+        entry: timeout 30 uv run devops ci --check --only actionlint,zizmor
         language: system
         stages: [pre-push]
         files: ^\.github/(workflows|actions)/
