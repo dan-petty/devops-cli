@@ -6,3 +6,10 @@ A process that acts as the App SHALL send the body `{"permissions": CONST_GITHUB
 #### Scenario: The token request names the roadmap jobs' permissions
 - **WHEN** the process acts as App 1001 on installation 42 and mints a token
 - **THEN** the body of `POST /app/installations/42/access_tokens` is `{"permissions": {"issues": "write", "pull_requests": "write", "contents": "write", "checks": "read", "actions": "read", "metadata": "read", "workflows": "write", "administration": "read"}}`
+
+### Requirement: A refused permission names each permission that the token asks for
+When GitHub answers the exchange with HTTP 422, the `GitHubUnauthenticatedError` SHALL name each permission that the token asks for, with its level, because GitHub's reply does not say which permission the installation does not grant.
+
+#### Scenario: The installation does not grant a permission that the token asks for
+- **WHEN** GitHub answers the exchange with HTTP 422 and "The permissions requested are not granted to this installation."
+- **THEN** the token lookup raises `GitHubUnauthenticatedError` whose message holds `devops-roadmap[bot]`, `HTTP 422` and `actions (read), administration (read), checks (read), contents (write), issues (write), metadata (read), pull_requests (write), workflows (write)`

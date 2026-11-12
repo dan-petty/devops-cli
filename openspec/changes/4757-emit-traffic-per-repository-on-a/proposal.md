@@ -8,10 +8,11 @@ The traffic row of the project dashboard has no sample since 2026-10-30. The Ser
 
 - Add `administration` at level `read` to `CONST_GITHUB_APP_TOKEN_PERMISSIONS`, so every installation token request names it.
 - Remove the `acts_as_github_app()` guard and its import from `get_repository_traffic_metrics`, so a process that acts as the App reads the four traffic endpoints.
-- Log one warning that names the repository and `administration: read` when GitHub refuses a traffic endpoint, and keep the refused set of repositories.
-- Modify the base requirement `A path that the token cannot read is not asked again` in place, because it already holds the refusal rule; the change adds the refused repository and the warning to it and corrects the count of its first scenario.
-- Modify the base requirement `The Service collects no repository traffic` in place, because the App now reads the traffic when its token holds the permission.
-- Record the permission in the amendment line, the decision bullet and the consequences of ADR 0015.
+- When GitHub refuses the traffic of a repository, log one warning that names the repository and `administration: read`, in place of the debug line, and keep the refused set of repositories.
+- Rename the base requirement `The Service collects no repository traffic` to `The Service collects repository traffic`, and modify it.
+- Modify the base requirement `A path that the token cannot read is not asked again`: it adds the refused repository and the warning, and it corrects the count of its first scenario, as the code asks each traffic path once.
+- Modify the base requirement `A refused permission names each permission that the token asks for`, because the HTTP 422 message now names eight permissions.
+- Record the permission in an amendment line, the decision bullet and the consequences of ADR 0015, and correct the traffic paragraph of `docs/TELEMETRY.md`.
 - Update the traffic tests of `tests/github/test_github_metrics.py`, `tests/roadmap/test_roadmap_run_metrics.py` and `tests/github/test_github_app_identity.py`.
 - The change fits one pull request.
 
@@ -24,12 +25,13 @@ None.
 ### Modified Capabilities
 
 - `github-app-identity`: Each installation token asks only for the roadmap jobs' permissions
-- `project-metrics-dashboard`: The Service collects no repository traffic, A path that the token cannot read is not asked again
+- `github-app-identity`: A refused permission names each permission that the token asks for
+- `project-metrics-dashboard`: The Service collects repository traffic (renamed from The Service collects no repository traffic), A path that the token cannot read is not asked again
 
 ## Impact
 
 - Code: `src/devops_cli/config/constants.py`, `src/devops_cli/github/metrics.py`
-- Documents: `docs/adr/0015-roadmap-jobs-act-as-a-github-app-on-the-personal-account.md`
+- Documents: `docs/adr/0015-roadmap-jobs-act-as-a-github-app-on-the-personal-account.md`, `docs/TELEMETRY.md`
 - Tests: `tests/github/test_github_app_identity.py`, `tests/github/test_github_metrics.py`, `tests/roadmap/test_roadmap_run_metrics.py`
 
 ## Feasibility
@@ -53,7 +55,9 @@ None.
 - `read_file` of `tests/github/test_github_metrics.py` returned `tests/github/test_github_metrics.py:1072:def test_the_app_asks_no_traffic_endpoint_and_says_so(monkeypatch: pytest.MonkeyPatch) -> None:` and `tests/github/test_github_metrics.py:1224:def test_the_command_prints_that_the_app_collected_no_traffic(`, the two App tests that the group rewrites.
 - The failure class of a `docs` check is `lint` and not `test`: `src/devops_cli/roadmap/failure.py:317:` `r"lint|ruff|format|static|bandit|security|pre-push|pre-commit|actionlint|openspec|docs",`, while `src/devops_cli/roadmap/failure.py:314:_rule(FailureClass.TEST, r"test|coverage|pytest"),` gives `test` only for a log that names a test.
 - The ADR group has no command, because `uv run devops ci docs` reads no ADR text: `src/devops_cli/commands/ci.py:2140:` `"""Verify (or update with --fix) that documentation is up to date with CLI commands and configuration."""`. That command would pass with or without the amendment line, so the group gives a manual check instead.
-- The live premise is not checked: that an installation token with `administration: read` gets HTTP 200 from the four traffic endpoints. The first check against the real system runs `gh api repos/<owner>/<repo>/traffic/views` in a process that holds the App's key, and it must print `count` and `uniques`; the second runs `uv run devops gh metrics --repo <owner>/<repo> --json` there, and it must print `"traffic_collected": true`.
+- GitHub's table of the permissions of a GitHub App (docs.github.com, "Permissions required for GitHub Apps", section "Repository permissions for Administration") lists `GET /repos/{owner}/{repo}/traffic/views`, `traffic/clones`, `traffic/popular/paths` and `traffic/popular/referrers` at the level `read`, for the token types `UAT` and `IAT`. So an installation access token that holds `administration: read` can read the four endpoints.
+- ADR 0015 records that the owner gave the App read and write on every repository permission (#2454), so the installation grants `administration`, and a token request that names it at `read` gets no HTTP 422.
+- The live premise is not checked by this change: a probe that mints an installation token with `administration: read` in the Service pod and reads `traffic/views` was refused by the permission check of the agent session. A person runs the probe before the merge. It must print HTTP 200 for the four traffic paths. An HTTP 422 at the mint means that the installation does not grant `administration`, and the change must not merge, because each token of each job would then fail.
 - `get_repository_traffic_metrics(repo)` needs a client of GitHub through `GhCliClient` and a network for each of its reads.
 - `_fetch_repo_metadata(client, repo)` needs a client of GitHub and a network, and the plan reaches it through `get_repository_traffic_metrics`.
 - `mint_installation_token()` needs the App's settings and a network to `POST /app/installations/<id>/access_tokens`.
@@ -67,7 +71,6 @@ Grafana Infinity and prometheus-community/json_exporter read the traffic endpoin
 
 ## Dependencies
 
-- Pull request #4879 shares `src/devops_cli/config/constants.py`; both changes edit the file, and this one adds a single mapping entry.
-- Pull request #4919 shares `src/devops_cli/config/constants.py`; both changes edit the file, and this one adds a single mapping entry.
-- Pull request #4925 shares `src/devops_cli/config/constants.py`; both changes edit the file, and this one adds a single mapping entry.
-- The metric `devops_cli_project_traffic_views` is also held by `docs/TELEMETRY.md`, `k8s/monitoring/dashboards/project-metrics.json`, `openspec/specs/project-metrics-dashboard/spec.md`, `openspec/changes/archive/2026-10-25-974-project-dashboard-reads-latest-snapshot/specs/project-metrics-dashboard/spec.md`, `src/devops_cli/telemetry/instruments.py` and `tests/github/test_github_metrics.py`; the change edits the last one only and reads the others as they are.
+- Pull request #4990 and pull request #4978 change `src/devops_cli/config/constants.py` in other lines; this change adds one entry to `CONST_GITHUB_APP_TOKEN_PERMISSIONS`.
+- Pull request #4986 changes `openspec/specs/project-metrics-dashboard/spec.md` in another requirement.
+- The metric `devops_cli_project_traffic_views` is also held by `k8s/monitoring/dashboards/project-metrics.json`, `openspec/specs/project-metrics-dashboard/spec.md` and `src/devops_cli/telemetry/instruments.py`; the change reads them as they are, and it corrects the traffic paragraph of `docs/TELEMETRY.md`.

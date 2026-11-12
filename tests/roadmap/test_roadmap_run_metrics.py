@@ -202,7 +202,7 @@ def test_the_metrics_row_counts_the_failed_deliveries_of_the_hooks_of_its_reposi
     )
 
 
-def test_the_metrics_job_of_the_app_asks_no_traffic_endpoint(
+def test_the_metrics_job_of_the_app_sends_the_traffic_of_the_repository(
     config: Callable[..., Path],
     git_fake: GitFake,
     seeded_store: InMemoryRoadmapStore,
@@ -213,16 +213,13 @@ def test_the_metrics_job_of_the_app_asks_no_traffic_endpoint(
     git_sim: SimulatedGit,
     otlp: FakeCollector,
 ) -> None:
-    """The installation token of the Service has no Administration permission, so GitHub
-    answers each traffic path with 403 and the round spends four requests a repository for
-    nothing (#2752). The round sends none, logs no warning, and sends the stars and no
-    traffic series."""
+    """The installation token of the Service asks for Administration read (#4757), so the round
+    reads the four traffic paths and sends the views and the stars with the label of the
+    repository, and logs no warning."""
     clone = tmp_path / "clone"
     clone.mkdir()
     (clone / ".git").mkdir()
-    github = GitHubFake(
-        REPO, traffic_answer=(1, "gh: Resource not accessible by integration (HTTP 403)")
-    )
+    github = GitHubFake(REPO)
     github.install(git_fake)
     config(
         service={"github_app": {"app_id": 1001, "installation_id": 42, "slug": "devops-roadmap"}}
@@ -236,4 +233,12 @@ def test_the_metrics_job_of_the_app_asks_no_traffic_endpoint(
         otlp.points(PROJECT_TRAFFIC_VIEWS.name),
         otlp.points(PROJECT_STARS.name),
         [record.getMessage() for record in caplog.records if record.levelno >= logging.WARNING],
-    ) == ([], [], [({"repo": REPO}, 0.0)], [])
+    ) == (
+        [
+            f"repos/{REPO}/traffic/{endpoint}"
+            for endpoint in ("views", "clones", "popular/referrers", "popular/paths")
+        ],
+        [({"repo": REPO}, 0.0)],
+        [({"repo": REPO}, 0.0)],
+        [],
+    )

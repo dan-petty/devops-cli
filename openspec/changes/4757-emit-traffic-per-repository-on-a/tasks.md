@@ -4,26 +4,26 @@
 
 Reads: `src/devops_cli/github/app_installation.py`, `tests/github/test_github_app_identity.py`. Changes: `src/devops_cli/config/constants.py`, `tests/github/test_github_app_identity.py`.
 
-- [ ] 1.1 `test_the_token_request_asks_only_for_the_permissions_the_roadmap_jobs_use` in `tests/github/test_github_app_identity.py` fails once its `ROADMAP_PERMISSIONS` gains `administration: read`, because the request body still names seven permissions
+- [x] 1.1 Add `administration: read` to `ROADMAP_PERMISSIONS` in `tests/github/test_github_app_identity.py`, and add `administration (read)` to the HTTP 422 message of `test_an_installation_without_a_requested_permission_fails_naming_the_permissions`. The token request tests and the 422 test fail, because the request body still names seven permissions
   - Verification: `$ uv run devops ci test tests/github/test_github_app_identity.py` fails on the base
-- [ ] 1.2 Add the entry `administration` at level `read` to `CONST_GITHUB_APP_TOKEN_PERMISSIONS` in `src/devops_cli/config/constants.py`, and name the traffic reads in the comment above it. Add the same entry to `ROADMAP_PERMISSIONS` in `tests/github/test_github_app_identity.py`, so the test reads the body of the exchange with eight permissions
+- [x] 1.2 Add the entry `administration` at level `read` to `CONST_GITHUB_APP_TOKEN_PERMISSIONS` in `src/devops_cli/config/constants.py`, and name the traffic reads in the comment above it
   - Verification: `$ uv run devops ci test tests/github/test_github_app_identity.py` passes
 
 ## 2. Read the traffic of the App and name the missing permission
 
 Reads: `src/devops_cli/core/process.py`, `tests/support/fakes/github_repository.py`. Changes: `src/devops_cli/github/metrics.py`, `tests/github/test_github_metrics.py`, `tests/roadmap/test_roadmap_run_metrics.py`.
 
-- [ ] 2.1 `test_the_app_asks_the_four_traffic_endpoints` in `tests/github/test_github_metrics.py` fails, because `get_repository_traffic_metrics` sends no traffic request when the process acts as the App. `test_a_path_that_the_token_cannot_read_is_asked_once` fails, because it expects one debug line and no warning that names `administration: read`
+- [x] 2.1 In `tests/roadmap/test_roadmap_run_metrics.py`, replace `test_the_metrics_job_of_the_app_asks_no_traffic_endpoint` with `test_the_metrics_job_of_the_app_sends_the_traffic_of_the_repository`, which expects the four traffic calls, the views and the stars with the `repo` label, and no warning. In `tests/github/test_github_metrics.py`, change `test_a_path_that_the_token_cannot_read_is_asked_once` to expect one warning that names `example/repo` and `administration: read`, and no debug line. Both fail on the base
   - Verification: `$ uv run devops ci test tests/github/test_github_metrics.py tests/roadmap/test_roadmap_run_metrics.py` fails on the base
-- [ ] 2.2 Drop `acts_as_github_app()` from the guard of `get_repository_traffic_metrics`, drop it from the import of `devops_cli.core.process`, keep the test on the refused set of repositories, and rewrite the docstring. Replace the debug line with one warning that names the repository and `administration: read`. In `tests/github/test_github_metrics.py`, replace `test_the_app_asks_no_traffic_endpoint_and_says_so` with `test_the_app_asks_the_four_traffic_endpoints`, which asserts the four calls, `traffic_collected` true and the `repo` label of each traffic point; give the fake a refusal in `test_a_report_without_traffic_sends_no_traffic_series`; change `test_a_path_that_the_token_cannot_read_is_asked_once` to expect one warning that names `administration: read`, no debug line and no traffic request in the second collection; and answer the four traffic paths with the 403 refusal in `test_the_command_prints_that_the_app_collected_no_traffic`. In `tests/roadmap/test_roadmap_run_metrics.py`, change `test_the_metrics_job_of_the_app_asks_no_traffic_endpoint` to expect the four calls, no traffic series and the warning
+- [x] 2.2 Drop `acts_as_github_app()` from the guard of `get_repository_traffic_metrics` and from the import of `devops_cli.core.process`, keep the refused set of repositories, and rewrite the docstring. Replace the debug line with one warning that names the repository and `administration: read`. In `tests/github/test_github_metrics.py`, remove the `app` flag of the `_github` helper and `test_the_app_asks_no_traffic_endpoint_and_says_so`, give the fake the refusal in `test_a_report_without_traffic_sends_no_traffic_series`, and answer the four traffic paths with the refusal in `test_the_command_prints_that_the_traffic_was_not_collected`
   - Verification: `$ uv run devops ci test tests/github/test_github_metrics.py tests/roadmap/test_roadmap_run_metrics.py` passes
 
 ## 3. Record the permission in ADR 0015
 
 Reads: `src/devops_cli/config/constants.py`. Changes: `docs/adr/0015-roadmap-jobs-act-as-a-github-app-on-the-personal-account.md`.
 
-- [ ] 3.1 Add an amendment line dated 2026-11-11 that names `administration: read` and issue 4757, in the shape of the `workflows: write` line. Add the permission to the list of the decision bullet that names the token's permissions. Replace the consequence sentence that says the metrics row asks for no traffic, so the record matches the token that each job mints, and run this check by hand: Open `docs/adr/0015-roadmap-jobs-act-as-a-github-app-on-the-personal-account.md` and read the amendment lines: one line dated 2026-11-11 names `administration: read` and issue 4757. Read the decision bullet that lists the token's permissions: it names eight permissions, `administration` at read included. Read the consequence paragraph that names the traffic endpoints: it says the metrics row reads the traffic and no longer says that the row asks for none. Repeat the read on the merged file after any later edit of the record.
-- [ ] 3.2 Edit `docs/adr/0015-roadmap-jobs-act-as-a-github-app-on-the-personal-account.md` and add the amendment line, the permission of the decision bullet and the corrected consequence
+- [x] 3.1 Add an amendment line dated 2026-11-12 that names `administration: read` and issue 4757, in the shape of the `workflows: write` line. Add the permission to the decision bullet that names the token's permissions. Replace the consequence sentence that says the metrics row asks for no traffic. Check by hand: the amendment line names `administration: read` and #4757, the decision bullet names Administration read, and the consequence paragraph says that each token asks for it
+- [x] 3.2 Run the documentation check
   - Verification: `$ uv run devops ci docs` passes
 
 ## Criteria
@@ -36,4 +36,5 @@ Reads: `src/devops_cli/config/constants.py`. Changes: `docs/adr/0015-roadmap-job
 
 ## Workflow follow-up
 
+- Pending a person: before the merge, run the premise probe of the pull request comment: a token that asks for `administration: read` gets HTTP 200 from the four traffic paths.
 - Pending a person: review the diff in tuicr (tuicr -r <base>..HEAD).

@@ -1042,24 +1042,19 @@ def _traffic_paths(repo: str, *, only: str | None = None) -> list[str]:
 
 
 def _github(
-    monkeypatch: pytest.MonkeyPatch,
-    *,
-    app: bool,
-    traffic_answer: tuple[int, str] | None = None,
+    monkeypatch: pytest.MonkeyPatch, *, traffic_answer: tuple[int, str] | None = None
 ) -> GitHubFake:
-    """A fake GitHub at the `gh` edge, with the process acting as the App or as a person."""
+    """A fake GitHub at the `gh` edge. The collector asks the same paths as the App and as a
+    person (#4757); the metrics job test covers the App's token."""
     github = GitHubFake("example/repo", traffic_answer=traffic_answer)
     monkeypatch.setattr(subprocess, "run", github.process(subprocess.run))
-    if app:
-        monkeypatch.setenv(CONST_GITHUB_APP_PRIVATE_KEY_ENV, "mock-app-key")
-    else:
-        monkeypatch.delenv(CONST_GITHUB_APP_PRIVATE_KEY_ENV, raising=False)
+    monkeypatch.delenv(CONST_GITHUB_APP_PRIVATE_KEY_ENV, raising=False)
     return github
 
 
 def test_a_workstation_asks_the_four_traffic_endpoints(monkeypatch: pytest.MonkeyPatch) -> None:
     """A process with a person's login collects the traffic, as before."""
-    github = _github(monkeypatch, app=False)
+    github = _github(monkeypatch)
 
     traffic = get_repository_traffic_metrics("example/repo")
 
@@ -1069,26 +1064,12 @@ def test_a_workstation_asks_the_four_traffic_endpoints(monkeypatch: pytest.Monke
     )
 
 
-def test_the_app_asks_no_traffic_endpoint_and_says_so(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The installation token has no Administration permission, so a process that acts as the
-    App sends no traffic request. The stars and forks still come from the repository read."""
-    github = _github(monkeypatch, app=True)
-
-    traffic = get_repository_traffic_metrics("example/repo")
-
-    assert (github.traffic_calls(), traffic.traffic_collected, traffic.open_issues) == (
-        [],
-        False,
-        0,
-    )
-
-
 def test_a_report_without_traffic_sends_no_traffic_series(
     monkeypatch: pytest.MonkeyPatch, otlp: FakeCollector
 ) -> None:
     """The panels show no data for a series that nothing sends, not a 0 for no visitors. The
     stars and forks are still sent."""
-    _github(monkeypatch, app=True)
+    _github(monkeypatch, traffic_answer=REFUSED_BY_TOKEN)
     report = ProjectMetricsReport(
         repo="example/repo",
         generated_at="2026-10-30 00:00:00 UTC",
@@ -1111,7 +1092,7 @@ def test_a_report_with_traffic_sends_the_traffic_series(
 ) -> None:
     """A workstation sends the four totals. The referrer and path series have a point for each
     referrer and path, and the fake repository has none."""
-    _github(monkeypatch, app=False)
+    _github(monkeypatch)
     report = ProjectMetricsReport(
         repo="example/repo",
         generated_at="2026-10-30 00:00:00 UTC",
@@ -1134,37 +1115,39 @@ def test_a_report_with_traffic_sends_the_traffic_series(
 def test_a_path_that_the_token_cannot_read_is_asked_once(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """After one 403 "Resource not accessible by integration" for a repository and an endpoint,
-    the process does not ask that path again. The refusal logs zero warnings and one debug line (#2626)."""
-    github = _github(monkeypatch, app=False, traffic_answer=REFUSED_BY_TOKEN)
+    """After one 403 "Resource not accessible by integration" for a repository, the process does
+    not ask its traffic again (#2626). One warning names the repository and the permission that
+    the token lacks, so an operator sees why the traffic panels are empty (#4757)."""
+    github = _github(monkeypatch, traffic_answer=REFUSED_BY_TOKEN)
 
     with caplog.at_level(logging.DEBUG, logger="devops_cli.github.metrics"):
         get_repository_traffic_metrics("example/repo")
         get_repository_traffic_metrics("example/repo")
 
-    warnings = [
-        r
-        for r in caplog.records
-        if r.levelno >= logging.WARNING and "traffic" in r.getMessage().lower()
-    ]
-    debugs = [
-        r
-        for r in caplog.records
-        if r.levelno == logging.DEBUG and "integration" in r.getMessage().lower()
-    ]
-
     assert (
         github.traffic_calls(),
-        warnings,
-        len(debugs),
-    ) == (_traffic_paths("example/repo"), [], 1)
+        [
+            (r.levelno, r.getMessage())
+            for r in caplog.records
+            if "traffic" in r.getMessage().lower()
+        ],
+    ) == (
+        _traffic_paths("example/repo"),
+        [
+            (
+                logging.WARNING,
+                "GitHub refused the traffic of example/repo: the token has no "
+                "administration: read. The process asks for it no more until it restarts.",
+            )
+        ],
+    )
 
 
 def test_traffic_api_integration_403_skips_gauges(
     monkeypatch: pytest.MonkeyPatch, otlp: FakeCollector
 ) -> None:
     """When the traffic API returns 403 integration refusal, no traffic gauges are emitted (#2626)."""
-    _github(monkeypatch, app=False, traffic_answer=REFUSED_BY_TOKEN)
+    _github(monkeypatch, traffic_answer=REFUSED_BY_TOKEN)
 
     traffic = get_repository_traffic_metrics("example/repo")
     assert traffic.traffic_collected is False
@@ -1182,7 +1165,7 @@ def test_a_refusal_for_one_repository_does_not_stop_the_others(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The guard keys on the whole path, so another repository is asked."""
-    github = _github(monkeypatch, app=False, traffic_answer=REFUSED_BY_TOKEN)
+    github = _github(monkeypatch, traffic_answer=REFUSED_BY_TOKEN)
 
     get_repository_traffic_metrics("example/one")
     get_repository_traffic_metrics("example/two")
@@ -1202,7 +1185,7 @@ def test_a_failure_that_is_not_a_refusal_by_the_token_is_asked_again(
 ) -> None:
     """A 502 and a 403 for a person without push access pass: the guard is for the refusal that an
     installation token gets, and the rate limiter owns the waits for a rate limit."""
-    github = _github(monkeypatch, app=False, traffic_answer=answer)
+    github = _github(monkeypatch, traffic_answer=answer)
 
     get_repository_traffic_metrics("example/repo")
     get_repository_traffic_metrics("example/repo")
@@ -1212,7 +1195,7 @@ def test_a_failure_that_is_not_a_refusal_by_the_token_is_asked_again(
 
 def test_a_new_process_asks_a_refused_path_again(monkeypatch: pytest.MonkeyPatch) -> None:
     """The guard lasts for the process: a restart sends the path again."""
-    github = _github(monkeypatch, app=False, traffic_answer=REFUSED_BY_TOKEN)
+    github = _github(monkeypatch, traffic_answer=REFUSED_BY_TOKEN)
     get_repository_traffic_metrics("example/repo")
 
     reset_refused_paths()
@@ -1221,14 +1204,12 @@ def test_a_new_process_asks_a_refused_path_again(monkeypatch: pytest.MonkeyPatch
     assert github.traffic_calls() == _traffic_paths("example/repo") * 2
 
 
-def test_the_command_prints_that_the_app_collected_no_traffic(
+def test_the_command_prints_that_the_traffic_was_not_collected(
     cli: CliRunnerFixture,
     process_fake: ProcessFake,
-    monkeypatch: pytest.MonkeyPatch,
     roadmap_store: InMemoryRoadmapStore,
 ) -> None:
-    """A report with no traffic prints "not collected" and no count of views."""
-    monkeypatch.setenv(CONST_GITHUB_APP_PRIVATE_KEY_ENV, "mock-app-key")
+    """A report whose traffic GitHub refused prints "not collected" and no count of views."""
     process_fake.answer(
         ["gh", "api", "rate_limit"],
         ProcessAnswer(stdout=_fresh_quota_payload()),
@@ -1252,6 +1233,11 @@ def test_the_command_prints_that_the_app_collected_no_traffic(
             stdout=json.dumps({"stargazers_count": 3, "forks_count": 0, "open_issues_count": 0})
         ),
     )
+    for path in _traffic_paths("example/repo"):
+        process_fake.answer(
+            ["gh", "api", path],
+            ProcessAnswer(returncode=REFUSED_BY_TOKEN[0], stderr=REFUSED_BY_TOKEN[1]),
+        )
 
     result = cli("gh", "metrics", "--repo", "example/repo")
 

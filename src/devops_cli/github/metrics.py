@@ -32,7 +32,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_TYPE_LABEL_PREFIX,
 )
 from devops_cli.config.defaults import DEFAULT_PROJECT_METRICS_RELEASE_LIMIT
-from devops_cli.core.process import acts_as_github_app, run_subprocess
+from devops_cli.core.process import run_subprocess
 from devops_cli.core.repo import find_worktree_root, get_repo_origin_name
 from devops_cli.exceptions.git import GitHubOperationError
 from devops_cli.github.client import GhCliClient, parse_paginated_json
@@ -649,11 +649,15 @@ def get_label_taxonomy_metrics(repo: str) -> list[LabelTaxonomyMetric]:
 
 
 _refused_paths: set[str] = set()
-_refused_integration_repos: set[str] = set()
 """The GitHub paths that answered this process with HTTP 403 "Resource not accessible by
 integration": the token lacks the permission of the path and keeps lacking it until the process
 restarts, so the collector does not ask again (#2752, #2626). A path holds the repository and the
 endpoint."""
+_TRAFFIC_PERMISSION = "administration: read"
+"""The permission of the four traffic endpoints, which a refusal names (#4757)."""
+_refused_integration_repos: set[str] = set()
+"""The repositories whose traffic GitHub refused in this process, so the collector asks none of
+their traffic endpoints again."""
 
 
 def reset_refused_paths() -> None:
@@ -753,14 +757,14 @@ def _fetch_repo_metadata(client: GhCliClient, repo: str) -> tuple[int, int, int]
 def get_repository_traffic_metrics(repo: str) -> TrafficSummaryMetric:
     """Aggregate traffic, engagement, and metadata analytics for a GitHub repository.
 
-    A process that acts as the GitHub App asks for no traffic: the four endpoints need the
-    Administration permission, which the installation token does not hold, so each answers HTTP
-    403 and spends part of the hourly budget (#2752). The report then has `traffic_collected`
-    false, and only the stars, forks and open issues.
+    The four traffic endpoints need Administration read, which the App's installation token asks
+    for (#4757). When GitHub refuses them, one warning names the repository and the permission,
+    and the process asks for that traffic no more (#2752). The report then has
+    `traffic_collected` false, and only the stars, forks and open issues.
     """
     client = GhCliClient()
     stars, forks, open_issues = _fetch_repo_metadata(client, repo)
-    if acts_as_github_app() or repo in _refused_integration_repos:
+    if repo in _refused_integration_repos:
         return TrafficSummaryMetric(
             traffic_collected=False, stars=stars, forks=forks, open_issues=open_issues
         )
@@ -776,11 +780,13 @@ def get_repository_traffic_metrics(repo: str) -> TrafficSummaryMetric:
         f"repos/{repo}/traffic/popular/paths",
     }
     if traffic_paths & _refused_paths:
-        if repo not in _refused_integration_repos:
-            _refused_integration_repos.add(repo)
-            logger.debug(
-                "Traffic API not accessible by integration for %s: skipping traffic metrics", repo
-            )
+        _refused_integration_repos.add(repo)
+        logger.warning(
+            "GitHub refused the traffic of %s: the token has no %s. The process asks for it no "
+            "more until it restarts.",
+            repo,
+            _TRAFFIC_PERMISSION,
+        )
         return TrafficSummaryMetric(
             traffic_collected=False, stars=stars, forks=forks, open_issues=open_issues
         )
