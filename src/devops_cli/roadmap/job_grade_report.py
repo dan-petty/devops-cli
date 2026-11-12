@@ -45,7 +45,7 @@ class GradeQueryKind(StrEnum):
 
     COUNTS = "counts"
     CLASSES = "classes"
-    FIRST_PASS = "first_pass"
+    FIRST_PASSES = "first_passes"
     TOKENS_P50 = "tokens_p50"
     TOKENS_P90 = "tokens_p90"
     TOKENS_MAX = "tokens_max"
@@ -225,7 +225,7 @@ def _query(kind: GradeQueryKind, window: GradeWindow, repo: RepoRef | None) -> G
                 f"sum by ({_KEY}, failure_class) "
                 f'(count_over_time({lines} | success="false" | infra="false" [{window}]))'
             )
-        case GradeQueryKind.FIRST_PASS:
+        case GradeQueryKind.FIRST_PASSES:
             counts = " ".join(_count_label(count) for count in _FIRST_PASS_COUNTS)
             expr = (
                 f"sum by ({_KEY}, {', '.join(_FIRST_PASS_COUNTS)}) "
@@ -405,7 +405,7 @@ def _parse(window: GradeWindow, answers: Mapping[str, PrometheusQueryResult]) ->
         counts={at: _counts(answer(GradeQueryKind.COUNTS, at)) for at in {window, *TREND_WINDOWS}},
         versions=_versions(answer(GradeQueryKind.COUNTS)),
         classes=_classes(answer(GradeQueryKind.CLASSES)),
-        first_passes=_first_passes(answer(GradeQueryKind.FIRST_PASS)),
+        first_passes=_first_passes(answer(GradeQueryKind.FIRST_PASSES)),
         efficiency={kind: _by_key(answer(kind)) for kind in _EFFICIENCY},
     )
 

@@ -22,7 +22,7 @@
     {"metric": {"roadmap_job": "stage", "repo": "example/app", "failure_class": "plan_defect"}, "value": [1794528000, "1"]},
     {"metric": {"roadmap_job": "implement", "repo": "example/app", "failure_class": "types"}, "value": [1794528000, "1"]}
   ],
-  "first_pass@7d": [
+  "first_passes@7d": [
     {"metric": {"roadmap_job": "stage", "repo": "example/app", "plan_calls": "1", "gate_returns": "0", "verify_rounds": "1"}, "value": [1794528000, "1"]},
     {"metric": {"roadmap_job": "stage", "repo": "example/app", "plan_calls": "4", "gate_returns": "1", "verify_rounds": "3"}, "value": [1794528000, "1"]},
     {"metric": {"roadmap_job": "intake", "repo": "example/app"}, "value": [1794528000, "25"]},

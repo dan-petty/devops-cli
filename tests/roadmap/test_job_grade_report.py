@@ -250,7 +250,7 @@ def test_a_trend_window_that_is_the_report_window_is_queried_once() -> None:
     assert [query.key for query in plan_grade_queries(GradeWindow.H24)] == [
         "counts@24h",
         "classes@24h",
-        "first_pass@24h",
+        "first_passes@24h",
         "tokens_p50@24h",
         "tokens_p90@24h",
         "tokens_max@24h",
