@@ -6,7 +6,10 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from devops_cli.config.constants import CONST_ROADMAP_STAGE_PROBE_MAX_COMMANDS
+from devops_cli.config.constants import (
+    CONST_ROADMAP_DEFINITION_READ_FILES,
+    CONST_ROADMAP_STAGE_PROBE_MAX_COMMANDS,
+)
 from devops_cli.roadmap.refine.refine import git_result
 from devops_cli.roadmap.stage import stage_probe
 from devops_cli.roadmap.stage.stage_probe import blocked_by, probe_premise
@@ -74,6 +77,19 @@ def test_an_identifier_that_the_bound_leaves_undecided_is_not_probed(repo: Stage
     probe = _probe(repo, body)
 
     assert (probe.commands, probe.missing, probe.skipped) == (10, (), ("scout_reaches_target",))
+
+
+def test_a_cut_definition_read_leaves_the_function_not_probed(repo: StageRepo) -> None:
+    callers = {
+        f"src/a{n:02}.rs": f"fn caller_{n}() {{\n    shared_helper();\n}}\n"
+        for n in range(CONST_ROADMAP_DEFINITION_READ_FILES + 1)
+    }
+    repo.track({**callers, "src/z_util.rs": "pub fn shared_helper() {}\n"})
+
+    probe = _probe(repo, "Fix `shared_helper`.")
+
+    assert (probe.missing, probe.skipped) == ((), ("shared_helper",))
+    assert "has no definition" not in probe.text
 
 
 def test_a_deleted_path_names_the_commit_that_deleted_it(repo: StageRepo) -> None:

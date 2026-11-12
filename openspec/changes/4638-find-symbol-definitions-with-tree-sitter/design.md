@@ -3,7 +3,7 @@
 ## Decisions
 - One search for all languages. The first `git grep -F -w` finds every line of a source file that names the name. The Python expression picks the Python definitions from these lines, so a lookup in a Python repository costs one command, as before, and the stage probe keeps its bound.
 - Python first. When a Python file defines the name, the lookup returns those lines and reads no other file. A lookup that the Python files answer gives the same lines as before.
-- One read for the other languages. `git grep -n -z -I -e ^` with a `:(literal)` pathspec for each file prints every line of those files in one command. The lookup parses at most 20 files, so the output stays small.
+- One read for the other languages. `git grep -n -z -I -e ^` with a `:(literal)` pathspec for each file prints every line of those files in one command. The lookup parses at most 20 files, so the output stays small. When more files name the name and none of the 20 defines it, the lookup returns None, because the definition can be in a file that it did not read.
 - The definition line is the first line of the span of the symbol that holds the name. A Java method with an annotation above it starts at the annotation, but its name is on the next line.
 - The probe passes the commands it has left. With one command left and other files to read, the lookup returns None, and the probe lists the identifier as not probed. A probe line never says that a name has no definition when the lookup did not read the files.
 - Markdown files are no source: a heading is no definition, and a document that names a symbol is no caller.

@@ -103,8 +103,9 @@ def definition_lines(
     `<sha>:<path>:<line>:<text>`: those of the Python files when there are any, else those of the
     other source files, at most `CONST_ROADMAP_DEFINITION_READ_FILES` of them. Empty when the commit
     defines no such name. `git` runs each command of a caller that keeps a budget of them, and
-    `commands` is the number of them the caller has left. None when the files of other languages
-    name `name` and the budget leaves no command to read them, so the check is undecided."""
+    `commands` is the number of them the caller has left. None when the check is undecided: the
+    files of other languages name `name` and the budget leaves no command to read them, or more of
+    them name it than the bound lets the check read and none of those it reads defines it."""
     python = _python_definition(name)
     found: list[str] = []
     named: _Named = defaultdict(list)
@@ -120,7 +121,8 @@ def definition_lines(
     if commands < _FULL_CHECK_COMMANDS:
         return None
     read = dict(islice(named.items(), CONST_ROADMAP_DEFINITION_READ_FILES))
-    return tuple(dict.fromkeys(_parsed_definitions(source, sha, name, read, git)))
+    parsed = tuple(dict.fromkeys(_parsed_definitions(source, sha, name, read, git)))
+    return parsed if parsed or len(read) == len(named) else None
 
 
 def defines(source: Path, sha: str, name: str, git: GitResult = git_result) -> bool:

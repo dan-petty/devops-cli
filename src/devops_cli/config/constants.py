@@ -3310,7 +3310,8 @@ CONST_ROADMAP_STAGE_PROBE_MAX_COMMANDS: Final[int] = 10
 CONST_ROADMAP_STAGE_PROBE_DEFINITION_LINES: Final[int] = 3
 # The definition lookup that the stage probe, the refine context and the implement job share
 # (#4638): when no Python file defines a name, it parses at most this many files of other languages
-# that name it. One `git grep` reads each of them whole, so the bound keeps that output small.
+# that name it. One `git grep` reads each of them whole, so the bound keeps that output small. When
+# more files name it and those it reads define it nowhere, the lookup is undecided.
 CONST_ROADMAP_DEFINITION_READ_FILES: Final[int] = 20
 # The verification pass of the stage job (#3153): the tokens of the issue body, the tokens of the
 # start of each file that the plan cites, and the most files in one request. 3000 tokens is the

@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from devops_cli.config.constants import CONST_ROADMAP_DEFINITION_READ_FILES
 from devops_cli.roadmap.premise import added_guard, definition_lines
 from devops_cli.roadmap.refine.refine import git_result
 from tests.support.paths import REPO_ROOT
@@ -105,6 +106,16 @@ def test_a_python_definition_needs_one_command(stage_repo: StageRepo) -> None:
     lines = definition_lines(stage_repo.clone, sha, "scout_reaches_target", spy, commands=1)
 
     assert (lines, len(ran)) == ((f"{sha}:src/scout.py:1:def scout_reaches_target():",), 1)
+
+
+def test_a_cut_read_that_finds_no_definition_is_undecided(stage_repo: StageRepo) -> None:
+    callers = {
+        f"src/a{n:02}.rs": f"fn caller_{n}() {{\n    shared_helper();\n}}\n"
+        for n in range(CONST_ROADMAP_DEFINITION_READ_FILES + 1)
+    }
+    sha = _head(stage_repo, {**callers, "src/z_util.rs": "pub fn shared_helper() {}\n"})
+
+    assert definition_lines(stage_repo.clone, sha, "shared_helper") is None
 
 
 def test_one_command_leaves_a_name_of_another_language_undecided(stage_repo: StageRepo) -> None:

@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: One shared definition lookup reports a definition at a commit
-The stage job, the refine context and the implement job SHALL use `definition_lines` of `src/devops_cli/roadmap/premise.py`. A Python file defines a name with a `def`, a `class` or an assignment line. When no Python file defines it, a file of another language defines it when the tree-sitter grammar of that language finds a symbol of that name in the file. A Markdown file defines nothing. `defines` reports whether the list is not empty.
+The stage job, the refine context and the implement job SHALL use `definition_lines` of `src/devops_cli/roadmap/premise.py`. A Python file defines a name with a `def`, a `class` or an assignment line. If no Python file defines it, a file of another language defines it when its tree-sitter grammar finds a symbol of that name. A Markdown file defines nothing. A lookup that reads only some files that name it and finds no definition SHALL be undecided. `defines` reports a list that is not empty.
 
 #### Scenario: Both jobs get the definition lines from one function
 - **WHEN** The stage job probes a cited identifier and the implement job checks a task at the same commit
@@ -26,3 +26,7 @@ The stage job, the refine context and the implement job SHALL use `definition_li
 #### Scenario: A Python definition costs one command
 - **WHEN** a Python file and a Rust file define the name
 - **THEN** `definition_lines` gives the Python line and runs one git command
+
+#### Scenario: A cut read that finds no definition is undecided
+- **WHEN** 21 Rust files call `shared_helper`, and only `src/z_util.rs`, which is after them in path order, defines it
+- **THEN** `definition_lines` gives None, not an empty list
