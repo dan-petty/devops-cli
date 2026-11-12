@@ -383,23 +383,27 @@ def test_deploy_and_teardown_stack_use_effective_context(
     manifest_dir = tmp_path / "k8s"
     manifest_dir.mkdir()
 
-    # The `logging` stack stands in for the default `infra` stack: the credential sync of
-    # `infra` refuses an EKS ARN context (#4091).
+    # The `infra` stack syncs the Argo CD and Grafana credentials, so the deploy also reads their
+    # Secrets with the ARN context (#4091).
     # When context is None, deploy_stack resolves effective_context from settings
     res_deploy = runner.invoke(
         app,
-        ["deploy-stack", "--stack", "logging", "--k8s-dir", str(manifest_dir)]
+        ["deploy-stack", "--stack", "infra", "--k8s-dir", str(manifest_dir)]
         + ["--no-wait", "--no-push-secrets"],
     )
     deployed = [call.argv for call in process_fake.calls]
-    assert res_deploy.exit_code == 0
-    assert any("--context" in argv and effective in argv for argv in deployed)
+    assert res_deploy.exit_code == 0, res_deploy.output
+    assert "RFC 1123" not in res_deploy.output
+    assert any(
+        argv[:3] == ("kubectl", "get", "secret") and argv[-2:] == ("--context", effective)
+        for argv in deployed
+    )
     assert any("--kube-context" in argv and effective in argv for argv in deployed)
 
     # Teardown stack also uses effective_context
     process_fake.calls.clear()
     res_teardown = runner.invoke(
-        app, ["teardown-stack", "--stack", "logging", "--k8s-dir", str(manifest_dir)]
+        app, ["teardown-stack", "--stack", "infra", "--k8s-dir", str(manifest_dir)]
     )
     assert res_teardown.exit_code == 0
     assert any(

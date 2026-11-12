@@ -2,7 +2,7 @@
 
 ## 1. Context check of the Secret read (behavior)
 
-- [ ] 1.1 Write the failing tests: the Secret read with an EKS ARN context, the refusal of an unsafe context, and the deploy and teardown of the `infra` stack with an ARN context in place of the `logging` stand-in
+- [x] 1.1 Write the failing tests: the Secret read with an EKS ARN context, the refusal of an unsafe context, and the deploy and teardown of the `infra` stack with an ARN context in place of the `logging` stand-in
   - Verification: `$ uv run devops ci test tests/k8s/test_k8s_credentials.py tests/commands/k8s/test_k8s_context.py`
 - [ ] 1.2 Check the context of `fetch_secret_data` with `validate_k8s_context_name` in place of `validate_k8s_name`
   - Verification: `$ uv run devops ci test tests/k8s/test_k8s_credentials.py tests/commands/k8s/test_k8s_context.py`
