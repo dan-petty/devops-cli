@@ -51,7 +51,7 @@ npm ci --ignore-scripts --prefix "$HOME/.local/share/style-dictionary"
 make design-tokens STYLE_DICTIONARY="$HOME/.local/share/style-dictionary/node_modules/.bin/style-dictionary"
 ```
 
-Renovate opens a pull request for each new release of Style Dictionary, and the CI job "Design Tokens" fails when the release changes an output. The lock is no entry of `tools.lock`, so `devops install-tools` does not install it, and the `audit` row of `devops ci` does not audit it (#4777).
+Renovate proposes each new release of Style Dictionary, a minor or a patch in the `tools` group and a major in a pull request of its own, and the CI job "Design Tokens" fails when the release changes an output. The lock is no entry of `tools.lock`, so `devops install-tools` does not install it, and the `audit` row of `devops ci` does not audit it (#4777).
 
 ### Read the tokens in Python
 

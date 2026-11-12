@@ -34,10 +34,13 @@ env:
 jobs:
   fail-to-pass:
     name: Fail-to-Pass Check
-    # No edit of the body alone, and a title that CONST_DEFECT_TITLE_PATTERN reads as a fix.
-    # startsWith ignores case.
+    # No edit of the body alone, no pull request of the Renovate App, and a title that
+    # CONST_DEFECT_TITLE_PATTERN reads as a fix. startsWith ignores case. A dependency bump has
+    # no test that fails on its base, so the job does not apply to the App's fix(deps) pull
+    # requests (#4896). The fix pull requests of the Service App keep the check.
     if: >-
       ${{ !(github.event.action == 'edited' && !github.event.changes.title && !github.event.changes.base)
+      && github.event.pull_request.user.login != 'devops-cli-renovate[bot]'
       && (startsWith(github.event.pull_request.title, 'fix(') || startsWith(github.event.pull_request.title, 'fix:') || startsWith(github.event.pull_request.title, 'fix!')) }}
     runs-on: ubuntu-26.04
     timeout-minutes: 20

@@ -1,16 +1,19 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
-    "config:recommended"
+    "github>dan-petty/devops-cli//.github/renovate/base"
   ],
-  "labels": ["type/chore", "scope/ci"],
-  "commitMessagePrefix": "chore(deps):",
-  "rebaseWhen": "behind-base-branch",
   "kubernetes": {
     "managerFilePatterns": ["/^k8s/.+\\.ya?ml$/"]
   },
   "argocd": {
     "managerFilePatterns": ["/^k8s/argocd/apps/.+\\.ya?ml$/"]
+  },
+  "helm-values": {
+    "managerFilePatterns": ["/^k8s/.+values[^/]*\\.ya?ml$/"]
+  },
+  "pip-compile": {
+    "managerFilePatterns": ["/^src/devops_cli/tools_lock/[^/]+\\.txt$/"]
   },
   "customDatasources": {
     "grafana_plugins": {
@@ -29,42 +32,140 @@
       "matchStrings": ["-\\s+(?<depName>[a-z0-9][a-z0-9-]*)@(?<currentValue>\\d+\\.\\d+\\.\\d+)"],
       "datasourceTemplate": "custom.grafana_plugins",
       "versioningTemplate": "semver"
+    },
+    {
+      "customType": "regex",
+      "description": "The uv version of the runner tools table. A test compares it with the Dockerfile.",
+      "managerFilePatterns": ["/^src/devops_cli/roadmap/runner_tools\\.py$/"],
+      "matchStrings": ["\\nUV_VERSION = \"(?<currentValue>[^\"]+)\""],
+      "depNameTemplate": "ghcr.io/astral-sh/uv",
+      "datasourceTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "description": "The Node major of the runner tools table. A test compares it with the Dockerfile and .node-version.",
+      "managerFilePatterns": ["/^src/devops_cli/roadmap/runner_tools\\.py$/"],
+      "matchStrings": ["\\nNODE_MAJOR = \"(?<currentValue>\\d+)\""],
+      "depNameTemplate": "node",
+      "datasourceTemplate": "node-version",
+      "versioningTemplate": "node"
+    },
+    {
+      "customType": "regex",
+      "description": "The Python minor of the setup-uv python-version inputs.",
+      "managerFilePatterns": ["/^\\.github/workflows/[^/]+\\.ya?ml$/", "/^\\.github/actions/[^/]+/action\\.ya?ml$/"],
+      "matchStrings": ["python-version: \"(?<currentValue>3\\.\\d+)\""],
+      "depNameTemplate": "python",
+      "datasourceTemplate": "docker",
+      "versioningTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "description": "The Python minor of the apt package and the tool environments of the devcontainer image.",
+      "managerFilePatterns": ["/^\\.devcontainer/Dockerfile$/"],
+      "matchStrings": ["python(?<currentValue>3\\.\\d+)\\b"],
+      "depNameTemplate": "python",
+      "datasourceTemplate": "docker",
+      "versioningTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "description": "The Python minor of the type checkers, the tools lock and DEFAULT_PYTHON_VERSION.",
+      "managerFilePatterns": ["/^pyproject\\.toml$/", "/^src/devops_cli/tools_lock/tools\\.lock$/", "/^src/devops_cli/config/defaults\\.py$/"],
+      "matchStrings": ["\\n(?:python[_-]version|DEFAULT_PYTHON_VERSION: str) = \"(?<currentValue>3\\.\\d+)\""],
+      "depNameTemplate": "python",
+      "datasourceTemplate": "docker",
+      "versioningTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "description": "The Python minor of the uv compile command in the header of each hashed requirements file of the tools lock, and in the bump steps of tools.lock.",
+      "managerFilePatterns": ["/^src/devops_cli/tools_lock/[^/]+\\.(?:txt|lock)$/"],
+      "matchStrings": ["--python-version=(?<currentValue>3\\.\\d+)"],
+      "depNameTemplate": "python",
+      "datasourceTemplate": "docker",
+      "versioningTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "description": "The PostgreSQL image of a CloudNativePG Cluster (spec.imageName), which the kubernetes manager does not read. The Image Updater values hold a deeper imageName field.",
+      "managerFilePatterns": ["/^k8s/.+\\.ya?ml$/"],
+      "matchStrings": ["\\n  imageName: (?<depName>[^\\s:@]+):(?<currentValue>[^\\s@]+)"],
+      "datasourceTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "description": "The Mattermost version of the Mattermost resource, which names its image and tag in two fields.",
+      "managerFilePatterns": ["/^k8s/mattermost/mattermost\\.yaml$/"],
+      "matchStrings": ["\\n  image: (?<depName>\\S+)\\n  version: \"(?<currentValue>[^\"]+)\""],
+      "datasourceTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "description": "The Gitea image tag. The chart gives the registry and the repository, so the helm-values manager cannot read it.",
+      "managerFilePatterns": ["/^k8s/gitea/values\\.yaml$/"],
+      "matchStrings": ["\\nimage:\\n  tag: \"(?<currentValue>[^\"]+)\""],
+      "depNameTemplate": "docker.gitea.com/gitea",
+      "datasourceTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "description": "The DCGM exporter image tag, <DCGM version>-<exporter version>-<variant>. The exporter version is the version of the chart.",
+      "managerFilePatterns": ["/^k8s/monitoring/dcgm-exporter-values\\.yaml$/"],
+      "matchStrings": ["\\nimage:\\n  tag: (?<currentValue>\\S+)"],
+      "depNameTemplate": "nvcr.io/nvidia/k8s/dcgm-exporter",
+      "datasourceTemplate": "docker",
+      "versioningTemplate": "regex:^\\d+\\.\\d+\\.\\d+-(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)-(?<compatibility>.+)$"
+    },
+    {
+      "customType": "regex",
+      "description": "The one tag of the Argo Workflows controller and executor. It equals the argo pin of the tools lock.",
+      "managerFilePatterns": ["/^k8s/argo-workflows/values\\.yaml$/"],
+      "matchStrings": ["\\nimages:\\n  tag: (?<currentValue>\\S+)"],
+      "depNameTemplate": "quay.io/argoproj/workflow-controller",
+      "datasourceTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "description": "The version of each Python tool of the tools lock. The pip-compile manager updates its <name>.in and <name>.txt.",
+      "managerFilePatterns": ["/^src/devops_cli/tools_lock/tools\\.lock$/"],
+      "matchStrings": ["\\n\\[python\\.(?<depName>[a-z0-9-]+)\\]\\nversion = \"(?<currentValue>[^\"]+)\""],
+      "datasourceTemplate": "pypi"
+    },
+    {
+      "customType": "regex",
+      "description": "The OpenSpec version of the tools lock. The npm manager updates openspec/package.json and its lockfile.",
+      "managerFilePatterns": ["/^src/devops_cli/tools_lock/tools\\.lock$/"],
+      "matchStrings": ["\\n\\[npm\\.openspec\\]\\nversion = \"(?<currentValue>[^\"]+)\""],
+      "depNameTemplate": "@fission-ai/openspec",
+      "datasourceTemplate": "npm"
+    },
+    {
+      "customType": "regex",
+      "description": "The Dev Containers CLI version of the tools lock. The npm manager updates devcontainers-cli/package.json and its lockfile.",
+      "managerFilePatterns": ["/^src/devops_cli/tools_lock/tools\\.lock$/"],
+      "matchStrings": ["\\n\\[npm\\.devcontainers-cli\\]\\nversion = \"(?<currentValue>[^\"]+)\""],
+      "depNameTemplate": "@devcontainers/cli",
+      "datasourceTemplate": "npm"
     }
   ],
   "packageRules": [
     {
-      "matchManagers": ["pep621", "pip_requirements", "pip-compile", "setup-cfg"],
-      "enabled": false
+      "description": "OpenTofu reads its providers from the OpenTofu registry.",
+      "matchDatasources": ["terraform-provider"],
+      "registryUrls": ["https://registry.opentofu.org"]
     },
     {
-      "matchManagers": ["npm"],
-      "enabled": false
+      "description": "The tools of the tools lock come in one pull request for their non-major updates.",
+      "matchFileNames": ["src/devops_cli/tools_lock/**"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "tools"
     },
     {
-      "description": "The Style Dictionary lock is no entry of tools.lock, so Renovate updates it (docs/DESIGN.md, Token pipeline). The CI job Design Tokens fails when the new version changes a built token file.",
-      "matchManagers": ["npm"],
-      "matchFileNames": ["src/devops_cli/tools_lock/style-dictionary/package.json"],
-      "enabled": true
-    },
-    {
-      "matchManagers": ["helm-values", "helmv3"],
-      "enabled": false
-    },
-    {
-      "matchManagers": ["dockerfile", "docker-compose"],
-      "labels": ["type/chore", "scope/infra"]
-    },
-    {
-      "matchManagers": ["kubernetes"],
-      "labels": ["type/chore", "scope/infra"]
-    },
-    {
-      "matchManagers": ["argocd"],
-      "labels": ["type/chore", "scope/infra"]
-    },
-    {
-      "matchManagers": ["terraform"],
-      "labels": ["type/chore", "scope/infra"]
+      "description": "A custom manager of a file under k8s/ updates the cluster.",
+      "matchManagers": ["custom.regex"],
+      "matchFileNames": ["k8s/**"],
+      "addLabels": ["scope/infra"]
     },
     {
       "description": "Renovate reads an Application source with no chart as a git dependency. Argo CD tracks main on purpose (ADR 0013), so those dependencies stay off.",
@@ -76,36 +177,147 @@
       "description": "Each Grafana plugin release names the Grafana it needs as grafanaDependency, which Renovate cannot read. A minor release can need a newer Grafana minor, so each plugin gets its own pull request, held to the major that the running Grafana major needs.",
       "matchDatasources": ["custom.grafana_plugins"],
       "allowedVersions": "<4.0.0",
-      "labels": ["type/chore", "scope/infra"],
       "prBodyNotes": [
         "Before the merge, check that the Grafana image of the `grafana` chart meets the `grafanaDependency` of this release: https://grafana.com/api/plugins/{{{depName}}}/versions/{{{newVersion}}}. Grafana installs the pinned version at start."
       ]
     },
     {
-      "description": "SearXNG publishes many tags a day, and the tests hold the engine names of the pinned image. A tag has no minimum release age (CONTRIBUTING.md, Dependency Versions), so a person refreshes the engine names at each bump.",
+      "description": "SearXNG publishes many tags a day, and the tests hold the engine names of the pinned image. A tag has no minimum release age (CONTRIBUTING.md, Dependency Versions), so a person refreshes the engine names at each bump. Each tag ends in a commit hash, which the versioning ignores.",
       "matchPackageNames": ["searxng/searxng", "docker.io/searxng/searxng"],
+      "versioning": "regex:^(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)-[0-9a-f]+$",
       "prBodyNotes": [
         "Before the merge, follow the bump steps in `k8s/README.md`, section SearXNG: refresh `tests/fixtures/searxng/default_engine_names.txt` from the new image and read its notes on the engines that the settings keep."
       ]
-    },
-    {
-      "matchManagers": ["github-actions"],
-      "pinDigests": true,
-      "labels": ["type/chore", "scope/ci"]
-    },
-    {
-      "matchManagers": ["pre-commit"],
-      "labels": ["type/chore", "scope/ci"]
-    },
-    {
-      "matchManagers": ["devcontainer"],
-      "labels": ["type/chore", "scope/ci"]
     },
     {
       "description": "A base image update of the service image is a fix, so release-please releases it. Other updates stay chore and release nothing alone.",
       "matchManagers": ["dockerfile"],
       "matchFileNames": ["Dockerfile"],
       "commitMessagePrefix": "fix(deps):"
+    },
+    {
+      "description": "Coupled pins: a test compares these files, so one pull request updates them all. The trivy-action version inputs, the tools lock and the devcontainer image.",
+      "matchPackageNames": ["aquasecurity/trivy"],
+      "groupName": "trivy"
+    },
+    {
+      "description": "The tools lock, the devcontainer image and the Argo Workflows values tag.",
+      "matchPackageNames": ["argoproj/argo-workflows", "quay.io/argoproj/workflow-controller"],
+      "groupName": "argo"
+    },
+    {
+      "description": "The tools lock, the devcontainer image and the cloudflared image of the cluster.",
+      "matchPackageNames": ["cloudflare/cloudflared"],
+      "groupName": "cloudflared"
+    },
+    {
+      "description": "The two Dockerfiles, the setup-uv version inputs and the runner tools table.",
+      "matchPackageNames": ["astral-sh/uv", "ghcr.io/astral-sh/uv"],
+      "groupName": "uv"
+    },
+    {
+      "description": "The gh download of the Dockerfile and the runner tools table.",
+      "matchPackageNames": ["cli/cli"],
+      "groupName": "gh"
+    },
+    {
+      "description": ".node-version, the node images, the devcontainer node feature and the runner tools table.",
+      "matchPackageNames": ["node"],
+      "groupName": "node"
+    },
+    {
+      "description": "Every Python 3.<minor> place. A new minor gets its own branch, so its Dashboard approval does not stop the digest and patch updates.",
+      "matchPackageNames": ["python"],
+      "groupName": "python runtime",
+      "separateMultipleMinor": true,
+      "prBodyNotes": [
+        "A new Python minor is a migration: change the other `python3.<minor>` paths (`git grep -n 'python3\\.'`) and the `python:3.<minor>-slim` defaults under `src/` in this pull request, then run the full gate."
+      ]
+    },
+    {
+      "description": "The ruff dev dependency and the ruff-pre-commit hook.",
+      "matchPackageNames": ["ruff", "astral-sh/ruff-pre-commit"],
+      "groupName": "ruff"
+    },
+    {
+      "description": "The bandit dev dependency, the tools lock and bandit.in and bandit.txt.",
+      "matchPackageNames": ["bandit"],
+      "groupName": "bandit"
+    },
+    {
+      "description": "The actionlint image of the devcontainer image and of the ci.yml step.",
+      "matchPackageNames": ["kjanat/actionlint", "docker.io/kjanat/actionlint"],
+      "groupName": "actionlint"
+    },
+    {
+      "description": "The DCGM exporter chart and image: the exporter version of the image tag is the version of the chart.",
+      "matchPackageNames": ["dcgm-exporter", "nvcr.io/nvidia/k8s/dcgm-exporter"],
+      "groupName": "dcgm-exporter"
+    },
+    {
+      "description": "The OpenSpec package, its lockfile and the tools lock. The skills that OpenSpec generates hold its version, so the branch writes them again.",
+      "matchPackageNames": ["@fission-ai/openspec"],
+      "groupName": "openspec",
+      "postUpgradeTasks": {
+        "commands": [
+          "uv run --frozen devops install-tools --tool openspec",
+          "uv run --frozen devops openspec regenerate"
+        ],
+        "fileFilters": [
+          ".claude/skills/openspec-*/**/*",
+          ".agents/skills/openspec-*/**/*",
+          ".kilocode/skills/openspec-*/**/*",
+          ".agents/skills/.openspec-target"
+        ],
+        "executionMode": "branch",
+        "installTools": {
+          "python": {},
+          "uv": {},
+          "node": {}
+        }
+      },
+      "prBodyNotes": [
+        "Before the merge, record OpenSpec again for the tests that replay it (`tests/support/openspec_recording.py` says how), and run `uv run devops openspec check`."
+      ]
+    },
+    {
+      "description": "A feature update writes the devcontainer lockfile again with the pinned Dev Containers CLI.",
+      "matchManagers": ["devcontainer"],
+      "matchDatasources": ["docker"],
+      "postUpgradeTasks": {
+        "commands": [
+          "uv run --frozen devops install-tools --tool devcontainers-cli",
+          "devcontainer upgrade --workspace-folder . --config .devcontainer/image/devcontainer.json"
+        ],
+        "fileFilters": [".devcontainer/image/devcontainer-lock.json"],
+        "executionMode": "branch",
+        "installTools": {
+          "python": {},
+          "uv": {},
+          "node": {}
+        }
+      }
+    },
+    {
+      "description": "The gh-dash schema fixture holds the schema of the pinned version.",
+      "matchPackageNames": ["dlvhdr/gh-dash"],
+      "prBodyNotes": [
+        "Before the merge, replace `tests/fixtures/gh_dash_schema/` with the schema of the new version. `tests/core/test_gh_dash_config.py` checks it against the version of the tools lock."
+      ]
+    },
+    {
+      "description": "The tuicr configuration test runs the pinned binary.",
+      "matchPackageNames": ["agavra/tuicr"],
+      "prBodyNotes": [
+        "Before the merge, run `uv run devops ci test tests/config/test_tuicr_config.py` with the new binary."
+      ]
+    },
+    {
+      "description": "A LiteLLM release can change the gateway configuration and its migrations.",
+      "matchPackageNames": ["ghcr.io/berriai/litellm"],
+      "prBodyNotes": [
+        "Before the merge, follow the upgrade plan of #4406: read the release notes and the migrations, and load `k8s/llm/gateway/config.yaml` with the new release."
+      ]
     }
   ]
 }
