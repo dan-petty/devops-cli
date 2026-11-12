@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.121.0](https://github.com/dan-petty/devops-cli/compare/v0.120.1...v0.121.0) (2026-11-12)
+
+
+### Features
+
+* **infra:** onboard an Ansible infra repo ([#5149](https://github.com/dan-petty/devops-cli/issues/5149)) ([ad782a6](https://github.com/dan-petty/devops-cli/commit/ad782a6725ea48a33680c0eb6c4c00315bce8608))
+
 ## [0.120.1](https://github.com/dan-petty/devops-cli/compare/v0.120.0...v0.120.1) (2026-11-12)
 
 
