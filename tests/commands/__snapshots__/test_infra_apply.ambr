@@ -1,0 +1,51 @@
+# serializer version: 1
+# name: test_dry_run_starts_no_process
+  '''
+  Plan for the apply of the plan <plan id> of example-org/infra at <tmp>/repo
+    1. EXEC the fetch of origin into <tmp>/repo
+         git -C <tmp>/repo -c credential.https://github.com.helper= -c 'credential.https://github.com.helper=!gh auth git-credential' fetch --quiet origin
+    2. EXEC whether the default branch of origin holds f5961bd2da6856e31914037c0f048337989dfbe7
+         git -C <tmp>/repo merge-base --is-ancestor f5961bd2da6856e31914037c0f048337989dfbe7 refs/remotes/origin/HEAD
+    3. EXEC whether origin/main holds f5961bd2da6856e31914037c0f048337989dfbe7
+         git -C <tmp>/repo merge-base --is-ancestor f5961bd2da6856e31914037c0f048337989dfbe7 refs/remotes/origin/main  [only if the default branch of origin does not hold the commit]
+    4. EXEC the export of f5961bd2da6856e31914037c0f048337989dfbe7 into <tmp>/.data/infra/example-org/infra/plans/<plan id>/applies/<apply id>/project
+         git -C <tmp>/repo archive --format=tar '--output=<tmp>/.data/infra/example-org/infra/plans/<plan id>/applies/<apply id>/tree.tar' f5961bd2da6856e31914037c0f048337989dfbe7
+    5. EXEC the Ansible inventory of the export
+         <tmp>/user-data/tools/ansible-core/2.22.0/bin/ansible-inventory -i '<inventory>' --list
+    6. EXEC the Ansible config of the export, for its host key checks
+         <tmp>/user-data/tools/ansible-core/2.22.0/bin/ansible-config dump --format json --only-changed  [only if an agent runs the apply]
+    7. EXEC the health of each node in service
+         kubectl --context homelab-example --request-timeout=30s get nodes -o json
+    8. EXEC the install of the pinned collections
+         <tmp>/user-data/tools/ansible-core/2.22.0/bin/ansible-galaxy collection install -r '<tmp>/.data/infra/example-org/infra/plans/<plan id>/applies/<apply id>/project/collections/requirements.yml' -p '<collections folder>'  [only if the repo has collections/requirements.yml and no install of it is kept]
+    9. EXEC the run of the hosts with no disruptive class
+         <tmp>/user-data/tools/ansible-core/2.22.0/bin/ansible-runner run '<tmp>/.data/infra/example-org/infra/plans/<plan id>/applies/<apply id>' --playbook ansible/playbooks/03_k3s.yaml --ident '<ident>' --limit 'node-4.example.com:!<offline group>' --quiet '--cmdline=-v -i '"'"'<inventory>'"'"' -e '"'"'ansible_ssh_private_key_file=<key of devops ssh>'"'"''
+   10. EXEC the node of node-3.example.com before the drain
+         kubectl --context homelab-example --request-timeout=30s get node '<node of node-3.example.com>' -o json
+   11. EXEC the pods of node-3.example.com, for their grace periods and volumes
+         kubectl --context homelab-example --request-timeout=30s get pods --all-namespaces --field-selector 'spec.nodeName=<node of node-3.example.com>' -o json
+   12. EXEC the PersistentVolumeClaims
+         kubectl --context homelab-example --request-timeout=30s get pvc --all-namespaces -o json
+   13. EXEC the PersistentVolumes, for the volumes that only one node mounts
+         kubectl --context homelab-example --request-timeout=30s get pv -o json
+   14. EXEC the server dry run of the drain of node-3.example.com
+         kubectl --context homelab-example --request-timeout=30s drain '<node of node-3.example.com>' --ignore-daemonsets --delete-emptydir-data --timeout=30s --dry-run=server
+   15. EXEC the drain of node-3.example.com, with the longer of 180 s and the longest grace period and 60 s
+         kubectl --context homelab-example --request-timeout=30s drain '<node of node-3.example.com>' --ignore-daemonsets --delete-emptydir-data --timeout=180s
+   16. EXEC the fresh check of node-3.example.com, which must give its plan
+         <tmp>/user-data/tools/ansible-core/2.22.0/bin/ansible-runner run '<tmp>/.data/infra/example-org/infra/plans/<plan id>/applies/<apply id>' --playbook ansible/playbooks/03_k3s.yaml --ident '<ident>' --limit 'node-3.example.com:!<offline group>' --quiet '--cmdline=--check --diff -v -i '"'"'<inventory>'"'"' -e '"'"'ansible_ssh_private_key_file=<key of devops ssh>'"'"''
+   17. EXEC the run of node-3.example.com
+         <tmp>/user-data/tools/ansible-core/2.22.0/bin/ansible-runner run '<tmp>/.data/infra/example-org/infra/plans/<plan id>/applies/<apply id>' --playbook ansible/playbooks/03_k3s.yaml --ident '<ident>' --limit 'node-3.example.com:!<offline group>' --quiet '--cmdline=-v -i '"'"'<inventory>'"'"' -e '"'"'ansible_ssh_private_key_file=<key of devops ssh>'"'"''
+   18. EXEC Ready and the GPUs of node-3.example.com
+         kubectl --context homelab-example --request-timeout=30s get node '<node of node-3.example.com>' -o json  [repeated once each poll interval until it passes twice or the wait ends]
+   19. EXEC the health of each node in service
+         kubectl --context homelab-example --request-timeout=30s get nodes -o json  [repeated once each poll interval until it passes twice or the wait ends]
+   20. EXEC the uncordon of node-3.example.com
+         kubectl --context homelab-example --request-timeout=30s uncordon '<node of node-3.example.com>'  [only if the node was schedulable before the drain]
+   21. EXEC the node of node-3.example.com after the apply
+         kubectl --context homelab-example --request-timeout=30s get node '<node of node-3.example.com>' -o json
+   22. WRITE the audit record infra.apply
+  Each disruptive host runs alone in plan order. The node of a host stays cordoned when it was cordoned before. The first failure stops the apply.
+  
+  '''
+# ---

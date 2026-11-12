@@ -8,7 +8,10 @@ profile of a repo is read at its default branch, the trusted ref (#4627). The re
 the tracked files of that commit with `git archive` into a new private folder, which it removes
 after. `devops infra plan --ref` reads a branch of `origin` (`refs/remotes/origin/<branch>`, a name
 that `git check-ref-format --branch` accepts) or the head of a pull request (`pull/<number>/head`,
-fetched from `origin` into `FETCH_HEAD`), and exports it into the plan folder. The reader changes
+fetched from `origin` into `FETCH_HEAD`), and exports it into the plan folder. `devops infra apply`
+(#5125) checks that `origin` still holds the commit of a plan (`origin_holds`: its default branch,
+the head of the pull request of the plan, or the branch of the plan, with `git merge-base
+--is-ancestor`), and exports that commit (`export_tree`). The reader changes
 no file and no branch of the checkout; only the fetch moves its remote-tracking branches and
 `FETCH_HEAD`. Each git command goes through the process runner, and the dry run lists the same
 commands (`read_commands`).
@@ -22,6 +25,7 @@ import tempfile
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
+from enum import StrEnum
 from pathlib import Path
 from typing import Final
 
@@ -73,6 +77,8 @@ CHECKOUT_ARGS: Final[tuple[str, ...]] = ("rev-parse", "HEAD", "--abbrev-ref", "H
 _PULL: Final[str] = "pull"
 _PULL_HEAD: Final[str] = "head"
 _FETCH_HEAD: Final[str] = "FETCH_HEAD"
+# What git says when `merge-base --is-ancestor` names a commit or a revision that it does not know.
+_NOT_KNOWN: Final[str] = "Not a valid"
 
 
 def pull_number(ref: str) -> int | None:
@@ -155,13 +161,90 @@ def export_commit(checkout: Path, root: Path, *, ref: str | None = None) -> Read
     else:
         commit, name = _ref_commit(checkout, ref), _ref_name(ref)
     checkout_commit, checkout_branch = _checkout_state(checkout)
+    export_tree(checkout, root, commit)
+    return ReadCommit(
+        ref=name, commit=commit, checkout_branch=checkout_branch, checkout_commit=checkout_commit
+    )
+
+
+def export_tree(checkout: Path, root: Path, commit: str) -> None:
+    """Export the tracked files of `commit` into the new private folder `root`. The tar file of
+    the export goes beside `root` and is removed after it unpacks.
+
+    Raises:
+        InfraReadError: `git archive` fails, or the export does not unpack.
+    """
     archive = root.parent / _ARCHIVE
     _git(checkout, archive_args(commit, archive))
     root.mkdir(mode=_PRIVATE)
     _unpack(archive, root, commit)
     archive.unlink()
-    return ReadCommit(
-        ref=name, commit=commit, checkout_branch=checkout_branch, checkout_commit=checkout_commit
+
+
+class OriginHold(StrEnum):
+    """Where `origin` holds the commit of a plan (#5125)."""
+
+    DEFAULT_BRANCH = "default branch"
+    PULL_HEAD = "pull request head"
+    BRANCH = "branch"
+
+
+def is_ancestor_args(commit: str, rev: str) -> tuple[str, ...]:
+    """`git merge-base --is-ancestor`: exit 0 when `rev` holds `commit`, 1 when it does not."""
+    return ("merge-base", "--is-ancestor", commit, rev)
+
+
+def origin_holds(checkout: Path, commit: str, ref: str) -> OriginHold | None:
+    """Fetch `origin`, and give where it holds `commit`: its default branch, the head of the pull
+    request that `ref` names (`pull/<number>/head`), or the branch `origin/<branch>` of `ref`.
+    None when `origin` holds the commit in none of them.
+
+    Raises:
+        InfraReadError: the fetch fails, or a git command fails for another reason than an
+            answer of no.
+    """
+    _git(checkout, FETCH_ARGS, shown=_FETCH)
+    if _holds(checkout, commit, _REMOTE_HEAD):
+        return OriginHold.DEFAULT_BRANCH
+    number = pull_number(ref)
+    if number is not None:
+        try:
+            (_, fetch), (_, verify) = ref_steps(ref)
+            _git(checkout, fetch)
+            head = _git(checkout, verify).strip()
+        except InfraReadError:
+            return None
+        return OriginHold.PULL_HEAD if head == commit else None
+    prefix = f"{_REMOTE}/"
+    branch = ref.removeprefix(prefix) if ref.startswith(prefix) else None
+    if branch and _holds(checkout, commit, f"refs/remotes/{_REMOTE}/{branch}"):
+        return OriginHold.BRANCH
+    return None
+
+
+def _holds(checkout: Path, commit: str, rev: str) -> bool:
+    """Whether `rev` holds `commit`. A revision or a commit that git does not know holds nothing.
+
+    Raises:
+        InfraReadError: git fails for another reason than an answer of no.
+    """
+    result = run_subprocess(
+        git_argv(checkout, *is_ancestor_args(commit, rev)),
+        env=dict(CONST_GIT_NONINTERACTIVE_ENV),
+        quiet=True,
+        timeout=DEFAULT_INFRA_GIT_TIMEOUT_SECONDS,
+    )
+    if result.returncode in (0, 1):
+        return result.returncode == 0
+    message = git_message(result)
+    if _NOT_KNOWN in message:
+        return False
+    raise InfraReadError(
+        ERRORS.infra.read_failed.format(
+            command=" ".join(("git", *is_ancestor_args(commit, rev))),
+            code=result.returncode,
+            detail=mask_secrets(message),
+        )
     )
 
 
@@ -306,6 +389,55 @@ def read_commands(
     return requests
 
 
+def apply_read_commands(
+    checkout: Path, commit: str, ref: str, export: Path
+) -> list[PlannedRequest]:
+    """The git commands of `origin_holds` and `export_tree`, in order, for a dry run of an apply
+    of the plan of `commit` at `ref`."""
+    elsewhere = "the default branch of origin does not hold the commit"
+    requests = [
+        PlannedRequest(
+            method="EXEC",
+            target=f"the fetch of {_REMOTE} into {checkout}",
+            argv=tuple(git_argv(checkout, *FETCH_ARGS)),
+        ),
+        PlannedRequest(
+            method="EXEC",
+            target=f"whether the default branch of {_REMOTE} holds {commit}",
+            argv=tuple(git_argv(checkout, *is_ancestor_args(commit, _REMOTE_HEAD))),
+        ),
+    ]
+    prefix = f"{_REMOTE}/"
+    if pull_number(ref) is not None:
+        requests += [
+            PlannedRequest(
+                method="EXEC",
+                target=target,
+                argv=tuple(git_argv(checkout, *args)),
+                condition=elsewhere,
+            )
+            for target, args in ref_steps(ref)
+        ]
+    elif ref.startswith(prefix):
+        rev = f"refs/remotes/{_REMOTE}/{ref.removeprefix(prefix)}"
+        requests.append(
+            PlannedRequest(
+                method="EXEC",
+                target=f"whether {ref} holds {commit}",
+                argv=tuple(git_argv(checkout, *is_ancestor_args(commit, rev))),
+                condition=elsewhere,
+            )
+        )
+    requests.append(
+        PlannedRequest(
+            method="EXEC",
+            target=f"the export of {commit} into {export}",
+            argv=tuple(git_argv(checkout, *archive_args(commit, export.parent / _ARCHIVE))),
+        )
+    )
+    return requests
+
+
 def render_read(read: ReadCommit) -> list[str]:
     """The line that names the commit that a command read, and a line when the checkout is not
     at that commit."""
@@ -329,10 +461,15 @@ __all__ = [
     "CHECKOUT_ARGS",
     "DEFAULT_BRANCH_ARGS",
     "FETCH_ARGS",
+    "OriginHold",
     "RepoTree",
+    "apply_read_commands",
     "archive_args",
     "default_branch_tree",
     "export_commit",
+    "export_tree",
+    "is_ancestor_args",
+    "origin_holds",
     "pull_number",
     "read_commands",
     "ref_steps",

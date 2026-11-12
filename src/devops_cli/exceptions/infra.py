@@ -20,6 +20,14 @@ class InfraAccessRefusedError(InfraError):
         super().__init__(message, details={"key": key})
 
 
+class InfraApplyRefusedError(InfraError):
+    """A guard of `devops infra apply` refused the apply before it changed a host: the plan, its
+    hash, age or arguments, the commit at origin, the host key checks, or the health of the
+    cluster (#5125)."""
+
+    error_code = "INFRA_APPLY_REFUSED"
+
+
 class InfraReadError(InfraError):
     """A read of an infra repo failed: a git command of the read of its default branch, an Ansible
     command, or its output is not JSON."""
@@ -36,4 +44,10 @@ class InfraRepoNotFoundError(InfraError):
         super().__init__(message, details={"path": path})
 
 
-__all__ = ["InfraAccessRefusedError", "InfraError", "InfraReadError", "InfraRepoNotFoundError"]
+__all__ = [
+    "InfraAccessRefusedError",
+    "InfraApplyRefusedError",
+    "InfraError",
+    "InfraReadError",
+    "InfraRepoNotFoundError",
+]

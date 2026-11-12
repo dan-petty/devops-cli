@@ -1,0 +1,224 @@
+"""The node reads, the health gate and the waits of `devops infra apply` (#5125).
+
+A fake `kubectl` answers from a set of nodes (`FakeCluster`), and the `clock` fixture makes each
+wait return at once and records it.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Callable
+from pathlib import Path
+
+import httpx2
+import pytest
+
+from devops_cli.config.settings import load_settings
+from devops_cli.infra.nodes import (
+    Cluster,
+    critical_alerts,
+    grace_period,
+    is_evicted,
+    is_pinned,
+    node_problems,
+    parse_node,
+)
+from devops_cli.models.infra import NodeState
+from tests.support.fakes.clock import ClockFake
+from tests.support.fakes.http import WebFake
+from tests.support.fakes.process import ProcessFake
+from tests.support.infra import KUBE_CONTEXT, FakeCluster, FakeNode
+
+_GIB = 1024**3
+
+
+def test_a_node_reads_with_its_memory_and_gpus() -> None:
+    node = FakeNode("node-1", cordoned=True, gpus=2, capacity_gib=64, allocatable_gib=58)
+
+    assert parse_node(node.item()) == NodeState(
+        name="node-1",
+        ready="True",
+        cordoned=True,
+        kernel="6.12.0",
+        kubelet="v1.37.2+k3s1",
+        memory_capacity_bytes=64 * _GIB,
+        memory_allocatable_bytes=58 * _GIB,
+        gpu_allocatable=2,
+    )
+
+
+def test_a_node_that_is_not_ready_or_has_pressure_is_a_problem() -> None:
+    node = FakeNode("node-2", ready="Unknown", pressure=("DiskPressure", "PIDPressure"))
+
+    assert node_problems(node.item()) == [
+        "node-2 is not Ready (Unknown)",
+        "node-2 has DiskPressure",
+        "node-2 has PIDPressure",
+    ]
+
+
+@pytest.fixture
+def cluster(process_fake: ProcessFake, config: Callable[..., Path]) -> FakeCluster:
+    config(infra={"node_ready_timeout_seconds": 60})
+    nodes = FakeCluster.of(FakeNode("node-1"), FakeNode("node-2"))
+    nodes.install(process_fake)
+    return nodes
+
+
+def test_the_health_gate_does_not_read_a_node_out_of_service(cluster: FakeCluster) -> None:
+    cluster.nodes["node-2"].ready = "False"
+
+    health = Cluster(KUBE_CONTEXT, load_settings(), frozenset({"node-2"})).health()
+
+    assert health == []
+
+
+def test_the_wait_for_ready_goes_on_through_a_gap_of_the_api_server(
+    cluster: FakeCluster, clock: ClockFake
+) -> None:
+    cluster.down = 2
+
+    problems = Cluster(KUBE_CONTEXT, load_settings()).wait_ready("node-1", 1)
+
+    assert problems == []
+    assert clock.waits == [10.0] * 4
+
+
+def test_the_wait_for_ready_ends_with_the_last_problem_at_its_bound(
+    cluster: FakeCluster, clock: ClockFake
+) -> None:
+    cluster.nodes["node-1"].gpus = 0
+
+    problems = Cluster(KUBE_CONTEXT, load_settings()).wait_ready("node-1", 1)
+
+    assert problems == ["node-1 has 0 GPUs, not the 1 that it had before the run"]
+    assert sum(clock.waits) == 60.0
+
+
+_ALERTS = {
+    "status": "success",
+    "data": {
+        "resultType": "vector",
+        "result": [{"metric": {"alertname": "KubeNodeNotReady", "severity": "critical"}}],
+    },
+}
+
+
+def test_a_critical_alert_that_fires_is_a_problem(
+    web: WebFake, config: Callable[..., Path]
+) -> None:
+    config(prometheus={"url": "http://prometheus.example.com:9090"})
+    web.serve(lambda request: httpx2.Response(200, json=_ALERTS))
+
+    problems = critical_alerts(load_settings())
+
+    assert problems == ["the critical alert KubeNodeNotReady fires"]
+    [request] = web.sent
+    assert request.url.params["query"] == 'ALERTS{alertstate="firing",severity="critical"}'
+
+
+def test_a_prometheus_that_does_not_answer_is_a_problem(
+    web: WebFake, config: Callable[..., Path]
+) -> None:
+    config(prometheus={"url": "http://prometheus.example.com:9090"})
+    web.serve(lambda request: httpx2.Response(503, text="unavailable"))
+
+    [problem] = critical_alerts(load_settings())
+
+    assert problem.startswith("Prometheus did not answer the query of the critical alerts")
+
+
+@pytest.mark.parametrize(
+    ("item", "evicted", "grace"),
+    [
+        pytest.param(
+            {"metadata": {"ownerReferences": [{"kind": "ReplicaSet"}]}, "spec": {}},
+            True,
+            30,
+            id="replica-set-default-grace",
+        ),
+        pytest.param(
+            {"metadata": {"ownerReferences": [{"kind": "DaemonSet"}]}, "spec": {}},
+            False,
+            30,
+            id="daemon-set",
+        ),
+        pytest.param(
+            {"metadata": {"annotations": {"kubernetes.io/config.mirror": "x"}}, "spec": {}},
+            False,
+            30,
+            id="mirror-pod",
+        ),
+        pytest.param(
+            {"metadata": {}, "spec": {"terminationGracePeriodSeconds": 1800}},
+            True,
+            1800,
+            id="long-grace",
+        ),
+        pytest.param(
+            {"metadata": {}, "spec": {}, "status": {"phase": "Succeeded"}},
+            False,
+            30,
+            id="ended",
+        ),
+    ],
+)
+def test_the_drain_bound_reads_the_pods_that_the_drain_evicts(
+    item: dict[str, object], evicted: bool, grace: int
+) -> None:
+    assert (is_evicted(item), grace_period(item)) == (evicted, grace)
+
+
+def test_the_drain_bound_is_the_setting_when_no_pod_needs_more(cluster: FakeCluster) -> None:
+    nodes = Cluster(KUBE_CONTEXT, load_settings())
+    cluster.graces["node-1"] = 90
+    cluster.graces["node-2"] = 660
+
+    assert (nodes.drain_bound(nodes.pods("node-1")), nodes.drain_bound(nodes.pods("node-2"))) == (
+        180,
+        720,
+    )
+
+
+def test_a_volume_that_names_another_node_too_is_not_pinned() -> None:
+    term = {
+        "matchExpressions": [
+            {"key": "kubernetes.io/hostname", "operator": "In", "values": ["node-1", "node-2"]}
+        ]
+    }
+    volume = {"spec": {"nodeAffinity": {"required": {"nodeSelectorTerms": [term]}}}}
+
+    assert (is_pinned(volume, "node-1"), is_pinned({"spec": {}}, "node-1")) == (False, False)
+
+
+_NO_ALERT = {"status": "success", "data": {"resultType": "vector", "result": []}}
+
+
+def test_the_alert_wait_reads_again_while_prometheus_does_not_answer(
+    web: WebFake, config: Callable[..., Path], clock: ClockFake
+) -> None:
+    """Prometheus can mount a volume that only the node of the host mounts, so it answers only
+    some time after the uncordon."""
+    config(
+        prometheus={"url": "http://prometheus.example.com:9090"},
+        infra={"node_ready_timeout_seconds": 120},
+    )
+    answers = iter([httpx2.Response(503, text="unavailable")] * 2)
+
+    def answer(request: httpx2.Request) -> httpx2.Response:
+        return next(answers, httpx2.Response(200, json=_NO_ALERT))
+
+    web.serve(answer)
+
+    problems = Cluster(KUBE_CONTEXT, load_settings()).wait_alerts_clear()
+
+    assert problems == []
+    assert (len(web.sent), clock.waits) == (4, [10.0] * 4)
+
+
+def test_the_node_gate_does_not_read_the_alerts(
+    cluster: FakeCluster, web: WebFake, config: Callable[..., Path]
+) -> None:
+    config(prometheus={"url": "http://prometheus.example.com:9090"})
+
+    assert Cluster(KUBE_CONTEXT, load_settings()).node_health() == []
+    assert web.sent == []

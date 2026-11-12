@@ -1,6 +1,6 @@
 """Pydantic models of `devops infra`: the commit that a command read (#5162), the onboarding
-report of an infra repo (#5121), the status of its hosts (#5123) and the plan of a playbook
-(#5124)."""
+report of an infra repo (#5121), the status of its hosts (#5123), the plan of a playbook (#5124)
+and the apply of a plan (#5125)."""
 
 from __future__ import annotations
 
@@ -263,9 +263,125 @@ class InfraPlan(PlanContent):
     folder: str = Field(description="The folder of the plan record and the runner artifacts")
 
 
+class ApplyStep(StrEnum):
+    """A step of the apply of one host, in run order (#5125)."""
+
+    # The one run of the hosts that have no disruptive class.
+    RUN_TOGETHER = "run together"
+    # `kubectl drain --dry-run=server`: a PodDisruptionBudget that blocks the drain stops the apply
+    # before the node is cordoned.
+    DRAIN_CHECK = "drain check"
+    DRAIN = "drain"
+    FRESH_CHECK = "fresh check"
+    RUN = "run"
+    READY = "ready"
+    HEALTH = "health"
+    UNCORDON = "uncordon"
+    # The critical alerts after the uncordon: Prometheus can run on the node of the host.
+    ALERTS = "alerts"
+
+
+class HostOutcome(StrEnum):
+    """How the apply of one host ended."""
+
+    APPLIED = "applied"
+    STOPPED = "stopped"
+    # The apply stopped before it reached the host.
+    NOT_RUN = "not run"
+
+
+class HostApply(BaseModel):
+    """The apply of one host of a plan: its result and the state of its node before and after."""
+
+    model_config = ConfigDict(frozen=True)
+
+    host: str = Field(description="The inventory host")
+    node: str = Field(description="The name of the Kubernetes node of the host")
+    disruptive: tuple[str, ...] = Field(
+        default=(), description="The disruptive classes that the plan shows on the host"
+    )
+    outcome: HostOutcome = Field(description="How the apply of the host ended")
+    step: ApplyStep | None = Field(
+        default=None, description="The step that stopped the apply; none when it did not stop"
+    )
+    reason: str | None = Field(default=None, description="Why the step stopped the apply")
+    runner_idents: tuple[str, ...] = Field(
+        default=(), description="The ansible-runner idents of the runs of the host, in run order"
+    )
+    unplanned: tuple[PlanTask, ...] = Field(
+        default=(),
+        description="The tasks that changed in the run and that the plan does not show as changed "
+        "or unchecked",
+    )
+    down_during_apply: tuple[str, ...] = Field(
+        default=(),
+        description="The workloads on the node that the drain evicts and that mount a volume that "
+        "only the node can mount, as <namespace>/<name> (<kind>): they are down until the node "
+        "is uncordoned",
+    )
+    before: NodeState | None = Field(
+        default=None, description="The node before the drain; none for a host that is not drained"
+    )
+    after: NodeState | None = Field(
+        default=None, description="The node after the apply; none when the apply did not get there"
+    )
+
+
+class ApplyResult(StrEnum):
+    """How an apply ended."""
+
+    OK = "ok"
+    # A guard refused the apply before it changed a host.
+    REFUSED = "refused"
+    # A step failed after the apply started to change hosts.
+    STOPPED = "stopped"
+
+
+class ApplyReport(BaseModel):
+    """The apply of a saved plan of an infra repo: who ran it, at which level, and each host."""
+
+    model_config = ConfigDict(frozen=True)
+
+    id: str = Field(description="The id of the apply, which names its folder and audit record")
+    repo: str = Field(description="The GitHub repository of the infra repo, as owner/name")
+    plan_id: str = Field(description="The id of the plan that the caller gave")
+    commit: str | None = Field(
+        default=None, description="The commit of the plan; none when the plan did not read"
+    )
+    ref: str | None = Field(
+        default=None, description="The ref at origin that the plan read; none when it did not read"
+    )
+    playbook: str = Field(
+        description="The playbook that the caller gave, relative to the repo root"
+    )
+    limit: str | None = Field(default=None, description="The --limit that the caller gave")
+    tags: str | None = Field(default=None, description="The --tags that the caller gave")
+    caller: str = Field(description="Who ran the apply: person or agent")
+    tool: str | None = Field(
+        default=None,
+        description="The agent tool, mcp for a call of an MCP tool, or job for a cluster Job; "
+        "none for a person",
+    )
+    level: str = Field(description="The agent access level of the repo")
+    result: ApplyResult = Field(description="How the apply ended")
+    reason: str | None = Field(default=None, description="Why the apply did not end ok")
+    hosts: tuple[HostApply, ...] = Field(default=(), description="One entry for each host")
+    started: datetime = Field(description="When the apply started, in UTC")
+    duration_seconds: float = Field(description="How long the apply took")
+    folder: str | None = Field(
+        default=None,
+        description="The folder of the runner artifacts of the apply; none when no run started",
+    )
+
+
 __all__ = [
+    "ApplyReport",
+    "ApplyResult",
+    "ApplyStep",
     "ChangedTask",
     "FailedTask",
+    "HostApply",
+    "HostOutcome",
     "HostPing",
     "HostPlan",
     "HostStatus",

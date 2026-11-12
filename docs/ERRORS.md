@@ -67,6 +67,7 @@ Each exception class declares its `error_code` and `exit_code`. A command that a
 | `ImagePinError` | `K8S_IMAGE_PIN_ERROR` | `1` | K8s | Raised when an image that an Argo CD Application pins does not resolve in its registry, or an |
 | `ImplementEvalError` | `ROADMAP_EVAL_REFUSED` | `1` | Roadmap | Raised when `devops roadmap eval implement` cannot read or use a fixture, or is asked for |
 | `InfraAccessRefusedError` | `INFRA_ACCESS_REFUSED` | `1` | Infra | An agent gave an agent access level above `none` for an infra repo. Only a person sets it. |
+| `InfraApplyRefusedError` | `INFRA_APPLY_REFUSED` | `1` | Infra | A guard of `devops infra apply` refused the apply before it changed a host: the plan, its |
 | `InfraError` | `INFRA_ERROR` | `1` | Infra | Base exception of the infra repo commands. |
 | `InfraReadError` | `INFRA_READ_FAILED` | `1` | Infra | A read of an infra repo failed: a git command of the read of its default branch, an Ansible |
 | `InfraRepoNotFoundError` | `INFRA_REPO_NOT_FOUND` | `1` | Infra | The checkout of an infra repo is not where the settings or the arguments put it. |

@@ -160,6 +160,7 @@ writes by name.
 | `devops_cli_upstream_service_status` | Gauge | `1` | Upstream cloud service operational status severity code (0=none/operational, 1=minor, 2=major, 3=critical) by service. |
 | `devops_cli_upstream_component_status` | Gauge | `1` | Upstream cloud service component status code (0=operational, 1=degraded, 2=partial_outage, 3=major_outage) by service and component. |
 | `devops_cli_research_open_findings` | Gauge | `1` | Open research findings, by severity: the advisories that affect a pin of the project. `devops research sweep` sets one value for each severity of the scale, with zero for a severity that has no finding. It sets none when a lookup got no answer. |
+| `devops_cli_infra_runs_total` | Counter | `1` | Runs of devops infra that can change the hosts of an infra repo, by repo, command (apply) and result: ok, refused or stopped. |
 
 No process sends local savings in USD. `devops_cli_ai_tokens_total{local="true"}`
 counts the tokens that a local model ran, and the AI spend dashboard multiplies them

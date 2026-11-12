@@ -273,6 +273,18 @@ _Avoid_: risky change, outage
 A task that check mode skipped, such as a `command` with no `creates` or `removes`, so the plan does not show what it does in an apply. A task that a false `when` skipped is not unchecked.
 _Avoid_: skipped task
 
+**Infra apply**:
+The run of a saved infra plan on the hosts of an infra repo with `devops infra apply`, at the commit of the plan. The hosts with no disruptive class run together. Each disruptive host runs alone in plan order: drain check, drain, fresh check, run, Ready, the health of the nodes, uncordon only when the node was schedulable before, and the critical alerts. The first failure stops it. Each apply writes one audit record, `infra.apply`.
+_Avoid_: deploy, rollout, make target
+
+**Fresh check**:
+The check-mode run of one disruptive host after its drain and before its run in an infra apply. It must show the plan of the host again, else the apply stops before the host changes.
+_Avoid_: re-plan, second plan
+
+**Drain check**:
+`kubectl drain --dry-run=server` of a node before its drain. The API server checks each eviction against the PodDisruptionBudgets and changes nothing, so a drain that a budget blocks stops the apply before the node is cordoned.
+_Avoid_: pre-drain, drain test
+
 **Project profile**:
 The facts of one repository that devops-cli reads: its type and the layout of its files. They merge from the field defaults, the type template in `src/devops_cli/templates/profiles/`, detection in the files of the repository and its own `.devops/project.toml`, and each value records its source. The config of devops-cli holds operational keys only, never a fact of a project.
 _Avoid_: project config, repo settings, manifest

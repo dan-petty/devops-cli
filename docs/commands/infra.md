@@ -83,3 +83,32 @@ devops infra plan [OPTIONS] <repo> <playbook>
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
+
+## `devops infra apply`
+
+**Apply a saved plan of devops infra plan to the hosts of an infra repo. The apply needs the plan id and the playbook, limit and tags of the plan, a plan not older than infra.plan_max_age_hours, a commit that origin holds and a healthy cluster. The hosts with no disruptive change run together. Each disruptive host runs alone in plan order: drain check, drain, a fresh check that must equal the plan, the run, Ready with the GPUs of before, the health of the nodes, uncordon only when the node was schedulable before, and no critical alert. The drain waits for the longest grace period of a pod of the node, and the apply names each workload that is down while the node is cordoned, because only that node can mount its volume. A change that the plan does not show, or the first failure, stops the apply. Each apply writes an audit record. An agent needs the agent access level safe for a plan with no disruptive change and no unchecked task, else full; an agent applies only a commit of the default branch, or at full the head of an open pull request, and only with host key checks on. An agent runs the command as one plain command: the project allow rule Bash(uv run devops *) lets it start, and the owner keeps that rule. A compound shell line (an assignment, ;, &&, |) goes to the auto-mode classifier. The agent access level of the repo is the real control.**
+
+```bash
+devops infra apply [OPTIONS] <repo> <playbook>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<repo>` | `string` | Yes | The infra repo: owner/name, or the folder of a checkout, which its remote origin names. |
+| `<playbook>` | `string` | Yes | The playbook of the plan, as a path from the repo root. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--plan` | `string` | - | The id of the saved plan, as devops infra plan printed it. |
+| `--limit` | `string` | - | The --limit of the plan. The apply refuses a plan with another limit. |
+| `--tags` | `string` | - | The --tags of the plan. The apply refuses a plan with other tags. |
+| `--path` | `path` | - | The folder of the checkout. Default: the path of the entry, else <repos.base_dir>/\<owner\>/\<name\>. |
+| `--auto-approve` | `boolean` | - | Apply with no question. An agent gives it. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+---

@@ -8,12 +8,14 @@ agent with a shell can run Ansible itself.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from enum import StrEnum
 from typing import Final
 
 from devops_cli.core.caller import is_agent_caller
 from devops_cli.exceptions.infra import InfraAccessRefusedError
 from devops_cli.lang import ERRORS
+from devops_cli.models.infra import HostPlan
 
 AGENT_ACCESS_KEY: Final[str] = "infra.repos[].agent_access"
 
@@ -54,6 +56,13 @@ def require_agent_level(level: AgentAccess, needed: AgentAccess, *, action: str,
     )
 
 
+def apply_level(hosts: Iterable[HostPlan]) -> AgentAccess:
+    """The level that an agent needs to apply a plan with the plan of each host in `hosts`:
+    `safe` when no host has a disruptive class or a task that check mode skipped, else `full`."""
+    risky = any(host.disruptive or host.unchecked for host in hosts)
+    return AgentAccess.FULL if risky else AgentAccess.SAFE
+
+
 def refuse_agent_raise(level: AgentAccess | None) -> None:
     """Refuse a level above `none` when an agent gives it.
 
@@ -69,4 +78,10 @@ def refuse_agent_raise(level: AgentAccess | None) -> None:
     )
 
 
-__all__ = ["AGENT_ACCESS_KEY", "AgentAccess", "refuse_agent_raise", "require_agent_level"]
+__all__ = [
+    "AGENT_ACCESS_KEY",
+    "AgentAccess",
+    "apply_level",
+    "refuse_agent_raise",
+    "require_agent_level",
+]
