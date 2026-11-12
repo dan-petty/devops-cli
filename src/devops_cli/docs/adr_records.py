@@ -110,7 +110,7 @@ def render_index(texts: Mapping[str, str]) -> str:
     """The index table of the records of `texts` (file name to text): one row for each record with
     its number, its title, its status, its date and its links."""
     rows = [
-        f"| [{adr.number:04d}]({name}) | {adr.title.replace('|', chr(92) + '|')} | "
+        f"| [{adr.number:04d}]({name}) | {adr.title.replace('|', r'\|')} | "
         f"{adr.front_matter.status or ''} | {adr.front_matter.date or ''} | {_links(adr)} |"
         for name, adr in _records(texts)
     ]
