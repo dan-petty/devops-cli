@@ -186,7 +186,7 @@ from devops_cli.roadmap.body_hash import (
     hash_text,
     is_unchanged,
 )
-from devops_cli.roadmap.commit_title import corrected_title, unlisted_type_reason
+from devops_cli.roadmap.commit_title import commit_type, corrected_title, unlisted_type_reason
 from devops_cli.roadmap.failure import FailureClass, StepName, failure_class_of, retry_after
 from devops_cli.roadmap.intake.intake import (
     IntakePlan,
@@ -344,14 +344,17 @@ class NextStep(StrEnum):
 
 class JobCheck(StrEnum):
     """The check that a refine round failed, as `refine.failed_check` records it (#3632). The
-    first three are the form checks of a proposal (`form_checks`). `MISSING_SOURCE` is a question
-    with no verified source that the investigation left open, `UNANSWERED_QUESTION` a question of
-    the body that no answer names, and `INVESTIGATION_STOPPED` an investigation that ended with no
-    proposal while such a question stayed open."""
+    first three are the form checks of a proposal (`form_checks`). `DEPENDENCIES` is a quoted
+    title in the Dependencies section of the body that names no single issue (#4803).
+    `MISSING_SOURCE` is a question with no verified source that the investigation left open,
+    `UNANSWERED_QUESTION` a question of the body that no answer names, and
+    `INVESTIGATION_STOPPED` an investigation that ended with no proposal while such a question
+    stayed open."""
 
     PROBLEM_STATEMENT = "problem_statement"
     EXISTING_TOOL = "existing_tool"
     ACCEPTANCE_CRITERIA = "acceptance_criteria"
+    DEPENDENCIES = "dependencies"
     MISSING_SOURCE = "missing_source"
     UNANSWERED_QUESTION = "unanswered_question"
     INVESTIGATION_STOPPED = "investigation_stopped"
@@ -987,6 +990,8 @@ _KEY_QUESTIONS_TITLE_RE = re.compile(r"Key questions\b", re.IGNORECASE)
 _DEPENDENCIES_TITLE_RE = re.compile(r"Dependencies\b", re.IGNORECASE)
 # The punctuation that can follow or wrap an issue reference in a list of them, such as `(#12),`.
 _REFERENCE_PUNCTUATION: Final[str] = ".,;:()[]"
+# A text in straight or curly double quotes, such as the title of a dependency (#4803).
+_QUOTED_RE = re.compile(r'"([^"\n]+)"|“([^”\n]+)”')
 
 
 def _section_tokens(tokens: Sequence[Token], title_re: re.Pattern[str]) -> list[Token]:
@@ -1061,13 +1066,60 @@ def body_dependencies(body: str) -> list[int]:
     CommonMark, so a heading in a code block is not a heading.
     """
     section = _section_tokens(MarkdownIt("commonmark").parse(body), _DEPENDENCIES_TITLE_RE)
-    words = (
-        word.strip(_REFERENCE_PUNCTUATION)
-        for token in section
-        if token.type == "inline"
-        for word in token.content.split()
-    )
+    return [number for token in section if token.type == "inline" for number in _issues(token)]
+
+
+def _issues(token: Token) -> list[int]:
+    """The issues that an inline token names as `#` and digits, with list punctuation around."""
+    words = (word.strip(_REFERENCE_PUNCTUATION) for word in token.content.split())
     return [int(word[1:]) for word in words if word.startswith("#") and word[1:].isdigit()]
+
+
+@dataclass(frozen=True)
+class TitleDependencies:
+    """The dependencies that the person's Dependencies section names by a quoted title (#4803):
+    the issue that each title names, in order, and each title that names no single issue."""
+
+    numbers: tuple[int, ...] = ()
+    unmatched: tuple[str, ...] = ()
+
+
+def _quoted_titles(body: str) -> list[str]:
+    """The quoted Conventional Commit titles of the person's Dependencies section, in order. A
+    list item or a paragraph that names an issue as `#N` names its issues by number, so its
+    quoted text is no title."""
+    persons_text, _ = extract_section_and_outside(body)
+    section = _section_tokens(MarkdownIt("commonmark").parse(persons_text), _DEPENDENCIES_TITLE_RE)
+    quoted = (
+        " ".join(next(text for text in match.groups() if text is not None).split())
+        for token in section
+        if token.type == "inline" and not _issues(token)
+        for match in _QUOTED_RE.finditer(token.content)
+    )
+    return [text for text in quoted if commit_type(text) is not None]
+
+
+def title_dependencies(body: str, items: Sequence[Item]) -> TitleDependencies:
+    """The issues that the person's Dependencies section names by a quoted Conventional Commit
+    title (#4803). A title names the one open Item with that exact title, else the one closed Item
+    with it: a delivered dependency holds nothing back. A title that no Item has, or that two
+    Items have, is unmatched, and only `#N` names that issue."""
+    titles = _quoted_titles(body)
+    if not titles:
+        return TitleDependencies()
+    by_title: dict[str, list[Item]] = {}
+    for item in items:
+        by_title.setdefault(item.title, []).append(item)
+    numbers: list[int] = []
+    unmatched: list[str] = []
+    for title in titles:
+        named = by_title.get(title, [])
+        pool = [item for item in named if item.state is GitHubState.OPEN] or named
+        if len(pool) == 1:
+            numbers.append(pool[0].number)
+        else:
+            unmatched.append(title)
+    return TitleDependencies(tuple(dict.fromkeys(numbers)), tuple(dict.fromkeys(unmatched)))
 
 
 def _extract_heading_bullets(body: str, heading_re: re.Pattern[str]) -> list[str]:
@@ -1199,10 +1251,13 @@ def validate_proposal(
     if covers is not None and not covers.answered:
         open_questions.append(f"{covers.text} {_A_PERSON_DECIDES}")
 
-    all_known_issues: set[int] = (
-        {item.number for item in store.items()} if hasattr(store, "items") else set()
+    items = store.items() if hasattr(store, "items") else []
+    all_known_issues = {item.number for item in items}
+    # A dependency that the body names by its quoted title counts as one the proposal names (#4803).
+    titled = title_dependencies(body, items).numbers
+    valid_deps = list(
+        dict.fromkeys([*(dep for dep in proposal.dependencies if dep in all_known_issues), *titled])
     )
-    valid_deps = [dep for dep in proposal.dependencies if dep in all_known_issues]
 
     validated_proposal = proposal.model_copy(
         update={
@@ -2244,17 +2299,22 @@ def _job_failure(
     open_questions: Sequence[str],
     stopped: InvestigationStopped | None,
     searched: Sequence[str],
+    unmatched: Sequence[str] = (),
 ) -> JobFailure | None:
     """The job failure of a round, or None when the round has none (#3632). A person has a decision
     to make only for a question marked `(a person decides)`. So the round failed when the proposal
-    fails a form check, or when another open question stays open after the investigation: the
-    tools found no source (`MISSING_SOURCE`), the proposal left a question of the body without an
-    answer (`UNANSWERED_QUESTION`), or the investigation ended with no proposal
-    (`INVESTIGATION_STOPPED`). The error names the open question, the stop and the calls of the
-    tools, so a person sees what they searched."""
+    fails a form check, when the body names a dependency by a title that names no single issue
+    (`DEPENDENCIES`, `unmatched`, #4803), or when another open question stays open after the
+    investigation: the tools found no source (`MISSING_SOURCE`), the proposal left a question of
+    the body without an answer (`UNANSWERED_QUESTION`), or the investigation ended with no
+    proposal (`INVESTIGATION_STOPPED`). The error names the title and asks for its `#N`, or names
+    the open question, the stop and the calls of the tools, so a person sees what they searched."""
     texts = MESSAGES.roadmap
     checks = form_checks(proposal)
     parts: list[str] = []
+    if unmatched:
+        checks.append(JobCheck.DEPENDENCIES)
+        parts.append(texts.refine_failure_dependency.format(title=unmatched[0]))
     searched_text = ""
     job_open = [question for question in open_questions if not question.endswith(_A_PERSON_DECIDES)]
     if job_open:
@@ -2417,7 +2477,8 @@ def refine_one_item(
             proposal, open_questions = validate_proposal(
                 revised, current_body, allowed_urls, source, sha, store, covers
             )
-    failure = _job_failure(proposal, open_questions, stopped, tools.searched)
+    unmatched = title_dependencies(current_body, store.items()).unmatched
+    failure = _job_failure(proposal, open_questions, stopped, tools.searched, unmatched)
     if failure is not None:
         return _failed_round(item, proposal, open_questions, current_body, failure)
     blockers = _open_dependencies(store, proposal)
@@ -3272,6 +3333,7 @@ __all__ = [
     "RefineWriter",
     "RefinedItem",
     "RefinementProposal",
+    "TitleDependencies",
     "WaitingItem",
     "WebSearch",
     "apply_refine",
@@ -3295,6 +3357,7 @@ __all__ = [
     "sanitize_text",
     "select_candidates",
     "step_comment",
+    "title_dependencies",
     "validate_proposal",
     "web_search_of",
 ]

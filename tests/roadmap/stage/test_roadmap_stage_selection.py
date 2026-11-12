@@ -248,6 +248,30 @@ def test_an_item_that_depends_on_an_open_issue_is_left_out(store: InMemoryRoadma
     assert f"#{blocker}" in _reasons(selection)[waiting]
 
 
+def test_an_item_that_names_an_open_issue_by_its_quoted_title_is_left_out(
+    store: InMemoryRoadmapStore,
+) -> None:
+    """A quoted title in the Dependencies section names the issue with that title (#4803)."""
+    blocker = _seed(store, "feat(roadmap): keep schedules in Valkey", status="New")
+    _seed(store, "feat(roadmap): run refine in a pod", state=GitHubState.CLOSED)
+    waiting = _seed(
+        store,
+        body=(
+            "### Dependencies\n\n"
+            '- "feat(roadmap): keep schedules in Valkey".\n'
+            "- “feat(roadmap): run refine in a pod”.\n"
+        ),
+    )
+    free = _seed(store, body='### Dependencies\n\n- "feat(roadmap): run refine in a pod".\n')
+
+    selection = _select(store)
+
+    assert (_numbers(selection), _reasons(selection).get(waiting)) == (
+        [free],
+        MESSAGES.roadmap.stage_left_dependency.format(issues=f"#{blocker}"),
+    )
+
+
 def test_a_held_item_is_left_out_with_the_sentence_of_its_holder(
     store: InMemoryRoadmapStore,
 ) -> None:

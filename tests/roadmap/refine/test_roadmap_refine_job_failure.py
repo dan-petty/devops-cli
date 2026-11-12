@@ -21,6 +21,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_REFINE_FAILURE_MAX_CHARS,
     CONST_ROADMAP_REFINE_MAX_TRIES,
 )
+from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.refine.refine import (
     AcceptanceCriterion,
     JobCheck,
@@ -362,6 +363,72 @@ def test_a_job_failure_comes_before_a_question_for_a_person(
     plan = _round(store, git_repo, {number: both}, Script(both))
 
     assert (plan.refined_items[0].next_step, store.comments_on(number)) == (NextStep.RETRY, [])
+
+
+_DEPENDENCY_TITLE = "feat(roadmap): run each refine item in its own pod"
+
+
+def _seed_with_dependencies(store: InMemoryRoadmapStore, section: str) -> int:
+    """A New item whose body holds the Dependencies section `section`."""
+    return store.seed_issue(
+        "Item",
+        body=f"Body\n\n### Dependencies\n\n{section}\n",
+        fields={ItemField.STATUS: "New", ItemField.PRIORITY: "P1-High"},
+    )
+
+
+@pytest.mark.parametrize("namesakes", [0, 2], ids=["no-issue", "two-open-issues"])
+def test_a_dependency_title_that_names_no_single_issue_is_a_job_failure_that_asks_for_the_number(
+    git_repo: Path, store: InMemoryRoadmapStore, namesakes: int
+) -> None:
+    """A quoted title in the Dependencies section that no issue has, or that two open issues
+    have, fails the round with the check `dependencies`. The error asks for the issue as `#N`,
+    and refine writes no comment (#4803)."""
+    for _ in range(namesakes):
+        store.seed_issue(
+            _DEPENDENCY_TITLE,
+            body="Body",
+            fields={ItemField.STATUS: "In Progress", ItemField.PRIORITY: "P1-High"},
+        )
+    number = _seed_with_dependencies(store, f'- "{_DEPENDENCY_TITLE}".')
+
+    plan = _round(store, git_repo, {number: _WHOLE})
+
+    assert (plan.refined_items[0].next_step, store.comments_on(number), _record(store, number)) == (
+        NextStep.RETRY,
+        [],
+        {
+            "refine.next_step": "retry",
+            "refine.tries": "1",
+            "refine.failed_check": "dependencies",
+            "refine.failure": MESSAGES.roadmap.refine_failure_dependency.format(
+                title=_DEPENDENCY_TITLE
+            ),
+        },
+    )
+
+
+def test_quoted_text_that_is_no_title_and_an_item_with_a_number_ask_for_nothing(
+    git_repo: Path, store: InMemoryRoadmapStore
+) -> None:
+    """Quoted text that is no Conventional Commit title names no dependency, and a list item that
+    names its issue as `#N` names it by the number, so an old title beside it fails nothing
+    (#4803)."""
+    other = store.seed_issue(
+        "feat(roadmap): the new title",
+        body="Body",
+        fields={ItemField.STATUS: "In Progress", ItemField.PRIORITY: "P1-High"},
+    )
+    number = _seed_with_dependencies(
+        store, f'- The "kilo" CLI is on the path.\n- #{other} "{_DEPENDENCY_TITLE}".'
+    )
+
+    plan = _round(store, git_repo, {number: _WHOLE})
+
+    assert (plan.refined_items[0].next_step, _record(store, number)["refine.failed_check"]) == (
+        NextStep.READY,
+        None,
+    )
 
 
 def test_explain_says_what_a_failed_job_waits_for(

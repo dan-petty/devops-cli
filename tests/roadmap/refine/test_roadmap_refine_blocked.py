@@ -14,6 +14,7 @@ import pytest
 from devops_cli.config.constants import (
     CONST_ROADMAP_STATUS_READY,
 )
+from devops_cli.roadmap.body_hash import extract_section_and_outside
 from devops_cli.roadmap.refine.refine import (
     apply_refine,
     plan_refine,
@@ -137,3 +138,34 @@ def test_a_blocked_item_reaches_ready_in_the_round_after_its_last_blocker_closes
         [(number, "ready")],
         CONST_ROADMAP_STATUS_READY,
     )
+
+
+# ── A dependency that the body names by its title (#4803) ─────────────────────────────────
+
+_DEPENDENCY_TITLE = "feat(roadmap): keep schedules, intake and ledgers in Valkey"
+
+
+@pytest.mark.parametrize(
+    ("closed", "step"), [(False, "blocked"), (True, "ready")], ids=["open", "closed"]
+)
+def test_an_issue_that_the_body_names_by_its_quoted_title_is_a_dependency(
+    git_repo: Path, store: InMemoryRoadmapStore, model_fake: ModelFake, closed: bool, step: str
+) -> None:
+    """The Dependencies section of the body names an issue by its quoted title, and the proposal
+    names no dependency. Refine records the issue in the Dependencies part of its section. An open
+    issue blocks the item, and a closed one holds nothing back (#4803)."""
+    store.seed_visibility(is_private=True)
+    dependency = seed_item(store, "In Progress", "P1-High", title=_DEPENDENCY_TITLE)
+    if closed:
+        store.as_actor("alice").close_by_hand(dependency, CloseReason.COMPLETED)
+    body = f'### Dependencies\n\n- "{_DEPENDENCY_TITLE}".\n'
+    number = seed_item(store, "New", "P1-High", body=body)
+    model_fake.answer(READY)
+
+    plan = refine_round(store, git_repo)
+
+    _, section = extract_section_and_outside(store.read_issue_body(number))
+    assert (
+        [(r.next_step, r.blocked_by) for r in plan.refined_items],
+        f"### Dependencies\n#{dependency}" in section,
+    ) == ([(step, () if closed else (dependency,))], True)

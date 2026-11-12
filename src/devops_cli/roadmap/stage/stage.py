@@ -86,7 +86,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
 from datetime import UTC, date, datetime
 from enum import StrEnum
-from functools import cache, partial
+from functools import cache, cached_property, partial
 from pathlib import Path
 from typing import Any, Final, NamedTuple, NoReturn, Protocol
 
@@ -173,6 +173,7 @@ from devops_cli.roadmap.refine.refine import (
     inspect_checkout,
     recorded_blockers,
     stage_comment_text,
+    title_dependencies,
 )
 from devops_cli.roadmap.refine.refine_investigation import task_window
 from devops_cli.roadmap.round_log import log_gate_returns, log_review_round
@@ -602,10 +603,21 @@ class _Judge:
     def _title_slug(self, item: Item) -> str | None:
         return None if _slug_of(item.title) else MESSAGES.roadmap.stage_left_title_slug
 
+    @cached_property
+    def _items(self) -> list[Item]:
+        """Every Item, open and closed, read once for the titles that a body names (#4803)."""
+        return self._store.items()
+
     def _dependency(self, item: Item) -> str | None:
+        """An open issue that the Dependencies section of the body names as `#N` (#2654) or by its
+        quoted title (#4803)."""
+        named = [
+            *body_dependencies(item.body),
+            *title_dependencies(item.body, self._items).numbers,
+        ]
         open_issues = [
             f"#{number}"
-            for number in body_dependencies(item.body)
+            for number in dict.fromkeys(named)
             if (found := self._store.item(number)) is not None and found.state is GitHubState.OPEN
         ]
         if not open_issues:

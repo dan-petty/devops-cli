@@ -245,12 +245,14 @@ def seed_item(
     milestone: str | None = None,
     labels: tuple[str, ...] = (),
     refined: bool = False,
+    title: str | None = None,
+    body: str | None = None,
 ) -> int:
     """An open item on the board with `status` and `priority`; `refined` gives it the record a
     refine round leaves."""
     number = store.seed_issue(
-        f"{status} {priority}",
-        body=f"Body {priority}",
+        title or f"{status} {priority}",
+        body=body or f"Body {priority}",
         milestone=milestone,
         labels=labels,
         fields=PLACED,

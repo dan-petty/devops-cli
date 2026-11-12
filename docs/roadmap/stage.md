@@ -26,7 +26,7 @@ The default filter is `status=ready`. The job takes the Ready items of any type,
 
 A plan is an OpenSpec change, so the job plans only in a repository whose default branch holds `openspec/config.yaml`. In a repository with no such file, it leaves out every item, also the item that `--item` names, with a reason that names the file. It pushes no branch and calls no model, and the stage row names the file in its outcome for onboarding ([onboard](onboard.md)). `devops roadmap explain` prints the same reason.
 
-The job leaves out an item that is not Ready, and some other items: for example an item with the label `needs-split`, an item that depends on an open issue, and an item that an agent or a person claimed. [roadmap-stage](../../openspec/specs/roadmap-stage/spec.md) holds the full list, in the requirement "The job leaves out the items it must not stage". The plan says why for each item that it leaves out. `--why` also lists the open items that the filter does not name.
+The job leaves out an item that is not Ready, and some other items: for example an item with the label `needs-split`, an item that depends on an open issue (named as `#N` or by its quoted title in the Dependencies section, as [refine](refine.md) reads it), and an item that an agent or a person claimed. [roadmap-stage](../../openspec/specs/roadmap-stage/spec.md) holds the full list, in the requirement "The job leaves out the items it must not stage". The plan says why for each item that it leaves out. `--why` also lists the open items that the filter does not name.
 
 ## The limit on Planned items
 
