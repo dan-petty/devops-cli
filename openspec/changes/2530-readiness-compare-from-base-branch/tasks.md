@@ -4,9 +4,9 @@
 
 Kind: behavior. Reads: `src/devops_cli/github/client.py`, `tests/github/test_github_client.py`, `tests/support/fakes/github.py`. Changes: `src/devops_cli/github/client.py`, `tests/github/test_github_client.py`.
 
-- [ ] 1.1 `tests/github/test_github_client.py::test_the_compare_files_are_read_with_the_limit_flag` fails: it scripts a compare answer of two commits with two files and asserts those files and a false truncation flag, then an answer of 300 files and asserts a true flag, and the client has no such read
+- [x] 1.1 `tests/github/test_github_client.py::test_the_compare_files_are_read_with_the_limit_flag` fails: it scripts a compare answer of two commits with two files and asserts those files and a false truncation flag, then an answer of 300 files and asserts a true flag, and the client has no such read
   - Verification: `$ uv run devops ci test tests/github/test_github_client.py` fails on the base
-- [ ] 1.2 Add `_CompareFiles`, the named tuple `CompareFiles` with `files` and `truncated`, the constant `_COMPARE_FILES_LIMIT = 300` and the method `get_compare_files` to `src/devops_cli/github/client.py`. The method sends one GET to `compare/{base}...{head}?per_page=1`, reads the `files` of the answer, and sets `truncated` when the answer holds `_COMPARE_FILES_LIMIT` files. Leave `get_merge_base` and `_Comparison` as they are
+- [x] 1.2 Add `_CompareFiles`, the named tuple `CompareFiles` with `files` and `truncated`, the constant `_COMPARE_FILES_LIMIT = 300` and the method `get_compare_files` to `src/devops_cli/github/client.py`. The method sends one GET to `compare/{base}...{head}?per_page=1`, reads the `files` of the answer, and sets `truncated` when the answer holds `_COMPARE_FILES_LIMIT` files. Leave `get_merge_base` and `_Comparison` as they are
   - Verification: `$ uv run devops ci test tests/github/test_github_client.py` passes
 
 ## 2. Readiness reads the compare and reports the file limit

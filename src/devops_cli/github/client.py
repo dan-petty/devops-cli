@@ -8,7 +8,7 @@ import json
 from collections.abc import Mapping
 from datetime import datetime
 from http import HTTPStatus
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NamedTuple
 from urllib.parse import quote, urlencode
 
 from pydantic import AliasPath, BaseModel, ConfigDict, Field, ValidationError, field_validator
@@ -308,6 +308,25 @@ class _Comparison(BaseModel):
     merge_base: str = Field(validation_alias=AliasPath("merge_base_commit", "sha"))
 
 
+# GitHub lists at most this many files of one compare answer, so a list of this length may be
+# truncated.
+_COMPARE_FILES_LIMIT = 300
+
+
+class _CompareFiles(BaseModel):
+    """What the compare endpoint says of the files of two commits: each file their diff changes."""
+
+    files: list[PullRequestFile] = Field(default_factory=list)
+
+
+class CompareFiles(NamedTuple):
+    """The files a compare answer lists, and whether the answer held GitHub's limit of
+    `_COMPARE_FILES_LIMIT` files, so the list may be truncated."""
+
+    files: list[PullRequestFile]
+    truncated: bool
+
+
 def _read_as[M: BaseModel](model: type[M], answer: Any, *, path: str) -> M:
     """`answer` as a `model`, raising `GitHubUnreadError` naming `path` when it is none."""
     try:
@@ -487,6 +506,18 @@ class GitHubClient:
         except GitHubNotFoundError:
             return None
         return _read_as(_Comparison, comparison, path=endpoint).merge_base
+
+    def get_compare_files(self, repo: str, base: str, head: str) -> CompareFiles:
+        """The files that differ between the commits `base` and `head`, from the compare endpoint.
+
+        This is the diff a squash merge applies, and it follows the merge base when a merge commit
+        moves it, unlike the pull request's file list. GitHub lists at most
+        `_COMPARE_FILES_LIMIT` files of one comparison, so a list of that length reads as possibly
+        truncated.
+        """
+        endpoint = _repo_path(repo, f"compare/{quote(base)}...{quote(head)}?per_page=1")
+        files = _read_as(_CompareFiles, self._session.rest("GET", endpoint), path=endpoint).files
+        return CompareFiles(files=files, truncated=len(files) >= _COMPARE_FILES_LIMIT)
 
     def get_commit_pulls(self, repo: str, sha: str) -> list[CommitPull]:
         """Every pull request that GitHub associates with the commit `sha`, merged or not.
