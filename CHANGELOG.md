@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.116.1](https://github.com/dan-petty/devops-cli/compare/v0.116.0...v0.116.1) (2026-11-12)
+
+
+### Bug Fixes
+
+* **telemetry:** send cumulative metrics to the Prometheus OTLP receiver ([#4930](https://github.com/dan-petty/devops-cli/issues/4930)) ([a5288d1](https://github.com/dan-petty/devops-cli/commit/a5288d1c30697f0118afd96fb688f7e0fabfb089))
+
 ## [0.116.0](https://github.com/dan-petty/devops-cli/compare/v0.115.0...v0.116.0) (2026-11-12)
 
 
