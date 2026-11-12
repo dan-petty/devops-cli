@@ -10,9 +10,9 @@
 ## 2. A stop after each write leaves no second comment (behavior)
 
 - [x] 2.1 Write failing tests: refine and the stage return run with a stop after each write, then again, and leave no comment that a whole run does not leave.
-  - Verification: `$ uv run devops ci test tests/roadmap/refine/test_roadmap_refine_one_write.py tests/roadmap/stage/test_roadmap_stage_job.py`
+  - Verification: `$ uv run devops ci test tests/roadmap/refine/test_roadmap_refine_write_stops.py tests/roadmap/stage/test_roadmap_stage_write_stops.py`
 - [x] 2.2 Add `stop_after_each_write` in `tests/support/write_stops.py`.
-  - Verification: `$ uv run devops ci test tests/roadmap/refine/test_roadmap_refine_one_write.py tests/roadmap/stage/test_roadmap_stage_job.py`
+  - Verification: `$ uv run devops ci test tests/roadmap/refine/test_roadmap_refine_write_stops.py tests/roadmap/stage/test_roadmap_stage_write_stops.py`
 
 ## 3. Documents
 
