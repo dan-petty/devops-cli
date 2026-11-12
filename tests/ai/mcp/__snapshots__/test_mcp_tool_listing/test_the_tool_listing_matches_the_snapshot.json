@@ -2399,7 +2399,7 @@
     }
   },
   "gh_pages_verify": {
-    "description": "Verify local repository readiness for GitHub Pages publishing.",
+    "description": "Verify that zensical.toml has the settings of the docs site and that docs/ holds Markdown pages.",
     "input_schema": {
       "additionalProperties": false,
       "properties": {
