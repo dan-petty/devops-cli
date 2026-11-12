@@ -3856,6 +3856,7 @@ class RoadmapMessages:
         "The fix-plan attempt on pull request #{pull} of item #{number} ended {result}: "
         "{before} open finding(s) before the repair, {after} after it."
     )
+    fix_plan_counts: str = "The attempt made {counts}, and the head of the branch is {head}."
     fix_plan_plain_note: str = (
         "fix-plan without --confirm selects the plan pull request, calls no model and writes "
         "nothing. --dry-run makes no request."

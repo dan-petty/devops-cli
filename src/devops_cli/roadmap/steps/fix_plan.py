@@ -40,7 +40,7 @@ from __future__ import annotations
 
 import logging
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from typing import TYPE_CHECKING, Final
@@ -155,8 +155,9 @@ class FixPlanLeftOut:
 
 @dataclass(frozen=True)
 class FixPlanAttempt:
-    """One attempt: the item, the pull request, the result, the open findings of the review before
-    and after the repair, the head of the branch after the attempt, and the class of a failure."""
+    """One attempt: the item, the pull request, the result, the open findings before and after
+    the repair, the head of the branch after the attempt, the class of a failure, and the counts of
+    the plan runs (`StageAttempt.counts`)."""
 
     number: int
     pull: int
@@ -165,6 +166,7 @@ class FixPlanAttempt:
     after: int = 0
     head: str = ""
     failure: FailureClass | None = None
+    counts: tuple[tuple[str, int], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -516,7 +518,7 @@ def _result_marks(target: FixPlanTarget, done: FixPlanAttempt) -> Mapping[FixPla
     }
 
 
-def _report(repo: str, done: FixPlanAttempt, counts: Mapping[str, int]) -> None:
+def _report(repo: str, done: FixPlanAttempt) -> None:
     """Log the line and the result line of `done`, and count its result."""
     logger.info(
         MESSAGES.roadmap.fix_plan_attempt.format(
@@ -533,7 +535,7 @@ def _report(repo: str, done: FixPlanAttempt, counts: Mapping[str, int]) -> None:
         done.number,
         done.result.value,
         failure=done.failure,
-        counts={**counts, "before": done.before, "after": done.after},
+        counts={**dict(done.counts), "before": done.before, "after": done.after},
     )
     emit(ROADMAP_FIX_PLAN_TOTAL, 1, {"repo": repo, "result": done.result.value})
 
@@ -590,8 +592,9 @@ def _attempt(
         )
         done = _settle(attempt, revision)
         counts = revision.attempt.counts() if revision.attempt is not None else {}
+    done = replace(done, counts=tuple(counts.items()))
     store.set_marks(store.item(number) or target.item, _result_marks(target, done))
-    _report(attempt.repo, done, counts)
+    _report(attempt.repo, done)
     return done
 
 
@@ -677,6 +680,9 @@ def render_fix_plan(run: FixPlanRun) -> str:
                 after=done.after,
             )
         )
+        if done.counts:
+            shown = ", ".join(f"{name} {value}" for name, value in done.counts)
+            lines.append(texts.fix_plan_counts.format(counts=shown, head=done.head[:_SHORT]))
     return "\n".join(lines)
 
 
