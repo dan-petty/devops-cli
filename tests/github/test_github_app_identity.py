@@ -184,8 +184,9 @@ def test_a_reply_that_grants_more_keeps_the_token_and_logs_only_the_permission_n
     app_identity: GitHubApiFake, caplog: pytest.LogCaptureFixture
 ) -> None:
     """GitHub's reply names the token's permissions. A reply that grants one more is no error,
-    and the log names the permissions but not their levels or the token."""
-    granted = {**ROADMAP_PERMISSIONS, "administration": "write"}
+    and the log names the permissions but not their levels or the token. The token asks for no
+    `pages`, so the reply grants one more (#4757)."""
+    granted = {**ROADMAP_PERMISSIONS, "pages": "write"}
     app_identity.route(
         "POST", MINT, _installation_token("ghs_first", timedelta(hours=1), permissions=granted)
     )
@@ -197,7 +198,7 @@ def test_a_reply_that_grants_more_keeps_the_token_and_logs_only_the_permission_n
             APP_LOGGER,
             logging.INFO,
             "GitHub App devops-roadmap[bot] has a new installation token with these permissions: "
-            "actions, administration, checks, contents, issues, metadata, pull_requests, "
+            "actions, administration, checks, contents, issues, metadata, pages, pull_requests, "
             "repository_hooks, workflows",
         )
     ]
