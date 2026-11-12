@@ -117,6 +117,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_STATUS_READY,
 )
 from devops_cli.config.settings import load_settings
+from devops_cli.core import clock
 from devops_cli.dry_run.requests import PlannedRequest
 from devops_cli.exceptions import (
     DevOpsCLIError,
@@ -151,6 +152,7 @@ from devops_cli.roadmap.decision_point import ResolverChain
 from devops_cli.roadmap.decision_step import Band
 from devops_cli.roadmap.digest_clears import has_digest_clear
 from devops_cli.roadmap.failure import FailureClass, StepName, failure_class_of, retry_after
+from devops_cli.roadmap.job_result import RoadmapJob, log_job_result
 from devops_cli.roadmap.planned import (
     PlannedChanges,
     open_plan_creates,
@@ -255,6 +257,7 @@ from devops_cli.roadmap.stage.stage_specs import BaseSpec, read_base_specs
 from devops_cli.roadmap.stage.stage_split import ask_split
 from devops_cli.roadmap.stage.stage_toolbox import (
     PLAN_ROW,
+    REVIEW_ROW,
     ToolboxClient,
     ToolboxModel,
     review,
@@ -868,6 +871,30 @@ class FalsePremise:
 
 
 @dataclass(frozen=True)
+class StageAttempt:
+    """The counts of one item that a round tried (#4845): the plan runs and the review runs of
+    the model, the replies that the checks sent back, the input and output tokens of the runs,
+    and the seconds of the plan. A plan that a client with no trace makes counts no run."""
+
+    number: int
+    plan_calls: int = 0
+    gate_returns: int = 0
+    verify_rounds: int = 0
+    tokens: int = 0
+    seconds: int = 0
+
+    def counts(self) -> dict[str, int]:
+        """The counts of the result line, in its order."""
+        return {
+            "plan_calls": self.plan_calls,
+            "gate_returns": self.gate_returns,
+            "verify_rounds": self.verify_rounds,
+            "tokens": self.tokens,
+            "seconds": self.seconds,
+        }
+
+
+@dataclass(frozen=True)
 class StageFailure:
     """An item the job could not plan or write: the class of the error and why, never the model's
     text. `item` is the item itself, when the job read it, so that the job records the failure in
@@ -942,7 +969,8 @@ class KeptBranch:
 class StagePlan:
     """What a run does: the changes ready to write, the items stopped on a group over the budget,
     the items that failed, and the issues left out with their reasons. `missing` holds the project
-    files that the default branch lacks, which onboarding adds (#4629)."""
+    files that the default branch lacks, which onboarding adds (#4629). `attempts` holds the
+    counts of each item that the planner tried (#4845)."""
 
     repo: str
     sha: str = ""
@@ -962,6 +990,7 @@ class StagePlan:
     premise: tuple[FalsePremise, ...] = ()
     rejections: tuple[Rejection, ...] = ()
     missing: tuple[str, ...] = ()
+    attempts: tuple[StageAttempt, ...] = ()
 
 
 def _stage_error(message: str, target: StageTarget) -> RoadmapStageError:
@@ -1121,6 +1150,10 @@ class _Planner:
         # first ask to the last revision of a repair round (#4312).
         self._refused: list[tuple[StageProposal, str]] = []
         self._stopped_by_checks = False
+        # The replies of the item in hand that the checks sent back to the model (#4845).
+        self._returns = 0
+        # The counts of each item that the planner tried, in order (#4845).
+        self.attempts: list[StageAttempt] = []
 
     @property
     def refused_problems(self) -> tuple[str, ...]:
@@ -1132,6 +1165,19 @@ class _Planner:
         """True when the item in hand stopped because the checks refused its last reply, and not
         for a later stop such as a stopped plan run (#4491)."""
         return self._stopped_by_checks
+
+    def note_attempt(self, number: int, seconds: float) -> None:
+        """Keep the counts of the item in hand, which the planner tried for `seconds` (#4845)."""
+        self.attempts.append(
+            StageAttempt(
+                number,
+                plan_calls=sum(1 for trace in self._traces if trace.row == PLAN_ROW),
+                gate_returns=self._returns,
+                verify_rounds=sum(1 for trace in self._traces if trace.row == REVIEW_ROW),
+                tokens=sum(trace.input_tokens + trace.output_tokens for trace in self._traces),
+                seconds=round(seconds),
+            )
+        )
 
     def plan(self, target: StageTarget) -> StagedChange | OverBudget | Blocked | FalsePremise:
         """The change of `target`, or the group that stops it. A reply the checks refuse goes back
@@ -1147,6 +1193,7 @@ class _Planner:
         self._traces.clear()
         self._refused = []
         self._stopped_by_checks = False
+        self._returns = 0
         kept, key = self._kept(target)
         # A plain client has no trace and its gate is off, on a hit as on a miss.
         self._kept_facts = (
@@ -1287,6 +1334,7 @@ class _Planner:
                 raise _stage_error(invalid.format(problem=outcome.problem), target)
             raise_if_service_stops(f"return {returns + 1} of the plan of #{target.item.number}")
             returns += 1
+            self._returns += 1
             again = {
                 **request.for_model(),
                 "previous": outcome.reply.model_dump(),
@@ -1906,6 +1954,7 @@ def _plan_each(
     for target in targets:
         raise_if_service_stops(f"the plan of #{target.item.number}")
         result: StagedChange | OverBudget | Blocked | FalsePremise | StageFailure
+        started = clock.monotonic()
         try:
             result = planner.plan(target)
         except AICredentialsError:
@@ -1917,6 +1966,7 @@ def _plan_each(
                 planner.refused_problems,
                 stopped_by_checks=planner.stopped_by_checks,
             )
+        planner.note_attempt(target.item.number, clock.monotonic() - started)
         if writer is not None:
             writer.settle(target, result)
         if isinstance(result, StageFailure):
@@ -2212,6 +2262,7 @@ def plan_stage(
         failed=(*plan.failed, *failed),
         blocked=tuple(blocked),
         premise=tuple(premise),
+        attempts=tuple(planner.attempts),
     )
 
 
@@ -3092,13 +3143,39 @@ def skipped_reasons(plan: StagePlan, applied: StageApplied) -> dict[int, tuple[L
 def emit_stage_results(plan: StagePlan, applied: StageApplied, repo: str = "") -> None:
     """Add 1 to `devops_cli_roadmap_stage_total` for each item of a run that wrote, by repository,
     result and the kind of the reason of a skipped item (#2659, #3069, #4521), and log the reason
-    of a skipped item when its kind changes. A plan with no write counts nothing."""
+    of a skipped item when its kind changes. A plan with no write counts nothing. Each item that
+    the round tried, all but the skipped ones, logs one result line with its counts (#4845)."""
     results = stage_results(plan, applied)
     reasons = skipped_reasons(plan, applied)
     for number, result in results.items():
         kind = reasons[number][0] if number in reasons else LeftOutKind.NONE
         emit(ROADMAP_STAGE_TOTAL, 1, {"result": result.value, "reason": kind.value, "repo": repo})
     log_left_out(repo, reasons, results)
+    _log_attempts(plan, applied, results, repo)
+
+
+def _log_attempts(
+    plan: StagePlan, applied: StageApplied, results: Mapping[int, StageResult], repo: str
+) -> None:
+    """Log the result line of each item that the round tried, by item number. The class
+    is the class of the failure of the item; an item staged with an open finding has a defect of
+    its plan (#3264)."""
+    classes = {failure.number: failure.failure_class for failure in (*plan.failed, *applied.failed)}
+    attempts = {attempt.number: attempt for attempt in plan.attempts}
+    for number, result in sorted(results.items()):
+        if result is StageResult.SKIPPED:
+            continue
+        failure = classes.get(number)
+        if failure is None and result is StageResult.FAILED:
+            failure = FailureClass.PLAN_DEFECT
+        log_job_result(
+            RoadmapJob.STAGE,
+            repo,
+            number,
+            result.value,
+            failure=failure,
+            counts=attempts.get(number, StageAttempt(number)).counts(),
+        )
 
 
 # ── The report ────────────────────────────────────────────────────────────────

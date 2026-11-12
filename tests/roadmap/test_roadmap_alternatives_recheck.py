@@ -85,7 +85,7 @@ def _first_check(
     store: InMemoryRoadmapStore, number: int, verdict: Verdict, tool_url: str | None
 ) -> None:
     """Write the first check of the item at `FIRST`."""
-    AlternativesWriter(store).settle(_check(store, number, FIRST, verdict, tool_url))
+    AlternativesWriter(store, REPO).settle(_check(store, number, FIRST, verdict, tool_url))
 
 
 def _due_numbers(store: InMemoryRoadmapStore, now: datetime) -> list[int]:
@@ -101,7 +101,7 @@ def test_first_check_posts_its_comment() -> None:
     store = InMemoryRoadmapStore(repo=REPO)
     number = _item_number(store)
 
-    AlternativesWriter(store).settle(_check(store, number, FIRST, Verdict.NONE, NO_TOOL))
+    AlternativesWriter(store, REPO).settle(_check(store, number, FIRST, Verdict.NONE, NO_TOOL))
     item = store.item(number)
     assert item is not None
 
@@ -127,7 +127,7 @@ def test_same_verdict_and_tool_posts_no_second_comment_and_moves_the_date(
     _first_check(store, number, verdict, tool_url)
     assert _due_numbers(store, SECOND) == [number]
 
-    AlternativesWriter(store).settle(_check(store, number, SECOND, verdict, tool_url))
+    AlternativesWriter(store, REPO).settle(_check(store, number, SECOND, verdict, tool_url))
     item = store.item(number)
     assert item is not None
 
@@ -158,7 +158,7 @@ def test_same_verdict_and_tool_makes_one_write_and_no_comment_request() -> None:
     _first_check(store, number, Verdict.NONE, NO_TOOL)
     before = len(store.writes)
 
-    AlternativesWriter(store).settle(_check(store, number, SECOND, Verdict.NONE, NO_TOOL))
+    AlternativesWriter(store, REPO).settle(_check(store, number, SECOND, Verdict.NONE, NO_TOOL))
 
     assert store.writes[before:] == ["set_marks"]
 
@@ -169,7 +169,7 @@ def test_same_verdict_and_tool_still_counts_the_check() -> None:
     store = InMemoryRoadmapStore(repo=REPO)
     number = _item_number(store)
     _first_check(store, number, Verdict.NONE, NO_TOOL)
-    writer = AlternativesWriter(store)
+    writer = AlternativesWriter(store, REPO)
 
     writer.settle(_check(store, number, SECOND, Verdict.NONE, NO_TOOL))
 
@@ -194,7 +194,7 @@ def test_changed_verdict_posts_one_comment(
     number = _item_number(store)
     _first_check(store, number, *first)
 
-    AlternativesWriter(store).settle(_check(store, number, SECOND, *second))
+    AlternativesWriter(store, REPO).settle(_check(store, number, SECOND, *second))
     item = store.item(number)
     assert item is not None
 
@@ -211,7 +211,7 @@ def test_changed_tool_with_the_same_verdict_posts_one_comment() -> None:
     number = _item_number(store)
     _first_check(store, number, Verdict.COVERS, TOOL_A)
 
-    AlternativesWriter(store).settle(_check(store, number, SECOND, Verdict.COVERS, TOOL_B))
+    AlternativesWriter(store, REPO).settle(_check(store, number, SECOND, Verdict.COVERS, TOOL_B))
     item = store.item(number)
     assert item is not None
 
@@ -228,6 +228,6 @@ def test_changed_result_makes_the_write_then_the_comment() -> None:
     _first_check(store, number, Verdict.NONE, NO_TOOL)
     before = len(store.writes)
 
-    AlternativesWriter(store).settle(_check(store, number, SECOND, Verdict.COVERS, TOOL_A))
+    AlternativesWriter(store, REPO).settle(_check(store, number, SECOND, Verdict.COVERS, TOOL_A))
 
     assert store.writes[before:] == ["set_marks", "comment"]

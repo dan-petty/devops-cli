@@ -750,7 +750,7 @@ def _run_alternatives_adapter(store: RoadmapStore, repo: str = "", **_: Any) -> 
     progress, and a rate limit on a write ends the round with the checks that are written
     (#4034). The row sends the coverage gauges of the round after the checks, also when it
     writes nothing (#2950)."""
-    plan = plan_alternatives(store, repo=repo, writer=AlternativesWriter(store))
+    plan = plan_alternatives(store, repo=repo, writer=AlternativesWriter(store, repo))
     record_coverage(plan)
     if plan.off_reason:
         logger.info("The alternatives check of %s is off: %s", repo, plan.off_reason)

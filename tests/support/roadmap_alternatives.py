@@ -19,7 +19,7 @@ def apply_alternatives(store: RoadmapStore, plan: AlternativesPlan) -> int:
     # has no `AlternativesWriter` yet.
     from devops_cli.roadmap.alternatives import AlternativesWriter
 
-    writer = AlternativesWriter(store)
+    writer = AlternativesWriter(store, plan.repo)
     for check in plan.checks:
         writer.settle(check)
     for failure in plan.failures:

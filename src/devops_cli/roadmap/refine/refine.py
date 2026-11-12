@@ -206,6 +206,7 @@ from devops_cli.roadmap.intake.intake import (
     plan_intake,
 )
 from devops_cli.roadmap.intake.intake_model import IntakeModel, build_intake_model
+from devops_cli.roadmap.job_result import RoadmapJob, log_job_result
 from devops_cli.roadmap.page_fetch import (
     TOOLSET_REFINE,
     PageFetch,
@@ -2590,6 +2591,7 @@ def refine_one_item(
             proposal,
             source,
             unchanged=is_unchanged(item, current_body),
+            repo=repo,
         )
         is_ready = judge is JudgeVerdict.APPROVED
     needs_split = not proposal.fits_one_pr
@@ -3298,6 +3300,24 @@ def apply_refine(store: RoadmapStore, plan: RefinePlan) -> RefineApplied:
     return applied + RefineApplied(comments_posted=_apply_waiting(store, plan))
 
 
+# The result of a refine attempt whose model call or write failed (#4845).
+_ATTEMPT_ERROR: Final = "error"
+
+
+def _log_attempt(
+    repo: str, result: RefinedItem | RefineFailure, write_failure: FailureClass | None = None
+) -> None:
+    """Log the result line of one item of a round: the next step that the item waits on, or
+    `error` with the class of the failed model call or of the failed write (#4845)."""
+    if isinstance(result, RefineFailure):
+        outcome, failure = _ATTEMPT_ERROR, result.failure_class
+    elif write_failure is not None:
+        outcome, failure = _ATTEMPT_ERROR, write_failure
+    else:
+        outcome, failure = result.next_step.value, None
+    log_job_result(RoadmapJob.REFINE, repo, result.item.number, outcome, failure=failure)
+
+
 class RefineWriter:
     """The writes of one refine round, made when each item is done (#3631).
 
@@ -3327,7 +3347,8 @@ class RefineWriter:
         logger.info(MESSAGES.roadmap.refine_round_started.format(repo=self._repo, taken=taken))
 
     def settle(self, result: RefinedItem | RefineFailure) -> None:
-        """Write the result of one item as soon as the item is done."""
+        """Write the result of one item as soon as the item is done, and log its result line
+        (#4845)."""
         number = result.item.number
         if isinstance(result, RefineFailure):
             self._failures.append(result)
@@ -3343,10 +3364,12 @@ class RefineWriter:
             )
             if isinstance(result, RefinedItem):
                 self._unwritten.append(number)
+            _log_attempt(self._repo, result, failure_class_of(exc))
             return
         if isinstance(result, RefinedItem):
             self._written += 1
             self.readied_count += applied.readied_count
+        _log_attempt(self._repo, result)
 
     def write_waiting(self, plan: RefinePlan) -> None:
         """Write what the plan owes the items the round left alone."""
