@@ -2550,11 +2550,14 @@ def test_an_ignored_hangup_stays_ignored_through_a_run(monkeypatch: pytest.Monke
     ) == (0, signal.SIG_IGN, [True, True], before)
 
 
-def _devops_ci_test(project: Path, fake_uv: Path, log: Path) -> subprocess.Popen[bytes]:
-    """`devops ci test tests/test_x.py`, the real command in a process of its own, with `fake_uv`
-    first on PATH and telemetry off, so it opens no socket; its output goes to `log`. The tree
-    under test's `src` leads its PYTHONPATH, so it runs that tree's devops-cli, not whichever the
-    console script's install points at, as a replay on another tree would (#1669)."""
+def _devops_ci_test(
+    project: Path, fake_uv: Path, log: Path, args: tuple[str, ...] = ("test", "tests/test_x.py")
+) -> subprocess.Popen[bytes]:
+    """`devops ci` with `args`, `test tests/test_x.py` by default, the real command in a process
+    of its own, with `fake_uv` first on PATH and telemetry off, so it opens no socket; its output
+    goes to `log`. The tree under test's `src` leads its PYTHONPATH, so it runs that tree's
+    devops-cli, not whichever the console script's install points at, as a replay on another tree
+    would (#1669)."""
     python_path = os.pathsep.join(
         filter(None, [str(REPO_ROOT / "src"), os.environ.get("PYTHONPATH")])
     )
@@ -2567,7 +2570,7 @@ def _devops_ci_test(project: Path, fake_uv: Path, log: Path) -> subprocess.Popen
     devops = Path(sys.executable).with_name("devops")
     with log.open("wb") as output:
         return subprocess.Popen(
-            [str(devops), "ci", "test", "tests/test_x.py"],
+            [str(devops), "ci", *args],
             cwd=project,
             env=env,
             stdout=output,
@@ -2651,6 +2654,73 @@ def test_a_second_signal_to_devops_ci_test_cannot_skip_the_sigkill(
             wait_until(watch.stopped),
             "term" in records_after_second_signal(signals),
         ) == (True, True, True, False)
+
+
+@pytest.mark.usefixtures("narrowed_project", "default_signal_dispositions")
+def test_a_stop_signal_cancels_the_gate_and_the_running_row_names_itself(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """In process: a Ctrl-C while a row waits for its child cancels the gate. The child is
+    stopped, the row prints its stopped line, and the gate exits as cancelled, 130 (#4775). The
+    test raises the Ctrl-C itself with `signal.raise_signal`. The double's pid is 0, which the
+    group stop refuses to signal, so the stop kills the double alone."""
+
+    async def ctrl_c_then_hang(_spawn: RecordedSpawn) -> None:
+        signal.raise_signal(signal.SIGINT)
+        await asyncio.sleep(DEFAULT_SUBPROCESS_TIMEOUT_SECONDS)
+
+    spawns = record_spawns(monkeypatch, on_communicate=ctrl_c_then_hang)
+    # A KeyboardInterrupt that escapes would end the whole session, so the test catches it.
+    try:
+        result = runner.invoke(app, ["--check", "--only", "format", "--no-cache"])
+        outcome: object = (
+            result.exit_code,
+            [
+                line.strip().partition(" (stopped after ")[0]
+                for line in result.output.splitlines()
+                if "stopped after" in line
+            ],
+        )
+    except KeyboardInterrupt:
+        outcome = "KeyboardInterrupt"
+
+    assert (outcome, [spawn.killed for spawn in spawns]) == (
+        (CONST_EXIT_CANCELLED, [f"✗ fail  {MESSAGES.ci.ruff_format}"]),
+        [True],
+    )
+
+
+@pytest.mark.live("devops")
+@pytest.mark.usefixtures("default_signal_dispositions")
+def test_a_sigterm_to_the_gate_stops_the_group_of_each_running_row_and_names_it(
+    narrowed_project: Path, tmp_path: Path
+) -> None:
+    """coreutils `timeout` ends a run of `devops ci` with SIGTERM, as a pre-push hook does at its
+    limit. The gate stops the process group of each row that still runs, names the row, and
+    exits as cancelled, 130 (#4775). The row's `uv` is a fake on PATH that starts a grandchild in
+    its group and hangs."""
+    log = tmp_path / "devops.log"
+    with watching(tmp_path / "pids") as watch:
+        fake_uv = fake_program(tmp_path / "bin" / "uv", watch.pid_file)
+        driver = _devops_ci_test(
+            narrowed_project, fake_uv, log, ("--check", "--only", "format", "--no-cache")
+        )
+        try:
+            started = wait_while_running(watch.started, driver)
+            driver.send_signal(signal.SIGTERM)
+            driver.wait()
+        finally:
+            _stop_driver(driver)
+
+        stopped_line = [
+            line for line in log.read_text(encoding="utf-8").splitlines() if "stopped after" in line
+        ]
+        assert (
+            started,
+            driver.returncode,
+            wait_until(watch.stopped),
+            [MESSAGES.ci.ruff_format in line for line in stopped_line],
+        ) == (True, CONST_EXIT_CANCELLED, True, [True])
 
 
 @pytest.mark.live("sh")
