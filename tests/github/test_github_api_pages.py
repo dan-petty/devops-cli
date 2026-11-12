@@ -63,6 +63,57 @@ def test_the_session_path_of_an_endpoint_starts_at_the_api_root(endpoint: str) -
     assert session_path(endpoint) == "/" + _LISTING
 
 
+@pytest.mark.parametrize(
+    ("endpoint", "path"),
+    [
+        pytest.param(
+            "repos/octo/repo/labels", "/repos/octo/repo/labels?per_page=100", id="no-query"
+        ),
+        pytest.param(
+            "repos/octo/repo/issues?state=all",
+            "/repos/octo/repo/issues?state=all&per_page=100",
+            id="query",
+        ),
+        pytest.param(
+            "repos/octo/repo/labels?", "/repos/octo/repo/labels?&per_page=100", id="empty"
+        ),
+        pytest.param(
+            "repos/octo/repo/issues?per_page=",
+            "/repos/octo/repo/issues?per_page=&per_page=100",
+            id="per-page-empty",
+        ),
+        pytest.param(
+            "repos/octo/repo/issues?per_page&state=all",
+            "/repos/octo/repo/issues?per_page&state=all&per_page=100",
+            id="per-page-with-no-value",
+        ),
+        pytest.param(
+            "repos/octo/repo/issues?per_page=&per_page=5",
+            "/repos/octo/repo/issues?per_page=&per_page=5&per_page=100",
+            id="first-per-page-empty",
+        ),
+    ],
+)
+def test_a_read_with_no_per_page_asks_for_pages_of_100_as_gh_does(endpoint: str, path: str) -> None:
+    """gh adds `per_page=100` to a paginated REST read when the first `per_page` of its query
+    has no value, after `&` when the endpoint has a `?`, else after `?` (#5100)."""
+    assert session_path(endpoint) == path
+
+
+@pytest.mark.parametrize(
+    "endpoint",
+    [
+        "/repos/octo/repo/issues?per_page=5",
+        "/repos/octo/repo/issues?state=all&per_page=5",
+        "/repos/octo/repo/issues?per%5Fpage=5",
+        "/search/issues?q=a+b&per_page=5&per_page=",
+    ],
+)
+def test_an_endpoint_that_sets_per_page_keeps_it(endpoint: str) -> None:
+    """A query whose first `per_page` has a value, also an escaped name, is sent as it is."""
+    assert session_path(endpoint) == endpoint
+
+
 def test_array_pages_print_as_one_json_array() -> None:
     """With no filter, the items of all array pages print as one compact JSON array, as gh
     joins them."""
