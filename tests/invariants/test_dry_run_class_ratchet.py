@@ -10,8 +10,9 @@ from __future__ import annotations
 
 import importlib
 import json
+import re
 from collections.abc import Iterable
-from typing import Any, Final
+from typing import Annotated, Any, Final
 
 import click
 import typer
@@ -27,6 +28,8 @@ from devops_cli.dry_run.decorator import (
 from tests.support.paths import FIXTURES
 
 CONST_GAPS_FILE = FIXTURES / "dry_run_gaps.json"
+# A form of the verb "post": a command that makes no external request posts nothing (#3644).
+CONST_POST_WORD = re.compile(r"\bpost(?:s|ed|ing)?\b", re.IGNORECASE)
 
 # The `no-external-request` commands that write local state or a file. The dry-run class names
 # external requests only, so their MCP tools are not read-only (#3642).
@@ -121,6 +124,23 @@ def audit_dry_run_ratchet(commands: dict[str, Any], gaps: set[str]) -> list[str]
                     f"Command '{path}' has class 'request-plan' but does not declare --dry-run."
                 )
 
+    return errors
+
+
+def audit_no_request_help(commands: dict[str, Any]) -> list[str]:
+    """Return one error for each help text of a no-external-request command that says it posts."""
+    errors: list[str] = []
+    for path, cmd in sorted(commands.items()):
+        if get_dry_run_class(cmd) != "no-external-request":
+            continue
+        texts = [cmd.help or "", *(getattr(param, "help", None) or "" for param in cmd.params)]
+        for text in texts:
+            match = CONST_POST_WORD.search(text)
+            if match:
+                errors.append(
+                    f"Command '{path}' makes no external request, but its help says "
+                    f"'{match.group(0)}': {text}"
+                )
     return errors
 
 
@@ -230,6 +250,42 @@ def test_dry_run_class_ratchet_repository_invariant() -> None:
 
     errors = audit_dry_run_ratchet(commands, gaps_set)
     assert errors == []
+
+
+def test_no_external_request_command_that_says_post_fails_the_help_check() -> None:
+    """A no-external-request command whose help says "post" fails; a request-plan command may say it."""
+    app = new_typer(no_args_is_help=True)
+
+    @app.command(name="notify")
+    @dry_run_class("no-external-request")
+    def notify(
+        pr_number: Annotated[int, typer.Option("--pr", help="Pull request number to post to.")] = 0,
+    ) -> None:
+        """Post the plan comment to the pull request."""
+
+    @app.command(name="publish")
+    @dry_run_class("request-plan")
+    def publish(dry_run: Annotated[bool, typer.Option("--dry-run")] = False) -> None:
+        """Post the comment."""
+
+    @app.command(name="render")
+    @dry_run_class("no-external-request")
+    def render() -> None:
+        """Print the comment. The command sends no request."""
+
+    cmds = _extract_commands(typer.main.get_command(app), "demo")
+
+    assert audit_no_request_help(cmds) == [
+        "Command 'demo notify' makes no external request, but its help says 'Post': "
+        "Post the plan comment to the pull request.",
+        "Command 'demo notify' makes no external request, but its help says 'post': "
+        "Pull request number to post to.",
+    ]
+
+
+def test_no_external_request_commands_do_not_say_they_post() -> None:
+    """Repository invariant: no command of the class no-external-request says that it posts."""
+    assert audit_no_request_help(_collect_reachable_commands()) == []
 
 
 def audit_mcp_read_only(

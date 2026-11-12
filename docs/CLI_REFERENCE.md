@@ -9358,7 +9358,7 @@ devops tf lint [OPTIONS] <directory>
 
 ### `devops tf notify-plan`
 
-**Format and post structured, collapsible OpenTofu/Terraform plan diffs to PR comments.**
+**Format an OpenTofu plan as a collapsible pull request comment and print it. The command sends no request.**
 
 ```bash
 devops tf notify-plan [OPTIONS]
@@ -9368,8 +9368,8 @@ devops tf notify-plan [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--plan-file`, `-p` | `path` | - | Path to raw plan output or log file. |
-| `--pr` | `integer` | - | Pull Request number to post plan comment to. |
+| `--plan-file`, `-p` | `path` | - | Path to raw plan output or log file. With no file, or a path that does not exist, the command prints a fixed sample plan. |
+| `--pr` | `integer` | - | Pull request number for the pr field of the JSON or YAML output. The command sends nothing to the pull request. |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 | `--format`, `-f` | `string` | `table` | Output format (table, json, yaml, csv) |
 
