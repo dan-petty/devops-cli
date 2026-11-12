@@ -1,0 +1,7 @@
+---
+- name: mount nvme
+  hosts: k3s_server
+  tasks:
+    - name: mount nvme
+      ansible.posix.mount:
+        path: /mnt/data

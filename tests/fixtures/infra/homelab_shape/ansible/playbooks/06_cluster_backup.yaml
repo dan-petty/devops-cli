@@ -1,0 +1,7 @@
+---
+- name: cluster backup
+  hosts: k3s_server
+  tasks:
+    - name: cluster backup
+      ansible.builtin.fetch:
+        src: /var/lib/rancher/k3s/server/token

@@ -51,6 +51,14 @@ DEFAULT_SSH_KEY_DIR = Path.home() / ".ssh"
 DEFAULT_SSH_KEY_PREFIX: str | None = None
 DEFAULT_SSH_ROTATION_DAYS = 90
 DEFAULT_REPOS_BASE_DIR = Path("repos")
+# `devops infra` (#5120): the age after which a plan is refused, the bounds of a drain and of the
+# wait for a node to be Ready, and the `devops ssh` prefix of the key that Ansible connects with.
+DEFAULT_INFRA_PLAN_MAX_AGE_HOURS: int = 24
+DEFAULT_INFRA_DRAIN_TIMEOUT_SECONDS: int = 180
+DEFAULT_INFRA_NODE_READY_TIMEOUT_SECONDS: int = 900
+DEFAULT_INFRA_SSH_KEY_PREFIX: str = "ansible"
+# The bound of each local Ansible read of `devops infra onboard`: the config dump, the inventory.
+DEFAULT_INFRA_ANSIBLE_READ_TIMEOUT_SECONDS: float = 120.0
 DEFAULT_DOCS_DIR = CONST_DOCS_DIR_PATH
 DEFAULT_GRAFANA_DASHBOARDS_DIR = Path("k8s/monitoring/dashboards")
 DEFAULT_WORKSPACE_FILE = Path(".code-workspace")

@@ -1,0 +1,5 @@
+---
+- name: k3s_server
+  ansible.builtin.template:
+    src: k3s-config.yaml.j2
+    dest: /etc/rancher/k3s/config.yaml

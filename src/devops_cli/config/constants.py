@@ -164,6 +164,11 @@ CONST_SETTINGS_SECTION_METADATA: Final[dict[str, tuple[str, str]]] = {
         "Web Search Configuration (`search`)",
         "The providers that web search asks, in order, and the language of the search.",
     ),
+    "infra": (
+        "Infra Repos (`infra`)",
+        "The infra repos that `devops infra` manages, each with its agent access level, and the "
+        "bounds of a plan, a drain and a node restart.",
+    ),
 }
 CONST_DOMAIN_EXCEPTION_MODULES: Final[tuple[str, ...]] = (
     "devops_cli.ai.client.models",

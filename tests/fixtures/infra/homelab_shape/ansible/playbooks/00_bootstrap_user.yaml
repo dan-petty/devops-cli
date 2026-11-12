@@ -1,0 +1,7 @@
+---
+- name: bootstrap user
+  hosts: all
+  tasks:
+    - name: bootstrap user
+      ansible.builtin.user:
+        name: ansible

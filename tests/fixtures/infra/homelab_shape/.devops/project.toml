@@ -1,0 +1,6 @@
+extends = "ansible-k8s"
+
+[ansible]
+inventory = ["ansible/inventory/hosts.yaml"]
+playbook_dir = "ansible/playbooks"
+roles_path = ["ansible/roles"]

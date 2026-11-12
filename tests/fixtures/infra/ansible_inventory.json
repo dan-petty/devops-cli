@@ -1,0 +1,136 @@
+{
+  "_meta": {
+    "hostvars": {
+      "node-1.example.com": {
+        "ansible_host": "192.0.2.1",
+        "ansible_user": "ansible",
+        "devops_infra_node_service": "k3s",
+        "k3s_node_ip": "192.0.2.1",
+        "k3s_version": "v1.33.4+k3s1",
+        "node_role": "server",
+        "nvidia_time_slicing_replicas": 4,
+        "sysctl_params": {
+          "fs.inotify.max_user_watches": 524288,
+          "net.ipv4.ip_forward": 1
+        },
+        "timezone": "UTC"
+      },
+      "node-2.example.com": {
+        "ansible_host": "192.0.2.2",
+        "ansible_user": "ansible",
+        "devops_infra_node_service": "k3s-agent",
+        "k3s_node_ip": "192.0.2.2",
+        "k3s_version": "v1.33.4+k3s1",
+        "node_role": "agent",
+        "nvidia_time_slicing_replicas": 4,
+        "sysctl_params": {
+          "fs.inotify.max_user_watches": 524288,
+          "net.ipv4.ip_forward": 1
+        },
+        "timezone": "UTC"
+      },
+      "node-3.example.com": {
+        "ansible_host": "192.0.2.3",
+        "ansible_user": "ansible",
+        "devops_infra_node_service": "k3s-agent",
+        "k3s_node_ip": "192.0.2.3",
+        "k3s_version": "v1.33.4+k3s1",
+        "node_role": "agent",
+        "nvidia_time_slicing_replicas": 4,
+        "sysctl_params": {
+          "fs.inotify.max_user_watches": 524288,
+          "net.ipv4.ip_forward": 1
+        },
+        "timezone": "UTC"
+      },
+      "node-4.example.com": {
+        "ansible_host": "192.0.2.4",
+        "ansible_user": "ansible",
+        "devops_infra_node_service": "k3s-agent",
+        "k3s_node_ip": "192.0.2.4",
+        "k3s_version": "v1.33.4+k3s1",
+        "node_role": "agent",
+        "nvidia_time_slicing_replicas": 4,
+        "sysctl_params": {
+          "fs.inotify.max_user_watches": 524288,
+          "net.ipv4.ip_forward": 1
+        },
+        "timezone": "UTC"
+      },
+      "node-5.example.com": {
+        "ansible_host": "192.0.2.5",
+        "ansible_user": "ansible",
+        "devops_infra_node_service": "k3s-agent",
+        "k3s_node_ip": "192.0.2.5",
+        "node_role": "agent",
+        "sysctl_params": {
+          "fs.inotify.max_user_watches": 524288,
+          "net.ipv4.ip_forward": 1
+        },
+        "timezone": "UTC"
+      },
+      "node-6.example.com": {
+        "ansible_host": "192.0.2.6",
+        "ansible_user": "ansible",
+        "devops_infra_node_service": "k3s-agent",
+        "k3s_node_ip": "192.0.2.6",
+        "node_role": "agent",
+        "sysctl_params": {
+          "fs.inotify.max_user_watches": 524288,
+          "net.ipv4.ip_forward": 1
+        },
+        "timezone": "UTC"
+      }
+    },
+    "profile": "inventory_legacy"
+  },
+  "all": {
+    "children": [
+      "ungrouped",
+      "k3s_cluster",
+      "gpu_nodes",
+      "debian_nodes",
+      "offline"
+    ]
+  },
+  "debian_nodes": {
+    "hosts": [
+      "node-1.example.com",
+      "node-2.example.com",
+      "node-3.example.com",
+      "node-4.example.com"
+    ]
+  },
+  "gpu_nodes": {
+    "hosts": [
+      "node-1.example.com",
+      "node-2.example.com",
+      "node-3.example.com",
+      "node-4.example.com"
+    ]
+  },
+  "k3s_agent": {
+    "hosts": [
+      "node-2.example.com",
+      "node-3.example.com",
+      "node-4.example.com"
+    ]
+  },
+  "k3s_cluster": {
+    "children": [
+      "k3s_server",
+      "k3s_agent"
+    ]
+  },
+  "k3s_server": {
+    "hosts": [
+      "node-1.example.com"
+    ]
+  },
+  "offline": {
+    "hosts": [
+      "node-5.example.com",
+      "node-6.example.com"
+    ]
+  }
+}

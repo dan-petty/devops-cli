@@ -44,6 +44,7 @@ _REQUIRED_TOOLS = {
     "osv-scanner",
     "semgrep",
     "bandit",
+    "ansible-core",
     "openspec",
     "devcontainers-cli",
     "gh-dash",
@@ -107,6 +108,15 @@ def test_every_python_tool_pins_itself_in_its_hashed_requirements() -> None:
         if f"{name}=={tool.version}" not in (LOCK_DIR / tool.requirements).read_text().split()
         or "--hash=sha256:" not in (LOCK_DIR / tool.requirements).read_text()
     ] == []
+
+
+def test_ansible_core_shares_its_environment_with_ansible_runner() -> None:
+    """One environment holds ansible-core and ansible-runner, the engine of `devops infra`. Only
+    `ansible-runner` goes on PATH: the Ansible commands that a person has there stay (#5121)."""
+    ansible = load_tools_lock().python["ansible-core"]
+    pins = (LOCK_DIR / ansible.requirements).read_text(encoding="utf-8").split()
+
+    assert ("ansible-runner==2.4.3" in pins, ansible.commands) == (True, ("ansible-runner",))
 
 
 def test_semgrep_links_the_pysemgrep_it_runs() -> None:

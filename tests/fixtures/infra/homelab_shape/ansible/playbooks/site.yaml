@@ -1,0 +1,7 @@
+---
+- name: bootstrap
+  ansible.builtin.import_playbook: 01_bootstrap.yaml
+- name: nvidia
+  ansible.builtin.import_playbook: 02_nvidia.yaml
+- name: k3s
+  ansible.builtin.import_playbook: 03_k3s.yaml

@@ -1,0 +1,7 @@
+---
+- name: system update
+  hosts: debian_nodes
+  tasks:
+    - name: system update
+      ansible.builtin.apt:
+        upgrade: dist

@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
-from importlib.resources import files
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +18,7 @@ from syrupy.assertion import SnapshotAssertion
 from devops_cli import __version__
 from devops_cli.ai.mcp.dispatcher import InProcessDispatcher
 from devops_cli.lang import MESSAGES
+from tests.support.agent_markers import agent_marker_names
 from tests.support.fakes.otlp import FakeCollector, plain_attributes
 
 _LEDGER = "usage-errors.jsonl"
@@ -37,30 +37,13 @@ _VALUES = (
 Ledger = Callable[[], list[dict[str, Any]]]
 
 
-def _marker_names(condition: dict[str, Any]) -> set[str]:
-    """The variables that one condition of the agent table of `detect_agent` reads."""
-    own = {condition["name"]} if "name" in condition else set()
-    return own.union(*(_marker_names(nested) for nested in condition.get("conditions", ())))
-
-
-def _agent_markers() -> set[str]:
-    """Every variable that marks a caller as an agent or as CI, from the published agent table of
-    `detect_agent`, and the markers that devops-cli reads besides it."""
-    table = json.loads(files("detect_agent").joinpath("agents.json").read_text(encoding="utf-8"))
-    names = {table["aiAgentVar"], "PI_CODING_AGENT", "KILO", "CI", "GITHUB_ACTIONS"}
-    for agent in table["agents"]:
-        names |= _marker_names(agent["match"])
-    names.discard("PATH")
-    return names
-
-
 @pytest.fixture
 def ledger(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Ledger:
     """A user data root of the test's own, and a caller with no agent or CI marker: a person.
 
     The reader gives each ledger line without its time, which is the one field a test cannot
     know before the call."""
-    for name in _agent_markers():
+    for name in agent_marker_names():
         monkeypatch.delenv(name, raising=False)
     root = tmp_path / "data"
     monkeypatch.setenv("DEVOPS_CLI_USER_DATA_ROOT", str(root))

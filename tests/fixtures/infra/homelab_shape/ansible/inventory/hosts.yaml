@@ -1,0 +1,30 @@
+---
+all:
+  children:
+    k3s_cluster:
+      children:
+        k3s_server:
+          hosts:
+            node-1.example.com:
+        k3s_agent:
+          hosts:
+            node-2.example.com:
+            node-3.example.com:
+            node-4.example.com:
+    gpu_nodes:
+      hosts:
+        node-1.example.com:
+        node-2.example.com:
+        node-3.example.com:
+        node-4.example.com:
+    debian_nodes:
+      hosts:
+        node-1.example.com:
+        node-2.example.com:
+        node-3.example.com:
+        node-4.example.com:
+    # Hosts out of service. No play targets this group.
+    offline:
+      hosts:
+        node-5.example.com:
+        node-6.example.com:

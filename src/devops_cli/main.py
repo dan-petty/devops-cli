@@ -62,6 +62,7 @@ _COMMAND_SPECS: Final[dict[str, tuple[str, str]]] = {
     "pr": ("devops_cli.commands.pr", HELP.pr.app),
     "gh": ("devops_cli.commands.gh", HELP.gh.app),
     "tf": ("devops_cli.commands.tf", HELP.tf.app),
+    "infra": ("devops_cli.commands.infra", HELP.infra.app),
     "tls": ("devops_cli.commands.tls", HELP.tls.app),
     "telemetry": ("devops_cli.commands.telemetry", HELP.telemetry.app),
     "cloudflare": ("devops_cli.commands.cloudflare", HELP.cloudflare.app),

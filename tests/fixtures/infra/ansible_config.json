@@ -1,0 +1,102 @@
+[
+  {
+    "name": "CONFIG_FILE",
+    "origin": "",
+    "value": "{root}/ansible.cfg"
+  },
+  {
+    "name": "DEFAULT_BECOME",
+    "origin": "{root}/ansible.cfg",
+    "value": true
+  },
+  {
+    "name": "DEFAULT_BECOME_METHOD",
+    "origin": "{root}/ansible.cfg",
+    "value": "sudo"
+  },
+  {
+    "name": "DEFAULT_HOST_LIST",
+    "origin": "{root}/ansible.cfg",
+    "value": [
+      "{root}/ansible/inventory/hosts.yaml"
+    ]
+  },
+  {
+    "name": "DEFAULT_ROLES_PATH",
+    "origin": "{root}/ansible.cfg",
+    "value": [
+      "{root}/ansible/roles"
+    ]
+  },
+  {
+    "name": "DEFAULT_TIMEOUT",
+    "origin": "{root}/ansible.cfg",
+    "value": 30
+  },
+  {
+    "name": "INTERPRETER_PYTHON",
+    "origin": "{root}/ansible.cfg",
+    "value": "auto_silent"
+  },
+  {
+    "name": "RETRY_FILES_ENABLED",
+    "origin": "{root}/ansible.cfg",
+    "value": false
+  },
+  {
+    "GALAXY_SERVERS": {}
+  },
+  {
+    "BECOME_PLUGINS": []
+  },
+  {
+    "CACHE_PLUGINS": []
+  },
+  {
+    "CALLBACK_PLUGINS": []
+  },
+  {
+    "CLICONF_PLUGINS": []
+  },
+  {
+    "CONNECTION_PLUGINS": [
+      {
+        "ssh": [
+          {
+            "name": "pipelining",
+            "origin": "{root}/ansible.cfg",
+            "value": true
+          },
+          {
+            "name": "ssh_args",
+            "origin": "{root}/ansible.cfg",
+            "value": "-o ControlMaster=auto -o ControlPersist=60s"
+          },
+          {
+            "name": "timeout",
+            "origin": "{root}/ansible.cfg",
+            "value": 30
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "HTTPAPI_PLUGINS": []
+  },
+  {
+    "INVENTORY_PLUGINS": []
+  },
+  {
+    "LOOKUP_PLUGINS": []
+  },
+  {
+    "NETCONF_PLUGINS": []
+  },
+  {
+    "SHELL_PLUGINS": []
+  },
+  {
+    "VARS_PLUGINS": []
+  }
+]

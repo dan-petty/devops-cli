@@ -80,6 +80,10 @@ from devops_cli.config.defaults import (
     DEFAULT_DATA_DIR,
     DEFAULT_FEEDBACK_DATASET_PATH,
     DEFAULT_HTTP_TIMEOUT_SECONDS,
+    DEFAULT_INFRA_DRAIN_TIMEOUT_SECONDS,
+    DEFAULT_INFRA_NODE_READY_TIMEOUT_SECONDS,
+    DEFAULT_INFRA_PLAN_MAX_AGE_HOURS,
+    DEFAULT_INFRA_SSH_KEY_PREFIX,
     DEFAULT_LLM_CACHE_ENABLED,
     DEFAULT_LLM_CACHE_MAX_ENTRIES,
     DEFAULT_LLM_CACHE_TTL_SECONDS,
@@ -169,6 +173,7 @@ from devops_cli.core.untrusted_trees import reads_untrusted_trees
 from devops_cli.exceptions import ConfigurationError
 from devops_cli.exceptions.validation import ValidationError as DevOpsValidationError
 from devops_cli.github.repo_ref import RepoRef
+from devops_cli.infra.access import AgentAccess
 from devops_cli.lang import ERRORS
 from devops_cli.roadmap.implement.implement_size import MIN_MEMORY_LIMIT_GI
 from devops_cli.roadmap.stage.stage_filter import split_filter_entry
@@ -1570,6 +1575,96 @@ class SearchConfig(BaseModel):
     )
 
 
+class InfraRepoConfig(BaseModel):
+    """One infra repo of `infra.repos`: a git repository with an Ansible inventory, its playbooks
+    and roles, which `devops infra` manages (#5120). The entry holds operational keys only. The
+    facts of the repository, such as its inventory and its playbook folder, are in its project
+    profile (`.devops/project.toml`, its type template and detection)."""
+
+    model_config = ConfigDict(
+        extra="forbid", frozen=False, validate_assignment=True, hide_input_in_errors=True
+    )
+
+    repo: str = Field(description="The GitHub repository of the infra repo, as owner/name")
+    path: Path | None = Field(
+        default=None,
+        description="The local checkout of the repository. Unset, it is `<repos.base_dir>/<owner>/<name>`",
+    )
+    kube_context: str | None = Field(
+        default=None,
+        description="The context of the local kubeconfig for the cluster whose nodes are hosts of the repository",
+    )
+    ssh_key_prefix: str = Field(
+        default=DEFAULT_INFRA_SSH_KEY_PREFIX,
+        min_length=1,
+        description="The `devops ssh` prefix of the local private key that Ansible connects with",
+    )
+    agent_access: AgentAccess = Field(
+        default=AgentAccess.NONE,
+        description="What an agent may do on the hosts of the repository. `none`: read local files and settings, and run a dry run. `plan`: also check host state and plan, which reach the hosts. `safe`: also apply a plan with no disruptive task and no task that check mode skipped, and uncordon a node. `full`: also apply any plan, and drain, restart or reboot one node at a time. A person may do everything. Only a person sets a level above `none`",
+    )
+
+    @field_validator("repo")
+    @classmethod
+    def _repo_is_owner_and_name(cls, value: str) -> str:
+        """The entry names one GitHub repository as `owner/name` (`RepoRef`)."""
+        try:
+            RepoRef(value)
+        except DevOpsValidationError as exc:
+            raise DevOpsValidationError(
+                ERRORS.config.infra_repo_invalid.format(value=value[:80]),
+                field="infra.repos",
+            ) from exc
+        return value
+
+
+class InfraConfig(BaseModel):
+    """`devops infra`: the infra repos, and the bounds of a plan, a drain and a node restart."""
+
+    model_config = ConfigDict(extra="ignore", validate_assignment=True, hide_input_in_errors=True)
+
+    plan_max_age_hours: Annotated[int, Variable()] = Field(
+        default=DEFAULT_INFRA_PLAN_MAX_AGE_HOURS,
+        gt=0,
+        description="The age in hours after which a plan of an infra repo is too old to apply",
+    )
+    drain_timeout_seconds: Annotated[int, Variable()] = Field(
+        default=DEFAULT_INFRA_DRAIN_TIMEOUT_SECONDS,
+        gt=0,
+        description="The longest time in seconds that the drain of one node may take",
+    )
+    node_ready_timeout_seconds: Annotated[int, Variable()] = Field(
+        default=DEFAULT_INFRA_NODE_READY_TIMEOUT_SECONDS,
+        gt=0,
+        description="The longest time in seconds that `devops infra` waits for a node to be Ready again",
+    )
+    repos: list[InfraRepoConfig] = Field(
+        default_factory=list,
+        description="The infra repos, each with operational keys only: `repo` (owner/name), `path`, `kube_context`, `ssh_key_prefix` and `agent_access` (`none`, `plan`, `safe` or `full`; `none` when absent). The facts of a repository are in its project profile, `.devops/project.toml`. `devops infra onboard` writes an entry",
+    )
+
+    @field_validator("repos")
+    @classmethod
+    def _repos_are_distinct(cls, values: list[InfraRepoConfig]) -> list[InfraRepoConfig]:
+        """No two entries name one repository, also in two spellings."""
+        seen: dict[RepoRef, str] = {}
+        for entry in values:
+            repo = RepoRef(entry.repo)
+            if repo in seen:
+                raise DevOpsValidationError(
+                    ERRORS.config.infra_repo_repeated.format(
+                        key=repo.key, first=seen[repo], second=entry.repo
+                    ),
+                    field="infra.repos",
+                )
+            seen[repo] = entry.repo
+        return values
+
+    def entry(self, repo: RepoRef) -> InfraRepoConfig | None:
+        """The entry of `repo`, or None."""
+        return next((entry for entry in self.repos if RepoRef(entry.repo) == repo), None)
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         extra="ignore",
@@ -1621,6 +1716,7 @@ class Settings(BaseSettings):
     firecrawl: FirecrawlConfig = FirecrawlConfig()
     crawl4ai: Crawl4AIConfig = Crawl4AIConfig()
     search: SearchConfig = SearchConfig()
+    infra: InfraConfig = InfraConfig()
     # The values that `load_settings` returned, so `save_settings` writes only the keys that
     # changed after the load (#1999). Settings made in code have none, and start from the defaults.
     _loaded: dict[str, Any] | None = PrivateAttr(default=None)

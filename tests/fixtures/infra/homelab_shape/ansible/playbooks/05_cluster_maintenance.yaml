@@ -1,0 +1,7 @@
+---
+- name: cluster maintenance
+  hosts: k3s_cluster
+  tasks:
+    - name: cluster maintenance
+      ansible.builtin.systemd_service:
+        name: k3s-agent

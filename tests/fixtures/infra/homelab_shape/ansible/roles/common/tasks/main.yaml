@@ -1,0 +1,4 @@
+---
+- name: common
+  ansible.builtin.apt:
+    name: chrony

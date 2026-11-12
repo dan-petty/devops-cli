@@ -308,6 +308,14 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip sync --require-hashes -p /usr/local/share/devops-tools/bandit/bin/python /tmp/tools_lock/bandit.txt && \
     ln -s /usr/local/share/devops-tools/bandit/bin/bandit /usr/local/bin/ && \
     rm -rf /tmp/tools_lock/bandit.txt
+# ansible-core and ansible-runner share one environment. Only `ansible-runner` goes on PATH:
+# `devops infra` starts the other Ansible commands from the folder of the `ansible-runner` it finds.
+COPY src/devops_cli/tools_lock/ansible-core.txt /tmp/tools_lock/ansible-core.txt
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv venv --python /usr/bin/python3.14 /usr/local/share/devops-tools/ansible-core && \
+    uv pip sync --require-hashes -p /usr/local/share/devops-tools/ansible-core/bin/python /tmp/tools_lock/ansible-core.txt && \
+    ln -s /usr/local/share/devops-tools/ansible-core/bin/ansible-runner /usr/local/bin/ && \
+    rm -rf /tmp/tools_lock/ansible-core.txt
 
 # Pre-install dependencies from lockfile for optimal Docker layer caching in CI
 COPY pyproject.toml uv.lock /tmp/devops-cli/

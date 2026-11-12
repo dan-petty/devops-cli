@@ -1153,6 +1153,136 @@ class DocsMessages:
 
 
 @dataclass(frozen=True)
+class InfraMessages:
+    # `devops infra onboard` (#5121): the title, then one row for each check.
+    onboard_title: str = "# Onboarding of {repo} at {path}"
+    onboard_plan_title: str = "Plan for the onboarding of {repo} at {path}"
+    onboard_plan_reads_files: str = (
+        "The command also reads the files of the checkout and the devops ssh key folder."
+    )
+    check_tool: str = "The Ansible tool environment is installed"
+    check_profile: str = "The project profile of the repository has the type {type}"
+    check_config_file: str = "ansible.cfg is at the root of the repository"
+    check_inventory: str = "The inventory names hosts"
+    check_offline: str = "The inventory has the group {group} for hosts out of service"
+    check_playbooks: str = "The repository holds playbooks"
+    check_roles: str = "The repository holds roles"
+    check_collections: str = "collections/requirements.yml pins each collection"
+    check_host_key_checks: str = "Host key checks are on"
+    check_known_hosts: str = "~/.ssh/known_hosts holds the key of each host in service"
+    check_ssh_key: str = "A devops ssh key of the prefix {prefix} exists"
+    check_kube_context: str = "The kube context of the repository is in the kubeconfig"
+    check_ci: str = "A CI workflow checks the repository"
+    check_node_service: str = (
+        "Each host in service names its node service (devops_infra_node_service)"
+    )
+    check_check_mode: str = "No task runs for real in check mode (check_mode: false)"
+    check_node_targets: str = "No Makefile target drains, restarts or reboots a node"
+    check_settings: str = "The repository is in infra.repos"
+    profile_no_type: str = (
+        "No project type: the repository has no ansible.cfg at its root, and .devops/project.toml "
+        "names no type."
+    )
+    profile_type_step: str = (
+        'Put ansible.cfg at the root of the repository, or set extends = "ansible-k8s" in '
+        ".devops/project.toml."
+    )
+    profile_declared: str = "declared in .devops/project.toml; each value with its source"
+    profile_detected: str = (
+        "{source}; the repository has no .devops/project.toml. These values differ from the type "
+        "template."
+    )
+    profile_step: str = (
+        "Commit .devops/project.toml with these values, so that the profile does not change when "
+        "a file that detection reads changes."
+    )
+    tool_missing: str = (
+        "No Ansible tool environment is installed: no install of devops install-tools, and no "
+        "ansible-runner on PATH."
+    )
+    tool_version: str = "ansible-core {version}"
+    tool_on_path: str = "the ansible-runner on PATH, in {folder}"
+    tool_step: str = "devops install-tools --tool ansible-core"
+    config_file_other: str = "Ansible reads {file}, not a file of the repository."
+    config_file_none: str = "Ansible reads no config file."
+    config_file_step: str = (
+        "Put ansible.cfg at the root of the repository. Name the inventory and roles_path in it."
+    )
+    inventory_found: str = "{hosts} hosts in {groups} groups"
+    inventory_none: str = (
+        "The project profile names no inventory: ansible.cfg names none in the repository, and "
+        ".devops/project.toml sets no [ansible] inventory."
+    )
+    inventory_no_hosts: str = "The inventory names no host."
+    inventory_step: str = (
+        "Name the inventory in ansible.cfg (inventory = <path>) or in .devops/project.toml "
+        "([ansible] inventory), and put the hosts in it."
+    )
+    no_inventory: str = "No inventory to read."
+    offline_found: str = "{count} hosts out of service"
+    offline_unnamed: str = "(none named)"
+    offline_step: str = (
+        "Add the group {group} for hosts out of service to the inventory, and name it in "
+        ".devops/project.toml ([ansible] offline_group) when it is not offline. Each run of devops "
+        "infra leaves its hosts out."
+    )
+    playbooks_found: str = "{count} playbooks in {folder}"
+    playbooks_none: str = "No playbook is in {folder}."
+    playbooks_no_folder: str = "The project profile names no playbook folder."
+    playbooks_unparsed: str = "{count} YAML files do not parse: {files}"
+    playbooks_step: str = (
+        "Put the playbooks in the playbook folder: YAML files that each hold a list of plays. Name "
+        "another folder in .devops/project.toml ([ansible] playbook_dir)."
+    )
+    roles_found: str = "{count} roles"
+    roles_step: str = (
+        "Put the roles in a folder that roles_path of ansible.cfg names, or that "
+        ".devops/project.toml names ([ansible] roles_path)."
+    )
+    collections_used: str = "The plays use {names}."
+    collections_none_used: str = "The plays use no collection."
+    collections_no_file: str = "collections/requirements.yml is not in the repository."
+    collections_not_yaml: str = "{path} does not parse ({error})."
+    collections_unpinned: str = "{count} collections have no exact version."
+    collections_step: str = "Add collections/requirements.yml, with an exact version for each collection that the plays use."
+    host_key_checks_off: str = "{count} settings turn host key checks off."
+    host_key_checks_step: str = (
+        "Remove these settings, and keep the key of each host in ~/.ssh/known_hosts. An agent "
+        "apply needs host key checks on."
+    )
+    known_hosts_found: str = "{count} hosts in service"
+    known_hosts_unknown: str = "{count} of {total} hosts in service have no key in {file}."
+    known_hosts_step: str = (
+        "Read the key of each host on the host itself, then add it to ~/.ssh/known_hosts."
+    )
+    ssh_key_step: str = "devops ssh generate --prefix {prefix}"
+    ssh_key_none: str = "No key of the prefix {prefix} is in {folder}."
+    kube_context_not_set: str = "No kube context is set. The kubeconfig holds these contexts."
+    kube_context_absent: str = "The kubeconfig has no context {name}. It holds these contexts."
+    kube_context_step: str = "Give the context with --kube-context <name>."
+    kube_context_no_kubectl: str = "kubectl is not on PATH."
+    kube_context_failed: str = "kubectl config get-contexts stopped with exit code {code}."
+    ci_step: str = "Add a CI workflow that runs ansible-lint and ansible-playbook --syntax-check on each playbook."
+    node_service_unset: str = "{count} hosts in service do not set devops_infra_node_service."
+    node_service_step: str = "Set devops_infra_node_service, such as k3s-agent, on each host that runs a Kubernetes node."
+    check_mode_tasks: str = (
+        "{count} tasks run for real when a plan runs the playbook in check mode."
+    )
+    check_mode_step: str = "Make sure that each of these tasks only reads."
+    node_targets_found: str = "{count} targets change a node outside devops."
+    node_targets_step: str = (
+        "devops owns the node life cycle: cordon, drain, restart and reboot. Move these steps out "
+        "of the Makefile."
+    )
+    settings_level: str = "agent access {level}"
+    settings_written: str = "agent access {level}; written to {path}"
+    settings_step: str = (
+        "Run the command again with --confirm to write the entry, at agent access none unless "
+        "a person gives --agent-access."
+    )
+
+
+@dataclass(frozen=True)
 class TfMessages:
     init_header: str = "Initializing OpenTofu in [cyan]{path}[/cyan]..."
     table_title_graph: str = "IaC Resource Dependency Graph: {directory}"
@@ -5848,6 +5978,7 @@ class LanguageCatalog:
     analyze: AnalyzeMessages = field(default_factory=AnalyzeMessages)
     docs: DocsMessages = field(default_factory=DocsMessages)
     tf: TfMessages = field(default_factory=TfMessages)
+    infra: InfraMessages = field(default_factory=InfraMessages)
     tofu: TfMessages = field(default_factory=TfMessages)
     remote_ci: RemoteCIMessages = field(default_factory=RemoteCIMessages)
     pr: PRMessages = field(default_factory=PRMessages)

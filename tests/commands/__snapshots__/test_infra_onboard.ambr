@@ -1,0 +1,77 @@
+# serializer version: 1
+# name: test_dry_run_starts_no_process_and_writes_nothing
+  '''
+  Plan for the onboarding of example-org/infra at <tmp>/repo
+    1. EXEC the Ansible config of <tmp>/repo
+         <tmp>/user-data/tools/ansible-core/2.22.0/bin/ansible-config dump --format json --only-changed  [only if an Ansible tool environment is installed]
+    2. EXEC the Ansible inventory of <tmp>/repo
+         <tmp>/user-data/tools/ansible-core/2.22.0/bin/ansible-inventory -i '<inventory>' --list  [only if an Ansible tool environment is installed and the project profile names an inventory]
+    3. EXEC the host key of <host> in known_hosts
+         ssh-keygen -F '<host>' -f <tmp>/home/.ssh/known_hosts  [only if <tmp>/home/.ssh/known_hosts exists]  [repeated for each host in service]
+    4. EXEC the kubeconfig contexts
+         kubectl config get-contexts -o name
+    5. WRITE infra.repos in <tmp>/.test_config/config.yaml
+  The command also reads the files of the checkout and the devops ssh key folder.
+  
+  '''
+# ---
+# name: test_onboard_prints_one_row_for_each_check
+  '''
+  # Onboarding of example-org/infra at <repo>
+  1. The Ansible tool environment is installed: present (ansible-core 2.22.0)
+  2. The project profile of the repository has the type ansible-k8s: present (declared in .devops/project.toml; each value with its source)
+     - extends = "ansible-k8s" (.devops/project.toml)
+     - ansible.inventory = ["ansible/inventory/hosts.yaml"] (.devops/project.toml)
+     - ansible.playbook_dir = "ansible/playbooks" (.devops/project.toml)
+     - ansible.roles_path = ["ansible/roles"] (.devops/project.toml)
+     - ansible.offline_group = "offline" (template: ansible-k8s)
+  3. ansible.cfg is at the root of the repository: present
+  4. The inventory names hosts: present (6 hosts in 6 groups)
+     - debian_nodes: 4 hosts
+     - gpu_nodes: 4 hosts
+     - k3s_agent: 3 hosts
+     - k3s_cluster: 4 hosts
+     - k3s_server: 1 host
+     - offline: 2 hosts
+  5. The inventory has the group offline for hosts out of service: present (2 hosts out of service)
+     - node-5.example.com
+     - node-6.example.com
+  6. The repository holds playbooks: present (15 playbooks in ansible/playbooks)
+     - ansible/playbooks/00_bootstrap_user.yaml
+     - ansible/playbooks/01_bootstrap.yaml
+     - ansible/playbooks/02_nvidia.yaml
+     - ansible/playbooks/03_k3s.yaml
+     - ansible/playbooks/04_gpu_validation.yaml
+     - ansible/playbooks/05_cluster_maintenance.yaml
+     - ansible/playbooks/06_cluster_backup.yaml
+     - ansible/playbooks/07_cluster_upgrade.yaml
+     - ansible/playbooks/08_mount_nvme.yaml
+     - ansible/playbooks/09_system_update.yaml
+     - ansible/playbooks/10_rolling_restart.yaml
+     - ansible/playbooks/11_secrets_encryption.yaml
+     - ansible/playbooks/12_move_ollama_models.yaml
+     - ansible/playbooks/health_check.yaml
+     - ansible/playbooks/site.yaml
+  7. The repository holds roles: present (5 roles)
+     - common
+     - k3s_agent
+     - k3s_server
+     - k8s_gpu
+     - nvidia
+  8. collections/requirements.yml pins each collection: present (The plays use ansible.posix, community.general, kubernetes.core.)
+  9. Host key checks are on: present
+  10. ~/.ssh/known_hosts holds the key of each host in service: present (4 hosts in service)
+  11. A devops ssh key of the prefix ansible exists: present
+     - ansible-id_ed25519-20261101
+  12. The kube context of the repository is in the kubeconfig: present
+     - homelab-example
+  13. A CI workflow checks the repository: present
+     - .github/workflows/lint.yml
+  14. Each host in service names its node service (devops_infra_node_service): present
+  15. No task runs for real in check mode (check_mode: false): present
+  16. No Makefile target drains, restarts or reboots a node: present
+  17. The repository is in infra.repos: missing
+     Step: Run the command again with --confirm to write the entry, at agent access none unless a person gives --agent-access.
+  
+  '''
+# ---

@@ -1,0 +1,7 @@
+---
+- name: gpu validation
+  hosts: gpu_nodes
+  tasks:
+    - name: gpu validation
+      kubernetes.core.k8s_info:
+        kind: Node
