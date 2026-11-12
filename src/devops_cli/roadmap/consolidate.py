@@ -177,12 +177,11 @@ class GitSource:
 
 @dataclass(frozen=True)
 class Edges:
-    """What a run reaches beyond the store: the judge, the embedder with the name of its model,
-    and the files of the commit."""
+    """What a run reaches beyond the store: the judge, the embedder and the files of the
+    commit."""
 
     judge: ShortlistJudge
     embed: Callable[[Sequence[str]], list[list[float]]]
-    embedding_model: str
     source: Source
 
 
@@ -557,9 +556,7 @@ def run_consolidate(
     """
     texts = MESSAGES.roadmap
     cap = DEFAULT_ROADMAP_CONSOLIDATE_JUDGED if limit is None else limit
-    lists = consolidation_groups(
-        store, edges.embed, model=edges.embedding_model, directory=directory
-    )
+    lists = consolidation_groups(store, edges.embed)
     items = {item.number: item for item in store.open_items()}
     issues = {issue.number: issue for issue in store.issues()}
     board = _Board(

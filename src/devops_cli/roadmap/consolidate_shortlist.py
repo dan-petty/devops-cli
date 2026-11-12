@@ -12,7 +12,8 @@ each. Three signals give the members, and no model is called:
 - links: blocked-by, sub-issue and parent, the lines "Depends on", "Related", "Split from",
   "Split off" and "Merged into", and the section "Dependencies" of refine;
 - embeddings: the `DEFAULT_ROADMAP_INTAKE_SHORTLIST` nearest items, ranked by `nearest`, the
-  function that intake uses too. Embeddings are cached by the hash of the text of a person.
+  function that intake uses too. The embedder keeps the vectors in the shared tiers of the
+  embedding cache, so a text of a person that did not change goes to no model again.
 
 `assign_groups` then puts each item in at most one group, as the anchor or as a member. The
 stronger evidence wins, and a tie goes to the lower anchor number. A member does not anchor a
@@ -21,31 +22,24 @@ group, so no group joins another: the code makes no transitive join and builds n
 
 from __future__ import annotations
 
-import logging
 import re
 from collections import defaultdict
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from enum import StrEnum
-from pathlib import Path, PurePosixPath
+from pathlib import PurePosixPath
 from typing import Final
 
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import BaseModel, ConfigDict
 
-from devops_cli.config.constants import (
-    CONST_ROADMAP_CONSOLIDATE_DIR,
-    CONST_ROADMAP_CONSOLIDATE_EMBEDDINGS_FILE,
-)
 from devops_cli.config.defaults import (
     DEFAULT_ROADMAP_CONSOLIDATE_COMMON_CITATION,
     DEFAULT_ROADMAP_CONSOLIDATE_MEMBERS,
     DEFAULT_ROADMAP_INTAKE_SHORTLIST,
 )
-from devops_cli.roadmap.body_hash import hash_text, text_of_a_person
+from devops_cli.roadmap.body_hash import text_of_a_person
 from devops_cli.roadmap.nearest import embedding_text, nearest
 from devops_cli.roadmap.refine.refine import body_dependencies, cited_identifiers, cited_paths
 from devops_cli.roadmap.stores.store import GitHubState, IssueRecord, RoadmapStore
-
-logger = logging.getLogger(__name__)
 
 # A line that names the issues it relates the item to: a label at the start of the line, after an
 # optional list mark and optional bold. The issues of nested list lines under it belong to it.
@@ -214,67 +208,23 @@ def read_blockers(store: RoadmapStore, issues: Iterable[IssueRecord]) -> dict[in
 # ── Embeddings ──
 
 
-class _EmbeddingFile(BaseModel):
-    """The cache file: the name of the model that made the vectors, and a vector for the hash of
-    each text. Vectors of two models do not compare, so a file of another model is no cache."""
-
-    model: str
-    vectors: dict[str, list[float]]
-
-
-def embeddings_path(directory: Path) -> Path:
-    """The cache file of the embeddings, in `directory`, the data directory."""
-    return directory / CONST_ROADMAP_CONSOLIDATE_DIR / CONST_ROADMAP_CONSOLIDATE_EMBEDDINGS_FILE
-
-
-def _read_cache(path: Path, model: str) -> dict[str, list[float]]:
-    """The cached vectors of `model`. A missing file, a file of another model and a file that
-    can't be read give none; the last is logged, as a run then embeds every item again."""
-    if not path.is_file():
-        return {}
-    try:
-        held = _EmbeddingFile.model_validate_json(path.read_text(encoding="utf-8"))
-    except (OSError, ValidationError) as exc:
-        logger.warning("The embedding cache %s can't be read, so it is built again: %s", path, exc)
-        return {}
-    return held.vectors if held.model == model else {}
-
-
-def _write_cache(path: Path, model: str, vectors: Mapping[str, list[float]]) -> None:
-    from devops_cli.output.file_writer import write_json_file
-
-    held = _EmbeddingFile(model=model, vectors=dict(vectors))
-    write_json_file(path, held.model_dump(mode="json"), indent=0, atomic=True)
-
-
 def _text(issue: IssueRecord) -> str:
-    """What is embedded for an issue: its title and the text of a person in its body. The
-    sections that the refine job and the alternatives job write are no part of it, so a job
-    that writes its section causes no new embedding."""
-    return embedding_text(issue.title, text_of_a_person(issue.body))
+    """What is embedded for an issue: its title and the text of a person in its body, with no
+    white space at its ends. The sections that the refine job and the alternatives job write
+    are no part of it, and the cache tiers key a vector by the exact text, so a job that writes
+    its section causes no new embedding."""
+    return embedding_text(issue.title, text_of_a_person(issue.body).strip())
 
 
 def embed_issues(
-    issues: Sequence[IssueRecord],
-    embed: Callable[[Sequence[str]], list[list[float]]],
-    *,
-    model: str,
-    path: Path,
+    issues: Sequence[IssueRecord], embed: Callable[[Sequence[str]], list[list[float]]]
 ) -> dict[int, list[float]]:
-    """One vector for each issue. A vector is cached in `path` under the hash of its text, with
-    the name of `model`, so a run over issues with the same text embeds nothing. The file keeps
-    the vectors of these issues only."""
+    """One vector for each issue, from one call of `embed` that gets each text once. The cache
+    tiers of the embedder hold the vectors between runs, so this keeps none."""
     texts = {issue.number: _text(issue) for issue in issues}
-    keys = {number: hash_text(text) for number, text in texts.items()}
-    cached = _read_cache(path, model)
-    missing = {key: texts[number] for number, key in keys.items() if key not in cached}
-    if missing:
-        vectors = embed(list(missing.values()))
-        cached = cached | dict(zip(missing, vectors, strict=True))
-    kept = {key: cached[key] for key in keys.values()}
-    if missing or len(kept) != len(cached):
-        _write_cache(path, model, kept)
-    return {number: kept[key] for number, key in keys.items()}
+    unique = list(dict.fromkeys(texts.values()))
+    vectors = dict(zip(unique, embed(unique), strict=True)) if unique else {}
+    return {number: vectors[text] for number, text in texts.items()}
 
 
 # ── Shortlists ──
@@ -356,22 +306,17 @@ def assign_groups(lists: Iterable[Shortlist]) -> list[Shortlist]:
 
 
 def consolidation_groups(
-    store: RoadmapStore,
-    embed: Callable[[Sequence[str]], list[list[float]]],
-    *,
-    model: str,
-    directory: Path,
+    store: RoadmapStore, embed: Callable[[Sequence[str]], list[list[float]]]
 ) -> list[Shortlist]:
     """The groups of the open items of `store`, from tools only. `embed` makes one vector for
-    each text, `model` names the model it uses, and `directory` is the data directory that holds
-    the cache. The store is read, and nothing is written to it."""
+    each text. The store is read, and nothing is written to it."""
     numbers = {item.number for item in store.open_items()}
     issues = [
         issue
         for issue in store.issues()
         if issue.number in numbers and issue.state is GitHubState.OPEN
     ]
-    vectors = embed_issues(issues, embed, model=model, path=embeddings_path(directory))
+    vectors = embed_issues(issues, embed)
     return assign_groups(shortlists(issues, vectors, read_blockers(store, issues)))
 
 
@@ -383,7 +328,6 @@ __all__ = [
     "assign_groups",
     "consolidation_groups",
     "embed_issues",
-    "embeddings_path",
     "read_blockers",
     "shortlists",
 ]

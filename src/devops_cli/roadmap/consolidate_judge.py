@@ -285,8 +285,9 @@ class GatewayShortlistJudge:
 
 
 class GatewayEmbedder:
-    """The embeddings of the `embedding` task. A call that fails raises
-    `ModelGatewayUnreachableError`. A test passes its own `embedder`."""
+    """The embeddings of the `embedding` task, through the memory, Valkey and disk tiers of the
+    embedding cache. A call that fails raises `ModelGatewayUnreachableError`. A test passes its
+    own `embedder`."""
 
     def __init__(
         self, ai: AIConfig, *, api_key: str | None = None, embedder: Embedder | None = None
@@ -294,11 +295,6 @@ class GatewayEmbedder:
         self._ai = ai
         self._api_key = api_key
         self._embedder = embedder
-
-    @property
-    def model(self) -> str:
-        """The name of the model that makes the vectors."""
-        return self._ai.for_task("embedding").model
 
     def embed(self, texts: Sequence[str]) -> list[list[float]]:
         """One vector for each text."""
@@ -311,9 +307,14 @@ class GatewayEmbedder:
 
     def _built(self) -> Embedder:
         if self._embedder is None:
+            from devops_cli.ai.rag.embedding_disk_cache import embedding_disk_cache
             from devops_cli.ai.rag.embeddings import create_embedder
 
-            self._embedder = create_embedder(self._ai, api_key=self._api_key)
+            # The vectors stay in the shared tiers of the cache, memory, Valkey and disk, as the
+            # vectors of intake do, so the job keeps no store of its own (#4665).
+            self._embedder = create_embedder(
+                self._ai, api_key=self._api_key, disk_cache=embedding_disk_cache()
+            )
         return self._embedder
 
 
