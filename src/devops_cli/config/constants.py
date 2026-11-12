@@ -719,6 +719,13 @@ CONST_CI_SUBCOMMAND_SHOWS_HELP_META_KEY: Final[str] = "devops_cli.ci.subcommand_
 # of this many entries.
 CONST_CI_TEST_BUDGET_SECONDS: Final[float] = 300.0
 CONST_CI_SLOWEST_TESTS_SHOWN: Final[int] = 10
+# A test shard of CI writes the time of each of its tests to this JUnit XML report, beside the
+# coverage data (`data_file` of pyproject.toml), and `ci.yml` uploads both as the artifact of the
+# shard (#4673). The split by measured time reads it (#4250). The path is relative to the checkout.
+CONST_CI_SHARD_JUNIT_PATH: Final[str] = ".data/junit.xml"
+# The `-r` summary of a test shard: the reason of each skip (s) in the log (#4673). `-r` replaces
+# the default `fE` of pytest, so the shard asks again for the failed (f) and error (E) tests.
+CONST_CI_SHARD_SUMMARY_CHARS: Final[str] = "fEs"
 # The job of `ci.yml` that joins the shards of the test row: `devops ci job-time` reads the time of
 # this check from its last runs (#2699), so the budget above is checked on the runs of the runner
 # and not on the one run of a pull request. The shard jobs are named `<this name> (shard n of N)`.

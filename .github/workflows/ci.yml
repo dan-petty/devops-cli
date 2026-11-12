@@ -177,14 +177,17 @@ jobs:
         if: steps.changes.outputs.outside_plan == 'false' && matrix.shard == 1
         run: uv run devops ci test tests/invariants
 
-      # The combined data file of the shard, which the gate keeps (#1743). The path starts with a
-      # dot, so the action needs `include-hidden-files`.
-      - name: Upload Coverage Data
+      # The combined data file of the shard, which the gate keeps (#1743), and the JUnit XML report
+      # with the time of each test of the shard, for the split by measured time (#4673). The
+      # coverage path starts with a dot, so the action needs `include-hidden-files`.
+      - name: Upload Coverage Data and Test Report
         if: steps.changes.outputs.outside_plan != 'false'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: coverage-shard-${{ matrix.shard }}
-          path: .data/.coverage
+          path: |
+            .data/.coverage
+            .data/junit.xml
           include-hidden-files: true
           if-no-files-found: error
           retention-days: 7
