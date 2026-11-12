@@ -979,6 +979,10 @@ def isolate_devops_cli_config(
     Telemetry export is off by default; when a test opts in through `config`, export goes to the
     floor's refusing port, as the Valkey cache does. Qdrant's address is one no test binds, so a
     test that reaches Qdrant without a double fails.
+
+    A setting variable wins over the config file, so the fixture also removes the one that the pod
+    of a runner Job sets and the floor does not: `DEVOPS_CLI_ROADMAP_IMPLEMENT_IN_RUNNER` (#3990).
+    A test that needs the in-runner path sets `roadmap.implement.in_runner` through `config`.
     """
     from devops_cli.config.settings import reset_settings_cache
     from devops_cli.telemetry.tracer import reset_tracer
@@ -1003,6 +1007,7 @@ def isolate_devops_cli_config(
     monkeypatch.setenv("DEVOPS_CLI_CONFIG", str(test_config))
     monkeypatch.setenv("DEVOPS_CLI_TELEMETRY_ENDPOINT", f"http://{side_channel}")
     monkeypatch.setenv("DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK", "true")
+    monkeypatch.delenv("DEVOPS_CLI_ROADMAP_IMPLEMENT_IN_RUNNER", raising=False)
     yield test_config
     reset_settings_cache()
     reset_tracer()

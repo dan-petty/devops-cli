@@ -7,8 +7,6 @@ from __future__ import annotations
 from collections.abc import Callable
 from pathlib import Path
 
-import pytest
-
 from devops_cli.config.constants import (
     CONST_SERVICE_CONSECUTIVE_FAILURES_FILENAME,
     CONST_SERVICE_METRIC_IMPLEMENT_CONSECUTIVE_FAILURES,
@@ -98,11 +96,7 @@ def test_implement_metric_constants_and_record_keys() -> None:
 
 def test_the_job_runs_no_step_unless_the_setting_says_it_is_in_a_runner(
     config: Callable[..., Path],
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # The pod of a runner Job sets the variable, and the suite runs in that pod.
-    monkeypatch.delenv("DEVOPS_CLI_ROADMAP_IMPLEMENT_IN_RUNNER", raising=False)
-
     assert load_settings().roadmap.implement.in_runner is False
 
     config(roadmap={"implement": {"in_runner": True}})
