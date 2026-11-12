@@ -760,21 +760,54 @@ def _length_problems(spec: StageSpec) -> list[str]:
     ]
 
 
-# An added requirement that removes a command or an option says MUST NOT or SHALL NOT, and it names
-# the command in a code span that starts with `devops ` or with `--` (#3287).
-_REMOVAL_WORDS: Final[tuple[str, ...]] = ("MUST NOT", "SHALL NOT")
+# An added requirement removes a command or an option when MUST NOT or SHALL NOT governs its name, a
+# code span that starts with `devops ` or with `--` (#3287). The name is the subject of a clause
+# whose verb is exist or be available ("The `devops roadmap intake-eval` command MUST NOT exist"),
+# or the object of a verb that offers it ("MUST NOT register `devops roadmap intake-eval` as a
+# command"). A requirement that keeps a command and forbids one act of it ("`devops pr
+# check-readiness` SHALL read ... and MUST NOT request the pulls files list") removes nothing
+# (#4954).
 _CODE_SPAN: Final[re.Pattern[str]] = re.compile(r"`([^`]+)`")
 _REMOVED_NAME_PREFIXES: Final[tuple[str, ...]] = ("devops ", "--")
+_REMOVAL_NOUN: Final[str] = r"(?:(?:sub)?commands?|options?|flags?|alias(?:es)?)"
+_REMOVAL_NAME: Final[str] = rf"`[^`]+`(?:\s+{_REMOVAL_NOUN})?"
+# A list of names: "`a`, `b` and its alias `c`".
+_REMOVAL_NAMES: Final[str] = (
+    rf"{_REMOVAL_NAME}(?:(?:\s*,\s*|,?\s+(?:and|or)\s+)"
+    rf"(?:(?:its|the)\s+)?(?:{_REMOVAL_NOUN}\s+)?{_REMOVAL_NAME})*"
+)
+_REMOVAL_MODAL: Final[str] = r"\b(?:MUST|SHALL)\s+NOT\s+"
+# A clause starts at the start of a line or after a list marker, after a punctuation mark, after a
+# quotation mark or a parenthesis, or after `and` or `or`.
+_REMOVAL_CLAUSE_START: Final[str] = (
+    r"(?:^(?:[-*]\s+)?|(?<=[.;:,]\s)|(?<=[\"(])|(?<=\band\s)|(?<=\bor\s))"
+)
+# The subject can name what holds it: "The `--old` option of `devops x`" removes `--old` only.
+_REMOVED_SUBJECT: Final[re.Pattern[str]] = re.compile(
+    rf"{_REMOVAL_CLAUSE_START}(?:(?:[Tt]he|[Ee]ach)\s+)?(?:{_REMOVAL_NOUN}\s+)?"
+    rf"(?P<names>{_REMOVAL_NAMES})"
+    rf"(?:\s+(?:of|in|for)\s+(?:the\s+)?(?:{_REMOVAL_NOUN}\s+)?{_REMOVAL_NAME})?"
+    rf"\s+{_REMOVAL_MODAL}(?:exist|be\s+available)\b",
+    re.MULTILINE,
+)
+_REMOVED_OBJECT: Final[re.Pattern[str]] = re.compile(
+    rf"{_REMOVAL_MODAL}(?:register|offer|list|accept|expose|provide)\s+"
+    rf"(?:(?:the|a|an|any)\s+)?(?:{_REMOVAL_NOUN}\s+)?(?P<names>{_REMOVAL_NAMES})"
+)
 
 
 def _removed_names(text: str) -> tuple[str, ...]:
-    """The command and the option that a requirement whose text says MUST NOT or SHALL NOT removes:
-    each code span that starts with `devops ` or with `--` (#3287)."""
-    if not any(words in text for words in _REMOVAL_WORDS):
-        return ()
+    """The commands and the options that a requirement removes: each code span that starts with
+    `devops ` or with `--` and that MUST NOT or SHALL NOT governs, as the subject of exist or be
+    available or as the object of a verb that offers it (#3287, #4954)."""
+    matches = sorted(
+        (*_REMOVED_SUBJECT.finditer(text), *_REMOVED_OBJECT.finditer(text)),
+        key=lambda match: match.start(),
+    )
     return tuple(
         span
-        for span in (found.strip() for found in _CODE_SPAN.findall(text))
+        for match in matches
+        for span in (found.strip() for found in _CODE_SPAN.findall(match["names"]))
         if span.startswith(_REMOVED_NAME_PREFIXES)
     )
 
