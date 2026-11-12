@@ -398,3 +398,47 @@ def test_a_setting_that_an_exit_check_writes_stops_the_push_of_the_stop_with_the
     comment = job_world.issue_comments()[-1]
     assert (applied.stopped, held.job_record.get("implement.failure")) == ((1,), "git_config")
     assert ("credential.helper" in comment, VALUE in comment) == (True, False)
+
+
+def test_a_fetch_in_a_shallow_clone_gets_the_new_commit(
+    stage_repo: StageRepo, tmp_path: Path
+) -> None:
+    """A run with `--source` can point to a shallow clone. The new git folder gets the `shallow`
+    file of the clone, so git does not walk into parents that the clone does not hold."""
+    url = f"file://{stage_repo.origin}"
+    for name in ("one", "two"):
+        run_git(stage_repo.clone, "commit", "-q", "--allow-empty", "-m", name)
+    run_git(stage_repo.clone, "push", "-q", "origin", "HEAD:main")
+    shallow = tmp_path / "shallow"
+    run_git(tmp_path, "clone", "-q", "--depth", "1", url, str(shallow))
+    run_git(stage_repo.clone, "commit", "-q", "--allow-empty", "-m", "three")
+    run_git(stage_repo.clone, "push", "-q", "origin", "HEAD:main")
+    moved = run_git(stage_repo.clone, "rev-parse", "HEAD")
+
+    OriginGit(shallow, url).fetch("main")
+
+    assert (
+        run_git(shallow, "rev-parse", "refs/remotes/origin/main"),
+        run_git(shallow, "rev-parse", "--is-shallow-repository"),
+    ) == (moved, "true")
+
+
+def test_a_changed_shallow_file_goes_back_into_the_clone_and_replaces_a_link(
+    tmp_path: Path,
+) -> None:
+    common, made = tmp_path / "common", tmp_path / "repo.git"
+    common.mkdir()
+    made.mkdir()
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.write_text("kept\n", encoding="utf-8")
+    (common / "shallow").symlink_to(elsewhere)
+    (made / "shallow").write_text("a" * 40 + "\n", encoding="utf-8")
+
+    git_isolation._Folder(made, tmp_path / "home", common).keep_shallow()
+
+    held = common / "shallow"
+    assert (held.is_symlink(), held.read_text(encoding="utf-8"), elsewhere.read_text()) == (
+        False,
+        "a" * 40 + "\n",
+        "kept\n",
+    )

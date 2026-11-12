@@ -13,7 +13,9 @@ git child that reaches a remote (`git_reaches_remote`), so a local git call of t
 the checkout, ends every leftover process again, and makes a new folder with `tempfile.mkdtemp`. In it, a new bare git folder gets the
 object folder of the clone as a link, and an empty folder becomes the home folder of the call. A
 fetch first gets the remote-tracking refs of the clone, so that it asks only for the objects that
-the clone lacks. The job ends every leftover process again, and then runs the call with the token
+the clone lacks. The new folder gets a copy of the `shallow` file of a shallow clone, and a fetch
+that changes it writes it back. The job ends every leftover process again, and then runs the call
+with the token
 (`CONST_GIT_TOKEN_CALL_CONFIG`, `CONST_GIT_ISOLATED_CONFIG_ENV`): git reads no global, system or
 clone configuration, no hook and no attribute file, and gets the credential from the trusted helper
 alone. The remote is the URL of `origin` that the job read before its first step. The job writes
@@ -49,6 +51,7 @@ from devops_cli.config.constants import (
     CONST_GIT_BUILTIN_DRIVERS,
     CONST_GIT_ISOLATED_CONFIG_ENV,
     CONST_GIT_NONINTERACTIVE_ENV,
+    CONST_GIT_SHALLOW_FILE,
     CONST_GIT_TOKEN_CALL_CONFIG,
 )
 from devops_cli.config.settings import load_settings
@@ -186,10 +189,23 @@ def origin_url(checkout: Path) -> str:
 
 @dataclass(frozen=True)
 class _Folder:
-    """The new git folder of one network call and the empty home folder of the call."""
+    """The new git folder of one network call, the empty home folder of the call, and the git
+    folder that the clone and its worktrees share."""
 
     git_dir: Path
     home: Path
+    common: Path
+
+    def keep_shallow(self) -> None:
+        """Write the `shallow` file of the new git folder into the clone when the call changed it.
+        A new file replaces the old one, so a link in its place is not followed."""
+        made = self.git_dir / CONST_GIT_SHALLOW_FILE
+        held = self.common / CONST_GIT_SHALLOW_FILE
+        if not made.exists() or (held.exists() and held.read_bytes() == made.read_bytes()):
+            return
+        written = self.common / f"{CONST_GIT_SHALLOW_FILE}.devops-cli"
+        shutil.copyfile(made, written)
+        written.replace(held)
 
     def call(self, *args: str) -> str:
         """Run `git <args>` with the token in the new git folder, and give its output."""
@@ -238,12 +254,16 @@ class OriginGit:
         _sweep()
         parent = Path(tempfile.mkdtemp(prefix="devops-origin-"))
         try:
-            folder = _Folder(parent / "repo.git", parent / "home")
-            folder.home.mkdir()
             common = _common_dir(self.repository)
+            folder = _Folder(parent / "repo.git", parent / "home", common)
+            folder.home.mkdir()
             _git([], "init", "--quiet", "--bare", str(folder.git_dir))
             shutil.rmtree(folder.git_dir / "objects")
             (folder.git_dir / "objects").symlink_to(common / "objects", target_is_directory=True)
+            if (common / CONST_GIT_SHALLOW_FILE).is_file():
+                shutil.copyfile(
+                    common / CONST_GIT_SHALLOW_FILE, folder.git_dir / CONST_GIT_SHALLOW_FILE
+                )
             if refs:
                 self._copy_refs(["-C", str(self.repository)], [f"--git-dir={folder.git_dir}"])
             _sweep()
@@ -271,6 +291,7 @@ class OriginGit:
         specs = [f"+refs/heads/{name}:{_ORIGIN_REFS}{name}" for name in branches]
         with self._folder(refs=True) as folder:
             folder.call("fetch", "--quiet", "--no-tags", "--no-write-fetch-head", self.url, *specs)
+            folder.keep_shallow()
             self._copy_refs(
                 [f"--git-dir={folder.git_dir}"], ["-C", str(self.repository)], *branches
             )

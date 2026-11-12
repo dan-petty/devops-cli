@@ -1288,6 +1288,9 @@ CONST_GIT_ATTRIBUTE_STATES: Final[frozenset[str]] = frozenset({"unspecified", "s
 """The words of `git check-attr` for an attribute with no value."""
 CONST_GIT_ALTERNATES_FILE: Final[str] = "objects/info/alternates"
 """The file of a git folder that names other object folders (gitrepository-layout(5))."""
+CONST_GIT_SHALLOW_FILE: Final[str] = "shallow"
+"""The file of a git folder that names the commits whose parents a shallow clone does not hold
+(gitrepository-layout(5))."""
 CONST_GIT_ACCEPTED_ENV: Final[frozenset[str]] = frozenset(
     {
         "GIT_TERMINAL_PROMPT",
