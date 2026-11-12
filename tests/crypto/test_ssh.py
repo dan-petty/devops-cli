@@ -172,6 +172,37 @@ def test_a_bare_no_in_the_project_config_file_is_the_key_prefix(tmp_path: Path) 
     assert get_ssh_key_prefix(workspace) == "no"
 
 
+@pytest.mark.parametrize(
+    ("text", "error"),
+    [
+        pytest.param(
+            "ssh:\n  key_prefix: FAKE-value\nssh:\n  key_prefix: FAKE-value\n",
+            "DuplicateKeyError at line 3, column 1",
+            id="a key two times",
+        ),
+        pytest.param("ssh:\n  key_prefix: !!int FAKE-value\n", "ValueError", id="a bad tag"),
+    ],
+)
+def test_a_project_config_file_that_does_not_load_names_no_prefix(
+    text: str, error: str, tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A project config file that the settings load refuses gives no prefix, so the key takes the
+    name of its directory. The log names the error and quotes no text of the file (#4481)."""
+    from devops_cli.crypto.ssh_keys import get_ssh_key_prefix
+
+    workspace = tmp_path / "my_plain_repo"
+    (workspace / ".git").mkdir(parents=True)
+    (workspace / "config.yaml").write_text(text, encoding="utf-8")
+
+    with caplog.at_level("DEBUG", logger="devops_cli.crypto.ssh_keys"):
+        prefix = get_ssh_key_prefix(workspace)
+
+    assert (prefix, "FAKE-value" in caplog.text) == ("my_plain_repo", False)
+    assert caplog.messages == [
+        f"Failed reading YAML key_prefix from {workspace / 'config.yaml'}: {error}"
+    ]
+
+
 def test_devcontainer_name_survives_urls_next_to_comments(tmp_path: Path) -> None:
     """Verify the devcontainer name is the prefix when a string holds `//` beside real comments.
 
