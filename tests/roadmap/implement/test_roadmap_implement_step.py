@@ -25,6 +25,7 @@ from pydantic_ai.exceptions import (
     UnexpectedModelBehavior,
 )
 from pydantic_ai.messages import ModelResponse, TextPart
+from pydantic_ai.usage import UsageLimits
 from pydantic_ai_harness.shell import Shell
 
 from devops_cli.ai.client.models import AICredentialsError
@@ -33,8 +34,6 @@ from devops_cli.config import constants
 from devops_cli.config.constants import (
     CONST_ROADMAP_IMPLEMENT_LOG_CHARS,
     CONST_ROADMAP_IMPLEMENT_MAX_CONSECUTIVE_REFUSALS,
-    CONST_ROADMAP_IMPLEMENT_MAX_REQUESTS,
-    CONST_ROADMAP_IMPLEMENT_MAX_TOOL_CALLS,
     CONST_ROADMAP_IMPLEMENT_TOOL_MAX_CHARS,
     CONST_ROADMAP_IMPLEMENT_TURN_RESERVE_TOKENS,
 )
@@ -254,6 +253,25 @@ def _step(
 ) -> StepOutcome:
     return run_step(
         store, item=1, group=group, source=checkout, model=script.model(), window=WINDOW
+    )
+
+
+# The limits of the tests that reach a limit (#4688): a run reaches them in a few requests. At four
+# tool calls in each reply, the tool call limit comes before the request limit.
+REQUESTS = 6
+TOOL_CALLS = 12
+LIMITS = UsageLimits(request_limit=REQUESTS, tool_calls_limit=TOOL_CALLS)
+
+
+def _limited_step(store: InMemoryRoadmapStore, checkout: Path, script: ModelScript) -> StepOutcome:
+    return run_step(
+        store,
+        item=1,
+        group=1,
+        source=checkout,
+        model=script.model(),
+        window=WINDOW,
+        usage_limits=LIMITS,
     )
 
 
@@ -770,7 +788,7 @@ def test_a_run_that_never_ends_stops_at_the_request_limit_and_resets_the_checkou
         tool_call("read_file", path="docs/SAMPLE.md"),
     )
 
-    outcome = _step(store, checkout, script)
+    outcome = _limited_step(store, checkout, script)
 
     assert (
         outcome.status,
@@ -778,13 +796,7 @@ def test_a_run_that_never_ends_stops_at_the_request_limit_and_resets_the_checkou
         outcome.requests,
         len(script.seen),
         is_clean_at(checkout, head),
-    ) == (
-        StepStatus.STOPPED,
-        REQUEST_LIMIT_REASON,
-        CONST_ROADMAP_IMPLEMENT_MAX_REQUESTS,
-        CONST_ROADMAP_IMPLEMENT_MAX_REQUESTS,
-        True,
-    )
+    ) == (StepStatus.STOPPED, REQUEST_LIMIT_REASON, REQUESTS, REQUESTS, True)
 
 
 def test_a_run_that_calls_too_many_tools_stops_at_the_tool_call_limit(
@@ -795,15 +807,15 @@ def test_a_run_that_calls_too_many_tools_stops_at_the_tool_call_limit(
     batch = 4
     script = ModelScript(tool_calls(*[("read_file", {"path": "docs/SAMPLE.md"})] * batch))
 
-    outcome = _step(store, checkout, script)
+    outcome = _limited_step(store, checkout, script)
 
-    assert CONST_ROADMAP_IMPLEMENT_MAX_TOOL_CALLS // batch < CONST_ROADMAP_IMPLEMENT_MAX_REQUESTS
+    assert TOOL_CALLS // batch < REQUESTS
     assert (outcome.status, outcome.reason, is_clean_at(checkout, head)) == (
         StepStatus.STOPPED,
         TOOL_CALL_LIMIT_REASON,
         True,
     )
-    assert outcome.requests < CONST_ROADMAP_IMPLEMENT_MAX_REQUESTS
+    assert outcome.requests < REQUESTS
 
 
 def test_a_tool_result_is_cut_to_the_cap_of_a_step(
@@ -1224,12 +1236,11 @@ LIMIT_ADVICE = (
 )
 REQUEST_LIMIT_REASON = (
     "UsageLimitExceeded: The next request would exceed the request_limit of "
-    f"{CONST_ROADMAP_IMPLEMENT_MAX_REQUESTS}. {LIMIT_ADVICE}"
+    f"{REQUESTS}. {LIMIT_ADVICE}"
 )
 TOOL_CALL_LIMIT_REASON = (
     "UsageLimitExceeded: The next tool call(s) would exceed the tool_calls_limit of "
-    f"{CONST_ROADMAP_IMPLEMENT_MAX_TOOL_CALLS} "
-    f"(tool_calls={CONST_ROADMAP_IMPLEMENT_MAX_TOOL_CALLS + 4}). {LIMIT_ADVICE}"
+    f"{TOOL_CALLS} (tool_calls={TOOL_CALLS + 4}). {LIMIT_ADVICE}"
 )
 RETRY_LIMIT_MESSAGE = (
     "Tool 'shell' exceeded max retries count of 5. Consider raising the retry limit, or see the "
@@ -1421,7 +1432,7 @@ def test_a_run_that_ends_on_a_limit_after_retries_names_no_reasons(
 ) -> None:
     script = ModelScript(_edit_missing(), tool_call("read_file", path="docs/SAMPLE.md"))
 
-    outcome = _step(store, checkout, script)
+    outcome = _limited_step(store, checkout, script)
 
     assert outcome.reason.startswith("UsageLimitExceeded")
     assert "Last retries" not in outcome.reason
@@ -1440,7 +1451,7 @@ def test_a_run_that_reaches_the_request_limit_stops_with_the_message_and_no_coun
 ) -> None:
     script = ModelScript(tool_call("read_file", path="docs/SAMPLE.md"))
 
-    outcome = _step(store, checkout, script)
+    outcome = _limited_step(store, checkout, script)
 
     assert outcome.reason == REQUEST_LIMIT_REASON
 
@@ -1981,10 +1992,10 @@ def test_the_replies_before_a_send_again_count_against_the_request_limit(
     read = tool_call("read_file", path="docs/SAMPLE.md")
     script = ModelScript(read, _in_stream_400(), read)
 
-    outcome = _step(store, checkout, script)
+    outcome = _limited_step(store, checkout, script)
 
     assert (outcome.status, outcome.reason) == (StepStatus.STOPPED, REQUEST_LIMIT_REASON)
-    assert len(script.seen) == CONST_ROADMAP_IMPLEMENT_MAX_REQUESTS
+    assert len(script.seen) == REQUESTS
 
 
 def test_the_tool_calls_before_a_send_again_count_against_the_tool_call_limit(
@@ -1994,10 +2005,10 @@ def test_the_tool_calls_before_a_send_again_count_against_the_tool_call_limit(
     reads = tool_calls(*[("read_file", {"path": "docs/SAMPLE.md"})] * batch)
     script = ModelScript(reads, _in_stream_400(), reads)
 
-    outcome = _step(store, checkout, script)
+    outcome = _limited_step(store, checkout, script)
 
     assert (outcome.status, outcome.reason) == (StepStatus.STOPPED, TOOL_CALL_LIMIT_REASON)
-    assert len(script.seen) == CONST_ROADMAP_IMPLEMENT_MAX_TOOL_CALLS // batch + 2
+    assert len(script.seen) == TOOL_CALLS // batch + 2
 
 
 def test_the_spend_of_a_failed_send_is_in_the_outcome_and_the_ledger(

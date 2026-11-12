@@ -16,6 +16,7 @@ from pydantic_ai import Agent
 from pydantic_ai.mcp import MCPToolset
 from pydantic_ai.messages import ToolReturn
 from pydantic_ai.models.test import TestModel
+from pydantic_ai.usage import UsageLimits
 
 from devops_cli.config.settings import (
     RoadmapConfig,
@@ -379,6 +380,7 @@ def test_implement_attempt_builds_mcp_toolset_from_settings(
             model_for_tier=None,
             tier_health=lambda _: {},
             limits=StepBudget(progress=log.progress),
+            usage_limits=UsageLimits(),
         )
 
     assert in_proc_toolset in captured.get("toolsets", [])

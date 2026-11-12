@@ -13,11 +13,9 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pytest
+from pydantic_ai.usage import UsageLimits
 
-from devops_cli.config.constants import (
-    CONST_ROADMAP_IMPLEMENT_MAX_REQUESTS,
-    CONST_ROADMAP_IMPLEMENT_REASON_CHARS,
-)
+from devops_cli.config.constants import CONST_ROADMAP_IMPLEMENT_REASON_CHARS
 from devops_cli.roadmap.implement.implement_step import (
     FixRequest,
     StepOutcome,
@@ -297,21 +295,26 @@ def test_a_fix_step_gets_the_extra_turn_with_the_failure_and_no_list_of_ticks(
 def test_the_extra_turn_counts_against_the_request_limit_of_the_first_turn(
     store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
 ) -> None:
-    """The first turn uses all requests but one. A second budget would let the step end done."""
+    """The first turn uses all requests but one. A second budget would let the step end done. The
+    limit is small, so that the run reaches it in a few requests (#4688)."""
     _lint_fails_on_an_unused_import(programs)
-    reads = [tool_call("read_file", path="docs/SAMPLE.md")] * (
-        CONST_ROADMAP_IMPLEMENT_MAX_REQUESTS - 3
-    )
+    requests = 6
+    reads = [tool_call("read_file", path="docs/SAMPLE.md")] * (requests - 3)
     script = ModelScript(
         tool_calls(*NOT_TICKED, TICK), *reads, say("Done."), tool_calls(REPAIR), say("Fixed.")
     )
 
-    outcome = _step(store, checkout, script)
-
-    assert (outcome.status, outcome.requests) == (
-        StepStatus.STOPPED,
-        CONST_ROADMAP_IMPLEMENT_MAX_REQUESTS,
+    outcome = run_step(
+        store,
+        item=1,
+        group=1,
+        source=checkout,
+        model=script.model(),
+        window=WINDOW,
+        usage_limits=UsageLimits(request_limit=requests),
     )
+
+    assert (outcome.status, outcome.requests) == (StepStatus.STOPPED, requests)
     assert outcome.reason.startswith("UsageLimitExceeded: ")
 
 
