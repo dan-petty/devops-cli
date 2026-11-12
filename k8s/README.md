@@ -461,7 +461,7 @@ Kubernetes mounts a token of the pod's ServiceAccount into each pod. A process i
 
 A pod that keeps a token with no binding is in `_TOKEN_EXCEPTIONS` of the test, with its reason:
 
-- Qdrant: chart 1.19.1 has no value for the field. qdrant/qdrant-helm#506 asks for the value. When a chart release adds it, set the value and remove the exception in one pull request.
+- Qdrant: chart 1.20.0 has no value for the field. qdrant/qdrant-helm#506 asks for the value. When a chart release adds it, set the value and remove the exception in one pull request.
 
 `kubectl get pods -A -o json` shows a `kube-api-access-*` volume only on the pods that keep a token.
 
@@ -1088,7 +1088,7 @@ CloudNativePG 1.32.0 removes the in-tree `barmanObjectStore` (CloudNativePG rele
 | Helm release and Argo CD Application | Chart | Namespace | Purpose |
 | :--- | :--- | :--- | :--- |
 | `cert-manager` | `jetstack/cert-manager` v1.21.3 | `cert-manager` | Issues the server and client certificates of the plugin. The plugin chart brings its own self-signed `Issuer`, so there is no `ClusterIssuer` and no ACME account. |
-| `plugin-barman-cloud` | `cloudnative-pg/plugin-barman-cloud` 0.8.1 (plugin v0.15.1) | `cnpg-system` | The plugin. It must run in the namespace of the operator. The operator finds it through Service `barman-cloud`, which has the label `cnpg.io/pluginName: barman-cloud.cloudnative-pg.io`. The chart adds CRD `objectstores.barmancloud.cnpg.io`. |
+| `plugin-barman-cloud` | `cloudnative-pg/plugin-barman-cloud` 0.9.0 (plugin v0.16.0) | `cnpg-system` | The plugin. It must run in the namespace of the operator. The operator finds it through Service `barman-cloud`, which has the label `cnpg.io/pluginName: barman-cloud.cloudnative-pg.io`. The chart adds CRD `objectstores.barmancloud.cnpg.io`. |
 
 - **Order.** deploy-stack installs `cloudnative-pg`, then `cert-manager`, then `plugin-barman-cloud`. The start-up check Job of cert-manager holds `--wait` until the webhook answers, so the plugin chart can create its `Issuer` and `Certificate` objects. Argo CD syncs Application `plugin-barman-cloud` in sync wave 1, after `cert-manager`. It skips the dry run of a kind that has no CRD yet (`SkipDryRunOnMissingResource=true`), and it retries a failed sync five times.
 - **CRDs.** The cert-manager chart installs its CRDs with `helm.sh/resource-policy: keep` (`crds.keep`), because a deleted CRD deletes every `Certificate` and `Issuer` in the cluster. Helm keeps them when the release is removed, and Argo CD reads the annotation as `Delete=false`.

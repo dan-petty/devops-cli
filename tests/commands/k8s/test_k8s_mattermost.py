@@ -126,7 +126,7 @@ def test_database_manifest() -> None:
         spec.get("storage", {}).get("storageClass"),
         spec.get("storage", {}).get("size"),
         spec.get("enableSuperuserAccess"),
-    ) == (1, "ghcr.io/cloudnative-pg/postgresql:17.2", "local-path", "10Gi", False)
+    ) == (1, "ghcr.io/cloudnative-pg/postgresql:17.11", "local-path", "10Gi", False)
 
     initdb = spec.get("bootstrap", {}).get("initdb", {})
     assert (
@@ -184,7 +184,7 @@ def test_mattermost_custom_resource() -> None:
         spec.get("fileStore", {}).get("externalVolume", {}).get("volumeClaimName"),
     ) == (
         "mattermost/mattermost-team-edition",
-        "11.7.11",
+        "11.7.15",
         1,
         "Recreate",
         "mattermost-db",

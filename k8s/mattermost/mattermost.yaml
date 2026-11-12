@@ -10,7 +10,7 @@ metadata:
     argocd.argoproj.io/sync-options: Prune=false,Delete=false
 spec:
   image: mattermost/mattermost-team-edition
-  version: "11.7.11"
+  version: "11.7.15"
   replicas: 1
   deploymentTemplate:
     deploymentStrategyType: Recreate

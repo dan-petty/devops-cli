@@ -1,6 +1,6 @@
 ---
 # Copied from charts/feature-cluster-metrics/default-allow-lists/cadvisor.yaml in grafana/k8s-monitoring (#1136).
-# chart: grafana/k8s-monitoring 4.5.2
+# chart: grafana/k8s-monitoring 4.6.0
 # The minimal set of metrics from cAdvisor required for Kubernetes Monitoring
 metrics:
   - container_cpu_cfs_periods_total

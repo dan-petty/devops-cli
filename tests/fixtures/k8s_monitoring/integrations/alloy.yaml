@@ -1,6 +1,6 @@
 ---
 # Copied from charts/feature-integrations/default-allow-lists/alloy.yaml in grafana/k8s-monitoring (#1131).
-# chart: grafana/k8s-monitoring 4.5.2
+# chart: grafana/k8s-monitoring 4.6.0
 # The set of metrics from Grafana Alloy required for the Grafana Alloy integration
 - alloy_build_info
 - alloy_component_controller_running_components

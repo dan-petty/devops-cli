@@ -66,7 +66,7 @@ The `fetch_docker_status` provider queries the local Docker socket on every refr
 
 ## Telemetry
 
-The open tool is Grafana with committed dashboards. The chart version is 14.0.1 in `k8s/argocd/apps/grafana.yaml` at line 13.
+The open tool is Grafana with committed dashboards. The chart version is 14.4.1 in `k8s/argocd/apps/grafana.yaml` at line 13.
 
 ### Gap Analysis
 
@@ -81,7 +81,7 @@ Replacing the Telemetry tab deletes the following lines:
 
 ### Configuration and Pin
 
-Grafana is pinned at Helm chart 14.0.1 in `k8s/argocd/apps/grafana.yaml`. The values file resides at `k8s/monitoring/grafana-values.yaml`.
+Grafana is pinned at Helm chart 14.4.1 in `k8s/argocd/apps/grafana.yaml`. The values file resides at `k8s/monitoring/grafana-values.yaml`.
 
 ### Request Cost
 
@@ -127,7 +127,7 @@ The `fetch_valkey_status` provider calls `INFO` and `DBSIZE` on the Valkey endpo
 
 ## Logs
 
-The open tool is the Grafana Loki datasource. The chart version is 20.0.2 in `k8s/argocd/apps/loki.yaml` at line 13.
+The open tool is the Grafana Loki datasource. The chart version is 20.4.1 in `k8s/argocd/apps/loki.yaml` at line 13.
 
 ### Gap Analysis
 
@@ -143,7 +143,7 @@ Replacing the Logs tab deletes the following lines:
 
 ### Configuration and Pin
 
-Loki is pinned at chart 20.0.2 in `k8s/argocd/apps/loki.yaml`. Values are in `k8s/logging/loki-values.yaml`.
+Loki is pinned at chart 20.4.1 in `k8s/argocd/apps/loki.yaml`. Values are in `k8s/logging/loki-values.yaml`.
 
 ### Request Cost
 
@@ -164,9 +164,9 @@ The table lists the audit decision for each tab.
 | :--- | :--- | :--- | :--- |
 | Kubernetes | k9s 0.51.0 | Replace | Done: the tab is removed (#4263) |
 | Docker | lazydocker | Replace | `refactor(ui): remove the docker tab in favour of lazydocker` |
-| Telemetry | Grafana (chart 14.0.1) | Replace | `refactor(ui): remove the telemetry tab in favour of Grafana` |
+| Telemetry | Grafana (chart 14.4.1) | Replace | `refactor(ui): remove the telemetry tab in favour of Grafana` |
 | Valkey | valkey-cli | Keep | None (tab stays) |
-| Logs | Grafana Loki (chart 20.0.2) | Replace | Done: the tab is removed (#4263) |
+| Logs | Grafana Loki (chart 20.4.1) | Replace | Done: the tab is removed (#4263) |
 
 ### Reason for Retaining Valkey Tab
 

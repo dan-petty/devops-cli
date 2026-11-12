@@ -95,7 +95,7 @@ config:
     # event statements are separate groups, because a group with both runs once per event and
     # skips a span with no event.
     # A failed statement drops the batch (propagate), so no span leaves with the data.
-    # Functions: delete_matching_keys and replace_all_patterns of OTTL (contrib v0.161.0).
+    # Functions: delete_matching_keys and replace_all_patterns of OTTL (contrib v0.163.2).
     transform/key_data:
       error_mode: propagate
       trace_statements:

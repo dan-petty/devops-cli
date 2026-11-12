@@ -1,6 +1,6 @@
 ---
 # Copied from charts/feature-cluster-metrics/default-allow-lists/kubelet.yaml in grafana/k8s-monitoring (#1136).
-# chart: grafana/k8s-monitoring 4.5.2
+# chart: grafana/k8s-monitoring 4.6.0
 # The minimal set of metrics from the Kubelet required for Kubernetes Monitoring
 metrics:
   - go_goroutines
@@ -9,6 +9,7 @@ metrics:
   - kubelet_certificate_manager_server_ttl_seconds
   - kubelet_cgroup_manager_duration_seconds_bucket
   - kubelet_cgroup_manager_duration_seconds_count
+  - kubelet_evictions
   - kubelet_node_config_error
   - kubelet_node_name
   - kubelet_pleg_relist_duration_seconds_bucket

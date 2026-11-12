@@ -31,7 +31,7 @@ CONTROLLER_PRESETS = {"singleton", "daemonset", "statefulset", "deployment"}
 # The well-known label that Kubernetes puts on each control-plane node.
 CONTROL_PLANE_LABEL = "node-role.kubernetes.io/control-plane"
 
-# The scrape jobs prometheus 29.35.0's values.yaml defines. The chart renders each one unless its
+# The scrape jobs prometheus 29.47.2's values.yaml defines. The chart renders each one unless its
 # `scrapeConfigs` entry sets `enabled: false`, so a job the values leave out is on.
 PROMETHEUS_DEFAULT_JOBS = (
     "prometheus",
@@ -283,7 +283,7 @@ def test_grafana_rate_windows_hold_two_samples_at_the_scrape_interval() -> None:
 def test_grafana_runs_the_grafana_community_chart_that_ships_a_patched_grafana() -> None:
     """`grafana/grafana` 10.5.15, the last chart in grafana.github.io/helm-charts, runs Grafana
     12.3.1, which CVE-2026-76154 and CVE-2026-17033 affect. The chart moved to
-    grafana-community/helm-charts, and its 14.0.1 runs Grafana 13.2.4, which fixes both (#1624).
+    grafana-community/helm-charts, and its 14.4.1 runs Grafana 13.3.1, which fixes both (#1624).
     The Argo CD Application, its project and deploy-stack name the same repository, chart and
     version."""
     application = yaml.safe_load(
@@ -306,12 +306,12 @@ def test_grafana_runs_the_grafana_community_chart_that_ships_a_patched_grafana()
         in projects[application["spec"]["project"]]["sourceRepos"],
         "deploy-stack": (_HELM_REPOS[alias], release["chart"], release["version"]),
     } == {
-        "argocd": ("https://grafana-community.github.io/helm-charts", "grafana", "14.0.1"),
+        "argocd": ("https://grafana-community.github.io/helm-charts", "grafana", "14.4.1"),
         "project admits the repository": True,
         "deploy-stack": (
             "https://grafana-community.github.io/helm-charts",
             "grafana-community/grafana",
-            "14.0.1",
+            "14.4.1",
         ),
     }
 

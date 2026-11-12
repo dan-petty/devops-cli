@@ -105,20 +105,20 @@ CHART_CLAIMS: dict[
     tuple[str, str],
     tuple[ClaimSite, ...] | Callable[[dict[str, Any]], tuple[ClaimSite, ...]],
 ] = {
-    ("argo-cd", "10.9.6"): (),
-    ("argo-workflows", "2.0.13"): (),
-    ("argocd-image-updater", "1.3.1"): (),
+    ("argo-cd", "10.18.0"): (),
+    ("argo-workflows", "2.0.18"): (),
+    ("argocd-image-updater", "1.4.2"): (),
     ("cert-manager", "v1.21.3"): (),
     ("cloudnative-pg", "0.29.1"): (),
     ("dcgm-exporter", "4.8.4"): (),
     # Chart 12.7.0 turns persistence on by default; 13.x turns it off.
     ("gitea", "12.7.0"): (ClaimSite("gitea", _on(("persistence.enabled", True)), "affinity"),),
-    ("opentelemetry-collector", "0.175.0"): (),
-    ("plugin-barman-cloud", "0.8.1"): (),
-    ("prometheus-operator-crds", "32.0.1"): (),
-    ("grafana", "14.0.1"): (ClaimSite("grafana", _on(("persistence.enabled", False)), "affinity"),),
-    ("k8s-monitoring", "4.5.2"): _alloy_collectors,
-    ("loki", "20.0.2"): (ClaimSite("singleBinary", _loki_mode, "singleBinary.affinity"),),
+    ("opentelemetry-collector", "0.178.3"): (),
+    ("plugin-barman-cloud", "0.9.0"): (),
+    ("prometheus-operator-crds", "32.0.2"): (),
+    ("grafana", "14.4.1"): (ClaimSite("grafana", _on(("persistence.enabled", False)), "affinity"),),
+    ("k8s-monitoring", "4.6.0"): _alloy_collectors,
+    ("loki", "20.4.1"): (ClaimSite("singleBinary", _loki_mode, "singleBinary.affinity"),),
     ("mattermost-operator", "1.0.5"): (),
     ("open-webui", "16.6.0"): (
         ClaimSite("open-webui", _on(("persistence.enabled", True)), "affinity"),
@@ -133,7 +133,7 @@ CHART_CLAIMS: dict[
             "ollama.affinity",
         ),
     ),
-    ("prometheus", "29.35.0"): (
+    ("prometheus", "29.47.2"): (
         ClaimSite("server", _on(("server.persistentVolume.enabled", True)), "server.affinity"),
         ClaimSite(
             "alertmanager",
@@ -141,13 +141,13 @@ CHART_CLAIMS: dict[
             "alertmanager.affinity",
         ),
     ),
-    ("pyroscope", "2.3.1"): (
+    ("pyroscope", "2.4.3"): (
         ClaimSite("pyroscope", _on(("pyroscope.persistence.enabled", False)), "pyroscope.affinity"),
     ),
     # The chart's StatefulSet always has the claim template `qdrant-storage`.
-    ("qdrant", "1.19.1"): (ClaimSite("qdrant", lambda values: True, "affinity"),),
-    ("tempo", "3.1.0"): (ClaimSite("tempo", _on(("persistence.enabled", False)), "affinity"),),
-    ("traefik", "42.1.3"): (ClaimSite("traefik", _on(("persistence.enabled", False)), "affinity"),),
+    ("qdrant", "1.20.0"): (ClaimSite("qdrant", lambda values: True, "affinity"),),
+    ("tempo", "3.2.1"): (ClaimSite("tempo", _on(("persistence.enabled", False)), "affinity"),),
+    ("traefik", "42.3.2"): (ClaimSite("traefik", _on(("persistence.enabled", False)), "affinity"),),
 }
 
 # Pods that the tree must hold, so that a wrong path in the table cannot pass by finding nothing.

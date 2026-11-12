@@ -610,7 +610,7 @@ def test_image_updater_runs_the_pinned_argo_helm_chart_in_the_argocd_namespace()
         {
             "repoURL": "https://argoproj.github.io/argo-helm",
             "chart": "argocd-image-updater",
-            "targetRevision": "1.3.1",
+            "targetRevision": "1.4.2",
             "helm": {"valueFiles": ["$values/k8s/argocd/image-updater-values.yaml"]},
         },
         {"server": "https://kubernetes.default.svc", "namespace": "argocd"},
@@ -709,14 +709,14 @@ def test_argo_workflows_application_pins_the_argo_helm_chart_the_infra_stack_ins
             {
                 "repoURL": "https://argoproj.github.io/argo-helm",
                 "chart": "argo-workflows",
-                "targetRevision": "2.0.13",
+                "targetRevision": "2.0.18",
                 "helm": {"valueFiles": ["$values/k8s/argo-workflows/values.yaml"]},
             },
             {"repoURL": REPO_URL, "targetRevision": "main", "ref": "values"},
         ],
         {"server": "https://kubernetes.default.svc", "namespace": "argo-workflows"},
         True,
-        ("argo/argo-workflows", "argo-workflows", "2.0.13"),
+        ("argo/argo-workflows", "argo-workflows", "2.0.18"),
         True,
     )
 

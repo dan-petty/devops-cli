@@ -3,7 +3,7 @@
 # Repo:  https://argoproj.github.io/argo-helm
 #
 # The controller watches only its own namespace, runs as one replica and keeps no database, archive
-# or argo-server. Every pod in the namespace is admitted by Pod Security `restricted`: chart 2.0.13
+# or argo-server. Every pod in the namespace is admitted by Pod Security `restricted`: chart 2.0.18
 # leaves the controller pod's and the executor's securityContext empty, so both are set here.
 
 # One tag for the controller and the executor. It equals the argo CLI pin in

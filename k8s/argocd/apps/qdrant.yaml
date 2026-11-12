@@ -10,7 +10,7 @@ spec:
   sources:
   - repoURL: https://qdrant.github.io/qdrant-helm
     chart: qdrant
-    targetRevision: 1.19.1
+    targetRevision: 1.20.0
     helm:
       valueFiles:
       - $values/k8s/llm/values-qdrant.yaml
