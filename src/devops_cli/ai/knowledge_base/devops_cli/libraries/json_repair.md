@@ -1,6 +1,6 @@
 ---
 applies_to:
-  - "pkg:pypi/json-repair@0.63.*"
+  - "pkg:pypi/json-repair@0.64.*"
 sources:
   - "https://github.com/mangiucugna/json_repair"
 reviewed: "2026-10-15"

@@ -52,12 +52,12 @@ jobs:
           persist-credentials: false
 
       - name: Install uv and Python
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           # This workflow holds a write token, so it restores no cache another run could have
           # written (zizmor cache-poisoning).
           enable-cache: false
-          version: "0.13.6"
+          version: "0.13.7"
           python-version: "3.14"
 
       # The step gets GITHUB_TOKEN and no App token. Its standard output holds only the lines

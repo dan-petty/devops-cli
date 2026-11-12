@@ -6,6 +6,7 @@ leaves on disk."""
 
 from __future__ import annotations
 
+import re
 import shutil
 from collections.abc import Callable
 from pathlib import Path
@@ -79,15 +80,18 @@ def test_archive_fails_when_the_only_archive_folder_is_an_older_one(
 
 
 def test_archive_succeeds_when_the_folder_moved(openspec_fake: OpenSpecFake) -> None:
-    """The recorded run of the real tool moves the folder: the archive returns and the validation
-    runs after it."""
+    """The recorded run of the real tool moves the folder to the dated folder that it names: the
+    archive returns and the validation runs after it. The date is the day of the recording, so
+    the test reads it from the record."""
     tree = openspec_fake.tree("archive-adds-a-spec")
+    recorded = openspec_fake.scenarios["archive-adds-a-spec"][ARCHIVE_COMMAND].stdout
 
     _archive(tree)
 
     assert (tree / SOURCE).exists() is False
     assert [folder.name for folder in (tree / ARCHIVED).iterdir() if folder.is_dir()] == [
-        f"2026-10-23-{CHANGE}"
+        f"{date}-{CHANGE}"
+        for date in re.findall(rf"archived as '(\d{{4}}-\d{{2}}-\d{{2}})-{CHANGE}'", recorded)
     ]
     assert _archive_commands(openspec_fake) == [
         ARCHIVE_COMMAND,

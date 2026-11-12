@@ -54,4 +54,4 @@ jobs:
           severity: HIGH,CRITICAL
           ignore-unfixed: true
           exit-code: "0"
-          version: v0.75.0
+          version: v0.76.2

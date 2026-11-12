@@ -30,7 +30,7 @@ spec:
 
       containers:
         - name: portkey
-          image: portkeyai/gateway:1.15.0
+          image: portkeyai/gateway:1.15.2
           imagePullPolicy: IfNotPresent
           securityContext:
             allowPrivilegeEscalation: false

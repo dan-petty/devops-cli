@@ -78,12 +78,12 @@ def test_every_binary_build_is_an_https_url_with_a_sha256() -> None:
 
 
 def test_the_lock_pins_tflint_as_four_zip_builds() -> None:
-    """tflint publishes zip archives of one file, `tflint`, for each platform (#2427)."""
+    """tflint publishes zip archives of one file, `tflint`, for each platform, from the release
+    of the locked version (#2427)."""
     tflint = load_tools_lock().binary["tflint"]
-    release = "https://github.com/terraform-linters/tflint/releases/download/v0.65.0/"
+    release = f"https://github.com/terraform-linters/tflint/releases/download/v{tflint.version}/"
 
     assert (
-        tflint.version,
         tflint.format,
         sorted(tflint.platforms),
         [
@@ -91,7 +91,6 @@ def test_the_lock_pins_tflint_as_four_zip_builds() -> None:
             for artifact in tflint.platforms.values()
         ],
     ) == (
-        "0.65.0",
         "zip",
         ["darwin-amd64", "darwin-arm64", "linux-amd64", "linux-arm64"],
         [(True, "tflint")] * 4,
@@ -152,25 +151,21 @@ def _npm_project_file(name: str, filename: str) -> dict[str, Any]:
     return parsed
 
 
-def test_the_lock_holds_openspec_as_a_node_tool_at_its_exact_pin() -> None:
-    """OpenSpec is a Node tool, and its command is the link npm makes in `.bin`."""
+def test_the_lock_holds_openspec_as_a_node_tool() -> None:
+    """OpenSpec is a Node tool, and its command is the link npm makes in `.bin`. The test of
+    the exact pin of each Node tool checks its version."""
     openspec = load_tools_lock().npm["openspec"]
 
-    assert (openspec.version, openspec.bin, openspec.commands) == (
-        "1.14.3",
-        "openspec",
-        ("openspec",),
-    )
+    assert (openspec.bin, openspec.commands) == ("openspec", ("openspec",))
 
 
-def test_the_lock_holds_the_dev_containers_cli_as_a_node_tool_at_its_exact_pin() -> None:
+def test_the_lock_holds_the_dev_containers_cli_as_a_node_tool() -> None:
     """The Dev Containers CLI that builds the published devcontainer image is a Node tool, so
     the image build and a developer run the same CLI, and `devops ci` audits its lockfile
-    (#1895)."""
+    (#1895). The test of the exact pin of each Node tool checks its version."""
     cli = load_tools_lock().npm["devcontainers-cli"]
 
-    assert (cli.version, cli.bin, cli.commands, cli.source) == (
-        "0.89.0",
+    assert (cli.bin, cli.commands, cli.source) == (
         "devcontainer",
         ("devcontainer",),
         "https://github.com/devcontainers/cli",

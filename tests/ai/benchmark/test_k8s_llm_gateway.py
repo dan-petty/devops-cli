@@ -75,7 +75,7 @@ DEVCONTAINER = Path(".devcontainer/devcontainer.json")
 # The column of the README's GPU placement table that says whether a node satisfies the tier.
 SERVES_COLUMN = "Serves"
 
-GATEWAY_IMAGE = "ghcr.io/berriai/litellm:v1.103.10"
+GATEWAY_IMAGE = "ghcr.io/berriai/litellm:v1.103.11"
 # The first release of each line that holds the fixes of GHSA-7hp6-4w63-5g45 (1.103.1) and
 # GHSA-w4c7-34wj-hqm8 (1.103.10), both critical advisories of LiteLLM (#4370).
 GATEWAY_ADVISORY_FIXED_IN = {

@@ -30,7 +30,7 @@ spec:
 
       containers:
         - name: litellm
-          image: ghcr.io/berriai/litellm:v1.103.10
+          image: ghcr.io/berriai/litellm:v1.103.11
           imagePullPolicy: IfNotPresent
           securityContext:
             allowPrivilegeEscalation: false

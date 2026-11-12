@@ -116,7 +116,7 @@ def test_the_crds_are_minimal_kept_and_carry_argo_cds_sync_options() -> None:
 
 
 def test_every_pod_the_namespace_admits_meets_restricted_pod_security() -> None:
-    """Chart 2.0.13 leaves the controller pod's and the executor's `securityContext` empty, and
+    """Chart 2.0.18 leaves the controller pod's and the executor's `securityContext` empty, and
     its controller container sets no seccomp profile, so the values supply what `restricted`
     requires of each; the template pod carries the cluster job template's own."""
     values = _values()

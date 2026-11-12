@@ -3,7 +3,7 @@ default_stages: [pre-commit]
 
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v5.0.0
+    rev: v6.0.0
     hooks:
       - id: no-commit-to-branch
         args: [--branch, main]
@@ -51,7 +51,7 @@ repos:
         stages: [pre-commit]
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.16.8
+    rev: v0.17.4
     hooks:
       # `--config pyproject.toml` makes this file the only Ruff configuration, so a nested
       # ruff.toml cannot outrank the complexity cap of 10 (C901) or the nesting cap of 4

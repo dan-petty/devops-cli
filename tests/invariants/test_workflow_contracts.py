@@ -1449,8 +1449,8 @@ def test_the_devcontainer_image_action_builds_the_features_with_the_locked_cli()
     action, steps = _composite_steps("devcontainer-image")
     cli = load_tools_lock().npm["devcontainers-cli"]
 
-    assert ((cli.version, cli.bin), action["outputs"], steps) == (
-        ("0.89.0", "devcontainer"),
+    assert (cli.bin, action["outputs"], steps) == (
+        "devcontainer",
         {
             "digest": {
                 "description": "Digest of the pushed image index.",
@@ -1951,13 +1951,13 @@ def test_actionlint_digest_pinned_in_dockerfile_and_ci() -> None:
     ci_yaml = Path(".github/workflows/ci.yml").read_text(encoding="utf-8")
 
     dockerfile_match = re.search(
-        r"FROM\s+(docker\.io/kjanat/actionlint:1\.17\.0@sha256:[0-9a-f]{64})\s+AS\s+actionlint",
+        r"FROM\s+(docker\.io/kjanat/actionlint:[0-9.]+@sha256:[0-9a-f]{64})\s+AS\s+actionlint",
         dockerfile,
     )
     assert dockerfile_match, "Dockerfile FROM actionlint digest-pinned image not found"
 
     ci_yaml_match = re.search(
-        r"uses:\s+(docker://docker\.io/kjanat/actionlint:1\.17\.0@sha256:[0-9a-f]{64})",
+        r"uses:\s+(docker://docker\.io/kjanat/actionlint:[0-9.]+@sha256:[0-9a-f]{64})",
         ci_yaml,
     )
     assert ci_yaml_match, "ci.yml uses: actionlint digest-pinned image not found"

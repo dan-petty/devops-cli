@@ -1,6 +1,6 @@
 ---
 applies_to:
-  - "pkg:pypi/typer@0.27.*"
+  - "pkg:pypi/typer@0.28.*"
 sources:
   - "https://typer.tiangolo.com/"
   - "https://click.palletsprojects.com/"

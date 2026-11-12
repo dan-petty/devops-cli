@@ -1,5 +1,5 @@
 # CloudNativePG Barman Cloud plugin Helm values (#4764).
-# Chart: cloudnative-pg/plugin-barman-cloud (0.8.1, plugin v0.15.1)
+# Chart: cloudnative-pg/plugin-barman-cloud (0.9.0, plugin v0.16.0)
 # Repo:  https://cloudnative-pg.github.io/charts
 #
 # CloudNativePG 1.32 removes the in-tree `barmanObjectStore`, so a database backs up through this

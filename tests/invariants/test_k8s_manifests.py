@@ -121,7 +121,7 @@ def test_loki_runs_the_grafana_community_chart_whose_loki_fixes_cve_2026_21729()
     """`grafana/loki` in grafana.github.io/helm-charts became the Grafana Enterprise Logs chart,
     and its newest version still runs Loki 3.6. CVE-2026-21729 affects Loki before 3.7.0: one
     `detected_fields` request with a very large limit makes Loki allocate memory until it stops.
-    The open-source chart moved to grafana-community/helm-charts, and its 20.0.2 runs Loki 3.7.9
+    The open-source chart moved to grafana-community/helm-charts, and its 21.2.1 runs Loki 3.7.9
     (#1632). The Argo CD Application installs that chart from a repository that its project
     admits. The chart takes the Loki image from its appVersion, so the Application gives the
     chart the values file and no other value, and the values set no Loki image: `loki.image` and
@@ -148,7 +148,7 @@ def test_loki_runs_the_grafana_community_chart_whose_loki_fixes_cve_2026_21729()
         "singleBinary.image": values.get("singleBinary", {}).get("image"),
         "monitoring.selfMonitoring": values.get("monitoring", {}).get("selfMonitoring"),
     } == {
-        "chart": ("https://grafana-community.github.io/helm-charts", "loki", "20.0.2"),
+        "chart": ("https://grafana-community.github.io/helm-charts", "loki", "21.2.1"),
         "project admits the repository": True,
         "helm": {"valueFiles": ["$values/k8s/logging/loki-values.yaml"]},
         "loki.image": None,
@@ -235,7 +235,7 @@ def _token(
 
 
 def _loki(values: dict[str, Any]) -> bool:
-    """Loki chart 20.0.2 sets the field on the single binary pod from
+    """Loki chart 21.2.1 sets the field on the single binary pod from
     `singleBinary.automountServiceAccountToken`, or else from `defaults.automountServiceAccountToken`,
     which is true by default. The pod field wins over `serviceAccount.automountServiceAccountToken`,
     which counts only when neither value is a bool."""
@@ -276,7 +276,7 @@ def _alloy_collectors(values: dict[str, Any]) -> tuple[TokenSite, ...]:
 _CHART_TOKENS: dict[
     tuple[str, str], tuple[TokenSite, ...] | Callable[[dict[str, Any]], tuple[TokenSite, ...]]
 ] = {
-    ("argo-cd", "10.9.6"): (
+    ("argo-cd", "10.18.0"): (
         TokenSite(
             "application-controller",
             _token("controller.automountServiceAccountToken", True),
@@ -321,11 +321,11 @@ _CHART_TOKENS: dict[
             "ClusterRole argocd-server",
         ),
     ),
-    ("argo-workflows", "2.0.13"): (
+    ("argo-workflows", "2.0.18"): (
         TokenSite("server", _when(("server.enabled", True)), "ClusterRole argo-workflows-server"),
         TokenSite("workflow-controller", _when(), "Role argo-workflows-workflow-controller"),
     ),
-    ("argocd-image-updater", "1.3.1"): (
+    ("argocd-image-updater", "1.4.2"): (
         TokenSite("controller", _when(), "ClusterRole argocd-image-updater"),
     ),
     # Each pod takes the token value of its ServiceAccount: the values leave the pod field unset.
@@ -369,10 +369,10 @@ _CHART_TOKENS: dict[
     ),
     ("gitea", "12.7.0"): (TokenSite("gitea", _gitea),),
     # The dashboards sidecar lists the dashboard ConfigMaps.
-    ("grafana", "14.0.1"): (
+    ("grafana", "14.4.1"): (
         TokenSite("grafana", _token("automountServiceAccountToken", True), "Role grafana"),
     ),
-    ("k8s-monitoring", "4.5.2"): lambda values: (
+    ("k8s-monitoring", "4.6.0"): lambda values: (
         TokenSite("alloy-operator", _when(), "ClusterRole k8s-monitoring-alloy-operator"),
         TokenSite(
             "kube-state-metrics",
@@ -395,7 +395,7 @@ _CHART_TOKENS: dict[
     ),
     # The chart binds the ClusterRole loki-clusterrole, which has no rules while the rules sidecar
     # is off. The canary and the gateway have token values of their own.
-    ("loki", "20.0.2"): (
+    ("loki", "21.2.1"): (
         TokenSite("loki", _loki),
         TokenSite(
             "canary",
@@ -409,19 +409,19 @@ _CHART_TOKENS: dict[
     ("mattermost-operator", "1.0.5"): (
         TokenSite("mattermost-operator", _when(), "ClusterRole mattermost-operator"),
     ),
-    ("open-webui", "16.6.0"): (
+    ("open-webui", "18.3.0"): (
         TokenSite("open-webui", _token("serviceAccount.automountServiceAccountToken", False)),
     ),
-    ("opentelemetry-collector", "0.175.0"): (
+    ("opentelemetry-collector", "0.178.3"): (
         TokenSite("collector", _token("serviceAccount.automountServiceAccountToken", True)),
     ),
-    # Chart 0.8.1 has no token value. The plugin watches ObjectStores and writes the Role of each
+    # Chart 0.9.0 has no token value. The plugin watches ObjectStores and writes the Role of each
     # database through the API.
-    ("plugin-barman-cloud", "0.8.1"): (
+    ("plugin-barman-cloud", "0.9.0"): (
         TokenSite("plugin-barman-cloud", _when(), "ClusterRole plugin-barman-cloud"),
     ),
-    ("prometheus-operator-crds", "32.0.1"): (),
-    ("prometheus", "29.35.0"): (
+    ("prometheus-operator-crds", "33.0.2"): (),
+    ("prometheus", "29.47.2"): (
         TokenSite(
             "alertmanager",
             _token(
@@ -434,13 +434,13 @@ _CHART_TOKENS: dict[
         TokenSite("server", _when(), "ClusterRole prometheus-server"),
     ),
     # Storage v2 finds the members of the cluster through the API.
-    ("pyroscope", "2.3.1"): (TokenSite("pyroscope", _when(), "Role pyroscope-discovery"),),
-    # Chart 1.19.1 has no token value.
-    ("qdrant", "1.19.1"): (TokenSite("qdrant", _when()),),
-    ("tempo", "3.1.0"): (
+    ("pyroscope", "2.4.3"): (TokenSite("pyroscope", _when(), "Role pyroscope-discovery"),),
+    # Chart 1.20.0 has no token value.
+    ("qdrant", "1.20.0"): (TokenSite("qdrant", _when()),),
+    ("tempo", "3.2.1"): (
         TokenSite("tempo", _token("serviceAccount.automountServiceAccountToken", True)),
     ),
-    ("traefik", "42.1.3"): (TokenSite("traefik", _when(), "ClusterRole traefik-kube-system"),),
+    ("traefik", "42.3.2"): (TokenSite("traefik", _when(), "ClusterRole traefik-kube-system"),),
 }
 
 # The pods that mount a ServiceAccount token that no role in the tree or in their chart binds,
@@ -448,7 +448,7 @@ _CHART_TOKENS: dict[
 # `<manifest>:<kind>/<name>` for a manifest pod.
 _TOKEN_EXCEPTIONS: dict[str, str] = {
     "k8s/llm/values-qdrant.yaml:qdrant": (
-        "Qdrant does not call the API, but chart 1.19.1 sets automountServiceAccountToken on "
+        "Qdrant does not call the API, but chart 1.20.0 sets automountServiceAccountToken on "
         "neither its pod nor its ServiceAccount and has no value for it. qdrant/qdrant-helm#506 "
         "asks for the value. Remove this entry when a chart release adds it."
     ),

@@ -318,6 +318,11 @@
       "prBodyNotes": [
         "Before the merge, follow the upgrade plan of #4406: read the release notes and the migrations, and load `k8s/llm/gateway/config.yaml` with the new release."
       ]
+    },
+    {
+      "description": "pydantic-ai 2.67 and later cap google-genai below 3, and the lock holds an older pydantic-ai, so lock maintenance would move google-genai to 3 alone. The pydantic-ai move of #5098 removes this hold.",
+      "matchPackageNames": ["google-genai"],
+      "allowedVersions": "<3"
     }
   ]
 }

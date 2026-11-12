@@ -40,8 +40,8 @@ TOOLS_BIN_DIR = TOOLS_DIR / "bin"
 USER_DATA_ROOT_VARIABLE = "DEVOPS_CLI_USER_DATA_ROOT"
 
 # The pins that only the Dockerfile holds. A test reads the Dockerfile and compares.
-UV_VERSION = "0.13.6"
-GH_VERSION = "2.102.1"
+UV_VERSION = "0.13.7"
+GH_VERSION = "2.103.3"
 NODE_MAJOR = "24"
 
 

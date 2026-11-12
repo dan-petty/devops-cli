@@ -1,11 +1,11 @@
 # The maintained actionlint fork (#1501) that knows current runner labels, pinned by digest.
 # This stage is a reference only; the binary is copied into the devcontainer image below.
-FROM docker.io/kjanat/actionlint:1.17.0@sha256:d484cccadf56b6a356466ade9af4c8e05c5dce1badaf0a9ecd0d7639d68d9c92 AS actionlint
+FROM docker.io/kjanat/actionlint:1.17.1@sha256:c0a63b3e5c974c2466ead39404b70e448176beaff8c5ec7af0b2e96191aea661 AS actionlint
 
 # The binary tools of the image, each at an exact version with the sha256 of its build for the
 # platform. The stage downloads and checks them and keeps the commands in /out/bin, so curl and
 # unzip are not in the image and a source change of this repository rebuilds no step of it.
-FROM debian:sid AS tools
+FROM debian:sid@sha256:e276677157e13bc51ea5b8651f54ad28883f503cc37b3e3af2c4b6cc2f4efe7b AS tools
 ARG TARGETARCH
 ARG DEBIAN_FRONTEND=noninteractive
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
@@ -49,10 +49,10 @@ RUN case "$TARGETARCH" in \
     tar -xzf /tmp/asset -C /tmp/unpack "$member" && install -m 0755 "/tmp/unpack/$member" /out/bin/helm && \
     rm -rf /tmp/asset /tmp/unpack
 
-# argo 4.1.5
+# argo 4.1.6
 RUN case "$TARGETARCH" in \
-      amd64) url='https://github.com/argoproj/argo-workflows/releases/download/v4.1.5/argo-linux-amd64.gz'; sha='ab78728d3bcd029f0e8547736e2f3c69d2519a134a3f9ee74454ededa14af36c'; member='' ;; \
-      arm64) url='https://github.com/argoproj/argo-workflows/releases/download/v4.1.5/argo-linux-arm64.gz'; sha='70058ede05677ae1d173bc9de8c670f01e21284dbbc0da1c5434217208a5c5eb'; member='' ;; \
+      amd64) url='https://github.com/argoproj/argo-workflows/releases/download/v4.1.6/argo-linux-amd64.gz'; sha='885f886a338d7e7c0fd4a681152770fb54df1847f8fc55eaed788d661c0304e0'; member='' ;; \
+      arm64) url='https://github.com/argoproj/argo-workflows/releases/download/v4.1.6/argo-linux-arm64.gz'; sha='c11996a95329288ebcc51e5830ad34d61ed684d5280251828596305599f92bf5'; member='' ;; \
     esac && \
     mkdir -p /tmp/unpack && \
     curl -fsSL --retry 3 -o /tmp/asset "$url" && \
@@ -60,10 +60,10 @@ RUN case "$TARGETARCH" in \
     gunzip -c /tmp/asset > /out/bin/argo && chmod 0755 /out/bin/argo && \
     rm -rf /tmp/asset /tmp/unpack
 
-# argocd 3.5.4
+# argocd 3.6.1
 RUN case "$TARGETARCH" in \
-      amd64) url='https://github.com/argoproj/argo-cd/releases/download/v3.5.4/argocd-linux-amd64'; sha='9cd8cb9f8f785357af441a9544cc1c63a2b8d9bad45ebe88503ab8e315c64ae3'; member='' ;; \
-      arm64) url='https://github.com/argoproj/argo-cd/releases/download/v3.5.4/argocd-linux-arm64'; sha='fe7c737ac912e281fa13dc27b2be6695634b9fe483d52846f3e7e65067b11c12'; member='' ;; \
+      amd64) url='https://github.com/argoproj/argo-cd/releases/download/v3.6.1/argocd-linux-amd64'; sha='46d2fc941071f0a0c36326a67a431d34b1479e1a24737f7b367abc93968beadc'; member='' ;; \
+      arm64) url='https://github.com/argoproj/argo-cd/releases/download/v3.6.1/argocd-linux-arm64'; sha='6636e9183de7dba666b673a417986e7ff54dbadd948b2f9f6c83bcf7d33ebb94'; member='' ;; \
     esac && \
     mkdir -p /tmp/unpack && \
     curl -fsSL --retry 3 -o /tmp/asset "$url" && \
@@ -71,10 +71,10 @@ RUN case "$TARGETARCH" in \
     install -m 0755 /tmp/asset /out/bin/argocd && \
     rm -rf /tmp/asset /tmp/unpack
 
-# cloudflared 2026.10.4
+# cloudflared 2026.11.0
 RUN case "$TARGETARCH" in \
-      amd64) url='https://github.com/cloudflare/cloudflared/releases/download/2026.10.4/cloudflared-linux-amd64'; sha='ae5e8add7884b0531d66bbca4570d1de491ff6da51e4ebe7eb160cdf241d9e42'; member='' ;; \
-      arm64) url='https://github.com/cloudflare/cloudflared/releases/download/2026.10.4/cloudflared-linux-arm64'; sha='2b7203b4fb0ba28a0c1e12f8855ce2c25f76d266a8d5edafac5540b6812acff6'; member='' ;; \
+      amd64) url='https://github.com/cloudflare/cloudflared/releases/download/2026.11.0/cloudflared-linux-amd64'; sha='51f7c68b57ed7269164075d7e789efce5b59355982f06392deeb037d982a51fd'; member='' ;; \
+      arm64) url='https://github.com/cloudflare/cloudflared/releases/download/2026.11.0/cloudflared-linux-arm64'; sha='abe54a006acf9faf2d19ee9d953cb0d0804e92f59c5382a162e57b84d086f56f'; member='' ;; \
     esac && \
     mkdir -p /tmp/unpack && \
     curl -fsSL --retry 3 -o /tmp/asset "$url" && \
@@ -82,10 +82,10 @@ RUN case "$TARGETARCH" in \
     install -m 0755 /tmp/asset /out/bin/cloudflared && \
     rm -rf /tmp/asset /tmp/unpack
 
-# kubectl-argo-rollouts 1.10.0
+# kubectl-argo-rollouts 1.10.2
 RUN case "$TARGETARCH" in \
-      amd64) url='https://github.com/argoproj/argo-rollouts/releases/download/v1.10.0/kubectl-argo-rollouts-linux-amd64'; sha='57a464e80c3e716076c9760e1d15ff06b853e3bcab3e22e30f4dba8a3e9f29b2'; member='' ;; \
-      arm64) url='https://github.com/argoproj/argo-rollouts/releases/download/v1.10.0/kubectl-argo-rollouts-linux-arm64'; sha='2d73e61091084769d16191f21fc686b9c2054892eb93d59046660e8c876a6865'; member='' ;; \
+      amd64) url='https://github.com/argoproj/argo-rollouts/releases/download/v1.10.2/kubectl-argo-rollouts-linux-amd64'; sha='355d62379d787a778f92903ce0b2fc1c1f4999d790d829370b6f1854a55f1cf9'; member='' ;; \
+      arm64) url='https://github.com/argoproj/argo-rollouts/releases/download/v1.10.2/kubectl-argo-rollouts-linux-arm64'; sha='b2d414abbdde815f2985c26f58c8461c7949b253e4c23a83737817af34b3be70'; member='' ;; \
     esac && \
     mkdir -p /tmp/unpack && \
     curl -fsSL --retry 3 -o /tmp/asset "$url" && \
@@ -93,10 +93,10 @@ RUN case "$TARGETARCH" in \
     install -m 0755 /tmp/asset /out/bin/kubectl-argo-rollouts && \
     rm -rf /tmp/asset /tmp/unpack
 
-# trivy 0.75.0
+# trivy 0.76.2
 RUN case "$TARGETARCH" in \
-      amd64) url='https://github.com/aquasecurity/trivy/releases/download/v0.75.0/trivy_0.75.0_Linux-64bit.tar.gz'; sha='c6e65abddb348e25f10549df887045629cf28cc72453cd1c63acb717316b3f3f'; member='trivy' ;; \
-      arm64) url='https://github.com/aquasecurity/trivy/releases/download/v0.75.0/trivy_0.75.0_Linux-ARM64.tar.gz'; sha='a1ee9f6ffb7d112b64ff726a2a0717c21175c1114361391f4a132956751a13b3'; member='trivy' ;; \
+      amd64) url='https://github.com/aquasecurity/trivy/releases/download/v0.76.2/trivy_0.76.2_Linux-64bit.tar.gz'; sha='bc0fc726e017b8927a62b2d3531d7a84ee01769daf5c99ed866dced54089fdbf'; member='trivy' ;; \
+      arm64) url='https://github.com/aquasecurity/trivy/releases/download/v0.76.2/trivy_0.76.2_Linux-ARM64.tar.gz'; sha='ab9d51f86e6a5fb936f605faff6b593ac51bc378fff4d3e8b9d58358b9c367c3'; member='trivy' ;; \
     esac && \
     mkdir -p /tmp/unpack && \
     curl -fsSL --retry 3 -o /tmp/asset "$url" && \
@@ -181,10 +181,10 @@ RUN case "$TARGETARCH" in \
     install -m 0755 /tmp/asset /out/bin/gh-dash && \
     rm -rf /tmp/asset /tmp/unpack
 
-# tuicr 0.27.0
+# tuicr 0.28.0
 RUN case "$TARGETARCH" in \
-      amd64) url='https://github.com/agavra/tuicr/releases/download/v0.27.0/tuicr-0.27.0-x86_64-unknown-linux-musl.tar.gz'; sha='f673ff709af2501c111216c95745395ae2bfedf3daa3d039539f9614a6ddb4e4'; member='tuicr' ;; \
-      arm64) url='https://github.com/agavra/tuicr/releases/download/v0.27.0/tuicr-0.27.0-aarch64-unknown-linux-musl.tar.gz'; sha='d0707f491cc8cdf0930fc1466029341d804a0105dd0b674f8dca33afb8366490'; member='tuicr' ;; \
+      amd64) url='https://github.com/agavra/tuicr/releases/download/v0.28.0/tuicr-0.28.0-x86_64-unknown-linux-musl.tar.gz'; sha='0e6be65458e83bf3f917a30660d029b7f4dc5f9b6d203adc10f11a93a30c22f2'; member='tuicr' ;; \
+      arm64) url='https://github.com/agavra/tuicr/releases/download/v0.28.0/tuicr-0.28.0-aarch64-unknown-linux-musl.tar.gz'; sha='c5f60e3846733c3f6f676f0b5b44a6c1cec148e2d1132f3bd107833cf5f7fc0e'; member='tuicr' ;; \
     esac && \
     mkdir -p /tmp/unpack && \
     curl -fsSL --retry 3 -o /tmp/asset "$url" && \
@@ -214,10 +214,10 @@ RUN case "$TARGETARCH" in \
     install -m 0755 /tmp/asset /out/bin/osv-scanner && \
     rm -rf /tmp/asset /tmp/unpack
 
-# golangci-lint 1.64.6
+# golangci-lint 1.64.8
 RUN case "$TARGETARCH" in \
-      amd64) url='https://github.com/golangci/golangci-lint/releases/download/v1.64.6/golangci-lint-1.64.6-linux-amd64.tar.gz'; sha='71e290acbacb7b3ba4f68f0540fb74dc180c4336ac8a6f3bdcd7fcc48b15148d'; member='golangci-lint-1.64.6-linux-amd64/golangci-lint' ;; \
-      arm64) url='https://github.com/golangci/golangci-lint/releases/download/v1.64.6/golangci-lint-1.64.6-linux-arm64.tar.gz'; sha='99a7ff13dec7a8781a68408b6ecb8a1c5e82786cba3189eaa91d5cdcc24362ce'; member='golangci-lint-1.64.6-linux-arm64/golangci-lint' ;; \
+      amd64) url='https://github.com/golangci/golangci-lint/releases/download/v1.64.8/golangci-lint-1.64.8-linux-amd64.tar.gz'; sha='b6270687afb143d019f387c791cd2a6f1cb383be9b3124d241ca11bd3ce2e54e'; member='golangci-lint-1.64.8-linux-amd64/golangci-lint' ;; \
+      arm64) url='https://github.com/golangci/golangci-lint/releases/download/v1.64.8/golangci-lint-1.64.8-linux-arm64.tar.gz'; sha='a6ab58ebcb1c48572622146cdaec2956f56871038a54ed1149f1386e287789a5'; member='golangci-lint-1.64.8-linux-arm64/golangci-lint' ;; \
     esac && \
     mkdir -p /tmp/unpack && \
     curl -fsSL --retry 3 -o /tmp/asset "$url" && \
@@ -225,10 +225,10 @@ RUN case "$TARGETARCH" in \
     tar -xzf /tmp/asset -C /tmp/unpack "$member" && install -m 0755 "/tmp/unpack/$member" /out/bin/golangci-lint && \
     rm -rf /tmp/asset /tmp/unpack
 
-# promtool 3.15.1
+# promtool 3.16.0
 RUN case "$TARGETARCH" in \
-      amd64) url='https://github.com/prometheus/prometheus/releases/download/v3.15.1/prometheus-3.15.1.linux-amd64.tar.gz'; sha='6a726885328ad9efebbf36e876ce2fb6225468a71fd1e7ce3ba666d5f4d97a84'; member='prometheus-3.15.1.linux-amd64/promtool' ;; \
-      arm64) url='https://github.com/prometheus/prometheus/releases/download/v3.15.1/prometheus-3.15.1.linux-arm64.tar.gz'; sha='ceb6d21493c37ca0b4513b147642797c68cf39a0f50a444d50e1e80c74f21b26'; member='prometheus-3.15.1.linux-arm64/promtool' ;; \
+      amd64) url='https://github.com/prometheus/prometheus/releases/download/v3.16.0/prometheus-3.16.0.linux-amd64.tar.gz'; sha='68727009472a2c02e1ff7f062fd5b3e637285bffc8fc2d340c76fb449d6e0f34'; member='prometheus-3.16.0.linux-amd64/promtool' ;; \
+      arm64) url='https://github.com/prometheus/prometheus/releases/download/v3.16.0/prometheus-3.16.0.linux-arm64.tar.gz'; sha='fd8571b8162f4020232d886f17340bcf92e1722985ae3b4c1d096157826c0fbe'; member='prometheus-3.16.0.linux-arm64/promtool' ;; \
     esac && \
     mkdir -p /tmp/unpack && \
     curl -fsSL --retry 3 -o /tmp/asset "$url" && \
@@ -240,7 +240,7 @@ RUN case "$TARGETARCH" in \
 # against the sha512 of every package, and `--ignore-scripts` runs no install script. The stage
 # keeps only the installed folders: the Node feature of the image configuration provides the
 # runtime that the commands use at run time.
-FROM node:24-trixie-slim@sha256:54f84b4cf8432b21aaffd5d3ce8d41e12cea0d10d33c09d2f3c9879d49d6b446 AS npm-tools
+FROM node:24-trixie-slim@sha256:af02d57b57719b9657a45199a79264a9437940cd55b3c7b3fc99615654f124a0 AS npm-tools
 COPY src/devops_cli/tools_lock/openspec/package.json src/devops_cli/tools_lock/openspec/package-lock.json /opt/openspec/
 RUN cd /opt/openspec && npm ci --ignore-scripts
 COPY src/devops_cli/tools_lock/devcontainers-cli/package.json src/devops_cli/tools_lock/devcontainers-cli/package-lock.json /opt/devcontainers-cli/
@@ -250,7 +250,7 @@ RUN cd /opt/devcontainers-cli && npm ci --ignore-scripts
 COPY src/devops_cli/tools_lock/style-dictionary/package.json src/devops_cli/tools_lock/style-dictionary/package-lock.json /opt/style-dictionary/
 RUN cd /opt/style-dictionary && npm ci --ignore-scripts
 
-FROM debian:sid
+FROM debian:sid@sha256:e276677157e13bc51ea5b8651f54ad28883f503cc37b3e3af2c4b6cc2f4efe7b
 
 # Avoid interactive prompts during apt operations in CI
 ARG DEBIAN_FRONTEND=noninteractive
@@ -280,7 +280,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     && rm -rf /var/lib/apt/lists/*
 
 # Install standalone uv and uvx binaries into /usr/local/bin pinned to release
-COPY --from=ghcr.io/astral-sh/uv:0.13.6@sha256:af22a52f5eafef3d78e551599d405c02df61919d18028f0cea8eda93bc9986d0 /uv /uvx /usr/local/bin/
+COPY --from=ghcr.io/astral-sh/uv:0.13.7@sha256:96f40d3904aad8d0bd010539001d36c8e2188b981e1334471a90c4a1d93bb490 /uv /uvx /usr/local/bin/
 
 # The tools of the image, in the places the Filesystem Hierarchy Standard names for software that
 # the administrator installs: the commands are in /usr/local/bin, which PATH holds already, and the

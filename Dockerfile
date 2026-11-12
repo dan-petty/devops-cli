@@ -1,15 +1,15 @@
-# syntax=docker/dockerfile:1
-FROM ghcr.io/astral-sh/uv:0.13.6@sha256:af22a52f5eafef3d78e551599d405c02df61919d18028f0cea8eda93bc9986d0 AS uv
+# syntax=docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
+FROM ghcr.io/astral-sh/uv:0.13.7@sha256:96f40d3904aad8d0bd010539001d36c8e2188b981e1334471a90c4a1d93bb490 AS uv
 
 # The Node runtime of the pinned OpenSpec. Its major version is the one of `.node-version`.
-FROM node:24-trixie-slim@sha256:54f84b4cf8432b21aaffd5d3ce8d41e12cea0d10d33c09d2f3c9879d49d6b446 AS node
+FROM node:24-trixie-slim@sha256:af02d57b57719b9657a45199a79264a9437940cd55b3c7b3fc99615654f124a0 AS node
 
 # The requirements of `uv.lock`, with their hashes and without the project (#4550). A release
 # changes the project version in `pyproject.toml` and `uv.lock`, but not these two files, and BuildKit
 # keys the cache of a `COPY --from` on the content of the files that it copies. So the dependency
 # layers under the `runner` and `service` stages keep their cache when only `src/` and the version
 # change, and a node that holds the previous release pulls only the new project layer.
-FROM python:3.14-slim-trixie@sha256:0741d101873c12ab927e6f8653feb8862b9bd58771177acb1b885b95141f91b4 AS lock
+FROM python:3.14-slim-trixie@sha256:9aaa474097d094040649f2162a627c0049b408f52138d980916788d80f04802f AS lock
 COPY --from=uv /uv /usr/local/bin/
 WORKDIR /app
 COPY pyproject.toml uv.lock ./
@@ -19,7 +19,7 @@ RUN uv export --locked --no-dev --extra review --no-emit-project --format requir
 
 # uv, gh and the venv of the runtime requirements. No file of the project is in this stage. Each uv
 # install mounts the uv cache of root, so no layer holds the cache.
-FROM python:3.14-slim-trixie@sha256:0741d101873c12ab927e6f8653feb8862b9bd58771177acb1b885b95141f91b4 AS deps
+FROM python:3.14-slim-trixie@sha256:9aaa474097d094040649f2162a627c0049b408f52138d980916788d80f04802f AS deps
 ARG TARGETARCH=amd64
 
 COPY --from=uv /uv /uvx /usr/local/bin/
@@ -37,17 +37,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends -o Acquire::Ret
     rm -rf /var/lib/apt/lists/* && \
     case "${TARGETARCH}" in \
       amd64) \
-        url="https://github.com/cli/cli/releases/download/v2.102.1/gh_2.102.1_linux_amd64.tar.gz"; \
-        sha=77b9e297e94c50336823d0f84de7ef1be60cba704601fa0d98f129f47a94987b ;; \
+        url="https://github.com/cli/cli/releases/download/v2.103.3/gh_2.103.3_linux_amd64.tar.gz"; \
+        sha=4c806978ffce1cec70853302a56d70ac6da4f19bae7adca4e1a8ab00633dd91d ;; \
       arm64) \
-        url="https://github.com/cli/cli/releases/download/v2.102.1/gh_2.102.1_linux_arm64.tar.gz"; \
-        sha=5019b3cc6e8a03bb4d88600f8dbda2add8e6407705c159b0c63151036e77a1af ;; \
+        url="https://github.com/cli/cli/releases/download/v2.103.3/gh_2.103.3_linux_arm64.tar.gz"; \
+        sha=ee32df2323c8847f5fac6cb6b4b69ca75828e9329a8f22f677021f7b3306ce63 ;; \
       *) echo "no gh build for ${TARGETARCH}" >&2; exit 1 ;; \
     esac && \
     curl -fsSL --retry 8 --retry-all-errors --retry-delay 2 -o /tmp/gh.tar.gz "$url" && \
     echo "$sha  /tmp/gh.tar.gz" | sha256sum -c - && \
     tar -xzf /tmp/gh.tar.gz -C /tmp && \
-    install -m 755 "/tmp/gh_2.102.1_linux_${TARGETARCH}/bin/gh" /usr/local/bin/gh && \
+    install -m 755 "/tmp/gh_2.103.3_linux_${TARGETARCH}/bin/gh" /usr/local/bin/gh && \
     rm -rf /tmp/gh*
 
 COPY --from=lock /lock/runtime.txt /lock/runtime.txt
@@ -182,7 +182,7 @@ RUN DEVOPS_CLI_USER_DATA_ROOT=/opt/devops-tools /app/.venv/bin/devops install-to
 
 # The layers of the Service image that a change of `src/` keeps: git, the Node runtime, gh, OpenSpec
 # and the venv of the runtime requirements. The image holds no uv, curl or pip.
-FROM python:3.14-slim-trixie@sha256:0741d101873c12ab927e6f8653feb8862b9bd58771177acb1b885b95141f91b4 AS service-deps
+FROM python:3.14-slim-trixie@sha256:9aaa474097d094040649f2162a627c0049b408f52138d980916788d80f04802f AS service-deps
 
 RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends \
     git \

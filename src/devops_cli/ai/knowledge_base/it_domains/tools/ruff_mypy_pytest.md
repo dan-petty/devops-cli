@@ -1,6 +1,6 @@
 ---
 applies_to:
-  - "pkg:pypi/ruff@0.16.*"
+  - "pkg:pypi/ruff@0.17.*"
 sources:
   - "https://astral.sh/ruff"
   - "https://mypy.readthedocs.io/"

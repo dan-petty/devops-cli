@@ -88,7 +88,7 @@ redis:
   automountServiceAccountToken: false
   image:
     repository: valkey/valkey
-    tag: 9.1.2-alpine
+    tag: 9.1.3-alpine
   exporter:
     enabled: true
     # The exporter uses about 2m at peak, but CFS throttled it in 57% of the periods of 7 d at a
