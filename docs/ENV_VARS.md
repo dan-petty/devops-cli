@@ -90,6 +90,9 @@ All configuration options for `devops-cli` can be overridden via environment var
 | `DEVOPS_CLI_GRAFANA_PASSWORD` | `grafana.password` | 🔒 Yes | Grafana admin password (stored in OS keyring) |
 | `DEVOPS_CLI_GRAFANA_TOKEN` | `grafana.token` | 🔒 Yes | Grafana API token (stored in OS keyring) |
 | `DEVOPS_CLI_GRAFANA_URL` | `grafana.url` | No | Grafana service URL |
+| `DEVOPS_CLI_INFRA_DRAIN_TIMEOUT_SECONDS` | `infra.drain_timeout_seconds` | No | The longest time in seconds that the drain of one node may take |
+| `DEVOPS_CLI_INFRA_NODE_READY_TIMEOUT_SECONDS` | `infra.node_ready_timeout_seconds` | No | The longest time in seconds that `devops infra` waits for a node to be Ready again |
+| `DEVOPS_CLI_INFRA_PLAN_MAX_AGE_HOURS` | `infra.plan_max_age_hours` | No | The age in hours after which a plan of an infra repo is too old to apply |
 | `DEVOPS_CLI_K8S_CONTEXT` | `k8s.context` | No | Active Kubernetes cluster context name (e.g. minikube, docker-desktop, kind-cluster, or cloud context) |
 | `DEVOPS_CLI_K8S_DOMAIN` | `k8s.domain` | No | Base domain name for homelab ingress routes and tunnel services (e.g. example.com) |
 | `DEVOPS_CLI_K8S_TUNNEL_HOST` | `k8s.tunnel_host` | No | Hostname of the Kubernetes API route through the Cloudflare tunnel, which 'devops k8s tunnel start' forwards to a local port (e.g. k8s.example.com) |

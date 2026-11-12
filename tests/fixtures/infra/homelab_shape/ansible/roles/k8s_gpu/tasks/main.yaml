@@ -1,0 +1,4 @@
+---
+- name: k8s_gpu
+  kubernetes.core.k8s_info:
+    kind: Node

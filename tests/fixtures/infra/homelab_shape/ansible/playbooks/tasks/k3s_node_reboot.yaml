@@ -1,0 +1,4 @@
+---
+- name: Reboot the node
+  ansible.builtin.reboot:
+    reboot_timeout: 600

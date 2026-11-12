@@ -1,0 +1,7 @@
+---
+- name: nvidia
+  hosts: gpu_nodes
+  tasks:
+    - name: nvidia
+      ansible.builtin.apt:
+        name: nvidia-driver

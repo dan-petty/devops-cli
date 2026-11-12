@@ -1,0 +1,7 @@
+---
+- name: cluster upgrade
+  hosts: k3s_cluster
+  tasks:
+    - name: cluster upgrade
+      ansible.builtin.include_role:
+        name: k3s_server

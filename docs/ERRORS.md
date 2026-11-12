@@ -65,6 +65,10 @@ Each exception class declares its `error_code` and `exit_code`. A command that a
 | `HarnessValidationError` | `HARNESS_VALIDATION_ERROR` | `1` | Ai | Raised when an AI evaluation or harness schema validation fails. |
 | `ImagePinError` | `K8S_IMAGE_PIN_ERROR` | `1` | K8s | Raised when an image that an Argo CD Application pins does not resolve in its registry, or an |
 | `ImplementEvalError` | `ROADMAP_EVAL_REFUSED` | `1` | Roadmap | Raised when `devops roadmap eval implement` cannot read or use a fixture, or is asked for |
+| `InfraAccessRefusedError` | `INFRA_ACCESS_REFUSED` | `1` | Infra | An agent gave an agent access level above `none` for an infra repo. Only a person sets it. |
+| `InfraError` | `INFRA_ERROR` | `1` | Infra | Base exception of the infra repo commands. |
+| `InfraReadError` | `INFRA_READ_FAILED` | `1` | Infra | A local read of an infra repo failed: an Ansible command, or its output is not JSON. |
+| `InfraRepoNotFoundError` | `INFRA_REPO_NOT_FOUND` | `1` | Infra | The checkout of an infra repo is not where the settings or the arguments put it. |
 | `InvalidBranchNameError` | `INVALID_BRANCH_NAME` | `1` | Git | Raised when a proposed Git branch name violates naming conventions. |
 | `InvalidURLError` | `INVALID_URL` | `1` | Validation | Raised when an invalid URL or URI scheme is provided. |
 | `InventoryError` | `RESEARCH_INVENTORY_ERROR` | `1` | Research | Raised when `devops research inventory` cannot read or parse a file that holds pins (#3896). |

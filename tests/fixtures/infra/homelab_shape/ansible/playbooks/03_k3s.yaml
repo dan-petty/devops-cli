@@ -1,0 +1,7 @@
+---
+- name: k3s
+  hosts: k3s_cluster
+  tasks:
+    - name: k3s
+      ansible.builtin.include_role:
+        name: k3s_agent

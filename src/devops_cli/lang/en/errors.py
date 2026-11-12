@@ -105,6 +105,18 @@ class ConfigErrorMessages:
         "The setting service.repos names the repository {key} twice, as '{first}' and "
         "'{second}'. GitHub names ignore case. Give each repository once."
     )
+    infra_repo_invalid: str = (
+        "The setting infra.repos holds the repo '{value}'. That is not a GitHub repository as "
+        "owner/name."
+    )
+    project_file_invalid: str = (
+        "The project file {file} of the repository is not valid: {reason}. Fix the file, or "
+        "remove it to use the type template and detection."
+    )
+    infra_repo_repeated: str = (
+        "The setting infra.repos names the repository {key} twice, as '{first}' and "
+        "'{second}'. GitHub names ignore case. Give each repository once."
+    )
     not_yaml: str = "{action}: {path} is not valid YAML ({error_type}){location}."
     not_yaml_load: str = "Cannot load the settings"
     not_yaml_read: str = "Cannot read the config file"
@@ -380,6 +392,28 @@ class TfErrorMessages:
 
 
 @dataclass(frozen=True)
+class InfraErrorMessages:
+    agent_access_refused: str = (
+        "An agent cannot set the agent access level of an infra repo to {level}. Only a person "
+        "sets a level above none, in the setting {key}. Run the command again with no "
+        "--agent-access, or ask a person to run it."
+    )
+    repo_not_found: str = (
+        "No checkout of the infra repo {repo} is at {path}. Clone it there, or give its folder "
+        "with --path."
+    )
+    path_not_a_folder: str = (
+        "{path} is not a folder. Give the folder of the checkout of the infra repo."
+    )
+    read_failed: str = "{command} stopped with exit code {code}: {detail}"
+    read_not_json: str = "{command} did not print the JSON that devops reads."
+    no_origin: str = (
+        "The checkout at {path} has no GitHub remote origin. Give the repository as owner/name "
+        "and its folder with --path."
+    )
+
+
+@dataclass(frozen=True)
 class PRErrorMessages:
     list_failed: str = "Failed to list PRs: {error}"
     invalid_number: str = "Invalid PR number: {number}"
@@ -418,6 +452,7 @@ class ErrorCatalog:
     prometheus: PrometheusErrorMessages = field(default_factory=PrometheusErrorMessages)
     rag: RAGErrorMessages = field(default_factory=RAGErrorMessages)
     tf: TfErrorMessages = field(default_factory=TfErrorMessages)
+    infra: InfraErrorMessages = field(default_factory=InfraErrorMessages)
     pr: PRErrorMessages = field(default_factory=PRErrorMessages)
     test: TestErrorMessages = field(default_factory=TestErrorMessages)
     dashboard: DashboardErrorMessages = field(default_factory=DashboardErrorMessages)

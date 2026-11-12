@@ -1,0 +1,4 @@
+---
+- name: nvidia
+  ansible.builtin.apt:
+    name: nvidia-container-toolkit

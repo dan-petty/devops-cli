@@ -1,0 +1,7 @@
+---
+- name: bootstrap
+  hosts: debian_nodes
+  tasks:
+    - name: bootstrap
+      ansible.builtin.apt:
+        name: curl

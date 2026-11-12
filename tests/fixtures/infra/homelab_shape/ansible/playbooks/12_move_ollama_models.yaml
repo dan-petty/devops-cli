@@ -1,0 +1,7 @@
+---
+- name: move ollama models
+  hosts: k3s_server
+  tasks:
+    - name: move ollama models
+      community.general.modprobe:
+        name: nvme

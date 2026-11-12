@@ -1,0 +1,7 @@
+# The type template `ansible-k8s`: an Ansible repository whose hosts are nodes of a Kubernetes
+# cluster, such as dan-petty/homelab (#5121). devops-cli versions it. Detection in the repository
+# and the repository's own `.devops/project.toml` win over it, in that order.
+
+[ansible]
+playbook_dir = "playbooks"
+offline_group = "offline"

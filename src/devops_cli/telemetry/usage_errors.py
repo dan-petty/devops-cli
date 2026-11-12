@@ -18,14 +18,12 @@ is recorded as `<value>`.
 
 from __future__ import annotations
 
-import contextvars
 import difflib
 import logging
 import os
 import re
 import sys
-from collections.abc import Iterable, Iterator
-from contextlib import contextmanager
+from collections.abc import Iterable
 from datetime import UTC, datetime
 from enum import StrEnum
 from logging.handlers import RotatingFileHandler
@@ -40,6 +38,8 @@ from typer._click.exceptions import (
     NoSuchOption,
     UsageError,
 )
+
+from devops_cli.core.caller import agent_tool, in_mcp_call
 
 LEDGER_NAME: Final = "usage-errors.jsonl"
 LOG_BODY: Final = "cli_usage_error"
@@ -56,32 +56,10 @@ _CLI_NAME: Final = re.compile(r"-[A-Za-z0-9]|(?:--?)?[a-z][a-z0-9]{0,19}(?:[-_][
 _TAG_ATTRIBUTE: Final = "devops_cli_usage_tag"
 _PATH_ATTRIBUTE: Final = "devops_cli_usage_command_path"
 _CI_MARKERS: Final = ("CI", "GITHUB_ACTIONS")
-_KILO_MARKER: Final = "KILO"
-_OTHER_TOOL: Final = "other"
-# The agent tools that a record names, each with the names that `detect_agent` or the `AI_AGENT`
-# variable gives it, in lower case with `_` for `-`. A name that starts with one of them, then
-# `_`, is that tool too: Claude Code sets `AI_AGENT` to `claude-code_<version>_agent`.
-_AGENT_TOOLS: Final[tuple[tuple[str, str], ...]] = (
-    ("claude_code", "claude_code"),
-    ("cowork", "claude_code"),
-    ("gemini_cli", "gemini_cli"),
-    ("codex", "codex"),
-    ("cursor", "cursor"),
-    ("kilo", "kilo"),
-    ("open_code", "opencode"),
-    ("opencode", "opencode"),
-    ("antigravity", "antigravity"),
-    ("devops_implement", "devops_implement"),
-)
-
 _LOGGER: Final = logging.getLogger("devops_cli.usage")
 # The record goes on to the handlers of the root logger, such as the OTLP log bridge. With no
 # handler of its own, a warning would go to `logging.lastResort`, which prints it on stderr.
 _LOGGER.addHandler(logging.NullHandler())
-
-_MCP_CALL: Final[contextvars.ContextVar[bool]] = contextvars.ContextVar(
-    "devops_cli_usage_mcp_call", default=False
-)
 
 
 class UsageErrorKind(StrEnum):
@@ -147,16 +125,6 @@ def _tag(error: UsageError, kind: UsageErrorKind, name: str | None, suggestion: 
     setattr(error, _TAG_ATTRIBUTE, (kind, name, suggestion))
 
 
-@contextmanager
-def mcp_call() -> Iterator[None]:
-    """Mark the commands that run in the block as calls of an MCP tool."""
-    token = _MCP_CALL.set(True)
-    try:
-        yield
-    finally:
-        _MCP_CALL.reset(token)
-
-
 def ledger_path() -> Path:
     """The usage-error ledger: `usage-errors.jsonl` under the user data root."""
     from devops_cli.core.repo import user_data_root
@@ -169,15 +137,15 @@ def usage_error_record(error: UsageError) -> UsageErrorRecord:
     from devops_cli import __version__
 
     kind, name, suggestion = _classified(error)
-    agent_tool = _agent_tool()
+    tool = agent_tool()
     return UsageErrorRecord(
         at=datetime.now(UTC).replace(microsecond=0),
         kind=kind,
         command_path=_command_path(error),
         name=_cli_name(name),
         suggestion=_cli_name(suggestion),
-        caller=_caller(agent_tool),
-        agent_tool=agent_tool,
+        caller=_caller(tool),
+        agent_tool=tool,
         version=__version__,
     )
 
@@ -257,27 +225,10 @@ def _cli_name(word: str | None) -> str | None:
     return VALUE_PLACEHOLDER
 
 
-def _agent_tool() -> str | None:
-    """The agent tool that runs devops-cli, from the markers that `detect_agent` reads, or None."""
-    from detect_agent import determine_agent
-
-    agent = determine_agent()["agent"]
-    if agent is None:
-        return None
-    name = agent["name"].strip().lower().replace("-", "_")
-    # Kilo is a fork of OpenCode: its shell sets `OPENCODE`, which `detect_agent` reads, and `KILO`.
-    if name == "open_code" and os.environ.get(_KILO_MARKER):
-        name = "kilo"
-    return next(
-        (tool for prefix, tool in _AGENT_TOOLS if name == prefix or name.startswith(f"{prefix}_")),
-        _OTHER_TOOL,
-    )
-
-
-def _caller(agent_tool: str | None) -> UsageCaller:
-    if _MCP_CALL.get():
+def _caller(tool: str | None) -> UsageCaller:
+    if in_mcp_call():
         return UsageCaller.MCP
-    if agent_tool is not None:
+    if tool is not None:
         return UsageCaller.AGENT
     if any(os.environ.get(marker) for marker in _CI_MARKERS):
         return UsageCaller.CI
@@ -341,7 +292,6 @@ __all__ = [
     "UsageErrorKind",
     "UsageErrorRecord",
     "ledger_path",
-    "mcp_call",
     "record_usage_error",
     "tag_parse_error",
     "tag_unknown_command",

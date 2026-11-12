@@ -1,0 +1,5 @@
+---
+ansible_host: 192.0.2.4
+node_role: agent
+k3s_node_ip: "192.0.2.4"
+devops_infra_node_service: k3s-agent

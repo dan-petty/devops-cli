@@ -1,0 +1,5 @@
+---
+- name: k3s_agent
+  ansible.builtin.template:
+    src: k3s-agent-config.yaml.j2
+    dest: /etc/rancher/k3s/config.yaml

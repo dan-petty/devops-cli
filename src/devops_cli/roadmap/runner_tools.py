@@ -218,6 +218,9 @@ NOT_IN_RUNNER: dict[str, str] = {
     "semgrep": (
         "Only the workflow `rule-pack.yml` installs it, and only when a rule file changes."
     ),
+    "ansible-core": (
+        "No gate row, hook or job starts Ansible. Only `devops infra` starts it, on a workstation."
+    ),
     "actionlint": _IMAGE_SCAN.format(
         finding="Go standard library 1.27.0 (four CVEs) in actionlint 1.17.0",
         rows="`actionlint` row",

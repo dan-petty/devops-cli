@@ -311,6 +311,17 @@ The providers that web search asks, in order, and the language of the search.
 | `language` | `str` | `en` | `DEVOPS_CLI_SEARCH_LANGUAGE` | The language of a web search, as the `Accept-Language` of its request |
 | `searxng_url` | `Union` | - | `DEVOPS_CLI_SEARCH_SEARXNG_URL` | Address of the SearXNG service for web search, such as `http://searxng.devops.svc.cluster.local:8080` in the cluster, or `http://127.0.0.1:8080` on a workstation after `kubectl port-forward -n devops svc/searxng 8080:8080`. A cluster address needs `ai.allow_private_network`. It has no default, and `searxng` is skipped without it |
 
+## Infra Repos (`infra`)
+
+The infra repos that `devops infra` manages, each with its agent access level, and the bounds of a plan, a drain and a node restart.
+
+| Option | Type | Default | Environment Variable | Description |
+|---|---|---|---|---|
+| `plan_max_age_hours` | `int` | `24` | `DEVOPS_CLI_INFRA_PLAN_MAX_AGE_HOURS` | The age in hours after which a plan of an infra repo is too old to apply |
+| `drain_timeout_seconds` | `int` | `180` | `DEVOPS_CLI_INFRA_DRAIN_TIMEOUT_SECONDS` | The longest time in seconds that the drain of one node may take |
+| `node_ready_timeout_seconds` | `int` | `900` | `DEVOPS_CLI_INFRA_NODE_READY_TIMEOUT_SECONDS` | The longest time in seconds that `devops infra` waits for a node to be Ready again |
+| `repos` | `list` | `[]` | - | The infra repos, each with operational keys only: `repo` (owner/name), `path`, `kube_context`, `ssh_key_prefix` and `agent_access` (`none`, `plan`, `safe` or `full`; `none` when absent). The facts of a repository are in its project profile, `.devops/project.toml`. `devops infra onboard` writes an entry |
+
 ## Top-Level Settings
 
 Top-level workstation and environment settings.

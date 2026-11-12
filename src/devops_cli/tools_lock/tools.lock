@@ -583,6 +583,18 @@ source = "https://github.com/PyCQA/bandit"
 requirements = "bandit.txt"
 entry_points = ["bandit"]
 
+[python.ansible-core]
+version = "2.22.0"
+description = "Ansible and ansible-runner, the engine of devops infra"
+source = "https://github.com/ansible/ansible"
+# One environment for ansible-core (GPL-3.0-or-later) and ansible-runner (Apache-2.0): devops runs
+# them only as child processes, so no GPL code loads into the devops process. ansible-runner's pin
+# is in `ansible-core.in`. devops starts the other Ansible commands from this environment's `bin`,
+# so only `ansible-runner` goes on PATH: the `ansible-playbook` that a person has there, such as the
+# community `ansible` package with its bundled collections, stays.
+requirements = "ansible-core.txt"
+entry_points = ["ansible-runner"]
+
 [npm.openspec]
 version = "1.17.0"
 description = "OpenSpec spec and change-proposal CLI"

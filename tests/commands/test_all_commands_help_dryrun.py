@@ -145,6 +145,7 @@ def test_all_command_specs_registered(cli: Any) -> None:
         "status",
         "survey",
         "research",
+        "infra",
     }
     for cmd in expected_commands:
         assert cmd in result.output

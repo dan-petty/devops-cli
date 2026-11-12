@@ -287,7 +287,7 @@ def _invoke_on_thread(
 
     def _worker() -> None:
         # A context variable does not pass to a new thread, so the thread marks its own call.
-        from devops_cli.telemetry.usage_errors import mcp_call
+        from devops_cli.core.caller import mcp_call
 
         nonlocal res, worker_exc
         try:

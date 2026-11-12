@@ -246,3 +246,17 @@ _Avoid_: multi-series graph, split graph
 **Aggregate line**:
 A reference line on a breakdown panel, labeled Total (Sum) or Average (Mean), that sums or averages the lines shown by the breakdown query.
 _Avoid_: baseline line, summary series
+
+## Infrastructure
+
+**Infra repo**:
+A git repository with an Ansible inventory, its playbooks and roles, which `devops infra` manages. The setting `infra.repos` names each infra repo, its checkout and its agent access level. dan-petty/homelab is one.
+_Avoid_: infra environment, inventory repo
+
+**Agent access level**:
+What an agent may do on the hosts of one infra repo: `none`, `plan`, `safe` or `full`. A repo with no level is at `none`. Only a person sets a level above `none`. It stops an agent error; it is not a security boundary.
+_Avoid_: approval level, permission, trust level
+
+**Project profile**:
+The facts of one repository that devops-cli reads: its type and the layout of its files. They merge from the field defaults, the type template in `src/devops_cli/templates/profiles/`, detection in the files of the repository and its own `.devops/project.toml`, and each value records its source. The config of devops-cli holds operational keys only, never a fact of a project.
+_Avoid_: project config, repo settings, manifest
