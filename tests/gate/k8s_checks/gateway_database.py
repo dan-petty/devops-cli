@@ -172,8 +172,9 @@ def check_the_gateway_refuses_a_key_it_cannot_check_when_the_database_is_down() 
 
 def check_the_gateway_keeps_its_spend_logs_for_30_days() -> None:
     """The spend-log table gets about 71,000 rows a week, and no code reads a row older than a
-    month. LiteLLM deletes the older rows once a day (its default interval) when
-    `maximum_spend_logs_retention_period` is set (#4994)."""
+    month. When `maximum_spend_logs_retention_period` is set, LiteLLM deletes the older rows 24
+    hours after each start of the gateway process (its default interval), and then each 24 hours
+    (#4994)."""
     settings = yaml.safe_load((GATEWAY_DIR / "config.yaml").read_text(encoding="utf-8"))[
         "general_settings"
     ]
