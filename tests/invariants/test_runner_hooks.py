@@ -69,17 +69,21 @@ def test_every_local_hook_runs_a_tool_that_the_runner_image_holds() -> None:
     assert unsupported == []
 
 
-def test_the_runner_stage_syncs_the_dev_group_and_holds_openspec() -> None:
-    """`pre-commit` and `ast-grep` come with the dev group, and the OpenSpec gate needs the pinned
-    `openspec` that the builder stage installs and the runner stage inherits."""
+def test_the_runner_image_installs_the_dev_group_and_holds_openspec() -> None:
+    """`pre-commit` and `ast-grep` come with the dev group, which `runner-deps` installs from the
+    dev requirements of the `lock` stage. The OpenSpec gate needs the pinned `openspec` that the
+    builder stage installs: `runner-tools` builds on the builder, and `runner-deps` copies its
+    tool directory."""
     dockerfile = stages((ROOT / "Dockerfile").read_text(encoding="utf-8"))
-    runner = [" ".join(words) for words in dockerfile["runner"]]
+    runner_deps = [" ".join(words) for words in dockerfile["runner-deps"]]
     builder = [" ".join(words) for words in dockerfile["builder"]]
-    assert runner[0] == "FROM builder AS runner"
-    sync = [line for line in runner if "uv sync --locked" in line]
-    assert sync != []
-    assert all("--no-dev" not in line for line in sync)
+    lock = " ".join(" ".join(words) for words in dockerfile["lock"])
+    assert dockerfile["runner"][0][1] == "runner-deps"
+    assert any("uv pip install" in line and "/lock/dev.txt" in line for line in runner_deps)
+    assert "--only-dev" in lock.split()
     assert any("install-tools" in line and "--tool openspec" in line for line in builder)
+    assert dockerfile["runner-tools"][0][1] == "builder"
+    assert "COPY --from=runner-tools /opt/devops-tools /opt/devops-tools" in runner_deps
     assert {"pre-commit", "ast-grep-cli"} <= _dev_dependencies()
 
 

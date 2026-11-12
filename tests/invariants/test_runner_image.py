@@ -38,47 +38,55 @@ def _runs(stage: list[list[str]]) -> list[str]:
     return [" ".join(words[1:]) for words in stage if words[0].upper() == "RUN"]
 
 
-def test_the_runner_stage_adds_the_dev_dependencies_and_git_to_the_builder() -> None:
-    """Verify that the runner stage builds on `builder` and syncs the lockfile with the dev group.
+def test_the_runner_image_adds_the_dev_dependencies_and_git_to_the_runtime_dependencies() -> None:
+    """Verify that the runner builds on `runner-deps`, which builds on `deps`, installs the dev
+    requirements of the lock and installs git with apt.
 
-    The builder holds uv, gh, the Node runtime and the pinned OpenSpec, and `uv sync --locked`
-    with no `--no-dev` adds pytest, ruff and mypy to its venv.
+    `deps` holds uv, gh and the venv of the runtime requirements. `runner-deps` adds pytest, ruff
+    and mypy to that venv from the dev requirements of the `lock` stage, and the `runner` stage
+    adds only the project, so a change of `src/` keeps the layers of the dependencies (#4550).
     """
-    runner = _stages()["runner"]
-    runs = _runs(runner)
-    sync = [run for run in runs if "uv sync" in run]
-    apt = [run for run in runs if "apt-get install" in run]
+    all_stages = _stages()
+    runner_deps = all_stages["runner-deps"]
+    installs = [run for run in _runs(runner_deps) if "uv pip install" in run]
+    apt = [run for run in _runs(runner_deps) if "apt-get install" in run]
 
     assert (
-        runner[0][1:],
-        len(sync),
-        "--locked" in sync[0],
-        "--no-dev" in sync[0],
+        all_stages["runner"][0][1:],
+        runner_deps[0][1:],
+        len(installs),
+        "/lock/dev.txt" in installs[0].split(),
         len(apt),
         "git" in apt[0].split(),
-    ) == (["builder", "AS", "runner"], 1, True, False, 1, True)
+    ) == (["runner-deps", "AS", "runner"], ["deps", "AS", "runner-deps"], 1, True, 1, True)
 
 
-def test_the_runner_stage_removes_what_only_the_build_needs() -> None:
-    """Verify that the runner stage deletes npm, pip and the uv cache of root.
+def test_the_runner_image_holds_no_npm_pip_or_uv_cache() -> None:
+    """Verify that no stage of the runner image copies npm, that `runner-deps` deletes pip, and
+    that each uv install of the image keeps the uv cache of root in a cache mount.
 
-    The builder installs OpenSpec with npm and fills the cache of root while it syncs. A Job runs
-    none of them, and the scan of the image reports the findings in them (npm bundles `undici`
-    and `brace-expansion`, pip vendors `certifi`, `urllib3` and `msgpack`), so the stage deletes
-    them, as the service stage deletes pip.
+    A Job installs no tool, and the scan of the image reports the findings in them (npm bundles
+    `undici` and `brace-expansion`, pip vendors `certifi`, `urllib3` and `msgpack`), as the
+    service stage deletes pip. Only the `builder` stage, which installs OpenSpec, holds npm.
     """
-    runs = " ".join(_runs(_stages()["runner"]))
+    all_stages = _stages()
+    chain = ["runner", "runner-deps", "deps"]
+    words = [word for name in chain for line in all_stages[name] for word in line]
+    runner_deps_runs = " ".join(_runs(all_stages["runner-deps"]))
 
-    assert [
-        path
-        for path in (
-            "/usr/local/lib/node_modules/npm",
-            "/usr/local/bin/npm",
-            "/root/.cache/uv",
-            "/usr/local/lib/python3.14/site-packages/pip*",
-        )
-        if "rm -rf" not in runs or path not in runs
-    ] == []
+    assert (
+        [word for word in words if "node_modules/npm" in word],
+        "rm -rf" in runner_deps_runs,
+        "/usr/local/lib/python3.14/site-packages/pip*" in runner_deps_runs.split(),
+        [
+            name
+            for name in chain
+            for line in all_stages[name]
+            if line[0] == "RUN"
+            and "uv pip" in " ".join(line)
+            and "--mount=type=cache,target=/root/.cache/uv" not in line
+        ],
+    ) == ([], True, True, [])
 
 
 def test_the_runner_stage_runs_as_user_1000_and_starts_devops() -> None:
