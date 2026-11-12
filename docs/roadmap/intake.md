@@ -45,7 +45,7 @@ devops gh issues close <number> --reason not-planned
 
 ## Jev for the proposal
 
-The setting `roadmap.intake.jev` has three values (ADR 0019). `off` is the default and makes no Jev request. `shadow` keeps the `triage` model for every label and every flag, and records what TypeSafe Jev (`typesafe/jev-1.14`) would answer. `on` asks Jev for the fields of the proposal in place of the `triage` model. Jev must not decide yet: on the 25 closed issues of `devops roadmap eval jev` it ties the `triage` model on type, and it is behind on priority, Value and Effort. Use `shadow` to measure it on real new issues.
+The setting `roadmap.intake.jev` has three values (ADR 0019). `off` is the default and makes no Jev request. `shadow` keeps the `triage` model for every label and every flag, and records what TypeSafe Jev (`typesafe/jev-1.14`) would answer. `on` asks Jev for the fields of the proposal in place of the `triage` model. Jev must not decide yet: on the 25 closed issues of `devops roadmap eval jev` it ties the `triage` model on type, and it is behind on priority, Value and Effort. Use `shadow` to measure it on real new issues. A config file is read as YAML 1.2 ([configuration reference](../CONFIGURATION.md)), so `jev: off` and `jev: on` with no quotes are the modes `off` and `on`. A bool, such as `jev: true`, is not a mode, and the settings do not load.
 
 One request holds a question for each field that has a fixed list:
 

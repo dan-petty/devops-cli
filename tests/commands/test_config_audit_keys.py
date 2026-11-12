@@ -223,6 +223,23 @@ def test_config_audit_keys_passes_a_nested_credential_that_holds_no_value(
     assert (result.exit_code, data["is_compliant"], data["plaintext_leaks"]) == (0, True, [])
 
 
+def test_config_audit_keys_finds_a_credential_whose_bare_value_yaml_1_1_reads_as_false(
+    cli: Callable[..., Any], isolate_devops_cli_config: Path
+) -> None:
+    """YAML 1.2 reads a bare `no` as a string, so the credential holds a value in plaintext. YAML
+    1.1 read it as `false`, and the audit found no leak (#4481)."""
+    isolate_devops_cli_config.write_text("ai:\n  api_key: no\n", encoding="utf-8")
+
+    result = cli("config", "audit-keys", "--json")
+
+    data = json.loads(result.stdout)
+    assert (result.exit_code, data["is_compliant"], data["plaintext_leaks"]) == (
+        1,
+        False,
+        [f"{isolate_devops_cli_config.resolve()}:ai.api_key"],
+    )
+
+
 def test_config_audit_keys_finds_no_secret_key_in_a_config_file_whose_document_is_a_list(
     tmp_path: Path,
 ) -> None:
@@ -455,7 +472,7 @@ _LOADER_CREDENTIAL = "FAKE-2426-value"
         ),
         pytest.param(
             f"ai:\n  api_key: !!timestamp {_LOADER_CREDENTIAL}\n".encode(),
-            "AttributeError",
+            "ConstructorError at line 2, column 12",
             id="timestamp",
         ),
         pytest.param(
@@ -484,8 +501,9 @@ def test_config_audit_keys_reports_a_global_config_file_that_the_yaml_loader_can
 ) -> None:
     """The audit refuses the errors of the YAML loader that the settings load refuses (#1468).
 
-    The message of these errors quotes the value, so the audit names only the file and the type of
-    the error. It prints the full report and exits 1.
+    The message of these errors quotes the value, so the audit names only the file, the type of
+    the error, and its line and column when the error has a mark. It prints the full report and
+    exits 1.
     """
     global_config = write_global_config(content).resolve()
 

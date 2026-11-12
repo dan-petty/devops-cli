@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from devops_cli.config.settings import load_settings, save_settings
-from devops_cli.config.write_history import _copy
+from devops_cli.config.write_history import _copy, record_write
 from tests.support.config_writes import config_writes, written_keys
 from tests.support.fakes.clock import ClockFake
 
@@ -116,6 +116,18 @@ def test_a_config_write_that_changes_no_byte_writes_nothing_and_records_nothing(
     assert _names(config.parent) == ["config.yaml"]
     assert config.stat().st_mtime_ns == written
     assert config_writes(isolate_data_dir) == []
+
+
+def test_a_write_that_only_drops_the_quotes_of_a_value_records_no_changed_key(
+    tmp_path: Path, isolate_data_dir: Path
+) -> None:
+    """`"12:30"` and a bare `12:30` are the same string in YAML 1.2, the version that a save
+    writes. YAML 1.1 reads the bare form as the number 750 (#4481)."""
+    config = tmp_path / "config.yaml"
+
+    record_write(config, b'k8s:\n  context: "12:30"\n', b"k8s:\n  context: 12:30\n", None)
+
+    assert written_keys(isolate_data_dir) == [[]]
 
 
 def test_config_set_records_its_command_and_writes_the_key_it_changed_alone(

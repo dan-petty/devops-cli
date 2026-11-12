@@ -20,8 +20,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-import yaml
-
 from devops_cli.config.constants import (
     CONST_AUDIT_ACTION_CONFIG_WRITE,
     CONST_CONFIG_BACKUP_INFIX,
@@ -30,7 +28,7 @@ from devops_cli.config.constants import (
     CONST_CONFIG_REDACTED_VALUE,
 )
 from devops_cli.config.round_trip import KeyPath, changes, edit, leaves
-from devops_cli.config.yaml_errors import load_yaml
+from devops_cli.config.yaml_errors import load_yaml, parse_config_yaml
 from devops_cli.exceptions import ConfigurationError
 from devops_cli.lang import ERRORS
 
@@ -89,7 +87,9 @@ def redact_credentials(data: bytes, paths: Collection[KeyPath], *, name: str) ->
     that is not UTF-8 text, that is not YAML, or that holds no mapping. The error does not quote
     the data, which can hold a credential."""
     loaded = load_yaml(
-        lambda: yaml.safe_load(data.decode("utf-8")), name=name, action=ERRORS.config.not_yaml_read
+        lambda: parse_config_yaml(data.decode("utf-8")),
+        name=name,
+        action=ERRORS.config.not_yaml_read,
     )
     text = data.decode("utf-8")
     if loaded is None:
@@ -171,10 +171,11 @@ def record_write(path: Path, previous: bytes | None, content: bytes, backup: Pat
 
 
 def _mapping(content: bytes | None, *, name: str) -> Mapping[str, Any]:
-    """The mapping that the config file `name` holds, or an empty one for no file or no mapping.
-    Content that PyYAML cannot load raises ConfigurationError, which quotes no text of it (#2451)."""
+    """The YAML 1.2 mapping that the config file `name` holds, or an empty one for no file or no
+    mapping. A save writes YAML 1.2, so a value that only lost its quotes is the same value (#4481).
+    Content that does not load raises ConfigurationError, which quotes no text of it (#2451)."""
     loaded = (
-        load_yaml(lambda: yaml.safe_load(content), name=name, action=ERRORS.config.not_yaml_read)
+        load_yaml(lambda: parse_config_yaml(content), name=name, action=ERRORS.config.not_yaml_read)
         if content
         else None
     )

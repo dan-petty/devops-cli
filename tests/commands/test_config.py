@@ -242,6 +242,25 @@ def test_config_set_of_an_unknown_key_exits_1_before_any_prompt_and_names_the_si
     assert isolate_devops_cli_config.read_text(encoding="utf-8") == config_before
 
 
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        pytest.param("roadmap.intake.jev", "off", id="mode-off"),
+        pytest.param("search.language", "no", id="bool-word"),
+        pytest.param("k8s.context", "12:30", id="sexagesimal"),
+    ],
+)
+def test_config_set_of_a_word_that_yaml_1_1_reads_as_a_bool_or_a_number_loads_back_as_set(
+    cli: Any, key: str, value: str
+) -> None:
+    """The save writes the value with no quotes, because it is a string in YAML 1.2. The load
+    reads the file as YAML 1.2 too, so it gets the same string (#4481)."""
+    result = cli("config", "set", key, value)
+    loaded = cli("config", "get", key)
+
+    assert (result.exit_code, loaded.exit_code, loaded.output) == (0, 0, f"{value}\n")
+
+
 def test_config_get_of_an_unknown_key_names_the_similar_keys(cli: Any) -> None:
     result = cli("config", "get", "firecrawl.apikey")
 

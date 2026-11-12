@@ -10,6 +10,7 @@ import yaml
 
 from devops_cli.config.defaults import DEFAULT_K8S_DIR
 from devops_cli.config.settings import GitHubAppConfig, Settings, load_settings
+from devops_cli.config.yaml_errors import parse_config_yaml
 from devops_cli.exceptions.k8s import KubernetesContextError
 
 _CONFIG_KEY = "devops-cli.yaml"
@@ -64,13 +65,17 @@ def render_devops_configmap_content(
     """The ConfigMap template with its service section set to `repos` and `github_app`.
 
     The template's config is read as YAML and written again, so the applied ConfigMap does not
-    keep the template's comments.
+    keep the template's comments. Kubernetes reads the manifest, so the manifest is read with
+    PyYAML. The config in it is a config file of devops-cli, which the Service reads as YAML 1.2,
+    so the render reads it as YAML 1.2 too (#4481). PyYAML writes it again and quotes each word
+    that YAML 1.1 reads as a bool or a number, such as `'off'`. The render validates the YAML 1.2
+    read of the text that it writes, which is the config that the Service loads.
     """
     manifest = yaml.safe_load(template_content)
     data = manifest.get("data") if isinstance(manifest, dict) else None
     if not isinstance(data, dict):
         data = {}
-    config = yaml.safe_load(data.get(_CONFIG_KEY) or "")
+    config = parse_config_yaml(data.get(_CONFIG_KEY) or "")
     if not isinstance(config, dict) or not isinstance(config.get("service"), dict):
         raise KubernetesContextError(
             "Could not locate standard service configuration block in devops ConfigMap template."
@@ -78,8 +83,8 @@ def render_devops_configmap_content(
     config["service"] = _service_block(
         repos, github_app, poll_interval_seconds, github_requests_per_hour
     )
-    Settings.model_validate(config)
     data[_CONFIG_KEY] = yaml.dump(config, Dumper=_BlockDumper, sort_keys=False)
+    Settings.model_validate(parse_config_yaml(data[_CONFIG_KEY]))
     return yaml.dump(manifest, Dumper=_BlockDumper, sort_keys=False)
 
 

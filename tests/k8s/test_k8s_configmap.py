@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 import yaml
+from ruamel.yaml import YAML
 
 from devops_cli.config.settings import AITasksConfig, GitHubAppConfig, ServiceConfig, Settings
 from devops_cli.exceptions.k8s import KubernetesContextError
@@ -74,6 +75,17 @@ def test_render_devops_configmap_substitutes_repos_and_the_github_app() -> None:
         True,
         "devops-cli-config",
     )
+
+
+def test_a_bare_off_in_the_template_renders_a_config_whose_yaml_1_2_read_is_off() -> None:
+    """The template holds `jev: off` with no quotes. The render reads the config as YAML 1.2, as
+    the Service loads it, so the mode is the string `off` (#4481)."""
+    template = SAMPLE_TEMPLATE + "    roadmap:\n      intake:\n        jev: off\n"
+
+    rendered = render_devops_configmap_content(template, repos=["owner/repo"], github_app=APP)
+
+    config = yaml.safe_load(rendered)["data"]["devops-cli.yaml"]
+    assert YAML(typ="safe", pure=True).load(config)["roadmap"]["intake"]["jev"] == "off"
 
 
 @pytest.mark.parametrize(

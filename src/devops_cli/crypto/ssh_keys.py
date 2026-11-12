@@ -37,25 +37,35 @@ def _sanitize_prefix(raw_prefix: str) -> str:
 
 
 def _extract_prefix_from_yaml(cfg_file: Path) -> str | None:
-    """Extract and sanitize key_prefix from a YAML config file."""
-    import yaml
+    """Extract and sanitize key_prefix from a config file, read as YAML 1.2 as the settings load
+    reads it (#4481). A file that the load refuses gives no prefix, and its log quotes no text of
+    the file."""
+    from devops_cli.config.yaml_errors import (
+        parse_config_yaml,
+        yaml_error_location,
+        yaml_load_errors,
+    )
 
     if not cfg_file.is_file():
         return None
+    read_errors: tuple[type[Exception], ...] = (*yaml_load_errors(), OSError)
     try:
-        data = yaml.safe_load(cfg_file.read_text(encoding="utf-8")) or {}
-        if not isinstance(data, dict):
-            return None
-        ssh_conf = data.get("ssh", {})
-        raw_prefix = None
-        if isinstance(ssh_conf, dict) and ssh_conf.get("key_prefix"):
-            raw_prefix = ssh_conf["key_prefix"]
-        elif data.get("key_prefix"):
-            raw_prefix = data["key_prefix"]
-        return _sanitize_prefix(str(raw_prefix)) if raw_prefix else None
-    except (yaml.YAMLError, OSError, UnicodeDecodeError) as exc:
-        logger.debug("Failed reading YAML key_prefix from %s: %s", cfg_file, exc)
+        data = parse_config_yaml(cfg_file.read_text(encoding="utf-8")) or {}
+    except read_errors as exc:
+        where = yaml_error_location(exc)
+        logger.debug(
+            "Failed reading YAML key_prefix from %s: %s%s", cfg_file, type(exc).__name__, where
+        )
         return None
+    if not isinstance(data, dict):
+        return None
+    ssh_conf = data.get("ssh", {})
+    raw_prefix = None
+    if isinstance(ssh_conf, dict) and ssh_conf.get("key_prefix"):
+        raw_prefix = ssh_conf["key_prefix"]
+    elif data.get("key_prefix"):
+        raw_prefix = data["key_prefix"]
+    return _sanitize_prefix(str(raw_prefix)) if raw_prefix else None
 
 
 def _resolve_prefix_from_project_config(target_dir: Path) -> str | None:

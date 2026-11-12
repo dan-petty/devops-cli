@@ -1,11 +1,12 @@
-"""A read of a config file that PyYAML or ruamel.yaml cannot load shows no text of the file (#2451).
+"""A read of a config file that ruamel.yaml cannot load shows no text of the file (#2451).
 
 The settings load does this since #1468. These paths read a config file without the settings load:
 the audit record of a write (`write_history`), the round trip that edits a file (`round_trip`) and
-`devops config unset`. ruamel.yaml accepts a local tag such as `!vault`, and PyYAML does not. Both
-parsers raise `ValueError` or `KeyError` for a tagged value that they cannot build, and the message
-quotes the value. A config file can hold a credential, so the error names the file, the type of the
-error and its position, and quotes no text. It has no cause and no context.
+`devops config unset`. The round trip accepts a local tag such as `!vault`, and the YAML 1.2 reader
+(`parse_config_yaml`) does not. Both raise `ValueError` or `KeyError` for a tagged value that they
+cannot build, and the message quotes the value. A config file can hold a credential, so the error
+names the file, the type of the error and its position, and quotes no text. It has no cause and no
+context.
 """
 
 from __future__ import annotations
@@ -15,17 +16,17 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pytest
-import yaml
 
 from devops_cli.config import round_trip
 from devops_cli.config.write_history import _mapping, redact_credentials
-from devops_cli.config.yaml_errors import load_yaml
+from devops_cli.config.yaml_errors import load_yaml, parse_config_yaml
 from devops_cli.exceptions import ConfigurationError
 
 _CREDENTIAL = "FAKE-value"
 _VAULT = f"ai:\n  provider: ollama\n  api_key: !vault {_CREDENTIAL}-tag\n"
 _INT = f"ai:\n  api_key: !!int {_CREDENTIAL}-int\n"
 _BOOL = f"ai:\n  api_key: !!bool {_CREDENTIAL}-bool\n"
+_OMAP = f"ai:\n  api_key: !!omap {_CREDENTIAL}-omap\n"
 _NOT_YAML = f"ai:\n  api_key: {_CREDENTIAL}: x\n"
 
 
@@ -39,14 +40,15 @@ def _refusal(action: Callable[[], object]) -> tuple[ConfigurationError, str]:
 
 
 def _leaks(*texts: str) -> list[str]:
-    """The texts that hold the credential, in any case: PyYAML quotes a `!!bool` value in lowercase."""
+    """The texts that hold the credential, in any case: a loader quotes a `!!bool` value in
+    lowercase."""
     return [text for text in texts if _CREDENTIAL.casefold() in text.casefold()]
 
 
 def test_the_helper_names_the_file_the_type_and_the_position_of_a_marked_error() -> None:
     error, shown = _refusal(
         lambda: load_yaml(
-            lambda: yaml.safe_load(_NOT_YAML), name="config.yaml", action="Cannot read"
+            lambda: parse_config_yaml(_NOT_YAML), name="config.yaml", action="Cannot read"
         )
     )
 
@@ -62,22 +64,22 @@ def test_the_helper_names_the_file_the_type_and_the_position_of_a_marked_error()
     ("parse", "error_type", "location"),
     [
         pytest.param(
-            lambda: yaml.safe_load(_VAULT),
+            lambda: parse_config_yaml(_VAULT),
             "ConstructorError",
             " at line 3, column 12",
-            id="pyyaml-tag",
+            id="tag",
         ),
-        pytest.param(lambda: yaml.safe_load(_INT), "ValueError", "", id="pyyaml-int"),
-        pytest.param(lambda: yaml.safe_load(_BOOL), "KeyError", "", id="pyyaml-bool"),
+        pytest.param(lambda: parse_config_yaml(_INT), "ValueError", "", id="int"),
+        pytest.param(lambda: parse_config_yaml(_BOOL), "KeyError", "", id="bool"),
         pytest.param(
-            lambda: yaml.safe_load(b"a: \xe9"),
+            lambda: parse_config_yaml(b"a: \xe9"),
             "ReaderError",
             "",
-            id="pyyaml-bytes",
+            id="bytes",
         ),
     ],
 )
-def test_the_helper_turns_each_error_of_pyyaml_into_one_error_without_text(
+def test_the_helper_turns_each_error_of_the_yaml_1_2_reader_into_one_error_without_text(
     parse: Callable[[], object], error_type: str, location: str
 ) -> None:
     error, shown = _refusal(lambda: load_yaml(parse, name="f.yaml", action="Cannot read"))
@@ -91,7 +93,9 @@ def test_the_helper_turns_each_error_of_pyyaml_into_one_error_without_text(
 
 
 def test_the_helper_returns_the_value_of_a_parse_that_works() -> None:
-    assert load_yaml(lambda: yaml.safe_load("a: 1\n"), name="f", action="Cannot read") == {"a": 1}
+    assert load_yaml(lambda: parse_config_yaml("a: 1\n"), name="f", action="Cannot read") == {
+        "a": 1
+    }
 
 
 def test_the_helper_lets_an_error_that_is_not_a_load_error_go_up() -> None:
@@ -121,7 +125,10 @@ def test_the_redaction_of_a_credential_quotes_no_text_of_the_file() -> None:
     assert (error.__cause__, error.__context__, _leaks(error.message, shown)) == (None, None, [])
 
 
-@pytest.mark.parametrize("text", [pytest.param(_INT, id="int"), pytest.param(_BOOL, id="bool")])
+@pytest.mark.parametrize(
+    "text",
+    [pytest.param(_INT, id="int"), pytest.param(_BOOL, id="bool"), pytest.param(_OMAP, id="omap")],
+)
 def test_the_round_trip_quotes_no_text_of_a_file_with_a_tag_it_cannot_build(text: str) -> None:
     found, found_shown = _refusal(lambda: round_trip.find(text, "ai.provider", name="c.yaml"))
     edited, edited_shown = _refusal(
@@ -138,7 +145,8 @@ def test_unset_stops_for_a_file_with_a_local_tag_and_shows_no_text_of_it(
     isolate_devops_cli_config: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """`ruamel.yaml` accepts `!vault`, and PyYAML does not. The command stops before it writes."""
+    """The round trip accepts `!vault`, and the YAML 1.2 reader does not. The command stops before
+    it writes."""
     from devops_cli.config.settings import remove_config_key
 
     isolate_devops_cli_config.write_text(_VAULT, encoding="utf-8")
