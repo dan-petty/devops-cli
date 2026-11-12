@@ -44,7 +44,9 @@ jobs:
   service-image-test:
     name: Service Image Tests (shard ${{ matrix.shard }} of ${{ strategy.job-total }})
     runs-on: ubuntu-26.04
-    timeout-minutes: 30
+    # About two times the longest run of a shard, 678 s. The test step stops 6 minutes earlier: the
+    # steps before it took up to 4 minutes (#4677).
+    timeout-minutes: 20
     permissions:
       contents: read
     strategy:
@@ -105,6 +107,7 @@ jobs:
           chmod -R a+rX "$SITE_DIR" "$TOOLS_DIR"
 
       - name: Run Test Suite in Service Image
+        timeout-minutes: 14
         env:
           IMAGE: devops-cli-service:local
           SHARD: ${{ matrix.shard }}
