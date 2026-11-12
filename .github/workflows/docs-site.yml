@@ -1,0 +1,97 @@
+name: Docs Site Build
+
+# Builds docs/ with the GitHub Pages builder when a pull request changes the site or this
+# workflow, so a Liquid or Jekyll error fails the pull request before `pages.yml` deploys it from
+# main (#1651). The native `paths` filter stops the run before a runner starts, so a pull request
+# that changes no site file starts no job and shows no check (#4653). The check is not required.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+    paths:
+      - "docs/**"
+      - ".github/workflows/docs-site.yml"
+
+permissions: {}
+
+# A newer push to the pull request cancels the run of the older head.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # No tool the job runs reports usage.
+  DO_NOT_TRACK: "1"
+
+jobs:
+  # The action names its image by a tag, so the step runs the image of actions/jekyll-build-pages
+  # v1.0.13 by digest. The container has no network, so the GitHub metadata plugin makes no API
+  # call and needs no token. It mounts docs/ read-only and keeps the built site inside the
+  # container.
+  docs-site:
+    name: Docs Site Build
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      # The variables are the ones that entrypoint.sh of the image reads. PAGES_BUILDER is the
+      # digest of ghcr.io/actions/jekyll-build-pages:v1.0.13 on 2026-10-23. The resolver is
+      # loopback: the GitHub metadata plugin catches the failed lookup and builds without
+      # metadata, but the runner's resolver is unreachable with no network and raises
+      # Errno::ENETUNREACH, which the plugin does not catch.
+      - name: Build the Site with the GitHub Pages Builder
+        env:
+          PAGES_BUILDER: ghcr.io/actions/jekyll-build-pages@sha256:6791ebfd912185ed59bfb5fb102664fa872496b79f87ff8b9cfba292a7345041
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/_site"
+          docker run --rm --network none --dns 127.0.0.1 \
+            --volume "$GITHUB_WORKSPACE/docs:/github/workspace/docs:ro" \
+            --volume "$GITHUB_WORKSPACE/_site:/github/site" \
+            --env GITHUB_WORKSPACE=/github/workspace \
+            --env GITHUB_REPOSITORY \
+            --env GITHUB_API_URL \
+            --env INPUT_SOURCE=docs \
+            --env INPUT_DESTINATION=../site \
+            --env INPUT_BUILD_REVISION="$GITHUB_SHA" \
+            --env INPUT_VERBOSE=true \
+            --env INPUT_FUTURE=false \
+            --env DO_NOT_TRACK=1 \
+            "$PAGES_BUILDER"
+
+      # Verifies that the built documentation site has an index page, contains no raw source
+      # Markdown files, and has no broken internal links (#2070). LYCHEE is the digest of
+      # lycheeverse/lychee:v0.24.2.
+      - name: Verify Built Site Pages and Links
+        env:
+          LYCHEE: lycheeverse/lychee@sha256:eaff3e0a13603c9a701accfcc84f44158bb77bf36ecfa4622b626056c3463892
+        run: |
+          test -f "$GITHUB_WORKSPACE/_site/index.html" || {
+            echo "::error::Built site is missing index.html at root"
+            exit 1
+          }
+          if [ -n "$(find "$GITHUB_WORKSPACE/_site" -name '*.md')" ]; then
+            echo "::error::Built site contains source markdown (.md) files"
+            find "$GITHUB_WORKSPACE/_site" -name '*.md'
+            exit 1
+          fi
+          docker run --rm --network none \
+            --volume "$GITHUB_WORKSPACE/_site:/site/devops-cli:ro" \
+            "$LYCHEE" \
+            --offline \
+            --root-dir /site \
+            --exclude '^file:///[^s]' \
+            --exclude '^file:///s[^i]' \
+            --exclude '^file:///si[^t]' \
+            --exclude '^file:///sit[^e]' \
+            --exclude '^file:///site[^/]' \
+            --exclude '\.(md|yaml|py)(#.*)?$' \
+            --exclude '/src/' \
+            --exclude '/lang/en' \
+            "/site/devops-cli/**/*.html"

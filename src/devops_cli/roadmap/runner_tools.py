@@ -210,7 +210,7 @@ NOT_IN_RUNNER: dict[str, str] = {
     "osv-scanner": _SCANNER,
     "golangci-lint": _SCANNER,
     "semgrep": (
-        "Only the rule-pack job of `ci.yml` installs it, and only when a rule file changes."
+        "Only the workflow `rule-pack.yml` installs it, and only when a rule file changes."
     ),
     "actionlint": _IMAGE_SCAN.format(
         finding="Go standard library 1.27.0 (four CVEs) in actionlint 1.17.0",

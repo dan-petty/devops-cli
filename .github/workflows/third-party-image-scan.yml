@@ -1,0 +1,57 @@
+name: Third-Party Image Scan
+
+# Scans the third-party image that Deployment `crawl4ai` pins, when a pull request changes the
+# manifest or this workflow, and only reports (#3884). The image is not ours to rebuild: a finding
+# in it is fixed by the upstream release that a Renovate pull request brings, so the scan never
+# fails the job. The person who merges the bump reads the finding in the log. The native `paths`
+# filter stops the run before a runner starts, so a pull request that changes neither file starts
+# no job and shows no check (#4653). The check is not required.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+    paths:
+      - "k8s/devops/crawl4ai/deployment.yaml"
+      - ".github/workflows/third-party-image-scan.yml"
+
+permissions: {}
+
+# A newer push to the pull request cancels the run of the older head.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # No tool the job runs reports usage.
+  DO_NOT_TRACK: "1"
+
+jobs:
+  third-party-image-scan:
+    name: Third-Party Image Scan
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Read the Pinned Image
+        id: image
+        run: |
+          image=$(sed -n 's/^ *image: *\(unclecode\/crawl4ai:[^ ]*\) *$/\1/p' k8s/devops/crawl4ai/deployment.yaml)
+          test "$(printf '%s\n' "$image" | wc -l)" = 1 && test -n "$image"
+          echo "ref=$image" >> "$GITHUB_OUTPUT"
+
+      - name: Scan the Crawl4AI Image for Vulnerabilities
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ steps.image.outputs.ref }}
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "0"
+          version: v0.75.0

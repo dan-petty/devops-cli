@@ -1,0 +1,60 @@
+name: Image Pins
+
+# Resolves each image that an Argo CD Application pins when a pull request changes the manifests,
+# the command or this workflow, so a wrong tag fails the pull request and not the sync (#1994).
+# The native `paths` filter stops the run before a runner starts, so a pull request that changes
+# none of the paths starts no job and shows no check (#4653). The check is not required.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+    paths:
+      - "k8s/**"
+      - "src/devops_cli/**/image_pins.py"
+      - "src/devops_cli/docker/registry.py"
+      - ".github/workflows/image-pins.yml"
+
+permissions: {}
+
+# A newer push to the pull request cancels the run of the older head.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # No tool the job runs reports usage.
+  DO_NOT_TRACK: "1"
+  # uv runs only its own CPython builds, never the runner image's Python (#1494).
+  UV_MANAGED_PYTHON: "1"
+
+jobs:
+  # `devops k8s image-pins` renders each Application as Argo CD does: a path source with the
+  # runner's kubectl, as the Argo CD gate of the test row does, and a chart source with the pinned
+  # helm and the repository's value files. It resolves each image once with a HEAD request of its
+  # manifest (`tag_digest`), which Docker Hub does not count as a pull.
+  image-pins:
+    name: Image Pins
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Set up uv toolchain
+        uses: ./.github/actions/setup-toolchain
+        with:
+          cache-suffix: image-pins
+          save-uv-cache: "false"
+
+      - name: Install Helm
+        run: |
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          uv run devops install-tools --tool helm --only-missing
+
+      - name: Resolve the Image Pins
+        run: uv run devops k8s image-pins
