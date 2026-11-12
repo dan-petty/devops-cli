@@ -1424,6 +1424,26 @@ def test_copilot_setup_steps_installs_the_pinned_openspec_with_the_opt_outs() ->
     assert ("npm install -g" in code, "--copilot-cloud" in code) == (False, False)
 
 
+def test_a_push_trigger_with_a_path_filter_starts_on_no_tag() -> None:
+    """GitHub does not read a path filter for a tag push, and a `push` trigger with no branch
+    and no tag filter starts on each tag. Each release tag then starts the workflow (#4681).
+    A `branches` filter with no tag filter starts the workflow on no tag."""
+    ref_filters = {"branches", "branches-ignore", "tags", "tags-ignore"}
+    pushes = {
+        path.name: on.get("push")
+        for path in sorted(WORKFLOWS_DIR.glob("*.yml"))
+        if isinstance(on := _load_workflow(path)["on"], dict)
+    }
+
+    assert [
+        name
+        for name, push in pushes.items()
+        if isinstance(push, dict)
+        and {"paths", "paths-ignore"} & push.keys()
+        and not ref_filters & push.keys()
+    ] == []
+
+
 # ── The devcontainer image build (#1895) ─────────────────────────────────────
 
 DEVCONTAINER_ACTIONS_DIR = GITHUB_DIR / "actions"

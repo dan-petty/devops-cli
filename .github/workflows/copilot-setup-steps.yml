@@ -9,6 +9,9 @@ name: Copilot Setup Steps
 on:
   workflow_dispatch:
   push:
+    # GitHub does not read `paths` for a tag push. The `branches` filter keeps each release tag
+    # from starting a run.
+    branches: ["**"]
     paths:
       - .github/workflows/copilot-setup-steps.yml
   pull_request:
