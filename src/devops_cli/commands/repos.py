@@ -64,7 +64,7 @@ from devops_cli.output import (
     track_progress,
 )
 from devops_cli.output.serialization import emit_serialized, resolve_format
-from devops_cli.roadmap.claim import claim_as_agent, claim_request_lines
+from devops_cli.roadmap.claim import claim_as_agent, claim_request_lines, progress_as_agent
 from devops_cli.roadmap.commit_title import commit_type
 from devops_cli.security.sanitizer import mask_secrets
 
@@ -501,15 +501,19 @@ def _render_prune_report(report: Any, *, dry_run: bool, confirm: bool) -> None:
 
 def _claimed(report: WorktreeAddReport, *, origin: str | None, dry_run: bool) -> WorktreeAddReport:
     """The report with the claim of the issue for an agent (#2910): the claim runs after the
-    worktree exists and never stops the command. A dry run lists the requests of the claim and
-    makes none. An origin that is no GitHub repository has no roadmap to claim on."""
+    worktree exists and never stops the command. A claim that is made sets the Status In Progress
+    when the Status moves forward (#4685). A dry run lists the requests of the claim and makes
+    none. An origin that is no GitHub repository has no roadmap to claim on."""
     if origin is None:
         return report
     if dry_run:
         lines = claim_request_lines(origin, report.issue)
         return report.model_copy(update={"requests": [*report.requests, *lines]})
     error = claim_as_agent(origin, report.issue)
-    return report.model_copy(update={"claimed": error is None, "claim_error": error})
+    status_error = None if error else progress_as_agent(origin, report.issue)
+    return report.model_copy(
+        update={"claimed": error is None, "claim_error": error, "status_error": status_error}
+    )
 
 
 def _render_claim(report: WorktreeAddReport) -> None:
@@ -523,6 +527,13 @@ def _render_claim(report: WorktreeAddReport) -> None:
         )
     elif report.claimed:
         print_info(MESSAGES.repos.worktrees_add_claimed.format(issue=report.issue), prefix=False)
+    if report.status_error:
+        print_warning(
+            MESSAGES.repos.worktrees_add_status_not_set.format(
+                issue=report.issue, reason=report.status_error
+            ),
+            prefix=False,
+        )
 
 
 def _render_add_report(report: Any) -> None:
@@ -627,7 +638,9 @@ def worktrees_add(
     the standard directory or a pushed branch of origin already holds. A pushed branch whose
     commits past origin/main all have the App as author is a staged branch: the command adds the
     worktree on it and takes --type and --slug from it. After the worktree exists, the command
-    claims the issue for an agent with the label owner/agent. It only warns if the claim fails.
+    claims the issue for an agent with the label owner/agent, and sets the Status In Progress
+    when the item is New, Ready or Planned, or has no Status. It only warns if the claim or the
+    Status write fails.
     """
     if title is not None:
         branch_type, slug = _resolve_branch_from_title(title, branch_type, slug)

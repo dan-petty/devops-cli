@@ -13,7 +13,7 @@ GitHub by hand is also a claim, and it wins over the label that a job set.
 
 `plan_claim` and `apply_claim` serve `devops roadmap claim` and `devops roadmap release`. The
 Service claims with `service_claim` and releases with `service_release`; `claim_as_agent` serves
-`devops repos worktrees add`.
+`devops repos worktrees add`, and `progress_as_agent` then sets the Status In Progress (#4685).
 """
 
 from __future__ import annotations
@@ -32,7 +32,7 @@ from devops_cli.dry_run.requests import PlannedRequest
 from devops_cli.exceptions import DevOpsCLIError
 from devops_cli.exceptions.roadmap import RoadmapClaimError, RoadmapItemChangedError
 from devops_cli.lang import MESSAGES
-from devops_cli.roadmap.request_plan import StoreRequests
+from devops_cli.roadmap.request_plan import StoreRequests, within
 from devops_cli.roadmap.stores import store as roadmap_store
 from devops_cli.roadmap.stores.store import GitHubState, Item, ItemField, RoadmapStore
 
@@ -154,10 +154,30 @@ def claim_as_agent(repo: str, number: int) -> str | None:
     return None
 
 
+def progress_as_agent(repo: str, number: int) -> str | None:
+    """Set the Status In Progress on issue `number` of `repo` after `claim_as_agent` claimed it
+    (#4685), when the Status moves forward (`set_claimed_status`). As for the claim, a write that
+    fails gives the reason, in a sentence, and raises nothing; None when the write was made or the
+    Status stays."""
+    from devops_cli.roadmap.pull_status import set_claimed_status
+
+    try:
+        set_claimed_status(roadmap_store.get_roadmap_store(repo), number)
+    except DevOpsCLIError as exc:
+        return str(exc)
+    return None
+
+
 def claim_request_lines(repo: str, number: int) -> list[str]:
-    """The requests of `claim_as_agent`, one line each, for the dry run of a worktree."""
+    """The requests of `claim_as_agent` and then of `progress_as_agent`, one line each, for the
+    dry run of a worktree."""
     reads, writes = dry_run_claim(repo, number)
-    return [request.line() for request in (*reads, *writes)]
+    requests = StoreRequests(repo)
+    subject = f"#{number}"
+    conditions = MESSAGES.roadmap.plan_conditions
+    status = within(requests.write_status(subject), conditions["behind"])
+    progress = within([*requests.issue(subject), *status], conditions["claim_made"])
+    return [request.line() for request in (*reads, *writes, *progress)]
 
 
 def service_claim(store: RoadmapStore, number: int, marks: Mapping[Any, str | None]) -> bool:
@@ -198,6 +218,7 @@ __all__ = [
     "claimed_by",
     "dry_run_claim",
     "plan_claim",
+    "progress_as_agent",
     "render_claim_plan",
     "service_claim",
     "service_release",

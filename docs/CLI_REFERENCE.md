@@ -177,7 +177,9 @@ a worktree outside that folder and a worktree that holds ignored files, and name
 the standard directory or a pushed branch of origin already holds. A pushed branch whose
 commits past origin/main all have the App as author is a staged branch: the command adds the
 worktree on it and takes --type and --slug from it. After the worktree exists, the command
-claims the issue for an agent with the label owner/agent. It only warns if the claim fails.
+claims the issue for an agent with the label owner/agent, and sets the Status In Progress
+when the item is New, Ready or Planned, or has no Status. It only warns if the claim or the
+Status write fails.
 
 ```bash
 devops repos worktrees add [OPTIONS] <issue>

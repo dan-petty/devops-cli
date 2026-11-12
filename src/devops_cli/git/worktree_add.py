@@ -85,8 +85,9 @@ class WorktreeAddReport(BaseModel):
     commands that a dry run lists, and is empty after a real run. `commits` is the number of commits
     by the App on a branch that the run took over. `reclaimed`, `kept` and `reclaim_error`
     are the result of the reclaim of merged worktrees that comes first. `claimed` says that the
-    command claimed the issue for an agent, and `claim_error` is why it did not (#2910); the
-    command sets both, and `add_worktree` claims nothing."""
+    command claimed the issue for an agent, and `claim_error` is why it did not (#2910).
+    `status_error` is why the claim did not set the Status In Progress (#4685). The command sets
+    the three, and `add_worktree` claims nothing."""
 
     issue: int
     branch: str
@@ -99,6 +100,7 @@ class WorktreeAddReport(BaseModel):
     reclaim_error: str | None = None
     claimed: bool = False
     claim_error: str | None = None
+    status_error: str | None = None
 
 
 def managed_folder(repo_root: Path) -> Path:

@@ -203,8 +203,9 @@ def test_the_dry_run_lists_the_reads_of_the_reclaim_and_removes_nothing(
     report = json.loads(result.stdout)
     assert (result.exit_code, merged.exists(), github_api.requested) == (0, True, [])
     assert report["requests"][0] == f"GET /repos/example-org/app/commits/{tip}/pulls"
-    # Five of the reclaim and the worktree, and three of the claim of the issue.
-    assert len(report["requests"]) == 8
+    # Five of the reclaim and the worktree, three of the claim of the issue, and four of its
+    # Status In Progress with the read-back of the Status writer (#4685, #5018).
+    assert len(report["requests"]) == 12
     assert not new_dir.exists()
 
 
