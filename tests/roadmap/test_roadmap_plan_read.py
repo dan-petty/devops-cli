@@ -517,6 +517,25 @@ def test_unchanged_references_read_back() -> None:
     assert read_change(_files(original)).references == original.references
 
 
+# A line of `## Unchanged references` that the writer does not write: no kind and reason, and a
+# reason that the model folds to no text (U+FEFF is a space for `openspec`, and none for Python).
+BAD_REFERENCE_LINES = (
+    "`src/devops_cli/old.py` holds the old path",
+    "`src/devops_cli/old.py` (import): \ufeff",
+)
+
+
+@pytest.mark.parametrize("line", BAD_REFERENCE_LINES)
+def test_a_reference_line_in_another_form_is_a_read_error(line: str) -> None:
+    files = _files(make_stage_proposal())
+    files[DESIGN] += f"\n## Unchanged references\n\n- {line}\n"
+
+    with pytest.raises(PlanReadError) as found:
+        read_change(files)
+
+    assert (found.value.path, line.split(" ", 1)[0] in found.value.reason) == ("design.md", True)
+
+
 def test_a_changed_reference_is_no_fact_of_the_files() -> None:
     from devops_cli.roadmap.plan_read import file_facts
 
