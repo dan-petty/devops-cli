@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 
-from devops_cli.config.constants import CONST_ROADMAP_STAGE_GATE_RETURNS
+from devops_cli.config.settings import RoadmapStageConfig
 from devops_cli.roadmap.stage.stage import StagePlan, parse_filters, plan_stage
 from devops_cli.roadmap.stage.stage_eval_cases import DefectType
 from devops_cli.roadmap.stage.stage_plan_record import RefusedRecord, refused_record_path
@@ -28,6 +28,9 @@ from tests.support.roadmap_stage import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+    from pathlib import Path
+
     from devops_cli.roadmap.stage.stage import StageClient
     from tests.support.fakes.openspec import OpenSpecFake
 
@@ -131,31 +134,52 @@ def test_a_revision_that_the_gates_accept_gets_no_return(
     assert (len(plan.ready), model_fake.call_count) == (1, 2)
 
 
-def test_a_revision_that_the_gates_refuse_twice_ends_the_item_with_the_problem_and_no_third_call(
+def test_a_revision_that_the_gates_refuse_after_each_return_ends_the_item_with_the_problem(
     store: InMemoryRoadmapStore, stage_repo: StageRepo, model_fake: ModelFake, verifier: ModelFake
 ) -> None:
-    model_fake.answer(make_stage_proposal(), _refused(), _refused())
+    model_fake.answer(make_stage_proposal(), _refused())
     verifier.answer(_returns_plan(), Verification())
 
     plan = _plan(store, stage_repo, model_fake, verifier)
 
     (failure,) = plan.failed
-    assert (plan.ready, model_fake.call_count, verifier.call_count) == ((), 3, 1)
+    # The first ask, the revision and its three returns, and no further request.
+    assert (plan.ready, model_fake.call_count, verifier.call_count) == ((), 5, 1)
     assert failure.error == "RoadmapStageError"
     assert "revision" in failure.reason
     assert MISSING in failure.reason
 
 
-def test_the_returns_of_one_round_are_the_constant_and_no_more(
+def test_a_refused_revision_gets_three_returns_by_default(
     store: InMemoryRoadmapStore, stage_repo: StageRepo, model_fake: ModelFake, verifier: ModelFake
 ) -> None:
+    """The default of `roadmap.stage.gate_returns` is 3: in 8 of 10 sampled refused items the
+    returned reply had fewer problems, so one return stopped a run that made progress (#4802)."""
     model_fake.answer(make_stage_proposal(), _refused())
     verifier.answer(_returns_plan(), Verification())
 
     _plan(store, stage_repo, model_fake, verifier)
 
     # The first ask, then the revision and its returns.
-    assert model_fake.call_count == 1 + 1 + CONST_ROADMAP_STAGE_GATE_RETURNS
+    assert (RoadmapStageConfig().gate_returns, model_fake.call_count) == (3, 1 + 1 + 3)
+
+
+def test_the_returns_of_one_round_follow_the_setting_and_no_more(
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    verifier: ModelFake,
+    config: Callable[..., Path],
+) -> None:
+    """`roadmap.stage.gate_returns` sets the returns of a refused reply, so the owner can tune
+    them in the ConfigMap (#4802)."""
+    config(roadmap={"stage": {"gate_returns": 2}})
+    model_fake.answer(make_stage_proposal(), _refused())
+    verifier.answer(_returns_plan(), Verification())
+
+    _plan(store, stage_repo, model_fake, verifier)
+
+    assert model_fake.call_count == 1 + 1 + 2
 
 
 def test_a_revision_that_stays_refused_is_kept_with_its_problem_beside_the_earlier_replies(
@@ -163,18 +187,18 @@ def test_a_revision_that_stays_refused_is_kept_with_its_problem_beside_the_earli
 ) -> None:
     first = _refused("First reply")
     revision = _refused("The revision")
-    returned = _refused("The returned revision")
-    model_fake.answer(first, make_stage_proposal(), revision, returned)
+    returned = [_refused(f"Returned revision {n}") for n in range(1, 4)]
+    model_fake.answer(first, make_stage_proposal(), revision, *returned)
     verifier.answer(_returns_plan(), Verification())
 
     plan = _plan(store, stage_repo, model_fake, verifier)
 
     record = _refused_record()
-    assert (len(plan.failed), model_fake.call_count) == (1, 4)
+    assert (len(plan.failed), model_fake.call_count) == (1, 6)
     assert [entry.reply for entry in record.replies] == [
         first.model_dump(),
         revision.model_dump(),
-        returned.model_dump(),
+        *(reply.model_dump() for reply in returned),
     ]
     assert all(MISSING in entry.problem for entry in record.replies)
 
@@ -197,14 +221,14 @@ def test_each_refused_revision_logs_one_line(
     verifier: ModelFake,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    model_fake.answer(make_stage_proposal(), _refused(), _refused())
+    model_fake.answer(make_stage_proposal(), _refused())
     verifier.answer(_returns_plan(), Verification())
 
     with caplog.at_level(logging.WARNING):
         _plan(store, stage_repo, model_fake, verifier)
 
     lines = [r.getMessage() for r in caplog.records if "stage reply refused" in r.getMessage()]
-    assert [line.rsplit(" ", 1)[1] for line in lines] == ["result=refused", "result=refused"]
+    assert [line.rsplit(" ", 1)[1] for line in lines] == ["result=refused"] * (1 + 3)
 
 
 def _counts(caplog: pytest.LogCaptureFixture, event: str) -> list[str]:
@@ -252,5 +276,5 @@ def test_a_revision_that_stays_refused_logs_its_returns_as_refused(
         _plan(store, stage_repo, model_fake, verifier)
 
     assert _counts(caplog, "stage gate returns") == [
-        f"repo={STAGE_REPO} item=#1 returns={CONST_ROADMAP_STAGE_GATE_RETURNS} result=refused"
+        f"repo={STAGE_REPO} item=#1 returns={RoadmapStageConfig().gate_returns} result=refused"
     ]

@@ -135,7 +135,7 @@ def test_the_refused_file_is_next_to_the_plan_file() -> None:
     )
 
 
-def test_a_plan_that_the_gates_refuse_twice_keeps_both_replies_and_both_problems(
+def test_a_plan_that_the_gates_refuse_after_each_return_keeps_each_reply_and_its_problem(
     store: InMemoryRoadmapStore, stage_repo: StageRepo, model_fake: ModelFake
 ) -> None:
     refused = _missing_path()
@@ -144,7 +144,7 @@ def test_a_plan_that_the_gates_refuse_twice_keeps_both_replies_and_both_problems
     plan = _plan(store, stage_repo)
 
     record = _read()
-    assert (len(plan.failed), model_fake.call_count, len(record.replies)) == (1, 2, 2)
+    assert (len(plan.failed), model_fake.call_count, len(record.replies)) == (1, 4, 4)
     for entry in record.replies:
         assert entry.reply == refused.model_dump()
         assert "tests/test_missing.py" in entry.problem
@@ -234,7 +234,7 @@ def test_a_reply_of_placeholders_ends_the_plan_after_one_call_and_keeps_the_repl
     )
 
 
-def test_a_reply_that_is_only_in_part_placeholders_goes_back_once_as_before(
+def test_a_reply_that_is_only_in_part_placeholders_goes_back_as_a_refused_reply(
     store: InMemoryRoadmapStore, stage_repo: StageRepo, model_fake: ModelFake
 ) -> None:
     partly = make_stage_proposal(why="x", feasibility=["x"])
@@ -244,7 +244,7 @@ def test_a_reply_that_is_only_in_part_placeholders_goes_back_once_as_before(
 
     (failure,) = plan.failed
     assert (model_fake.call_count, failure.error, failure.degenerate) == (
-        2,
+        1 + 3,
         "RoadmapStageError",
         False,
     )
@@ -349,7 +349,7 @@ def test_a_gate_refusal_logs_one_line_for_each_refused_reply(
         _plan(store, stage_repo)
 
     lines = [r.getMessage() for r in caplog.records if "stage reply refused" in r.getMessage()]
-    assert [line.rsplit(" ", 1)[1] for line in lines] == ["result=refused", "result=refused"]
+    assert [line.rsplit(" ", 1)[1] for line in lines] == ["result=refused"] * (1 + 3)
     assert all(
         "item=#1 request=1 input_tokens=0 tools_offered=False tool_calls=0 limit=none "
         "finish_reason=none answered=none result=" in line

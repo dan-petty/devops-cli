@@ -237,7 +237,7 @@ def test_model_json_unchanged_on_the_return_of_a_refused_reply(
 
     _plan(store, stage_repo)
 
-    first, again = (json.loads(call.prompt) for call in model_fake.calls)
+    first, again, *_ = (json.loads(call.prompt) for call in model_fake.calls)
     assert list(again) == [*first, "previous", "problem"]
     assert {key: again[key] for key in first} == first
     assert "quotes no line of the probes" in again["problem"]

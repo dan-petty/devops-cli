@@ -267,6 +267,7 @@ In-cluster webhook receiver and background job runner settings.
 | `poll_interval_seconds` | `int` | `151` | `DEVOPS_CLI_SERVICE_POLL_INTERVAL_SECONDS` | Periodic polling interval for service mode in seconds |
 | `github_requests_per_hour` | `int` | `500` | `DEVOPS_CLI_SERVICE_GITHUB_REQUESTS_PER_HOUR` | The most GitHub requests the Service sends in one hour, not counting those that GitHub answers with 304, as GitHub does not count them against its rate limit; a request that the last hour has no room for waits. The alert RoadmapServiceGitHubRequestsHigh follows this limit |
 | `model_call_concurrency` | `int` | `1` | `DEVOPS_CLI_SERVICE_MODEL_CALL_CONCURRENCY` | The most model calls the Service keeps in flight at once; a lane that waits does so in the Service, where no stall timer runs |
+| `max_failed_rounds` | `int` | `6` | `DEVOPS_CLI_SERVICE_MAX_FAILED_ROUNDS` | How many rounds in a row a roadmap job may fail before the Service suspends it until its input changes or its retry time comes; the retry time is the last failed round plus the wait of its failure class |
 
 ## Roadmap Configuration (`roadmap`)
 
@@ -275,7 +276,7 @@ roadmap configuration settings.
 | Option | Type | Default | Environment Variable | Description |
 |---|---|---|---|---|
 | `alternatives` | `AlternativesConfig` | `limit=5 first_pass_limit=20 recheck_days=30 retry_days=3` | - | - |
-| `stage` | `RoadmapStageConfig` | `filter=['status=ready'] limit=3 planned_limit=20 step_tokens=64000 toolset='extended' mcp=False jev_completeness=False` | - | - |
+| `stage` | `RoadmapStageConfig` | `filter=['status=ready'] limit=3 planned_limit=20 gate_returns=3 step_tokens=64000 toolset='extended' mcp=False jev_completeness=False` | - | - |
 | `implement` | `RoadmapImplementConfig` | `effort=['low', 'medium'] in_runner=False repair_rounds=3 step_token_budget=8000000 step_token_ceiling=None item_token_budget=20000000 step_time_limit_seconds=5400 item_time_limit_seconds=12600 digest_clears_per_class=1 digest_clears_per_item=3 continuations_per_item=2 ladder={'edit': ['devops-coder'], 'repair': ['devops-coder']} request_timeout_seconds=1200 command_timeout_seconds=1800 monitor_timeout_seconds=3600 deadline_stall_seconds=4200 deadline_extension_seconds=5400 deadline_ceiling_seconds=14400 max_memory_limit='8Gi' mcp=False` | - | - |
 | `inbox` | `RoadmapInboxConfig` | `draft_days=7 wait_days=7` | - | - |
 | `intake` | `RoadmapIntakeConfig` | `jev='off'` | - | - |

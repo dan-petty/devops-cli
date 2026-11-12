@@ -373,21 +373,22 @@ def test_gate_refusal_a_plan_that_passes_every_gate_adds_no_refusal(
     assert (len(plan.ready), _refusals(otlp)) == (1, [])
 
 
-def test_gate_refusal_a_plan_that_a_gate_refuses_twice_counts_the_gate_twice(
+def test_gate_refusal_a_plan_that_a_gate_refuses_after_each_return_counts_each_refusal(
     store: InMemoryRoadmapStore,
     stage_repo: StageRepo,
     model_fake: ModelFake,
     otlp: FakeCollector,
 ) -> None:
-    """The count is the count of refused replies, not of refused items: the item fails after its
-    second refusal, and the series holds 2."""
+    """The count is the count of refused replies, not of refused items: the item fails after the
+    refusal of its first reply and of the reply after each of its 3 returns, and the series holds
+    4."""
     model_fake.answer(_refused_once())
 
     plan = _plan(store, stage_repo)
 
     assert (len(plan.failed), _refusals(otlp)) == (
         1,
-        [({"repo": STAGE_REPO, "gate": ProposalGate.PATHS.value}, 2.0)],
+        [({"repo": STAGE_REPO, "gate": ProposalGate.PATHS.value}, 4.0)],
     )
 
 

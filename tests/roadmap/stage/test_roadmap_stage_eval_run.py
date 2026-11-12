@@ -178,7 +178,7 @@ def test_a_first_reply_that_passes_has_no_problem(
     )
 
 
-def test_a_plan_that_the_checks_refuse_twice_ends_refused(
+def test_a_plan_that_the_checks_refuse_after_each_return_ends_refused(
     cases: list[StageCase], stage_repo: StageRepo, model_fake: ModelFake, openspec: OpenSpecFake
 ) -> None:
     case = _live_case(cases, stage_repo)
@@ -186,7 +186,7 @@ def test_a_plan_that_the_checks_refuse_twice_ends_refused(
 
     run = run_case(case, _client(model_fake), stage_repo.clone)
 
-    assert (run.outcome, run.calls) == (Outcome.REFUSED, 2)
+    assert (run.outcome, run.calls) == (Outcome.REFUSED, 1 + 3)
     assert "`tests/test_missing.py`" in run.reason
 
 

@@ -610,7 +610,7 @@ tests:
               class: provider
             exp_annotations:
               summary: "The row intake of example/app stays suspended after a provider failure"
-              description: "The roadmap Service did not run the row intake of example/app for 3 hours, because it failed 3 rounds in a row with the failure class provider. The row runs one probe round when its retry time comes, or at once when its input changes. The gauge devops_cli_service_job_retry_after_seconds shows the seconds before the next probe round (k8s/README.md, Roadmap service)."
+              description: "The roadmap Service did not run the row intake of example/app for 3 hours, because it failed its limit of rounds in a row (setting service.max_failed_rounds) with the failure class provider. The row runs one probe round when its retry time comes, or at once when its input changes. The gauge devops_cli_service_job_retry_after_seconds shows the seconds before the next probe round (k8s/README.md, Roadmap service)."
       - eval_time: 300m
         alertname: RoadmapServiceRowSuspended
         exp_alerts:
@@ -621,7 +621,7 @@ tests:
               class: provider
             exp_annotations:
               summary: "The row intake of example/app stays suspended after a provider failure"
-              description: "The roadmap Service did not run the row intake of example/app for 3 hours, because it failed 3 rounds in a row with the failure class provider. The row runs one probe round when its retry time comes, or at once when its input changes. The gauge devops_cli_service_job_retry_after_seconds shows the seconds before the next probe round (k8s/README.md, Roadmap service)."
+              description: "The roadmap Service did not run the row intake of example/app for 3 hours, because it failed its limit of rounds in a row (setting service.max_failed_rounds) with the failure class provider. The row runs one probe round when its retry time comes, or at once when its input changes. The gauge devops_cli_service_job_retry_after_seconds shows the seconds before the next probe round (k8s/README.md, Roadmap service)."
 
   - name: A row whose class changes keeps one alert, for the class that is 1
     interval: 1m
@@ -641,4 +641,4 @@ tests:
               class: ci_infra
             exp_annotations:
               summary: "The row intake of example/app stays suspended after a ci_infra failure"
-              description: "The roadmap Service did not run the row intake of example/app for 3 hours, because it failed 3 rounds in a row with the failure class ci_infra. The row runs one probe round when its retry time comes, or at once when its input changes. The gauge devops_cli_service_job_retry_after_seconds shows the seconds before the next probe round (k8s/README.md, Roadmap service)."
+              description: "The roadmap Service did not run the row intake of example/app for 3 hours, because it failed its limit of rounds in a row (setting service.max_failed_rounds) with the failure class ci_infra. The row runs one probe round when its retry time comes, or at once when its input changes. The gauge devops_cli_service_job_retry_after_seconds shows the seconds before the next probe round (k8s/README.md, Roadmap service)."

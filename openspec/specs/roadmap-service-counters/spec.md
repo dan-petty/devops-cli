@@ -100,7 +100,7 @@ The status lane SHALL read the GitHub status page in the row `github_status` and
 - **THEN** the row `cloudflare_status` ends with a `ServiceStatusError` and no other row fails
 
 #### Scenario: A status read fails the limit of rounds
-- **WHEN** the Cloudflare status page does not answer in 3 rounds in a row on the same input
+- **WHEN** the Cloudflare status page does not answer in `service.max_failed_rounds` rounds in a row on the same input
 - **THEN** the record of failed rounds holds one entry, for `cloudflare_status`, the gauge `devops_cli_service_job_suspended` is 1 for that row only, and a restart loads the entry
 
 #### Scenario: The metrics row fails to collect

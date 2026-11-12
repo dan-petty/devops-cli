@@ -288,7 +288,7 @@ def test_an_old_record_of_five_fields_loads_and_keeps_the_digest_rule(tmp_path: 
     """The entry has no `retry_after`. The row is suspended at any later time on the same input,
     runs on a new input, and the ledger does not raise."""
     record = tmp_path / CONST_SERVICE_FAILURES_FILENAME
-    old = [[REPO, "intake", 3, "input", ["GitHubOperationError"] * 3]]
+    old = [[REPO, "intake", LIMIT, "input", ["GitHubOperationError"] * LIMIT]]
     record.write_text(json.dumps(old), encoding="utf-8")
 
     ledger = FailureLedger(record=record)
@@ -298,19 +298,19 @@ def test_an_old_record_of_five_fields_loads_and_keeps_the_digest_rule(tmp_path: 
         ledger.suspended(REPO, "intake", "input", START + timedelta(days=30)),
         ledger.suspended(REPO, "intake", "other", START),
         ledger.causes(REPO, "intake"),
-    ] == [True, True, False, ("GitHubOperationError",) * 3]
+    ] == [True, True, False, ("GitHubOperationError",) * LIMIT]
 
 
 def test_an_old_record_of_four_fields_loads_and_keeps_the_digest_rule(tmp_path: Path) -> None:
     record = tmp_path / CONST_SERVICE_FAILURES_FILENAME
-    record.write_text(json.dumps([[REPO, "intake", 3, "input"]]), encoding="utf-8")
+    record.write_text(json.dumps([[REPO, "intake", LIMIT, "input"]]), encoding="utf-8")
 
     ledger = FailureLedger(record=record)
 
     assert [
         ledger.suspended(REPO, "intake", "input", START + timedelta(days=30)),
         ledger.causes(REPO, "intake"),
-    ] == [True, ("unknown",) * 3]
+    ] == [True, ("unknown",) * LIMIT]
 
 
 def test_an_old_record_shows_the_unknown_class_and_no_seconds_on_the_gauges(
@@ -320,7 +320,8 @@ def test_an_old_record_shows_the_unknown_class_and_no_seconds_on_the_gauges(
     no seconds left."""
     record = tmp_path / CONST_SERVICE_FAILURES_FILENAME
     record.write_text(
-        json.dumps([[REPO, "intake", 3, "input", ["GitHubOperationError"] * 3]]), encoding="utf-8"
+        json.dumps([[REPO, "intake", LIMIT, "input", ["GitHubOperationError"] * LIMIT]]),
+        encoding="utf-8",
     )
 
     ledger = FailureLedger(record=record)
@@ -355,7 +356,9 @@ def test_an_old_record_keeps_the_row_suspended_in_a_round_for_30_days_of_one_inp
 
 def test_an_old_record_is_written_in_the_new_form_by_its_next_change(tmp_path: Path) -> None:
     record = tmp_path / CONST_SERVICE_FAILURES_FILENAME
-    record.write_text(json.dumps([[REPO, "intake", 3, "input", ["x"] * 3]]), encoding="utf-8")
+    record.write_text(
+        json.dumps([[REPO, "intake", LIMIT, "input", ["x"] * LIMIT]]), encoding="utf-8"
+    )
     ledger = FailureLedger(record=record)
 
     ledger.failed(REPO, "intake", "other", FailureClass.PROVIDER.value, START)

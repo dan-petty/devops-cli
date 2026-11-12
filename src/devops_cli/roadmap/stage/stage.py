@@ -42,14 +42,15 @@ window; a run that passes the budget fails the item. Without a
 files that its tasks name, each packed to at most `CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS` tokens
 (`step_files`). A group still over the budget stops the item (`OverBudget`). The job validates the
 change with `openspec validate --strict` in a scratch directory when the binary is on `PATH`; a
-failure goes back to the model once, and a second one stops the item. A reply the rules refuse
-(`check_proposal`) takes the same one return. A group that changes no file, has a blank text, or
-breaks the rules of its kind (`GroupKind`: a `behavior` group has a test and changes a path under
-`src/`, and an `other` group has no test and one of `verify` and `process`) fails the schema of
-the reply, and `chat_structured` sends it back once (`_REPLY_RETURNS`). A reply that names a path
-that is no file of the staged commit, and that no group up to its own creates (`stage_paths`), is
-sent back in the same way: the problem lists the files with the same name, and a second reply with
-a missing path stops the item, so no draft opens. The groups of a split are checked in the same
+failure goes back to the model `roadmap.stage.gate_returns` times, and a failure after the last
+return stops the item. A reply the rules refuse (`check_proposal`) takes the same returns. A group
+that changes no file, has a blank text, or breaks the rules of its kind (`GroupKind`: a `behavior`
+group has a test and changes a path under `src/`, and an `other` group has no test and one of
+`verify` and `process`) fails the schema of the reply, and `chat_structured` sends it back once
+(`_REPLY_RETURNS`). A reply that names a path that is no file of the staged commit, and that no
+group up to its own creates (`stage_paths`), is sent back as a refused reply: the problem lists the
+files with the same name, and a missing path after the last return stops the item, so no draft
+opens. The groups of a split are checked in the same
 way. After the checks, the model review of the plan (`stage_verify`, #3153) reads the issue, the
 plan and the files that the plan cites, and reads the repository with the read tools, on the model
 of the task `verification` (#3039). A finding of the type `missing_path`, `false_premise`,
@@ -109,7 +110,6 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_STAGE_BODY_MAX_TOKENS,
     CONST_ROADMAP_STAGE_COMMENT_MARKER,
     CONST_ROADMAP_STAGE_CONTEXT_MAX_TOKENS,
-    CONST_ROADMAP_STAGE_GATE_RETURNS,
     CONST_ROADMAP_STAGE_PLAN_DEFECT_LIMIT,
     CONST_ROADMAP_STAGE_REFUSED_PROBLEM_MAX_CHARS,
     CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS,
@@ -792,8 +792,6 @@ _WINDOW_SHARE_BODY: Final[int] = 4
 # A reply that fails its schema goes back to the model once, with the violations; a second one
 # stops the item.
 _REPLY_RETURNS: Final[int] = 1
-# The model calls of one item at most: the plan, one return of a refused reply, and one split.
-CALLS_PER_ITEM_MAX: Final[int] = 3
 
 
 @dataclass(frozen=True)
@@ -1057,9 +1055,14 @@ class _Planner:
         rejected: Mapping[int, str] | None = None,
         plan_files: PlanFiles | None = None,
         facts_source: Path | None = None,
+        gate_returns: int | None = None,
     ) -> None:
         self._client = client
         self._facts_source = facts_source
+        # The returns of a refused reply: `roadmap.stage.gate_returns` when none is given (#4802).
+        self._gate_returns = (
+            load_settings().roadmap.stage.gate_returns if gate_returns is None else gate_returns
+        )
         self._plan_files = plan_files
         self._toolbox = toolbox or (client if isinstance(client, ToolboxClient) else None)
         self._verifier = verifier
@@ -1120,11 +1123,12 @@ class _Planner:
 
     def plan(self, target: StageTarget) -> StagedChange | OverBudget | Blocked | FalsePremise:
         """The change of `target`, or the group that stops it. A reply the checks refuse goes back
-        to the model `CONST_ROADMAP_STAGE_GATE_RETURNS` time, with the problem, and so does the
-        revision of each repair round (#4348). The model splits the groups at most once. With a
-        verifier, the model review of the plan (#3153) follows the checks and may return the plan
-        up to `CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS` times (#3039). So an item costs three
-        planner calls at most without a verifier, seven with one, and three calls of the verifier."""
+        to the model `roadmap.stage.gate_returns` times (R), with the problem, and so does the
+        revision of each repair round (#4348, #4802). The model splits the groups at most once.
+        With a verifier, the model review of the plan (#3153) follows the checks and may return the
+        plan up to `CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS` times (#3039). So an item costs R + 2
+        planner calls at most without a verifier (5 at the default of 3), 3R + 4 with one (13), and
+        three calls of the verifier."""
         self._split_asked = False
         self._premise = None
         self._traces.clear()
@@ -1227,7 +1231,7 @@ class _Planner:
         first: StageProposal | None = None,
         key: str | None = None,
     ) -> StagedChange | OverBudget:
-        """The change that passes the checks, with one return of a refused reply. `first` is a kept
+        """The change that passes the checks, with the returns of a refused reply. `first` is a kept
         plan that stands for the first reply of the model. A reply that is a placeholder in every
         text ends the item at once: the same request gives the same reply (#4204). A failed item
         keeps its refused replies and their problems in a file under `key`, and each refused reply
@@ -1247,7 +1251,7 @@ class _Planner:
     ) -> StagedChange | OverBudget:
         """The change of `proposal`, a reply for the first ask or for a repair round. A reply that
         the checks refuse goes back to the model with the problem, up to
-        `CONST_ROADMAP_STAGE_GATE_RETURNS` times. A reply that stays refused ends the item, and the
+        `roadmap.stage.gate_returns` times. A reply that stays refused ends the item, and the
         file of refused replies holds each of them (#4348, #4312). `floor` is the number of runs
         before the ask. `invalid` is the failure text, with `{problem}`."""
         refused = self._refused
@@ -1261,7 +1265,7 @@ class _Planner:
                 return outcome
             self._note_refused(target, floor, "refused")
             refused.append((outcome.reply, outcome.problem))
-            if returns == CONST_ROADMAP_STAGE_GATE_RETURNS:
+            if returns >= self._gate_returns:
                 self._stopped_by_checks = True
                 self._keep_refused(target, key, refused)
                 log_gate_returns(self._pull_repo, target.item.number, returns, passed=False)
@@ -1410,8 +1414,8 @@ class _Planner:
         key: str | None,
     ) -> StagedChange | OverBudget:
         """The plan of one repair round: the planner gets the plan and each open finding of the
-        review. Its revision goes back once with the problem when the checks refuse it, as a first
-        reply does, and a revision that stays refused is kept and stops the item (#4348)."""
+        review. Its revision goes back with the problem when the checks refuse it, as a first reply
+        does, and a revision that stays refused is kept and stops the item (#4348)."""
         again = {
             **request.for_model(),
             "previous": change.proposal.model_dump(),
@@ -2178,6 +2182,7 @@ def plan_stage(
                 repo, settings.ai.for_task("stage").model, settings.roadmap.stage.toolset
             ),
             open_creates=creators,
+            gate_returns=settings.roadmap.stage.gate_returns,
             rejected={
                 **{found.number: stage_comment_text(found.comment) for found in rejections.found},
                 **reasons_of(store, (target.item for target in selection.selected)),
@@ -2209,6 +2214,7 @@ def _planner_of(
     rejected: Mapping[int, str] | None = None,
     plan_files: PlanFiles | None = None,
     facts_source: Path | None = None,
+    gate_returns: int | None = None,
 ) -> _Planner:
     """The planner for the checkout at `sha`: it reads the tracked files, the capabilities and the
     context window of the `stage` task once. With a `toolbox` model, a plan run calls the
@@ -2219,7 +2225,8 @@ def _planner_of(
     with the same tools, and with the window of that task, because the two tasks can resolve to
     different windows (#3039). `rejected` holds the reason of each rejected plan by issue number,
     for the request of an item that a person rejected (#3503). `facts_source` is a checkout whose
-    `HEAD` supplies a runner fact file that the staged commit lacks (#4207)."""
+    `HEAD` supplies a runner fact file that the staged commit lacks (#4207). `gate_returns` is the
+    returns of a refused reply; without it, the planner reads `roadmap.stage.gate_returns`."""
     window = task_window("stage")
     verify_window = task_window("verification")
     traces: list[RunTrace] = []
@@ -2260,6 +2267,7 @@ def _planner_of(
         rejected=rejected,
         plan_files=plan_files,
         facts_source=facts_source,
+        gate_returns=gate_returns,
     )
 
 
@@ -2275,7 +2283,8 @@ def plan_item(
     """Plans `item` as the job does, in the checkout at `sha`, and writes nothing (#3028).
 
     The golden set of the stage job runs this on each case. A reply the checks refuse goes back to
-    the model once, as in a run, and a second one raises `RoadmapStageError`. `step_tokens`
+    the model `roadmap.stage.gate_returns` times, as in a run, and a reply that stays refused raises
+    `RoadmapStageError`. `step_tokens`
     overrides `roadmap.stage.step_tokens`. A `client` that is a `ToolboxClient` plans with the
     read-only tools (#3037); the golden set builds it for the case checkout. This planner reads no
     open plan, so it finds no dependency. A dependency that the type still allows raises

@@ -2,7 +2,7 @@
 
 For each case the run checks out the tracked files of the staging commit, makes the `Item` from the
 issue text of the case, and calls `plan_item`, which is the planner of the job: the planner call,
-the checks of the reply (`check_proposal`), one return of a refused reply, the measure of the
+the checks of the reply (`check_proposal`), the returns of a refused reply, the measure of the
 groups and `openspec validate`. A recording client keeps the replies that the job saw. The first
 reply is judged by the gates again, against the tree of the checkout, so the score shows what the
 model did before the gates sent a reply back.
@@ -59,7 +59,7 @@ _ISSUE_URL = "https://example.com/issues/{number}"
 
 
 class Outcome(StrEnum):
-    """How a case ended. `refused` is a plan that the checks refused after the one return.
+    """How a case ended. `refused` is a plan that the checks refused after the last return.
     `degenerate` is a plan reply with a placeholder in every text, which the job refuses at once
     (#4204)."""
 

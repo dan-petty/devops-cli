@@ -268,7 +268,7 @@ def test_the_round_reads_the_comments_once_for_all_failed_jobs_and_stops_at_a_pe
 
     # The first round has no failed job. Each later round reads once, takes the comment of the
     # bot, which is newest, and stops at the comment of the person before it.
-    assert reads == [(0, 0), (1, 2), (1, 2), (1, 2)]
+    assert reads == [(0, 0)] + [(1, 2)] * LIMIT
 
 
 def test_a_round_reads_one_page_of_comments_at_most(tmp_path: Path) -> None:
@@ -349,5 +349,6 @@ def test_the_line_that_suspends_a_job_names_a_comment_of_a_person(
 
     world.suspend()
 
-    (line,) = [r.getMessage() for r in caplog.records if "failed 3 rounds" in r.getMessage()]
+    suspends = f"failed {LIMIT} rounds"
+    (line,) = [r.getMessage() for r in caplog.records if suspends in r.getMessage()]
     assert "a comment of a person" in line
