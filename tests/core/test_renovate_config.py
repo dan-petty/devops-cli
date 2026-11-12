@@ -438,6 +438,24 @@ def test_lock_file_maintenance_refreshes_the_python_lock_on_monday() -> None:
     }
 
 
+def test_lock_file_maintenance_keeps_google_genai_below_3_until_the_pydantic_ai_move() -> None:
+    """pydantic-ai 2.67 and later cap google-genai below 3, and the lock holds an older pydantic-ai,
+    so the weekly `uv lock --upgrade` would move google-genai to 3 alone. The repository holds it
+    below 3, and the rule names the issue of the pydantic-ai move, which removes the hold (#5065)."""
+    (rule,) = [rule for rule in _rules() if rule.get("matchPackageNames") == ["google-genai"]]
+    locked = {
+        package["name"]: package["version"]
+        for package in tomllib.loads(_text("uv.lock"))["package"]
+        if "version" in package
+    }
+
+    assert (
+        rule["allowedVersions"],
+        int(locked["google-genai"].split(".", 1)[0]) < 3,
+        re.search(r"pydantic-ai\b.*#\d+", rule["description"]) is not None,
+    ) == ("<3", True, True)
+
+
 @cache
 def _expected_custom_deps() -> dict[str, list[tuple[str, str]]]:
     """Each pin that only a custom manager reads, by file, from the files that hold it."""
