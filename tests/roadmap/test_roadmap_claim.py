@@ -1,5 +1,6 @@
-"""The claim of a roadmap Item (#2910): the `owner/*` label family, the rule of a claim, and the
-commands `devops roadmap claim` and `devops roadmap release`.
+"""The claim of a roadmap Item (#2910): the `owner/*` label family, the rule of a claim, the
+commands `devops roadmap claim` and `devops roadmap release`, and the Status In Progress that the
+claim of an agent sets (#4685).
 
 The rule and the family run against both adapters of the store: the in-memory one, and the
 GitHub one over `GitHubFake`, the `gh` process edge.
@@ -21,8 +22,15 @@ from devops_cli.roadmap.claim import (
     plan_claim,
     render_claim_plan,
 )
+from devops_cli.roadmap.pull_status import set_claimed_status
 from devops_cli.roadmap.stores.github_store import GitHubRoadmapStore
-from devops_cli.roadmap.stores.store import GitHubState, Item, ItemField, RoadmapStore
+from devops_cli.roadmap.stores.store import (
+    GitHubState,
+    ImplementRecordKey,
+    Item,
+    ItemField,
+    RoadmapStore,
+)
 from tests.support.fakes.github import RunnerSession
 from tests.support.fakes.github_repository import GitHubFake
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
@@ -229,3 +237,39 @@ def test_the_plan_names_the_item_and_the_change() -> None:
     number = store.seed_issue("Fix it", labels=("priority/p2-medium", "owner/service"))
     plan = plan_claim(store, number, Claimant.HUMAN, REPO)
     assert render_claim_plan(plan) == f"Item #{number}: Fix it\nOwner: Service -> Human"
+
+
+# ── The Status of an agent's claim (#4685) ────────────────────────────────────
+
+
+def status_labels(world: World, number: int) -> list[str]:
+    return [label for label in world.labels(number) if label.startswith("status/")]
+
+
+@pytest.mark.parametrize("status", ["", "status/new", "status/ready", "status/planned"])
+def test_an_agents_claim_moves_the_item_forward_to_in_progress(world: World, status: str) -> None:
+    number = world.seed(*ITEM, *filter(None, [status]))
+    written = set_claimed_status(world.store, number)
+    assert (written, status_labels(world, number)) == (True, ["status/in-progress"])
+
+
+@pytest.mark.parametrize("status", ["status/blocked", "status/in-progress", "status/in-review"])
+def test_an_agents_claim_never_moves_the_item_back_or_out_of_blocked(
+    world: World, status: str
+) -> None:
+    number = world.seed(*ITEM, status)
+    written = set_claimed_status(world.store, number)
+    assert (written, status_labels(world, number), world.writes()) == (False, [status], 0)
+
+
+def test_an_agents_claim_keeps_a_stop_of_the_implement_job_blocked(world: World) -> None:
+    number = world.seed(*ITEM)
+    stop = {ImplementRecordKey.STOPPED: "group 2"}
+    world.store.set_field(read(world, number), ItemField.STATUS, "Blocked", marks=stop)
+    before = world.writes()
+    written = set_claimed_status(world.store, number)
+    assert (written, status_labels(world, number), world.writes()) == (
+        False,
+        ["status/blocked"],
+        before,
+    )

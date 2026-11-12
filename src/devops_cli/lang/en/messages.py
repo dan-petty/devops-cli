@@ -613,7 +613,8 @@ class RepoMessages:
         "If a local branch of the new name exists, no worktree uses it, and origin holds all its "
         "commits, the run deletes that stray branch first.",
         "A run also claims the issue for an agent with the label owner/agent on the roadmap of "
-        "origin. The claim lists the requests of the label write.",
+        "origin, and then sets the Status In Progress when the item is New, Ready or Planned, or "
+        "has no Status. The plan lists the requests of both label writes.",
     )
     worktrees_add_created: str = "Created worktree {path} on branch {branch}."
     worktrees_add_took_over: str = (
@@ -626,6 +627,9 @@ class RepoMessages:
     worktrees_add_not_reclaimed: str = "Merged worktrees were not reclaimed: {reason}"
     worktrees_add_claimed: str = "Claimed #{issue} for an agent."
     worktrees_add_not_claimed: str = "#{issue} is not claimed for an agent: {reason}"
+    worktrees_add_status_not_set: str = (
+        "#{issue} is claimed, but its Status is not In Progress: {reason}"
+    )
     worktrees_add_no_origin: str = (
         "The repository has no remote named origin, so the branches of origin cannot be read. "
         "Add the remote."
@@ -4887,6 +4891,8 @@ class RoadmapMessages:
             "as_app": "the process acts as the GitHub App",
             "consolidate_cited": "the model cites a path with a line",
             "consolidate_embed": "an open item has a text that the cache of vectors lacks",
+            "claim_made": "the claim of the agent is made",
+            "behind": "the item is New, Ready or Planned, or has no Status",
         }
     )
     plan_repeat: dict[str, str] = field(

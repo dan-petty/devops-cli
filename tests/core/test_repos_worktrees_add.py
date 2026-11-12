@@ -17,6 +17,7 @@ import pytest
 
 from devops_cli.exceptions.git import GitHubOperationError
 from devops_cli.git.worktree_add import add_worktree
+from devops_cli.roadmap.stores.store import ItemField
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 
 # The command claims the issue on the roadmap of the repository of `origin` (#2910). The roadmap
@@ -968,6 +969,114 @@ def test_a_dry_run_claims_nothing_and_lists_the_label_write(
     requests = json.loads(result.output)["requests"]
     assert (result.exit_code, _owner(roadmap_store), roadmap_store.job_writes()) == (0, [], [])
     assert any("PATCH" in line and f"issues/{number}" in line for line in requests)
+
+
+# ── The Status In Progress of the claim (#4685) ───────────────────────────────────────────
+
+
+def _status(store: InMemoryRoadmapStore) -> list[str]:
+    item = store.item(1)
+    assert item is not None
+    return [label for label in item.labels if label.startswith("status/")]
+
+
+def _refuse_status_writes(store: InMemoryRoadmapStore, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Make each write of the Status fail with "HTTP 502", and let the other writes through."""
+    write = store.set_field
+
+    def refuse_status(item: Any, field: ItemField, value: str | None, **kwargs: Any) -> None:
+        if field is ItemField.STATUS:
+            raise GitHubOperationError("HTTP 502", operation="roadmap.item.set_field")
+        write(item, field, value, **kwargs)
+
+    monkeypatch.setattr(store, "set_field", refuse_status)
+
+
+def test_add_sets_in_progress_when_it_claims_the_issue(
+    cli: Cli, repo: Path, roadmap_store: InMemoryRoadmapStore, isolate_data_dir: Path
+) -> None:
+    number = _an_item(roadmap_store, "status/ready")
+
+    report = json.loads(_add(cli, repo, issue=number, extra=("--json",)).output)
+
+    assert (_owner(roadmap_store), _status(roadmap_store), report["status_error"]) == (
+        ["owner/agent"],
+        ["status/in-progress"],
+        None,
+    )
+
+
+@pytest.mark.parametrize("status", ["status/blocked", "status/in-review"])
+def test_the_claim_keeps_a_blocked_item_and_an_item_in_review(
+    cli: Cli,
+    repo: Path,
+    roadmap_store: InMemoryRoadmapStore,
+    isolate_data_dir: Path,
+    status: str,
+) -> None:
+    number = _an_item(roadmap_store, status)
+
+    report = json.loads(_add(cli, repo, issue=number, extra=("--json",)).output)
+
+    assert (report["claimed"], _status(roadmap_store), report["status_error"]) == (
+        True,
+        [status],
+        None,
+    )
+
+
+def test_a_failed_status_write_keeps_the_claim_and_reports_the_reason(
+    cli: Cli,
+    repo: Path,
+    roadmap_store: InMemoryRoadmapStore,
+    isolate_data_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    number = _an_item(roadmap_store, "status/ready")
+    _refuse_status_writes(roadmap_store, monkeypatch)
+
+    result = _add(cli, repo, issue=number, extra=("--json",))
+
+    report = json.loads(result.output)
+    assert (result.exit_code, report["claimed"], report["claim_error"], report["status_error"]) == (
+        0,
+        True,
+        None,
+        "HTTP 502",
+    )
+    assert (_owner(roadmap_store), _status(roadmap_store)) == (["owner/agent"], ["status/ready"])
+
+
+def test_add_warns_when_the_status_write_fails(
+    cli: Cli,
+    repo: Path,
+    roadmap_store: InMemoryRoadmapStore,
+    isolate_data_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    number = _an_item(roadmap_store, "status/ready")
+    _refuse_status_writes(roadmap_store, monkeypatch)
+
+    said = _said(_add(cli, repo, issue=number))
+
+    assert f"Claimed #{number} for an agent." in said
+    assert f"#{number} is claimed, but its Status is not In Progress: HTTP 502" in said
+
+
+def test_a_dry_run_lists_the_status_write_of_the_claim_and_sends_nothing(
+    cli: Cli, repo: Path, roadmap_store: InMemoryRoadmapStore, isolate_data_dir: Path
+) -> None:
+    number = _an_item(roadmap_store, "status/ready")
+
+    result = _add(cli, repo, issue=number, extra=("--dry-run", "--json"))
+
+    requests = json.loads(result.output)["requests"]
+    condition = (
+        "[only if the claim of the agent is made and the item is New, Ready or Planned, or has "
+        "no Status]"
+    )
+    assert (_status(roadmap_store), roadmap_store.job_writes()) == (["status/ready"], [])
+    assert [line for line in requests if line.endswith(condition)] != []
 
 
 def test_add_worktree_starts_the_branch_at_the_given_base(

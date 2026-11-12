@@ -1,9 +1,9 @@
 """The Status label of an item, and the one writer that every job uses for it (#2920, #5018).
 
 An item is New while it waits for refine, Ready while it waits for a plan, Planned once its plan is
-on the default branch, In Progress while a runner Job or an open pull request works on it, In Review
-once that pull request is ready for review, and Blocked while a stop is on record. `derive_status`
-is the one function that maps the facts of an item to that Status.
+on the default branch, In Progress while a runner Job, an open pull request or the claim of an agent
+works on it, In Review once that pull request is ready for review, and Blocked while a stop is on
+record. `derive_status` is the one function that maps the facts of an item to that Status.
 
 **The one writer.** `write_status` derives the Status from the facts that its caller gives, writes
 the label with the family replace of the store (`set_field`) only when it differs, and reads the
@@ -11,8 +11,8 @@ issue again after the write. A label that another writer changed in between rais
 `RoadmapStatusLostError`, so a lost write is never silent. A dry run returns the would-be write
 and sends no request. Every job writes the Status through it: the rows `stage`, `stage_ready` and
 `implement`, the runner Job (In Progress, In Review and Blocked), the Job report and the clear rules
-of a stop, refine, repair, intake, `devops roadmap return` and `devops pr create` and
-`devops pr ready` (`pull_status.py`). No other module writes a Status label: a structural test holds
+of a stop, refine, repair, intake, `devops roadmap return`, the claim of
+`devops repos worktrees add`, and `devops pr create` and `devops pr ready` (`pull_status.py`). No other module writes a Status label: a structural test holds
 that. The writer holds no guard of its own: each caller decides whether the item is its to write.
 
 **What the sweep writes.** `sync_status` writes the derived Status only for an open item that holds
@@ -72,8 +72,8 @@ _WRITTEN_FROM = frozenset({CONST_ROADMAP_STATUS_READY, CONST_ROADMAP_STATUS_PLAN
 class StatusFacts:
     """What decides the Status of an item: it waits for refine (`needs_refine`: intake filed it,
     or a job returned it), a pull request that delivers it is ready for review (`pull_ready`) or
-    open (`pull_open`), a runner Job holds it, a stop is on record, its plan is on the default
-    branch."""
+    open (`pull_open`), an agent claimed it for a worktree (`agent_claimed`, #4685), a runner Job
+    holds it, a stop is on record, its plan is on the default branch."""
 
     plan_merged: bool = False
     job_active: bool = False
@@ -81,18 +81,19 @@ class StatusFacts:
     pull_open: bool = False
     pull_ready: bool = False
     needs_refine: bool = False
+    agent_claimed: bool = False
 
 
 def derive_status(facts: StatusFacts) -> str:
     """The Status of an item with `facts`: New while it waits for refine, else In Review while its
-    pull request is ready for review, else In Progress while a Job holds it or its pull request is
-    open, else Blocked while a stop is on record, else Planned when the plan is merged, else Ready.
+    pull request is ready for review, else In Progress while a Job holds it, its pull request is
+    open or an agent claimed it, else Blocked while a stop is on record, else Planned when the plan is merged, else Ready.
     The one function that rows and filters use."""
     if facts.needs_refine:
         return CONST_ROADMAP_STATUS_NEW
     if facts.pull_ready:
         return CONST_ROADMAP_STATUS_IN_REVIEW
-    if facts.job_active or facts.pull_open:
+    if facts.job_active or facts.pull_open or facts.agent_claimed:
         return CONST_ROADMAP_STATUS_IN_PROGRESS
     if facts.stopped:
         return CONST_ROADMAP_STATUS_BLOCKED

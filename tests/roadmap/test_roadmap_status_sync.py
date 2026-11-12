@@ -355,14 +355,16 @@ def test_the_facts_of_an_item_with_a_stop_on_record(store: InMemoryRoadmapStore)
         (StatusFacts(pull_ready=True, job_active=True, stopped=True), "In Review"),
         (StatusFacts(pull_open=True), "In Progress"),
         (StatusFacts(pull_open=True, stopped=True), "In Progress"),
+        (StatusFacts(agent_claimed=True), "In Progress"),
+        (StatusFacts(agent_claimed=True, pull_ready=True), "In Review"),
     ],
 )
 def test_the_status_writer_derives_new_and_in_review_and_a_pull_in_work(
     facts: StatusFacts, status: str
 ) -> None:
     """A return or intake gives New, a pull request ready for review gives In Review, and an open
-    pull request gives In Progress. The order is: New, In Review, In Progress, Blocked, Planned,
-    Ready."""
+    pull request or the claim of an agent (#4685) gives In Progress. The order is: New, In Review,
+    In Progress, Blocked, Planned, Ready."""
     assert derive_status(facts) == status
 
 

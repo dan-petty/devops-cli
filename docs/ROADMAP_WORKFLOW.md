@@ -21,7 +21,7 @@ The state of an Item is in labels on its issue ([ADR 0016](adr/0016-labels-hold-
 | 1. Capture | `status/new` | Row `intake` places each candidate ([intake page](roadmap/intake.md)) | `devops roadmap intake --title "<title>" --body-file <file> --confirm` | The same command, or a new issue on GitHub | None |
 | 2. Refine | `status/ready` | Rows `refine` and `alternatives` ([refine page](roadmap/refine.md), [alternatives page](roadmap/alternatives.md)) | `devops roadmap refine --item <number> --confirm` | The same command, and an answer to each open question in the issue | None |
 | 3. Plan | `status/ready` while the plan pull request is open, then `status/planned` | Row `stage` opens a draft plan pull request ([stage page](roadmap/stage.md)). Row `stage_ready` marks it ready when its checks pass and it holds no `plan/needs-fix` label. Row `fix_plan` repairs a plan that holds the label ([stage page](roadmap/stage.md#the-fix-plan-step)) | Write the change folder `openspec/changes/<issue>-<slug>/` as the first commit of the implementation branch | The same | G1 |
-| 4. Claim | One `owner/*` label | Row `implement` sets `owner/service` when it makes a Job | `devops repos worktrees add <issue> --type <type> --slug <slug>` sets `owner/agent` | `devops roadmap claim <number> --as human --confirm` | None |
+| 4. Claim | One `owner/*` label | Row `implement` sets `owner/service` when it makes a Job | `devops repos worktrees add <issue> --type <type> --slug <slug>` sets `owner/agent`, then `status/in-progress` when the Status moves forward | `devops roadmap claim <number> --as human --confirm` | None |
 | 5. Implement | `status/in-progress` | The runner Job runs one step for each task group ([implement page](roadmap/implement.md)) | Tests first, then code, in a draft pull request made with `devops pr create` | The same | None |
 | 6. Verify | `status/in-review` | The runner Job watches the checks, runs bounded fix steps, and asks the readiness function to mark the pull request ready | `devops pr monitor <pr_number>`, then `devops pr ready <pr_number>`, which asks the same function | The same | None |
 | 7. Review and merge | The issue is closed | None | None | Review, then merge | G2 |
@@ -56,6 +56,7 @@ Each row is one change of the Status label of an Item. A job never reverts a lab
 | `status/ready` | The stage job opens a draft plan pull request | `status/ready` | Service job |
 | `status/ready` | A person merges the plan pull request (G1) and the Service finds the change folder on the default branch | `status/planned` | Service job |
 | `status/ready` or `status/planned` | The Service makes a runner Job for the Item | `status/in-progress` | Service job |
+| No state, `status/new`, `status/ready` or `status/planned` | `devops repos worktrees add` claims the Item for an agent. Every `status/blocked` label stays, also one with `implement.stopped` | `status/in-progress` | Agentic coder |
 | No state, `status/new`, `status/ready` or `status/planned` | `devops pr create` opens a pull request that closes the Item | `status/in-progress` | Agentic coder or person |
 | `status/in-progress` | The checks pass and the pull request is marked ready | `status/in-review` | Runner Job, or `devops pr ready` |
 | No state, `status/new`, `status/ready` or `status/planned` | `devops pr ready` marks a pull request that closes the Item | `status/in-review` | Agentic coder or person |
@@ -101,7 +102,7 @@ The labels on the issue hold the state. The job record holds the facts behind it
 | New | `status/new` | Intake, or `devops roadmap return` | `refine.body_hash`, `refine.section_hash`, `refine.next_step` |
 | Ready | `status/ready` | Refine, a clear of a stop, or the status sync | `stage.pr`, `stage.branch` (Staged) |
 | Planned | `status/planned` | The status sync of the Service | The change folder on the default branch, or a merged `stage.pr` |
-| In progress | `status/in-progress` | The Service, `devops pr create`, or the runner Job | `implement.job` with no `implement.job_state` |
+| In progress | `status/in-progress` | The Service, `devops repos worktrees add`, `devops pr create`, or the runner Job | `implement.job` with no `implement.job_state` |
 | In review | `status/in-review` | The runner Job, or `devops pr ready` | `implement.pr` |
 | Blocked | `status/blocked` | A stop of the runner Job or of the Service, or a person | `implement.stopped`, `implement.job_digest` (stopped). A person who sets it by hand records nothing |
 | Done | The issue is closed | The close of the issue | None |

@@ -9,6 +9,10 @@ that label, because only a person takes it out. A Blocked item that a stop of th
 recorded (`Item.holds_service_stop`) takes the new Status, because the pull request is the fix of the
 stop. A pull request that closes no item changes nothing. A closed issue loses its
 `status/*` labels in `.github/workflows/clear-status.yml`.
+
+`devops repos worktrees add` sets In Progress earlier, when it claims the issue for an agent
+(`set_claimed_status`, #4685), so the Status shows the work before its pull request opens. The
+same forward rule applies, but every Blocked item stays Blocked: a claim is no fix of a stop.
 """
 
 from __future__ import annotations
@@ -71,3 +75,14 @@ def set_delivered_status(repo: str, pull: int, status: str) -> int | None:
             write_status(store, item, _FACTS[status])
             return item.number
     return None
+
+
+def set_claimed_status(store: roadmap_store.RoadmapStore, number: int) -> bool:
+    """Set In Progress on Item `number` of `store` after an agent claimed it (#4685), when the
+    Status moves forward: from no Status, New, Ready or Planned. True when the label was written.
+    A write that fails raises the error of the store or of `write_status`."""
+    item = store.item(number)
+    if item is None or item.status not in _REPLACES[CONST_ROADMAP_STATUS_IN_PROGRESS]:
+        return False
+    write_status(store, item, StatusFacts(agent_claimed=True))
+    return True
