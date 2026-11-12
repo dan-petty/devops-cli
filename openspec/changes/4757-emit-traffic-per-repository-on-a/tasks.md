@@ -8,6 +8,8 @@ Reads: `src/devops_cli/github/app_installation.py`, `tests/github/test_github_ap
   - Verification: `$ uv run devops ci test tests/github/test_github_app_identity.py` fails on the base
 - [x] 1.2 Add the entry `administration` at level `read` to `CONST_GITHUB_APP_TOKEN_PERMISSIONS` in `src/devops_cli/config/constants.py`, and name the traffic reads in the comment above it
   - Verification: `$ uv run devops ci test tests/github/test_github_app_identity.py` passes
+- [x] 1.3 In `test_a_reply_that_grants_more_keeps_the_token_and_logs_only_the_permission_names`, grant `pages: write` in place of `administration: write`, because the request now names `administration`, and expect `pages` in the log
+  - Verification: `$ uv run devops ci test tests/github/test_github_app_identity.py` passes
 
 ## 2. Read the traffic of the App and name the missing permission
 
@@ -22,7 +24,7 @@ Reads: `src/devops_cli/core/process.py`, `tests/support/fakes/github_repository.
 
 Reads: `src/devops_cli/config/constants.py`. Changes: `docs/adr/0015-roadmap-jobs-act-as-a-github-app-on-the-personal-account.md`, `src/devops_cli/docs/generator.py`, `docs/TELEMETRY.md`, `tests/docs/test_docs.py`.
 
-- [x] 3.1 Add an amendment line dated 2026-11-12 that names `administration: read` and issue 4757, in the shape of the `workflows: write` line. Add the permission to the decision bullet that names the token's permissions. Replace the consequence sentence that says the metrics row asks for no traffic. Check by hand: the amendment line names `administration: read` and #4757, the decision bullet names Administration read, and the consequence paragraph says that each token asks for it
+- [x] 3.1 Add an amendment line dated 2026-11-12 that names `administration: read` and issue 4757, in the shape of the `workflows: write` line. Add the permission to the decision bullet that names the token's permissions. Add `repository_hooks` and `administration` to the gidgethub bullet. Replace the consequence sentence that says the metrics row asks for no traffic, and replace the rule that a feature with more permissions asks for a token with its own set with the shared-set rule and the person check of the grant. Check by hand: the amendment line names `administration: read` and #4757, the decision and gidgethub bullets name it, and the consequence paragraph names the shared set, what Administration read can read and the person check
 - [x] 3.2 Replace the paragraph of the generator that says the Service sends no traffic gauge, write `docs/TELEMETRY.md` again from it, and change `test_doc_generator_telemetry_docs` in `tests/docs/test_docs.py` to find the new paragraph once and the old sentence never
   - Verification: `$ uv run devops ci docs` passes
 
@@ -45,5 +47,5 @@ Reads: `docs/TELEMETRY.md`. Changes: `k8s/README.md`, `k8s/monitoring/dashboards
 
 ## Workflow follow-up
 
-- Pending a person: before the merge, run the premise probe of the pull request comment: a token that asks for `administration: read` gets HTTP 200 from the four traffic paths.
+- Pending a person: before the merge, confirm on the installation page of App `devops-cli-service` that Administration is granted (read, or read and write) and that no permission request waits. If it is not granted, do not merge: GitHub would refuse each token of each job with HTTP 422.
 - Pending a person: review the diff in tuicr (tuicr -r <base>..HEAD).
