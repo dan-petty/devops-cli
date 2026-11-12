@@ -595,6 +595,15 @@ wheels = [
 ]
 
 [[package]]
+name = "coloraide"
+version = "8.14.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/0b/26/83261fd943ced1fba3b9749fb93f06b357bfe261881c7512e237133bcdc3/coloraide-8.14.1.tar.gz", hash = "sha256:253e24f8aa824d5527dca99d1c175adfcc05ddd7457c902fbb4ab17bae600e37", size = 22335755, upload-time = "2026-11-08T14:17:42.222Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/47/d1/60b45b4a3ad1fbd5d5ab68f0db6ec38775170478963faffee9363168589d/coloraide-8.14.1-py3-none-any.whl", hash = "sha256:41f4bfade0d896d1482f17f6f02438bfefc1e41fff02ea606d3edfc8d8a75ddd", size = 349283, upload-time = "2026-11-08T14:17:40.395Z" },
+]
+
+[[package]]
 name = "colorama"
 version = "0.4.6"
 source = { registry = "https://pypi.org/simple" }
@@ -877,6 +886,7 @@ dev = [
     { name = "ast-grep-cli" },
     { name = "bandit" },
     { name = "cel-expr-python" },
+    { name = "coloraide" },
     { name = "deptry" },
     { name = "diff-cover" },
     { name = "fakeredis", extra = ["valkey"] },
@@ -988,6 +998,7 @@ dev = [
     { name = "ast-grep-cli", specifier = "==0.51.0" },
     { name = "bandit", specifier = "==1.9.4" },
     { name = "cel-expr-python", specifier = "==0.1.3" },
+    { name = "coloraide", specifier = "==8.14.1" },
     { name = "deptry", specifier = "==0.25.1" },
     { name = "diff-cover", specifier = "==10.6.0" },
     { name = "fakeredis", extras = ["valkey"], specifier = "==2.40.0" },

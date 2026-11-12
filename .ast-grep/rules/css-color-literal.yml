@@ -1,0 +1,25 @@
+id: css-color-literal
+language: css
+severity: error
+# The hand-written CSS of the package. Style Dictionary writes the token CSS, which holds the color
+# values, beside the package module, outside this folder.
+files:
+  - "src/devops_cli/design/css/**"
+message: A color literal in hand-written CSS. Read the color from a token variable, such as var(--color-fg) or var(--color-status-error).
+note: |
+  The token sources in design/tokens/ hold every color, and Style Dictionary writes them to the
+  token CSS (docs/DESIGN.md, "Token pipeline"). Hand-written CSS reads only token variables, so a
+  change of theme or palette changes one file. currentColor, transparent and inherit are not
+  color literals.
+# A color literal is a hex value, a call of a CSS color function, or a CSS named color (CSS Color
+# Module Level 4, 148 names, case-insensitive). A literal inside color-mix() or light-dark() is a
+# hex value or a call of its own, so those two functions need no rule.
+rule:
+  any:
+    - kind: color_value
+    - kind: call_expression
+      has:
+        kind: function_name
+        regex: '^(?i:rgba?|hsla?|hwb|lab|lch|oklab|oklch|color)$'
+    - kind: plain_value
+      regex: '^(?i:aliceblue|antiquewhite|aqua|aquamarine|azure|beige|bisque|black|blanchedalmond|blue|blueviolet|brown|burlywood|cadetblue|chartreuse|chocolate|coral|cornflowerblue|cornsilk|crimson|cyan|darkblue|darkcyan|darkgoldenrod|darkgray|darkgreen|darkgrey|darkkhaki|darkmagenta|darkolivegreen|darkorange|darkorchid|darkred|darksalmon|darkseagreen|darkslateblue|darkslategray|darkslategrey|darkturquoise|darkviolet|deeppink|deepskyblue|dimgray|dimgrey|dodgerblue|firebrick|floralwhite|forestgreen|fuchsia|gainsboro|ghostwhite|gold|goldenrod|gray|green|greenyellow|grey|honeydew|hotpink|indianred|indigo|ivory|khaki|lavender|lavenderblush|lawngreen|lemonchiffon|lightblue|lightcoral|lightcyan|lightgoldenrodyellow|lightgray|lightgreen|lightgrey|lightpink|lightsalmon|lightseagreen|lightskyblue|lightslategray|lightslategrey|lightsteelblue|lightyellow|lime|limegreen|linen|magenta|maroon|mediumaquamarine|mediumblue|mediumorchid|mediumpurple|mediumseagreen|mediumslateblue|mediumspringgreen|mediumturquoise|mediumvioletred|midnightblue|mintcream|mistyrose|moccasin|navajowhite|navy|oldlace|olive|olivedrab|orange|orangered|orchid|palegoldenrod|palegreen|paleturquoise|palevioletred|papayawhip|peachpuff|peru|pink|plum|powderblue|purple|rebeccapurple|red|rosybrown|royalblue|saddlebrown|salmon|sandybrown|seagreen|seashell|sienna|silver|skyblue|slateblue|slategray|slategrey|snow|springgreen|steelblue|tan|teal|thistle|tomato|turquoise|violet|wheat|white|whitesmoke|yellow|yellowgreen)$'

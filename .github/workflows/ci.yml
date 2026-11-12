@@ -933,6 +933,88 @@ jobs:
             --exclude '/lang/en' \
             "/site/devops-cli/**/*.html"
 
+  # The token build of docs/DESIGN.md: the pinned Style Dictionary builds the token files of
+  # design/tokens/ with the configs of design/sd/, and the job fails when a committed output is
+  # not the build, or when a test of tests/design fails. The job runs for every pull request and
+  # does its steps only when a path of its filter changed, so on any other pull request it reports
+  # success. The filter holds the inputs of the build, its outputs, and the files whose colors the
+  # design tests check. npm installs the lock outside the checkout, so no node_modules shows in
+  # the diff. The design tests run in one process: they take seconds, and pytest workers take
+  # longer to start. Each step limit is shorter than the job limit.
+  design-tokens:
+    name: Design Tokens
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read # paths-filter reads the changed files from the REST API
+
+    steps:
+      - name: Detect Design Token Changes
+        id: changes
+        uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        with:
+          filters: |
+            design:
+              - 'design/**'
+              - 'src/devops_cli/tools_lock/style-dictionary/**'
+              - 'src/devops_cli/design/**'
+              - 'docs/assets/css/**'
+              - 'k8s/startpage/**'
+              - 'k8s/monitoring/dashboards/**'
+              - '.github/labels.yml'
+              - 'Makefile'
+              - '.github/workflows/ci.yml'
+
+      - name: Check out repository
+        if: steps.changes.outputs.design == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Set up uv toolchain
+        if: steps.changes.outputs.design == 'true'
+        uses: ./.github/actions/setup-toolchain
+        with:
+          cache-suffix: design-tokens
+          save-uv-cache: "false"
+
+      - name: Set up Node.js
+        if: steps.changes.outputs.design == 'true'
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+
+      - name: Install Style Dictionary
+        if: steps.changes.outputs.design == 'true'
+        timeout-minutes: 2
+        env:
+          TOOL_DIR: ${{ runner.temp }}/style-dictionary
+        run: |
+          mkdir -p "$TOOL_DIR"
+          cp src/devops_cli/tools_lock/style-dictionary/package.json src/devops_cli/tools_lock/style-dictionary/package-lock.json "$TOOL_DIR/"
+          npm ci --ignore-scripts --no-audit --no-fund --prefix "$TOOL_DIR"
+          echo "$TOOL_DIR/node_modules/.bin" >> "$GITHUB_PATH"
+
+      - name: Build the Design Tokens
+        if: steps.changes.outputs.design == 'true'
+        timeout-minutes: 1
+        run: make design-tokens
+
+      # `git add --intent-to-add` makes a new output that is not committed show in the diff.
+      - name: Check the Committed Token Outputs
+        if: steps.changes.outputs.design == 'true'
+        timeout-minutes: 1
+        run: |
+          git add --intent-to-add -- docs/assets/css src/devops_cli/design
+          git diff --exit-code -- docs/assets/css src/devops_cli/design
+
+      - name: Run the Design Tests
+        if: steps.changes.outputs.design == 'true'
+        timeout-minutes: 2
+        run: uv run pytest tests/design -n 0
+
   # Resolves each image that an Argo CD Application pins when a pull request changes the
   # manifests, the command or this workflow, so a wrong tag fails the pull request and not the
   # sync (#1994). `devops k8s image-pins` renders each Application as Argo CD does: a path source

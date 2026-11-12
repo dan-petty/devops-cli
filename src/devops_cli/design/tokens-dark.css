@@ -1,0 +1,46 @@
+/**
+ * Do not edit directly, this file was auto-generated.
+ */
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --color-bg: #151514; /** Page and chart background. */
+    --color-surface: #1f1f1d; /** Code blocks, callouts, table header band. */
+    --color-border: #3b3b37; /** Decorative rules and gridlines only (no 3:1 need). */
+    --color-border-strong: #7a7a73; /** Control borders and chart axes. */
+    --color-fg: #e8e8e3; /** Body text; a single chart series. */
+    --color-fg-muted: #a9a9a1; /** Secondary text, captions, ticks. */
+    --color-accent: #78c5da; /** Links, focus ring, the one highlighted series. */
+    --color-status-ok: #3dc9a0; /** Status ok. Never a chart series. */
+    --color-status-warn: #f0c04e; /** Status warn; warn threshold lines. */
+    --color-status-error: #ff7a66; /** Status error; page threshold lines. */
+    --color-status-ok-bg: #132e27; /** Tint behind an ok callout. */
+    --color-status-warn-bg: #33290f; /** Tint behind a warn callout. */
+    --color-status-error-bg: #3a1c18; /** Tint behind an error callout. */
+    --color-data-cat-3: #82cfff; /** Series 3, blue. Carbon cyan.30 (@carbon/colors 11.61.0, Apache-2.0). Theme-aware targets only. */
+    --color-data-seq-1: #00224e;
+    --color-data-seq-2: #1a386f;
+    --color-data-seq-3: #434e6c;
+    --color-data-seq-4: #61656f;
+    --color-data-seq-5: #7d7c78;
+    --color-data-seq-6: #9b9476;
+    --color-data-seq-7: #bcae6c;
+    --color-data-seq-8: #dec958;
+    --color-data-seq-9: #fee838;
+    --color-data-div-1: #ffadad;
+    --color-data-div-2: #be6f63;
+    --color-data-div-3: #7d341e;
+    --color-data-div-4: #411201;
+    --color-data-div-5: #190c09;
+    --color-data-div-6: #14303e;
+    --color-data-div-7: #286886;
+    --color-data-div-8: #519fd3;
+    --color-data-div-9: #9eb0ff;
+    --color-focus: var(--color-accent); /** Focus outline, 2 px. */
+    --color-status-info: var(--color-fg-muted); /** Status info: neutral, not blue. */
+    --color-syntax-comment: var(--color-fg-muted); /** Code comments (italic). */
+    --color-syntax-string: var(--color-accent); /** Strings and literals. */
+    --color-syntax-keyword: var(--color-fg); /** Keywords (semibold). */
+    --color-data-neutral: var(--color-fg-muted); /** Other, baseline, context series. */
+  }
+}

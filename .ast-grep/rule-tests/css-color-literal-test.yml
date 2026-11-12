@@ -1,0 +1,14 @@
+id: css-color-literal
+valid:
+  - "a { color: var(--color-fg); }"
+  - "a { fill: currentColor; background: transparent; border-color: inherit; }"
+  - "a { border-color: color-mix(in oklab, var(--color-fg) 20%, var(--color-bg)); }"
+  - "@media (prefers-color-scheme: dark) { :root { color-scheme: dark; } }"
+  - "a { font-family: var(--font-family-sans); animation-name: fade; }"
+invalid:
+  - "a { color: #1c1c1a; }"
+  - "a { background: rgb(0 0 0 / 50%); }"
+  - "a { border-color: White; }"
+  - "a { box-shadow: 0 0 0 1px oklch(0.5 0.1 200); }"
+  - ":root { --halo: hsl(10 20% 30%); }"
+  - "a { border-color: color-mix(in oklab, var(--color-fg) 20%, #ffffff); }"

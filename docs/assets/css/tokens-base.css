@@ -1,0 +1,56 @@
+/**
+ * Do not edit directly, this file was auto-generated.
+ */
+
+:root {
+  --font-family-serif: 'Source Serif 4', 'Source Serif Pro', 'Iowan Old Style', Charter, Georgia, serif; /** Reading text of reports and docs pages. Adobe, OFL-1.1. */
+  --font-family-sans: 'Source Sans 3', 'Source Sans Pro', system-ui, -apple-system, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif; /** Interface text: headings, tables, captions, chart text. Adobe, OFL-1.1. */
+  --font-family-mono: 'Source Code Pro', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace; /** Code, identifiers, hashes. Adobe, OFL-1.1. */
+  --font-weight-regular: 400;
+  --font-weight-semibold: 600;
+  --font-size-xs: 0.75rem;
+  --font-size-sm: 0.875rem;
+  --font-size-md: 1rem;
+  --font-size-lg: 1.125rem;
+  --font-size-xl: 1.375rem;
+  --font-size-2xl: 1.75rem;
+  --font-size-3xl: 2.25rem;
+  --font-line-height-tight: 1.2;
+  --font-line-height-ui: 1.4;
+  --font-line-height-code: 1.5;
+  --font-line-height-reading: 1.6;
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-12: 3rem;
+  --space-16: 4rem;
+  --size-measure: 40rem; /** Reading column, about 70 characters. */
+  --size-wide: 60rem; /** Figures and tables. */
+  --size-full: 72rem; /** Page frame and dashboards. */
+  --size-margin: 15rem; /** Margin-note column at breakpoint.lg. */
+  --size-gutter: 1rem; /** Side gutter at every width. */
+  --size-target: 1.5rem; /** Smallest interactive target, 24 px (WCAG 2.2 SC 2.5.8). */
+  --size-chart-min: 40rem; /** Design width of a static chart; under it the chart scrolls in its own box so text stays 12 px. */
+  --breakpoint-md: 40rem;
+  --breakpoint-lg: 75rem;
+  --radius-none: 0px;
+  --radius-sm: 2px;
+  --border-width-hairline: 1px;
+  --border-width-focus: 2px;
+  --motion-duration-fast: 0.12s;
+  --motion-easing-standard: cubic-bezier(0.2, 0, 0, 1);
+  --chart-stroke-data: 1.5px;
+  --chart-stroke-highlight: 2.5px;
+  --chart-stroke-grid: 1px;
+  --chart-stroke-reference: 1px;
+  --chart-band-opacity: 0.2; /** Fill opacity of a measured interval band. */
+  --chart-max-series: 3; /** Most colored series in one chart; more go to Other, small multiples or a table. */
+  --color-data-cat-1: #a463f2; /** Series 1, purple. Observable 10 slot 7 (d3-scale-chromatic schemeObservable10, ISC). Same in both themes and in Grafana. */
+  --color-data-cat-2: #e7298a; /** Series 2, pink. ColorBrewer Dark2 slot 4 (Apache-2.0). Same in both themes and in Grafana. */
+  --chart-font-size-tick: var(--font-size-xs);
+  --chart-font-size-label: var(--font-size-sm);
+  --chart-font-size-title: var(--font-size-md);
+}

@@ -352,7 +352,7 @@ def test_the_table_of_violations_holds_the_tree_of_every_rule() -> None:
 
 def test_the_scan_check_names_a_rule_that_misses_its_tree_or_leaks_into_the_other() -> None:
     """A violation with no report fails, and so does a report for the twin in the other tree."""
-    reported = {f"{v.tree}/v{n}.py": {v.rule} for n, v in enumerate(VIOLATIONS)}
+    reported = {v.scratch_file(n): {v.rule} for n, v in enumerate(VIOLATIONS)}
     leaked = {**reported, "tests/o0.py": {VIOLATIONS[0].rule}}
     missed = {name: rules for name, rules in reported.items() if name != "src/v0.py"}
 
