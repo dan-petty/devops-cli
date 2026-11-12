@@ -131,12 +131,14 @@ spec:
           # 150 MiB each hour from about 460 MiB, so 1Gi killed the pod after
           # about 4 hours. #4116 holds the analysis of the leak. #4125 is the
           # open 6-hour flat check. Revisit the limit when the working set is flat.
+          # The CPU limit is 2: the container reached 1.00 core at a limit of 1 (#4991). The event
+          # loop uses one core, so the raise is for the bursts of subprocesses and native threads.
           resources:
             requests:
               cpu: 100m
               memory: 768Mi
             limits:
-              cpu: "1"
+              cpu: "2"
               memory: 3Gi
       volumes:
         - name: tmp

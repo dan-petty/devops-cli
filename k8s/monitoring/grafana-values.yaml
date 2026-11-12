@@ -14,13 +14,14 @@ service:
   port: 80
   targetPort: 3000
 
+# The 7 d peak of the working set was 1014 MiB of a 1024Mi limit (#4991).
 resources:
   requests:
     cpu: 100m
-    memory: 256Mi
+    memory: 512Mi
   limits:
     cpu: 500m
-    memory: 1024Mi
+    memory: 2Gi
 
 persistence:
   enabled: true

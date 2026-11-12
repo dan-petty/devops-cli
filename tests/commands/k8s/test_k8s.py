@@ -1157,6 +1157,22 @@ def test_k8s_workload_resource_limits_and_probes() -> None:
     valkey_res = valkey_dep["spec"]["template"]["spec"]["containers"][0]["resources"]
     assert valkey_res["limits"]["memory"] == "2048Mi"
 
+    # The redis_exporter sidecars use 21m or less, but CFS throttled them in 52 to 69% of
+    # the periods of 7 d at a 100m limit, and a throttled scrape is slow (#4991).
+    devops_valkey_docs = list(
+        yaml.safe_load_all(
+            (REPO_ROOT / "k8s" / "llm" / "valkey-devops.yaml").read_text(encoding="utf-8")
+        )
+    )
+    devops_valkey_dep = next(d for d in devops_valkey_docs if d and d.get("kind") == "Deployment")
+    exporter_cpu_limits = [
+        container["resources"]["limits"]["cpu"]
+        for dep in (valkey_dep, devops_valkey_dep)
+        for container in dep["spec"]["template"]["spec"]["containers"]
+        if container["name"] == "redis-exporter"
+    ]
+    assert exporter_cpu_limits == ["500m", "500m"]
+
     # 3. Tempo: memory limit >= 2048Mi
     tempo_values = yaml.safe_load(
         (REPO_ROOT / "k8s" / "otel" / "tempo-values.yaml").read_text(encoding="utf-8")
@@ -1171,6 +1187,7 @@ def test_k8s_workload_resource_limits_and_probes() -> None:
     assert argo_values["repoServer"]["resources"]["limits"]["memory"] == "4096Mi"
     assert argo_values["server"]["resources"]["limits"]["memory"] == "1024Mi"
     assert argo_values["redis"]["resources"]["limits"]["memory"] == "1024Mi"
+    assert argo_values["redis"]["exporter"]["resources"]["limits"]["cpu"] == "500m"
 
     # 6. Open WebUI values: elevated CPU and memory limits
     webui_values = yaml.safe_load(
@@ -1193,7 +1210,9 @@ def test_k8s_workload_resource_limits_and_probes() -> None:
     assert loki_values["singleBinary"]["resources"]["limits"]["cpu"] == "1000m"
     assert loki_values["singleBinary"]["resources"]["limits"]["memory"] == "2048Mi"
 
-    # 10. K8s monitoring stack values: elevated requests and limits to eliminate OOM kills
+    # 10. K8s monitoring stack values: elevated requests and limits to eliminate OOM kills, and a
+    #     node-exporter CPU limit that does not throttle the scrape. The Alloy limits are 2 times
+    #     the 7 d peak or more (#4991).
     k8s_mon_values = yaml.safe_load(
         (REPO_ROOT / "k8s" / "monitoring" / "k8s-monitoring-values.yaml").read_text(
             encoding="utf-8"
@@ -1202,21 +1221,35 @@ def test_k8s_workload_resource_limits_and_probes() -> None:
     ksm_res = k8s_mon_values["telemetryServices"]["kube-state-metrics"]["resources"]
     node_res = k8s_mon_values["telemetryServices"]["node-exporter"]["resources"]
     alloy_metrics_res = k8s_mon_values["collectors"]["alloy-metrics"]["alloy"]["resources"]
+    alloy_logs_res = k8s_mon_values["collectors"]["alloy-logs"]["alloy"]["resources"]
     assert (
         ksm_res["requests"]["memory"],
         ksm_res["limits"]["memory"],
         node_res["requests"]["memory"],
         node_res["limits"]["memory"],
+        node_res["limits"]["cpu"],
         alloy_metrics_res["requests"]["memory"],
         alloy_metrics_res["limits"]["memory"],
+        alloy_logs_res["limits"]["memory"],
     ) == (
         "64Mi",
         "256Mi",
         "64Mi",
         "256Mi",
+        "500m",
         "256Mi",
-        "1024Mi",
+        "1536Mi",
+        "768Mi",
     )
+
+    # Grafana: its 7 d peak was 1014 MiB of a 1024Mi limit (#4991).
+    grafana_values = yaml.safe_load(
+        (REPO_ROOT / "k8s" / "monitoring" / "grafana-values.yaml").read_text(encoding="utf-8")
+    )
+    assert grafana_values["resources"] == {
+        "requests": {"cpu": "100m", "memory": "512Mi"},
+        "limits": {"cpu": "500m", "memory": "2Gi"},
+    }
 
     # 11. GPU Feature Discovery DaemonSet: Burstable QoS requests and limits
     gfd_docs = list(

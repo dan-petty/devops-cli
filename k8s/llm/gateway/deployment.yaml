@@ -117,13 +117,16 @@ spec:
               mountPath: /tmp
             - name: migrations-volume
               mountPath: /var/lib/litellm/migrations
+          # The working set grows from about 660 to 1330 MiB in 4 days between rollouts, so the
+          # memory limit is 4Gi (#4991). Do not set MAX_REQUESTS_BEFORE_RESTART: with one uvicorn
+          # worker and one replica, every model call fails until the container starts again.
           resources:
             requests:
               cpu: 200m
               memory: 512Mi
             limits:
               cpu: 1000m
-              memory: 2048Mi
+              memory: 4Gi
           # The proxy opens its port only after it has applied the migrations, which take longer
           # on an empty database. This probe holds the other two back for up to ten minutes, so
           # the kubelet does not kill a pod that is still migrating.
