@@ -923,13 +923,15 @@ def test_the_request_holds_no_comment_of_an_account_that_the_jobs_do_not_trust(
 # ── The ADRs ──────────────────────────────────────────────────────────────────
 
 
-def _adr(store: InMemoryRoadmapStore, number: int, title: str, options: str, *notes: str) -> None:
-    """Commit the ADR `number` with `title`, the paragraphs `notes` under the title, and the
-    `options` of its `Considered Options`."""
-    paragraphs = "".join(f"{note}\n\n" for note in notes)
+def _adr(
+    store: InMemoryRoadmapStore, number: int, title: str, options: str, front_matter: str = ""
+) -> None:
+    """Commit the ADR `number` with the YAML `front_matter` (no front matter when it is empty),
+    `title`, and the `options` of its `Considered Options`."""
+    head = f"---\n{front_matter}\n---\n" if front_matter else ""
     store.seed_file(
         f"docs/adr/{number:04d}-decision.md",
-        f"# {title}\n\n{paragraphs}The text.\n\n## Considered Options\n\n{options}\n\n"
+        f"{head}# {title}\n\nThe text.\n\n## Considered Options\n\n{options}\n\n"
         "## Consequences\n\n- None.\n",
     )
 
@@ -937,14 +939,14 @@ def _adr(store: InMemoryRoadmapStore, number: int, title: str, options: str, *no
 def test_the_request_holds_the_titles_status_and_options_of_the_adrs_in_force_newest_first(
     store: InMemoryRoadmapStore, web_key: None
 ) -> None:
-    _adr(store, 6, "Zero decision", "- **Gamma**: chosen.")
+    _adr(store, 6, "Zero decision", "- **Gamma**: chosen.", "amended-by: ['0008']")
     _adr(store, 7, "First decision", "- **Alpha**: chosen.")
     _adr(
         store,
         8,
         "Second decision",
         "- **Beta**: rejected.",
-        "ADR 0008 supersedes [ADR 0007](0007-decision.md). ADR 0008 amends ADR 0006.",
+        "supersedes: ['0007']\namends: ['0006']",
     )
     store.seed_file("docs/adr/README.md", "# Decisions\n")
     _item(store)
@@ -954,10 +956,9 @@ def test_the_request_holds_the_titles_status_and_options_of_the_adrs_in_force_ne
 
     assert _prompt_of(script.seen[0])["decisions"] == "\n\n".join(
         [
-            "ADR 0008: Second decision\n"
-            "ADR 0008 supersedes ADR 0007. ADR 0008 amends ADR 0006.\n"
-            "## Considered Options\n\n- **Beta**: rejected.",
-            "ADR 0006: Zero decision\n## Considered Options\n\n- **Gamma**: chosen.",
+            "ADR 0008: Second decision\n## Considered Options\n\n- **Beta**: rejected.",
+            "ADR 0006: Zero decision\nAmended by ADR 0008.\n"
+            "## Considered Options\n\n- **Gamma**: chosen.",
         ]
     )
 
@@ -1395,9 +1396,9 @@ def _seed_replaced_adr(store: InMemoryRoadmapStore) -> None:
         4,
         "Old engine",
         "- **Temporal**: rejected.",
-        "[ADR 0005](0005-decision.md) supersedes this ADR.",
+        "status: superseded\nsuperseded-by: ['0005']",
     )
-    _adr(store, 5, "New engine", "- **Temporal**: chosen.", "ADR 0005 supersedes ADR 0004.")
+    _adr(store, 5, "New engine", "- **Temporal**: chosen.", "supersedes: ['0004']")
 
 
 @pytest.mark.parametrize(

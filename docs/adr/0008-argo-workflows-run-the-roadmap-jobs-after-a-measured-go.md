@@ -1,6 +1,13 @@
-# Argo Workflows runs the roadmap Service's queued and scheduled work, after a measured go
+---
+status: accepted
+date: 2026-10-23
+decision-makers: [owner]
+issue: 1535
+amended-by: ["0021"]
+body-hash: 635e45fed94e9831b014e4a35032d1b02a2356c4100820d60c208d08bc02e834
+---
 
-Amended on 2026-11-11 by [ADR 0021](0021-the-roadmap-service-is-a-webhook-router-cluster-pods-run-the-roadmap-jobs-and-valkey-holds-their-shared-state.md). The verdict is go. Stage moves first to a plain Job, the child items of tracker #4517 replace steps 2-6, and the controller runs Workflows in namespace `devops` through `--managed-namespace` with `templateReferencing: Strict`.
+# Argo Workflows runs the roadmap Service's queued and scheduled work, after a measured go
 
 The roadmap Service hand-rolls its engine: a worker thread and queue per repository, trigger coalescing, a five-minute tick, a pause until the GraphQL reset and an in-memory delivery cache. Each planned change (#1386, #1533, #1534) would add more queueing, scheduling or locking of the same kind, and a queued trigger does not survive a pod restart. The owner chose Argo Workflows as the engine on 2026-10-09 (#1535): it fits the Argo CD toolset and brings templated mutexes, CronWorkflows, ConfigMap semaphores and retries with no database. It also turns every job into a pod, which costs seconds where a thread costs milliseconds (an estimate, not yet measured) and puts more churn on the API server of a single k3s cluster. Step 1 of #1535 therefore installs the controller and measures both before any job moves onto it, and steps 2-6 are filed only after a go.
 
@@ -37,3 +44,9 @@ The roadmap Service hand-rolls its engine: a worker thread and queue per reposit
 - Nothing in namespace `devops` changes, and `roadmap-service` stays at 0 replicas. A go does not move any job: each of steps 2-6 is its own item and pull request.
 - The controller's resource requests and limits are starting values. The measured CPU and memory are what a later change sizes them from.
 - #1533's ADR records only the scoped updates, since the engine is recorded here.
+
+## Status History
+
+Amended on 2026-11-11 by [ADR 0021](0021-the-roadmap-service-is-a-webhook-router-cluster-pods-run-the-roadmap-jobs-and-valkey-holds-their-shared-state.md). The verdict is go. Stage moves first to a plain Job, the child items of tracker #4517 replace steps 2-6, and the controller runs Workflows in namespace `devops` through `--managed-namespace` with `templateReferencing: Strict`.
+
+2026-11-12: Fact out of date: the pins and the replicas. `k8s/argocd/apps/argo-workflows.yaml` and `k8s/argo-workflows/values.yaml` hold them, and the owner recorded go on #1535 (#5225).

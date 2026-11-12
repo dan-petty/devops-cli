@@ -1,3 +1,10 @@
+---
+status: accepted
+date: 2026-10-08
+decision-makers: [owner]
+body-hash: 4f754580a2fed845288d1c3ae9a33391bcdf297b0e3a61e92d1ed984b399f37d
+---
+
 # Review findings come from tools and checked facts; models explain and plan
 
 `devops review` asked a model to find defects page by page, and a second model call to verify them. On a fixed input the result was a sample, not a measurement. Ten `--no-cache` runs of release/v0.2.25 at e3ff98c (S12–S21) reported 28–57 findings each and 154 distinct findings in all. Two runs agreed on persona findings with a mean Jaccard of 0.131. One run found 38% of the nine known valid defects. None of the 94 VERIFIED rows and none of the 50 HIGH or CRITICAL rows was strictly valid. A file that does not exist, `app/shell.py:4`, was VERIFIED and ranked first in all eleven runs, S11 included. The model called Python 3.14's unparenthesized `except A, B:` a syntax error 22 times, and the verifier confirmed it 3 times. The scanner candidates were identical in every run, and every strictly valid row was a kube-linter result. The model verifier refuted all 90 read-only-root-filesystem results; 49 were kept only because a guard blocked those refutations. Voting over five runs raised lenient precision only from 17.4% to 25.2%, at five times the calls. Each failure had been answered with another guard or catalog entry: the catalog holds 53 hand-kept entries, and `verification.py` changed in 20 commits in one month.

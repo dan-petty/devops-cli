@@ -1,19 +1,15 @@
+---
+status: accepted
+date: 2026-11-11
+decision-makers: [owner]
+issue: 4884
+amends: ["0012", "0023"]
+body-hash: 3b9e0fdb9df4c5161b4bf2214aaee6b3bb297212b11081379c2d6f09d7205636
+---
+
 # Generated documents stay in git, and the project brain cites them
 
-This record amends ADR 0023 and ADR 0012.
-
-Amended on 2026-11-12 ([#5163](https://github.com/dan-petty/devops-cli/issues/5163)): the owner approved the held row of #4880. The command matrix moved from `README.md` into `docs/CLI_REFERENCE.md`, which is now a short generated index of the command group pages. `README.md` holds no generated block and links the index. `devops docs generate` regenerates the documents, and the option `--sync-readme` is deleted.
-
 The rigid-rules decision Q12 of 2026-10-22 said to stop committing the generated reference documents. On 2026-11-11 the owner reversed it: "keep reference docs, but update design to accomodate project brain and keeps all content up to date". ADR 0023 does not name a document as a source of the brain. It gives no citation form for a document and no cap for issues about document drift. This record sets them, so that no agent follows Q12 again. Tracker #4880 holds the items that build it.
-
-## Status
-
-The merge of the pull request that adds this record is the approval of this record. `git log --follow -- docs/adr/0025-generated-documents-stay-in-git-and-the-project-brain-cites-them.md` names the merge commit.
-
-- **ADR 0023.** Its note at the top names this record. Section 2 of this record adds the documents to the sources of the brain, as class C of ADR 0023 section 3. Section 3 of this record adds a lane for document drift, apart from the 2 insight proposals a week of ADR 0023.
-- **ADR 0012.** ADR 0013 supersedes ADR 0012, and #4656 replaced its Pages item. The rest of decision 12 named an item that builds the reference pages at publish. That item does not come. Its note at the top names this record.
-- **ADR 0014** stays as it is. The pre-push hook runs the fast static checks only, and no generator.
-- **Q12** of 2026-10-22 does not apply to the generated documents.
 
 ## Context
 
@@ -91,3 +87,18 @@ ADR 0014 stays. The generator runs in the pull request that changes its source, 
 - A pull request that changes a command, an option, a setting, an error or a metric also changes its generated page. A conflict on a generated page goes away when the author runs the generator again after the rebase.
 - The items of tracker #4880 build sections 1 to 4. Each item puts its spec delta in a nested capability `openspec/specs/project-brain/<area>/spec.md`, as ADR 0023 sets.
 - The brain gets no key for document drift. Each run of `devops docs drift` reads the documents again.
+
+## Status History
+
+This record amends ADR 0023 and ADR 0012.
+
+Amended on 2026-11-12 ([#5163](https://github.com/dan-petty/devops-cli/issues/5163)): the owner approved the held row of #4880. The command matrix moved from `README.md` into `docs/CLI_REFERENCE.md`, which is now a short generated index of the command group pages. `README.md` holds no generated block and links the index. `devops docs generate` regenerates the documents, and the option `--sync-readme` is deleted.
+
+The merge of the pull request that adds this record is the approval of this record. `git log --follow -- docs/adr/0025-generated-documents-stay-in-git-and-the-project-brain-cites-them.md` names the merge commit.
+
+- **ADR 0023.** Its note at the top names this record. Section 2 of this record adds the documents to the sources of the brain, as class C of ADR 0023 section 3. Section 3 of this record adds a lane for document drift, apart from the 2 insight proposals a week of ADR 0023.
+- **ADR 0012.** ADR 0013 supersedes ADR 0012, and #4656 replaced its Pages item. The rest of decision 12 named an item that builds the reference pages at publish. That item does not come. Its note at the top names this record.
+- **ADR 0014** stays as it is. The pre-push hook runs the fast static checks only, and no generator.
+- **Q12** of 2026-10-22 does not apply to the generated documents.
+
+2026-11-12: Fact out of date: the Pages workflow builds the site with Zensical from `docs/` and the root documents (#5183).

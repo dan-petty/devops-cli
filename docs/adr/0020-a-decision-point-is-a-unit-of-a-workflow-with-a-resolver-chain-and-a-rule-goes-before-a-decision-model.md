@@ -1,16 +1,16 @@
+---
+status: accepted
+date: 2026-11-10
+decision-makers: [owner]
+issue: 4396
+amends: ["0019"]
+amended-by: ["0023"]
+body-hash: 8448c3e90b619809132b5657ac9e85c23633fa0b6e70a30e2a1e14da0c0d2b0d
+---
+
 # A decision point is a unit of a workflow with a resolver chain, and a rule goes before a decision model
 
-Amended on 2026-11-11 by [ADR 0023](0023-the-project-brain-is-a-derived-index-in-two-cache-tiers-and-two-scheduled-runs-keep-it.md). Its section 7 adds three points to the catalogue, in `shadow` only.
-
 TypeSafe Jev (`typesafe/jev-1.14`) is a System One decision model. ADR 0019 says how a step uses it: short closed questions about evidence that tools extract. The pilots that followed put Jev on top of steps that a generation model still runs. This record changes the unit of design. A workflow has named **decision points**. A point has a resolver chain: a deterministic rule first, a decision model second and the current behavior of the generation workflow last. This record builds no code. The registry and the first point on it are the next two items.
-
-## Status
-
-The merge of the pull request that adds this record is the approval of this record. `git log --follow -- docs/adr/0020-a-decision-point-is-a-unit-of-a-workflow-with-a-resolver-chain-and-a-rule-goes-before-a-decision-model.md` names the merge commit.
-
-This record **amends ADR 0019** in three places and no other. The seven rules of ADR 0019 stay in force. (1) The table of ranked decision points and the section of the pilots in ADR 0019 are replaced by the catalogue below. (2) Rule 6 of ADR 0019 says that a switch is off by default. This record says where the switch is: the mode of the point in `roadmap.decisions`, and the setting `ai.decision_model` that names the model. (3) The text of pilot 2 in ADR 0019 is replaced by its measured result (see the catalogue).
-
-The pull request of #4792 amends the catalogue on 2026-11-12. It adds the point `resolve.question_class` of the row `resolve` (ADR 0021 section 8), in `shadow` only. The merge of that pull request is the approval of the point.
 
 ## Context
 
@@ -234,3 +234,13 @@ Each step is its own item and its own pull request. Each moves one pilot onto th
 - A point whose rule meets the bar has no model and costs no request.
 - The shadow records are the data of the next fit. A point cannot be turned on without them.
 - A point that does not meet its bar stays in `shadow` or `off`, and the record says why. This record does not promise a saving.
+
+## Status History
+
+Amended on 2026-11-11 by [ADR 0023](0023-the-project-brain-is-a-derived-index-in-two-cache-tiers-and-two-scheduled-runs-keep-it.md). Its section 7 adds three points to the catalogue, in `shadow` only.
+
+The merge of the pull request that adds this record is the approval of this record. `git log --follow -- docs/adr/0020-a-decision-point-is-a-unit-of-a-workflow-with-a-resolver-chain-and-a-rule-goes-before-a-decision-model.md` names the merge commit.
+
+This record **amends ADR 0019** in three places and no other. The seven rules of ADR 0019 stay in force. (1) The table of ranked decision points and the section of the pilots in ADR 0019 are replaced by the catalogue below. (2) Rule 6 of ADR 0019 says that a switch is off by default. This record says where the switch is: the mode of the point in `roadmap.decisions`, and the setting `ai.decision_model` that names the model. (3) The text of pilot 2 in ADR 0019 is replaced by its measured result (see the catalogue).
+
+The pull request of #4792 amends the catalogue on 2026-11-12. It adds the point `resolve.question_class` of the row `resolve` (ADR 0021 section 8), in `shadow` only. The merge of that pull request is the approval of the point.

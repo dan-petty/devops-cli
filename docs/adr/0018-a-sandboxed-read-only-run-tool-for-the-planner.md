@@ -1,10 +1,14 @@
+---
+status: accepted
+date: 2026-11-07
+decision-makers: [owner]
+issue: 3242
+body-hash: 7cf478ed6e7473a8ab956143f8d2bd167632bf0d19c8e2a4dce3647b82dee910
+---
+
 # A sandboxed read-only run tool for the planner
 
 The planner reads files and runs no command, so a plan can rest on a premise that only a run shows. In the first five plan fixes, 8 of 48 findings rest on such a premise. One of them is a command that looked read-only and removed a key from the config file (#3218). So the planner gets a run tool. A run tool is a risk: a command that writes, a credential that it prints, a path that it reaches, a connection that it opens and a process that it leaves behind are the five ways that a run does harm. This record decides the tool, the commands that it runs, the controls that hold a run, the place of a run, the output of a run and the input of #2695.
-
-## Status
-
-The merge of the pull request that adds this record is the approval of this record. The record holds no approving person, no comment URL and no SHA: a file cannot hold the SHA of the merge that adds it. `git log --follow -- docs/adr/0018-a-sandboxed-read-only-run-tool-for-the-planner.md` names that merge commit on the default branch, and the merge commit is the record of the approval. A person asks for a change in the review of that pull request, and a merge follows a review that approves. The follow-up issues of this record are filed only after that merge, so no agent builds the tool before the approval.
 
 ## Decision
 
@@ -117,3 +121,7 @@ Four issues build the tool. Each one names this record and lists #3242 as a depe
 - The admission policy of the Service grows by the rows of the run Job, and its gate check grows with them. A run Job that a person does not pin is refused.
 - `SECURITY.md` rule 6 stays true until the follow-up ships, because this record changes no behavior. #2695 owns the edit of that rule and the measurement of `kubernetes-sigs/agent-sandbox`.
 - The boundary is the container of the pod, so a defect of the kernel of the host stays a risk that the seven controls do not close. The owner took that risk on 2026-10-30, and a gVisor RuntimeClass or the agent-sandbox controller can close it later without a change of the tool.
+
+## Status History
+
+The merge of the pull request that adds this record is the approval of this record. The record holds no approving person, no comment URL and no SHA: a file cannot hold the SHA of the merge that adds it. `git log --follow -- docs/adr/0018-a-sandboxed-read-only-run-tool-for-the-planner.md` names that merge commit on the default branch, and the merge commit is the record of the approval. A person asks for a change in the review of that pull request, and a merge follows a review that approves. The follow-up issues of this record are filed only after that merge, so no agent builds the tool before the approval.

@@ -1,6 +1,13 @@
-# One webhook router verifies each sender its own way and delivers each event to the consumers subscribed to it
+---
+status: accepted
+date: 2026-10-23
+decision-makers: [owner]
+issue: 1386
+amended-by: ["0021"]
+body-hash: b8a57b570ef2222d0f156b1c0bf4a859cf8d9955a5d3a4e691dff82657bad338
+---
 
-Amended on 2026-11-11 by [ADR 0021](0021-the-roadmap-service-is-a-webhook-router-cluster-pods-run-the-roadmap-jobs-and-valkey-holds-their-shared-state.md). The delivery target of the roadmap consumer creates a unit of work or sets a due mark, and the router records a delivery id only after the create succeeds or gets 409. The Mattermost provider goes away.
+# One webhook router verifies each sender its own way and delivers each event to the consumers subscribed to it
 
 The roadmap Service had one webhook route, built for one sender and one consumer. It checked GitHub's signature, read the payload with `.get` chains, and put every accepted delivery into a round of both lanes, though no job is due on a `push`, an `issue_comment` or a `create` (#1361 measured 940 webhook triggers in one hour). It wrote no record of what arrived, and its counter could not tell deliveries apart. Planned items need more senders (#1387, #1395) and a second consumer of GitHub's events (#1389). #1386 builds one receiver they extend instead of each adding a route.
 
@@ -32,3 +39,9 @@ The roadmap Service had one webhook route, built for one sender and one consumer
 - The ping and an event with no subscriber are answered after the signature and the payload check, as before, so only a sender with the repository's secret gets any answer but 401.
 - A consumer given to `create_service_app(consumers=...)` replaces the roadmap consumer, which tests use to record deliveries without patching a name.
 - The setup step in `k8s/README.md` says that events without a subscriber start no round. `replicas: 0` for `roadmap-service` is unchanged, and the live checks (a redelivered `issues` and `issue_comment` delivery in Loki and in the counter) wait for the Service to run again.
+
+## Status History
+
+Amended on 2026-11-11 by [ADR 0021](0021-the-roadmap-service-is-a-webhook-router-cluster-pods-run-the-roadmap-jobs-and-valkey-holds-their-shared-state.md). The delivery target of the roadmap consumer creates a unit of work or sets a due mark, and the router records a delivery id only after the create succeeds or gets 409. The Mattermost provider goes away.
+
+2026-11-12: Fact out of date: the roadmap consumer takes only `issues` events since #1952, and `roadmap-service` runs 1 replica, not 0 (#5225).

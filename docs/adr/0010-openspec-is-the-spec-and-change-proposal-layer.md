@@ -1,3 +1,12 @@
+---
+status: accepted
+date: 2026-10-23
+decision-makers: [owner]
+issue: 1753
+amended-by: ["0012"]
+body-hash: 18b15b3111b263b31fef5d3e30e1a4ce7db30cea6c1177da9cca928739fd45d9
+---
+
 # OpenSpec is the spec and change-proposal layer
 
 Issue #1753 asked whether OpenSpec ([Fission-AI/OpenSpec](https://github.com/Fission-AI/OpenSpec)), a Node tool that records a change as a proposal, spec deltas, a design and tasks and archives it into a living specification, should replace the per-item task file as the record of how a change is specified and planned. The owner decided on 2026-10-22 that it does, so that project planning is consistent across agent workflows: Claude Code, Gemini CLI and Copilot read one set of planning conventions, `openspec/config.yaml`, through one command, `openspec instructions`, and every item is planned as the same artifacts in `openspec/changes/<issue>-<slug>/`. The in-cluster roadmap jobs join that source only in the last two steps of the sequence; until then the refine job keeps its own prompt and reply schema. The project's ways of working change to fit the tool, not the reverse: AGENTS.md, the readiness check, the closing comment, the docs inventory and the tests are rewritten, the task files and the code and tests that read them are deleted, and nothing supports both systems. The tool's defects (a shared spec file that conflicts, a placeholder Purpose, silent last-write-wins between two changes, telemetry on by default, a per-user profile, generated skills that stop after planning) are met with the design decisions below, each tried against OpenSpec 1.14.3 (published 2026-10-17) in scratch repositories on 2026-10-22. The cost of rewriting our own enforcement is not a reason to keep it; Consequences lists it.

@@ -1,8 +1,14 @@
+---
+status: accepted
+date: 2026-10-28
+decision-makers: [owner]
+issue: 1533
+supersedes: ["0003"]
+amended-by: ["0021"]
+body-hash: 8c7a24bdfbf2da0dc4ffabe640a5adad08e95b50a4100236a7016ca7daa6cba1
+---
+
 # Each subscribed webhook event runs the update scoped to it, and the poll reconciles
-
-Amended on 2026-11-11 by [ADR 0021](0021-the-roadmap-service-is-a-webhook-router-cluster-pods-run-the-roadmap-jobs-and-valkey-holds-their-shared-state.md). A scoped update runs in a pod of its own under the intake mutex of its repository, and intake is also due when a new issue opens. Until then, scoped intake runs on the triage lane, not on the model lane that this record names, and the live ConfigMap sets the poll to 300 seconds (151 is the default).
-
-This ADR supersedes the webhook clause of [ADR 0003](0003-polling-is-how-the-roadmap-sees-changes.md), "webhooks only cut latency". The poll of ADR 0003 stays.
 
 Before this decision, each delivery that the roadmap consumer of [ADR 0009](0009-one-webhook-router-delivers-each-event-to-the-consumers-subscribed-to-it.md) accepted made a whole round of every due job of the repository. An opened issue waited for that round, and paid for it. No roadmap code could run the update of one event alone. [ADR 0016](0016-labels-hold-the-roadmap-items-fields.md) moved the fields of an Item into labels, so a change of a field is now an issue event that the repository webhook sends. GitHub still never sends a failed delivery again, so the poll stays.
 
@@ -34,3 +40,11 @@ On 2026-10-09 the owner decided that each subscribed event runs, at once, the up
 - A delivery of `issues` `edited` about an issue that is already an Item decides nothing.
 - Intake's interval of 29 minutes stays for the candidates that no delivery names.
 - The delivery target of ADR 0009 stays the one seam between the router and the jobs. A move of the delivery to another engine changes only that target.
+
+## Status History
+
+Amended on 2026-11-11 by [ADR 0021](0021-the-roadmap-service-is-a-webhook-router-cluster-pods-run-the-roadmap-jobs-and-valkey-holds-their-shared-state.md). A scoped update runs in a pod of its own under the intake mutex of its repository, and intake is also due when a new issue opens. Until then, scoped intake runs on the triage lane, not on the model lane that this record names, and the live ConfigMap sets the poll to 300 seconds (151 is the default).
+
+This ADR supersedes the webhook clause of [ADR 0003](0003-polling-is-how-the-roadmap-sees-changes.md), "webhooks only cut latency". The poll of ADR 0003 stays.
+
+2026-11-12: Fact out of date: scoped intake runs on the triage lane, and the live poll runs every 300 seconds; `openspec/specs/roadmap-scoped-updates/spec.md` holds the rows (#5225).

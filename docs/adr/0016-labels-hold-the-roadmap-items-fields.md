@@ -1,6 +1,13 @@
-# Labels hold the roadmap Item's fields, and no roadmap job reads or writes a project board
+---
+status: accepted
+date: 2026-10-28
+decision-makers: [owner]
+issue: 2399
+amends: ["0001", "0002", "0003"]
+body-hash: 636447a5addbe8b9201ded32c384431b0e76b382fc435a5aa961c38f95aaab61
+---
 
-This ADR amends [ADR 0001](0001-github-is-the-roadmap-source.md), [ADR 0002](0002-roadmap-jobs-act-as-a-machine-account.md) and [ADR 0003](0003-polling-is-how-the-roadmap-sees-changes.md).
+# Labels hold the roadmap Item's fields, and no roadmap job reads or writes a project board
 
 The roadmap Service acts as a GitHub App that the personal account `dan-petty` owns ([ADR 0015](0015-roadmap-jobs-act-as-a-github-app-on-the-personal-account.md), [#1647](https://github.com/dan-petty/devops-cli/issues/1647)). GitHub gives an App the "Projects" permission only at organization level. So the App cannot read or write a project board that a user owns. Before this decision, each roadmap job needed the board: an Item was an issue with a card, and the card's fields held Status, Priority, Value and Effort. The board's TEXT field `Job record` held the job record, and `.github/roadmap.toml` named the board.
 
@@ -36,3 +43,7 @@ On 2026-10-28 the owner decided that labels and milestones hold an Item's state,
 - `devops pr check-readiness` blocks a pull request whose one issue holds no `priority/*` label.
 - The open issues of each managed repository get their labels from their board values once. A person runs that migration.
 - The age metrics of the roadmap Service (#2919) read the label events of an open Item. The rejected option above named that read as a cost for each Item. The metrics row reads an Item again only when its status or owner label changes. The first round after a start reads each open Item with a status. Later rounds read only the Items that changed.
+
+## Status History
+
+This ADR amends [ADR 0001](0001-github-is-the-roadmap-source.md), [ADR 0002](0002-roadmap-jobs-act-as-a-machine-account.md) and [ADR 0003](0003-polling-is-how-the-roadmap-sees-changes.md).

@@ -189,6 +189,10 @@
   color: "DCDCD6"
   description: "The design spec, its tokens and their build"
 
+- name: "scope/adr"
+  color: "DCDCD6"
+  description: "The architecture decision records and their rules"
+
 # ── Release Labels ──────────────────────────────────────────────────────────
 - name: "autorelease: pending"
   color: "DCDCD6"

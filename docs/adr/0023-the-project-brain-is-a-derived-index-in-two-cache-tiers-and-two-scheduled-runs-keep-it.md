@@ -1,21 +1,17 @@
+---
+status: accepted
+date: 2026-11-11
+decision-makers: [owner]
+issue: 4625
+tracker: 4624
+amends: ["0020", "0021", "0022"]
+amended-by: ["0025"]
+body-hash: 5813f875663094d27ebdd5ee30e3cb8e6398a344852204fd325564628d8967cd
+---
+
 # The project brain is a derived index in two cache tiers, and two scheduled runs keep it
 
-Amended on 2026-11-12 by [ADR 0025](0025-generated-documents-stay-in-git-and-the-project-brain-cites-them.md).
-
-This record amends ADR 0020, ADR 0021 and ADR 0022, and it changes the scope that #2648 set. The Status section gives each change.
-
 The alternatives check judges one item at a time. It does not see the tools that the project uses, the verdicts of near items or the ADRs that changed after its verdict. The project brain is an index of what the checks found, with caches of the GitHub answers and tool facts that they read. This record sets the tiers and the data classes, with the durable copy of each class. It also sets the two runs that keep the index, the canonical tool id and three decision points. Tracker #4624 holds the items that build it.
-
-## Status
-
-The merge of the pull request that adds this record is the approval of this record. `git log --follow -- docs/adr/0023-the-project-brain-is-a-derived-index-in-two-cache-tiers-and-two-scheduled-runs-keep-it.md` names the merge commit.
-
-- **ADR 0021.** The unit table gets two rows, `brain-daily` and `brain-weekly`, in the form of the metrics row. The engine parts name their CronWorkflows. A CronWorkflow is not a unit, so the rule "Only the router and the sweep create units" stays as it is.
-- **ADR 0022.** Section 2 gets the row `brain`.
-- **ADR 0020.** The catalogue gets the three points of section 7. They are in this record, in the form of the catalogue.
-- **#2648** (closed 2026-10-29) kept the alternatives check to one item, and called a check across items a different question. Section 1 changes that scope: the check of one item reads project context. The check of one item stays.
-
-ADR 0001, ADR 0016 and the rules of ADR 0021 section 3 stay as they are. GitHub stays the source of truth.
 
 ## Context
 
@@ -139,3 +135,20 @@ Each point follows ADR 0020 and rules 4, 6 and 7 of ADR 0019. Each starts in `sh
 - #3670 makes the scoped intake and the intake of the Service read through the listing snapshot. That removes about 25,000 of the 27,138 requests a day.
 - The counter of ADR 0020 section 7 has at most 84 series with the three points.
 - A loss of `valkey-roadmap` costs a rebuild by repair, not a decision. While the index marker is missing, each check uses the empty digest.
+
+## Status History
+
+Amended on 2026-11-12 by [ADR 0025](0025-generated-documents-stay-in-git-and-the-project-brain-cites-them.md).
+
+This record amends ADR 0020, ADR 0021 and ADR 0022, and it changes the scope that #2648 set. The Status section gives each change.
+
+The merge of the pull request that adds this record is the approval of this record. `git log --follow -- docs/adr/0023-the-project-brain-is-a-derived-index-in-two-cache-tiers-and-two-scheduled-runs-keep-it.md` names the merge commit.
+
+- **ADR 0021.** The unit table gets two rows, `brain-daily` and `brain-weekly`, in the form of the metrics row. The engine parts name their CronWorkflows. A CronWorkflow is not a unit, so the rule "Only the router and the sweep create units" stays as it is.
+- **ADR 0022.** Section 2 gets the row `brain`.
+- **ADR 0020.** The catalogue gets the three points of section 7. They are in this record, in the form of the catalogue.
+- **#2648** (closed 2026-10-29) kept the alternatives check to one item, and called a check across items a different question. Section 1 changes that scope: the check of one item reads project context. The check of one item stays.
+
+ADR 0001, ADR 0016 and the rules of ADR 0021 section 3 stay as they are. GitHub stays the source of truth.
+
+2026-11-12: Living detail moved to tracker #4624: the items that build this record and their state (#5225).

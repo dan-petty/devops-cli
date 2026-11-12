@@ -1,18 +1,15 @@
+---
+status: accepted
+date: 2026-11-11
+decision-makers: [owner]
+issue: 4533
+amended-by: ["0023"]
+body-hash: 2522b325351f8369fcd3842d9cd4489d7b5278c26ceaf14a87a9a939599b8f86
+---
+
 # One repository reference names the objects, labels and keys of each repository
 
-Amended on 2026-11-11 by [ADR 0023](0023-the-project-brain-is-a-derived-index-in-two-cache-tiers-and-two-scheduled-runs-keep-it.md). Section 2 gets the row `brain`.
-
 The roadmap Service works on 7 repositories of 1 owner. The move of its work to Kubernetes Jobs, Argo Workflows and Valkey (#4517) adds Jobs, Workflows, locks, Valkey keys, labels and telemetry values for each repository. This record gives one rule for each name, label, annotation, key and telemetry value that holds a repository. One value type, `RepoRef` in `src/devops_cli/github/repo_ref.py`, builds them.
-
-## Status
-
-The merge of the pull request that adds this record is the approval of this record. `git log --follow -- docs/adr/0022-one-repository-reference-names-the-objects-labels-and-keys-of-each-repository.md` names the merge commit.
-
-This record supersedes no record and amends no record. The record of the move of the Service work (#4527) uses the names, labels and keys of this record.
-
-The pull request of #4792 amends section 2 on 2026-11-12. It adds the rows `resolve`, `group`, `split`, `watch`, `fix-checks` and `fix-conflict` of ADR 0021 section 8, and the rule for the length of a row name. The merge of that pull request is the approval of the amendment.
-
-The pull request of #5061 amends section 2 on 2026-11-12. It adds the row `fix-plan` of ADR 0021 section 8. The merge of that pull request is the approval of the amendment.
 
 ## Context
 
@@ -146,3 +143,17 @@ The sweep deletes the data of a repository that `service.repos` has not named fo
 - A configured spelling with capital letters changes its metric series one time, when the metrics use `key`. No alert or panel pins a `repo` value.
 - The settings refuse a bad `service.repos` before any job starts.
 - No new runtime dependency.
+
+## Status History
+
+Amended on 2026-11-11 by [ADR 0023](0023-the-project-brain-is-a-derived-index-in-two-cache-tiers-and-two-scheduled-runs-keep-it.md). Section 2 gets the row `brain`.
+
+The merge of the pull request that adds this record is the approval of this record. `git log --follow -- docs/adr/0022-one-repository-reference-names-the-objects-labels-and-keys-of-each-repository.md` names the merge commit.
+
+This record supersedes no record and amends no record. The record of the move of the Service work (#4527) uses the names, labels and keys of this record.
+
+The pull request of #4792 amends section 2 on 2026-11-12. It adds the rows `resolve`, `group`, `split`, `watch`, `fix-checks` and `fix-conflict` of ADR 0021 section 8, and the rule for the length of a row name. The merge of that pull request is the approval of the amendment.
+
+The pull request of #5061 amends section 2 on 2026-11-12. It adds the row `fix-plan` of ADR 0021 section 8. The merge of that pull request is the approval of the amendment.
+
+2026-11-12: Fact out of date: the record of the move of the Service work is [ADR 0021](0021-the-roadmap-service-is-a-webhook-router-cluster-pods-run-the-roadmap-jobs-and-valkey-holds-their-shared-state.md) (#4617).

@@ -1,3 +1,10 @@
+---
+status: accepted
+date: 2026-10-20
+decision-makers: [owner]
+body-hash: 82c1e009ed450f313e0dbd10122d67ae9fcc438afd9269cece16a3a3c43c57bc
+---
+
 # Tests double only process edges, through seams
 
 Tests replace only what devops-cli reaches beyond its own process: other machines, long-lived daemons, any program, the keyring and the wall clock. Everything inside the process runs for real, and no test patches a devops-cli module, function or private name. Each edge has one seam in the source tree that supplies its real implementation, and a test installs an in-memory fake through that seam. On 2026-10-07 the suite held 3,655 patch sites, 2,770 of them aimed at devops-cli internals, and 937 imports of private names. Refactors that kept behaviour still broke tests, and product code had grown branches that detect mocks or reshape modules so tests can patch them. The roadmap package showed the alternative already works: about 470 tests over an in-memory store and an injected `runner=` need about 68 patches.
@@ -29,3 +36,7 @@ This decision removes the following earlier allowances:
 - `@pytest.mark.live` for live local tools.
 
 Real child processes stay only in the contract suite of the process runner (`tests/test_process_contract.py` and the process-group tests of `core/process.py`). Every other real tool goes to a contract suite that replays recorded transcripts or to a `devops ci` row. Checks of committed files and tool configuration belong in `devops ci`. The bwrap suite is an opt-in contract suite that the `bwrap` row of `devops ci` runs where the host can make the sandbox, as in the devcontainer. A test must not skip based on host state.
+
+## Status History
+
+2026-11-12: Amended by #5110 in place, section Amendment: the `bwrap` row of `devops ci` runs the bwrap suite (#4715).

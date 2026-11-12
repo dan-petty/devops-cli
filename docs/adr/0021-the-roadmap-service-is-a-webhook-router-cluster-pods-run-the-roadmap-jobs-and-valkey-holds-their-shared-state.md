@@ -1,42 +1,18 @@
+---
+status: accepted
+date: 2026-11-11
+decision-makers: [owner]
+issue: 4527
+tracker: 4517
+supersedes: ["0003"]
+amends: ["0008", "0009", "0017"]
+amended-by: ["0023"]
+body-hash: 3ee9ca4d8be1fb10a4ba43f6c48700a43bac3fbff50512e98c783f8cf7e17231
+---
+
 # The roadmap Service is a webhook router, cluster pods run the roadmap jobs, and Valkey holds their shared state
 
-Amended on 2026-11-11 by [ADR 0023](0023-the-project-brain-is-a-derived-index-in-two-cache-tiers-and-two-scheduled-runs-keep-it.md). The unit table gets the rows `brain-daily` and `brain-weekly`. A CronWorkflow is not a unit, so the rule that only the router and the sweep create units stays.
-
-This record amends ADR 0003, ADR 0008, ADR 0009 and ADR 0017. The Status section gives each change.
-
 The roadmap Service runs every roadmap job in one pod. About 19 releases and ConfigMap edits a day restart that pod. Each restart stops the rounds that run in it, and a stage round runs for 21 minutes at the median. This record moves each job out of the Service pod into a pod of its own on Argo Workflows, and it moves the state that the jobs share into Valkey. The Service keeps only the webhook router.
-
-## Status
-
-The merge of the pull request that adds this record is the approval of this record. `git log --follow -- docs/adr/0021-the-roadmap-service-is-a-webhook-router-cluster-pods-run-the-roadmap-jobs-and-valkey-holds-their-shared-state.md` names the merge commit.
-
-The pull request of #4792 amends this record on 2026-11-12. It adds section 8 and six rows: `resolve`, `group` and `split` of tracker #4780, and `watch`, `fix-checks` and `fix-conflict` of tracker #5014. It adds the semaphore `steward`, and it corrects the facts about Argo Events. The merge of that pull request is the approval of the six rows and of the semaphore.
-
-The pull request of #5056 amends rule 5 of section 8 on 2026-11-12. Only the five new rows start in mode `plan`. The row `watch` starts in mode `on`, because it replaces the live rows `stage_ready` and `pr_conflicts`. Until a fix row is in mode `on`, `watch` also routes the verdict for that row as for a pull request of a person.
-
-The pull request of #5061 amends this record on 2026-11-12. It adds the row `fix-plan` of tracker #5014 to section 2 and section 8. The merge of that pull request is the approval of the row.
-
-The verdict of ADR 0008 is go. The owner recorded "warm p95 11 s - go" on [#1535](https://github.com/dan-petty/devops-cli/issues/1535#issuecomment-6787508710) on 2026-11-11, after the [measurement](https://github.com/dan-petty/devops-cli/issues/1535#issuecomment-6787453030) of the same day:
-
-| Measure | Value | Limit of ADR 0008 |
-| :--- | :--- | :--- |
-| Warm p95, from creation to Succeeded | 11 s | at most 30 s |
-| Cold run, image pull included | 54 s | reported apart |
-| Burst p95, 20 Workflows at one time | 24 s | not used |
-| New 429 or 5xx answers of the API server in the burst | 0 | must be 0 |
-| Failed submissions | 0 of 40 | not used |
-| API-server requests for each Workflow | 56 (burst) to 78 (sequential) | not used |
-
-So the engine is Argo Workflows, and this record has no plan for a no-go. It amends four records:
-
-- **ADR 0008.** (1) Stage moves to a plain Kubernetes Job on the path of #2667 before the engine step, as implement did. The engine step then moves stage to a WorkflowTemplate. (2) The child items of tracker #4517 replace steps 2-6 of #1535. (3) Workflows run in namespace `devops`. The controller runs with `--namespaced --managed-namespace devops` and gets a Role in `devops`. This is a third option beside the two of "One namespace watched": it needs no ClusterRole and no copy of Secret `devops-cli`. (4) The controller sets `workflowRestrictions.templateReferencing: Strict`.
-- **ADR 0003.** The poll becomes the sweep: a cluster schedule every 5 minutes, not a timer in the Service. The intervals of the rows round up to 5-minute ticks. The sweep stays the source of truth. A short row asks GitHub to redeliver each delivery that failed (#4560). This row cuts the delay of a delivery that a rollout lost, and it is not a second source of truth. The consequence about "both of a repository's lanes" no longer applies, because no lane stays.
-- **ADR 0009.** The delivery target of the roadmap consumer creates a unit of work or sets a due mark. It does not put a trigger on a lane. The router records a delivery id only after the create succeeds or gets 409. The stateless router step (#4575) deletes the Mattermost provider and its `/roadmap` command: the owner decided this on 2026-11-11, after 0 uses in 7 days. Each other rule of ADR 0009 stays.
-- **ADR 0017.** A scoped update runs in a pod of its own under the intake mutex of its repository, not on a lane. Intake is also due when a new issue opens (#4540), so a lost scoped update waits at most one sweep. The table and the lane rule of ADR 0017 name the model lane for scoped intake, but the code uses the triage lane (`SCOPED_UPDATES` in `src/devops_cli/roadmap/run.py`). The poll rule of ADR 0017 gives 151 seconds. That is the default of `service.poll_interval_seconds`, and the live ConfigMap sets 300 seconds. This record corrects those three places, and the text of ADR 0017 stays as it was. Each other rule of ADR 0017 stays: a scoped update writes no last success, and it records what it decided.
-
-ADR 0001, ADR 0015 and ADR 0016 stay as they are. GitHub stays the source of truth.
-
-The naming record of #4533 owns the object names, the labels, the Valkey key forms, the mutex names and the service names that this record uses. Until that record merges, tracker #4517 holds those rules. The pull request that merges second adds the link between the two records.
 
 ## Context
 
@@ -307,3 +283,41 @@ Look at Argo Events again when one of these conditions occurs:
 - The items that add the passwords of `valkey-roadmap` register them as generated credentials. After each such item merges, a person runs `devops k8s push-secrets --plan` and then `devops k8s push-secrets`. A person clears an identity halt with a command in the router pod.
 - The Valkey fake gets a contract suite and the `lua` extra of fakeredis (#4557) before the first step that uses a lock or a window, because the fake refuses `EVAL` today.
 - The engine step changes CronWorkflow `rag-ingest` to `schedules`, because the controller watches `devops` from that step on. It also adds a kustomize fieldSpec for the image of a WorkflowTemplate, because without it the image override of Image Updater does not reach a template.
+
+## Status History
+
+Amended on 2026-11-11 by [ADR 0023](0023-the-project-brain-is-a-derived-index-in-two-cache-tiers-and-two-scheduled-runs-keep-it.md). The unit table gets the rows `brain-daily` and `brain-weekly`. A CronWorkflow is not a unit, so the rule that only the router and the sweep create units stays.
+
+This record amends ADR 0003, ADR 0008, ADR 0009 and ADR 0017. The Status section gives each change.
+
+The merge of the pull request that adds this record is the approval of this record. `git log --follow -- docs/adr/0021-the-roadmap-service-is-a-webhook-router-cluster-pods-run-the-roadmap-jobs-and-valkey-holds-their-shared-state.md` names the merge commit.
+
+The pull request of #4792 amends this record on 2026-11-12. It adds section 8 and six rows: `resolve`, `group` and `split` of tracker #4780, and `watch`, `fix-checks` and `fix-conflict` of tracker #5014. It adds the semaphore `steward`, and it corrects the facts about Argo Events. The merge of that pull request is the approval of the six rows and of the semaphore.
+
+The pull request of #5056 amends rule 5 of section 8 on 2026-11-12. Only the five new rows start in mode `plan`. The row `watch` starts in mode `on`, because it replaces the live rows `stage_ready` and `pr_conflicts`. Until a fix row is in mode `on`, `watch` also routes the verdict for that row as for a pull request of a person.
+
+The pull request of #5061 amends this record on 2026-11-12. It adds the row `fix-plan` of tracker #5014 to section 2 and section 8. The merge of that pull request is the approval of the row.
+
+The verdict of ADR 0008 is go. The owner recorded "warm p95 11 s - go" on [#1535](https://github.com/dan-petty/devops-cli/issues/1535#issuecomment-6787508710) on 2026-11-11, after the [measurement](https://github.com/dan-petty/devops-cli/issues/1535#issuecomment-6787453030) of the same day:
+
+| Measure | Value | Limit of ADR 0008 |
+| :--- | :--- | :--- |
+| Warm p95, from creation to Succeeded | 11 s | at most 30 s |
+| Cold run, image pull included | 54 s | reported apart |
+| Burst p95, 20 Workflows at one time | 24 s | not used |
+| New 429 or 5xx answers of the API server in the burst | 0 | must be 0 |
+| Failed submissions | 0 of 40 | not used |
+| API-server requests for each Workflow | 56 (burst) to 78 (sequential) | not used |
+
+So the engine is Argo Workflows, and this record has no plan for a no-go. It amends four records:
+
+- **ADR 0008.** (1) Stage moves to a plain Kubernetes Job on the path of #2667 before the engine step, as implement did. The engine step then moves stage to a WorkflowTemplate. (2) The child items of tracker #4517 replace steps 2-6 of #1535. (3) Workflows run in namespace `devops`. The controller runs with `--namespaced --managed-namespace devops` and gets a Role in `devops`. This is a third option beside the two of "One namespace watched": it needs no ClusterRole and no copy of Secret `devops-cli`. (4) The controller sets `workflowRestrictions.templateReferencing: Strict`.
+- **ADR 0003.** The poll becomes the sweep: a cluster schedule every 5 minutes, not a timer in the Service. The intervals of the rows round up to 5-minute ticks. The sweep stays the source of truth. A short row asks GitHub to redeliver each delivery that failed (#4560). This row cuts the delay of a delivery that a rollout lost, and it is not a second source of truth. The consequence about "both of a repository's lanes" no longer applies, because no lane stays.
+- **ADR 0009.** The delivery target of the roadmap consumer creates a unit of work or sets a due mark. It does not put a trigger on a lane. The router records a delivery id only after the create succeeds or gets 409. The stateless router step (#4575) deletes the Mattermost provider and its `/roadmap` command: the owner decided this on 2026-11-11, after 0 uses in 7 days. Each other rule of ADR 0009 stays.
+- **ADR 0017.** A scoped update runs in a pod of its own under the intake mutex of its repository, not on a lane. Intake is also due when a new issue opens (#4540), so a lost scoped update waits at most one sweep. The table and the lane rule of ADR 0017 name the model lane for scoped intake, but the code uses the triage lane (`SCOPED_UPDATES` in `src/devops_cli/roadmap/run.py`). The poll rule of ADR 0017 gives 151 seconds. That is the default of `service.poll_interval_seconds`, and the live ConfigMap sets 300 seconds. This record corrects those three places, and the text of ADR 0017 stays as it was. Each other rule of ADR 0017 stays: a scoped update writes no last success, and it records what it decided.
+
+ADR 0001, ADR 0015 and ADR 0016 stay as they are. GitHub stays the source of truth.
+
+The naming record of #4533 owns the object names, the labels, the Valkey key forms, the mutex names and the service names that this record uses. Until that record merges, tracker #4517 holds those rules. The pull request that merges second adds the link between the two records.
+
+2026-11-12: Living detail moved to tracker #4517 (the step order), to the OpenSpec change of each new row, and to [ADR 0022](0022-one-repository-reference-names-the-objects-labels-and-keys-of-each-repository.md) (the names) (#4617).

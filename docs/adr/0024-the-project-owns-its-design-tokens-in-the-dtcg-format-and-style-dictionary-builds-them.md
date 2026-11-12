@@ -1,10 +1,15 @@
+---
+status: accepted
+date: 2026-11-12
+decision-makers: [owner]
+issue: 4738
+tracker: 4735
+body-hash: f6d09fb03e670f2041b99488ca6e703764f76c38271c0677c62f144a17739922
+---
+
 # The project owns its design tokens in the DTCG format, and Style Dictionary builds them
 
 The artifacts of devops-cli set their colors, fonts and sizes by hand. The inventory of `main` at 818ac6f3 (2026-11-11) found 8 "success" greens, 4 font stacks, 4 severity maps and 34 hex values in the CSS of the docs site. No check measured contrast or colorblind safety. This record decides the base of the design spec and the pipeline that builds its values. [docs/DESIGN.md](../DESIGN.md) is the spec.
-
-## Status
-
-The merge of the pull request that adds this record is the approval of this record. `git log --follow -- docs/adr/0024-the-project-owns-its-design-tokens-in-the-dtcg-format-and-style-dictionary-builds-them.md` names the merge commit. The owner accepted the recommended spec and each recommended answer on 2026-11-11 (tracker #4735). Issue #4738 adds the tokens, their build and the spec. The other children of #4735 apply the tokens to each artifact.
 
 ## Context
 
@@ -35,3 +40,9 @@ The merge of the pull request that adds this record is the approval of this reco
 - The only custom code is the package module `devops_cli.design`, about 50 lines, which reads the flat JSON and holds the dash patterns of chart lines.
 - Each viewer of a web target sends a request to the Google Fonts css2 API, which serves the Source fonts. The artifact CSP permits only that font host.
 - The dependencies of Style Dictionary 5.8.0 have 6 `npm audit` findings (2 low, 4 moderate). The dependency ranges of Style Dictionary do not permit the fixed releases. Style Dictionary reads only the committed files of `design/`, and the package and the Service image do not hold it. Issue #4777 tracks the findings.
+
+## Status History
+
+The merge of the pull request that adds this record is the approval of this record. `git log --follow -- docs/adr/0024-the-project-owns-its-design-tokens-in-the-dtcg-format-and-style-dictionary-builds-them.md` names the merge commit. The owner accepted the recommended spec and each recommended answer on 2026-11-11 (tracker #4735). Issue #4738 adds the tokens, their build and the spec. The other children of #4735 apply the tokens to each artifact.
+
+2026-11-12: Fact out of date: the docs site builds with Zensical, not Jekyll (#5183).

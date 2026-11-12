@@ -27,7 +27,9 @@ written. The run fails, naming each skipped item, only when it tried items and c
 Rejected credentials stop the run at the first item.
 
 **The ADRs and the item (#3505).** Once for a run, the job reads each ADR of `docs/adr/` that is in
-force: its number, its title, its status lines and its `Considered Options` section. An ADR that a later ADR supersedes is left out. The request holds the
+force (#5225): its number, its title, the ADRs that amend it and its `Considered Options` section.
+The front matter of an ADR holds its status: an ADR that is not accepted, or that another ADR
+supersedes, is left out. The request holds the
 entries as `decisions`, newest first, cut by whole entries to a token cap. A warning names each ADR
 that the cut leaves out. The model proposes the verdict `rejected` with `adr`, the number of the
 ADR that rejected the tool. It proposes the verdict `in-use` with `in_use`, when the item already
