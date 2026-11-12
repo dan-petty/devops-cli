@@ -1812,6 +1812,8 @@ class CIMessages:
     test_tree: str = "test tree (invariants over the Python files of src and tests)"
     startup_imports: str = "startup imports (modules that each command imports at start)"
     swallowed_failures: str = "swallowed failures (ratchet of blind excepts and unread check=False)"
+    bwrap_contract: str = "bwrap contract suites (the tests marked bwrap, in the real sandbox)"
+    row_skipped: str = "skipped: {cause}"
     ci_summary_title: str = "CI Summary"
     col_check: str = "Check"
     col_result: str = "Result"

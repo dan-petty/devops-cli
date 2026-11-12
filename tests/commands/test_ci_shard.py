@@ -240,6 +240,15 @@ def test_a_shard_outside_the_total_is_refused_before_any_check_starts(
     assert (result.exit_code, process_fake.calls) == (2, [])
 
 
+def _test_row_runs(process_fake: ProcessFake) -> list[list[str]]:
+    """The pytest commands of the test row: every pytest command but that of the `bwrap` row."""
+    return [
+        list(call.argv)
+        for call in process_fake.calls
+        if "pytest" in call.argv and "bwrap" not in call.argv
+    ]
+
+
 def test_a_sharded_run_uses_the_sharded_row_and_leaves_the_gate_cache_alone(
     ci_root: Path, ci_head: ProcessFake
 ) -> None:
@@ -250,12 +259,12 @@ def test_a_sharded_run_uses_the_sharded_row_and_leaves_the_gate_cache_alone(
 
     first = runner.invoke(app, ["--check", *sharded_options])
     recorded = resolve_ci_cache_path(ci_root).is_file()
-    ran_first = [list(call.argv) for call in ci_head.calls if "pytest" in call.argv]
+    ran_first = _test_row_runs(ci_head)
 
     runner.invoke(app, ["--check"])
     ci_head.calls.clear()
     second = runner.invoke(app, ["--check", *sharded_options])
-    ran_second = [list(call.argv) for call in ci_head.calls if "pytest" in call.argv]
+    ran_second = _test_row_runs(ci_head)
 
     assert (first.exit_code, second.exit_code, recorded, ran_first, ran_second) == (
         0,

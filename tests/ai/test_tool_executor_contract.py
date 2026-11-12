@@ -1320,17 +1320,16 @@ def test_the_tool_runs_under_the_limits_and_none_on_processes(scenario: Scenario
 
 
 def _running(marker: str) -> bool:
-    """Whether any process of the host, in any namespace below it, has `marker` in its command."""
-    for cmdline in Path("/proc").glob("[0-9]*/cmdline"):
-        try:
-            if marker.encode() in cmdline.read_bytes():
-                return True
-        except OSError:  # the process ended between the listing and the read
-            continue
-    return False
+    """Whether any process of the host, in any namespace below it, has `marker` in its command.
+    `ps` reads the process table of the host: the floor keeps the test process out of `/proc`."""
+    table = subprocess.run(
+        ["ps", "-e", "-ww", "-o", "args="], capture_output=True, text=True, check=True
+    )
+    return marker in table.stdout
 
 
 @pytest.mark.bwrap
+@pytest.mark.live("ps")
 def test_the_process_scan_sees_a_running_process(tmp_path: Path) -> None:
     """The control for the next test: the scan finds a process while it runs and not after."""
     repo = tmp_path / "scan-marker"
@@ -1363,6 +1362,7 @@ def test_the_process_scan_sees_a_running_process(tmp_path: Path) -> None:
 
 
 @pytest.mark.bwrap
+@pytest.mark.live("ps")
 def test_a_tool_that_runs_out_of_time_ends_with_its_whole_process_tree(
     scenario: Scenario,
 ) -> None:

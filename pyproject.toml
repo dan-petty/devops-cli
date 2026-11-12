@@ -231,7 +231,7 @@ timeout_method = "signal"
 # of a test that passed and keeps the directory of a test that failed, for its debugging.
 tmp_path_retention_policy = "failed"
 markers = [
-    "bwrap: live sandbox tests requiring bubblewrap; skipped where bwrap is not installed",
+    "bwrap: live sandbox tests requiring bubblewrap; a default run deselects them, -m bwrap (the bwrap row of devops ci) selects them, and they skip where bwrap is not installed",
     "live: live tests requiring the named local tool binaries; skipped where a binary is not installed",
     "unreachable: tests that exercise a refused endpoint before its fake lands",
 ]
