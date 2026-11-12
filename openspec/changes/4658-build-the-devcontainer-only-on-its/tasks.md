@@ -9,5 +9,5 @@
 
 ## 2. Documents
 
-- [x] 2.1 State the new triggers in `docs/SDLC.md`
+- [x] 2.1 State the new triggers in `docs/SDLC.md` and `docs/DEVCONTAINER_USAGE.md`
   - Verification: `$ uv run devops ci docs`

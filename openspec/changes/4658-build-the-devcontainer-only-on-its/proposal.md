@@ -8,7 +8,7 @@ The `DevContainer Image` job of `ci.yml` started on each push to a pull request 
 - The workflow runs on the daily schedule, on `workflow_dispatch`, and on a pull request that changes `.devcontainer/**`, `.dockerignore`, `pyproject.toml`, `uv.lock`, `README.md`, `src/devops_cli/tools_lock/**`, the two devcontainer actions or the workflow. The native `paths` filter stops the run before a runner starts.
 - The step `Detect Image Content Changes` and the `if:` of each step go.
 - The guard `test_image_path_filter_covers_dockerfile_sources` no longer reads the devcontainer job. A new invariant requires the schedule, the manual run, each file that `.devcontainer/Dockerfile` copies other than `src/`, and no run for a change to `src/` only.
-- `docs/SDLC.md` states the new triggers.
+- `docs/SDLC.md` and `docs/DEVCONTAINER_USAGE.md` state the new triggers.
 
 ## Capabilities
 - New: `ci-devcontainer-image`.

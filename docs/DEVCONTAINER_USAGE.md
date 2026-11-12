@@ -244,7 +244,7 @@ USER vscode
   podman pull ghcr.io/dan-petty/devops-cli/devcontainer:latest
   ```
   After a rebuild, run `uv sync --all-groups --all-extras` once. Until `.venv` is full, `devops` is the copy in the image.
-- **An image change before a release**: CI builds and starts the image for each pull request that changes `.devcontainer` or `src`. To use the change in your own container first, build it and set `"image"` to its name until the release:
+- **An image change before a release**: CI builds and starts the image for each pull request that changes an image input other than `src/`, such as `.devcontainer/`, `uv.lock` or a tool lock, and daily from `main` ([SDLC.md](SDLC.md#the-devcontainer-image-devcontainer-imageyml-devcontainer)). To use the change in your own container first, build it and set `"image"` to its name until the release:
   ```bash
   devcontainer build --workspace-folder . --config .devcontainer/image/devcontainer.json --image-name devops-cli-devcontainer:local
   ```
