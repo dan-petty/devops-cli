@@ -19,6 +19,7 @@ from typing import Any
 
 import httpx2
 import pytest
+import typer
 
 from devops_cli.config.settings import Settings
 from devops_cli.exceptions.config import ConfigurationError
@@ -49,6 +50,7 @@ GRAFANA_TOKENS = f"{GRAFANA_ACCOUNTS}/7/tokens"
 ARGOCD_SECRET_READ = ("kubectl", "get", "secret", "argocd-initial-admin-secret")
 NOT_FOUND = 'Error from server (NotFound): secrets "argocd-initial-admin-secret" not found'
 KEPT = "; the stored token stays in the keyring"
+EKS_ARN = "arn:aws:eks:us-east-1:123456789012:cluster/prod"
 LOOPBACK = EgressLevel.LOOPBACK
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
@@ -926,6 +928,31 @@ def test_fetch_argocd_password_stores_the_cluster_password(
         {"argocd_password": "argo-admin-pw"},
         (*ARGOCD_SECRET_READ, "-n", "argocd", "-o=json", "--context", "example-cluster"),
     )
+
+
+def test_fetch_argocd_password_reads_the_secret_with_an_eks_arn_context(
+    process_fake: ProcessFake,
+) -> None:
+    _cluster_password(process_fake, "argo-admin-pw")
+
+    password = fetch_argocd_password(namespace="argocd", context=EKS_ARN)
+
+    assert (password, process_fake.calls[0].argv) == (
+        "argo-admin-pw",
+        (*ARGOCD_SECRET_READ, "-n", "argocd", "-o=json", "--context", EKS_ARN),
+    )
+
+
+@pytest.mark.parametrize(
+    "context", ["bad; rm -rf /", "two words", "   "], ids=["metacharacter", "space", "blank"]
+)
+def test_fetch_argocd_password_refuses_an_unsafe_context_and_starts_no_kubectl(
+    process_fake: ProcessFake, context: str
+) -> None:
+    with pytest.raises(typer.Exit) as refused:
+        fetch_argocd_password(namespace="argocd", context=context)
+
+    assert (refused.value.exit_code, process_fake.calls) == (1, [])
 
 
 def test_fetch_argocd_password_returns_none_when_the_secret_is_gone(
