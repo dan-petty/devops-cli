@@ -14,7 +14,7 @@ import pytest
 from devops_cli.sandbox.models import PortBinding, SandboxInstance, SandboxStatus
 from devops_cli.sandbox.registry import SandboxRegistry
 from tests.support.fakes.docker_engine import DockerEngineFake
-from tests.support.waits import POLL_INTERVAL_SECONDS
+from tests.support.waits import POLL_INTERVAL_SECONDS, THREAD_HANDOFF_BOUND_SECONDS
 
 CREATED_AT = "2026-09-12T12:00:00Z"
 
@@ -169,5 +169,7 @@ def malformed_endpoint() -> Generator[int]:
     thread = threading.Thread(target=serve, daemon=True)
     thread.start()
     yield int(listener.getsockname()[1])
+    listener.shutdown(socket.SHUT_RDWR)  # close() alone does not wake the accept() of the thread
     listener.close()
-    thread.join(timeout=2.0)
+    thread.join(timeout=THREAD_HANDOFF_BOUND_SECONDS)
+    assert not thread.is_alive(), "the accept() of the malformed endpoint did not wake"

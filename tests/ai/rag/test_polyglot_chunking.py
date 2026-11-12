@@ -341,7 +341,7 @@ def test_chunker_hypothesis_properties(tmp_path: Path, extension: str) -> None:
     from hypothesis import given, settings
     from hypothesis import strategies as st
 
-    @settings(max_examples=15, deadline=800)
+    @settings(max_examples=15)
     @given(payload=st.text(alphabet=st.characters(blacklist_categories=("Cs",)), max_size=2000))
     def _run_prop(payload: str) -> None:
         file_path = tmp_path / f"test_{extension}.{extension}"
