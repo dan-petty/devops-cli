@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.117.0](https://github.com/dan-petty/devops-cli/compare/v0.116.2...v0.117.0) (2026-11-12)
+
+
+### Features
+
+* **git:** refuse a push that does not hold origin/main ([#4879](https://github.com/dan-petty/devops-cli/issues/4879)) ([f55a20b](https://github.com/dan-petty/devops-cli/commit/f55a20b9993b938a314ca75049bf1a76136640a5)), closes [#4670](https://github.com/dan-petty/devops-cli/issues/4670)
+
+
+### Bug Fixes
+
+* **k8s:** replace the SearXNG worker before its memory limit ([#4951](https://github.com/dan-petty/devops-cli/issues/4951)) ([95abe10](https://github.com/dan-petty/devops-cli/commit/95abe101b3f0a22d42859a5ff40f9226d8b87759))
+* **mcp:** mark the tools that write local state not read-only ([#4942](https://github.com/dan-petty/devops-cli/issues/4942)) ([6d93d77](https://github.com/dan-petty/devops-cli/commit/6d93d77c079a14118bac8cd6aa9664bc1fb729ea))
+
 ## [0.116.2](https://github.com/dan-petty/devops-cli/compare/v0.116.1...v0.116.2) (2026-11-12)
 
 
