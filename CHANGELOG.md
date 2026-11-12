@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.117.1](https://github.com/dan-petty/devops-cli/compare/v0.117.0...v0.117.1) (2026-11-12)
+
+
+### Bug Fixes
+
+* **roadmap:** repair skips the comments of other jobs ([#4958](https://github.com/dan-petty/devops-cli/issues/4958)) ([91041b2](https://github.com/dan-petty/devops-cli/commit/91041b276e16c2277ee000ea396509a0a29b8c99))
+* **roadmap:** the intake reason comment states only new facts ([#4955](https://github.com/dan-petty/devops-cli/issues/4955)) ([6cdd653](https://github.com/dan-petty/devops-cli/commit/6cdd6530952f256639a1452177e8cb8fa844a19f))
+
 ## [0.117.0](https://github.com/dan-petty/devops-cli/compare/v0.116.2...v0.117.0) (2026-11-12)
 
 
