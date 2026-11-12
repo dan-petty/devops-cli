@@ -835,9 +835,13 @@ class CICommandHelp:
     )
     fail_to_pass: str = (
         "Replay added or modified tests against the merge-base tree to prove a defect fix's "
-        "tests fail unpatched."
+        "tests fail unpatched. A changed module under tests/gate/*_checks/ runs its gate row on "
+        "the base and head trees: a case of that module that fails on base and passes on head "
+        "proves the fix."
     )
-    fail_to_pass_head: str = "Head git revision supplying the overlaid tests/ tree."
+    fail_to_pass_head: str = (
+        "Head git revision supplying the overlaid tests/ tree and the head tree of a gate row run."
+    )
     job_time: str = (
         "Fail when the last runs of a CI job took more than the limit on average. Reads the job "
         "time of the last completed push runs of a workflow on a branch from GitHub's Actions "

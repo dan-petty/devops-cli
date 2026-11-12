@@ -390,7 +390,7 @@ devops ci job-time [OPTIONS]
 
 ## `devops ci fail-to-pass`
 
-**Replay added or modified tests against the merge-base tree to prove a defect fix's tests fail unpatched.**
+**Replay added or modified tests against the merge-base tree to prove a defect fix's tests fail unpatched. A changed module under tests/gate/*_checks/ runs its gate row on the base and head trees: a case of that module that fails on base and passes on head proves the fix.**
 
 ```bash
 devops ci fail-to-pass [OPTIONS]
@@ -401,7 +401,7 @@ devops ci fail-to-pass [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--base`, `-b` | `string` | `main` | Base git branch to diff against (default: main). |
-| `--head` | `string` | `HEAD` | Head git revision supplying the overlaid tests/ tree. |
+| `--head` | `string` | `HEAD` | Head git revision supplying the overlaid tests/ tree and the head tree of a gate row run. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---

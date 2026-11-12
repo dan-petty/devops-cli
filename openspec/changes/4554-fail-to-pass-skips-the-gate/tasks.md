@@ -16,5 +16,5 @@
 
 ## 3. Documents
 
-- [ ] 3.1 Name the gate replay in CONTRIBUTING.md, the help of the command, the generated README and CLI reference, and the Purpose of the `ci-fail-to-pass` spec
+- [x] 3.1 Name the gate replay in CONTRIBUTING.md, the help of the command, the generated README and CLI reference, and the Purpose of the `ci-fail-to-pass` spec
   - Verification: `uv run devops docs generate --check`

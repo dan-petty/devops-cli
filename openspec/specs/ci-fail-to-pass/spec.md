@@ -1,7 +1,7 @@
 # ci-fail-to-pass Specification
 
 ## Purpose
-When the fail-to-pass check runs on a pull request, what the replay reads, and what its report tells the author: only a fix that changes the code under `src/` must show a changed test that fails on its base.
+When the fail-to-pass check runs on a pull request, what the replay reads, and what its report tells the author: only a fix that changes the code under `src/` or a gate check must show a changed test that fails on its base, or a case of a changed gate check that fails on its base and passes on its head.
 
 ## Requirements
 
