@@ -129,126 +129,126 @@ sha256 = "6b4e61c8cd27d99e5a801e63ff25dd5c70b36875c2cd659d3e9ce6b76fc23198"
 member = "darwin-arm64/helm"
 
 [binary.argo]
-version = "4.1.5"
+version = "4.1.6"
 description = "Argo Workflows CLI"
 source = "https://github.com/argoproj/argo-workflows"
 bin = "argo"
 format = "gzip"
 
 [binary.argo.platforms.linux-amd64]
-url = "https://github.com/argoproj/argo-workflows/releases/download/v4.1.5/argo-linux-amd64.gz"
-sha256 = "ab78728d3bcd029f0e8547736e2f3c69d2519a134a3f9ee74454ededa14af36c"
+url = "https://github.com/argoproj/argo-workflows/releases/download/v4.1.6/argo-linux-amd64.gz"
+sha256 = "885f886a338d7e7c0fd4a681152770fb54df1847f8fc55eaed788d661c0304e0"
 
 [binary.argo.platforms.linux-arm64]
-url = "https://github.com/argoproj/argo-workflows/releases/download/v4.1.5/argo-linux-arm64.gz"
-sha256 = "70058ede05677ae1d173bc9de8c670f01e21284dbbc0da1c5434217208a5c5eb"
+url = "https://github.com/argoproj/argo-workflows/releases/download/v4.1.6/argo-linux-arm64.gz"
+sha256 = "c11996a95329288ebcc51e5830ad34d61ed684d5280251828596305599f92bf5"
 
 [binary.argo.platforms.darwin-amd64]
-url = "https://github.com/argoproj/argo-workflows/releases/download/v4.1.5/argo-darwin-amd64.gz"
-sha256 = "79ea9f4d7503c32aea79d40a0e2f78a36a7bb814c4bd3dd644e0185dd2f4f89a"
+url = "https://github.com/argoproj/argo-workflows/releases/download/v4.1.6/argo-darwin-amd64.gz"
+sha256 = "ffdecc7c592d3e2878210c58fff7412e80b54d5ab1d0e25a156c19f6084b305a"
 
 [binary.argo.platforms.darwin-arm64]
-url = "https://github.com/argoproj/argo-workflows/releases/download/v4.1.5/argo-darwin-arm64.gz"
-sha256 = "cd76f14ca024247323a56e55b0c9ca5c9ee3510607e9ea0fe833d0a329044e03"
+url = "https://github.com/argoproj/argo-workflows/releases/download/v4.1.6/argo-darwin-arm64.gz"
+sha256 = "0c95c53ac22e15f2465bbcdbadfe62e96f40eccf70cbd2b9346e2126678e29e4"
 
 [binary.argocd]
-version = "3.5.4"
+version = "3.6.1"
 description = "ArgoCD CLI"
 source = "https://github.com/argoproj/argo-cd"
 bin = "argocd"
 format = "binary"
 
 [binary.argocd.platforms.linux-amd64]
-url = "https://github.com/argoproj/argo-cd/releases/download/v3.5.4/argocd-linux-amd64"
-sha256 = "9cd8cb9f8f785357af441a9544cc1c63a2b8d9bad45ebe88503ab8e315c64ae3"
+url = "https://github.com/argoproj/argo-cd/releases/download/v3.6.1/argocd-linux-amd64"
+sha256 = "46d2fc941071f0a0c36326a67a431d34b1479e1a24737f7b367abc93968beadc"
 
 [binary.argocd.platforms.linux-arm64]
-url = "https://github.com/argoproj/argo-cd/releases/download/v3.5.4/argocd-linux-arm64"
-sha256 = "fe7c737ac912e281fa13dc27b2be6695634b9fe483d52846f3e7e65067b11c12"
+url = "https://github.com/argoproj/argo-cd/releases/download/v3.6.1/argocd-linux-arm64"
+sha256 = "6636e9183de7dba666b673a417986e7ff54dbadd948b2f9f6c83bcf7d33ebb94"
 
 [binary.argocd.platforms.darwin-amd64]
-url = "https://github.com/argoproj/argo-cd/releases/download/v3.5.4/argocd-darwin-amd64"
-sha256 = "2b414b2d1d4c224db3ca07bec343522270242acca8e8f8f55865a32a3ef49b9c"
+url = "https://github.com/argoproj/argo-cd/releases/download/v3.6.1/argocd-darwin-amd64"
+sha256 = "d692139261045daee54bf5f23e7ce9c2051ebd1abc90106cccc8c0468e565f86"
 
 [binary.argocd.platforms.darwin-arm64]
-url = "https://github.com/argoproj/argo-cd/releases/download/v3.5.4/argocd-darwin-arm64"
-sha256 = "aac1cd7606c5960513edfc2a3ee7226c3860f0982f63b93b2f7e8b5c4d880873"
+url = "https://github.com/argoproj/argo-cd/releases/download/v3.6.1/argocd-darwin-arm64"
+sha256 = "2e4a88082bfcb25dd56369ed9fe807d941ce1d916efb5a080eea6ac00347dfdf"
 
 [binary.cloudflared]
-version = "2026.10.4"
+version = "2026.11.0"
 description = "Cloudflare Tunnel client, for kubectl over cloudflared access tcp"
 source = "https://github.com/cloudflare/cloudflared"
 bin = "cloudflared"
 format = "binary"
 
 [binary.cloudflared.platforms.linux-amd64]
-url = "https://github.com/cloudflare/cloudflared/releases/download/2026.10.4/cloudflared-linux-amd64"
-sha256 = "ae5e8add7884b0531d66bbca4570d1de491ff6da51e4ebe7eb160cdf241d9e42"
+url = "https://github.com/cloudflare/cloudflared/releases/download/2026.11.0/cloudflared-linux-amd64"
+sha256 = "51f7c68b57ed7269164075d7e789efce5b59355982f06392deeb037d982a51fd"
 
 [binary.cloudflared.platforms.linux-arm64]
-url = "https://github.com/cloudflare/cloudflared/releases/download/2026.10.4/cloudflared-linux-arm64"
-sha256 = "2b7203b4fb0ba28a0c1e12f8855ce2c25f76d266a8d5edafac5540b6812acff6"
+url = "https://github.com/cloudflare/cloudflared/releases/download/2026.11.0/cloudflared-linux-arm64"
+sha256 = "abe54a006acf9faf2d19ee9d953cb0d0804e92f59c5382a162e57b84d086f56f"
 
 [binary.cloudflared.platforms.darwin-amd64]
-url = "https://github.com/cloudflare/cloudflared/releases/download/2026.10.4/cloudflared-darwin-amd64.tgz"
-sha256 = "f11fbef4207d715892331917dafd437f032cf4b7137ed64dea3008338c1c613d"
+url = "https://github.com/cloudflare/cloudflared/releases/download/2026.11.0/cloudflared-darwin-amd64.tgz"
+sha256 = "8a59d51120cebbe902f0a8d6e1b7a7fd4f9a5bb4dcb3e0f05872483e75e7db6b"
 format = "tar.gz"
 member = "cloudflared"
 
 [binary.cloudflared.platforms.darwin-arm64]
-url = "https://github.com/cloudflare/cloudflared/releases/download/2026.10.4/cloudflared-darwin-arm64.tgz"
-sha256 = "68b6bc4080ac1330234db2a9002d07f98b000537a1bd531a687b660d4160fa7f"
+url = "https://github.com/cloudflare/cloudflared/releases/download/2026.11.0/cloudflared-darwin-arm64.tgz"
+sha256 = "8c2f90277ef06a6080bb40b964d33f09f1188102f8798f2e344174b6cf41accf"
 format = "tar.gz"
 member = "cloudflared"
 
 [binary.kubectl-argo-rollouts]
-version = "1.10.0"
+version = "1.10.2"
 description = "Argo Rollouts kubectl plugin"
 source = "https://github.com/argoproj/argo-rollouts"
 bin = "kubectl-argo-rollouts"
 format = "binary"
 
 [binary.kubectl-argo-rollouts.platforms.linux-amd64]
-url = "https://github.com/argoproj/argo-rollouts/releases/download/v1.10.0/kubectl-argo-rollouts-linux-amd64"
-sha256 = "57a464e80c3e716076c9760e1d15ff06b853e3bcab3e22e30f4dba8a3e9f29b2"
+url = "https://github.com/argoproj/argo-rollouts/releases/download/v1.10.2/kubectl-argo-rollouts-linux-amd64"
+sha256 = "355d62379d787a778f92903ce0b2fc1c1f4999d790d829370b6f1854a55f1cf9"
 
 [binary.kubectl-argo-rollouts.platforms.linux-arm64]
-url = "https://github.com/argoproj/argo-rollouts/releases/download/v1.10.0/kubectl-argo-rollouts-linux-arm64"
-sha256 = "2d73e61091084769d16191f21fc686b9c2054892eb93d59046660e8c876a6865"
+url = "https://github.com/argoproj/argo-rollouts/releases/download/v1.10.2/kubectl-argo-rollouts-linux-arm64"
+sha256 = "b2d414abbdde815f2985c26f58c8461c7949b253e4c23a83737817af34b3be70"
 
 [binary.kubectl-argo-rollouts.platforms.darwin-amd64]
-url = "https://github.com/argoproj/argo-rollouts/releases/download/v1.10.0/kubectl-argo-rollouts-darwin-amd64"
-sha256 = "1a41cdf72c45eb0bbe6fc6fcaa9529b8372044be33f1cea827487ad8d0bad395"
+url = "https://github.com/argoproj/argo-rollouts/releases/download/v1.10.2/kubectl-argo-rollouts-darwin-amd64"
+sha256 = "9778c10ca7a50b37ae5228697d8353cebe5ca35d936bbc88e734e78cf2fc6f05"
 
 [binary.kubectl-argo-rollouts.platforms.darwin-arm64]
-url = "https://github.com/argoproj/argo-rollouts/releases/download/v1.10.0/kubectl-argo-rollouts-darwin-arm64"
-sha256 = "0046896141a09e15913d0c4c2651516fb46b233f5595a5d2e462fa9a0d9d1e69"
+url = "https://github.com/argoproj/argo-rollouts/releases/download/v1.10.2/kubectl-argo-rollouts-darwin-arm64"
+sha256 = "d99cac5832ad32ad2ceb89246ef42f39e8502717c9b782068665c036e2ee7989"
 
 [binary.trivy]
-version = "0.75.0"
+version = "0.76.2"
 description = "Aqua Trivy vulnerability, secret & IaC scanner"
 source = "https://github.com/aquasecurity/trivy"
 bin = "trivy"
 format = "tar.gz"
 
 [binary.trivy.platforms.linux-amd64]
-url = "https://github.com/aquasecurity/trivy/releases/download/v0.75.0/trivy_0.75.0_Linux-64bit.tar.gz"
-sha256 = "c6e65abddb348e25f10549df887045629cf28cc72453cd1c63acb717316b3f3f"
+url = "https://github.com/aquasecurity/trivy/releases/download/v0.76.2/trivy_0.76.2_Linux-64bit.tar.gz"
+sha256 = "bc0fc726e017b8927a62b2d3531d7a84ee01769daf5c99ed866dced54089fdbf"
 member = "trivy"
 
 [binary.trivy.platforms.linux-arm64]
-url = "https://github.com/aquasecurity/trivy/releases/download/v0.75.0/trivy_0.75.0_Linux-ARM64.tar.gz"
-sha256 = "a1ee9f6ffb7d112b64ff726a2a0717c21175c1114361391f4a132956751a13b3"
+url = "https://github.com/aquasecurity/trivy/releases/download/v0.76.2/trivy_0.76.2_Linux-ARM64.tar.gz"
+sha256 = "ab9d51f86e6a5fb936f605faff6b593ac51bc378fff4d3e8b9d58358b9c367c3"
 member = "trivy"
 
 [binary.trivy.platforms.darwin-amd64]
-url = "https://github.com/aquasecurity/trivy/releases/download/v0.75.0/trivy_0.75.0_macOS-64bit.tar.gz"
-sha256 = "291edaa9778acbe4693d067b5ad60ee11570e5ac68296e85595417528ca641e4"
+url = "https://github.com/aquasecurity/trivy/releases/download/v0.76.2/trivy_0.76.2_macOS-64bit.tar.gz"
+sha256 = "e08bb9ea449ecf66c6bfb03cbb8697c503ff33d35fc585c9747e3eaeb7ed4c7b"
 member = "trivy"
 
 [binary.trivy.platforms.darwin-arm64]
-url = "https://github.com/aquasecurity/trivy/releases/download/v0.75.0/trivy_0.75.0_macOS-ARM64.tar.gz"
-sha256 = "4a77108cccf8e55c8d6823e1e759939a622277e66cd0daa3c1fc621ed69e4568"
+url = "https://github.com/aquasecurity/trivy/releases/download/v0.76.2/trivy_0.76.2_macOS-ARM64.tar.gz"
+sha256 = "ae7ea358326960406b703c77b2ac490190797d80b306b5b50c2a27221da0a5b8"
 member = "trivy"
 
 [binary.kube-linter]
@@ -433,30 +433,30 @@ url = "https://github.com/dlvhdr/gh-dash/releases/download/v4.26.2/gh-dash_v4.26
 sha256 = "591cfe85838c3459b56b4a08bcdf0ce11a5c59a92d466ab312cca0c4ad0d163f"
 
 [binary.tuicr]
-version = "0.27.0"
+version = "0.28.0"
 description = "Terminal code review UI for diffs"
 source = "https://github.com/agavra/tuicr"
 bin = "tuicr"
 format = "tar.gz"
 
 [binary.tuicr.platforms.linux-amd64]
-url = "https://github.com/agavra/tuicr/releases/download/v0.27.0/tuicr-0.27.0-x86_64-unknown-linux-musl.tar.gz"
-sha256 = "f673ff709af2501c111216c95745395ae2bfedf3daa3d039539f9614a6ddb4e4"
+url = "https://github.com/agavra/tuicr/releases/download/v0.28.0/tuicr-0.28.0-x86_64-unknown-linux-musl.tar.gz"
+sha256 = "0e6be65458e83bf3f917a30660d029b7f4dc5f9b6d203adc10f11a93a30c22f2"
 member = "tuicr"
 
 [binary.tuicr.platforms.linux-arm64]
-url = "https://github.com/agavra/tuicr/releases/download/v0.27.0/tuicr-0.27.0-aarch64-unknown-linux-musl.tar.gz"
-sha256 = "d0707f491cc8cdf0930fc1466029341d804a0105dd0b674f8dca33afb8366490"
+url = "https://github.com/agavra/tuicr/releases/download/v0.28.0/tuicr-0.28.0-aarch64-unknown-linux-musl.tar.gz"
+sha256 = "c5f60e3846733c3f6f676f0b5b44a6c1cec148e2d1132f3bd107833cf5f7fc0e"
 member = "tuicr"
 
 [binary.tuicr.platforms.darwin-amd64]
-url = "https://github.com/agavra/tuicr/releases/download/v0.27.0/tuicr-0.27.0-x86_64-apple-darwin.tar.gz"
-sha256 = "c93a066b4c0d558ecb09ebad498f12b6c34fd95cad536ec5a05a4fec91be1850"
+url = "https://github.com/agavra/tuicr/releases/download/v0.28.0/tuicr-0.28.0-x86_64-apple-darwin.tar.gz"
+sha256 = "28c8eb8c7adca4ae4d557e032255df0089bd261fcd45a715d44481881f126871"
 member = "tuicr"
 
 [binary.tuicr.platforms.darwin-arm64]
-url = "https://github.com/agavra/tuicr/releases/download/v0.27.0/tuicr-0.27.0-aarch64-apple-darwin.tar.gz"
-sha256 = "170b2e5290435faaf663c9498b1385493df7c336646b74c9336388844e028dcf"
+url = "https://github.com/agavra/tuicr/releases/download/v0.28.0/tuicr-0.28.0-aarch64-apple-darwin.tar.gz"
+sha256 = "4138f2d243422aff68b32ec52fb1524cbadffcf6763b34fc180f25f0ac971674"
 member = "tuicr"
 
 [binary.gitleaks]
@@ -510,31 +510,31 @@ url = "https://github.com/google/osv-scanner/releases/download/v2.6.0/osv-scanne
 sha256 = "98c460dcd37de25819babd757d04542045b6243113e209edcd4d89fedb0256b4"
 
 [binary.golangci-lint]
-version = "1.64.6"
+version = "1.64.8"
 description = "Fast Go linters runner"
 source = "https://github.com/golangci/golangci-lint"
 bin = "golangci-lint"
 format = "tar.gz"
 
 [binary.golangci-lint.platforms.linux-amd64]
-url = "https://github.com/golangci/golangci-lint/releases/download/v1.64.6/golangci-lint-1.64.6-linux-amd64.tar.gz"
-sha256 = "71e290acbacb7b3ba4f68f0540fb74dc180c4336ac8a6f3bdcd7fcc48b15148d"
-member = "golangci-lint-1.64.6-linux-amd64/golangci-lint"
+url = "https://github.com/golangci/golangci-lint/releases/download/v1.64.8/golangci-lint-1.64.8-linux-amd64.tar.gz"
+sha256 = "b6270687afb143d019f387c791cd2a6f1cb383be9b3124d241ca11bd3ce2e54e"
+member = "golangci-lint-1.64.8-linux-amd64/golangci-lint"
 
 [binary.golangci-lint.platforms.linux-arm64]
-url = "https://github.com/golangci/golangci-lint/releases/download/v1.64.6/golangci-lint-1.64.6-linux-arm64.tar.gz"
-sha256 = "99a7ff13dec7a8781a68408b6ecb8a1c5e82786cba3189eaa91d5cdcc24362ce"
-member = "golangci-lint-1.64.6-linux-arm64/golangci-lint"
+url = "https://github.com/golangci/golangci-lint/releases/download/v1.64.8/golangci-lint-1.64.8-linux-arm64.tar.gz"
+sha256 = "a6ab58ebcb1c48572622146cdaec2956f56871038a54ed1149f1386e287789a5"
+member = "golangci-lint-1.64.8-linux-arm64/golangci-lint"
 
 [binary.golangci-lint.platforms.darwin-amd64]
-url = "https://github.com/golangci/golangci-lint/releases/download/v1.64.6/golangci-lint-1.64.6-darwin-amd64.tar.gz"
-sha256 = "08f9459e7125fed2612abd71596e04d172695921aff82120d1c1e5e9b6fff2a3"
-member = "golangci-lint-1.64.6-darwin-amd64/golangci-lint"
+url = "https://github.com/golangci/golangci-lint/releases/download/v1.64.8/golangci-lint-1.64.8-darwin-amd64.tar.gz"
+sha256 = "b52aebb8cb51e00bfd5976099083fbe2c43ef556cef9c87e58a8ae656e740444"
+member = "golangci-lint-1.64.8-darwin-amd64/golangci-lint"
 
 [binary.golangci-lint.platforms.darwin-arm64]
-url = "https://github.com/golangci/golangci-lint/releases/download/v1.64.6/golangci-lint-1.64.6-darwin-arm64.tar.gz"
-sha256 = "8c10d0c7c3935b8c2269d628b6a06a8f48d8fb4cc31af02fe4ce0cd18b0704c1"
-member = "golangci-lint-1.64.6-darwin-arm64/golangci-lint"
+url = "https://github.com/golangci/golangci-lint/releases/download/v1.64.8/golangci-lint-1.64.8-darwin-arm64.tar.gz"
+sha256 = "70543d21e5b02a94079be8aa11267a5b060865583e337fe768d39b5d3e2faf1f"
+member = "golangci-lint-1.64.8-darwin-arm64/golangci-lint"
 
 # promtool comes in the Prometheus release archive. Its version follows the Prometheus server that
 # the cluster runs (`prometheus_build_info`), so the rule checks and rule unit tests of
@@ -542,31 +542,31 @@ member = "golangci-lint-1.64.6-darwin-arm64/golangci-lint"
 # release of 3.15.0 that builds with Go 1.27.3 and golang.org/x/net 0.60.0: the scan of the runner
 # image fails on the Go 1.27.1 build of 3.15.0 (#3072).
 [binary.promtool]
-version = "3.15.1"
+version = "3.16.0"
 description = "Prometheus promtool, which checks and unit-tests Prometheus rule files"
 source = "https://github.com/prometheus/prometheus"
 bin = "promtool"
 format = "tar.gz"
 
 [binary.promtool.platforms.linux-amd64]
-url = "https://github.com/prometheus/prometheus/releases/download/v3.15.1/prometheus-3.15.1.linux-amd64.tar.gz"
-sha256 = "6a726885328ad9efebbf36e876ce2fb6225468a71fd1e7ce3ba666d5f4d97a84"
-member = "prometheus-3.15.1.linux-amd64/promtool"
+url = "https://github.com/prometheus/prometheus/releases/download/v3.16.0/prometheus-3.16.0.linux-amd64.tar.gz"
+sha256 = "68727009472a2c02e1ff7f062fd5b3e637285bffc8fc2d340c76fb449d6e0f34"
+member = "prometheus-3.16.0.linux-amd64/promtool"
 
 [binary.promtool.platforms.linux-arm64]
-url = "https://github.com/prometheus/prometheus/releases/download/v3.15.1/prometheus-3.15.1.linux-arm64.tar.gz"
-sha256 = "ceb6d21493c37ca0b4513b147642797c68cf39a0f50a444d50e1e80c74f21b26"
-member = "prometheus-3.15.1.linux-arm64/promtool"
+url = "https://github.com/prometheus/prometheus/releases/download/v3.16.0/prometheus-3.16.0.linux-arm64.tar.gz"
+sha256 = "fd8571b8162f4020232d886f17340bcf92e1722985ae3b4c1d096157826c0fbe"
+member = "prometheus-3.16.0.linux-arm64/promtool"
 
 [binary.promtool.platforms.darwin-amd64]
-url = "https://github.com/prometheus/prometheus/releases/download/v3.15.1/prometheus-3.15.1.darwin-amd64.tar.gz"
-sha256 = "c89fcb30045d8c394c9d93e96cbbee3aaf2448a48326b417e811eb4e528edf88"
-member = "prometheus-3.15.1.darwin-amd64/promtool"
+url = "https://github.com/prometheus/prometheus/releases/download/v3.16.0/prometheus-3.16.0.darwin-amd64.tar.gz"
+sha256 = "998fb3301c1d77452bdfc481f61353e2e4a3b16c97a6b725c2b7beee5464c8c2"
+member = "prometheus-3.16.0.darwin-amd64/promtool"
 
 [binary.promtool.platforms.darwin-arm64]
-url = "https://github.com/prometheus/prometheus/releases/download/v3.15.1/prometheus-3.15.1.darwin-arm64.tar.gz"
-sha256 = "0d4d3d9837d27e4fcd0bd16d115b1b8d6732a4bf3e69107f1190d9ef653ae471"
-member = "prometheus-3.15.1.darwin-arm64/promtool"
+url = "https://github.com/prometheus/prometheus/releases/download/v3.16.0/prometheus-3.16.0.darwin-arm64.tar.gz"
+sha256 = "f7c71b553316f822bdd860a3ea527ebefb2f8e944e5b7dfd419ae2653cf3ba01"
+member = "prometheus-3.16.0.darwin-arm64/promtool"
 
 [python.semgrep]
 version = "1.179.0"
@@ -590,7 +590,7 @@ source = "https://github.com/Fission-AI/OpenSpec"
 bin = "openspec"
 
 [npm.devcontainers-cli]
-version = "0.89.0"
+version = "0.90.0"
 description = "Dev Containers CLI, which builds the published devcontainer image with its features"
 source = "https://github.com/devcontainers/cli"
 bin = "devcontainer"
