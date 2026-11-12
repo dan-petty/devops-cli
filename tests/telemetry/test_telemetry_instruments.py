@@ -1324,7 +1324,7 @@ def test_a_review_sends_its_duration_and_findings_by_persona_severity_and_status
 
 
 def test_the_collector_adds_up_deltas_before_prometheus() -> None:
-    """Verify the metrics pipeline turns deltas into running totals before remote write."""
+    """Verify the metrics pipeline turns deltas into running totals before it exports them."""
     values = yaml.safe_load(
         (REPO_ROOT / "k8s" / "otel" / "values.yaml").read_text(encoding="utf-8")
     )
@@ -1335,6 +1335,26 @@ def test_the_collector_adds_up_deltas_before_prometheus() -> None:
         "deltatocumulative" in config["processors"],
         processors.index("deltatocumulative") < processors.index("batch"),
     ) == (True, True)
+
+
+def test_a_stream_with_no_delta_for_an_hour_starts_again_from_zero() -> None:
+    """The collector drops a stream after the hour that the roadmap-service rules read (#2505, #4684).
+
+    Those rules read a series with no sample in the hour before as a new stream, and count all of
+    its last value. With a longer max_stale, the series keeps its old total, and a rule counts all
+    of that total again.
+    """
+    values = yaml.safe_load(
+        (REPO_ROOT / "k8s" / "otel" / "values.yaml").read_text(encoding="utf-8")
+    )
+    rules = (REPO_ROOT / "k8s" / "monitoring" / "prometheus-values.yaml").read_text(
+        encoding="utf-8"
+    )
+
+    assert (
+        values["config"]["processors"]["deltatocumulative"]["max_stale"],
+        "[1h] offset 1h" in rules,
+    ) == ("1h", True)
 
 
 @pytest.mark.parametrize(
@@ -1373,21 +1393,34 @@ def test_gauges_are_recorded_as_instantaneous_values(otlp: FakeCollector) -> Non
     )
 
 
-def test_cluster_jobs_export_created_timestamps_and_prometheus_ingests_zeroes() -> None:
-    """The collector transmits created timestamps via remote write 2.0 and Prometheus ingests zero samples at start time (#2039, #2506)."""
+def test_prometheus_writes_a_zero_sample_at_the_start_time_of_each_otlp_point() -> None:
+    """The Prometheus OTLP receiver gets the start time of each point and writes a zero sample there (#2039, #4684).
+
+    The server keeps the metric names of devops-cli, which already end in `_total` or a unit.
+    """
     otel_values = yaml.safe_load(
         (REPO_ROOT / "k8s" / "otel" / "values.yaml").read_text(encoding="utf-8")
     )
-    prom_remote_write = otel_values["config"]["exporters"]["prometheus_remote_write"]
+    (exporter_id,) = otel_values["config"]["service"]["pipelines"]["metrics"]["exporters"]
+    exporter = otel_values["config"]["exporters"][exporter_id]
 
-    prom_values = yaml.safe_load(
+    server = yaml.safe_load(
         (REPO_ROOT / "k8s" / "monitoring" / "prometheus-values.yaml").read_text(encoding="utf-8")
-    )
-    extra_args = prom_values["server"]["extraArgs"]
+    )["server"]
 
-    assert "export_created_metric" not in prom_remote_write
-    assert prom_remote_write.get("remote_write_version") == 2
-    assert extra_args.get("enable-feature") == "created-timestamp-zero-ingestion"
+    assert (
+        exporter_id.split("/")[0],
+        exporter["metrics_endpoint"].endswith("/api/v1/otlp/v1/metrics"),
+        "web.enable-otlp-receiver" in server["extraArgs"],
+        server["extraArgs"].get("enable-feature"),
+        server.get("otlp"),
+    ) == (
+        "otlp_http",
+        True,
+        True,
+        "created-timestamp-zero-ingestion",
+        {"translation_strategy": "UnderscoreEscapingWithoutSuffixes"},
+    )
 
 
 def test_two_job_runs_add_up_in_the_increase_query_the_dashboards_use() -> None:

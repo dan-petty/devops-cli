@@ -16,10 +16,19 @@ server:
   tsdb:
     out_of_order_time_window: 10m
 
+  # The OpenTelemetry collector sends the devops-cli metrics to the OTLP receiver (#4684). Their
+  # names already end in `_total` or a unit, so the receiver adds no suffix: a suffix turned
+  # `devops_cli_command_total` into `devops_cli_command_total_ratio`, which no query reads.
+  otlp:
+    translation_strategy: UnderscoreEscapingWithoutSuffixes
+
   extraArgs:
+    # Alloy remote-writes the cluster metrics.
     web.enable-remote-write-receiver: ""
-    # Ingest zero-value samples at created timestamps received via remote write 2.0 (#2039, #2506).
-    # This allows single-export cluster jobs to count in rate() and increase() queries.
+    web.enable-otlp-receiver: ""
+    # Write a zero sample at the start time of each OTLP point that starts a series (#2039,
+    # #4684), so increase() counts the first export of a stream, such as the one export of a
+    # cluster Job. A zero sample older than the last sample of its series is refused.
     enable-feature: created-timestamp-zero-ingestion
 
   resources:

@@ -568,6 +568,7 @@ LIMIT_LINES = {
     "otel-collector.json": [
         "Exporter Queue Fill",
         "Process Memory against the memory_limiter Limit",
+        "Delta Points Dropped by deltatocumulative",
     ],
     "prometheus-server.json": ["TSDB Size", "Resident Memory"],
     "coredns.json": [],

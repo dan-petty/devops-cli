@@ -425,6 +425,86 @@
         }
       ],
       "description": "The memory_limiter refuses data once heap use passes 300 MiB (its 400 MiB limit less the 100 MiB spike allowance) and forces garbage collection at 400 MiB."
+    },
+    {
+      "id": 10,
+      "type": "row",
+      "title": "Processors",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 27
+      },
+      "panels": []
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "fillOpacity": 10,
+            "thresholdsStyle": {
+              "mode": "line"
+            },
+            "axisSoftMax": 0.005
+          },
+          "unit": "percentunit",
+          "noValue": "none dropped",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.005
+              }
+            ]
+          }
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 28
+      },
+      "id": 11,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "title": "Delta Points Dropped by deltatocumulative",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (error) (rate(otelcol_deltatocumulative_datapoints{error!=\"\"}[$__rate_interval])) / ignoring (error) group_left () sum(rate(otelcol_deltatocumulative_datapoints[$__rate_interval]))",
+          "legendFormat": "{{error}}",
+          "refId": "A"
+        }
+      ],
+      "description": "The share of the delta points that the deltatocumulative processor drops, by error: limit when the processor already tracks its limit of streams, or a delta error when the start time of the point is before the start of its stream or the point is older than the last point of its stream. Two processes of one host that send one stream cause the delta errors. No Prometheus series holds the count of a dropped point. The line is at 0.5 %."
     }
   ],
   "refresh": "10s",

@@ -17,7 +17,7 @@ were collected.
 The collector's `deltatocumulative` processor adds the deltas of each stream (its
 resource, scope, metric and attributes) into a running total before Prometheus stores
 it. Prometheus names a series by `service.name` (`job`), `service.instance.id`
-(`instance`) and the metric's attributes. The collector sets `job` and `instance` from
+(`instance`) and the metric's attributes. Prometheus sets `job` and `instance` from
 the resource after it copies the attributes. So an attribute with either name is lost.
 A job row is the `row` attribute. The `service.instance.id` is the host name,
 which every command on the host shares. The standard `OTEL_RESOURCE_ATTRIBUTES` sets
@@ -28,11 +28,12 @@ zero, for a new pod or for a stream that gets no delta for `max_stale` (`1h` in
 `k8s/otel/values.yaml`), is a counter reset to `rate()` and `increase()`.
 Cluster job pods have unique instance names and export metrics only once when they exit.
 PromQL functions like `increase()` and `rate()` drop series that contain only one sample.
-To calculate these counters, the collector transmits created timestamps via remote write 2.0
-(`remote_write_version: 2` in `k8s/otel/values.yaml`). Prometheus sets
-`enable-feature: created-timestamp-zero-ingestion` in `k8s/monitoring/prometheus-values.yaml`.
-On this path, Prometheus writes a zero-value sample at the start timestamp of each series,
-so `increase()` calculates the full counter value. The `/metrics` scrape gets no such sample.
+So the collector sends the running totals to the OTLP receiver of Prometheus
+(`otlp_http/prometheus` in `k8s/otel/values.yaml`), which gets the start time of each point.
+With `enable-feature: created-timestamp-zero-ingestion` in
+`k8s/monitoring/prometheus-values.yaml`, Prometheus writes a zero-value sample at the start
+time of each new stream, so `increase()` counts its first value. A zero sample older than
+the last sample of its series is refused. The `/metrics` scrape gets no such sample.
 
 The Service starts each label set of its counters at zero (#3495). So the first count
 of a label set is in its series. The exception is

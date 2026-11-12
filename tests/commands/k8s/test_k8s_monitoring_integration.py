@@ -533,10 +533,12 @@ def test_otel_collector_is_scraped_once_through_its_pod_annotations() -> None:
     ) == ("true", "8888", False)
 
 
-def test_otel_collector_remote_writes_to_the_path_alloy_serves() -> None:
-    """The OTel collector remote-writes directly to Prometheus server in one hop (#1132).
+def test_otel_collector_sends_metrics_to_the_prometheus_otlp_receiver() -> None:
+    """The OTel collector sends metrics to the OTLP receiver of the Prometheus server (#1132, #4684).
 
-    Avoids two-hop Alloy path where one late CLI sample poisons unrelated cluster metrics batches.
+    The one hop avoids the Alloy path, where one late CLI sample poisons unrelated cluster
+    metrics batches. Each devops-cli point keeps the `cluster` label that Alloy gives the other
+    series.
     """
     with open(K8S_DIR / "otel" / "values.yaml", encoding="utf-8") as f:
         otel = yaml.safe_load(f)
@@ -545,27 +547,37 @@ def test_otel_collector_remote_writes_to_the_path_alloy_serves() -> None:
     with open(K8S_DIR / "monitoring" / "prometheus-values.yaml", encoding="utf-8") as f:
         prom = yaml.safe_load(f)
 
-    # 1. prometheus_remote_write is the only metrics exporter and carries cluster label
-    metrics_exporters = otel["config"]["service"]["pipelines"]["metrics"]["exporters"]
-    assert metrics_exporters == ["prometheus_remote_write"]
-    prw = otel["config"]["exporters"]["prometheus_remote_write"]
-    endpoint = urlsplit(prw["endpoint"])
-    assert (endpoint.hostname, endpoint.port, endpoint.path) == (
-        "prometheus-server.monitoring.svc.cluster.local",
-        9090,
-        "/api/v1/write",
-    )
+    # 1. one otlp_http exporter to the OTLP path of the server, and the cluster attribute
+    pipeline = otel["config"]["service"]["pipelines"]["metrics"]
+    (exporter_id,) = pipeline["exporters"]
+    endpoint = urlsplit(otel["config"]["exporters"][exporter_id]["metrics_endpoint"])
     cluster_name = k8s_mon["cluster"]["name"]
-    assert prw.get("external_labels", {}).get("cluster") == cluster_name
-    assert prw.get("translation_strategy") == "UnderscoreEscapingWithoutSuffixes"
+    statements = [
+        statement
+        for name in pipeline["processors"]
+        if name.split("/")[0] == "transform"
+        for group in otel["config"]["processors"][name].get("metric_statements", [])
+        for statement in group["statements"]
+    ]
+    assert (
+        exporter_id.split("/")[0],
+        (endpoint.hostname, endpoint.port, endpoint.path),
+        statements,
+    ) == (
+        "otlp_http",
+        ("prometheus-server.monitoring.svc.cluster.local", 9090, "/api/v1/otlp/v1/metrics"),
+        [f'set(datapoint.attributes["cluster"], "{cluster_name}")'],
+    )
 
     # 2. image.tag is absent
     assert "tag" not in otel.get("image", {})
 
-    # 3. Prometheus server flags & tsdb out-of-order window
+    # 3. Prometheus server flags & tsdb out-of-order window. Alloy still remote-writes.
     server_cfg = prom.get("server", {})
     assert server_cfg.get("tsdb", {}).get("out_of_order_time_window") == "10m"
-    assert "web.enable-remote-write-receiver" in server_cfg.get("extraArgs", {})
+    assert {"web.enable-remote-write-receiver", "web.enable-otlp-receiver"} <= set(
+        server_cfg.get("extraArgs", {})
+    )
 
     # 4. prometheusMetricsReceiver is not enabled
     assert not k8s_mon.get("prometheusMetricsReceiver", {}).get("enabled", False)
