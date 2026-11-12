@@ -762,12 +762,16 @@ def _run_metrics_adapter(
     store: RoadmapStore,
     repo: str = "",
     clone_path: Path | None = None,
+    now: datetime | None = None,
     **_: Any,
 ) -> JobOutcome:
     """Collect the project metrics, walking the version tags of the job's clone of `repo` and
     counting the Items of `store`, into OTLP (#1358). The Items also give the age of the oldest
-    Item of each state, which only this row asks for (#2919). A failed collection and a
-    missing clone fail the row (#4052); the status pages have rows of their own."""
+    Item of each state, which only this row asks for (#2919). Then read the deliveries of the
+    hooks of the repository that got no 2xx answer before `now`, into the Service's gauge
+    (#5017). A failed collection, a failed read of the hooks and a missing clone fail the row
+    (#4052); the status pages have rows of their own."""
+    from devops_cli.github.hook_deliveries import report_delivery_failures
     from devops_cli.github.metrics import (
         collect_project_metrics_report,
         emit_project_metrics_telemetry,
@@ -778,6 +782,7 @@ def _run_metrics_adapter(
         root=clone, repo=repo or None, store=store, item_ages=True
     )
     emit_project_metrics_telemetry(report)
+    report_delivery_failures(report.repo, now or datetime.now(UTC))
     return JobOutcome()
 
 

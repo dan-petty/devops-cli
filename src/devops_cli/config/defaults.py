@@ -821,6 +821,11 @@ DEFAULT_ROADMAP_INBOX_WAIT_DAYS: int = 7
 # How often refine is due on its own, besides its cross-job trigger (#1515).
 DEFAULT_ROADMAP_REFINE_INTERVAL_MINUTES: int = 17
 DEFAULT_ROADMAP_METRICS_INTERVAL_MINUTES: int = 13
+# The minutes of hook deliveries that the metrics row counts in the gauge of failed deliveries
+# (#5017). It is longer than the metrics interval, so each delivery is in at least one read.
+DEFAULT_SERVICE_HOOK_DELIVERY_WINDOW_MINUTES: int = 15
+# The newest deliveries of one hook that the metrics row reads: one page, the most GitHub gives.
+DEFAULT_SERVICE_HOOK_DELIVERY_PAGE_SIZE: int = 100
 # The most items one refine round takes. It is the only cap of a round (#2004).
 DEFAULT_ROADMAP_REFINE_LIMIT: int = 7
 # The most candidates one Service round of intake decides, one model call each (#1360).

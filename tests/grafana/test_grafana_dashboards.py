@@ -1016,7 +1016,7 @@ def _cli_dashboard_row(title: str) -> list[dict[str, Any]]:
 
 def test_cli_dashboard_service_row_charts_the_state_of_the_service() -> None:
     """The row "Roadmap Service" holds a panel for the rounds, the budget, the queues, the stops
-    and the inputs of the Service (#2479)."""
+    and the inputs of the Service (#2479), and for the failed deliveries of the hooks (#5017)."""
     selector = '{job=~"$job"}'
 
     assert {
@@ -1073,6 +1073,10 @@ def test_cli_dashboard_service_row_charts_the_state_of_the_service() -> None:
         "Service Retry After Seconds": [
             "max by (repo, row, class) "
             f"(last_over_time(devops_cli_service_job_retry_after_seconds{selector}[5m]))"
+        ],
+        "Service Failed Webhook Deliveries": [
+            "max by (repo, code) "
+            f"(last_over_time(devops_cli_service_webhook_delivery_failures{selector}[5m]))"
         ],
     }
 

@@ -114,6 +114,7 @@ _PROCESS_STATE_RESETS: dict[str, tuple[str, ...]] = {
         "reset_refused_paths",
         "reset_item_age_cache",
     ),
+    "devops_cli.github.hook_deliveries": ("reset_set_codes",),
     "devops_cli.github.projects": ("reset_project_caches",),
     "devops_cli.github.rate_limiter": ("reset_github_rate_limiter",),
     "devops_cli.github.request_classifier": ("reset_request_classifier_cache",),

@@ -1493,6 +1493,8 @@ CONST_GITHUB_APP_TOKEN_PERMISSIONS: Final[dict[str, str]] = {
     "actions": "read",
     "metadata": "read",
     "workflows": "write",
+    # The metrics row reads the deliveries of the hooks of each repository (#5017).
+    "repository_hooks": "read",
 }
 # GitHub's commit email of an account, `<id>+<login>@users.noreply.github.com`, for a bot too.
 CONST_GITHUB_NOREPLY_EMAIL: Final[str] = "{account_id}+{login}@users.noreply.github.com"
@@ -1607,6 +1609,13 @@ CONST_SERVICE_METRIC_JOB_RETRY_AFTER_SECONDS: Final[str] = (
 # 1 while the last write of a state record that the Service keeps on its volume failed, else 0, by
 # `record`: `budget`, `halt` or `ledger` (#4048). The first write of a record creates its series.
 CONST_SERVICE_METRIC_STATE_UNKEPT: Final[str] = "devops_cli_service_state_unkept"
+# The deliveries of the hooks of a repository that got no 2xx answer in the last
+# `DEFAULT_SERVICE_HOOK_DELIVERY_WINDOW_MINUTES`, by `repo` and `code`, as GitHub records them
+# (#5017). A refusal at the Cloudflare edge never gets to the webhook route, so the deliveries
+# counter of the route cannot show it. The metrics row sets it.
+CONST_SERVICE_METRIC_WEBHOOK_DELIVERY_FAILURES: Final[str] = (
+    "devops_cli_service_webhook_delivery_failures"
+)
 # Counts the stops of the implement job by failure `class` (#3065). The Service counts when a round
 # reports the Job that ended, because the pod of a runner Job is not scraped.
 CONST_SERVICE_METRIC_IMPLEMENT_FAILURES: Final[str] = "devops_cli_service_implement_failures_total"

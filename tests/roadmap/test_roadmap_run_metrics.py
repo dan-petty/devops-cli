@@ -14,6 +14,7 @@ import pytest
 
 from devops_cli.config.constants import (
     CONST_GITHUB_APP_PRIVATE_KEY_ENV,
+    CONST_SERVICE_METRIC_WEBHOOK_DELIVERY_FAILURES,
 )
 from devops_cli.config.defaults import DEFAULT_ROADMAP_METRICS_INTERVAL_MINUTES
 from devops_cli.github.session import reset_github_session
@@ -32,6 +33,7 @@ from devops_cli.telemetry.instruments import (
     ROADMAP_ITEM_AGE,
     ROADMAP_OLDEST_ITEM,
 )
+from devops_cli.telemetry.metrics import GLOBAL_METRICS
 from tests.support.fakes.git import GitFake
 from tests.support.fakes.github import API
 from tests.support.fakes.github_repository import GitHubFake
@@ -165,6 +167,39 @@ def test_the_metrics_row_sends_the_age_of_a_blocked_item_and_logs_no_collection_
             if record.levelno >= logging.WARNING and "collection failed" in record.getMessage()
         ],
     ) == (REPO, True, float(number), 0.0, [])
+
+
+def test_the_metrics_row_counts_the_failed_deliveries_of_the_hooks_of_its_repository(
+    process_fake: ProcessFake,
+    seeded_store: InMemoryRoadmapStore,
+    tmp_path: Path,
+    otlp: FakeCollector,
+) -> None:
+    """A refusal at the Cloudflare edge never gets to the webhook route, so the metrics row reads
+    GitHub's record of the deliveries of each hook of its repository, and sets the gauge of the
+    Service by code to the deliveries of the last 15 minutes that got no 2xx answer (#5017)."""
+    clone = tmp_path / "clone"
+    clone.mkdir()
+    (clone / ".git").mkdir()
+    github = GitHubFake(REPO)
+    github.seed_hook(
+        7,
+        [
+            {"delivered_at": (NOW - timedelta(minutes=minutes)).isoformat(), "status_code": code}
+            for minutes, code in ((1, 403), (2, 202), (4, 403), (30, 403))
+        ],
+    )
+    github.install(process_fake)
+    GLOBAL_METRICS.clear_metric(CONST_SERVICE_METRIC_WEBHOOK_DELIVERY_FAILURES)
+
+    run_metrics_adapter(store=seeded_store, repo=REPO, clone_path=clone, now=NOW)
+
+    assert (
+        GLOBAL_METRICS.get_gauge_value(
+            CONST_SERVICE_METRIC_WEBHOOK_DELIVERY_FAILURES, labels={"repo": REPO, "code": "403"}
+        )
+        == 2.0
+    )
 
 
 def test_the_metrics_job_of_the_app_asks_no_traffic_endpoint(
