@@ -13,7 +13,7 @@ The citation gate of the stage plan check refuses a `path:N:text` citation when 
 
 ## Capabilities
 
-- `roadmap-stage`: a stale line citation whose text is on exactly one other line is accepted as that line, and the job log counts these citations.
+- `roadmap-stage/trace-gate`: a stale line citation whose text is on exactly one other line is accepted as that line, and the job log counts these citations.
 
 ## Impact
 
