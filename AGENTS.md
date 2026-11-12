@@ -27,7 +27,7 @@ devops-cli is a Python command-line tool, `devops`, that automates workstation, 
 
 | When you | Read |
 | :--- | :--- |
-| look up a setting, variable, error code, metric or command | [README.md](README.md) |
+| look up a setting, variable, error code, metric or command | [README.md](README.md), [commands](docs/CLI_REFERENCE.md) |
 | set up, name a branch, write a pull request title, run one check, change a command | [CONTRIBUTING.md](CONTRIBUTING.md) |
 | write or change a test | [docs/TESTING.md](docs/TESTING.md) |
 | write code: errors, subprocesses, HTTP, models, prompts, constants | [ARCHITECTURE.md](ARCHITECTURE.md), [CONTRIBUTING.md](CONTRIBUTING.md) |
@@ -40,4 +40,4 @@ devops-cli is a Python command-line tool, `devops`, that automates workstation, 
 | use a project term, or need the reason for a decision | [CONTEXT.md](CONTEXT.md), [docs/adr/](docs/adr/) |
 | run a review, or work on verdicts | [docs/SELF_IMPROVEMENT.md](docs/SELF_IMPROVEMENT.md) |
 | change a manifest, the cluster or OpenTofu | [k8s/README.md](k8s/README.md), [tf/README.md](tf/README.md) |
-| learn a subsystem, library or tool | [knowledge base](src/devops_cli/ai/knowledge_base/README.md), `devops <command> --help` |
+| learn a subsystem, library or tool | [knowledge base](src/devops_cli/ai/knowledge_base/README.md) |
