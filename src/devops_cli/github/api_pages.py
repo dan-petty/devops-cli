@@ -15,6 +15,10 @@ the session sends. gh keeps the others, because the session does not send them a
 - a read that `--cache` keeps in the response cache of `run_gh`;
 - any other gh flag, such as `--slurp`, `-H` or `-f`.
 
+`session_path` asks for pages of 100 items when the endpoint does not set `per_page`, as gh
+asks for them (#5100). So the session reads the pages that gh reads, in the same number of
+requests.
+
 `printed_pages` prints the pages as gh 2.103.1 prints them. With no filter, the items of array
 pages print as one JSON array, and each object page prints whole, on its own line. A `--jq`
 filter runs on each page through jq.py, the Python binding of jq, and each value prints on its
@@ -30,13 +34,16 @@ import json
 import re
 from collections.abc import Iterable, Iterator, Sequence
 from typing import Any, Final
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlencode, urlsplit
 
 from devops_cli.config.constants import CONST_GH_API_DEFAULT_METHOD, CONST_GH_API_GRAPHQL_ENDPOINT
+from devops_cli.config.defaults import DEFAULT_GH_REST_PER_PAGE
 from devops_cli.exceptions.validation import ValidationError
 
 _GH_PLACEHOLDER: Final = re.compile(r":(?:owner|repo|branch)\b|\{[a-z]+\}")
 """The placeholders gh fills from its base repository (gh 2.103.1, `fillPlaceholders`)."""
+
+_PER_PAGE: Final = "per_page"
 
 # gh prints a number that a filter selects with no decimals when it is whole, else with two.
 _WHOLE_NUMBER_FORMAT: Final = ".0f"
@@ -68,8 +75,20 @@ def reads_through_session(
 
 def session_path(endpoint: str) -> str:
     """The path of `endpoint` under GitHub's API, with or without its leading slash, as gh
-    reads it."""
-    return "/" + endpoint.lstrip("/")
+    reads it, with the page size gh asks for.
+
+    gh 2.103.1 adds `per_page=100` to a paginated REST read when the first `per_page` of its
+    query has no value (`addPerPage` in `pkg/cmd/api/pagination.go`, #5100): after `&` when the
+    endpoint has a `?`, else after `?`. gh also keeps a `per_page` given with `-f` or `-F`, but
+    such a read has a gh flag, so gh sends it.
+    """
+    path = "/" + endpoint.lstrip("/")
+    _, question_mark, query = path.partition("?")
+    # The first value, as Go's `url.Values.Get` gives it to gh.
+    if parse_qs(query, keep_blank_values=True).get(_PER_PAGE, [""])[0]:
+        return path
+    page_size = urlencode({_PER_PAGE: DEFAULT_GH_REST_PER_PAGE})
+    return f"{path}{'&' if question_mark else '?'}{page_size}"
 
 
 def listing_text(endpoint: str, jq_filter: str | None) -> Iterator[str]:

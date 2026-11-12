@@ -1073,6 +1073,55 @@ def test_gh_api_paginate_runs_the_jq_filter_on_each_page(github_api: GitHubApiFa
     assert (result.exit_code, result.output) == (0, "2\n1\n2\n1\n3\n")
 
 
+def test_gh_api_paginate_reads_pages_of_100_as_gh_does(github_api: GitHubApiFake) -> None:
+    """An endpoint with no `per_page` is read in pages of 100, as gh adds `per_page=100`: 150
+    labels take 2 requests, and `--jq length` prints one line for each page, as gh prints
+    them (#5100)."""
+    first, second = (
+        "/repos/octo/repo/labels?per_page=100",
+        "/repositories/1/labels?per_page=100&page=2",
+    )
+    labels = [{"id": n} for n in range(150)]
+    github_api.route("GET", first, github_json(labels[:100], headers=next_page(second)))
+    github_api.route("GET", second, github_json(labels[100:]))
+
+    result = runner.invoke(app, ["api", "repos/octo/repo/labels", "--paginate", "--jq", "length"])
+
+    assert (result.exit_code, result.output, github_api.requested) == (
+        0,
+        "100\n50\n",
+        [
+            "GET https://api.github.com/repos/octo/repo/labels?per_page=100",
+            "GET https://api.github.com/repositories/1/labels?per_page=100&page=2",
+        ],
+    )
+
+
+def test_gh_api_paginate_keeps_the_per_page_of_the_endpoint(github_api: GitHubApiFake) -> None:
+    """An endpoint that sets `per_page` is read with its own page size only (#5100)."""
+    github_api.route("GET", "/repos/octo/repo/labels?per_page=50", github_json([{"id": 1}]))
+
+    argv = ["api", "repos/octo/repo/labels?per_page=50", "--paginate", "--jq", "length"]
+    result = runner.invoke(app, argv)
+
+    assert (result.exit_code, result.output, github_api.requested) == (
+        0,
+        "1\n",
+        ["GET https://api.github.com/repos/octo/repo/labels?per_page=50"],
+    )
+
+
+def test_gh_api_paginate_dry_run_plans_pages_of_100(github_api: GitHubApiFake) -> None:
+    """A dry run plans the first page with the `per_page=100` that the read sends (#5100)."""
+    result = runner.invoke(app, ["api", "repos/octo/repo/labels", "--paginate", "--dry-run"])
+
+    assert (
+        result.exit_code,
+        "/repos/octo/repo/labels?per_page=100" in _flat(result.output),
+        github_api.sent,
+    ) == (0, True, [])
+
+
 def test_gh_api_paginate_exits_1_naming_a_listing_github_does_not_find(
     github_api: GitHubApiFake,
 ) -> None:
