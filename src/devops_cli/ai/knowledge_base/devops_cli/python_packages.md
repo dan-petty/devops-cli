@@ -215,7 +215,7 @@ from devops_cli.ai.review_schema import Finding
 - **Pinned Versions**: `fastapi==0.142.2`, `uvicorn==0.53.0`
 - **Ecosystem Role**: Asynchronous web framework and lightning-fast ASGI server for building high-performance REST APIs with auto-generated OpenAPI documentation.
 - **Codebase Integration**:
-  - `devops_cli.server`: Powers `devops serve`, providing REST endpoints for health probes (`/health`, `/healthz`), Prometheus metrics (`/metrics`), status, workspaces, config and an SSE event stream.
+  - `devops_cli.server`: Powers `devops serve`, providing REST endpoints for health probes (`/health`, `/healthz`), Prometheus metrics (`/metrics`), status, workspaces, config and telemetry.
 
 #### `opentelemetry-sdk` ([Dedicated Manual](libraries/opentelemetry.md))
 - **Pinned Version**: `opentelemetry-sdk==1.45.1`

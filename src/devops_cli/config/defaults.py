@@ -398,10 +398,6 @@ DEFAULT_BADGE_FAIL_COLOR: str = "red"
 DEFAULT_BADGE_WARN_COLOR: str = "yellow"
 DEFAULT_CODE_SPAN_COLOR: str = "cyan"
 DEFAULT_STREAM_NAME: Final = "stdout"
-DEFAULT_STREAM_PERSONA: str = "devsecops"
-DEFAULT_ALLOWED_STREAM_PERSONAS: frozenset[str] = frozenset(
-    {"devsecops", "architect", "challenger", "auditor", "qa", "pm"}
-)
 
 # ── AI, RAG & Agent Defaults ──────────────────────────────────────────────────
 DEFAULT_TIKTOKEN_MODEL: str = "gpt-4o"

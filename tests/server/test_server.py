@@ -278,6 +278,15 @@ def test_openapi_docs_endpoint(client: TestClient) -> None:
     assert "swagger-ui" in docs_res.text.lower()
 
 
+def test_the_app_serves_no_canned_reasoning_feed(client: TestClient) -> None:
+    """No route sends a feed that says a security check passed when no check ran (#4825)."""
+    assert client.get("/v1/stream/events").status_code == 404
+    schema_paths = client.get("/openapi.json").json()["paths"]
+    assert not [path for path in schema_paths if path.startswith(("/v1/stream", "/v1/ws"))]
+    route_paths = {getattr(route, "path", "") for route in create_app().routes}
+    assert "/v1/ws/reasoning" not in route_paths
+
+
 def test_serve_cli_help(runner: CliRunner) -> None:
     """Test devops serve --help CLI output."""
     result = runner.invoke(serve_app, ["--help"])
