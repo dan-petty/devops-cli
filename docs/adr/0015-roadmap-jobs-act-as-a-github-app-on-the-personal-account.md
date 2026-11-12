@@ -1,18 +1,13 @@
+---
+status: accepted
+date: 2026-10-28
+decision-makers: [owner]
+issue: 1647
+supersedes: ["0002"]
+body-hash: 3fee621df723d91c0d17327732122aa2afcbbb0370e0d01fd94a130e0798958e
+---
+
 # Roadmap jobs act as a GitHub App on the personal account
-
-ADR 0015 supersedes [ADR 0002](0002-roadmap-jobs-act-as-a-machine-account.md).
-
-Amended on 2026-10-28 ([#2454](https://github.com/dan-petty/devops-cli/issues/2454)): the owner made the App as `devops-cli-service`, with read and write on every repository permission, for planned repository-management work.
-
-Amended on 2026-10-28 ([#2473](https://github.com/dan-petty/devops-cli/issues/2473)): each installation token asks only for the permissions that the roadmap jobs use, whatever the App grants.
-
-Amended on 2026-11-04 ([#3519](https://github.com/dan-petty/devops-cli/issues/3519)): the owner added `workflows: write` to each installation token, because GitHub refused each push of a job that changed a workflow file.
-
-Amended on 2026-11-12 ([#5017](https://github.com/dan-petty/devops-cli/issues/5017)): each installation token also asks for `repository_hooks: read`, because the metrics row reads the deliveries of the hooks of each repository. The Cloudflare edge refused deliveries that the webhook route never saw, and only GitHub's record of each delivery shows such a refusal.
-
-Amended on 2026-11-12 ([#4757](https://github.com/dan-petty/devops-cli/issues/4757)): each installation token asks also for `administration: read`, because the `metrics` row reads the repository traffic endpoints, and GitHub keeps traffic for 14 days only. The owner chose to keep the devops-cli traffic emitter on 2026-11-11, as no open tool can read traffic with an installation token.
-
-Amended on 2026-11-12 ([#5058](https://github.com/dan-petty/devops-cli/issues/5058)): only a token that names no repository, as the Service mints, asks for `repository_hooks: read` and `administration: read`. Only the `metrics` row of the Service reads the hooks and the traffic. The token of a runner Job names one repository and asks for the permissions of the roadmap jobs only, so a step cannot read a hook URL, a delivery or the settings of the repository.
 
 ADR 0002 gave the roadmap jobs a machine account with a classic token, because only a classic token can reach a project board that a personal account owns. GitHub suspended that machine account on 2026-10-11 ([#1562](https://github.com/dan-petty/devops-cli/issues/1562)). Since then, no roadmap job can call GitHub without a person, and `deployment/roadmap-service` stays at `replicas: 0`.
 
@@ -41,3 +36,21 @@ On 2026-10-28 the owner decided that the repositories and the board stay on the 
 - The App's private key is in Secret `devops/devops-cli`. It reaches only the installed repositories, and each token that it mints expires after one hour. Each token is scoped to the roadmap jobs' permissions, whatever the App grants: a token that a bug, a prompt injection or a leak reaches cannot change repository settings, Actions secrets and variables or environments, which AGENTS.md leaves to a person. The token of the Service can read the configuration of each hook, its URL included but not its secret, and the deliveries of each hook. The token of a runner Job cannot. The token can change workflow files, so a bug, a prompt injection or a leak can push a workflow to a branch, and that workflow can run with the secrets of the repository before a person reviews it. The branch policy of an environment keeps the secrets of that environment from such a run. The key itself is not scoped: with read and write on every repository permission, a key that leaks can mint a token with all of them until it is rotated. A permission that no job uses can go from the App with no change to the code. If the installation does not grant one of the token's permissions, GitHub refuses the token with HTTP 422 and does not say which permission is missing, so the error names each permission that the token asks for. A process keeps one token for each gh and git child and each REST request, so each process asks for one set. A runner Job asks for the set of the roadmap jobs. The Service also asks for the set of its `metrics` row. A feature that needs one more permission adds it to one of the two sets with an amendment line here, as `workflows: write`, `repository_hooks: read` and `administration: read` did. An addition to the set of the roadmap jobs widens every token of every job. An installation that does not grant the new permission makes every token request that asks for it fail with HTTP 422, so a person confirms the grant on the installation page before such a change merges. The repository traffic endpoints need Administration (read) ([#4757](https://github.com/dan-petty/devops-cli/issues/4757)). With it, the token of the Service can read the settings of each repository, such as branch protection, rulesets and their rule suites, the Actions policy, self-hosted runners, deploy keys and pending invitations, but cannot change them. Administration read gives no Actions or Dependabot secret and no variable. When GitHub refuses the traffic of a repository, the `metrics` row logs one warning that names the permission and does not ask for that traffic again until the process restarts.
 - The App's writes show as `devops-cli-service[bot]`, so a person can tell them from their own writes.
 - The webhooks of each repository stay. The App's own webhook can replace them in a later item.
+
+## Status History
+
+ADR 0015 supersedes [ADR 0002](0002-roadmap-jobs-act-as-a-machine-account.md).
+
+Amended on 2026-10-28 ([#2454](https://github.com/dan-petty/devops-cli/issues/2454)): the owner made the App as `devops-cli-service`, with read and write on every repository permission, for planned repository-management work.
+
+Amended on 2026-10-28 ([#2473](https://github.com/dan-petty/devops-cli/issues/2473)): each installation token asks only for the permissions that the roadmap jobs use, whatever the App grants.
+
+Amended on 2026-11-04 ([#3519](https://github.com/dan-petty/devops-cli/issues/3519)): the owner added `workflows: write` to each installation token, because GitHub refused each push of a job that changed a workflow file.
+
+Amended on 2026-11-12 ([#5017](https://github.com/dan-petty/devops-cli/issues/5017)): each installation token also asks for `repository_hooks: read`, because the metrics row reads the deliveries of the hooks of each repository. The Cloudflare edge refused deliveries that the webhook route never saw, and only GitHub's record of each delivery shows such a refusal.
+
+Amended on 2026-11-12 ([#4757](https://github.com/dan-petty/devops-cli/issues/4757)): each installation token asks also for `administration: read`, because the `metrics` row reads the repository traffic endpoints, and GitHub keeps traffic for 14 days only. The owner chose to keep the devops-cli traffic emitter on 2026-11-11, as no open tool can read traffic with an installation token.
+
+Amended on 2026-11-12 ([#5058](https://github.com/dan-petty/devops-cli/issues/5058)): only a token that names no repository, as the Service mints, asks for `repository_hooks: read` and `administration: read`. Only the `metrics` row of the Service reads the hooks and the traffic. The token of a runner Job names one repository and asks for the permissions of the roadmap jobs only, so a step cannot read a hook URL, a delivery or the settings of the repository.
+
+2026-11-12: Living detail moved to `CONST_GITHUB_APP_TOKEN_PERMISSIONS` in `src/devops_cli/config/constants.py` and to `openspec/specs/github-app-identity/spec.md`; `roadmap-service` runs 1 replica (#5225).

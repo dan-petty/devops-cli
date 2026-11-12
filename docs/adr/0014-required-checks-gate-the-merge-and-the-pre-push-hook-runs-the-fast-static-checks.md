@@ -1,6 +1,13 @@
-# The required checks of `main` gate the merge, and the pre-push hook runs only the fast static checks
+---
+status: accepted
+date: 2026-10-24
+decision-makers: [owner]
+issue: 1752
+amends: ["0004"]
+body-hash: 5c5254f62a5e9dc6fc77a4875ff82d7ab4ba27e1b5a95a0bd36866b8de0b5cf2
+---
 
-ADR 0014 amends [ADR 0004](0004-ci-is-the-authoritative-gate.md). It replaces what ADR 0004 says about the rulesets, the Copilot review and the local runs. ADR 0004 still holds that CI is the authoritative gate, and that the aggregate jobs `Static Analysis` and `Tests & Coverage` are the names that the ruleset reads.
+# The required checks of `main` gate the merge, and the pre-push hook runs only the fast static checks
 
 ADR 0004 said that the rulesets require `Static Analysis` and `Tests & Coverage`. Nobody applied that to the rulesets ([#842](https://github.com/dan-petty/devops-cli/issues/842)), so the repository required no check until 2026-10-23. On 2026-10-18, pull requests that were green on their own bases merged into a red release branch. At the same time, every push ran the full `uv run devops ci` in the pre-push hook. That run took minutes on a quiet host and much longer under the load of parallel agents. It ran again after each rebase or amend.
 
@@ -84,3 +91,7 @@ ADR 0004 said that the rulesets require `Static Analysis` and `Tests & Coverage`
 - A defect that the full local run finds gets past the required checks and reaches `main`.
 - A defect that two pull requests make together reaches a release, because the release pull request did not show it.
 - The queue time that `devops ci job-time` prints for the push runs of `main` grows after #4639, because no merge cancels a push run.
+
+## Status History
+
+ADR 0014 amends [ADR 0004](0004-ci-is-the-authoritative-gate.md). It replaces what ADR 0004 says about the rulesets, the Copilot review and the local runs. ADR 0004 still holds that CI is the authoritative gate, and that the aggregate jobs `Static Analysis` and `Tests & Coverage` are the names that the ruleset reads.

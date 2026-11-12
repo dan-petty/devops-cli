@@ -1,10 +1,15 @@
+---
+status: accepted
+date: 2026-11-09
+decision-makers: [owner]
+issue: 4326
+amended-by: ["0020"]
+body-hash: 7350fe6b7ca479150f59a95dfda2eec2aa3acaaf642b160b53fc3f27fc0fb81b
+---
+
 # A decision step asks Jev short closed questions about evidence that tools extract
 
 TypeSafe Jev (`typesafe/jev-1.14`) is a System One decision model. It answers typed questions about a text with a calibrated probability, and it writes no text. It is no drop-in replacement for a model that writes. On 2026-11-10 the owner decided that the workflows must change to fit a decision model. This record decides how a workflow uses Jev. It builds no code.
-
-## Status
-
-The merge of the pull request that adds this record is the approval of this record. `git log --follow -- docs/adr/0019-a-decision-step-asks-jev-short-closed-questions-about-evidence-that-tools-extract.md` names the merge commit. The pilot of the first decision step is issue #4282. The second step was measured and needs no model. [ADR 0020](0020-a-decision-point-is-a-unit-of-a-workflow-with-a-resolver-chain-and-a-rule-goes-before-a-decision-model.md) amends this record in three places: it replaces the table of ranked decision points and the section of the pilots with its catalogue, it names the setting that holds the mode of a step, and it gives the measured result of pilot 2. The seven rules of this record stay in force.
 
 ## Context
 
@@ -75,3 +80,7 @@ The data of pilot 1 is the golden set of the stage job: 56 cases, 51 plans with 
 - Each decision step is a small module on the shared parts, with a fit script, a data file of fitted thresholds and a shadow metric of bounded labels.
 - A step that fails its bar stays off, and its report says why. The record does not promise a saving.
 - The cost of a step is a Jev request for each piece, at about 0.042 USD for one million input tokens. The fit needs labelled data, and a step with no labelled data does not start.
+
+## Status History
+
+The merge of the pull request that adds this record is the approval of this record. `git log --follow -- docs/adr/0019-a-decision-step-asks-jev-short-closed-questions-about-evidence-that-tools-extract.md` names the merge commit. The pilot of the first decision step is issue #4282. The second step was measured and needs no model. [ADR 0020](0020-a-decision-point-is-a-unit-of-a-workflow-with-a-resolver-chain-and-a-rule-goes-before-a-decision-model.md) amends this record in three places: it replaces the table of ranked decision points and the section of the pilots with its catalogue, it names the setting that holds the mode of a step, and it gives the measured result of pilot 2. The seven rules of this record stay in force.

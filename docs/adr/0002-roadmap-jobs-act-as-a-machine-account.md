@@ -1,8 +1,13 @@
+---
+status: superseded
+date: 2026-10-01
+decision-makers: [owner]
+superseded-by: ["0015"]
+amended-by: ["0016"]
+body-hash: 4560986068f0966b2e9a9678dd62b2f8ed8b7e06b2368b4bcbb02accd02b295f
+---
+
 # Roadmap jobs act as a machine account with a classic token
-
-[ADR 0015](0015-roadmap-jobs-act-as-a-github-app-on-the-personal-account.md) supersedes this ADR.
-
-Amended on 2026-10-28 by [ADR 0016](0016-labels-hold-the-roadmap-items-fields.md). No roadmap job reads or writes a project board, so the jobs need no access to a board and no `project` scope. A job tells a person's change from its own by its job record, which is a hidden block of the issue body. Labels hold the fields, and the issue events keep the history of each label change.
 
 The roadmap jobs change issues and the board with no person present, and reprioritization has to tell a person's change from its own so it never reverts one. They act as a dedicated machine account (GitHub's terms allow one free machine account per person) that holds a classic personal access token with the `project` and `repo` scopes and is invited as a Write collaborator on each managed repository and its board. A GitHub App or a fine-grained token would be the usual choice, but neither can reach a board owned by a personal account; only a classic token can.
 
@@ -14,3 +19,9 @@ The roadmap jobs change issues and the board with no person present, and reprior
 ## Consequences
 
 - GitHub keeps no history of board field changes except Status, so before overwriting a field a job compares it with the value it last set, and leaves it alone if a person changed it since.
+
+## Status History
+
+[ADR 0015](0015-roadmap-jobs-act-as-a-github-app-on-the-personal-account.md) supersedes this ADR.
+
+Amended on 2026-10-28 by [ADR 0016](0016-labels-hold-the-roadmap-items-fields.md). No roadmap job reads or writes a project board, so the jobs need no access to a board and no `project` scope. A job tells a person's change from its own by its job record, which is a hidden block of the issue body. Labels hold the fields, and the issue events keep the history of each label change.

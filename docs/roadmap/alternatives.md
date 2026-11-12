@@ -14,7 +14,7 @@ The comment of a `rejected` check names the ADR and keeps the tool URL, because 
 
 ### What the check reads of the ADRs
 
-Once for each run, before it selects the items, the check reads the files `docs/adr/<four digits>-<name>.md` of the default branch. It keeps the number, the title, the status lines and the `Considered Options` section of each ADR. The status lines are the paragraphs under the title that name another ADR and say that it supersedes or amends. An ADR that a later ADR supersedes in whole is not in force, so the check leaves it out. An ADR that another ADR amends or supersedes in part stays, with its status lines.
+Once for each run, before it selects the items, the check reads the files `docs/adr/<four digits>-<name>.md` of the default branch. It keeps the number, the title, the front matter and the `Considered Options` section of each ADR. The front matter holds the status of the ADR and its links to other ADRs ([docs/adr/README.md](../adr/README.md)). Only an ADR in force reaches the request: an ADR with `status: accepted`, or with no status, that no ADR supersedes. An ADR that another ADR amends stays, and its entry names the ADRs that amend it. A front matter that is not valid stops the run with an error that names the file.
 
 The request holds the entries as `decisions`, the newest ADR first. The text has at most `CONST_ROADMAP_ALTERNATIVES_MAX_ADR_TOKENS` tokens. The cut takes whole entries and never part of one. An entry that does not fit is left out, and a log warning names each ADR that the cut leaves out. The model cannot cite an ADR that it did not see, so the job confirms only the ADRs of `decisions`. A repository with no `docs/adr/` sends no `decisions`.
 

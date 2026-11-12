@@ -1,10 +1,16 @@
+---
+status: superseded
+date: 2026-10-23
+decision-makers: [owner]
+issue: 1751
+supersedes: ["0011"]
+superseded-by: ["0013"]
+amends: ["0001", "0004", "0010"]
+amended-by: ["0025"]
+body-hash: 5ddde940946b23e169eafe8649f597237903e4d5ef8cb210bd098b479d2ba153
+---
+
 # Releases are derived by release-please from trunk, and milestones are planning buckets
-
-[ADR 0013](0013-releases-use-release-please-as-it-ships-and-agents-stay-out.md) supersedes this ADR.
-
-Amended on 2026-11-11 ([#4656](https://github.com/dan-petty/devops-cli/issues/4656)): the owner decided that a workflow publishes the site. `.github/workflows/pages.yml` builds and deploys `docs/` on a push to `main` that changes `docs/` or the workflow, and the Pages source is GitHub Actions. This replaces the legacy build of `main:/docs` in the Pages item and in decision 12. The legacy build ran 3 jobs on each push to `main`.
-
-Amended on 2026-11-12 by [ADR 0025](0025-generated-documents-stay-in-git-and-the-project-brain-cites-them.md): the generated reference pages stay committed, and no item builds them at publish. This cancels the rest of decision 12.
 
 ADR 0012 supersedes [ADR 0011](0011-releases-come-from-trunk-towncrier-uv-and-semver-tags-instead-of-a-bespoke-cut.md). ADR 0011 kept a bespoke prepare workflow, `towncrier` fragments and the milestone title as the version, because the repository already used those conventions. The owner decided that a formal release orchestrator must derive the versions.
 
@@ -452,3 +458,11 @@ Each point below needed the owner. This ADR decides each one. Merging this ADR c
 - The constraint of Argo CD resolves an unexpected tag, or the cluster needs a rollback faster than two actions. Then pin the application to a tag by hand and reconsider the `semver` strategy of Image Updater.
 - Serialized merges under the strict policy cost more than a day of waiting in any week. Then reconsider the policy with a merge queue or a post-merge check.
 - Release 1.0.0: this ADR continues under Semantic Versioning and deprecation periods. The pre-major setting stops mattering.
+
+## Status History
+
+[ADR 0013](0013-releases-use-release-please-as-it-ships-and-agents-stay-out.md) supersedes this ADR.
+
+Amended on 2026-11-11 ([#4656](https://github.com/dan-petty/devops-cli/issues/4656)): the owner decided that a workflow publishes the site. `.github/workflows/pages.yml` builds and deploys `docs/` on a push to `main` that changes `docs/` or the workflow, and the Pages source is GitHub Actions. This replaces the legacy build of `main:/docs` in the Pages item and in decision 12. The legacy build ran 3 jobs on each push to `main`.
+
+Amended on 2026-11-12 by [ADR 0025](0025-generated-documents-stay-in-git-and-the-project-brain-cites-them.md): the generated reference pages stay committed, and no item builds them at publish. This cancels the rest of decision 12.

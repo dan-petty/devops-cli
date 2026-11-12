@@ -1,6 +1,13 @@
-# Releases use release-please as it ships, and agents stay out of them
+---
+status: accepted
+date: 2026-10-23
+decision-makers: [owner]
+issue: 1861
+supersedes: ["0012"]
+body-hash: 925b8bc4bfb68188c23ad6382749a15c83793ac24e662e45e8bd2975cb8dd1d5
+---
 
-ADR 0013 supersedes [ADR 0012](0012-releases-are-derived-by-release-please-from-trunk-and-milestones-are-planning-buckets.md).
+# Releases use release-please as it ships, and agents stay out of them
 
 ADR 0012 adopted release-please, but it put a custom design around the tool. That design had a draft release, a publish order through `softprops/action-gh-release`, a tag ruleset as the production gate and Argo CD on semver tags. It also had a cutover of thirteen steps, a rehearsal of ten premises, a `Release-As` path and estimates of future versions. It kept the roadmap planner and gave it date-titled buckets. Agents misread the bespoke release path again and again: wrong pull request titles and bases, stacked pull requests and a republished version.
 
@@ -28,3 +35,7 @@ On 2026-10-23 the owner decided to keep agents as far from the release workflow 
 - The changelog holds titles only. The long entries of the old fragments are not kept.
 - Because Argo CD tracks `main`, a tag deploys nothing. A tag ruleset is optional.
 - The first release that release-please makes is examined after it exists ([#1865](https://github.com/dan-petty/devops-cli/issues/1865)). Nobody predicts its version.
+
+## Status History
+
+ADR 0013 supersedes [ADR 0012](0012-releases-are-derived-by-release-please-from-trunk-and-milestones-are-planning-buckets.md).

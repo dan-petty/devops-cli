@@ -77,6 +77,15 @@ pymdownx.superfences.custom_fences = [
 invalid_links = true
 invalid_link_anchors = true
 
+# The status of a decision record is the key `status` of its front matter (docs/adr/README.md). The
+# nav shows a status icon with this title on hover. `overrides/main.html` gives each status an icon.
+[project.extra.status]
+proposed = "Proposed record"
+accepted = "Accepted record"
+rejected = "Rejected record"
+deprecated = "Deprecated record"
+superseded = "Superseded record"
+
 [project.plugins.search]
 
 # The nav tabs are in `.nav.yml`. Its globs add a new page with no edit.

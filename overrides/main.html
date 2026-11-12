@@ -5,4 +5,19 @@
 {% block extrahead %}
   {{ super() }}
   <meta name="devops-build-commit" content="{{ config.extra.build.commit }}">
+  {#- The theme draws a status icon only for `new` and `deprecated`, and a filled square for any
+      other status. So a proposed decision record takes the icon of `new`, a rejected or a
+      superseded record takes the icon of `deprecated`, and an accepted record shows no icon. -#}
+  <style>
+    .md-status--accepted { display: none; }
+    .md-status--proposed::after {
+      -webkit-mask-image: var(--md-status--new);
+      mask-image: var(--md-status--new);
+    }
+    .md-status--rejected::after,
+    .md-status--superseded::after {
+      -webkit-mask-image: var(--md-status--deprecated);
+      mask-image: var(--md-status--deprecated);
+    }
+  </style>
 {% endblock %}
