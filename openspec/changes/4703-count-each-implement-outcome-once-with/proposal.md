@@ -7,6 +7,7 @@ The project review of #4679 needs an implement-delivery SLI, and #4703 shows tha
 - The `result` label of `devops_cli_service_implement_jobs_total` holds the state of the Kubernetes Job. A runner that writes its own stop exits 0, so the Job is Complete and a failed attempt counts as `succeeded`. In the 72 hours to 2026-11-11T22:37Z the counter grew by 7 `succeeded` and 0 `failed`, while `devops_cli_service_implement_failures_total` grew by 5 (`limit_reached` 3, `conflict` 1, `test` 1). kube-state-metrics shows all 9 runner Jobs of that time as succeeded.
 - A round reports only the Jobs of open items. The pull request of Job `devops-cli-runner-20261110-000512-7baf` merged at 00:33:15Z, about one minute after the Job ended, so its item closed first and no round reported or counted the Job.
 - No check refuses an empty `repo` label.
+- A count that the Service makes while it stops is lost, because uvicorn closes `/metrics` before the drain. The report of Job `devops-cli-runner-20261110-140833-a7fa` at 2026-11-10T14:37:25Z came 23 s after its pod started to shut down, and the last scrape of that pod was at 14:36:15Z. This cause is in the Service shutdown, not in the implement round, so #4876 fixes it.
 
 ## What Changes
 

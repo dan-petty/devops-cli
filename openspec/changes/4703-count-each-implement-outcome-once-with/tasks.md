@@ -18,5 +18,6 @@ Kind: documents. Reads: `k8s/README.md`. Changes: `k8s/README.md`.
 
 ## Workflow follow-up
 
+- #4876: keep the counts that the Service makes while it stops. Until it merges, a report in the drain of a rollout is not counted.
 - Pending a person: review the diff in tuicr (tuicr -r <base>..HEAD).
 - Pending a person: 7 days after the deploy, compare `sum(increase(devops_cli_service_implement_jobs_total{job="roadmap-service"}[7d]))` with the runner Jobs that kube-state-metrics shows as started in the same 7 days. The difference must be 10% or less.
