@@ -143,7 +143,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`telemetry_test`](#telemetry-test) | `false` | Emit a test OpenTelemetry trace span and metric to the configured collector. |
 | [`tf_apply`](#tf-apply) | `false` | Create or update OpenTofu infrastructure. |
 | [`tf_cost_breakdown`](#tf-cost-breakdown) | `true` | Estimate monthly and hourly cloud infrastructure costs using Infracost. |
-| [`tf_notify_plan`](#tf-notify-plan) | `true` | Format and post structured, collapsible OpenTofu/Terraform plan diffs to PR comments. |
+| [`tf_notify_plan`](#tf-notify-plan) | `true` | Format an OpenTofu plan as a collapsible pull request comment and print it. The command sends no request. |
 | [`tf_output`](#tf-output) | `true` | Read an output variable from the OpenTofu state. |
 | [`tf_plan`](#tf-plan) | `true` | Generate and show an OpenTofu execution plan. |
 | [`tls_inspect`](#tls-inspect) | `true` | Inspect and display metadata of an X.509 certificate. |
@@ -2343,7 +2343,7 @@ Estimate monthly and hourly cloud infrastructure costs using Infracost.
 
 ### `tf_notify_plan`
 
-Format and post structured, collapsible OpenTofu/Terraform plan diffs to PR comments.
+Format an OpenTofu plan as a collapsible pull request comment and print it. The command sends no request.
 
 **Annotations:** `readOnlyHint: true`
 
@@ -2351,8 +2351,8 @@ Format and post structured, collapsible OpenTofu/Terraform plan diffs to PR comm
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `plan_file` | `string` | No | - | Path to raw plan output or log file. |
-| `pr_number` | `integer` | No | - | Pull Request number to post plan comment to. |
+| `plan_file` | `string` | No | - | Path to raw plan output or log file. With no file, or a path that does not exist, the command prints a fixed sample plan. |
+| `pr_number` | `integer` | No | - | Pull request number for the pr field of the JSON or YAML output. The command sends nothing to the pull request. |
 | `json_output` | `boolean` | No | `False` | Output findings or metrics as JSON. |
 | `output_format` | `string` | No | `table` | Output format (table, json, yaml, csv) |
 

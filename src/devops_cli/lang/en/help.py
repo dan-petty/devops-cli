@@ -684,10 +684,13 @@ class TfCommandHelp:
     var_file: str = "Path to variable definitions file."
     out_plan: str = "Write generated plan to file."
     plan_file: str = "Explicit plan file to apply."
-    plan_input_file: str = "Path to raw plan output or log file."
-    pr: str = "Pull Request number to post plan comment to."
-    notify_plan: str = (
-        "Format Terraform/OpenTofu plan output and post it as a comment on a GitHub PR."
+    plan_input_file: str = (
+        "Path to raw plan output or log file. With no file, or a path that does not exist,"
+        " the command prints a fixed sample plan."
+    )
+    pr: str = (
+        "Pull request number for the pr field of the JSON or YAML output."
+        " The command sends nothing to the pull request."
     )
     upgrade_modules: str = "Upgrade modules and plugins."
     reconfigure: str = "Reconfigure backend, ignoring existing state."

@@ -832,7 +832,7 @@ def tf_notify_plan(
         typer.Option("--format", "-f", help="Output format (table, json, yaml, csv)"),
     ] = DEFAULT_TABLE_FORMAT,
 ) -> None:
-    """Format and post structured, collapsible OpenTofu/Terraform plan diffs to PR comments."""
+    """Format an OpenTofu plan as a collapsible pull request comment and print it. The command sends no request."""
     resolved_format = resolve_format(output_format, json_output=json_output)
     raw_text = ""
     if plan_file and plan_file.exists():

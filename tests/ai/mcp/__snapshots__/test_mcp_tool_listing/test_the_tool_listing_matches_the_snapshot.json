@@ -5933,7 +5933,7 @@
     }
   },
   "tf_notify_plan": {
-    "description": "Format and post structured, collapsible OpenTofu/Terraform plan diffs to PR comments.",
+    "description": "Format an OpenTofu plan as a collapsible pull request comment and print it. The command sends no request.",
     "input_schema": {
       "additionalProperties": false,
       "properties": {
@@ -5957,7 +5957,7 @@
             }
           ],
           "default": null,
-          "description": "Path to raw plan output or log file."
+          "description": "Path to raw plan output or log file. With no file, or a path that does not exist, the command prints a fixed sample plan."
         },
         "pr_number": {
           "anyOf": [
@@ -5970,7 +5970,7 @@
             }
           ],
           "default": null,
-          "description": "Pull Request number to post plan comment to."
+          "description": "Pull request number for the pr field of the JSON or YAML output. The command sends nothing to the pull request."
         }
       },
       "type": "object"
