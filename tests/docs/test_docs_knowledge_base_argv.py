@@ -92,10 +92,8 @@ def test_docs_check_reports_an_unresolved_documented_argv(tmp_path: Path) -> Non
             return_value=[DEFECTIVE_REFERENCE],
         ),
     ):
-        ok, errors = DocGenerator().check_docs(tmp_path, check_readme_table=False)
-        result = CliRunner().invoke(
-            docs_app, ["check", "--no-check-readme", "--output-dir", str(tmp_path)]
-        )
+        ok, errors = DocGenerator().check_docs(tmp_path)
+        result = CliRunner().invoke(docs_app, ["check", "--output-dir", str(tmp_path)])
 
     expected_errors = describe_unresolved_references([DEFECTIVE_REFERENCE])
     assert (ok, errors, result.exit_code, "docs/sample.md:4" in result.output) == (

@@ -179,7 +179,7 @@ In bash, `${=F}`, `${(f)...}` and `print -r --` fail. The forms `printf '%s'`, `
 - **Documentation Synchronization**:
   Run documentation introspection after any command or option change:
   ```bash
-  uv run devops docs generate --sync-readme
+  uv run devops docs generate
   ```
   Every Markdown file belongs to exactly one class of the documentation inventory (`CONST_DOCS_INVENTORY` in `src/devops_cli/config/constants.py`), so a pull request that adds a document lists it there. `devops docs check` resolves the `devops` command lines of every hand-written and prompt document against the live command tree, so a command named in prose is a command that exists.
 

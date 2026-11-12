@@ -2,6 +2,8 @@
 
 Run static analysis checks and automatically apply fixes (ruff check --fix).
 
+Run ruff linter across the project, automatically applying fixes by default.
+
 ## Commands
 
 ## `devops lint`

@@ -864,6 +864,7 @@ class CICommandHelp:
     )
     min_severity: str = "Minimum severity for tests/ (low, medium, high); src/ is scanned at low."
     fix_all: str = "Auto-fix lint/format before reporting status."
+    docs_fix: str = "Regenerate the documents with 'devops docs generate' before the check."
     fix_sync: str = "Automatically synchronize dependencies and lockfile."
     maintain: str = (
         "Run automated toolchain, dependency freshness, and lockfile maintenance checks."
@@ -1056,16 +1057,11 @@ class ServeCommandHelp:
 @dataclass(frozen=True)
 class DocsCommandHelp:
     app: str = "Generate and validate CLI and architecture documentation."
-    generate: str = "Generate reference documentation and sync command matrix in README.md."
     check: str = "Verify that documentation is strictly up to date with CLI code."
-    check_readme: str = "Verify README.md table is synchronized without writing changes."
     target_dir: str = "Target directory for generated documentation files (default: docs/)."
     output_dir: str = "Target directory for generated documentation files (default: docs/)."
     format_type: str = "Documentation output format ('markdown' or 'json')."
-    sync_readme: str = "Synchronize Complete Command Matrix in README.md."
-    readme_path: str = "Path to README.md file (default: workspace root README.md)."
     validate_only: str = "Validate that existing documentation is up to date without writing files."
-    check_sync: str = "Verify README.md Command Matrix synchronization as well."
     site_app: str = "Build the docs site with Zensical."
     site_build: str = (
         "Stage docs/ and the root documents in .data/site-src/, change each link to a repository "

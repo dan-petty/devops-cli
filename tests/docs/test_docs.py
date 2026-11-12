@@ -8,7 +8,9 @@ from unittest.mock import patch
 
 import click
 import pytest
+import typer
 from syrupy.assertion import SnapshotAssertion
+from typer.core import TyperGroup
 from typer.testing import CliRunner
 
 from devops_cli.commands.docs import app as docs_app
@@ -104,47 +106,44 @@ def test_doc_generator_introspect_mcp_tools(generator: DocGenerator) -> None:
     assert "review_path" in tool_names
 
 
+def _dummy_group() -> CommandGroupDoc:
+    """A command group with one command that has one flag."""
+    return CommandGroupDoc(
+        name="dummy",
+        module_path="dummy.path",
+        summary="Dummy summary",
+        description="Dummy long description",
+        commands=[
+            CommandDoc(
+                name="run",
+                full_path="devops dummy run",
+                summary="Run dummy",
+                description="Run dummy detail",
+                usage="devops dummy run [OPTIONS]",
+                params=[
+                    ParamDoc(
+                        name="flag",
+                        kind="flag",
+                        flags=["--flag"],
+                        type_name="boolean",
+                        description="A flag",
+                        default=None,
+                        required=False,
+                    )
+                ],
+            )
+        ],
+    )
+
+
 def test_render_markdown_and_json(generator: DocGenerator, snapshot: SnapshotAssertion) -> None:
-    groups = [
-        CommandGroupDoc(
-            name="dummy",
-            module_path="dummy.path",
-            summary="Dummy summary",
-            description="Dummy long description",
-            commands=[
-                CommandDoc(
-                    name="run",
-                    full_path="devops dummy run",
-                    summary="Run dummy",
-                    description="Run dummy detail",
-                    usage="devops dummy run [OPTIONS]",
-                    params=[
-                        ParamDoc(
-                            name="flag",
-                            kind="flag",
-                            flags=["--flag"],
-                            type_name="boolean",
-                            description="A flag",
-                            default=None,
-                            required=False,
-                        )
-                    ],
-                )
-            ],
-        )
-    ]
+    groups = [_dummy_group()]
 
     cli_md = generator.render_cli_reference_markdown(groups)
     assert "# DevOps CLI Reference" in cli_md
-    assert "## devops dummy" in cli_md
-    assert "`devops dummy run`" in cli_md
 
     group_md = generator.render_command_group_markdown(groups[0])
     assert "# `devops dummy`" in group_md
-
-    readme_table = generator.render_readme_matrix(groups)
-    assert "| Command Group | Subcommand / Usage | Purpose & Features |" in readme_table
-    assert "**dummy**" in readme_table
 
     tools = [
         MCPToolDoc(
@@ -160,7 +159,6 @@ def test_render_markdown_and_json(generator: DocGenerator, snapshot: SnapshotAss
     assert {
         "cli_md": cli_md,
         "group_md": group_md,
-        "readme_table": readme_table,
         "mcp_md": mcp_md,
     } == snapshot
 
@@ -168,6 +166,70 @@ def test_render_markdown_and_json(generator: DocGenerator, snapshot: SnapshotAss
     assert "groups" in json_dict
     assert "env_vars" in json_dict
     assert "mcp_tools" in json_dict
+
+
+def test_the_cli_reference_is_an_index_of_the_group_pages(generator: DocGenerator) -> None:
+    """The CLI reference holds one row for each command group, with its one-line help and a link
+    to its page, and the command matrix with one row for each command. The full text of a
+    command is only on the page of its group (#5163)."""
+    page = generator.render_cli_reference_markdown([_dummy_group()])
+
+    rows = [line for line in page.splitlines() if line.startswith("| [")]
+
+    assert (rows, "```" in page, "Run dummy detail" in page, "--flag" in page) == (
+        [
+            "| [`devops dummy`](commands/dummy.md) | Dummy summary |",
+            "| [**dummy**](commands/dummy.md) | `devops dummy run [OPTIONS]` | Run dummy |",
+        ],
+        False,
+        False,
+        False,
+    )
+
+
+def test_the_group_page_holds_the_description_of_the_group(generator: DocGenerator) -> None:
+    """The page of a group holds the description of the group, which the CLI reference no
+    longer holds (#5163)."""
+    page = generator.render_command_group_markdown(_dummy_group())
+
+    assert page.splitlines()[:6] == [
+        "# `devops dummy`",
+        "",
+        "Dummy summary",
+        "",
+        "Dummy long description",
+        "",
+    ]
+
+
+def test_devops_docs_has_no_readme_sync() -> None:
+    """`devops docs` has no command and no option that writes or checks a block of README.md:
+    the command matrix is in the CLI reference (#5163)."""
+    group = typer.main.get_command(docs_app)
+    assert isinstance(group, TyperGroup)
+
+    names = sorted(
+        name
+        for command_name, command in group.commands.items()
+        for name in (
+            command_name,
+            *(flag for param in command.params for flag in (*param.opts, *param.secondary_opts)),
+        )
+        if "readme" in name
+    )
+
+    assert names == []
+
+
+def test_the_readme_links_the_cli_reference_and_holds_no_command_matrix() -> None:
+    """README.md links the CLI reference and holds no generated block (#5163)."""
+    readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+
+    assert (
+        "](docs/CLI_REFERENCE.md)" in readme,
+        "COMMAND_MATRIX" in readme,
+        "| Command Group |" in readme,
+    ) == (True, False, False)
 
 
 def test_the_mcp_tool_catalog_links_each_tool_to_the_heading_id_that_github_writes(
@@ -190,8 +252,8 @@ def test_write_and_check_docs(generator: DocGenerator, tmp_path: Path) -> None:
         "CLI_REFERENCE.md": "# DevOps CLI Reference\n",
         "ENV_VARS.md": "# Configuration Environment Variables\n",
     }
-    written = generator.write_all_docs(tmp_path, sync_readme_table=False, docs=fixture_docs)
-    ok, errors = generator.check_docs(tmp_path, check_readme_table=False, docs=fixture_docs)
+    written = generator.write_all_docs(tmp_path, docs=fixture_docs)
+    ok, errors = generator.check_docs(tmp_path, docs=fixture_docs)
     expected = ("CLI_REFERENCE.md", "ENV_VARS.md")
     assert (
         all((tmp_path / name).exists() for name in expected),
@@ -202,36 +264,28 @@ def test_write_and_check_docs(generator: DocGenerator, tmp_path: Path) -> None:
 
     # Stale file detection
     (tmp_path / "CLI_REFERENCE.md").write_text("Modified content", encoding="utf-8")
-    ok_stale, errors_stale = generator.check_docs(
-        tmp_path, check_readme_table=False, docs=fixture_docs
-    )
+    ok_stale, errors_stale = generator.check_docs(tmp_path, docs=fixture_docs)
     assert ok_stale is False
     assert any("differs from generated content" in e for e in errors_stale)
 
     # Missing file detection
     (tmp_path / "ENV_VARS.md").unlink()
-    ok_missing, errors_missing = generator.check_docs(
-        tmp_path, check_readme_table=False, docs=fixture_docs
-    )
+    ok_missing, errors_missing = generator.check_docs(tmp_path, docs=fixture_docs)
     assert ok_missing is False
     assert any("Missing documentation file" in e for e in errors_missing)
 
 
 def test_docs_cli_generate_and_check(runner: CliRunner, tmp_path: Path) -> None:
-    res = runner.invoke(docs_app, ["generate", "--no-sync-readme", "--output-dir", str(tmp_path)])
+    res = runner.invoke(docs_app, ["generate", "--output-dir", str(tmp_path)])
     assert res.exit_code == 0
     assert (tmp_path / "CLI_REFERENCE.md").exists()
 
     # Check command passes
-    check_res = runner.invoke(
-        docs_app, ["check", "--no-check-readme", "--output-dir", str(tmp_path)]
-    )
+    check_res = runner.invoke(docs_app, ["check", "--output-dir", str(tmp_path)])
     assert check_res.exit_code == 0
 
     # Generate --check flag
-    gen_check_res = runner.invoke(
-        docs_app, ["generate", "--check", "--no-sync-readme", "--output-dir", str(tmp_path)]
-    )
+    gen_check_res = runner.invoke(docs_app, ["generate", "--check", "--output-dir", str(tmp_path)])
     assert gen_check_res.exit_code == 0
 
     # Invalid format error; test_docs_cli_dry_run_and_format_helpers writes the JSON export
@@ -242,65 +296,11 @@ def test_docs_cli_generate_and_check(runner: CliRunner, tmp_path: Path) -> None:
 
 
 def test_docs_cli_check_fails_on_stale(runner: CliRunner, tmp_path: Path) -> None:
-    runner.invoke(docs_app, ["generate", "--no-sync-readme", "--output-dir", str(tmp_path)])
+    runner.invoke(docs_app, ["generate", "--output-dir", str(tmp_path)])
     (tmp_path / "CLI_REFERENCE.md").write_text("Corrupt", encoding="utf-8")
 
-    res = runner.invoke(docs_app, ["check", "--no-check-readme", "--output-dir", str(tmp_path)])
+    res = runner.invoke(docs_app, ["check", "--output-dir", str(tmp_path)])
     assert res.exit_code == 1
-
-
-def test_sync_and_check_readme(generator: DocGenerator, tmp_path: Path) -> None:
-    readme = tmp_path / "README.md"
-    readme.write_text(
-        "# Sample\n\n## Complete Command Matrix\n\n| Old | Table |\n|---|---|\n\n---\n",
-        encoding="utf-8",
-    )
-
-    # Initial sync
-    ok = generator.sync_readme(readme)
-    assert ok is True
-    content = readme.read_text(encoding="utf-8")
-    assert "<!-- COMMAND_MATRIX_START -->" in content
-    assert "<!-- COMMAND_MATRIX_END -->" in content
-    assert "<!-- COMMAND_MATRIX_START -->\n\n|" in content
-    assert "| [**repos**](docs/commands/repos.md) |" in content
-
-    # Check passes when synchronized
-    check_ok, err = generator.check_readme(readme)
-    assert check_ok is True
-    assert err is None
-
-    # Stale table detection
-    stale_content = content.replace("| [**repos**](docs/commands/repos.md) |", "| **corrupt** |")
-    readme.write_text(stale_content, encoding="utf-8")
-    check_ok_stale, err_stale = generator.check_readme(readme)
-    assert check_ok_stale is False
-    assert err_stale is not None
-
-
-def test_docs_cli_sync_readme(runner: CliRunner, tmp_path: Path) -> None:
-    readme = tmp_path / "README.md"
-    readme.write_text(
-        "# Header\n\n<!-- COMMAND_MATRIX_START -->\nold\n<!-- COMMAND_MATRIX_END -->\n",
-        encoding="utf-8",
-    )
-
-    # Sync CLI command
-    res = runner.invoke(docs_app, ["sync-readme", "--readme-path", str(readme)])
-    assert res.exit_code == 0
-    assert "<!-- COMMAND_MATRIX_START -->" in readme.read_text(encoding="utf-8")
-    assert "<!-- COMMAND_MATRIX_START -->\n\n|" in readme.read_text(encoding="utf-8")
-
-    # Check flag passes
-    check_res = runner.invoke(docs_app, ["sync-readme", "--check", "--readme-path", str(readme)])
-    assert check_res.exit_code == 0
-
-    # Corrupt table fails check
-    readme.write_text(
-        "# Header\n\n<!-- COMMAND_MATRIX_START -->\nstale\n<!-- COMMAND_MATRIX_END -->\n"
-    )
-    fail_res = runner.invoke(docs_app, ["sync-readme", "--check", "--readme-path", str(readme)])
-    assert fail_res.exit_code == 1
 
 
 def test_ci_docs_command(runner: CliRunner) -> None:
@@ -312,79 +312,17 @@ def test_ci_docs_command(runner: CliRunner) -> None:
         mock_run.assert_called_once()
 
 
-def test_doc_generator_write_all_and_check(generator: DocGenerator, tmp_path: Path) -> None:
-    """Verify write_all_docs and check_docs mechanics using fixture docs."""
-    out_dir = tmp_path / "docs"
-    readme = tmp_path / "README.md"
-    readme_content = (
-        "# Title\n\n## Complete Command Matrix\n\n"
-        "<!-- COMMAND_MATRIX_START -->\n\n| Command Group | Subcommand |\n|---|---|\n\n<!-- COMMAND_MATRIX_END -->\n\n---\n"
-    )
-    readme.write_text(readme_content, encoding="utf-8")
-
-    fixture_docs = {
-        "CLI_REFERENCE.md": "# CLI Reference\n",
-        "ENV_VARS.md": "# Configuration Environment Variables\n",
-    }
-
-    written = generator.write_all_docs(out_dir, sync_readme_table=False, docs=fixture_docs)
-    assert len(written) == 2
-
-    # Check docs with fixture
-    ok_check, check_errs = generator.check_docs(
-        out_dir, check_readme_table=False, docs=fixture_docs
-    )
-    assert ok_check is True
-    assert check_errs == []
-
-    # Sync and check README using docs seam
-    synced_readme_content = readme_content.replace(
-        "| Command Group | Subcommand |", "| Command Group | Subcommand / Usage |"
-    )
-    readme_docs = {"README.md": synced_readme_content}
-    ok = generator.sync_readme(readme, docs=readme_docs)
-    assert ok is True
-    assert readme.read_text(encoding="utf-8") == synced_readme_content
-
-    # Check docs with readme sync enabled using docs containing README.md
-    full_docs = {**fixture_docs, **readme_docs}
-    with patch.object(generator, "_find_readme", return_value=readme):
-        written_with_sync = generator.write_all_docs(
-            out_dir, sync_readme_table=True, docs=full_docs
-        )
-        assert len(written_with_sync) == 3
-        assert readme in written_with_sync
-
-        ok_full, errs_full = generator.check_docs(out_dir, check_readme_table=True, docs=full_docs)
-        assert ok_full is True
-        assert errs_full == []
-
-    # Readme with no markers or table returns error in check_readme
-    empty_readme = tmp_path / "EMPTY.md"
-    empty_readme.write_text("# No matrix here\n", encoding="utf-8")
-    no_matrix_ok, no_matrix_err = generator.check_readme(empty_readme)
-    assert no_matrix_ok is False
-    assert "Could not find" in str(no_matrix_err)
-
-
 def test_one_check_docs_call_introspects_once(generator: DocGenerator, tmp_path: Path) -> None:
-    """Verify that a full check_docs call introspects command groups only once."""
-    readme = tmp_path / "README.md"
-    readme.write_text(
-        "# Title\n\n## Complete Command Matrix\n\n"
-        "<!-- COMMAND_MATRIX_START -->\n\n| Command Group | Subcommand / Usage | Purpose & Features |\n"
-        "|---|---|---|\n\n<!-- COMMAND_MATRIX_END -->\n\n---\n",
-        encoding="utf-8",
-    )
+    """Verify that a full check_docs call introspects command groups only once: the CLI
+    reference, its command matrix and the group pages use the same groups."""
     with (
-        patch.object(generator, "_find_readme", return_value=readme),
         patch.object(
             generator, "introspect_all_groups", wraps=generator.introspect_all_groups
         ) as mock_introspect,
         patch.object(generator, "introspect_env_vars", return_value=[]),
         patch.object(generator, "introspect_mcp_tools", return_value=[]),
     ):
-        generator.check_docs(tmp_path, check_readme_table=True, check_argv=False)
+        generator.check_docs(tmp_path, check_argv=False)
         assert mock_introspect.call_count == 1
 
 
@@ -412,9 +350,7 @@ def test_docs_cli_dry_run_and_format_helpers(runner: CliRunner, tmp_path: Path) 
     # Dry-run execution runs commands normally as no-external-request
     set_dry_run(True)
     try:
-        res_dry = runner.invoke(
-            docs_app, ["generate", "--output-dir", str(tmp_path), "--no-sync-readme"]
-        )
+        res_dry = runner.invoke(docs_app, ["generate", "--output-dir", str(tmp_path)])
         assert res_dry.exit_code == 0
         assert (tmp_path / "CLI_REFERENCE.md").exists()
 
@@ -425,14 +361,6 @@ def test_docs_cli_dry_run_and_format_helpers(runner: CliRunner, tmp_path: Path) 
         assert res_json_dry.exit_code == 0
         schema = json.loads((tmp_path / "cli_schema.json").read_text(encoding="utf-8"))
         assert "groups" in schema
-
-        readme = tmp_path / "README.md"
-        readme.write_text(
-            "# Readme\n<!-- COMMAND_MATRIX_START -->\n<!-- COMMAND_MATRIX_END -->\n",
-            encoding="utf-8",
-        )
-        res_sync_dry = runner.invoke(docs_app, ["sync-readme", "--readme-path", str(readme)])
-        assert res_sync_dry.exit_code == 0
     finally:
         set_dry_run(False)
 

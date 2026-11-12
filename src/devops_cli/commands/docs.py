@@ -74,13 +74,6 @@ def generate(
             help=HELP.options.format_type,
         ),
     ] = DEFAULT_DOCS_FORMAT,
-    sync_readme: Annotated[
-        bool,
-        typer.Option(
-            "--sync-readme/--no-sync-readme",
-            help=HELP.docs.sync_readme,
-        ),
-    ] = True,
     check: Annotated[
         bool,
         typer.Option(
@@ -115,7 +108,7 @@ def generate(
         raise typer.Exit(1)
 
     if check:
-        ok, errors = generator.check_docs(target_dir, check_readme_table=sync_readme)
+        ok, errors = generator.check_docs(target_dir)
         if not ok:
             for err in errors:
                 print_error(err, prefix=False)
@@ -127,7 +120,7 @@ def generate(
     print_info(
         MESSAGES.docs.generating_docs.format(output_dir=f"[cyan]{target_dir}[/cyan]"), prefix=False
     )
-    written = generator.write_all_docs(target_dir, sync_readme_table=sync_readme)
+    written = generator.write_all_docs(target_dir)
     for path in written:
         print_success(MESSAGES.docs.generated_file.format(path=path), prefix=False)
 
@@ -148,71 +141,19 @@ def check(
             help=HELP.docs.output_dir,
         ),
     ] = None,
-    check_readme: Annotated[
-        bool,
-        typer.Option(
-            "--check-readme/--no-check-readme",
-            help=HELP.docs.sync_readme,
-        ),
-    ] = True,
 ) -> None:
-    """Check that generated documentation and README.md are up to date with codebase."""
+    """Check that the generated documentation is up to date with the codebase."""
     target_dir = (output_dir or _get_default_docs_dir()).resolve()
     from devops_cli.docs.generator import DocGenerator
 
     generator = DocGenerator()
-    ok, errors = generator.check_docs(target_dir, check_readme_table=check_readme)
+    ok, errors = generator.check_docs(target_dir)
     if not ok:
         for err in errors:
             print_error(err, prefix=False)
         print_error(MESSAGES.docs.check_failed, prefix=False)
         raise typer.Exit(1)
     print_success(MESSAGES.docs.docs_up_to_date, prefix=False)
-
-
-# =============================================================================
-# Command: sync-readme
-# =============================================================================
-
-
-@app.command(name="sync-readme")
-@dry_run_class("no-external-request")
-def sync_readme_cmd(
-    readme_path: Annotated[
-        Path | None,
-        typer.Option(
-            "--readme-path",
-            "-r",
-            help=HELP.docs.readme_path,
-        ),
-    ] = None,
-    check: Annotated[
-        bool,
-        typer.Option(
-            "--check",
-            help=HELP.docs.check,
-        ),
-    ] = False,
-) -> None:
-    """Synchronize the Complete Command Matrix table in README.md with live CLI commands."""
-    from devops_cli.docs.generator import DocGenerator
-
-    generator = DocGenerator()
-    if check:
-        ok, err = generator.check_readme(readme_path)
-        if not ok:
-            if err:
-                print_error(err, prefix=False)
-            raise typer.Exit(1)
-        print_success(MESSAGES.docs.docs_up_to_date, prefix=False)
-        return
-
-    target = generator._find_readme(readme_path)
-    if generator.sync_readme(readme_path):
-        print_success(MESSAGES.docs.synced_readme.format(path=target), prefix=False)
-    else:
-        print_error(f"Failed to synchronize README Command Matrix in {target}", prefix=False)
-        raise typer.Exit(1)
 
 
 # =============================================================================

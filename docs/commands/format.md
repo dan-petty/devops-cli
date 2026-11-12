@@ -2,6 +2,8 @@
 
 Automatically apply code formatting in-place (ruff format).
 
+Format codebase with ruff format (or verify in check-only mode with --check).
+
 ## Commands
 
 ## `devops format`

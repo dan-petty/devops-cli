@@ -482,9 +482,8 @@ CONST_DOCS_ARGV_KNOWN_PLACEHOLDERS: Final[frozenset[str]] = frozenset(
 # - prompt: loaded by code at run time.
 # - tool-generated: written by a pinned tool, `devops openspec regenerate` for OpenSpec's skills, and
 #   checked by regenerating them, never named-checked.
-# - hand-written: every Markdown file that no other class lists, so a new page needs no entry
-#   (README.md also holds a generated command matrix). `devops_cli.docs.inventory` computes it, and
-#   the inventory holds no entry for it.
+# - hand-written: every Markdown file that no other class lists, so a new page needs no entry.
+#   `devops_cli.docs.inventory` computes it, and the inventory holds no entry for it.
 # An entry with a glob wildcard is a pattern and may match no file (`openspec/specs/**/*.md`
 # matches none until the first change is archived); an entry without one names a document and
 # must match its file.

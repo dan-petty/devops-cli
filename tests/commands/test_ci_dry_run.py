@@ -86,7 +86,7 @@ def test_ci_all_checks_dry_run(recorder: list[list[str]]) -> None:
         "1. uv --preview-features malware-check,check-command run ruff format ." in res.stdout,
         "2. uv --preview-features malware-check,check-command run ruff check --config pyproject.toml --fix ."
         in res.stdout,
-        "3. uv --preview-features malware-check,check-command run devops docs generate --sync-readme"
+        "3. uv --preview-features malware-check,check-command run devops docs generate"
         in res.stdout,
     ) == (True, True, True)
     for spec in specs:
@@ -109,7 +109,7 @@ def test_ci_run_command_dry_run(recorder: list[list[str]]) -> None:
         "1. uv --preview-features malware-check,check-command run ruff format ." in res.stdout,
         "2. uv --preview-features malware-check,check-command run ruff check --config pyproject.toml --fix ."
         in res.stdout,
-        "3. uv --preview-features malware-check,check-command run devops docs generate --sync-readme"
+        "3. uv --preview-features malware-check,check-command run devops docs generate"
         in res.stdout,
     ) == (True, True, True)
     assert ("✓ pass" in res.stdout, "CI Summary" in res.stdout) == (False, False)

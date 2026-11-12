@@ -39,9 +39,7 @@ def test_a_stale_grade_table_fails_the_docs_check(tmp_path: Path) -> None:
     page = _page(tmp_path, f"# Success\n\n{GRADE_TABLE_START}\nold\n{GRADE_TABLE_END}\n")
     generator = DocGenerator(tmp_path)
 
-    ok, errors = generator.check_docs(
-        tmp_path / "docs", check_readme_table=False, docs=generator.synced_blocks()
-    )
+    ok, errors = generator.check_docs(tmp_path / "docs", docs=generator.synced_blocks())
 
     assert (ok, errors) == (
         False,

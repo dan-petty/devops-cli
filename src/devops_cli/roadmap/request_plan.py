@@ -1045,7 +1045,7 @@ def implement_requests(
         git("amend", tree, "commit", "-m", _p("title"), when=cond["amend"], repeat=each_group),
         *within(store.comment(target), cond["return"], repeat=each_item),
         *within(store.write_status(target), cond["return"], repeat=each_item),
-        other("process", "docs", "uv", "run", "devops", "docs", "generate", "--sync-readme"),
+        other("process", "docs", "uv", "run", "devops", "docs", "generate"),
         git("commit", tree, "commit", "-m", _p("title"), when=cond["docs_commit"]),
         other("process", "archive", "uv", "run", "devops", "openspec", "archive", _p("change")),
         git("commit", tree, "commit", "-m", _p("title")),

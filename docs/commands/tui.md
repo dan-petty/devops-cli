@@ -2,6 +2,8 @@
 
 Interactive terminal UI dashboard (alias)
 
+Interactive terminal UI dashboard for workstation situational awareness.
+
 ## Commands
 
 ## `devops tui`

@@ -2,6 +2,8 @@
 
 Valkey workstation caching and in-memory data store
 
+Valkey workstation caching and in-memory data store commands
+
 ## Commands
 
 ## `devops valkey ping`

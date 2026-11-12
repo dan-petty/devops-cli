@@ -29,9 +29,6 @@ from devops_cli.commands.docs import (
 from devops_cli.commands.docs import (
     generate as docs_generate_cmd,
 )
-from devops_cli.commands.docs import (
-    sync_readme_cmd,
-)
 from devops_cli.commands.openspec import (
     archive as openspec_archive_cmd,
 )
@@ -72,10 +69,9 @@ COMMANDS_TO_CLASSIFY = [
     (auth_headless, "no-external-request"),
     (audit_stream, "no-external-request"),
     (audit_keys_cmd, "no-external-request"),
-    # Docs (3)
+    # Docs (2)
     (docs_check_cmd, "no-external-request"),
     (docs_generate_cmd, "no-external-request"),
-    (sync_readme_cmd, "no-external-request"),
     # OpenSpec (3)
     (openspec_archive_cmd, "no-external-request"),
     (openspec_check_cmd, "no-external-request"),

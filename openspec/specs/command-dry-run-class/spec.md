@@ -731,7 +731,7 @@ The three commands `openspec archive`, `openspec check`, and `openspec regenerat
 - **THEN** the local OpenSpec gate runs and reports findings
 
 ### Requirement: docs-no-external-request
-The three commands `docs check`, `docs generate`, and `docs sync-readme` SHALL carry the `no-external-request` dry-run class, running locally without external requests.
+The commands `docs check` and `docs generate` SHALL carry the `no-external-request` dry-run class, running locally without external requests.
 
 #### Scenario: Dry run on docs check
 - **WHEN** user executes `devops --dry-run docs check`

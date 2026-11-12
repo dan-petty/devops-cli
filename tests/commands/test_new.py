@@ -238,7 +238,7 @@ def test_the_command_scaffold_prints_the_steps_that_stay_manual(
     """The output names the command that regenerates the pages of the commands."""
     result = cli("new", "command", "sample", "hello")
 
-    assert "devops docs generate --sync-readme" in result.output
+    assert "devops docs generate`" in result.output
 
 
 def test_the_command_scaffold_refuses_a_group_that_has_no_module(

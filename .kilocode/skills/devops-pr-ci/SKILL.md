@@ -18,7 +18,7 @@ Do not run bare `gh` commands. The `devops ci` and `devops pr` commands enforce 
 1. Run `uv run devops repos worktrees add <issue> --type <type> --slug <slug>` to start work. Its branch name passes the branch-name hook.
 2. Run `git fetch origin && git rebase origin/main` right before each push. The pre-push hook refuses a branch that does not hold `origin/main`.
 3. Push only a new change or the fix of a conflict. Never push or update a pull request only to catch up with `main` (`docs/SDLC.md`, No Catch-Up Updates).
-4. On a rebase conflict in a generated document, run `git checkout --ours <file>` (in a rebase, "ours" is `main`). Then run `uv run devops docs generate --sync-readme`, `git add <file>` and `git rebase --continue`.
+4. On a rebase conflict in a generated document, run `git checkout --ours <file>` (in a rebase, "ours" is `main`). Then run `uv run devops docs generate`, `git add <file>` and `git rebase --continue`.
 5. Run `uv run devops pr update <number>` only when a required check failed on the head and its fix is on `main`.
 
 ## Open and Advance a Pull Request

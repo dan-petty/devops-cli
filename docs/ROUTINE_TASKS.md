@@ -30,7 +30,7 @@ The following matrix categorizes all project routine tasks by operational layer,
 | **Inner Loop (Daily / Per Edit)** | Targeted Type Checking | Step 5 | `uv run mypy --strict <file>` | Strict type validation on modified modules | 0 type errors across modified files |
 | **Inner Loop (Daily / Per Edit)** | Targeted Unit Testing | Step 6 | `uv run devops ci test <test-file>` | Fast isolated testing of active features/fixes, with xdist workers sized to the selection | Targeted tests pass |
 | **Inner Loop (Daily / Per Edit)** | Telemetry, Log & CLI Output Review | Step 7 | `devops telemetry status` / log inspection | Inspect CLI command outputs, `.data/logs/`, metrics, and tracing spans for performance bottlenecks, misconfigurations, and warnings | Clean logs, no warnings, nominal latencies |
-| **Final Pre-Commit / Pre-PR** | Documentation & README Sync | Step 1 | `uv run devops docs generate --sync-readme` | CLI introspection & README Command Matrix update | `uv run devops docs check` passes |
+| **Final Pre-Commit / Pre-PR** | Documentation Sync | Step 1 | `uv run devops docs generate` | CLI introspection, the command group pages and the command matrix of `docs/CLI_REFERENCE.md` | `uv run devops docs check` passes |
 | **Final Pre-Commit / Pre-PR** | Full Parallel Test Suite | Step 2 | `uv run pytest` | Complete parallel test run (`addopts`' `-n logical --dist worksteal`) | All tests pass |
 | **Final Pre-Commit / Pre-PR** | Full CI Validation Suite | Step 3 | `uv run devops ci` | Runs the full automated verification suite by hand, when you want it before the push. The required checks of CI gate the merge | All checks show `✓ pass` |
 | **Final Pre-Commit / Pre-PR** | Observability, Log & Trace Audit | Step 4 | `devops telemetry status` / `.data/logs/` | Audit CLI command outputs, application logs, metrics, and OpenTelemetry tracing data for performance issues and misconfigurations | Zero unhandled exceptions or warnings in logs/spans |
@@ -128,7 +128,7 @@ Executed at the final stage of work after all iterative feature modifications an
 
 1. **Regenerate Documentation & Check Freshness**:
    ```bash
-   uv run devops docs generate --sync-readme
+   uv run devops docs generate
    uv run devops docs check
    ```
 2. **Optional: Run the Full Local CI Validation Suite by Hand**: The pre-push hook runs only the fast static checks, and the required checks of CI gate the merge ([`docs/SDLC.md`](SDLC.md), Phase 4).
@@ -299,7 +299,7 @@ Executed on workspace initialization (DevContainer startup) or on-demand.
 | `devops ci` fails at `format` | Unformatted code or non-compliant line lengths | Run `uv run ruff format .` and re-run `devops ci`. |
 | `devops ci` fails at `lint` | Unused imports, bad syntax, or sorting violations | Run `uv run ruff check --fix .` and resolve manual warnings. |
 | `devops ci` fails at `typecheck` | Missing type annotations or strict type mismatch | Run `uv run mypy --strict src` to pinpoint offending line and type. |
-| `devops ci` fails at `docs` | CLI commands or flags changed without updating docs | Run `uv run devops docs generate --sync-readme` and verify with `devops docs check`. |
+| `devops ci` fails at `docs` | CLI commands or flags changed without updating docs | Run `uv run devops docs generate` and verify with `devops docs check`. |
 | `pytest` intermittent test failures | Non-deterministic test ordering in multi-threaded code | Ensure assertions use order-independent checks (`any(...)` or sets) rather than fixed array indices. |
 | `uv audit` reports vulnerability | A dependency has a known security advisory | Run `uv lock --upgrade-package <name>` and verify compatibility. |
 | `npm audit` reports vulnerability | A package in a Node tool's `package-lock.json` has a known security advisory | Bump the tool with the runbook in the header of `src/devops_cli/tools_lock/tools.lock`. |

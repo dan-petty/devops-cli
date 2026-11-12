@@ -2,6 +2,8 @@
 
 Inspect published operational status of upstream platforms (GitHub, Cloudflare)
 
+Inspect published operational status of upstream cloud platforms (GitHub, Cloudflare)
+
 ## Commands
 
 ## `devops status`

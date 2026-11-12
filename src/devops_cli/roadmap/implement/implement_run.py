@@ -1225,7 +1225,7 @@ class _ItemRun:
         if not self._runs(ProjectStep.DOCS):
             return
         self.step = MESSAGES.roadmap.implement_step_names["docs"]
-        self._program([BIN_UV, "run", BIN_DEVOPS, "docs", "generate", "--sync-readme"])
+        self._program([BIN_UV, "run", BIN_DEVOPS, "docs", "generate"])
         self._commit_if_changed(f"docs: regenerate the documentation (#{self.number})")
 
     def _finish_change(self) -> None:
