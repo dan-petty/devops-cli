@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
+from typing import Any
 
 import pytest
 from tree_sitter import QueryError
@@ -320,6 +322,40 @@ def test_code_graph_links_a_call_and_skips_a_file_it_cannot_read(tmp_path: Path)
         [(f"{source}::twice", f"{source}::add")],
         [],
     )
+
+
+def test_code_graph_links_no_name_that_a_body_holds_but_does_not_call(tmp_path: Path) -> None:
+    """Verify a body that holds the name of another function, but does not call it, links
+    nothing: only a body that holds the name is searched for the call (#4662)."""
+    source = tmp_path / "calc.py"
+    source.write_text("def add(x, y):\n    return x + y\n\n\ndef total(x):\n    return [add, x]\n")
+
+    assert CodeGraphBuilder(root_dir=tmp_path).build().edges == []
+
+
+def test_code_graph_lists_no_ignored_folder(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify the code graph walk lists no folder that git ignores, nor `.git`: a walk into a
+    virtual environment took most of a build of this repository (#4662)."""
+    repo = tmp_path / "repo"
+    (repo / ".git").mkdir(parents=True)
+    (repo / ".gitignore").write_text("vendor/\n", encoding="utf-8")
+    (repo / "vendor" / "pkg").mkdir(parents=True)
+    (repo / "vendor" / "pkg" / "lib.py").write_text("def lib():\n    return 1\n")
+    (repo / "app.py").write_text("def app():\n    return 2\n")
+    listed: list[Path] = []
+    real_scandir = os.scandir
+
+    def recording_scandir(path: str = ".") -> Any:
+        listed.append(Path(path))
+        return real_scandir(path)
+
+    monkeypatch.setattr(os, "scandir", recording_scandir)
+
+    files = CodeGraphBuilder(root_dir=repo).build().files
+
+    assert ([Path(file).name for file in files], sorted(set(listed))) == (["app.py"], [repo])
 
 
 def test_repomap_multilingual(tmp_path: Path) -> None:

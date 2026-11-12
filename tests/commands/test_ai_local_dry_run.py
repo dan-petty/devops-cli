@@ -53,7 +53,11 @@ runner = CliRunner()
 
 LOCAL_AI_COMMANDS: list[tuple[str, Any, list[str]]] = [
     ("ai", ai_main, ["--dry-run", "ai", "--help"]),
-    ("ai ast graph", ast_graph_cmd, ["--dry-run", "ai", "ast", "graph"]),
+    (
+        "ai ast graph",
+        ast_graph_cmd,
+        ["--dry-run", "ai", "ast", "graph", "--dir", "src/devops_cli/ai/ast"],
+    ),
     ("ai ast parse", ast_parse_cmd, ["--dry-run", "ai", "ast", "parse", "src/devops_cli/main.py"]),
     ("ai audit-library-usage", audit_library_usage_cmd, ["--dry-run", "ai", "audit-library-usage"]),
     ("ai bundle-models", bundle_models, ["--dry-run", "ai", "bundle-models"]),
