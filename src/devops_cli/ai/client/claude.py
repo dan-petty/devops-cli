@@ -261,6 +261,10 @@ def _map_anthropic_errors(self_obj: Any, failure: str) -> Iterator[None]:
     try:
         yield
     except anthropic.APIConnectionError as exc:
+        # The retry transport of the shared client raises the status error of its last try, and
+        # the SDK raises APIConnectionError from each error of its send (#3797).
+        if isinstance(exc.__cause__, httpx2.HTTPStatusError):
+            raise self_obj._provider_http_error(exc.__cause__, failure) from exc
         error = self_obj._connection_error(exc)
         error.timed_out = isinstance(exc, anthropic.APITimeoutError)
         raise error from exc
