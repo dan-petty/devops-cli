@@ -946,7 +946,8 @@ jobs:
   # success. The filter holds the inputs of the build, its outputs, and the files whose colors the
   # design tests check. npm installs the lock outside the checkout, so no node_modules shows in
   # the diff. The design tests run in one process: they take seconds, and pytest workers take
-  # longer to start. Each step limit is shorter than the job limit.
+  # longer to start. Each step limit is shorter than the job limit, and the bound of one design
+  # test is shorter than its step, so pytest-timeout names a test that hangs.
   design-tokens:
     name: Design Tokens
     if: github.event_name == 'pull_request'
@@ -1019,7 +1020,7 @@ jobs:
       - name: Run the Design Tests
         if: steps.changes.outputs.design == 'true'
         timeout-minutes: 2
-        run: uv run pytest tests/design -n 0
+        run: uv run pytest tests/design -n 0 --timeout 60
 
   # Resolves each image that an Argo CD Application pins when a pull request changes the
   # manifests, the command or this workflow, so a wrong tag fails the pull request and not the
