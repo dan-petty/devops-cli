@@ -549,6 +549,12 @@ class StageGroup(_Reply):
         return self
 
 
+def changes_source(changes: Sequence[str]) -> bool:
+    """Whether a path of `changes` is under `src/`: a `behavior` group changes such a path (#3035),
+    and the plan reader tells a `behavior` group from a `manifest` group by it (#5205)."""
+    return any(path.startswith(_SOURCE_DIRECTORY) for path in changes)
+
+
 def _behavior_problems(group: StageGroup) -> list[str]:
     """What breaks the rules of a `behavior` group: no test, no command for it, a process, or no
     path under `src/`."""
@@ -557,10 +563,7 @@ def _behavior_problems(group: StageGroup) -> list[str]:
         (group.test is None, texts.stage_kind_no_test),
         (group.verify is None, texts.stage_kind_no_verify),
         (group.process is not None, texts.stage_kind_behavior_process),
-        (
-            not any(path.startswith(_SOURCE_DIRECTORY) for path in group.changes),
-            texts.stage_kind_no_source,
-        ),
+        (not changes_source(group.changes), texts.stage_kind_no_source),
     )
     return [text.format(title=group.title) for broken, text in found if broken]
 
@@ -2688,7 +2691,7 @@ def _is_document_path(word: str) -> bool:
     return "/" in word or _PATH_SUFFIX.search(word) is not None
 
 
-def _document_work(documentation: str) -> str:
+def document_work(documentation: str) -> str:
     """The work of a documents task. A text that starts with a path gets the verb `Edit` and the
     path in a code span, so the task starts with a verb (#3226). Any other text is kept as it is,
     so a text that starts with a verb has no second verb."""
@@ -2707,19 +2710,21 @@ def _documents_task(documentation: str, changes: Sequence[str]) -> str:
     when the group changes a command, an option or a message, because only those change the
     generated text (#3226)."""
     texts = MESSAGES.roadmap
-    work = _document_work(documentation)
+    work = document_work(documentation)
     if any(path.startswith(_REGENERATE_PREFIXES) for path in changes):
         work += texts.stage_task_regenerate.format(command=REGENERATE_DOCUMENTS)
     return texts.stage_task_documents.format(work=work)
 
 
 def group_text(index: int, group: StageGroup) -> str:
-    """The group as `tasks.md` holds it, numbered `index`: its files, and the tasks of its kind.
-    `group` is a validated group: its texts are on one line (`_one_line`), and `verify` holds no
-    backtick (`form_problems`). A group built with `model_construct` skips that check, and no
-    caller renders one."""
+    """The group as `tasks.md` holds it, numbered `index`: its kind and its files on one line, and
+    the tasks of its kind. The plan reader reads the kind from that line, because a `manifest`
+    group has the tasks of a `behavior` group (#5205). `group` is a validated group: its texts are
+    on one line (`_one_line`), and `verify` holds no backtick (`form_problems`). A group built with
+    `model_construct` skips that check, and no caller renders one."""
     texts = MESSAGES.roadmap
     files = texts.stage_group_files.format(
+        kind=group.kind,
         reads=_paths(group.reads) or texts.stage_group_no_reads,
         changes=_paths(group.changes, group.creates),
     )
@@ -2755,7 +2760,7 @@ def _follow_up_section(groups: Sequence[StageGroup]) -> str:
     """The `## Workflow follow-up` section with the tuicr bullet, for a plan that changes a path
     under `src/`, the only plan that has code for tuicr to review. A plan with no such path has no
     section."""
-    if not any(path.startswith(_SOURCE_DIRECTORY) for g in groups for path in g.changes):
+    if not any(changes_source(g.changes) for g in groups):
         return ""
     return f"## Workflow follow-up\n\n- {MESSAGES.roadmap.stage_pending_review}\n"
 

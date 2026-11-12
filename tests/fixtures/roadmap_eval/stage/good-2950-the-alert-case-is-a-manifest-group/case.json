@@ -1,0 +1,25 @@
+{
+ "issue": 2950,
+ "pull": 3173,
+ "title": "feat(telemetry): Add alternatives coverage metrics and alert",
+ "change": "2950-alternatives-coverage-gauge-searches-per-check",
+ "merge_commit": "e5a2f36521ba9df2277ccdf5bf95ff069ebf5e20",
+ "base_commit": "4571d5f3a6f2dad18173406ed98fb74a5822b2c7",
+ "verdict": "good",
+ "scores": {
+  "premise_ok": 5,
+  "fidelity": 4,
+  "task_quality": 4,
+  "rule_compliance": 4,
+  "accuracy": 4
+ },
+ "state": "merged",
+ "summary": "The plan of this case is the hand-written plan of #3173, with group 5 as a `manifest` group: it writes the promtool cases of the alert first, and its verify runs them. It is the `manifest` case of the golden set (#5205): the plan reader reads its groups back with their kinds.",
+ "notes": [
+  "Group 5 changes `tests/fixtures/prometheus_rules/roadmap_service_activity_tests.yaml`, so its kind is `manifest`: its promtool cases come first, and its verify runs them. The twin has the kind `other`.",
+  "The plan has a `security` text, because it changes manifests under `k8s/`, and the scenario 'The queries of the three panels' names the count of the selector with no code span, so that the gates `paths` and `content` accept the plan. The twin has neither edit.",
+  "The scores are set by hand. No review scored this plan."
+ ],
+ "defects": [],
+ "twin_of": "3173-a-plan-for-an-alert-rule"
+}

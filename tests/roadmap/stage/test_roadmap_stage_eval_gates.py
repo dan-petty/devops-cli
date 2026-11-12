@@ -114,7 +114,7 @@ def test_every_gate_still_refuses_every_known_bad_plan_it_must(report: ReplayRep
 
 
 def test_each_good_plan_passes_every_gate(report: ReplayReport) -> None:
-    assert report.good() == (5, 5)
+    assert report.good() == (6, 6)
     assert all(not r.refused for r in report.replays if r.case.verdict is Verdict.GOOD)
 
 

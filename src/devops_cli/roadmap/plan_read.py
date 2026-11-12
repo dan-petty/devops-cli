@@ -6,9 +6,20 @@ for each capability. `read_change` reverses that writer, so that the gates read 
 with the same inputs as the reply of the model. The reader refuses a file that it cannot parse with
 `PlanReadError`, and the plan check reports that file and goes on.
 
-The writer drops a few facts that no file holds: the kind of a task group, the estimated lines of a
-file that a group creates, and whether the plan builds its own code. The reader infers the kind
-from the tasks, gives each created path one estimated line, and sets `builds_own` to false.
+Write, then read, keeps each fact that the files hold (#5205). `FIELDS_NOT_IN_FILES` names the
+fields that no file holds, and `file_facts` gives a proposal as the reader gives it back: those
+fields at the values of the reader, only the references that the plan keeps unchanged (the writer
+writes no other), the specs in the order of their paths, the created paths in the order of the
+changed paths, and each documents task in the form that the writer renders.
+
+The `Kind:` line of a group sets its kind. A plan that the stage job wrote before that line existed
+has none, and a hand-written plan of that time may name a word that is no kind, such as
+`Kind: documentation.`. For such a group the reader infers the kind from the tasks: a group whose
+first task fails on the base is a `behavior` group when it changes a path under `src/`, else a
+`manifest` group, and each other group is an `other` group. This inference is for old plans only.
+The item `refactor(roadmap): end the kind inference of the plan reader` ends it: a form edit of
+`plan_rewrite` writes the `Kind:` line into each old plan, and the reader then refuses a group with
+no kind.
 
 The reader also reads `## Weakened checks` of `proposal.md` (#3490). `recorded_tests` gives the
 tests that its entries name, and `merged_recorded_tests` gives them for the plan at one commit. The
@@ -36,11 +47,14 @@ from devops_cli.roadmap.stage.stage_change import (
     StageDecision,
     StageGroup,
     StageProposal,
+    StageReference,
     StageRejection,
     StageRequirement,
     StageScenario,
     StageSpec,
     WeakenedCheck,
+    changes_source,
+    document_work,
 )
 from devops_cli.roadmap.stage.stage_criteria import StageCriterion
 from devops_cli.roadmap.stage.stage_specs import BaseSpec, read_spec
@@ -83,6 +97,21 @@ _WEAKENED_ENTRY: Final[re.Pattern[str]] = re.compile(
 )
 _RECORDED_TEST: Final[re.Pattern[str]] = re.compile(r"[\w./-]+\.py::\w+(?:\.\w+)*")
 _PENDING_PREFIX: Final[str] = "Pending person: "
+_KINDS: Final[frozenset[str]] = frozenset(kind.value for kind in GroupKind)
+_REFERENCES_TITLE: Final[str] = "Unchanged references"
+# A line of `## Unchanged references`, as the writer renders it: `- `<path>` (<kind>): <reason>`.
+_REFERENCE: Final[re.Pattern[str]] = re.compile(
+    r"^`(?P<path>[^`]+)` \((?P<kind>.*?)\): (?P<reason>.+)$"
+)
+# The summary and the length of the body that the reader gives: no file holds them.
+_READ_SUMMARY: Final[str] = "Read the plan of the change folder"
+_READ_BODY_CHARS: Final[int] = 800
+# The fields of a `StageProposal` that no file of the change folder holds. The reader gives each a
+# fixed value or a value of another field, and `file_facts` sets them to that value. A person writes
+# `## Weakened checks` by hand (#3490), and the writer writes no such section.
+FIELDS_NOT_IN_FILES: Final[frozenset[str]] = frozenset(
+    {"summary", "pull_request_body", "builds_own", "creates_lines", "weakened_checks"}
+)
 
 
 class PlanReadError(ValueError):
@@ -199,11 +228,10 @@ def _proposal(text: str) -> tuple[str, list[str], list[str], str]:
     why = _section(text, "Why")
     if not why:
         raise PlanReadError(_PROPOSAL, MESSAGES.roadmap.plan_read_bad_proposal)
-    what_changes = [
-        line
-        for line in _bullets(_section(text, "What Changes"))
-        if line != MESSAGES.roadmap.stage_fits_one_pr
-    ]
+    what_changes = _bullets(_section(text, "What Changes"))
+    # The writer adds this line at the end, and the model may also write it (#5205).
+    if what_changes[-1:] == [MESSAGES.roadmap.stage_fits_one_pr]:
+        what_changes.pop()
     feasibility = _bullets(_section(text, "Feasibility"))
     existing_tool = _section(text, "Existing Tool Considered")
     return _one_line(why), what_changes, feasibility, _one_line(existing_tool)
@@ -231,6 +259,27 @@ def recorded_tests(checks: Sequence[WeakenedCheck]) -> frozenset[str]:
     """The tests that the `check` texts of `checks` name as `path::name`. A path alone or a name
     alone records no test: a path would also waive a test that a later commit adds to the file."""
     return frozenset(name for entry in checks for name in _RECORDED_TEST.findall(entry.check))
+
+
+def _reference(line: str) -> StageReference:
+    """The unchanged reference of a line of `## Unchanged references`. A line in another form
+    raises `PlanReadError`: a lost reference would change the gate of a moved module."""
+    match = _REFERENCE.match(line)
+    reason = MESSAGES.roadmap.plan_read_bad_reference.format(text=line)
+    if match is None:
+        raise PlanReadError(_DESIGN, reason)
+    try:
+        return StageReference(
+            path=match["path"], kind=match["kind"], unchanged=True, reason=match["reason"]
+        )
+    except ValidationError as exc:
+        raise PlanReadError(_DESIGN, reason) from exc
+
+
+def _references(text: str) -> list[StageReference]:
+    """The references of `## Unchanged references` of `design.md`, which the writer writes for each
+    reference that the plan keeps unchanged."""
+    return [_reference(line) for line in _bullets(_section(text, _REFERENCES_TITLE))]
 
 
 def _design(text: str) -> tuple[list[StageDecision], list[StageRejection], str]:
@@ -345,11 +394,16 @@ def _task(group: TaskGroup, index: int) -> _Task:
     )
 
 
-def _kind(text: str, first: _Task) -> GroupKind:
-    found = KIND_LINE.search(text)
-    if found is not None and found["kind"] == GroupKind.BEHAVIOR.value:
-        return GroupKind.BEHAVIOR
-    return GroupKind.BEHAVIOR if first.suffix == FAILS_ON_BASE else GroupKind.OTHER
+def _kind(group: TaskGroup, first: _Task, changes: Sequence[str]) -> GroupKind:
+    """The kind of `group`: the word of its `Kind:` line when the word is a kind. A plan of the old
+    form has no such line, or a word that is no kind (a hand edit such as `Kind: documentation.`),
+    and the reader gives it the kind that its tasks and its changed paths give."""
+    found = KIND_LINE.search(group.text)
+    if found is not None and found["kind"] in _KINDS:
+        return GroupKind(found["kind"])
+    if first.suffix != FAILS_ON_BASE:
+        return GroupKind.OTHER
+    return GroupKind.BEHAVIOR if changes_source(changes) else GroupKind.MANIFEST
 
 
 def _verification_problems(group: TaskGroup, first: _Task) -> list[str]:
@@ -377,7 +431,9 @@ def _group(group: TaskGroup) -> StageGroup:
         raise PlanReadError(_TASKS, MESSAGES.roadmap.plan_read_bad_task.format(text=first.text))
     if problems := _verification_problems(group, first):
         raise PlanReadError(_TASKS, " ".join(problems))
-    if _kind(group.text, first) is GroupKind.BEHAVIOR:
+    kind = _kind(group, first, files.changes)
+    if kind is not GroupKind.OTHER:
+        # A `behavior` group and a `manifest` group have the same tasks: the case first.
         if len(group.tasks) < 2:
             raise PlanReadError(_TASKS, MESSAGES.roadmap.plan_read_bad_task.format(text=first.text))
         second = _task(group, 1)
@@ -386,7 +442,7 @@ def _group(group: TaskGroup) -> StageGroup:
             documentation, _ = _split_documents(_task(group, 2).text)
         return StageGroup(
             title=group.title,
-            kind=GroupKind.BEHAVIOR,
+            kind=kind,
             reads=files.reads,
             changes=files.changes,
             creates=files.creates,
@@ -483,8 +539,9 @@ def read_change(files: Mapping[str, str]) -> StageProposal:
     error leaves the reader for a plan that is wrong in form."""
     root = _header(files)
     proposal_md = files[f"{root}/{_PROPOSAL}"]
+    design_md = files[f"{root}/{_DESIGN}"]
     why, what_changes, feasibility, existing_tool = _proposal(proposal_md)
-    decisions, rejected, security = _design(files[f"{root}/{_DESIGN}"])
+    decisions, rejected, security = _design(design_md)
     groups = [_read_group(group) for group in parse_task_groups(files[f"{root}/{_TASKS}"])]
     specs = [
         _spec(path, text)
@@ -494,8 +551,8 @@ def read_change(files: Mapping[str, str]) -> StageProposal:
     criteria = _criteria(files[f"{root}/{_TASKS}"])
     try:
         return StageProposal(
-            summary="Read the plan of the change folder",
-            pull_request_body=why[:800],
+            summary=_READ_SUMMARY,
+            pull_request_body=why[:_READ_BODY_CHARS],
             why=why,
             what_changes=what_changes or [why],
             skip_specs=_skip_specs(files[f"{root}{_CHANGE_FILE}"]),
@@ -507,11 +564,47 @@ def read_change(files: Mapping[str, str]) -> StageProposal:
             groups=groups,
             criteria=criteria,
             dependencies=_bullets(_section(proposal_md, "Dependencies")),
+            references=_references(design_md),
             security=security,
             weakened_checks=weakened_checks(proposal_md),
         )
     except ValidationError as exc:
         raise PlanReadError(root, _reasons(exc)) from exc
+
+
+def _group_facts(group: StageGroup) -> StageGroup:
+    """`group` as the reader gives it back: its created paths in the order of its changed paths,
+    each with one estimated line, and its documents task in the form that the writer renders."""
+    creates = [path for path in group.changes if path in group.creates]
+    documentation = group.documentation
+    return group.model_copy(
+        update={
+            "creates": creates,
+            "creates_lines": dict.fromkeys(creates, 1),
+            "documentation": None if documentation is None else document_work(documentation),
+        }
+    )
+
+
+def file_facts(proposal: StageProposal) -> StageProposal:
+    """`proposal` as `read_change` gives it back from the files that `render_change` writes for it:
+    the facts that the files hold, and each field of `FIELDS_NOT_IN_FILES` at the value of the
+    reader. The files hold only the references whose `unchanged` is true, the specs in the order of
+    their paths, the created paths of a group in the order of its changed paths, and each documents
+    task in the form of the writer. The contract holds for a text
+    that holds no mark of the reader, such as an inline `verify that` phrase at the end of a
+    process: the reader splits a text at such a mark."""
+    return proposal.model_copy(
+        update={
+            "summary": _READ_SUMMARY,
+            "pull_request_body": proposal.why[:_READ_BODY_CHARS],
+            "builds_own": False,
+            "weakened_checks": [],
+            "groups": [_group_facts(group) for group in proposal.groups],
+            "references": [ref for ref in proposal.references if ref.unchanged],
+            "specs": sorted(proposal.specs, key=lambda spec: f"{spec.capability}/spec.md"),
+        }
+    )
 
 
 # ── The files of a revision ───────────────────────────────────────────────────────────────

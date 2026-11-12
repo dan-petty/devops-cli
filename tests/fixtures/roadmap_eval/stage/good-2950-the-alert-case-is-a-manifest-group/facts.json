@@ -1,0 +1,20 @@
+{
+ "tracked": [
+  "docs/TELEMETRY.md",
+  "k8s/README.md",
+  "k8s/monitoring/dashboards/devops-cli.json",
+  "k8s/monitoring/prometheus-values.yaml",
+  "src/devops_cli/roadmap/alternatives.py",
+  "src/devops_cli/roadmap/run.py",
+  "src/devops_cli/telemetry/instruments.py",
+  "tests/fixtures/prometheus_rules/roadmap_service_activity_tests.yaml",
+  "tests/prometheus/test_k8s_monitoring_alerting.py",
+  "tests/roadmap/test_roadmap_alternatives.py",
+  "tests/telemetry/test_telemetry_instruments.py"
+ ],
+ "capabilities": [
+  "metric-instruments",
+  "roadmap-alternatives",
+  "roadmap-service-alerts"
+ ]
+}

@@ -77,7 +77,7 @@
       
       ## 1. Keep the last comment
       
-      Reads: `src/devops_cli/sample.py`. Changes: `src/devops_cli/sample.py`, `tests/test_sample.py` (new).
+      Kind: behavior. Reads: `src/devops_cli/sample.py`. Changes: `src/devops_cli/sample.py`, `tests/test_sample.py` (new).
       
       - [ ] 1.1 Write `test_the_job_keeps_the_last_comment` in `tests/test_sample.py`
         - Verification: `$ uv run devops ci test tests/test_sample.py` fails on the base
