@@ -237,10 +237,10 @@ def test_delta_chooses_modified_or_added_from_base_spec(
     tree = _clean_tree(openspec_fake)
     monkeypatch.chdir(tree)
 
-    # Copy roadmap-refine base spec into the fake tree
-    base_spec_dir = tree / CONST_OPENSPEC_SPECS_DIR / "roadmap-refine"
+    # Copy the nested roadmap-refine/selection base spec into the fake tree
+    base_spec_dir = tree / CONST_OPENSPEC_SPECS_DIR / "roadmap-refine/selection"
     base_spec_dir.mkdir(parents=True, exist_ok=True)
-    real_spec = REPO_ROOT / CONST_OPENSPEC_SPECS_DIR / "roadmap-refine/spec.md"
+    real_spec = REPO_ROOT / CONST_OPENSPEC_SPECS_DIR / "roadmap-refine/selection/spec.md"
     (base_spec_dir / "spec.md").write_text(real_spec.read_text(encoding="utf-8"), encoding="utf-8")
 
     result = cli(
@@ -250,13 +250,13 @@ def test_delta_chooses_modified_or_added_from_base_spec(
         "--title",
         TITLE,
         "--capability",
-        "roadmap-refine:Only the limit stops a refine round",
+        "roadmap-refine/selection:Only the limit stops a refine round",
     )
     assert result.exit_code == 0, result.output
 
-    delta = (tree / "openspec/changes" / CHANGE_NAME / "specs/roadmap-refine/spec.md").read_text(
-        encoding="utf-8"
-    )
+    delta = (
+        tree / "openspec/changes" / CHANGE_NAME / "specs/roadmap-refine/selection/spec.md"
+    ).read_text(encoding="utf-8")
     assert "## MODIFIED Requirements" in delta
     assert "Only the limit stops a refine round" in delta
     assert "Scenario: A backlog full of Ready items" in delta

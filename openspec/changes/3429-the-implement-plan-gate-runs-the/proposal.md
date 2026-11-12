@@ -14,7 +14,7 @@ The implement plan gate runs only `check_proposal` (#3393), so a plan that passe
 - The job world answers the tool's `validate` command on its existing process fake, and the modules that plan without that fake take the existing `openspec_fake` fixture.
 - The shared `OpenSpecFake` answers a `validate <change> --strict --json` command that no `script` names, through a new `script_validate` method.
 - The tests cover a refused plan, a run of two items with one refused, one tool context for a run, no binary, and a validation that raises.
-- The spec delta modifies the requirement `The job leaves out an item whose plan fails the check` of `roadmap-implement-job`, so the living spec names both gates.
+- The spec delta modifies the requirement `The job leaves out an item whose plan fails the check` of `roadmap-implement-job/selection`, so the living spec names both gates.
 - The change fits one pull request.
 
 ## Capabilities
@@ -25,7 +25,7 @@ None.
 
 ### Modified Capabilities
 
-- `roadmap-implement-job`: The job leaves out an item whose plan fails the check
+- `roadmap-implement-job/selection`: The job leaves out an item whose plan fails the check
 
 ## Impact
 

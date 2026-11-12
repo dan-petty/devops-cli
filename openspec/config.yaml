@@ -18,6 +18,8 @@ rules:
       A claim about every member of a set, or a new guard over a set, gives a count from a tool of the plan run or from a probe line; when no tool can count the set, say that the count is unverified, make the census command the `verify` of the first group, and decide each member as removed, restricted, or allowlisted with a reason; a count above zero for a claim of no members narrows the claim or names the follow-up issue; the set is the set that the issue names, and not the set of its examples.
   specs:
     - >-
+      A capability holds at most 80 requirements, because archive appends each ADDED requirement at the end of its file, and two pull requests that archive into one file conflict. An area of nested capabilities `<area>/<name>` (openspec/specs/<area>/<name>/spec.md) holds no spec.md of its own. Add a requirement to the nested capability of the gate or module that it describes. A delta that would take a capability past the limit splits it into nested capabilities in the same pull request.
+    - >-
       Run openspec list --specs first and reuse a capability. The delta that creates a capability starts with a "## Purpose" section of at least 50 characters, so archive never writes TBD. A capability that another active change creates is extended with ADDED requirements and no Purpose of its own.
     - >-
       Change an existing requirement only with MODIFIED, REMOVED or RENAMED, and only when it exists in openspec/specs/. When an active change adds it, name that issue as a blocker and archive after it. Archive refuses a MODIFIED of a spec that does not exist. Two active changes never MODIFY, REMOVE or RENAME one requirement: fold the items, or wait until the first archives.

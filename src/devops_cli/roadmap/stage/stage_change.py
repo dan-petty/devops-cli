@@ -304,7 +304,9 @@ def _repository_path(path: str) -> str:
 
 
 def _capability_name(name: str) -> str:
-    if not is_valid_slug(name):
+    """`name` when it names a capability: a slug, or slugs that a slash joins for a nested
+    capability `<area>/<name>` (#4622)."""
+    if not all(is_valid_slug(part) for part in name.split("/")):
         raise ValueError(MESSAGES.roadmap.stage_bad_capability.format(capability=name))
     return name
 

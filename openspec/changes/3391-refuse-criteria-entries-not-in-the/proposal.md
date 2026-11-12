@@ -12,7 +12,7 @@ The stage job accepts a `criteria` entry that no person wrote, so the implement 
 - `tests/roadmap/stage/test_roadmap_stage_criteria.py` covers a body with no person-written heading and a body whose only list sits in the refine block.
 - `tests/roadmap/stage/test_roadmap_stage_eval_gates.py` covers the `paths` gate on a plan with a `criteria` list and on a recorded plan with none.
 - `src/devops_cli/ai/tasks/roadmap_stage_change.md` states that the check refuses an entry that no person wrote, and `tests/roadmap/stage/test_roadmap_stage_prompt_rules.py` asserts that sentence.
-- The spec delta of `roadmap-stage` modifies the requirement that refuses an unmapped criterion and the requirement that the replay judges a plan with a `criteria` list.
+- The spec delta of `roadmap-stage/criteria` modifies the requirement that refuses an unmapped criterion and the requirement that the replay judges a plan with a `criteria` list.
 - The change fits one pull request.
 
 ## Capabilities
@@ -23,7 +23,7 @@ None.
 
 ### Modified Capabilities
 
-- `roadmap-stage`: An unmapped criterion is refused, The replay judges the criteria gate on plans with a criteria list
+- `roadmap-stage/criteria`: An unmapped criterion is refused, The replay judges the criteria gate on plans with a criteria list
 
 ## Impact
 

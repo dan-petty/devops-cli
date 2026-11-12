@@ -117,11 +117,11 @@ def item_of(case: StageCase) -> Item:
 
 
 def _first_reply_problems(
-    case: StageCase, reply: StageProposal, source: Path
+    case: StageCase, reply: StageProposal, source: Path, openspec: OpenSpecTool | None
 ) -> dict[GateName, list[str]]:
     """What each gate finds in the first reply, against the files of the checkout and the change
-    folder that the reply would write."""
-    specs = read_base_specs(source)
+    folder that the reply would write. `openspec` lists the base specs of the checkout."""
+    specs = read_base_specs(source, openspec)
     known = frozenset(specs)
     files = render_change(case.change, reply, known, created=datetime.now(UTC).date())
     tree = StagedTree.read(source, operation=_OPERATION).with_files(files)
@@ -163,7 +163,7 @@ def run_case(
     With a `toolbox` model, a plan run reads the checkout with the read-only tools, as the job
     does (#3037), and `client` answers the call that splits the groups. The recorder wraps the
     toolbox client, so it keeps the first plan the model gave. `openspec` reads the specs for the
-    tool `read_spec`. Without a toolbox, a plan is one call."""
+    tool `read_spec` and for the gates of the first reply. Without a toolbox, a plan is one call."""
     with checkout_at(repository, case.base_commit, operation=_OPERATION) as source:
         planner: StageClient = (
             client
@@ -193,7 +193,9 @@ def run_case(
         except (AIClientError, RoadmapStageError, ToolExecutionError) as exc:
             outcome, reason = _ended(exc)
         first = (
-            _first_reply_problems(case, recorder.replies[0], source) if recorder.replies else None
+            _first_reply_problems(case, recorder.replies[0], source, openspec)
+            if recorder.replies
+            else None
         )
     return CaseRun(case.name, outcome, reason, recorder.calls, first)
 

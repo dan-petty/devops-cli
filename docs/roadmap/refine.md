@@ -130,9 +130,11 @@ The command [`devops roadmap repair`](repair.md) sets back the items that a plac
 
 | Topic | Spec |
 | :--- | :--- |
-| The limit, the cap of comments, the items of an account without write access | [roadmap-refine](../../openspec/specs/roadmap-refine/spec.md) |
+| The limit, the cap of comments, the items of an account without write access | [roadmap-refine/selection](../../openspec/specs/roadmap-refine/selection/spec.md) |
 | The authors that the jobs trust, the review of a bot item, the replies that the model reads | [roadmap-author-trust](../../openspec/specs/roadmap-author-trust/spec.md) |
-| The investigation, the options of a decision, web search | [roadmap-refine](../../openspec/specs/roadmap-refine/spec.md) |
-| The next-step comment, the paths of a block, a change that ends a wait | [roadmap-refine](../../openspec/specs/roadmap-refine/spec.md) |
-| A deferred part and its filing through intake | [roadmap-refine](../../openspec/specs/roadmap-refine/spec.md) |
+| The proposal, the options of a decision, the investigation, web search | [roadmap-refine/proposal](../../openspec/specs/roadmap-refine/proposal/spec.md), [roadmap-refine/investigation](../../openspec/specs/roadmap-refine/investigation/spec.md) |
+| The check for alternatives, the review of a proposal | [roadmap-refine/alternatives](../../openspec/specs/roadmap-refine/alternatives/spec.md), [roadmap-refine/review](../../openspec/specs/roadmap-refine/review/spec.md) |
+| The next-step comment, the paths of a block, a change that ends a wait | [roadmap-refine/waits](../../openspec/specs/roadmap-refine/waits/spec.md) |
+| A deferred part and its filing through intake | [roadmap-refine/deferred-parts](../../openspec/specs/roadmap-refine/deferred-parts/spec.md) |
+| What a round writes, the context of the cited code | [roadmap-refine/writes](../../openspec/specs/roadmap-refine/writes/spec.md), [roadmap-refine/context](../../openspec/specs/roadmap-refine/context/spec.md) |
 | The labels and the record of an item | [roadmap-item-labels](../../openspec/specs/roadmap-item-labels/spec.md) |

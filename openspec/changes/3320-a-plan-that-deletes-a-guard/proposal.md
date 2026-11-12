@@ -23,7 +23,7 @@ None.
 
 ### Modified Capabilities
 
-- `roadmap-stage`: A plan that deletes a guard check records it; the proposal file shows each weakened check.
+- `roadmap-stage/plan-text`: A plan that deletes a guard check records it; the proposal file shows each weakened check.
 
 ## Impact
 

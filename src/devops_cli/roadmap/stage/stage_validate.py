@@ -102,13 +102,14 @@ class _Report(BaseModel):
 
 
 def _copy_base_specs(source: Path, scratch: Path, change: str, files: Mapping[str, str]) -> None:
-    """Copy `openspec/specs/<capability>/spec.md` of the checkout for each capability that the
-    change has a delta for, when the capability exists."""
-    deltas = f"openspec/changes/{change}/specs/*/spec.md"
+    """Copy `openspec/specs/<capability>/spec.md` of the checkout for each capability, flat or
+    nested, that the change has a delta for, when the capability exists."""
+    deltas = PurePosixPath("openspec", "changes", change, "specs")
     for path in files:
-        if not PurePosixPath(path).match(deltas):
+        delta = PurePosixPath(path)
+        if delta.name != "spec.md" or delta.parent == deltas or not delta.is_relative_to(deltas):
             continue
-        base = Path("openspec") / "specs" / PurePosixPath(path).parent.name / "spec.md"
+        base = Path("openspec", "specs", *delta.parent.relative_to(deltas).parts, "spec.md")
         if (source / base).is_file():
             (scratch / base).parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(source / base, scratch / base)

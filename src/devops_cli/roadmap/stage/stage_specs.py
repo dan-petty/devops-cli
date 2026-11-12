@@ -1,7 +1,8 @@
 """The base specs under `openspec/specs/` as the stage job reads them (#3013).
 
 The model gets the purpose and the requirement names of each capability, so that it can choose the
-capability a requirement belongs to. `check_proposal` compares the name of each ADDED requirement
+capability a requirement belongs to. `openspec list --specs --json` names the capabilities, flat as
+`<name>` or nested as `<area>/<name>` (#4622), and the job reads the file of each one. `check_proposal` compares the name of each ADDED requirement
 with the names of the base spec of its capability, and it reads the statement of each base
 requirement to refuse a plan that leaves one naming a removed command (#3287).
 """
@@ -14,6 +15,8 @@ from typing import TYPE_CHECKING, Any, Final
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+    from devops_cli.openspec.tool import OpenSpecTool
 
 _SPECS_DIRECTORY: Final[tuple[str, str]] = ("openspec", "specs")
 _SPEC_FILE: Final[str] = "spec.md"
@@ -59,18 +62,21 @@ def read_spec(text: str) -> BaseSpec:
     return BaseSpec(purpose, tuple(name for name, _ in statements), statements)
 
 
-def read_base_specs(source: Path) -> dict[str, BaseSpec]:
-    """The base spec of each folder under `openspec/specs/` of the checkout `source`, by
-    capability name. A folder with no `spec.md` has an empty spec."""
+def spec_names(tool: OpenSpecTool, source: Path) -> list[str]:
+    """The name of each capability that `openspec list --specs --json` finds in the checkout
+    `source`, in the order of the tool."""
+    listing = tool.read_json(["list", "--specs", "--json"], source)
+    return [spec["id"] for spec in listing["specs"]]
+
+
+def read_base_specs(source: Path, tool: OpenSpecTool | None) -> dict[str, BaseSpec]:
+    """The base spec of each capability that OpenSpec finds under `openspec/specs/` of the
+    checkout `source`, by capability name. With no OpenSpec, the job knows no base spec, as the
+    tool `read_spec` reads none."""
     specs = source.joinpath(*_SPECS_DIRECTORY)
-    if not specs.is_dir():
+    if tool is None or not specs.is_dir():
         return {}
     return {
-        folder.name: read_spec(
-            (folder / _SPEC_FILE).read_text(encoding="utf-8")
-            if (folder / _SPEC_FILE).is_file()
-            else ""
-        )
-        for folder in sorted(specs.iterdir())
-        if folder.is_dir()
+        name: read_spec((specs / name / _SPEC_FILE).read_text(encoding="utf-8"))
+        for name in sorted(spec_names(tool, source))
     }

@@ -17,7 +17,7 @@ Every retry of a step uses the same model tier. A model defect fails the same ca
 - Update `failure.py` so stop comments record a tier change as an action taken.
 - Read gateway tier health before a tier choice and skip a tier that the gateway reports unhealthy.
 - Record the tier and token counts of each completed step in `StepOutcome` and persist per-tier spend under `implement.spend` in the run record.
-- Add spec deltas to `roadmap-implement-step`, `roadmap-implement-job`, and `roadmap-failure-taxonomy`.
+- Add spec deltas to `roadmap-implement-step/model-calls`, `roadmap-implement-job/record`, and `roadmap-failure-taxonomy`.
 - Record the order against #3207 for maintainer priority decision.
 - The change fits one pull request.
 
@@ -34,8 +34,8 @@ None.
 
 ### Modified Capabilities
 
-- `roadmap-implement-step`: The step chooses a tier per attempt from the ladder and advances on FailureAction.CHANGE_TIER
-- `roadmap-implement-job`: The spend itemizes token cost per tier
+- `roadmap-implement-step/model-calls`: The step chooses a tier per attempt from the ladder and advances on FailureAction.CHANGE_TIER
+- `roadmap-implement-job/record`: The spend itemizes token cost per tier
 - `roadmap-failure-taxonomy`: The action left is wait after a tier change is taken
 
 ## Impact

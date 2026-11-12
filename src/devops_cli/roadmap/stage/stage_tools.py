@@ -56,6 +56,7 @@ from devops_cli.roadmap.refine.refine_investigation import (
 )
 from devops_cli.roadmap.stage.stage_github import StageGitHub
 from devops_cli.roadmap.stage.stage_references import reference_answer
+from devops_cli.roadmap.stage.stage_specs import spec_names
 from devops_cli.roadmap.tools import (
     HOLDER_STAGE,
     HOLDER_STAGE_EXTENDED,
@@ -66,7 +67,9 @@ from devops_cli.security.sanitizer import mask_secrets
 
 _COMMIT: Final[re.Pattern[str]] = re.compile(r"[0-9a-fA-F]{7,40}")
 _SYMBOL: Final[re.Pattern[str]] = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
-_CAPABILITY: Final[re.Pattern[str]] = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
+_CAPABILITY: Final[re.Pattern[str]] = re.compile(
+    r"[A-Za-z0-9][A-Za-z0-9._-]*(?:/[A-Za-z0-9][A-Za-z0-9._-]*)*"
+)
 
 
 _NO_GITHUB: Final[str] = "GitHub is not available to this run."
@@ -286,17 +289,13 @@ class StageTools(InvestigationTools):
             lines.append("(more files are left out; map a subdirectory)")
         return ok_answer("\n".join(lines))
 
-    def _spec_names(self, tool: OpenSpecTool) -> list[str]:
-        listing = tool.read_json(["list", "--specs", "--json"], self.source)
-        return [spec["id"] for spec in listing["specs"]]
-
     def read_spec(self, capability: str = "", requirement: str = "") -> ToolReturn:
         """Read a base spec of the project. Without a capability, list the capabilities. With one,
         give its purpose and list its requirement names. With a requirement name too, return the
         whole requirement.
 
         Args:
-            capability: The name of the capability, such as `roadmap-stage`.
+            capability: The name of the capability, such as `roadmap-stage/paths-gate`.
             requirement: The name of one requirement of the capability.
         """
         tool = self.openspec
@@ -304,7 +303,7 @@ class StageTools(InvestigationTools):
             return error_answer("OpenSpec is not installed, so no spec can be read.")
         if capability and not _CAPABILITY.fullmatch(capability):
             return error_answer(f"The text {capability} is no capability name.")
-        names = self._spec_names(tool)
+        names = spec_names(tool, self.source)
         if not capability:
             return ok_answer(cut(names)) if names else empty_answer("The checkout holds no spec.")
         if capability not in names:

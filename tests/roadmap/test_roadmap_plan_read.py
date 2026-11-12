@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
 import pytest
 
-from devops_cli.roadmap.plan_read import PlanReadError, read_change
+from devops_cli.roadmap.plan_read import PlanReadError, read_change, specs_at
 from devops_cli.roadmap.stage.stage_change import (
     GroupKind,
     StageGroup,
@@ -17,8 +18,12 @@ from devops_cli.roadmap.stage.stage_criteria import PENDING_PERSON
 from tests.support.builders import make_stage_proposal
 from tests.support.paths import REPO_ROOT
 
+if TYPE_CHECKING:
+    from tests.support.roadmap_stage import StageRepo
+
 CREATED = datetime(2026, 11, 4, tzinfo=UTC).date()
 CHANGE = "1-keep-the-last-comment"
+NESTED = "roadmap-stage/paths-gate"
 
 
 def _files(proposal: StageProposal, known: set[str] | None = None) -> dict[str, str]:
@@ -42,6 +47,32 @@ def test_a_rendered_change_reads_back() -> None:
         original.criteria,
     )
     assert read.groups == [_same_group(group) for group in original.groups]
+
+
+def test_a_change_with_a_nested_capability_reads_back() -> None:
+    spec = make_stage_proposal().specs[0].model_dump()
+    original = make_stage_proposal(specs=[{**spec, "capability": NESTED, "purpose": None}])
+
+    files = _files(original, {NESTED})
+
+    assert f"openspec/changes/{CHANGE}/specs/{NESTED}/spec.md" in files
+    assert read_change(files).specs == original.specs
+
+
+def test_the_base_specs_at_a_commit_hold_a_nested_capability(stage_repo: StageRepo) -> None:
+    stage_repo.track(
+        {
+            f"openspec/specs/{NESTED}/spec.md": (
+                "# roadmap-stage/paths-gate Specification\n\n## Purpose\nThe path gate.\n\n"
+                "## Requirements\n\n### Requirement: A path exists\nThe job SHALL check.\n"
+            )
+        }
+    )
+
+    capabilities, requirements = specs_at(stage_repo.clone, "HEAD", operation="plan read")
+
+    assert capabilities == {NESTED, "roadmap-refine"}
+    assert requirements[NESTED] == ("A path exists",)
 
 
 def test_the_reader_reads_the_dependencies() -> None:

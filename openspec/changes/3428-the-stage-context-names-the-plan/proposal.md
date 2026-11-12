@@ -21,7 +21,7 @@ None.
 
 ### Modified Capabilities
 
-- `roadmap-stage`: The stage context names the plan reader, The stage context names the revision reads, The stage context names the plan gate, The stage prompt names the existing plan reader
+- `roadmap-stage/context`: The stage context names the plan reader, The stage context names the revision reads, The stage context names the plan gate, The stage prompt names the existing plan reader
 
 ## Impact
 

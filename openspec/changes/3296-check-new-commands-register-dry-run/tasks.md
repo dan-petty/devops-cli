@@ -11,7 +11,7 @@ Reads: `src/devops_cli/roadmap/stage/stage_change.py`, `src/devops_cli/roadmap/s
 
 ## 2. Name the companions gate in the plan-check document
 
-Reads: `docs/roadmap/plan-recheck.md`, `docs/roadmap/plan-check.md`, `openspec/specs/roadmap-stage/spec.md`. Changes: `docs/roadmap/plan-recheck.md`.
+Reads: `docs/roadmap/plan-recheck.md`, `docs/roadmap/plan-check.md`, `openspec/specs/roadmap-stage/claims/spec.md`. Changes: `docs/roadmap/plan-recheck.md`.
 
 - [ ] 2.1 Add the row `| `companions` | A plan that adds a `devops` command and misses its dry-run class, its dry-run callback test or one of the two documentation commands. |` to the gate table of `docs/roadmap/plan-recheck.md`. State under the table that a new command needs no MCP exposure entry and no exclusion entry
   - Verification: `$ uv run devops ci docs` passes

@@ -111,8 +111,13 @@ On a workstation, `--item <n> --confirm` starts that runner Job for the item. It
 
 | Topic | Spec |
 | :--- | :--- |
-| The job: the filter, the order, the steps, the stop, the record | [roadmap-implement-job](../../openspec/specs/roadmap-implement-job/spec.md) |
-| One step: the inputs, the exit checks, the repair, the shell | [roadmap-implement-step](../../openspec/specs/roadmap-implement-step/spec.md) |
+| The job: the filter, the order, the effort passes | [roadmap-implement-job/selection](../../openspec/specs/roadmap-implement-job/selection/spec.md) |
+| The Job of an item: its submission, its size, its deadline | [roadmap-implement-job/runner-job](../../openspec/specs/roadmap-implement-job/runner-job/spec.md), [roadmap-implement-job/deadline](../../openspec/specs/roadmap-implement-job/deadline/spec.md) |
+| The branch, the pushes, the pull request | [roadmap-implement-job/pull-request](../../openspec/specs/roadmap-implement-job/pull-request/spec.md) |
+| The repair of a failed check, the stop of an item | [roadmap-implement-job/repair](../../openspec/specs/roadmap-implement-job/repair/spec.md), [roadmap-implement-job/stops](../../openspec/specs/roadmap-implement-job/stops/spec.md) |
+| The record, the trace, the spend, the metrics | [roadmap-implement-job/record](../../openspec/specs/roadmap-implement-job/record/spec.md) |
+| One step: the inputs, the exit checks, the verification commands | [roadmap-implement-step/inputs](../../openspec/specs/roadmap-implement-step/inputs/spec.md), [roadmap-implement-step/exit-checks](../../openspec/specs/roadmap-implement-step/exit-checks/spec.md), [roadmap-implement-step/verification](../../openspec/specs/roadmap-implement-step/verification/spec.md) |
+| One step: the shell, the model calls, the budgets, the trace | [roadmap-implement-step/shell](../../openspec/specs/roadmap-implement-step/shell/spec.md), [roadmap-implement-step/model-calls](../../openspec/specs/roadmap-implement-step/model-calls/spec.md), [roadmap-implement-step/budgets](../../openspec/specs/roadmap-implement-step/budgets/spec.md), [roadmap-implement-step/trace](../../openspec/specs/roadmap-implement-step/trace/spec.md) |
 | The runner Job, its image and its policy | [roadmap-implement-runner](../../openspec/specs/roadmap-implement-runner/spec.md) |
 | Claims | [roadmap-item-claim](../../openspec/specs/roadmap-item-claim/spec.md) |
 | The score of the job | [roadmap-eval-implement](../../openspec/specs/roadmap-eval-implement/spec.md) |

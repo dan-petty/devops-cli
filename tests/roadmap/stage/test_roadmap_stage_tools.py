@@ -441,6 +441,22 @@ def test_read_spec_lists_the_capabilities_and_the_requirements(tools: StageTools
     )
 
 
+def test_read_spec_reads_a_nested_capability(
+    tools: StageTools, openspec_fake: OpenSpecFake
+) -> None:
+    openspec_fake.script(
+        ("list", "--specs", "--json"),
+        0,
+        json.dumps({"specs": [{"id": "area/sample", "requirementCount": 2}]}),
+    )
+    openspec_fake.script(("show", "area/sample", "--type", "spec", "--json"), 0, _SHOW)
+
+    assert tools.read_spec("area/sample").return_value.splitlines()[1:] == [
+        "The sample greets",
+        "The sample leaves",
+    ]
+
+
 def test_read_spec_gives_the_purpose_of_a_capability_with_no_requirement(
     tools: StageTools, openspec_fake: OpenSpecFake
 ) -> None:
@@ -475,7 +491,9 @@ def test_read_spec_returns_the_whole_text_of_one_requirement(tools: StageTools) 
     ("capability", "requirement", "answer"),
     [
         ("../sample", "", "The text ../sample is no capability name."),
-        ("sample/x", "", "The text sample/x is no capability name."),
+        ("sample/../x", "", "The text sample/../x is no capability name."),
+        ("sample/", "", "The text sample/ is no capability name."),
+        ("sample/x", "", "The checkout holds no spec sample/x."),
         ("missing", "", "The checkout holds no spec missing."),
         ("sample", "Nothing", "The spec sample holds no requirement Nothing."),
     ],

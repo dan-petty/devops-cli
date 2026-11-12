@@ -22,7 +22,7 @@ None.
 
 ### Modified Capabilities
 
-- `roadmap-stage`: The probe lists the test cases of a cited test module, The probe names the pair that its command bound leaves unlisted, The stage prompt names the test case that a change invalidates, The stage prompt says when a group updates no existing test case
+- `roadmap-stage/tests-gate`: The probe lists the test cases of a cited test module, The probe names the pair that its command bound leaves unlisted, The stage prompt names the test case that a change invalidates, The stage prompt says when a group updates no existing test case
 
 ## Impact
 
