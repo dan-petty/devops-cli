@@ -57,6 +57,10 @@ spec:
             # An IPv4 bind. The default `::` takes IPv4 only when the node allows it.
             - name: GRANIAN_HOST
               value: 0.0.0.0
+            # Granian replaces a worker whose memory passes this value (MiB). The worker grows
+            # about 50 MiB a day and is never replaced otherwise, so it reached the old limit (#4939).
+            - name: GRANIAN_WORKERS_MAX_RSS
+              value: "512"
           volumeMounts:
             # One file, so that /etc/searxng stays the directory of the image, which user 977 owns.
             # A mount of the whole directory is owned by root, and the entrypoint warns of it.
@@ -90,15 +94,17 @@ spec:
             timeoutSeconds: 10
             failureThreshold: 3
           # Measured with the pinned image under these controls: 20 queries one after another
-          # peaked at 117 MiB, and 10 at once at 122 MiB and 0.8 CPU (k8s/README.md, "SearXNG").
+          # peaked at 117 MiB, and 10 at once at 122 MiB and 0.8 CPU. The limit holds the main
+          # process, the resource tracker and a worker at GRANIAN_WORKERS_MAX_RSS, with room for
+          # the new worker while Granian replaces it (k8s/README.md, "SearXNG").
           resources:
             requests:
               cpu: 50m
-              memory: 192Mi
+              memory: 256Mi
               ephemeral-storage: 64Mi
             limits:
               cpu: "1"
-              memory: 384Mi
+              memory: 1Gi
               ephemeral-storage: 256Mi
       volumes:
         - name: settings
