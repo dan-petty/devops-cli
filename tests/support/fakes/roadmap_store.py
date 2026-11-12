@@ -37,9 +37,11 @@ from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from typing import Any, Concatenate, Final, cast
 
-from devops_cli.config.constants import CONST_GH_ISSUE_STATE_REASON_REOPENED
+from devops_cli.config.constants import (
+    CONST_GH_ISSUE_STATE_REASON_REOPENED,
+    CONST_ROADMAP_JOB_COMMENT_MARKERS,
+)
 from devops_cli.exceptions.git import GitHubFileNotFoundError, GitHubOperationError
-from devops_cli.roadmap.stores.comment_repeat import refused_repeat
 from devops_cli.roadmap.stores.store import (
     Candidate,
     Change,
@@ -583,6 +585,12 @@ class InMemoryRoadmapStore(RoadmapStore):
             self._attempt("comment", number, lambda: self._comment(number, body))
 
     def _refused_repeat(self, number: int, body: str) -> bool:
+        if not any(marker in body for marker in CONST_ROADMAP_JOB_COMMENT_MARKERS):
+            return False
+        # Imported here, and only for a comment of a job, so that the fail-to-pass replay loads
+        # this module, and posts a person's comment, against a base tree that has no guard yet.
+        from devops_cli.roadmap.stores.comment_repeat import refused_repeat
+
         return refused_repeat(
             number, body, lambda: self.comments_on(number), now=self._roadmap.clock()
         )
