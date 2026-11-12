@@ -2,8 +2,9 @@
 (#4085).
 
 The rate limiter reads `gh api rate_limit` before it lets a `gh` command start, so a command test
-that scripts a `gh` answer also needs a fresh quota. `gh_edge` records one in the limiter, and
-returns the `ProcessFake` the test scripts the rest on. `answer_origin` answers the origin remote of the
+that scripts a `gh` answer also needs a fresh quota. `gh_edge` records one in the limiter, sends
+the limiter's waits to the `clock` fixture (#4666), and returns the `ProcessFake` the test scripts
+the rest on. `answer_origin` answers the origin remote of the
 working directory, which the commands read to find the repository when `--repo` is not given.
 `gh_argv` lists the `gh` commands the fake saw, without the quota reads.
 """
@@ -15,6 +16,7 @@ from collections.abc import Callable
 
 import pytest
 
+from tests.support.fakes.clock import ClockFake
 from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
 
 _RESOURCES = ("core", "graphql", "search")
@@ -30,9 +32,10 @@ def fresh_quota() -> None:
 
 
 @pytest.fixture
-def gh_edge(process_fake: ProcessFake) -> ProcessFake:
+def gh_edge(process_fake: ProcessFake, clock: ClockFake) -> ProcessFake:
     """`process_fake`, with a fresh quota in the rate limiter's ledger, so a test may script any
-    `gh api` answer."""
+    `gh api` answer. The rate limiter's waits, such as the interval between two gh writes, go to
+    `clock`, so they take no real time; a test that reads them requests `clock` too."""
     fresh_quota()
     return process_fake
 
