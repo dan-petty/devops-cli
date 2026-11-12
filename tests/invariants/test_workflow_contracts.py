@@ -938,8 +938,13 @@ def _starts_on(paths: list[str], changed: str) -> bool:
     [
         ("src/devops_cli/ci/fail_to_pass.py", True),
         ("src/devops_cli/commands/ci.py", True),
+        ("tests/gate/k8s_checks/otel_collector.py", True),
+        ("tests/gate/tree_checks/fixture_names.py", True),
         ("src/devops_cli/ai/knowledge_base/devops_cli/tasks/testing.md", False),
         ("tests/test_fail_to_pass.py", False),
+        ("tests/gate/runner.py", False),
+        ("tests/gate/ruff_config.py", False),
+        ("k8s/otel/values.yaml", False),
         ("Dockerfile", False),
         ("docs/TESTING.md", False),
         # The files of a release pull request (the last `chore(main): release` commit).
@@ -949,13 +954,15 @@ def _starts_on(paths: list[str], changed: str) -> bool:
         ("uv.lock", False),
     ],
 )
-def test_fail_to_pass_starts_only_for_a_change_to_src_outside_the_knowledge_base(
+def test_fail_to_pass_starts_only_for_a_change_to_src_or_a_gate_check(
     changed: str, starts: bool
 ) -> None:
-    """Only a change to the code under src/ can make a test fail on base, so the workflow starts
-    for no other change, the release pull request among them (#1879). It keeps one concurrency
-    group for each ref, where a newer event cancels an older run (#1960). The run of a body edit
-    takes a group of its own, so it cannot cancel the replay of the head (#4651)."""
+    """Only a change to the code under src/ can make a test fail on base, and only a changed
+    module of `tests/gate/*_checks/` can make a gate case fail on base and pass on head (#4554).
+    So the workflow starts for no other change, the release pull request and a manifest alone
+    among them (#1879). It keeps one concurrency group for each ref, where a newer event cancels
+    an older run (#1960). The run of a body edit takes a group of its own, so it cannot cancel
+    the replay of the head (#4651)."""
     workflow = _load_workflow(WORKFLOWS_DIR / "fail-to-pass.yml")
     paths = workflow["on"]["pull_request"]["paths"]
     assert (_starts_on(paths, changed), workflow["concurrency"]) == (
@@ -969,10 +976,25 @@ def test_fail_to_pass_starts_only_for_a_change_to_src_outside_the_knowledge_base
     )
 
 
+def test_the_fail_to_pass_comment_names_the_gate_checks() -> None:
+    """The comment block of the workflow says that a changed gate check can fail on base, and no
+    longer says that only a change to the code under src/ can make a test fail on base (#4554)."""
+    text = (WORKFLOWS_DIR / "fail-to-pass.yml").read_text(encoding="utf-8")
+    comment = " ".join(
+        line.removeprefix("#").strip()
+        for line in text.split("\non:", 1)[0].splitlines()
+        if line.startswith("#")
+    )
+    assert (
+        "tests/gate/*_checks/" in comment,
+        "only a change to the code under src/ can make a test fail on base" in comment,
+    ) == (True, False)
+
+
 def test_workflow_contract_fail_to_pass() -> None:
     """`.github/workflows/fail-to-pass.yml` runs one replay job on a pull request into main that
-    changes `src/` outside the knowledge base, and passes the replay no title, label or body
-    (#844, #1879)."""
+    changes `src/` outside the knowledge base or a gate check, and passes the replay no title,
+    label or body (#844, #1879, #4554)."""
     workflow = _load_workflow(WORKFLOWS_DIR / "fail-to-pass.yml")
     pr_trigger = workflow.get("on", {}).get("pull_request", {})
     jobs = workflow.get("jobs", {})
@@ -999,7 +1021,7 @@ def test_workflow_contract_fail_to_pass() -> None:
     ) == (
         ["opened", "synchronize", "reopened", "edited"],
         ["main"],
-        ["src/**", "!src/devops_cli/ai/knowledge_base/**"],
+        ["src/**", "!src/devops_cli/ai/knowledge_base/**", "tests/gate/*_checks/**"],
         ["fail-to-pass"],
         True,
         ["BASE_REF"],

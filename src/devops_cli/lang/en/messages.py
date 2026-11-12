@@ -1906,8 +1906,8 @@ class CIMessages:
         "{errored} errored)."
     )
     fail_to_pass_no_tests: str = (
-        "The fix changes no tests/**/test_*.py file. A fix adds or changes a test that fails on "
-        "its base."
+        "The fix changes no tests/**/test_*.py file and no module of tests/gate/*_checks/. A fix "
+        "adds or changes a test or a gate check that fails on its base."
     )
     fail_to_pass_none_failed: str = (
         "A fix needs at least one changed test that fails in the call phase on base ({tests})."
@@ -1932,6 +1932,29 @@ class CIMessages:
     fail_to_pass_worktree_failed: str = (
         "The replay could not check out {base} as a git worktree: {detail}"
     )
+    fail_to_pass_gate_proved: str = "  failed on base, passed on head: {row} {case}"
+    fail_to_pass_gate_summary: str = (
+        "{row} gate row: {base_failed} of {base_cases} cases failed on base, {head_failed} of "
+        "{head_cases} on head ({modules})."
+    )
+    fail_to_pass_gate_none_proved: str = (
+        "No case of a changed gate check fails on base and passes on head ({modules})."
+    )
+    fail_to_pass_gate_case_count: str = (
+        "The {row} gate row ran {base_cases} cases on base and {head_cases} cases on head. A gate "
+        "case proves a fix only when both trees run the same cases."
+    )
+    fail_to_pass_gate_unchanged_failed: str = (
+        "A gate case of a check module that the fix does not change fails on base ({cases}). A "
+        "gate case that fails on base must be in a check module that the fix adds or changes."
+    )
+    fail_to_pass_gate_could_not_run: str = (
+        "The {row} gate row could not run on the {tree} tree: it exited with status {status}. A "
+        "gate row run must exit with status 0 or 1 and print its case summary. Each changed check "
+        "module must import and run on both trees. Merge the change that a check needs first, in "
+        "a pull request that is not a fix. Then replay this fix against the new base."
+    )
+    fail_to_pass_gate_output: str = "Its last output: {output}"
 
 
 @dataclass(frozen=True)
@@ -2355,12 +2378,6 @@ class RoadmapMessages:
                 "Refine cannot set this item to Ready at {sha} while the items below stay open. "
                 "The next refine round looks at the item again when they close, or when a person "
                 "replies in a comment or edits the body."
-            ),
-            "edit": (
-                "Refine cannot set this item to Ready at {sha}. A bot opened the item, so a "
-                "review of the issue and of the proposal must approve it first. The review "
-                "found the defects below. A person edits the body to answer them. The next "
-                "refine round looks at the item again only after a body edit."
             ),
         }
     )

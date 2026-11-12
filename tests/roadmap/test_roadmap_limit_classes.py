@@ -128,6 +128,10 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
         "kept",
         "paths in the context; the context says how many it left out, and the tools read the rest",
     ),
+    "CONST_ROADMAP_REFINE_DEFINITIONS_PER_SYMBOL": (
+        "kept",
+        "definition lines in the context; the context says how many it left out, and the tools read the rest",
+    ),
     "CONST_ROADMAP_REFINE_MAX_SPECS": ("raised", "was 5; specs named in the context"),
     "CONST_ROADMAP_REFINE_MAX_REQUIREMENTS_PER_SPEC": (
         "raised",
@@ -149,6 +153,10 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
     "CONST_ROADMAP_REFINE_FAILURE_MAX_CHARS": (
         "kept",
         "protects the job record of the issue and the inbox from a long error",
+    ),
+    "CONST_ROADMAP_REFINE_JUDGE_FINDINGS_MAX_CHARS": (
+        "kept",
+        "protects the job record of the issue from a long list of findings of the review",
     ),
     # ── Stage ─────────────────────────────────────────────────────────────────────────────
     "CONST_ROADMAP_STAGE_TOOL_MAX_CALLS": ("guard", "was 30; the window ends the run first"),
@@ -234,6 +242,10 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
         "git commands of one premise probe; the probe runs in the process of the job",
     ),
     "CONST_ROADMAP_STAGE_PROBE_DEFINITION_LINES": ("kept", "lines of definition the probe shows"),
+    "CONST_ROADMAP_DEFINITION_READ_FILES": (
+        "kept",
+        "files of other languages that one definition lookup reads whole; protects the memory of the job, and a lookup that leaves files out and finds no definition is undecided",
+    ),
     "CONST_ROADMAP_STAGE_VERIFY_BODY_MAX_TOKENS": (
         "kept",
         "the verification slot sets no window: its default of 32,768 tokens is already under the 51,000 tokens that the three caps give",

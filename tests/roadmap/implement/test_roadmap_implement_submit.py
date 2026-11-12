@@ -953,7 +953,7 @@ def test_a_retry_comment_after_the_stop_makes_a_new_job_that_clears_the_report_o
     _end(kube, "Failed")
     _round(store, staged_repo)
     first = _record(store, number)["implement.job"]
-    store.seed_comment(number, "implement: retry", author_association="OWNER")
+    store.as_actor("owner").comment(number, "implement: retry")
 
     _round(store, staged_repo)
 
@@ -1055,7 +1055,7 @@ def test_a_retry_of_the_owner_clears_the_stop_on_the_same_digest_and_names_the_r
     _roll(kube, DIGEST_A)
     _round(store, staged_repo)
     _stop_with_a_failed_job(store, staged_repo, kube)
-    store.seed_comment(number, "implement: retry", author_association="OWNER")
+    store.as_actor("owner").comment(number, "implement: retry")
 
     _round(store, staged_repo)
 
@@ -1198,7 +1198,7 @@ def test_a_retry_of_the_owner_after_the_last_continuation_makes_a_new_job(
     for index in range(3):
         _stop_with_a_failed_job(store, staged_repo, kube, index=index)
     blocked = (_held(store, number).status, len(_creates(kube)))
-    store.seed_comment(number, "implement: retry", author_association="OWNER")
+    store.as_actor("owner").comment(number, "implement: retry")
 
     _round(store, staged_repo)
 

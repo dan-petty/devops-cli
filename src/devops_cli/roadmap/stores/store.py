@@ -145,7 +145,9 @@ class RefineRecordKey(StrEnum):
     hash of a round that looked again at an item after the stage job returned it: a second
     return on the same body waits on a person (#3483), and the verdict of the review of an item
     that a bot opened (`JudgeVerdict`, #3502). A round whose job failed records the count of its
-    tries on the body, the names of the failed checks and the last error (#3632). A round that
+    tries on the body, the names of the failed checks and the last error (#3632), and a refusal of
+    the review also records its open findings, one on each line, which the next round gives to the
+    model (#4798). A round that
     reads the comments of an item that waits records what they gave: the count of comments the
     issue listing carried, the time of refine's last comment, and the issues and paths that the
     text of the wait names, comma separated. A later round reads the comments again only when the
@@ -168,6 +170,7 @@ class RefineRecordKey(StrEnum):
     TRIES = "refine.tries"
     FAILED_CHECK = "refine.failed_check"
     FAILURE = "refine.failure"
+    JUDGE_FINDINGS = "refine.judge_findings"
     COMMENTS_SEEN = "refine.comments_seen"
     COMMENTED_AT = "refine.commented_at"
     WAIT_REFS = "refine.wait_refs"

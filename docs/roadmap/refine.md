@@ -32,7 +32,11 @@ The Service App and the workflows of the repository open items. Examples are the
 
 Nobody wrote the text of a bot item, so a Ready proposal for it goes through a review first. The review is the verification pass of the stage job, with the model of the task slot `ai.tasks.verification`. It reads the issue and the proposal. With no open finding, refine sets the item Ready and records `refine.judge` `approved`.
 
-With an open finding, the item stays New and waits for a body edit. One comment lists each finding with its evidence. The approval covers the body that the review read, and the hashes in the job record show it. A body edit ends the approval, and the next round reviews the item again. The stage job, the implement job and the alternatives job take a bot item only with an approval that holds.
+With an open finding, the item stays New and refine records `refine.judge` `refused`. A refusal is a job failure with the check `judge_refused` (see below), so no person edits the body. The job record keeps each open finding with its evidence in `refine.judge_findings`. The next round refines the item again, and its request gives the findings to the model as `judge_findings`. The model fixes each finding or takes out the claim. At the third try on the same body, the step is `failed` and the inbox lists the item. Refine writes no comment for a refusal. An item of a person gets no review, so a refusal never stops it.
+
+The approval covers the body that the review read, and the hashes in the job record show it. A body edit ends the approval, and the next round reviews the item again. A Ready bot item that the review refuses after a body edit goes back to New with the step `retry`. The stage job, the implement job and the alternatives job take a bot item only with an approval that holds.
+
+A refusal from before this rule left its item with the step `edit` and a comment that asks a person for a body edit. Such an item keeps that wait. `devops roadmap refine --item <number>` refines it on the new route.
 
 The review is a model, so text in the item can mislead it. The control is the login of the author. The models of refine and of the alternatives job read only the replies of two kinds of author. These are a person with write access and the App's bot. A person still merges each pull request. A comment of a bot starts no `implement: retry`.
 
@@ -88,15 +92,17 @@ A person has nothing to do for a failed job. These cases are job failures, not p
 - A quoted title in the Dependencies section names no item, or two items (`dependencies`). The error names the title and asks for the issue as `#<number>`.
 - A question has no verified source after the investigation (`missing_source`), or a question of the body has no answer (`unanswered_question`).
 - The investigation ended with no proposal while such a question is open (`investigation_stopped`).
+- The review of a Ready proposal for an item that a bot opened refused it (`judge_refused`).
 
-A job failure writes no body and no comment. The job record shows it:
+A job failure writes no body and no comment. A refusal of the review is the one exception: it writes the body with the section of the refused proposal, and a Ready item goes back to New. The job record shows it:
 
 | Key | Value |
 | :--- | :--- |
 | `refine.next_step` | `retry` below the limit of tries, then `failed` |
 | `refine.tries` | The count of rounds that failed on this body. A body edit starts it at 1 again |
 | `refine.failed_check` | The names of the failed checks, comma separated |
-| `refine.failure` | The last error, with the calls of the read tools when they found no source |
+| `refine.failure` | The last error, with the calls of the read tools when they found no source. For `judge_refused`, the first open finding |
+| `refine.judge_findings` | Each open finding of the last refusal of the review, one on each line, at most 2,000 characters (`CONST_ROADMAP_REFINE_JUDGE_FINDINGS_MAX_CHARS`). A round that does not fail clears it |
 
 With the step `retry`, the next round refines the item again. At 3 tries (`CONST_ROADMAP_REFINE_MAX_TRIES`) the step is `failed`: refine sends no model request for the item until a person edits its body, and [the inbox](inbox.md) lists it in the class `failed` with the checks, the count and the last error. A proposal that passes clears the keys. A job failure comes before a question for a person: a proposal that is not valid asks nobody.
 

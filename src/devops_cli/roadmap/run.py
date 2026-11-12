@@ -160,7 +160,11 @@ from devops_cli.roadmap.stage.stage_ready import mark_stage_ready
 from devops_cli.roadmap.stage.stage_toolbox import ToolboxModel
 from devops_cli.roadmap.stage.stage_verify import PLAN_NEEDS_FIX_LABEL
 from devops_cli.roadmap.status_sync import sync_statuses
-from devops_cli.roadmap.stores.listing_snapshot import IncrementalListing, intake_listing
+from devops_cli.roadmap.stores.listing_snapshot import (
+    IncrementalListing,
+    intake_listing,
+    lane_listing,
+)
 from devops_cli.roadmap.stores.store import Change, ChangeKind, RoadmapStore
 from devops_cli.roadmap.trust import is_person_comment
 from devops_cli.security.sanitizer import mask_secrets
@@ -1739,7 +1743,8 @@ def service_jobs(state_dir: Path) -> Mapping[str, LaneJob]:
     in `state_dir`, so a restart keeps it (#2474). The triage lane, which runs intake, reads every
     issue through the listing snapshot in `state_dir`, as the scoped intake of a delivery does
     (#3670); its rounds and the scoped updates run one at a time on its worker, so one writer
-    keeps the snapshot of each repository."""
+    keeps the snapshot of each repository. The status lane reads every issue through a snapshot
+    of its own, which only its worker writes (#4854)."""
     failures = FailureLedger(record=state_dir / CONST_SERVICE_FAILURES_FILENAME)
     return {
         CONST_SERVICE_LANE_STATUS: partial(
@@ -1748,6 +1753,7 @@ def service_jobs(state_dir: Path) -> Mapping[str, LaneJob]:
             clone_dirname=CONST_ROADMAP_RUN_CLONE_DIRNAME,
             lane=CONST_SERVICE_LANE_STATUS,
             failures=failures,
+            listing=lane_listing(state_dir, CONST_SERVICE_LANE_STATUS),
         ),
         CONST_SERVICE_LANE_TRIAGE: partial(
             service_job,

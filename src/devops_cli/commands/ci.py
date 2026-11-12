@@ -34,6 +34,7 @@ from devops_cli.config.constants import (
     CONST_CI_WORKFLOW_FILE,
     CONST_EXIT_CANCELLED,
     CONST_EXIT_FAILURE,
+    CONST_GATE_ROW_SCRIPT,
     CONST_GIT_MAIN_BRANCH,
     CONST_PYPROJECT_FILENAME,
     CONST_SOURCE_ROOT_DIR,
@@ -720,8 +721,7 @@ _TEST_SETTINGS_SCRIPT = (
 def _python_check_cmd(module: str) -> list[str]:
     """The command that runs the `main` of a module of `tests/gate`: a check of committed files and
     tool configuration, which is a row of `devops ci` and no pytest test (#2164)."""
-    script = f"import sys; from tests.gate.{module} import main; sys.exit(main())"
-    return ["uv", "run", "python", "-c", script]
+    return ["uv", "run", "python", "-c", CONST_GATE_ROW_SCRIPT.format(module=module)]
 
 
 def get_check_specs() -> list[CheckSpec]:

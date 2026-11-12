@@ -23,12 +23,14 @@ open, New or Ready, whoever opened it and however many comments refine wrote on 
 person asked for it. It does not refine an item whose title type is not listed.
 
 A Ready proposal for an item that one of the two bots opened goes through a review before the item
-is Ready (`refine_judge`, #3502): an approval is recorded as `RefineRecordKey.JUDGE`, and a refusal
-keeps the item New, waiting for a body edit, with one comment that lists each open finding. The
-approval holds only while the body is the one that the review read (`trust.is_approved`), so a
-round also looks again at a Ready item of a bot whose body changed since, and reviews it. The round
-also writes one comment, with `CONST_ROADMAP_REFINE_OUTSIDE_MARKER`, on an item that the jobs do
-not trust. The model reads only the comments of trusted authors (`trust.trusted_replies`).
+is Ready (`refine_judge`, #3502): an approval is recorded as `RefineRecordKey.JUDGE`. A refusal
+keeps the item New and is a job failure (`JobCheck.JUDGE_REFUSED`, #4798): the record keeps the
+open findings, the next round gives them to the model and refines the item again, and the limit of
+tries ends the rounds. No comment asks a person. The approval holds only while the body is the
+one that the review read (`trust.is_approved`), so a round also looks again at a Ready item of a
+bot whose body changed since, and reviews it. The round also writes one comment, with
+`CONST_ROADMAP_REFINE_OUTSIDE_MARKER`, on an item that the jobs do not trust. The model reads only
+the comments of trusted authors (`trust.trusted_replies`).
 
 A part of an item that cannot be built as written, or that waits on a question or a block that only
 a person or an outside event settles, moves to new issues (`deferred`, #2423) when the rest of the
@@ -121,6 +123,7 @@ from markdown_it import MarkdownIt
 from markdown_it.token import Token
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from devops_cli.ai.ast.engine import EXT_TO_LANG
 from devops_cli.ai.client import LLMClient, get_llm_client
 from devops_cli.ai.client.factory import get_task_model
 from devops_cli.ai.client.models import (
@@ -145,9 +148,11 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_P3_PRIORITY,
     CONST_ROADMAP_REFINE_COMMENT_CAP_WINDOW_HOURS,
     CONST_ROADMAP_REFINE_COMMENT_MARKER,
+    CONST_ROADMAP_REFINE_DEFINITIONS_PER_SYMBOL,
     CONST_ROADMAP_REFINE_END_MARKER,
     CONST_ROADMAP_REFINE_FAILURE_MAX_CHARS,
     CONST_ROADMAP_REFINE_HELD_STATUSES,
+    CONST_ROADMAP_REFINE_JUDGE_FINDINGS_MAX_CHARS,
     CONST_ROADMAP_REFINE_MAX_BLOCK_PATHS,
     CONST_ROADMAP_REFINE_MAX_BODY_CHARS,
     CONST_ROADMAP_REFINE_MAX_COMMENTS_PER_ITEM,
@@ -326,7 +331,8 @@ class NextStep(StrEnum):
     the default branch after that comment that changes a path the block cites (#2005) ends each
     of these waits, and a closed blocker ends `BLOCKED`. `EDIT`: refine cannot write a design
     for the body, and only a body edit ends the wait. `RETRY`: the job failed (the proposal failed
-    a form check, or a question that is no person's stayed open) and a later round tries again.
+    a form check, a question that is no person's stayed open, or the review of a bot item refused
+    the proposal, #4798) and a later round tries again.
     `FAILED`: the job failed `CONST_ROADMAP_REFINE_MAX_TRIES` times on the same body, and only a
     body edit ends the wait (#3632). `NONE`: refine changes no item that is closed, In Progress,
     Done or Blocked, or whose title type `devops roadmap retitle` corrects (#4508).
@@ -349,7 +355,8 @@ class JobCheck(StrEnum):
     `MISSING_SOURCE` is a question with no verified source that the investigation left open,
     `UNANSWERED_QUESTION` a question of the body that no answer names, and
     `INVESTIGATION_STOPPED` an investigation that ended with no proposal while such a question
-    stayed open."""
+    stayed open. `JUDGE_REFUSED` is the refusal of the review of a Ready proposal for an item
+    that a bot opened (#4798)."""
 
     PROBLEM_STATEMENT = "problem_statement"
     EXISTING_TOOL = "existing_tool"
@@ -358,16 +365,19 @@ class JobCheck(StrEnum):
     MISSING_SOURCE = "missing_source"
     UNANSWERED_QUESTION = "unanswered_question"
     INVESTIGATION_STOPPED = "investigation_stopped"
+    JUDGE_REFUSED = "judge_refused"
 
 
 @dataclass(frozen=True)
 class JobFailure:
     """A round whose job failed, with no person to ask (#3632): the checks that failed and the
     last error, which names the calls of the read tools when they found no source. It is one line
-    of text, cut to `CONST_ROADMAP_REFINE_FAILURE_MAX_CHARS`."""
+    of text, cut to `CONST_ROADMAP_REFINE_FAILURE_MAX_CHARS`. A refusal of the review also holds
+    its open `findings`, one line each, which the next round gives to the model (#4798)."""
 
     checks: tuple[JobCheck, ...]
     error: str
+    findings: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -395,8 +405,9 @@ class RefinedItem:
     stage job returned the item, which apply records, so a second return waits on a person
     (#3483). `judge` is the verdict of the review of the proposal for an item that a bot opened,
     which apply records, and None for the item of a person (#3502). `failure` is set when the job
-    failed: apply then records it with the count of `tries` on this body and writes nothing else
-    (#3632)."""
+    failed: apply records it with the count of `tries` on this body. With `record_only` apply
+    writes nothing else (#3632); a refusal of the review also writes the body and the Status, and
+    no comment (#4798)."""
 
     item: Item
     proposal: RefinementProposal
@@ -760,8 +771,11 @@ def _collect_identifiers(source: Path, sha: str, body: str) -> list[str]:
 # The files of a test: under `tests/`, or named like a test (#3012).
 _TEST_DIR: Final[str] = "tests/"
 _TEST_FILE_PATTERNS: Final[tuple[str, ...]] = ("test_*.py", "*_test.py")
-# The files that name a symbol: Python files, which is where an item's symbols live (#3012).
-SYMBOL_PATHSPEC: Final[str] = "*.py"
+# The files that name a symbol: the source files of each language that tree-sitter reads (#3012,
+# #4638). Markdown is no source, and its headings define no code.
+SYMBOL_PATHSPECS: Final[tuple[str, ...]] = tuple(
+    f"*{ext}" for ext, language in EXT_TO_LANG.items() if language != "markdown"
+)
 _SPECS_DIR: Final[str] = "openspec/specs"
 _REQUIREMENT_RE = re.compile(r"^### Requirement:[ \t]*(.+?)[ \t]*$", re.MULTILINE)
 # The root of the modules that a capability name covers, such as `src/devops_cli/roadmap/refine/refine.py`.
@@ -775,12 +789,12 @@ def _paths_of(output: str, sha: str) -> list[str]:
 
 
 def _grep_files(
-    source: Path, sha: str, needles: Sequence[str], pathspec: str, *, word: bool = False
+    source: Path, sha: str, needles: Sequence[str], pathspecs: Sequence[str], *, word: bool = False
 ) -> list[str]:
-    """The sorted paths of the files at `sha` under `pathspec` that hold one of `needles`."""
+    """The sorted paths of the files at `sha` under `pathspecs` that hold one of `needles`."""
     flags = ["-l", "-z", "-F", *(["-w"] if word else [])]
     needle_args = [arg for needle in needles for arg in ("-e", needle)]
-    code, out = git_result(source, "grep", *flags, *needle_args, sha, "--", pathspec)
+    code, out = git_result(source, "grep", *flags, *needle_args, sha, "--", *pathspecs)
     return _paths_of(out, sha) if code == 0 and out else []
 
 
@@ -791,9 +805,9 @@ def _is_test_path(path: str) -> bool:
     )
 
 
-def _symbol_section(ident: str, paths: Sequence[str]) -> str | None:
-    """The tests, then the callers, that reference `ident`: at most the bound of paths in all,
-    and the count of those left out."""
+def _symbol_section(ident: str, paths: Sequence[str], defined: Sequence[str] = ()) -> str | None:
+    """The places that define `ident`, then the tests and the callers that reference it: at most
+    the bound of each, and the count of those left out."""
     tests = [p for p in paths if _is_test_path(p)]
     callers = [p for p in paths if not _is_test_path(p)]
     shown_tests = tests[:CONST_ROADMAP_REFINE_MAX_PATHS_PER_SYMBOL]
@@ -802,6 +816,12 @@ def _symbol_section(ident: str, paths: Sequence[str]) -> str | None:
     if not shown_tests and not shown_callers:
         return None
     lines = [f"### Tests and callers of `{ident}`"]
+    if defined:
+        shown_defined = defined[:CONST_ROADMAP_REFINE_DEFINITIONS_PER_SYMBOL]
+        more = len(defined) - len(shown_defined)
+        lines.append(
+            f"Defined at: {', '.join(shown_defined)}" + (f" ({more} more)" if more else "")
+        )
     for title, group in (("Tests:", shown_tests), ("Callers:", shown_callers)):
         if group:
             lines += [title, *(f"- {p}" for p in group)]
@@ -812,11 +832,25 @@ def _symbol_section(ident: str, paths: Sequence[str]) -> str | None:
     return "\n".join(lines)
 
 
+def _definition_places(source: Path, sha: str, ident: str) -> list[str]:
+    """The `<path>:<line>` of each definition of `ident` at `sha`."""
+    # The definition lookup reads `git_result` and `SYMBOL_PATHSPECS` of this module.
+    from devops_cli.roadmap.premise import definition_lines
+
+    lines = definition_lines(source, sha, ident) or ()
+    return [":".join(line.removeprefix(f"{sha}:").split(":", 2)[:2]) for line in lines]
+
+
 def _collect_symbol_sections(source: Path, sha: str, body: str) -> list[str]:
-    """For each identifier the item cites, the Python test files and caller files that name it."""
+    """For each identifier the item cites, its definitions and the test files and caller files that
+    name it."""
     idents = sorted(cited_identifiers(body))[:5]
     sections = (
-        _symbol_section(ident, _grep_files(source, sha, [ident], SYMBOL_PATHSPEC, word=True))
+        _symbol_section(
+            ident,
+            _grep_files(source, sha, [ident], SYMBOL_PATHSPECS, word=True),
+            _definition_places(source, sha, ident),
+        )
         for ident in idents
     )
     return [section for section in sections if section]
@@ -843,7 +877,7 @@ def _capabilities_of_files(source: Path, sha: str, cited: Sequence[str]) -> list
     known = {PurePosixPath(p).parent.name for p in listed if p.endswith("/spec.md")}
     keys = {key for path in cited if (key := _module_capability_key(path))}
     by_name = {c for c in known if any(k == c or k.startswith(f"{c}-") for k in keys)}
-    by_path = {PurePosixPath(p).parent.name for p in _grep_files(source, sha, cited, _SPECS_DIR)}
+    by_path = {PurePosixPath(p).parent.name for p in _grep_files(source, sha, cited, [_SPECS_DIR])}
     return sorted(by_name | (by_path & known))
 
 
@@ -2345,6 +2379,44 @@ def _job_failure(
     return JobFailure(tuple(checks), f"{head.rstrip()} {searched_text}".strip())
 
 
+def _refusal(findings: Sequence[str]) -> JobFailure:
+    """The job failure of a review that refused the proposal for an item that a bot opened (#4798):
+    the first open finding is the last error, and the record keeps each finding for the next
+    round."""
+    lines = tuple(_printable_line(finding) for finding in findings)
+    return JobFailure(
+        (JobCheck.JUDGE_REFUSED,), lines[0][:CONST_ROADMAP_REFINE_FAILURE_MAX_CHARS], lines
+    )
+
+
+def _tries_on(item: Item, body_hash: str) -> tuple[int, NextStep]:
+    """The count of the rounds whose job failed on the body that hashes as `body_hash`, this round
+    included, and the next step that the count gives (#3632): `RETRY` below
+    `CONST_ROADMAP_REFINE_MAX_TRIES` tries and `FAILED` at the limit. A body edit starts the count
+    at 1 again."""
+    prior = item.job_record.get(RefineRecordKey.TRIES) or ""
+    same_body = item.job_record.get(RefineRecordKey.BODY_HASH) == body_hash
+    tries = (int(prior) if same_body and prior.isdecimal() else 0) + 1
+    return tries, NextStep.FAILED if tries >= CONST_ROADMAP_REFINE_MAX_TRIES else NextStep.RETRY
+
+
+def _failure_line(failure: JobFailure, tries: int) -> str:
+    """The line of the report for a round whose job failed: the checks, the count and the error."""
+    return MESSAGES.roadmap.refine_failure_line.format(
+        checks=",".join(failure.checks),
+        tries=tries,
+        limit=CONST_ROADMAP_REFINE_MAX_TRIES,
+        error=failure.error,
+    )
+
+
+def _judge_findings(item: Item) -> list[str]:
+    """The open findings of the review that last refused the proposal for `item`, which the next
+    request gives to the model, or none (#4798)."""
+    recorded = item.job_record.get(RefineRecordKey.JUDGE_FINDINGS) or ""
+    return [line for line in recorded.splitlines() if line.strip()]
+
+
 def _failed_round(
     item: Item,
     proposal: RefinementProposal,
@@ -2353,19 +2425,10 @@ def _failed_round(
     failure: JobFailure,
 ) -> RefinedItem:
     """The round of `item` whose job failed: nothing is written but the record (#3632). The tries
-    count on the body that the round read: a body edit starts the count at 1 again. The next step is
-    `RETRY` below `CONST_ROADMAP_REFINE_MAX_TRIES` tries and `FAILED` at the limit."""
+    count on the body that the round read (`_tries_on`)."""
     seen_body_hash, seen_section_hash = body_hashes(current_body)
-    prior = item.job_record.get(RefineRecordKey.TRIES) or ""
-    same_body = item.job_record.get(RefineRecordKey.BODY_HASH) == seen_body_hash
-    tries = (int(prior) if same_body and prior.isdecimal() else 0) + 1
-    step = NextStep.FAILED if tries >= CONST_ROADMAP_REFINE_MAX_TRIES else NextStep.RETRY
-    line = MESSAGES.roadmap.refine_failure_line.format(
-        checks=",".join(failure.checks),
-        tries=tries,
-        limit=CONST_ROADMAP_REFINE_MAX_TRIES,
-        error=failure.error,
-    )
+    tries, step = _tries_on(item, seen_body_hash)
+    line = _failure_line(failure, tries)
     return RefinedItem(
         item=item,
         proposal=proposal,
@@ -2448,6 +2511,7 @@ def refine_one_item(
         "deferred_issues": [
             {"number": number, "title": title} for number, title in _recorded_deferrals(store, item)
         ],
+        "judge_findings": _judge_findings(item),
     }
     raw_proposal: RefinementProposal = client.chat_structured(
         _prompt("roadmap_refine_proposal.md"),
@@ -2501,9 +2565,14 @@ def refine_one_item(
     step, model_details, blocked_by = next_step_of(
         proposal, open_questions, blockers, is_ready=is_ready
     )
+    refusal: JobFailure | None = None
+    tries = 0
     if findings:
-        # The review refused the item: it waits for a body edit, and the comment lists each finding.
-        step, model_details, blocked_by = NextStep.EDIT, findings, ()
+        # The review refused the item: a job failure, so the next round refines it again with the
+        # findings, and no comment asks a person (#4798).
+        refusal = _refusal(findings)
+        tries, step = _tries_on(item, body_hashes(current_body)[0])
+        model_details, blocked_by = (), ()
     deferred, refused = (
         _plan_deferrals(store, item, proposal, repo=repo, model=intake_model, urls=allowed_urls)
         if is_ready
@@ -2515,6 +2584,8 @@ def refine_one_item(
     # on one line each (#1758). Each goes on its line first, so its code is the code that the
     # comment shows (#2525).
     details = tuple(sanitize_text(" ".join(d.split()), allowed_urls) for d in model_details)
+    if refusal is not None:
+        details = (_failure_line(refusal, tries),)
     # The paths are the cause of a block: an open dependency or a suspected block (#2005).
     blocked = bool(blocked_by) or _suspected_block(proposal) is not None
     block_paths = tuple(proposal.block_paths) if blocked else ()
@@ -2543,8 +2614,9 @@ def refine_one_item(
             record_only=True,
         )
 
-    # One comment gives the next step; a Ready item refine finds not ready goes back to New (#1515)
-    comment = step_comment(item, step, details, sha, block_paths)
+    # One comment gives the next step; a Ready item refine finds not ready goes back to New (#1515).
+    # A refusal of the review is a job failure, which writes no comment (#4798).
+    comment = None if refusal is not None else step_comment(item, step, details, sha, block_paths)
 
     s_hash = hash_text(
         rendered_section[
@@ -2571,6 +2643,8 @@ def refine_one_item(
         deferred=deferred,
         after_stage_return=returned is not None and is_unchanged(item, current_body),
         judge=judge,
+        failure=refusal,
+        tries=tries,
     )
 
 
@@ -2959,17 +3033,33 @@ def _record_failure(store: RoadmapStore, failure: RefineFailure) -> None:
 def _failure_marks(item: Item, failure: JobFailure | None, tries: int) -> JobRecord:
     """The marks of a round's job failure: the count of tries, the failed checks and the last
     error, or the clear of those that the record holds when the round did not fail (#3632). A
-    round with a result made its model call, so it clears the time, the step and the class of an
-    earlier failed call (#4061)."""
+    refusal of the review also records its findings, which stay until a round does not fail
+    (#4798). A round with a result made its model call, so it clears the time, the step and the
+    class of an earlier failed call (#4061)."""
     cleared = _clear_failed_marks(item)
     if failure is None:
-        keys = (RefineRecordKey.TRIES, RefineRecordKey.FAILED_CHECK, RefineRecordKey.FAILURE)
+        keys = (
+            RefineRecordKey.TRIES,
+            RefineRecordKey.FAILED_CHECK,
+            RefineRecordKey.FAILURE,
+            RefineRecordKey.JUDGE_FINDINGS,
+        )
         return {**{key: None for key in keys if key in item.job_record}, **cleared}
+    findings: JobRecord = (
+        {
+            RefineRecordKey.JUDGE_FINDINGS: "\n".join(failure.findings)[
+                :CONST_ROADMAP_REFINE_JUDGE_FINDINGS_MAX_CHARS
+            ]
+        }
+        if failure.findings
+        else {}
+    )
     return {
         **cleared,
         RefineRecordKey.TRIES: str(tries),
         RefineRecordKey.FAILED_CHECK: ",".join(failure.checks),
         RefineRecordKey.FAILURE: failure.error,
+        **findings,
     }
 
 

@@ -44,13 +44,15 @@ reason of one issue for this job and for the stage job (#2911).
 of the job that told of the stop. Only a comment of the owner, a member or a collaborator counts
 (`retry_asked`). The row `implement` of the Service reads it for an item that it set Blocked
 (`stop_clear.py`); this judge reads it for an item that holds Ready or Planned and a stop on record,
-such as an item that a person set back by hand.
+such as an item that a person set back by hand. Both list the comments of an issue again only
+when its `updated_at` moved since the last listing in the process (`retry_asked_on`, #4854).
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
+from datetime import datetime
 from functools import cached_property
 from pathlib import Path
 from typing import Final, NamedTuple
@@ -268,6 +270,31 @@ def retry_asked(comments: Sequence[IssueComment]) -> bool:
     )
 
 
+_retry_reads: dict[str, tuple[datetime, bool]] = {}
+"""The answer of `retry_asked` for each item whose comments this process listed, by the URL of its
+issue, with the `updated_at` of the item at that listing. It holds one entry for each issue at
+most (#4854)."""
+
+
+def reset_retry_reads() -> None:
+    """Forget the answers, as a new process has listed no comments (#4854)."""
+    _retry_reads.clear()
+
+
+def retry_asked_on(store: RoadmapStore, item: Item) -> bool:
+    """Whether a trusted commenter asked for a retry on `item`, by `retry_asked`. A new comment
+    moves the `updated_at` of an issue, so the comments are listed again only when the
+    `updated_at` of `item` is not the one of the last listing that the process holds. A stop that
+    nothing changed costs no request after the first round of the process (#4854)."""
+    held = _retry_reads.get(item.url)
+    if held is not None and item.updated_at is not None and held[0] == item.updated_at:
+        return held[1]
+    asked = retry_asked(store.comments_on(item.number))
+    if item.updated_at is not None:
+        _retry_reads[item.url] = (item.updated_at, asked)
+    return asked
+
+
 def _takeable_status(item: Item) -> bool:
     """Whether the Status of `item` lets the job take it: Ready or Planned, or In Progress while
     the record names a runner Job that no round reported, which is the Job that plans its own item
@@ -319,7 +346,7 @@ class _Judge:
         if not is_approved(item):
             return texts.implement_left_unjudged
         stopped = item.job_record.get(ImplementRecordKey.STOPPED)
-        if stopped and not retry_asked(self._store.comments_on(item.number)):
+        if stopped and not retry_asked_on(self._store, item):
             return texts.implement_left_stopped.format(stopped=stopped)
         retry = bool(stopped)
         if isinstance(route, _Planned):
@@ -626,4 +653,7 @@ __all__ = [
     "plan_implement",
     "recorded_branch",
     "render_implement_plan",
+    "reset_retry_reads",
+    "retry_asked",
+    "retry_asked_on",
 ]

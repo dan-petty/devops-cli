@@ -28,8 +28,8 @@ import sys
 import tempfile
 import threading
 import weakref
-from collections.abc import Callable, Iterator
-from contextlib import contextmanager
+from collections.abc import Callable, Generator, Iterator
+from contextlib import ExitStack, contextmanager
 from pathlib import Path
 from typing import Any, NoReturn
 
@@ -132,6 +132,7 @@ _PROCESS_STATE_RESETS: dict[str, tuple[str, ...]] = {
     "devops_cli.review.canary": ("clear_canary_cache",),
     "devops_cli.review.rules_pack": ("reset_rules_pack_cache",),
     "devops_cli.roadmap.implement.consecutive_failures": ("reset_consecutive_failures",),
+    "devops_cli.roadmap.implement.implement": ("reset_retry_reads",),
     "devops_cli.roadmap.service_stop": ("reset_service_stop",),
     "devops_cli.roadmap.stage.stage_left_out": ("reset_left_out_log",),
     "devops_cli.roadmap.stores.store": ("reset_roadmap_store",),
@@ -1054,6 +1055,36 @@ def pytest_configure(config: pytest.Config) -> None:
         config.pluginmanager.import_plugin("pytester")
     _, gen1, gen2 = gc.get_threshold()
     gc.set_threshold(GC_YOUNG_THRESHOLD, gen1, gen2)
+
+
+# The options with which a run starts no xdist worker, although addopts give it `-n logical`.
+_RUNS_WITHOUT_WORKERS = ("collectonly", "help", "version")
+
+
+def _tell(message: str) -> None:
+    """Show a line to the person who started pytest, before pytest's own output starts."""
+    print(message, file=sys.stderr, flush=True)
+
+
+@pytest.hookimpl(wrapper=True, optionalhook=True)
+def pytest_xdist_auto_num_workers(config: pytest.Config) -> Generator[None, int, int]:
+    """Make a run that starts its workers from `-n logical` (addopts) or `-n auto` hold a gate slot
+    as `devops ci` does, and start at most the CPUs of one slot (#4525). A run with an explicit
+    `-n` count never comes here, so it takes no slot.
+
+    xdist asks this hook in the controller only, from its `pytest_cmdline_main`, before
+    `pytest_configure` isolates HOME. So the slot comes from the person's settings and data
+    directory, the same ones `devops ci` reads, and the controller runs no test. The slot is free
+    again when the run ends.
+    """
+    workers = yield
+    if any(config.getoption(name) for name in _RUNS_WITHOUT_WORKERS):
+        return workers
+    from devops_cli.ci.gate_slots import direct_run_slot
+
+    slot = ExitStack()
+    config.add_cleanup(slot.close)
+    return slot.enter_context(direct_run_slot(config.rootpath, workers, notify=_tell))
 
 
 def _missing_live_binary(item: pytest.Item) -> str | None:
