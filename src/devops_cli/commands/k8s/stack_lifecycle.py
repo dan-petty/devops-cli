@@ -118,7 +118,7 @@ HELM_RELEASES_BY_STACK: dict[str, list[dict[str, str]]] = {
             "chart": "prometheus-community/prometheus-operator-crds",
             "namespace": "monitoring",
             "values": str(DEFAULT_K8S_DIR / "monitoring" / "prometheus-operator-crds-values.yaml"),
-            "version": "32.0.2",
+            "version": "33.0.2",
         },
         # The database operator of every stack that holds a CloudNativePG Cluster: the gateway
         # database of `llm` and the Mattermost database of `chat`. Its podMonitor needs the CRD above.
@@ -225,7 +225,7 @@ HELM_RELEASES_BY_STACK: dict[str, list[dict[str, str]]] = {
             "chart": "open-webui/open-webui",
             "namespace": "llm",
             "values": str(DEFAULT_K8S_DIR / "llm" / "values-open-webui.yaml"),
-            "version": "16.6.0",
+            "version": "18.3.0",
         },
         {
             "name": "qdrant",
@@ -241,7 +241,7 @@ HELM_RELEASES_BY_STACK: dict[str, list[dict[str, str]]] = {
             "chart": "grafana-community/loki",
             "namespace": "logging",
             "values": str(DEFAULT_K8S_DIR / "logging" / "loki-values.yaml"),
-            "version": "20.4.1",
+            "version": "21.2.1",
         },
     ],
     # The internal forge and container registry (#1081). Its pod waits for Secret gitea-admin,

@@ -121,7 +121,7 @@ def test_loki_runs_the_grafana_community_chart_whose_loki_fixes_cve_2026_21729()
     """`grafana/loki` in grafana.github.io/helm-charts became the Grafana Enterprise Logs chart,
     and its newest version still runs Loki 3.6. CVE-2026-21729 affects Loki before 3.7.0: one
     `detected_fields` request with a very large limit makes Loki allocate memory until it stops.
-    The open-source chart moved to grafana-community/helm-charts, and its 20.4.1 runs Loki 3.7.9
+    The open-source chart moved to grafana-community/helm-charts, and its 21.2.1 runs Loki 3.7.9
     (#1632). The Argo CD Application installs that chart from a repository that its project
     admits. The chart takes the Loki image from its appVersion, so the Application gives the
     chart the values file and no other value, and the values set no Loki image: `loki.image` and
@@ -148,7 +148,7 @@ def test_loki_runs_the_grafana_community_chart_whose_loki_fixes_cve_2026_21729()
         "singleBinary.image": values.get("singleBinary", {}).get("image"),
         "monitoring.selfMonitoring": values.get("monitoring", {}).get("selfMonitoring"),
     } == {
-        "chart": ("https://grafana-community.github.io/helm-charts", "loki", "20.4.1"),
+        "chart": ("https://grafana-community.github.io/helm-charts", "loki", "21.2.1"),
         "project admits the repository": True,
         "helm": {"valueFiles": ["$values/k8s/logging/loki-values.yaml"]},
         "loki.image": None,
@@ -235,7 +235,7 @@ def _token(
 
 
 def _loki(values: dict[str, Any]) -> bool:
-    """Loki chart 20.4.1 sets the field on the single binary pod from
+    """Loki chart 21.2.1 sets the field on the single binary pod from
     `singleBinary.automountServiceAccountToken`, or else from `defaults.automountServiceAccountToken`,
     which is true by default. The pod field wins over `serviceAccount.automountServiceAccountToken`,
     which counts only when neither value is a bool."""
@@ -395,7 +395,7 @@ _CHART_TOKENS: dict[
     ),
     # The chart binds the ClusterRole loki-clusterrole, which has no rules while the rules sidecar
     # is off. The canary and the gateway have token values of their own.
-    ("loki", "20.4.1"): (
+    ("loki", "21.2.1"): (
         TokenSite("loki", _loki),
         TokenSite(
             "canary",
@@ -409,7 +409,7 @@ _CHART_TOKENS: dict[
     ("mattermost-operator", "1.0.5"): (
         TokenSite("mattermost-operator", _when(), "ClusterRole mattermost-operator"),
     ),
-    ("open-webui", "16.6.0"): (
+    ("open-webui", "18.3.0"): (
         TokenSite("open-webui", _token("serviceAccount.automountServiceAccountToken", False)),
     ),
     ("opentelemetry-collector", "0.178.3"): (
@@ -420,7 +420,7 @@ _CHART_TOKENS: dict[
     ("plugin-barman-cloud", "0.9.0"): (
         TokenSite("plugin-barman-cloud", _when(), "ClusterRole plugin-barman-cloud"),
     ),
-    ("prometheus-operator-crds", "32.0.2"): (),
+    ("prometheus-operator-crds", "33.0.2"): (),
     ("prometheus", "29.47.2"): (
         TokenSite(
             "alertmanager",

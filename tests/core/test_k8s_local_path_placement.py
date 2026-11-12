@@ -115,12 +115,12 @@ CHART_CLAIMS: dict[
     ("gitea", "12.7.0"): (ClaimSite("gitea", _on(("persistence.enabled", True)), "affinity"),),
     ("opentelemetry-collector", "0.178.3"): (),
     ("plugin-barman-cloud", "0.9.0"): (),
-    ("prometheus-operator-crds", "32.0.2"): (),
+    ("prometheus-operator-crds", "33.0.2"): (),
     ("grafana", "14.4.1"): (ClaimSite("grafana", _on(("persistence.enabled", False)), "affinity"),),
     ("k8s-monitoring", "4.6.0"): _alloy_collectors,
-    ("loki", "20.4.1"): (ClaimSite("singleBinary", _loki_mode, "singleBinary.affinity"),),
+    ("loki", "21.2.1"): (ClaimSite("singleBinary", _loki_mode, "singleBinary.affinity"),),
     ("mattermost-operator", "1.0.5"): (),
-    ("open-webui", "16.6.0"): (
+    ("open-webui", "18.3.0"): (
         ClaimSite("open-webui", _on(("persistence.enabled", True)), "affinity"),
         ClaimSite(
             "pipelines",
