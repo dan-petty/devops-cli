@@ -16,9 +16,12 @@ on:
   workflow_dispatch:
 
 # The event is part of the group: a push to main and the schedule run of main have the same ref, and
-# a merge must not cancel the schedule run, which holds the job-time check (#4634).
+# a merge must not cancel the schedule run, which holds the job-time check (#4634). The group of a
+# push to main is its commit, so the next merge cancels no push run: each merge gets one test run
+# that ends, and the release pull request reads the result of that run (ADR 0014, #4639). A new
+# push to a pull request cancels the run of the push before it.
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'push' && github.sha || github.ref }}
   cancel-in-progress: true
 
 env:
@@ -113,9 +116,14 @@ jobs:
   # run or a skipped filter step leaves no output, so those run the full gate. The REST list of
   # the files of a pull request holds 3000 files at most and gives no sign of a cut, so the filter
   # runs only for a pull request with fewer files.
+  # The release pull request of this repository runs no shard: the job `Tests on Main` reads the
+  # tests of the commit of main that it is based on (#4639).
   test-shard:
     name: Tests & Coverage (shard ${{ matrix.shard }} of ${{ strategy.job-total }})
-    if: github.event_name != 'schedule'
+    if: >-
+      github.event_name != 'schedule'
+      && !(startsWith(github.head_ref, 'release-please--')
+      && github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-26.04
     timeout-minutes: 20
     permissions:
@@ -192,10 +200,12 @@ jobs:
   # The required check. It waits for the shards, fails when one did not succeed (a skipped job
   # would count as a pass for a required check), joins their coverage data and applies the floor
   # `fail_under` of pyproject.toml to the whole. A plan-only pull request skips every step after
-  # the filter, so the required check reports success. It runs unless the run was cancelled.
+  # the filter, so the required check reports success. On the release pull request, no shard runs:
+  # the check passes when the job `Tests on Main` passed, and the steps that need the data of the
+  # shards are skipped (#4639). It runs unless the run was cancelled.
   test:
     name: Tests & Coverage
-    needs: test-shard
+    needs: [test-shard, main-tests]
     if: ${{ !cancelled() && github.event_name != 'schedule' }}
     runs-on: ubuntu-26.04
     timeout-minutes: 5
@@ -215,32 +225,34 @@ jobs:
               - '**'
               - '!openspec/changes/[0-9]*-*/**/*'
 
-      # Every step after this one runs only when the shards passed.
+      # The check fails unless the shards passed, or, on the release pull request, the tests of
+      # main passed. The steps after this one run only when the shards passed.
       - name: Require Passing Test Shards
-        if: needs.test-shard.result != 'success'
+        if: needs.test-shard.result != 'success' && needs.main-tests.result != 'success'
         env:
           SHARDS_RESULT: ${{ needs.test-shard.result }}
+          MAIN_RESULT: ${{ needs.main-tests.result }}
         run: |
-          echo "::error::The test shards ended with the result $SHARDS_RESULT."
+          echo "::error::The test shards ended with the result $SHARDS_RESULT, and Tests on Main with the result $MAIN_RESULT."
           exit 1
 
       # Full history so the changed-line coverage step can find the merge base.
       - name: Check out repository
-        if: steps.changes.outputs.outside_plan != 'false'
+        if: needs.test-shard.result == 'success' && steps.changes.outputs.outside_plan != 'false'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
           fetch-depth: 0
 
       - name: Set up uv toolchain
-        if: steps.changes.outputs.outside_plan != 'false'
+        if: needs.test-shard.result == 'success' && steps.changes.outputs.outside_plan != 'false'
         uses: ./.github/actions/setup-toolchain
         with:
           cache-suffix: test
           save-uv-cache: "false"
 
       - name: Download Coverage Data
-        if: steps.changes.outputs.outside_plan != 'false'
+        if: needs.test-shard.result == 'success' && steps.changes.outputs.outside_plan != 'false'
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: coverage-shard-*
@@ -249,7 +261,7 @@ jobs:
       # The shards ran on the same paths, so the data of each names the files of this checkout.
       # `coverage report` fails below `fail_under`, the floor of the whole tree (#2356).
       - name: Combine and Check Coverage
-        if: steps.changes.outputs.outside_plan != 'false'
+        if: needs.test-shard.result == 'success' && steps.changes.outputs.outside_plan != 'false'
         run: |
           uv run coverage combine .data/shards/*/.coverage
           uv run coverage report
@@ -262,7 +274,7 @@ jobs:
       # is appended after it. The step keeps diff-cover's status, so the list is in the summary
       # when the figure fails, and exits with that status last.
       - name: Changed-Line Coverage
-        if: github.event_name == 'pull_request' && steps.changes.outputs.outside_plan != 'false'
+        if: needs.test-shard.result == 'success' && github.event_name == 'pull_request' && steps.changes.outputs.outside_plan != 'false'
         env:
           BASE_REF: ${{ github.base_ref }}
         run: |
@@ -280,7 +292,7 @@ jobs:
 
       # The step keeps the report that coverage xml writes; a run with no report warns.
       - name: Upload Coverage XML
-        if: always() && github.event_name == 'pull_request' && steps.changes.outputs.outside_plan != 'false'
+        if: always() && needs.test-shard.result == 'success' && github.event_name == 'pull_request' && steps.changes.outputs.outside_plan != 'false'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: coverage-xml
@@ -288,6 +300,57 @@ jobs:
           include-hidden-files: true
           if-no-files-found: warn
           retention-days: 7
+
+  # The release pull request runs no test shard (ADR 0014, #4639). After each merge, release-please
+  # bases it on the new commit of main (`always-update`), and it adds only the version lines,
+  # CHANGELOG.md and the manifest. The push run of that commit tests the same code, and no later
+  # merge cancels that run. This job waits for that run to end, and it passes only when the job
+  # `Tests & Coverage` of that run passed. Only a branch of this repository takes this path, so the
+  # branch of a fork cannot take a release name to skip the tests. On 2026-11-11 and 2026-11-12,
+  # `Tests & Coverage` of a push run of main ended at most 18 minutes after the run started (50
+  # runs). The wait stops after 35 minutes, before the limit of its step, and the step limit is
+  # under the job limit.
+  main-tests:
+    name: Tests on Main
+    if: >-
+      github.event_name == 'pull_request'
+      && startsWith(github.head_ref, 'release-please--')
+      && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-26.04
+    timeout-minutes: 40
+    permissions:
+      actions: read # reads the push run of main and its jobs
+
+    steps:
+      - name: Read Tests & Coverage of Main
+        timeout-minutes: 37
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPOSITORY: ${{ github.repository }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          WAIT_SECONDS: "2100"
+        run: |
+          runs="repos/$REPOSITORY/actions/workflows/ci.yml/runs?event=push&branch=main&head_sha=$BASE_SHA&per_page=1"
+          deadline=$((SECONDS + WAIT_SECONDS))
+          while :; do
+            run=$(gh api "$runs" --jq '.workflow_runs[0] // empty | "\(.id) \(.status)"')
+            if [ "${run#* }" = completed ]; then
+              break
+            fi
+            if [ "$SECONDS" -ge "$deadline" ]; then
+              echo "::error::The push run of main at $BASE_SHA did not end in $WAIT_SECONDS seconds. Its last state: ${run:-no run}."
+              exit 1
+            fi
+            sleep 30
+          done
+          run_id=${run%% *}
+          result=$(gh api "repos/$REPOSITORY/actions/runs/$run_id/jobs?filter=latest&per_page=100" \
+            --jq '[.jobs[] | select(.name == "Tests & Coverage") | .conclusion] | first // "missing"')
+          echo "Tests & Coverage of main at $BASE_SHA: $result. Run: $GITHUB_SERVER_URL/$REPOSITORY/actions/runs/$run_id"
+          if [ "$result" != success ]; then
+            echo "::error::Tests & Coverage of main at $BASE_SHA ended with the result $result. Fix main first."
+            exit 1
+          fi
 
   # AGENTS.md rule 5: a check that averages more than 5 minutes is a P0 bug. The run of one pull
   # request is one sample, so this job reads the last twenty completed pushes to main from the

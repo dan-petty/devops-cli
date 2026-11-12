@@ -1861,6 +1861,20 @@ JOIN_JOB = "test"
 SHARD_NAME = "Tests & Coverage (shard ${{ matrix.shard }} of ${{ strategy.job-total }})"
 JOIN_IF = "${{ !cancelled() && github.event_name != 'schedule' }}"
 SHARD_MATRIX = {"fail-fast": False, "matrix": {"shard": [1, 2, 3, 4]}}
+# The release pull request runs no shard: the job `Tests on Main` reads the push run of main that
+# it is based on (ADR 0014, #4639). Only a branch of this repository takes that path, so the branch
+# of a fork cannot take a release name to skip the tests.
+MAIN_JOB = "main-tests"
+RELEASE_BRANCH = (
+    "startsWith(github.head_ref, 'release-please--')"
+    " && github.event.pull_request.head.repo.full_name == github.repository"
+)
+SHARD_IF = f"github.event_name != 'schedule' && !({RELEASE_BRANCH})"
+MAIN_IF = f"github.event_name == 'pull_request' && {RELEASE_BRANCH}"
+# The join steps that need the data of the shards run only after shards that passed.
+SHARDS_PASSED = "needs.test-shard.result == 'success'"
+JOIN_FULL_WHEN = f"{SHARDS_PASSED} && {FULL_SUITE_WHEN}"
+JOIN_COVERAGE_WHEN = f"{SHARDS_PASSED} && {COVERAGE_WHEN}"
 # The steps of the join that a plan-only pull request skips, as they need the data of the shards.
 JOIN_FULL_STEPS = (
     "Check out repository",
@@ -1874,8 +1888,9 @@ def _plan_only_problems(jobs: dict[str, Any]) -> list[str]:
     """What differs from the plan-only contract in the jobs `test-shard` and `test` of a
     workflow's `jobs`: the filter step of each, the shard run and the join steps with their
     conditions, and a required job that no condition can make skip, and that waits only for the
-    shards, so the required check always reports."""
-    shard, join = jobs[SHARD_JOB], jobs[JOIN_JOB]
+    shards and the job `Tests on Main`, so the required check always reports. On the release pull
+    request of this repository, `Tests on Main` takes the place of the shards."""
+    shard, join, main = jobs[SHARD_JOB], jobs[JOIN_JOB], jobs.get(MAIN_JOB, {})
     shard_steps = {step.get("name"): step for step in shard["steps"]}
     join_steps = {step.get("name"): step for step in join["steps"]}
     full, reduced = shard_steps.get(FULL_SUITE_STEP, {}), shard_steps.get(PLAN_SUITE_STEP, {})
@@ -1883,27 +1898,31 @@ def _plan_only_problems(jobs: dict[str, Any]) -> list[str]:
     order = [step.get("name") for step in join["steps"]]
     expected = [
         ("shard job name", shard["name"], SHARD_NAME),
-        ("shard job if", shard["if"], "github.event_name != 'schedule'"),
+        ("shard job if", shard["if"], SHARD_IF),
         ("shard job needs", _needs(shard), []),
         ("shard matrix", shard.get("strategy"), SHARD_MATRIX),
+        ("main job name", main.get("name"), "Tests on Main"),
+        ("main job if", main.get("if"), MAIN_IF),
+        ("main job needs", _needs(main), []),
+        ("main permissions", main.get("permissions"), {"actions": "read"}),
         ("job name", join["name"], "Tests & Coverage"),
         ("job if", join["if"], JOIN_IF),
-        ("job needs", _needs(join), [SHARD_JOB]),
+        ("job needs", _needs(join), [SHARD_JOB, MAIN_JOB]),
         ("jobs that need it", [n for n, o in jobs.items() if JOIN_JOB in _needs(o)], []),
         ("shard permissions", shard["permissions"], {"contents": "read", "pull-requests": "read"}),
         ("permissions", join["permissions"], {"contents": "read", "pull-requests": "read"}),
         ("full suite", (full.get("if"), full.get("run")), (FULL_SUITE_WHEN, FULL_GATE)),
         ("plan suite", (reduced.get("if"), reduced.get("run")), (PLAN_SUITE_WHEN, PLAN_GATE)),
-        ("coverage condition", coverage.get("if"), COVERAGE_WHEN),
+        ("coverage condition", coverage.get("if"), JOIN_COVERAGE_WHEN),
         (
-            "failed shards fail the check",
+            "failed shards or a failed main fail the check",
             required.get("if"),
-            "needs.test-shard.result != 'success'",
+            f"needs.test-shard.result != 'success' && needs.{MAIN_JOB}.result != 'success'",
         ),
         (
             "plan-only skips the join",
             [join_steps.get(name, {}).get("if") for name in JOIN_FULL_STEPS],
-            [FULL_SUITE_WHEN] * len(JOIN_FULL_STEPS),
+            [JOIN_FULL_WHEN] * len(JOIN_FULL_STEPS),
         ),
         (
             "order",
@@ -1990,6 +2009,14 @@ def _with_filters(jobs: dict[str, Any], filters: str) -> dict[str, Any]:
         ),
         lambda jobs: _without_step(jobs, COMBINE_STEP),
         lambda jobs: _with_step_field(jobs, COMBINE_STEP, "if", "always()"),
+        lambda jobs: {
+            **jobs,
+            SHARD_JOB: {
+                **jobs[SHARD_JOB],
+                "if": "github.event_name != 'schedule'"
+                " && !startsWith(github.head_ref, 'release-please--')",
+            },
+        },
     ],
     ids=[
         "no filter",
@@ -2006,6 +2033,7 @@ def _with_filters(jobs: dict[str, Any], filters: str) -> dict[str, Any]:
         "a failed shard fails only on a failure result",
         "no combine of the coverage data",
         "combine always runs",
+        "a fork branch with a release name skips the shards",
     ],
 )
 def test_the_plan_only_contract_fails_when_a_part_is_removed_or_widened(
@@ -2276,7 +2304,8 @@ def test_the_plan_check_job_fills_the_tiktoken_cache_from_the_committed_encoding
 def test_the_test_job_uploads_the_coverage_xml_report() -> None:
     """The aggregate job writes `.data/coverage.xml` for diff-cover, and `actions/upload-artifact`
     keeps the report as an artifact for 7 days so a reviewer can inspect per-file figures (#2163).
-    The step runs with `if: always()` on pull requests outside plan, and warns if no report exists."""
+    The step runs with `if: always()` on pull requests outside plan whose shards passed, and warns
+    if no report exists."""
     steps = _load_workflow(WORKFLOWS_DIR / "ci.yml")["jobs"]["test"]["steps"]
     names = [s.get("name") for s in steps]
     assert COVERAGE_STEP in names
@@ -2293,10 +2322,7 @@ def test_the_test_job_uploads_the_coverage_xml_report() -> None:
 
     upload_step = steps[names.index(UPLOAD_COVERAGE_XML_STEP)]
     assert re.fullmatch(r"actions/upload-artifact@[0-9a-f]{40}", upload_step.get("uses", ""))
-    assert (
-        upload_step.get("if")
-        == "always() && github.event_name == 'pull_request' && steps.changes.outputs.outside_plan != 'false'"
-    )
+    assert upload_step.get("if") == f"always() && {JOIN_COVERAGE_WHEN}"
     assert upload_step.get("with") == {
         "name": "coverage-xml",
         "path": ".data/coverage.xml",
