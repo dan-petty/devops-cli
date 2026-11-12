@@ -66,7 +66,7 @@ JOB_LIMIT_MINUTES = {
     ("service-image-test.yml", "service-image-test"): 20,  # 678 s
     ("devcontainer-image.yml", "devcontainer"): 20,  # 416 s; a build with no cache takes longer
     ("rule-pack.yml", "rule-pack"): 5,  # 35 s on 2026-10-17; no rule changed after it
-    ("docs-site.yml", "docs-site"): 5,  # 35 s
+    ("docs-site.yml", "docs-site"): 5,  # 38 s with Zensical on 2026-11-12 (#5152)
     ("image-pins.yml", "image-pins"): 5,  # 74 s
     ("third-party-image-scan.yml", "third-party-image-scan"): 5,  # 47 s
 }
