@@ -451,7 +451,7 @@ class NewMessages:
     )
     step_write_tests: str = "Replace the failing tests in {path} with the behaviour you build."
     step_regenerate_docs: str = (
-        "Run `uv run devops docs generate --sync-readme` to regenerate the pages of the commands."
+        "Run `uv run devops docs generate` to regenerate the pages of the commands."
     )
 
 
@@ -1146,7 +1146,6 @@ class DocsMessages:
     argv_unknown_command: str = "unknown command '{token}' under '{command_path}'"
     argv_unknown_option: str = "unknown option '{token}' for '{command_path}'"
     argv_unexpected_argument: str = "unexpected extra argument '{token}' for '{command_path}'"
-    synced_readme: str = "✓ Synchronized Command Matrix table in {path}"
     unsupported_format: str = (
         "Unsupported documentation format: {format}. Supported: markdown, json"
     )

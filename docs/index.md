@@ -4,7 +4,7 @@
 
 ## Primary Guides
 
-- [CLI Reference](CLI_REFERENCE.md) — Complete command line reference for all `devops` commands.
+- [CLI Reference](CLI_REFERENCE.md) — The index of the `devops` command groups and the command matrix, with a link to the page of each group.
 - [Configuration Reference](CONFIGURATION.md) — Configuration file hierarchy, settings, and validation rules.
 - [FastMCP Tools](MCP_TOOLS.md) — Registered FastMCP tools for AI assistants and MCP clients.
 - [Roadmap Workflow](ROADMAP_WORKFLOW.md) — The eight steps of an issue, its states, labels, actors and the three human gates.

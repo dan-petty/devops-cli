@@ -187,7 +187,7 @@ devops ci docs [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--fix` | `boolean` | - | Synchronize Complete Command Matrix in README.md. |
+| `--fix` | `boolean` | - | Regenerate the documents with 'devops docs generate' before the check. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---

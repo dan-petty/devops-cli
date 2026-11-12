@@ -872,7 +872,7 @@ def get_check_specs() -> list[CheckSpec]:
             cmd=["uv", "run", "devops", "docs", "check"],
             span_name="ci.step.docs",
             metric_step="docs",
-            fix_cmd=["uv", "run", "devops", "docs", "generate", "--sync-readme"],
+            fix_cmd=["uv", "run", "devops", "docs", "generate"],
         ),
         CheckSpec(
             name="uv-check",
@@ -2221,7 +2221,7 @@ def actionlint(
 def docs(
     fix: Annotated[
         bool,
-        typer.Option("--fix", help=HELP.docs.sync_readme),
+        typer.Option("--fix", help=HELP.ci.docs_fix),
     ] = False,
     dry_run: Annotated[
         bool,

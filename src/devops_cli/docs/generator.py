@@ -522,37 +522,29 @@ class DocGenerator:
         self._append_params_tables(group.params, lines)
 
     def render_cli_reference_markdown(self, groups: list[CommandGroupDoc]) -> str:
-        """Render complete CLI Reference documentation in Markdown format."""
+        """Render the CLI reference: an index of the command group pages and the command matrix.
+        The full text of each command is only on the page of its group (#5163)."""
         lines: list[str] = [
             "# DevOps CLI Reference",
             "",
-            "Complete command-line reference for `devops-cli`, automatically generated from "
-            "CLI command specifications.",
+            "The command groups of `devops` and their commands. The page of each group in "
+            "`commands/` holds the full text of each command: its usage, its arguments and its "
+            "options.",
             "",
             "## Command Groups",
             "",
+            "| Command Group | Summary |",
+            "|---|---|",
+            *(
+                f"| [`devops {group.name}`](commands/{group.name}.md) | {group.summary} |"
+                for group in groups
+            ),
+            "",
+            "## Command Matrix",
+            "",
+            self.render_command_matrix(groups),
+            "",
         ]
-
-        for group in groups:
-            anchor = group.name.replace("_", "-")
-            lines.append(f"- [`devops {group.name}`](#devops-{anchor}) — {group.summary}")
-        lines.extend(["", "---", ""])
-
-        for group in groups:
-            lines.extend([f"## devops {group.name}", "", f"{group.summary}", ""])
-            if group.description and group.description != group.summary:
-                lines.extend([f"{group.description}", ""])
-            self._append_group_callback_section(group, lines)
-
-            if not group.commands:
-                lines.extend(["*No subcommands available.*", ""])
-                continue
-
-            for cmd in group.commands:
-                self._render_command_markdown(cmd, lines, level=3)
-
-            lines.extend(["---", ""])
-
         return "\n".join(lines)
 
     def _render_command_markdown(
@@ -583,6 +575,8 @@ class DocGenerator:
             f"{group.summary}",
             "",
         ]
+        if group.description and group.description != group.summary:
+            lines.extend([group.description, ""])
         self._append_group_callback_section(group, lines)
         lines.extend(["## Commands", ""])
         for cmd in group.commands:
@@ -673,8 +667,10 @@ class DocGenerator:
 
         return "\n".join(lines)
 
-    def render_readme_matrix(self, groups: list[CommandGroupDoc]) -> str:
-        """Render the Complete Command Matrix markdown table for README.md."""
+    @staticmethod
+    def render_command_matrix(groups: list[CommandGroupDoc]) -> str:
+        """Render the command matrix of the CLI reference: one row for each command, with a link
+        to the page of its group on the first row of the group."""
         lines: list[str] = [
             "| Command Group | Subcommand / Usage | Purpose & Features |",
             "|---|---|---|",
@@ -682,7 +678,7 @@ class DocGenerator:
 
         for group in groups:
             first = True
-            group_name = f"[**{group.name}**](docs/commands/{group.name}.md)"
+            group_name = f"[**{group.name}**](commands/{group.name}.md)"
             if not group.commands:
                 lines.append(f"| {group_name} | `devops {group.name}` | {group.summary} |")
                 continue
@@ -695,131 +691,6 @@ class DocGenerator:
                 lines.append(f"| {prefix} | `{usage}` | {desc} |")
 
         return "\n".join(lines)
-
-    def _find_readme(self, readme_path: Path | None = None) -> Path:
-        """Locate project README.md."""
-        if readme_path:
-            return readme_path.resolve()
-        return (self.root_dir / "README.md").resolve()
-
-    @staticmethod
-    def render_synced_readme(content: str, matrix_table: str) -> str | None:
-        """Substitute or insert Complete Command Matrix table into README content."""
-        start_marker = "<!-- COMMAND_MATRIX_START -->"
-        end_marker = "<!-- COMMAND_MATRIX_END -->"
-
-        if start_marker in content and end_marker in content:
-            pattern = re.compile(
-                rf"{re.escape(start_marker)}.*?{re.escape(end_marker)}",
-                re.DOTALL,
-            )
-            return pattern.sub(
-                f"{start_marker}\n\n{matrix_table}\n\n{end_marker}",
-                content,
-            )
-
-        pattern = re.compile(
-            r"(## Complete Command Matrix\s*\n\n)"
-            r"(?:<!-- COMMAND_MATRIX_START -->\s*)?\|.*?(?=\n\n---|\n\n## |\Z)",
-            re.DOTALL,
-        )
-        if pattern.search(content):
-            return pattern.sub(
-                rf"\g<1>{start_marker}\n\n{matrix_table}\n\n{end_marker}",
-                content,
-            )
-        return None
-
-    def sync_readme(
-        self,
-        readme_path: Path | None = None,
-        docs: dict[str, str] | None = None,
-    ) -> bool:
-        """Synchronize the Complete Command Matrix table in README.md."""
-        target = self._find_readme(readme_path)
-        if not target.exists():
-            return False
-
-        with trace_span("docs.sync_readme", attributes={"readme_path": str(target)}):
-            if docs is not None:
-                if "README.md" not in docs:
-                    return False
-                new_content = docs["README.md"]
-            else:
-                content = target.read_text(encoding="utf-8")
-                groups = self.introspect_all_groups()
-                matrix_table = self.render_readme_matrix(groups)
-                synced = self.render_synced_readme(content, matrix_table)
-                if synced is None:
-                    return False
-                new_content = synced
-
-            write_text_file(target, new_content)
-            return True
-
-    @staticmethod
-    def _check_readme_matrix_content(
-        content: str, matrix_table: str, target: Path
-    ) -> tuple[bool, str | None]:
-        """Check if markers or heading in content match matrix_table."""
-        start_marker = "<!-- COMMAND_MATRIX_START -->"
-        end_marker = "<!-- COMMAND_MATRIX_END -->"
-
-        if start_marker in content and end_marker in content:
-            start_idx = content.find(start_marker) + len(start_marker)
-            end_idx = content.find(end_marker)
-            current_matrix = content[start_idx:end_idx].strip()
-            if current_matrix != matrix_table.strip():
-                return (
-                    False,
-                    f"Out-of-date Command Matrix in {target}: "
-                    "README.md table differs from CLI state.",
-                )
-            return True, None
-
-        pattern = re.compile(
-            r"## Complete Command Matrix\s*\n\n"
-            r"(?:<!-- COMMAND_MATRIX_START -->\s*)?(\|.*?)(?=\n\n---|\n\n## |\Z)",
-            re.DOTALL,
-        )
-        match = pattern.search(content)
-        if match:
-            current_table = match.group(1).strip()
-            if current_table != matrix_table.strip():
-                return (
-                    False,
-                    f"Out-of-date Command Matrix in {target}: "
-                    "table differs from live CLI commands.",
-                )
-            return True, None
-
-        return False, f"Could not find Command Matrix table or markers in {target}"
-
-    def check_readme(
-        self,
-        readme_path: Path | None = None,
-        docs: dict[str, str] | None = None,
-    ) -> tuple[bool, str | None]:
-        """Check if Complete Command Matrix table in README.md is in sync."""
-        target = self._find_readme(readme_path)
-        if not target.exists():
-            return False, f"Missing README file: {target}"
-
-        content = target.read_text(encoding="utf-8")
-        if docs is not None:
-            if "README.md" not in docs:
-                return True, None
-            if content.strip() != docs["README.md"].strip():
-                return (
-                    False,
-                    f"Out-of-date Command Matrix in {target}: "
-                    "README.md table differs from CLI state.",
-                )
-            return True, None
-
-        groups = self.introspect_all_groups()
-        matrix_table = self.render_readme_matrix(groups)
-        return self._check_readme_matrix_content(content, matrix_table, target)
 
     def _format_settings_field_row(
         self,
@@ -1457,17 +1328,7 @@ class DocGenerator:
                 group_doc = self.render_command_group_markdown(group)
                 results[f"commands/{group.name}.md"] = group_doc
 
-            # 9. Synced README if README.md exists
-            readme_path = self._find_readme()
-            if readme_path.exists():
-                matrix_table = self.render_readme_matrix(groups)
-                synced_readme = self.render_synced_readme(
-                    readme_path.read_text(encoding="utf-8"), matrix_table
-                )
-                if synced_readme is not None:
-                    results["README.md"] = synced_readme
-
-            # 10. The job grade table in the hand-written page of the job success
+            # 9. The job grade table in the hand-written page of the job success
             results.update(self.synced_blocks())
 
             span.set_attributes({"file_count": len(results)})
@@ -1476,7 +1337,6 @@ class DocGenerator:
     def write_all_docs(
         self,
         output_dir: Path,
-        sync_readme_table: bool = True,
         docs: dict[str, str] | None = None,
     ) -> list[Path]:
         """Generate and write all documentation files to disk."""
@@ -1484,18 +1344,9 @@ class DocGenerator:
             doc_set = docs if docs is not None else self.generate_all_docs(output_dir)
             written: list[Path] = []
             for rel_path, content in doc_set.items():
-                if rel_path == "README.md":
-                    continue
                 dest = output_dir / rel_path
                 write_text_file(dest, content)
                 written.append(dest)
-
-            if sync_readme_table:
-                readme_path = self._find_readme()
-                if (docs is None or "README.md" in doc_set) and self.sync_readme(
-                    readme_path, docs=doc_set
-                ):
-                    written.append(readme_path)
 
             span.set_attributes({"written_count": len(written)})
             return written
@@ -1503,7 +1354,6 @@ class DocGenerator:
     def check_docs(
         self,
         output_dir: Path,
-        check_readme_table: bool = True,
         docs: dict[str, str] | None = None,
         check_argv: bool | None = None,
     ) -> tuple[bool, list[str]]:
@@ -1521,8 +1371,6 @@ class DocGenerator:
             errors.extend(check_documented_argv(self.root_dir))
 
         for rel_path, expected_content in doc_set.items():
-            if rel_path == "README.md":
-                continue
             target_path = output_dir / rel_path
             if not target_path.exists():
                 errors.append(f"Missing documentation file: {target_path}")
@@ -1532,11 +1380,6 @@ class DocGenerator:
                 errors.append(
                     f"Out-of-date documentation file: {target_path} differs from generated content."
                 )
-
-        if check_readme_table and (docs is None or "README.md" in doc_set):
-            readme_ok, readme_err = self.check_readme(docs=doc_set)
-            if not readme_ok and readme_err:
-                errors.append(readme_err)
 
         return len(errors) == 0, errors
 

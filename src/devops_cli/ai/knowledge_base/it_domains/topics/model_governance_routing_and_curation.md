@@ -124,7 +124,7 @@ Systems built solely around cutting-edge frontier models ("The Beyond") risk cat
   - Deliberately inject model degradation experiments: Pull the primary frontier model and verify that secondary/local models (e.g. `llama-3.3-70b`, `qwen2.5-coder:14b`, `claude-haiku-4-5`) can operate the repository tools, CLI commands, and CI workflows without human intervention.
 - **"It's Not the Model, It's the Documentation"**:
   - When models fail to operate tools, the root cause is rarely model deficiency—it is out-of-date `--help` output, incomplete documentation, or missing schemas.
-  - Maintaining 100% documentation synchronization (`devops docs generate --sync-readme`) is a primary operational resilience control.
+  - Maintaining 100% documentation synchronization (`devops docs generate`) is a primary operational resilience control.
 - **Agent Fleet Quiesce & Emergency Controls**:
   - Implement centralized shutdown/pause protocols (`devops ai quiesce`) to safely freeze running agent loops, background schedulers, and cron jobs during unexpected model failovers.
 - **Eval-Driven Hill-Climbing**:

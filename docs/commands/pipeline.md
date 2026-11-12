@@ -2,6 +2,8 @@
 
 Programmable containerized pipeline execution (Dagger).
 
+Execute reproducible, containerized developer pipelines with Dagger.
+
 ## Commands
 
 ## `devops pipeline`

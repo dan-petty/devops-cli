@@ -252,7 +252,7 @@ def test_a_path_with_a_location_is_checked_without_it() -> None:
         "devops_cli.config",
         "StageGroup.test",
         "uv run devops ci docs",
-        "uv run devops docs generate --sync-readme",
+        "uv run devops docs generate",
         "https://example.com/docs/a.md",
         "<change>/tasks.md",
         "tests/**/*.py",

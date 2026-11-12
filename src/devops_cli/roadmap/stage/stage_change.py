@@ -258,7 +258,7 @@ _SECURITY_WORD_PATTERNS: Final[tuple[re.Pattern[str], ...]] = tuple(
 # (#3224). An overlap or a metric sender keeps its own form, so the reader skips it.
 _ISSUE_DEPENDENCY: Final[re.Pattern[str]] = re.compile(r"^#(?P<number>[0-9]+):")
 _SENTENCE_END: Final[str] = f"{string.whitespace}."
-REGENERATE_DOCUMENTS: Final[str] = "uv run devops docs generate --sync-readme"
+REGENERATE_DOCUMENTS: Final[str] = "uv run devops docs generate"
 # The stage prompt and each module that holds a check of `check_proposal` or of the gates it
 # calls. A plan that changes one of these paths must measure the stage job (#3331).
 STAGE_EVAL_TRIGGER_PATHS: Final[tuple[str, ...]] = (

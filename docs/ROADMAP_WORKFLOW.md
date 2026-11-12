@@ -299,7 +299,7 @@ The shell holds no key, and `uv` is allowed, so the agent runs the commands of t
 | `uv run devops ci test` | write | Run the tests of one file: `uv run devops ci test <file>`. It writes cache files in the checkout. |
 | `uv run devops ai repomap` | read | Print a compact map of the symbols of the repository. |
 | `uv run devops ai ast` | write | Parse one source file (`parse`) or build the symbol graph of the repository (`graph`). `graph --output <path>` writes a file: give it a path in the checkout. |
-| `uv run devops docs generate` | write | Write the generated documents in the docs directory of the checkout: pass no `--output-dir`. Run it with `--sync-readme` after a change to a command or a setting. |
+| `uv run devops docs generate` | write | Write the generated documents in the docs directory of the checkout: pass no `--output-dir`. Run it after a change to a command or a setting. |
 | `uv run devops openspec check` | read | Check the changes and the specs of OpenSpec. |
 
 The programs that the shell refuses, and what to run instead:

@@ -183,7 +183,7 @@ LOCAL_COMMANDS: tuple[LocalCommand, ...] = (
         ("docs", "generate"),
         ShellAccess.WRITE,
         "Write the generated documents in the docs directory of the checkout: pass no "
-        "`--output-dir`. Run it with `--sync-readme` after a change to a command or a setting.",
+        "`--output-dir`. Run it after a change to a command or a setting.",
     ),
     LocalCommand(
         ("openspec", "check"),

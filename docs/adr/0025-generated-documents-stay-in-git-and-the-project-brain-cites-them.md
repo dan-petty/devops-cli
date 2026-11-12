@@ -2,6 +2,8 @@
 
 This record amends ADR 0023 and ADR 0012.
 
+Amended on 2026-11-12 ([#5163](https://github.com/dan-petty/devops-cli/issues/5163)): the owner approved the held row of #4880. The command matrix moved from `README.md` into `docs/CLI_REFERENCE.md`, which is now a short generated index of the command group pages. `README.md` holds no generated block and links the index. `devops docs generate` regenerates the documents, and the option `--sync-readme` is deleted.
+
 The rigid-rules decision Q12 of 2026-10-22 said to stop committing the generated reference documents. On 2026-11-11 the owner reversed it: "keep reference docs, but update design to accomodate project brain and keeps all content up to date". ADR 0023 does not name a document as a source of the brain. It gives no citation form for a document and no cap for issues about document drift. This record sets them, so that no agent follows Q12 again. Tracker #4880 holds the items that build it.
 
 ## Status

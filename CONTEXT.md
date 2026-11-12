@@ -238,7 +238,7 @@ A check configured in repository rulesets that must complete with a passing stat
 _Avoid_: mandatory check, blocking check, required status check
 
 **Generated document**:
-A document that `DocGenerator` or the instruction generator writes: a document of class `generated` in the docs inventory, or the command matrix of `README.md` (ADR 0025). It stays in git. The pull request that changes its source regenerates it, and the `docs` row of `Static Analysis` refuses it when it is not the output of its generator. Nobody edits it by hand.
+A document that `DocGenerator` or the instruction generator writes: a document of class `generated` in the docs inventory (ADR 0025), such as `docs/CLI_REFERENCE.md`, which holds the command matrix. It stays in git. The pull request that changes its source regenerates it, and the `docs` row of `Static Analysis` refuses it when it is not the output of its generator. Nobody edits it by hand.
 _Avoid_: reference doc, build output, artifact
 
 ## Telemetry

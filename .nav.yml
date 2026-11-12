@@ -21,8 +21,8 @@ nav:
       - Cheatsheets:
           - "docs/cheatsheets/*.md"
   - CLI reference:
+      - Index: docs/CLI_REFERENCE.md
       - "docs/commands/*.md"
-      - All commands on one page: docs/CLI_REFERENCE.md
   - Reference:
       - docs/CONFIGURATION.md
       - docs/ENV_VARS.md

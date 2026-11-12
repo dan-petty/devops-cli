@@ -577,7 +577,7 @@ def test_the_documentation_and_the_archive_run_in_the_worktree_after_the_last_gr
 
     uv = [call for call in job_world.programs.calls if call.argv[0] == "uv"]
     commands = [command_text(call) for call in uv]
-    docs = commands.index("uv run devops docs generate --sync-readme")
+    docs = commands.index("uv run devops docs generate")
     archive = commands.index(f"uv run devops openspec archive {CHANGE}")
     assert (
         docs < archive,

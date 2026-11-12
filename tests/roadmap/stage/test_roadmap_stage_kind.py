@@ -243,7 +243,7 @@ def test_a_group_that_changes_a_command_renders_the_regeneration_step_in_its_doc
 
     assert lines[-2:] == [
         f"- [ ] 1.{number} Document the flag in `docs/CLI_REFERENCE.md`, and run "
-        "`uv run devops docs generate --sync-readme`",
+        "`uv run devops docs generate`",
         "  - Verification: `$ uv run devops ci docs` passes",
     ]
 

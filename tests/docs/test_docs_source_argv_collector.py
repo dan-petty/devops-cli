@@ -288,10 +288,8 @@ def test_docs_check_reports_an_unresolved_source_argv(tmp_path: Path, command_tr
             return_value=[],
         ),
     ):
-        ok, errors = DocGenerator().check_docs(tmp_path, check_readme_table=False)
-        result = CliRunner().invoke(
-            docs_app, ["check", "--no-check-readme", "--output-dir", str(tmp_path)]
-        )
+        ok, errors = DocGenerator().check_docs(tmp_path)
+        result = CliRunner().invoke(docs_app, ["check", "--output-dir", str(tmp_path)])
 
     assert (ok, errors, result.exit_code, "fixture.py:43" in result.output) == (
         False,

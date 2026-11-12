@@ -286,7 +286,7 @@
    "creates_lines": {},
    "test": null,
    "implementation": "State in docs/roadmap/stage.md that an open finding keeps the plan in draft with plan/needs-fix and the findings first in the comment, and that the row stage_ready refuses that pull request. State in docs/ROADMAP_WORKFLOW.md that such a plan counts as a failed attempt of class plan_defect",
-   "documentation": "Update docs/roadmap/stage.md, and run uv run devops docs generate --sync-readme",
+   "documentation": "Update docs/roadmap/stage.md, and run uv run devops docs generate",
    "verify": "uv run devops ci docs",
    "process": null
   }

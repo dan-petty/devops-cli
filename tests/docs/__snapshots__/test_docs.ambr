@@ -4,43 +4,27 @@
     'cli_md': '''
       # DevOps CLI Reference
       
-      Complete command-line reference for `devops-cli`, automatically generated from CLI command specifications.
+      The command groups of `devops` and their commands. The page of each group in `commands/` holds the full text of each command: its usage, its arguments and its options.
       
       ## Command Groups
       
-      - [`devops dummy`](#devops-dummy) — Dummy summary
+      | Command Group | Summary |
+      |---|---|
+      | [`devops dummy`](commands/dummy.md) | Dummy summary |
       
-      ---
+      ## Command Matrix
       
-      ## devops dummy
-      
-      Dummy summary
-      
-      Dummy long description
-      
-      ### `devops dummy run`
-      
-      **Run dummy**
-      
-      Run dummy detail
-      
-      ```bash
-      devops dummy run [OPTIONS]
-      ```
-      
-      **Options:**
-      
-      | Option / Flag | Type | Default | Description |
-      |---|---|---|---|
-      | `--flag` | `boolean` | - | A flag |
-      
-      ---
+      | Command Group | Subcommand / Usage | Purpose & Features |
+      |---|---|---|
+      | [**dummy**](commands/dummy.md) | `devops dummy run [OPTIONS]` | Run dummy |
   
     ''',
     'group_md': '''
       # `devops dummy`
       
       Dummy summary
+      
+      Dummy long description
       
       ## Commands
       
@@ -86,11 +70,6 @@
       |---|---|---|---|---|
       | `arg` | `string` | Yes | - | - |
   
-    ''',
-    'readme_table': '''
-      | Command Group | Subcommand / Usage | Purpose & Features |
-      |---|---|---|
-      | [**dummy**](docs/commands/dummy.md) | `devops dummy run [OPTIONS]` | Run dummy |
     ''',
   })
 # ---

@@ -73,7 +73,7 @@ devops gh run list --branch main --limit 5
 
 1. **Never Merge Failing Code**: The pre-push hook runs the fast static checks, and a pull request merges only when the required checks of CI pass. Never use `--no-verify`.
 2. **Test Conventions**: What devops-cli's tests may double, where they go and what they assert is set in [`docs/TESTING.md`](../../../../../../docs/TESTING.md).
-3. **Synchronize Docs Automatically**: If `devops ci docs` detects differences, run `devops docs generate --sync-readme` to regenerate markdown reference files.
+3. **Synchronize Docs Automatically**: If `devops ci docs` detects differences, run `devops docs generate` to regenerate markdown reference files.
 4. **Fix Errors Systematically**: Resolve formatting and linting first, then static typing, then unit tests, and finally documentation.
 
 ---

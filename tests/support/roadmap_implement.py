@@ -483,7 +483,7 @@ def archive_effect(call: ProcessCall) -> subprocess.CompletedProcess[str]:
 
 
 def docs_effect(call: ProcessCall) -> subprocess.CompletedProcess[str]:
-    """What `uv run devops docs generate --sync-readme` does: it writes one generated file."""
+    """What `uv run devops docs generate` does: it writes one generated file."""
     assert call.cwd is not None
     (call.cwd / "docs" / "GENERATED.md").parent.mkdir(parents=True, exist_ok=True)
     (call.cwd / "docs" / "GENERATED.md").write_text("Generated.\n", encoding="utf-8")

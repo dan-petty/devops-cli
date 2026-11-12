@@ -2,6 +2,8 @@
 
 Enterprise HashiCorp Vault secret broker
 
+Enterprise HashiCorp Vault secret broker commands
+
 ## Commands
 
 ## `devops vault status`
