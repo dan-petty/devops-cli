@@ -15,6 +15,7 @@ reads.
 
 from __future__ import annotations
 
+import logging
 import re
 import shlex
 import string
@@ -95,6 +96,8 @@ from devops_cli.roadmap.tools import HOLDER_STAGE_EXTENDED, tool_names
 
 if TYPE_CHECKING:
     from devops_cli.roadmap.stage.stage_overlap import Overlap
+
+logger = logging.getLogger(__name__)
 
 # A plan is documentation, not a fix or a feature: only the types feat, fix, perf, refactor and
 # revert add a line to the changelog, so a pull request that only plans an item has this type.
@@ -1310,10 +1313,16 @@ def _cited_text(text: str) -> str:
     return _squash(text.replace("`", "").strip().removesuffix("."))
 
 
-def _line_at(content: str, number: int) -> str | None:
-    """The line `number` of `content`, counting from 1, or None when the file is shorter."""
-    lines = content.splitlines()
-    return lines[number - 1] if 1 <= number <= len(lines) else None
+def _anchored_line(content: str, number: int, cited: str) -> int | None:
+    """The line of `content`, counting from 1, that a citation of line `number` with the text
+    `cited` names: line `number` when it holds the text, else the one line that holds it, because a
+    line number copied from another commit points at a line that moved (#4479). None when no line
+    holds the text, or more than one other line holds it and no line is sure."""
+    lines = [_squash(line) for line in content.splitlines()]
+    if 1 <= number <= len(lines) and cited in lines[number - 1]:
+        return number
+    holding = [index for index, line in enumerate(lines, start=1) if cited in line]
+    return holding[0] if len(holding) == 1 else None
 
 
 def _defines(content: str, kind: str, symbol: str) -> bool:
@@ -1323,21 +1332,35 @@ def _defines(content: str, kind: str, symbol: str) -> bool:
     return any(pattern.search(_squash(line)) for line in content.splitlines())
 
 
-def _line_citation_problem(
-    field: str, path: str, line: str, text: str, content: str | None
-) -> str | None:
-    """The problem of one `path:line:text` citation, or None when the staged line holds the text."""
+@dataclass(frozen=True)
+class _Citation:
+    """The verdict on one citation of a plan: its problem, or None when the staged file holds it,
+    whether it cites a line, and whether the gate re-anchored it to the one other line that holds
+    its text (#4479)."""
+
+    problem: str | None
+    of_line: bool = False
+    re_anchored: bool = False
+
+
+def _line_citation(field: str, path: str, line: str, text: str, content: str | None) -> _Citation:
+    """The verdict on one `path:line:text` citation: the staged file holds it when the cited line
+    holds the text or, for a stale line number, when exactly one other line holds the text."""
+    stale = MESSAGES.roadmap.stage_problem_citation_stale.format(field=field, path=path)
     if content is None:
-        return MESSAGES.roadmap.stage_problem_citation_stale.format(field=field, path=path)
+        return _Citation(stale, of_line=True)
     cited = _cited_text(text)
     if len(cited) < _CITATION_MIN_CHARS:
-        return MESSAGES.roadmap.stage_problem_citation_short.format(
-            field=field, path=path, least=_CITATION_MIN_CHARS
+        return _Citation(
+            MESSAGES.roadmap.stage_problem_citation_short.format(
+                field=field, path=path, least=_CITATION_MIN_CHARS
+            ),
+            of_line=True,
         )
-    cited_line = _line_at(content, int(line))
-    if cited_line is not None and cited in _squash(cited_line):
-        return None
-    return MESSAGES.roadmap.stage_problem_citation_stale.format(field=field, path=path)
+    anchored = _anchored_line(content, int(line), cited)
+    if anchored is None:
+        return _Citation(stale, of_line=True)
+    return _Citation(None, of_line=True, re_anchored=anchored != int(line))
 
 
 def _symbol_citation_problem(
@@ -1366,24 +1389,27 @@ def _quoted_text(text: str, match: re.Match[str]) -> str:
     return following["quote"] if following else quoted
 
 
-def _citation_problems(field: str, text: str, read_text: Callable[[str], str | None]) -> list[str]:
-    """One problem for each citation of `text` that the staged file does not hold."""
-    problems: list[str] = []
-    for match in _LINE_CITATION.finditer(text):
-        path = match.group("path")
-        problem = _line_citation_problem(
-            field, path, match.group("line"), _quoted_text(text, match), read_text(path)
+def _citations(field: str, text: str, read_text: Callable[[str], str | None]) -> list[_Citation]:
+    """The verdict on each citation of `text`: the line citations, then the symbol citations."""
+    found = [
+        _line_citation(
+            field,
+            match["path"],
+            match["line"],
+            _quoted_text(text, match),
+            read_text(match["path"]),
         )
-        if problem is not None:
-            problems.append(problem)
-    for match in _SYMBOL_CITATION.finditer(text):
-        path = match.group("path")
-        problem = _symbol_citation_problem(
-            field, path, match.group("kind"), match.group("symbol"), read_text(path)
+        for match in _LINE_CITATION.finditer(text)
+    ]
+    found.extend(
+        _Citation(
+            _symbol_citation_problem(
+                field, match["path"], match["kind"], match["symbol"], read_text(match["path"])
+            )
         )
-        if problem is not None:
-            problems.append(problem)
-    return problems
+        for match in _SYMBOL_CITATION.finditer(text)
+    )
+    return found
 
 
 def _plan_citation_problems(
@@ -1391,15 +1417,22 @@ def _plan_citation_problems(
 ) -> list[str]:
     """One problem for each citation of the evidence fields that the staged file does not hold, a
     citation of the same field and path once. A check with no reader judges no citation: the
-    replay of the golden set holds no file text."""
+    replay of the golden set holds no file text. A check with a reader writes one log line with
+    the number of line citations that it re-anchored, so the job log shows the rate (#4479)."""
     if read_text is None:
         return []
+    citations = [
+        citation
+        for field, text in _evidence_texts(proposal)
+        for citation in _citations(field, text, read_text)
+    ]
+    logger.info(
+        "The citation gate re-anchored %d of %d line citations.",
+        sum(citation.re_anchored for citation in citations),
+        sum(citation.of_line for citation in citations),
+    )
     return list(
-        dict.fromkeys(
-            problem
-            for field, text in _evidence_texts(proposal)
-            for problem in _citation_problems(field, text, read_text)
-        )
+        dict.fromkeys(citation.problem for citation in citations if citation.problem is not None)
     )
 
 

@@ -40,7 +40,7 @@ def test_a_text_in_the_code_span_after_the_line_is_the_cited_text(text: str) -> 
 @pytest.mark.parametrize(
     "text",
     [
-        f"The probe shows {CITED}:4: `def g(): return 1` at the commit.",
+        f"The probe shows {CITED}:4: `def h(): return 2` at the commit.",
         f"The probe shows `{CITED}:4:` `de` at the commit.",
         f"The probe shows `{CITED}:4:` and then no quote, but `def f(): pass` later.",
         f"The probe shows {CITED}:4: at the commit.",

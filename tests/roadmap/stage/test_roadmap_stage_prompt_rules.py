@@ -507,7 +507,10 @@ def test_the_prompt_states_the_citation_forms_and_prefers_a_symbol() -> None:
     assert "`path:def name`" in _PROMPT
     assert "`path:class name`" in _PROMPT
     assert "Cite a symbol instead of a line number when a line is not needed" in _PROMPT
-    assert "refuses one whose line does not hold the text" in _PROMPT
+    assert (
+        "refuses one whose line does not hold the text unless exactly one other line holds it"
+        in _PROMPT
+    )
 
 
 # ── The preconditions of a called function (#3309) ───────────────────────────
