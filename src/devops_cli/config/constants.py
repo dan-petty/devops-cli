@@ -1480,11 +1480,11 @@ CONST_GH_LOGIN_ENV_VARS: Final[frozenset[str]] = frozenset(
 CONST_GITHUB_APP_PRIVATE_KEY_ENV: Final[str] = "DEVOPS_CLI_SERVICE_GITHUB_APP_PRIVATE_KEY"
 # How an App installation names its quota ledger: one ledger for every token of the installation.
 CONST_GITHUB_APP_LEDGER_KEY: Final[str] = "app-installation-{installation_id}"
+# The setting that limits an installation token to one repository (#2667).
+CONST_GITHUB_APP_TOKEN_REPOSITORY_SETTING: Final[str] = "service.github_app.token_repository"
 # The permissions that each installation token of the App asks for: those the roadmap jobs use
 # (ADR 0015). The token carries only these, whatever the installation grants. GitHub refuses a
 # token with HTTP 422 when the installation does not grant one of them (#2473).
-# The setting that limits an installation token to one repository (#2667).
-CONST_GITHUB_APP_TOKEN_REPOSITORY_SETTING: Final[str] = "service.github_app.token_repository"
 CONST_GITHUB_APP_TOKEN_PERMISSIONS: Final[dict[str, str]] = {
     "issues": "write",
     "pull_requests": "write",
@@ -1495,6 +1495,8 @@ CONST_GITHUB_APP_TOKEN_PERMISSIONS: Final[dict[str, str]] = {
     "workflows": "write",
     # The metrics row reads the deliveries of the hooks of each repository (#5017).
     "repository_hooks": "read",
+    # The metrics row reads the traffic endpoints of each repository (#4757).
+    "administration": "read",
 }
 # GitHub's commit email of an account, `<id>+<login>@users.noreply.github.com`, for a bot too.
 CONST_GITHUB_NOREPLY_EMAIL: Final[str] = "{account_id}+{login}@users.noreply.github.com"
