@@ -1125,6 +1125,24 @@ class TestK8sLLMGatewayManifests:
             resources.get("limits", {}).get("memory"),
         ) == ("4096", "8Gi", "12Gi")
 
+    def test_ollama_16gib_tier_limits_its_memory_to_its_request(self) -> None:
+        """Verify the ollama container of ollama-16gib limits its memory to its 8Gi request (#5115).
+
+        Its node has 16 GiB of RAM, of which about 13 GiB is allocatable, and the tier serves
+        nothing. A model load past the gateway then ends in an OOM kill of the container, not in a
+        node that has no free memory.
+        """
+        dep = _load_deployment(OLLAMA_PROFILES_MANIFEST, "ollama-16gib")
+        (container,) = (
+            c for c in dep["spec"]["template"]["spec"]["containers"] if c["name"] == "ollama"
+        )
+        resources = container.get("resources", {})
+
+        assert (
+            resources.get("requests", {}).get("memory"),
+            resources.get("limits", {}).get("memory"),
+        ) == ("8Gi", "8Gi")
+
     @pytest.mark.parametrize("service_name", ["ollama-16gib", "ollama-48gib"])
     def test_ollama_services_stay_behind_the_gateway(self, service_name: str) -> None:
         """Verify Ollama Services are cluster-internal; LAN clients use the authenticated gateway."""
