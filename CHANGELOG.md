@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.122.0](https://github.com/dan-petty/devops-cli/compare/v0.121.1...v0.122.0) (2026-11-12)
+
+
+### Features
+
+* **docs:** move the docs site to Zensical with a full nav and version ([#5183](https://github.com/dan-petty/devops-cli/issues/5183)) ([64b7199](https://github.com/dan-petty/devops-cli/commit/64b71991a4a6b898b1ddaaf37c2259959a8d4c86))
+* **infra:** show the hosts of an infra repo with node state ([#5188](https://github.com/dan-petty/devops-cli/issues/5188)) ([ed1d2e2](https://github.com/dan-petty/devops-cli/commit/ed1d2e2dfde04236d77c7c899731b23c77548c97))
+* **roadmap:** eval grades prints the grade of each workflow ([#5189](https://github.com/dan-petty/devops-cli/issues/5189)) ([aeb33d6](https://github.com/dan-petty/devops-cli/commit/aeb33d6ce048e5ace63fe9d799b03d4d49a0f292))
+
+
+### Bug Fixes
+
+* **infra:** read the default branch at origin, not the working tree ([#5181](https://github.com/dan-petty/devops-cli/issues/5181)) ([6ef4336](https://github.com/dan-petty/devops-cli/commit/6ef4336565ce6f3e1c96b142a4b5815e4dc7f1bb))
+
 ## [0.121.1](https://github.com/dan-petty/devops-cli/compare/v0.121.0...v0.121.1) (2026-11-12)
 
 
