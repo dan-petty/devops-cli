@@ -12,6 +12,8 @@ The merge of the pull request that adds this record is the approval of this reco
 
 The pull request of #4792 amends this record on 2026-11-12. It adds section 8 and six rows: `resolve`, `group` and `split` of tracker #4780, and `watch`, `fix-checks` and `fix-conflict` of tracker #5014. It adds the semaphore `steward`, and it corrects the facts about Argo Events. The merge of that pull request is the approval of the six rows and of the semaphore.
 
+The pull request of #5056 amends rule 5 of section 8 on 2026-11-12. Only the five new rows start in mode `plan`. The row `watch` starts in mode `on`, because it replaces the live rows `stage_ready` and `pr_conflicts`. Until a fix row is in mode `on`, `watch` also routes the verdict for that row as for a pull request of a person.
+
 The verdict of ADR 0008 is go. The owner recorded "warm p95 11 s - go" on [#1535](https://github.com/dan-petty/devops-cli/issues/1535#issuecomment-6787508710) on 2026-11-11, after the [measurement](https://github.com/dan-petty/devops-cli/issues/1535#issuecomment-6787453030) of the same day:
 
 | Measure | Value | Limit of ADR 0008 |
@@ -144,7 +146,7 @@ The issue stewards of tracker #4780 add the rows `resolve`, `group` and `split`.
 2. A model verdict only flags. It never closes an item, and it never marks a pull request ready.
 3. Valkey holds only due marks, ledgers and caches for these rows. The GitHub job record stays the source of truth (section 3).
 4. No row starts another row, and no coordinator exists. A row that makes work due sets a due mark, and the sweep creates the unit (section 2).
-5. Each row has the mode `off`, `plan` or `on` in `roadmap.<row>.mode`, with `_` in place of each `-` of the row name. Mode `plan` writes the plan to the log and nothing to GitHub. Mode `off` is the stop switch. Each row starts in mode `plan`.
+5. Each row has the mode `off`, `plan` or `on` in `roadmap.<row>.mode`, with `_` in place of each `-` of the row name. Mode `plan` writes the plan to the log and nothing to GitHub. Mode `off` is the stop switch. The new rows `resolve`, `group`, `split`, `fix-checks` and `fix-conflict` start in mode `plan`. The row `watch` starts in mode `on`, because it replaces the live rows `stage_ready` and `pr_conflicts`, and the work of those two rows must not stop.
 6. A row reads its marker before it writes (section 3, rule 5). GitHub state is the first marker: the head commit, the draft flag, the merge state and the open pull request of a head and a base.
 7. Each limit is shorter than the limit of the call around it, so the inner limit stops first.
 8. The CronWorkflows of `resolve`, `group` and `split` are not units, as for `brain-daily`. So the rule "Only the router and the sweep create units" stays. Before the engine step (#4566), a person or an agent runs the command of each of these rows.
@@ -190,6 +192,7 @@ The issue stewards of tracker #4780 add the rows `resolve`, `group` and `split`.
 - **Skips.** A pull request whose item has a live unit.
 - **Work.** One pure function gives a verdict for each pull request: PENDING, READY, FAILED with the class of the check, CONFLICT, BEHIND, MERGED or CLOSED. The function `due_steps` routes the verdict as the table below shows. The sweep uses the same function for its reconcile.
 - **Trigger.** A step of the sweep. Until the sweep step (#4574), a row of the status lane of the Service in the place of the rows `stage_ready` and `pr_conflicts`, which it replaces. A `pull_request` event makes it due sooner (#4413).
+- **Fix due marks.** `watch` sets the due mark of a fix row only when that row exists (#5027, #5028) and its mode is `plan` or `on`. Until the fix row is in mode `on`, a verdict of a bot pull request that goes to that row also gets the route of a pull request of a person. Thus a bot pull request with a conflict gets one comment for each head, as the row `pr_conflicts` did.
 - **Bounds.** 0 model calls. One GraphQL query for each repository and tick, and REST with ETags during a GraphQL hold. The limits are request 30 s < one pull request 60 s < row 240 s < tick 300 s.
 - **Marker.** `<!-- devops roadmap watch -->` on its one comment for each head. A ledger holds the pull request, its head, its verdict and the time of its next read. The ledger is a cache: GitHub holds the head, the draft flag and the merge state.
 - **Idempotency key.** The pull request and its head commit. The step `ready` reads the draft flag and the expected head before it marks a draft ready. A due mark has one name for each pull request, so a second set changes nothing.
