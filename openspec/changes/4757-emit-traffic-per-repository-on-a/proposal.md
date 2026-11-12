@@ -32,8 +32,9 @@ None.
 ## Impact
 
 - Code: `src/devops_cli/config/constants.py`, `src/devops_cli/github/metrics.py`, `src/devops_cli/docs/generator.py` (the text of `docs/TELEMETRY.md`)
-- Documents: `docs/adr/0015-roadmap-jobs-act-as-a-github-app-on-the-personal-account.md`, `docs/TELEMETRY.md`
-- Tests: `tests/github/test_github_app_identity.py`, `tests/github/test_github_metrics.py`, `tests/roadmap/test_roadmap_run_metrics.py`, `tests/docs/test_docs.py`
+- Documents: `docs/adr/0015-roadmap-jobs-act-as-a-github-app-on-the-personal-account.md`, `docs/TELEMETRY.md`, `k8s/README.md`
+- Manifests: `k8s/monitoring/dashboards/project-metrics.json` (the descriptions of the four traffic panels)
+- Tests: `tests/github/test_github_app_identity.py`, `tests/github/test_github_metrics.py`, `tests/roadmap/test_roadmap_run_metrics.py`, `tests/docs/test_docs.py`, `tests/prometheus/test_k8s_monitoring_dashboards.py`
 
 ## Feasibility
 
@@ -41,7 +42,7 @@ None.
 - The probe answers the cited code path: The path `src/devops_cli/config/constants.py` is a file of the staging commit.
 - The probe answers the cited code path: The path `src/devops_cli/github/app_installation.py` is a file of the staging commit.
 - The probe answers the cited ADR path: The path `docs/adr/0015-roadmap-jobs-act-as-a-github-app-on-the-personal-account.md` is a file of the staging commit.
-- The probe answers the bare dashboard name of the issue: The path `project-metrics.json` is no file at the root of the staging commit. These files of the commit are candidates: `k8s/monitoring/dashboards/project-metrics.json`. No commit in the history deleted or renamed it. The plan edits no dashboard.
+- The probe answers the bare dashboard name of the issue: The path `project-metrics.json` is no file at the root of the staging commit. These files of the commit are candidates: `k8s/monitoring/dashboards/project-metrics.json`. No commit in the history deleted or renamed it. The plan keeps the queries of the dashboard and changes only the descriptions of the four traffic panels.
 - The probe answers the setting name: The path `service.repos` is no file of the staging commit. No commit in the history deleted or renamed it. No tool of this run counts the repositories of that setting, so the count is unverified and the live check is a person's.
 - `read_file` of `src/devops_cli/github/metrics.py` confirmed the premise: `src/devops_cli/github/metrics.py:763:if acts_as_github_app() or repo in _refused_integration_repos:` returns before any traffic read, and `src/devops_cli/github/metrics.py:781:logger.debug(` writes the refusal that no operator sees.
 - `search_code` with `acts_as_github_app` returned one use in `src/devops_cli/github/metrics.py`: `src/devops_cli/github/metrics.py:35:from devops_cli.core.process import acts_as_github_app, run_subprocess`, so removing the guard also removes that name from the import. `src/devops_cli/core/process.py:290:def acts_as_github_app() -> bool:` stays for the other callers.
@@ -74,4 +75,4 @@ Grafana Infinity and prometheus-community/json_exporter read the traffic endpoin
 
 - Pull request #4990 and pull request #4978 change `src/devops_cli/config/constants.py` in other lines; this change adds one entry to `CONST_GITHUB_APP_TOKEN_PERMISSIONS`.
 - Pull request #4986 changes `openspec/specs/project-metrics-dashboard/spec.md` in another requirement.
-- The metric `devops_cli_project_traffic_views` is also held by `k8s/monitoring/dashboards/project-metrics.json`, `openspec/specs/project-metrics-dashboard/spec.md` and `src/devops_cli/telemetry/instruments.py`; the change reads them as they are, and it corrects the traffic paragraph of `docs/TELEMETRY.md`.
+- The metric `devops_cli_project_traffic_views` is also held by `k8s/monitoring/dashboards/project-metrics.json`, `openspec/specs/project-metrics-dashboard/spec.md` and `src/devops_cli/telemetry/instruments.py`; the change reads the spec and the instruments as they are, and it corrects the traffic paragraph of `docs/TELEMETRY.md` and the traffic panel descriptions of the dashboard.

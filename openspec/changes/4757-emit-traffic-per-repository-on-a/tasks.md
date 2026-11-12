@@ -26,6 +26,15 @@ Reads: `src/devops_cli/config/constants.py`. Changes: `docs/adr/0015-roadmap-job
 - [x] 3.2 Replace the paragraph of the generator that says the Service sends no traffic gauge, write `docs/TELEMETRY.md` again from it, and change `test_doc_generator_telemetry_docs` in `tests/docs/test_docs.py` to find the new paragraph once and the old sentence never
   - Verification: `$ uv run devops ci docs` passes
 
+## 4. Correct the App setup and the traffic panels
+
+Reads: `docs/TELEMETRY.md`. Changes: `k8s/README.md`, `k8s/monitoring/dashboards/project-metrics.json`, `tests/prometheus/test_k8s_monitoring_dashboards.py`.
+
+- [x] 4.1 Replace `test_each_traffic_panel_names_the_workstation_command_that_sends_its_numbers` with `test_each_traffic_panel_names_the_senders_of_its_numbers`. It expects that each traffic panel says that the roadmap Service and `devops gh metrics --emit-telemetry` send traffic numbers, and that a repository whose traffic GitHub refused has no traffic series. It fails on the base
+  - Verification: `$ uv run devops ci test tests/prometheus/test_k8s_monitoring_dashboards.py` fails on the base
+- [x] 4.2 Change the description of the panels 16, 17, 19 and 20 of `project-metrics.json` to that text, and add Administration read to the permissions of step 1 of the Roadmap service setup in `k8s/README.md`
+  - Verification: `$ uv run devops ci test tests/prometheus/test_k8s_monitoring_dashboards.py` passes
+
 ## Criteria
 
 - Group 1: A test: the token request of the metrics job holds `administration: read`.
