@@ -1152,6 +1152,79 @@ def test_the_git_seam_check_names_a_gitpython_import_and_a_direct_start(tmp_path
     ]
 
 
+# The modules that may write a Status label: the one writer, and the stores that it calls.
+_STATUS_WRITERS: Final[tuple[str, ...]] = ("roadmap/status_sync.py", "roadmap/stores/")
+_LABEL_WRITES: Final[frozenset[str]] = frozenset(
+    {"label_issue", "unlabel_issue", "add_label", "remove_label"}
+)
+
+
+def _writes_status(node: ast.Call) -> bool:
+    """Whether the call writes a Status label: a `set_field` that names `ItemField.STATUS`, or a
+    label write whose label is a `status/` literal."""
+    if not isinstance(node.func, ast.Attribute):
+        return False
+    arguments = [*node.args, *(keyword.value for keyword in node.keywords)]
+    if node.func.attr == "set_field":
+        return any(ast.unparse(argument) == "ItemField.STATUS" for argument in arguments)
+    return node.func.attr in _LABEL_WRITES and any(
+        isinstance(argument, ast.Constant)
+        and isinstance(argument.value, str)
+        and argument.value.startswith("status/")
+        for argument in arguments
+    )
+
+
+def _status_write_offenders(trees: Mapping[Path, ast.Module], src: Path) -> list[str]:
+    """Each `file:line` of `src` that writes a Status label outside the one Status writer."""
+    offenders: list[str] = []
+    for path, tree in sorted(trees.items()):
+        rel = path.relative_to(src).as_posix()
+        if rel.startswith(_STATUS_WRITERS):
+            continue
+        offenders += [
+            f"{rel}:{node.lineno} writes a Status label outside write_status"
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call) and _writes_status(node)
+        ]
+    return offenders
+
+
+def test_every_status_label_write_goes_through_the_status_writer(
+    parsed_source_trees: dict[Path, ast.Module],
+) -> None:
+    """Every job writes the Status label through `status_sync.write_status`, which writes only a
+    changed label and reads it back (#5018). No other module of `src/` adds or removes one."""
+    src = REPO_ROOT / "src" / "devops_cli"
+
+    assert _status_write_offenders(parsed_source_trees, src) == []
+
+
+def test_the_status_writer_check_names_each_direct_status_write(tmp_path: Path) -> None:
+    """The check reports a `set_field` of `ItemField.STATUS`, by position or keyword, and a label
+    write of a `status/` label, and not a write of another field, a request plan, or a write in
+    the writer or a store."""
+    sources = {
+        "a.py": "store.set_field(item, ItemField.STATUS, 'Ready')\n",
+        "b.py": "store.set_field(item, field=ItemField.STATUS, value='New', marks={})\n",
+        "c.py": "store.label_issue(1, 'status/blocked')\n",
+        "d.py": "store.unlabel_issue(1, 'status/ready')\n",
+        "e.py": "store.set_field(item, ItemField.OWNER, 'Agent')\n",
+        "f.py": "requests.set_field(subject, field_name='Status')\n",
+        "g.py": "store.label_issue(1, 'type/fix')\n",
+        "roadmap/status_sync.py": "store.set_field(item, ItemField.STATUS, status)\n",
+        "roadmap/stores/github_store.py": "store.set_field(item, ItemField.STATUS, status)\n",
+    }
+    trees = {tmp_path / name: ast.parse(text) for name, text in sources.items()}
+
+    assert _status_write_offenders(trees, tmp_path) == [
+        "a.py:1 writes a Status label outside write_status",
+        "b.py:1 writes a Status label outside write_status",
+        "c.py:1 writes a Status label outside write_status",
+        "d.py:1 writes a Status label outside write_status",
+    ]
+
+
 # mutmut reads a comment holding both as a `no mutate` pragma (`_parse_pragma_token`). They stay
 # here, not in src, where a line holding both would itself be one.
 _MUTMUT_PRAGMA_MARKERS = ("# pragma:", "no mutate")

@@ -64,8 +64,10 @@ is there, then set Priority. The comment gives only the facts that the labels do
 (#4836): a scope with no label, the reason of a Priority other than P2-Medium or of a P0 decision
 on evidence, and the possible original or the related item. With no such fact, intake posts
 none. Each field write replaces the labels of its family and records the value in the issue's
-job record (`RoadmapStore.set_field`). A label a person set stays, and the job record never
-claims it (ADR 0002); a person's change between the plan and the write stops that write.
+job record (`RoadmapStore.set_field`); the Status goes through the one Status writer
+(`status_sync.write_status`), which reads the label back. A label a person set stays, and the job
+record never claims it (ADR 0002); a person's change between the plan and the write stops that
+write.
 
 A run that stops part-way leaves an open issue with no Priority, a candidate, and the next run
 decides it again: it writes only the fields the issue holds no label for, and no second reason
@@ -122,7 +124,6 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_SCOPE_LABEL_PREFIX,
     CONST_ROADMAP_SIZE_OPTIONS,
     CONST_ROADMAP_SOURCE_AGENT_LABEL,
-    CONST_ROADMAP_STATUS_NEW,
     CONST_ROADMAP_TRUSTED_AUTHORS,
     CONST_ROADMAP_TYPE_LABEL_PREFIX,
 )
@@ -159,6 +160,7 @@ from devops_cli.roadmap.intake.intake_requests import Spend, planned_requests
 from devops_cli.roadmap.job_result import RoadmapJob, log_job_result
 from devops_cli.roadmap.nearest import embedding_text, nearest
 from devops_cli.roadmap.pull_form import SUMMARY_MAX_CHARS, summary_length
+from devops_cli.roadmap.status_sync import StatusFacts, derive_status, write_status
 from devops_cli.roadmap.stores.store import (
     ChangeKind,
     CloseReason,
@@ -1094,10 +1096,14 @@ def _has_comment(store: IntakeReads, subject: Subject, marker: str) -> bool:
     )
 
 
+# A filed item waits for refine: its Status is New.
+_FILED = StatusFacts(needs_refine=True)
+
+
 def _fields(subject: Subject, proposal: Proposal) -> tuple[tuple[ItemField, str], ...]:
     """Status, Value and Effort, those the issue holds no label for: a person's stay."""
     wanted = (
-        (ItemField.STATUS, CONST_ROADMAP_STATUS_NEW),
+        (ItemField.STATUS, derive_status(_FILED)),
         (ItemField.VALUE, proposal.value),
         (ItemField.EFFORT, proposal.effort),
     )
@@ -1383,7 +1389,10 @@ def _apply_placement(store: RoadmapStore, decision: IntakeDecision) -> int:
     for label in decision.labels:
         store.label_issue(number, label)
     for item_field, value in decision.fields:
-        store.set_field(item, item_field, value)
+        if item_field is ItemField.STATUS:
+            write_status(store, item, _FILED)
+        else:
+            store.set_field(item, item_field, value)
     if decision.comment:
         store.comment(number, decision.comment)
     marks = {IntakeRecordKey.JEV_SHADOW: decision.shadow} if decision.shadow else None

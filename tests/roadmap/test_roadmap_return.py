@@ -67,7 +67,7 @@ def test_an_issue_with_no_priority_is_no_item_to_return() -> None:
         plan_return(store, number, "Evidence.", REPO)
 
 
-def test_a_dry_run_lists_the_issue_reads_and_the_label_write() -> None:
+def test_a_dry_run_lists_the_issue_reads_the_label_write_and_its_read_back() -> None:
     reads, writes = dry_run_return(REPO, 42)
     assert [request.argv for request in reads] == [("gh", "api", f"repos/{REPO}/issues/42")]
     assert [request.argv for request in writes] == [
@@ -75,6 +75,7 @@ def test_a_dry_run_lists_the_issue_reads_and_the_label_write() -> None:
         ("gh", "api", "-X", "POST", f"repos/{REPO}/issues/42/comments", "-f", "body=<comment>"),
         ("gh", "api", f"repos/{REPO}/issues/42"),
         ("gh", "api", "-X", "PATCH", f"repos/{REPO}/issues/42", "--input", "-"),
+        ("gh", "api", f"repos/{REPO}/issues/42"),
     ]
     assert not any("project" in " ".join(request.argv) for request in [*reads, *writes])
 

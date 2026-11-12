@@ -224,13 +224,13 @@ from devops_cli.roadmap.refine.refine_investigation import (
     investigate,
 )
 from devops_cli.roadmap.service_stop import raise_if_service_stops
+from devops_cli.roadmap.status_sync import StatusFacts, write_status
 from devops_cli.roadmap.stores.store import (
     AlternativesRecordKey,
     ChangeKind,
     GitHubState,
     IssueComment,
     Item,
-    ItemField,
     JobRecord,
     JudgeVerdict,
     RefineRecordKey,
@@ -3277,14 +3277,10 @@ def _apply_refined(store: RoadmapStore, r: RefinedItem, *, repo: str) -> RefineA
     # Status change & marks: a Ready item refine finds not ready goes back to New (#1515)
     readied = 0
     if r.is_ready:
-        store.set_field(
-            r.item, ItemField.STATUS, CONST_ROADMAP_STATUS_READY, marks=marks, body=r.new_body
-        )
+        write_status(store, r.item, StatusFacts(), marks=marks, body=r.new_body)
         readied = 1
     elif r.item.status == CONST_ROADMAP_STATUS_READY:
-        store.set_field(
-            r.item, ItemField.STATUS, CONST_ROADMAP_STATUS_NEW, marks=marks, body=r.new_body
-        )
+        write_status(store, r.item, StatusFacts(needs_refine=True), marks=marks, body=r.new_body)
     else:
         store.set_marks(r.item, marks, body=r.new_body)
 

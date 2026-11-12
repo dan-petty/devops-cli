@@ -10,14 +10,17 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from devops_cli.config.constants import CONST_ROADMAP_STATUS_NEW
 from devops_cli.dry_run.requests import PlannedRequest
 from devops_cli.exceptions import DevOpsCLIError
 from devops_cli.roadmap.request_plan import StoreRequests
-from devops_cli.roadmap.stores.store import ItemField
+from devops_cli.roadmap.status_sync import StatusFacts, derive_status, write_status
 
 if TYPE_CHECKING:
     from devops_cli.roadmap.stores.store import RoadmapStore
+
+
+# A returned item waits for refine.
+_RETURNED = StatusFacts(needs_refine=True)
 
 
 @dataclass(frozen=True)
@@ -28,7 +31,11 @@ class ReturnPlan:
     title: str
     comment: str
     repo: str
-    target_status: str = CONST_ROADMAP_STATUS_NEW
+
+    @property
+    def target_status(self) -> str:
+        """The Status that a return writes: New, as `derive_status` gives it."""
+        return derive_status(_RETURNED)
 
 
 def plan_return(
@@ -53,12 +60,12 @@ def plan_return(
 
 
 def apply_return(store: RoadmapStore, plan: ReturnPlan) -> None:
-    """Comment on the issue and set its Status to New."""
+    """Comment on the issue, then set its Status to New through the one Status writer."""
     item = store.item(plan.item_number)
     if item is None:
         raise DevOpsCLIError(f"#{plan.item_number} is not an item of the roadmap.")
     store.comment(plan.item_number, plan.comment)
-    store.set_field(item, ItemField.STATUS, plan.target_status)
+    write_status(store, item, _RETURNED)
 
 
 def dry_run_return(
@@ -73,7 +80,7 @@ def dry_run_return(
         *store_req.issue(subject),
         # The comment is the person's text, with no job marker, so no read of the comments.
         *store_req.comment(subject, job=False),
-        *store_req.set_field(subject, field_name=ItemField.STATUS.value),
+        *store_req.write_status(subject),
     ]
     return reads, writes
 

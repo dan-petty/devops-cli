@@ -2,7 +2,8 @@
 is ready for review (#2717).
 
 `devops pr create` sets In Progress and `devops pr ready` sets In Review on the open issue of
-this repository that the pull request closes, when that issue is an Item. A Status moves forward
+this repository that the pull request closes, when that issue is an Item. Both write through the one
+Status writer (`status_sync.write_status`), which reads the label back. A Status moves forward
 only: In Review never goes back to In Progress. A Blocked item stays Blocked when a person set
 that label, because only a person takes it out. A Blocked item that a stop of the implement job
 recorded (`Item.holds_service_stop`) takes the new Status, because the pull request is the fix of the
@@ -24,8 +25,8 @@ from devops_cli.config.constants import (
 from devops_cli.exceptions.git import GitHubOperationError
 from devops_cli.github.merge_readiness import read_closing_issues
 from devops_cli.lang import MESSAGES
+from devops_cli.roadmap.status_sync import StatusFacts, write_status
 from devops_cli.roadmap.stores import store as roadmap_store
-from devops_cli.roadmap.stores.store import ItemField
 
 # The Statuses that each target replaces; no Status at all is replaced too.
 _REPLACES: Final[dict[str, frozenset[str | None]]] = {
@@ -48,6 +49,12 @@ _REPLACES: Final[dict[str, frozenset[str | None]]] = {
     ),
 }
 
+# The facts that each target stands for: the pull request is open, or ready for review.
+_FACTS: Final[dict[str, StatusFacts]] = {
+    CONST_ROADMAP_STATUS_IN_PROGRESS: StatusFacts(pull_open=True),
+    CONST_ROADMAP_STATUS_IN_REVIEW: StatusFacts(pull_ready=True),
+}
+
 
 def set_delivered_status(repo: str, pull: int, status: str) -> int | None:
     """Set `status` on the item that pull request `pull` of `repo` (`owner/name`) closes, and
@@ -61,6 +68,6 @@ def set_delivered_status(repo: str, pull: int, status: str) -> int | None:
     for issue in closing.issues:
         item = store.item(issue.number) if issue.is_of(repo) and issue.state == "OPEN" else None
         if item is not None and (item.status in _REPLACES[status] or item.holds_service_stop()):
-            store.set_field(item, ItemField.STATUS, status)
+            write_status(store, item, _FACTS[status])
             return item.number
     return None

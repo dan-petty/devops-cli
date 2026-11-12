@@ -3963,6 +3963,12 @@ class RoadmapMessages:
         "the release_comments row could not check the images of {count} release(s): {releases}"
     )
     status_sync_failed: str = "the Status of {count} item(s) could not be set: {items}"
+    status_write_lost: str = (
+        "#{number}: the job wrote the Status {status}, but a read of the issue after the write "
+        "shows {found}. Another writer changed the issue in between. The next round derives the "
+        "Status again."
+    )
+    status_write_lost_none: str = "no Status label"
     stage_plain_note: str = (
         "Stage without a mode flag runs as --plan: it reads GitHub and calls the model, and "
         "writes nothing. --dry-run makes no request."
@@ -4801,6 +4807,10 @@ class RoadmapMessages:
             "model_run": "the model's run on {subject}",
             "record": "the job record of {subject}, in its body",
             "set_field": "set {field} on {subject}: its labels and its job record, in one write",
+            "status_read_back": (
+                "{subject} again after its Status write: a label that another writer changed in "
+                "between fails the write"
+            ),
             "body": "the body of {subject}, its job record kept",
             "comment": "comment on {subject}",
             "label": "label {subject}",
@@ -5409,6 +5419,10 @@ class RoadmapMessages:
             "field": (
                 "set {field} on {subject}: read the issue, then write its labels and its job "
                 "record in one request"
+            ),
+            "status_read_back": (
+                "read {subject} again after its Status write: a label that another writer "
+                "changed in between fails the write"
             ),
             "comment": "the reason comment on {subject}",
             "priority": (

@@ -341,6 +341,23 @@ def test_items_are_the_issues_with_a_priority_label_and_candidates_the_open_issu
     ) == ([placed, done], [(candidate, ("type/bug", "status/new"))], None, None, None)
 
 
+def test_one_issue_is_read_with_its_labels_whether_or_not_it_is_an_item(world: World) -> None:
+    """The Status writer reads the label back from the issue, also on a candidate that holds no
+    Priority yet (#5018). A pull request and a missing number are no issue."""
+    candidate = world.seed("intake me", labels=("type/bug", "status/new"))
+    placed = world.seed("placed", labels=("priority/p2-medium", "status/ready"))
+    pull = world.seed("a pull request", labels=("priority/p1-high",), pull_request=True)
+
+    read = [world.store.issue(number) for number in (candidate, placed, pull, 99)]
+
+    assert [(issue.number, issue.labels) if issue else None for issue in read] == [
+        (candidate, ("type/bug", "status/new")),
+        (placed, ("priority/p2-medium", "status/ready")),
+        None,
+        None,
+    ]
+
+
 def test_the_newest_issue_is_the_highest_number_that_is_no_pull_request(world: World) -> None:
     """The newest issue is the issue with the highest number, open or closed, Item or not, and a
     newer pull request does not count (#4540). A repository with no issue has none."""

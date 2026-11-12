@@ -964,6 +964,11 @@ class RoadmapStore(Protocol):
         """The Item numbered `number`, or None when that issue is no Item: it holds no
         Priority, is a pull request or does not exist."""
 
+    def issue(self, number: int) -> IssueRecord | None:
+        """The issue numbered `number`, Item or not, from one read, or None when it is a pull
+        request or does not exist. The Status writer reads its label back through it, also on a
+        candidate that holds no Priority yet (#5018)."""
+
     def items(self, *, milestone: int | None = None) -> list[Item]:
         """Every Item, open and closed, or only those in the milestone numbered `milestone`."""
 

@@ -759,8 +759,14 @@ class GitHubRoadmapStore(RoadmapStore):
     def item(self, number: int) -> Item | None:
         """The Item numbered `number`, from one read of its issue, or None when the issue holds
         no Priority, is a pull request or does not exist."""
+        found = self.issue(number)
+        return None if found is None else next(iter(select_items([found])), None)
+
+    def issue(self, number: int) -> IssueRecord | None:
+        """The issue numbered `number`, Item or not, from one read, or None when it is a pull
+        request or does not exist."""
         found = self._read_or_none(issue_args(self._repo, number), _ISSUE, f"issue #{number}")
-        return None if found is None else next(iter(select_items([found.record()])), None)
+        return None if found is None or found.pull_request is not None else found.record()
 
     def items(self, *, milestone: int | None = None) -> list[Item]:
         """Every Item, open and closed, or only those in the milestone numbered `milestone`."""

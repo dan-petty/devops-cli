@@ -39,7 +39,6 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_REFINE_COMMENT_MARKER,
     CONST_ROADMAP_STAGE_COMMENT_MARKER,
     CONST_ROADMAP_STATUS_NEW,
-    CONST_ROADMAP_STATUS_READY,
 )
 from devops_cli.dry_run.requests import PlannedRequest
 from devops_cli.exceptions import GitHubRateLimitError
@@ -49,7 +48,7 @@ from devops_cli.roadmap.claim import claimed_by
 from devops_cli.roadmap.pull_form import is_placeholder
 from devops_cli.roadmap.refine.refine import NextStep, replies_after_marker
 from devops_cli.roadmap.stage.stage import StageFailure, write_each
-from devops_cli.roadmap.status_sync import job_holds
+from devops_cli.roadmap.status_sync import StatusFacts, job_holds, write_status
 from devops_cli.roadmap.step_files import section_text
 from devops_cli.roadmap.stores.store import (
     GitHubState,
@@ -205,7 +204,7 @@ def _repair_one(store: RoadmapStore, stalled: Stalled, reset: list[int]) -> None
     if current is None or _stall_of(store, current) is not stalled.kind:
         return
     if stalled.kind is StallKind.FILLER_RETURN:
-        store.set_field(current, ItemField.STATUS, CONST_ROADMAP_STATUS_READY)
+        write_status(store, current, StatusFacts())
     else:
         outside, _ = extract_section_and_outside(current.body)
         store.write_issue_body(current.number, outside.rstrip())

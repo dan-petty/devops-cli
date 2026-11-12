@@ -37,6 +37,7 @@ from devops_cli.roadmap.intake.intake_model import (
     ProposalRequest,
 )
 from devops_cli.roadmap.request_plan import StoreRequests, within
+from devops_cli.roadmap.stores.store import ItemField
 
 
 class _Via(StrEnum):
@@ -164,8 +165,9 @@ class _Steps:
         steps: list[tuple[str, list[PlannedRequest], dict[str, str]]] = [
             ("label", store.label_issue(subject), {}),
             *(
-                ("field", store.set_field(subject, name), {"field": shown})
+                step
                 for name, shown in zip(names, texts.intake_placeholder_fields, strict=True)
+                for step in _field_steps(store, subject, name, shown)
             ),
             ("comment", store.comment(subject), {}),
             ("priority", store.set_field(subject, "Priority"), {}),
@@ -177,6 +179,17 @@ class _Steps:
                 key, requests, when=when, repeat=repeat, subject=subject, **values
             )
         ]
+
+
+def _field_steps(
+    store: StoreRequests, subject: str, name: str, shown: str
+) -> list[tuple[str, list[PlannedRequest], dict[str, str]]]:
+    """The steps that write the field `name`: the write, and after a Status write the read of the
+    issue that checks the label, as the one Status writer makes it (#5018)."""
+    steps = [("field", store.set_field(subject, name), {"field": shown})]
+    if name == ItemField.STATUS.value:
+        steps.append(("status_read_back", store.status_read_back(subject), {}))
+    return steps
 
 
 def planned_requests(

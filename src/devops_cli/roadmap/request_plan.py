@@ -265,6 +265,16 @@ class StoreRequests:
         edit = self._edit(subject, "set_field", stdin, field=field_name or _p("field"))
         return [*self.issue_now(subject), edit]
 
+    def write_status(self, subject: str) -> Requests:
+        """The Status write of `status_sync.write_status`: the field write, then the read of the
+        issue that checks the label (#5018)."""
+        return [*self.set_field(subject, "Status"), *self.status_read_back(subject)]
+
+    def status_read_back(self, subject: str) -> Requests:
+        """The read of an issue after its Status write, which checks the label (#5018)."""
+        args = gh.issue_args(self.repo, _number(subject))
+        return [self.gh(args, "status_read_back", subject=subject)]
+
     def comment(self, subject: str, *, job: bool = True) -> Requests:
         """The comment. A comment that can be a roadmap job's (`job`) first reads the comments
         of the issue, and a repeat of a recent comment of the job does not post (#4793)."""
@@ -415,7 +425,7 @@ def refine_requests(
         ]
         writes = [
             *deferred_writes,
-            *store.set_field(target_item, field_name="Status"),
+            *store.write_status(target_item),
             *comment_writes,
         ]
     else:
@@ -446,7 +456,7 @@ def refine_requests(
             *within(
                 [
                     *deferred_writes,
-                    *store.set_field(target_item, field_name="Status"),
+                    *store.write_status(target_item),
                     *comment_writes,
                 ],
                 repeat=each_candidate,
@@ -810,7 +820,7 @@ def stage_requests(
             repeat=each_rejected,
         ),
         *within(store.comment(_p("item")), repeat=each_rejected),
-        *within(store.set_field(_p("item"), "Status"), repeat=each_rejected),
+        *within(store.write_status(_p("item")), repeat=each_rejected),
         git(
             "worktree",
             clone,
@@ -1026,7 +1036,7 @@ def implement_requests(
             "origin/main",
             when=cond["planned"],
         ),
-        *within(store.set_field(target, "Status"), repeat=each_item),
+        *within(store.write_status(target), repeat=each_item),
         *within(store.set_marks(target), cond["clear_stop"], repeat=each_item),
         git("rebase", tree, "rebase", "origin/main"),
         other("model", "model_step", "model", repeat=each_group),
@@ -1034,7 +1044,7 @@ def implement_requests(
         git("commit", tree, "commit", "-m", _p("title"), repeat=each_group),
         git("amend", tree, "commit", "-m", _p("title"), when=cond["amend"], repeat=each_group),
         *within(store.comment(target), cond["return"], repeat=each_item),
-        *within(store.set_field(target, "Status"), cond["return"], repeat=each_item),
+        *within(store.write_status(target), cond["return"], repeat=each_item),
         other("process", "docs", "uv", "run", "devops", "docs", "generate", "--sync-readme"),
         git("commit", tree, "commit", "-m", _p("title"), when=cond["docs_commit"]),
         other("process", "archive", "uv", "run", "devops", "openspec", "archive", _p("change")),
@@ -1064,7 +1074,7 @@ def implement_requests(
         other("process", "run_log", "gh", "run", "view", "--log-failed", when=cond["run_log"]),
         other("model", "model_fix", "model", when=cond["model_fix"]),
         other("process", "ready", "gh", "pr", "ready", _p("pull"), when=cond["ready"]),
-        *within(store.set_field(target, "Status"), repeat=each_item),
+        *within(store.write_status(target), repeat=each_item),
         *within(store.comment(target), repeat=each_item),
         git("remove_worktree", clone, "worktree", "remove", "--force", tree),
     ]
@@ -1190,7 +1200,7 @@ def repair_requests(
     ]
     writes = within(
         [
-            *store.set_field(target, field_name="Status"),
+            *store.write_status(target),
             *store.write_issue_body(target),
             *store.set_marks(target),
         ],

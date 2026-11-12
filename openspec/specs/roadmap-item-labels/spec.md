@@ -156,7 +156,7 @@ The Status family SHALL hold `status/new`, `status/ready`, `status/planned`, `st
 - **THEN** its Item has the Status `Planned`
 
 ### Requirement: The Service sets the Status from the job record
-One function SHALL derive the Status of an item: In Progress while a Job holds it, else Blocked while the record holds `implement.stopped`, else Planned when its plan is on the default branch, else Ready. The rows `implement`, `stage` and `stage_ready` SHALL write it by family replace, only for an open item that holds Ready or Planned. The runner Job and `devops pr ready` SHALL set In Review. The stop path SHALL set Blocked, and only a clear rule of the row `implement` SHALL end it.
+One function SHALL derive the Status of an item, in this order: New while it waits for refine, In Review while its pull request is ready, In Progress while a Job holds it or its pull request is open, Blocked while the record holds `implement.stopped`, Planned when its plan is on the default branch, else Ready. The sweep of the rows `implement`, `stage` and `stage_ready` SHALL write it only for an open item that holds Ready or Planned. Only a clear rule of the row `implement` SHALL end Blocked.
 
 #### Scenario: A round from staging to a closed issue
 - **WHEN** an item is staged, its plan is merged, a Job is made for it, the Job marks its pull request ready, and the issue closes
@@ -177,6 +177,10 @@ One function SHALL derive the Status of an item: In Progress while a Job holds i
 #### Scenario: An item in another Status
 - **WHEN** an item is New, In Progress, In Review or Blocked
 - **THEN** no sweep changes its label
+
+#### Scenario: The order of the facts
+- **WHEN** the facts say that the item waits for refine and that its pull request is ready for review, or that its pull request is ready for review and a Job holds it, or that its pull request is open and a stop is on record
+- **THEN** the derived Status is New, In Review and In Progress, in that order
 
 ### Requirement: The Service never reverts a person's Status
 The Service SHALL write the Status of an item only when its label equals the Status that a job last recorded for it. A label that a person set, or added next to the recorded one, SHALL stay. The sweep SHALL read the issue again before it writes, and SHALL skip an item that a person or another lane changed, or that closed, since the cached read. A write after a change in the last milliseconds SHALL raise `RoadmapItemChangedError` and change nothing.
@@ -207,3 +211,32 @@ The package SHALL declare each label that the roadmap code reads or writes, with
 #### Scenario: A file label that names a workflow label
 - **WHEN** a labels file holds `scope/cli` and `status/new` with the color `FFFFFF`
 - **THEN** the reader gives the workflow labels, then `scope/cli`, and `status/new` keeps the color of the package
+
+### Requirement: Every job writes the Status through one writer
+Every job and command that sets the Status of an item SHALL write it through `write_status` of `src/devops_cli/roadmap/status_sync.py`. The writer SHALL derive the Status from the facts of its caller, SHALL write the label only when it differs, and SHALL read the issue again after the write. When the label is equal, it SHALL write only the marks and the body of its caller. A dry run SHALL send no request and SHALL return the would-be write.
+
+#### Scenario: An equal label
+- **WHEN** the writer gets facts whose Status is the label of the item
+- **THEN** it sends no label write and no read
+
+#### Scenario: A changed label
+- **WHEN** the facts give another Status than the label of the item
+- **THEN** the writer sends one label write and one read of the issue, and the label is the derived Status
+
+#### Scenario: A dry run
+- **WHEN** the writer runs as a dry run
+- **THEN** it sends no request, and it returns the label of the item and the derived Status
+
+### Requirement: A lost Status write fails
+A label that is not the written Status when the writer reads the issue after its write SHALL raise `RoadmapStatusLostError` with the error code `ROADMAP_STATUS_LOST`. The dry-run plan of a job SHALL list that read after each Status write.
+
+#### Scenario: A lost write
+- **WHEN** another writer puts the old label back between the write and the read
+- **THEN** the writer raises `RoadmapStatusLostError`, and its message names the item, the written Status and the label that the read found
+
+### Requirement: No other module writes a Status label
+No module of `src/devops_cli` other than `roadmap/status_sync.py` and the stores SHALL add or remove a Status label. A structural test SHALL hold this.
+
+#### Scenario: A direct write
+- **WHEN** another module calls `set_field` with `ItemField.STATUS`, or adds or removes a `status/` label
+- **THEN** the structural test fails and names the file and the line

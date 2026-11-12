@@ -58,6 +58,7 @@ from devops_cli.exceptions.roadmap import (
     RoadmapRunError,
     RoadmapStageDegenerateError,
     RoadmapStageError,
+    RoadmapStatusLostError,
     ServiceStoppingError,
     ended_by_stop,
 )
@@ -157,6 +158,7 @@ __all__ = [
     "RoadmapRunError",
     "RoadmapStageDegenerateError",
     "RoadmapStageError",
+    "RoadmapStatusLostError",
     "SSRFBlockedError",
     "SandboxError",
     "SandboxNotFoundError",

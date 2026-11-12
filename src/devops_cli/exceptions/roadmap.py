@@ -123,6 +123,29 @@ class RoadmapItemChangedError(GitHubOperationError):
         )
 
 
+class RoadmapStatusLostError(GitHubOperationError):
+    """Raised after a Status write when the issue, read again, holds another Status (#5018).
+
+    Another writer changed the issue between the write and the read, so the Status that the job
+    wrote is lost. The next round of the job derives the Status again from the issue as it is.
+    """
+
+    error_code = "ROADMAP_STATUS_LOST"
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        operation: str = "roadmap.item.write_status",
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(
+            message,
+            operation=operation,
+            details=details,
+        )
+
+
 class RoadmapClaimError(DevOpsCLIError):
     """Raised when a claim of a roadmap Item is refused, because another owner holds it or
     because the issue is no Item (#2910).
