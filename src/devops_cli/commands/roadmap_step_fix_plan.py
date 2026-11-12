@@ -35,6 +35,9 @@ def fix_plan_cmd(
     item: Annotated[
         int | None, typer.Option("--item", min=1, help=HELP.roadmap.step_fix_plan_item)
     ] = None,
+    pull: Annotated[
+        int | None, typer.Option("--pull", min=1, help=HELP.roadmap.step_fix_plan_pull)
+    ] = None,
     dry_run: Annotated[
         bool, typer.Option("--dry-run", help=HELP.roadmap.step_fix_plan_dry_run)
     ] = False,
@@ -46,12 +49,15 @@ def fix_plan_cmd(
     if dry_run and confirm:
         print_error(MESSAGES.roadmap.plan_modes_exclusive.format(modes="--dry-run and --confirm"))
         raise typer.Exit(1)
+    if item is not None and pull is not None:
+        print_error(MESSAGES.roadmap.plan_modes_exclusive.format(modes="--item and --pull"))
+        raise typer.Exit(1)
     from devops_cli.roadmap.request_plan import render_dry_run
     from devops_cli.roadmap.steps.fix_plan import dry_run_fix_plan, render_fix_plan, run_fix_plan
 
     target = _repository(repo)
     if dry_run or is_dry_run():
-        planned = dry_run_fix_plan(target, item=item)
+        planned = dry_run_fix_plan(target, item=item or pull)
         render_dry_run("fix-plan", target, planned.requests, planned.write_requests)
         return
     if not confirm:
@@ -68,6 +74,7 @@ def fix_plan_cmd(
             source=source or model_clone(target),
             confirm=confirm,
             item=item,
+            pull=pull,
             model=ToolboxModel(get_task_model("stage")) if confirm else None,
             verifier=ToolboxModel(get_task_model("verification")) if confirm else None,
         )

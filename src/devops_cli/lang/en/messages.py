@@ -3825,6 +3825,7 @@ class RoadmapMessages:
         "plan pull request."
     )
     fix_plan_left_runner: str = "A runner Job works on it."
+    fix_plan_left_no_item: str = "No open item records pull request #{pull} in stage.pr."
     fix_plan_left_recent: str = (
         "Its last fix-plan attempt was at {at}, less than {hours} hours ago."
     )
@@ -3879,6 +3880,7 @@ class RoadmapMessages:
     fix_plan_requests: dict[str, str] = field(
         default_factory=lambda: {
             "pull_state": "the state, the labels and the head of the plan pull request of the item",
+            "comments": "the comments of the item, to read the open findings of the last plan comment",
             "fetch": "fetch the default branch and the branch of the plan",
             "tip": "the head of the branch of the plan on origin",
             "identity": "the identity of the clone, to find a commit of another author",

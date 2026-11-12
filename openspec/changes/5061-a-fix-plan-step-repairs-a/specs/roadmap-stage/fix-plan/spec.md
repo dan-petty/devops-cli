@@ -22,12 +22,23 @@ The step `fix-plan` SHALL select, for one call, at most one item of the reposito
 - **WHEN** the branch of the selected pull request holds a commit by an author other than the clone identity
 - **THEN** the step makes no model call and writes nothing
 
-### Requirement: The step repairs the plan with the stage planner and the verification pass
-The step SHALL read the plan of the head of the pull request with `read_change` and give it to the stage planner at the latest default branch. The verification pass SHALL review that plan. When the review has an open finding, the planner SHALL get the plan as `previous` and each open finding as `problem`, and the revision SHALL pass the gates and the verification repair rounds of the stage job.
+### Requirement: The step repairs the plan with the stage planner
+The step SHALL read the plan of the head of the pull request with `read_change` and give it to the stage planner at the latest default branch. The planner SHALL get the plan as `previous` and each open finding as `problem`, and the revision SHALL pass the gates and the verification repair rounds of the stage job.
 
-#### Scenario: The planner gets the plan and the open findings
-- **WHEN** the review of the head plan has an open finding
-- **THEN** the next planner request holds the head plan as `previous` and the finding in `problem`
+#### Scenario: The open findings of the stage comment
+- **WHEN** the stage comment of the item lists an open finding for the pull request
+- **THEN** the first planner request holds the head plan as `previous` and that finding in `problem`, and the verification pass reviews only the revision
+
+### Requirement: The open findings come from the last plan comment
+The open findings SHALL come from the last comment of the stage job or of the step on the item that names the pull request and that a trusted author made. When no such comment lists an open finding, the verification pass SHALL review the plan of the head and give them.
+
+#### Scenario: No comment lists an open finding
+- **WHEN** no trusted comment of the item lists an open finding for the pull request, and the review of the head plan has one
+- **THEN** the next planner request holds the head plan as `previous` and the finding of the review in `problem`
+
+#### Scenario: A comment of an untrusted author
+- **WHEN** the only comment that lists an open finding has an author with no write access
+- **THEN** the step does not read it and reviews the plan of the head
 
 ### Requirement: The step pushes a revision with fewer open findings
 When the last review of the revision has fewer open findings than the review of the head plan, the step SHALL write the change folder as one commit on the latest default branch, push it to the branch of the pull request with `--force-with-lease` on the head that it read, and set the title and the body of the pull request to those of the revision.

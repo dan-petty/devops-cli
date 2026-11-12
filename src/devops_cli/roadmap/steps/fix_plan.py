@@ -39,6 +39,7 @@ label, and writes only its own record keys (`FixPlanRecordKey`, ADR 0021 section
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
@@ -50,6 +51,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_FIX_PLAN_HEAD_ATTEMPTS,
     CONST_ROADMAP_FIX_PLAN_REVISIONS,
     CONST_ROADMAP_FIX_PLAN_WAIT_HOURS,
+    CONST_ROADMAP_STAGE_COMMENT_MARKER,
     CONST_ROADMAP_STATUS_READY,
 )
 from devops_cli.git.branch_form import parse_branch
@@ -79,13 +81,19 @@ from devops_cli.roadmap.stage.stage import (
     revise_plan,
 )
 from devops_cli.roadmap.stage.stage_change import write_change_files
-from devops_cli.roadmap.stage.stage_verify import PLAN_NEEDS_FIX_LABEL, open_findings_section
+from devops_cli.roadmap.stage.stage_eval_cases import DefectType
+from devops_cli.roadmap.stage.stage_verify import (
+    PLAN_NEEDS_FIX_LABEL,
+    Finding,
+    open_findings_section,
+)
 from devops_cli.roadmap.stores.store import (
     FixPlanRecordKey,
     GitHubState,
     ImplementRecordKey,
     StageRecordKey,
 )
+from devops_cli.roadmap.trust import trusted_replies
 from devops_cli.telemetry.instruments import ROADMAP_FIX_PLAN_TOTAL, emit
 
 if TYPE_CHECKING:
@@ -102,6 +110,16 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _GIT_OPERATION: Final[str] = "roadmap.fix_plan"
+# One line of `finding_line`: "- `<type>` at <where>: <problem>", and ' Evidence: "<quote>"' after it
+# when the finding has a quote.
+_FINDING_LINE: Final[re.Pattern[str]] = re.compile(
+    r'- `(?P<type>[a-z_]+)` at (?P<where>.+?): (?P<problem>.+?)(?: Evidence: "(?P<quote>.*)")?'
+)
+# The comments that list the open findings of a plan: the stage comment and this step's comment.
+_PLAN_MARKERS: Final[tuple[str, ...]] = (
+    CONST_ROADMAP_STAGE_COMMENT_MARKER,
+    CONST_ROADMAP_FIX_PLAN_COMMENT_MARKER,
+)
 # The characters of a commit that a comment or a reason shows.
 _SHORT: Final[int] = 12
 
@@ -176,6 +194,58 @@ def _time(text: str | None) -> datetime | None:
     return found.replace(tzinfo=UTC) if found is not None and found.tzinfo is None else found
 
 
+def _finding_of(line: str) -> Finding | None:
+    """The finding that one line of `finding_line` holds, or None for a line of another form or a
+    type that the review does not name."""
+    found = _FINDING_LINE.fullmatch(line)
+    if found is None:
+        return None
+    try:
+        return Finding(
+            type=DefectType(found["type"]),
+            where=found["where"],
+            problem=found["problem"],
+            quote=found["quote"] or "",
+        )
+    except ValueError:
+        return None
+
+
+def comment_open_findings(body: str) -> tuple[Finding, ...]:
+    """The open findings that the comment `body` lists first, in the section that
+    `open_findings_section` writes (#3264): the stage comment, or the comment of an attempt of
+    this step that kept the label. A comment with no such section gives none. A line of the section
+    that does not read as a finding is left out and logged, with no text of the comment."""
+    heading = MESSAGES.roadmap.stage_comment_open_findings.split("{findings}")[0].strip()
+    _, found, rest = body.partition(heading)
+    if not found:
+        return ()
+    lines = []
+    for line in rest.lstrip("\n").splitlines():
+        if not line.startswith("- "):
+            break
+        lines.append(line)
+    findings = tuple(f for f in map(_finding_of, lines) if f is not None)
+    if len(findings) < len(lines):
+        logger.warning(
+            "fix-plan read %d of the %d lines of the open findings of a comment",
+            len(findings),
+            len(lines),
+        )
+    return findings
+
+
+def plan_comment(store: RoadmapStore, number: int, pull: int) -> str:
+    """The newest comment on issue `number` of the stage job or of this step that names plan pull
+    request `pull`, or an empty text when none does. Only a comment of a trusted author counts
+    (`trusted_replies`): the step gives its findings to the planner."""
+    names = re.compile(rf"#{pull}\b")
+    for comment in reversed(trusted_replies(store.comments_on(number))):
+        if any(marker in comment.body for marker in _PLAN_MARKERS) and names.search(comment.body):
+            return comment.body
+    return ""
+
+
 @dataclass(frozen=True)
 class _Marks:
     """The fix-plan marks of a record: the pull request and the head of `fix_plan.key`, the
@@ -247,11 +317,21 @@ def _pull_reason(item: Item, pull: int, status: PullStatus) -> str | None:
     return None
 
 
-def _candidates(store: RoadmapStore, item: int | None) -> tuple[list[Item], list[FixPlanLeftOut]]:
-    """The items to judge, highest priority first: the one that `item` names, or each open item
-    whose record holds a plan pull request."""
+def _candidates(
+    store: RoadmapStore, item: int | None, pull: int | None = None
+) -> tuple[list[Item], list[FixPlanLeftOut]]:
+    """The items to judge, highest priority first: the one that `item` names, the one whose record
+    holds plan pull request `pull`, or each open item whose record holds a plan pull request."""
     if item is None:
-        found = [each for each in store.items() if _staged_pull(each) is not None]
+        found = [
+            each
+            for each in store.items()
+            if (recorded := _staged_pull(each)) is not None and pull in (None, recorded)
+        ]
+        if pull is not None and not found:
+            return [], [
+                FixPlanLeftOut(pull, MESSAGES.roadmap.fix_plan_left_no_item.format(pull=pull))
+            ]
         return sorted(found, key=priority_order), []
     named = store.item(item)
     if named is None:
@@ -260,12 +340,18 @@ def _candidates(store: RoadmapStore, item: int | None) -> tuple[list[Item], list
 
 
 def select_fix_plan(
-    store: RoadmapStore, *, repo: str, item: int | None = None, now: datetime | None = None
+    store: RoadmapStore,
+    *,
+    repo: str,
+    item: int | None = None,
+    pull: int | None = None,
+    now: datetime | None = None,
 ) -> tuple[FixPlanTarget | None, tuple[FixPlanLeftOut, ...]]:
     """The plan pull request that the step takes, and the Staged items it left out before it, as
-    the module says. It reads a pull request only for an item that the record rules keep."""
+    the module says. `item` or `pull` names the one item to judge. It reads a pull request only for
+    an item that the record rules keep."""
     now = now or datetime.now(UTC)
-    candidates, left = _candidates(store, item)
+    candidates, left = _candidates(store, item, pull)
     for each in candidates:
         pull = _staged_pull(each)
         reason = _record_reason(each, pull, now)
@@ -491,6 +577,7 @@ def _attempt(
         counts: Mapping[str, int] = {}
     else:
         sha = _git(source, "rev-parse", f"origin/{attempt.base}")
+        findings = comment_open_findings(plan_comment(store, number, target.pull))
         revision = revise_plan(
             stage_target,
             proposal,
@@ -499,6 +586,7 @@ def _attempt(
             sha=sha,
             verifier=verifier,
             model=model,
+            findings=findings,
         )
         done = _settle(attempt, revision)
         counts = revision.attempt.counts() if revision.attempt is not None else {}
@@ -514,6 +602,7 @@ def run_fix_plan(
     source: Path,
     confirm: bool,
     item: int | None = None,
+    pull: int | None = None,
     now: datetime | None = None,
     model: LLMClient | ToolboxModel | None = None,
     verifier: ToolboxModel | None = None,
@@ -524,7 +613,7 @@ def run_fix_plan(
     task `verification` reviews. A failed read or write of GitHub or git raises after the attempt
     marks."""
     now = now or datetime.now(UTC)
-    target, left = select_fix_plan(store, repo=repo, item=item, now=now)
+    target, left = select_fix_plan(store, repo=repo, item=item, pull=pull, now=now)
     run = FixPlanRun(repo, target, left)
     if target is None:
         logger.info(MESSAGES.roadmap.fix_plan_none.format(repo=repo))
@@ -597,7 +686,9 @@ __all__ = [
     "FixPlanResult",
     "FixPlanRun",
     "FixPlanTarget",
+    "comment_open_findings",
     "dry_run_fix_plan",
+    "plan_comment",
     "render_fix_plan",
     "run_fix_plan",
     "select_fix_plan",

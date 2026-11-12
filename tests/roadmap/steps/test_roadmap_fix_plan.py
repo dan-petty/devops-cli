@@ -540,3 +540,23 @@ def test_the_revisions_of_an_earlier_plan_pull_request_do_not_count(
     assert run.attempt.result is FixPlanResult.CLEARED
     assert FixPlanRecordKey.REVISIONS not in _record(store)
     assert _record(store)[FixPlanRecordKey.KEY] == f"{plan.pull}:{plan.head}"
+
+
+def test_pull_names_the_one_plan_pull_request_to_judge(
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    verifier: ModelFake,
+    github_api: GitHubApiFake,
+) -> None:
+    plan = needs_fix_plan(store, stage_repo, github_api)
+
+    named = run_fix_plan(
+        store, repo=STAGE_REPO, source=stage_repo.clone, confirm=False, pull=plan.pull, now=NOW
+    )
+    other = run_fix_plan(
+        store, repo=STAGE_REPO, source=stage_repo.clone, confirm=False, pull=6, now=NOW
+    )
+
+    assert named.target is not None
+    assert (named.target.item.number, other.target) == (plan.number, None)
+    assert [left.number for left in other.left_out] == [6]

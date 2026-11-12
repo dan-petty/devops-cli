@@ -1272,15 +1272,18 @@ class _Planner:
         self._stopped_by_checks = False
         self._returns = 0
 
-    def revise(self, target: StageTarget, proposal: StageProposal) -> PlanRevision:
+    def revise(
+        self, target: StageTarget, proposal: StageProposal, findings: Sequence[Finding] = ()
+    ) -> PlanRevision:
         """The repair of `proposal`, the plan of the open pull request of `target`, for the step
         `fix-plan` (#5061). The request is read at the commit of the planner, and the checks judge
-        `proposal` with the returns of a refused reply, as they judge a kept plan. The review of the
-        plan that passes gives the open findings before the repair; with none, that plan is the
-        revision. Else the planner gets the plan and each open finding of that review, as in a
-        repair round, and `_verified` reviews the revision with the normal repair rounds. No trace
-        of the run that made `proposal` is in the process, so the trace gate judges only the replies
-        of this repair. The planner reads and writes no plan record."""
+        `proposal` as they judge a kept plan (`_gated`). `findings` are the open findings that the
+        last comment of the plan lists. With none, the review of the plan that passed the checks
+        gives them, and a plan with no open finding is the revision as it is. Else the planner gets
+        the plan and each open finding, as in a repair round, and `_verified` reviews the revision
+        with the normal repair rounds. No trace of the run that made `proposal` is in the process,
+        so the trace gate judges only the replies of this repair. The planner reads and writes no
+        plan record."""
         verifier = self._verifier
         if verifier is None:
             raise _stage_error(MESSAGES.roadmap.fix_plan_no_review, target)
@@ -1290,30 +1293,31 @@ class _Planner:
         stop = self._premise or self._dependency
         if stop is not None:
             return PlanRevision(stop)
-        floor = len(self._toolbox_traces())
-        head = self._returned(
-            target, request, None, floor, proposal, MESSAGES.roadmap.stage_invalid
-        )
+        head = self._gated(target, request, first=proposal)
         if isinstance(head, OverBudget):
             return PlanRevision(head)
-        findings, returned, before = self._review(target, head, verifier)
-        log_review_round(
-            self._pull_repo,
-            target.item.number,
-            0,
-            findings=len(findings),
-            returned=len(returned),
-            open_=len(before),
-        )
+        seen: list[Finding] = []
+        before = list(findings)
         if not before:
-            return PlanRevision(self._traced(replace(head, findings=tuple(findings))))
+            seen, before = self._review(target, head, verifier)
+            log_review_round(
+                self._pull_repo,
+                target.item.number,
+                0,
+                findings=len(seen),
+                returned=len(before),
+                open_=len(before),
+            )
+        if not before:
+            return PlanRevision(self._traced(replace(head, findings=tuple(seen))))
         revised = self._repaired(target, request, head, before, None)
         if isinstance(revised, OverBudget):
             return PlanRevision(revised, tuple(before))
         final = self._verified(target, request, revised, verifier, None)
         if isinstance(final, StagedChange):
-            seen = tuple(dict.fromkeys((*findings, *final.findings)))
-            final = self._traced(replace(final, findings=seen))
+            final = self._traced(
+                replace(final, findings=tuple(dict.fromkeys((*seen, *final.findings))))
+            )
         return PlanRevision(final, tuple(before))
 
     def _traced(self, change: StagedChange) -> StagedChange:
@@ -2539,10 +2543,12 @@ def revise_plan(
     sha: str,
     verifier: ToolboxModel,
     model: LLMClient | ToolboxModel | None = None,
+    findings: Sequence[Finding] = (),
 ) -> PlanRevision:
     """Revise `proposal`, the plan of the open pull request of `target`, in the clone `checkout`
     at `sha`, the default branch of `origin` after the fetch, and write nothing (#5061). The clone
     moves to `sha` first, as in `plan_stage`, and `model` and `verifier` are those of `plan_stage`.
+    `findings` are the open findings that the last comment of the plan lists (`_Planner.revise`).
     A failed model call or a plan that the checks refuse gives a `StageFailure`. Rejected
     credentials and the stop of the Service raise."""
     settings = load_settings()
@@ -2568,7 +2574,7 @@ def revise_plan(
             gate_returns=settings.roadmap.stage.gate_returns,
         )
         try:
-            revision = planner.revise(target, proposal)
+            revision = planner.revise(target, proposal, findings)
         except AICredentialsError:
             raise
         except (AIClientError, RoadmapStageError, ToolExecutionError) as exc:

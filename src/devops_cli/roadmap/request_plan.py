@@ -853,7 +853,8 @@ def fix_plan_requests(
     them (#5061). The run reads every issue and the plan pull request of each Staged item until
     one qualifies. With `--confirm`, the attempt fetches the default branch and the branch of the
     plan, checks the head and its authors, reads the change folder at the head, moves the clone to
-    the default branch, and calls the review and the planner. The writes are the attempt marks, the
+    the default branch, reads the open findings of the last plan comment of the item, and calls the
+    review and the planner. The writes are the attempt marks, the
     commit on the default branch, its push with a lease, the title and the body of the pull
     request, the label, the comment and the result marks. `item` changes no request: it names the
     one item to judge."""
@@ -878,6 +879,7 @@ def fix_plan_requests(
         git("authors", clone, "log", "origin/main.." + f"origin/{branch}"),
         git("tree", clone, "ls-tree", "-r", "--name-only", "-z", "<head>"),
         git("show", clone, "show", f"<head>:openspec/changes/{_p('change')}/<file>"),
+        *within(store.comments_on(_p("item")), attempt),
         git("move_clone", clone, "merge", "--ff-only", "-q", "<default head>"),
         PlannedRequest("model", req["model_review"], condition=attempt),
         PlannedRequest("model", req["model_repair"], condition=cond["repair"]),

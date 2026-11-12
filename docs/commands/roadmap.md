@@ -588,6 +588,7 @@ devops roadmap step fix-plan [OPTIONS]
 | `--repo`, `-R` | `string` | - | Repository as owner/name (default: this checkout's origin). |
 | `--source` | `path` | - | Path to a clone of the repository at its default branch. Without it, the job clones the repository into its own model clone, updates it, and uses it. |
 | `--item` | `integer` | - | Judge the one item that this number names, instead of each Staged item by priority. |
+| `--pull` | `integer` | - | Judge the one item whose record holds this plan pull request number in stage.pr. |
 | `--dry-run` | `boolean` | - | Make no request: print the requests, the git commands and the writes of a run, with placeholders. |
 | `--confirm` | `boolean` | - | Run the attempt: call the models, push a better revision, and write the label, the comment and the record. It acts in every mode of roadmap.fix_plan.mode. |
 

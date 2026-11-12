@@ -1348,6 +1348,9 @@ class RoadmapCommandHelp:
     step_fix_plan_item: str = (
         "Judge the one item that this number names, instead of each Staged item by priority."
     )
+    step_fix_plan_pull: str = (
+        "Judge the one item whose record holds this plan pull request number in stage.pr."
+    )
     step_fix_plan_dry_run: str = (
         "Make no request: print the requests, the git commands and the writes of a run, with "
         "placeholders."
