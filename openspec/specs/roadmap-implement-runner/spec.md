@@ -6,19 +6,19 @@ The pod in which the implement job runs its steps, and what the cluster gives it
 ## Requirements
 
 ### Requirement: The runner stage holds the tools of a step
-The `runner` stage of `Dockerfile` SHALL build from the `builder` stage, run `uv sync --locked`, install `git`, `curl` and `jq` with apt, and install promtool with `devops install-tools`. It SHALL put the pinned OpenSpec, gh and Node of the builder stage on `PATH`, run as user 1000, and set `ENTRYPOINT ["devops"]`. It SHALL come before the `service` stage, which SHALL hold none of the added tools.
+The `runner` stage of `Dockerfile` SHALL build from `runner-deps`, which builds from `deps`, installs the dev requirements of the `lock` stage, installs `git`, `curl` and `jq` with apt, and copies promtool from `runner-tools`, which installs it with `devops install-tools`. The image SHALL put the pinned OpenSpec, gh and Node on `PATH`, run as user 1000, and set `ENTRYPOINT ["devops"]`. `runner` SHALL come before `service`, which SHALL hold none of the added tools.
 
 #### Scenario: The stage is read offline
 - **WHEN** a test reads the stages of `Dockerfile`
-- **THEN** the `runner` stage names `builder` as its base, runs `uv sync --locked` with no `--no-dev`, installs `git`, puts `/opt/devops-tools/bin` and `/app/.venv/bin` on `PATH`, sets `USER 1000:1000` and `ENTRYPOINT ["devops"]`, and stands before the `service` stage, which is the last stage of the file
+- **THEN** the `runner` stage names `runner-deps` as its base, `runner-deps` names `deps` and installs `/lock/dev.txt` and `git`, and `runner` puts `/opt/devops-tools/bin` and `/app/.venv/bin` on `PATH`, sets `USER 1000:1000` and `ENTRYPOINT ["devops"]`, and stands before the `service` stage, which is the last stage of the file
 
 #### Scenario: The base images stay pinned
 - **WHEN** a test reads every `FROM` and `COPY --from` of `Dockerfile`
 - **THEN** each image carries a digest, the `runner` stage included
 
 #### Scenario: The added tools are the tools of the table
-- **WHEN** a test reads the `runner` stage
-- **THEN** its apt packages are the apt tools of `RUNNER_TOOLS` and `ca-certificates`, it runs `devops install-tools --tool <name>` for each tool of the lock in the table except OpenSpec, and the `service` stage runs no `devops install-tools`
+- **WHEN** a test reads the `runner-deps` and `runner-tools` stages
+- **THEN** the apt packages of `runner-deps` are the apt tools of `RUNNER_TOOLS` and `ca-certificates`, `runner-tools` runs `devops install-tools --tool <name>` for each tool of the lock in the table except OpenSpec, and neither `service` nor `service-deps` runs `devops install-tools`
 
 ### Requirement: The runner stage names its interpreter
 The `runner` stage SHALL set `UV_PYTHON` to the interpreter of its base image, and the shell of a step SHALL get that variable. The builder stage forbids a Python download, and the `.python-version` of a checkout can name a patch release that the pinned base image lacks, so `uv run` would find no interpreter.
@@ -28,11 +28,11 @@ The `runner` stage SHALL set `UV_PYTHON` to the interpreter of its base image, a
 - **THEN** the stage sets `UV_PYTHON=/usr/local/bin/python3` and the command succeeds
 
 ### Requirement: The runner stage deletes what only the build needs
-The `runner` stage SHALL delete npm, pip and the uv cache of root, because a Job installs no tool and the scan of the image fails on the findings in them.
+The runner image SHALL hold no npm, no pip and no uv cache of root, because a Job installs no tool and the scan of the image fails on the findings in them. `runner-deps` SHALL delete pip, no stage under `runner` SHALL copy npm, and each uv install SHALL keep its cache in a cache mount.
 
 #### Scenario: The stage is read offline
-- **WHEN** a test reads the `runner` stage
-- **THEN** one `RUN` deletes `/usr/local/lib/node_modules/npm`, `/usr/local/bin/npm`, `/root/.cache/uv` and the pip files of site-packages
+- **WHEN** a test reads the `runner`, `runner-deps` and `deps` stages
+- **THEN** none of them names `node_modules/npm`, a `RUN` of `runner-deps` deletes the pip files of site-packages, and every `uv pip` of them mounts `type=cache,target=/root/.cache/uv`
 
 ### Requirement: The release publishes the runner image
 `release.yml` SHALL have a job that builds the `runner` target of `Dockerfile`, runs a smoke test, scans the image with Trivy for HIGH and CRITICAL findings, pushes it by digest as `ghcr.io/<repository>/runner`, attests its provenance, and tags the attested digest with the release tag and `latest`. `ci.yml` SHALL build, smoke-test and scan the same target on a pull request, push nothing, and run only when image content changed.

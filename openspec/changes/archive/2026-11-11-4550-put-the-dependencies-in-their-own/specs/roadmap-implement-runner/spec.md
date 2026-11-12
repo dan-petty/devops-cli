@@ -5,7 +5,7 @@ The `runner` stage of `Dockerfile` SHALL build from `runner-deps`, which builds 
 
 #### Scenario: The stage is read offline
 - **WHEN** a test reads the stages of `Dockerfile`
-- **THEN** the `runner` stage names `runner-deps` as its base, `runner-deps` names `deps` and installs `/tmp/dev.txt` and `git`, and `runner` puts `/opt/devops-tools/bin` and `/app/.venv/bin` on `PATH`, sets `USER 1000:1000` and `ENTRYPOINT ["devops"]`, and stands before the `service` stage, which is the last stage of the file
+- **THEN** the `runner` stage names `runner-deps` as its base, `runner-deps` names `deps` and installs `/lock/dev.txt` and `git`, and `runner` puts `/opt/devops-tools/bin` and `/app/.venv/bin` on `PATH`, sets `USER 1000:1000` and `ENTRYPOINT ["devops"]`, and stands before the `service` stage, which is the last stage of the file
 
 #### Scenario: The base images stay pinned
 - **WHEN** a test reads every `FROM` and `COPY --from` of `Dockerfile`
