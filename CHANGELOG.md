@@ -2,6 +2,32 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.115.0](https://github.com/dan-petty/devops-cli/compare/v0.114.1...v0.115.0) (2026-11-12)
+
+
+### Features
+
+* **design:** add the design tokens and their build ([#4811](https://github.com/dan-petty/devops-cli/issues/4811)) ([db4b19a](https://github.com/dan-petty/devops-cli/commit/db4b19a7c5fd1a123a1039044aadad5616dcdd2f))
+* **roadmap:** find symbol definitions with tree-sitter ([#4820](https://github.com/dan-petty/devops-cli/issues/4820)) ([3b3fddc](https://github.com/dan-petty/devops-cli/commit/3b3fddc07958cce86898d1b0c9afe2beb3495ad2))
+
+
+### Bug Fixes
+
+* **ai:** the gateway group that answered decides the local label ([#4907](https://github.com/dan-petty/devops-cli/issues/4907)) ([0da637f](https://github.com/dan-petty/devops-cli/commit/0da637f04a63f35ccde6ca0fa97396eb0e9706fb))
+* **ci:** replay a changed gate check in fail-to-pass ([#4898](https://github.com/dan-petty/devops-cli/issues/4898)) ([59bfc57](https://github.com/dan-petty/devops-cli/commit/59bfc571349c8be62388c505a19a9935fffb72a7))
+* **config:** read each config file as YAML 1.2 ([#4858](https://github.com/dan-petty/devops-cli/issues/4858)) ([c3130a3](https://github.com/dan-petty/devops-cli/commit/c3130a34376f8db547493be3d2116241f3b70af3))
+* **roadmap:** loosen the caps that turn a stage refusal into a loss ([#4869](https://github.com/dan-petty/devops-cli/issues/4869)) ([4492fc3](https://github.com/dan-petty/devops-cli/commit/4492fc33a60c7108c1b0c9574089eef3c38df6dc))
+* **roadmap:** refine reads a dependency named by title ([#4877](https://github.com/dan-petty/devops-cli/issues/4877)) ([2829f9c](https://github.com/dan-petty/devops-cli/commit/2829f9c22afcdd1a32cd5cea7f91bab3f65a5192))
+* **roadmap:** refine sends a judge refusal to an agent round ([#4874](https://github.com/dan-petty/devops-cli/issues/4874)) ([e4fc6a9](https://github.com/dan-petty/devops-cli/commit/e4fc6a9f952f695e403c73d7c9a8d7590689451c))
+* **tests:** refuse test writes under the real home ([#4857](https://github.com/dan-petty/devops-cli/issues/4857)) ([0f6ac1b](https://github.com/dan-petty/devops-cli/commit/0f6ac1b6780f3d3d999cde08f2f0852b6e8c9291))
+* **tests:** the plain-Python helper test keeps PYTHONPATH ([#4914](https://github.com/dan-petty/devops-cli/issues/4914)) ([99c109d](https://github.com/dan-petty/devops-cli/commit/99c109d638822a48f020c7dab7967dce06716c33))
+
+
+### Performance Improvements
+
+* **ci:** direct pytest runs wait for a gate slot ([#4901](https://github.com/dan-petty/devops-cli/issues/4901)) ([e80db62](https://github.com/dan-petty/devops-cli/commit/e80db62c88d898c6ce02fb447ee789d1205bada6))
+* **roadmap:** status lane reads the snapshot, skips idle stops ([#4887](https://github.com/dan-petty/devops-cli/issues/4887)) ([f285cf8](https://github.com/dan-petty/devops-cli/commit/f285cf8f165fa75b7b3fc17cf1323ed596deb2ce))
+
 ## [0.114.1](https://github.com/dan-petty/devops-cli/compare/v0.114.0...v0.114.1) (2026-11-11)
 
 
