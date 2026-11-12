@@ -398,6 +398,23 @@ class _ReleasePayload(BaseModel):
     published_at: datetime | None = None
 
 
+class _ExternalRefPayload(BaseModel):
+    reference_type: str = Field(validation_alias="referenceType")
+    reference_locator: str = Field(validation_alias="referenceLocator")
+
+
+class _SbomPackagePayload(BaseModel):
+    external_refs: list[_ExternalRefPayload] = Field(
+        default_factory=list, validation_alias="externalRefs"
+    )
+
+
+class _SbomPayload(BaseModel):
+    """The SPDX SBOM as `dependency-graph/sbom` gives it, with the package URLs of its packages."""
+
+    packages: list[_SbomPackagePayload] = Field(validation_alias=AliasPath("sbom", "packages"))
+
+
 _MILESTONE = TypeAdapter(_MilestonePayload)
 _ISSUE = TypeAdapter(_IssuePayload)
 _PULL = TypeAdapter(_PullPayload)
@@ -409,6 +426,9 @@ _DIRECTORY = TypeAdapter(list[_DirectoryEntryPayload])
 _IS_PRIVATE = TypeAdapter(_IsPrivatePayload)
 _REPOSITORY_PAYLOAD = TypeAdapter(_RepositoryPayload)
 _RELEASE = TypeAdapter(_ReleasePayload)
+_SBOM = TypeAdapter(_SbomPayload)
+# The SPDX reference type of a package URL.
+_PURL_REFERENCE = "purl"
 _COMMENT = TypeAdapter(_CommentPayload)
 _TIMELINE = TypeAdapter(_TimelinePayload)
 _WORKFLOW_RUN = TypeAdapter(_WorkflowRunPayload)
@@ -641,6 +661,11 @@ def latest_release_args(full_name: str) -> list[str]:
     """The `gh` arguments that read the latest release of the repository `full_name`; GitHub
     answers 404 for a repository with none."""
     return ["api", f"repos/{full_name}/releases/latest"]
+
+
+def sbom_args(repo: str) -> list[str]:
+    """The `gh` arguments that read the SPDX SBOM that the dependency graph of `repo` exports."""
+    return ["api", f"repos/{repo}/dependency-graph/sbom"]
 
 
 def is_private_args(repo: str) -> list[str]:
@@ -1098,6 +1123,19 @@ class GitHubRoadmapStore(RoadmapStore):
             released_at=release.published_at if release else None,
         )
 
+    def dependency_purls(self) -> list[str]:
+        """The package URL of each package of the SBOM of the repository: one read of the export
+        of the dependency graph, which GitHub answers with 404 when the graph is off (#4661)."""
+        sbom = self._read_or_none(sbom_args(self._repo), _SBOM, "the SBOM of the dependency graph")
+        if sbom is None:
+            return []
+        return [
+            ref.reference_locator
+            for package in sbom.packages
+            for ref in package.external_refs
+            if ref.reference_type == _PURL_REFERENCE
+        ]
+
     # ── Writes ──
 
     def _require_issue(self, number: int, operation: str) -> _IssuePayload:
@@ -1295,5 +1333,6 @@ __all__ = [
     "repository_file_args",
     "repository_issue_events_endpoint",
     "repository_query_args",
+    "sbom_args",
     "workflow_run_args",
 ]

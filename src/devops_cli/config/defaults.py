@@ -843,9 +843,22 @@ DEFAULT_ROADMAP_ALTERNATIVES_FIRST_PASS_LIMIT: int = 20
 DEFAULT_ROADMAP_ALTERNATIVES_RECHECK_DAYS: int = 30
 DEFAULT_ROADMAP_ALTERNATIVES_RETRY_DAYS: int = 3
 DEFAULT_ROADMAP_ALTERNATIVES_INTERVAL_MINUTES: int = 719
+# The deployed paths of a clone that the alternatives check reads for the tools in use that no
+# manifest names: services, images and CLIs (#4661).
+DEFAULT_ROADMAP_ALTERNATIVES_INVENTORY_PATHS: tuple[str, ...] = (
+    "k8s",
+    "tf",
+    ".devcontainer",
+    "src/devops_cli/tools_lock/tools.lock",
+)
 # The PyPI JSON API reads of a package (`{name}` is one URL path segment) and its timeout.
 DEFAULT_PYPI_PACKAGE_URL: str = "https://pypi.org/pypi/{name}/json"
 DEFAULT_PYPI_TIMEOUT_SECONDS: float = 10.0
+# The deps.dev read of the package versions that name a project as their source (`{project}` is
+# the project key, such as `github.com/<owner>/<name>`, as one URL path segment) and its
+# timeout (#4661).
+DEFAULT_DEPS_DEV_PROJECT_URL: str = "https://api.deps.dev/v3/projects/{project}:packageversions"
+DEFAULT_DEPS_DEV_TIMEOUT_SECONDS: float = 10.0
 # The timeout of one remote MCP tool call (#3221).
 DEFAULT_ROADMAP_MCP_TIMEOUT_SECONDS: float = 30.0
 # The most items one stage run takes (#2654).

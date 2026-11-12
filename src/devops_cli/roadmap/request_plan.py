@@ -31,7 +31,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_REFINE_MAX_WAIT_CHECKS,
     CONST_URL_GITHUB_API_BASE,
 )
-from devops_cli.config.defaults import DEFAULT_PYPI_PACKAGE_URL
+from devops_cli.config.defaults import DEFAULT_DEPS_DEV_PROJECT_URL, DEFAULT_PYPI_PACKAGE_URL
 from devops_cli.dry_run.requests import PlannedRequest, both, render_request_plan
 from devops_cli.git.branch_authors import LOG_FORMAT
 from devops_cli.lang import MESSAGES
@@ -467,11 +467,12 @@ def alternatives_requests(
 ) -> tuple[tuple[PlannedRequest, ...], tuple[PlannedRequest, ...]]:
     """What `devops roadmap alternatives` reads, in order, and the writes `--confirm` makes after
     them (#2650). The run reads the repository's visibility and every issue, and stops when the
-    repository is private or no search provider is configured. Once for the run, when it checks an
-    item that is no skip class, it reads the directory of the ADRs and each file of it (#3505). For each
-    item it checks it reads the item's comments, runs the model, and makes the searches and fact
-    reads the model asks for; `--item` names the item, and `limit` caps the items of a round, which
-    `--limit` sets."""
+    repository is private or no search provider is configured. Once for the run it reads the
+    directory of the ADRs and each file of it (#3505), and, when it checks an item that is no skip
+    class, the SBOM of the repository (#4661). For each item it checks it reads the item's
+    comments, runs the model, and makes the searches and fact reads the model asks for, and the
+    deps.dev read of the project of a tool that the SBOM and the deployed paths do not hold;
+    `--item` names the item, and `limit` caps the items of a round, which `--limit` sets."""
     del limit
     store = StoreRequests(repo)
     texts = MESSAGES.roadmap
@@ -528,13 +529,27 @@ def alternatives_requests(
                 repeat=rep["adr_file"],
             ),
         ],
-        cond["adr_read"],
+        cond["check_on"],
+    )
+    sbom = store.gh(gh.sbom_args(repo), "sbom", condition=cond["inventory_read"])
+    # The project key is one path segment, its `/` encoded, as the job sends it.
+    owner, name = _p("owner"), _p("name")
+    deps_dev = PlannedRequest(
+        method=methods["deps_dev"],
+        target=texts.plan_targets["deps_dev_project"].format(subject=f"github.com/{owner}/{name}"),
+        argv=("GET", DEFAULT_DEPS_DEV_PROJECT_URL.format(project=f"github.com%2F{owner}%2F{name}")),
+        condition=cond["deps_dev_read"],
     )
     reads = [
         *visibility,
         *store.every_issue(),
         *adrs,
-        *within([*store.comments_on(subject), model, *search, *facts], cond["check_on"], each_item),
+        sbom,
+        *within(
+            [*store.comments_on(subject), model, *search, *facts, deps_dev],
+            cond["check_on"],
+            each_item,
+        ),
     ]
     writes = within(
         [

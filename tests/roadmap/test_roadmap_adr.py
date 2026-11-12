@@ -12,7 +12,7 @@ import logging
 import pytest
 
 from devops_cli.ai.context_budget import count_tokens
-from devops_cli.roadmap.adr import Adr, adr_of, fit_to_budget, names, read_adrs
+from devops_cli.roadmap.adr import Adr, adr_of, fit_to_budget, names, read_adrs, rejects
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 
 ADR_DIRECTORY = "docs/adr"
@@ -336,3 +336,70 @@ def test_a_common_word_in_a_code_span_a_link_or_the_owner_name_form_names_the_to
     text: str, tool: str
 ) -> None:
     assert names(text, tool) is True
+
+
+# The options of ADR 0010 as the repository holds them: the chosen option and three rejected ones
+# name OpenSpec (#3258, #4661).
+OPENSPEC_OPTIONS = (
+    "## Considered Options\n\n"
+    "- **Adopt OpenSpec and delete the task files** (chosen): one planning format.\n"
+    "- **Adopt OpenSpec beside the task files**: rejected. Two sources of truth.\n"
+    "- **Keep the task files**: rejected. Planning stays a format every agent must learn.\n"
+    "- **A forked schema with a `feasibility` artifact**: rejected. It drifts."
+)
+
+
+@pytest.mark.parametrize(
+    ("adr", "tool_names", "rejected"),
+    [
+        pytest.param(
+            Adr(8, "Argo Workflows runs the jobs", OPTIONS),
+            ("temporalio/temporal", "Temporal"),
+            True,
+            id="rejected-option",
+        ),
+        pytest.param(
+            Adr(8, "Argo Workflows runs the jobs", OPTIONS),
+            ("dbos-inc/dbos-transact-py", "DBOS"),
+            False,
+            id="runner-up-option",
+        ),
+        pytest.param(
+            Adr(10, "OpenSpec is the spec and change proposal layer", OPENSPEC_OPTIONS),
+            ("Fission-AI/OpenSpec", "OpenSpec"),
+            False,
+            id="chosen-option-names-it-too",
+        ),
+        pytest.param(
+            Adr(
+                9,
+                "Use **Temporal** for the jobs",
+                "## Considered Options\n\n- **Temporal**: rejected for now.",
+            ),
+            ("temporalio/temporal", "Temporal"),
+            False,
+            id="title-names-it",
+        ),
+        pytest.param(
+            Adr(
+                11,
+                "Releases",
+                "## Considered Options\n\n- **Celery, Dramatiq and Huey**: not chosen, after a "
+                "comparison.",
+            ),
+            ("celery/celery", "Celery"),
+            True,
+            id="not-chosen",
+        ),
+        pytest.param(
+            Adr(12, "Temporal is out", "The ADR has no options."),
+            ("temporalio/temporal", "Temporal"),
+            False,
+            id="no-option",
+        ),
+    ],
+)
+def test_an_adr_rejects_a_tool_only_when_rejected_options_alone_name_it(
+    adr: Adr, tool_names: tuple[str, ...], rejected: bool
+) -> None:
+    assert rejects(adr, *tool_names) is rejected

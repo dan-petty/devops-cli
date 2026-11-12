@@ -841,6 +841,7 @@ dependencies = [
     { name = "opentelemetry-instrumentation-httpx" },
     { name = "opentelemetry-sdk" },
     { name = "opentelemetry-semantic-conventions" },
+    { name = "packageurl-python" },
     { name = "packaging" },
     { name = "pathspec" },
     { name = "platformdirs" },
@@ -958,6 +959,7 @@ requires-dist = [
     { name = "opentelemetry-instrumentation-httpx", specifier = "==0.66b1" },
     { name = "opentelemetry-sdk", specifier = "==1.45.1" },
     { name = "opentelemetry-semantic-conventions", specifier = "==0.66b1" },
+    { name = "packageurl-python", specifier = "==0.17.6" },
     { name = "packaging", specifier = "==26.3" },
     { name = "pathspec", specifier = "==1.1.1" },
     { name = "platformdirs", specifier = "==4.11.8" },
@@ -2662,6 +2664,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/7c/b5/df4b61da899f6ebdffdbdf0c8b0f3189ee57151694ccd5b7d50ee2906241/opentelemetry_util_http-0.66b1.tar.gz", hash = "sha256:047dea1a628031f857a5a32261dc0e955bc162d39993ed1cffb8f2cff5ba8a62", size = 11586, upload-time = "2026-10-06T17:36:46.572Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/eb/9b/c77ecaea79ba0de1a11e7f06a7f5eea7043ec23f1860dcf5f03536698e4c/opentelemetry_util_http-0.66b1-py3-none-any.whl", hash = "sha256:8f443d7abcaf29c4a07b373bbd31b5b39132c0ed3c27d015a59dc0323d5b1c58", size = 8387, upload-time = "2026-10-06T17:36:06.984Z" },
+]
+
+[[package]]
+name = "packageurl-python"
+version = "0.17.6"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/f5/d6/3b5a4e3cfaef7a53869a26ceb034d1ff5e5c27c814ce77260a96d50ab7bb/packageurl_python-0.17.6.tar.gz", hash = "sha256:1252ce3a102372ca6f86eb968e16f9014c4ba511c5c37d95a7f023e2ca6e5c25", size = 50618, upload-time = "2025-11-24T15:20:17.998Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b1/2f/c7277b7615a93f51b5fbc1eacfc1b75e8103370e786fd8ce2abf6e5c04ab/packageurl_python-0.17.6-py3-none-any.whl", hash = "sha256:31a85c2717bc41dd818f3c62908685ff9eebcb68588213745b14a6ee9e7df7c9", size = 36776, upload-time = "2025-11-24T15:20:16.962Z" },
 ]
 
 [[package]]

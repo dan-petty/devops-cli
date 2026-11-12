@@ -83,6 +83,8 @@ class GitHubFake:
         self.blockers: dict[int, list[int]] = {}
         self.releases: list[dict[str, Any]] = []
         self.repositories: dict[str, tuple[dict[str, Any], dict[str, Any] | None]] = {}
+        # The package URLs of the SBOM that the dependency graph of the repository exports.
+        self.purls: list[str] = []
         self.calls: list[list[str]] = []
         self.stdins: list[str | None] = []
         self._fault_at = 0
@@ -222,6 +224,10 @@ class GitHubFake:
         """Another repository, by the `full_name` of its REST payload, and its latest release,
         which GitHub answers 404 when there is none (#2650)."""
         self.repositories[repository["full_name"]] = (repository, release)
+
+    def seed_dependencies(self, *purls: str) -> None:
+        """Add `purls` to the SPDX SBOM that `dependency-graph/sbom` exports (#4661)."""
+        self.purls.extend(purls)
 
     def seed_hook(
         self, hook_id: int, deliveries: Iterable[dict[str, Any]] = (), *, active: bool = True
@@ -379,6 +385,8 @@ class GitHubFake:
         if url.path == f"repos/{self.repo}":
             open_issues = sum(issue["state"] == "open" for issue in self.issues.values())
             return {"stargazers_count": 0, "forks_count": 0, "open_issues_count": open_issues}
+        if url.path == f"repos/{self.repo}/dependency-graph/sbom":
+            return self._sbom()
         parts = url.path.removeprefix(f"repos/{self.repo}/").split("/")
         if "--paginate" in args:
             return self._paginate_rest(method, parts, query, fields, args)
@@ -416,6 +424,14 @@ class GitHubFake:
                 break
             page += 1
         return "".join(json.dumps(p) for p in pages)
+
+    def _sbom(self) -> Any:
+        """The SPDX SBOM of the repository, with one package for each seeded package URL."""
+        packages = [
+            {"externalRefs": [{"referenceType": "purl", "referenceLocator": purl}]}
+            for purl in self.purls
+        ]
+        return {"sbom": {"spdxVersion": "SPDX-2.3", "packages": packages}}
 
     def _commit_route(self, parts: list[str]) -> Any:
         """The check runs of a commit, or the commit itself when the fake holds it."""

@@ -740,7 +740,9 @@ def _run_release_comments_adapter(
     return JobOutcome()
 
 
-def _run_alternatives_adapter(store: RoadmapStore, repo: str = "", **_: Any) -> JobOutcome:
+def _run_alternatives_adapter(
+    store: RoadmapStore, repo: str = "", clone_path: Path | None = None, **_: Any
+) -> JobOutcome:
     """Check at most `roadmap.alternatives.first_pass_limit` open items while one has no check, else
     `roadmap.alternatives.limit` open items, for an open tool that covers them (#2652).
     A failed check is recorded in its item's job record and the others are written; the
@@ -749,8 +751,11 @@ def _run_alternatives_adapter(store: RoadmapStore, repo: str = "", **_: Any) -> 
     check is written when it is done, so a kill of the worker loses at most the check in
     progress, and a rate limit on a write ends the round with the checks that are written
     (#4034). The row sends the coverage gauges of the round after the checks, also when it
-    writes nothing (#2950)."""
-    plan = plan_alternatives(store, repo=repo, writer=AlternativesWriter(store, repo))
+    writes nothing (#2950). The deployed paths of the lane's clone name the tools in use (#4661);
+    a call that gives no clone reads the SBOM only."""
+    plan = plan_alternatives(
+        store, repo=repo, writer=AlternativesWriter(store, repo), source=clone_path
+    )
     record_coverage(plan)
     if plan.off_reason:
         logger.info("The alternatives check of %s is off: %s", repo, plan.off_reason)
@@ -926,6 +931,7 @@ MODEL_LANE_ROWS: tuple[JobRow, ...] = (
         name="alternatives",
         interval=timedelta(minutes=DEFAULT_ROADMAP_ALTERNATIVES_INTERVAL_MINUTES),
         runner=_run_alternatives_adapter,
+        needs_clone=True,
         first_run_due=True,
     ),
 )

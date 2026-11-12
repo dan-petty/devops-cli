@@ -8,7 +8,8 @@ ADR supersedes is not in force, so the check drops it. A repository with no `doc
 and that is no error.
 
 `names` is the test of the check whether a text names a tool. The check applies it to the title and
-the body of an item, and to the text of an ADR.
+the body of an item, and to the text of an ADR. `rejects` is the test whether an ADR rejects a tool:
+only its rejected options name the tool.
 """
 
 from __future__ import annotations
@@ -43,6 +44,9 @@ _SUPERSEDES = re.compile(r"\bsupersedes ADR (?P<number>\d{4})\b")
 # A space, `-`, `_` or `.` between the words of a tool name is one separator, so "Argo Workflows"
 # names `argo-workflows`.
 _SEPARATOR = r"[\s._-]+"
+# An option of an ADR that the decision did not take says so: "rejected", "rejected for now" or
+# "not chosen".
+_REJECTED_OPTION = re.compile(r"\b(?:rejected|not chosen)\b", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -228,4 +232,30 @@ def names(text: str, *tool_names: str) -> bool:
     return False
 
 
-__all__ = ["Adr", "adr_of", "fit_to_budget", "names", "read_adrs"]
+def _options(text: str) -> list[str]:
+    """The markdown of each item of the top-level lists of `text`: one option of an ADR each."""
+    options: list[str] = []
+    inside = False
+    for token in MARKDOWN.parse(text):
+        if token.type == "list_item_open" and token.level == 1:
+            options.append("")
+            inside = True
+        elif token.type == "list_item_close" and token.level == 1:
+            inside = False
+        elif inside and token.type == "inline":
+            options[-1] = f"{options[-1]}\n{token.content}".strip()
+    return options
+
+
+def rejects(adr: Adr, *tool_names: str) -> bool:
+    """Whether `adr` rejects the tool that `tool_names` name (#4661): an option of its `Considered
+    Options` that says `rejected` or `not chosen` names the tool, and neither its title nor an
+    option that says neither names it. ADR 0010 names OpenSpec in rejected options, but its
+    chosen option names OpenSpec too, so it rejects no OpenSpec."""
+    if names(adr.title, *tool_names):
+        return False
+    named = [option for option in _options(adr.options) if names(option, *tool_names)]
+    return bool(named) and all(_REJECTED_OPTION.search(option) for option in named)
+
+
+__all__ = ["Adr", "adr_of", "fit_to_budget", "names", "read_adrs", "rejects"]

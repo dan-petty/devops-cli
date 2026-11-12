@@ -150,3 +150,55 @@ def test_repository_facts_refuses_a_name_that_is_no_repository_name_before_any_r
     with pytest.raises(GitHubOperationError, match="is not a repository name"):
         store.repository_facts(name)
     assert runner.calls == []
+
+
+def test_dependency_purls_read_the_sbom_of_the_dependency_graph_once() -> None:
+    """One REST read of the SPDX SBOM that the dependency graph exports gives the package URL of
+    each package; a package with no package URL gives none (#4661)."""
+    sbom = {
+        "sbom": {
+            "packages": [
+                {
+                    "name": "mcp",
+                    "externalRefs": [
+                        {
+                            "referenceCategory": "PACKAGE-MANAGER",
+                            "referenceType": "purl",
+                            "referenceLocator": "pkg:pypi/mcp@2.3.0",
+                        }
+                    ],
+                },
+                {"name": "com.github.example/roadmap", "externalRefs": []},
+                {
+                    "name": "@devcontainers/cli",
+                    "externalRefs": [
+                        {
+                            "referenceCategory": "SECURITY",
+                            "referenceType": "cpe23Type",
+                            "referenceLocator": "cpe:2.3:a:devcontainers:cli",
+                        },
+                        {
+                            "referenceCategory": "PACKAGE-MANAGER",
+                            "referenceType": "purl",
+                            "referenceLocator": "pkg:npm/%40devcontainers/cli@0.89.0",
+                        },
+                    ],
+                },
+            ]
+        }
+    }
+    store, runner = recorded_store({"dependency-graph/sbom": sbom})
+    assert (store.dependency_purls(), [args for args, _ in runner.calls]) == (
+        ["pkg:pypi/mcp@2.3.0", "pkg:npm/%40devcontainers/cli@0.89.0"],
+        [["api", f"repos/{REPO}/dependency-graph/sbom"]],
+    )
+
+
+def test_dependency_purls_of_a_repository_with_no_dependency_graph_are_none() -> None:
+    """GitHub answers 404 when the dependency graph of the repository is off; another failed read
+    raises (#4661)."""
+    off, _ = recorded_store({"dependency-graph/sbom": (1, "gh: Not Found (HTTP 404)")})
+    broken, _ = recorded_store({"dependency-graph/sbom": (1, "gh: Server Error (HTTP 502)")})
+    assert off.dependency_purls() == []
+    with pytest.raises(GitHubOperationError, match="Could not read the SBOM"):
+        broken.dependency_purls()

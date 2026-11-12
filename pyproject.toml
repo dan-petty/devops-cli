@@ -83,6 +83,7 @@ dependencies = [
     "opentelemetry-exporter-otlp-proto-common==1.45.1",
     "opentelemetry-instrumentation-httpx==0.66b1",
     "detect-agent==0.6.0",
+    "packageurl-python==0.17.6",
 ]
 
 [project.optional-dependencies]

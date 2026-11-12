@@ -210,13 +210,16 @@ class Verdict(StrEnum):
 class AlternativesRecordKey(StrEnum):
     """What `devops roadmap alternatives` records in an Item's job record (#2650): when the check
     ran, the hash of the body it read outside its own block and the refine section, its verdict,
-    and the URL of the tool it found, if any. When the last check failed, the record holds the
+    and the URL of the tool it found, if any. It also records the canonical id of the tool and the
+    hash of the ADRs that the model read (#4661). When the last check failed, the record holds the
     time of the failure and the class of its error (#2949) until a check is written."""
 
     CHECKED_AT = "alternatives.checked_at"
     BODY_HASH = "alternatives.body_hash"
     VERDICT = "alternatives.verdict"
     TOOL = "alternatives.tool"
+    TOOL_ID = "alternatives.tool_id"
+    ADR_HASH = "alternatives.adr_hash"
     FAILED_AT = "alternatives.failed_at"
     FAILED_ERROR = "alternatives.failed_error"
 
@@ -1094,6 +1097,11 @@ class RoadmapStore(Protocol):
     def repository_facts(self, full_name: str) -> RepositoryFacts | None:
         """The facts of the repository `full_name` (`owner/name`), which need not be this one,
         or None when GitHub has no such repository (#2650). A read that cannot complete raises."""
+
+    def dependency_purls(self) -> list[str]:
+        """The package URL of each package of the SPDX SBOM that the dependency graph of the
+        repository exports for its default branch, or none when the dependency graph is off
+        (#4661). A read that cannot complete raises."""
 
 
 type StoreFactory = Callable[..., RoadmapStore]

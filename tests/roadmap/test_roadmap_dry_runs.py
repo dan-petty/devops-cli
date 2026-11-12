@@ -548,9 +548,10 @@ def test_the_alternatives_dry_run_lists_the_get_of_the_searxng_search_when_it_is
     ) == (True, False)
 
 
-def test_the_alternatives_dry_run_lists_the_reads_of_the_adrs() -> None:
-    """The run lists `docs/adr` and each file of it once for the run, when it checks an item that
-    is no skip class (#3505)."""
+def test_the_alternatives_dry_run_lists_the_reads_of_the_adrs_and_of_the_tools_in_use() -> None:
+    """The run lists `docs/adr` and each file of it once for the run (#3505, #4661). It lists the
+    SBOM once, when it checks an item that is no skip class, and the deps.dev read of the project
+    of a tool that the SBOM and the deployed paths do not hold."""
     from devops_cli.roadmap.alternatives import dry_run_alternatives
 
     raw = ("gh", "api", "-H", "Accept: application/vnd.github.raw+json")
@@ -559,11 +560,21 @@ def test_the_alternatives_dry_run_lists_the_reads_of_the_adrs() -> None:
 
     directory = reads[(*raw, f"repos/{REPO}/contents/docs/adr")]
     adr_file = reads[(*raw, f"repos/{REPO}/contents/docs/adr/NNNN-name.md")]
-    assert [(r.condition, r.repeat) for r in (directory, adr_file)] == [
+    sbom = reads[("gh", "api", f"repos/{REPO}/dependency-graph/sbom")]
+    deps_dev = reads[
+        ("GET", "https://api.deps.dev/v3/projects/github.com%2F<owner>%2F<name>:packageversions")
+    ]
+    assert [(r.condition, r.repeat) for r in (directory, adr_file, sbom, deps_dev)] == [
+        ("the repository is public and a search provider is configured", ""),
+        (
+            "the repository is public and a search provider is configured",
+            "for each file of the directory, once a run",
+        ),
         ("the run checks an item that is no skip class", ""),
         (
-            "the run checks an item that is no skip class",
-            "for each file of the directory, once a run",
+            "the repository is public and a search provider is configured and the SBOM holds a "
+            "package and neither it nor the deployed paths hold the tool of the reply",
+            "for each item the run checks, at most --limit",
         ),
     ]
 
