@@ -149,3 +149,32 @@ def test_the_commit_that_ticks_the_last_task_waits_for_the_push_of_the_stop(
     assert applied.stopped == (1,)
     assert len(on_origin[0]) == FILES  # the plan and four `wip:` commits
     assert len(job_world.origin_log()) == FILES + 1
+
+
+def test_a_wip_push_that_meets_a_refused_setting_stops_the_item_at_once(
+    job_world: JobWorld,
+) -> None:
+    """The agent writes a git setting that the job refuses. The push of the next `wip:` commit, in
+    the middle of the turn, stops the item with the class `git_config`: the turn ends there, and
+    the job asks the model for nothing more."""
+
+    def plant() -> None:
+        job_world.repo.git("config", "credential.helper", "example-value-7")
+
+    script = ModelScript(
+        tool_calls(_file(1)),
+        tool_calls(_tick(1)),
+        tool_calls(_file(2)),
+        say("Done."),
+        effects={2: plant},
+    )
+
+    applied = job_world.run(script)
+
+    held = job_world.store.item(1)
+    assert held is not None
+    assert (applied.stopped, held.job_record.get("implement.failure"), len(script.seen)) == (
+        (1,),
+        "git_config",
+        2,
+    )

@@ -20,6 +20,7 @@ import pytest
 
 from devops_cli.core import process_hardening
 from devops_cli.exceptions import GitOperationError
+from devops_cli.exceptions.roadmap import GitSettingsError
 from devops_cli.git.worktree_add import worktree_directory
 from devops_cli.roadmap.implement import git_isolation
 from devops_cli.roadmap.implement.git_isolation import OriginGit, refused_settings
@@ -246,15 +247,17 @@ def recorded(
     return order
 
 
-def test_the_leftover_processes_end_before_the_folder_and_again_before_the_call_with_the_token(
+def test_the_leftover_processes_end_before_the_check_before_the_folder_and_before_the_token_call(
     stage_repo: StageRepo, recorded: list[str], process_fake: ProcessFake
 ) -> None:
     OriginGit(stage_repo.clone, str(stage_repo.origin)).fetch("main")
 
     token_call = recorded.index("fetch")
-    first, second = (i for i, word in enumerate(recorded) if word == "sweep")
-    assert first < recorded.index("mkdtemp") < recorded.index("update-ref") < second
-    assert second == token_call - 1
+    first, second, third = (i for i, word in enumerate(recorded) if word == "sweep")
+    assert "config" in recorded[first:second]
+    assert first == 0
+    assert second < recorded.index("mkdtemp") < recorded.index("update-ref") < third
+    assert third == token_call - 1
     fetch = next(call for call in process_fake.calls if _words(call) == "fetch")
     assert fetch.env is not None
     assert {key: fetch.env.get(key) for key in ("GIT_CONFIG_GLOBAL", "GIT_CONFIG_NOSYSTEM")} == {
@@ -268,6 +271,23 @@ def test_the_leftover_processes_end_before_the_folder_and_again_before_the_call_
         "core.hooksPath=/dev/null",
     ]
     assert not Path(fetch.env["HOME"]).exists()
+
+
+def test_a_refused_setting_ends_the_leftover_processes_before_the_check(
+    stage_repo: StageRepo, recorded: list[str]
+) -> None:
+    """A refused setting stops the call before the folder exists. The leftover processes end first
+    all the same, because the job writes to GitHub after the stop."""
+    run_git(stage_repo.clone, "config", "credential.helper", VALUE)
+
+    with pytest.raises(GitSettingsError) as refused:
+        OriginGit(stage_repo.clone, str(stage_repo.origin)).fetch("main")
+
+    assert (refused.value.settings, recorded[0], "mkdtemp" in recorded) == (
+        ("credential.helper",),
+        "sweep",
+        False,
+    )
 
 
 def test_a_push_gives_the_token_only_to_the_call_in_the_new_folder(
@@ -351,3 +371,30 @@ def test_the_check_runs_only_in_a_runner(stage_repo: StageRepo) -> None:
     git_isolation.check_settings(stage_repo.clone)
 
     assert refused_settings(stage_repo.clone) == ["credential.helper"]
+
+
+def test_a_setting_that_an_exit_check_writes_stops_the_push_of_the_stop_with_the_class_git_config(
+    job_world: JobWorld, config: Callable[..., Path]
+) -> None:
+    """An exit check of the step runs code of the checkout after the check of the turn. It writes a
+    setting and fails, and no repair round is left. The push of the stop meets the setting: the
+    item stops with the class `git_config`, and the comment names the key and holds no value."""
+    config(roadmap={"implement": {"in_runner": True, "repair_rounds": 0}})
+
+    def lint(call: ProcessCall) -> subprocess.CompletedProcess[str]:
+        job_world.repo.git("config", "credential.helper", VALUE)
+        return subprocess.CompletedProcess(list(call.argv), 1, "E999 example\n", "")
+
+    job_world.programs.answer(
+        lambda call: "ruff" in call.argv and "check" in call.argv,
+        ProcessAnswer(side_effect=lint),
+    )
+    script = ModelScript(tool_calls(*group_one_calls()), say("Group 1 is done."))
+
+    applied = job_world.run(script)
+
+    held = job_world.store.item(1)
+    assert held is not None
+    comment = job_world.issue_comments()[-1]
+    assert (applied.stopped, held.job_record.get("implement.failure")) == ((1,), "git_config")
+    assert ("credential.helper" in comment, VALUE in comment) == (True, False)

@@ -9,8 +9,8 @@ runs as a child of git, with the environment of git. The process runner gives th
 git child that reaches a remote (`git_reaches_remote`), so a local git call of the job, such as
 `git add` or `git commit`, holds none.
 
-**A network call** (`OriginGit`) checks the settings of the checkout, ends every leftover process
-of the job, and makes a new folder with `tempfile.mkdtemp`. In it, a new bare git folder gets the
+**A network call** (`OriginGit`) ends every leftover process of the job, checks the settings of
+the checkout, ends every leftover process again, and makes a new folder with `tempfile.mkdtemp`. In it, a new bare git folder gets the
 object folder of the clone as a link, and an empty folder becomes the home folder of the call. A
 fetch first gets the remote-tracking refs of the clone, so that it asks only for the objects that
 the clone lacks. The job ends every leftover process again, and then runs the call with the token
@@ -230,8 +230,10 @@ class OriginGit:
     @contextmanager
     def _folder(self, *, refs: bool) -> Iterator[_Folder]:
         """A new git folder with the objects of the clone, and with its remote-tracking refs when
-        `refs` is true. The leftover processes end before the folder exists and again before the
+        `refs` is true. The leftover processes end before the check of the settings, so that they
+        are gone also when the check stops the call, before the folder exists, and again before the
         caller runs the call with the token. The folder goes when the block ends."""
+        _sweep()
         check_settings(self.repository)
         _sweep()
         parent = Path(tempfile.mkdtemp(prefix="devops-origin-"))

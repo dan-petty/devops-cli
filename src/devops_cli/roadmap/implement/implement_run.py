@@ -1192,7 +1192,8 @@ class _ItemRun:
         record it at once, so that a pod that dies keeps the work: the next Job takes the branch
         from `origin`. A commit that ticks the last task waits for the push of the end or of the
         stop, because the exit checks of the step follow at once. A push that fails does not stop
-        the step. The line goes to the log, and the next push tries again."""
+        the step. The line goes to the log, and the next push tries again. A git setting that the
+        job does not allow stops the item at once (`GitSettingsError`), before any record."""
         self.wip = commit
         if commit.done >= commit.total:
             return
@@ -1801,9 +1802,14 @@ class _ItemRun:
     # ── The stop ──
 
     def stop(self, stop: _StopError) -> None:
-        """Push what passed, tell the item why, set it Blocked, and record the step."""
+        """Push what passed, tell the item why, set it Blocked, and record the step. A git setting
+        that the job does not allow stops the push, and the class of the stop is `git_config`."""
         texts = MESSAGES.roadmap
-        note = self._push_passed(at_stop=True) if stop.push else ""
+        try:
+            note = self._push_passed(at_stop=True) if stop.push else ""
+        except GitSettingsError as exc:
+            note = texts.implement_stop_push_failed.format(output=mask_secrets(str(exc)))
+            stop.failure_class = FailureClass.GIT_CONFIG
         if stop.push and not note:
             note = self._kept_note(branch=stop.kept_branch)
         if self.pull is not None and self.amendments:
@@ -1900,7 +1906,9 @@ class _ItemRun:
         (`_current_tip`). A Planned item with a commit publishes its branch and opens its draft;
         with none, nothing is pushed. `in_step` is true for the `wip:` push of a step that runs, and
         `at_stop` for the push of a stop, which drops what no commit holds first. The text to add to
-        the comment when the push fails or a rebase conflict pushes nothing, else empty."""
+        the comment when the push fails or a rebase conflict pushes nothing, else empty. A git
+        setting that the job does not allow raises `GitSettingsError`: the item stops with the
+        class `git_config`, and the job writes no record of the push first."""
         texts = MESSAGES.roadmap
         try:
             if self.pull is None and not self._has_new_commits():
@@ -1912,7 +1920,7 @@ class _ItemRun:
                 self._push_with_lease(tip)
             else:
                 self._publish(tip)
-        except (GitOperationError, GitSettingsError) as exc:
+        except GitOperationError as exc:
             return texts.implement_stop_push_failed.format(output=mask_secrets(str(exc)))
         except _StopError as exc:
             return texts.implement_stop_push_failed.format(output=mask_secrets(exc.reason))
