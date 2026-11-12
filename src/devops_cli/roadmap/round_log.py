@@ -87,6 +87,21 @@ def log_review_round(
     )
 
 
+def log_review_extension(repo: str, item: int, round_: int, *, before: int, open_: int) -> None:
+    """Log one repair round of the model review past `roadmap.stage.verify_repair_rounds`: the
+    count of open findings dropped from `before` to `open_` in the last two reviews (#5066). The
+    review of the round logs its own `stage review round:` line."""
+    logger.info(
+        "stage review extended: repo=%s item=#%d round=%d before=%d open=%d version=%s",
+        repo or "none",
+        item,
+        round_,
+        before,
+        open_,
+        __version__,
+    )
+
+
 def log_failed_item(repo: str, item: int, step: str, failure_class: str) -> None:
     """Log one item that a stage round failed, with the step and the class of its error."""
     logger.info(
@@ -130,5 +145,6 @@ __all__ = [
     "log_gate_findings",
     "log_gate_returns",
     "log_implement_attempt",
+    "log_review_extension",
     "log_review_round",
 ]

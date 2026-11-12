@@ -11,10 +11,12 @@ of a tool (#3039). The review of refine (`refine_judge`) sends the same request 
 
 A finding is open when its type is in `OPEN_TYPES` and its `quote` is a text of the input or of
 a tool answer (`VerificationInput.contains`), or when it reports a placeholder that the request
-holds (#3264). Each open finding returns the plan to the planner, up to
-`CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS` times (#3039, #5059). An open finding of the last
-review keeps the plan in draft with the label `plan/needs-fix` (#3264). Every other finding is
-advice: the job lists it in its comment. The pass never merges and never marks a
+holds (#3264). Each open finding returns the plan to the planner (#5059). It does so
+`roadmap.stage.verify_repair_rounds` times, and once more for each review that has fewer open
+findings than the review before it, up to `CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS_CEILING`
+rounds (`repair_round_due`, #3039, #5066). An open finding of the last review keeps the plan in
+draft with the label `plan/needs-fix` (#3264). Every other finding is advice: the job lists it in
+its comment. The pass never merges and never marks a
 pull request ready. `devops roadmap eval verify` scores the pass on the golden set
 (`stage_verify_eval`).
 """
@@ -38,6 +40,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_STAGE_VERIFY_BODY_MAX_TOKENS,
     CONST_ROADMAP_STAGE_VERIFY_FILE_MAX_TOKENS,
     CONST_ROADMAP_STAGE_VERIFY_MAX_FILES,
+    CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS_CEILING,
 )
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.pull_form import is_placeholder
@@ -310,6 +313,19 @@ def open_findings(
     ]
 
 
+def repair_round_due(round_: int, rounds: int, open_counts: Sequence[int]) -> bool:
+    """Whether repair round `round_` (1 for the first) may start after the reviews whose open
+    findings counted `open_counts`, in order. A round up to `rounds`
+    (`roadmap.stage.verify_repair_rounds`) may start. A later round may start only while the last
+    review has fewer open findings than the review before it: a check of counts with no model
+    call (#5066). No round passes `CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS_CEILING`."""
+    if round_ > CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS_CEILING:
+        return False
+    if round_ <= rounds:
+        return True
+    return len(open_counts) >= 2 and open_counts[-1] < open_counts[-2]
+
+
 def finding_line(finding: Finding) -> str:
     """The line that lists `finding` in a comment: its type, place and problem, and its quote with
     the secrets and the markup of the model's text made safe."""
@@ -362,6 +378,7 @@ __all__ = [
     "findings_section",
     "open_findings",
     "open_findings_section",
+    "repair_round_due",
     "return_problem",
     "verify",
 ]

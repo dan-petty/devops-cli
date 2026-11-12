@@ -56,10 +56,12 @@ plan and the files that the plan cites, and reads the repository with the read t
 of the task `verification` (#3039). A finding is open when it is of the type `missing_path`,
 `false_premise`, `ignores_existing_code`, `task_order`, `verify_form`, `spec_delta_wrong` or
 `criterion_dropped` and quotes its evidence, or when it reports a placeholder. An open finding sends
-the plan back to the planner, with each open finding of that round, up to
-`CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS` times (#3039, #5059). If the last review has an open
-finding, the job keeps the draft with the label `plan/needs-fix` and puts the finding first in the
-comment (#3264). The comment lists every other finding of each round (#3039).
+the plan back to the planner, with each open finding of that round (#5059). It does so
+`roadmap.stage.verify_repair_rounds` times, and once more while the count of open findings drops,
+up to `CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS_CEILING` rounds (#3039, #5066). No round starts
+after the Service stops (#4925). If the last review has an open finding, the job keeps the draft
+with the label `plan/needs-fix` and puts the finding first in the comment (#3264). The comment
+lists every other finding of each round (#3039).
 The review never merges and never marks a draft ready. `plan_item` plans one item with a given client
 and checkout: the golden set of the job runs
 it on each case (`stage_eval_run`, #3028). The plan writes nothing to git or to GitHub. A model call
@@ -112,7 +114,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_STAGE_CONTEXT_MAX_TOKENS,
     CONST_ROADMAP_STAGE_PLAN_DEFECT_LIMIT,
     CONST_ROADMAP_STAGE_REFUSED_PROBLEM_MAX_CHARS,
-    CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS,
+    CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS_CEILING,
     CONST_ROADMAP_STATUS_NEW,
     CONST_ROADMAP_STATUS_READY,
 )
@@ -178,7 +180,12 @@ from devops_cli.roadmap.refine.refine import (
     title_dependencies,
 )
 from devops_cli.roadmap.refine.refine_investigation import task_window
-from devops_cli.roadmap.round_log import log_gate_findings, log_gate_returns, log_review_round
+from devops_cli.roadmap.round_log import (
+    log_gate_findings,
+    log_gate_returns,
+    log_review_extension,
+    log_review_round,
+)
 from devops_cli.roadmap.service_stop import raise_if_service_stops
 from devops_cli.roadmap.stage.stage_change import (
     CHANGE_TASK,
@@ -279,6 +286,7 @@ from devops_cli.roadmap.stage.stage_verify import (
     findings_section,
     open_findings,
     open_findings_section,
+    repair_round_due,
     return_problem,
 )
 from devops_cli.roadmap.step_files import code_spans
@@ -1116,6 +1124,8 @@ class _Planner:
         self._gate_returns = (
             load_settings().roadmap.stage.gate_returns if gate_returns is None else gate_returns
         )
+        # The repair rounds of the model review: `roadmap.stage.verify_repair_rounds` (#5066).
+        self._verify_rounds = load_settings().roadmap.stage.verify_repair_rounds
         self._plan_files = plan_files
         self._toolbox = toolbox or (client if isinstance(client, ToolboxClient) else None)
         self._verifier = verifier
@@ -1199,10 +1209,13 @@ class _Planner:
         to the model `roadmap.stage.gate_returns` times (R), with the problem, and so does the
         revision of each repair round (#4348, #4802). The model splits the groups at most once.
         With a verifier, the model review of the plan (#3153) follows the checks and may return the
-        plan up to `CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS` times (#3039). So an item costs R + 2
-        planner calls at most without a verifier (5 at the default of 3), 3R + 4 with one (13), and
-        three calls of the verifier. R is at most `CONST_ROADMAP_STAGE_GATE_RETURNS_CEILING` (3), so
-        13 planner calls is also the hard ceiling of an item (#4900)."""
+        plan V times (`roadmap.stage.verify_repair_rounds`, #3039, #5066), and more while its
+        count of open findings drops, at most `CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS_CEILING`
+        (4) times. So an item costs R + 2 planner calls at most without a verifier (5 at the
+        default of 3), (V + 1)(R + 1) + 1 with one (13 at the defaults) and V + 1 calls of the
+        verifier, and with the extensions at most 5R + 6 planner calls and 5 calls of the verifier.
+        R is at most `CONST_ROADMAP_STAGE_GATE_RETURNS_CEILING` (3), so 21 planner calls is the
+        hard ceiling of an item (#4900, #5066)."""
         self._split_asked = False
         self._premise = None
         self._findings = {}
@@ -1502,9 +1515,10 @@ class _Planner:
     ) -> StagedChange | OverBudget:
         """The change after the model review. An open finding sends the plan back to the planner
         with each open finding of the round (#5059). The revised plan passes the checks and the
-        review again, up to
-        `CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS` times (#3039), and a revision that stays refused
-        stops the item. Every finding of each round stays on the change for the comment (#3039). The last
+        review again, for each round that `repair_round_due` allows (#3039, #5066), and a revision
+        that stays refused stops the item. No round starts after the Service stops (#4925), and a
+        round past the setting logs its extension. Every finding of each round stays on the change
+        for the comment (#3039). The last
         review judges the last plan, so only its open findings keep the draft with
         `plan/needs-fix` (#3264). Each review logs one line with its counts (#4535)."""
         number = target.item.number
@@ -1517,9 +1531,15 @@ class _Planner:
             returned=len(open_),
             open_=len(open_),
         )
-        for round_ in range(1, CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS + 1):
-            if not open_:
+        counts = [len(open_)]
+        for round_ in range(1, CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS_CEILING + 1):
+            if not open_ or not repair_round_due(round_, self._verify_rounds, counts):
                 break
+            raise_if_service_stops(f"review round {round_} of the plan of #{number}")
+            if round_ > self._verify_rounds:
+                log_review_extension(
+                    self._pull_repo, number, round_, before=counts[-2], open_=counts[-1]
+                )
             revised = self._repaired(target, request, change, open_, key)
             if isinstance(revised, OverBudget):
                 return revised
@@ -1533,6 +1553,7 @@ class _Planner:
                 returned=len(open_),
                 open_=len(open_),
             )
+            counts.append(len(open_))
             seen = [*seen, *findings]
         return replace(change, findings=tuple(dict.fromkeys(seen)), open_findings=tuple(open_))
 

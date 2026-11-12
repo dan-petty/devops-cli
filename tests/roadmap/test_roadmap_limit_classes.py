@@ -57,6 +57,8 @@ REMOVED: Final[tuple[str, ...]] = (
     "DEFAULT_ROADMAP_IMPLEMENT_STEP_TOKEN_CEILING",
     # The returns of a refused stage reply are a setting: `DEFAULT_ROADMAP_STAGE_GATE_RETURNS`.
     "CONST_ROADMAP_STAGE_GATE_RETURNS",
+    # The repair rounds of the review are a setting: `DEFAULT_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS`.
+    "CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS",
 )
 
 LIMITS: Final[dict[str, tuple[str, str]]] = {
@@ -259,9 +261,9 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
     ),
     "CONST_ROADMAP_STAGE_VERIFY_FILE_MAX_TOKENS": ("kept", "same reason as the body cap"),
     "CONST_ROADMAP_STAGE_VERIFY_MAX_FILES": ("kept", "same reason as the body cap"),
-    "CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS": (
-        "kept",
-        "planner calls that repair one plan; it bounds the cost of a plan that the review returns",
+    "CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS_CEILING": (
+        "guard",
+        "the hard ceiling of `roadmap.stage.verify_repair_rounds` and of its extension; 5 review runs and 21 plan runs of an item at most (#5066)",
     ),
     "CONST_ROADMAP_STAGE_ORPHAN_AGE_SECONDS": (
         "kept",
@@ -276,6 +278,10 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
     "DEFAULT_ROADMAP_STAGE_GATE_RETURNS": (
         "setting",
         "returns of one refused reply to the planner; the owner tunes it toward 80% stage success (#4802)",
+    ),
+    "DEFAULT_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS": (
+        "setting",
+        "planner calls that repair one plan that the review returns; one more round follows while the open findings drop (#5066)",
     ),
     "DEFAULT_ROADMAP_STAGE_PLANNED_LIMIT": (
         "setting",
