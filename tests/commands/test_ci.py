@@ -2661,6 +2661,40 @@ def test_a_second_signal_to_devops_ci_test_cannot_skip_the_sigkill(
         ) == (True, True, True, False)
 
 
+@pytest.mark.usefixtures("narrowed_project", "default_signal_dispositions")
+def test_a_stop_signal_cancels_the_gate_and_the_running_row_names_itself(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """In process: a Ctrl-C while a row waits for its child cancels the gate. The child is
+    stopped, the row prints its stopped line, and the gate exits as cancelled, 130 (#4775). The
+    test raises the Ctrl-C itself with `signal.raise_signal`. The double's pid is 0, which the
+    group stop refuses to signal, so the stop kills the double alone."""
+
+    async def ctrl_c_then_hang(_spawn: RecordedSpawn) -> None:
+        signal.raise_signal(signal.SIGINT)
+        await asyncio.sleep(DEFAULT_SUBPROCESS_TIMEOUT_SECONDS)
+
+    spawns = record_spawns(monkeypatch, on_communicate=ctrl_c_then_hang)
+    # A KeyboardInterrupt that escapes would end the whole session, so the test catches it.
+    try:
+        result = runner.invoke(app, ["--check", "--only", "format", "--no-cache"])
+        outcome: object = (
+            result.exit_code,
+            [
+                line.strip().partition(" (stopped after ")[0]
+                for line in result.output.splitlines()
+                if "stopped after" in line
+            ],
+        )
+    except KeyboardInterrupt:
+        outcome = "KeyboardInterrupt"
+
+    assert (outcome, [spawn.killed for spawn in spawns]) == (
+        (CONST_EXIT_CANCELLED, [f"✗ fail  {MESSAGES.ci.ruff_format}"]),
+        [True],
+    )
+
+
 @pytest.mark.live("devops")
 @pytest.mark.usefixtures("default_signal_dispositions")
 def test_a_sigterm_to_the_gate_stops_the_group_of_each_running_row_and_names_it(
