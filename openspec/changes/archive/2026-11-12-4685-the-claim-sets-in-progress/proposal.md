@@ -7,7 +7,7 @@
 ## What Changes
 
 - After a claim that is made, `devops repos worktrees add` sets `status/in-progress` on the item when its Status is New, Ready or Planned, or when it has no Status. It keeps every other Status: In Progress, In Review and Blocked. A Blocked item stays Blocked also when the implement job recorded the stop, because a claim is no fix of a stop.
-- The forward rule is the one of `devops pr create` (`_REPLACES` in `src/devops_cli/roadmap/pull_status.py`). The new function `set_claimed_status` in that module applies it. `progress_as_agent` in `src/devops_cli/roadmap/claim.py` calls it and gives the reason of a failed write as text, as `claim_as_agent` does.
+- The forward rule is the one of `devops pr create` (`_REPLACES` in `src/devops_cli/roadmap/pull_status.py`). The new function `set_claimed_status` in that module applies it and writes through the one Status writer, `write_status` (#5018), with the new fact `agent_claimed` of `StatusFacts`, which `derive_status` maps to In Progress. `progress_as_agent` in `src/devops_cli/roadmap/claim.py` calls it and gives the reason of a failed write as text, as `claim_as_agent` does.
 - A failed Status write does not stop the command. The JSON report holds the reason in the new field `status_error`, `claimed` stays true, and the table output prints a warning.
 - `--dry-run` lists the read and the write of the Status after the requests of the claim, each with its condition, and sends no request.
 - `devops pr create` keeps its forward-only set.
@@ -20,7 +20,7 @@
 ## Impact
 
 - An item that an agent starts with `devops repos worktrees add` shows In Progress at once, not only when the pull request opens.
-- Each real run makes up to three more GitHub requests after a claim that is made: one read of the issue, then the read and the write of the Status. The run makes no write when the Status stays.
+- Each real run makes up to four more GitHub requests after a claim that is made: one read of the issue, then the read and the write of the Status, and the read-back of `write_status`. The run makes no write when the Status stays.
 - `devops roadmap claim` does not change: it sets only the owner label.
 
 ## Feasibility

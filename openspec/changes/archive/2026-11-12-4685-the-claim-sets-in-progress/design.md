@@ -4,6 +4,7 @@
 
 - The Status write runs after the claim, and only when the claim is made. An item that another owner holds is not the agent's work, so its Status stays.
 - `set_claimed_status` sits in `pull_status.py` beside `set_delivered_status` and reads the same table `_REPLACES`, so one table holds the forward rule of every Status write of an agentic coder.
+- The write goes through `write_status`, the one Status writer, which reads the label back. The claim is a fact of its own, `agent_claimed`, and not `pull_open`, because no pull request is open yet. `derive_status` gives In Progress for it, after New and In Review, as for an open pull request.
 - The claim keeps every Blocked item Blocked. `devops pr create` moves a Blocked item with `implement.stopped` because its pull request is the fix of the stop. A claim is only the start of the work, and the clear rules of a stop (`stop_clear.py`) stay the one way out of Blocked before a pull request.
 - The report gets its own field `status_error`. The owner label is set when only the Status write fails, so `claimed` stays true and `claim_error` stays empty. The warning names the reason, and the next `devops pr create` sets In Progress by the same rule.
 - `progress_as_agent` imports `pull_status` inside the function, so the help of `devops repos` loads no more modules.
