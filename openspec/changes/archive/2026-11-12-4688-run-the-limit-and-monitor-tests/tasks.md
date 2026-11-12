@@ -4,8 +4,8 @@
 
 - [x] 1.1 Write a failing test: the default `usage_limits` of `run_step`, `run_fix_step` and `ToolboxClient` equal the guards `CONST_ROADMAP_IMPLEMENT_MAX_REQUESTS`, `CONST_ROADMAP_IMPLEMENT_MAX_TOOL_CALLS`, `CONST_ROADMAP_STAGE_MAX_REQUESTS` and `CONST_ROADMAP_STAGE_TOOL_MAX_CALLS`.
   - Verification: `$ uv run devops ci test tests/roadmap/test_roadmap_limit_classes.py`
-- [x] 1.2 Add `usage_limits` to `run_step` and `run_fix_step` in `src/devops_cli/roadmap/implement/implement_step.py`, pass it to each run of the agent, and add `usage_limits` to `ToolboxClient` in `src/devops_cli/roadmap/stage/stage_toolbox.py`.
-  - Verification: `$ uv run devops ci test tests/roadmap/test_roadmap_limit_classes.py tests/roadmap/implement/test_roadmap_implement_step.py tests/roadmap/stage/test_roadmap_stage_toolbox.py`
+- [x] 1.2 Add `usage_limits` to `run_step` and `run_fix_step` in `src/devops_cli/roadmap/implement/implement_step.py`, pass it to each run of the agent, and add `usage_limits` to `ToolboxClient` in `src/devops_cli/roadmap/stage/stage_toolbox.py`. The MCP test that calls `_attempt` in `tests/roadmap/test_roadmap_mcp.py` passes it too.
+  - Verification: `$ uv run devops ci test tests/roadmap/test_roadmap_limit_classes.py tests/roadmap/implement/test_roadmap_implement_step.py tests/roadmap/stage/test_roadmap_stage_toolbox.py tests/roadmap/test_roadmap_mcp.py`
 
 ## 2. The tests of the limits and of the watch run small (other)
 
