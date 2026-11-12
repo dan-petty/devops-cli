@@ -227,17 +227,18 @@ def test_semgrep_gets_only_its_own_setting_and_not_the_environment_of_the_person
 
 
 def test_ci_workflow_runs_rule_pack_tests_when_rules_change() -> None:
-    """`.github/workflows/ci.yml` defines a path-filtered `rule-pack` job outside `devops ci`."""
-    workflow = yaml.safe_load((REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text("utf-8"))
+    """`.github/workflows/rule-pack.yml` runs the rule pack tests outside `devops ci`, only for a
+    pull request that changes the rule pack or the workflow (#1145, #4653)."""
+    workflow = yaml.safe_load(
+        (REPO_ROOT / ".github" / "workflows" / "rule-pack.yml").read_text("utf-8")
+    )
     job = workflow["jobs"]["rule-pack"]
     steps = {step["name"]: step for step in job["steps"]}
-    detect = steps["Detect Changed Rule Pack Files"]
     run_step = steps["Run Semgrep Rule Pack Tests"]
-    changed_cond = "steps.changed_rules.outputs.changed == 'true'"
     assert (
-        (job["name"], job["if"], job["permissions"]),
-        (":(glob)src/devops_cli/review/rules/**" in detect["run"], detect["env"]["BASE_REF"]),
-        (steps["Set up uv toolchain"].get("if"), run_step.get("if")),
+        (job["name"], job["permissions"]),
+        workflow[True]["pull_request"]["paths"][0],
+        workflow["env"]["UV_MANAGED_PYTHON"],
         (
             "devops install-tools --tool semgrep" in run_step["run"],
             "semgrep --test --metrics off src/devops_cli/review/rules" in run_step["run"],
@@ -247,9 +248,9 @@ def test_ci_workflow_runs_rule_pack_tests_when_rules_change() -> None:
         "rule-pack" in {spec.name for spec in get_check_specs()},
         resolve_devops_argv(["review", "rules", "test", "--check"]),
     ) == (
-        ("Rule Pack Tests", "github.event_name == 'pull_request'", {"contents": "read"}),
-        (True, "${{ github.base_ref }}"),
-        (changed_cond, changed_cond),
+        ("Rule Pack Tests", {"contents": "read"}),
+        "src/devops_cli/review/rules/**",
+        "1",
         (True, True, True),
         [],
         False,

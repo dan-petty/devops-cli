@@ -62,11 +62,11 @@ JOB_LIMIT_MINUTES = {
     ("ci.yml", "mcp-server-image"): 12,  # 331 s
     ("ci.yml", "dependency-freshness"): 5,  # 33 s
     ("ci.yml", "changed-tests"): 15,  # 797 s before #4509, 174 s after it
-    ("ci.yml", "rule-pack"): 5,  # 35 s on 2026-10-17; no rule changed after it
-    ("ci.yml", "docs-site"): 5,  # 35 s
-    ("ci.yml", "image-pins"): 5,  # 74 s
-    ("ci.yml", "third-party-image-scan"): 5,  # 47 s
     ("service-image-test.yml", "service-image-test"): 20,  # 678 s
+    ("rule-pack.yml", "rule-pack"): 5,  # 35 s on 2026-10-17; no rule changed after it
+    ("docs-site.yml", "docs-site"): 5,  # 35 s
+    ("image-pins.yml", "image-pins"): 5,  # 74 s
+    ("third-party-image-scan.yml", "third-party-image-scan"): 5,  # 47 s
 }
 
 # The limit of the step that runs the gate or the tests, in minutes. The comment gives the longest
@@ -590,32 +590,33 @@ def test_every_trivy_scan_runs_the_trivy_tools_lock_pins() -> None:
         ("ci.yml", "service-image", pinned),
         ("ci.yml", "runner-image", pinned),
         ("ci.yml", "mcp-server-image", pinned),
-        ("ci.yml", "third-party-image-scan", pinned),
         ("release.yml", "service-image", pinned),
         ("release.yml", "runner-image", pinned),
         ("release.yml", "mcp-server-image", pinned),
+        ("third-party-image-scan.yml", "third-party-image-scan", pinned),
     ]
 
 
 def test_the_third_party_image_scan_reports_and_never_fails_the_job() -> None:
-    """The Crawl4AI image is not ours to rebuild, so its scan exits 0 whatever it finds, and the job
-    scans only when a pull request changes the manifest that pins the image (#3884)."""
-    job = _load_workflow(WORKFLOWS_DIR / "ci.yml")["jobs"]["third-party-image-scan"]
+    """The Crawl4AI image is not ours to rebuild, so its scan exits 0 whatever it finds, and its
+    workflow runs only when a pull request changes the manifest that pins the image or the
+    workflow (#3884, #4653)."""
+    workflow = _load_workflow(WORKFLOWS_DIR / "third-party-image-scan.yml")
+    job = workflow["jobs"]["third-party-image-scan"]
     (scan,) = [
         step for _, step in _extract_steps_with_action({"jobs": {"scan": job}}, "trivy-action")
     ]
-    (detect,) = [step for step in job["steps"] if "paths-filter" in str(step.get("uses", ""))]
 
     assert (
         scan["with"]["exit-code"],
         scan["with"]["image-ref"],
-        yaml.safe_load(detect["with"]["filters"]),
-        scan["if"],
+        workflow["on"]["pull_request"]["paths"][0],
+        job["permissions"],
     ) == (
         "0",
         "${{ steps.image.outputs.ref }}",
-        {"crawl4ai": ["k8s/devops/crawl4ai/deployment.yaml"]},
-        "steps.changes.outputs.crawl4ai == 'true'",
+        "k8s/devops/crawl4ai/deployment.yaml",
+        {"contents": "read"},
     )
 
 
@@ -1499,49 +1500,139 @@ LYCHEE = (
     "lycheeverse/lychee@sha256:eaff3e0a13603c9a701accfcc84f44158bb77bf36ecfa4622b626056c3463892"
 )
 
+# ── The path checks (#4653) ───────────────────────────────────────────────────
+
+# Each check that does work only for some paths has a workflow of its own: the file, its one job
+# and the job name, and the `paths` filter of its `pull_request` trigger.
+PATH_CHECKS: dict[str, tuple[str, str, list[str]]] = {
+    "rule-pack.yml": (
+        "rule-pack",
+        "Rule Pack Tests",
+        ["src/devops_cli/review/rules/**", ".github/workflows/rule-pack.yml"],
+    ),
+    "docs-site.yml": (
+        "docs-site",
+        "Docs Site Build",
+        ["docs/**", ".github/workflows/docs-site.yml"],
+    ),
+    "image-pins.yml": (
+        "image-pins",
+        "Image Pins",
+        [
+            "k8s/**",
+            "src/devops_cli/**/image_pins.py",
+            "src/devops_cli/docker/registry.py",
+            ".github/workflows/image-pins.yml",
+        ],
+    ),
+    "third-party-image-scan.yml": (
+        "third-party-image-scan",
+        "Third-Party Image Scan",
+        ["k8s/devops/crawl4ai/deployment.yaml", ".github/workflows/third-party-image-scan.yml"],
+    ),
+}
+
+
+@pytest.mark.parametrize("name", sorted(PATH_CHECKS))
+def test_a_path_check_is_a_workflow_that_only_its_paths_start(name: str) -> None:
+    """A job that tests its paths in a step takes a runner on each push, and the account runs at
+    most 20 hosted jobs at one time. The native `paths` filter decides before a runner starts, so
+    each path check is a workflow of its own with one job that keeps its check name. No step
+    filters the paths again, and `ci.yml` holds no copy of the job. A newer push cancels the run
+    of the older head (#4653)."""
+    job_id, check, paths = PATH_CHECKS[name]
+    workflow = _load_workflow(WORKFLOWS_DIR / name)
+    job = workflow["jobs"][job_id]
+
+    assert (
+        workflow["on"],
+        workflow["concurrency"],
+        workflow["permissions"],
+        workflow["env"]["DO_NOT_TRACK"],
+        list(workflow["jobs"]),
+        job["name"],
+        "if" in job,
+        [step for step in job["steps"] if "if" in step or "paths-filter" in step.get("uses", "")],
+        job_id in _load_workflow(WORKFLOWS_DIR / "ci.yml")["jobs"],
+    ) == (
+        {
+            "pull_request": {
+                "types": ["opened", "synchronize", "reopened"],
+                "branches": ["main"],
+                "paths": paths,
+            }
+        },
+        {"group": "${{ github.workflow }}-${{ github.ref }}", "cancel-in-progress": True},
+        {},
+        "1",
+        [job_id],
+        check,
+        False,
+        [],
+        False,
+    )
+
+
+@pytest.mark.parametrize(
+    ("changed", "started"),
+    [
+        ("src/devops_cli/review/rules/k8s-networkpolicy-ingress-any.yaml", ["rule-pack.yml"]),
+        ("docs/SDLC.md", ["docs-site.yml"]),
+        ("docs/_config.yml", ["docs-site.yml"]),
+        ("k8s/monitoring/grafana-values.yaml", ["image-pins.yml"]),
+        ("src/devops_cli/k8s/image_pins.py", ["image-pins.yml"]),
+        ("src/devops_cli/commands/k8s/image_pins.py", ["image-pins.yml"]),
+        ("src/devops_cli/docker/registry.py", ["image-pins.yml"]),
+        ("k8s/devops/crawl4ai/deployment.yaml", ["image-pins.yml", "third-party-image-scan.yml"]),
+        (".github/workflows/rule-pack.yml", ["rule-pack.yml"]),
+        (".github/workflows/third-party-image-scan.yml", ["third-party-image-scan.yml"]),
+        (".github/workflows/ci.yml", []),
+        ("src/devops_cli/review/admission.py", []),
+        ("openspec/changes/4653-move-the-four-path-checks-into/proposal.md", []),
+        ("README.md", []),
+        ("tests/invariants/test_workflow_contracts.py", []),
+    ],
+)
+def test_a_pull_request_starts_only_the_path_checks_whose_paths_it_changes(
+    changed: str, started: list[str]
+) -> None:
+    """A pull request that changes no path of a filter starts no run of that workflow, and no
+    runner waits for it. A change to `ci.yml` starts none of them: each workflow watches its own
+    file (#4653)."""
+    assert [
+        name
+        for name in sorted(PATH_CHECKS)
+        if _starts_on(_load_workflow(WORKFLOWS_DIR / name)["on"]["pull_request"]["paths"], changed)
+    ] == started
+
 
 def test_a_pull_request_that_changes_the_site_builds_it_with_the_pages_builder() -> None:
     """GitHub Pages publishes `main:/docs` when a pull request merges, so a Liquid or Jekyll error
     in `docs/` breaks the site at the merge. The `docs-site` job builds `docs/` on the pull request
     first, with the image that `actions/jekyll-build-pages` v1.0.13 runs, by digest, because the
-    action names its image by a tag. The job runs for every pull request and builds only when
-    `docs/` or `ci.yml` changed, so on any other pull request it reports success. Its `if` names
-    no branch, no job needs it, and it holds no write scope. The container has no network and
+    action names its image by a tag. Its workflow runs only for a pull request that changes
+    `docs/` or the workflow (#4653). It holds no write scope. The container has no network and
     mounts `docs/` read-only, so the build needs no token and writes nothing to the checkout. Its
     resolver is loopback: the GitHub metadata plugin then gets a failed DNS lookup, which it
     catches, and builds without metadata. The runner's own resolver is unreachable without a
     network, which raises an error that the plugin does not catch (#1651)."""
-    jobs = _load_workflow(WORKFLOWS_DIR / "ci.yml")["jobs"]
-    job = jobs["docs-site"]
-    built = "steps.changes.outputs.docs == 'true'"
+    job = _load_workflow(WORKFLOWS_DIR / "docs-site.yml")["jobs"]["docs-site"]
 
     assert (
-        job["if"],
         job["permissions"],
         job["timeout-minutes"],
-        [name for name, other in jobs.items() if "docs-site" in _needs(other)],
         job["steps"],
     ) == (
-        "github.event_name == 'pull_request'",
-        {"contents": "read", "pull-requests": "read"},
+        {"contents": "read"},
         5,
-        [],
         [
             {
-                "name": "Detect Docs Site Changes",
-                "id": "changes",
-                "uses": PATHS_FILTER,
-                "with": {"filters": "docs:\n  - 'docs/**'\n  - '.github/workflows/ci.yml'\n"},
-            },
-            {
                 "name": "Check out repository",
-                "if": built,
                 "uses": CHECKOUT,
                 "with": {"persist-credentials": False},
             },
             {
                 "name": "Build the Site with the GitHub Pages Builder",
-                "if": built,
                 "env": {"PAGES_BUILDER": PAGES_BUILDER},
                 "run": 'mkdir -p "$GITHUB_WORKSPACE/_site"\n'
                 "docker run --rm --network none --dns 127.0.0.1 \\\n"
@@ -1560,7 +1651,6 @@ def test_a_pull_request_that_changes_the_site_builds_it_with_the_pages_builder()
             },
             {
                 "name": "Verify Built Site Pages and Links",
-                "if": built,
                 "env": {"LYCHEE": LYCHEE},
                 "run": 'test -f "$GITHUB_WORKSPACE/_site/index.html" || {\n'
                 '  echo "::error::Built site is missing index.html at root"\n'
@@ -1660,56 +1750,40 @@ def test_the_design_tokens_job_builds_the_tokens_only_when_a_path_of_its_filter_
 
 def test_a_pull_request_that_changes_an_image_pin_resolves_each_pinned_image() -> None:
     """A wrong image tag under `k8s/` fails only when Argo CD syncs, so the `image-pins` job runs
-    `devops k8s image-pins` on the pull request first. It runs for every pull request and checks
-    only when the manifests, the command's modules, the registry module or `ci.yml` changed, so on any other pull
-    request it reports success. No job needs it, and it holds no write scope. It installs the
-    pinned helm, which renders the chart Applications, with the lock's installer (#1994)."""
-    jobs = _load_workflow(WORKFLOWS_DIR / "ci.yml")["jobs"]
-    job = jobs["image-pins"]
-    changed = "steps.changes.outputs.pins == 'true'"
+    `devops k8s image-pins` on the pull request first. Its workflow runs only for a pull request
+    that changes the manifests, the command's modules, the registry module or the workflow
+    (#4653). It holds no write scope. It installs the pinned helm, which renders the chart
+    Applications, with the lock's installer (#1994)."""
+    workflow = _load_workflow(WORKFLOWS_DIR / "image-pins.yml")
+    job = workflow["jobs"]["image-pins"]
 
     assert (
-        job["if"],
+        workflow["env"]["UV_MANAGED_PYTHON"],
         job["permissions"],
         job["timeout-minutes"],
-        [name for name, other in jobs.items() if "image-pins" in _needs(other)],
         job["steps"],
     ) == (
-        "github.event_name == 'pull_request'",
-        {"contents": "read", "pull-requests": "read"},
+        "1",
+        {"contents": "read"},
         5,
-        [],
         [
             {
-                "name": "Detect Image Pin Changes",
-                "id": "changes",
-                "uses": PATHS_FILTER,
-                "with": {
-                    "filters": "pins:\n  - 'k8s/**'\n  - 'src/devops_cli/**/image_pins.py'\n"
-                    "  - 'src/devops_cli/docker/registry.py'\n  - '.github/workflows/ci.yml'\n"
-                },
-            },
-            {
                 "name": "Check out repository",
-                "if": changed,
                 "uses": CHECKOUT,
                 "with": {"persist-credentials": False},
             },
             {
                 "name": "Set up uv toolchain",
-                "if": changed,
                 "uses": "./.github/actions/setup-toolchain",
                 "with": {"cache-suffix": "image-pins", "save-uv-cache": "false"},
             },
             {
                 "name": "Install Helm",
-                "if": changed,
                 "run": 'echo "$HOME/.local/bin" >> "$GITHUB_PATH"\n'
                 "uv run devops install-tools --tool helm --only-missing\n",
             },
             {
                 "name": "Resolve the Image Pins",
-                "if": changed,
                 "run": "uv run devops k8s image-pins",
             },
         ],

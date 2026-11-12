@@ -2300,22 +2300,6 @@ def _validate_ci_workflow_parity(workflow_data: dict[str, Any]) -> None:
             "Check the duration of Tests & Coverage",
         ): "Reads the job times of the last runs of main from the Actions API, so it is no row of the gate (#2699)",
         (
-            "rule-pack",
-            "Detect Changed Rule Pack Files",
-        ): "Git diff to check whether src/devops_cli/review/rules/** changed",
-        (
-            "rule-pack",
-            "Run Semgrep Rule Pack Tests",
-        ): "Path-filtered Semgrep --test and rules.lock check when rules change",
-        (
-            "docs-site",
-            "Build the Site with the GitHub Pages Builder",
-        ): "Path-filtered build of docs/ with the GitHub Pages builder image when the site changes",
-        (
-            "docs-site",
-            "Verify Built Site Pages and Links",
-        ): "Path-filtered verification of index.html, no raw markdown, and links with lychee (#2070)",
-        (
             "design-tokens",
             "Install Style Dictionary",
         ): "Installs the Style Dictionary lock outside the checkout; the lock is no entry of tools.lock (#4738)",
@@ -2331,18 +2315,6 @@ def _validate_ci_workflow_parity(workflow_data: dict[str, Any]) -> None:
             "design-tokens",
             "Run the Design Tests",
         ): "Path-filtered pytest of tests/design after the build; the test row runs them too (#4738)",
-        (
-            "image-pins",
-            "Install Helm",
-        ): "Installs the pinned helm that renders the chart Applications, with the lock's installer",
-        (
-            "image-pins",
-            "Resolve the Image Pins",
-        ): "Path-filtered resolve of each image an Argo CD Application pins when k8s/ changes (#1994)",
-        (
-            "third-party-image-scan",
-            "Read the Pinned Image",
-        ): "Path-filtered read of the image that Deployment crawl4ai pins, for the report-only scan (#3884)",
     }
 
     all_specs = get_check_specs()

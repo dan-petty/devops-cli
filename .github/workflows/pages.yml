@@ -1,8 +1,8 @@
 # Builds docs/ and deploys it to GitHub Pages (#4656). The workflow runs on a push to main that
 # changes docs/ or this file, and on a manual run, so a merge that changes no site file starts no
 # Pages job. The Pages source of the repository is GitHub Actions; the legacy branch build of
-# main:/docs ran on each push to main. The Docs Site Build check of ci.yml builds docs/ on the
-# pull request first, with the same builder version (v1.0.13).
+# main:/docs ran on each push to main. The Docs Site Build check of docs-site.yml builds docs/ on
+# the pull request first, with the same builder version (v1.0.13).
 name: Pages
 
 on:
