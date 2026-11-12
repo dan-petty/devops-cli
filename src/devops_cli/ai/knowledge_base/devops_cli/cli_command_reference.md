@@ -44,7 +44,7 @@ This document provides an overview of the main command groups implemented in `de
 | | `devops tf apply` | Apply infrastructure configuration | `dir`, `--auto-approve` |
 | | `devops tf output` | Read structured state outputs | `dir`, `--json` |
 | | `devops tf destroy` | Destroy managed cloud resources | `dir`, `--auto-approve` |
-| | `devops tf notify-plan` | Post plan output as a GitHub PR comment | `--plan-file`, `--pr`, `--dry-run`, `--json` |
+| | `devops tf notify-plan` | Format a plan as a pull request comment and print it; send no request | `--plan-file`, `--pr`, `--dry-run`, `--json` |
 | **`scan`** | `devops scan trivy` | Vulnerability & misconfiguration scanning with Trivy | `target`, `--type`, `--severity`, `--json` |
 | | `devops scan secrets` | Secret scanning with Gitleaks | `target`, `--json` |
 | | `devops scan sast` | Static analysis with Semgrep | `target`, `--json` |

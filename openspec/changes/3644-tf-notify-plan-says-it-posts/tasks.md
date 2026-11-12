@@ -11,7 +11,7 @@
 
 ## 2. Documents
 
-- [ ] 2.1 Make the `tf notify-plan` row of the knowledge base command reference say that the command prints the comment
+- [x] 2.1 Make the `tf notify-plan` row of the knowledge base command reference say that the command prints the comment
   - Verification: `$ uv run devops ci docs`
 
 ## Workflow follow-up
