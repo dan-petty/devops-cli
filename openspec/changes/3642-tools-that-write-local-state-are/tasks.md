@@ -9,7 +9,7 @@
 
 ## 2. Documents
 
-- [ ] 2.1 Regenerate `docs/MCP_TOOLS.md`, so that it shows `false` for the six tools
+- [x] 2.1 Regenerate `docs/MCP_TOOLS.md`, so that it shows `false` for the six tools
   - Verification: `$ uv run devops docs generate --check`
 
 ## Workflow follow-up
