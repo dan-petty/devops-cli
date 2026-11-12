@@ -3994,7 +3994,8 @@ class RoadmapMessages:
     fix_plan_left: str = "- #{number}: {reason}"
     fix_plan_attempt: str = (
         "The fix-plan attempt on pull request #{pull} of item #{number} ended {result}: "
-        "{before} open finding(s) before the repair, {after} after it."
+        "the review of the attempt found {before} open finding(s) before the repair and {after} "
+        "after it. The last plan comment listed {comment}."
     )
     fix_plan_counts: str = "The attempt made {counts}, and the head of the branch is {head}."
     fix_plan_plain_note: str = (

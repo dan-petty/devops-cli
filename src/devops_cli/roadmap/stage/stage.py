@@ -1279,13 +1279,15 @@ class _Planner:
     ) -> PlanRevision:
         """The repair of `proposal`, the plan of the open pull request of `target`, for the step
         `fix-plan` (#5061). The request is read at the commit of the planner, and the checks judge
-        `proposal` as they judge a kept plan (`_gated`). `findings` are the open findings that the
-        last comment of the plan lists. With none, the review of the plan that passed the checks
-        gives them, and a plan with no open finding is the revision as it is. Else the planner gets
-        the plan and each open finding, as in a repair round, and `_verified` reviews the revision
-        with the normal repair rounds. No trace of the run that made `proposal` is in the process,
-        so the trace gate judges only the replies of this repair. The planner reads and writes no
-        plan record."""
+        `proposal` as they judge a kept plan (`_gated`). The review of the plan that passed the
+        checks gives the open findings before the repair, so the revision is compared with a review
+        of the same pass at the same commit (#5150). A plan with no open finding in that review is
+        the revision as it is. Else the planner gets the plan, each open finding of the review and
+        each of `findings`, the open findings that the last comment of the plan lists, as in a
+        repair round, and `_verified` reviews the revision with the normal repair rounds. An
+        earlier review wrote the comment, so its findings go to the planner but do not count. No
+        trace of the run that made `proposal` is in the process, so the trace gate judges only the
+        replies of this repair. The planner reads and writes no plan record."""
         verifier = self._verifier
         if verifier is None:
             raise _stage_error(MESSAGES.roadmap.fix_plan_no_review, target)
@@ -1298,21 +1300,19 @@ class _Planner:
         head = self._gated(target, request, first=proposal)
         if isinstance(head, OverBudget):
             return PlanRevision(head)
-        seen: list[Finding] = []
-        before = list(findings)
-        if not before:
-            seen, before = self._review(target, head, verifier)
-            log_review_round(
-                self._pull_repo,
-                target.item.number,
-                0,
-                findings=len(seen),
-                returned=len(before),
-                open_=len(before),
-            )
+        seen, before = self._review(target, head, verifier)
+        log_review_round(
+            self._pull_repo,
+            target.item.number,
+            0,
+            findings=len(seen),
+            returned=len(before),
+            open_=len(before),
+        )
         if not before:
             return PlanRevision(self._traced(replace(head, findings=tuple(seen))))
-        revised = self._repaired(target, request, head, before, None)
+        problems = list(dict.fromkeys((*before, *findings)))
+        revised = self._repaired(target, request, head, problems, None)
         if isinstance(revised, OverBudget):
             return PlanRevision(revised, tuple(before))
         final = self._verified(target, request, revised, verifier, None)
