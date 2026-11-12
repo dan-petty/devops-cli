@@ -1,18 +1,26 @@
-"""Tests for the host-wide gate slots that limit how many CPU-heavy `devops ci` gates run at once
-(#2336)."""
+"""Tests for the host-wide gate slots that limit how many CPU-heavy `devops ci` gates (#2336) and
+direct pytest runs (#4525) run at once."""
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 import threading
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
 
-from devops_cli.ci.gate_slots import gate_slot, gate_slot_count
+from devops_cli.ci.gate_slots import (
+    direct_run_slot,
+    gate_slot,
+    gate_slot_count,
+    gate_slots_directory,
+)
 from devops_cli.config.defaults import DEFAULT_CI_GATE_POLL_SECONDS
 from devops_cli.core import clock as clock_seam
+from devops_cli.core.process import build_subprocess_env
 from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS, wait_until
 
 HOLDER = "4321 /work/w-1111"
@@ -172,3 +180,104 @@ def test_the_number_of_slots_is_the_setting_or_one_for_each_sixteen_cpus(
     configured: int | None, cpus: int, expected: int
 ) -> None:
     assert gate_slot_count(configured, cpus=cpus) == expected
+
+
+# A direct pytest run (#4525): `uv run pytest` with addopts' `-n logical`, started by no gate.
+
+HELD_VARIABLE = "DEVOPS_CLI_GATE_SLOT_HELD"
+
+
+def test_a_held_slot_marks_the_environment_that_the_children_of_its_holder_get(
+    tmp_path: Path, clock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv(HELD_VARIABLE, raising=False)
+
+    with gate_slot(tmp_path, 1, holder=HOLDER, notify=lambda _message: None):
+        assert os.environ[HELD_VARIABLE] == "1"
+
+    assert HELD_VARIABLE not in os.environ
+
+
+def test_the_mark_reaches_the_environment_of_a_child_that_the_holder_starts(
+    tmp_path: Path, clock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The test row of `devops ci` starts pytest with `build_subprocess_env`, so its pytest sees
+    the slot of its parent and takes no second one."""
+    monkeypatch.delenv(HELD_VARIABLE, raising=False)
+
+    with gate_slot(tmp_path, 1, holder=HOLDER, notify=lambda _message: None):
+        assert build_subprocess_env()[HELD_VARIABLE] == "1"
+
+
+def test_a_direct_run_waits_while_a_gate_holds_the_only_slot(
+    tmp_path: Path, clock, monkeypatch: pytest.MonkeyPatch, config: Callable[..., Path]
+) -> None:
+    config(ci={"gate_slots": 1})
+    messages: list[str] = []
+    gate = gate_slot(gate_slots_directory(), 1, holder=HOLDER, notify=messages.append)
+    gate.__enter__()
+    # The gate is another process: its mark reaches its own children, not this run.
+    monkeypatch.delenv(HELD_VARIABLE)
+    gate_holds_the_slot = [True]
+
+    def poll(seconds: float) -> None:
+        if gate_holds_the_slot:
+            gate_holds_the_slot.clear()
+            gate.__exit__(None, None, None)
+        clock.sleep(seconds)
+
+    monkeypatch.setattr(clock_seam, "sleep", poll)
+
+    with direct_run_slot(tmp_path, 16, notify=messages.append, cpus=16) as workers:
+        assert not gate_holds_the_slot
+        assert os.environ[HELD_VARIABLE] == "1"
+        assert workers == 16
+
+    assert len(messages) == 1
+    assert "process 4321 in /work/w-1111" in messages[0]
+
+
+def test_a_run_that_a_gate_started_takes_no_slot_and_keeps_its_workers(
+    tmp_path: Path, clock, monkeypatch: pytest.MonkeyPatch, config: Callable[..., Path]
+) -> None:
+    config(ci={"gate_slots": 1})
+    messages: list[str] = []
+
+    def poll(_seconds: float) -> None:
+        pytest.fail("a run that a gate started waited for a slot")
+
+    with gate_slot(gate_slots_directory(), 1, holder=HOLDER, notify=messages.append):
+        monkeypatch.setattr(clock_seam, "sleep", poll)
+        with direct_run_slot(tmp_path, 32, notify=messages.append, cpus=32) as workers:
+            assert workers == 32
+
+    assert messages == []
+
+
+@pytest.mark.parametrize(
+    ("configured", "cpus", "workers", "expected"),
+    [
+        (None, 16, 16, 16),
+        (None, 32, 32, 16),
+        (4, 16, 16, 4),
+        (None, 4, 2, 2),
+        (3, 2, 2, 1),
+    ],
+)
+def test_a_direct_run_starts_at_most_the_cpus_of_one_slot(
+    tmp_path: Path,
+    clock,
+    monkeypatch: pytest.MonkeyPatch,
+    config: Callable[..., Path],
+    configured: int | None,
+    cpus: int,
+    workers: int,
+    expected: int,
+) -> None:
+    """xdist's own count, from the CPUs or `PYTEST_XDIST_AUTO_NUM_WORKERS`, is `workers`; the run
+    starts no more than the CPUs of the process over the number of slots, and at least one."""
+    monkeypatch.delenv(HELD_VARIABLE, raising=False)
+    config(ci={"gate_slots": configured})
+
+    with direct_run_slot(tmp_path, workers, notify=lambda _message: None, cpus=cpus) as started:
+        assert started == expected

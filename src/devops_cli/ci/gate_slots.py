@@ -1,4 +1,5 @@
-"""Host-wide slots that limit how many CPU-heavy `devops ci` gates run at once (#2336).
+"""Host-wide slots that limit how many CPU-heavy `devops ci` gates (#2336) and direct pytest runs
+(#4525) run at once.
 
 Every worktree of a repository shares one data directory, so the lock files in one directory of it
 are the slots of the host. A slot is an `fcntl.flock` lock that `filelock` takes: the operating
@@ -21,6 +22,9 @@ from devops_cli.core import clock
 from devops_cli.core.repo import resolve_data_path
 from devops_cli.lang import MESSAGES
 
+# Set to "1" while this process holds a slot, so a pytest that it starts takes no second slot.
+_HELD_VARIABLE = "DEVOPS_CLI_GATE_SLOT_HELD"
+
 
 def gate_slots_directory(root: Path | None = None) -> Path:
     """Where the slot files are: a child of the data directory, which every worktree of the
@@ -28,13 +32,17 @@ def gate_slots_directory(root: Path | None = None) -> Path:
     return resolve_data_path(load_settings().data.dir / CONST_CI_GATE_SLOTS_DIRNAME, root)
 
 
+def _process_cpus(cpus: int | None) -> int:
+    """`cpus` when it is given, else the CPUs this process may run on, and at least one."""
+    return cpus if cpus is not None else (os.process_cpu_count() or 1)
+
+
 def gate_slot_count(configured: int | None, *, cpus: int | None = None) -> int:
     """The number of gate slots: `ci.gate_slots` when it is set, else one for each
     DEFAULT_CI_GATE_CPUS_PER_SLOT CPUs of the process, and at least one."""
     if configured is not None:
         return configured
-    available = cpus if cpus is not None else (os.process_cpu_count() or 1)
-    return max(1, available // DEFAULT_CI_GATE_CPUS_PER_SLOT)
+    return max(1, _process_cpus(cpus) // DEFAULT_CI_GATE_CPUS_PER_SLOT)
 
 
 def _took(lock: FileLock) -> bool:
@@ -82,8 +90,9 @@ def gate_slot(
 
     A gate that finds every slot held tells `notify` once who holds them, then tries again every
     DEFAULT_CI_GATE_POLL_SECONDS until a slot is free. It yields the seconds that it waited. The
-    slot holds `holder`, as `<process number> <worktree>`, for the gates that wait behind it. The
-    slot is free again when the body ends or raises, and also when the process dies.
+    slot holds `holder`, as `<process number> <worktree>`, for the gates that wait behind it. While
+    the body runs, `_HELD_VARIABLE` is "1" in the environment that the children of this process
+    get. The slot is free again when the body ends or raises, and also when the process dies.
     """
     directory.mkdir(parents=True, exist_ok=True)
     locks = [
@@ -96,8 +105,37 @@ def gate_slot(
         notify(_wait_message(locks))
         while (taken := _take_free_slot(locks)) is None:
             clock.sleep(DEFAULT_CI_GATE_POLL_SECONDS)
+    previous = os.environ.get(_HELD_VARIABLE)
+    os.environ[_HELD_VARIABLE] = "1"
     try:
         Path(taken.lock_file).write_text(holder, encoding="utf-8")
         yield clock.monotonic() - started
     finally:
+        if previous is None:
+            os.environ.pop(_HELD_VARIABLE, None)
+        else:
+            os.environ[_HELD_VARIABLE] = previous
         taken.release()
+
+
+@contextmanager
+def direct_run_slot(
+    root: Path, workers: int, *, notify: Callable[[str], None], cpus: int | None = None
+) -> Iterator[int]:
+    """Hold a gate slot for a pytest run that starts `workers` xdist workers from `-n logical` or
+    `-n auto` and that no gate started (#4525), and yield the workers it starts.
+
+    Such a run, for example `uv run pytest <file>` with addopts' `-n logical`, loads the host as a
+    gate does, so it waits for a slot as a gate does and starts at most the CPUs of the process
+    over the number of slots, and at least one. A run that the holder of a slot started, such as
+    the test row of `devops ci`, finds `_HELD_VARIABLE` set: it takes no second slot, which its
+    parent holds, and keeps `workers`.
+    """
+    if os.environ.get(_HELD_VARIABLE):
+        yield workers
+        return
+    slots = gate_slot_count(load_settings().ci.gate_slots, cpus=cpus)
+    with gate_slot(
+        gate_slots_directory(root), slots, holder=f"{os.getpid()} {root}", notify=notify
+    ):
+        yield min(workers, max(1, _process_cpus(cpus) // slots))
