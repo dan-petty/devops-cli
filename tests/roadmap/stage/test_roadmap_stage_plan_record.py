@@ -4,13 +4,18 @@ and a rerun or `--confirm` reads it back instead of asking the planner again (#4
 from __future__ import annotations
 
 import json
+import logging
 from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 
 from devops_cli.ai.client.models import AIClientError
 from devops_cli.ai.task_loader import load_task_prompt
+from devops_cli.config.settings import RoadmapStageConfig
+from devops_cli.exceptions import ServiceStoppingError, ended_by_stop
 from devops_cli.exceptions.roadmap import RoadmapStageError
+from devops_cli.roadmap.service_stop import begin_service_stop
+from devops_cli.roadmap.stage import stage as stage_module
 from devops_cli.roadmap.stage import stage_plan_record
 from devops_cli.roadmap.stage.stage import StagePlan, parse_filters, plan_item, plan_stage
 from devops_cli.roadmap.stage.stage_plan_record import (
@@ -19,6 +24,7 @@ from devops_cli.roadmap.stage.stage_plan_record import (
     plan_record_path,
     prompt_version,
     read_plan_record,
+    refused_record_path,
     write_plan_record,
 )
 from devops_cli.roadmap.stage.stage_request import StageRequest
@@ -43,6 +49,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from devops_cli.roadmap.stage.stage import StageClient
+    from devops_cli.roadmap.stage.stage_change import StageProposal
     from tests.support.fakes.github import GitHubApiFake
     from tests.support.fakes.openspec import OpenSpecFake
     from tests.support.fakes.otlp import FakeCollector
@@ -53,6 +60,7 @@ BRANCH = "fix/1-the-job-drops-a-comment"
 PULLS = f"/repos/{STAGE_REPO}/pulls"
 OPENED = github_json({"number": 5, "html_url": "https://example.com/pull/5"}, status=201)
 SAMPLE = "src/devops_cli/sample.py"
+MISSING = "tests/test_missing.py"
 REFINE_START = "<!-- devops-roadmap-refine:start -->"
 REFINE_END = "<!-- devops-roadmap-refine:end -->"
 INPUT = {
@@ -281,6 +289,111 @@ def test_a_plan_that_the_gates_refuse_twice_is_not_kept(
     plan = _plan(store, stage_repo)
 
     assert (plan.ready, len(plan.failed), _file().exists()) == ((), 1, False)
+
+
+def _refused_reply(summary: str = "A plan that names a missing file") -> StageProposal:
+    """A reply that the `paths` gate refuses on each try."""
+    group = make_stage_proposal().groups[0]
+    return make_stage_proposal(
+        summary=summary,
+        groups=[group.model_copy(update={"changes": [*group.changes, MISSING]})],
+    )
+
+
+def _keep_a_plan_that_the_gates_now_refuse() -> StageProposal:
+    """Replace the kept plan of #1 with one that the gates refuse, as a moved commit does to the
+    citations of a kept plan, and return it."""
+    record = read_plan_record(_file(), _key_of_file())
+    assert record is not None
+    stale = _refused_reply("The kept plan")
+    write_plan_record(_file(), record.model_copy(update={"proposal": stale}))
+    return stale
+
+
+def _gate_returns_lines(caplog: pytest.LogCaptureFixture) -> list[str]:
+    """The fields of each `stage gate returns:` line, with the version cut off."""
+    event = "stage gate returns: "
+    return [
+        r.getMessage().removeprefix(event).rsplit(" version=", 1)[0]
+        for r in caplog.records
+        if r.getMessage().startswith(event)
+    ]
+
+
+def test_a_kept_plan_that_the_gates_refuse_uses_no_gate_return(
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The kept plan made no model request, and its gates ran on an older commit. So its refusal
+    uses no return: the planner gets a new first reply and then all the returns of a refused
+    reply, as an item with no kept plan does (#4950)."""
+    model_fake.answer(make_stage_proposal())
+    _plan(store, stage_repo)
+    _keep_a_plan_that_the_gates_now_refuse()
+    model_fake.reset()
+    model_fake.answer(_refused_reply())
+
+    with caplog.at_level(logging.INFO):
+        plan = _plan(store, stage_repo)
+
+    returns = RoadmapStageConfig().gate_returns
+    assert (plan.ready, len(plan.failed), model_fake.call_count) == ((), 1, 1 + returns)
+    assert _gate_returns_lines(caplog) == [
+        f"repo={STAGE_REPO} item=#1 returns={returns} result=refused"
+        " gates=paths:1 codes=stage_problem_path:1"
+    ]
+
+
+def test_the_new_first_reply_after_a_refused_kept_plan_gets_the_plan_and_its_problem(
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The new first reply is no return, so a reply that passes logs no `stage gate returns:`
+    line (#4950)."""
+    model_fake.answer(make_stage_proposal())
+    _plan(store, stage_repo)
+    stale = _keep_a_plan_that_the_gates_now_refuse()
+    model_fake.reset()
+    model_fake.answer(make_stage_proposal(summary="Planned again"))
+
+    with caplog.at_level(logging.INFO):
+        plan = _plan(store, stage_repo)
+
+    (asked,) = [json.loads(call.prompt) for call in model_fake.calls]
+    assert ([c.proposal.summary for c in plan.ready], plan.failed) == (["Planned again"], ())
+    assert (asked["previous"], MISSING in asked["problem"]) == (stale.model_dump(), True)
+    assert _gate_returns_lines(caplog) == []
+
+
+def test_a_refused_kept_plan_starts_no_planner_run_once_the_service_stops(
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The new first reply is a plan run of model requests, as a return is, so it does not start
+    in the drain (#4900)."""
+    model_fake.answer(make_stage_proposal())
+    _plan(store, stage_repo)
+    _keep_a_plan_that_the_gates_now_refuse()
+    model_fake.reset()
+    model_fake.answer(make_stage_proposal(summary="Planned again"))
+
+    def read_in_the_drain(path: Path, key: str) -> StagePlanRecord | None:
+        begin_service_stop()
+        return read_plan_record(path, key)
+
+    monkeypatch.setattr(stage_module, "read_plan_record", read_in_the_drain)
+
+    with pytest.raises(ServiceStoppingError) as stopped:
+        _plan(store, stage_repo)
+
+    assert (ended_by_stop(stopped.value), model_fake.call_count) == (True, 0)
+    assert refused_record_path(STAGE_REPO, 1).exists() is False
 
 
 def test_a_changed_item_body_gives_a_new_key_and_asks_the_planner_again(

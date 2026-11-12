@@ -1032,6 +1032,10 @@ class _Refused(NamedTuple):
     problem: str
     reply: StageProposal
 
+    def returned(self, request: StageRequest) -> dict[str, Any]:
+        """`request` for the model, with this reply and its problem, so the planner revises it."""
+        return {**request.for_model(), "previous": self.reply.model_dump(), "problem": self.problem}
+
 
 def _is_degenerate(proposal: StageProposal) -> bool:
     """Whether every text of the plan reply is a placeholder: `why`, `existing_tool`, each line of
@@ -1305,12 +1309,24 @@ class _Planner:
         key: str | None = None,
     ) -> StagedChange | OverBudget:
         """The change that passes the checks, with the returns of a refused reply. `first` is a kept
-        plan that stands for the first reply of the model. A reply that is a placeholder in every
-        text ends the item at once: the same request gives the same reply (#4204). A failed item
-        keeps its refused replies and their problems in a file under `key`, and each refused reply
-        is logged."""
+        plan, gated again on the current commit. A kept plan that the checks refuse uses no return:
+        no model request made it, and its citations can point at lines that moved. So the planner
+        gets a new first reply with the kept plan and its problem, and then the returns of any
+        reply (#4950). Once the Service stops, that reply does not start, as a return does not
+        (#4900). A reply that is a placeholder in every text ends the item at once: the same
+        request gives the same reply (#4204). A failed item keeps its refused replies and their
+        problems in a file under `key`, and each refused reply is logged."""
         floor = len(self._toolbox_traces())
-        proposal = first or self._ask_plan(target, key, self._refused, request.for_model())
+        ask = request.for_model()
+        if first is not None:
+            outcome = self._settle(target, first, request, trace=self._trace_facts())
+            if not isinstance(outcome, _Refused):
+                return outcome
+            self._note_refused(target, floor, "refused")
+            self._refused.append((outcome.reply, outcome.problem))
+            raise_if_service_stops(f"the new plan of #{target.item.number} after its kept plan")
+            ask = outcome.returned(request)
+        proposal = self._ask_plan(target, key, self._refused, ask)
         return self._returned(target, request, key, floor, proposal, MESSAGES.roadmap.stage_invalid)
 
     def _returned(
@@ -1361,12 +1377,7 @@ class _Planner:
             raise_if_service_stops(f"return {returns + 1} of the plan of #{target.item.number}")
             returns += 1
             self._returns += 1
-            again = {
-                **request.for_model(),
-                "previous": outcome.reply.model_dump(),
-                "problem": outcome.problem,
-            }
-            proposal = self._ask_plan(target, key, refused, again)
+            proposal = self._ask_plan(target, key, refused, outcome.returned(request))
 
     def _ask_plan(
         self,
