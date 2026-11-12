@@ -4,13 +4,13 @@
 
 ## Why the pass exists
 
-Two jobs once took placeholder text from a model as a real result. A placeholder is a text such as `x`, `placeholder`, `probe` or "Not yet: I need to inspect the repository first." The jobs now refuse a placeholder (see [the refine page](refine.md)), and the stage job has no path that returns an item. The items that the old behavior stalled stay stalled until a person or this pass sets them back.
+Two jobs once took placeholder text from a model as a real result. A placeholder is a text such as `x`, `placeholder`, `probe`, `pending` or "Not yet: I need to inspect the repository first." The jobs now refuse a placeholder (see [the refine page](refine.md)), and the stage job has no path that returns an item. The items that the old behavior stalled stay stalled until a person or this pass sets them back.
 
 ## What the pass lists
 
 An item is stalled by one of two causes:
 
-- **A filler return.** The stage job returned the item to New. The newest comment is the comment of the stage job, and its evidence is a placeholder. The pass sets the Status to Ready, the Status that the stage job takes.
+- **A filler return.** The stage job returned the item to New. The newest comment of the stage job is that return, and its evidence is a placeholder. The pass sets the Status to Ready, the Status that the stage job takes.
 - **A stub refine block.** Refine stored a placeholder as the problem statement or as the existing-tool answer, and it asked a person to state the problem. The pass writes the body without the refine section and clears the refine block of the job record. The next refine round reads the item as a new item.
 
 A return whose evidence is a real sentence is not listed, even when the sentence says that the premise holds. No deterministic rule tells such evidence from a true finding, so a person sets those items back.
@@ -21,9 +21,11 @@ The pass leaves an item when a person set it or answered it:
 
 - The Status label differs from the Status that a job last recorded.
 - An agent or a person owns the item (`owner/agent` or `owner/human`), or a runner Job holds it.
-- A comment follows the comment of the job.
+- A comment of a person follows the newest comment of the job.
 - A person edited the refine section, so its hash differs from the recorded hash.
 - The item is closed.
+
+A comment of another roadmap job is no reply. The alternatives check, the intake reason and a retitle often come after the comment of refine, and each holds the marker of its job. The pass reads past them to the newest comment of the job that stalled the item.
 
 ## What the pass reads and writes
 

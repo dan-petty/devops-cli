@@ -12,8 +12,11 @@ from typing import Any
 import pytest
 
 from devops_cli.config.constants import (
+    CONST_ROADMAP_ALTERNATIVES_COMMENT_MARKER,
+    CONST_ROADMAP_INTAKE_REASON_MARKER,
     CONST_ROADMAP_REFINE_END_MARKER,
     CONST_ROADMAP_REFINE_START_MARKER,
+    CONST_ROADMAP_RETITLE_COMMENT_MARKER,
     CONST_ROADMAP_STAGE_COMMENT_MARKER,
 )
 from devops_cli.exceptions import GitHubOperationError, GitHubRateLimitError
@@ -65,6 +68,16 @@ SENTENCE = (
     "The premise is not false: `form_problems` is defined at src/devops_cli/roadmap/stage/stage_form.py:85 "
     "and `title_problems` is imported by a test, so both gates exist and can be tightened."
 )
+# The comments of other roadmap jobs after the comment of the job that stalled the item, as on
+# #3064, #3148 and #3246 (#4799). The owner's login posts the retitle and intake comments, so the
+# marker tells a job's comment from a reply, not the author.
+OTHER_JOBS = (
+    f"{CONST_ROADMAP_ALTERNATIVES_COMMENT_MARKER}\n## Alternatives check: partly",
+    f"{CONST_ROADMAP_INTAKE_REASON_MARKER}\nIntake placed this item to the backlog.",
+    f"{CONST_ROADMAP_RETITLE_COMMENT_MARKER}\nThe title now names the change.",
+)
+# The stub texts that the census of 2026-11-11 found in refine sections (#4799).
+CENSUS_STUBS = ("ignore", "pending", "draft", "temporary", "Placeholder not final.")
 
 
 class _Store(InMemoryRoadmapStore):
@@ -175,6 +188,35 @@ def test_a_stub_refine_block_is_listed(
     assert _listed(plan_repair(store, repo=STAGE_REPO)) == [(number, StallKind.STUB_REFINE)]
 
 
+@pytest.mark.parametrize("text", CENSUS_STUBS)
+def test_a_stub_text_that_the_census_found_is_listed(
+    store: InMemoryRoadmapStore, text: str
+) -> None:
+    number = _stub(store, text, text)
+
+    assert _listed(plan_repair(store, repo=STAGE_REPO)) == [(number, StallKind.STUB_REFINE)]
+
+
+@pytest.mark.parametrize("other", OTHER_JOBS)
+def test_a_comment_of_another_job_after_the_refine_question_is_no_reply(
+    store: InMemoryRoadmapStore, other: str
+) -> None:
+    number = _stub(store)
+    store.seed_comment(number, other, author_association="OWNER")
+
+    assert _listed(plan_repair(store, repo=STAGE_REPO)) == [(number, StallKind.STUB_REFINE)]
+
+
+@pytest.mark.parametrize("other", OTHER_JOBS)
+def test_a_comment_of_another_job_after_the_return_is_no_reply(
+    store: InMemoryRoadmapStore, other: str
+) -> None:
+    number = _returned(store, "x")
+    store.seed_comment(number, other, author_association="OWNER")
+
+    assert _listed(plan_repair(store, repo=STAGE_REPO)) == [(number, StallKind.FILLER_RETURN)]
+
+
 def test_a_dry_listing_writes_nothing(store: InMemoryRoadmapStore) -> None:
     _returned(store, "x")
     _stub(store)
@@ -239,6 +281,14 @@ def test_a_reply_after_the_return_is_left(store: InMemoryRoadmapStore) -> None:
 def test_a_reply_after_the_refine_question_is_left(store: InMemoryRoadmapStore) -> None:
     number = _stub(store)
     store.seed_comment(number, "The problem is the report.", author_association="OWNER")
+
+    assert plan_repair(store, repo=STAGE_REPO).stalled == ()
+
+
+def test_a_reply_before_a_comment_of_another_job_is_left(store: InMemoryRoadmapStore) -> None:
+    number = _stub(store)
+    store.seed_comment(number, "The problem is the report.", author_association="OWNER")
+    store.seed_comment(number, OTHER_JOBS[0], author_association="OWNER")
 
     assert plan_repair(store, repo=STAGE_REPO).stalled == ()
 
@@ -309,6 +359,17 @@ def test_a_confirm_strips_the_stub_section_and_clears_the_refine_block(
     )
     assert (item.status, store.read_issue_body(other)) == ("New", "Two.")
     assert plan_repair(store, repo=STAGE_REPO).stalled == ()
+
+
+def test_a_confirm_clears_a_stub_block_with_a_comment_of_another_job_after_it(
+    store: InMemoryRoadmapStore,
+) -> None:
+    number = _stub(store)
+    store.seed_comment(number, OTHER_JOBS[0], author_association="OWNER")
+
+    done = apply_repair(store, plan_repair(store, repo=STAGE_REPO))
+
+    assert (done.reset, store.read_issue_body(number)) == ((number,), BODY)
 
 
 def test_a_confirm_keeps_the_text_outside_the_section_and_the_alternatives_block(
