@@ -82,6 +82,7 @@ dependencies = [
     "ddgs==9.16.1",
     "opentelemetry-exporter-otlp-proto-common==1.45.1",
     "opentelemetry-instrumentation-httpx==0.66b1",
+    "detect-agent==0.6.0",
 ]
 
 [project.optional-dependencies]

@@ -20,7 +20,6 @@ from typing import TYPE_CHECKING, Annotated, Any, Final
 
 import typer
 from pydantic import BaseModel, ConfigDict, Field
-from typer.core import TyperGroup
 
 from devops_cli.config.commands import build_npm_audit_cmd
 from devops_cli.config.constants import (
@@ -53,7 +52,7 @@ from devops_cli.config.defaults import (
     DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
 )
 from devops_cli.core import clock
-from devops_cli.core.cli import new_typer
+from devops_cli.core.cli import UsageTaggedGroup, new_typer
 from devops_cli.core.dependency_audit import AuditVerdict, audit_verdict
 from devops_cli.core.process import prepare_tool_cmd, run_subprocess
 from devops_cli.dry_run import dry_run_class, is_dry_run, render_dry_run_result, set_dry_run
@@ -88,8 +87,8 @@ def _asks_for_help(ctx: Any, args: list[str]) -> bool:
     return not set(options).isdisjoint(ctx.help_option_names)
 
 
-class FileOrSubcommandGroup(TyperGroup):
-    """Custom TyperGroup tracking help requests on subcommands."""
+class FileOrSubcommandGroup(UsageTaggedGroup):
+    """The group of `devops ci`, which also records whether a subcommand asks for help."""
 
     def invoke(self, ctx: Any) -> Any:
         if ctx._protected_args:

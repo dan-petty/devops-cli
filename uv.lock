@@ -797,6 +797,15 @@ wheels = [
 ]
 
 [[package]]
+name = "detect-agent"
+version = "0.6.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/50/07/62586d442e629fd4208da5dd1bee7bb604898604d9343b0a3fb9c973fc06/detect_agent-0.6.0.tar.gz", hash = "sha256:e1b1bba5d4e20f59f97aeae4016291f9563818a33ff7c0e8a18c6b948b5cd939", size = 45886, upload-time = "2026-08-12T17:08:35.836Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/f8/65/4df635649962338b3f4cd4cbb0f360e1354f8b2043b4728284de8a1a3341/detect_agent-0.6.0-py3-none-any.whl", hash = "sha256:d218806fda221486d886d68526acd950cef9eb09571189968bfc004acd5ca595", size = 11449, upload-time = "2026-08-12T17:08:34.991Z" },
+]
+
+[[package]]
 name = "devops-cli"
 version = "0.117.2"
 source = { editable = "." }
@@ -807,6 +816,7 @@ dependencies = [
     { name = "click" },
     { name = "cryptography" },
     { name = "ddgs" },
+    { name = "detect-agent" },
     { name = "dnspython", extra = ["idna"] },
     { name = "docker" },
     { name = "fastapi" },
@@ -922,6 +932,7 @@ requires-dist = [
     { name = "click", specifier = "==8.5.0" },
     { name = "cryptography", specifier = "==50.0.2" },
     { name = "ddgs", specifier = "==9.16.1" },
+    { name = "detect-agent", specifier = "==0.6.0" },
     { name = "dnspython", extras = ["idna"], specifier = "==2.9.0" },
     { name = "docker", specifier = "==7.2.0" },
     { name = "fastapi", specifier = "==0.142.2" },

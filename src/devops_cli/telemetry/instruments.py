@@ -45,6 +45,12 @@ COMMAND_DURATION = Instrument(
     "s",
     "Command wall time, by command",
 )
+USAGE_ERROR_TOTAL = Instrument(
+    "devops_cli_usage_error_total",
+    InstrumentKind.COUNTER,
+    "1",
+    "Usage errors of the CLI, by kind (such as unknown_command or unknown_option), command path below devops and caller: person, agent, ci or mcp",
+)
 SUBCOMMAND_DURATION = Instrument(
     "devops_cli_subcommand_duration_seconds",
     InstrumentKind.HISTOGRAM,
@@ -691,6 +697,7 @@ RESEARCH_OPEN_FINDINGS = Instrument(
 INSTRUMENTS: tuple[Instrument, ...] = (
     COMMAND_TOTAL,
     COMMAND_DURATION,
+    USAGE_ERROR_TOTAL,
     SUBCOMMAND_DURATION,
     SUBPROCESS_DURATION,
     TELEMETRY_TESTS_TOTAL,
@@ -899,6 +906,7 @@ __all__ = [
     "THREAT_INTEL_LOOKUPS_TOTAL",
     "UPSTREAM_COMPONENT_STATUS",
     "UPSTREAM_SERVICE_STATUS",
+    "USAGE_ERROR_TOTAL",
     "VULNERABILITY_LOOKUPS_TOTAL",
     "WEB_SEARCHES_TOTAL",
     "Instrument",

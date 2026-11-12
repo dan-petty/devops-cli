@@ -437,6 +437,11 @@ class TelemetryConfig(BaseModel):
         description="Record LLM prompt and reply text in OpenTelemetry and Logfire telemetry spans. "
         "Off by default to prevent exposure of sensitive data",
     )
+    usage_ledger: Annotated[bool, Variable()] = Field(
+        default=True,
+        description="Add each usage error of the CLI, by kind and names and with no argument "
+        "value, as one line to `usage-errors.jsonl` under the user data root",
+    )
     logfire: bool = False
 
 

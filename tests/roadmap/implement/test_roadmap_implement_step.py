@@ -581,6 +581,7 @@ def test_the_shell_runs_with_a_scratch_home_and_the_cache_of_uv(
         "GIT_CONFIG_NOSYSTEM": "1",
         "GIT_TERMINAL_PROMPT": "0",
         "UV_CACHE_DIR": str(tmp_path / "uv-cache"),
+        "AI_AGENT": "devops-implement",
     }
 
 
