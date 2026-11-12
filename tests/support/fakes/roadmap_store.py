@@ -79,7 +79,9 @@ from devops_cli.roadmap.stores.store import (
 )
 
 # The reads that `fail_read` can fail.
-READS = frozenset({"changes_since", "newest_issue_number", "repository_is_private"})
+READS = frozenset(
+    {"changes_since", "newest_issue_number", "repository_file", "repository_is_private"}
+)
 
 DEFAULT_ROADMAP_MEMORY_REPO = "example/roadmap"
 DEFAULT_ROADMAP_MEMORY_ACTOR = "devops-cli"
@@ -246,7 +248,7 @@ class InMemoryRoadmapStore(RoadmapStore):
 
     def fail_read(self, read: str, error: Exception | None) -> None:
         """Make every call of the store method `read` raise `error`, until `error` is None. The
-        reads that can fail are `repository_is_private`, `changes_since` and
+        reads that can fail are `repository_is_private`, `repository_file`, `changes_since` and
         `newest_issue_number`."""
         if read not in READS:
             raise ValueError(f"{read} is no read that the fake can fail.")
@@ -670,7 +672,9 @@ class InMemoryRoadmapStore(RoadmapStore):
         return max(self._roadmap.commits.get(path, []), default=None)
 
     def repository_file(self, path: str, *, ref: str | None = None) -> str:
-        """The text committed at `path` on `ref`, raising when there is none."""
+        """The text committed at `path` on `ref`, raising when there is none, or the error
+        `fail_read` set."""
+        self._readable("repository_file")
         text = self._roadmap.files.get((path, ref))
         if text is None:
             raise GitHubFileNotFoundError(

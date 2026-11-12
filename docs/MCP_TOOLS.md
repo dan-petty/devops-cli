@@ -99,7 +99,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`pr_edit`](#pr-edit) | `false` | Edit pull request base branch, title, body, or milestone. |
 | [`pr_list`](#pr-list) | `true` | List pull requests with base targeting and review status. |
 | [`pr_monitor`](#pr-monitor) | `true` | Wait until the checks of a PR settle, then name every blocker of its merge.  While a check runs or a Copilot review is active, it waits. Then it reports the blockers of the merge-readiness verdict and of its review gate (requested changes, Copilot's review, an approval of the head with --require-reviews). Exit 0: ready; 1: a check failed or could not be read; 2: another blocker; 3: the timeout passed first. |
-| [`pr_ready`](#pr-ready) | `false` | Mark a draft pull request as ready for review once draft readiness allows it.  It exits 1 for a refusal and 8 while a check runs. For an implement pull request, it names each unticked task group. Every other blocker of the merge-readiness verdict prints as a warning. --force skips the readiness check. It sets the Status of the roadmap item the pull request closes to In Review. |
+| [`pr_ready`](#pr-ready) | `false` | Mark a draft pull request as ready for review once draft readiness allows it.  It exits 1 for a refusal and 8 while a check runs. A head commit with no check waits for one, unless the repository has no GitHub Actions workflow: then no check will start, and the command says so and marks the pull request ready with no --force. For an implement pull request, it names each unticked task group. Every other blocker of the merge-readiness verdict prints as a warning. --force skips the readiness check. It sets the Status of the roadmap item the pull request closes to In Review. |
 | [`pr_threads_list`](#pr-threads-list) | `true` | List PR review discussion threads, file locations, and comments. |
 | [`pr_threads_reply`](#pr-threads-reply) | `false` | Post an in-thread reply to a PR review discussion thread. |
 | [`pr_threads_resolve`](#pr-threads-resolve) | `false` | Programmatically mark one or more PR review discussion threads as resolved. |
@@ -1622,8 +1622,10 @@ be read; 2: another blocker; 3: the timeout passed first.
 
 Mark a draft pull request as ready for review once draft readiness allows it.
 
-It exits 1 for a refusal and 8 while a check runs. For an implement pull request, it names
-each unticked task group. Every other blocker of the merge-readiness verdict prints as a
+It exits 1 for a refusal and 8 while a check runs. A head commit with no check waits for one,
+unless the repository has no GitHub Actions workflow: then no check will start, and the command
+says so and marks the pull request ready with no --force. For an implement pull request, it
+names each unticked task group. Every other blocker of the merge-readiness verdict prints as a
 warning. --force skips the readiness check. It sets the Status of the roadmap item the pull
 request closes to In Review.
 

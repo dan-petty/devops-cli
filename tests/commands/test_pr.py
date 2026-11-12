@@ -454,12 +454,32 @@ def _ready(cli: Callable[..., Any], *flags: str) -> tuple[int, str]:
     return result.exit_code, " ".join(result.output.split())
 
 
+_WORKFLOWS = f"/repos/{_REPO}/actions/workflows?per_page=1"
+
+
+def _no_checks(github: _GitHub, workflows: int | None) -> None:
+    """The head commit reports no check run and no commit status. The repository has `workflows`
+    GitHub Actions workflows, and None leaves their read unanswered."""
+    github.checks()
+    github.answer(
+        "/status",
+        ProcessAnswer(stdout=json.dumps({"state": "pending", "statuses": [], "total_count": 0})),
+    )
+    if workflows is not None:
+        github.api.route(
+            "GET", _WORKFLOWS, github_json({"total_count": workflows, "workflows": []})
+        )
+
+
 _SCENARIOS = {
     "ready": None,
     "running-check": _running,
     "failing-check": _failing,
     "checks-unread": _unread,
     "unresolved-thread": _open_thread,
+    "no-ci": lambda g: _no_checks(g, 0),
+    "checks-not-started": lambda g: _no_checks(g, 2),
+    "workflows-unread": lambda g: _no_checks(g, None),
 }
 
 
@@ -471,18 +491,37 @@ _SCENARIOS = {
         ("failing-check", 1, False),
         ("checks-unread", 1, False),
         ("unresolved-thread", 0, True),
+        ("no-ci", 0, True),
+        ("checks-not-started", 8, False),
+        ("workflows-unread", 1, False),
     ],
 )
 def test_pr_ready_exits_on_the_checks_of_the_verdict(
     cli: Callable[..., Any], draft: _GitHub, scenario: str, code: int, marked: bool
 ) -> None:
     """`pr ready` blocks only on the checks: 1 when one failed or could not be read, 8 while one
-    runs. A draft is what it marks ready, and an open thread is a warning."""
+    runs. A draft is what it marks ready, and an open thread is a warning. A head commit with no
+    check waits for one while the repository has a workflow to start it, and is ready when the
+    repository has none (#3767)."""
     setup = _SCENARIOS[scenario]
     if setup is not None:
         setup(draft)
     exit_code, output = _ready(cli)
     assert (exit_code, _readied(draft)) == (code, marked), output
+
+
+def test_pr_ready_says_that_a_repository_with_no_ci_has_nothing_to_wait_for(
+    cli: Callable[..., Any], draft: _GitHub
+) -> None:
+    """A repository with no workflow and no check needs no `--force`, and the stand-in for the
+    missing checks is no warning (#3767)."""
+    _no_checks(draft, 0)
+    exit_code, output = _ready(cli)
+    assert (
+        exit_code,
+        f"{_REPO} has no GitHub Actions workflow" in output,
+        "no checks reported" in output,
+    ) == (0, True, False), output
 
 
 _TASKS_UNTICKED = """# Tasks

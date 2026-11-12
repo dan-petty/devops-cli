@@ -1011,6 +1011,8 @@ devops gh pr describe [OPTIONS] <issue>
 
 Open a draft pull request, into the default branch unless --base names another.
 
+It opens the pull request from the branch of the checkout, or from the branch that --head
+names. With --repo and --head, a checkout of one repository opens a pull request in another.
 Every pull request opens as a draft. devops pr ready is the only way to mark it ready for
 review. It sets the Status of the roadmap item the pull request closes to In Progress. It also
 adds the labels that the Conventional Commit title gives, as intake does: fix(ai) gives type/bug
@@ -1020,7 +1022,8 @@ It opens nothing when the title or the body breaks the form of CONTRIBUTING.md s
 Conventional Commit title with a summary of at most 60 characters (an emoji counts as two)
 and a scope that .github/labels.yml declares, and a body of at most 1,000 characters that
 ends with Closes #\<issue\> and the Change line. devops pr describe builds a title and a body in
-that form.
+that form. The rules of the body apply where the base branch holds openspec/config.yaml. In
+another repository, the command does not check the body.
 
 ```bash
 devops gh pr create [OPTIONS]
@@ -1034,6 +1037,7 @@ devops gh pr create [OPTIONS]
 | `--body`, `-b` | `string` | `` | Body or description text. |
 | `--base`, `-B` | `string` | - | Base branch of the pull request; the repository's default branch when omitted. |
 | `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
+| `--head`, `-H` | `string` | - | Branch that holds the commits of the pull request; the branch of the checkout when omitted. Give it with --repo to open a pull request in another repository. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops gh pr ready`
@@ -1042,8 +1046,10 @@ devops gh pr create [OPTIONS]
 
 Mark a draft pull request as ready for review once draft readiness allows it.
 
-It exits 1 for a refusal and 8 while a check runs. For an implement pull request, it names
-each unticked task group. Every other blocker of the merge-readiness verdict prints as a
+It exits 1 for a refusal and 8 while a check runs. A head commit with no check waits for one,
+unless the repository has no GitHub Actions workflow: then no check will start, and the command
+says so and marks the pull request ready with no --force. For an implement pull request, it
+names each unticked task group. Every other blocker of the merge-readiness verdict prints as a
 warning. --force skips the readiness check. It sets the Status of the roadmap item the pull
 request closes to In Review.
 

@@ -146,11 +146,15 @@ def pr_create_args(
     body: str = "",
     base: str | None = None,
     repo: str | None = None,
+    head: str | None = None,
 ) -> list[str]:
-    """CLI arguments for gh pr create."""
+    """CLI arguments for gh pr create. Without `head`, gh opens the pull request from the branch
+    of the checkout."""
     cmd = [CONST_GH_CLI, "pr", "create", "--draft", "--title", title, "--body", body]
     if base:
         cmd.extend(["--base", base])
+    if head:
+        cmd.extend(["--head", head])
     if repo:
         cmd.extend(["--repo", repo])
     return cmd
@@ -161,6 +165,7 @@ def plan_pr_create(
     body: str = "",
     base: str | None = None,
     repo: str | None = None,
+    head: str | None = None,
 ) -> list[PlannedRequest]:
     """Generate planned requests for devops pr create."""
     target_repo = repo or ":owner/:repo"
@@ -168,7 +173,7 @@ def plan_pr_create(
         PlannedRequest(
             method="POST",
             target=f"repos/{target_repo}/pulls",
-            argv=tuple(pr_create_args(title, body, base, repo)),
+            argv=tuple(pr_create_args(title, body, base, repo, head)),
         )
     ]
     asked = [label for label in requested_labels(title) if label]

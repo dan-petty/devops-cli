@@ -124,6 +124,18 @@ class CheckVerdictSummary(BaseModel):
     def is_passing(self) -> bool:
         return self.exit_code == 0
 
+    @property
+    def reports_nothing(self) -> bool:
+        """Whether the commit reports no check run and no commit status: the one item is the
+        pending stand-in for them (#3767)."""
+        return not self.unread_reason and self.items == [no_checks_reported()]
+
+
+def no_checks_reported() -> PRCheckItem:
+    """The pending item that stands for a commit that reports no check run and no commit status,
+    since a check can still start."""
+    return PRCheckItem(name="no checks reported", bucket=CheckBucket.PENDING, state="pending")
+
 
 def _normalize_token(val: Any) -> str:
     """Normalize string token for bucket lookup."""
@@ -368,13 +380,7 @@ def _synthesize_check_items(
     if combined_item is not None:
         all_items.append(combined_item)
     if not all_items:
-        return [
-            PRCheckItem(
-                name="no checks reported",
-                bucket=CheckBucket.PENDING,
-                state="pending",
-            )
-        ]
+        return [no_checks_reported()]
     return all_items
 
 
@@ -506,13 +512,7 @@ def fetch_pr_check_verdicts(
         parsed = _parse_gh_checks_json(res.stdout)
         if parsed is not None:
             if not parsed:
-                parsed = [
-                    PRCheckItem(
-                        name="no checks reported",
-                        bucket=CheckBucket.PENDING,
-                        state="pending",
-                    )
-                ]
+                parsed = [no_checks_reported()]
             return CheckVerdictSummary(items=parsed)
 
     owner_repo = _resolve_target_owner_repo(repo, checkout)
