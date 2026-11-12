@@ -1,6 +1,6 @@
 """The Argo Workflows controller under k8s/argo-workflows/ (#1535): chart values, template, perimeter.
 
-The chart cannot be rendered in a test, since helm is not an offline renderer, so the controller
+The chart cannot be rendered in a test, since a test starts no helm (ADR 0007), so the controller
 and executor are checked through the values that configure them. What the chart then renders was
 read once from `helm template` of the pinned chart and is recorded in the docstrings below.
 """

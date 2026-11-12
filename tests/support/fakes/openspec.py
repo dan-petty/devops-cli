@@ -5,8 +5,7 @@ The process edge has no seam yet (#775), so the fake doubles the stdlib objects 
 `shutil.which` finds `openspec` under `bin_dir` while the fake is installed, and `subprocess.run`,
 through which `run_subprocess` starts every program, answers an `openspec` command from the record
 of the real tool, starting nothing. Every other command, git among them,
-is found and run for real, under the suite's refusal of every program but git, bwrap and kubectl's
-offline renderers.
+is found and run for real, under the suite's refusal of every program but git and bwrap.
 
 The record (`tests/fixtures/openspec_runs/recorded_runs.json`, made by
 `tests/support/openspec_recording.py`) holds the real, pinned tool's answers to the commands the
