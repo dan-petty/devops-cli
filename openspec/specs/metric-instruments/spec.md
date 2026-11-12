@@ -242,3 +242,14 @@ One repository SHALL add 6 series for the implement row (3 steps, 2 results), an
 #### Scenario: The text states the series counts
 - **WHEN** a test reads the text of the histogram and `docs/TELEMETRY.md`
 - **THEN** both hold "6 series" for the implement row and "10 series" for the stage row
+
+### Requirement: An upstream status gauge holds one series for each service and component
+`emit_service_status_telemetry` SHALL send `devops_cli_upstream_service_status` with the label `service` only, and `devops_cli_upstream_component_status` with the labels `service` and `component` only. The value holds the indicator or the component status, so a new status replaces the value of the one series.
+
+#### Scenario: The indicator of a service changes
+- **WHEN** GitHub reports the indicator `major` and then `none`
+- **THEN** the export holds one series of `devops_cli_upstream_service_status` with `service=github`, and its last value is 0
+
+#### Scenario: The status of a component changes
+- **WHEN** the GitHub component `Actions` goes from `major_outage` to `operational`
+- **THEN** the export holds one series of `devops_cli_upstream_component_status` for `Actions`, and its last value is 0
