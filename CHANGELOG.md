@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.124.0](https://github.com/dan-petty/devops-cli/compare/v0.123.1...v0.124.0) (2026-11-12)
+
+
+### Features
+
+* **infra:** apply a saved plan one node at a time ([#5271](https://github.com/dan-petty/devops-cli/issues/5271)) ([b0d68df](https://github.com/dan-petty/devops-cli/commit/b0d68df9d3482f7045bd44a442281e07795a2742))
+
 ## [0.123.1](https://github.com/dan-petty/devops-cli/compare/v0.123.0...v0.123.1) (2026-11-12)
 
 
