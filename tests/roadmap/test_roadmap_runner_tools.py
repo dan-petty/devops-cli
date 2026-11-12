@@ -241,12 +241,14 @@ def _runs(stage: list[list[str]]) -> list[str]:
 
 
 def test_the_pins_of_the_table_are_the_pins_of_the_dockerfile() -> None:
+    """Renovate pins the digest of each Dockerfile image beside its tag (`pinDigests`), so both
+    Dockerfiles name the uv image as `<version>@sha256:<digest>` (#4974)."""
     dockerfile = _text("Dockerfile")
     devcontainer = _text(".devcontainer/Dockerfile")
 
     assert (
         f"ghcr.io/astral-sh/uv:{UV_VERSION}@sha256:" in dockerfile,
-        f"--from=ghcr.io/astral-sh/uv:{UV_VERSION} " in devcontainer,
+        f"--from=ghcr.io/astral-sh/uv:{UV_VERSION}@sha256:" in devcontainer,
         f"/releases/download/v{GH_VERSION}/" in dockerfile,
         f"FROM node:{NODE_MAJOR}-" in dockerfile,
         _text(".node-version").strip(),

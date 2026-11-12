@@ -280,7 +280,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     && rm -rf /var/lib/apt/lists/*
 
 # Install standalone uv and uvx binaries into /usr/local/bin pinned to release
-COPY --from=ghcr.io/astral-sh/uv:0.13.6 /uv /uvx /usr/local/bin/
+COPY --from=ghcr.io/astral-sh/uv:0.13.6@sha256:af22a52f5eafef3d78e551599d405c02df61919d18028f0cea8eda93bc9986d0 /uv /uvx /usr/local/bin/
 
 # The tools of the image, in the places the Filesystem Hierarchy Standard names for software that
 # the administrator installs: the commands are in /usr/local/bin, which PATH holds already, and the

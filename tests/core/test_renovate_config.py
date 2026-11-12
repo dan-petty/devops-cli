@@ -225,8 +225,10 @@ def test_updates_come_on_monday_and_a_patch_comes_at_once() -> None:
 
 def test_the_limits_keep_renovate_within_the_ci_cap() -> None:
     """The account runs at most 20 jobs at a time, and one push starts about 25. Renovate opens
-    at most 2 pull requests an hour and keeps 8 open, and it pushes an open one again only on a
-    conflict: each push holds the current main, so no catch-up push follows a merge (#4667)."""
+    at most 2 pull requests an hour and keeps 8 open. It pushes an open branch again on a conflict
+    or on a new release of a member, but only in the schedule of the branch, so a Monday group
+    changes only on Monday (#4974). Each push holds the current main, so no catch-up push follows
+    a merge (#4667)."""
     preset = _preset()
 
     assert (
@@ -234,8 +236,9 @@ def test_the_limits_keep_renovate_within_the_ci_cap() -> None:
         preset["prConcurrentLimit"],
         preset["vulnerabilityAlerts"]["prConcurrentLimit"],
         preset["rebaseWhen"],
-        "rebaseWhen" in _renovate(),
-    ) == (2, 8, 4, "conflicted", False)
+        preset["updateNotScheduled"],
+        ["rebaseWhen" in _renovate(), "updateNotScheduled" in _renovate()],
+    ) == (2, 8, 4, "conflicted", False, [False, False])
 
 
 def test_a_security_fix_comes_at_once_as_a_fix_with_the_newest_release() -> None:

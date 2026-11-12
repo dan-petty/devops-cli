@@ -9,6 +9,7 @@
   "prHourlyLimit": 2,
   "prConcurrentLimit": 8,
   "rebaseWhen": "conflicted",
+  "updateNotScheduled": false,
   "separateMinorPatch": true,
   "labels": ["type/chore", "scope/deps"],
   "commitMessagePrefix": "chore(deps):",
