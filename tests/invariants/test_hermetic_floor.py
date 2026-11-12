@@ -227,6 +227,106 @@ def test_in_process_tcp_and_unix_servers_pass(tmp_path: Path) -> None:
                 assert accepted.recv(4) == b"pong"
 
 
+def test_caught_udp_sends_and_name_lookups_fail_with_edge_name(
+    pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A UDP send to a host that is not loopback, and each name lookup of `socket` for an external
+    name or address, fail naming the network edge even when caught by `except Exception:` (#4711)."""
+    result = _run_with_floor(
+        pytester,
+        monkeypatch,
+        """
+        import socket
+
+        def test_udp_sendto_caught():
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+                try:
+                    sock.sendto(b"x", ("192.0.2.1", 53))
+                except Exception:
+                    pass
+
+        def test_udp_sendmsg_caught():
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+                try:
+                    sock.sendmsg([b"x"], [], 0, ("192.0.2.2", 53))
+                except Exception:
+                    pass
+
+        def test_gethostbyname_caught():
+            try:
+                socket.gethostbyname("example.com")
+            except Exception:
+                pass
+
+        def test_gethostbyname_ex_caught():
+            try:
+                socket.gethostbyname_ex("example.net")
+            except Exception:
+                pass
+
+        def test_gethostbyaddr_caught():
+            try:
+                socket.gethostbyaddr("192.0.2.3")
+            except Exception:
+                pass
+
+        def test_getnameinfo_caught():
+            try:
+                socket.getnameinfo(("192.0.2.4", 443), 0)
+            except Exception:
+                pass
+        """,
+    )
+    result.assert_outcomes(passed=6, errors=6)
+    output = result.stdout.str()
+    assert "network edge reached without a fake" in output
+    for edge in (
+        "192.0.2.1:53",
+        "192.0.2.2:53",
+        "dns:example.com",
+        "dns:example.net",
+        "dns:192.0.2.3",
+        "dns:192.0.2.4",
+    ):
+        assert edge in output
+
+
+def test_loopback_udp_and_numeric_lookups_pass() -> None:
+    """A UDP send to a loopback socket of the test, and a lookup that needs no DNS query, pass."""
+    with (
+        socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as server,
+        socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as client,
+    ):
+        server.bind(("127.0.0.1", 0))
+        server.settimeout(5.0)
+        address = server.getsockname()
+        client.sendto(b"ping", address)
+        assert server.recv(4) == b"ping"
+        client.sendmsg([b"pong"], [], 0, address)
+        assert server.recv(4) == b"pong"
+    assert socket.gethostbyname("192.0.2.5") == "192.0.2.5"
+    numeric = socket.NI_NUMERICHOST | socket.NI_NUMERICSERV
+    assert socket.getnameinfo(("192.0.2.6", 443), numeric) == ("192.0.2.6", "443")
+
+
+def test_git_refuses_a_network_remote_at_once() -> None:
+    """The git config of the isolated HOME allows only the local transport, so a real git child
+    refuses an https or ssh remote before it makes a lookup or asks for a credential (#4711)."""
+    for transport, remote in (
+        ("https", "https://example.com/example/repo.git"),
+        ("ssh", "ssh://git@example.com/example/repo.git"),
+    ):
+        completed = subprocess.run(
+            ["git", "ls-remote", remote],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+        assert completed.returncode != 0
+        assert f"transport '{transport}' not allowed" in completed.stderr
+
+
 def test_uncaught_and_caught_keyring_reaches_fail_and_fake_restores_deny(
     pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch
 ) -> None:

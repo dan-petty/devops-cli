@@ -18,6 +18,7 @@ os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
 os.environ["TEXTUAL_ANIMATIONS"] = "none"
 
 import errno
+import functools
 import gc
 import hashlib
 import ipaddress
@@ -323,19 +324,21 @@ _PROCESS_GUARD_INSTALLED = False
 _DENY_KEYRING_INSTANCE: Any = None
 
 
-def _guarded_getaddrinfo(
-    host: Any, orig_getaddrinfo: Callable[..., Any], *args: Any, **kwargs: Any
-) -> Any:
-    """Resolve numeric or loopback names and fail any external DNS lookup."""
-    name = host.decode() if isinstance(host, bytes) else str(host)
-    flags = kwargs.get("flags", args[4] if len(args) >= 5 else 0) or 0
-    if (
-        host is None
-        or bool(flags & socket.AI_NUMERICHOST)
-        or _is_loopback(name)
-        or _is_numeric_host(host, orig_getaddrinfo)
-    ):
-        return orig_getaddrinfo(host, *args, **kwargs)
+def _host_name(host: Any) -> str:
+    """The text of a host that a lookup or a send names."""
+    return host.decode() if isinstance(host, bytes) else str(host)
+
+
+def _needs_no_dns(host: Any, orig_getaddrinfo: Callable[..., Any]) -> bool:
+    """Report whether a lookup of `host` stays on this machine: no host, loopback, or numeric."""
+    return (
+        host is None or _is_loopback(_host_name(host)) or _is_numeric_host(host, orig_getaddrinfo)
+    )
+
+
+def _refused_dns_message(name: str) -> str:
+    """Record an external DNS lookup of `name`, unless the test declares it unreachable, and
+    return the message that names the edge."""
     msg = (
         f"network edge reached without a fake: dns:{name} "
         f"(External DNS lookup blocked during test execution: {name}. "
@@ -343,11 +346,133 @@ def _guarded_getaddrinfo(
     )
     if not _matches_unreachable(name, None, _UNREACHABLE_TARGETS):
         _UNEXPECTED_LOOPBACK_CONNECTS.append(f"{msg} ({threading.current_thread().name})")
-    raise socket.gaierror(socket.EAI_NONAME, msg)
+    return msg
+
+
+def _guarded_getaddrinfo(
+    host: Any, orig_getaddrinfo: Callable[..., Any], *args: Any, **kwargs: Any
+) -> Any:
+    """Resolve numeric or loopback names and fail any external DNS lookup."""
+    flags = kwargs.get("flags", args[4] if len(args) >= 5 else 0) or 0
+    if bool(flags & socket.AI_NUMERICHOST) or _needs_no_dns(host, orig_getaddrinfo):
+        return orig_getaddrinfo(host, *args, **kwargs)
+    raise socket.gaierror(socket.EAI_NONAME, _refused_dns_message(_host_name(host)))
+
+
+def _guarded_name_lookup(
+    host: Any,
+    lookup: Callable[..., Any],
+    not_found: tuple[type[OSError], int],
+    stays_local: Callable[[Any], bool],
+) -> Any:
+    """Run `gethostbyname`, `gethostbyname_ex` or `gethostbyaddr` when `stays_local` says the
+    lookup of `host` needs no DNS query, and fail it otherwise with `not_found`, the error class
+    and code that the lookup raises for a name it does not find."""
+    if stays_local(host):
+        return lookup(host)
+    error, code = not_found
+    raise error(code, _refused_dns_message(_host_name(host)))
+
+
+def _guarded_getnameinfo(sockaddr: Any, flags: int, orig_getnameinfo: Callable[..., Any]) -> Any:
+    """Give the numeric host, or the name of a loopback address, and fail the reverse lookup of
+    any other address."""
+    host = sockaddr[0] if isinstance(sockaddr, tuple) and sockaddr else None
+    if bool(flags & socket.NI_NUMERICHOST) or host is None or _is_loopback(_host_name(host)):
+        return orig_getnameinfo(sockaddr, flags)
+    raise socket.gaierror(socket.EAI_NONAME, _refused_dns_message(_host_name(host)))
+
+
+def _refuse_external_send(family: int, address: Any) -> None:
+    """Raise for a datagram that an IPv4 or IPv6 socket sends to a host that is not loopback, and
+    record the reach."""
+    if family not in (socket.AF_INET, socket.AF_INET6):
+        return
+    if not (isinstance(address, tuple) and len(address) >= 2):
+        return
+    host = _host_name(address[0])
+    if _is_loopback(host):
+        return
+    port = int(address[1])
+    msg = (
+        f"network edge reached without a fake: {host}:{port} "
+        f"(External network send blocked during test execution: datagram to {host}:{port}. "
+        "All external APIs and endpoints must be mocked in tests.)"
+    )
+    if not _matches_unreachable(host, port, _UNREACHABLE_TARGETS):
+        _UNEXPECTED_LOOPBACK_CONNECTS.append(f"{msg} ({threading.current_thread().name})")
+    raise RuntimeError(msg)
+
+
+def _install_send_guards() -> None:
+    """Refuse a datagram that `sendto` or `sendmsg` sends to a host that is not loopback."""
+    orig_sendto = socket.socket.sendto
+    orig_sendmsg = socket.socket.sendmsg
+
+    def guarded_sendto(self, data, *args):
+        if args:
+            _refuse_external_send(self.family, args[-1])
+        return orig_sendto(self, data, *args)
+
+    def guarded_sendmsg(self, buffers, *args):
+        if len(args) >= 3:
+            _refuse_external_send(self.family, args[2])
+        return orig_sendmsg(self, buffers, *args)
+
+    socket.socket.sendto = guarded_sendto
+    socket.socket.sendmsg = guarded_sendmsg
+
+
+def _install_lookup_guards() -> None:
+    """Guard `getaddrinfo`, `getnameinfo`, `gethostbyname`, `gethostbyname_ex` and
+    `gethostbyaddr`, so each fails a lookup that needs a DNS query."""
+    orig_getaddrinfo = socket.getaddrinfo
+    orig_getnameinfo = socket.getnameinfo
+
+    def forward_stays_local(host):
+        return _needs_no_dns(host, orig_getaddrinfo)
+
+    def reverse_stays_local(host):
+        return _is_loopback(_host_name(host))
+
+    # Each lookup with the error class and code it raises for a name it does not find, and the
+    # rule for a lookup that needs no DNS query: a reverse lookup of a numeric address needs one.
+    name_lookups = {
+        "gethostbyname": (
+            socket.gethostbyname,
+            (socket.gaierror, socket.EAI_NONAME),
+            forward_stays_local,
+        ),
+        "gethostbyname_ex": (
+            socket.gethostbyname_ex,
+            (socket.gaierror, socket.EAI_NONAME),
+            forward_stays_local,
+        ),
+        "gethostbyaddr": (socket.gethostbyaddr, (socket.herror, 1), reverse_stays_local),
+    }
+
+    def guarded_getaddrinfo(host, *args, **kwargs):
+        return _guarded_getaddrinfo(host, orig_getaddrinfo, *args, **kwargs)
+
+    def guarded_getnameinfo(sockaddr, flags):
+        return _guarded_getnameinfo(sockaddr, flags, orig_getnameinfo)
+
+    def guard_name_lookup(lookup, not_found, stays_local):
+        @functools.wraps(lookup)
+        def guarded(host):
+            return _guarded_name_lookup(host, lookup, not_found, stays_local)
+
+        return guarded
+
+    socket.getaddrinfo = guarded_getaddrinfo
+    socket.getnameinfo = guarded_getnameinfo
+    for name, (lookup, not_found, stays_local) in name_lookups.items():
+        setattr(socket, name, guard_name_lookup(lookup, not_found, stays_local))
 
 
 def _install_network_guard() -> None:
-    """Install socket connect/bind/listen/getaddrinfo guards once per process."""
+    """Install the socket connect, bind, listen and send guards and the name lookup guards once
+    per process."""
     global _NETWORK_GUARD_INSTALLED
     if _NETWORK_GUARD_INSTALLED:
         return
@@ -357,10 +482,6 @@ def _install_network_guard() -> None:
     orig_connect_ex = socket.socket.connect_ex
     orig_bind = socket.socket.bind
     orig_listen = socket.socket.listen
-    orig_getaddrinfo = socket.getaddrinfo
-
-    def guarded_getaddrinfo(host, *args, **kwargs):
-        return _guarded_getaddrinfo(host, orig_getaddrinfo, *args, **kwargs)
 
     def guarded_bind(self, address):
         orig_bind(self, address)
@@ -384,7 +505,8 @@ def _install_network_guard() -> None:
     socket.socket.connect_ex = guarded_connect_ex
     socket.socket.bind = guarded_bind
     socket.socket.listen = guarded_listen
-    socket.getaddrinfo = guarded_getaddrinfo
+    _install_send_guards()
+    _install_lookup_guards()
 
 
 @pytest.fixture(autouse=True, scope="session")
@@ -399,10 +521,13 @@ def prevent_external_network_calls() -> Iterator[None]:
     again, so whatever binds it next, such as another xdist worker or a port-forward, is not reached
     either. The refusal is the `ConnectionRefusedError` that clients already handle: a
     `RuntimeError` would escape them and send the test down a path no user reaches. Non-loopback
-    connects and unowned AF_UNIX connects raise `RuntimeError`.
+    connects, unowned AF_UNIX connects and datagrams to a host that is not loopback raise
+    `RuntimeError`. A lookup of `socket` that needs a DNS query raises the error of a name that
+    the lookup does not find. Each of these fails the test, also when the code catches the error.
 
     The guard patches this process only. A subprocess a test spawns is not guarded, and a server
-    a test starts in a subprocess is refused like any other port this process does not own.
+    a test starts in a subprocess is refused like any other port this process does not own. The
+    git config of the isolated HOME refuses each git transport but the local one (#4711).
     """
     _install_network_guard()
     yield
