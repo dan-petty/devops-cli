@@ -69,6 +69,7 @@ from devops_cli.config.defaults import (
     DEFAULT_GH_SECONDARY_MAX_CAP,
     DEFAULT_GH_SECONDARY_RATE_WAIT,
 )
+from devops_cli.core import clock
 from devops_cli.core.process import github_identity, is_local_gh_command, run_subprocess
 from devops_cli.exceptions.git import (
     GitHubOperationError,
@@ -1100,7 +1101,7 @@ class GitHubRateLimiter:
                 target,
                 sleep_duration,
             )
-            time.sleep(sleep_duration)
+            clock.sleep(sleep_duration)
 
         return sleep_duration
 
@@ -1807,7 +1808,7 @@ def _handle_attempt_backoff(
         backoff,
     )
     limiter.record_throttle(backoff, resource=target_resource)
-    time.sleep(backoff)
+    clock.sleep(backoff)
     return True
 
 

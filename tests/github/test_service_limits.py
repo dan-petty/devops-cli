@@ -41,6 +41,7 @@ from devops_cli.config.constants import (
 )
 from devops_cli.config.defaults import DEFAULT_GH_MAX_RETRIES, DEFAULT_SERVICE_MAX_FAILED_ROUNDS
 from devops_cli.config.settings import GitHubAppConfig, ServiceConfig
+from devops_cli.core import clock as clock_seam
 from devops_cli.exceptions import RoadmapRefineError, RoadmapRunError
 from devops_cli.exceptions.git import GitHubOperationError, GitHubUnauthenticatedError
 from devops_cli.github import rate_limiter, session_transport
@@ -590,7 +591,7 @@ def test_the_last_rate_limit_of_a_request_holds_every_worker_until_its_wait_ends
     async def wait(_api: object, seconds: float) -> None:
         clock.sleep(seconds)
 
-    monkeypatch.setattr(rate_limiter, "time", time)
+    monkeypatch.setattr(rate_limiter, "clock", clock_seam)
     monkeypatch.setattr(session_transport.SessionGitHubAPI, "sleep", wait)
     held: list[float] = []
 

@@ -1730,6 +1730,59 @@ def test_a_write_pushed_by_another_resource_does_not_delay_reads_after_it(
     assert sleeps == [1.0, 2.0, pytest.approx(1.72, abs=0.01)]
 
 
+def test_a_write_waits_its_interval_through_the_clock_seam(
+    clock: ClockFake, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A write waits its one-second interval through the clock seam, which `ClockFake` answers,
+    and never through the stdlib `time.sleep` (#4666)."""
+    now = 1_000_000.0
+    clock.move_to(now)
+    limiter = _write_pacing_limiter(now)
+
+    def refuse_stdlib_sleep(seconds: float) -> None:
+        raise AssertionError(f"the rate limiter waited {seconds} s through time.sleep")
+
+    monkeypatch.setattr(time, "sleep", refuse_stdlib_sleep)
+    waited = limiter.acquire("core", is_mutation=True)
+    assert (waited, clock.waits) == (1.0, [1.0])
+
+
+def test_a_retry_waits_its_backoff_through_the_clock_seam(
+    monkeypatch: pytest.MonkeyPatch, clock: ClockFake, process_fake: ProcessFake
+) -> None:
+    """After a secondary rate limit, `run_gh` waits its backoff through the clock seam, which
+    `ClockFake` answers, and never through the stdlib `time.sleep` (#4666)."""
+    limiter = get_github_rate_limiter()
+    limiter.clear_cache()
+    stdlib_waits: list[float] = []
+    monkeypatch.setattr(time, "sleep", stdlib_waits.append)
+    answers = iter(
+        [
+            ProcessAnswer(returncode=1, stderr="You have exceeded a secondary rate limit."),
+            ProcessAnswer(stdout="[]"),
+        ]
+    )
+    process_fake.answer(
+        ["gh", "api", "issues"], ProcessAnswer(side_effect=lambda call: next(answers))
+    )
+    result = run_gh(["api", "issues"], max_retries=2)
+    backoff = [wait for wait in clock.waits if wait >= limiter.secondary_rate_wait]
+    assert (result.returncode, stdlib_waits, len(backoff)) == (0, [], 1)
+
+
+def test_the_writes_of_a_command_test_over_gh_edge_wait_through_the_clock_fake(
+    monkeypatch: pytest.MonkeyPatch, gh_edge: ProcessFake
+) -> None:
+    """`gh_edge` answers the rate limiter's waits with the `clock` fixture, so the one-second
+    interval between two gh writes of a command test takes no real time (#4666)."""
+    stdlib_waits: list[float] = []
+    monkeypatch.setattr(time, "sleep", stdlib_waits.append)
+    gh_edge.answer(["gh", "issue", "comment"], ProcessAnswer(stdout=""))
+    for _ in range(2):
+        run_gh(["issue", "comment", "1", "--body", "a comment"])
+    assert (len(gh_edge.calls), stdlib_waits) == (2, [])
+
+
 def test_a_read_does_not_wait_out_another_resources_quota_reset(clock: ClockFake) -> None:
     """With core's quota spent, a core write waits for core's reset and a GraphQL write after it
     keeps the interval, but a GraphQL read is paced by the GraphQL quota alone."""
@@ -2213,61 +2266,46 @@ def test_a_rate_limit_check_that_prints_the_answer_reads_the_quota_from_it(
 
 
 def test_sixty_one_reads_do_not_stall_behind_a_fixed_burst_window(
-    monkeypatch: pytest.MonkeyPatch, process_fake: ProcessFake
+    clock: ClockFake, process_fake: ProcessFake
 ) -> None:
     """Verify 61 consecutive gh reads do not stall behind a fixed burst ceiling.
 
     Before removing ratelimit, the 61st call triggers sleep_and_retry, asking for
-    the remainder of the 60s window (~59s) and raising AssertionError.
+    the remainder of the 60s window (~59s).
     """
     limiter = get_github_rate_limiter()
     limiter.update_quota("core", remaining=5000, limit=5000, reset_epoch=time.time() + 60.0)
 
     process_fake.answer(["gh", "api", "repos/o/r"], ProcessAnswer(stdout="{}"))
-    recorded_sleeps: list[float] = []
-
-    def fake_sleep(seconds: float) -> None:
-        if seconds >= 1.0:
-            raise AssertionError(f"Unexpected sleep >= 1.0s: {seconds}")
-        recorded_sleeps.append(seconds)
-
-    monkeypatch.setattr(time, "sleep", fake_sleep)
     for _ in range(61):
         run_gh(["api", "repos/o/r"])
 
-    assert len(process_fake.calls) == 61
-    assert len(recorded_sleeps) == 61
+    stalls = [wait for wait in clock.waits if wait >= 1.0]
+    assert (len(process_fake.calls), len(clock.waits), stalls) == (61, 61, [])
 
 
 def test_parallel_callers_stay_spaced_across_threads(
-    process_fake: ProcessFake, monkeypatch: pytest.MonkeyPatch
+    clock: ClockFake, process_fake: ProcessFake
 ) -> None:
-    """Two threads calling run_gh stay spaced by quota spacing across threads."""
+    """Two threads calling run_gh stay spaced by quota spacing across threads. Both pauses are
+    held until each thread has its own, so neither thread moves the clock under the other."""
     barrier = threading.Barrier(2)
-    recorded_sleeps: list[float] = []
-    sleep_lock = threading.Lock()
     process_fake.answer(["gh", "pr", "list"], ProcessAnswer(stdout="[]"))
-
-    def recording_sleep(seconds: float) -> None:
-        with sleep_lock:
-            recorded_sleeps.append(seconds)
 
     def worker() -> None:
         barrier.wait()
         run_gh(["pr", "list"])
 
-    monkeypatch.setattr(time, "sleep", recording_sleep)
-    t1 = threading.Thread(target=worker)
-    t2 = threading.Thread(target=worker)
-    t1.start()
-    t2.start()
-    t1.join()
-    t2.join()
+    with clock.concurrent_sleeps(2):
+        t1 = threading.Thread(target=worker)
+        t2 = threading.Thread(target=worker)
+        t1.start()
+        t2.start()
+        t1.join()
+        t2.join()
 
-    assert len(recorded_sleeps) == 2
-    larger = max(recorded_sleeps)
-    smaller = min(recorded_sleeps)
-    assert larger - smaller >= 0.5
+    assert len(clock.waits) == 2
+    assert max(clock.waits) - min(clock.waits) >= 0.5
 
 
 def test_paginate_without_endpoint_calls_acquire(process_fake: ProcessFake) -> None:

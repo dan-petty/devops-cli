@@ -53,6 +53,7 @@ import httpx2
 import pytest
 
 from devops_cli.config.constants import CONST_GITHUB_DIFF_MEDIA_TYPE
+from devops_cli.core import clock as clock_seam
 from devops_cli.github.rate_limiter import GitHubRateLimiter
 from devops_cli.http.egress import EgressLevel
 from devops_cli.http.entry import install_transport, remove_transport
@@ -221,14 +222,14 @@ def route_installation_repositories(api: GitHubApiFake, repos: Sequence[str]) ->
 
 
 class PacedClock:
-    """The `time` module as the rate limiter reads it, except that a pause is recorded in `paced`
+    """The clock seam as the rate limiter reads it, except that a wait is recorded in `paced`
     instead of slept, so a test paces without waiting and nothing else's sleep changes."""
 
     def __init__(self, paced: list[float]) -> None:
         self.sleep = paced.append
 
     def __getattr__(self, name: str) -> Any:
-        return getattr(time, name)
+        return getattr(clock_seam, name)
 
 
 class GitHubApiDouble:
@@ -442,7 +443,7 @@ def serve_github_api(
         rate_limiter.GitHubRateLimiter, "_refresh_from_github", refuse_quota_refresh
     )
     monkeypatch.setattr(rate_limiter, "run_subprocess", refuse_gh)
-    monkeypatch.setattr(rate_limiter, "time", PacedClock(api.paced))
+    monkeypatch.setattr(rate_limiter, "clock", PacedClock(api.paced))
     monkeypatch.setattr(session_transport.SessionGitHubAPI, "sleep", api.wait)
     rate_limiter.get_github_rate_limiter().update_quota(
         "core", remaining=5000, limit=5000, reset_epoch=time.time() + 600.0
