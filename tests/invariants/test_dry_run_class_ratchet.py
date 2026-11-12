@@ -2,13 +2,16 @@
 
 Every command reachable from `_COMMAND_SPECS` must either declare a dry-run class
 ('request-plan' or 'no-external-request') or appear in `tests/fixtures/dry_run_gaps.json`.
+The MCP tool of a 'no-external-request' command is read-only exactly when the command writes no
+local state and no file (#3642).
 """
 
 from __future__ import annotations
 
 import importlib
 import json
-from typing import Any
+from collections.abc import Iterable
+from typing import Any, Final
 
 import click
 import typer
@@ -24,6 +27,19 @@ from devops_cli.dry_run.decorator import (
 from tests.support.paths import FIXTURES
 
 CONST_GAPS_FILE = FIXTURES / "dry_run_gaps.json"
+
+# The `no-external-request` commands that write local state or a file. The dry-run class names
+# external requests only, so their MCP tools are not read-only (#3642).
+CONST_MCP_LOCAL_WRITERS: Final[frozenset[str]] = frozenset(
+    {
+        "ai failover",  # writes the constellation snapshot file
+        "ai gateway failover",  # --reset and --no-simulate write the gateway state file
+        "ai ingest library",  # writes the contract of the package to the library contracts directory
+        "ai quiesce",  # writes the constellation snapshot file
+        "ai resume",  # writes the constellation snapshot file
+        "review export-feedback",  # appends review verdicts to the feedback dataset
+    }
+)
 
 
 def _extract_commands(cmd: Any, prefix: str) -> dict[str, Any]:
@@ -216,18 +232,92 @@ def test_dry_run_class_ratchet_repository_invariant() -> None:
     assert errors == []
 
 
-def test_mcp_exposure_table_no_external_request_read_only() -> None:
-    """Criterion 7: MCP tools wrapping no-external-request commands must have read_only=True."""
-    commands = _collect_reachable_commands()
+def audit_mcp_read_only(
+    table: Iterable[tuple[tuple[str, ...], float, bool, bool]],
+    commands: dict[str, Any],
+    local_writers: frozenset[str],
+) -> list[str]:
+    """Audit the read-only flag of each MCP tool of a `no-external-request` command (#3642).
 
+    The class names external requests only. The tool of a command in `local_writers` is not
+    read-only, and the tool of each other `no-external-request` command is read-only. Each entry of
+    `local_writers` is a `no-external-request` command of `table`.
+    """
     mismatches: list[str] = []
-    for path_tuple, _timeout, read_only, _format_json in CONST_MCP_EXPOSURE_TABLE:
+    audited: set[str] = set()
+    for path_tuple, _timeout, read_only, _format_json in table:
         cmd_path = " ".join(path_tuple)
         cmd = commands.get(cmd_path)
-        if cmd is not None and get_dry_run_class(cmd) == "no-external-request":
-            if not read_only:
-                mismatches.append(
-                    f"MCP tool for '{cmd_path}' has read_only=False but command is 'no-external-request'"
-                )
+        if cmd is None or get_dry_run_class(cmd) != "no-external-request":
+            continue
+        audited.add(cmd_path)
+        if read_only and cmd_path in local_writers:
+            mismatches.append(
+                f"MCP tool for '{cmd_path}' has read_only=True but the command writes local state or a file."
+            )
+        elif not read_only and cmd_path not in local_writers:
+            mismatches.append(
+                f"MCP tool for '{cmd_path}' has read_only=False but the command is 'no-external-request' and is not in CONST_MCP_LOCAL_WRITERS. Add it there if it writes local state or a file."
+            )
+    mismatches.extend(
+        f"CONST_MCP_LOCAL_WRITERS names '{path}', which is not a 'no-external-request' command of the MCP exposure table."
+        for path in sorted(local_writers - audited)
+    )
+    return mismatches
+
+
+def _writer_and_reader() -> dict[str, Any]:
+    """Two `no-external-request` commands: `demo writer` and `demo reader`."""
+    app = new_typer(no_args_is_help=True)
+
+    @app.command(name="writer")
+    @dry_run_class("no-external-request")
+    def writer() -> None:
+        pass
+
+    @app.command(name="reader")
+    @dry_run_class("no-external-request")
+    def reader() -> None:
+        pass
+
+    return _extract_commands(typer.main.get_command(app), "demo")
+
+
+def test_a_local_writer_with_a_read_only_tool_is_reported() -> None:
+    table = ((("demo", "writer"), 60.0, True, False), (("demo", "reader"), 60.0, True, False))
+
+    mismatches = audit_mcp_read_only(table, _writer_and_reader(), frozenset({"demo writer"}))
+
+    assert mismatches == [
+        "MCP tool for 'demo writer' has read_only=True but the command writes local state or a file."
+    ]
+
+
+def test_a_command_that_writes_nothing_with_a_tool_that_is_not_read_only_is_reported() -> None:
+    table = ((("demo", "writer"), 60.0, False, False), (("demo", "reader"), 60.0, False, False))
+
+    mismatches = audit_mcp_read_only(table, _writer_and_reader(), frozenset({"demo writer"}))
+
+    assert mismatches == [
+        "MCP tool for 'demo reader' has read_only=False but the command is 'no-external-request' and is not in CONST_MCP_LOCAL_WRITERS. Add it there if it writes local state or a file."
+    ]
+
+
+def test_a_local_writer_outside_the_exposure_table_is_reported() -> None:
+    table = ((("demo", "writer"), 60.0, False, False), (("demo", "reader"), 60.0, True, False))
+
+    mismatches = audit_mcp_read_only(
+        table, _writer_and_reader(), frozenset({"demo writer", "demo gone"})
+    )
+
+    assert mismatches == [
+        "CONST_MCP_LOCAL_WRITERS names 'demo gone', which is not a 'no-external-request' command of the MCP exposure table."
+    ]
+
+
+def test_a_no_external_request_tool_is_read_only_exactly_when_its_command_writes_nothing() -> None:
+    mismatches = audit_mcp_read_only(
+        CONST_MCP_EXPOSURE_TABLE, _collect_reachable_commands(), CONST_MCP_LOCAL_WRITERS
+    )
 
     assert mismatches == []
