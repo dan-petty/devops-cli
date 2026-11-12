@@ -97,9 +97,3 @@ def why_not_on_merged_code(session: ReviewSessionPayload, repository: Path) -> s
         accepted=(0, _NOT_AN_ANCESTOR),
     )
     return None if code == 0 else texts.merged_reason_not_on_main.format(head=checkout.head)
-
-
-def is_on_merged_code(session: ReviewSessionPayload, repository: Path) -> bool:
-    """Whether `session` reviewed a path in a clean tree at a commit that `origin/main` holds,
-    as `why_not_on_merged_code` decides it."""
-    return why_not_on_merged_code(session, repository) is None

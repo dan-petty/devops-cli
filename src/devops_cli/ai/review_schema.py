@@ -6,7 +6,7 @@ import ast
 import json
 import re
 from collections import defaultdict
-from collections.abc import Hashable, Iterable, Sequence
+from collections.abc import Sequence
 from enum import StrEnum, auto
 from pathlib import Path
 from typing import Any
@@ -25,7 +25,6 @@ from devops_cli.config.constants import (
     CONST_REVIEW_CWE_DEFECT_CLASSES,
     CONST_REVIEW_DEFECT_KEYWORDS,
     CONST_REVIEW_PROMPT_PLACEHOLDER_BASENAMES,
-    CONST_REVIEW_TITLE_FILLER_WORDS,
 )
 from devops_cli.config.defaults import (
     DEFAULT_FINDING_STATUS,
@@ -140,17 +139,6 @@ def format_clean_text_field(val: Any) -> str:
         lines = [line for line in s.splitlines() if line.strip() not in ("**", "*", "---")]
         return "\n".join(lines).strip()
     return str(val)
-
-
-# Words that open many unrelated findings ("Missing timeout", "Missing authorization check").
-# Counting them as shared words merges different defects.
-_TITLE_FILLER_WORDS = CONST_REVIEW_TITLE_FILLER_WORDS
-
-
-def _tokenize_title(title: str) -> set[str]:
-    """The words of a finding's text that tell it apart from other findings."""
-    words = re.findall(r"\b[a-zA-Z0-9_]+\b", title.lower())
-    return {w for w in words if len(w) > 2 and w not in _TITLE_FILLER_WORDS}
 
 
 def parse_finding_references(raw_ref: Any) -> list[str]:
@@ -279,17 +267,6 @@ def sanitize_finding_text(text: str) -> str:
     val = strip_outer_markdown_bold(val)
 
     return val.strip()
-
-
-def unique_items[T: Hashable](items: Iterable[T]) -> list[T]:
-    """Preserve only the first instance of each item in a collection using a set."""
-    seen: set[T] = set()
-    result: list[T] = []
-    for item in items:
-        if item not in seen:
-            seen.add(item)
-            result.append(item)
-    return result
 
 
 def _format_location_with_lines(
@@ -625,14 +602,6 @@ def assign_category(
     if cwe is not None:
         return f"CWE-{cwe}", raw
     return defect_class(raw, title).value, raw
-
-
-def less_severe(current: str, proposed: object) -> str:
-    """The less severe of a severity and the one `proposed` names; `current` when it names none."""
-    named = severity_named(proposed)
-    if named is None or _SEVERITY_RANK[named] <= _SEVERITY_RANK.get(current, -1):
-        return current
-    return named
 
 
 class Finding(BaseModel):
@@ -1139,19 +1108,6 @@ class ReviewResult(BaseModel):
     @property
     def sorted_findings(self) -> list[Finding]:
         return sort_findings(self.findings)
-
-    def merge(self, other: ReviewResult) -> ReviewResult:
-        """Merge another ReviewResult, deduplicating and consolidating findings."""
-        merged_findings = sort_findings(self.findings + other.findings)
-        recommendation = derive_recommendation(merged_findings)
-        scores = [s for s in (self.confidence_score, other.confidence_score) if s is not None]
-        merged_conf = round(sum(scores) / len(scores), 2) if scores else None
-        return ReviewResult(
-            findings=merged_findings,
-            recommendation=recommendation,
-            summary=self.summary or other.summary,
-            confidence_score=merged_conf,
-        )
 
 
 def extract_json_block(text: str) -> Any:

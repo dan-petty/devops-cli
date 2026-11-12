@@ -65,11 +65,6 @@ def page_line_number(line: str) -> int | None:
     return int(match[1]) if match and match[1] else None
 
 
-def _is_numbered(line: str) -> bool:
-    """Whether a review line carries the number column, empty or not."""
-    return _LINE_NUMBER_COLUMN.match(line) is not None
-
-
 def _parse_hunk_header_range(line: str) -> tuple[int, int] | None:
     """Parse (start, end) line range from diff @@ hunk header."""
     match = _HUNK_HEADER.match(line)

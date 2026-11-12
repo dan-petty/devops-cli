@@ -341,22 +341,3 @@ def render_explanation(topic: str, console_instance: Any = None) -> None:
         )
         print(table_payload, console=console_instance)
         write_stdout("\n")
-
-
-def get_explanation_markdown(topic: str) -> str:
-    """Generate Markdown representation of explanation glossary."""
-    data = EXPLANATIONS.get(topic.lower())
-    if not data:
-        data = EXPLANATIONS["benchmark"]
-
-    lines = [f"# {data['title']}", "", data["description"], ""]
-    for section in data["sections"]:
-        lines.append(f"## {section['name']}")
-        lines.append("")
-        lines.append("| Term / Metric | Definition & Purpose | Formula / Guideline |")
-        lines.append("| :--- | :--- | :--- |")
-        for term, definition, formula in section["items"]:
-            lines.append(f"| **{term}** | {definition} | `{formula}` |")
-        lines.append("")
-
-    return "\n".join(lines)

@@ -303,10 +303,3 @@ def main(
     requested = dry_run or dry_run_requested_by_environment()
     set_dry_run(requested)
     ctx.obj = {"dry_run": requested}
-
-
-def main_entry() -> None:
-    """Fast CLI entrypoint dispatcher."""
-    from devops_cli.entry import main
-
-    main()

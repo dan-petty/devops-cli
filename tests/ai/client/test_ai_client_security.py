@@ -269,7 +269,7 @@ def test_preload_models_non_blocking(web: WebFake) -> None:
         callback_results.update(res)
         completed_event.set()
 
-    client.prewarm_async(on_complete=on_done)
+    client.preload_models(blocking=False, on_complete=on_done)
     assert completed_event.wait(timeout=THREAD_HANDOFF_BOUND_SECONDS)
     assert callback_results == {"http://localhost:11434": True}
 

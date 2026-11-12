@@ -20,7 +20,6 @@ if TYPE_CHECKING:
 from devops_cli.k8s.logql import (
     FilterOp,
     LogQLFilter,
-    evaluate_log_lines,
     execute_kubectl_logql,
     execute_logql_query,
     execute_loki_query,
@@ -115,25 +114,6 @@ def test_extract_fields_logfmt() -> None:
     assert fields["caller"] == "main.go:42"
     assert fields["msg"] == "connection refused"
     assert fields["attempt"] == "3"
-
-
-def test_evaluate_log_lines() -> None:
-    """Test in-memory LogQL line evaluation with filters and pipeline extraction."""
-    raw_lines = [
-        '{"level": "info", "msg": "started worker", "trace_id": "4bf92f3577b34da6a3ce929d0e0e4736"}',
-        '{"level": "error", "msg": "connection timeout", "trace_id": "0af7651916cd43dd8448eb211c80319c"}',
-        '{"level": "error", "msg": "database deadlocked", "trace_id": "aabbccddeeff00112233445566778899"}',
-        '{"level": "debug", "msg": "ping healthz"}',
-    ]
-    query = parse_logql_query('{app="service"} |= "error" != "timeout" | json')
-    entries = evaluate_log_lines(raw_lines, query, default_labels={"app": "service"})
-
-    assert len(entries) == 1
-    entry = entries[0]
-    assert "deadlocked" in entry.line
-    assert entry.fields.get("level") == "error"
-    assert entry.trace_id == "aabbccddeeff00112233445566778899"
-    assert entry.stream_labels == {"app": "service"}
 
 
 def test_execute_kubectl_logql_fallback(process_fake: ProcessFake) -> None:

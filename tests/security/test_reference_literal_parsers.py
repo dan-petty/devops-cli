@@ -9,11 +9,9 @@ from devops_cli.security.reference_extractor import (
     _clean_yaml_scalar,
     _extract_hcl_literals_and_comments,
     _extract_ip_reference,
-    _extract_json_strings,
     _extract_python_literals_and_comments,
-    _extract_toml_strings,
+    _extract_structured_strings,
     _extract_url_reference,
-    _extract_yaml_strings,
     _parse_python_token_string,
 )
 
@@ -75,19 +73,17 @@ def test_a_yaml_scalar_loses_its_template_expressions_and_keeps_its_url() -> Non
 
 
 @pytest.mark.parametrize(
-    ("reader", "text", "value"),
+    ("format_type", "text", "value"),
     [
         pytest.param(
-            _extract_json_strings,
+            "json",
             '{"server": "https://example.com", "port": 8080}',
             "https://example.com",
             id="json",
         ),
+        pytest.param("toml", '[tool.poetry]\nname = "my-tool"\n', "my-tool", id="toml"),
         pytest.param(
-            _extract_toml_strings, '[tool.poetry]\nname = "my-tool"\n', "my-tool", id="toml"
-        ),
-        pytest.param(
-            _extract_yaml_strings,
+            "yaml",
             "services:\n  web:\n    image: nginx:alpine\n",
             "nginx:alpine",
             id="yaml",
@@ -95,10 +91,11 @@ def test_a_yaml_scalar_loses_its_template_expressions_and_keeps_its_url() -> Non
     ],
 )
 def test_the_string_values_of_a_structured_file_are_read(
-    reader: object, text: str, value: str
+    format_type: str, text: str, value: str
 ) -> None:
-    """JSON, TOML and YAML readers give their string values."""
-    assert any(value in string[0] for string in reader(text))  # type: ignore[operator]
+    """The JSON, TOML and YAML reader gives the string values of each format."""
+    strings = _extract_structured_strings(text, format_type=format_type)
+    assert any(value in string[0] for string in strings)
 
 
 @pytest.mark.parametrize(("include_local", "kept"), [(True, True), (False, False)])

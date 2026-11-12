@@ -12,7 +12,6 @@ import typer
 from devops_cli.core.validation import (
     is_non_public_ip,
     validate_dir,
-    validate_file,
     validate_k8s_name,
     validate_path,
     validate_safe_key_path,
@@ -94,7 +93,7 @@ def test_a_range_is_non_public_when_any_of_its_addresses_is(cidr: str, non_publi
     assert is_non_public_ip(ipaddress.ip_network(cidr)) is non_public
 
 
-def test_validate_path_and_dir_and_file(tmp_path: Path) -> None:
+def test_validate_path_and_dir(tmp_path: Path) -> None:
     d = tmp_path / "subdir"
     d.mkdir()
     f = d / "test.txt"
@@ -102,14 +101,9 @@ def test_validate_path_and_dir_and_file(tmp_path: Path) -> None:
 
     assert validate_path(d) == d
     assert validate_dir(d) == d
-    assert validate_file(f) == f
 
     with pytest.raises(typer.Exit) as raised:
         validate_dir(f)
-    assert raised.value.exit_code is not None
-
-    with pytest.raises(typer.Exit) as raised:
-        validate_file(d)
     assert raised.value.exit_code is not None
 
     with pytest.raises(typer.Exit) as raised:
@@ -157,11 +151,8 @@ def test_validate_path_parameterized(tmp_path: Path) -> None:
 
 
 def test_validation_edge_cases() -> None:
-    """Verify validate_safe_directory_path and validate_session_id."""
-    from devops_cli.core.validation import (
-        validate_safe_directory_path,
-        validate_session_id,
-    )
+    """Verify validate_safe_directory_path."""
+    from devops_cli.core.validation import validate_safe_directory_path
     from devops_cli.exceptions import ValidationError
 
     # 1. validate_safe_directory_path
@@ -171,18 +162,6 @@ def test_validation_edge_cases() -> None:
     assert raised.value.error_code == "VALIDATION_ERROR"
     with pytest.raises(ValidationError) as raised:
         validate_safe_directory_path("path/../traversal")
-    assert raised.value.error_code == "VALIDATION_ERROR"
-
-    # 2. validate_session_id
-    assert validate_session_id("valid-session_123") == "valid-session_123"
-    with pytest.raises(ValidationError) as raised:
-        validate_session_id("")
-    assert raised.value.error_code == "VALIDATION_ERROR"
-    with pytest.raises(ValidationError) as raised:
-        validate_session_id("invalid session!!")
-    assert raised.value.error_code == "VALIDATION_ERROR"
-    with pytest.raises(ValidationError) as raised:
-        validate_session_id("session/../traversal")
     assert raised.value.error_code == "VALIDATION_ERROR"
 
     from devops_cli.core.validation import validate_k8s_context_name

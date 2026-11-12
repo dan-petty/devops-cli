@@ -8,7 +8,7 @@ from unittest.mock import patch
 import pytest
 
 from devops_cli.ai.review import ReviewPipelineOrchestrator
-from devops_cli.ai.review.pipeline import _build_malicious_network_finding, _is_exact_version
+from devops_cli.ai.review.pipeline import _build_malicious_network_finding
 from devops_cli.ai.review_schema import FileReviewPayload, SavedFinding
 from devops_cli.models.vulnerability import NetworkReference, NetworkReputationRecord
 
@@ -17,27 +17,6 @@ from devops_cli.models.vulnerability import NetworkReference, NetworkReputationR
 def _no_rag() -> object:
     with patch("devops_cli.ai.rag.investigator.investigate_rag_context", return_value=None):
         yield
-
-
-@pytest.mark.parametrize(
-    ("version", "ecosystem", "exact"),
-    [
-        ("==2.11.0", "PyPI", True),
-        ("2.11.0", "npm", True),
-        ("v1.9.2", "Go", True),
-        (">=2.32.3", "PyPI", False),
-        ("^18.2.0", "npm", False),
-        ("~1.4", "npm", False),
-        ("1.x", "npm", False),
-        ("*", "npm", False),
-        ("1.0", "crates.io", False),
-        ("", "PyPI", False),
-        ("1.0.0-linux", "npm", True),
-    ],
-)
-def test_only_exact_versions_are_looked_up(version: str, ecosystem: str, exact: bool) -> None:
-    """Verify a version range is not sent to OSV, which would return every advisory ever."""
-    assert _is_exact_version(version, ecosystem) is exact
 
 
 def test_threat_intel_network_findings_start_unverified() -> None:

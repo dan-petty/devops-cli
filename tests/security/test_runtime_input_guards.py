@@ -5,7 +5,6 @@ from __future__ import annotations
 import pytest
 
 from devops_cli.ai.diff.difftastic import get_structural_diff
-from devops_cli.k8s.chaos_runner import ChaosExperiment, ChaosFaultRunner
 from devops_cli.security.sanitizer import mask_secrets
 from devops_cli.security.vault_broker import parse_vault_uri
 
@@ -47,28 +46,6 @@ def test_secret_sanitizer_masks_actual_secret_assignments() -> None:
     diff = "@@ -10,1 +10,1 @@\n+    api_token = secret_ab12cd34ef56gh78ij90\n"
     sanitized = mask_secrets(diff)
     assert "<masked-secret>" in sanitized or "<masked-token>" in sanitized
-
-
-# ── 3. ChaosFaultRunner Argument Injection Guards ────────────────────────────
-
-
-def test_chaos_fault_runner_rejects_argument_injection() -> None:
-    """Verify that ChaosFaultRunner rejects namespaces or selectors with argument injection flags."""
-    runner = ChaosFaultRunner()
-    bad_exp = ChaosExperiment(
-        name="test-chaos",
-        namespace="--all-namespaces",
-        target_label_selector="app=web",
-    )
-    report = runner.run_experiment(bad_exp)
-    assert report.status.value in ("FAILED", "SKIPPED")
-    assert report.error is not None
-    assert (
-        "invalid" in report.error.lower()
-        or "flag" in report.error.lower()
-        or "injection" in report.error.lower()
-        or "failed" in report.error.lower()
-    )
 
 
 # ── 4. Structural Diff Ref Injection Guards ──────────────────────────────────

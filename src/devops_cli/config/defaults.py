@@ -323,18 +323,12 @@ DEFAULT_OTEL_HTTP_TIMEOUT_SECONDS: float = 1.0
 DEFAULT_MCP_TOOL_TIMEOUT_SECONDS: float = 300.0
 DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS: float = 60.0
 DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS: float = 30.0
-DEFAULT_MCP_SCHEMA_CACHE_MAX_ENTRIES: int = 256
 
 # ── Docker Defaults ───────────────────────────────────────────────────────────
 DEFAULT_DOCKER_TIMEOUT_SECONDS: float = 300.0
 DEFAULT_COSIGN_TIMEOUT_SECONDS: float = 60.0
 
 # ── Vault Lease Lifecycle Defaults ───────────────────────────────────────────
-# Renew a lease once its remaining lifetime drops below this fraction of its TTL, so a
-# long CI run never presents an expired credential mid-operation.
-DEFAULT_VAULT_LEASE_RENEW_THRESHOLD: float = 0.25
-# Lifetime requested on each renewal, in seconds.
-DEFAULT_VAULT_LEASE_RENEW_INCREMENT_SECONDS: int = 3600
 # Bound on a single Vault HTTP API call.
 DEFAULT_VAULT_REQUEST_TIMEOUT_SECONDS: float = 10.0
 
@@ -554,8 +548,6 @@ DEFAULT_PROMETHEUS_QUERY_RANGE_START: str = "1h"
 DEFAULT_PROMETHEUS_QUERY_RANGE_STEP: str = "60s"
 # ── Git Defaults ──────────────────────────────────────────────────────────────
 DEFAULT_CLEAN_WORKSPACE_DAYS: int = 7
-DEFAULT_GIT_LOG_COUNT: int = 10
-DEFAULT_FIND_MAXDEPTH: int = 3
 DEFAULT_PR_LIMIT: int = 30
 
 # ── Telemetry Defaults ────────────────────────────────────────────────────────
@@ -580,7 +572,6 @@ DEFAULT_SEMCONV_WEAVER_TIMEOUT_SECONDS: float = 300.0
 
 # ── AI Context Packing & AST Defaults ────────────────────────────────────────
 DEFAULT_CONTEXT_PACKING_MAX_TOKENS: int = 1500
-DEFAULT_CONTEXT_PACKING_TOTAL_BUDGET: int = 3000
 DEFAULT_REPOMAP_MAX_FILES: int = 100
 DEFAULT_REPOMAP_MAX_FILE_SIZE_BYTES: int = 50 * 1024 * 1024  # 50 MiB
 DEFAULT_JSON_REPAIR_MAX_LENGTH: int = 50 * 1024 * 1024  # 50 MiB
@@ -659,8 +650,6 @@ DEFAULT_FINDING_STATUS: str = "UNVERIFIED"
 DEFAULT_SYNTHESIZED_TEST_STATUS: str = "UNEXECUTED"
 DEFAULT_AGENT_NAME: str = "Assistant"
 DEFAULT_AGENT_SYSTEM_PROMPT: str = "You are a helpful DevOps assistant."
-DEFAULT_PLAN_REMINDER_CADENCE: int = 3
-DEFAULT_PLAN_REMINDER_ID: str = "system_reminders"
 DEFAULT_INVARIANT_REMINDER_ID: str = "invariants"
 DEFAULT_INVARIANT_REMINDER_CHARS: int = 120
 DEFAULT_CHAT_INVARIANTS: tuple[str, ...] = (
@@ -669,9 +658,7 @@ DEFAULT_CHAT_INVARIANTS: tuple[str, ...] = (
     "Never lower, relax, bypass, or disable a security standard, quality threshold, or compliance check unless explicitly instructed by the user.",
     "Never push with --no-verify or before the pre-push hook passes. Never commit or push directly to main.",
 )
-DEFAULT_EMBEDDING_MODEL_NAME: str = "default"
 DEFAULT_EMBEDDING_PROVIDER_NAME: str = "devops-cli"
-DEFAULT_EMBEDDING_MODEL: str = "openai:text-embedding-3-small"
 DEFAULT_EMBEDDING_INPUT_TYPE: Literal["query", "document"] = "query"
 DEFAULT_EMBEDDING_CURRENCY: str = "USD"
 

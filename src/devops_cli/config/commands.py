@@ -8,9 +8,6 @@ from pathlib import Path
 
 from devops_cli.config.constants import CONST_K8S_MANIFEST_EXTENSIONS, CONST_SEMGREP_JOBS
 from devops_cli.config.defaults import (
-    DEFAULT_FIND_MAXDEPTH,
-    DEFAULT_GIT_LOG_COUNT,
-    DEFAULT_REST_HOST,
     DEFAULT_TRIVY_HIGH_SEVERITY,
     DEFAULT_TRIVY_SCAN_TYPE,
 )
@@ -47,8 +44,6 @@ BIN_PYTEST: str = "pytest"
 BIN_RUFF: str = "ruff"
 BIN_SEMGREP: str = "semgrep"
 BIN_STERN: str = "stern"
-BIN_TERRAFORM: str = "terraform"
-BIN_TOFU: str = "tofu"
 BIN_TRIVY: str = "trivy"
 BIN_UV: str = "uv"
 BIN_ZIZMOR: str = "zizmor"
@@ -57,42 +52,9 @@ BIN_ZIZMOR: str = "zizmor"
 # ── Command Argument List Builders ───────────────────────────────────────────
 
 
-def build_git_rev_parse_cmd(flags: Sequence[str]) -> list[str]:
-    """Build a git rev-parse command."""
-    return [BIN_GIT, "rev-parse", *flags]
-
-
 def build_git_diff_cmd(branch: str, base: str) -> list[str]:
     """Build a git diff command between two branches."""
     return [BIN_GIT, "diff", f"{base}...{branch}"]
-
-
-def build_git_log_cmd(
-    count: int = DEFAULT_GIT_LOG_COUNT, format_spec: str | None = None
-) -> list[str]:
-    """Build a git log command."""
-    cmd = [BIN_GIT, "log", f"-n{count}"]
-    if format_spec:
-        cmd.append(f"--format={format_spec}")
-    return cmd
-
-
-def build_git_clone_cmd(repo_url: str, dest_dir: Path) -> list[str]:
-    """Build a git clone command."""
-    return [BIN_GIT, "clone", repo_url, str(dest_dir)]
-
-
-def build_find_files_cmd(
-    target_dir: Path | str,
-    maxdepth: int = DEFAULT_FIND_MAXDEPTH,
-    exclude_paths: Sequence[str] | None = None,
-) -> list[str]:
-    """Build a find command with standard path exclusions."""
-    cmd = [BIN_FIND, str(target_dir), "-maxdepth", str(maxdepth)]
-    if exclude_paths:
-        for p in exclude_paths:
-            cmd.extend(["-not", "-path", p])
-    return cmd
 
 
 def build_kubectl_cmd(args: Sequence[str], context: str | None = None) -> list[str]:
@@ -101,30 +63,6 @@ def build_kubectl_cmd(args: Sequence[str], context: str | None = None) -> list[s
     if context:
         cmd.extend(["--context", context])
     cmd.extend(args)
-    return cmd
-
-
-def build_kubectl_port_forward_cmd(
-    service: str,
-    local_port: int,
-    remote_port: int,
-    namespace: str,
-    address: str = DEFAULT_REST_HOST,
-    context: str | None = None,
-) -> list[str]:
-    """Build a kubectl port-forward command."""
-    cmd = [
-        BIN_KUBECTL,
-        "port-forward",
-        f"svc/{service}",
-        f"{local_port}:{remote_port}",
-        "--address",
-        address,
-        "-n",
-        namespace,
-    ]
-    if context:
-        cmd.extend(["--context", context])
     return cmd
 
 
@@ -312,25 +250,6 @@ def build_npm_audit_cmd(project_dir: Path | str) -> list[str]:
 def build_openspec_cmd(*args: str) -> list[str]:
     """Build an `openspec` command: the pinned OpenSpec's program, then its arguments."""
     return [BIN_OPENSPEC, *args]
-
-
-def build_iac_cmd(binary: str, subcommand: str, args: Sequence[str] | None = None) -> list[str]:
-    """Build an Infrastructure-as-Code command (terraform or tofu)."""
-    bin_name = BIN_TOFU if binary.lower() in ("tofu", "opentofu", BIN_TOFU) else BIN_TERRAFORM
-    cmd = [bin_name, subcommand]
-    if args:
-        cmd.extend(args)
-    return cmd
-
-
-def build_tf_cmd(subcommand: str, args: Sequence[str] | None = None) -> list[str]:
-    """Build a terraform command."""
-    return build_iac_cmd(BIN_TERRAFORM, subcommand, args=args)
-
-
-def build_tofu_cmd(subcommand: str, args: Sequence[str] | None = None) -> list[str]:
-    """Build an opentofu command."""
-    return build_iac_cmd(BIN_TOFU, subcommand, args=args)
 
 
 def build_gitleaks_cmd(target_path: Path | str, no_git: bool = True) -> list[str]:

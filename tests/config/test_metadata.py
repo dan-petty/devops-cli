@@ -12,8 +12,6 @@ from devops_cli.config.metadata import (
     _DEFAULT_METADATA,
     ProjectMetadata,
     _parse_python_version,
-    get_project_description,
-    get_project_name,
     get_project_python_version,
     get_version,
     load_project_metadata,
@@ -35,9 +33,7 @@ def test_metadata_helper_functions() -> None:
     """Helper functions must return expected values directly."""
     assert get_version() == __version__
     assert __version__.count(".") == 2
-    assert get_project_name() == "devops-cli"
     assert get_project_python_version() == "3.14"
-    assert "DevOps CLI" in get_project_description()
 
 
 def test_load_custom_pyproject(tmp_path: Path) -> None:

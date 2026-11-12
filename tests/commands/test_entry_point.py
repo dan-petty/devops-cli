@@ -3,14 +3,12 @@
 from __future__ import annotations
 
 import sys
-from collections.abc import Callable
 
 import pytest
 
 from devops_cli import __version__
 from devops_cli.dry_run import in_dry_run_invocation, is_dry_run
 from devops_cli.entry import is_completion_requested, main
-from devops_cli.main import main_entry
 from tests.support.fakes.process import ProcessFake
 
 
@@ -40,14 +38,13 @@ def test_the_help_flag_prints_the_help(capsys: pytest.CaptureFixture[str]) -> No
     assert "DevOps CLI" in capsys.readouterr().out
 
 
-@pytest.mark.parametrize("entry", [main, main_entry], ids=["entry", "console-script"])
 def test_the_entry_point_reads_the_arguments_of_the_process(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], entry: Callable[[], None]
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     monkeypatch.setattr(sys, "argv", ["devops", "--version"])
 
     with pytest.raises(SystemExit) as exited:
-        entry()
+        main()
 
     assert exited.value.code == 0
     assert __version__ in capsys.readouterr().out

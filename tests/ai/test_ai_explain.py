@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+from rich.console import Console
 from typer.testing import CliRunner
 
-from devops_cli.ai.explain import EXPLANATIONS, get_explanation_markdown, render_explanation
+from devops_cli.ai.explain import EXPLANATIONS, render_explanation
 from devops_cli.commands.ai import app as ai_app
 
 runner = CliRunner()
@@ -31,21 +32,18 @@ def test_explanation_definitions_coverage() -> None:
                 assert len(formula) > 0
 
 
-def test_render_explanation_and_markdown() -> None:
-    """Verify render_explanation and get_explanation_markdown work across topics."""
-    # Test rendering to console
-    render_explanation("benchmark")
-    render_explanation("review")
-    render_explanation("analyze")
-    render_explanation("rag")
-    render_explanation("unknown_topic")  # should fallback gracefully
+def test_render_explanation_falls_back_to_the_benchmark_topic() -> None:
+    """Verify render_explanation renders each topic, and an unknown topic as the benchmark one."""
+    rendered = {}
+    for topic in ("benchmark", "review", "analyze", "rag", "unknown_topic"):
+        console = Console(record=True, width=200)
+        render_explanation(topic, console_instance=console)
+        rendered[topic] = console.export_text()
 
-    # Test markdown generation
-    md = get_explanation_markdown("benchmark")
-    assert "# ⚡ DevOps AI Benchmark Suite" in md
-    assert "Recall@1" in md
-    assert "NDCG@5" in md
-    assert "Cosine Margin" in md
+    assert (
+        all(EXPLANATIONS[topic]["title"] in rendered[topic] for topic in EXPLANATIONS),
+        rendered["unknown_topic"] == rendered["benchmark"],
+    ) == (True, True)
 
 
 def test_cli_ai_explain_options() -> None:

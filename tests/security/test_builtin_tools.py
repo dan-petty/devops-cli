@@ -12,7 +12,6 @@ from pathlib import Path
 import pytest
 
 from devops_cli.ai.tools.builtin_tools import (
-    argo_app_status,
     argo_apps,
     check_threat_intel,
     git_diff,
@@ -222,17 +221,15 @@ def test_the_cluster_tools_run_kubectl_and_argocd_with_their_arguments(
     process_fake: ProcessFake,
 ) -> None:
     """The Kubernetes and Argo CD tools, which run no scanner adapter, start the program with
-    the namespace or the application they are given."""
+    the namespace they are given."""
     k8s_pods("kube-system")
     k8s_tempo_status("default")
     argo_apps()
-    argo_app_status("web")
 
     assert [call.argv for call in process_fake.calls] == [
         ("kubectl", "get", "pods", "-n", "kube-system"),
         ("kubectl", "get", "deployments,statefulsets,services", "-n", "default"),
         ("argocd", "app", "list"),
-        ("argocd", "app", "get", "web"),
     ]
 
 

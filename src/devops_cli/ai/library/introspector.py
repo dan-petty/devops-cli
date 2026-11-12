@@ -17,8 +17,6 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any
 
-from pydantic import ValidationError
-
 from devops_cli.exceptions.ai import LibraryNotFoundError
 from devops_cli.models.library import (
     ClassSignature,
@@ -326,14 +324,3 @@ class PackageIntrospector:
         file_path = target_dir / f"{contract.package_name}.json"
         file_path.write_text(contract.model_dump_json(indent=2), encoding="utf-8")
         return file_path
-
-    def load_from_dir(self, package_name: str, input_dir: Path | str) -> LibraryContract | None:
-        """Load and deserialize LibraryContract from a directory if present."""
-        file_path = Path(input_dir) / f"{package_name}.json"
-        if not file_path.is_file():
-            return None
-        try:
-            return LibraryContract.model_validate_json(file_path.read_text(encoding="utf-8"))
-        except (ValidationError, OSError, ValueError) as err:
-            logger.warning("Failed to load or validate LibraryContract from %s: %s", file_path, err)
-            return None

@@ -16,7 +16,6 @@ from devops_cli.config.defaults import (
 )
 from devops_cli.models.library import (
     ClassSignature,
-    DocChunk,
     FunctionSignature,
     LibraryContract,
     LibrarySearchResult,
@@ -328,34 +327,6 @@ class LibraryVectorStore:
         for cache_key, json_str in cache_entries:
             self._cache_symbol_in_valkey(cache_key, json_str)
 
-        return len(points)
-
-    def index_doc_chunks(self, chunks: list[DocChunk], package_name: str) -> int:
-        """Embed and upsert documentation chunks into devops_libraries collection."""
-        if not chunks or self.qdrant_client is None:
-            return 0
-        self.ensure_collection_exists()
-
-        texts = [f"{c.title}\n\n{c.content}" for c in chunks]
-        vectors = self._embed_many_texts(texts)
-        points = [
-            {
-                "id": f"{package_name}:{chunk.chunk_id}",
-                "vector": vec,
-                "payload": {
-                    "symbol_name": chunk.title,
-                    "package_name": package_name,
-                    "version": "",
-                    "kind": "doc_chunk",
-                    "signature_text": chunk.title,
-                    "docstring": chunk.content,
-                    "headings": chunk.headings,
-                    "source": chunk.source,
-                },
-            }
-            for chunk, vec in zip(chunks, vectors, strict=False)
-        ]
-        self.qdrant_client.upsert_points(name=self.collection_name, points=points)
         return len(points)
 
     def _lookup_local_fallback(

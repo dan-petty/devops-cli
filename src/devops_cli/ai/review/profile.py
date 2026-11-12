@@ -225,11 +225,6 @@ class ReviewProfiler:
         with self._lock:
             self._semgrep_registry_digest = digest
 
-    def record_rejection(self, reason: str) -> None:
-        """Record one typed candidate rejection into profile."""
-        with self._lock:
-            self._rejections[reason] = self._rejections.get(reason, 0) + 1
-
     def set_rejections(self, rejections: dict[str, int]) -> None:
         """Set typed candidate rejections."""
         with self._lock:

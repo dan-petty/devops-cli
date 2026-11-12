@@ -527,9 +527,8 @@ def test_finding_location_and_title_sanitizes_criteria_leakage() -> None:
 
 
 def test_tally_findings_splits_comma_joined_personas() -> None:
-    """Verify that _tally_findings splits comma-joined persona strings."""
-    from devops_cli.ai.review.history import HistoryFinding
-    from devops_cli.commands.review import _tally_findings
+    """Verify that tally_findings splits comma-joined persona strings."""
+    from devops_cli.ai.review.history import HistoryFinding, tally_findings
 
     findings = [
         HistoryFinding(title="SQL Injection", status="INVALIDATED", persona="devsecops, architect"),
@@ -542,7 +541,7 @@ def test_tally_findings_splits_comma_joined_personas() -> None:
     expected_status = {"VERIFIED": 1, "UNVERIFIED": 1, "INVALIDATED": 1, "MITIGATED": 0}
     expected_total = {"devsecops": 1, "architect": 2, "performance": 1, "unknown": 1}
     expected_invalidated = {"devsecops": 1, "architect": 1}
-    assert _tally_findings(findings) == (expected_status, expected_total, expected_invalidated)
+    assert tally_findings(findings) == (expected_status, expected_total, expected_invalidated)
 
 
 _PREPARED_REVIEWS = {

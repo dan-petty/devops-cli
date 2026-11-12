@@ -121,16 +121,13 @@ def test_parse_key_date_invalid() -> None:
 
 
 def test_get_ssh_key_prefix_resolution(tmp_path: Path, config: Callable[..., Path]) -> None:
-    from devops_cli.crypto.ssh_keys import format_managed_key_filename, get_ssh_key_prefix
+    from devops_cli.crypto.ssh_keys import get_ssh_key_prefix
 
     (tmp_path / ".git").mkdir()  # The config search ends here, so no file of the host counts.
 
     # 1. Config setting override
     config(ssh={"key_prefix": "custom-prod"})
     assert get_ssh_key_prefix(tmp_path) == "custom-prod"
-    assert (
-        format_managed_key_filename(key_date=date(2026, 8, 31)) == "custom-prod-id_ed25519-20260831"
-    )
 
     # 2. Devcontainer json name
     config(ssh={"key_prefix": None})
@@ -671,15 +668,6 @@ def test_a_devcontainer_json_that_does_not_parse_falls_back_to_the_directory_nam
     (dev_cfg / "devcontainer.json").write_text("INVALID JSON // comment", encoding="utf-8")
 
     assert get_ssh_key_prefix(dev_dir) == "bad_devcontainer"
-
-
-def test_a_managed_key_name_with_an_empty_prefix_has_no_leading_dash() -> None:
-    """An empty prefix gives the bare key type and date."""
-    from devops_cli.crypto.ssh_keys import format_managed_key_filename
-
-    assert format_managed_key_filename(prefix="", key_date=date(2026, 9, 1)) == (
-        "id_ed25519-20260901"
-    )
 
 
 @pytest.mark.parametrize(

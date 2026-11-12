@@ -135,22 +135,20 @@ def test_extract_schema_reflection_bounds_input_representations() -> None:
     ) == (True, True, True)
 
 
-def test_format_reflection_prompt_and_summary() -> None:
-    """Verify markdown prompt and single-line summary formatting."""
+def test_format_reflection_prompt() -> None:
+    """Verify markdown prompt formatting."""
     with pytest.raises(ValidationError) as exc_info:
         MultiErrorModel.model_validate({"title": "ok", "score": -5})
 
     report = extract_schema_reflection(exc_info.value, max_errors=5)
     prompt = report.format_reflection_prompt()
-    summary = report.format_error_summary()
 
     assert (
         "Found 8 schema violation(s):" in prompt,
         "Field: `score`" in prompt,
         "Fix Hint:" in prompt,
         "... and 3 additional schema violation(s)." in prompt,
-        "8 schema error(s):" in summary,
-    ) == (True, True, True, True, True)
+    ) == (True, True, True, True)
 
 
 def test_argument_refusal_numbers_violations_and_caps_the_list() -> None:

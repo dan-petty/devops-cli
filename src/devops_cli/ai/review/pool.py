@@ -37,14 +37,6 @@ class TokenBucketRateLimiter:
         self._refill()
         return self._tokens
 
-    def try_acquire(self, tokens: float = 1.0) -> bool:
-        """Attempt non-blocking token acquisition, returning True on success."""
-        self._refill()
-        if self._tokens >= tokens:
-            self._tokens -= tokens
-            return True
-        return False
-
     async def acquire(self, tokens: float = 1.0) -> None:
         """Asynchronously wait until required tokens are available and consume them."""
         while True:
@@ -158,20 +150,6 @@ class ReviewWorkerPool:
                 raise ReviewPoolError(str(eg), errors=list(eg.exceptions)) from eg
 
         return results
-
-    async def submit_sync_all[T, R](
-        self,
-        fn: Callable[[T], R],
-        items: Iterable[T],
-        *,
-        return_exceptions: bool = False,
-    ) -> list[R | Exception]:
-        """Concurrently execute synchronous worker functions delegated to threads."""
-
-        async def _thread_worker(item: T) -> R:
-            return await asyncio.to_thread(fn, item)
-
-        return await self.submit_all(_thread_worker, items, return_exceptions=return_exceptions)
 
     def run_sync[T, R](
         self,

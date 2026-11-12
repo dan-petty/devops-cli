@@ -405,21 +405,6 @@ def _extract_structured_strings(
     return strings
 
 
-def _extract_json_strings(content: str) -> list[tuple[str, int]]:
-    """Extract all string scalar values from valid JSON content."""
-    return _extract_structured_strings(content, format_type="json")
-
-
-def _extract_toml_strings(content: str) -> list[tuple[str, int]]:
-    """Extract all string scalar values from valid TOML content."""
-    return _extract_structured_strings(content, format_type="toml")
-
-
-def _extract_yaml_strings(content: str) -> list[tuple[str, int]]:
-    """Extract all string scalar values from YAML content."""
-    return _extract_structured_strings(content, format_type="yaml")
-
-
 def _get_target_segments(content: str, source_file: str) -> list[tuple[str, int]]:
     """Determine text segments to analyze based on source file syntax."""
     suffix = Path(source_file).suffix.lower() if source_file else ""

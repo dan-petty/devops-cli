@@ -11,7 +11,7 @@ import ast
 import bisect
 import logging
 import warnings
-from collections.abc import Collection, Sequence
+from collections.abc import Collection
 from pathlib import Path
 
 from pydantic import BaseModel, Field
@@ -23,7 +23,6 @@ from devops_cli.ai.context_budget import (
 )
 from devops_cli.config.defaults import (
     DEFAULT_CONTEXT_PACKING_MAX_TOKENS,
-    DEFAULT_CONTEXT_PACKING_TOTAL_BUDGET,
 )
 
 logger = logging.getLogger(__name__)
@@ -432,25 +431,3 @@ class ContextPacker:
         path = Path(file_path)
         content = path.read_text(encoding="utf-8", errors="replace")
         return self.pack_code(content, referenced_symbols=referenced_symbols, config=config)
-
-    def pack_snippets(
-        self,
-        snippets: Sequence[tuple[str, str]],
-        referenced_symbols: Collection[str] | None = None,
-        total_budget: int = DEFAULT_CONTEXT_PACKING_TOTAL_BUDGET,
-        config: PackingConfig | None = None,
-    ) -> list[PackedContext]:
-        """Pack multiple code snippets, distributing token budget across items."""
-        if not snippets:
-            return []
-
-        per_item_budget = max(1, total_budget // len(snippets))
-        base_cfg = config or self.config
-        results: list[PackedContext] = []
-
-        for _name, code in snippets:
-            item_cfg = base_cfg.model_copy(update={"max_tokens": per_item_budget})
-            packed = self.pack_code(code, referenced_symbols=referenced_symbols, config=item_cfg)
-            results.append(packed)
-
-        return results

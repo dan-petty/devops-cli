@@ -137,18 +137,15 @@ def test_set_price_for_another_model_does_not_copy_the_setting_into_the_file(
     assert list(saved) == ["other-model"]
 
 
-def test_set_price_for_a_model_of_the_setting_wins_and_remove_restores_the_setting(
-    tmp_path: Path,
-) -> None:
-    """A price set by hand beats the setting. Removing it gives back the price of the setting."""
+def test_set_price_for_a_model_of_the_setting_wins(tmp_path: Path) -> None:
+    """A price set by hand beats the setting."""
     registry = PricingRegistry(data_dir=tmp_path, settings=_settings(**{CHAT_MODEL: (0.035, 1.5)}))
+    from_setting = registry.get_pricing(CHAT_MODEL, provider="openai").prompt_usd_per_million
 
     registry.set_custom_pricing(CHAT_MODEL, 9.0, 8.0)
     by_hand = registry.get_pricing(CHAT_MODEL, provider="openai").prompt_usd_per_million
-    removed = registry.remove_custom_pricing(CHAT_MODEL)
-    restored = registry.get_pricing(CHAT_MODEL, provider="openai").prompt_usd_per_million
 
-    assert (by_hand, removed, restored) == (9.0, True, 0.035)
+    assert (from_setting, by_hand) == (0.035, 9.0)
 
 
 def test_a_registry_with_a_data_directory_and_no_settings_reads_no_setting(

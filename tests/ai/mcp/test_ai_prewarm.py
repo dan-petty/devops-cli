@@ -175,63 +175,6 @@ class TestOllamaProviderPrewarm:
             assert res == {}
             assert (mock_thread_cls.called, mock_thread.start.called) == (True, True)
 
-    def test_evict_models_and_prewarm_async_convenience_methods(self) -> None:
-        """Verify evict_models delegates with keep_alive=0 and prewarm_async delegates non-blocking."""
-        config = AIConfig(
-            provider="ollama",
-            model="gemma4:26b",
-            ollama_urls=["http://localhost:11434"],
-        )
-        provider = DummyOllamaProvider(config)
-
-        with patch.object(
-            provider, "preload_models", return_value={"http://localhost:11434": True}
-        ) as mock_preload:
-            res_evict = provider.evict_models(model="gemma4:26b")
-            provider.prewarm_async()
-
-            assert res_evict == {"http://localhost:11434": True}
-            mock_preload.assert_any_call(
-                model="gemma4:26b",
-                keep_alive=0,
-                urls=None,
-                blocking=True,
-                on_complete=None,
-            )
-            has_async = any(c.kwargs.get("blocking") is False for c in mock_preload.call_args_list)
-            assert has_async is True
-
-
-class TestUnifiedLLMClientPrewarm:
-    """Test suite verifying LLMClient inherits and executes prewarm capabilities."""
-
-    def test_unified_client_prewarm_and_evict_delegation(self) -> None:
-        """Verify LLMClient instance exposes prewarm_models and evict_models."""
-        from devops_cli.ai.client.unified import LLMClient
-
-        config = AIConfig(
-            provider="ollama",
-            model="gemma4:26b",
-            ollama_urls=["http://localhost:11434"],
-        )
-        client = LLMClient(config=config, cache_enabled=False)
-
-        with patch.object(
-            client, "preload_models", return_value={"http://localhost:11434": True}
-        ) as mock_preload:
-            prewarm_res = client.prewarm_models(keep_alive="24h")
-            evict_res = client.evict_models()
-
-            assert (prewarm_res, evict_res) == (
-                {"http://localhost:11434": True},
-                {"http://localhost:11434": True},
-            )
-            has_prewarm = any(
-                c.kwargs.get("keep_alive") == "24h" for c in mock_preload.call_args_list
-            )
-            has_evict = any(c.kwargs.get("keep_alive") == 0 for c in mock_preload.call_args_list)
-            assert (has_prewarm, has_evict) == (True, True)
-
 
 class TestCLIPrewarmHelpers:
     """Test suite for URL resolution and output rendering helpers."""

@@ -30,21 +30,14 @@ def test_the_roadmap_tools_are_registered_and_the_planner_tools_are_gone() -> No
     assert (sorted(run), gone) == (["confirm", "dry_run", "repo"], [None] * 4)
 
 
-def test_the_roadmap_tools_resolve_to_the_roadmap_domain_and_hydrate() -> None:
+def test_the_roadmap_tools_hydrate_with_the_roadmap_domain() -> None:
     from devops_cli.ai.mcp import server as mcp_server
-    from devops_cli.ai.mcp.dispatcher import resolve_tool_domain
 
     before = mcp_server._is_advertised("roadmap_refine")
     hydrated = mcp_server.hydrate_tool_domain("roadmap")["hydrated"]
     after = (mcp_server._is_advertised("roadmap_refine"), mcp_server._is_advertised("roadmap_run"))
     mcp_server.reset_hydrated_domains()
-    assert (
-        resolve_tool_domain("roadmap_refine"),
-        resolve_tool_domain("roadmap_run"),
-        before,
-        hydrated,
-        after,
-    ) == ("roadmap", "roadmap", False, True, (True, True))
+    assert (before, hydrated, after) == (False, True, (True, True))
 
 
 def test_the_roadmap_tools_build_the_commands_argv(mcp_dispatcher: DispatcherFake) -> None:

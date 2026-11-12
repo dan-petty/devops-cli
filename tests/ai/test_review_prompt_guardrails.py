@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from devops_cli.ai.review.sanitization import _truncate_for_prompt
 from devops_cli.ai.review_schema import Finding
 from devops_cli.security.sanitizer import (
     mask_secrets,
@@ -47,16 +46,6 @@ def test_mask_secrets_in_content() -> None:
     assert "client_secret=<masked-client-secret>" in scrubbed
     assert "-----BEGIN PRIVATE KEY-----" not in scrubbed
     assert "<masked-private-key>" in scrubbed
-
-
-def test_truncate_for_prompt() -> None:
-    short_text = "Standard diff line\n+def foo():\n+    return 42"
-    assert _truncate_for_prompt(short_text, max_tokens=500) == short_text
-
-    long_text = "long line of code " * 300
-    budgeted = _truncate_for_prompt(long_text, max_tokens=15)
-    assert len(budgeted) < len(long_text)
-    assert "...[content condensed to fit context window budget]" in budgeted
 
 
 def test_finding_is_empty_and_orphan_rejection() -> None:

@@ -11,7 +11,6 @@ import pytest
 import yaml
 
 from devops_cli.commands.k8s.networking import (
-    _build_port_forward_details,
     _collect_port_forward_services,
     _configure_llm_stack_urls,
     _resolve_accessible_url,
@@ -244,8 +243,8 @@ def test_resolve_accessible_url_prefers_reachable_cluster_endpoint(tcp_probe: Tc
     )
 
 
-def test_collect_port_forward_services_and_details() -> None:
-    """_collect_port_forward_services and _build_port_forward_details generate valid specs."""
+def test_collect_port_forward_services() -> None:
+    """_collect_port_forward_services generates one spec for each service of a stack."""
     ports = {
         "argocd": 8080,
         "grafana": 8030,
@@ -260,24 +259,8 @@ def test_collect_port_forward_services_and_details() -> None:
     }
     services_infra = _collect_port_forward_services(["infra"], ports)
     services_llm = _collect_port_forward_services(["llm"], ports)
-    details_infra = _build_port_forward_details(["infra"], ports)
-    details_llm = _build_port_forward_details(["llm"], ports)
 
-    assert (
-        len(services_infra),
-        len(services_llm),
-        details_infra["argocd.url"],
-        details_infra["pyroscope.url"],
-        details_llm["ollama.url"],
-        details_llm["valkey.url"],
-    ) == (
-        6,
-        4,
-        "http://localhost:8080",
-        "http://localhost:4040",
-        "http://localhost:11434",
-        "valkey://localhost:6379",
-    )
+    assert (len(services_infra), len(services_llm)) == (6, 4)
 
 
 def _port_forwards(process_fake: ProcessFake) -> list[tuple[str, ...]]:

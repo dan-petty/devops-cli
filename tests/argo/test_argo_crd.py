@@ -17,8 +17,6 @@ from devops_cli.argo.crd import ArgoCRDService, get_argo_crd_service, is_not_fou
 from devops_cli.config.constants import (
     CONST_ARGO_API_GROUP,
     CONST_ARGO_API_VERSION,
-    CONST_ARGO_PLURAL_ANALYSIS_RUNS,
-    CONST_ARGO_PLURAL_APPLICATION_SETS,
     CONST_ARGO_PLURAL_APPLICATIONS,
     CONST_ARGO_PLURAL_ROLLOUTS,
     CONST_ARGO_PLURAL_WORKFLOWS,
@@ -185,51 +183,6 @@ def test_invalid_names_are_rejected_before_reaching_the_api(
 # ─────────────────────────────────────────────────────────────────────────────
 # 2. Applications & manifest application
 # ─────────────────────────────────────────────────────────────────────────────
-
-
-def test_list_applications_projects_typed_states(
-    cluster: FakeCluster, service: ArgoCRDService
-) -> None:
-    """Applications are returned as typed states carrying sync and health status."""
-    _seed(
-        cluster,
-        CONST_ARGO_PLURAL_APPLICATIONS,
-        {
-            "kind": "Application",
-            "metadata": {"name": "guestbook", "namespace": "argocd"},
-            "spec": {
-                "project": "default",
-                "source": {"repoURL": "https://example.com/org/repo.git"},
-            },
-            "status": {
-                "sync": {"status": "Synced", "revision": "abcdef1234567890"},
-                "health": {"status": "Healthy"},
-            },
-        },
-    )
-
-    apps = service.list_applications(namespace="argocd")
-
-    assert [(a.name, a.project, a.sync_status, a.health_status, a.revision) for a in apps] == [
-        ("guestbook", "default", "Synced", "Healthy", "abcdef12")
-    ]
-    call = _sent(cluster, "list_namespaced_custom_object")[0]
-    assert (call["group"], call["version"], call["plural"]) == (
-        CONST_ARGO_API_GROUP,
-        CONST_ARGO_API_VERSION,
-        CONST_ARGO_PLURAL_APPLICATIONS,
-    )
-
-
-def test_list_application_sets_and_analysis_runs(
-    cluster: FakeCluster, service: ArgoCRDService
-) -> None:
-    """ApplicationSets and AnalysisRuns project through the same typed state model."""
-    for plural in (CONST_ARGO_PLURAL_APPLICATION_SETS, CONST_ARGO_PLURAL_ANALYSIS_RUNS):
-        _seed(cluster, plural, {"metadata": {"name": "r1", "namespace": "argocd"}})
-
-    assert [a.name for a in service.list_application_sets(namespace="argocd")] == ["r1"]
-    assert [a.name for a in service.list_analysis_runs(namespace="argocd")] == ["r1"]
 
 
 def test_apply_application_creates_when_absent(

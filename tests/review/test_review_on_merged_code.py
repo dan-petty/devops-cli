@@ -18,7 +18,8 @@ from pydantic import ValidationError
 
 from devops_cli.ai.review_schema import ReviewCheckout, ReviewSessionPayload, SavedFinding
 from devops_cli.exceptions import GitOperationError
-from devops_cli.review.checkout import is_on_merged_code, read_checkout
+from devops_cli.lang import MESSAGES
+from devops_cli.review.checkout import read_checkout, why_not_on_merged_code
 from devops_cli.review.session import ReviewSession, ReviewSessionStore
 
 
@@ -114,7 +115,7 @@ def test_only_a_clean_path_review_of_a_commit_on_main_is_on_merged_code(
 
     session = _session(subject_type, ReviewCheckout(head=_head(root), clean=clean))
 
-    assert is_on_merged_code(session, root) is merged
+    assert (why_not_on_merged_code(session, root) is None) is merged
 
 
 def test_a_session_without_a_checkout_is_not_on_merged_code(
@@ -124,7 +125,9 @@ def test_a_session_without_a_checkout_is_not_on_merged_code(
     code, and that no git command decides it."""
     root = _repository(tmp_path / "project", git)
 
-    assert is_on_merged_code(_session("path", None), root) is False
+    assert why_not_on_merged_code(_session("path", None), root) == (
+        MESSAGES.review.merged_reason_no_checkout
+    )
 
 
 def test_a_head_that_the_repository_does_not_hold_is_refused(
@@ -136,7 +139,7 @@ def test_a_head_that_the_repository_does_not_hold_is_refused(
     session = _session("path", ReviewCheckout(head="0" * 40, clean=True))
 
     with pytest.raises(GitOperationError) as raised:
-        is_on_merged_code(session, root)
+        why_not_on_merged_code(session, root)
 
     assert (raised.value.exit_code, raised.value.error_code) == (1, "GIT_OPERATION_ERROR")
 

@@ -334,11 +334,6 @@ class RunIndex:
         self._client.pipeline([command for r in records for command in self._commands(r)])
         return len(records)
 
-    def run_ids(self, mechanism: Mechanism) -> list[str]:
-        """Every indexed run of a mechanism, from any workstation, oldest first."""
-        ids = self._client.execute("ZRANGE", f"{INDEX_PREFIX}:mechanism:{mechanism.value}", 0, -1)
-        return [str(i) for i in ids or []]
-
     def get(self, mechanism: Mechanism, run_id: str) -> RunRecord | None:
         """An indexed record, or None."""
         raw = self._client.get(f"{INDEX_PREFIX}:record:{mechanism.value}:{run_id}")

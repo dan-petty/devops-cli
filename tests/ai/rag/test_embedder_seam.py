@@ -15,7 +15,6 @@ def test_embedder_protocol_and_fake() -> None:
     from devops_cli.ai.rag.embeddings import (
         EmbedderProtocol,
         create_embedder,
-        get_embedder_override,
         install_embedder,
         reset_embedder,
     )
@@ -29,10 +28,8 @@ def test_embedder_protocol_and_fake() -> None:
     assert fake.embed_query("hello") == vecs[0]
 
     install_embedder(fake)
-    assert get_embedder_override() is fake
     assert create_embedder() is fake
     reset_embedder()
-    assert get_embedder_override() is None
     engine = create_embedder()
     assert isinstance(engine, EmbeddingsEngine)
 

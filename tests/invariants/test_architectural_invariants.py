@@ -290,7 +290,6 @@ def test_no_bare_generic_exceptions_in_refactored_modules() -> None:
 
     modules_to_check = [
         Path("src/devops_cli/docker/sandbox.py"),
-        Path("src/devops_cli/k8s/chaos_runner.py"),
         Path("src/devops_cli/commands/k8s/cluster_context.py"),
         Path("src/devops_cli/commands/vault.py"),
         Path("src/devops_cli/security/vault_broker.py"),

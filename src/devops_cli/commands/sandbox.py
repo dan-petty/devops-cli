@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Annotated, Any
 from urllib.parse import urlsplit
@@ -941,12 +940,6 @@ def _render_single_log_line(line: SandboxLogLine, incident: PanicIncident | None
 
     if incident:
         _render_incident_alert_panel(incident)
-
-
-def _render_logs_json(report: SandboxLogsReport) -> None:
-    """Output structured JSON log report with sanitized secrets."""
-    sanitized = mask_dict_secrets(report.model_dump())
-    write_stdout(f"{json.dumps(sanitized, indent=2)}\n")
 
 
 def _render_logs_output(report: SandboxLogsReport) -> None:

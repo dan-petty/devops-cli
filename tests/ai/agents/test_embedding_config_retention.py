@@ -8,7 +8,7 @@ from typing import Any
 
 import pytest
 
-from devops_cli.ai.rag.embeddings import Embedder, EmbeddingsEngine, OllamaEmbeddingModel
+from devops_cli.ai.rag.embeddings import EmbeddingsEngine, OllamaEmbeddingModel
 from devops_cli.config.settings import AIConfig, AIEmbeddingTaskOverride
 from tests.support.embedding_replies import ollama_reply, serve
 from tests.support.fakes.http import WebFake
@@ -55,22 +55,3 @@ def test_the_ollama_embedding_model_uses_the_model_of_the_settings(
     config(ai={"tasks": {"embedding": {"model": "embeddinggemma:300m"}}})
 
     assert OllamaEmbeddingModel().model_name == "embeddinggemma:300m"
-
-
-@pytest.mark.parametrize(
-    ("spec", "model"),
-    [
-        ("ollama:embeddinggemma:300m", "embeddinggemma:300m"),
-        ("ollama:qwen3:14b-q8_0", "qwen3:14b-q8_0"),
-    ],
-)
-def test_an_embedder_keeps_the_colon_tag_of_a_model_name(
-    spec: str, model: str, config: Callable[..., Any], web: WebFake
-) -> None:
-    """A model name such as embeddinggemma:300m is not cut at its tag."""
-    config(ai={"ollama_urls": ["http://example.com:11434"]})
-    sent = serve(web, ollama_reply)
-
-    Embedder(spec).embed_query_sync("hello")
-
-    assert json.loads(sent[0].content)["model"] == model

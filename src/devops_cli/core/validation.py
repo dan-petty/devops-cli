@@ -510,11 +510,6 @@ def validate_dir(path: Path | str, *, must_exist: bool = True, label: str = "Pat
     return validate_path(path, must_exist=must_exist, kind="dir", label=label)
 
 
-def validate_file(path: Path | str, *, must_exist: bool = True, label: str = "Path") -> Path:
-    """Validate that a path resolves to an existing regular file."""
-    return validate_path(path, must_exist=must_exist, kind="file", label=label)
-
-
 def validate_safe_key_path(key_path: Path | str, *, label: str = "SSH key path") -> Path:
     """Validate an SSH key path, preventing path traversal or blank names."""
     return validate_path(key_path, must_exist=False, kind="key", allow_traversal=False, label=label)
@@ -575,13 +570,3 @@ def validate_k8s_context_name(value: str, label: str = "context name") -> str:
             f"Invalid {label}: {value!r}. Must contain only alphanumeric, '.', '-', '_', ':', '/', or '@' characters."
         )
     return clean_val
-
-
-def validate_session_id(session_id: str) -> str:
-    """Validate that a review session ID conforms to safe alphanumeric identifier format."""
-    clean_id = session_id.strip()
-    if not clean_id or not re.fullmatch(r"^[A-Za-z0-9_-]+$", clean_id) or ".." in clean_id:
-        raise ValidationError(
-            f"Invalid review session identifier: {session_id!r}", field="session_id"
-        )
-    return clean_id

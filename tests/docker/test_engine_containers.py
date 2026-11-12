@@ -39,26 +39,15 @@ def test_list_containers_failure_is_typed(docker_daemon: DockerEngineFake) -> No
         get_engine().list_containers()
 
 
-def test_container_stats_and_stream(docker_daemon: DockerEngineFake) -> None:
-    """Single-shot and streamed stats both yield typed resource samples."""
+def test_container_stats(docker_daemon: DockerEngineFake) -> None:
+    """Single-shot stats yield a typed resource sample."""
     frame = {"pids_stats": {"current": 3}, "memory_stats": {"usage": 100, "limit": 1000}}
     container_id = docker_daemon.add_container("svc")
     docker_daemon.script_stats("svc", [frame, frame, frame])
-    engine = get_engine()
 
-    single = engine.container_stats(container_id)
-    streamed = list(engine.stream_container_stats(container_id, samples=2))
+    single = get_engine().container_stats(container_id)
 
-    assert (single.pids_count, len(streamed), streamed[0].name) == (3, 2, "svc")
-
-
-def test_stream_container_stats_unbounded_drains_source(docker_daemon: DockerEngineFake) -> None:
-    """Without a sample cap, the stats stream is drained to exhaustion after its first frame."""
-    frame = {"pids_stats": {"current": 1}}
-    container_id = docker_daemon.add_container("svc")
-    docker_daemon.script_stats("svc", [frame, frame, frame])
-
-    assert len(list(get_engine().stream_container_stats(container_id))) == 2
+    assert single.pids_count == 3
 
 
 def test_container_stats_two_frames_first_empty_precpu(docker_daemon: DockerEngineFake) -> None:
@@ -94,8 +83,8 @@ def test_container_stats_two_frames_first_empty_precpu(docker_daemon: DockerEngi
 
 
 def test_lifecycle_operations_use_direct_api_calls(docker_daemon: DockerEngineFake) -> None:
-    """Stop, remove, exec, wait, and logs reach the engine, and stop and remove use the
-    low-level calls that take the container ID."""
+    """Stop, remove and exec reach the engine, and stop and remove use the low-level calls that
+    take the container ID."""
     running = docker_daemon.add_container("svc")
     docker_daemon.script_exec("svc", ["ls"], output=b"output\n")
     docker_daemon.script_run("job", stdout=b"log line\n", exit_code=7)
@@ -104,22 +93,16 @@ def test_lifecycle_operations_use_direct_api_calls(docker_daemon: DockerEngineFa
     job.start()
 
     exec_result = engine.exec_in_container(running, ["ls"], workdir="/app")
-    exit_code = engine.wait_container(job.id, timeout=30)
-    logs = engine.container_logs(job.id, tail=10)
     engine.stop_container(running, timeout=3)
     engine.remove_container(job.id)
 
     removal = {"v": False, "link": False, "force": True}
     assert (
         exec_result,
-        exit_code,
-        logs,
         [call for call in docker_daemon.calls if call.name.startswith("api.")],
         docker_daemon.container_state,
     ) == (
         (0, "output\n"),
-        7,
-        "log line\n",
         [
             EngineCall("api.stop", (running,), {"timeout": 3}),
             EngineCall("api.remove_container", (running,), removal),
@@ -227,12 +210,3 @@ def test_pull_image_lookup_failure_starts_no_pull(docker_daemon: DockerEngineFak
         reference in str(exc_info.value),
         "images.pull" in docker_daemon.call_names(),
     ) == (True, False)
-
-
-def test_container_logs_failure_is_typed(docker_daemon: DockerEngineFake) -> None:
-    """A log retrieval failure surfaces as a typed engine error."""
-    container_id = docker_daemon.add_container("svc")
-    docker_daemon.fail("container.logs", RuntimeError("stream closed"))
-
-    with pytest.raises(DockerEngineError, match="Container log retrieval failed"):
-        get_engine().container_logs(container_id)

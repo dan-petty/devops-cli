@@ -249,14 +249,6 @@ def argo_apps() -> str:
     )
 
 
-def argo_app_status(app_name: str) -> str:
-    """Get detailed health and sync status for a specific ArgoCD application."""
-    return _run_tool_cmd(
-        ["argocd", "app", "get", app_name],
-        fallback_msg=MESSAGES.tools.argo_app_not_found.format(app_name=app_name),
-    )
-
-
 def _workspace_target(target: str | Path) -> Path | None:
     """`target` resolved, when it lies inside the workspace; else None."""
     target_path = Path(target).resolve()
