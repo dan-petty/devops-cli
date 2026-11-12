@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: The Service sets the Status from the job record
-One function SHALL derive the Status of an item: New while it waits for refine (intake filed it, or a job returned it), else In Review while the pull request that delivers it is ready for review, else In Progress while a Job holds it or a pull request that delivers it is open, else Blocked while the record holds `implement.stopped`, else Planned when its plan is on the default branch, else Ready. The sweep of the rows `implement`, `stage` and `stage_ready` SHALL write it by family replace, only for an open item that holds Ready or Planned. The runner Job and `devops pr ready` SHALL set In Review. The stop path SHALL set Blocked, and only a clear rule of the row `implement` SHALL end it.
+One function SHALL derive the Status of an item, in this order: New while it waits for refine, In Review while its pull request is ready, In Progress while a Job holds it or its pull request is open, Blocked while the record holds `implement.stopped`, Planned when its plan is on the default branch, else Ready. The sweep of the rows `implement`, `stage` and `stage_ready` SHALL write it only for an open item that holds Ready or Planned. Only a clear rule of the row `implement` SHALL end Blocked.
 
 #### Scenario: A round from staging to a closed issue
 - **WHEN** an item is staged, its plan is merged, a Job is made for it, the Job marks its pull request ready, and the issue closes
