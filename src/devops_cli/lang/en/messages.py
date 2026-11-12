@@ -1397,6 +1397,11 @@ class InfraMessages:
     )
     apply_done: str = "Apply {id}: {result}, in {seconds:.0f} s. Audit record infra.apply."
     apply_folder: str = "Runner artifacts: {folder}"
+    apply_down: str = (
+        "Down during the apply of {host}, because only its node can mount their volumes: "
+        "{workloads}"
+    )
+    apply_pinned_unread: str = "not read: {problem}"
     apply_stopped: str = (
         "The apply stopped: {reason}. The node stays as the step left it, cordoned after a drain. "
         "Read the runner artifacts, fix the cause, then plan and apply again."

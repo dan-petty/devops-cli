@@ -572,6 +572,7 @@ class _HostRun:
     idents: list[str] = field(default_factory=list)
     before: NodeState | None = None
     unplanned: tuple[PlanTask, ...] = ()
+    down: tuple[str, ...] = ()
 
     def result(
         self,
@@ -590,6 +591,7 @@ class _HostRun:
             reason=reason,
             runner_idents=tuple(self.idents),
             unplanned=self.unplanned,
+            down_during_apply=self.down,
             before=self.before,
             after=after,
         )
@@ -623,10 +625,14 @@ def _after(context: _Context, work: _HostRun) -> NodeState | None:
 
 
 def _drain(context: _Context, work: _HostRun) -> _Stop | None:
-    """Check the drain with a server dry run, then drain the node."""
-    if (problem := context.cluster.drain_check(work.node)) is not None:
+    """Name the workloads that are down while the node is cordoned, check the drain with a server
+    dry run, then drain the node within the longest grace period of its pods."""
+    cluster = context.cluster
+    pods = cluster.pods(work.node)
+    work.down = cluster.down_during_apply(work.node, pods)
+    if (problem := cluster.drain_check(work.node)) is not None:
         return ApplyStep.DRAIN_CHECK, problem
-    if (problem := context.cluster.drain(work.node)) is not None:
+    if (problem := cluster.drain(work.node, cluster.drain_bound(pods))) is not None:
         return ApplyStep.DRAIN, problem
     return None
 
@@ -693,6 +699,7 @@ def audit_details(report: ApplyReport) -> dict[str, Any]:
                 "step": host.step.value if host.step else None,
                 "reason": host.reason,
                 "runner_idents": list(host.runner_idents),
+                "down_during_apply": list(host.down_during_apply),
             }
             for host in report.hosts
         ],
@@ -776,6 +783,11 @@ def render_apply_footer(report: ApplyReport) -> list[str]:
         texts.apply_done.format(
             id=report.id, result=report.result.value, seconds=report.duration_seconds
         )
+    ]
+    lines += [
+        texts.apply_down.format(host=host.host, workloads=", ".join(host.down_during_apply))
+        for host in report.hosts
+        if host.down_during_apply
     ]
     if report.folder:
         lines.append(texts.apply_folder.format(folder=report.folder))

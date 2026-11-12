@@ -322,6 +322,30 @@ def test_the_drain_waits_for_the_longest_grace_period_of_a_pod_of_the_node(
     assert "--timeout=720s" in drain
 
 
+def test_the_workloads_that_only_the_node_can_run_are_named_and_audited(
+    lab: Lab, person_caller: None
+) -> None:
+    """A pod whose volume only node-3 can mount is down while node-3 is cordoned; the apply goes on
+    and names its workload."""
+    from devops_cli.config.settings import load_settings
+    from devops_cli.core.repo import resolve_data_path
+
+    lab.cluster.pinned["node-3"] = "roadmap"
+    lab.cluster.pinned["node-1"] = "other"
+    plan = lab.plan(NODE_3)
+
+    result = lab.apply(plan)
+
+    assert result.exit_code == 0, result.output
+    assert (
+        f"Down during the apply of {NODE_3}, because only its node can mount their volumes: "
+        "apps/roadmap (Deployment)"
+    ) in result.output
+    log = resolve_data_path(load_settings().data.audit_log_path)
+    [host] = json.loads(log.read_text(encoding="utf-8").splitlines()[-1])["details"]["hosts"]
+    assert host["down_during_apply"] == ["apps/roadmap (Deployment)"]
+
+
 def test_a_cluster_that_is_not_healthy_before_refuses_the_apply(
     lab: Lab, person_caller: None
 ) -> None:

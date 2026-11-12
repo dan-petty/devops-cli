@@ -93,6 +93,20 @@ Each disruptive host SHALL run alone in plan order: the drain check (`kubectl dr
 - **WHEN** node-3 is cordoned before the apply
 - **THEN** the apply ends `ok` and node-3 stays cordoned
 
+### Requirement: The drain waits for the grace period of each pod
+The bound of the drain of a host SHALL be `infra.drain_timeout_seconds`, or the longest grace period of a pod that the drain evicts and 60 s, when that is longer.
+
+#### Scenario: A pod with a long grace period
+- **WHEN** node-3 has a pod of a ReplicaSet with a grace period of 660 s and the setting is 180 s
+- **THEN** the drain of node-3 runs with `--timeout=720s`
+
+### Requirement: The apply names the workloads that only the node can run
+Before the drain check of a disruptive host, the command SHALL read the pods of its node, the PersistentVolumeClaims and the PersistentVolumes, and name each workload of a pod that the drain evicts and that mounts a claim whose volume only that node can mount (a required node affinity on `kubernetes.io/hostname` with the node alone). The report and the audit record of the host SHALL hold them. The apply SHALL not stop for them.
+
+#### Scenario: A Deployment with a local volume
+- **WHEN** a pod of the Deployment `apps/roadmap` on node-3 mounts a claim whose volume only node-3 can mount
+- **THEN** the apply ends `ok`, prints that `apps/roadmap (Deployment)` is down during the apply of node-3, and the audit record of node-3 holds it
+
 ### Requirement: The waits go on through a gap of the API server
 The waits for Ready and for health SHALL read again when a read fails, until `infra.node_ready_timeout_seconds` ends.
 
@@ -124,7 +138,7 @@ Each apply that passes the argument checks SHALL write one audit record `infra.a
 
 #### Scenario: The record of an agent apply
 - **WHEN** an agent at `full` applies a plan of node-3
-- **THEN** the details of the last audit record are the id, the caller `agent`, the tool `claude_code`, the level, the repo, the commit, the ref, the plan id, the playbook, the limit, the tags, the result, the reason, the hosts and the duration; node-3 has its node, disruptive classes, outcome, step, reason and two runner idents; and the record holds no name or folder of the key of `devops ssh`
+- **THEN** the details of the last audit record are the id, the caller `agent`, the tool `claude_code`, the level, the repo, the commit, the ref, the plan id, the playbook, the limit, the tags, the result, the reason, the hosts and the duration; node-3 has its node, disruptive classes, outcome, step, reason, two runner idents and the workloads that were down; and the record holds no name or folder of the key of `devops ssh`
 
 #### Scenario: The record of a refusal
 - **WHEN** an agent applies on a repo at `plan`

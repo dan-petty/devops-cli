@@ -11,6 +11,10 @@ process runner with a request bound below its process bound:
   a pod that no controller owns, and a budget, stop the drain. The drain cordons the node first.
   Its bound is `infra.drain_timeout_seconds`, or the longest grace period of a pod that it evicts
   and a margin, when that is longer (`kubectl get pods --field-selector spec.nodeName=<node>`).
+- **Down during the apply**: the workloads of the pods that the drain evicts and that mount a
+  claim whose PersistentVolume only the node can mount (`kubectl get pvc` and `kubectl get pv`,
+  node affinity on `kubernetes.io/hostname`). They cannot start on another node, so they are down
+  until the node is uncordoned. The apply names them; it does not stop for them.
 - **Uncordon**: `kubectl uncordon <node>`.
 
 The health gate reads every node of the cluster except the nodes of the hosts out of service:
@@ -23,7 +27,7 @@ control-plane node restarts.
 from __future__ import annotations
 
 import json
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from typing import Any, Final
 
@@ -89,6 +93,76 @@ def pods_args(node: str) -> tuple[str, ...]:
         "-o",
         "json",
     )
+
+
+CLAIMS_ARGS: Final[tuple[str, ...]] = ("get", "pvc", "--all-namespaces", "-o", "json")
+VOLUMES_ARGS: Final[tuple[str, ...]] = ("get", "pv", "-o", "json")
+_HOSTNAME_LABEL: Final[str] = "kubernetes.io/hostname"
+_IN: Final[str] = "In"
+_POD_TEMPLATE_HASH: Final[str] = "pod-template-hash"
+_REPLICA_SET: Final[str] = "ReplicaSet"
+_DEPLOYMENT: Final[str] = "Deployment"
+
+
+def is_pinned(volume: Mapping[str, Any], node: str) -> bool:
+    """Whether only `node` can mount the PersistentVolume `volume`: each term of its required
+    node affinity names `node` alone by its host name label, as a local volume does."""
+    affinity = ((volume.get("spec") or {}).get("nodeAffinity") or {}).get("required") or {}
+    terms = affinity.get("nodeSelectorTerms") or ()
+    return bool(terms) and all(
+        any(
+            expression.get("key") == _HOSTNAME_LABEL
+            and expression.get("operator") == _IN
+            and list(expression.get("values") or ()) == [node]
+            for expression in term.get("matchExpressions") or ()
+        )
+        for term in terms
+    )
+
+
+def workload(pod: Mapping[str, Any]) -> str:
+    """The workload of a pod as `<namespace>/<name> (<kind>)`: the Deployment of a pod of a
+    ReplicaSet, else the owner of the pod, else the pod."""
+    metadata = pod.get("metadata") or {}
+    namespace = metadata.get("namespace") or ""
+    owners = metadata.get("ownerReferences") or ()
+    if not owners:
+        return f"{namespace}/{metadata.get('name')} (Pod)"
+    kind, name = str(owners[0].get("kind")), str(owners[0].get("name"))
+    template = (metadata.get("labels") or {}).get(_POD_TEMPLATE_HASH)
+    if kind == _REPLICA_SET and template and name.endswith(f"-{template}"):
+        kind, name = _DEPLOYMENT, name.removesuffix(f"-{template}")
+    return f"{namespace}/{name} ({kind})"
+
+
+def pinned_workloads(
+    pods: Iterable[Mapping[str, Any]],
+    claims: Iterable[Mapping[str, Any]],
+    volumes: Iterable[Mapping[str, Any]],
+    node: str,
+) -> tuple[str, ...]:
+    """The workloads of the `pods` that a drain evicts and that mount a claim whose volume only
+    `node` can mount, sorted."""
+    pinned = {
+        (volume.get("metadata") or {}).get("name") for volume in volumes if is_pinned(volume, node)
+    }
+    bound = {
+        (
+            (claim.get("metadata") or {}).get("namespace"),
+            (claim.get("metadata") or {}).get("name"),
+        ): (claim.get("spec") or {}).get("volumeName")
+        for claim in claims
+    }
+    found = set()
+    for pod in pods:
+        if not is_evicted(pod):
+            continue
+        namespace = (pod.get("metadata") or {}).get("namespace")
+        for mount in (pod.get("spec") or {}).get("volumes") or ():
+            claim = (mount.get("persistentVolumeClaim") or {}).get("claimName")
+            if claim and bound.get((namespace, claim)) in pinned:
+                found.add(workload(pod))
+    return tuple(sorted(found))
 
 
 # The grace period of a pod that sets none (the Kubernetes default), in seconds.
@@ -217,24 +291,41 @@ class Cluster:
         args = drain_args(node, timeout, check=True)
         return self._kubectl(args, timeout + DEFAULT_INFRA_DRAIN_MARGIN_SECONDS).problem
 
-    def drain_bound(self, node: str) -> int:
-        """The bound of the drain of `node` in seconds: `infra.drain_timeout_seconds`, or the
-        longest grace period of a pod that the drain evicts and the margin, when that is longer.
-        The drain waits for each pod to stop in its own grace period, so a shorter bound stops a
-        drain that goes as it should. A read that fails gives the setting."""
-        setting = self.settings.infra.drain_timeout_seconds
+    def pods(self, node: str) -> list[dict[str, Any]]:
+        """The pods of `node`; none when the read fails, and the drain says why."""
         read = self._kubectl(pods_args(node), DEFAULT_INFRA_KUBECTL_TIMEOUT_SECONDS)
-        items = (read.document or {}).get("items") or ()
-        graces = [grace_period(item) for item in items if is_evicted(item)]
-        longest = max(graces, default=0)
+        return list((read.document or {}).get("items") or ())
+
+    def down_during_apply(self, node: str, pods: Iterable[Mapping[str, Any]]) -> tuple[str, ...]:
+        """The workloads of the pods of `node` that the drain evicts and that mount a volume that
+        only `node` can mount: they cannot start on another node, so they are down until the node
+        is uncordoned. A read that fails gives one line that says so."""
+        claims = self._kubectl(CLAIMS_ARGS, DEFAULT_INFRA_KUBECTL_TIMEOUT_SECONDS)
+        volumes = self._kubectl(VOLUMES_ARGS, DEFAULT_INFRA_KUBECTL_TIMEOUT_SECONDS)
+        problem = claims.problem or volumes.problem
+        if problem is not None:
+            return (MESSAGES.infra.apply_pinned_unread.format(problem=problem),)
+        return pinned_workloads(
+            pods,
+            (claims.document or {}).get("items") or (),
+            (volumes.document or {}).get("items") or (),
+            node,
+        )
+
+    def drain_bound(self, pods: Iterable[Mapping[str, Any]]) -> int:
+        """The bound of a drain in seconds: `infra.drain_timeout_seconds`, or the longest grace
+        period of a pod in `pods` that the drain evicts and the margin, when that is longer. The
+        drain waits for each pod to stop in its own grace period, so a shorter bound stops a drain
+        that goes as it should."""
+        setting = self.settings.infra.drain_timeout_seconds
+        longest = max((grace_period(item) for item in pods if is_evicted(item)), default=0)
         return max(setting, longest + DEFAULT_INFRA_DRAIN_MARGIN_SECONDS if longest else 0)
 
-    def drain(self, node: str) -> str | None:
-        """Cordon and drain `node` within its drain bound; the problem when the drain does not
+    def drain(self, node: str, bound: int) -> str | None:
+        """Cordon and drain `node` within `bound` seconds; the problem when the drain does not
         finish."""
-        timeout = self.drain_bound(node)
-        args = drain_args(node, timeout, check=False)
-        return self._kubectl(args, timeout + DEFAULT_INFRA_DRAIN_MARGIN_SECONDS).problem
+        args = drain_args(node, bound, check=False)
+        return self._kubectl(args, bound + DEFAULT_INFRA_DRAIN_MARGIN_SECONDS).problem
 
     def uncordon(self, node: str) -> list[str]:
         """Uncordon `node`, and try again through a gap of the API server until the wait for a
@@ -321,9 +412,11 @@ def _last_line(text: str) -> str:
 
 
 __all__ = [
+    "CLAIMS_ARGS",
     "CRITICAL_ALERTS_QUERY",
     "GET_NODES_ARGS",
     "KUBECTL",
+    "VOLUMES_ARGS",
     "Cluster",
     "Read",
     "critical_alerts",
@@ -331,9 +424,12 @@ __all__ = [
     "get_node_args",
     "grace_period",
     "is_evicted",
+    "is_pinned",
     "kubectl_argv",
     "node_problems",
     "parse_node",
+    "pinned_workloads",
     "pods_args",
     "uncordon_args",
+    "workload",
 ]

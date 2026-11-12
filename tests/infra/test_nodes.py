@@ -18,6 +18,7 @@ from devops_cli.infra.nodes import (
     critical_alerts,
     grace_period,
     is_evicted,
+    is_pinned,
     node_problems,
     parse_node,
 )
@@ -168,6 +169,22 @@ def test_the_drain_bound_reads_the_pods_that_the_drain_evicts(
 
 
 def test_the_drain_bound_is_the_setting_when_no_pod_needs_more(cluster: FakeCluster) -> None:
+    nodes = Cluster(KUBE_CONTEXT, load_settings())
     cluster.graces["node-1"] = 90
+    cluster.graces["node-2"] = 660
 
-    assert Cluster(KUBE_CONTEXT, load_settings()).drain_bound("node-1") == 180
+    assert (nodes.drain_bound(nodes.pods("node-1")), nodes.drain_bound(nodes.pods("node-2"))) == (
+        180,
+        720,
+    )
+
+
+def test_a_volume_that_names_another_node_too_is_not_pinned() -> None:
+    term = {
+        "matchExpressions": [
+            {"key": "kubernetes.io/hostname", "operator": "In", "values": ["node-1", "node-2"]}
+        ]
+    }
+    volume = {"spec": {"nodeAffinity": {"required": {"nodeSelectorTerms": [term]}}}}
+
+    assert (is_pinned(volume, "node-1"), is_pinned({"spec": {}}, "node-1")) == (False, False)

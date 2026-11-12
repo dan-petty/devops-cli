@@ -19,8 +19,10 @@ from devops_cli.infra.ansible_facts import (
     inventory_argv,
 )
 from devops_cli.infra.nodes import (
+    CLAIMS_ARGS,
     CRITICAL_ALERTS_QUERY,
     GET_NODES_ARGS,
+    VOLUMES_ARGS,
     drain_args,
     get_node_args,
     kubectl_argv,
@@ -330,11 +332,13 @@ def _host_steps(
     timeout = target.drain_timeout_seconds
     return [
         kubectl(f"the node of {host} before the drain", get_node_args(node)),
+        kubectl(f"the pods of {host}, for their grace periods and volumes", pods_args(node)),
+        kubectl("the PersistentVolumeClaims", CLAIMS_ARGS),
+        kubectl("the PersistentVolumes, for the volumes that only one node mounts", VOLUMES_ARGS),
         kubectl(
             f"the server dry run of the drain of {host}",
             drain_args(node, DEFAULT_INFRA_DRAIN_CHECK_TIMEOUT_SECONDS, check=True),
         ),
-        kubectl(f"the grace periods of the pods of {host}", pods_args(node)),
         kubectl(
             f"the drain of {host}, with the longer of {timeout} s and the longest grace period "
             "and 60 s",

@@ -369,6 +369,34 @@ def _pod(node: str, grace: int) -> dict[str, Any]:
     }
 
 
+def _pinned_pod(node: str, app: str) -> dict[str, Any]:
+    """A pod of the Deployment `app` on `node` that mounts the claim `data-<app>`."""
+    return {
+        "metadata": {
+            "namespace": "apps",
+            "name": f"{app}-5d9c8b7f6c-abcde",
+            "labels": {"pod-template-hash": "5d9c8b7f6c"},
+            "ownerReferences": [{"kind": "ReplicaSet", "name": f"{app}-5d9c8b7f6c"}],
+        },
+        "spec": {
+            "nodeName": node,
+            "volumes": [{"name": "data", "persistentVolumeClaim": {"claimName": f"data-{app}"}}],
+        },
+        "status": {"phase": "Running"},
+    }
+
+
+def _local_volume(node: str, app: str) -> dict[str, Any]:
+    """The local PersistentVolume `pv-<app>`, which only `node` can mount."""
+    term = {
+        "matchExpressions": [{"key": "kubernetes.io/hostname", "operator": "In", "values": [node]}]
+    }
+    return {
+        "metadata": {"name": f"pv-{app}"},
+        "spec": {"nodeAffinity": {"required": {"nodeSelectorTerms": [term]}}},
+    }
+
+
 @dataclass
 class FakeCluster:
     """`kubectl` of the kube context `KUBE_CONTEXT`, answered from `nodes`. A drain cordons the
@@ -384,6 +412,8 @@ class FakeCluster:
     # The grace period in seconds of a pod of a ReplicaSet on each node; a node with none has no
     # pod that a drain evicts.
     graces: dict[str, int] = field(default_factory=dict)
+    # The Deployment on each node whose pod mounts a volume that only that node can mount.
+    pinned: dict[str, str] = field(default_factory=dict)
 
     @classmethod
     def of(cls, *nodes: FakeNode) -> FakeCluster:
@@ -397,18 +427,38 @@ class FakeCluster:
             self.down -= 1
             return ProcessAnswer(returncode=1, stderr=_API_DOWN)
         args = call.argv[4:]
-        if args[:2] == ("get", "nodes"):
+        if args[0] == "get":
+            return self._read(args)
+        return self._change(args)
+
+    def _read(self, args: tuple[str, ...]) -> ProcessAnswer:
+        if args[1] == "nodes":
             items = [node.item() for node in self.nodes.values()]
             return ProcessAnswer(stdout=json.dumps({"items": items}))
-        if args[:2] == ("get", "pods"):
+        if args[1] == "pods":
             name = args[args.index("--field-selector") + 1].removeprefix("spec.nodeName=")
             pods = [_pod(name, self.graces[name])] if name in self.graces else []
+            if name in self.pinned:
+                pods.append(_pinned_pod(name, self.pinned[name]))
             return ProcessAnswer(stdout=json.dumps({"items": pods}))
-        if args[:2] == ("get", "node"):
-            found = self.nodes.get(args[2])
-            if found is None:
-                return ProcessAnswer(returncode=1, stderr=f'nodes "{args[2]}" not found\n')
-            return ProcessAnswer(stdout=json.dumps(found.item()))
+        if args[1] == "pvc":
+            claims = [
+                {
+                    "metadata": {"namespace": "apps", "name": f"data-{app}"},
+                    "spec": {"volumeName": f"pv-{app}"},
+                }
+                for app in self.pinned.values()
+            ]
+            return ProcessAnswer(stdout=json.dumps({"items": claims}))
+        if args[1] == "pv":
+            volumes = [_local_volume(node, app) for node, app in self.pinned.items()]
+            return ProcessAnswer(stdout=json.dumps({"items": volumes}))
+        found = self.nodes.get(args[2])
+        if found is None:
+            return ProcessAnswer(returncode=1, stderr=f'nodes "{args[2]}" not found\n')
+        return ProcessAnswer(stdout=json.dumps(found.item()))
+
+    def _change(self, args: tuple[str, ...]) -> ProcessAnswer:
         node = self.nodes[args[1]]
         if args[0] == "drain" and "--dry-run=server" in args:
             self.steps.append(f"drain check {node.name}")
@@ -426,4 +476,4 @@ class FakeCluster:
             self.steps.append(f"uncordon {node.name}")
             node.cordoned = False
             return ProcessAnswer(stdout=f"node/{node.name} uncordoned\n")
-        raise AssertionError(call.argv)
+        raise AssertionError(args)

@@ -311,6 +311,12 @@ class HostApply(BaseModel):
         description="The tasks that changed in the run and that the plan does not show as changed "
         "or unchecked",
     )
+    down_during_apply: tuple[str, ...] = Field(
+        default=(),
+        description="The workloads on the node that the drain evicts and that mount a volume that "
+        "only the node can mount, as <namespace>/<name> (<kind>): they are down until the node "
+        "is uncordoned",
+    )
     before: NodeState | None = Field(
         default=None, description="The node before the drain; none for a host that is not drained"
     )
