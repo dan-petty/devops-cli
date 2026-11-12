@@ -688,7 +688,7 @@ UPSTREAM_SERVICE_STATUS = Instrument(
     "devops_cli_upstream_service_status",
     InstrumentKind.GAUGE,
     "1",
-    "Upstream cloud service operational status severity code (0=none/operational, 1=minor, 2=major, 3=critical) by service and indicator",
+    "Upstream cloud service operational status severity code (0=none/operational, 1=minor, 2=major, 3=critical) by service",
 )
 UPSTREAM_COMPONENT_STATUS = Instrument(
     "devops_cli_upstream_component_status",

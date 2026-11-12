@@ -16,6 +16,7 @@ from devops_cli.models.statuspage import (
     StatuspageComponent,
     StatuspageSummary,
 )
+from devops_cli.telemetry.instruments import UPSTREAM_COMPONENT_STATUS, UPSTREAM_SERVICE_STATUS
 from devops_cli.telemetry.service_status import (
     emit_service_status_telemetry,
     fetch_all_service_statuses,
@@ -27,6 +28,7 @@ from devops_cli.telemetry.service_status import (
     render_statuspage_summary,
 )
 from tests.support.fakes.http import WebFake
+from tests.support.fakes.otlp import FakeCollector
 
 
 @pytest.fixture
@@ -226,13 +228,37 @@ def test_fetch_github_and_cloudflare_status() -> None:
     ) == ("Mock Cloud", "Mock Cloud", {"github", "cloudflare"})
 
 
-def test_emit_service_status_telemetry() -> None:
-    """Validate OpenTelemetry metric emission calls."""
-    summary = StatuspageSummary.model_validate(_MOCK_PAYLOAD_OPERATIONAL)
-    with patch("devops_cli.telemetry.service_status.emit") as mock_emit:
-        emit_service_status_telemetry(summary, "github")
+def test_a_new_indicator_replaces_the_value_of_the_service_series(otlp: FakeCollector) -> None:
+    """A 'major' summary and then a 'none' summary give one series for the service, with the last
+    value 0: the value holds the indicator, so no label does (#4701)."""
+    emit_service_status_telemetry(
+        StatuspageSummary.model_validate(_MOCK_PAYLOAD_DEGRADED), "github"
+    )
+    emit_service_status_telemetry(
+        StatuspageSummary.model_validate(_MOCK_PAYLOAD_OPERATIONAL), "github"
+    )
 
-    assert mock_emit.call_count >= 1
+    assert otlp.points(UPSTREAM_SERVICE_STATUS.name) == [({"service": "github"}, 0.0)]
+
+
+def test_a_new_component_status_replaces_the_value_of_the_component_series(
+    otlp: FakeCollector,
+) -> None:
+    """A component that goes from 'major_outage' to 'operational' keeps one series, with the last
+    value 0: the value holds the status, so no label does (#4701)."""
+    emit_service_status_telemetry(
+        StatuspageSummary.model_validate(_MOCK_PAYLOAD_DEGRADED), "github"
+    )
+    emit_service_status_telemetry(
+        StatuspageSummary.model_validate(_MOCK_PAYLOAD_OPERATIONAL), "github"
+    )
+
+    assert sorted(
+        otlp.points(UPSTREAM_COMPONENT_STATUS.name), key=lambda point: point[0]["component"]
+    ) == [
+        ({"service": "github", "component": "Actions"}, 0.0),
+        ({"service": "github", "component": "Git Operations"}, 0.0),
+    ]
 
 
 def test_render_statuspage_summary(capsys: pytest.CaptureFixture[str]) -> None:

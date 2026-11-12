@@ -1,0 +1,43 @@
+# Cases of the panels of k8s/monitoring/dashboards/project-metrics.json, which
+# tests/prometheus/test_dashboard_queries.py evaluates with promtool (#4680). The test module tells
+# the format, and docs/TESTING.md tells how to add a case.
+#
+# Each test group models one series shape that the telemetry writes (#4675). Its series have one
+# sample each `interval`.
+tests:
+  # Before #4701 the indicator was a label, so each indicator was its own series. The series of
+  # the label `indicator` stop at 2h, and the series with no such label start at 2h15m.
+  - name: the Service writes the status of each upstream service once each 15 min
+    shape: snapshot_gauge
+    interval: 15m
+    input_series:
+      - series: 'devops_cli_upstream_service_status{job="roadmap-service", service="github", indicator="major"}'
+        values: '2x8'
+      - series: 'devops_cli_upstream_service_status{job="roadmap-service", service="github"}'
+        values: '_x8 2x40 0x48'
+      - series: 'devops_cli_upstream_service_status{job="roadmap-service", service="cloudflare", indicator="major"}'
+        values: '2x8'
+      - series: 'devops_cli_upstream_service_status{job="roadmap-service", service="cloudflare"}'
+        values: '_x8 2x40 1x48'
+    promql_expr_test:
+      # The last value of the last hour, not the worst value of an older series.
+      - panel: GitHub Published Service Status
+        ref_id: A
+        expr: 'last_over_time(devops_cli_upstream_service_status{service="github"}[1h])'
+        eval_time: 24h
+        exp_samples:
+          - labels: 'devops_cli_upstream_service_status{job="roadmap-service", service="github"}'
+            value: 0
+      - panel: Cloudflare Published Service Status
+        ref_id: A
+        expr: 'last_over_time(devops_cli_upstream_service_status{service="cloudflare"}[1h])'
+        eval_time: 24h
+        exp_samples:
+          - labels: 'devops_cli_upstream_service_status{job="roadmap-service", service="cloudflare"}'
+            value: 1
+      # A status sent more than 1 h before is not shown as the current status.
+      - panel: GitHub Published Service Status
+        ref_id: A
+        expr: 'last_over_time(devops_cli_upstream_service_status{service="github"}[1h])'
+        eval_time: 26h
+        exp_samples: []
