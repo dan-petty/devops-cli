@@ -14,7 +14,7 @@ The roadmap Service writes one line for each attempt of a job:
 roadmap job result: job=<job> repo=<owner/repo> item=#<n> result=<result> success=<true|false> class=<class> infra=<true|false> <count>=<n> ... version=<version>
 ```
 
-- `job` is `stage`, `implement`, `refine`, `refine_judge`, `alternatives` or `intake`.
+- `job` is `stage`, `implement`, `refine`, `refine_judge`, `alternatives`, `intake` or `fix_plan`.
 - `success` is `true` when the result is the intended result of the job (table below).
 - `class` is the failure class of `roadmap/failure.py`, or `none`.
 - `infra` is `true` for a class that a cut of the infrastructure gives: `provider`, `ci_infra`, `oom` and `limit_reached`. The ratio counts these attempts as failures, and the dashboard shows their share apart.
@@ -32,6 +32,7 @@ A line holds no text of an issue, of a model or of a log. Each value is a number
 | `refine_judge` | Each review of the proposal for an item that a bot opened that calls the model. A kept approval writes no line. | `approved`, `refused` | `approved` | `findings` |
 | `alternatives` | Each check that the round wrote, and each failed check. | The verdict, `refused` or `failed` | Each verdict | `searches`, `reason` (the skip class, or the code of the error) |
 | `intake` | Each candidate that a round wrote. | `placed`, `duplicate`, `skipped`, `failed` | `placed` and `duplicate` | none |
+| `fix_plan` | Each attempt of the step `fix-plan` on a plan pull request with `plan/needs-fix`. A plan that the selection or the branch check leaves out writes no line. | `revised`, `cleared`, `unchanged`, `failed` | `revised` and `cleared` | `plan_calls`, `gate_returns`, `verify_rounds`, `tokens`, `seconds`, `before`, `after` (the open findings before and after the repair) |
 
 A `stage` item that is staged with an open finding of the review is `failed` with the class `plan_defect`. An `implement` Job that recorded no result, such as a pod that the kernel killed, is `stopped`. Its `seconds` run from the start of its pod to its end, and are 0 when the Job is gone.
 

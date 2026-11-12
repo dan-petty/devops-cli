@@ -419,6 +419,7 @@ and excessive permissions fail it, and every other finding is shown. |
 |  | `devops roadmap release [OPTIONS] <item>` | Release an item: remove its owner/* label, whoever holds it. No job removes the claim of an agent or a person. |
 |  | `devops roadmap eval COMMAND [ARGS]...` | Score the plan and implement jobs on a golden set. Each command runs a job's real code on committed cases with a chosen model. It is on demand and no part of devops ci. |
 |  | `devops roadmap review COMMAND [ARGS]...` | Review a version range or a period of a repository: the facts of the window, each with its source, its query and the time of its read. |
+|  | `devops roadmap step COMMAND [ARGS]...` | Run one step of a roadmap job by hand, the same way the Service runs it. Each step has one purpose. Details: docs/roadmap/stage.md. |
 | [**pr**](docs/commands/pr.md) | `devops pr list [OPTIONS]` | List pull requests with base targeting and review status. |
 |  | `devops pr view [OPTIONS] <number>` | View details of a pull request. |
 |  | `devops pr checks [OPTIONS] <number>` | Check remote CI quality gate status on a pull request. |

@@ -100,9 +100,9 @@ def _stamp_the_default_table(
 def test_the_table_runs_the_lanes_in_order_and_names_no_release_job() -> None:
     """The status lane's metrics, implement, stage_ready, release_comments, github_status,
     cloudflare_status and pr_conflicts rows run first, then
-    the triage lane's intake row, then the model lane's retitle, stage, refine and alternatives
-    rows; no row closes items, cuts or starts a release
-    (#1360, #1534, #2652, #2659, #2667, #2757, #2865, #3535, #4796)."""
+    the triage lane's intake row, then the model lane's retitle, stage, fix_plan, refine and
+    alternatives rows; no row closes items, cuts or starts a release
+    (#1360, #1534, #2652, #2659, #2667, #2757, #2865, #3535, #4796, #5061)."""
     assert (
         [row.name for row in DEFAULT_DUE_TABLE],
         DEFAULT_DUE_TABLE == (*STATUS_LANE_ROWS, *TRIAGE_LANE_ROWS, *MODEL_LANE_ROWS),
@@ -119,6 +119,7 @@ def test_the_table_runs_the_lanes_in_order_and_names_no_release_job() -> None:
             "intake",
             "retitle",
             "stage",
+            "fix_plan",
             "refine",
             "alternatives",
         ],
@@ -486,6 +487,7 @@ def test_idle_records_zero_or_one_store_calls(
         pr_conflicts=recent,
         metrics=recent,
         alternatives=recent,
+        fix_plan=recent,
     )
     spy_idle = StoreSpy(seeded_store)
     res_idle = run_due_jobs(REPO, spy_idle, batch={}, data_dir=tmp_path, now=NOW)

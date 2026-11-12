@@ -14,6 +14,8 @@ The pull request of #4792 amends this record on 2026-11-12. It adds section 8 an
 
 The pull request of #5056 amends rule 5 of section 8 on 2026-11-12. Only the five new rows start in mode `plan`. The row `watch` starts in mode `on`, because it replaces the live rows `stage_ready` and `pr_conflicts`. Until a fix row is in mode `on`, `watch` also routes the verdict for that row as for a pull request of a person.
 
+The pull request of #5061 amends this record on 2026-11-12. It adds the row `fix-plan` of tracker #5014 to section 2 and section 8. The merge of that pull request is the approval of the row.
+
 The verdict of ADR 0008 is go. The owner recorded "warm p95 11 s - go" on [#1535](https://github.com/dan-petty/devops-cli/issues/1535#issuecomment-6787508710) on 2026-11-11, after the [measurement](https://github.com/dan-petty/devops-cli/issues/1535#issuecomment-6787453030) of the same day:
 
 | Measure | Value | Limit of ADR 0008 |
@@ -79,6 +81,7 @@ Facts measured from 2026-11-04 to 2026-11-11:
 | implement | one item, as the runner Job; one Workflow for each item with #3105 | the sweep |
 | `fix-checks` (section 8) | one head and one failed check of a bot pull request | the sweep, for the due mark `fix-checks:<pr>` that `watch` sets |
 | `fix-conflict` (section 8) | one base and one head of a bot pull request | the sweep, for the due mark `fix-conflict:<pr>` that `watch` sets |
+| `fix-plan` (section 8) | one plan pull request with the label `plan/needs-fix` | until the sweep step, the row `fix_plan` of the model lane of the Service; then the sweep |
 
 - **Only the router and the sweep create units.** No unit creates another unit, and no DAG chain links two jobs. A unit that makes more work due sets a due mark, and the next sweep creates the unit within 5 minutes.
 - **One unit for each item.** Before a create, the creator lists the units of the repository by the labels of the repository, the job and the item. A template-level mutex for each item also stops a second pod. A unit name of at most 63 characters, fixed by its input, makes a repeated create get 409.
@@ -138,7 +141,7 @@ The child items of tracker #4517 go in this order. Each step deletes the Service
 
 ### 8. The steward rows and the step rows
 
-The issue stewards of tracker #4780 add the rows `resolve`, `group` and `split`. The step jobs of tracker #5014 add the rows `watch`, `fix-checks` and `fix-conflict`. These rows take work that waits for a person, and the work of a finished pull request, out of the producer jobs.
+The issue stewards of tracker #4780 add the rows `resolve`, `group` and `split`. The step jobs of tracker #5014 add the rows `watch`, `fix-checks`, `fix-conflict` and `fix-plan`. These rows take work that waits for a person, and the work of a finished pull request, out of the producer jobs.
 
 #### Rules of these rows
 
@@ -146,7 +149,7 @@ The issue stewards of tracker #4780 add the rows `resolve`, `group` and `split`.
 2. A model verdict only flags. It never closes an item, and it never marks a pull request ready.
 3. Valkey holds only due marks, ledgers and caches for these rows. The GitHub job record stays the source of truth (section 3).
 4. No row starts another row, and no coordinator exists. A row that makes work due sets a due mark, and the sweep creates the unit (section 2).
-5. Each row has the mode `off`, `plan` or `on` in `roadmap.<row>.mode`, with `_` in place of each `-` of the row name. Mode `plan` writes the plan to the log and nothing to GitHub. Mode `off` is the stop switch. The new rows `resolve`, `group`, `split`, `fix-checks` and `fix-conflict` start in mode `plan`. The row `watch` starts in mode `on`, because it replaces the live rows `stage_ready` and `pr_conflicts`, and the work of those two rows must not stop.
+5. Each row has the mode `off`, `plan` or `on` in `roadmap.<row>.mode`, with `_` in place of each `-` of the row name. Mode `plan` writes the plan to the log and nothing to GitHub. Mode `off` is the stop switch. The new rows `resolve`, `group`, `split`, `fix-checks`, `fix-conflict` and `fix-plan` start in mode `plan`. The row `watch` starts in mode `on`, because it replaces the live rows `stage_ready` and `pr_conflicts`, and the work of those two rows must not stop.
 6. A row reads its marker before it writes (section 3, rule 5). GitHub state is the first marker: the head commit, the draft flag, the merge state and the open pull request of a head and a base.
 7. Each limit is shorter than the limit of the call around it, so the inner limit stops first.
 8. The CronWorkflows of `resolve`, `group` and `split` are not units, as for `brain-daily`. So the rule "Only the router and the sweep create units" stays. Before the engine step (#4566), a person or an agent runs the command of each of these rows.
@@ -230,6 +233,18 @@ The issue stewards of tracker #4780 add the rows `resolve`, `group` and `split`.
 | Limits | log 60 s < fixers 300 s < model request 1,200 s < model step 1,800 s; checks 1,800 s; push 300 s | fetch 30 s < rebase 120 s < generate 600 s < model request 1,200 s < model step 1,800 s; checks 1,800 s; push 300 s |
 | Marker | `<!-- devops roadmap fix-checks -->`. Record keys `fix_checks.key` (`<head>:<check>`), `fix_checks.rounds`, `fix_checks.errors` and `fix_checks.result`. | `<!-- devops roadmap fix-conflict -->`. Record keys `fix_conflict.key` (`<base>:<head>`), `fix_conflict.rounds`, `fix_conflict.files` and `fix_conflict.result`. |
 | Idempotency key | The unit name from `<pr>:<head>:<check>` (ADR 0022), so a second create gets 409 | The unit name from `<pr>:<base>:<head>` |
+
+#### `fix-plan`: one repair of a plan pull request with open findings
+
+- **Selection.** An open draft plan pull request that holds `plan/needs-fix` and that the record of a Staged item names in `stage.pr`. The item has no runner Job and no claim of an agent or a person. The branch holds only commits of the App.
+- **Stops.** The step judges the pull request again at the start of an attempt. It stops before any write when the head moved after the read or holds a commit of another author.
+- **Work.** The open findings of the last plan comment of the item: the stage comment, or the comment of an attempt that kept the label, of a trusted author. With no such finding, one model review of the plan of the head at the latest default branch. With an open finding, one repair by the stage planner with that plan as `previous` and the open findings as `problem`, then the normal verification repair rounds of the stage job. A revision with fewer open findings is one commit on the latest default branch, pushed with `--force-with-lease` on the head that the step read. The label goes when no open finding remains.
+- **Trigger.** Until the sweep step (#4574), the row `fix_plan` of the model lane of the Service, after `stage`, every 53 minutes and on a first run.
+- **Bounds.** 1 plan a round, 2 attempts on each head, 6 hours between two attempts of one item, and 3 revisions for each pull request. An attempt has the model limits of one stage item, plus one review and one repair of the plan of the head. No attempt starts while the Service stops.
+- **Marker.** `<!-- devops roadmap fix-plan -->` on one comment of the issue for each attempt that changes the plan or the label. The record keys are `fix_plan.key` (`<pull>:<head>`), `fix_plan.attempts`, `fix_plan.revisions`, `fix_plan.at` and `fix_plan.result`. The step writes the key, the count and the time before its first model call. It does not edit the stage comment.
+- **Idempotency key.** The pull request and its head commit. The lease refuses a push when the head moved.
+- **Mode.** `roadmap.fix_plan.mode`, which starts in `plan`.
+- **Valkey.** No key.
 
 #### `push` and `open` are steps, not units
 

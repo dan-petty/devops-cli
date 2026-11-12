@@ -56,6 +56,7 @@ def test_the_alternatives_row_follows_refine_and_is_due_every_719_minutes_and_by
         "refine": five_minutes_ago,
         "retitle": five_minutes_ago,
         "stage": five_minutes_ago,
+        "fix_plan": five_minutes_ago,
     }
 
     def ran(batch: dict[tuple[str, str, str], int], **stamps: datetime) -> tuple[str, ...]:
@@ -73,7 +74,7 @@ def test_the_alternatives_row_follows_refine_and_is_due_every_719_minutes_and_by
     hinted = ran({OPENED: 1}, **recent, alternatives=NOW - timedelta(hours=2))
 
     assert (first, too_soon, on_time, hinted) == (
-        ("intake", "retitle", "stage", "refine", "alternatives"),
+        ("intake", "retitle", "stage", "fix_plan", "refine", "alternatives"),
         (),
         ("alternatives",),
         ("intake",),
@@ -95,7 +96,7 @@ def test_the_dry_run_of_the_cli_lists_the_alternatives_row(
     assert (
         result.exit_code,
         "Due: metrics, implement, stage_ready, release_comments, github_status, cloudflare_status,"
-        " pr_conflicts, intake, retitle, stage, refine, alternatives\n" in result.output,
+        " pr_conflicts, intake, retitle, stage, fix_plan, refine, alternatives\n" in result.output,
     ) == (0, True)
 
 

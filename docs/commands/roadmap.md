@@ -564,3 +564,32 @@ devops roadmap review run [OPTIONS]
 | `--dry-run` | `boolean` | - | Start no program: print the git commands that a run starts, in order, with placeholders. |
 
 ---
+
+## `devops roadmap step`
+
+**Run one step of a roadmap job by hand, the same way the Service runs it. Each step has one purpose. Details: docs/roadmap/stage.md.**
+
+```bash
+devops roadmap step COMMAND [ARGS]...
+```
+
+### `devops roadmap step fix-plan`
+
+**Repair one open plan pull request that holds the label plan/needs-fix: the stage planner revises the plan with the open findings of a model review, and a better revision is pushed. Without --confirm, print the plan pull request that it selects. Details: docs/roadmap/stage.md.**
+
+```bash
+devops roadmap step fix-plan [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--repo`, `-R` | `string` | - | Repository as owner/name (default: this checkout's origin). |
+| `--source` | `path` | - | Path to a clone of the repository at its default branch. Without it, the job clones the repository into its own model clone, updates it, and uses it. |
+| `--item` | `integer` | - | Judge the one item that this number names, instead of each Staged item by priority. |
+| `--pull` | `integer` | - | Judge the one item whose record holds this plan pull request number in stage.pr. |
+| `--dry-run` | `boolean` | - | Make no request: print the requests, the git commands and the writes of a run, with placeholders. |
+| `--confirm` | `boolean` | - | Run the attempt: call the models, push a better revision, and write the label, the comment and the record. It acts in every mode of roadmap.fix_plan.mode. |
+
+---

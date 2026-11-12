@@ -31,6 +31,7 @@ from typing import Final
 
 from devops_cli.config.constants import (
     CONST_ROADMAP_ALTERNATIVES_COMMENT_MARKER,
+    CONST_ROADMAP_FIX_PLAN_COMMENT_MARKER,
     CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER,
     CONST_ROADMAP_INTAKE_REASON_MARKER,
     CONST_ROADMAP_REFINE_COMMENT_MARKER,
@@ -53,6 +54,7 @@ COMMENT_JOBS: Final[tuple[tuple[str, str], ...]] = (
     (CONST_ROADMAP_INTAKE_REASON_MARKER, "intake"),
     (CONST_ROADMAP_STAGE_COMMENT_MARKER, "stage"),
     (CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER, "implement"),
+    (CONST_ROADMAP_FIX_PLAN_COMMENT_MARKER, "fix_plan"),
 )
 
 # How long an earlier comment of a job refuses the same text.

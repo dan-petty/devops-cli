@@ -1335,6 +1335,30 @@ class RoadmapCommandHelp:
         "The most model calls that a run may make. A run that needs more stops before its first "
         "call. The default keeps the spend of a run under 1 USD."
     )
+    step_app: str = (
+        "Run one step of a roadmap job by hand, the same way the Service runs it. Each step has "
+        "one purpose. Details: docs/roadmap/stage.md."
+    )
+    step_fix_plan: str = (
+        "Repair one open plan pull request that holds the label plan/needs-fix: the stage planner "
+        "revises the plan with the open findings of a model review, and a better revision is "
+        "pushed. Without --confirm, print the plan pull request that it selects. Details: "
+        "docs/roadmap/stage.md."
+    )
+    step_fix_plan_item: str = (
+        "Judge the one item that this number names, instead of each Staged item by priority."
+    )
+    step_fix_plan_pull: str = (
+        "Judge the one item whose record holds this plan pull request number in stage.pr."
+    )
+    step_fix_plan_dry_run: str = (
+        "Make no request: print the requests, the git commands and the writes of a run, with "
+        "placeholders."
+    )
+    step_fix_plan_confirm: str = (
+        "Run the attempt: call the models, push a better revision, and write the label, the comment "
+        "and the record. It acts in every mode of roadmap.fix_plan.mode."
+    )
     eval_app: str = (
         "Score the plan and implement jobs on a golden set. Each command runs a job's real code "
         "on committed cases with a chosen model. It is on demand and no part of devops ci."

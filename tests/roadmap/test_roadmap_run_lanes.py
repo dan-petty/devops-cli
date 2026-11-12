@@ -96,6 +96,7 @@ def test_a_model_lane_poll_when_not_due_reads_no_change_and_sends_no_request(
         refine=recent,
         retitle=recent,
         stage=recent,
+        fix_plan=recent,
         alternatives=recent,
     )
     service_jobs(tmp_path)[CONST_SERVICE_LANE_MODEL](POLL)
@@ -354,7 +355,7 @@ def test_each_lanes_success_stays_in_schedule_json_when_their_rounds_interleave(
         )
         assert (triage_round, model_round) == (
             ("intake",),
-            ("retitle", "stage", "refine", "alternatives"),
+            ("retitle", "stage", "fix_plan", "refine", "alternatives"),
         )
         return JobOutcome()
 
@@ -381,6 +382,7 @@ def test_each_lanes_success_stays_in_schedule_json_when_their_rounds_interleave(
             "refine": later.isoformat(),
             "retitle": later.isoformat(),
             "stage": later.isoformat(),
+            "fix_plan": later.isoformat(),
             "alternatives": later.isoformat(),
             "metrics": NOW.isoformat(),
             "implement": NOW.isoformat(),

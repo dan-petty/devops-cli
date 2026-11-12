@@ -102,6 +102,7 @@ from devops_cli.config.defaults import (
     DEFAULT_ROADMAP_ALTERNATIVES_LIMIT,
     DEFAULT_ROADMAP_ALTERNATIVES_RECHECK_DAYS,
     DEFAULT_ROADMAP_ALTERNATIVES_RETRY_DAYS,
+    DEFAULT_ROADMAP_FIX_PLAN_MODE,
     DEFAULT_ROADMAP_IMPLEMENT_COMMAND_TIMEOUT_SECONDS,
     DEFAULT_ROADMAP_IMPLEMENT_CONTINUATIONS_PER_ITEM,
     DEFAULT_ROADMAP_IMPLEMENT_DEADLINE_CEILING_SECONDS,
@@ -150,6 +151,7 @@ from devops_cli.config.defaults import (
     DEFAULT_WORKSPACE_FILE,
     DecisionMode,
     JevMode,
+    RowMode,
     SearchProviderName,
     StageToolset,
 )
@@ -1396,6 +1398,17 @@ class RoadmapIntakeConfig(BaseModel):
     )
 
 
+class RoadmapFixPlanConfig(BaseModel):
+    """What the step `fix-plan` and its row of the Service do (#5061)."""
+
+    model_config = ConfigDict(extra="ignore", validate_assignment=True, hide_input_in_errors=True)
+
+    mode: Annotated[RowMode, Variable()] = Field(
+        description="What the row fix_plan of the Service does with an open plan pull request that holds the label plan/needs-fix (ADR 0021, section 8). `off` sends no request. `plan` selects the pull request and logs it, with no model call and no write. `on` runs the attempt: the stage planner and the verification pass revise the plan, and a better revision is pushed. The command `devops roadmap step fix-plan --confirm` acts in every mode",
+        default=DEFAULT_ROADMAP_FIX_PLAN_MODE,
+    )
+
+
 class RoadmapMcpConfig(BaseModel):
     model_config = ConfigDict(extra="ignore", validate_assignment=True, hide_input_in_errors=True)
 
@@ -1418,6 +1431,7 @@ class RoadmapConfig(BaseModel):
     implement: RoadmapImplementConfig = Field(default_factory=RoadmapImplementConfig)
     inbox: RoadmapInboxConfig = Field(default_factory=RoadmapInboxConfig)
     intake: RoadmapIntakeConfig = Field(default_factory=RoadmapIntakeConfig)
+    fix_plan: RoadmapFixPlanConfig = Field(default_factory=RoadmapFixPlanConfig)
     mcp: RoadmapMcpConfig = Field(default_factory=RoadmapMcpConfig)
     decisions: Annotated[dict[str, DecisionMode], Variable()] = Field(
         default_factory=dict,

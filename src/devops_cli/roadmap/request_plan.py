@@ -846,6 +846,79 @@ def stage_requests(
     return tuple(reads), tuple(writes)
 
 
+def fix_plan_requests(
+    repo: str, *, item: int | None = None
+) -> tuple[tuple[PlannedRequest, ...], tuple[PlannedRequest, ...]]:
+    """What `devops roadmap step fix-plan` reads, in order, and the writes `--confirm` adds after
+    them (#5061). The run reads every issue and the plan pull request of each Staged item until
+    one qualifies. With `--confirm`, the attempt fetches the default branch and the branch of the
+    plan, checks the head and its authors, reads the change folder at the head, moves the clone to
+    the default branch, reads the open findings of the last plan comment of the item, and calls the
+    review and the planner. The writes are the attempt marks, the
+    commit on the default branch, its push with a lease, the title and the body of the pull
+    request, the label, the comment and the result marks. `item` changes no request: it names the
+    one item to judge."""
+    del item
+    store = StoreRequests(repo)
+    texts = MESSAGES.roadmap
+    req, cond = texts.fix_plan_requests, texts.fix_plan_request_conditions
+    each = texts.plan_repeat["fix_plan_item"]
+    clone, tree, branch = "<model-clone>", "<worktree>", _p("branch")
+    pull = f"/repos/{repo}/pulls/{_p('pull')}"
+    attempt = cond["attempt"]
+
+    def git(key: str, cwd: str, *args: str, when: str = attempt) -> PlannedRequest:
+        return PlannedRequest("git", req[key], argv=("git", "-C", cwd, *args), condition=when)
+
+    reads = [
+        *store.every_issue(),
+        planned_session_read(pull, req["pull_state"], repeat=each),
+        git("fetch", clone, "fetch", "-q", "origin", "main", branch),
+        git("tip", clone, "rev-parse", f"origin/{branch}"),
+        git("identity", clone, "config", "user.name"),
+        git("authors", clone, "log", "origin/main.." + f"origin/{branch}"),
+        git("tree", clone, "ls-tree", "-r", "--name-only", "-z", "<head>"),
+        git("show", clone, "show", f"<head>:openspec/changes/{_p('change')}/<file>"),
+        *within(store.comments_on(_p("item")), attempt),
+        git("move_clone", clone, "merge", "--ff-only", "-q", "<default head>"),
+        PlannedRequest("model", req["model_review"], condition=attempt),
+        PlannedRequest("model", req["model_repair"], condition=cond["repair"]),
+        PlannedRequest(
+            "process",
+            req["validate"],
+            argv=("openspec", "validate", _p("change"), "--strict"),
+            condition=cond["validate"],
+        ),
+    ]
+    push = cond["push"]
+    writes = [
+        *within(store.set_marks(_p("item")), attempt),
+        git("worktree", clone, "worktree", "add", "--detach", tree, "origin/main", when=push),
+        git("commit", tree, "commit", "-q", "-m", _p("title"), when=push),
+        git("rebase", tree, "rebase", "-q", "origin/main", when=push),
+        git(
+            "push",
+            tree,
+            "push",
+            "-q",
+            f"--force-with-lease=refs/heads/{branch}:<head>",
+            "origin",
+            f"HEAD:refs/heads/{branch}",
+            when=push,
+        ),
+        PlannedRequest(
+            "REST write",
+            req["update_pull"],
+            argv=("PATCH", f"{CONST_URL_GITHUB_API_BASE}{pull}"),
+            condition=cond["update_pull"],
+        ),
+        *within(store.unlabel_issue(_p("pull")), cond["unlabel"]),
+        *within(store.comment(_p("item")), attempt),
+        *within(store.set_marks(_p("item")), attempt),
+    ]
+    return tuple(reads), tuple(writes)
+
+
 def implement_requests(
     repo: str,
     *,
@@ -1182,6 +1255,7 @@ __all__ = [
     "alternatives_requests",
     "consolidate_requests",
     "explain_requests",
+    "fix_plan_requests",
     "implement_requests",
     "inbox_requests",
     "is_page_repeat",

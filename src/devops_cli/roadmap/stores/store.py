@@ -267,6 +267,22 @@ class StageRecordKey(StrEnum):
     PENDING = "stage.pending"
 
 
+class FixPlanRecordKey(StrEnum):
+    """What the step `fix-plan` records in an Item's job record (#5061): `fix_plan.key` is the
+    plan pull request and the head commit of the last attempt, `<pull>:<head>`, and
+    `fix_plan.attempts` counts the attempts on that head. After a push, the key names the new head
+    with 0 attempts. `fix_plan.revisions` counts the revisions that the step pushed to the pull
+    request of the key, `fix_plan.at` holds the time of the last attempt, and `fix_plan.result`
+    its result. The step writes the key, the count and the time before its first model call, so a
+    stop of the Service counts the attempt."""
+
+    KEY = "fix_plan.key"
+    ATTEMPTS = "fix_plan.attempts"
+    REVISIONS = "fix_plan.revisions"
+    AT = "fix_plan.at"
+    RESULT = "fix_plan.result"
+
+
 class ImplementResult(StrEnum):
     """How the run of an implement Job ended (#4071). The runner records the word in
     `implement.result`, and the Service compares with it."""
@@ -364,6 +380,7 @@ JobRecord = dict[
     | RefineRecordKey
     | AlternativesRecordKey
     | StageRecordKey
+    | FixPlanRecordKey
     | ImplementRecordKey
     | RetitleRecordKey
     | IntakeRecordKey
@@ -663,6 +680,7 @@ _JOB_RECORD_KEYS = frozenset(
         *RefineRecordKey,
         *AlternativesRecordKey,
         *StageRecordKey,
+        *FixPlanRecordKey,
         *ImplementRecordKey,
         *RetitleRecordKey,
         *IntakeRecordKey,
@@ -1156,6 +1174,7 @@ __all__ = [
     "ConsolidateRecordKey",
     "Evidence",
     "EvidenceKind",
+    "FixPlanRecordKey",
     "GitHubState",
     "ImplementRecordKey",
     "ImplementResult",

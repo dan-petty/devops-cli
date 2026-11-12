@@ -346,6 +346,15 @@ ROADMAP_STAGE_TOTAL = Instrument(
     "names the rule of a skipped item, such as title_type, held, failed_lately, queue_full, "
     "returned or rejected, and is none for the other results. A plan with no write counts nothing",
 )
+ROADMAP_FIX_PLAN_TOTAL = Instrument(
+    "devops_cli_roadmap_fix_plan_total",
+    InstrumentKind.COUNTER,
+    "1",
+    "Attempts of the step fix-plan on a plan pull request with the label plan/needs-fix, one count "
+    "for each attempt, by repository and result: revised for a pushed revision with fewer open "
+    "findings, cleared for a plan with no open finding left (the label goes), unchanged for a "
+    "revision that is not better, and failed for a plan run that failed or stopped",
+)
 ROADMAP_STAGE_PLAN_RECORD_TOTAL = Instrument(
     "devops_cli_roadmap_stage_plan_record_total",
     InstrumentKind.COUNTER,
@@ -437,8 +446,8 @@ ROADMAP_ROW_SECONDS = Instrument(
     "s",
     "Seconds that a roadmap row took to run, one sample for each run, by repo, row and result: "
     "success, error or stopped. A row that is not due, that the failure ledger suspends, or "
-    "that a clone failure keeps from running adds no sample. One repository adds at most 36 "
-    "series: 12 rows and 3 results",
+    "that a clone failure keeps from running adds no sample. One repository adds at most 39 "
+    "series: 13 rows and 3 results",
 )
 ROADMAP_STEP_SECONDS = Instrument(
     "devops_cli_roadmap_step_seconds",
@@ -758,6 +767,7 @@ INSTRUMENTS: tuple[Instrument, ...] = (
     ROADMAP_STAGE_PLAN_RECORD_TOTAL,
     DECISION_POINT_TOTAL,
     ROADMAP_STAGE_TOTAL,
+    ROADMAP_FIX_PLAN_TOTAL,
     ROADMAP_TOOL_CALLS_TOTAL,
     ROADMAP_TOOL_ANSWER_CHARS,
     ROADMAP_TOOL_CALLS_PER_RUN,
@@ -908,6 +918,7 @@ __all__ = [
     "ROADMAP_CLAIM_AGE",
     "ROADMAP_COMMENT_REPEATS_REFUSED_TOTAL",
     "ROADMAP_CONFLICTED_PULLS",
+    "ROADMAP_FIX_PLAN_TOTAL",
     "ROADMAP_INTAKE_CANDIDATES_TOTAL",
     "ROADMAP_ITEM_AGE",
     "ROADMAP_JEV_COMPLETENESS_TOTAL",

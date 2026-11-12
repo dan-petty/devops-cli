@@ -45,7 +45,8 @@ _NONE: Final = "none"
 
 class RoadmapJob(StrEnum):
     """A roadmap job that logs one result line for each attempt. `REFINE_JUDGE` is the review of
-    the proposal of refine for an item that a bot opened (`refine_judge`)."""
+    the proposal of refine for an item that a bot opened (`refine_judge`). `FIX_PLAN` is the step
+    that repairs a plan pull request with open findings (#5061)."""
 
     STAGE = "stage"
     IMPLEMENT = "implement"
@@ -53,12 +54,14 @@ class RoadmapJob(StrEnum):
     REFINE_JUDGE = "refine_judge"
     ALTERNATIVES = "alternatives"
     INTAKE = "intake"
+    FIX_PLAN = "fix_plan"
 
 
 # The intended result of each job (owner rule 2026-11-11): a stage attempt opens a plan pull
 # request, an implement attempt reaches a ready pull request, a refine attempt sets the next step
 # of the item, the review approves, the alternatives check writes a verdict, and intake places the
-# candidate. Each value is a member of the result enum of its job.
+# candidate. A fix-plan attempt pushes a better plan or clears the label. Each value is a member of
+# the result enum of its job.
 SUCCESS_RESULTS: Final[Mapping[RoadmapJob, frozenset[str]]] = MappingProxyType(
     {
         RoadmapJob.STAGE: frozenset({"staged"}),
@@ -69,6 +72,7 @@ SUCCESS_RESULTS: Final[Mapping[RoadmapJob, frozenset[str]]] = MappingProxyType(
             {"covers", "partly", "none", "not-applicable", "rejected", "in-use"}
         ),
         RoadmapJob.INTAKE: frozenset({"placed", "duplicate"}),
+        RoadmapJob.FIX_PLAN: frozenset({"revised", "cleared"}),
     }
 )
 
