@@ -2,25 +2,43 @@
 files of `docs/adr/` are ADRs, which ADRs are in force, the order and the size of the ADRs, and when
 a text names a tool.
 
-The roadmap is the in-memory store, which holds the files of the repository.
+The status of an ADR is its front matter (#5225): the keys of MADR 4 and the links between the
+records. The roadmap is the in-memory store, which holds the files of the repository.
 """
 
 from __future__ import annotations
 
+import datetime
 import logging
 
 import pytest
 
 from devops_cli.ai.context_budget import count_tokens
-from devops_cli.roadmap.adr import Adr, adr_of, fit_to_budget, names, read_adrs, rejects
+from devops_cli.exceptions.validation import ValidationError
+from devops_cli.roadmap.adr import (
+    Adr,
+    AdrFrontMatter,
+    AdrStatus,
+    adr_of,
+    fit_to_budget,
+    names,
+    read_adrs,
+    rejects,
+)
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 
 ADR_DIRECTORY = "docs/adr"
-ADR = """# Argo Workflows runs the jobs
-
-Amended on 2026-10-28 by [ADR 0016](0016-labels.md). Labels hold the fields.
-
-ADR 0008 amends ADR 0004.
+FRONT_MATTER = """---
+status: accepted
+date: 2026-10-23
+decision-makers: [owner]
+issue: 1535
+amends: ["0004"]
+amended-by: ["0016"]
+body-hash: 0f
+---
+"""
+ADR = f"""{FRONT_MATTER}# Argo Workflows runs the jobs
 
 The Service chose an engine.
 
@@ -32,8 +50,11 @@ The Service chose an engine.
 ## Consequences
 
 - Two Applications carry it.
+
+## Status History
+
+2026-10-28: Amended by ADR 0016, section Labels.
 """
-STATUS = "Amended on 2026-10-28 by ADR 0016. Labels hold the fields.\nADR 0008 amends ADR 0004."
 OPTIONS = (
     "## Considered Options\n\n- **DBOS**: runner-up.\n"
     "- **Temporal and Hatchet**: rejected. Each needs a new Postgres."
@@ -45,18 +66,30 @@ def store() -> InMemoryRoadmapStore:
     return InMemoryRoadmapStore(repo="example/roadmap", is_private=False)
 
 
-def _seed(store: InMemoryRoadmapStore, number: int, title: str, *notes: str) -> None:
-    """Commit the ADR `number` with `title`, the paragraphs `notes` under it and one option."""
-    paragraphs = "\n\n".join(notes)
+def _seed(store: InMemoryRoadmapStore, number: int, title: str, front_matter: str = "") -> None:
+    """Commit the ADR `number` with the YAML `front_matter` (no front matter when it is empty),
+    `title` and one option."""
+    head = f"---\n{front_matter}\n---\n" if front_matter else ""
     store.seed_file(
         f"{ADR_DIRECTORY}/{number:04d}-decision.md",
-        f"# {title}\n\n{paragraphs}\n\nThe text.\n\n## Considered Options\n\n- **Tool**: chosen.\n",
+        f"{head}# {title}\n\nThe text.\n\n## Considered Options\n\n- **Tool**: chosen.\n",
     )
 
 
-def test_an_adr_keeps_its_number_its_title_its_status_and_its_options_section_only() -> None:
+def test_an_adr_keeps_its_number_its_title_its_front_matter_and_its_options_section_only() -> None:
     assert adr_of("docs/adr/0008-argo-workflows.md", ADR) == Adr(
-        number=8, title="Argo Workflows runs the jobs", options=OPTIONS, status=STATUS
+        number=8,
+        title="Argo Workflows runs the jobs",
+        options=OPTIONS,
+        front_matter=AdrFrontMatter(
+            status=AdrStatus.ACCEPTED,
+            date=datetime.date(2026, 10, 23),
+            decision_makers=("owner",),
+            issue=1535,
+            amends=("0004",),
+            amended_by=("0016",),
+            body_hash="0f",
+        ),
     )
 
 
@@ -65,57 +98,45 @@ def test_an_adr_with_no_options_section_keeps_its_title_and_no_options() -> None
         "docs/adr/0013-releases.md", "# Releases use release-please\n\n## Decision\n\nGo.\n"
     )
 
-    assert adr == Adr(number=13, title="Releases use release-please", options="", status="")
+    assert adr == Adr(number=13, title="Releases use release-please", options="")
+
+
+def test_an_adr_with_no_front_matter_has_no_status_and_is_in_force() -> None:
+    adr = adr_of("docs/adr/0009-a.md", "# T\n\n[ADR 0015](0015-x.md) supersedes this ADR.\n")
+
+    assert adr is not None
+    assert (adr.front_matter, adr.in_force) == (AdrFrontMatter(), True)
 
 
 @pytest.mark.parametrize(
-    ("text", "status"),
+    "front_matter",
     [
-        pytest.param(
-            "# T\n\n[ADR 0015](0015-x.md) supersedes this ADR.\n\nThe text.\n",
-            "ADR 0015 supersedes this ADR.",
-            id="a-link-is-its-text",
-        ),
-        pytest.param(
-            "# T\n\nThe webhook clause is superseded by ADR 0017.\n\nAmended by ADR 0016.\n\nText.\n",
-            "The webhook clause is superseded by ADR 0017.\nAmended by ADR 0016.",
-            id="two-paragraphs",
-        ),
-        pytest.param(
-            "# T\n\nThe text of the decision.\n\nAmended by ADR 0016.\n",
-            "",
-            id="a-note-after-the-body-is-no-status",
-        ),
-        pytest.param(
-            "# T\n\nIt replaces an older text and amends the old design.\n\nMore.\n",
-            "",
-            id="a-sentence-with-no-adr-is-no-status",
-        ),
-        pytest.param(
-            "# T\n\n## Considered Options\n\n- A.\n\nAmended by ADR 0016.\n",
-            "",
-            id="a-note-under-a-heading-is-no-status",
-        ),
+        pytest.param("status: accepted\nsuperseded_by: ['0012']", id="unknown-key"),
+        pytest.param("status: superseded\nsuperseded-by: [0012]", id="a-number-not-a-string"),
+        pytest.param("status: superseded\nsuperseded-by: ['12']", id="not-four-digits"),
+        pytest.param("status: superseded by ADR-0012", id="unknown-status"),
+        pytest.param("- accepted", id="not-a-mapping"),
     ],
 )
-def test_the_status_of_an_adr_is_the_paragraphs_under_its_title_that_name_another_adr(
-    text: str, status: str
+def test_a_front_matter_that_is_not_valid_stops_the_read_and_names_the_file(
+    front_matter: str,
 ) -> None:
-    adr = adr_of("docs/adr/0009-a.md", text)
-
-    assert adr is not None
-    assert adr.status == status
+    with pytest.raises(ValidationError, match=r"docs/adr/0011-old\.md"):
+        adr_of("docs/adr/0011-old.md", f"---\n{front_matter}\n---\n# Old\n")
 
 
-def test_an_adr_entry_gives_its_number_as_four_digits_its_title_its_status_and_its_options() -> (
-    None
-):
-    adr = Adr(number=8, title="Argo Workflows", options="## Considered Options\n\n- A.", status="")
-    noted = Adr(number=9, title="Next", options="", status="ADR 0010 amends ADR 0004.")
+def test_an_adr_entry_gives_its_number_its_title_the_adrs_that_amend_it_and_its_options() -> None:
+    adr = Adr(number=8, title="Argo Workflows", options="## Considered Options\n\n- A.")
+    amended = Adr(
+        number=9,
+        title="Next",
+        options="",
+        front_matter=AdrFrontMatter(amended_by=("0010", "0021")),
+    )
 
-    assert (adr.entry, noted.entry, Adr(number=10, title="Last", options="", status="").entry) == (
+    assert (adr.entry, amended.entry, Adr(number=10, title="Last", options="").entry) == (
         "ADR 0008: Argo Workflows\n## Considered Options\n\n- A.",
-        "ADR 0009: Next\nADR 0010 amends ADR 0004.",
+        "ADR 0009: Next\nAmended by ADR 0010, ADR 0021.",
         "ADR 0010: Last",
     )
 
@@ -158,53 +179,58 @@ def test_a_repository_with_no_adr_directory_has_no_adr(store: InMemoryRoadmapSto
     assert read_adrs(store) == ()
 
 
-def test_an_adr_that_a_later_adr_supersedes_is_left_out_from_either_side(
+def test_only_an_accepted_adr_or_one_with_no_status_is_in_force(
     store: InMemoryRoadmapStore,
 ) -> None:
-    # ADR 2 says so in its own note, and ADR 5 says so in the note of the ADR that replaces it.
-    _seed(store, 1, "Old", "[ADR 0002](0002-x.md) supersedes this ADR.")
-    _seed(store, 2, "Middle", "ADR 0002 supersedes ADR 0001.")
-    _seed(store, 3, "Quiet")
-    _seed(store, 4, "Replaced", "No note here.")
-    _seed(store, 5, "Newest", "ADR 0005 supersedes [ADR 0004](0004-x.md).")
-
-    assert [adr.number for adr in read_adrs(store)] == [5, 3, 2]
-
-
-def test_an_adr_that_a_later_adr_supersedes_in_part_or_amends_stays(
-    store: InMemoryRoadmapStore,
-) -> None:
-    _seed(store, 3, "Polling", "The webhook clause is superseded on 2026-10-29 by ADR 0017.")
-    _seed(store, 4, "Gate", "Amended on 2026-10-24 by ADR 0014.")
-    _seed(store, 14, "Checks", "ADR 0014 amends [ADR 0004](0004-x.md).")
-    _seed(store, 17, "Webhooks", "This ADR supersedes the webhook clause of [ADR 0003](x.md).")
-
-    assert [adr.number for adr in read_adrs(store)] == [17, 14, 4, 3]
-
-
-def test_an_adr_does_not_supersede_an_adr_of_a_higher_number(store: InMemoryRoadmapStore) -> None:
-    _seed(store, 1, "First", "ADR 0001 supersedes ADR 0002.")
-    _seed(store, 2, "Second", "The text.")
+    _seed(store, 1, "Quiet")
+    _seed(store, 2, "Accepted", "status: accepted")
+    _seed(store, 3, "Proposed", "status: proposed")
+    _seed(store, 4, "Rejected", "status: rejected")
+    _seed(store, 5, "Deprecated", "status: deprecated")
+    _seed(store, 6, "Superseded", "status: superseded\nsuperseded-by: ['0002']")
 
     assert [adr.number for adr in read_adrs(store)] == [2, 1]
 
 
-def test_the_status_of_a_superseding_adr_reaches_its_entry(store: InMemoryRoadmapStore) -> None:
-    _seed(store, 12, "Release-please", "ADR 0012 supersedes ADR 0011.")
-    _seed(store, 11, "Towncrier", "[ADR 0012](0012-x.md) supersedes this ADR.")
+def test_an_adr_that_another_adr_supersedes_is_left_out_from_either_side(
+    store: InMemoryRoadmapStore,
+) -> None:
+    # ADR 1 names its successor itself, and ADR 5 names the ADR that it replaces.
+    _seed(store, 1, "Old", "status: accepted\nsuperseded-by: ['0002']")
+    _seed(store, 2, "Middle", "status: accepted")
+    _seed(store, 4, "Replaced", "status: accepted")
+    _seed(store, 5, "Newest", "status: accepted\nsupersedes: ['0004']")
 
-    (adr,) = read_adrs(store)
+    assert [adr.number for adr in read_adrs(store)] == [5, 2]
 
-    assert adr.entry.splitlines()[:2] == [
-        "ADR 0012: Release-please",
-        "ADR 0012 supersedes ADR 0011.",
-    ]
+
+def test_an_adr_that_another_adr_amends_stays_and_its_entry_names_the_amending_adrs(
+    store: InMemoryRoadmapStore,
+) -> None:
+    _seed(store, 4, "Gate", "status: accepted\namended-by: ['0014']")
+    _seed(store, 14, "Checks", "status: accepted\namends: ['0004']")
+
+    first, second = read_adrs(store)
+
+    assert (first.number, second.entry.splitlines()[:2]) == (
+        14,
+        ["ADR 0004: Gate", "Amended by ADR 0014."],
+    )
+
+
+def test_a_front_matter_that_is_not_valid_stops_the_read_of_the_adrs(
+    store: InMemoryRoadmapStore,
+) -> None:
+    _seed(store, 2, "Middle", "status: done")
+
+    with pytest.raises(ValidationError, match=r"docs/adr/0002-decision\.md"):
+        read_adrs(store)
 
 
 def _entries(count: int, options: str) -> tuple[Adr, ...]:
     """`count` ADRs, the newest first, each with the same `options`."""
     return tuple(
-        Adr(number=number, title=f"Decision {number}", options=options, status="")
+        Adr(number=number, title=f"Decision {number}", options=options)
         for number in range(count, 0, -1)
     )
 
@@ -247,10 +273,8 @@ def test_adrs_over_the_cap_keep_whole_entries_newest_first_and_log_a_warning(
 def test_an_entry_that_is_over_the_cap_alone_is_left_out_and_a_smaller_older_one_stays(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    huge = Adr(
-        number=9, title="Huge", options="\n".join(f"- **T{n}**: no." for n in range(900)), status=""
-    )
-    small = Adr(number=8, title="Small", options="- **Tool**: chosen.", status="")
+    huge = Adr(number=9, title="Huge", options="\n".join(f"- **T{n}**: no." for n in range(900)))
+    small = Adr(number=8, title="Small", options="- **Tool**: chosen.")
 
     with caplog.at_level(logging.WARNING):
         kept = fit_to_budget((huge, small), max_tokens=200)
