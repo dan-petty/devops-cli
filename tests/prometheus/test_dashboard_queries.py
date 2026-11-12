@@ -15,6 +15,11 @@ file (`promtool test rules`), with these keys added:
   each `__interval` in the range, as Grafana draws them, and each expected sum is within 1 % of
   `total`.
 
+A file with the key `spec` holds the cases of the dashboard that the SRE template of
+`devops_cli.grafana.service_dashboard` builds from that spec (#5184), not of a file in
+`k8s/monitoring/dashboards/`. Its cases cover the queries of the template for an SLO that no
+committed spec has.
+
 The test replaces the variables as Grafana does, removes the added keys, writes one promtool
 file for each dashboard and runs promtool once on it. docs/TESTING.md tells how to add a case.
 """
@@ -31,6 +36,7 @@ from typing import Any
 import pytest
 import yaml
 
+from devops_cli.grafana.service_dashboard import ServiceSpec, service_dashboard
 from devops_cli.prometheus.client import parse_duration
 from tests.support.paths import FIXTURES, REPO_ROOT
 from tests.support.promtool import promtool
@@ -48,6 +54,7 @@ SHAPES = frozenset({"sparse_counter", "zero_start", "counter_reset", "snapshot_g
 # The keys that the case files add to the promtool format. promtool refuses a key it does not
 # know, so the test removes them.
 GROUP_KEYS = frozenset({"shape"})
+FILE_KEYS = frozenset({"spec"})
 CASE_KEYS = frozenset({"panel", "ref_id", "variables", "bars", "total"})
 
 # How far the sum of the bars of a case can be from the total of its series: `increase()`
@@ -149,6 +156,13 @@ def _dashboard(name: str) -> dict[str, Any]:
     return dashboard
 
 
+def _dashboard_of(name: str, case_file: dict[str, Any]) -> dict[str, Any]:
+    """The dashboard of a case file: the build of its `spec`, else the committed `<name>.json`."""
+    if "spec" in case_file:
+        return service_dashboard(ServiceSpec.model_validate(case_file["spec"]))
+    return _dashboard(name)
+
+
 def _case_file(path: Path) -> dict[str, Any]:
     cases: dict[str, Any] = yaml.safe_load(path.read_text(encoding="utf-8"))
     return cases
@@ -197,7 +211,7 @@ def _scrape_s(target: dict[str, Any]) -> int:
 def promtool_file(name: str, case_file: dict[str, Any]) -> dict[str, Any]:
     """The promtool unit test file of the cases of one dashboard: each `expr` with its variables
     in place, and the keys that promtool does not know removed."""
-    targets = _targets(_dashboard(name))
+    targets = _targets(_dashboard_of(name, case_file))
     tests = []
     for group in case_file["tests"]:
         test = {key: value for key, value in group.items() if key not in GROUP_KEYS}
@@ -215,7 +229,8 @@ def promtool_file(name: str, case_file: dict[str, Any]) -> dict[str, Any]:
                 | {"expr": query}
             )
         tests.append(test)
-    return {key: value for key, value in case_file.items() if key != "tests"} | {"tests": tests}
+    kept = {key: value for key, value in case_file.items() if key not in FILE_KEYS | {"tests"}}
+    return kept | {"tests": tests}
 
 
 @pytest.mark.parametrize(
@@ -259,7 +274,10 @@ def test_the_rate_interval_of_a_target_uses_its_min_step_over_the_data_source() 
 def test_each_case_holds_the_current_query_of_its_panel_target(cases: Path) -> None:
     """The `expr` of each case is the query that its panel target holds today, so a change of a
     covered query fails here until its cases change with it."""
-    assert query_mismatches(cases.stem, _dashboard(cases.stem), _cases(_case_file(cases))) == []
+    case_file = _case_file(cases)
+    assert (
+        query_mismatches(cases.stem, _dashboard_of(cases.stem, case_file), _cases(case_file)) == []
+    )
 
 
 def test_a_changed_query_names_the_dashboard_the_panel_and_the_ref_id() -> None:

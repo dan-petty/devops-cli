@@ -1,0 +1,32 @@
+# The service dashboards that `make dashboards` builds with the SRE template of
+# src/devops_cli/grafana/service_dashboard.py (docs/DESIGN.md, "Grafana layout" and C12).
+#
+# Each [[service]] table is one dashboard: `make dashboards` writes `<uid>.json` next to this file,
+# and kustomization.yaml provisions it. Do not edit a generated dashboard. Change its table here
+# and run `make dashboards`. The fields and their defaults are those of `ServiceSpec` in the
+# template. By default a service is behind the ingress: its requests are the Traefik service
+# metrics of the Kubernetes Service that has the name of the workload.
+#
+# The SLO is 99.9 % of the requests over 30 days (docs/DESIGN.md, C12) until the owner of each
+# service sets another target.
+
+[[service]]
+uid = "devops-roadmap-service"
+title = "Roadmap Service: SLO and golden signals"
+description = "The SLO, the error budget and the golden signals of the roadmap Service, from the Traefik requests of its webhooks and API."
+namespace = "devops"
+workload = "roadmap-service"
+slo_target = "0.999"
+slo_window_days = 30
+profiles = ["process_cpu:cpu:nanoseconds:cpu:nanoseconds"]
+
+[[service]]
+uid = "devops-sre-service"
+title = "Service: SLO and golden signals"
+description = "The SLO, the error budget and the golden signals of one workload behind the ingress. Select the namespace and the workload."
+namespace = "devops"
+workload = "roadmap-service"
+variables = true
+slo_target = "0.999"
+slo_window_days = 30
+profiles = ["process_cpu:cpu:nanoseconds:cpu:nanoseconds", "memory:inuse_space:bytes:space:bytes"]

@@ -1,0 +1,139 @@
+# Cases of the SRE template of src/devops_cli/grafana/service_dashboard.py for the spec below,
+# which tests/prometheus/test_dashboard_queries.py builds and evaluates with promtool (#4680,
+# #5184). The test module tells the format, and docs/TESTING.md tells how to add a case.
+#
+# The spec has an SLO of 99 %, so the error budget is 1 % of the requests.
+spec:
+  uid: service-template
+  title: "Cart: SLO and golden signals"
+  description: "The SLO and the golden signals of the cart."
+  namespace: shop
+  workload: cart
+  slo_target: "0.99"
+tests:
+  # 1,000 requests in the first minute of the counters, and 2 of them failed. Each window holds
+  # all of them, so each window has the same share of failed requests, 0.002: the SLI is 0.998,
+  # the failed requests spent 0.002 / 0.01 = 20 % of the budget (80 % is left), and the burn rate
+  # of each window is 0.2x. Traefik writes one counter for each code. A counter that starts at 0
+  # is not extrapolated, so promtool gives these values with no rounding.
+  - name: 1,000 requests with 2 failed requests and an SLO of 99 %
+    interval: 1m
+    input_series:
+      - series: 'traefik_service_requests_total{service="shop-cart-8080@kubernetes", code="200"}'
+        values: '0 998'
+      - series: 'traefik_service_requests_total{service="shop-cart-8080@kubernetes", code="500"}'
+        values: '0 2'
+      # The requests of another service are not counted.
+      - series: 'traefik_service_requests_total{service="shop-search-8080@kubernetes", code="500"}'
+        values: '0 50'
+    promql_expr_test:
+      - panel: 'SLI: successful requests'
+        ref_id: A
+        expr: '1 - (sum(increase(traefik_service_requests_total{service=~"shop-cart-[0-9]+@kubernetes", code=~"5.."}[30d])) or sum(increase(traefik_service_requests_total{service=~"shop-cart-[0-9]+@kubernetes"}[30d])) * 0) / sum(increase(traefik_service_requests_total{service=~"shop-cart-[0-9]+@kubernetes"}[30d]))'
+        eval_time: 1m
+        exp_samples:
+          - labels: '{}'
+            value: 0.998
+      - panel: 'Error budget: left over 30 days'
+        ref_id: A
+        expr: '1 - (sum(increase(traefik_service_requests_total{service=~"shop-cart-[0-9]+@kubernetes", code=~"5.."}[30d])) or sum(increase(traefik_service_requests_total{service=~"shop-cart-[0-9]+@kubernetes"}[30d])) * 0) / sum(increase(traefik_service_requests_total{service=~"shop-cart-[0-9]+@kubernetes"}[30d])) / 0.01'
+        eval_time: 1m
+        exp_samples:
+          - labels: '{}'
+            value: 0.8
+      - panel: 'Burn rate: last hour'
+        ref_id: A
+        expr: '(sum(increase(traefik_service_requests_total{service=~"shop-cart-[0-9]+@kubernetes", code=~"5.."}[1h])) or sum(increase(traefik_service_requests_total{service=~"shop-cart-[0-9]+@kubernetes"}[1h])) * 0) / sum(increase(traefik_service_requests_total{service=~"shop-cart-[0-9]+@kubernetes"}[1h])) / 0.01'
+        eval_time: 1m
+        exp_samples:
+          - labels: '{}'
+            value: 0.2
+      - panel: 'Burn rate: 1 h and 6 h windows'
+        ref_id: A
+        expr: '(sum(increase(traefik_service_requests_total{service=~"shop-cart-[0-9]+@kubernetes", code=~"5.."}[1h])) or sum(increase(traefik_service_requests_total{service=~"shop-cart-[0-9]+@kubernetes"}[1h])) * 0) / sum(increase(traefik_service_requests_total{service=~"shop-cart-[0-9]+@kubernetes"}[1h])) / 0.01'
+        eval_time: 1m
+        exp_samples:
+          - labels: '{}'
+            value: 0.2
+      - panel: 'Burn rate: 1 h and 6 h windows'
+        ref_id: B
+        expr: '(sum(increase(traefik_service_requests_total{service=~"shop-cart-[0-9]+@kubernetes", code=~"5.."}[6h])) or sum(increase(traefik_service_requests_total{service=~"shop-cart-[0-9]+@kubernetes"}[6h])) * 0) / sum(increase(traefik_service_requests_total{service=~"shop-cart-[0-9]+@kubernetes"}[6h])) / 0.01'
+        eval_time: 1m
+        exp_samples:
+          - labels: '{}'
+            value: 0.2
+      - panel: 'Errors: share of failed requests'
+        ref_id: A
+        expr: '(sum(rate(traefik_service_requests_total{service=~"shop-cart-[0-9]+@kubernetes", code=~"5.."}[$__rate_interval])) or sum(rate(traefik_service_requests_total{service=~"shop-cart-[0-9]+@kubernetes"}[$__rate_interval])) * 0) / sum(rate(traefik_service_requests_total{service=~"shop-cart-[0-9]+@kubernetes"}[$__rate_interval]))'
+        variables:
+          __interval: 1m
+        eval_time: 1m
+        exp_samples:
+          - labels: '{}'
+            value: 0.002
+      # 1,000 requests in the 240 s of $__rate_interval.
+      - panel: 'Traffic: requests per second'
+        ref_id: A
+        expr: 'sum(rate(traefik_service_requests_total{service=~"shop-cart-[0-9]+@kubernetes"}[$__rate_interval]))'
+        variables:
+          __interval: 1m
+        eval_time: 1m
+        exp_samples:
+          - labels: '{}'
+            value: 4.166666666666667
+  # With requests and no failed request, Traefik writes no counter for a failed code. The count
+  # of failed requests is then the zero of the requests, not a constant: the SLI is 1, all of
+  # the budget is left and the burn rate is 0x.
+  - name: requests and no failed request
+    interval: 1m
+    input_series:
+      - series: 'traefik_service_requests_total{service="shop-cart-8080@kubernetes", code="200"}'
+        values: '0 1000'
+    promql_expr_test:
+      - panel: 'SLI: successful requests'
+        ref_id: A
+        expr: '1 - (sum(increase(traefik_service_requests_total{service=~"shop-cart-[0-9]+@kubernetes", code=~"5.."}[30d])) or sum(increase(traefik_service_requests_total{service=~"shop-cart-[0-9]+@kubernetes"}[30d])) * 0) / sum(increase(traefik_service_requests_total{service=~"shop-cart-[0-9]+@kubernetes"}[30d]))'
+        eval_time: 1m
+        exp_samples:
+          - labels: '{}'
+            value: 1
+      - panel: 'Error budget: left over 30 days'
+        ref_id: A
+        expr: '1 - (sum(increase(traefik_service_requests_total{service=~"shop-cart-[0-9]+@kubernetes", code=~"5.."}[30d])) or sum(increase(traefik_service_requests_total{service=~"shop-cart-[0-9]+@kubernetes"}[30d])) * 0) / sum(increase(traefik_service_requests_total{service=~"shop-cart-[0-9]+@kubernetes"}[30d])) / 0.01'
+        eval_time: 1m
+        exp_samples:
+          - labels: '{}'
+            value: 1
+      - panel: 'Burn rate: last hour'
+        ref_id: A
+        expr: '(sum(increase(traefik_service_requests_total{service=~"shop-cart-[0-9]+@kubernetes", code=~"5.."}[1h])) or sum(increase(traefik_service_requests_total{service=~"shop-cart-[0-9]+@kubernetes"}[1h])) * 0) / sum(increase(traefik_service_requests_total{service=~"shop-cart-[0-9]+@kubernetes"}[1h])) / 0.01'
+        eval_time: 1m
+        exp_samples:
+          - labels: '{}'
+            value: 0
+      - panel: 'Errors: share of failed requests'
+        ref_id: A
+        expr: '(sum(rate(traefik_service_requests_total{service=~"shop-cart-[0-9]+@kubernetes", code=~"5.."}[$__rate_interval])) or sum(rate(traefik_service_requests_total{service=~"shop-cart-[0-9]+@kubernetes"}[$__rate_interval])) * 0) / sum(rate(traefik_service_requests_total{service=~"shop-cart-[0-9]+@kubernetes"}[$__rate_interval]))'
+        variables:
+          __interval: 1m
+        eval_time: 1m
+        exp_samples:
+          - labels: '{}'
+            value: 0
+  # With no request, the SLI has no value: a missing count does not read as a success.
+  - name: no request to the service
+    interval: 1m
+    input_series:
+      - series: 'traefik_service_requests_total{service="shop-search-8080@kubernetes", code="200"}'
+        values: '0 1000'
+    promql_expr_test:
+      - panel: 'SLI: successful requests'
+        ref_id: A
+        expr: '1 - (sum(increase(traefik_service_requests_total{service=~"shop-cart-[0-9]+@kubernetes", code=~"5.."}[30d])) or sum(increase(traefik_service_requests_total{service=~"shop-cart-[0-9]+@kubernetes"}[30d])) * 0) / sum(increase(traefik_service_requests_total{service=~"shop-cart-[0-9]+@kubernetes"}[30d]))'
+        eval_time: 1m
+        exp_samples: []
+      - panel: 'Burn rate: last hour'
+        ref_id: A
+        expr: '(sum(increase(traefik_service_requests_total{service=~"shop-cart-[0-9]+@kubernetes", code=~"5.."}[1h])) or sum(increase(traefik_service_requests_total{service=~"shop-cart-[0-9]+@kubernetes"}[1h])) * 0) / sum(increase(traefik_service_requests_total{service=~"shop-cart-[0-9]+@kubernetes"}[1h])) / 0.01'
+        eval_time: 1m
+        exp_samples: []

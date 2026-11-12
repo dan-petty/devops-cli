@@ -1,0 +1,39 @@
+# Cases of the panels of k8s/monitoring/dashboards/devops-roadmap-service.json, which
+# tests/prometheus/test_dashboard_queries.py evaluates with promtool (#4680). The SRE template
+# builds the dashboard from k8s/monitoring/dashboards/services.toml (#5184). The test module tells
+# the format, and docs/TESTING.md tells how to add a case.
+#
+# The SLO is 99.9 %, so the error budget is 0.1 % of the requests.
+tests:
+  # 10,000 requests in the first minute of the counters, and 2 of them failed. The share of
+  # failed requests is 0.0002, so the SLI is 0.9998, the failed requests spent 0.0002 / 0.001 =
+  # 20 % of the budget (80 % is left), and the burn rate is 0.2x.
+  - name: 10,000 webhook requests with 2 failed requests
+    interval: 1m
+    input_series:
+      - series: 'traefik_service_requests_total{service="devops-roadmap-service-8000@kubernetes", code="202", method="POST"}'
+        values: '0 9998'
+      - series: 'traefik_service_requests_total{service="devops-roadmap-service-8000@kubernetes", code="502", method="POST"}'
+        values: '0 2'
+    promql_expr_test:
+      - panel: 'SLI: successful requests'
+        ref_id: A
+        expr: '1 - (sum(increase(traefik_service_requests_total{service=~"devops-roadmap-service-[0-9]+@kubernetes", code=~"5.."}[30d])) or sum(increase(traefik_service_requests_total{service=~"devops-roadmap-service-[0-9]+@kubernetes"}[30d])) * 0) / sum(increase(traefik_service_requests_total{service=~"devops-roadmap-service-[0-9]+@kubernetes"}[30d]))'
+        eval_time: 1m
+        exp_samples:
+          - labels: '{}'
+            value: 0.9998
+      - panel: 'Error budget: left over 30 days'
+        ref_id: A
+        expr: '1 - (sum(increase(traefik_service_requests_total{service=~"devops-roadmap-service-[0-9]+@kubernetes", code=~"5.."}[30d])) or sum(increase(traefik_service_requests_total{service=~"devops-roadmap-service-[0-9]+@kubernetes"}[30d])) * 0) / sum(increase(traefik_service_requests_total{service=~"devops-roadmap-service-[0-9]+@kubernetes"}[30d])) / 0.001'
+        eval_time: 1m
+        exp_samples:
+          - labels: '{}'
+            value: 0.8
+      - panel: 'Burn rate: last hour'
+        ref_id: A
+        expr: '(sum(increase(traefik_service_requests_total{service=~"devops-roadmap-service-[0-9]+@kubernetes", code=~"5.."}[1h])) or sum(increase(traefik_service_requests_total{service=~"devops-roadmap-service-[0-9]+@kubernetes"}[1h])) * 0) / sum(increase(traefik_service_requests_total{service=~"devops-roadmap-service-[0-9]+@kubernetes"}[1h])) / 0.001'
+        eval_time: 1m
+        exp_samples:
+          - labels: '{}'
+            value: 0.2

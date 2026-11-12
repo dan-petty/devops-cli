@@ -132,6 +132,12 @@ dev = [
 docs = [
     "zensical==0.1.1",
 ]
+# The build of the service dashboards (#5184): `make dashboards` writes the classic dashboard JSON
+# of k8s/monitoring/dashboards/ with the Grafana Foundation SDK. The SDK is not a runtime
+# dependency. Its release 0.0.22 builds the schema version 42 of Grafana 12.3.3 to 13.3.1.
+dashboards = [
+    "grafana-foundation-sdk==0.0.22",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/devops_cli"]
@@ -366,4 +372,9 @@ DEP002 = [
 ]
 DEP003 = [
     "pydantic_evals",
+]
+# The template of the service dashboards (grafana/service_dashboard.py) runs only at build time,
+# in `make dashboards`, so its SDK is the dependency group `dashboards` (#5184).
+DEP004 = [
+    "grafana_foundation_sdk",
 ]

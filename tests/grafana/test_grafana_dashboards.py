@@ -485,193 +485,39 @@ def test_cli_supports_dry_run() -> None:
     assert "Linted" in result.output
 
 
-def test_sre_dashboards_contain_heatmap_and_ratio_panels() -> None:
-    """Verify SRE dashboards include heatmap distributions and ratio-based saturation panels."""
+def test_the_ingress_dashboard_holds_a_latency_heatmap_and_ratio_panels() -> None:
+    """Verify the ingress dashboard includes a heatmap distribution and ratio-based panels."""
     ingress_report = lint_dashboard_file(_REPO_DASHBOARDS / "ingress-tunnel.json")
-    sre_report = lint_dashboard_file(_REPO_DASHBOARDS / "sre-service.json")
-
     ingress_dash = json.loads(
         (_REPO_DASHBOARDS / "ingress-tunnel.json").read_text(encoding="utf-8")
     )
-    sre_dash = json.loads((_REPO_DASHBOARDS / "sre-service.json").read_text(encoding="utf-8"))
 
     ingress_heatmaps = [p["title"] for p in ingress_dash["panels"] if p.get("type") == "heatmap"]
-    sre_heatmaps = [p["title"] for p in sre_dash["panels"] if p.get("type") == "heatmap"]
-
     ingress_ratios = [
         p["title"]
         for p in ingress_dash["panels"]
         if p.get("fieldConfig", {}).get("defaults", {}).get("unit") == "percent"
     ]
-    sre_ratios = [
-        p["title"]
-        for p in sre_dash["panels"]
-        if p.get("fieldConfig", {}).get("defaults", {}).get("unit") == "percent"
-    ]
 
     assert (
         (len(ingress_report.errors), len(ingress_report.warnings)),
-        (len(sre_report.errors), len(sre_report.warnings)),
         ingress_heatmaps,
-        sre_heatmaps,
         ingress_ratios,
-        sre_ratios,
     ) == (
         (0, 0),
-        (0, 0),
         ["Ingress Request Latency Distribution (Heatmap)"],
-        ["Service Request Duration Distribution (Heatmap)"],
         [
             "Cloudflare Tunnel Request Error Ratio (%)",
             "Ingress Success Rate",
             "Ingress Error Rate",
             "Ingress HTTP Status Code Ratios (Success vs. Error %)",
         ],
-        [
-            "Container Resource Saturation Ratios (% of Limit)",
-            "CPU Throttling & Network Packet Drop Ratios (%)",
-        ],
     )
-
-
-def _assert_sre_service_dashboard_structure(sre_dash: dict[str, Any]) -> None:
-    panels = sre_dash.get("panels", [])
-    panel_map = {p["id"]: p for p in panels if "id" in p}
-    row_11 = panel_map[11]
-    top_logs = panel_map[21]
-    lower_logs = panel_map[12]
-    row_18 = panel_map[18]
-    flamegraph_19 = panel_map[19]
-    flamegraph_20 = panel_map[20]
-
-    ordered_ids = [p["id"] for p in panels if p.get("id") in (11, 21, 12, 18)]
-    assert ordered_ids == [11, 21, 12, 18]
-
-    assert (
-        (row_11["id"], row_11["type"], row_11["title"], row_11["gridPos"]),
-        (top_logs["id"], top_logs["type"], top_logs["title"], top_logs["gridPos"]),
-        (lower_logs["id"], lower_logs["type"], lower_logs["title"], lower_logs["gridPos"]),
-        (row_18["id"], row_18["type"], row_18["title"], row_18["gridPos"]),
-    ) == (
-        (11, "row", "Service Logs & Live Stream", {"h": 1, "w": 24, "x": 0, "y": 38}),
-        (21, "logs", "Warnings & Errors (Loki)", {"h": 8, "w": 24, "x": 0, "y": 39}),
-        (12, "logs", "Live Service Logs (Loki)", {"h": 12, "w": 24, "x": 0, "y": 47}),
-        (
-            18,
-            "row",
-            "Continuous Profiling & Flamegraphs (Pyroscope)",
-            {"h": 1, "w": 24, "x": 0, "y": 59},
-        ),
-    )
-
-    top_target = top_logs["targets"][0]
-    lower_target = lower_logs["targets"][0]
-    top_expr = top_target["expr"]
-    lower_expr = lower_target["expr"]
-
-    assert (
-        top_target["datasource"]["uid"],
-        lower_target["datasource"]["uid"],
-        top_expr,
-        lower_expr,
-    ) == (
-        "loki",
-        "loki",
-        '{namespace=~"$namespace"} | pod=~"$pod" | detected_level=~"(?i)(warn|warning|error|err|critical|fatal|panic)"',
-        '{namespace=~"$namespace"} | pod=~"$pod"',
-    )
-
-    level_filter = '| detected_level=~"(?i)(warn|warning|error|err|critical|fatal|panic)"'
-    assert top_expr == f"{lower_expr} {level_filter}"
-    assert "(?i)" in top_expr
-    assert 'pod=~"$pod"' not in top_expr.split("|")[0]
-    assert 'pod=~"$pod"' not in lower_expr.split("|")[0]
-
-    assert (flamegraph_19["gridPos"], flamegraph_20["gridPos"]) == (
-        {"h": 12, "w": 24, "x": 0, "y": 60},
-        {"h": 12, "w": 24, "x": 0, "y": 72},
-    )
-
-    assert top_logs["options"] == lower_logs["options"]
-
-    top_desc = top_logs.get("description", "")
-    assert "namespace" in top_desc
-    assert "pods" in top_desc
-    assert "Kubernetes Warning events" in top_desc
-
-    lower_desc = lower_logs.get("description", "")
-    assert "namespace" in lower_desc
-    assert "pods" in lower_desc
-    assert "service" not in lower_desc.lower()
-
-
-def test_sre_service_dashboard_structure() -> None:
-    """Verify sre-service.json row 11 log panels, row 18, and flamegraphs structure."""
-    sre_dash = json.loads((_REPO_DASHBOARDS / "sre-service.json").read_text(encoding="utf-8"))
-    _assert_sre_service_dashboard_structure(sre_dash)
-
-
-def test_sre_service_dashboard_structure_mutations() -> None:
-    """Verify that each required mutation causes _assert_sre_service_dashboard_structure to fail."""
-    import copy
-
-    sre_dash = json.loads((_REPO_DASHBOARDS / "sre-service.json").read_text(encoding="utf-8"))
-
-    # Mutation 1: putting pod=~"$pod" back inside the stream selector
-    m1 = copy.deepcopy(sre_dash)
-    for p in m1["panels"]:
-        if p.get("id") == 12:
-            p["targets"][0]["expr"] = '{namespace=~"$namespace", pod=~"$pod"}'
-    with pytest.raises(AssertionError, match=r'pod=~"\$pod"'):
-        _assert_sre_service_dashboard_structure(m1)
-
-    # Mutation 2: dropping (?i)
-    m2 = copy.deepcopy(sre_dash)
-    for p in m2["panels"]:
-        if p.get("id") == 21:
-            p["targets"][0]["expr"] = (
-                '{namespace=~"$namespace"} | pod=~"$pod" | detected_level=~"(warn|warning|error|err|critical|fatal|panic)"'
-            )
-    with pytest.raises(AssertionError, match=r"\(\?i\)"):
-        _assert_sre_service_dashboard_structure(m2)
-
-    # Mutation 3: swapping the two log panels' y
-    m3 = copy.deepcopy(sre_dash)
-    for p in m3["panels"]:
-        if p.get("id") == 21:
-            p["gridPos"]["y"] = 47
-        elif p.get("id") == 12:
-            p["gridPos"]["y"] = 39
-    with pytest.raises(AssertionError, match=r"'y': 47"):
-        _assert_sre_service_dashboard_structure(m3)
-
-    # Mutation 4: leaving row 18 at y=51
-    m4 = copy.deepcopy(sre_dash)
-    for p in m4["panels"]:
-        if p.get("id") == 18:
-            p["gridPos"]["y"] = 51
-    with pytest.raises(AssertionError, match=r"'y': 51"):
-        _assert_sre_service_dashboard_structure(m4)
-
-
-def test_sre_service_dashboard_readme_entry() -> None:
-    """k8s/README.md gives the dashboard its real title and lists both log panels."""
-    readme = (REPO_ROOT / "k8s" / "README.md").read_text(encoding="utf-8")
-    entry = next(
-        line
-        for line in readme.splitlines()
-        if "sre-service.json" in line and "devops-sre-service" in line
-    )
-    assert "SRE / Service Performance & Logs" in entry
-    assert "Warnings & Errors (Loki)" in entry
-    assert "Live Service Logs (Loki)" in entry
 
 
 def test_dashboards_contain_properly_labeled_sum_and_average_lines() -> None:
-    """Verify service, ingress and k8s dashboards contain properly labeled sum/avg queries."""
+    """Verify ingress and k8s dashboards contain properly labeled sum/avg queries."""
     in_scope_panels = [
-        ("sre-service.json", 7, "CPU Usage by Pod", True),
-        ("sre-service.json", 8, "Memory Working Set by Pod", True),
         ("ingress-tunnel.json", 16, "Service Request Rate", True),
         ("ingress-tunnel.json", 21, "Ingress & Tunnel Pod CPU Usage", True),
         ("ingress-tunnel.json", 22, "Ingress & Tunnel Memory Working Set", True),
@@ -791,8 +637,7 @@ def test_dashboards_contain_properly_labeled_sum_and_average_lines() -> None:
 
 
 def test_enhanced_dashboard_panels_and_visualizations() -> None:
-    """Verify newly enhanced panels in SRE, AI spend, LLM, Ingress, and DevOps CLI dashboards."""
-    sre_dash = json.loads((_REPO_DASHBOARDS / "sre-service.json").read_text(encoding="utf-8"))
+    """Verify newly enhanced panels in AI spend, LLM, Ingress, and DevOps CLI dashboards."""
     ai_dash = json.loads((_REPO_DASHBOARDS / "ai-spend.json").read_text(encoding="utf-8"))
     llm_dash = json.loads((_REPO_DASHBOARDS / "llm-stack.json").read_text(encoding="utf-8"))
     ingress_dash = json.loads(
@@ -800,9 +645,6 @@ def test_enhanced_dashboard_panels_and_visualizations() -> None:
     )
     cli_dash = json.loads((_REPO_DASHBOARDS / "devops-cli.json").read_text(encoding="utf-8"))
 
-    sre_flamegraphs = [
-        (p["title"], p["gridPos"]["w"]) for p in sre_dash["panels"] if p.get("type") == "flamegraph"
-    ]
     ai_projections = [p["title"] for p in ai_dash["panels"] if "Projected" in p.get("title", "")]
     savings_panel = next(
         p for p in ai_dash["panels"] if p.get("title") == "Local Savings per Hour by Backend Server"
@@ -820,17 +662,12 @@ def test_enhanced_dashboard_panels_and_visualizations() -> None:
     )
 
     assert (
-        sre_flamegraphs,
         ai_projections,
         (custom_savings.get("drawStyle"), custom_savings.get("fillOpacity")),
         (gpu_custom.get("thresholdsStyle", {}).get("mode"), gpu_custom.get("axisSoftMax")),
         ingress_router_panel,
         cli_command_var,
     ) == (
-        [
-            ("CPU Profiling Flamegraph (process_cpu)", 24),
-            ("Memory Profiling Flamegraph (inuse_space)", 24),
-        ],
         [
             "Projected 30-Day Run Rate",
             "Projected 90-Day Run Rate",
@@ -1296,21 +1133,13 @@ def test_cli_dashboard_shows_the_selected_sub_commands_in_one_table() -> None:
     ] == [("Sub-commands: calls, errors and latency in the range", "table", None, True)]
 
 
-def test_profiling_dashboards_query_pyroscope_service_name_without_created_by_name() -> None:
-    """Neither profiling dashboard hard-codes a `service_name` list or reads `created_by_name` (#1134)."""
+def test_the_profiling_dashboard_queries_pyroscope_service_name_without_created_by_name() -> None:
+    """The profiling dashboard hard-codes no `service_name` list and reads no `created_by_name`
+    (#1134). The service dashboards select one `service_name` from their spec (#5184)."""
     pyro_raw = (_REPO_DASHBOARDS / "pyroscope.json").read_text(encoding="utf-8")
-    sre_raw = (_REPO_DASHBOARDS / "sre-service.json").read_text(encoding="utf-8")
     pyro_dash = json.loads(pyro_raw)
-    sre_dash = json.loads(sre_raw)
 
     pyro_service = next(v for v in pyro_dash["templating"]["list"] if v["name"] == "service")
-    sre_service = next(v for v in sre_dash["templating"]["list"] if v["name"] == "service")
-    sre_flamegraphs = [
-        (t["expr"], t["labelSelector"])
-        for p in sre_dash["panels"]
-        if p.get("type") == "flamegraph"
-        for t in p.get("targets", [])
-    ]
 
     assert (
         (
@@ -1319,28 +1148,10 @@ def test_profiling_dashboards_query_pyroscope_service_name_without_created_by_na
             pyro_service["query"],
             pyro_service.get("options", []),
         ),
-        (
-            sre_service["type"],
-            sre_service["datasource"]["uid"],
-            sre_service["query"],
-            sre_service.get("options", []),
-        ),
-        sre_flamegraphs,
         "monitoring/pyroscope" in pyro_raw or "monitoring/alloy" in pyro_raw,
-        "created_by_name" in pyro_raw or "created_by_name" in sre_raw,
+        "created_by_name" in pyro_raw,
     ) == (
         ("query", "pyroscope", "label_values(service_name)", []),
-        ("query", "pyroscope", 'label_values({service_namespace="$namespace"}, service_name)', []),
-        [
-            (
-                'process_cpu:cpu:nanoseconds:cpu:nanoseconds{service_namespace="$namespace", service_name=~"$service"}',
-                '{service_namespace="$namespace", service_name=~"$service"}',
-            ),
-            (
-                'memory:inuse_space:bytes:space:bytes{service_namespace="$namespace", service_name=~"$service"}',
-                '{service_namespace="$namespace", service_name=~"$service"}',
-            ),
-        ],
         False,
         False,
     )

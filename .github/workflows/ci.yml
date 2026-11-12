@@ -773,14 +773,16 @@ jobs:
           uv run devops ci test --repeat 3 -- "${CHANGED_TESTS[@]}"
 
   # The token build of docs/DESIGN.md: the pinned Style Dictionary builds the token files of
-  # design/tokens/ with the configs of design/sd/, and the job fails when a committed output is
-  # not the build, or when a test of tests/design fails. The job runs for every pull request but
-  # the release pull request, and does its steps only when a path of its filter changed, so on any
-  # other pull request it reports success. The filter holds the inputs of the build, its outputs,
-  # and the files whose colors the design tests check. npm installs the lock outside the checkout,
-  # so no node_modules shows in the diff. The design tests run in one process: they take seconds,
-  # and pytest workers take longer to start. Each step limit is shorter than the job limit, and the
-  # bound of one design test is shorter than its step, so pytest-timeout names a test that hangs.
+  # design/tokens/ with the configs of design/sd/, `make dashboards` builds the service dashboards
+  # of k8s/monitoring/dashboards/services.toml with the token colors (#5184), and the job fails
+  # when a committed output is not the build, or when a test of tests/design fails. The job runs
+  # for every pull request but the release pull request, and does its steps only when a path of
+  # its filter changed, so on any other pull request it reports success. The filter holds the
+  # inputs of the build, its outputs, and the files whose colors the design tests check. npm
+  # installs the lock outside the checkout, so no node_modules shows in the diff. The design tests
+  # run in one process: they take seconds, and pytest workers take longer to start. Each step limit
+  # is shorter than the job limit, and the bound of one design test is shorter than its step, so
+  # pytest-timeout names a test that hangs.
   design-tokens:
     name: Design Tokens
     if: >-
@@ -806,6 +808,7 @@ jobs:
               - 'docs/assets/css/**'
               - 'k8s/startpage/**'
               - 'k8s/monitoring/dashboards/**'
+              - 'src/devops_cli/grafana/service_dashboard.py'
               - '.github/labels.yml'
               - 'Makefile'
               - '.github/workflows/ci.yml'
@@ -845,13 +848,18 @@ jobs:
         timeout-minutes: 1
         run: make design-tokens
 
+      - name: Build the Service Dashboards
+        if: steps.changes.outputs.design == 'true'
+        timeout-minutes: 1
+        run: make dashboards
+
       # `git add --intent-to-add` makes a new output that is not committed show in the diff.
       - name: Check the Committed Token Outputs
         if: steps.changes.outputs.design == 'true'
         timeout-minutes: 1
         run: |
-          git add --intent-to-add -- docs/assets/css src/devops_cli/design
-          git diff --exit-code -- docs/assets/css src/devops_cli/design
+          git add --intent-to-add -- docs/assets/css src/devops_cli/design k8s/monitoring/dashboards
+          git diff --exit-code -- docs/assets/css src/devops_cli/design k8s/monitoring/dashboards
 
       - name: Run the Design Tests
         if: steps.changes.outputs.design == 'true'
