@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: Each installation token asks only for the roadmap jobs' permissions
-A process that acts as the App SHALL ask for `CONST_GITHUB_APP_TOKEN_PERMISSIONS` in the body `permissions` of each exchange at `POST /app/installations/<installation_id>/access_tokens`. The constant SHALL give `issues`, `pull_requests`, `contents` and `workflows` the level `write`, and `checks`, `actions` and `metadata` the level `read`. When `service.github_app.token_repository` is empty, the body SHALL also hold `CONST_GITHUB_APP_METRICS_TOKEN_PERMISSIONS`: `repository_hooks` and `administration` with the level `read`.
+Each token request of the App at `POST /app/installations/<installation_id>/access_tokens` SHALL ask for `CONST_GITHUB_APP_TOKEN_PERMISSIONS`: `issues`, `pull_requests`, `contents` and `workflows` with the level `write`, and `checks`, `actions` and `metadata` with the level `read`. When `service.github_app.token_repository` is empty, it SHALL also ask for `CONST_GITHUB_APP_METRICS_TOKEN_PERMISSIONS`: `repository_hooks` and `administration` with the level `read`.
 
 #### Scenario: The token request names the roadmap jobs' permissions
 - **WHEN** the process acts as App 1001 on installation 42, `service.github_app.token_repository` is empty, and the process mints a token
