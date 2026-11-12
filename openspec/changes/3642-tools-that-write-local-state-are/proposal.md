@@ -16,6 +16,7 @@ The change alters the `readOnlyHint` that the MCP server publishes, which a clie
 
 ## Impact
 - A client that asks only for read-only tools no longer gets the six tools. No job role of `src/devops_cli/ai/mcp/roles.py` names one of them, so the role servers do not change.
+- The run tool of the stage planner runs only the read-only rows of the table (`src/devops_cli/roadmap/stage/stage_run_allowlist.py`). The six commands leave its allow-list, so a plan run can no longer write the constellation snapshot, the gateway state, the feedback dataset or a library contract. That module does not change.
 - Each change of a command of the `no-external-request` class that starts or stops a local write also changes the set of local writers of the ratchet test.
 - The change fits one pull request.
 

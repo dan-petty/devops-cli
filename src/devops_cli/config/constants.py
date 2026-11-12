@@ -287,8 +287,11 @@ CONST_MCP_DOMAINS: Final[frozenset[str]] = frozenset(
     CONST_MCP_EAGER_DOMAINS | CONST_MCP_LAZY_DOMAINS | {"github", "secrets", "benchmarks"}
 )
 # Command exposure table: (command_path, timeout_seconds, read_only, format_json)
-# A role server and a client choose tools by the read-only flag. A tool with an option that writes
-# to GitHub or to a file is not read-only, or its schema leaves that option out.
+# A role server and a client choose tools by the read-only flag. A tool whose command writes local
+# state or a file is not read-only, also when the dry-run class of the command is
+# `no-external-request`: the class names external requests only (#3642).
+# `tests/invariants/test_dry_run_class_ratchet.py` names those commands. A tool with an option that
+# writes to GitHub or to a file is not read-only, or its schema leaves that option out.
 # `tests/ai/mcp/test_mcp_read_only_write_options.py` finds such an option by the verbs resolve,
 # write, delete and create in its description (#3235).
 CONST_MCP_EXPOSURE_TABLE: Final[tuple[tuple[tuple[str, ...], float, bool, bool], ...]] = (
@@ -300,25 +303,25 @@ CONST_MCP_EXPOSURE_TABLE: Final[tuple[tuple[tuple[str, ...], float, bool, bool],
     (("ai", "constellation"), 30.0, True, True),
     (("ai", "cost", "report"), 30.0, True, True),
     (("ai", "diagram"), 60.0, True, False),
-    (("ai", "failover"), 60.0, True, False),
+    (("ai", "failover"), 60.0, False, False),
     (("ai", "fetch-page"), 120.0, True, False),
-    (("ai", "gateway", "failover"), 30.0, True, True),
+    (("ai", "gateway", "failover"), 30.0, False, True),
     (("ai", "gateway", "probe-backend"), 30.0, True, True),
     (("ai", "gateway", "routes"), 30.0, True, True),
     (("ai", "gateway", "status"), 30.0, True, True),
     (("ai", "harness", "offload"), 60.0, True, False),
     (("ai", "harness", "status"), 30.0, True, False),
-    (("ai", "ingest", "library"), 300.0, True, True),
+    (("ai", "ingest", "library"), 300.0, False, True),
     (("ai", "ingest", "query-library"), 60.0, True, True),
     (("ai", "pack-context"), 60.0, True, True),
     (("ai", "prewarm"), 600.0, False, False),
-    (("ai", "quiesce"), 60.0, True, False),
+    (("ai", "quiesce"), 60.0, False, False),
     (("ai", "rag", "drift"), 60.0, False, True),
     (("ai", "rag", "index"), 300.0, False, False),
     (("ai", "rag", "query"), 60.0, True, False),
     (("ai", "read"), 60.0, True, False),
     (("ai", "repomap"), 60.0, True, False),
-    (("ai", "resume"), 60.0, True, False),
+    (("ai", "resume"), 60.0, False, False),
     (("ai", "test-gen"), 300.0, True, False),
     (("argo", "cd", "apps", "list"), 30.0, True, False),
     (("argo", "cd", "apps", "status"), 30.0, True, False),
@@ -397,7 +400,7 @@ CONST_MCP_EXPOSURE_TABLE: Final[tuple[tuple[tuple[str, ...], float, bool, bool],
     (("repos", "list"), 30.0, True, False),
     (("repos", "sync"), 120.0, False, False),
     (("review", "branch"), 300.0, True, False),
-    (("review", "export-feedback"), 60.0, True, False),
+    (("review", "export-feedback"), 60.0, False, False),
     (("review", "findings"), 60.0, True, False),
     (("review", "path"), 300.0, True, False),
     (("review", "pr"), 300.0, False, False),
