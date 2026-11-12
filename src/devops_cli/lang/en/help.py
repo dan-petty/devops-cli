@@ -1089,9 +1089,7 @@ class PRCommandHelp:
         "Automatically transition to monitoring checks and reviews after marking ready."
     )
     update: str = "Update pull request branch with latest changes from its base branch."
-    update_number: str = "Pull request number to update (optional if --all is specified)."
-    update_all: str = "Update every open pull request that the current account wrote."
-    update_base: str = "With --all, update only the pull requests into this base branch."
+    update_number: str = "Number of the pull request to update."
     update_expected_head_sha: str = (
         "Expected SHA of the pull request's HEAD ref for optimistic locking."
     )

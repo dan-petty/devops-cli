@@ -103,7 +103,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`pr_threads_list`](#pr-threads-list) | `true` | List PR review discussion threads, file locations, and comments. |
 | [`pr_threads_reply`](#pr-threads-reply) | `false` | Post an in-thread reply to a PR review discussion thread. |
 | [`pr_threads_resolve`](#pr-threads-resolve) | `false` | Programmatically mark one or more PR review discussion threads as resolved. |
-| [`pr_update`](#pr-update) | `false` | Update pull request branch with latest commits from its base branch. |
+| [`pr_update`](#pr-update) | `false` | Merge the base branch into a pull request only when a required check failed on its head. |
 | [`prometheus_query`](#prometheus-query) | `true` | Execute an instant PromQL query. |
 | [`repos_list`](#repos-list) | `true` | List all cloned repositories. |
 | [`repos_sync`](#repos-sync) | `false` | Fetch (and optionally pull) all tracking branches across repos. |
@@ -1685,7 +1685,7 @@ Programmatically mark one or more PR review discussion threads as resolved.
 
 ### `pr_update`
 
-Update pull request branch with latest commits from its base branch.
+Merge the base branch into a pull request only when a required check failed on its head.
 
 **Annotations:** `readOnlyHint: false`
 
@@ -1693,9 +1693,7 @@ Update pull request branch with latest commits from its base branch.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `number` | `integer` | No | - | Pull request number to update (optional if --all is specified). |
-| `all_prs` | `boolean` | No | `False` | Update every open pull request that the current account wrote. |
-| `base` | `string` | No | - | With --all, update only the pull requests into this base branch. |
+| `number` | `integer` | Yes | - | Number of the pull request to update. |
 | `repo` | `string` | No | - | Target repository in OWNER/REPO format. |
 | `expected_head_sha` | `string` | No | - | Expected SHA of the pull request's HEAD ref for optimistic locking. |
 | `dispatch_ci` | `boolean` | No | `False` | Dispatch the ci.yml workflow on the head branch after updating. |

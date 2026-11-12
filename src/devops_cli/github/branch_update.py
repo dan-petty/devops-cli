@@ -1,4 +1,5 @@
-"""GitHub branch update planning and CLI command builders."""
+"""GitHub branch update planning, the check reads that decide an update, and CLI command
+builders."""
 
 from __future__ import annotations
 
@@ -7,13 +8,23 @@ import json
 from devops_cli.config.constants import (
     CONST_CI_WORKFLOW_FILE,
     CONST_GH_CLI,
-    CONST_PR_UPDATE_AUTHOR,
 )
 from devops_cli.config.defaults import (
     DEFAULT_PR_UPDATE_HEAD_POLL_ATTEMPTS,
     DEFAULT_PR_UPDATE_HEAD_POLL_INTERVAL_SECONDS,
 )
 from devops_cli.dry_run.requests import PlannedRequest
+from devops_cli.exceptions.git import GitHubOperationError
+from devops_cli.github.check_verdict import (
+    CheckBucket,
+    PaginatingSession,
+    read_check_runs,
+    read_required_check_names,
+)
+from devops_cli.github.session import get_github_session
+
+_NO_CONFLICT = "no conflict"
+_UPDATE_CONDITION = "no conflict, and a required check failed on the head"
 
 
 def build_update_branch_cmd(
@@ -54,36 +65,15 @@ def parse_update_error(raw_text: str) -> str:
     return clean or "Unknown API error"
 
 
-def open_prs_argv(repo: str | None, base: str | None) -> list[str]:
-    """The `gh pr list` arguments that list the open pull requests the current account wrote,
-    into `base` when one is given."""
-    argv = [
-        CONST_GH_CLI,
-        "pr",
-        "list",
-        "--state",
-        "open",
-        "--author",
-        CONST_PR_UPDATE_AUTHOR,
-        "--limit",
-        "100",
-        "--json",
-        "number,title,headRefName,baseRefName,isDraft",
-    ]
-    if repo:
-        argv.extend(["--repo", repo])
-    if base:
-        argv.extend(["--base", base])
-    return argv
-
-
 def plan_update_single_pr(
     number: int,
     target_repo: str,
     expected_head_sha: str | None = None,
     dispatch_ci: bool = False,
 ) -> list[PlannedRequest]:
-    """Generate planned requests for single PR update dry-run."""
+    """The requests of `devops pr update <number>`: the read of the pull request, the reads of
+    the required checks and of the check runs of its head, and the update only when they find a
+    failed required check and GitHub reports no conflict."""
     requests: list[PlannedRequest] = [
         PlannedRequest(
             method="GET",
@@ -91,9 +81,24 @@ def plan_update_single_pr(
             argv=(CONST_GH_CLI, "api", f"repos/{target_repo}/pulls/{number}"),
         ),
         PlannedRequest(
+            method="GET",
+            target=f"repos/{target_repo}/rules/branches/<base>",
+            condition=_NO_CONFLICT,
+            repeat="for each page",
+        ),
+        PlannedRequest(
+            method="GET",
+            target=f"repos/{target_repo}/commits/<head-sha>/check-runs",
+            condition=_NO_CONFLICT,
+            repeat="for each page",
+        ),
+        PlannedRequest(
             method="PUT",
             target=f"repos/{target_repo}/pulls/{number}/update-branch",
-            argv=tuple(build_update_branch_cmd(target_repo, number, expected_head_sha)),
+            argv=tuple(
+                build_update_branch_cmd(target_repo, number, expected_head_sha or "<head-sha>")
+            ),
+            condition=_UPDATE_CONDITION,
         ),
     ]
     if dispatch_ci:
@@ -116,55 +121,32 @@ def plan_update_single_pr(
     return requests
 
 
-def plan_update_all_prs(
-    target_repo: str | None,
-    target_base: str | None,
-    dispatch_ci: bool = False,
-) -> list[PlannedRequest]:
-    """Generate planned requests for all PRs update dry-run."""
-    list_argv = open_prs_argv(target_repo, target_base)
-    repo_slug = target_repo or ":owner/:repo"
-    requests: list[PlannedRequest] = [
-        PlannedRequest(
-            method="GET",
-            target=f"repos/{repo_slug}/pulls",
-            argv=tuple(list_argv),
-        ),
-        PlannedRequest(
-            method="GET",
-            target=f"repos/{repo_slug}/pulls/<number>",
-            argv=(CONST_GH_CLI, "api", f"repos/{repo_slug}/pulls/<number>"),
-            repeat="each open non-draft PR",
-        ),
-        PlannedRequest(
-            method="PUT",
-            target=f"repos/{repo_slug}/pulls/<number>/update-branch",
-            argv=(
-                CONST_GH_CLI,
-                "api",
-                "-X",
-                "PUT",
-                f"repos/{repo_slug}/pulls/<number>/update-branch",
-            ),
-            repeat="each open non-draft PR",
-        ),
-    ]
-    if dispatch_ci:
-        requests.append(
-            PlannedRequest(
-                method="GET",
-                target=f"repos/{repo_slug}/pulls/<number>",
-                argv=(CONST_GH_CLI, "api", f"repos/{repo_slug}/pulls/<number>"),
-                repeat=f"each open non-draft PR; up to {DEFAULT_PR_UPDATE_HEAD_POLL_ATTEMPTS}, {DEFAULT_PR_UPDATE_HEAD_POLL_INTERVAL_SECONDS:g}s apart",
-            )
-        )
-        requests.append(
-            PlannedRequest(
-                method="POST",
-                target=f"repos/{repo_slug}/actions/workflows/{CONST_CI_WORKFLOW_FILE}/dispatches",
-                argv=tuple(build_dispatch_ci_cmd(repo_slug, "<branch>")),
-                condition="the head changed and lives in this repository",
-                repeat="each open non-draft PR",
-            )
-        )
-    return requests
+def failed_required_checks(
+    target_repo: str,
+    base_ref: str,
+    head_sha: str,
+    *,
+    session: PaginatingSession | None = None,
+) -> tuple[tuple[str, ...], str]:
+    """The names of the checks that the rules of `base_ref` require and that failed on
+    `head_sha`, sorted, and the reason they could not be read: empty when they were read.
+
+    The rules and the check runs are read through `session`, the GitHub session of the process
+    unless one is given. A read that fails gives no names, so no caller updates on a part of the
+    checks.
+    """
+    owner, repo_name = target_repo.split("/", 1)
+    listing = session or get_github_session()
+    try:
+        required = read_required_check_names(listing, target_repo, base_ref)
+    except GitHubOperationError as exc:
+        return (), str(exc)
+    summary = read_check_runs(owner, repo_name, head_sha, session=listing)
+    if summary.unread_reason:
+        return (), summary.unread_reason
+    failed = {
+        item.name
+        for item in summary.items
+        if item.bucket is CheckBucket.FAIL and item.name in required
+    }
+    return tuple(sorted(failed)), ""

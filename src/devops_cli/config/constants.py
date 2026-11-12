@@ -4399,9 +4399,6 @@ CONST_PR_FILE_REMOVED_STATUS: Final[str] = "removed"
 # maximum of 100.
 CONST_PR_CLOSING_ISSUES_PAGE: Final[int] = 10
 CONST_PR_CLOSING_ISSUE_LABELS_PAGE: Final[int] = 100
-# The `gh pr list --author` value `devops pr update --all` lists with: the account gh runs as,
-# so a pull request that a bot or another person owns is never updated.
-CONST_PR_UPDATE_AUTHOR: Final[str] = "@me"
 # The first line of the comment that `devops pr evidence` keeps on a pull request (#3199), and the
 # name of the check run of .github/workflows/fail-to-pass.yml whose link a fix comment holds.
 CONST_PR_EVIDENCE_MARKER: Final[str] = "<!-- devops-cli:pr-evidence -->"
