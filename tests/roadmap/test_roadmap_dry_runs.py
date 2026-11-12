@@ -611,12 +611,20 @@ def test_the_implement_plan_names_the_comment_endpoint_and_the_lease_that_the_jo
     push = next(
         request
         for request in writes
-        if request.argv[3:4] == ("push",)
-        and "--force-with-lease=<branch>:<remote tip>" in request.argv
+        if "push" in request.argv
+        and "--force-with-lease=refs/heads/<branch>:<remote tip>" in request.argv
     )
-    assert (comment.argv[1], push.argv[4:]) == (
+    assert (comment.argv[1], push.argv[1:]) == (
         f"{API}/repos/{REPO}/issues/<pull request>/comments",
-        ("--force-with-lease=<branch>:<remote tip>", "origin", "<branch>"),
+        (
+            "--git-dir=<new git folder>",
+            "push",
+            "--quiet",
+            "--no-verify",
+            "--force-with-lease=refs/heads/<branch>:<remote tip>",
+            "<URL of origin>",
+            "<tip>:refs/heads/<branch>",
+        ),
     )
 
 
@@ -721,7 +729,10 @@ def test_the_implement_plan_reads_the_default_branch_and_lists_the_writes_of_a_p
         "worktree add --no-track -b <new branch> <worktree> origin/main" in line
         for line in write_lines
     )
-    assert any("push -u origin <new branch>" in line for line in write_lines)
+    assert any(
+        "push --quiet --no-verify <URL of origin> <tip>:refs/heads/<new branch>" in line
+        for line in write_lines
+    )
     assert f"POST {API}/repos/{REPO}/pulls" in write_lines
 
 

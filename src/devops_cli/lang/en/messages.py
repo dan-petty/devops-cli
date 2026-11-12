@@ -5134,6 +5134,9 @@ class RoadmapMessages:
             "change": "<change>",
             "pull": "<pull request>",
             "remote_tip": "<remote tip>",
+            "tip": "<tip>",
+            "git_folder": "<new git folder>",
+            "origin_url": "<URL of origin>",
         }
     )
     plan_targets: dict[str, str] = field(
