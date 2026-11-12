@@ -1,7 +1,8 @@
-"""The onboarding report of an Ansible infra repo: one row for each check, read from local files
-and local tool output only (#5121).
+"""The onboarding report of an Ansible infra repo: one row for each check, read from the export of
+the default branch at origin and local tool output only (#5121, #5162).
 
 The repo is a copy of `tests/fixtures/infra/homelab_shape/`, in the shape of dan-petty/homelab.
+Its export holds the files of the checkout unless a case gives another tree for `origin/main`.
 Each case takes one item away from the complete repo and checks the row of that item.
 """
 
@@ -9,6 +10,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import tarfile
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -17,14 +19,22 @@ from typing import Any
 import pytest
 
 from devops_cli.config.settings import load_settings
+from devops_cli.exceptions.infra import InfraReadError
 from devops_cli.infra.onboard import check_onboarding, resolve_target
 from devops_cli.models.infra import OnboardReport, OnboardState
-from tests.support.fakes.process import ProcessAnswer, ProcessFake
+from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
 from tests.support.infra import (
+    DEFAULT_BRANCH,
     IN_SERVICE_HOSTS,
     KUBE_CONTEXT,
+    OLD_COMMIT,
+    ORIGIN_COMMIT,
     SSH_KEY_NAME,
+    answer_default_branch,
     answer_infra_reads,
+    git_command,
+    git_words,
+    in_export,
     recorded_read,
 )
 
@@ -47,6 +57,12 @@ class Onboarding:
     contexts: tuple[str, ...] = (KUBE_CONTEXT,)
     known_hosts: tuple[str, ...] = IN_SERVICE_HOSTS
     entry: dict[str, Any] | None = field(default_factory=dict)
+    # The options of `answer_default_branch`: the tree of origin/main and the checkout's branch.
+    branch: dict[str, Any] = field(default_factory=dict)
+    # Answers that win over the others, such as a git command that fails.
+    answers: list[
+        tuple[Callable[[ProcessCall], bool], ProcessAnswer | Callable[[ProcessCall], ProcessAnswer]]
+    ] = field(default_factory=list)
 
     def report(self, **options: Any) -> OnboardReport:
         answer_infra_reads(
@@ -57,6 +73,9 @@ class Onboarding:
             contexts=self.contexts,
             known_hosts=self.known_hosts,
         )
+        answer_default_branch(self.process, self.repo, **self.branch)
+        for matcher, answer in self.answers:
+            self.process.answer(matcher, answer)
         if self.entry is not None:
             entry = {"repo": REPO, "path": str(self.repo), "kube_context": KUBE_CONTEXT}
             self.config(infra={"repos": [entry | self.entry]})
@@ -136,20 +155,134 @@ def test_a_complete_repo_has_every_row_present(onboarding: Onboarding) -> None:
     )
 
 
-def test_the_report_reads_only_local_tools(onboarding: Onboarding) -> None:
-    """The reads are the config dump and the inventory in the repo, one `ssh-keygen -F` for each
-    host in service, and the kubeconfig contexts: no SSH connection and no request."""
+def _program(call: ProcessCall) -> tuple[str, ...]:
+    """The name of the program of a call and its first two words. For git, the words come after
+    `-C <folder>` and each `-c <value>`."""
+    name = call.argv[0].rsplit("/", 1)[-1]
+    return (name, *(git_words(call) if name == "git" else call.argv[1:])[:2])
+
+
+def _ansible_folders(process: ProcessFake) -> set[Path | None]:
+    return {call.cwd for call in process.calls if call.argv[0].rsplit("/", 1)[-1] != "git"} - {None}
+
+
+def test_the_report_fetches_origin_and_reads_only_local_tools(onboarding: Onboarding) -> None:
+    """The reads are the fetch of origin and the export of its default branch, the config dump and
+    the inventory in the export, one `ssh-keygen -F` for each host in service, and the kubeconfig
+    contexts: no SSH connection and no other request."""
     onboarding.report()
 
-    assert [
-        (call.argv[0].rsplit("/", 1)[-1], *call.argv[1:3]) for call in onboarding.process.calls
-    ] == [
+    assert [_program(call) for call in onboarding.process.calls] == [
+        ("git", "fetch", "--quiet"),
+        ("git", "rev-parse", "refs/remotes/origin/HEAD"),
+        ("git", "rev-parse", "HEAD"),
+        ("git", "archive", "--format=tar"),
         ("ansible-config", "dump", "--format"),
         ("ansible-inventory", "-i", "ansible/inventory/hosts.yaml"),
         *(("ssh-keygen", "-F", host) for host in IN_SERVICE_HOSTS),
         ("kubectl", "config", "get-contexts"),
     ]
-    assert {call.cwd for call in onboarding.process.calls[:2]} == {onboarding.repo}
+    assert {call.argv[2] for call in onboarding.process.calls[:4]} == {str(onboarding.repo)}
+
+
+def test_the_report_reads_the_default_branch_not_the_working_tree(
+    onboarding: Onboarding, tmp_path: Path
+) -> None:
+    """The checkout is on an old branch that has no collections file and no CI workflow, and
+    `origin/main` holds both. The report reads `origin/main` in an export that it removes after."""
+    origin_main = tmp_path / "origin-main"
+    shutil.copytree(onboarding.repo, origin_main)
+    _without_collections_file(onboarding)
+    _without_ci(onboarding)
+    onboarding.branch = {
+        "tree": origin_main,
+        "checkout_branch": "feat/old",
+        "checkout_commit": OLD_COMMIT,
+    }
+
+    report = onboarding.report()
+
+    assert _states(report) == [(number, PRESENT) for number in range(1, 18)]
+    assert report.model_dump()["read"] == {
+        "ref": DEFAULT_BRANCH,
+        "commit": ORIGIN_COMMIT,
+        "checkout_branch": "feat/old",
+        "checkout_commit": OLD_COMMIT,
+    }
+    assert report.path == str(onboarding.repo)
+    [export] = _ansible_folders(onboarding.process)
+    assert export is not None
+    assert (export.is_relative_to(onboarding.repo), export.exists()) == (False, False)
+
+
+def test_a_checkout_that_records_no_default_branch_is_refused(onboarding: Onboarding) -> None:
+    repo = onboarding.repo
+    onboarding.answers = [
+        (
+            git_command(repo, "rev-parse", "refs/remotes/origin/HEAD"),
+            ProcessAnswer(returncode=128, stderr="fatal: ambiguous argument\n"),
+        )
+    ]
+
+    with pytest.raises(InfraReadError) as caught:
+        onboarding.report()
+
+    assert f"git -C {repo} remote set-head origin --auto" in caught.value.message
+    assert [_program(call)[:2] for call in onboarding.process.calls] == [
+        ("git", "fetch"),
+        ("git", "rev-parse"),
+    ]
+
+
+def test_a_failed_fetch_names_the_reason_of_git_with_no_credential(
+    onboarding: Onboarding,
+) -> None:
+    token = "ghp_" + "a1B2c3D4e5" * 4
+    reason = (
+        f"fatal: unable to access 'https://x-access-token:{token}@github.com/example-org/infra.git/': "
+        "Could not resolve host: github.com"
+    )
+    onboarding.answers = [
+        (
+            git_command(onboarding.repo, "fetch"),
+            ProcessAnswer(returncode=128, stderr=reason),
+        )
+    ]
+
+    with pytest.raises(InfraReadError) as caught:
+        onboarding.report()
+
+    message = caught.value.message
+    assert message.startswith("git fetch --quiet origin stopped with exit code 128: fatal:")
+    assert token not in message
+    assert len(onboarding.process.calls) == 1
+
+
+def test_an_export_with_a_link_out_of_the_tree_is_refused(
+    onboarding: Onboarding, tmp_path: Path
+) -> None:
+    """The data filter of `tarfile` refuses the member, so no file outside the export is read
+    and no Ansible command starts."""
+    exported: list[Path] = []
+
+    def export(call: ProcessCall) -> ProcessAnswer:
+        output = Path(call.argv[-2].removeprefix("--output="))
+        exported.append(output.parent)
+        with tarfile.open(output, "w") as tar:
+            link = tarfile.TarInfo("ansible.cfg")
+            link.type = tarfile.SYMTYPE
+            link.linkname = str(tmp_path / "outside.cfg")
+            tar.addfile(link)
+        return ProcessAnswer()
+
+    onboarding.answers = [(git_command(onboarding.repo, "archive"), export)]
+
+    with pytest.raises(InfraReadError) as caught:
+        onboarding.report()
+
+    assert caught.value.message.startswith(f"The files of commit {ORIGIN_COMMIT} do not unpack:")
+    assert _ansible_folders(onboarding.process) == set()
+    assert [folder.exists() for folder in exported] == [False]
 
 
 def _without_config_file(o: Onboarding) -> None:
@@ -428,7 +561,7 @@ def test_without_the_tool_environment_the_ansible_rows_are_not_readable(
         PRESENT,
         PRESENT,
     ]
-    assert [call.argv[0] for call in process_fake.calls] == ["kubectl"]
+    assert [call.argv[0] for call in process_fake.calls if call.argv[0] != "git"] == ["kubectl"]
 
 
 def test_the_ansible_runner_on_path_names_the_tool_environment(
@@ -457,8 +590,9 @@ def test_the_ansible_runner_on_path_names_the_tool_environment(
         ssh={"key_dir": str(ssh_key_dir)},
         infra={"repos": [{"repo": REPO, "path": str(infra_repo), "kube_context": KUBE_CONTEXT}]},
     )
+    answer_default_branch(process_fake, infra_repo)
     dump = json.dumps(recorded_read("config", infra_repo))
-    process_fake.answer([str(image_bin / "ansible-config"), "dump"], ProcessAnswer(stdout=dump))
+    process_fake.answer([str(image_bin / "ansible-config"), "dump"], in_export(dump, infra_repo))
     settings = load_settings()
 
     report = check_onboarding(resolve_target(REPO, path=None, settings=settings), settings)

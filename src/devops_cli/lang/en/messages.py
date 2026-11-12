@@ -1155,10 +1155,17 @@ class DocsMessages:
 @dataclass(frozen=True)
 class InfraMessages:
     # `devops infra onboard` (#5121): the title, then one row for each check.
+    # The commit that a command reads (#5162), and the checkout when it is at another commit.
+    read_commit: str = "Reads {ref} at {commit}, not the working tree of the checkout."
+    checkout_differs: str = "The checkout is on {where} at {commit}, not on {ref}."
+    checkout_on_branch: str = "the branch {branch}"
+    checkout_detached: str = "a detached HEAD"
+    checkout_no_commit: str = "The checkout has no commit."
     onboard_title: str = "# Onboarding of {repo} at {path}"
     onboard_plan_title: str = "Plan for the onboarding of {repo} at {path}"
     onboard_plan_reads_files: str = (
-        "The command also reads the files of the checkout and the devops ssh key folder."
+        "The command also reads the files of the export of the default branch and the devops ssh "
+        "key folder."
     )
     check_tool: str = "The Ansible tool environment is installed"
     check_profile: str = "The project profile of the repository has the type {type}"

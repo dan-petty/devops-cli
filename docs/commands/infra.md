@@ -6,7 +6,7 @@ Manage an infra repo: a git repository with an Ansible inventory, its playbooks 
 
 ## `devops infra onboard`
 
-**Check an Ansible infra repo for what devops infra needs, from local files and local tool output only, and print one row for each check with its state and the next step. With --confirm, write the entry of the repo in infra.repos, at agent access none unless a person gives --agent-access.**
+**Check an Ansible infra repo for what devops infra needs, and print one row for each check with its state and the next step. The check fetches origin and reads the head of the default branch, not the working tree of the checkout, with local tool output only. With --confirm, write the entry of the repo in infra.repos, at agent access none unless a person gives --agent-access.**
 
 ```bash
 devops infra onboard [OPTIONS] <repo>

@@ -406,6 +406,11 @@ class InfraErrorMessages:
         "{path} is not a folder. Give the folder of the checkout of the infra repo."
     )
     read_failed: str = "{command} stopped with exit code {code}: {detail}"
+    no_default_branch: str = (
+        "The checkout at {path} records no default branch of origin ({ref}). Run git -C {path} "
+        "remote set-head origin --auto, then run the command again."
+    )
+    export_failed: str = "The files of commit {commit} do not unpack: {reason}"
     read_not_json: str = "{command} did not print the JSON that devops reads."
     no_origin: str = (
         "The checkout at {path} has no GitHub remote origin. Give the repository as owner/name "

@@ -1183,6 +1183,15 @@ CONST_GIT_NONINTERACTIVE_ENV: Final[dict[str, str]] = {"GIT_TERMINAL_PROMPT": "0
 CONST_GIT_NONINTERACTIVE_SSH_CONFIG: Final[str] = "core.sshCommand=ssh -o BatchMode=yes"
 """The `git -c` value that makes git fail instead of asking for a passphrase or a host key. It is
 an argument, because the guard of `build_subprocess_env` refuses `GIT_SSH_COMMAND` (#2483)."""
+CONST_GIT_GITHUB_CREDENTIAL_CONFIG: Final[tuple[str, ...]] = (
+    "credential.https://github.com.helper=",
+    "credential.https://github.com.helper=!gh auth git-credential",
+)
+"""The `git -c` values that make git get a github.com credential from `gh auth git-credential`,
+which reads the GH_TOKEN that the process runner pins on a git child (#5162). The empty value
+first clears the helpers of the config files, such as the helper of VS Code, which needs keys
+that `build_subprocess_env` does not pass. The devcontainer sets the same helpers with
+`GIT_CONFIG_*` keys, which `build_subprocess_env` does not pass either."""
 CONST_GIT_ACCEPTED_ENV: Final[frozenset[str]] = frozenset(
     {
         "GIT_TERMINAL_PROMPT",

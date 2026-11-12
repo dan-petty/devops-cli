@@ -250,7 +250,7 @@ _Avoid_: baseline line, summary series
 ## Infrastructure
 
 **Infra repo**:
-A git repository with an Ansible inventory, its playbooks and roles, which `devops infra` manages. The setting `infra.repos` names each infra repo, its checkout and its agent access level. dan-petty/homelab is one.
+A git repository with an Ansible inventory, its playbooks and roles, which `devops infra` manages. The setting `infra.repos` names each infra repo, its checkout and its agent access level. A command reads an infra repo at the head of its default branch at `origin`, never in the working tree of the checkout. dan-petty/homelab is one.
 _Avoid_: infra environment, inventory repo
 
 **Agent access level**:
