@@ -7,7 +7,7 @@
 - The concurrency group is `${{ github.workflow }}-${{ github.ref }}` with `cancel-in-progress`. Each workflow has one event, so the group needs no event name.
 - `permissions: {}` at the top, and `contents: read` on the job, as in `pages.yml`. No job reads the pull request now, so `pull-requests: read` goes.
 - Each workflow repeats `DO_NOT_TRACK: "1"` of `ci.yml`. The two workflows that run uv also repeat `UV_MANAGED_PYTHON: "1"`, which `test_github_workflows_name_their_runner_and_use_managed_python` requires.
-- The job limits stay as they are. #4677 sets the job limits of all CI jobs; the change that merges second carries the value of the other into the moved jobs.
+- Each job keeps the limit of 5 minutes that #4677 set in `ci.yml`. The table of job limits in `tests/invariants/test_workflow_contracts.py` names the new workflow files.
 - The tests use `_starts_on` of `tests/invariants/test_workflow_contracts.py`, which evaluates `paths` patterns as GitHub documents, to show which workflows a changed file starts.
 
 ## Rejected alternatives

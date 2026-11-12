@@ -55,11 +55,15 @@ The command SHALL resolve each pinned image once with a HEAD request of its mani
 - **THEN** no request reaches a registry and the output names `HEAD https://<registry>/v2/<repository>/manifests/<reference>`
 
 ### Requirement: The CI job checks a pull request that changes the pins
-The `image-pins` job of `ci.yml` SHALL run `devops k8s image-pins` on a pull request that changes `k8s/`, the command's modules, the registry module `src/devops_cli/docker/registry.py` or `ci.yml`, with read-only permissions and the pinned helm, and SHALL skip the check on any other pull request.
+The job `image-pins` of `.github/workflows/image-pins.yml` SHALL run `devops k8s image-pins` with read-only permissions and the pinned helm. The workflow SHALL run only for a pull request that changes `k8s/`, the command's modules, the registry module `src/devops_cli/docker/registry.py` or the workflow file.
 
 #### Scenario: The job's steps
-- **WHEN** `ci.yml` is read
-- **THEN** the job `image-pins` has a paths filter on `k8s/**`, `src/devops_cli/**/image_pins.py`, `src/devops_cli/docker/registry.py` and `.github/workflows/ci.yml`, the permissions `contents: read` and `pull-requests: read`, and runs `uv run devops k8s image-pins` only when the filter matches
+- **WHEN** `image-pins.yml` is read
+- **THEN** its `pull_request` trigger has the paths `k8s/**`, `src/devops_cli/**/image_pins.py`, `src/devops_cli/docker/registry.py` and `.github/workflows/image-pins.yml`, the job has the permission `contents: read`, and its last step runs `uv run devops k8s image-pins`
+
+#### Scenario: A pull request that changes no pin
+- **WHEN** a pull request changes only `README.md`
+- **THEN** the `paths` filter starts no run of the workflow
 
 ### Requirement: An image on the latest tag fails the check
 The command SHALL refuse each rendered image that names no digest, and names the `latest` tag or no tag, unless an `ImageUpdater` object names its repository. It SHALL exit 1 before it resolves any image, and SHALL name each refused image and its Applications.
