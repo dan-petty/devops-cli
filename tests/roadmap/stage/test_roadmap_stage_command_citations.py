@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from devops_cli.roadmap.stage.stage_change import ProposalGate, check_gates, check_proposal
 from devops_cli.roadmap.stage.stage_commands import command_citation_problems
 from devops_cli.roadmap.stage.stage_paths import StagedTree
@@ -187,6 +189,64 @@ def test_an_unknown_subcommand_of_a_group_in_prose_is_refused() -> None:
 
     assert len(problems) == 1
     assert "'follow'" in problems[0]
+
+
+@pytest.mark.parametrize(
+    ("text", "token"),
+    [
+        # The spec scenario of #3302 and the defect of the recorded plan 2130, in a sentence.
+        ("Run uv run devops ai ast-graph --help to see the options.", "'ast-graph'"),
+        ("uv run devops ai ast-graph --help", "'ast-graph'"),
+        ("Run uv run devops review scan --help to list the scanners.", "'scan'"),
+        ("Run uv run devops ci fail-to-pas --base origin/main to prove it.", "'fail-to-pas'"),
+    ],
+)
+def test_an_unknown_subcommand_before_an_option_in_prose_is_refused(text: str, token: str) -> None:
+    # `devops ai`, `devops review` and `devops ci` run with no subcommand, but a sentence puts no
+    # option after an English word, so the word before an option is a subcommand (#4956).
+    plan = make_stage_proposal(feasibility=[text])
+
+    problems = command_citation_problems(plan)
+
+    assert len(problems) == 1
+    assert f"unknown command {token}" in problems[0]
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Run uv run devops pr monitor 4982 --bogus to watch it.",
+        "Run uv run devops pr monitor <pr_number> --bogus to watch it.",
+        "Run uv run devops ci fail-to-pass --base origin/main --bogus to prove it.",
+        "Run uv run devops ci test tests/a.py tests/b.py --bogus to confirm the test fails.",
+        "Run uv run devops roadmap stage 4956 --bogus to stage it.",
+    ],
+)
+def test_an_unknown_option_after_an_argument_or_a_value_in_prose_is_refused(text: str) -> None:
+    # The command keeps its declared arguments, the values of its known options and a word before
+    # an option, so the check still sees the option after them (#4956).
+    plan = make_stage_proposal(feasibility=[text])
+
+    problems = command_citation_problems(plan)
+
+    assert len(problems) == 1
+    assert "unknown option '--bogus'" in problems[0]
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Run uv run devops ci fail-to-pass --base origin/main to prove it.",
+        "Run uv run devops pr monitor <pr_number> until all checks pass.",
+        "Run uv run devops ci --check --only lint,format to confirm the rows.",
+        "Run uv run devops ci test tests/a.py -k 'numeric or ip' to confirm the test fails.",
+        "Run uv run devops ci again -- it checks all the rows.",
+    ],
+)
+def test_the_arguments_and_values_of_a_command_in_prose_are_accepted(text: str) -> None:
+    plan = make_stage_proposal(feasibility=[text])
+
+    assert command_citation_problems(plan) == []
 
 
 def test_check_proposal_refuses_unknown_command_under_citation_gate() -> None:

@@ -4,7 +4,7 @@ A plan that cites a `devops` command line in Feasibility or tasks is checked aga
 command tree with `resolve_devops_argv`, without running any command. An unknown command, an
 unknown option flag or an unexpected extra argument is refused. A code span marks where its
 command ends. A command cited in a sentence ends at the first word that the command tree does not
-list (`cited_command_length`, #4956), so the English words after it are no arguments. A quoted
+take (`cited_command_length`, #4956), so the English words after it are no arguments. A quoted
 tuple key cited in Feasibility or tasks, in a sentence that names the exposure table, is checked
 against `CONST_MCP_EXPOSURE_TABLE` and refused when absent.
 """

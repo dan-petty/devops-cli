@@ -128,23 +128,60 @@ def cited_command_length(words: Sequence[str]) -> int:
     """The number of words at the start of `devops <words>` that a sentence cites as a command.
 
     A sentence marks no end of the command that it cites, so the command ends at the first word
-    that the command tree does not list as an option or a subcommand (#4956). A group that needs a
-    subcommand keeps that word as its subcommand, so `resolve_devops_argv` still reports an
-    unknown one. A group that runs with no subcommand, such as `devops ci`, and a command with no
-    subcommands end before the word. An argument or an option value also ends the command, as a
-    sentence cannot tell it from the next English word. The walk only looks up names: it parses
-    no word, so no callback of a command starts.
+    that the command tree does not take (#4956). The tree takes an option, the values of a known
+    option, a subcommand name and the declared arguments of a command. A group that needs a
+    subcommand keeps the next word as its subcommand, so `resolve_devops_argv` still reports an
+    unknown one. A sentence puts no option after an English word, so a word before an option
+    stays too: the resolver reports it as an unknown subcommand of a group that runs with no
+    subcommand, such as `devops ci`, or as an extra argument of a command. A variadic argument
+    keeps one word, and more only before an option. A `--` is a dash in a sentence, not an
+    option. The walk only looks up names: it parses no word, so no callback of a command starts.
     """
     root = _root_command()
     node: Any = root
-    for index, word in enumerate(words):
-        if len(word) > 1 and word.startswith("-"):
+    arguments = 0
+    index = 0
+    while index < len(words):
+        word = words[index]
+        if _is_option_word(word):
+            index += 1 + _option_value_count(node, word)
             continue
         child = _top_command(word) if node is root else _named_child(node, word)
-        if child is None:
-            return index + (0 if _runs_alone(node) else 1)
-        node = child
-    return len(words)
+        before_option = index + 1 < len(words) and _is_option_word(words[index + 1])
+        if child is not None:
+            node, arguments = child, _argument_count(child)
+        elif arguments > 0:
+            arguments -= 1
+        elif _is_group(node) and (before_option or not _runs_alone(node)):
+            return index + 1
+        elif not before_option:
+            return index
+        index += 1
+    return min(index, len(words))
+
+
+def _is_option_word(word: str) -> bool:
+    """Whether `word` names an option: one or two dashes, then a letter."""
+    dashes = len(word) - len(word.lstrip("-"))
+    return dashes in {1, 2} and word[dashes : dashes + 1].isalpha()
+
+
+def _option_value_count(command: Any, word: str) -> int:
+    """The number of words after the option `word` that `command` takes as its values: none for
+    a flag, an unknown option or a value given with `=`."""
+    if "=" in word:
+        return 0
+    for param in getattr(command, "params", []):
+        if param.param_type_name == "option" and word in (*param.opts, *param.secondary_opts):
+            return 0 if param.is_flag or param.count else param.nargs
+    return 0
+
+
+def _argument_count(command: Any) -> int:
+    """The number of words that the declared arguments of `command` take: one for a variadic
+    argument, as a sentence cannot tell its last word from the next English word."""
+    params = getattr(command, "params", [])
+    return sum(max(param.nargs, 1) for param in params if param.param_type_name == "argument")
 
 
 def _top_command(name: str) -> Any | None:
@@ -159,17 +196,21 @@ def _top_command(name: str) -> Any | None:
 def _named_child(command: Any, name: str) -> Any | None:
     """The subcommand `name` of `command`, or None when `command` is no group or has no such
     subcommand. The context is parsed from no word, so only the defaults of `command` bind."""
-    if not callable(getattr(command, "resolve_command", None)):
+    if not _is_group(command):
         return None
     context = command.make_context(command.name or _ROOT, [], resilient_parsing=True)
     return _child(command, context, name)
 
 
+def _is_group(command: Any) -> bool:
+    """Whether `command` is a group: it has subcommands to resolve."""
+    return callable(getattr(command, "resolve_command", None))
+
+
 def _runs_alone(command: Any) -> bool:
     """Whether `command` runs with no subcommand: a command with no subcommands, or a group with
     `invoke_without_command`."""
-    is_group = callable(getattr(command, "resolve_command", None))
-    return not is_group or bool(getattr(command, "invoke_without_command", False))
+    return not _is_group(command) or bool(getattr(command, "invoke_without_command", False))
 
 
 def _walk_delegated(command_name: str, args: Sequence[ArgvToken]) -> CommandReferenceFinding | None:
