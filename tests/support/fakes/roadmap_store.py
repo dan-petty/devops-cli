@@ -578,11 +578,14 @@ class InMemoryRoadmapStore(RoadmapStore):
         """Whether the evidence was seeded as one GitHub confirms."""
         return evidence in self._roadmap.evidence
 
-    def comment(self, number: int, body: str) -> None:
+    def comment(self, number: int, body: str) -> bool:
         """Comment `body` on issue `number`, unless it repeats a recent comment of the same
-        roadmap job there, as the GitHub adapter does (#4793): a refused repeat is no write."""
-        if not self._refused_repeat(number, body):
-            self._attempt("comment", number, lambda: self._comment(number, body))
+        roadmap job there, as the GitHub adapter does (#4793): a refused repeat is no write, and
+        returns False."""
+        if self._refused_repeat(number, body):
+            return False
+        self._attempt("comment", number, lambda: self._comment(number, body))
+        return True
 
     def _refused_repeat(self, number: int, body: str) -> bool:
         if not any(marker in body for marker in CONST_ROADMAP_JOB_COMMENT_MARKERS):

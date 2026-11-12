@@ -398,6 +398,11 @@ def refine_requests(
     part_reads, part_writes = planned_requests([_p("deferred_part")], repo=repo, ref=None, new=True)
     deferred_reads = within(part_reads, cond["deferred"])
     deferred_writes = within([*part_writes, *store.set_marks(target_item)], cond["deferred"])
+    # A repeat that the store refuses records the time of the round as the start of the wait.
+    comment_writes = [
+        *within(store.comment(target_item), cond["posted"]),
+        *within(store.set_marks(target_item), cond["repeat_refused"]),
+    ]
 
     if item is not None:
         reads = [
@@ -411,7 +416,7 @@ def refine_requests(
         writes = [
             *deferred_writes,
             *store.set_field(target_item, field_name="Status"),
-            *within(store.comment(target_item), cond["posted"]),
+            *comment_writes,
         ]
     else:
         each_milestone = rep["milestone"]
@@ -442,7 +447,7 @@ def refine_requests(
                 [
                     *deferred_writes,
                     *store.set_field(target_item, field_name="Status"),
-                    *within(store.comment(target_item), cond["posted"]),
+                    *comment_writes,
                 ],
                 repeat=each_candidate,
             ),

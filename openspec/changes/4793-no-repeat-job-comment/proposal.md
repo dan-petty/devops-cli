@@ -11,6 +11,7 @@ A roadmap job posts the same comment on one item again when a later round finds 
 - Each refusal logs one line and adds 1 to `devops_cli_roadmap_comment_repeats_refused_total{row}` (6 series at most). The label is `row` and not `job`, because the collector sets `job` from the resource (#3240).
 - `CONST_ROADMAP_JOB_COMMENT_MARKERS` holds the implement marker. Refine and the stage rejection read no implement comment as the reply of a person, and `retitle.py` drops its own copy of the list.
 - The dry-run request plan lists the comments read before a job comment and the condition of the post.
+- `RoadmapStore.comment` returns whether it posted. When the store refuses a comment of refine, refine records the time of the round in `refine.repeated_at`. The wait of the item starts at the later of that time and refine's last comment. Without this mark, a new look that a changed cited path or a closed named issue gave comes again in each round for 7 days, because the start of the wait stays before the change.
 - `tests/support/write_stops.py` holds `stop_after_each_write`: it runs a job on copies of the in-memory store that stop after each write in turn, then runs the job again. The refine and stage tests use it.
 
 ## Capabilities
@@ -20,6 +21,7 @@ A roadmap job posts the same comment on one item again when a later round finds 
 ## Impact
 
 - One more `GET` of the comments of the item before each comment of a job. The jobs posted 4,262 comments in 31 days, about 140 a day.
+- A refused refine comment costs one read of the issue and one `PATCH` of its job record. The replay found 13 such comments in 31 days.
 - Replayed on the 7,272 comments of devops-cli since 2026-10-12, the guard refuses 128 of 4,262 job comments (115 implement, 13 refine) on 27 items, and 46 of the 137 implement comments on dotfiles #2.
 - The change fits one pull request.
 

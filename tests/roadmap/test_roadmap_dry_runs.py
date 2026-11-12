@@ -216,6 +216,20 @@ def test_a_refine_round_plans_the_record_of_the_comments_it_read_of_a_waiting_it
     ) == ([f"api repos/{REPO}/issues/<item>", "issue patch"], [])
 
 
+def test_a_refine_plan_records_the_round_of_a_comment_that_the_store_refuses_as_a_repeat() -> None:
+    """When the store refuses refine's comment as a repeat, refine records the time of the round:
+    a read of the issue, then one `PATCH` of its job record, in a round and for `--item` (#4793)."""
+    from devops_cli.roadmap.request_plan import refine_requests
+
+    refused = MESSAGES.roadmap.plan_conditions["repeat_refused"]
+    plans = [refine_requests(REPO, None)[1], refine_requests(REPO, None, item=7)[1]]
+    shapes = [[_shape(r) for r in writes if r.condition == refused] for writes in plans]
+    assert shapes == [
+        [f"api repos/{REPO}/issues/<item>", "issue patch"],
+        [f"api repos/{REPO}/issues/7", "issue patch"],
+    ]
+
+
 def test_a_refine_round_plans_the_record_of_a_comment_the_cap_stops_and_an_item_plan_none() -> None:
     """A round records, on an item that the cap on refine's comments leaves alone, when its
     newest comment was made: a read of the issue, then one `PATCH` of its job record. `--item`

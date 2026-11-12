@@ -18,3 +18,10 @@
 
 - [x] 3.1 Regenerate `docs/TELEMETRY.md` for the counter, name the harness in `docs/TESTING.md`, and state the guard in `docs/roadmap/refine.md`.
   - Verification: `$ uv run devops ci docs`
+
+## 4. A refused refine repeat starts the wait at its round (behavior)
+
+- [x] 4.1 Write failing tests: each change of a cited path gives one model call when the new look finds the same wait, `comment` returns whether it posted, and the dry-run plan lists the record of a refused repeat.
+  - Verification: `$ uv run devops ci test tests/roadmap/refine/test_roadmap_refine_cited_paths.py tests/roadmap/stores/test_roadmap_store_contract.py tests/roadmap/test_roadmap_dry_runs.py`
+- [x] 4.2 Return whether `comment` posted, record `refine.repeated_at` after a refused refine comment, start the wait at the later of that time and refine's last comment, list the record in the request plan, and state the mark in `docs/roadmap/refine.md` and `docs/ROADMAP_WORKFLOW.md`.
+  - Verification: `$ uv run devops ci test tests/roadmap/refine tests/roadmap/stores`

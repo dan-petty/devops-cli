@@ -175,6 +175,7 @@ class RefineRecordKey(StrEnum):
     COMMENTS_SEEN = "refine.comments_seen"
     COMMENTED_AT = "refine.commented_at"
     WAIT_REFS = "refine.wait_refs"
+    REPEATED_AT = "refine.repeated_at"
     FAILED_AT = "refine.failed_at"
     FAILED_STEP = "refine.failed_step"
     FAILED_CLASS = "refine.failed_class"
@@ -1038,8 +1039,9 @@ class RoadmapStore(Protocol):
     def repository_is_private(self) -> bool:
         """Whether the repository is private."""
 
-    def comment(self, number: int, body: str) -> None:
-        """Comment `body` on issue `number`."""
+    def comment(self, number: int, body: str) -> bool:
+        """Comment `body` on issue `number`, and return whether it posted: False when it refused
+        `body` as a repeat of a recent comment of the same roadmap job there (#4793)."""
 
     def close(self, number: int, reason: CloseReason, *, comment: str | None = None) -> None:
         """Close the open issue `number` for `reason`, after `comment` is posted on it when

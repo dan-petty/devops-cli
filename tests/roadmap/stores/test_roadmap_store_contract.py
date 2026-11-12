@@ -641,16 +641,20 @@ def test_a_close_posts_its_comment_and_closes_the_issue_for_its_reason(world: Wo
 
 def test_a_job_comment_that_repeats_the_jobs_last_one_is_refused(world: World) -> None:
     """A comment of a roadmap job whose text, with its commit left out, is the text of the job's
-    last comment on the item makes no write (#4793). A changed fact posts."""
+    last comment on the item makes no write, and the store says so (#4793). A changed fact
+    posts."""
     number = world.seed("waits")
     first = f"{CONST_ROADMAP_REFINE_COMMENT_MARKER}\nReady at a9d6d9fd373f after #3566."
     changed = f"{CONST_ROADMAP_REFINE_COMMENT_MARKER}\nReady at a9d6d9fd373f after #3567."
 
-    world.store.comment(number, first)
-    world.store.comment(number, first.replace("a9d6d9fd373f", "0232651a6e35"))
-    world.store.comment(number, changed)
+    posted = [
+        world.store.comment(number, first),
+        world.store.comment(number, first.replace("a9d6d9fd373f", "0232651a6e35")),
+        world.store.comment(number, changed),
+    ]
 
-    assert ([c.body for c in world.store.comments_on(number)], world.writes()) == (
+    assert (posted, [c.body for c in world.store.comments_on(number)], world.writes()) == (
+        [True, False, True],
         [first, changed],
         2,
     )

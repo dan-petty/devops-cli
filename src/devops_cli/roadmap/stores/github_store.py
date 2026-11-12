@@ -938,12 +938,14 @@ class GitHubRoadmapStore(RoadmapStore):
             self._path_changes[path] = commits[0].committed_at if commits else None
         return self._path_changes[path]
 
-    def comment(self, number: int, body: str) -> None:
+    def comment(self, number: int, body: str) -> bool:
         """Comment `body` on issue `number`, unless it repeats a recent comment of the same
-        roadmap job there: then it reads the comments of the issue and writes nothing (#4793)."""
+        roadmap job there: then it reads the comments of the issue, writes nothing and returns
+        False (#4793)."""
         if refused_repeat(number, body, lambda: self.comments_on(number), now=self._clock()):
-            return
+            return False
         self._write(comment_args(self._repo, number, body), f"comment on #{number}")
+        return True
 
     def close(self, number: int, reason: CloseReason, *, comment: str | None = None) -> None:
         """Read issue `number`, post `comment` on it when given, then close it for `reason` in
