@@ -17,7 +17,9 @@ says that the class defines no such field. A token whose left part names no clas
 a line of the body says that a class field is absent and the commit defines it, the probe records
 the line as a false premise, and the stage job returns the item to New with it.
 
-The probe runs at most `CONST_ROADMAP_STAGE_PROBE_MAX_COMMANDS` commands for one item. Every
+The probe runs at most `CONST_ROADMAP_STAGE_PROBE_MAX_COMMANDS` commands for one item. An
+identifier that only files of other languages than Python name needs two commands, one to find the
+files and one to read them; with one command left, the probe lists it as not probed. Every
 command is `git cat-file`, `git grep`, `git log`, `git show` or `git ls-tree` at the staging commit,
 with a `--` before every path, so the probe changes nothing. A cited path that exists at the root
 gets one line. For a bare name with no root file, the probe reads the tree once and names the files
@@ -39,7 +41,7 @@ from devops_cli.config.constants import (
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.premise import definition_lines
 from devops_cli.roadmap.refine.refine import (
-    SYMBOL_PATHSPEC,
+    SYMBOL_PATHSPECS,
     cited_identifiers,
     cited_paths,
     git_result,
@@ -52,6 +54,8 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 _LOG_FORMAT: Final[str] = "--format=%h %as %s"
+# The files of a class whose fields the probe reads: Python files (#3406).
+_CLASS_PATHSPEC: Final[str] = "*.py"
 # A cited class field: one dot between two identifiers, such as `PullStatus.labels`. The class of
 # the staging commit decides whether the token is a field or a path (#3406).
 _FIELD_REF: Final[re.Pattern[str]] = re.compile(r"^([A-Za-z_]\w*)\.([A-Za-z_]\w*)$")
@@ -146,7 +150,7 @@ class _Run:
             rf"^class {name}([[:space:](:])",
             self.sha,
             "--",
-            SYMBOL_PATHSPEC,
+            _CLASS_PATHSPEC,
         )
         if code != 0 or not out:
             return None
@@ -267,9 +271,11 @@ class _Run:
 
     def identifier(self, name: str) -> None:
         texts = MESSAGES.roadmap
-        hits = definition_lines(self.source, self.sha, name, self.git)[
-            :CONST_ROADMAP_STAGE_PROBE_DEFINITION_LINES
-        ]
+        found = definition_lines(self.source, self.sha, name, self.git, commands=self.left)
+        if found is None:
+            self.skipped.append(name)
+            return
+        hits = found[:CONST_ROADMAP_STAGE_PROBE_DEFINITION_LINES]
         if hits:
             for hit in hits:
                 where = hit.removeprefix(f"{self.sha}:").strip()
@@ -279,7 +285,7 @@ class _Run:
         if self.left < 1:
             self.lines.append(texts.stage_probe_undefined.format(name=name, removal="").rstrip())
             return
-        commit = self.newest_commit(f"-S{name}", self.sha, "--", SYMBOL_PATHSPEC)
+        commit = self.newest_commit(f"-S{name}", self.sha, "--", *SYMBOL_PATHSPECS)
         removal = (
             texts.stage_probe_touched.format(commit=commit)
             if commit
