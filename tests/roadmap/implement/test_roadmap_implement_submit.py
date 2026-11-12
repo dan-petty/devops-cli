@@ -30,11 +30,19 @@ from devops_cli.config.constants import (
 )
 from devops_cli.config.env import setting_variables
 from devops_cli.exceptions.k8s import ClusterJobError
+from devops_cli.exceptions.roadmap import RoadmapImplementError
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.failure import FailureClass
 from devops_cli.roadmap.implement.implement import parse_implement_filters, plan_implement
+from devops_cli.roadmap.implement.implement_submit import run_implement_round
 from devops_cli.roadmap.run import MODEL_LANE_ROWS, STATUS_LANE_ROWS, TRIAGE_LANE_ROWS, JobOutcome
-from devops_cli.roadmap.stores.store import ImplementRecordKey, Item, ItemField
+from devops_cli.roadmap.stores.store import (
+    CloseReason,
+    ImplementRecordKey,
+    ImplementResult,
+    Item,
+    ItemField,
+)
 from devops_cli.telemetry.metrics import GLOBAL_METRICS
 from tests.support.fakes.github import GitHubApiFake
 from tests.support.fakes.kubernetes import FakeCluster, pod
@@ -1520,6 +1528,7 @@ def test_job_reporting_emits_pipeline_outcome_metrics_and_repair_rounds_and_toke
         {
             ImplementRecordKey.REPAIR_ROUNDS: 3,
             ImplementRecordKey.SPEND: '{"input_tokens": 1200, "output_tokens": 300}',
+            ImplementRecordKey.RESULT: ImplementResult.READY.value,
         },
     )
     _end(kube, "Complete")
@@ -1533,6 +1542,89 @@ def test_job_reporting_emits_pipeline_outcome_metrics_and_repair_rounds_and_toke
     assert _implement_jobs("fix", "succeeded") - before_jobs == 1
     assert _repair_rounds_count("fix") - before_repairs == 3
     assert _tokens_count("fix") - before_tokens == 1500
+
+
+def test_a_stop_that_the_runner_wrote_and_exited_zero_counts_once_as_a_failed_attempt(
+    store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake, kube: FakeCluster
+) -> None:
+    """The runner writes its stop and exits 0, so the Job controller marks the Job Complete. The
+    attempt failed: the jobs counter counts it as `failed`, and the failures counter counts its
+    class, both with the repository of the round (#4703)."""
+    number = seed_staged(store)
+    _round(store, staged_repo)
+    store.set_field(
+        _held(store, number),
+        ItemField.STATUS,
+        "Blocked",
+        marks={ImplementRecordKey.STOPPED: "group 2", ImplementRecordKey.FAILURE: "parser"},
+    )
+    _end(kube, "Complete")
+    before = (_implement_jobs("fix", "failed"), _implement_jobs("fix", "succeeded"))
+    before_failures = _failures("parser")
+
+    _round(store, staged_repo)
+    _round(store, staged_repo)
+
+    assert (
+        _implement_jobs("fix", "failed") - before[0],
+        _implement_jobs("fix", "succeeded") - before[1],
+        _failures("parser") - before_failures,
+    ) == (1, 0, 1)
+
+
+def test_the_job_of_an_item_that_closed_before_the_report_counts_once_and_stops_nothing(
+    store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake, kube: FakeCluster
+) -> None:
+    """The pull request of the Job merges before the next round, so the item is closed when the
+    round reads it. The cluster still holds the Job: the round reports it once (#4703)."""
+    number = seed_staged(store)
+    _round(store, staged_repo)
+    store.close(number, CloseReason.COMPLETED)
+    _end(kube, "Complete")
+    before = _implement_jobs("fix", "succeeded")
+
+    _round(store, staged_repo)
+    _round(store, staged_repo)
+
+    assert (
+        _implement_jobs("fix", "succeeded") - before,
+        _record(store, number)["implement.job_state"],
+        _record(store, number).get("implement.stopped"),
+    ) == (1, "succeeded", None)
+
+
+def test_a_closed_item_whose_job_the_cluster_no_longer_holds_is_not_reported(
+    store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake, kube: FakeCluster
+) -> None:
+    """A closed item of an earlier version can name a Job that is gone. The round does not report
+    it, so a deploy does not count old Jobs again (#4703)."""
+    number = seed_staged(store)
+    _round(store, staged_repo)
+    store.close(number, CloseReason.COMPLETED)
+    kube.custom_objects.objects[JOBS] = []
+    before = _implement_jobs("fix", "gone")
+
+    _round(store, staged_repo)
+
+    assert (
+        _implement_jobs("fix", "gone") - before,
+        _record(store, number)["implement.job_state"],
+    ) == (
+        0,
+        None,
+    )
+
+
+def test_a_round_with_no_repository_is_refused_before_any_request(
+    store: InMemoryRoadmapStore, staged_repo: StageRepo, kube: FakeCluster
+) -> None:
+    """An empty `repo` label makes a series that no rule of a repository reads (#4703)."""
+    with pytest.raises(RoadmapImplementError) as raised:
+        run_implement_round(store, repo="", source=staged_repo.clone)
+
+    assert str(raised.value) == MESSAGES.roadmap.implement_round_no_repo
+
+    assert kube.custom_objects.calls == []
 
 
 def _spend_of(tokens: int) -> str:

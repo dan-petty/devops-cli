@@ -5,8 +5,10 @@ hour. A round of its `implement` row asks the Kubernetes API for the runner Jobs
 in three moves.
 
 **Report.** An item whose record holds `implement.job` and no `implement.job_state` has a Job
-that no round reported. When the Job has ended, the round comments the state and the tail of the
-log of its pod on the item, and records `implement.job_state` as `succeeded` or `failed`. A Job
+that no round reported. The round reports the Job of each such open item, and of each such closed
+item whose Job the cluster still holds, because the pull request of a Job can merge and close its
+item before the round (#4703). A closed item is no stop. When the Job has ended, the round
+comments the state and the tail of the log of its pod on the item, and records `implement.job_state` as `succeeded` or `failed`. A Job
 that no longer exists is recorded as `gone`. A runner writes `implement.result` as the last mark
 of its end (#4071); a Job with the result `ready`, `yielded` or `returned` ended on purpose and
 causes no stop. A Job with no result that leaves its item In Progress, or Ready and
@@ -40,7 +42,9 @@ it. `implement.job_digest` is the digest in the template at the time of the crea
 the Job.
 
 **Failure class** (#3065). Each Job that left a stop is counted once, in the counter
-`devops_cli_service_implement_failures_total` by `class` and `repo`, when the round reports it. The runner
+`devops_cli_service_implement_failures_total` by `class` and `repo`, when the round reports it. The
+counter `devops_cli_service_implement_jobs_total` counts the same Job once with the `result`
+`failed`, whatever the state of the Job: a runner that writes its stop exits 0 (#4703). The runner
 records the class of its own stop in `implement.failure`. A Job that left the item without a result
 has only its log, so the round classifies that log (`failure.py`), records the class with the stop,
 and names the class and the action left in its comment. The runner pod is not scraped, so the Service
@@ -88,6 +92,7 @@ from devops_cli.config.defaults import DEFAULT_ROADMAP_IMPLEMENT_LIMIT
 from devops_cli.config.env import setting_variables
 from devops_cli.config.settings import load_settings
 from devops_cli.exceptions.k8s import ClusterJobError
+from devops_cli.exceptions.roadmap import RoadmapImplementError
 from devops_cli.k8s.cluster_job import RUNNER_TEMPLATE, image_digest, job_name, repository_label
 from devops_cli.k8s.cluster_job_api import ClusterJob, ClusterJobs, JobState
 from devops_cli.lang import MESSAGES
@@ -180,14 +185,17 @@ def _counted_tokens(item: Item) -> int:
         return 0
 
 
-def _unreported(store: RoadmapStore) -> list[tuple[Item, str]]:
-    """The open items that record a Job and no state of it, with the Job's name."""
+def _unreported(store: RoadmapStore, held: Mapping[str, ClusterJob]) -> list[tuple[Item, str]]:
+    """The items that record a Job and no state of it, with the Job's name: each open item, and
+    each closed item whose Job the cluster still holds. An item closes before the report when the
+    pull request of its Job merges first (#4703). A closed item whose Job is gone is not reported,
+    so a closed item of an earlier version is not counted again."""
     return [
         (item, name)
         for item in store.items()
-        if item.state is GitHubState.OPEN
-        and (name := _record(item, ImplementRecordKey.JOB))
+        if (name := _record(item, ImplementRecordKey.JOB))
         and not _record(item, ImplementRecordKey.JOB_STATE)
+        and (item.state is GitHubState.OPEN or name in held)
     ]
 
 
@@ -196,8 +204,9 @@ def _settles_as_stop(item: Item) -> bool:
     Planned and not stopped. Any other Status, In Review and Done included, is the Job's own
     result. An item that an agent or a person claimed is theirs, and the Job ended its run for that
     claim. A Job whose runner wrote a result that is no stop (`ready`, `yielded` or `returned`)
-    ended its run on purpose, so the Status it left is its own (#4071)."""
-    if claimed_by(item) is not None:
+    ended its run on purpose, so the Status it left is its own (#4071). A closed item is no stop:
+    nothing creates a Job for it again (#4703)."""
+    if item.state is not GitHubState.OPEN or claimed_by(item) is not None:
         return False
     if _record(item, ImplementRecordKey.RESULT) in _ENDS_WITHOUT_STOP:
         return False
@@ -326,7 +335,7 @@ def _report(
                 ImplementRecordKey.FAILURE: failure.value,
             },
         )
-    _emit_implement_metrics(repo, item, state, failure, new_tokens)
+    _emit_implement_metrics(repo, item, _outcome(state, failure), failure, new_tokens)
     log_implement_attempt(
         repo,
         item.number,
@@ -344,13 +353,20 @@ def _repair_rounds(item: Item) -> int:
     return int(recorded) if recorded.isdigit() else 0
 
 
+def _outcome(state: str, failure: FailureClass | None) -> str:
+    """The result of an attempt: `failed` when it left a failure class, else the state of its Job.
+    A runner that writes its own stop exits 0, so its Job is Complete and the attempt failed
+    (#4703)."""
+    return JobState.FAILED.value if failure is not None else state
+
+
 def _emit_implement_metrics(
-    repo: str, item: Item, state: str, failure: FailureClass | None, new_tokens: int
+    repo: str, item: Item, result: str, failure: FailureClass | None, new_tokens: int
 ) -> None:
     item_class = commit_type(item.title) or "chore"
     GLOBAL_METRICS.increment_counter(
         CONST_SERVICE_METRIC_IMPLEMENT_JOBS,
-        labels={"repo": repo, "item_class": item_class, "result": state},
+        labels={"repo": repo, "item_class": item_class, "result": result},
     )
     if (repair_rounds := _repair_rounds(item)) > 0:
         GLOBAL_METRICS.increment_counter(
@@ -379,7 +395,7 @@ def _report_ended(
     store: RoadmapStore, jobs: ClusterJobs, held: Mapping[str, ClusterJob], repo: str
 ) -> tuple[str, ...]:
     reported: list[str] = []
-    for item, name in _unreported(store):
+    for item, name in _unreported(store, held):
         job = held.get(name)
         if job is not None and job.state is JobState.RUNNING:
             continue
@@ -481,8 +497,12 @@ def run_implement_round(
     create the Job for the first Staged or Planned item that the default filter names.
 
     Raises ClusterJobError when the Kubernetes API refuses a call or CronJob `devops-cli-runner`
-    is missing.
+    is missing. Raises RoadmapImplementError before any request when `repo` is empty: each
+    counter of the round has the label `repo`, and a series with no repository is read by no
+    rule of a repository (#4703).
     """
+    if not repo:
+        raise RoadmapImplementError(MESSAGES.roadmap.implement_round_no_repo)
     api = jobs or ClusterJobs()
     label = repository_label(repo)
     held = {job.name: job for job in api.list_jobs({CONST_ROADMAP_IMPLEMENT_JOB_LABEL: label})}
