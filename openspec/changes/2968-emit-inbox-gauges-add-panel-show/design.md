@@ -1,0 +1,25 @@
+# Design
+
+## Decisions
+
+- **One gauge, `devops_cli_roadmap_inbox_items`, with the labels `repo` and `kind`, one series for each of the 13 kinds of `InboxKind`, and 0 for a kind with no line.**: The command counts lines by kind, so the count of a kind is the value. One metric holds all 13 kinds, so a new kind needs no new instrument, and the fixed label set bounds the series of each repository.
+- **The command emits the gauge, through `emit_inbox_gauges`, and `read_inbox` stays a pure read.**: A read that emits would send a metric from every test that calls it and would need the tracer. `inbox_cmd` already holds the repository name and the inbox of each repository.
+- **The panel goes in `k8s/monitoring/dashboards/project-metrics.json` at x 12 and y 34, the free right half of the row of `Oldest Item Age by State`.**: The design of #2919 built that panel at x 0 and left the right half for the inbox panel. An existing dashboard file needs no new kustomization entry.
+- **The base requirement that the age panel leaves the right half of its row free is replaced, because the inbox panel fills that half.**: A living spec that held both texts would contradict itself. The scenario of the requirement still holds, because the inbox panel overlaps no other panel.
+- **The panel case goes in `tests/grafana/test_grafana_dashboards.py`, beside `test_repository_dashboards_lint_clean`, and not in the telemetry module.**: The lint case that criterion 2 needs lives in that module, and one verify command then runs the new case and the lint of the project dashboard together.
+- **The digest line is not built in this change, and the footer keeps the command that reads it.**: `docs/roadmap/inbox.md` names `devops argo cd apps status devops` as the read, which asks the Argo CD API, and the inbox reads GitHub only. The issue's refine block already records why, and the open item #4832 owns the line.
+- **The gauge is declared in `src/devops_cli/telemetry/instruments.py` and sent through `emit`, with no call of a metric method anywhere else.**: `metric-instruments` requires it, and the instrument cases of `tests/telemetry/test_telemetry_instruments.py` refuse a metric method call outside `emit` and an instrument that `INSTRUMENTS` does not hold.
+- **Group 2 reads `tests/commands/test_all_commands_help_dryrun.py`, the existing case of the command module that it changes.**: That case imports `devops_cli.commands.roadmap` and runs the help of the roadmap app, so it is the existing test of the module that `inbox_cmd` changes, and the implement step must see it before it edits the module.
+
+## Rejected alternatives
+
+- **Generate the panel JSON with weaveworks/grafanalib.**: It adds a dependency and a generation step for one panel, while `tests/grafana/test_grafana_dashboards.py:205:def test_repository_dashboards_lint_clean(dashboard_file: Path) -> None:` reads the JSON files of `k8s/monitoring/dashboards/` as they are.
+- **Emit the gauge inside `read_inbox`.**: The read would need the tracer, and each test that calls it would send a metric; `tests/roadmap/test_roadmap_inbox.py` calls `read_inbox` with `InMemoryRoadmapStore`.
+- **One instrument name for each kind, or one for each repository.**: `src/devops_cli/roadmap/inbox_kind.py:14:PLAN = "plan"` starts 13 members, so 13 instrument names, and a new repository would need a new instrument if the repository were part of the name; one metric with the labels `repo` and `kind` holds both.
+- **Put the inbox panel in a new row below the items panels.**: `openspec/changes/archive/2026-11-05-2919-stuck-item-age-metrics-and-one/design.md:14:The free right half is for the inbox panel.` so a new row would leave that half empty and move the traffic row down.
+- **Put the new panel case in `tests/telemetry/test_telemetry_instruments.py`, where the other dashboard panel cases live.**: The dashboard lint is `tests/grafana/test_grafana_dashboards.py:205:def test_repository_dashboards_lint_clean(dashboard_file: Path) -> None:`, so a verify of the telemetry module alone runs no dashboard lint.
+- **Add the `stage_retry` and `owner` kinds of the refine block to the inbox in this change.**: `src/devops_cli/roadmap/inbox_kind.py:14:PLAN = "plan"` and the 13 members after it hold neither kind, and the probes say "The path `stage.failed_class` is no file of the staging commit. No commit in the history deleted or renamed it." The acceptance criteria of the issue ask for the counts of the command as it stands.
+
+## Security
+
+The panel JSON is provisioned into the monitoring namespace, and its query reads a gauge whose labels are the repository name and a kind of inbox line; no issue title, number, body or person's name becomes a label. A person must confirm that the gauge keeps only the labels `repo` and `kind`, and that the panel groups by `kind` only. The new panel case of `tests/grafana/test_grafana_dashboards.py` fails if the query groups by another label, and the dashboard-query case of `tests/telemetry/test_telemetry_instruments.py` fails if the panel names a series that no declared instrument holds.
