@@ -60,6 +60,15 @@ The container has a limit of 8192 processes and threads (`--pids-limit=8192` in 
 
 The project settings of Claude Code, `.claude/settings.json`, turn off the plugins `cloudflare`, `mcp-server-dev` and `playwright`. To use one of them, turn it on in `.claude/settings.local.json`, which git ignores. Keep the permissions of agents permissive: do not add a broad deny list to `.claude/settings.json`. Put the guard against a real risk in the code or in the test floor.
 
+The `allow` list of `.claude/settings.json` lets an agent run the standard project commands with no check by the auto-mode classifier:
+
+- `uv run devops`, `uv run pytest`, `uv sync` and `uv lock`. `Bash(uv run devops *)` covers each `devops` command, also the commands of the `infra` group that #5120 plans.
+- `openspec`, `tuicr` and `make`.
+- `kubectl`, `ansible`, `ansible-playbook`, `ansible-inventory` and `ansible-lint`, because the homelab cluster is the development environment of the project.
+- The git reads `status`, `diff`, `log`, `branch`, `fetch`, `show`, `rev-parse` and `merge-base`, and the local git writes `worktree`, `add`, `commit` and `rebase`.
+
+A rule matches the full command line in each directory, so the rules also apply in the clones under `repos/`, for example the homelab repository. The list does not include `git push`, `git reset`, `git checkout`, `git switch` or `git stash`, because AGENTS.md limits them: the classifier continues to examine them. A deny rule wins over an allow rule, so `--no-verify` and bare `gh` stay refused. `devops devcontainer init` writes the same file from `src/devops_cli/templates/claude_settings.json.j2`, and a test keeps the two files equal.
+
 ---
 
 ## 3. Test-First Development Cycle (Inner Loop)
