@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: The check reads the ADRs of the repository
-The check SHALL list the files of `docs/adr/` on the default branch once for a run, before it selects the items. It SHALL read each file named with four digits, a hyphen and a name that ends with `.md`. From each file it SHALL keep the number, the title, the front matter and the `Considered Options` section. The front matter SHALL be read with the `front_matter` plugin of mdit-py-plugins and `yaml.safe_load`, and no pattern SHALL read a status from prose. A file with no front matter SHALL have no status and no links. A failed read SHALL stop the run, and so SHALL a front matter that does not validate, with an error that names the file. A missing directory SHALL NOT stop the run.
+The check SHALL list the files of `docs/adr/` on the default branch once for a run, before it selects the items. It SHALL read each file named with four digits, a hyphen and a name that ends with `.md`, and keep its number, its title, its front matter and its `Considered Options` section. It SHALL read the status from the front matter, never from prose. A failed read or a front matter that does not validate SHALL stop the run, but a missing directory SHALL NOT.
 
 #### Scenario: A file that is no ADR
 - **WHEN** `docs/adr/` holds `README.md` and `0009-third.md`
@@ -47,7 +47,7 @@ The check SHALL keep only the ADRs in force: an ADR whose `status` is `accepted`
 - **THEN** the check keeps both ADRs, and the entry of ADR 0004 names ADR 0014
 
 ### Requirement: The request holds the decisions of the ADRs
-The request of an item SHALL hold the key `decisions`. For each ADR in force it SHALL hold the number as four digits, the title, the line `Amended by ADR NNNN, ADR NNNN.` when its `amended-by` names ADRs, and the options, the highest number first. The text SHALL hold at most `CONST_ROADMAP_ALTERNATIVES_MAX_ADR_TOKENS` tokens. The cut SHALL take whole entries, and the job SHALL log a warning that names each ADR that the cut leaves out. A repository with no `docs/adr/` SHALL send no `decisions` key.
+The request of an item SHALL hold the key `decisions`. For each ADR in force it SHALL hold the number as four digits, the title, a line `Amended by` with each ADR of its `amended-by`, and the options, the highest number first. The text SHALL hold at most `CONST_ROADMAP_ALTERNATIVES_MAX_ADR_TOKENS` tokens. The cut SHALL take whole entries, and the job SHALL log a warning that names each ADR that the cut leaves out. A repository with no `docs/adr/` SHALL send no `decisions` key.
 
 #### Scenario: Two ADRs
 - **WHEN** the repository holds ADR 0006 with `amended-by: ["0008"]`, ADR 0007, and ADR 0008 with `supersedes: ["0007"]` and `amends: ["0006"]`
