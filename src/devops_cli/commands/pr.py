@@ -14,6 +14,7 @@ import typer
 from devops_cli.config.constants import (
     CONST_CI_WORKFLOW_FILE,
     CONST_GH_CLI,
+    CONST_OPENSPEC_CONFIG_PATH,
     CONST_PR_API_STATE_MAP,
     CONST_ROADMAP_LABELS_PATH,
     CONST_ROADMAP_STATUS_IN_PROGRESS,
@@ -40,6 +41,7 @@ from devops_cli.github.branch_update import (
     parse_update_error,
     plan_update_single_pr,
 )
+from devops_cli.github.check_verdict import CheckVerdictSummary
 from devops_cli.github.client import PullStatus
 from devops_cli.github.defect_classifier import (
     PRHardeningAudit,
@@ -1008,14 +1010,16 @@ def _fallback_create_pr(
     body: str,
     base: str | None,
     repo: str | None = None,
+    head: str | None = None,
 ) -> bool:
     """Open the draft through REST `POST /pulls` when gh pr create fails (e.g. GraphQL rate
-    limits), into `base` or else the repository's default branch."""
+    limits), from `head` or else the branch of the checkout, into `base` or else the repository's
+    default branch."""
     target = _target_repo(repo)
     if not target or "/" not in target:
         return False
     owner, repo_name = target.split("/", 1)
-    head = _detect_current_branch()
+    head = head or _detect_current_branch()
     if not head:
         return False
 
@@ -1142,32 +1146,49 @@ def _finish_created_pr(repo: str | None, number: int, title: str, base: str | No
         raise typer.Exit(1)
 
 
+def _offline_openspec(repo: str | None) -> bool:
+    """Whether a dry run, which reads nothing of GitHub, checks the body with the rules of OpenSpec:
+    the checkout holds `openspec/config.yaml` and `--repo` names no other repository. The dry run
+    cannot read the rules of another repository, so it does not check its body."""
+    return repo is None and (_checkout() / CONST_OPENSPEC_CONFIG_PATH).is_file()
+
+
 def _form_checked(
     title: str, body: str, repo: str | None, base: str | None, *, offline: bool
 ) -> None:
     """Refuse a pull request whose title or body breaks the form of `pull_form` (#3198): print
-    every problem to stderr and exit 1, before anything is opened. `offline` skips the read of the
-    labels file, so a dry run makes no request and does not check the scope against the labels."""
+    every problem to stderr and exit 1, before anything is opened. The body has the lines
+    `Closes` and `Change:` only where the base branch holds `openspec/config.yaml` (#3767): another
+    repository keeps its own rules for the body. `offline` skips the reads of the labels file and of
+    `openspec/config.yaml`, so a dry run makes no request, does not check the scope against the
+    labels, and takes the switch of OpenSpec from `_offline_openspec`."""
     from devops_cli.roadmap.grounding import plan_issue
     from devops_cli.roadmap.pull_form import body_problems, plan_body_problems, title_problems
 
     declared: tuple[str, ...] | None = None
+    openspec = _offline_openspec(repo) if offline else True
     target = None if offline else _target_repo(repo)
     if target and "/" in target:
+        from devops_cli.openspec.project import repository_uses_openspec
         from devops_cli.roadmap.pull_describe import declared_label_set
         from devops_cli.roadmap.stores.store import get_roadmap_store
 
         try:
+            store = get_roadmap_store(target)
             declared = declared_label_set(
-                get_roadmap_store(target),
-                ref=base,
-                checkout=_checkout() if repo is None else None,
+                store, ref=base, checkout=_checkout() if repo is None else None
             )
+            openspec = repository_uses_openspec(store, ref=base)
         except (GitHubOperationError, ValidationError) as exc:
             print_error(str(exc), safe=True, to_stderr=True)
             raise typer.Exit(1) from exc
     planned = plan_issue(title)
-    form = body_problems(body) if planned is None else plan_body_problems(body, planned)
+    if not openspec:
+        form: list[str] = []
+    elif planned is None:
+        form = body_problems(body)
+    else:
+        form = plan_body_problems(body, planned)
     problems = [*title_problems(title, declared), *form]
     if problems:
         listed = "\n".join(f"- {problem}" for problem in problems)
@@ -1255,6 +1276,10 @@ def create_pr(
         str | None,
         typer.Option("--repo", "-R", help=HELP.pr.target_repo),
     ] = None,
+    head: Annotated[
+        str | None,
+        typer.Option("--head", "-H", help=HELP.pr.create_head),
+    ] = None,
     dry_run: Annotated[
         bool,
         typer.Option("--dry-run", help=HELP.options.dry_run),
@@ -1262,6 +1287,8 @@ def create_pr(
 ) -> None:
     """Open a draft pull request, into the default branch unless --base names another.
 
+    It opens the pull request from the branch of the checkout, or from the branch that --head
+    names. With --repo and --head, a checkout of one repository opens a pull request in another.
     Every pull request opens as a draft. devops pr ready is the only way to mark it ready for
     review. It sets the Status of the roadmap item the pull request closes to In Progress. It also
     adds the labels that the Conventional Commit title gives, as intake does: fix(ai) gives type/bug
@@ -1271,12 +1298,13 @@ def create_pr(
     Conventional Commit title with a summary of at most 60 characters (an emoji counts as two)
     and a scope that .github/labels.yml declares, and a body of at most 1,000 characters that
     ends with Closes #<issue> and the Change line. devops pr describe builds a title and a body in
-    that form.
+    that form. The rules of the body apply where the base branch holds openspec/config.yaml. In
+    another repository, the command does not check the body.
     """
     if dry_run or is_dry_run():
         _form_checked(title, body, repo, base, offline=True)
         target = _target_repo(repo)
-        plan = plan_pr_create(title=title, body=body, base=base, repo=target)
+        plan = plan_pr_create(title=title, body=body, base=base, repo=target, head=head)
         render_request_plan(
             MESSAGES.pr.draft_created_into.format(base=base or MESSAGES.pr.create_default_base),
             plan,
@@ -1285,11 +1313,11 @@ def create_pr(
         return
     _require_gh_cli()
     _form_checked(title, body, repo, base, offline=False)
-    cmd = pr_create_args(title, body, base, repo)
+    cmd = pr_create_args(title, body, base, repo, head)
 
     res = run_gh(cmd, check=False)
     if res.returncode != 0:
-        if _fallback_create_pr(title, body, base, repo):
+        if _fallback_create_pr(title, body, base, repo, head):
             return
         _report_create_failure(res, base)
         raise typer.Exit(res.returncode)
@@ -1330,12 +1358,24 @@ def _handle_pr_ready_failure(stderr_text: str, number: int) -> None:
     print_error(f"Failed to mark PR #{number} ready: {clean_err or 'Unknown error'}", safe=True)
 
 
+def _no_ci(repo: str, checks: CheckVerdictSummary | None) -> bool:
+    """Whether no check will come for the pull request (#3767): its head commit reports no check
+    run and no commit status, and `repo` has no GitHub Actions workflow to start one. A read that
+    fails raises the error of the session."""
+    if checks is None or not checks.reports_nothing:
+        return False
+    from devops_cli.github.session import get_github_session
+
+    return get_github_session().client.count_workflows(repo) == 0
+
+
 def _validate_pr_ready(number: int, owner: str, repo_name: str, pr_data: dict[str, Any]) -> None:
     """Hold `pr ready` to draft readiness, and warn of each other blocker.
 
     Ready for review says the work is done and its checks pass; the merge itself stays gated by
     `check-readiness`, the required checks and a person. The pull request is a draft until this
-    command runs, so its draft state blocks nothing here.
+    command runs, so its draft state blocks nothing here. A repository with no workflow and a head
+    commit with no check have nothing to wait for, so the checks are not judged (#3767).
     """
     verdict = assess_merge_readiness(
         pr_data, owner, repo_name, number, options=ReadinessOptions(allow_draft=True)
@@ -1343,11 +1383,15 @@ def _validate_pr_ready(number: int, owner: str, repo_name: str, pr_data: dict[st
     repo = f"{owner}/{repo_name}"
     pull = PullStatus.model_validate(pr_data)
     try:
-        draft = read_draft(repo, number, pull=pull, checks=verdict.checks, declared=True)
+        no_ci = _no_ci(repo, verdict.checks)
+        checks = None if no_ci else verdict.checks
+        draft = read_draft(repo, number, pull=pull, checks=checks, declared=True)
     except (GitHubOperationError, GitHubUnreadError) as exc:
         print_error(f"Cannot mark PR #{number} as ready for review: {exc}", safe=True)
         print_info("Pass --force to override failing check verification.")
         raise typer.Exit(1) from exc
+    if no_ci:
+        print_info(MESSAGES.pr.ready_no_ci.format(repo=repo, number=number))
 
     readiness = draft_readiness(draft)
     if readiness.answer is Answer.REFUSE:
@@ -1360,7 +1404,8 @@ def _validate_pr_ready(number: int, owner: str, repo_name: str, pr_data: dict[st
         raise typer.Exit(8)
 
     for blocker in verdict.blocking:
-        print_warning(f"Still blocks the merge: {blocker.text}")
+        if not (no_ci and blocker.kind is BlockerKind.CHECKS_PENDING):
+            print_warning(f"Still blocks the merge: {blocker.text}")
 
 
 def _verify_pr_draft_transition(number: int, owner: str, repo_name: str) -> None:
@@ -1407,8 +1452,10 @@ def ready_pr(
 ) -> None:
     """Mark a draft pull request as ready for review once draft readiness allows it.
 
-    It exits 1 for a refusal and 8 while a check runs. For an implement pull request, it names
-    each unticked task group. Every other blocker of the merge-readiness verdict prints as a
+    It exits 1 for a refusal and 8 while a check runs. A head commit with no check waits for one,
+    unless the repository has no GitHub Actions workflow: then no check will start, and the command
+    says so and marks the pull request ready with no --force. For an implement pull request, it
+    names each unticked task group. Every other blocker of the merge-readiness verdict prints as a
     warning. --force skips the readiness check. It sets the Status of the roadmap item the pull
     request closes to In Review.
     """

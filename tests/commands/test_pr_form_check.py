@@ -52,8 +52,11 @@ NO_CLOSING_ISSUES = json.dumps(
 
 @pytest.fixture(autouse=True)
 def labels(roadmap_store: InMemoryRoadmapStore) -> InMemoryRoadmapStore:
-    """The labels file of the repository, and the pull request that `PULL` names."""
+    """The labels file of the repository, which plans with OpenSpec, and the pull request that
+    `PULL` names. `tests/commands/test_pr_other_repository.py` holds a repository without
+    OpenSpec (#3767)."""
     roadmap_store.seed_file(".github/labels.yml", LABELS)
+    roadmap_store.seed_file("openspec/config.yaml", "schema: spec-driven\n")
     roadmap_store.seed_issue("feat(pr): a pull request", pull_request=True)
     return roadmap_store
 

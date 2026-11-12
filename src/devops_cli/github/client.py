@@ -209,6 +209,10 @@ class _LabelName(BaseModel):
     name: str
 
 
+class _WorkflowCount(BaseModel):
+    total_count: int
+
+
 class _CommentText(BaseModel):
     body: str = ""
 
@@ -523,6 +527,12 @@ class GitHubClient:
             if len(hits) >= page.total_count or len(page.items) < per_page:
                 break
         return hits
+
+    def count_workflows(self, repo: str) -> int:
+        """How many GitHub Actions workflows the repository has (#3767). One item of one page
+        holds the total, so the read lists no workflow."""
+        path = _repo_path(repo, "actions/workflows?per_page=1")
+        return _read_as(_WorkflowCount, self._session.rest("GET", path), path=path).total_count
 
     def get_job_run_times(
         self, repo: str, *, workflow: str, branch: str, job: str, count: int

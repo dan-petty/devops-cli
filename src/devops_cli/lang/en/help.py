@@ -1009,6 +1009,10 @@ class PRCommandHelp:
     create_base: str = (
         "Base branch of the pull request; the repository's default branch when omitted."
     )
+    create_head: str = (
+        "Branch that holds the commits of the pull request; the branch of the checkout when "
+        "omitted. Give it with --repo to open a pull request in another repository."
+    )
     describe: str = (
         "Print the title and the body of the pull request that delivers an issue. The first line "
         "is the title, then a blank line, then the body."

@@ -3957,7 +3957,7 @@
     }
   },
   "pr_ready": {
-    "description": "Mark a draft pull request as ready for review once draft readiness allows it.\n\nIt exits 1 for a refusal and 8 while a check runs. For an implement pull request, it names\neach unticked task group. Every other blocker of the merge-readiness verdict prints as a\nwarning. --force skips the readiness check. It sets the Status of the roadmap item the pull\nrequest closes to In Review.",
+    "description": "Mark a draft pull request as ready for review once draft readiness allows it.\n\nIt exits 1 for a refusal and 8 while a check runs. A head commit with no check waits for one,\nunless the repository has no GitHub Actions workflow: then no check will start, and the command\nsays so and marks the pull request ready with no --force. For an implement pull request, it\nnames each unticked task group. Every other blocker of the merge-readiness verdict prints as a\nwarning. --force skips the readiness check. It sets the Status of the roadmap item the pull\nrequest closes to In Review.",
     "input_schema": {
       "additionalProperties": false,
       "properties": {
