@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from devops_cli.roadmap.stage.stage_constants import (
     candidate_names,
     constant_problems,
@@ -52,16 +54,74 @@ def test_candidate_names_extracts_constant_identifiers() -> None:
     assert candidate_names(texts) == {"SUMMARY_MAX_CHARS", "BODY_MAX_CHARS"}
 
 
-def test_constant_problems_yields_problem_on_mismatch() -> None:
-    texts = ["A plan text with `SUMMARY_MAX_CHARS` and 40 in one sentence."]
+@pytest.mark.parametrize(
+    "text",
+    [
+        "A spec scenario says `SUMMARY_MAX_CHARS` is 40.",
+        "The design keeps `SUMMARY_MAX_CHARS = 40` in `pull_form.py`.",
+        "`pull_form.py:12:SUMMARY_MAX_CHARS: Final[int] = 40` gives the bound.",
+        "The plan sets `SUMMARY_MAX_CHARS` to 40.",
+    ],
+    ids=["is", "assignment", "annotated-assignment", "set-to"],
+)
+def test_constant_problems_yields_problem_on_mismatch(text: str) -> None:
     constants = {"SUMMARY_MAX_CHARS": 60}
-    assert constant_problems(texts, constants) == [
+    assert constant_problems([text], constants) == [
         "SUMMARY_MAX_CHARS is 60 in the staged tree, but the plan says 40."
     ]
 
 
+@pytest.mark.parametrize(
+    ("text", "constants"),
+    [
+        (
+            "`read_file` of `src/devops_cli/commands/ci.py` lines 1790-2000 showed the rule at "
+            "`src/devops_cli/commands/ci.py:1830:if len(targets) <= DEFAULT_CI_TEST_SERIAL_MAX_FILES:`.",
+            {"DEFAULT_CI_TEST_SERIAL_MAX_FILES": 12},
+        ),
+        (
+            "`tests/commands/test_test_selection.py:577:modules = _test_modules(project, "
+            "DEFAULT_CI_TEST_SERIAL_MAX_FILES + 1)` is the existing file-count test.",
+            {"DEFAULT_CI_TEST_SERIAL_MAX_FILES": 12},
+        ),
+        (
+            "It SHALL run pytest with `-n 0` when the count is no more than "
+            "`DEFAULT_CI_TEST_SERIAL_MAX_TESTS`, and with `-n DEFAULT_CI_TEST_NARROWED_WORKERS` above it.",
+            {"DEFAULT_CI_TEST_NARROWED_WORKERS": 4},
+        ),
+        (
+            "Add `DEFAULT_CI_TEST_SERIAL_MAX_TESTS: Final[int] = 50` to "
+            "`src/devops_cli/config/defaults.py` after `DEFAULT_CI_TEST_NARROWED_WORKERS`.",
+            {"DEFAULT_CI_TEST_NARROWED_WORKERS": 4},
+        ),
+        (
+            "Edit the sentence of `docs/ROADMAP_WORKFLOW.md` at line 266 that names "
+            "`CONST_ROADMAP_IMPLEMENT_MAX_REFUSALS`.",
+            {"CONST_ROADMAP_IMPLEMENT_MAX_REFUSALS": 30},
+        ),
+        (
+            "Add `CONST_ROADMAP_IMPLEMENT_MAX_CONSECUTIVE_REFUSALS` of 3 beside "
+            "`CONST_ROADMAP_IMPLEMENT_MAX_REFUSALS`.",
+            {"CONST_ROADMAP_IMPLEMENT_MAX_REFUSALS": 30},
+        ),
+    ],
+    ids=[
+        "line-range",
+        "operand",
+        "option-value",
+        "new-constant-value",
+        "line-number",
+        "new-constant-of",
+    ],
+)
+def test_constant_problems_ignores_number_that_is_no_value_of_the_constant(
+    text: str, constants: dict[str, int]
+) -> None:
+    assert constant_problems([text], constants) == []
+
+
 def test_constant_problems_accepts_matching_number() -> None:
-    texts = ["A plan text with `SUMMARY_MAX_CHARS` and 60 in one sentence."]
+    texts = ["A plan text says `SUMMARY_MAX_CHARS` is 60."]
     constants = {"SUMMARY_MAX_CHARS": 60}
     assert constant_problems(texts, constants) == []
 
