@@ -10,6 +10,8 @@ The merge of the pull request that adds this record is the approval of this reco
 
 This record supersedes no record and amends no record. The record of the move of the Service work (#4527) uses the names, labels and keys of this record.
 
+The pull request of #4792 amends section 2 on 2026-11-12. It adds the rows `resolve`, `group`, `split`, `watch`, `fix-checks` and `fix-conflict` of ADR 0021 section 8, and the rule for the length of a row name. The merge of that pull request is the approval of the amendment.
+
 ## Context
 
 On 2026-11-11 the owner recorded the go of ADR 0008 on #1535: the warm p95 was 11 seconds, against the limit of 30 seconds. On the same day the owner decided to move the Service work to Jobs and Argo Workflows, with Valkey as the shared state, and asked for owner and repository namespacing of the names of Kubernetes objects and of data keys.
@@ -55,8 +57,12 @@ The names must obey these limits:
 - **Slug.** Casefold. Change each run of characters outside `[a-z0-9]` to `-`. Remove `-` from both ends. Cut to the budget, then remove `-` from the end. If nothing is left, use `x`.
 - **Unit name** (the one Job or Workflow of a row for one item, issue or batch): `devops-cli-<row>-<slug(name)>[-<n>]-<h10(key, n, input key)>`, 63 characters or fewer. The same inputs give the same name, so a second create gets 409, and this covers a create that timed out but succeeded. The labels, not the name, find the unit of an item.
 - **Ad hoc name**: `devops-cli-<what>-<slug(name)>[-<n>]-<6 random hex>`. Only a Job of `devops k8s run-job` and the runner Job use it, until the implement Workflow (#3105) replaces the runner Job.
-- The rows are `implement`, `stage`, `refine`, `alternatives`, `intake`, `sweep`, `metrics` and `brain` (ADR 0023). A unit with no item has no `-<n>`.
+- The rows are `implement`, `stage`, `refine`, `alternatives`, `intake`, `sweep`, `metrics`, `brain` (ADR 0023), `resolve`, `group`, `split`, `watch`, `fix-checks` and `fix-conflict` (ADR 0021 section 8). A unit with no item has no `-<n>`.
 - The prefix `devops-cli-` keeps each name in the Argo CD orphan glob `devops-cli-*`. The slug is cut, and the hash keeps the identity. With the longest row, `alternatives`, and a 6-digit item, the slug of a long name is cut to 21 characters, and the unit name has 63 characters.
+- A row name has at most 12 characters, the length of `alternatives`, so the rule above holds for each row. No row has the name `repair`, because that word names three things already: the command `devops roadmap repair`, the read-back repair of job records and the repair task of `brain-daily`.
+- A unit of `fix-checks` or `fix-conflict` fixes one pull request of an item. Its `<n>` is the item, and its input key holds the number of the pull request, the head and the check or the base (ADR 0021 section 8).
+- `watch` is a step of the sweep and has no unit. Its row name gives its lock name and its due mark.
+- `ServiceRow` in `src/devops_cli/github/repo_ref.py` gets the member of a row in the item that builds the row: `BRAIN`, `RESOLVE`, `GROUP`, `SPLIT`, `WATCH`, `FIX_CHECKS` and `FIX_CONFLICT`.
 
 ### 3. Labels, annotation and service name
 

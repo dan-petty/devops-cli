@@ -10,6 +10,8 @@ The merge of the pull request that adds this record is the approval of this reco
 
 This record **amends ADR 0019** in three places and no other. The seven rules of ADR 0019 stay in force. (1) The table of ranked decision points and the section of the pilots in ADR 0019 are replaced by the catalogue below. (2) Rule 6 of ADR 0019 says that a switch is off by default. This record says where the switch is: the mode of the point in `roadmap.decisions`, and the setting `ai.decision_model` that names the model. (3) The text of pilot 2 in ADR 0019 is replaced by its measured result (see the catalogue).
 
+The pull request of #4792 amends the catalogue on 2026-11-12. It adds the point `resolve.question_class` of the row `resolve` (ADR 0021 section 8), in `shadow` only. The merge of that pull request is the approval of the point.
+
 ## Context
 
 The owner asked on 2026-11-10: are we using decision-model functions as they are built, or are we using Jev in a workflow built for a generation model? The answer has two parts.
@@ -87,7 +89,7 @@ Each decision gets an identifier: the point, the subject (the item or the run) a
 
 ### 7. Observability
 
-One counter, `devops_cli_decision_point_total`, with the labels `point`, `resolver` (`rule`, `model` or `fallback`), `band` (`continue`, `review`, `flag` or `none`) and `mode` (`shadow` or `on`). A point with mode `off` writes nothing. A `fallback` result has the band `none`. A point writes only the resolvers that it has. A point with one resolver besides the fallback has 4 series for each mode (3 bands, and `none` for the fallback), so 8. A point with a rule and a model has 7 for each mode, so 14. The catalogue has four points of 8 and two of 14 (`intake.proposal` and `stage.tier_route`), so at most **60 series**. Only the series of points that run exist. The pilot of the screen alone is 8 series.
+One counter, `devops_cli_decision_point_total`, with the labels `point`, `resolver` (`rule`, `model` or `fallback`), `band` (`continue`, `review`, `flag` or `none`) and `mode` (`shadow` or `on`). A point with mode `off` writes nothing. A `fallback` result has the band `none`. A point writes only the resolvers that it has. A point with one resolver besides the fallback has 4 series for each mode (3 bands, and `none` for the fallback), so 8. A point with a rule and a model has 7 for each mode, so 14. The catalogue has four points of 8 and two of 14 (`intake.proposal` and `stage.tier_route`), so 60 series. The three points of ADR 0023 add 24, and `resolve.question_class` adds 8, so the counter has at most **92 series**. Only the series of points that run exist. The pilot of the screen alone is 8 series.
 
 This counter replaces `devops_cli_roadmap_decision_step_total` and `devops_cli_roadmap_decision_step_review_total`. The false-clear rate of the screen is no longer a live series: it comes from the join of the decision records with the outcome records. The shadow record of a point is the log line of section 6.
 
@@ -114,6 +116,7 @@ Each point has its question set, evidence, baseline rule, label source and succe
 | `stage_ready.completeness` | model, fallback | `off` | Measured no-go. It stays `off` until its evidence builder is redone. |
 | `stage.explore_stop` | model, fallback (a rule is fitted first) | `shadow` only | New. Built in the third item of this design. |
 | `stage.tier_route` | rule (the Effort label), model, fallback | `shadow` only | New (#4284). Built later. |
+| `resolve.question_class` | model, fallback (the rule chain of the row `resolve`) | `shadow` only | New (#4808). The row `resolve` builds it. |
 | `defect.route` | not designed | none | Waits for the defect inventory. |
 
 The owner's note named `stage.tier_route` as `implement.tier_route`. Issue #4284 puts the choice before the first plan call of the stage planner, so the name here follows the place.
@@ -184,6 +187,16 @@ The new points are ranked by volume, ambiguity and labels.
 - **Labels.** The run record: the steps, the repairs, the stop class and the tokens, for the tier that ran. Only one tier runs for each item, so a label says whether the tier that ran was enough, and never whether the other would have been.
 - **Bar for `on`.** On at least 100 runs, the cost for each merged item falls by at least 15% with no more stops than the baseline. Shadow only until then.
 
+### `resolve.question_class`
+
+- **Question.** One `Choice` between the classes of an open question: `K_TOOL` (one read-only command answers it), `K_REC` (a recorded owner decision), `K_DOC` (a document), `K_BP` (a best practice), `P_STEP` (a step of a person after the merge), `WAIT` (a date or an event), `FORM` (a rule of the form of an item) and `OWNER` (only the owner can answer it).
+- **Where.** The row `resolve` (ADR 0021 section 8), for each question that the rules of the row leave open.
+- **Evidence.** The question, cut to a limit; the section that holds it; whether its author is trusted; and the entries of the table of owner-only classes that it matches.
+- **Fallback.** The rule chain of the row: `FORM`, `WAIT`, `P_STEP` and `OWNER` from a data table. The row answers each other question with a verified source, or frames it for the owner.
+- **Bands.** `continue` keeps the class of the rules. `review` sends the question to an owner frame in place of an answer. `flag` also logs it.
+- **Labels.** The 113 questions of the census of 2026-11-11, which a person labelled, and each later answer that a person marks wrong.
+- **Bar for `on`.** At least 30 questions in `continue`, with no question labelled `OWNER` among them. `review` holds each question labelled `OWNER`. No loss in 30 cases gives a loss rate under 10 percent with 95 percent confidence.
+
 ## What stays generation
 
 - The plan: the summary, the groups, the tasks, the spec delta and every other prose.
@@ -203,13 +216,14 @@ Each step is its own item and its own pull request. Each moves one pilot onto th
 5. `stage_ready.completeness`, with the redone builder (#4317).
 6. `stage.tier_route` (#4284).
 7. `defect.route`, only if the defect inventory shows an ambiguity that a rule does not fix.
+8. `resolve.question_class` in `shadow`, with the answers of the row `resolve` (#4808).
 
 ## Considered Options
 
 - **Leave each pilot as it is.** Rejected. Each has its own setting, metric and log, none has an outcome join, and none keeps a rule ahead of the model.
 - **Put the decision model first and the rule as a check.** Rejected. Two pilots (the failure tail and the budget extension) show a rule with no error on the labelled data. A model call costs a request and adds a failure mode.
 - **One setting for each pilot.** Rejected. The mapping `roadmap.decisions` adds a point with no new setting, and it validates the names.
-- **A metric for each pilot.** Rejected. One counter with a bounded `point` label is 60 series at most.
+- **A metric for each pilot.** Rejected. One counter with a bounded `point` label is 92 series at most.
 - **Turn a model on for all points when `ai.decision_model` is set.** Rejected. The benefit is measured for each point. The model name says only that a model exists.
 - **Wait for a better Jev.** Rejected, for the reason in ADR 0019.
 
