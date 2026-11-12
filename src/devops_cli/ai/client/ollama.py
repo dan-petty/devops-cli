@@ -31,7 +31,6 @@ from devops_cli.ai.client.network import (
 from devops_cli.ai.client.streaming import _ollama_stream_frame, _read_ndjson_stream
 from devops_cli.config.constants import CONST_OLLAMA_DONE_REASONS
 from devops_cli.config.defaults import (
-    DEFAULT_AI_EVICT_KEEP_ALIVE,
     DEFAULT_AI_PREWARM_KEEP_ALIVE,
 )
 from devops_cli.exceptions import ConfigurationError
@@ -127,55 +126,6 @@ class OllamaProviderMixin(BaseLLMProviderMixin):
                 model=target_model,
                 keep_alive=keep_alive,
             )
-
-    def prewarm_models(
-        self,
-        *,
-        model: str | None = None,
-        keep_alive: str | int = "1h",
-        urls: list[str] | None = None,
-        blocking: bool = True,
-        on_complete: Callable[[dict[str, bool]], None] | None = None,
-    ) -> dict[str, bool]:
-        """Prewarm model in VRAM across Ollama servers concurrently."""
-        return self.preload_models(
-            model=model,
-            keep_alive=keep_alive,
-            urls=urls,
-            blocking=blocking,
-            on_complete=on_complete,
-        )
-
-    def evict_models(
-        self,
-        *,
-        model: str | None = None,
-        urls: list[str] | None = None,
-        blocking: bool = True,
-        on_complete: Callable[[dict[str, bool]], None] | None = None,
-    ) -> dict[str, bool]:
-        """Evict model from VRAM immediately across Ollama nodes (keep_alive=0)."""
-        return self.preload_models(
-            model=model,
-            keep_alive=DEFAULT_AI_EVICT_KEEP_ALIVE,
-            urls=urls,
-            blocking=blocking,
-            on_complete=on_complete,
-        )
-
-    def prewarm_async(
-        self,
-        on_complete: Callable[[dict[str, bool]], None] | None = None,
-        model: str | None = None,
-        keep_alive: str | int = "1h",
-    ) -> None:
-        """Non-blocking helper to prewarm model in a background daemon thread."""
-        self.preload_models(
-            blocking=False,
-            on_complete=on_complete,
-            model=model,
-            keep_alive=keep_alive,
-        )
 
     def _get_ollama_urls_loop(self) -> list[tuple[int, str]]:
         """Return list of (index, url) tuples for Ollama failover sorted by active requests."""

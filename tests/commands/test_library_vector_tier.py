@@ -18,7 +18,6 @@ from devops_cli.config.defaults import (
 )
 from devops_cli.models.library import (
     ClassSignature,
-    DocChunk,
     FunctionSignature,
     LibraryContract,
     LibrarySearchResult,
@@ -293,33 +292,6 @@ def test_search_library_semantic() -> None:
     assert results[0].score == 0.88
 
 
-def test_index_doc_chunks() -> None:
-    mock_qdrant = MagicMock()
-    mock_qdrant.get_collection_info.return_value = {"status": "green"}
-
-    mock_embedder = MagicMock()
-    mock_embedder.embed_batch.return_value = [[0.1] * 384]
-
-    store = LibraryVectorStore(
-        qdrant_client=mock_qdrant,
-        embedder=mock_embedder,
-    )
-
-    chunk = DocChunk(
-        chunk_id="chunk_001",
-        source="docs/api.md",
-        headings=["API Guide"],
-        title="API Guide",
-        content="Overview of the demo API.",
-        token_estimate=10,
-        tags=["guide"],
-    )
-
-    indexed = store.index_doc_chunks([chunk], package_name="demo-pkg")
-    assert indexed == 1
-    mock_qdrant.upsert_points.assert_called_once()
-
-
 def test_cli_ai_ingest_index_libraries(tmp_path: Path, cli: Callable[..., Any]) -> None:
     contract = _create_sample_contract()
     pkg_file = tmp_path / "demo-pkg.json"
@@ -519,23 +491,6 @@ def test_discover_submodules_skips_private_and_main(monkeypatch: pytest.MonkeyPa
     assert discovered[0].__name__ == "dummy_pkg.sub"
     assert "dummy_pkg.__main__" not in imported_names
     assert "dummy_pkg._private" not in imported_names
-
-
-def test_index_doc_chunks_namespaced_point_ids() -> None:
-    mock_qdrant = MagicMock()
-    mock_qdrant.get_collection_info.return_value = {"status": "green"}
-    store = LibraryVectorStore(qdrant_client=mock_qdrant)
-    chunk = DocChunk(
-        chunk_id="intro_001",
-        title="Introduction",
-        content="Welcome to the library docs.",
-        source="https://example.com",
-    )
-    count = store.index_doc_chunks([chunk], package_name="demo-pkg")
-    assert count == 1
-    mock_qdrant.upsert_points.assert_called_once()
-    called_points = mock_qdrant.upsert_points.call_args[1]["points"]
-    assert called_points[0]["id"] == "demo-pkg:intro_001"
 
 
 def test_valkey_symbol_cache_namespacing() -> None:

@@ -730,16 +730,6 @@ class PricingRegistry:
         self._pricing_cache.clear()
         return pricing
 
-    def remove_custom_pricing(self, target: str) -> bool:
-        """Remove a custom pricing override."""
-        key = target.strip().lower()
-        if key in self._overrides:
-            del self._overrides[key]
-            self._save_overrides()
-            self._pricing_cache.clear()
-            return True
-        return False
-
     def _save_overrides(self) -> None:
         """Persist custom pricing overrides to disk."""
         self.ai_dir.mkdir(parents=True, exist_ok=True)

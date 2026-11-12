@@ -22,19 +22,11 @@ def test_token_bucket_initial_capacity() -> None:
     assert limiter.available_tokens == pytest.approx(5.0, abs=0.1)
 
 
-def test_token_bucket_try_acquire() -> None:
-    """Test non-blocking try_acquire consumes tokens and rejects when depleted."""
-    limiter = TokenBucketRateLimiter(rate=10.0, capacity=2.0)
-    assert limiter.try_acquire(1.0) is True
-    assert limiter.try_acquire(1.0) is True
-    assert limiter.try_acquire(1.0) is False
-
-
 @pytest.mark.asyncio
 async def test_token_bucket_async_acquire() -> None:
     """Test async acquire waits for token refill when bucket is empty."""
     limiter = TokenBucketRateLimiter(rate=20.0, capacity=1.0)
-    assert limiter.try_acquire(1.0) is True
+    await limiter.acquire(tokens=1.0)
 
     t_start = time.monotonic()
     await limiter.acquire(tokens=1.0)
@@ -100,19 +92,6 @@ async def test_worker_pool_with_rate_limiter() -> None:
     assert results == [0, 1, 2, 3]
     # 4 items with capacity 2 at 10/s takes at least 0.12s
     assert elapsed >= 0.12
-
-
-@pytest.mark.asyncio
-async def test_worker_pool_submit_sync_all() -> None:
-    """Test running synchronous worker functions via asyncio.to_thread delegation."""
-    pool = ReviewWorkerPool(max_concurrency=3)
-
-    def _sync_worker(val: str) -> str:
-        return val.upper()
-
-    inputs = ["apple", "banana", "cherry"]
-    results = await pool.submit_sync_all(_sync_worker, inputs)
-    assert results == ["APPLE", "BANANA", "CHERRY"]
 
 
 def test_worker_pool_run_sync_runner() -> None:

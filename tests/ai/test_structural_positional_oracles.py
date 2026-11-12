@@ -8,7 +8,6 @@ from devops_cli.ai.review_schema import (
 )
 from devops_cli.config.constants import (
     CONST_REVIEW_PROMPT_PLACEHOLDER_BASENAMES,
-    CONST_REVIEW_TITLE_FILLER_WORDS,
 )
 
 
@@ -56,6 +55,4 @@ def test_canonicalize_location_strict_structural_boundary() -> None:
 def test_review_constants_centralization_and_integrity() -> None:
     """Verify that centralized review constants exist in config.constants and adhere to standards."""
     assert isinstance(CONST_REVIEW_PROMPT_PLACEHOLDER_BASENAMES, frozenset)
-    assert isinstance(CONST_REVIEW_TITLE_FILLER_WORDS, frozenset)
     assert len(CONST_REVIEW_PROMPT_PLACEHOLDER_BASENAMES) > 0
-    assert len(CONST_REVIEW_TITLE_FILLER_WORDS) > 0

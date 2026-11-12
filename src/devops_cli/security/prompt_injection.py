@@ -58,30 +58,6 @@ def _tag_char_to_ascii(cp: int) -> str | None:
     return chr(cp - 0xE0000) if 0xE0020 <= cp <= 0xE007E else None
 
 
-def decode_unicode_tags(text: str) -> tuple[str, int]:
-    """Extract and decode smuggled ASCII characters from Unicode Tag block."""
-    tags = [ord(c) for c in text if 0xE0020 <= ord(c) <= 0xE007E]
-    chars = [_tag_char_to_ascii(cp) for cp in tags]
-    return "".join(c for c in chars if c is not None), len(tags)
-
-
-def escape_delimiters(text: str) -> str:
-    """Escape privileged chat template delimiters without deleting content."""
-    if not text:
-        return ""
-    escaped = text
-    for delim in CHAT_TEMPLATE_DELIMITERS:
-        if delim in escaped:
-            safe = (
-                delim.replace("<", "&lt;")
-                .replace(">", "&gt;")
-                .replace("[", "&#91;")
-                .replace("]", "&#93;")
-            )
-            escaped = escaped.replace(delim, safe)
-    return escaped
-
-
 class CanaryTokenManager:
     """Generates, wraps, and audits cryptographically secure canary markers."""
 

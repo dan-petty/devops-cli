@@ -148,17 +148,12 @@ def test_parse_review_response_malformed_list_returns_none() -> None:
     assert (res_strings, res_numbers, res_invalid_dicts) == (None, None, None)
 
 
-def test_unique_lines_and_items_preserves_first_instance_using_set() -> None:
-    """unique_lines and unique_items retain only the first instance of each line or item."""
-    from devops_cli.ai.review_schema import unique_items, unique_lines
+def test_unique_lines_preserves_first_instance_using_set() -> None:
+    """unique_lines retains only the first instance of each line."""
+    from devops_cli.ai.review_schema import unique_lines
 
     # Empty inputs
     assert unique_lines("") == ""
-    assert unique_items([]) == []
-
-    # unique_items preserving first occurrence
-    items = ["apple", "banana", "apple", "cherry", "banana", "date"]
-    assert unique_items(items) == ["apple", "banana", "cherry", "date"]
 
     # unique_lines preserving first occurrence and collapsing duplicate blank lines
     raw_text = "Line 1\nLine 2\nLine 1\n\n\nLine 3\nLine 2\n"

@@ -161,13 +161,11 @@ def test_the_index_holds_each_record_by_mechanism_and_subject(valkey: FakeValkey
     shared = share_runs(record)
     with RunIndex(valkey) as index:  # type: ignore[arg-type]
         found = index.get(Mechanism.REVIEW_BENCHMARK, record.run_id)
-        ids = index.run_ids(Mechanism.REVIEW_BENCHMARK)
     subject_key = f"{INDEX_PREFIX}:subject:review-benchmark:{record.subject_key}"
 
-    assert (shared, found, ids, list(valkey.sorted_sets[subject_key]), valkey.closed) == (
+    assert (shared, found, list(valkey.sorted_sets[subject_key]), valkey.closed) == (
         (True, "index.example:6379"),
         record,
-        [record.run_id],
         [record.run_id],
         True,
     )

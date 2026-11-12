@@ -191,34 +191,6 @@ def parse_logql_query(query_str: str) -> LogQLQuery:
     )
 
 
-def _matches_single_filter(line: str, f: LogQLFilter) -> bool:
-    """Evaluate a single LogQL filter condition against a log line."""
-    if f.op == FilterOp.CONTAINS:
-        return f.pattern in line
-    if f.op == FilterOp.NOT_CONTAINS:
-        return f.pattern not in line
-    if f.op == FilterOp.REGEX_MATCH:
-        try:
-            return bool(re.search(f.pattern, line))
-        except re.error as exc:
-            raise KubernetesLoggingError(
-                f"Invalid regex pattern '{f.pattern}': {exc}", query=f.pattern
-            ) from exc
-    if f.op == FilterOp.NOT_REGEX_MATCH:
-        try:
-            return not bool(re.search(f.pattern, line))
-        except re.error as exc:
-            raise KubernetesLoggingError(
-                f"Invalid regex pattern '{f.pattern}': {exc}", query=f.pattern
-            ) from exc
-    return True
-
-
-def line_matches_query(line: str, query: LogQLQuery) -> bool:
-    """Check whether a log line satisfies all filter predicates in a query."""
-    return all(_matches_single_filter(line, f) for f in query.filters)
-
-
 def _extract_entry_fields(line: str, pipeline: str | None) -> dict[str, Any]:
     """Extract structured fields based on configured format pipeline."""
     if pipeline == "json":
@@ -229,40 +201,6 @@ def _extract_entry_fields(line: str, pipeline: str | None) -> dict[str, Any]:
     if line.strip().startswith("{"):
         return extract_fields_json(line)
     return {}
-
-
-def evaluate_log_lines(
-    lines: list[str],
-    query: LogQLQuery,
-    default_labels: dict[str, str] | None = None,
-) -> list[LogEntry]:
-    """Evaluate and enrich raw log lines using parsed LogQL criteria."""
-    results: list[LogEntry] = []
-    labels = default_labels or {}
-
-    for line in lines:
-        stripped = line.strip()
-        if not stripped or not line_matches_query(stripped, query):
-            continue
-
-        trace_id = extract_trace_id(stripped)
-        fields = _extract_entry_fields(stripped, query.format_pipeline)
-        if not trace_id and isinstance(fields, dict):
-            for k in ("trace_id", "traceId", "traceID"):
-                if k in fields:
-                    trace_id = str(fields[k])
-                    break
-
-        results.append(
-            LogEntry(
-                timestamp="",
-                line=stripped,
-                stream_labels=dict(labels),
-                fields=fields,
-                trace_id=trace_id,
-            )
-        )
-    return results
 
 
 def _validate_fallback_query(raw_query: str) -> tuple[dict[str, str], list[str]]:

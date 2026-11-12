@@ -165,48 +165,6 @@ def test_row_is_not_a_visualisation() -> None:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 4. Serialisation fidelity
-# ─────────────────────────────────────────────────────────────────────────────
-
-
-def test_serialisation_emits_grafana_field_names() -> None:
-    """Output uses Grafana's camelCase keys, not the Python field names."""
-    built = dashboard("uid-1", "Test", [timeseries("CPU", targets("up", ""))])
-    payload = built.to_grafana_json()
-
-    assert "schemaVersion" in payload
-    assert "gridPos" in payload["panels"][0]
-    assert "refId" in payload["panels"][0]["targets"][0]
-    assert "grid_pos" not in payload["panels"][0]
-
-
-def test_serialisation_omits_unset_optional_fields() -> None:
-    """A generated dashboard carries no null keys a hand-authored one would lack."""
-    payload = dashboard("uid-1", "Test", [row("Section")]).to_grafana_json()
-    assert "datasource" not in payload["panels"][0]
-
-
-def test_a_generated_target_has_no_expression_key() -> None:
-    """Only a target of the expression datasource has `expression` (#4994), so a PromQL target
-    that the builders make has none."""
-    payload = dashboard("uid-1", "Test", [timeseries("CPU", targets("up"))]).to_grafana_json()
-    assert sorted(payload["panels"][0]["targets"][0]) == [
-        "datasource",
-        "expr",
-        "legendFormat",
-        "refId",
-    ]
-
-
-def test_generated_dashboard_round_trips_through_the_schema() -> None:
-    """Serialised output re-parses to an equivalent dashboard."""
-    original = dashboard("uid-1", "Round Trip", [timeseries("CPU", targets("up"))])
-    reparsed = Dashboard.model_validate(original.to_grafana_json())
-
-    assert reparsed.to_grafana_json() == original.to_grafana_json()
-
-
-# ─────────────────────────────────────────────────────────────────────────────
 # 5. Linting: real dashboards must pass
 # ─────────────────────────────────────────────────────────────────────────────
 

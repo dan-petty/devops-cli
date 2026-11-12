@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import AsyncGenerator, AsyncIterable, Callable, Generator, Iterable, Iterator
+from collections.abc import Callable, Generator, Iterable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -180,14 +180,6 @@ class StreamingTokenProcessor:
         for chunk in stream:
             yield from self.feed(chunk)
         yield from self.flush()
-
-    async def async_sanitize_stream(self, stream: AsyncIterable[str]) -> AsyncGenerator[str]:
-        """Asynchronously consume an input stream and yield only clean markdown content tokens."""
-        async for chunk in stream:
-            for safe_token in self.feed(chunk):
-                yield safe_token
-        for final_token in self.flush():
-            yield final_token
 
     def to_dict(self) -> dict[str, Any]:
         """Return structured summary dictionary of processed stream."""

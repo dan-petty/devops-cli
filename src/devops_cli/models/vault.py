@@ -112,19 +112,3 @@ class VaultLease(BaseModel):
     def is_expired(self, now: float | None = None) -> bool:
         """Report whether the lease has already lapsed."""
         return self.duration_seconds > 0 and self.remaining_seconds(now) <= 0
-
-
-class VaultLeaseReport(BaseModel):
-    """Outcome of a proactive lease renewal sweep."""
-
-    renewed: list[str] = Field(default_factory=list, description="Leases successfully renewed")
-    failed: list[str] = Field(default_factory=list, description="Leases whose renewal failed")
-    skipped: list[str] = Field(
-        default_factory=list, description="Leases still comfortably within their lifetime"
-    )
-    tracked_count: int = Field(default=0, description="Total leases under management")
-
-    @property
-    def all_renewed(self) -> bool:
-        """Report whether every lease needing renewal was renewed."""
-        return not self.failed

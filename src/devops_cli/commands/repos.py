@@ -18,7 +18,6 @@ from devops_cli.config.constants import (
     CONST_GITHUB_REPO_SUFFIX,
     CONST_OUTPUT_FORMAT_TABLE,
     CONST_URL_SCHEME_HTTPS,
-    CONST_VSCODE_WORKSPACE_FILE,
 )
 from devops_cli.config.defaults import DEFAULT_TABLE_FORMAT
 from devops_cli.config.settings import load_settings
@@ -93,14 +92,6 @@ def _current_branch(repo_dir: Path) -> str:
         return current_branch(repo_dir) or "HEAD detached"
     except GitOperationError:
         return "unknown"
-
-
-def _resolve_workspace_file(root: Path, workspace_file: Path) -> Path:
-    if workspace_file.is_absolute():
-        return workspace_file
-    if workspace_file == CONST_VSCODE_WORKSPACE_FILE:
-        return root.parent / workspace_file
-    return workspace_file
 
 
 def _reload_workspace(workspace_file: Path) -> None:

@@ -17,7 +17,6 @@ from devops_cli.cloudflare.client import (
     CloudflareTunnelIngressRule,
     CloudflareZone,
     _extract_error_message,
-    _extract_policy_include_email,
     _extract_policy_include_rule,
     _is_uuid,
     _normalize_ip_cidr,
@@ -838,7 +837,7 @@ def test_helpers_edge_cases() -> None:
     assert _is_uuid("c89fbf56-834c-4734-93ec-4eb0de29a733") is True
     assert _is_uuid("not-a-uuid") is False
 
-    # _extract_policy_include_rule and _extract_policy_include_email
+    # _extract_policy_include_rule
     assert _extract_policy_include_rule("not-a-dict") is None
     assert _extract_policy_include_rule({"email": "u@example.com"}) == {
         "email": {"email": "u@example.com"}
@@ -850,8 +849,6 @@ def test_helpers_edge_cases() -> None:
     assert _extract_policy_include_rule({"ip": {"ip": "192.0.2.0/24"}}) == {
         "ip": {"ip": "192.0.2.0/24"}
     }
-    assert _extract_policy_include_email({"email": "u@example.com"}) == {"email": "u@example.com"}
-    assert _extract_policy_include_email({"other": "value"}) is None
 
     # _extract_error_message fallback and extraction
     assert _extract_error_message({}, "fallback") == "fallback"

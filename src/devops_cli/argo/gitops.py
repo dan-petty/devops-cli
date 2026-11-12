@@ -66,13 +66,6 @@ def is_manifest_file(path: Path) -> bool:
     return name_lower in _MANIFEST_NAMES
 
 
-def should_ignore_dir(path_or_name: str | Path, repo_root: Path | None = None) -> bool:
-    """Check whether a directory segment should be ignored during traversal."""
-    p = Path(path_or_name)
-    root = repo_root or find_repo_root(p)
-    return is_ignored_by_git(root, p) if root is not None else False
-
-
 def _record_manifest_entry(
     fpath: Path,
     repo_root: Path | None,

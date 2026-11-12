@@ -1528,7 +1528,6 @@ def test_pyroscope_port_forward_and_proxy_targets() -> None:
     from devops_cli.commands.k8s.networking import (
         _NODEPORT_KEYS_INFRA,
         _PROXY_TARGETS_INFRA,
-        _build_port_forward_details,
         _collect_port_forward_services,
     )
     from devops_cli.config.defaults import DEFAULT_PYROSCOPE_PORT, DEFAULT_PYROSCOPE_URL
@@ -1544,7 +1543,6 @@ def test_pyroscope_port_forward_and_proxy_targets() -> None:
         "otel": 4318,
     }
     services = _collect_port_forward_services(["infra"], ports)
-    details = _build_port_forward_details(["infra"], ports)
     pyro_svc = next((s for s in services if s[1] == "svc/pyroscope"), None)
 
     assert (
@@ -1553,7 +1551,6 @@ def test_pyroscope_port_forward_and_proxy_targets() -> None:
         pyro_proxy,
         "pyroscope.url" in _NODEPORT_KEYS_INFRA,
         pyro_svc,
-        details.get("pyroscope.url"),
         Settings().pyroscope.url,
     ) == (
         4040,
@@ -1561,7 +1558,6 @@ def test_pyroscope_port_forward_and_proxy_targets() -> None:
         ("pyroscope.url", "monitoring", ("pyroscope",), ("4040", "http2", "http")),
         True,
         ("monitoring", "svc/pyroscope", 4040, 4040),
-        "http://localhost:4040",
         None,
     )
 

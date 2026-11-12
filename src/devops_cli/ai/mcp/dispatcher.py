@@ -1,4 +1,4 @@
-"""FastMCP in-process command dispatcher, lazy domain schema hydrator, and resource subscriptions."""
+"""FastMCP in-process command dispatcher and resource subscriptions."""
 
 from __future__ import annotations
 
@@ -12,9 +12,8 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from typing import Any, Protocol
 
-from devops_cli.config.constants import CONST_MCP_DISPATCH_THREAD_NAME, CONST_MCP_DOMAINS
+from devops_cli.config.constants import CONST_MCP_DISPATCH_THREAD_NAME
 from devops_cli.config.defaults import (
-    DEFAULT_MCP_SCHEMA_CACHE_MAX_ENTRIES,
     DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
 )
 from devops_cli.dry_run.state import (
@@ -41,75 +40,6 @@ logger = logging.getLogger(__name__)
 # that came from the caller.
 
 
-# ── Domain Schema Hydration ───────────────────────────────────────────────────
-
-
-_PREFIX_TO_DOMAIN: dict[str, str] = {
-    "review": "review",
-    "k8s": "k8s",
-    "argo": "argo",
-    "ci": "ci",
-    "docker": "docker",
-    "docs": "docs",
-    "gh": "github",
-    "pr": "github",
-    "branches": "github",
-    "repos": "github",
-    "ssh": "ssh",
-    "tf": "tf",
-    "vault": "secrets",
-    "tls": "secrets",
-    "telemetry": "telemetry",
-    "grafana": "telemetry",
-    "prometheus": "telemetry",
-    "config": "config",
-    "valkey": "valkey",
-    "ai": "ai",
-    "rag": "ai",
-    "benchmark": "benchmarks",
-    "scan": "security",
-    "security": "security",
-    "sandbox": "security",
-    "workspace": "workspace",
-    "roadmap": "roadmap",
-    "research": "research",
-}
-
-
-def resolve_tool_domain(tool_name: str) -> str:
-    """Classify an MCP tool name into its functional domain using deterministic prefix matching."""
-    prefix = tool_name.split("_", 1)[0]
-    domain = _PREFIX_TO_DOMAIN.get(prefix, "workspace")
-    return domain if domain in CONST_MCP_DOMAINS else "workspace"
-
-
-class DomainSchemaHydrator:
-    """Lazy domain-gated tool schema hydration and caching."""
-
-    def __init__(self, max_cache_entries: int = DEFAULT_MCP_SCHEMA_CACHE_MAX_ENTRIES) -> None:
-        self._cache: dict[str, dict[str, Any]] = {}
-        self._max_cache_entries = max_cache_entries
-        self._lock = threading.Lock()
-
-    def get_cached_schema(self, tool_name: str) -> dict[str, Any] | None:
-        """Retrieve pre-hydrated tool schema from memory cache."""
-        with self._lock:
-            return self._cache.get(tool_name)
-
-    def cache_schema(self, tool_name: str, schema: dict[str, Any]) -> None:
-        """Cache hydrated tool schema enforcing maximum capacity."""
-        with self._lock:
-            if len(self._cache) >= self._max_cache_entries:
-                first_key = next(iter(self._cache))
-                self._cache.pop(first_key, None)
-            self._cache[tool_name] = schema
-
-    def clear(self) -> None:
-        """Clear all cached schemas."""
-        with self._lock:
-            self._cache.clear()
-
-
 # ── Resource Subscriptions ───────────────────────────────────────────────────
 
 
@@ -127,14 +57,6 @@ class ResourceSubscriptionManager:
                 self._subscribers[resource_uri] = set()
             self._subscribers[resource_uri].add(listener)
 
-    def unsubscribe(self, resource_uri: str, listener: Callable[[str, str], None]) -> None:
-        """Remove a subscriber callback for a resource URI."""
-        with self._lock:
-            if resource_uri in self._subscribers:
-                self._subscribers[resource_uri].discard(listener)
-                if not self._subscribers[resource_uri]:
-                    self._subscribers.pop(resource_uri, None)
-
     def notify(self, resource_uri: str, content: str) -> int:
         """Publish updated content to all active subscribers for the URI."""
         with self._lock:
@@ -148,16 +70,6 @@ class ResourceSubscriptionManager:
             except Exception as exc:
                 logger.error("Error notifying subscriber: %s", type(exc).__name__)
         return notified
-
-    def subscriber_count(self, resource_uri: str) -> int:
-        """Return the current subscriber count for a resource URI."""
-        with self._lock:
-            return len(self._subscribers.get(resource_uri, set()))
-
-    def active_resources(self) -> list[str]:
-        """List all resource URIs that currently have active subscribers."""
-        with self._lock:
-            return list(self._subscribers.keys())
 
 
 # ── In-Process Command Dispatcher ─────────────────────────────────────────────
@@ -336,13 +248,8 @@ class InProcessDispatcher:
     """Direct in-process execution engine for devops-cli tools eliminating subshell spawning."""
 
     def __init__(self) -> None:
-        self._hydrator = DomainSchemaHydrator()
         self._subscriptions = ResourceSubscriptionManager()
         self._lock = threading.Lock()
-
-    @property
-    def hydrator(self) -> DomainSchemaHydrator:
-        return self._hydrator
 
     @property
     def subscriptions(self) -> ResourceSubscriptionManager:

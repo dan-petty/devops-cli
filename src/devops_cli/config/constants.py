@@ -187,7 +187,6 @@ CONST_PROJECT_CONFIG_ENV = "DEVOPS_CLI_CONFIG"  # absolute path overrides CWD lo
 # it was parsed can carry the identical modification time and size as the copy already
 # held, and a cache trusting that stamp would keep serving the superseded values.
 CONST_SETTINGS_CACHE_SETTLE_SECONDS: Final[float] = 2.0
-CONST_VSCODE_WORKSPACE_FILE = Path(".code-workspace")
 CONST_VSCODE_CLI = "code"
 CONST_AGENTS_MD_FILENAME = "AGENTS.md"
 # AGENTS.md is a router: the rules every task needs and a table of the documents that own the
@@ -282,9 +281,6 @@ CONST_MCP_LAZY_DOMAINS: Final[frozenset[str]] = frozenset(
         "vault",
         "verify",
     }
-)
-CONST_MCP_DOMAINS: Final[frozenset[str]] = frozenset(
-    CONST_MCP_EAGER_DOMAINS | CONST_MCP_LAZY_DOMAINS | {"github", "secrets", "benchmarks"}
 )
 # Command exposure table: (command_path, timeout_seconds, read_only, format_json)
 # A role server and a client choose tools by the read-only flag. A tool whose command writes local
@@ -2223,57 +2219,6 @@ CONST_REVIEW_PROMPT_PLACEHOLDER_BASENAMES: Final[frozenset[str]] = frozenset(
     {"file.ext", "filename.ext", "path/to/file.ext", "src/file.py", "path/to/file.py", "example.py"}
 )
 
-CONST_REVIEW_TITLE_FILLER_WORDS: Final[frozenset[str]] = frozenset(
-    {
-        "missing",
-        "lack",
-        "lacks",
-        "lacking",
-        "absent",
-        "potential",
-        "possible",
-        "possibly",
-        "insecure",
-        "unsafe",
-        "improper",
-        "improperly",
-        "incorrect",
-        "inadequate",
-        "insufficient",
-        "weak",
-        "issue",
-        "issues",
-        "risk",
-        "risks",
-        "vulnerability",
-        "vulnerable",
-        "problem",
-        "use",
-        "uses",
-        "using",
-        "usage",
-        "without",
-        "not",
-        "the",
-        "and",
-        "for",
-        "with",
-        "from",
-        "via",
-        "into",
-        "when",
-        "may",
-        "can",
-        "could",
-        "due",
-        "are",
-        "has",
-        "have",
-        "does",
-        "should",
-    }
-)
-
 
 # ── Unified Secret Resolution & Vault Lease Lifecycle ────────────────────────
 # Provider identifiers recorded in the credential access audit trail.
@@ -2294,10 +2239,8 @@ CONST_VAULT_PATH_KUBERNETES_LOGIN: Final[str] = "auth/kubernetes/login"
 
 # Supported Vault authentication methods, closed by what this CLI implements.
 CONST_VAULT_AUTH_METHODS: Final[frozenset[str]] = frozenset({"approle", "kubernetes"})
-CONST_VAULT_PATH_TOKEN_RENEW_SELF: Final[str] = "auth/token/renew-self"
 CONST_VAULT_PATH_TOKEN_REVOKE_SELF: Final[str] = "auth/token/revoke-self"
 CONST_VAULT_PATH_HEALTH: Final[str] = "sys/health"
-CONST_VAULT_PATH_LEASE_RENEW: Final[str] = "sys/leases/renew"
 CONST_VAULT_PATH_LEASE_REVOKE: Final[str] = "sys/leases/revoke"
 
 # The keyring entry `devops vault login` writes: one record holding the token and the address
@@ -2495,9 +2438,7 @@ CONST_ARGO_API_GROUP: Final[str] = "argoproj.io"
 CONST_ARGO_API_VERSION: Final[str] = "v1alpha1"
 
 CONST_ARGO_PLURAL_APPLICATIONS: Final[str] = "applications"
-CONST_ARGO_PLURAL_APPLICATION_SETS: Final[str] = "applicationsets"
 CONST_ARGO_PLURAL_ROLLOUTS: Final[str] = "rollouts"
-CONST_ARGO_PLURAL_ANALYSIS_RUNS: Final[str] = "analysisruns"
 CONST_ARGO_PLURAL_WORKFLOWS: Final[str] = "workflows"
 
 # Argo Rollouts control-plane fields. The rollouts controller watches these

@@ -892,14 +892,14 @@ def test_python_source_symbols_name_declarations_assignments_and_methods() -> No
     )
 
 
-def test_apply_symbol_delta_to_meta(tmp_path: Path) -> None:
-    """Verify that _apply_symbol_delta_to_meta lists an added file's symbols as added."""
-    from devops_cli.commands.analyze import _apply_symbol_delta_to_meta
+def test_apply_branch_symbol_delta(tmp_path: Path) -> None:
+    """Verify that apply_branch_symbol_delta lists an added file's symbols as added."""
+    from devops_cli.ai.analyze.symbols import apply_branch_symbol_delta
 
     meta = FileAnalysisMeta(path="test_mod.py")
     head_code = "def new_feature(): pass\n"
 
-    updated = _apply_symbol_delta_to_meta(
+    updated = apply_branch_symbol_delta(
         meta=meta,
         repo=tmp_path,
         base_revision="main",
@@ -918,12 +918,12 @@ def test_apply_symbol_delta_reports_a_symbol_removed_since_the_base(
     tmp_path: Path,
 ) -> None:
     """A symbol the branch removes lands in symbols_removed, and a kept one is not added (#787)."""
-    from devops_cli.commands.analyze import _apply_symbol_delta_to_meta
+    from devops_cli.ai.analyze.symbols import apply_branch_symbol_delta
 
     (tmp_path / ".git").mkdir(parents=True, exist_ok=True)
     (tmp_path / "mod.py").write_text("def kept(): pass\ndef added(): pass\n", encoding="utf-8")
     head = (tmp_path / "mod.py").read_text(encoding="utf-8")
-    updated = _apply_symbol_delta_to_meta(
+    updated = apply_branch_symbol_delta(
         meta=FileAnalysisMeta(path="mod.py"),
         repo=tmp_path,
         base_revision="main",

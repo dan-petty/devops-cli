@@ -1,4 +1,4 @@
-"""Unit tests for FastMCP in-process dispatching, lazy schema hydration, and resource subscriptions."""
+"""Unit tests for FastMCP in-process dispatching and resource subscriptions."""
 
 from __future__ import annotations
 
@@ -8,61 +8,15 @@ import threading
 import pytest
 from fastmcp import Client
 
-from devops_cli.ai.mcp.dispatcher import (
-    DomainSchemaHydrator,
-    InProcessDispatcher,
-    ResourceSubscriptionManager,
-    resolve_tool_domain,
-)
+from devops_cli.ai.mcp.dispatcher import InProcessDispatcher, ResourceSubscriptionManager
 from devops_cli.ai.mcp.server import ci, get_config_resource, mcp
 from devops_cli.config.constants import CONST_CI_TEST_BUDGET_SECONDS
 from devops_cli.main import app
 from tests.support.fakes.mcp_dispatcher import DispatcherFake
 
 
-def test_resolve_tool_domain() -> None:
-    """Verify prefix-based functional domain resolution."""
-    assert (
-        resolve_tool_domain("review_path"),
-        resolve_tool_domain("k8s_pods"),
-        resolve_tool_domain("argo_list"),
-        resolve_tool_domain("gh_issue_list"),
-        resolve_tool_domain("vault_get"),
-        resolve_tool_domain("unknown_cmd"),
-    ) == ("review", "k8s", "argo", "github", "secrets", "workspace")
-
-
-def test_domain_schema_hydrator_cache_and_bounding() -> None:
-    """Verify DomainSchemaHydrator caches schemas and evicts at capacity."""
-    hydrator = DomainSchemaHydrator(max_cache_entries=2)
-    assert hydrator.get_cached_schema("tool1") is None
-
-    hydrator.cache_schema("tool1", {"type": "object", "properties": {"a": {"type": "string"}}})
-    hydrator.cache_schema("tool2", {"type": "object", "properties": {"b": {"type": "integer"}}})
-
-    s1 = hydrator.get_cached_schema("tool1")
-    s2 = hydrator.get_cached_schema("tool2")
-    assert (s1 is not None and "properties" in s1, s2 is not None and "properties" in s2) == (
-        True,
-        True,
-    )
-
-    # Exceed capacity: tool1 should be evicted
-    hydrator.cache_schema("tool3", {"type": "object"})
-    assert (
-        hydrator.get_cached_schema("tool1"),
-        hydrator.get_cached_schema("tool3") is not None,
-    ) == (
-        None,
-        True,
-    )
-
-    hydrator.clear()
-    assert hydrator.get_cached_schema("tool2") is None
-
-
 def test_resource_subscription_manager() -> None:
-    """Verify observer registration, updates, and unsubscriptions for resource:// URIs."""
+    """Verify observer registration and updates for resource:// URIs."""
     manager = ResourceSubscriptionManager()
     events_a: list[tuple[str, str]] = []
     events_b: list[tuple[str, str]] = []
@@ -77,12 +31,6 @@ def test_resource_subscription_manager() -> None:
     manager.subscribe("resource://config/active", listener_b)
     manager.subscribe("resource://workspace/status", listener_a)
 
-    assert (
-        manager.subscriber_count("resource://config/active"),
-        manager.subscriber_count("resource://workspace/status"),
-        manager.subscriber_count("resource://nonexistent"),
-    ) == (2, 1, 0)
-
     # Publish notification
     notified_cfg = manager.notify("resource://config/active", "config_data_v1")
     notified_ws = manager.notify("resource://workspace/status", "ws_data_v1")
@@ -93,12 +41,6 @@ def test_resource_subscription_manager() -> None:
         ("resource://config/active", "config_data_v1"),
         ("resource://workspace/status", "ws_data_v1"),
     )
-
-    # Unsubscribe
-    manager.unsubscribe("resource://config/active", listener_a)
-    assert manager.subscriber_count("resource://config/active") == 1
-    manager.unsubscribe("resource://config/active", listener_b)
-    assert manager.subscriber_count("resource://config/active") == 0
 
 
 def test_in_process_dispatcher_typer_dispatch() -> None:

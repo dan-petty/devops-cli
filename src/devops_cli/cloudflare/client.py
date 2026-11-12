@@ -226,15 +226,6 @@ def _extract_policy_include_rule(item: Any) -> dict[str, Any] | None:
     return item
 
 
-def _extract_policy_include_email(item: Any) -> dict[str, str] | None:
-    """Extract email dictionary from raw include item."""
-    rule = _extract_policy_include_rule(item)
-    if rule and "email" in rule:
-        inner = rule["email"]
-        return {"email": str(inner["email"] if isinstance(inner, dict) else inner)}
-    return None
-
-
 def _parse_access_policy(data: dict[str, Any]) -> CloudflareAccessPolicy:
     """Parse Access policy dictionary payload into model."""
     raw_include = data.get("include")

@@ -998,35 +998,6 @@ def configure_urls(
     print(format_k8s_service_targets_table(configured, stack))
 
 
-def _build_port_forward_details(
-    selected_stacks: Sequence[str],
-    ports: dict[str, int],
-) -> dict[str, str]:
-    """Build key-to-URL mappings for port-forward dry run output."""
-    details: dict[str, str] = {}
-    if "infra" in selected_stacks:
-        details.update(
-            {
-                "argocd.url": f"http://localhost:{ports['argocd']}",
-                "grafana.url": f"http://localhost:{ports['grafana']}",
-                "prometheus.url": f"http://localhost:{ports['prometheus']}",
-                "tempo.url": f"http://localhost:{ports['tempo']}",
-                "otel.endpoint": f"http://localhost:{ports['otel']}",
-                "pyroscope.url": f"http://localhost:{ports['pyroscope']}",
-            }
-        )
-    if "llm" in selected_stacks:
-        details.update(
-            {
-                "ollama.url": f"http://localhost:{ports['ollama']}",
-                "open_webui.url": f"http://localhost:{ports['open_webui']}",
-                "qdrant.url": f"http://localhost:{ports['qdrant']}",
-                "valkey.url": f"valkey://localhost:{ports['valkey']}",
-            }
-        )
-    return details
-
-
 def _collect_port_forward_services(
     selected_stacks: Sequence[str],
     ports: dict[str, int],

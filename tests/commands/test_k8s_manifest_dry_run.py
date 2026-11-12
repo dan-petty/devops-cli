@@ -149,16 +149,6 @@ def test_plan_k8s_bootstrap() -> None:
     assert any("deploy-stack" in p.argv for p in plans)
 
 
-def test_plan_k8s_bootstrap_openwebui() -> None:
-    """plan_k8s_bootstrap_openwebui covers pod lookup and exec commands."""
-    from devops_cli.k8s.manifest_plans import plan_k8s_bootstrap_openwebui
-
-    plans = plan_k8s_bootstrap_openwebui("admin@example.com", "Admin", context="docker-desktop")
-    assert len(plans) == 2
-    assert plans[0].target == "pods"
-    assert plans[1].target == "exec"
-
-
 def test_plan_k8s_chaos() -> None:
     """plan_k8s_chaos covers pod retrieval, deletion, and rollout status."""
     from devops_cli.k8s.manifest_plans import plan_k8s_chaos
@@ -178,19 +168,6 @@ def test_plan_k8s_check_deprecated() -> None:
 
     plan = plan_k8s_check_deprecated("k8s/manifests")
     assert plan[0].method == "pluto"
-
-
-def test_plan_k8s_configure_urls() -> None:
-    """plan_k8s_configure_urls covers ingress and node-port plans."""
-    from devops_cli.k8s.manifest_plans import plan_k8s_configure_urls
-
-    p_ing = plan_k8s_configure_urls("infra", context="minikube")
-    assert len(p_ing) == 1
-    assert p_ing[0].target == "ingress"
-
-    p_np = plan_k8s_configure_urls("infra", addressing="node-port")
-    assert len(p_np) == 2
-    assert p_np[1].target == "nodes"
 
 
 def test_plan_k8s_create_tls_secret() -> None:
@@ -217,22 +194,6 @@ def test_plan_k8s_enable_tls() -> None:
 
     plans = plan_k8s_enable_tls("infra", "/etc/ssl", "tls-sec", overwrite=True)
     assert any("argocd" in p.target for p in plans)
-
-
-def test_plan_k8s_sync_secrets() -> None:
-    """plan_k8s_sync_secrets covers secret query."""
-    from devops_cli.k8s.manifest_plans import plan_k8s_sync_secrets
-
-    plan = plan_k8s_sync_secrets("infra", context="ctx")
-    assert "argocd-initial-admin-secret" in plan[0].target
-
-
-def test_plan_k8s_teardown_stack() -> None:
-    """plan_k8s_teardown_stack covers apps query and deletion."""
-    from devops_cli.k8s.manifest_plans import plan_k8s_teardown_stack
-
-    plans = plan_k8s_teardown_stack(Path("k8s"), stack="infra", context="ctx")
-    assert len(plans) == 2
 
 
 def test_plan_k8s_validate() -> None:

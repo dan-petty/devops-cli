@@ -111,16 +111,6 @@ def get_version(pyproject_path: Path | None = None) -> str:
     return load_project_metadata(pyproject_path).version
 
 
-def get_project_name(pyproject_path: Path | None = None) -> str:
-    """Return project package name."""
-    return load_project_metadata(pyproject_path).name
-
-
-def get_project_description(pyproject_path: Path | None = None) -> str:
-    """Return project description."""
-    return load_project_metadata(pyproject_path).description
-
-
 def get_project_python_version(pyproject_path: Path | None = None) -> str:
     """Return project Python runtime version."""
     return load_project_metadata(pyproject_path).python_version

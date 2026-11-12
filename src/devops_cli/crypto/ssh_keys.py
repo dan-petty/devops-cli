@@ -176,16 +176,6 @@ def get_ssh_key_prefix(workspace_path: Path | None = None) -> str:
     return base_name or "devops-cli"
 
 
-def format_managed_key_filename(prefix: str | None = None, key_date: date | None = None) -> str:
-    """Format a managed SSH key filename with prefix and YYYYMMDD date suffix."""
-    d = key_date or date.today()
-    date_str = d.strftime("%Y%m%d")
-    active_prefix = prefix if prefix is not None else get_ssh_key_prefix()
-    if active_prefix:
-        return f"{active_prefix}-id_ed25519-{date_str}"
-    return f"id_ed25519-{date_str}"
-
-
 def generate_ed25519_key(key_path: Path, comment: str = "") -> None:
     """Generate an Ed25519 SSH key pair.
 

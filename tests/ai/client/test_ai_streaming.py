@@ -203,22 +203,6 @@ class TestStreamSanitizerGenerators:
             "Pondering",
         )
 
-    @pytest.mark.anyio
-    async def test_async_sanitize_stream(self) -> None:
-        """Verify async_sanitize_stream consumes async chunk generator cleanly."""
-
-        async def _mock_stream() -> Any:
-            for c in ["<think>Thinking</think>", "Async", " response"]:
-                yield c
-
-        proc = StreamingTokenProcessor()
-        tokens = [t async for t in proc.async_sanitize_stream(_mock_stream())]
-
-        assert ("".join(tokens), proc.reasoning_scratchpad) == (
-            "Async response",
-            "Thinking",
-        )
-
 
 class TestCallbacksAndExplicitThinking:
     """Test suite for event callbacks and provider explicit thinking."""
@@ -445,22 +429,6 @@ class TestZeroLeakageDownstream:
         assert ("".join(raw_tokens), "".join(clean_tokens)) == (
             "<think>pondering problem</think>Clean response",
             "Clean response",
-        )
-
-    @pytest.mark.asyncio
-    async def test_streaming_token_processor_async_sanitize_stream(self) -> None:
-        """Verify async_sanitize_stream sanitizes an async token stream."""
-        proc = StreamingTokenProcessor()
-
-        async def _mock_stream():
-            for tok in ["<th", "ink>thought</th", "ink>final ", "res"]:
-                yield tok
-
-        tokens = [t async for t in proc.async_sanitize_stream(_mock_stream())]
-        assert ("".join(tokens), proc.reasoning_scratchpad, proc.total_bytes > 0) == (
-            "final res",
-            "thought",
-            True,
         )
 
     def test_streaming_token_processor_callbacks_and_unclosed_flush(self) -> None:

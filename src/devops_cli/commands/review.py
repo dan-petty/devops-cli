@@ -1507,15 +1507,6 @@ def review_stats(
     _render_category_stats_table(category_metrics)
 
 
-def _tally_findings(
-    findings: Any,
-) -> tuple[dict[str, int], dict[str, int], dict[str, int]]:
-    """Tally findings by status and producer (preserved for unmigrated test callers)."""
-    from devops_cli.ai.review.history import tally_findings
-
-    return tally_findings(findings)
-
-
 # =============================================================================
 # Command: devops review benchmark
 # =============================================================================

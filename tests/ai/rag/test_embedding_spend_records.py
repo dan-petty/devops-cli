@@ -216,19 +216,14 @@ def test_the_dimension_probe_records_its_request(
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize("wrapper", ["ollama", "engine"])
-async def test_the_embedding_models_report_the_tokens_the_provider_counted(
-    spend_ledger: SpendLedger, wrapper: str, web: WebFake
+async def test_the_embedding_model_reports_the_tokens_the_provider_counted(
+    spend_ledger: SpendLedger, web: WebFake
 ) -> None:
-    """Both pydantic-ai embedding models report the reply's token count, not an estimate."""
-    from devops_cli.ai.rag.embeddings import EngineEmbeddingModel, OllamaEmbeddingModel
+    """The pydantic-ai embedding model reports the reply's token count, not an estimate."""
+    from devops_cli.ai.rag.embeddings import OllamaEmbeddingModel
 
     serve(web, ollama_reply)
-    model = (
-        OllamaEmbeddingModel("bge-m3", ai_config=ollama_config())
-        if wrapper == "ollama"
-        else EngineEmbeddingModel(EmbeddingsEngine(ollama_config(), valkey_client=None))
-    )
+    model = OllamaEmbeddingModel("bge-m3", ai_config=ollama_config())
 
     result = await model.embed(["three words here", "two words"], input_type="document")
 

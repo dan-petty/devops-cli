@@ -131,19 +131,6 @@ def _process_single_repo_file_meta(
         return None
 
 
-def _apply_symbol_delta_to_meta(
-    meta: FileAnalysisMeta,
-    repo: Path,
-    base_revision: str,
-    change: ChangedFile,
-    head_content: str | None,
-) -> FileAnalysisMeta:
-    """Attach the change's base-vs-head symbol delta, its base text read at `base_revision`."""
-    from devops_cli.ai.analyze.symbols import apply_branch_symbol_delta
-
-    return apply_branch_symbol_delta(meta, repo, base_revision, change, head_content)
-
-
 def _handle_deleted_branch_file(
     change: ChangedFile, repo: Path, base_revision: str
 ) -> FileAnalysisMeta:

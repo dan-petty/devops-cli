@@ -21,7 +21,6 @@ def test_review_stage_flags_defaults() -> None:
     assert flags.static_scan is True
     assert flags.group_analysis is True
     assert flags.reporting is True
-    assert flags.any_enabled() is True
     assert flags.to_dict() == {
         "pre_analysis": True,
         "static_scan": True,
@@ -97,7 +96,7 @@ def test_resolve_stage_flags_conflicting_no_and_only() -> None:
         no_static_scan=True,
     )
     assert flags.static_scan is False
-    assert flags.any_enabled() is False
+    assert not any(flags.to_dict().values())
 
 
 def test_review_cli_stage_flags_propagation(cli: Callable[..., Any], tmp_path: Path) -> None:

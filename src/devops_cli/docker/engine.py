@@ -718,30 +718,6 @@ class DockerEngineService:
             ) from exc
         return project_container_stats(container_id, name, second_frame or {})
 
-    def stream_container_stats(
-        self, container_id: str, *, samples: int | None = None
-    ) -> Iterator[ContainerStatEntry]:
-        """Stream typed cgroup resource samples straight off the Engine API stats socket."""
-        container = self.get_container(container_id)
-        name = getattr(container, "name", "") or container_id
-        try:
-            stream = container.stats(stream=True, decode=True)
-        except Exception as exc:
-            raise DockerEngineError(
-                f"Container stats stream failed: {exc}", container_id=container_id
-            ) from exc
-        iterator = iter(stream)
-        next(iterator, None)
-        yielded = 0
-        for frame in iterator:
-            if samples is not None and yielded >= samples:
-                close_fn = getattr(stream, "close", None)
-                if callable(close_fn):
-                    close_fn()
-                return
-            yielded += 1
-            yield project_container_stats(container_id, name, frame or {})
-
     # -- Container lifecycle --------------------------------------------------
 
     def create_container(self, **create_kwargs: Any) -> EngineContainer:
@@ -800,30 +776,6 @@ class DockerEngineService:
             ) from exc
         return int(exit_code or 0), decode_stream(output)
 
-    def container_logs(
-        self,
-        container_id: str,
-        *,
-        tail: int | None = None,
-        timestamps: bool = False,
-        follow: bool = False,
-    ) -> str:
-        """Fetch container logs over the Engine API with stream fidelity preserved."""
-        container = self.get_container(container_id)
-        try:
-            raw = container.logs(
-                stdout=True,
-                stderr=True,
-                tail=tail if tail is not None else "all",
-                timestamps=timestamps,
-                follow=follow,
-            )
-        except Exception as exc:
-            raise DockerEngineError(
-                f"Container log retrieval failed: {exc}", container_id=container_id
-            ) from exc
-        return decode_stream(raw)
-
     def container_log_stream(
         self,
         container_id: str,
@@ -842,14 +794,6 @@ class DockerEngineService:
             raise DockerEngineError(
                 f"Container log stream failed: {exc}", container_id=container_id
             ) from exc
-
-    def wait_container(self, container_id: str, *, timeout: float) -> int:
-        """Block until a container exits and return its status code."""
-        container = self.get_container(container_id)
-        result = container.wait(timeout=int(timeout))
-        if isinstance(result, dict):
-            return int(result.get("StatusCode", 0))
-        return int(result)
 
     # -- Networks -------------------------------------------------------------
 

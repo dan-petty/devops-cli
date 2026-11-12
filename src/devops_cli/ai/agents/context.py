@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from typing import Any, TypeVar, cast
 
 from pydantic import BaseModel, Field
@@ -92,15 +91,3 @@ class AgentStepNode(BaseModel):
 
     kind: str  # "user_prompt", "model_request", "tool_call", "tool_result", "end"
     payload: dict[str, Any] = Field(default_factory=dict)
-
-
-class AgentHooks(BaseModel):
-    """Lifecycle hooks for intercepting agent model requests, tool calls, and errors."""
-
-    before_run: list[Callable[..., None]] = Field(default_factory=list)
-    after_run: list[Callable[..., None]] = Field(default_factory=list)
-    before_model_request: list[Callable[..., None]] = Field(default_factory=list)
-    after_model_request: list[Callable[..., None]] = Field(default_factory=list)
-    before_tool_execute: list[Callable[..., None]] = Field(default_factory=list)
-    after_tool_execute: list[Callable[..., None]] = Field(default_factory=list)
-    on_tool_error: list[Callable[..., None]] = Field(default_factory=list)

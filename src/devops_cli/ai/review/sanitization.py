@@ -4,28 +4,6 @@ from __future__ import annotations
 
 import re
 
-from devops_cli.config.defaults import (
-    DEFAULT_MAX_CONTEXT_TOKENS,
-    DEFAULT_TIKTOKEN_MODEL,
-)
-
-
-def _unique_preserve_order(items: list[str]) -> list[str]:
-    """Deduplicate string items preserving original sequence order."""
-    return list(dict.fromkeys(items))
-
-
-def _truncate_for_prompt(
-    text: str,
-    max_tokens: int = DEFAULT_MAX_CONTEXT_TOKENS,
-    model: str = DEFAULT_TIKTOKEN_MODEL,
-) -> str:
-    """Validate and budget prompt text respecting context window token limits, logging warnings on overflow."""
-    from devops_cli.ai.context_budget import validate_and_budget_prompt
-
-    budgeted_text, _ = validate_and_budget_prompt(text, max_tokens=max_tokens, model=model)
-    return budgeted_text
-
 
 def balance_markdown_fences(text: str) -> tuple[str, bool]:
     """Inspect line-start code fence delimiters and ensure any unclosed code block is closed.

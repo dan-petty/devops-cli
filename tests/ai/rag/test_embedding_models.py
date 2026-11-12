@@ -13,7 +13,6 @@ from tests.support.embedding_replies import (
     gateway_engine,
     inputs,
     ollama_config,
-    ollama_engine,
     ollama_reply,
     serve,
 )
@@ -45,18 +44,6 @@ async def test_ollama_embedding_model_embeds_queries_and_documents(web: WebFake)
     ) == ([[0.5] * 4], ["What is Kubernetes?"], "query", "all-minilm", "ollama")
     assert (len(res_docs.embeddings), res_docs.inputs, res_docs.input_type) == (2, docs, "document")
     assert len(sent) == 2
-
-
-def test_an_engine_gives_an_operational_pydantic_ai_embedder(web: WebFake) -> None:
-    from devops_cli.ai.rag.embeddings import Embedder
-
-    serve(web, ollama_reply)
-    embedder = ollama_engine([SERVING_BACKEND]).to_embedder()
-
-    res = embedder.embed_query_sync("Engine test")
-
-    assert isinstance(embedder, Embedder)
-    assert (len(res), res["Engine test"]) == (1, [0.5] * 4)
 
 
 def test_a_provider_that_returns_too_few_vectors_raises(web: WebFake) -> None:

@@ -18,19 +18,15 @@ from devops_cli.config.constants import (
     CONST_KUBERNETES_SA_TOKEN_PATH,
     CONST_VAULT_PATH_APPROLE_LOGIN,
     CONST_VAULT_PATH_KUBERNETES_LOGIN,
-    CONST_VAULT_PATH_LEASE_RENEW,
     CONST_VAULT_PATH_LEASE_REVOKE,
-    CONST_VAULT_PATH_TOKEN_RENEW_SELF,
     CONST_VAULT_PATH_TOKEN_REVOKE_SELF,
     CONST_VAULT_TOKEN_REJECTED_STATUSES,
 )
 from devops_cli.config.defaults import (
-    DEFAULT_VAULT_LEASE_RENEW_INCREMENT_SECONDS,
-    DEFAULT_VAULT_LEASE_RENEW_THRESHOLD,
     DEFAULT_VAULT_REQUEST_TIMEOUT_SECONDS,
 )
 from devops_cli.exceptions.vault import VaultAuthenticationError, VaultLeaseError
-from devops_cli.models.vault import VaultAuthResult, VaultLease, VaultLeaseReport
+from devops_cli.models.vault import VaultAuthResult, VaultLease
 from devops_cli.security.sanitizer import mask_secrets
 from devops_cli.security.vault_http import vault_request
 
@@ -185,8 +181,6 @@ class LeaseRegistry:
     vault_addr: str
     token: str
     namespace: str | None = None
-    renew_threshold: float = DEFAULT_VAULT_LEASE_RENEW_THRESHOLD
-    renew_increment: int = DEFAULT_VAULT_LEASE_RENEW_INCREMENT_SECONDS
 
     def __post_init__(self) -> None:
         self._leases: dict[str, VaultLease] = {}
@@ -209,67 +203,9 @@ class LeaseRegistry:
         self._leases[lease_id] = lease
         return lease
 
-    def track_auth(
-        self, auth: VaultAuthResult, secret_path: str = _VAULT_AUTH_LOGIN_PATH
-    ) -> VaultLease:
-        """Register the lease backing an authentication token."""
-        return self.track(
-            auth.accessor or auth.client_token,
-            auth.lease_duration,
-            auth.renewable,
-            secret_path,
-        )
-
-    def leases(self) -> list[VaultLease]:
-        """Return every tracked lease."""
-        return list(self._leases.values())
-
     def get(self, lease_id: str) -> VaultLease | None:
         """Return one tracked lease by id."""
         return self._leases.get(lease_id)
-
-    def needs_renewal(self, lease: VaultLease, now: float | None = None) -> bool:
-        """Report whether a lease has burned through enough of its TTL to renew."""
-        if not lease.renewable or lease.duration_seconds <= 0:
-            return False
-        remaining = lease.remaining_seconds(now)
-        return remaining <= lease.duration_seconds * self.renew_threshold
-
-    def renew(self, lease_id: str, increment: int | None = None) -> VaultLease:
-        """Renew a tracked lease, extending its lifetime."""
-        lease = self._leases.get(lease_id)
-        if lease is None:
-            raise VaultLeaseError(f"Lease '{lease_id}' is not tracked", lease_id=lease_id)
-        if not lease.renewable:
-            raise VaultLeaseError(f"Lease '{lease_id}' is not renewable", lease_id=lease_id)
-
-        payload = _post(
-            self.vault_addr,
-            CONST_VAULT_PATH_LEASE_RENEW,
-            {"lease_id": lease_id, "increment": increment or self.renew_increment},
-            self._headers(),
-        )
-        duration = int(payload.get("lease_duration", increment or self.renew_increment) or 0)
-        renewed = lease.model_copy(
-            update={
-                "duration_seconds": duration,
-                "issued_at": time.time(),
-                "renewal_count": lease.renewal_count + 1,
-            }
-        )
-        self._leases[lease_id] = renewed
-        return renewed
-
-    def renew_token(self, increment: int | None = None) -> int:
-        """Renew the client token backing this registry, returning its new lifetime."""
-        payload = _post(
-            self.vault_addr,
-            CONST_VAULT_PATH_TOKEN_RENEW_SELF,
-            {"increment": increment or self.renew_increment},
-            self._headers(),
-        )
-        auth = payload.get("auth") or {}
-        return int(auth.get("lease_duration", 0) or 0) if isinstance(auth, dict) else 0
 
     def revoke(self, lease_id: str) -> None:
         """Revoke a lease and stop tracking it, whether or not Vault accepts the revocation.
@@ -285,47 +221,6 @@ class LeaseRegistry:
             )
         finally:
             self._leases.pop(lease_id, None)
-
-    def revoke_all(self) -> list[str]:
-        """Revoke every tracked lease, returning the ids Vault refused to revoke.
-
-        Every lease stops being tracked either way.
-        """
-        refused: list[str] = []
-        for lease_id in list(self._leases):
-            try:
-                self.revoke(lease_id)
-            except VaultLeaseError:
-                refused.append(lease_id)
-        return refused
-
-    def renew_expiring(self, now: float | None = None) -> VaultLeaseReport:
-        """Renew every tracked lease close to expiry, reporting the outcome.
-
-        A single failed renewal does not abort the sweep: the remaining leases still get
-        their chance, and the failure is reported rather than raised.
-        """
-        renewed: list[str] = []
-        failed: list[str] = []
-        skipped: list[str] = []
-
-        for lease in self.leases():
-            if not self.needs_renewal(lease, now):
-                skipped.append(lease.lease_id)
-                continue
-            try:
-                self.renew(lease.lease_id)
-                renewed.append(lease.lease_id)
-            except VaultLeaseError as exc:
-                logger.debug("Proactive renewal failed for %s: %s", lease.lease_id, exc)
-                failed.append(lease.lease_id)
-
-        return VaultLeaseReport(
-            renewed=renewed,
-            failed=failed,
-            skipped=skipped,
-            tracked_count=len(self._leases),
-        )
 
 
 _LEASE_REGISTRY: LeaseRegistry | None = None

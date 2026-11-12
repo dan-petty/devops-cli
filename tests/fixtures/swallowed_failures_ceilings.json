@@ -1,5 +1,4 @@
 {
-  "src/devops_cli/ai/agents/capabilities.py": 1,
   "src/devops_cli/ai/agents/tools.py": 1,
   "src/devops_cli/ai/analyze/outlines.py": 11,
   "src/devops_cli/ai/ast/engine.py": 2,
@@ -34,7 +33,7 @@
   "src/devops_cli/ai/response_cache.py": 4,
   "src/devops_cli/ai/response_repair.py": 1,
   "src/devops_cli/ai/review/path_classes.py": 2,
-  "src/devops_cli/ai/review/pipeline.py": 2,
+  "src/devops_cli/ai/review/pipeline.py": 1,
   "src/devops_cli/ai/review/template_sweep.py": 5,
   "src/devops_cli/ai/review_schema.py": 8,
   "src/devops_cli/ai/spend/ledger.py": 5,
@@ -80,7 +79,6 @@
   "src/devops_cli/github/secrets.py": 1,
   "src/devops_cli/http/pool.py": 5,
   "src/devops_cli/k8s/chaos.py": 1,
-  "src/devops_cli/k8s/chaos_runner.py": 1,
   "src/devops_cli/k8s/context.py": 2,
   "src/devops_cli/k8s/doctor.py": 2,
   "src/devops_cli/k8s/informer.py": 2,

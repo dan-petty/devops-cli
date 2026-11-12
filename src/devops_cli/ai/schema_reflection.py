@@ -101,14 +101,6 @@ class SchemaReflectionReport(BaseModel):
         lines.append(footer)
         return "\n".join(lines)
 
-    def format_error_summary(self) -> str:
-        """Render a concise, bounded summary string suitable for logs and exception details."""
-        parts = [f"`{v.field_path}`: {v.message} (Fix: {v.fix_hint})" for v in self.violations]
-        summary = f"{self.total_errors} schema error(s): " + "; ".join(parts)
-        if self.remaining_count > 0:
-            summary += f"; ... and {self.remaining_count} more"
-        return summary
-
 
 # What to do about a refused argument, by its kind; every other kind is fixed by sending the
 # expected value.

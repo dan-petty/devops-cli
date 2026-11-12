@@ -18,7 +18,6 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from devops_cli.config.constants import CONST_DASHBOARD_DOMAINS
-from devops_cli.config.defaults import DEFAULT_DASHBOARD_STALE_SECONDS
 
 
 @dataclass(frozen=True)
@@ -41,14 +40,6 @@ class DomainSnapshot:
         if self.never_loaded:
             return 0.0
         return max(0.0, time.time() - self.updated_at)
-
-    def is_stale(self, max_age: float = DEFAULT_DASHBOARD_STALE_SECONDS) -> bool:
-        """Report whether the displayed data has aged past a threshold.
-
-        A domain that has never loaded is not stale — it is empty, which the UI renders
-        differently. Conflating the two would show a staleness warning over a blank panel.
-        """
-        return not self.never_loaded and self.age >= max_age
 
     @property
     def ok(self) -> bool:

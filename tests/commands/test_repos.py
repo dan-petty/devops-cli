@@ -836,9 +836,8 @@ def test_core_repo_gitignore_and_files(tmp_path: Path, git_fake: GitFake) -> Non
 
 
 def test_repos_branch_and_workspace_helpers(tmp_path: Path, git_fake: GitFake) -> None:
-    """Verify _current_branch and _resolve_workspace_file."""
-    from devops_cli.commands.repos import _current_branch, _resolve_workspace_file
-    from devops_cli.config.constants import CONST_VSCODE_WORKSPACE_FILE
+    """Verify _current_branch."""
+    from devops_cli.commands.repos import _current_branch
 
     git_fake.answer(
         lambda c: "branch" in c.argv and "--show-current" in c.argv,
@@ -846,14 +845,6 @@ def test_repos_branch_and_workspace_helpers(tmp_path: Path, git_fake: GitFake) -
     )
     # Non-git directory returns "unknown"
     assert _current_branch(tmp_path / "not_git") == "unknown"
-
-    # Workspace file resolution
-    abs_ws = (tmp_path / "custom.code-workspace").resolve()
-    assert _resolve_workspace_file(tmp_path, abs_ws) == abs_ws
-    assert (
-        _resolve_workspace_file(tmp_path, CONST_VSCODE_WORKSPACE_FILE)
-        == tmp_path.parent / CONST_VSCODE_WORKSPACE_FILE
-    )
 
 
 def test_repos_clone_invalid_arguments(tmp_path: Path, config: Callable[..., Path]) -> None:
@@ -1074,9 +1065,9 @@ def test_repo_edge_cases(tmp_path: Path, git_fake: GitFake) -> None:
         assert is_safe_subpath(root, "any/path") is False
 
 
-def test_repos_reload_workspace_and_resolve(tmp_path: Path, process_fake: ProcessFake) -> None:
-    """Verify _reload_workspace handles success and failure, and _resolve_workspace_file returns expected paths."""
-    from devops_cli.commands.repos import _reload_workspace, _resolve_workspace_file
+def test_repos_reload_workspace(tmp_path: Path, process_fake: ProcessFake) -> None:
+    """Verify _reload_workspace handles success and failure."""
+    from devops_cli.commands.repos import _reload_workspace
 
     ws_file = tmp_path / "test.code-workspace"
     ws_file.write_text("{}", encoding="utf-8")
@@ -1089,22 +1080,7 @@ def test_repos_reload_workspace_and_resolve(tmp_path: Path, process_fake: Proces
     process_fake.answer(["code"], ProcessAnswer(side_effect=OSError("not found")))
     _reload_workspace(ws_file)
 
-    # _resolve_workspace_file variations
-    root = tmp_path / "repos"
-    root.mkdir()
-    # Absolute path
-    abs_ws = tmp_path / "custom.code-workspace"
-    assert _resolve_workspace_file(root, abs_ws) == abs_ws
-    # Default constant workspace file
-    from devops_cli.config.constants import CONST_VSCODE_WORKSPACE_FILE
-
-    assert (
-        _resolve_workspace_file(root, Path(CONST_VSCODE_WORKSPACE_FILE))
-        == root.parent / CONST_VSCODE_WORKSPACE_FILE
-    )
-    # Other relative path
-    custom_rel = Path("custom_rel.code-workspace")
-    assert _resolve_workspace_file(root, custom_rel) == custom_rel
+    assert [call.argv[0] for call in process_fake.calls] == ["code", "code"]
 
 
 def test_repos_clone_org_missing_org(config: Callable[..., Path]) -> None:

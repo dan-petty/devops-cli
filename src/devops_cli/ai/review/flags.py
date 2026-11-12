@@ -17,10 +17,6 @@ class ReviewStageFlags(BaseModel):
     group_analysis: bool = True
     reporting: bool = True
 
-    def any_enabled(self) -> bool:
-        """Return True if at least one review stage is enabled."""
-        return self.pre_analysis or self.static_scan or self.group_analysis or self.reporting
-
     def to_dict(self) -> dict[str, bool]:
         """Serialize flags to a dictionary."""
         return {

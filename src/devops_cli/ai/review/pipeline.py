@@ -81,7 +81,6 @@ from devops_cli.config.constants import (
 from devops_cli.config.defaults import (
     DEFAULT_GATEWAY_REVIEW_CONCURRENCY,
     DEFAULT_MAX_COMPLEXITY,
-    DEFAULT_REVIEW_CONCURRENCY,
     DEFAULT_REVIEW_MAX_CONCURRENCY,
     DEFAULT_SEMGREP_CONFIG,
 )
@@ -174,38 +173,6 @@ _SEV_ORDER: dict[str, int] = {
 }
 
 
-def _resolve_ollama_urls(config: Any) -> list[str]:
-    """Safely resolve configured Ollama base URLs handling properties and callables."""
-    if not config:
-        return []
-    raw_urls = getattr(config, "get_ollama_urls", None)
-    if callable(raw_urls):
-        try:
-            raw_urls = raw_urls()
-        except Exception:
-            raw_urls = None
-    if isinstance(raw_urls, list) and raw_urls:
-        return [str(u).strip().rstrip("/") for u in raw_urls if str(u).strip()]
-    raw_list = getattr(config, "ollama_urls", None)
-    if isinstance(raw_list, list) and raw_list:
-        return [str(u).strip().rstrip("/") for u in raw_list if str(u).strip()]
-    return []
-
-
-def _review_batch_capacity(config: Any) -> int:
-    """How many files the persona stage reviews at once when no concurrency is requested.
-
-    Through the gateway it is the gateway's backend slot sum: every request goes to the one
-    gateway, so `ai.ollama_urls` adds no capacity. Otherwise it is every Ollama node's parallel
-    slots, and at least `DEFAULT_REVIEW_CONCURRENCY`.
-    """
-    if uses_gateway_slots(config):
-        return DEFAULT_GATEWAY_REVIEW_CONCURRENCY
-    raw_par = getattr(config, "ollama_max_parallel", None)
-    max_par = raw_par if isinstance(raw_par, int) else 2
-    return max(DEFAULT_REVIEW_CONCURRENCY, len(_resolve_ollama_urls(config)) * max_par)
-
-
 def effective_review_concurrency(config: Any, requested: int | None) -> int | None:
     """The file workers an explicit `--concurrency` gives a review, or None when none was asked.
 
@@ -216,20 +183,6 @@ def effective_review_concurrency(config: Any, requested: int | None) -> int | No
         return None
     wanted = max(1, requested)
     return min(wanted, DEFAULT_GATEWAY_REVIEW_CONCURRENCY) if uses_gateway_slots(config) else wanted
-
-
-def _review_worker_count(
-    config: Any, total_files: int, requested: int | None
-) -> tuple[int, int | None]:
-    """The review stage's file workers, and `requested` when the gateway's slot sum lowered it."""
-    effective = effective_review_concurrency(config, requested)
-    wanted = (
-        min(_review_batch_capacity(config), DEFAULT_REVIEW_MAX_CONCURRENCY)
-        if effective is None
-        else effective
-    )
-    lowered = requested is not None and effective is not None and effective < requested
-    return (min(total_files, wanted) if total_files > 0 else 1), (requested if lowered else None)
 
 
 def _try_reuse_cached_analysis_meta(
@@ -749,21 +702,6 @@ _VERSION_RANGE_MARKERS = (">", "<", "~", "^", "!=", "*", ",", "|", " - ")
 _VERSION_WILDCARD = re.compile(r"(?:^|\.)[xX](?:\.|$)")
 
 
-def _is_exact_version(version: str | None, ecosystem: str) -> bool:
-    """Whether a declared version names one release; Cargo reads a bare version as `^version`."""
-    if not version:
-        return False
-    if version.startswith("=="):
-        return bool(version.removeprefix("==").strip())
-    if (
-        ecosystem.lower() == "crates.io"
-        or any(marker in version for marker in _VERSION_RANGE_MARKERS)
-        or _VERSION_WILDCARD.search(version)
-    ):
-        return False
-    return bool(version.strip().lstrip("="))
-
-
 def _build_vulnerability_finding(
     fpath: str,
     dep: DependencySpec,
@@ -871,36 +809,6 @@ def _checked_session_dir(session_dir: Path) -> Path:
     if not any(resolved.is_relative_to(root) for root in allowed):
         raise SecurityError(f"Session directory {session_dir} is outside allowed root directories")
     return session_dir
-
-
-def _format_extraction_summary(
-    direct_deps_count: int,
-    direct_nets_count: int,
-    probed_deps_count: int,
-    probed_nets_count: int,
-) -> str:
-    """Format summary string distinguishing in-file references from probed workspace references."""
-    if probed_deps_count == 0 and probed_nets_count == 0:
-        return (
-            f"{direct_deps_count} unique dependency(ies) and {direct_nets_count} network target(s)"
-        )
-
-    probed_parts: list[str] = []
-    if probed_deps_count > 0:
-        probed_parts.append(
-            f"{probed_deps_count} project dependencies probed from workspace manifests"
-        )
-    if probed_nets_count > 0:
-        probed_parts.append(f"{probed_nets_count} network targets probed from workspace configs")
-    probed_summary = ", ".join(probed_parts)
-
-    if direct_deps_count == 0 and direct_nets_count == 0:
-        return f"0 in-file references ({probed_summary})"
-
-    return (
-        f"{direct_deps_count} in-file dependency(ies) and {direct_nets_count} in-file network target(s) "
-        f"({probed_summary})"
-    )
 
 
 def _fetch_ip_threat_intel(

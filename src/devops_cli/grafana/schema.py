@@ -136,14 +136,6 @@ class Dashboard(BaseModel):
     annotations: dict[str, Any] = Field(default_factory=dict)
     links: list[dict[str, Any]] = Field(default_factory=list)
 
-    def to_grafana_json(self) -> dict[str, Any]:
-        """Serialise to the exact JSON shape Grafana accepts.
-
-        Aliases are emitted (``gridPos``, ``schemaVersion``) and unset optional fields are
-        omitted, so a generated dashboard is byte-comparable with a hand-authored one.
-        """
-        return self.model_dump(by_alias=True, exclude_none=True)
-
 
 __all__ = [
     "Dashboard",

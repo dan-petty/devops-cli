@@ -21,12 +21,8 @@ import httpx2
 from cachetools import LRUCache
 from pydantic import BaseModel, ValidationError
 from pydantic_ai.embeddings import (
-    Embedder as PydanticEmbedder,
-)
-from pydantic_ai.embeddings import (
     EmbeddingModel,
     EmbeddingSettings,
-    KnownEmbeddingModelName,
 )
 from pydantic_ai.embeddings import (
     EmbeddingResult as PydanticEmbeddingResult,
@@ -52,8 +48,6 @@ from devops_cli.config.defaults import (
     DEFAULT_DRY_RUN_EMBEDDING_DIMENSION,
     DEFAULT_EMBEDDING_CURRENCY,
     DEFAULT_EMBEDDING_INPUT_TYPE,
-    DEFAULT_EMBEDDING_MODEL,
-    DEFAULT_EMBEDDING_MODEL_NAME,
     DEFAULT_EMBEDDING_PROVIDER_NAME,
     DEFAULT_MAX_RETRIES,
     DEFAULT_RAG_EMBEDDING_BACKOFF_BASE_SECONDS,
@@ -435,11 +429,6 @@ def reset_embedder() -> None:
     """Reset the embedder override."""
     global _EMBEDDER_OVERRIDE
     _EMBEDDER_OVERRIDE = None
-
-
-def get_embedder_override() -> EmbedderProtocol | None:
-    """Return the active embedder override, if any."""
-    return _EMBEDDER_OVERRIDE
 
 
 def create_embedder(ai_config: AIConfig | None = None, **kwargs: Any) -> EmbedderProtocol:
@@ -1281,13 +1270,6 @@ class EmbeddingsEngine:
             self._record_dimension(len(embs[0]))
         return embs
 
-    def to_embedder(self) -> Embedder:
-        """Create a standard Pydantic AI Embedder backed by this engine."""
-        model = EngineEmbeddingModel(
-            self, model_name=self.model, provider_name=self.ai_config.provider
-        )
-        return Embedder(model=model)
-
 
 class OllamaEmbeddingModel(EmbeddingModel):
     """Pydantic AI EmbeddingModel implementation for distributed multi-node Ollama clusters."""
@@ -1362,65 +1344,6 @@ class EmbeddingCost(BaseModel):
 
     total_price: float = 0.0
     currency: str = DEFAULT_EMBEDDING_CURRENCY
-
-
-class EngineEmbeddingModel(EmbeddingModel):
-    """Adapter bridging any EmbeddingsEngine to Pydantic AI's EmbeddingModel interface."""
-
-    def __init__(
-        self,
-        engine: Any,
-        model_name: str = DEFAULT_EMBEDDING_MODEL_NAME,
-        provider_name: str = DEFAULT_EMBEDDING_PROVIDER_NAME,
-    ) -> None:
-        self._engine = engine
-        self._model_name = model_name
-        self._provider_name = provider_name
-
-    @property
-    def model_name(self) -> str:
-        return self._model_name
-
-    @property
-    def system(self) -> str:
-        return self._provider_name
-
-    def __str__(self) -> str:
-        return self._model_name
-
-    def __repr__(self) -> str:
-        return f"EngineEmbeddingModel({self._model_name!r})"
-
-    async def embed(
-        self,
-        inputs: str | Sequence[str],
-        *,
-        input_type: Literal["query", "document"],
-        settings: EmbeddingSettings | None = None,
-    ) -> PydanticEmbeddingResult:
-        texts = [inputs] if isinstance(inputs, str) else list(inputs)
-        is_query = input_type == "query"
-        vectors, input_tokens = await asyncio.to_thread(
-            embed_counting_tokens, partial(self._embed_sync, texts, is_query)
-        )
-        return PydanticEmbeddingResult(
-            vectors,
-            inputs=texts,
-            input_type=input_type,
-            model_name=self._model_name,
-            provider_name=self._provider_name,
-            timestamp=datetime.now(UTC),
-            usage=RequestUsage(input_tokens=input_tokens),
-        )
-
-    def _embed_sync(self, texts: list[str], is_query: bool) -> list[list[float]]:
-        """The engine's vectors for `texts`, one query through its query method."""
-        if is_query and len(texts) == 1 and hasattr(self._engine, "embed_query"):
-            return [self._engine.embed_query(texts[0])]
-        if hasattr(self._engine, "embed_texts"):
-            vectors: list[list[float]] = self._engine.embed_texts(texts, is_query=is_query)
-            return vectors
-        return [[0.0] * 768 for _ in texts]
 
 
 @dataclass
@@ -1526,142 +1449,3 @@ class EmbeddingResult(PydanticEmbeddingResult):
             "dimension": self.dimension,
             "cost": self.cost().model_dump() if hasattr(self.cost(), "model_dump") else self.cost(),
         }
-
-
-class Embedder(PydanticEmbedder):
-    """Pydantic AI Embedder subclass with synchronous conveniences and dimension support."""
-
-    def __init__(
-        self,
-        model: EmbeddingModel | KnownEmbeddingModelName | str | None = None,
-        *,
-        dimensions: int | None = None,
-        settings: EmbeddingSettings | None = None,
-        instrument: bool = False,
-        engine: Any = None,
-    ) -> None:
-        self.dimensions = dimensions
-        self._custom_engine = engine
-        self._model_arg = model
-
-        resolved_model: EmbeddingModel | KnownEmbeddingModelName | str
-        if engine is not None:
-            resolved_model = EngineEmbeddingModel(engine, model_name=str(model))
-        elif model is None:
-            resolved_model = DEFAULT_EMBEDDING_MODEL
-        elif isinstance(model, EmbeddingModel):
-            resolved_model = model
-        elif isinstance(model, str):
-            clean_model = model.strip()
-            if clean_model.lower().startswith("ollama:"):
-                resolved_model = OllamaEmbeddingModel(
-                    model_name=clean_model[7:],
-                    dimensions=dimensions,
-                )
-            else:
-                resolved_model = clean_model
-        else:
-            resolved_model = model
-
-        super().__init__(
-            resolved_model,
-            settings=settings or (EmbeddingSettings(dimensions=dimensions) if dimensions else None),
-            instrument=instrument,
-        )
-
-    @property
-    def model_name(self) -> str:
-        """Return canonical model name string."""
-        active = self.model
-        if hasattr(active, "model_name"):
-            return str(getattr(active, "model_name"))
-        return str(active)
-
-    def _get_engine(self) -> Any:
-        """Return underlying engine or create default EmbeddingsEngine."""
-        if self._custom_engine is not None:
-            return self._custom_engine
-        active = self.model
-        if hasattr(active, "_engine"):
-            return getattr(active, "_engine")
-        if hasattr(active, "engine"):
-            return getattr(active, "engine")
-
-        try:
-            from devops_cli.config.settings import load_settings
-
-            cfg = load_settings().ai.model_copy(deep=True)
-        except DevOpsCLIError, ConfigurationError, ValidationError, OSError:
-            cfg = AIConfig()
-        model_str = str(self._model_arg).strip()
-        clean_model = model_str
-        if clean_model.lower().startswith("ollama:"):
-            clean_model = clean_model[7:]
-            cfg.provider = "ollama"
-        elif clean_model.lower().startswith("openai:"):
-            clean_model = clean_model[7:]
-            cfg.provider = "openai"
-        cfg.tasks.embedding.model = clean_model
-        eng = EmbeddingsEngine(cfg)
-        if self.dimensions is not None:
-            eng._dimension = self.dimensions
-        return eng
-
-    def _wrap_result(self, res: PydanticEmbeddingResult) -> EmbeddingResult:
-        if isinstance(res, EmbeddingResult):
-            return res
-        return EmbeddingResult(
-            res.embeddings,
-            inputs=res.inputs,
-            input_type=res.input_type,
-            model_name=res.model_name,
-            provider_name=res.provider_name,
-            timestamp=res.timestamp,
-            usage=res.usage,
-            provider_details=res.provider_details,
-            provider_response_id=res.provider_response_id,
-        )
-
-    def _run_sync(self, func: Any, *args: Any, **kwargs: Any) -> EmbeddingResult:
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            loop = None
-
-        if loop is not None and loop.is_running():
-            import concurrent.futures
-
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-                res = executor.submit(func, *args, **kwargs).result()
-                return self._wrap_result(res)
-        return self._wrap_result(func(*args, **kwargs))
-
-    async def embed_query(self, query: str | Sequence[str], **kwargs: Any) -> EmbeddingResult:
-        return self._wrap_result(await super().embed_query(query, **kwargs))
-
-    def embed_query_sync(self, query: str | Sequence[str], **kwargs: Any) -> EmbeddingResult:
-        return self._run_sync(super().embed_query_sync, query, **kwargs)
-
-    async def embed_documents(self, documents: Sequence[str], **kwargs: Any) -> EmbeddingResult:
-        return self._wrap_result(await super().embed_documents(documents, **kwargs))
-
-    def embed_documents_sync(self, documents: Sequence[str], **kwargs: Any) -> EmbeddingResult:
-        return self._run_sync(super().embed_documents_sync, documents, **kwargs)
-
-    async def embed(
-        self,
-        inputs: str | Sequence[str],
-        *,
-        input_type: Literal["query", "document"],
-        **kwargs: Any,
-    ) -> EmbeddingResult:
-        return self._wrap_result(await super().embed(inputs, input_type=input_type, **kwargs))
-
-    def embed_sync(
-        self,
-        inputs: str | Sequence[str],
-        *,
-        input_type: Literal["query", "document"],
-        **kwargs: Any,
-    ) -> EmbeddingResult:
-        return self._run_sync(super().embed_sync, inputs, input_type=input_type, **kwargs)

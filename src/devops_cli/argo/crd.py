@@ -16,8 +16,6 @@ from devops_cli.config.constants import (
     CONST_ARGO_ANNOTATION_POD_NAME_FORMAT,
     CONST_ARGO_API_GROUP,
     CONST_ARGO_API_VERSION,
-    CONST_ARGO_PLURAL_ANALYSIS_RUNS,
-    CONST_ARGO_PLURAL_APPLICATION_SETS,
     CONST_ARGO_PLURAL_APPLICATIONS,
     CONST_ARGO_PLURAL_ROLLOUTS,
     CONST_ARGO_PLURAL_WORKFLOWS,
@@ -250,22 +248,6 @@ class ArgoCRDService:
 
     # -- Applications & ApplicationSets ---------------------------------------
 
-    def list_applications(self, namespace: str = DEFAULT_K8S_NAMESPACE) -> list[ArgoResourceState]:
-        """List ArgoCD Applications as typed resource states."""
-        return [
-            ArgoResourceState.from_manifest(item)
-            for item in self.list_resources(CONST_ARGO_PLURAL_APPLICATIONS, namespace=namespace)
-        ]
-
-    def list_application_sets(
-        self, namespace: str = DEFAULT_K8S_NAMESPACE
-    ) -> list[ArgoResourceState]:
-        """List ArgoCD ApplicationSets as typed resource states."""
-        return [
-            ArgoResourceState.from_manifest(item)
-            for item in self.list_resources(CONST_ARGO_PLURAL_APPLICATION_SETS, namespace=namespace)
-        ]
-
     def apply_application(
         self, manifest: dict[str, Any], namespace: str = DEFAULT_K8S_NAMESPACE
     ) -> ArgoResourceState:
@@ -337,13 +319,6 @@ class ArgoCRDService:
                 namespace=namespace,
             )
         )
-
-    def list_analysis_runs(self, namespace: str = DEFAULT_K8S_NAMESPACE) -> list[ArgoResourceState]:
-        """List Rollout AnalysisRuns backing automated canary metric verification."""
-        return [
-            ArgoResourceState.from_manifest(item)
-            for item in self.list_resources(CONST_ARGO_PLURAL_ANALYSIS_RUNS, namespace=namespace)
-        ]
 
     # -- Workflows ------------------------------------------------------------
 

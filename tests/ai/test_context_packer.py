@@ -168,21 +168,6 @@ def test_pack_code_fallback_on_non_python() -> None:
     assert "greet" in packed.content
 
 
-def test_pack_snippets_distributes_budget() -> None:
-    """Verify pack_snippets distributes token budget across multiple files."""
-    packer = ContextPacker()
-    snippets = [
-        ("auth.py", SAMPLE_PYTHON_CODE),
-        ("models.py", "class Role:\n    ADMIN = 'admin'\n    USER = 'user'\n"),
-    ]
-    results = packer.pack_snippets(snippets, total_budget=300)
-
-    assert len(results) == 2
-    total_tokens = sum(r.packed_tokens for r in results)
-    assert total_tokens <= 300
-    assert any("UserService" in r.content for r in results)
-
-
 def test_pack_file(tmp_path: Path) -> None:
     """Verify pack_file reads a file from disk and packs it."""
     file_path = tmp_path / "sample.py"
@@ -242,20 +227,6 @@ def test_pack_code_syntactically_valid_under_strict_budget() -> None:
     # Must be 100% valid Python syntax without SyntaxError
     parsed = ast.parse(packed.content)
     assert parsed is not None
-
-
-def test_pack_snippets_small_budget_never_exceeds_total() -> None:
-    """Verify that pack_snippets never violates small total_budget contracts."""
-    packer = ContextPacker()
-    snippets = [
-        ("a.py", SAMPLE_PYTHON_CODE),
-        ("b.py", SAMPLE_PYTHON_CODE),
-        ("c.py", SAMPLE_PYTHON_CODE),
-    ]
-    results = packer.pack_snippets(snippets, total_budget=60)
-    assert len(results) == 3
-    total_packed = sum(r.packed_tokens for r in results)
-    assert total_packed <= 60
 
 
 def test_prune_tree_linear_statement_scaling() -> None:

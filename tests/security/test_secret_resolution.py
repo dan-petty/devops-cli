@@ -509,86 +509,8 @@ def test_registry_tracks_and_returns_leases() -> None:
     registry = _registry()
     registry.track("lease-1", 3600, renewable=True, secret_path="database/creds/app")
 
-    assert [lease.lease_id for lease in registry.leases()] == ["lease-1"]
     assert registry.get("lease-1") is not None
     assert registry.get("absent") is None
-
-
-def test_registry_tracks_authentication_lease() -> None:
-    """The lease backing a login token is tracked alongside dynamic secrets."""
-    registry = _registry()
-    auth = VaultAuthResult(
-        client_token="s.token", accessor="acc-9", lease_duration=1800, renewable=True
-    )
-    lease = registry.track_auth(auth)
-
-    assert (lease.lease_id, lease.duration_seconds, lease.renewable) == ("acc-9", 1800, True)
-
-
-def test_needs_renewal_triggers_below_the_threshold() -> None:
-    """Renewal is due once a lease burns past its configured TTL fraction."""
-    registry = _registry()
-    issued = time.time()
-    lease = registry.track("l1", 100, renewable=True)
-    lease = lease.model_copy(update={"issued_at": issued})
-
-    assert registry.needs_renewal(lease, now=issued + 50) is False
-    assert registry.needs_renewal(lease, now=issued + 80) is True
-
-
-def test_non_renewable_leases_are_never_renewed() -> None:
-    """A lease Vault marked non-renewable is left alone."""
-    registry = _registry()
-    lease = registry.track("l1", 100, renewable=False)
-    assert registry.needs_renewal(lease, now=time.time() + 99) is False
-
-
-def test_renew_extends_the_lease_and_counts_renewals(web: WebFake) -> None:
-    """A renewed lease records its new lifetime and increments the renewal count."""
-    registry = _registry()
-    registry.track("lease-1", 100, renewable=True)
-    web.respond(
-        "POST", "http://example.com:8200/v1/sys/leases/renew", 200, {"lease_duration": 3600}
-    )
-
-    renewed = registry.renew("lease-1")
-
-    assert (renewed.duration_seconds, renewed.renewal_count) == (3600, 1)
-
-
-def test_renewing_an_untracked_or_fixed_lease_is_an_error() -> None:
-    """Renewal is refused for unknown leases and for those Vault will not renew."""
-    registry = _registry()
-    registry.track("fixed", 100, renewable=False)
-
-    with pytest.raises(VaultLeaseError, match="not tracked"):
-        registry.renew("absent")
-    with pytest.raises(VaultLeaseError, match="not renewable"):
-        registry.renew("fixed")
-
-
-def test_renew_expiring_sweeps_every_lease_despite_a_failure(web: WebFake) -> None:
-    """One failed renewal does not deny the remaining leases their chance."""
-    registry = _registry()
-    issued = time.time() - 90
-    for lease_id in ("a", "b", "c"):
-        registry.track(lease_id, 100, renewable=True)
-        registry._leases[lease_id] = registry._leases[lease_id].model_copy(
-            update={"issued_at": issued}
-        )
-    registry.track("fresh", 100, renewable=True)
-
-    def handle_renew(req: httpx2.Request) -> httpx2.Response:
-        data = json.loads(req.content)
-        if data.get("lease_id") == "b":
-            return httpx2.Response(400, json={"errors": ["renewal rejected"]})
-        return httpx2.Response(200, json={"lease_duration": 3600})
-
-    web.serve(handle_renew)
-    report = registry.renew_expiring()
-
-    assert (sorted(report.renewed), report.failed, report.skipped) == (["a", "c"], ["b"], ["fresh"])
-    assert report.all_renewed is False
 
 
 def test_revoke_reports_the_refusal_and_stops_tracking(web: WebFake) -> None:
@@ -602,37 +524,7 @@ def test_revoke_reports_the_refusal_and_stops_tracking(web: WebFake) -> None:
     with pytest.raises(VaultLeaseError) as raised:
         registry.revoke("lease-1")
 
-    assert (raised.value.status_code, registry.leases()) == (400, [])
-
-
-def test_revoke_all_clears_the_registry_and_names_the_refusals(web: WebFake) -> None:
-    """Every tracked lease is revoked in one sweep; the ones Vault refused are returned."""
-    registry = _registry()
-    for lease_id in ("a", "b"):
-        registry.track(lease_id, 100, renewable=True)
-
-    def handle_revoke(req: httpx2.Request) -> httpx2.Response:
-        data = json.loads(req.content)
-        if data.get("lease_id") == "b":
-            return httpx2.Response(403, json={"errors": ["refused"]})
-        return httpx2.Response(204)
-
-    web.serve(handle_revoke)
-    refused = registry.revoke_all()
-
-    assert (refused, registry.leases()) == (["b"], [])
-
-
-def test_renew_token_returns_new_lifetime(web: WebFake) -> None:
-    """Renewing the client token reports its refreshed lifetime."""
-    registry = _registry()
-    web.respond(
-        "POST",
-        "http://example.com:8200/v1/auth/token/renew-self",
-        200,
-        {"auth": {"lease_duration": 7200}},
-    )
-    assert registry.renew_token() == 7200
+    assert (raised.value.status_code, registry.get("lease-1")) == (400, None)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

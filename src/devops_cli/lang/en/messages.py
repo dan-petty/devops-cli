@@ -1694,7 +1694,6 @@ class ToolMessages:
     no_unstaged_changes: str = "No unstaged changes."
     no_pods_in_namespace: str = "No pods found in namespace {namespace}."
     no_argo_apps: str = "No ArgoCD applications found."
-    argo_app_not_found: str = "ArgoCD application '{app_name}' not found."
     scan_status: str = "{scanner} scan status: {status}"
     scan_reason: str = "Reason: {reason}"
     scan_gave_no_result: str = "The scan gave no result. Do not report the target as clean."

@@ -126,53 +126,6 @@ def plan_k8s_bootstrap(
     return requests
 
 
-def plan_k8s_bootstrap_openwebui(
-    email: str,
-    name: str,
-    context: str | None = None,
-) -> list[PlannedRequest]:
-    """Plan Open-WebUI admin user bootstrapping via pod discovery and exec."""
-    ctx_args = ["--context", context] if context else []
-    pod_cmd = [
-        BIN_KUBECTL,
-        "get",
-        "pods",
-        "-n",
-        "llm",
-        "-l",
-        "app.kubernetes.io/name=open-webui",
-        "-o",
-        "jsonpath={.items[0].metadata.name}",
-        *ctx_args,
-    ]
-    exec_cmd = [
-        BIN_KUBECTL,
-        "exec",
-        "-i",
-        "-n",
-        "llm",
-        "<open-webui-pod>",
-        *ctx_args,
-        "--",
-        "python3",
-        "-c",
-        "<bootstrap-script>",
-    ]
-    return [
-        PlannedRequest(
-            method="kubectl",
-            target="pods",
-            argv=tuple(pod_cmd),
-        ),
-        PlannedRequest(
-            method="kubectl",
-            target="exec",
-            argv=tuple(exec_cmd),
-            stdin="<bootstrap-script>",
-        ),
-    ]
-
-
 def plan_k8s_bootstrap_mattermost(
     team: str = "homelab",
     context: str | None = None,
@@ -278,40 +231,6 @@ def plan_k8s_check_deprecated(target: Path | str) -> list[PlannedRequest]:
             argv=tuple(cmd),
         )
     ]
-
-
-def plan_k8s_configure_urls(
-    stack: str,
-    context: str | None = None,
-    addressing: str | None = None,
-) -> list[PlannedRequest]:
-    """Plan cluster ingress discovery and host resolution."""
-    ctx_args = ["--context", context] if context else []
-    cmd = [BIN_KUBECTL, "get", "ingress", "-A", "-o", "json", *ctx_args]
-    plans = [
-        PlannedRequest(
-            method="kubectl",
-            target="ingress",
-            argv=tuple(cmd),
-        )
-    ]
-    if addressing == "node-port":
-        node_cmd = [
-            BIN_KUBECTL,
-            "get",
-            "nodes",
-            "-o",
-            'jsonpath={.items[0].status.addresses[?(@.type=="InternalIP")].address}',
-            *ctx_args,
-        ]
-        plans.append(
-            PlannedRequest(
-                method="kubectl",
-                target="nodes",
-                argv=tuple(node_cmd),
-            )
-        )
-    return plans
 
 
 def plan_k8s_create_tls_secret(
@@ -422,57 +341,6 @@ def plan_k8s_enable_tls(
             )
         )
     return plans
-
-
-def plan_k8s_sync_secrets(
-    stack: str = "infra",
-    context: str | None = None,
-) -> list[PlannedRequest]:
-    """Plan secret synchronization from cluster to local credentials."""
-    ctx_args = ["--context", context] if context else []
-    cmd = [
-        BIN_KUBECTL,
-        "get",
-        "secret",
-        "argocd-initial-admin-secret",
-        "-n",
-        "argocd",
-        "-o",
-        "jsonpath={.data.password}",
-        *ctx_args,
-    ]
-    return [
-        PlannedRequest(
-            method="kubectl",
-            target="secret/argocd-initial-admin-secret",
-            argv=tuple(cmd),
-        )
-    ]
-
-
-def plan_k8s_teardown_stack(
-    k8s_dir: Path | str,
-    stack: str = "infra",
-    context: str | None = None,
-) -> list[PlannedRequest]:
-    """Plan stack uninstall and resource deletions."""
-    ctx_args = ["--context", context] if context else []
-    return [
-        PlannedRequest(
-            method="kubectl",
-            target="apps",
-            argv=tuple(
-                [BIN_KUBECTL, "get", "application", "-n", "argocd", "-o", "name", *ctx_args]
-            ),
-        ),
-        PlannedRequest(
-            method="kubectl",
-            target="teardown",
-            argv=tuple(
-                [BIN_KUBECTL, "delete", "-k", str(k8s_dir), "--ignore-not-found", *ctx_args]
-            ),
-        ),
-    ]
 
 
 def plan_k8s_validate(
