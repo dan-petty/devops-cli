@@ -418,6 +418,32 @@ def test_each_group_kind_reads_back(kind: str) -> None:
     assert [group.kind.value for group in read.groups] == [kind]
 
 
+def test_a_manifest_group_writes_its_kind() -> None:
+    from devops_cli.roadmap.stage.stage_change import group_text
+
+    text = group_text(1, StageGroup.model_validate(MANIFEST_GROUP))
+
+    assert text.splitlines()[2].startswith("Kind: manifest. Reads: ")
+
+
+def test_the_problem_of_a_behavior_group_with_no_source_names_the_other_kinds() -> None:
+    dashboard = {
+        **MANIFEST_GROUP,
+        "kind": "behavior",
+        "changes": [
+            "k8s/monitoring/dashboards/project-metrics.json",
+            "tests/grafana/test_grafana_dashboards.py",
+        ],
+        "creates": [],
+        "creates_lines": {},
+    }
+
+    with pytest.raises(ValidationError) as found:
+        StageGroup.model_validate(dashboard)
+
+    assert ("kind manifest" in str(found.value), "kind other" in str(found.value)) == (True, True)
+
+
 # A hand-written group whose `Kind:` line says another kind than the tasks suggest: the first task
 # of each "fails on the base", except for the behavior group, whose tasks both "pass".
 EXPLICIT_KIND_GROUPS: dict[str, str] = {
