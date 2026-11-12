@@ -39,6 +39,7 @@ from devops_cli.commands.ci import (
 )
 from devops_cli.config.constants import (
     CONST_BANDIT_INI_NAME,
+    CONST_CI_SHARD_SUMMARY_CHARS,
     CONST_CI_TEST_BUDGET_SECONDS,
     CONST_EXIT_CANCELLED,
 )
@@ -1129,7 +1130,7 @@ def test_service_image_test_ci_job_invariants() -> None:
         "HOME=/tmp" in install_run,
         "UV_NO_CONFIG=1" in install_run,
         "/workspace/project" in test_run,
-        '"-rs"' in test_run,
+        f'"-r{CONST_CI_SHARD_SUMMARY_CHARS}"' in test_run,
         '"--durations=10"' in test_run,
     ) == ("", True, True, True, True, True)
 

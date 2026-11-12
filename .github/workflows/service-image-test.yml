@@ -193,5 +193,5 @@ jobs:
             -e PATH="/app/.venv/bin:/opt/devops-tools/bin:$TOOLS_DIR/bin:/usr/local/bin:/usr/bin:/bin" \
             --entrypoint /app/.venv/bin/python \
             "$IMAGE" \
-            -c 'import pathlib, sys, devops_cli; os_rel = pathlib.Path("/etc/os-release").read_text(encoding="utf-8"); assert "VERSION_CODENAME=trixie" in os_rel, os_rel; assert (devops_cli.__file__ or "").startswith("/app/.venv/"), devops_cli.__file__; import pytest; raise SystemExit(pytest.main(["-o", "pythonpath=", "-q", "-rs", "--durations=10", "--no-cov", "--snapshot-warn-unused", *sys.argv[1:]]))' \
+            -c 'import pathlib, sys, devops_cli; os_rel = pathlib.Path("/etc/os-release").read_text(encoding="utf-8"); assert "VERSION_CODENAME=trixie" in os_rel, os_rel; assert (devops_cli.__file__ or "").startswith("/app/.venv/"), devops_cli.__file__; import pytest; raise SystemExit(pytest.main(["-o", "pythonpath=", "-q", "-rfEs", "--durations=10", "--no-cov", "--snapshot-warn-unused", *sys.argv[1:]]))' \
             "${TEST_FILES[@]}"
