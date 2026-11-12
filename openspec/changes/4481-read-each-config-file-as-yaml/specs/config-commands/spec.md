@@ -48,11 +48,15 @@ The ConfigMap render SHALL read the config in the ConfigMap template as YAML 1.2
 - **THEN** the render succeeds, and a YAML 1.2 read of the rendered config gives the string `off` for `roadmap.intake.jev`
 
 ### Requirement: The SSH key prefix reads a project config file as YAML 1.2
-The SSH key prefix SHALL read `ssh.key_prefix` from a project config file as YAML 1.2.
+The SSH key prefix SHALL read `ssh.key_prefix` from a project config file as YAML 1.2. A project config file that the settings load refuses SHALL give no prefix, and the log of the read SHALL quote no text of the file.
 
 #### Scenario: A bare no as the key prefix of a project
 - **WHEN** the project config file of a workspace holds `ssh.key_prefix: no` with no quotes, and no other source sets the prefix
 - **THEN** the key prefix of the workspace is `no`
+
+#### Scenario: A project config file that does not load
+- **WHEN** the project config file of a workspace holds `ssh.key_prefix: !!int FAKE-value`, or holds the `ssh` key two times, and no other source sets the prefix
+- **THEN** the key prefix of the workspace is the name of its directory, and the log names the type of the error and holds no `FAKE-value`
 
 ## MODIFIED Requirements
 
