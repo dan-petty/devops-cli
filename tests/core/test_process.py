@@ -661,7 +661,7 @@ def test_dry_run_intent_handling() -> None:
 # of git, gets none, as a program that its configuration names would see it.
 NETWORK_GIT = (
     ["git", "push", "origin", "feat/184-example"],
-    ["git", "-C", "/tmp/example", "fetch", "origin", "main"],
+    ["git", "-C", "work/example", "fetch", "origin", "main"],
     ["git", "ls-remote", "--heads", "origin"],
     ["git", "-c", "credential.helper=", "pull", "origin", "main"],
     ["git", "remote", "set-head", "origin", "--auto"],

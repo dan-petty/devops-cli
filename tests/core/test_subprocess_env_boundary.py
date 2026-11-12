@@ -722,7 +722,7 @@ def test_the_git_keys_that_turn_a_configuration_file_off_reach_the_child(
 @pytest.mark.parametrize(
     ("key", "value"),
     [
-        ("GIT_CONFIG_GLOBAL", "/tmp/example.gitconfig"),
+        ("GIT_CONFIG_GLOBAL", "/home/example/.gitconfig"),
         ("GIT_CONFIG_NOSYSTEM", "0"),
         ("git_config_global", "/dev/null"),
         ("git_config_nosystem", "1"),
