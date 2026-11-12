@@ -169,13 +169,13 @@ def test_gh_pages_builds(gh_edge: ProcessFake) -> None:
 
 def test_gh_pages_verify(tmp_path: Path) -> None:
     """devops gh pages verify passes on valid configuration."""
-    docs_dir = tmp_path / "docs"
-    docs_dir.mkdir()
-    (docs_dir / "_config.yml").write_text(
-        "title: My Project\ndescription: Test\nurl: https://example.github.io\n"
-        "baseurl: /test\nmarkdown: kramdown\nplugins:\n  - jekyll-seo-tag\n",
+    (tmp_path / "zensical.toml").write_text(
+        '[project]\nsite_name = "My Project"\nsite_url = "https://example.github.io/test/"\n'
+        'repo_url = "https://github.com/example/test"\n',
         encoding="utf-8",
     )
+    docs_dir = tmp_path / "docs"
+    docs_dir.mkdir()
     (docs_dir / "index.md").write_text("# Hello World\n", encoding="utf-8")
     result = runner.invoke(app, ["pages", "verify", "--dir", str(tmp_path)])
     assert result.exit_code == 0

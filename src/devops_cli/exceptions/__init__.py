@@ -87,6 +87,7 @@ from devops_cli.exceptions.tools import (
     ToolExecutionError,
 )
 from devops_cli.exceptions.validation import (
+    DocsSiteError,
     InvalidURLError,
     ValidationError,
 )
@@ -129,6 +130,7 @@ __all__ = [
     "DockerEngineError",
     "DockerError",
     "DockerSandboxError",
+    "DocsSiteError",
     "GitHubFileNotFoundError",
     "GitHubNotFoundError",
     "GitHubOperationError",

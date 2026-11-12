@@ -18,10 +18,10 @@
 
 ## Architecture and Repository Governance
 
-The source code and repository governance policies live in the GitHub repository:
+The repository governance policies are root documents of the repository, and the site shows them in the Project tab:
 
-- [System Architecture](https://github.com/dan-petty/devops-cli/blob/main/ARCHITECTURE.md)
-- [Release Cycle](https://github.com/dan-petty/devops-cli/blob/main/RELEASE_CYCLE.md)
-- [Security Policy](https://github.com/dan-petty/devops-cli/blob/main/SECURITY.md)
-- [Contributor Guidelines](https://github.com/dan-petty/devops-cli/blob/main/CONTRIBUTING.md)
+- [System Architecture](../ARCHITECTURE.md)
+- [Release Cycle](../RELEASE_CYCLE.md)
+- [Security Policy](../SECURITY.md)
+- [Contributor Guidelines](../CONTRIBUTING.md)
 - [Source Repository](https://github.com/dan-petty/devops-cli)

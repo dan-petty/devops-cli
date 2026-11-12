@@ -1,0 +1,8 @@
+{#- The theme override of the docs site (#5152). `devops docs site build` writes
+    `config.extra.build` into the staged config. The meta tag gives the Pages job the commit of
+    the build of each page. -#}
+{% extends "base.html" %}
+{% block extrahead %}
+  {{ super() }}
+  <meta name="devops-build-commit" content="{{ config.extra.build.commit }}">
+{% endblock %}

@@ -170,6 +170,20 @@ def test_render_markdown_and_json(generator: DocGenerator, snapshot: SnapshotAss
     assert "mcp_tools" in json_dict
 
 
+def test_the_mcp_tool_catalog_links_each_tool_to_the_heading_id_that_github_writes(
+    generator: DocGenerator,
+) -> None:
+    """GitHub keeps the underscores of the heading `ai_ask_jev` in its id, so the table links
+    to `#ai_ask_jev`, and the link works on github.com and on the docs site (#5152)."""
+    tools = [MCPToolDoc(name="ai_ask_jev", description="Ask Jev", parameters=[])]
+
+    rows = generator.render_mcp_tools_markdown(tools).splitlines()
+
+    assert [row for row in rows if row.startswith("| [")] == [
+        "| [`ai_ask_jev`](#ai_ask_jev) | - | Ask Jev |"
+    ]
+
+
 def test_write_and_check_docs(generator: DocGenerator, tmp_path: Path) -> None:
     """Write and check docs using a two-entry fixture without introspection or argv checks."""
     fixture_docs = {

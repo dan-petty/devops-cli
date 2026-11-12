@@ -1028,6 +1028,22 @@ class DocsCommandHelp:
     readme_path: str = "Path to README.md file (default: workspace root README.md)."
     validate_only: str = "Validate that existing documentation is up to date without writing files."
     check_sync: str = "Verify README.md Command Matrix synchronization as well."
+    site_app: str = "Build the docs site with Zensical."
+    site_build: str = (
+        "Stage docs/ and the root documents in .data/site-src/, change each link to a repository "
+        "file outside the site into a GitHub link at the build commit, and build the site with "
+        "Zensical into .data/site-src/site/. Each page shows the version, the commit and the build "
+        "time. The page is docs/SDLC.md."
+    )
+    site_strict: str = (
+        "Fail on a Zensical warning, such as a link to a missing page or anchor, and on a page "
+        "that no nav tab lists."
+    )
+    site_serve: str = (
+        "Build and serve the staged site on localhost:8000. Run the command again after a change "
+        "to a page."
+    )
+    site_root: str = "Repository root that holds zensical.toml (default: the current directory)."
 
 
 @dataclass(frozen=True)
@@ -1212,14 +1228,17 @@ class GHCommandHelp:
     views_sync: str = "Synchronize standardized views with the remote GitHub Projects v2 board."
     views_audit: str = "Audit remote project views against standardized template specifications."
     pages_app: str = (
-        "Inspect GitHub Pages site deployment status, builds, and local Jekyll configuration."
+        "Inspect GitHub Pages site deployment status, builds, and the local Zensical settings."
     )
     pages_status: str = (
         "Inspect GitHub Pages deployment status, URL, branch, and HTTPS enforcement."
     )
     pages_builds: str = "List recent GitHub Pages build history and durations."
     pages_build: str = "Trigger a new deployment build for GitHub Pages."
-    pages_verify: str = "Verify local repository readiness for GitHub Pages publishing."
+    pages_verify: str = (
+        "Verify that zensical.toml has the settings of the docs site and that docs/ holds Markdown "
+        "pages."
+    )
     issue_app: str = "Manage GitHub Issues, track milestones, and enforce taxonomy standards."
     issue_list: str = "List repository issues with milestone, taxonomy labels, and status."
     issue_view: str = (

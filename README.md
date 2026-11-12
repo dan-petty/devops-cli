@@ -400,6 +400,7 @@ and excessive permissions fail it, and every other finding is shown. |
 | [**docs**](docs/commands/docs.md) | `devops docs generate [OPTIONS]` | Generate comprehensive Markdown or JSON documentation for all CLI commands and tools. |
 |  | `devops docs check [OPTIONS]` | Check that generated documentation and README.md are up to date with codebase. |
 |  | `devops docs sync-readme [OPTIONS]` | Synchronize the Complete Command Matrix table in README.md with live CLI commands. |
+|  | `devops docs site COMMAND [ARGS]...` | Generate and validate CLI and architecture documentation. |
 | [**roadmap**](docs/commands/roadmap.md) | `devops roadmap intake [OPTIONS]` | Turn each open issue with no priority label into a roadmap item, or file a new candidate: intake sets the labels, adds a reason comment and names a possible duplicate for a person to close. It writes nothing without --confirm. Details: docs/roadmap/intake.md. |
 |  | `devops roadmap refine [OPTIONS]` | Refine roadmap items to Ready: investigate open questions with tools that read the code and the documentation, then write the design, tasks and acceptance criteria to GitHub. Without --confirm, refine prints its plan only. Details: docs/roadmap/refine.md. |
 |  | `devops roadmap alternatives [OPTIONS]` | Check open items for an open, maintained tool or library that already covers their need. A check writes a body block and posts a comment for a first check or a changed result, and a person decides what the tool means for the item. Details: docs/roadmap/alternatives.md. |

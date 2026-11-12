@@ -3,7 +3,7 @@
 ## 1. Overview & Purpose
 
 GitHub project governance in `devops-cli` standardizes repository metadata across six foundational pillars:
-1. **GitHub Pages Publishing**: Inspection of deployment health, custom domain status, HTTPS enforcement, build history, manual build dispatching, and readiness verification of `docs/_config.yml`, the one file of site settings that the Pages build reads, and `docs/`.
+1. **GitHub Pages Publishing**: Inspection of deployment health, custom domain status, HTTPS enforcement, build history, manual build dispatching, and readiness verification of `zensical.toml`, the one file of site settings that the site build reads, and `docs/`.
 2. **GitHub Issues Lifecycle & Triage**: Intake (`devops roadmap intake`), the one way new work becomes an item, taxonomy label enforcement (`type/*`, `scope/*`, `priority/*`), and proactive triage auditing to guarantee zero unclassified open issues; a backlog item has no milestone. The labels of an item hold its Status, Priority, Value and Effort (`status/*`, `priority/*`, `value/*`, `effort/*`; ADR 0016), and no roadmap job reads or writes a project board.
 3. **GitHub Projects v2 Lifecycle**: Board creation, multi-board listing, reconciliation of Status and Priority on the board's cards from issue and pull request state and labels, and automated drift auditing against standardized template schemas.
 4. **Standardized Projects v2 Views**: Continuous auditing and synchronization of the 4 canonical views (`Sprint Kanban`, `Roadmap Timeline`, `Triage & Quality Table`, and `Value vs Effort Priority Matrix`) ensuring full alignment across `https://github.com/dan-petty/devops-cli/projects` and `https://github.com/dan-petty/devops-cli/issues/views`.
@@ -18,7 +18,7 @@ GitHub project governance in `devops-cli` standardizes repository metadata acros
 graph TD
     A[Declarative Schemas<br/>.github/labels.yml & project-template.json] -->|devops gh label sync| B[Remote GitHub Labels]
     E[Issues placed by devops roadmap intake] -->|devops gh project sync| F[GitHub Projects v2 Items]
-    G[docs/_config.yml] -->|devops gh pages verify| H[GitHub Pages Deployment]
+    G[zensical.toml] -->|devops gh pages verify| H[GitHub Pages Deployment]
     I[Open Issues Queue] -->|devops gh issue triage| J[Triage Audit & Taxonomies]
     B --> K[devops gh label audit]
     D[Remote GitHub Milestones<br/>planning buckets set by a person] --> L[devops gh milestones list]
@@ -53,8 +53,11 @@ devops gh pages builds --limit 10
 # Request a new GitHub Pages deployment build
 devops gh pages build
 
-# Verify local repository readiness (checks docs/_config.yml and the docs/ directory)
+# Verify local repository readiness (checks zensical.toml and the docs/ directory)
 devops gh pages verify
+
+# Build the docs site with Zensical into .data/site-src/site/, and fail on a broken link
+devops docs site build --strict
 ```
 
 ### Issue Management & Triage Commands
@@ -125,7 +128,7 @@ devops gh milestones list
 ## 4. Best Practice Guidance
 
 1. **GitHub Pages Deployment Readiness**:
-   - Before requesting builds or pushing documentation releases, run `devops gh pages verify` to check `docs/_config.yml` (its YAML syntax and its `title`, `url`, `baseurl` and `markdown` keys) and to confirm the `docs/` publishing root exists. GitHub Pages builds `main:/docs` with no `--config` option, so Jekyll reads `docs/_config.yml` only: put every site setting in that file.
+   - Before you push a documentation change, run `devops gh pages verify` to check `zensical.toml` (its TOML syntax and its `site_name`, `site_url` and `repo_url` settings) and to confirm that the `docs/` publishing root exists, and run `devops docs site build --strict`. The `pages.yml` workflow builds the site with Zensical and deploys it: the Pages source of the repository is GitHub Actions. `devops docs site build` reads `zensical.toml` only, so put every site setting in that file.
    - Verify that HTTPS is strictly enforced (`enforce_https: true`) and custom domains have valid SSL certificates via `devops gh pages status`.
 2. **Issue Triage & Zero-Untracked Defect Policy**:
    - Every open issue must have at least one `type/*` label, at least one `scope/*` label, and one `priority/*` label.

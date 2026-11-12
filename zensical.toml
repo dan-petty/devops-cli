@@ -1,0 +1,83 @@
+# The settings of the docs site https://dan-petty.github.io/devops-cli/ (#5152).
+#
+# `devops docs site build` stages `docs/` and the root documents in `.data/site-src/pages/` at
+# their repository paths, and writes `.data/site-src/zensical.yml`: these settings, plus the
+# stage folders, `theme.custom_dir` (the `overrides/` folder of the repository) and
+# `extra.build` (the version, the commit and the build time that the footer shows). So this file
+# holds no folder setting. `.nav.yml` holds the nav tabs. `devops gh pages verify` checks this
+# file. This is not the runtime configuration of devops-cli, which is `config.yaml`.
+
+[project]
+site_name = "devops-cli"
+site_description = "A Python command-line tool that automates workstation, GitHub, Kubernetes and code-review work"
+site_url = "https://dan-petty.github.io/devops-cli/"
+repo_url = "https://github.com/dan-petty/devops-cli"
+repo_name = "dan-petty/devops-cli"
+# The stage keeps the repository paths, so the edit link and the view link of each page go to
+# its source file on `main`.
+edit_uri = "edit/main/"
+
+[project.theme]
+language = "en"
+features = [
+  "content.action.edit",
+  "content.action.view",
+  "content.code.copy",
+  "navigation.footer",
+  "navigation.indexes",
+  "navigation.path",
+  "navigation.sections",
+  "navigation.tabs",
+  "navigation.top",
+  "navigation.tracking",
+  "search.highlight",
+]
+
+# The palette follows the system theme until the reader selects a theme with the toggle.
+[[project.theme.palette]]
+media = "(prefers-color-scheme)"
+toggle.icon = "lucide/sun-moon"
+toggle.name = "Switch to light mode"
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme: light)"
+scheme = "default"
+toggle.icon = "lucide/sun"
+toggle.name = "Switch to dark mode"
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme: dark)"
+scheme = "slate"
+toggle.icon = "lucide/moon"
+toggle.name = "Switch to system preference"
+
+[project.markdown_extensions]
+abbr = {}
+admonition = {}
+attr_list = {}
+def_list = {}
+footnotes = {}
+md_in_html = {}
+tables = {}
+pymdownx.details = {}
+pymdownx.highlight.anchor_linenums = true
+pymdownx.highlight.pygments_lang_class = true
+pymdownx.inlinehilite = {}
+pymdownx.tasklist.custom_checkbox = true
+# The heading ids that GitHub writes: lower case, with the underscores kept, so each anchor link
+# works on github.com and on the site.
+toc.permalink = true
+toc.slugify = { object = "pymdownx.slugs.slugify", kwds = { case = "lower" } }
+pymdownx.superfences.custom_fences = [
+  { name = "mermaid", class = "mermaid", format = "pymdownx.superfences.fence_code_format" },
+]
+
+# A link to a missing page or anchor is a warning, and `--strict` fails the build on a warning.
+[project.validation]
+invalid_links = true
+invalid_link_anchors = true
+
+[project.plugins.search]
+
+# The nav tabs are in `.nav.yml`. Its globs add a new page with no edit.
+[project.plugins.awesome-nav]

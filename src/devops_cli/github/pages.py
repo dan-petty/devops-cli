@@ -4,16 +4,16 @@ from __future__ import annotations
 
 import json
 import logging
+import tomllib
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from devops_cli.dry_run.requests import PlannedRequest
 
-import yaml
 from pydantic import BaseModel, ConfigDict, Field
 
-from devops_cli.config.constants import CONST_GH_CLI
+from devops_cli.config.constants import CONST_DOCS_SITE_CONFIG_FILE, CONST_GH_CLI
 from devops_cli.github.rate_limiter import run_gh
 
 logger = logging.getLogger(__name__)
@@ -144,38 +144,32 @@ def request_pages_build(repo: str) -> bool:
     return res.returncode == 0
 
 
-def _resolve_jekyll_config_path(root_dir: Path) -> Path:
-    """Return docs/_config.yml, the one file of site settings that the Pages build reads.
+# The settings that the site build needs: the name, the published URL and the repository whose
+# files the pages link to.
+_REQUIRED_SITE_SETTINGS = ("site_name", "site_url", "repo_url")
 
-    GitHub Pages builds `main:/docs` and runs Jekyll with no `--config` option, so Jekyll reads
-    `_config.yml` in that directory and no other file.
+
+def _check_site_config(config_path: Path) -> tuple[bool, list[str]]:
+    """Validate the TOML syntax and the required settings of `zensical.toml`.
+
+    `devops docs site build` reads this file and no other: a setting in `mkdocs.yml` or in
+    `docs/` has no effect on the site.
     """
-    return root_dir / "docs" / "_config.yml"
-
-
-def _check_jekyll_config(config_path: Path) -> tuple[bool, list[str]]:
-    """Validate required Jekyll keys and configuration properties."""
-    diagnostics: list[str] = []
+    name = config_path.name
     if not config_path.is_file():
-        diagnostics.append(f"Missing {config_path.name} in docs/ directory.")
-        return False, diagnostics
-
+        return False, [f"Missing {name} at the repository root."]
     try:
-        data = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
-    except Exception as exc:
-        diagnostics.append(f"Invalid YAML syntax in {config_path.name}: {exc}")
-        return False, diagnostics
-
-    required_keys = ["title", "url", "baseurl", "markdown"]
-    missing = [k for k in required_keys if k not in data or not data[k]]
+        data = tomllib.loads(config_path.read_text(encoding="utf-8"))
+    except tomllib.TOMLDecodeError as exc:
+        return False, [f"Invalid TOML syntax in {name}: {exc}"]
+    project = data.get("project", data)
+    missing = [key for key in _REQUIRED_SITE_SETTINGS if not project.get(key)]
     if missing:
-        diagnostics.append(f"Missing required Jekyll config keys: {', '.join(missing)}")
-        return False, diagnostics
-
-    diagnostics.append(
-        f"✓ Jekyll configuration valid (title='{data.get('title')}', baseurl='{data.get('baseurl')}')"
-    )
-    return True, diagnostics
+        return False, [f"Missing required Zensical settings in {name}: {', '.join(missing)}"]
+    return True, [
+        f"✓ Zensical configuration valid (site_name='{project['site_name']}', "
+        f"site_url='{project['site_url']}')"
+    ]
 
 
 def _check_docs_directory(docs_dir: Path) -> tuple[bool, list[str]]:
@@ -197,8 +191,7 @@ def _check_docs_directory(docs_dir: Path) -> tuple[bool, list[str]]:
 def verify_pages_configuration(root_dir: Path = Path(".")) -> tuple[bool, list[str]]:
     """Verify local repository readiness for GitHub Pages publishing."""
     resolved = root_dir.resolve()
-    config_path = _resolve_jekyll_config_path(resolved)
-    config_ok, config_diags = _check_jekyll_config(config_path)
+    config_ok, config_diags = _check_site_config(resolved / CONST_DOCS_SITE_CONFIG_FILE)
     docs_ok, docs_diags = _check_docs_directory(resolved / "docs")
 
     all_ok = config_ok and docs_ok

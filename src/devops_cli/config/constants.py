@@ -247,6 +247,9 @@ CONST_CURRENT_DIR = Path(".")
 CONST_ROOT_DIR = Path("/")
 CONST_DOCS_DIR_NAME = "docs"
 CONST_DOCS_DIR_PATH = Path(CONST_DOCS_DIR_NAME)
+# The settings of the docs site, at the repository root: `devops docs site build` builds the site
+# from it, and `devops gh pages verify` checks it (#5152).
+CONST_DOCS_SITE_CONFIG_FILE: Final[str] = "zensical.toml"
 CONST_VSCODE_DIR_NAME = ".vscode"
 CONST_MCP_JSON_NAME = "mcp.json"
 # Claude Code reads project-scoped MCP servers from `.mcp.json` at the repository root.

@@ -72,7 +72,7 @@
       
       | Tool Name | `readOnlyHint` | Description |
       |---|---|---|
-      | [`test_tool`](#test-tool) | - | A test tool |
+      | [`test_tool`](#test_tool) | - | A test tool |
       
       ---
       

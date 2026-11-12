@@ -64,3 +64,9 @@ class InvalidURLError(ValidationError):
             field="url",
             details=err_details,
         )
+
+
+class DocsSiteError(ValidationError):
+    """Raised when the docs site cannot be staged, or when its built pages fail a check."""
+
+    error_code = "DOCS_SITE_INVALID"

@@ -505,7 +505,7 @@ devops gh pages build [OPTIONS]
 
 ### `devops gh pages verify`
 
-**Verify local repository readiness for GitHub Pages publishing.**
+**Verify that zensical.toml has the settings of the docs site and that docs/ holds Markdown pages.**
 
 ```bash
 devops gh pages verify [OPTIONS]
