@@ -431,13 +431,13 @@ def runner_argv(
     sources: tuple[str, ...],
     tags: str | None,
     key: Path | None,
-    check: bool = True,
+    check_mode: bool = True,
 ) -> list[str]:
     """`ansible-runner run` of `playbook` on the hosts of `pattern`, by default in check mode with
     diffs. The options after `--cmdline=` go to `ansible-playbook`: check mode, the inventory, the
-    tags, and the key of `devops ssh` when there is one. With no `check`, the run changes the
+    tags, and the key of `devops ssh` when there is one. With no `check_mode`, the run changes the
     hosts and shows no diffs."""
-    options = _CHECK_OPTIONS if check else _RUN_OPTIONS
+    options = _CHECK_OPTIONS if check_mode else _RUN_OPTIONS
     words = [*options, *(word for source in sources for word in ("-i", source))]
     if tags:
         words += ["--tags", tags]
@@ -620,7 +620,7 @@ class Playbook:
         """The export of the repo."""
         return self.folder / PROJECT_FOLDER
 
-    def run(self, pattern: str, *, check: bool = True) -> RunOutcome:
+    def run(self, pattern: str, *, check_mode: bool = True) -> RunOutcome:
         """Run the playbook on the hosts of `pattern` with a new ident, by default in check mode,
         and read its job events."""
         ident = uuid.uuid4().hex
@@ -634,7 +634,7 @@ class Playbook:
                 sources=self.sources,
                 tags=self.tags,
                 key=self.key,
-                check=check,
+                check_mode=check_mode,
             ),
             env=runner_env(self.tool, self.project, self.collections),
             quiet=True,

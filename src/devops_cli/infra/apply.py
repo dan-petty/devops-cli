@@ -542,7 +542,7 @@ def _apply_together(context: _Context, hosts: list[HostPlan]) -> list[HostApply]
     """One run of the hosts that have no disruptive class; each host applies when the run did
     not fail on it and changed only what its plan shows."""
     names = ",".join(host.host for host in hosts)
-    outcome = context.run.run(host_pattern(names, context.offline_group), check=False)
+    outcome = context.run.run(host_pattern(names, context.offline_group), check_mode=False)
     results = []
     for planned in hosts:
         problem = _run_problem(outcome, planned.host)
@@ -648,7 +648,7 @@ def _change(context: _Context, work: _HostRun) -> _Stop | None:
     differences = fresh_differences(planned, _host(fresh, planned.host))
     if differences:
         return ApplyStep.FRESH_CHECK, "; ".join(differences)
-    ran = context.run.run(pattern, check=False)
+    ran = context.run.run(pattern, check_mode=False)
     work.idents.append(ran.ident)
     if (problem := _run_problem(ran, planned.host)) is not None:
         return ApplyStep.RUN, problem

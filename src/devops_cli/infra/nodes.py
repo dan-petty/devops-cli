@@ -77,10 +77,10 @@ def get_node_args(node: str) -> tuple[str, ...]:
     return ("get", "node", node, "-o", "json")
 
 
-def drain_args(node: str, timeout_seconds: int, *, check: bool) -> tuple[str, ...]:
-    """The drain of `node` with no `--force`; with `check`, the server dry run of the drain."""
+def drain_args(node: str, timeout_seconds: int, *, server_dry_run: bool) -> tuple[str, ...]:
+    """The drain of `node` with no `--force`; with `server_dry_run`, the server dry run of the drain."""
     args = ("drain", node, *_DRAIN_OPTIONS, f"--timeout={timeout_seconds}s")
-    return (*args, _SERVER_DRY_RUN) if check else args
+    return (*args, _SERVER_DRY_RUN) if server_dry_run else args
 
 
 def pods_args(node: str) -> tuple[str, ...]:
@@ -298,7 +298,7 @@ class Cluster:
         """The problem that would stop the drain of `node`, from a server dry run that changes
         nothing; none when the drain would finish."""
         timeout = DEFAULT_INFRA_DRAIN_CHECK_TIMEOUT_SECONDS
-        args = drain_args(node, timeout, check=True)
+        args = drain_args(node, timeout, server_dry_run=True)
         return self._kubectl(args, timeout + DEFAULT_INFRA_DRAIN_MARGIN_SECONDS).problem
 
     def pods(self, node: str) -> list[dict[str, Any]]:
@@ -334,7 +334,7 @@ class Cluster:
     def drain(self, node: str, bound: int) -> str | None:
         """Cordon and drain `node` within `bound` seconds; the problem when the drain does not
         finish."""
-        args = drain_args(node, bound, check=False)
+        args = drain_args(node, bound, server_dry_run=False)
         return self._kubectl(args, bound + DEFAULT_INFRA_DRAIN_MARGIN_SECONDS).problem
 
     def uncordon(self, node: str) -> list[str]:

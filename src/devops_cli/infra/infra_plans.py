@@ -257,7 +257,7 @@ def plan_apply(target: ApplyTarget) -> list[PlannedRequest]:
         ),
     ]
 
-    def runner(pattern: str, *, check: bool) -> tuple[str, ...]:
+    def runner(pattern: str, *, check_mode: bool) -> tuple[str, ...]:
         return tuple(
             runner_argv(
                 tool,
@@ -268,7 +268,7 @@ def plan_apply(target: ApplyTarget) -> list[PlannedRequest]:
                 sources=("<inventory>",),
                 tags=target.tags,
                 key=Path("<key of devops ssh>"),
-                check=check,
+                check_mode=check_mode,
             )
         )
 
@@ -278,7 +278,7 @@ def plan_apply(target: ApplyTarget) -> list[PlannedRequest]:
             PlannedRequest(
                 method="EXEC",
                 target="the run of the hosts with no disruptive class",
-                argv=runner(f"{','.join(together)}:!<offline group>", check=False),
+                argv=runner(f"{','.join(together)}:!<offline group>", check_mode=False),
             )
         )
     alone = [host.host for host in plan.hosts if host.disruptive] if plan else ["<host>"]
@@ -337,23 +337,23 @@ def _host_steps(
         kubectl("the PersistentVolumes, for the volumes that only one node mounts", VOLUMES_ARGS),
         kubectl(
             f"the server dry run of the drain of {host}",
-            drain_args(node, DEFAULT_INFRA_DRAIN_CHECK_TIMEOUT_SECONDS, check=True),
+            drain_args(node, DEFAULT_INFRA_DRAIN_CHECK_TIMEOUT_SECONDS, server_dry_run=True),
         ),
         kubectl(
             f"the drain of {host}, with the longer of {timeout} s and the longest grace period "
             "and 60 s",
-            drain_args(node, timeout, check=False),
+            drain_args(node, timeout, server_dry_run=False),
         ),
         PlannedRequest(
             method="EXEC",
             target=f"the fresh check of {host}, which must give its plan",
-            argv=runner(pattern, check=True),
+            argv=runner(pattern, check_mode=True),
             repeat=repeat,
         ),
         PlannedRequest(
             method="EXEC",
             target=f"the run of {host}",
-            argv=runner(pattern, check=False),
+            argv=runner(pattern, check_mode=False),
             repeat=repeat,
         ),
         kubectl(f"Ready and the GPUs of {host}", get_node_args(node), repeat=wait),
