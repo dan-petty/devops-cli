@@ -86,6 +86,8 @@ class World(Protocol):
 
     def seed_label(self, name: str, color: str, description: str | None = None) -> None: ...
 
+    def seed_dependencies(self, *purls: str) -> None: ...
+
     def block(self, blocked: int, blocker: int) -> None: ...
 
     def person_adds(self, number: int, label: str) -> None: ...
@@ -154,6 +156,9 @@ class MemoryWorld:
 
     def seed_label(self, name: str, color: str, description: str | None = None) -> None:
         self._roadmap.seed_label(name, color, description or "")
+
+    def seed_dependencies(self, *purls: str) -> None:
+        self._roadmap.seed_dependencies(*purls)
 
     def block(self, blocked: int, blocker: int) -> None:
         self._roadmap.seed_blocked_by(blocked, blocker)
@@ -243,6 +248,9 @@ class GitHubWorld:
 
     def seed_label(self, name: str, color: str, description: str | None = None) -> None:
         self.github.seed_label(name, color, description)
+
+    def seed_dependencies(self, *purls: str) -> None:
+        self.github.seed_dependencies(*purls)
 
     def block(self, blocked: int, blocker: int) -> None:
         self.github.block(blocked, blocker)
@@ -1247,6 +1255,16 @@ def test_repository_facts_are_those_seeded_for_the_repository(store: InMemoryRoa
     assert (store.repository_facts("example/tool"), store.repository_facts("example/none")) == (
         facts,
         None,
+    )
+
+
+def test_dependency_purls_are_those_of_the_sbom_of_the_repository(world: World) -> None:
+    """The package URLs of the SBOM of the repository: none until a test seeds them (#4661)."""
+    before = world.store.dependency_purls()
+    world.seed_dependencies("pkg:pypi/mcp@2.3.0", "pkg:githubactions/actions/checkout@v4")
+    assert (before, world.store.dependency_purls()) == (
+        [],
+        ["pkg:pypi/mcp@2.3.0", "pkg:githubactions/actions/checkout@v4"],
     )
 
 

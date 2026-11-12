@@ -97,6 +97,7 @@ from devops_cli.config.defaults import (
     DEFAULT_REVIEW_TIMEOUT_SECONDS,
     DEFAULT_REVIEWS_DATA_DIR,
     DEFAULT_ROADMAP_ALTERNATIVES_FIRST_PASS_LIMIT,
+    DEFAULT_ROADMAP_ALTERNATIVES_INVENTORY_PATHS,
     DEFAULT_ROADMAP_ALTERNATIVES_LIMIT,
     DEFAULT_ROADMAP_ALTERNATIVES_RECHECK_DAYS,
     DEFAULT_ROADMAP_ALTERNATIVES_RETRY_DAYS,
@@ -1351,6 +1352,11 @@ class AlternativesConfig(BaseModel):
         description="Days after a failed check of an item before the alternatives check takes the item again",
         default=DEFAULT_ROADMAP_ALTERNATIVES_RETRY_DAYS,
         ge=1,
+    )
+
+    inventory_paths: list[str] = Field(
+        description="Paths of a clone, relative to its root, whose files the alternatives check reads for the tools that the repository deploys; a covers or partly tool that they name as a whole word is in use",
+        default_factory=lambda: list(DEFAULT_ROADMAP_ALTERNATIVES_INVENTORY_PATHS),
     )
 
 

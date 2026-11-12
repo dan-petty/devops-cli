@@ -2650,6 +2650,7 @@ class RoadmapMessages:
     alternatives_reason_stopped: str = "the model's run stopped ({reason})"
     alternatives_reason_stopped_message: str = "the model's run stopped ({reason}: {message})"
     alternatives_reason_error: str = "the model call failed ({error})"
+    alternatives_reason_inventory: str = "the read of the tools in use failed ({error})"
     alternatives_reason_url: str = "the reply cites a URL that no tool returned: {url}"
     alternatives_reason_no_facts: str = "the reply names a tool whose facts no tool read: {url}"
     alternatives_reason_no_tool: str = "the reply gives the verdict {verdict} with no tool"
@@ -2719,6 +2720,7 @@ class RoadmapMessages:
         "Rejected by ADR {number:04d}. A newer fact can change an ADR."
     )
     alternatives_basis_in_use: str = "The item already names this tool."
+    alternatives_basis_in_repository: str = "The repository already uses this tool."
     alternatives_comment_skip_class: str = (
         "Class: {skip_class}. The check makes no search and no model call for an item of this "
         "class."
@@ -4657,6 +4659,8 @@ class RoadmapMessages:
             "query": "<search query>",
             "repository": "<owner/name>",
             "package": "<package>",
+            "owner": "<owner>",
+            "name": "<name>",
             # No angle brackets: the contents request percent-encodes them, and the name has the
             # form of an ADR file name.
             "adr_file": "NNNN-name.md",
@@ -4698,6 +4702,8 @@ class RoadmapMessages:
             "repository_facts": "the repository {subject}",
             "latest_release": "the latest release of {subject}",
             "pypi_package": "the PyPI record of the package {subject}",
+            "sbom": "the SBOM that the dependency graph exports",
+            "deps_dev_project": "the packages that deps.dev links to the project {subject}",
             "model_run": "the model's run on {subject}",
             "record": "the job record of {subject}, in its body",
             "set_field": "set {field} on {subject}: its labels and its job record, in one write",
@@ -4721,6 +4727,7 @@ class RoadmapMessages:
         default_factory=lambda: {
             "search": "{provider} search",
             "pypi": "PyPI read",
+            "deps_dev": "deps.dev read",
             "model": "model call",
         }
     )
@@ -4739,7 +4746,11 @@ class RoadmapMessages:
                 "the check is the first one of the item, or its verdict or its tool differs "
                 "from the record of the earlier check"
             ),
-            "adr_read": "the run checks an item that is no skip class",
+            "inventory_read": "the run checks an item that is no skip class",
+            "deps_dev_read": (
+                "the SBOM holds a package and neither it nor the deployed paths hold the tool of "
+                "the reply"
+            ),
             "issues_unread": "the run has not read every issue yet",
             "labels_differ": "the labels of the repository differ from .github/labels.yml",
             "still_waiting": "no comment follows refine's last comment on the waiting item",

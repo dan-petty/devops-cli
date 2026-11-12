@@ -14,15 +14,15 @@ The comment of a `rejected` check names the ADR and keeps the tool URL, because 
 
 ### What the check reads of the ADRs
 
-Once for a run, when the run checks an item that is no skip class, the check reads the files `docs/adr/<four digits>-<name>.md` of the default branch. It keeps the number, the title, the status lines and the `Considered Options` section of each ADR. The status lines are the paragraphs under the title that name another ADR and say that it supersedes or amends. An ADR that a later ADR supersedes in whole is not in force, so the check leaves it out. An ADR that another ADR amends or supersedes in part stays, with its status lines.
+Once for each run, before it selects the items, the check reads the files `docs/adr/<four digits>-<name>.md` of the default branch. It keeps the number, the title, the status lines and the `Considered Options` section of each ADR. The status lines are the paragraphs under the title that name another ADR and say that it supersedes or amends. An ADR that a later ADR supersedes in whole is not in force, so the check leaves it out. An ADR that another ADR amends or supersedes in part stays, with its status lines.
 
 The request holds the entries as `decisions`, the newest ADR first. The text has at most `CONST_ROADMAP_ALTERNATIVES_MAX_ADR_TOKENS` tokens. The cut takes whole entries and never part of one. An entry that does not fit is left out, and a log warning names each ADR that the cut leaves out. The model cannot cite an ADR that it did not see, so the job confirms only the ADRs of `decisions`. A repository with no `docs/adr/` sends no `decisions`.
 
 ### How the job confirms a proposal
 
-The model proposes `rejected` in the key `adr`, with the number of the ADR that rejected its tool. The job gives `rejected` when `decisions` holds that ADR and its title or options name the tool. The job does not read the sense of the ADR: the model reads it, and the comment shows the ADR number to a person.
+The model proposes `rejected` in the key `adr`, with the number of the ADR that rejected its tool. The job gives `rejected` when `decisions` holds that ADR and only its rejected options name the tool. A rejected option is an item of the `Considered Options` list that says `rejected` or `not chosen`. If the title or another option names the tool too, the ADR adopts the tool or decides on a part of it, and the job drops the proposal. ADR 0010 names OpenSpec in its chosen option and in two rejected options, so it rejects no OpenSpec. The comment shows the ADR number to a person.
 
-The model proposes `in-use` in the key `in_use`. The job gives `in-use` when the title or the body of the item names the tool. It reads the body outside its own block and outside the refine section, because both name the tool of an earlier check. Without the flag of the model, the job never gives `in-use`.
+The model proposes `in-use` in the key `in_use`. The job gives `in-use` when the title or the body of the item names the tool. It reads the body outside its own block and outside the refine section, because both name the tool of an earlier check. Without the flag of the model, the text of the item never gives `in-use`. The tools in use can (see [The tools in use](#the-tools-in-use)).
 
 The reply holds `tool_name` too: the name that the ADR or the item writes for the tool, such as `DBOS Transact`. The job tests the repository name or the package name, and `tool_name`.
 
@@ -37,6 +37,22 @@ A text names a tool by the rules below. The test ignores case, and takes a space
 A name of one word is also a word of prose. So the word `just` in a sentence does not name the tool `casey/just`, and `` `just` `` does. The job reads the text with the markdown parser of the project to find these spans.
 
 An item of the type `test`, `docs`, `refactor`, `chore`, `ci` or `perf`, and a `fix` with a stack trace, get `not-applicable` with no model call.
+
+### The tools in use
+
+Once for a run that checks an item of no skip class, the check reads the inventory of the repository at HEAD. A `covers` or `partly` tool that the inventory holds gets `in-use` with no proposal of the model. An ADR that rejects the tool comes first. The comment and the block say "The repository already uses this tool." The inventory has three sources, the cheapest first:
+
+1. The SPDX SBOM that the dependency graph of the repository exports (`GET /repos/{owner}/{repo}/dependency-graph/sbom`), with one request. It holds the package URL of each package of a manifest, a lock file or a workflow. A PyPI package matches by its canonical name, an action by its repository (`pkg:githubactions/github/codeql-action/init` is `github/codeql-action`), and the npm package `@<owner>/<name>` by the repository of the same name. A dependency graph that is off gives an empty SBOM.
+2. The files under `roadmap.alternatives.inventory_paths` of a clone (`k8s`, `tf`, `.devcontainer` and the tools lock by default). They name the services, images and CLIs that no manifest holds, such as LiteLLM or Grafana. The name of the repository or of the package counts as a whole word in any case, as `git grep -i -w -F` finds it. The Service row uses the clone of the model lane. On a workstation, `--source <clone>` gives the clone, and with no clone the check uses the other two sources.
+3. deps.dev, which links a GitHub project to the packages whose source it is (`GET https://api.deps.dev/v3/projects/<project>:packageversions`). The repository `modelcontextprotocol/python-sdk` is the PyPI package `mcp` of the SBOM. The check asks deps.dev only when the SBOM holds a package and the other two sources do not hold the tool, and one run asks once for each project. A failed read skips the item, and the run takes it again after `roadmap.alternatives.retry_days`.
+
+The inventory lives for one run.
+
+### The canonical id and the ADR hash
+
+A check records the canonical id of its tool in `alternatives.tool_id`, so the verdicts of one tool join whatever its URL. The id is the deps.dev project key of the GitHub project of the tool, `github.com/<owner>/<name>` in lower case. A PyPI tool takes its project from the `Source`, `Repository` or `Code` URL of its PyPI record, then from its home page. A PyPI tool with no GitHub source has the id `pkg:pypi/<name>`, with the canonical name of `packaging`. Another URL is its own id.
+
+A check of an item of no skip class also records `alternatives.adr_hash`, the hash of the ADR entries that the model saw. When the ADRs at HEAD give another hash, the item is due again (see [Which items a run takes](#which-items-a-run-takes)).
 
 ## What a check writes
 
@@ -61,7 +77,7 @@ A check that posts a comment adds a new one. It never changes the comment of an 
 
 A run takes open New and Ready items that a trusted author opened. A trusted author is a person with write access, the Service App's bot or `github-actions[bot]`. A run takes an item of a bot only with the approval of the review of refine.
 
-A run takes first the items with no check, lowest number first. Then it takes the items whose check is older than `roadmap.alternatives.recheck_days`, or whose text changed since. The setting `roadmap.alternatives.first_pass_limit` (20 by default) caps the run while an item has no check. The setting `roadmap.alternatives.limit` (5 by default) caps the run after, when every item has a check. `--limit` replaces both for one run. The row runs about twice a day, so a first pass of 141 items takes about 4 days.
+A run takes first the items with no check, lowest number first. Then it takes the items whose check is older than `roadmap.alternatives.recheck_days`, or whose text changed since, or, for an item of no skip class, whose `alternatives.adr_hash` differs from the hash of the ADRs at HEAD or is not recorded. The setting `roadmap.alternatives.first_pass_limit` (20 by default) caps the run while an item has no check. The setting `roadmap.alternatives.limit` (5 by default) caps the run after, when every item has a check. `--limit` replaces both for one run. The row runs about twice a day, so a first pass of 141 items takes about 4 days.
 
 `--item` checks one open item whoever opened it and whatever its Status, even when its check is current.
 
@@ -71,7 +87,7 @@ The check is off for a private repository and when no search provider is configu
 
 ## Failures
 
-An item is skipped, reported and recorded in its job record when its model call fails, when its run stops, or when the job refuses its reply. The job writes the other items. The run takes a skipped item again after `roadmap.alternatives.retry_days`.
+An item is skipped, reported and recorded in its job record when its model call fails, when its run stops, when its read of deps.dev fails, or when the job refuses its reply. The job writes the other items. The run takes a skipped item again after `roadmap.alternatives.retry_days`.
 
 The job writes the check of an item before it checks the next item. A kill of the worker loses at most the check in progress. A rate limit on a write ends the round, and the checks that are written stay.
 
@@ -87,4 +103,4 @@ The command exits 1 only when it tried items and checked none.
 
 ## Where the rules are
 
-[roadmap-alternatives](../../openspec/specs/roadmap-alternatives/spec.md) holds the order of the items, the three tools of the agent, the checks on a reply, the comment and the block, the recheck and retry settings, and the skip class.
+[roadmap-alternatives](../../openspec/specs/roadmap-alternatives/spec.md) holds the order of the items, the three tools of the agent, the checks on a reply, the comment and the block, the recheck and retry settings, the skip class, the tools in use, the canonical id and the ADR hash.

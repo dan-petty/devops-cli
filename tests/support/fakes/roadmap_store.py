@@ -183,6 +183,8 @@ class _Roadmap:
     heads: dict[int, str] = field(default_factory=dict)
     failing: set[str] = field(default_factory=set)
     labels: list[RepositoryLabel] = field(default_factory=list)
+    # The package URLs of the SBOM that `seed_dependencies` made.
+    purls: list[str] = field(default_factory=list)
 
 
 class InMemoryRoadmapStore(RoadmapStore):
@@ -210,6 +212,8 @@ class InMemoryRoadmapStore(RoadmapStore):
         self.listed: list[str] = []
         # Every read of an Item (`item`) and of a path's last change (`path_changed_at`).
         self.reads: list[str] = []
+        # How many times this view read the SBOM.
+        self.sbom_reads = 0
 
     def as_actor(self, actor: str) -> InMemoryRoadmapStore:
         """The same roadmap, written by a person: changes carry their name, and no job record."""
@@ -402,6 +406,10 @@ class InMemoryRoadmapStore(RoadmapStore):
     def seed_repository(self, facts: RepositoryFacts) -> None:
         """Make the repository `facts` describe, which GitHub knows."""
         self._roadmap.repositories[facts.full_name] = facts
+
+    def seed_dependencies(self, *purls: str) -> None:
+        """Add `purls` to the SBOM that the dependency graph of the repository exports."""
+        self._roadmap.purls.extend(purls)
 
     def raw_body(self, number: int) -> str:
         """Issue `number`'s body as GitHub holds it, its record block included."""
@@ -699,6 +707,12 @@ class InMemoryRoadmapStore(RoadmapStore):
     def repository_facts(self, full_name: str) -> RepositoryFacts | None:
         """The facts `seed_repository` gave for `full_name`, or None."""
         return self._roadmap.repositories.get(full_name)
+
+    def dependency_purls(self) -> list[str]:
+        """The package URLs that `seed_dependencies` gave, or the error `fail_read` set."""
+        self._readable("dependency_purls")
+        self.sbom_reads += 1
+        return list(self._roadmap.purls)
 
     def read_issue_body(self, number: int) -> str:
         """The body of issue `number`, with no record block, raising if it is not an issue of

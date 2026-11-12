@@ -5,7 +5,8 @@ maintained tool or library covers the item's need, in whole or in part.
 Items with no check come first, lowest number first, then items whose last check is older than
 `roadmap.alternatives.recheck_days` or whose text changed since, oldest check first. The cap of a round is
 `roadmap.alternatives.first_pass_limit` while such an item has no check and
-`roadmap.alternatives.limit` after. `--limit` replaces both for a run.
+`roadmap.alternatives.limit` after. An item of no skip class is also due when the hash of the ADRs
+that its check read differs from the hash of the ADRs at HEAD, or its check recorded none (#4661). `--limit` replaces both for a run.
 An item whose last check failed less than `roadmap.alternatives.retry_days` ago is
 left out. `--item` checks the one item it names whenever it is open.
 
@@ -25,19 +26,24 @@ the facts. A failed model call, a stopped run or a refused reply skips its item,
 written. The run fails, naming each skipped item, only when it tried items and checked none.
 Rejected credentials stop the run at the first item.
 
-**The ADRs and the item (#3505).** Once for a run that checks an item of no skip class, the job
-reads each ADR of `docs/adr/` that is in force: its number, its title, its status lines and its
-`Considered Options` section. An ADR that a later ADR supersedes is left out. The request holds the
+**The ADRs and the item (#3505).** Once for a run, the job reads each ADR of `docs/adr/` that is in
+force: its number, its title, its status lines and its `Considered Options` section. An ADR that a later ADR supersedes is left out. The request holds the
 entries as `decisions`, newest first, cut by whole entries to a token cap. A warning names each ADR
 that the cut leaves out. The model proposes the verdict `rejected` with `adr`, the number of the
 ADR that rejected the tool. It proposes the verdict `in-use` with `in_use`, when the item already
 names the tool. Both go with the tool of a `covers` or `partly` verdict and with `tool_name`, the
 name that the ADR or the item writes for it. The job gives `rejected` when the ADR is one that the
-model saw and its title or options name the tool. It gives `in-use` when the title or the body of
-the item, outside the job's block and refine's section, names the tool. A name of one word counts
+model saw and only its rejected options name the tool (#4661). It gives `in-use` when the title or
+the body of the item, outside the job's block and refine's section, names the tool. A name of one word counts
 only in a code span, a link or strong emphasis. The job drops a proposal that it cannot confirm,
 and the verdict of the reply stays. The model cannot give `rejected` or `in-use` as its verdict:
 it gets one more turn, and then the job refuses the reply. Refine asks no question for either.
+
+**The tools in use (#4661).** Once for a run that checks an item of no skip class, the job reads
+the inventory of the repository (`devops_cli.roadmap.inventory`): the SBOM of its dependency graph
+and, when the run has a clone, its deployed paths. A `covers` or `partly` tool that the inventory
+holds gives `in-use` with no proposal of the model, after `rejected`. A failed read of deps.dev
+skips the item. A check records the canonical id of its tool and the hash of the ADRs it read.
 
 **Writes.** With `--confirm` a check replaces the job's block in the body, records
 `alternatives.*` in the job record, and posts one comment that carries
@@ -60,11 +66,12 @@ import logging
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
 import httpx2
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 from pydantic_ai import Tool
 from pydantic_ai.messages import ToolReturn
 
@@ -106,11 +113,18 @@ from devops_cli.github.repo_ref import is_name_segment, is_repository_name
 from devops_cli.http.egress import EgressLevel
 from devops_cli.http.entry import http_client
 from devops_cli.lang import MESSAGES
-from devops_cli.roadmap.adr import Adr, fit_to_budget, names, read_adrs
+from devops_cli.roadmap.adr import Adr, fit_to_budget, names, read_adrs, rejects
 from devops_cli.roadmap.agent_run import error_answer
 from devops_cli.roadmap.body_hash import extract_section_and_outside, hash_text
 from devops_cli.roadmap.commit_title import commit_type
 from devops_cli.roadmap.failure import FailureClass, failure_class_of
+from devops_cli.roadmap.inventory import (
+    Inventory,
+    canonical_id,
+    project_of,
+    read_inventory,
+    source_project,
+)
 from devops_cli.roadmap.job_result import RoadmapJob, log_job_result
 from devops_cli.roadmap.page_fetch import TOOLSET_ALTERNATIVES, PageFetch, named_urls
 from devops_cli.roadmap.refine.refine import (
@@ -156,6 +170,9 @@ _FIX_TYPE = "fix"
 
 
 _TOOL_VERDICTS = frozenset({Verdict.COVERS, Verdict.PARTLY})
+# The rank of each name of a URL of a PyPI package, the source first: a home page is often a site.
+_PROJECT_URL_RANK = {"source": 0, "source code": 0, "repository": 0, "code": 0, "homepage": 1}
+_OTHER_URL_RANK = 2
 # The verdicts that the model cannot give. The job sets `not-applicable` for a skip class, and it
 # sets `rejected` and `in-use` when it confirms what the model says in `adr` and `in_use` (#3505).
 _JOB_VERDICTS = frozenset({Verdict.NOT_APPLICABLE, Verdict.REJECTED, Verdict.IN_USE})
@@ -187,13 +204,15 @@ class AlternativesReply(BaseModel):
 @dataclass(frozen=True)
 class ToolFacts:
     """What a fact tool read of one tool: `last_activity` is the last push of a repository, or the
-    latest upload of a PyPI package."""
+    latest upload of a PyPI package. `project` is the GitHub project of the tool, the deps.dev
+    project key of a repository or of the source that a PyPI package names (#4661)."""
 
     name: str
     url: str
     license: str | None
     last_activity: datetime | None
     archived: bool = False
+    project: str | None = None
 
     def maintained(self, now: datetime) -> bool:
         """Whether the tool is not archived and was active within
@@ -212,6 +231,15 @@ class _PyPIInfo(BaseModel):
     license: str | None = None
     classifiers: list[str] = Field(default_factory=list)
     package_url: str
+    project_urls: dict[str, str] | None = None
+
+    @property
+    def project(self) -> str | None:
+        """The GitHub project that the package names as its source: a `Source`, `Repository` or
+        `Code` URL first, then its home page, then any other URL of it (#4661)."""
+        urls = self.project_urls or {}
+        ranked = sorted(urls, key=lambda key: _PROJECT_URL_RANK.get(key.lower(), _OTHER_URL_RANK))
+        return source_project(urls[key] for key in ranked)
 
     @property
     def license_name(self) -> str | None:
@@ -369,6 +397,7 @@ class AlternativesTools:
                 license=repository.license,
                 last_activity=repository.pushed_at,
                 archived=repository.archived,
+                project=project_of(repository.url),
             )
         )
         released = (
@@ -414,6 +443,7 @@ class AlternativesTools:
                 url=normalize_url(package.info.package_url),
                 license=package.info.license_name,
                 last_activity=package.last_upload,
+                project=package.info.project,
             )
         )
         return "\n".join(
@@ -455,18 +485,27 @@ class AlternativesTools:
 
 @dataclass(frozen=True)
 class CheckedTool:
-    """The tool a check found, with the facts the job read: the model wrote none of them."""
+    """The tool a check found, with the facts the job read: the model wrote none of them.
+    `project` is its GitHub project, which gives its canonical id."""
 
     name: str
     url: str
     license: str | None
     last_activity: datetime | None
     maintained: bool
+    project: str | None = None
+
+    @property
+    def canonical_id(self) -> str:
+        """The id of the tool whatever its name, URL or package (#4661)."""
+        return canonical_id(self.url, self.project)
 
 
 @dataclass(frozen=True)
 class Check:
-    """One item's check, ready to write: the comment, and the body with the job's block."""
+    """One item's check, ready to write: the comment, and the body with the job's block.
+    `adr_hash` is the hash of the ADRs that the model read, none for a skip class, and
+    `in_repository` says that the repository uses the tool of an `in-use` verdict (#4661)."""
 
     item: Item
     verdict: Verdict
@@ -483,6 +522,8 @@ class Check:
     adr: int | None = None
     reason: str = ""
     considered: tuple[CheckedTool, ...] = ()
+    adr_hash: str | None = None
+    in_repository: bool = False
 
 
 @dataclass(frozen=True)
@@ -589,10 +630,20 @@ def _is_eligible(item: Item) -> bool:
     )
 
 
-def _is_due(item: Item, checked_at: datetime, recheck_days: int, now: datetime) -> bool:
-    """Whether the check of `item` made at `checked_at` is old, or its text changed since."""
+def _is_due(
+    item: Item, checked_at: datetime, recheck_days: int, now: datetime, adr_hash: str | None
+) -> bool:
+    """Whether the check of `item` made at `checked_at` is old, or its text changed since, or the
+    ADRs `adr_hash` stands for differ from the ones that the check read (#4661). A skip class
+    reads no ADR."""
     old = now - checked_at > timedelta(days=recheck_days)
-    return old or item.job_record.get(AlternativesRecordKey.BODY_HASH) != body_hash_of(item.body)
+    changed = item.job_record.get(AlternativesRecordKey.BODY_HASH) != body_hash_of(item.body)
+    other_adrs = (
+        adr_hash is not None
+        and skip_class_of(item) is None
+        and item.job_record.get(AlternativesRecordKey.ADR_HASH) != adr_hash
+    )
+    return old or changed or other_adrs
 
 
 def select_items(
@@ -604,11 +655,13 @@ def select_items(
     recheck_days: int,
     retry_days: int,
     now: datetime,
+    adr_hash: str | None = None,
 ) -> Selection:
     """Up to `limit` items to check, or up to `first_pass_limit` while an eligible item has no
     check, in the order the module's docstring gives, and the eligible
     items whose check is current. An item whose check failed less than `retry_days` days ago is in
-    neither list, but the coverage counts it. `item_number` names the one open item to check, whatever its failure."""
+    neither list, but the coverage counts it. `item_number` names the one open item to check, whatever its failure.
+    `adr_hash` is the hash of the ADRs at HEAD, which makes due an item whose check read others."""
     if item_number is not None:
         item = store.item(item_number)
         return Selection([item] if item and item.state is GitHubState.OPEN else [], [])
@@ -627,7 +680,7 @@ def select_items(
             continue
         if checked_at is None:
             unchecked.append(item)
-        elif _is_due(item, checked_at, recheck_days, now):
+        elif _is_due(item, checked_at, recheck_days, now, adr_hash):
             due.append((checked_at, item))
         else:
             current.append(item)
@@ -744,6 +797,7 @@ def _checked(facts: ToolFacts, now: datetime) -> CheckedTool:
         license=facts.license,
         last_activity=facts.last_activity,
         maintained=facts.maintained(now),
+        project=facts.project or project_of(facts.url),
     )
 
 
@@ -771,6 +825,8 @@ def _basis(check: Check) -> list[str]:
     texts = MESSAGES.roadmap
     if check.verdict is Verdict.REJECTED and check.adr is not None:
         return [texts.alternatives_basis_rejected.format(number=check.adr)]
+    if check.verdict is Verdict.IN_USE and check.in_repository:
+        return [texts.alternatives_basis_in_repository]
     if check.verdict is Verdict.IN_USE:
         return [texts.alternatives_basis_in_use]
     return []
@@ -947,42 +1003,55 @@ def _skip_check(item: Item, skip_class: str, now: datetime) -> Check | CheckFail
     )
 
 
+def adr_hash_of(adrs: Sequence[Adr]) -> str:
+    """The hash of the entries of `adrs`, the ADRs that the model reads (#4661)."""
+    return hash_text("\n\n".join(adr.entry for adr in adrs))
+
+
 def _confirmed_adr(number: int, tool_names: tuple[str, ...], adrs: Sequence[Adr]) -> bool:
-    """Whether `adrs`, the ADRs in force that the model saw, hold ADR `number` and its title or
-    its options name the tool."""
+    """Whether `adrs`, the ADRs in force that the model saw, hold ADR `number` and it rejects the
+    tool: only its rejected options name the tool (#4661)."""
     adr = next((candidate for candidate in adrs if candidate.number == number), None)
-    return adr is not None and names(f"{adr.title}\n\n{adr.options}", *tool_names)
+    return adr is not None and rejects(adr, *tool_names)
 
 
 def _verdict_of(
-    item: Item, reply: AlternativesReply, tool: CheckedTool | None, adrs: Sequence[Adr]
-) -> tuple[Verdict, int | None]:
-    """The verdict of the check, and the ADR that rejected its tool (#3505). The model proposes
-    `rejected` with `adr` and `in-use` with `in_use`, and the job gives one only when the text
-    confirms it: an ADR in force that holds the number and names the tool, or a title or a body of
-    the item, outside both blocks of a job, that names the tool. `rejected` comes first. The job
-    drops a proposal that it cannot confirm, and the verdict of the reply stays."""
+    item: Item,
+    reply: AlternativesReply,
+    tool: CheckedTool | None,
+    adrs: Sequence[Adr],
+    inventory: Inventory | None,
+) -> tuple[Verdict, int | None, bool]:
+    """The verdict of the check, the ADR that rejected its tool (#3505), and whether the
+    repository uses the tool (#4661). The model proposes `rejected` with `adr` and `in-use` with
+    `in_use`, and the job gives one only when the text confirms it: an ADR in force that holds the
+    number and rejects the tool, or a title or a body of the item, outside both blocks of a job,
+    that names the tool. `rejected` comes first. The job also gives `in-use`, with no proposal,
+    when the `inventory` of the repository holds the tool. The job drops a proposal that it cannot
+    confirm, and the verdict of the reply stays."""
     if tool is None:
-        return reply.verdict, None
+        return reply.verdict, None, False
     tool_names = (tool.name, reply.tool_name or "")
     if reply.adr is not None:
         if _confirmed_adr(reply.adr, tool_names, adrs):
-            return Verdict.REJECTED, reply.adr
+            return Verdict.REJECTED, reply.adr, False
         logger.info(
             "The alternatives check of #%d dropped ADR %d: no ADR in force holds that number and "
-            "names the tool.",
+            "rejects the tool.",
             item.number,
             reply.adr,
         )
+    if inventory is not None and inventory.uses(tool.url, tool.project):
+        return Verdict.IN_USE, None, True
     if reply.in_use:
         if any(names(text, *tool_names) for text in (item.title, _person_text(item.body))):
-            return Verdict.IN_USE, None
+            return Verdict.IN_USE, None, False
         logger.info(
             "The alternatives check of #%d dropped the flag in_use: the item does not name the "
             "tool.",
             item.number,
         )
-    return reply.verdict, None
+    return reply.verdict, None, False
 
 
 def validate_reply(
@@ -991,20 +1060,26 @@ def validate_reply(
     tools: AlternativesTools,
     now: datetime,
     adrs: Sequence[Adr],
+    *,
+    inventory: Inventory | None = None,
 ) -> Check | CheckFailure:
     """The check that `reply` makes, or the failure when the job refuses it. `adrs` are the ADRs
-    in force that the model saw, which confirm the ADR that the reply names."""
+    in force that the model saw, which confirm the ADR that the reply names. `inventory` holds the
+    tools that the repository uses (#4661); a read of deps.dev that it makes can raise
+    `httpx2.HTTPError` or `ValidationError`."""
     refusal = _refusal(reply, tools) or _marker_problem(item.body)
     if refusal is not None:
         return CheckFailure(item, refusal, CONST_ROADMAP_ALTERNATIVES_REFUSED_ERROR, now)
     allowed = tools.allowed_urls
     tool = _checked_tool(reply, tools, now)
-    verdict, adr = _verdict_of(item, reply, tool, adrs)
+    verdict, adr, in_repository = _verdict_of(item, reply, tool, adrs, inventory)
     return _completed(
         Check(
             item=item,
             verdict=verdict,
             adr=adr,
+            adr_hash=adr_hash_of(adrs),
+            in_repository=in_repository,
             tool=tool,
             covers=_clean(reply.covers, allowed),
             lacks=_clean(reply.lacks, allowed),
@@ -1040,11 +1115,13 @@ def _check_one(
     *,
     model: Any,
     adrs: Sequence[Adr],
+    inventory: Inventory | None,
     now: datetime,
     fetch: bool,
 ) -> Check | CheckFailure:
     """One item's check: the skip check of a skip class, else its agent run and its validated
-    reply. Raises `AICredentialsError` when the model refuses the key."""
+    reply. A failed read of deps.dev skips the item (#4661). Raises `AICredentialsError` when the
+    model refuses the key."""
     skip_class = skip_class_of(item)
     if skip_class is not None:
         return _skip_check(item, skip_class, now)
@@ -1082,7 +1159,18 @@ def _check_one(
             reply.reason,
         )
         return CheckFailure(item, _stopped_reason(reply), reply.reason, now)
-    return validate_reply(item, reply, tools, now, adrs)
+    try:
+        return validate_reply(item, reply, tools, now, adrs, inventory=inventory)
+    except (httpx2.HTTPError, ValidationError) as exc:
+        logger.warning(
+            "The alternatives check of #%d was skipped: its read of the tools in use failed (%s).",
+            item.number,
+            type(exc).__name__,
+        )
+        error = type(exc).__name__
+        return CheckFailure(
+            item, texts.alternatives_reason_inventory.format(error=error), error, now
+        )
 
 
 # ── Entry points ──────────────────────────────────────────────────────────────
@@ -1097,18 +1185,24 @@ def plan_alternatives(
     now: datetime | None = None,
     investigator: Any = None,
     writer: AlternativesWriter | None = None,
+    source: Path | None = None,
 ) -> AlternativesPlan:
     """Plans the checks of the selected items. It writes nothing unless the caller gives a
     `writer`: the writer then gets the result of each item as soon as that item is checked, so a
     kill of the worker loses at most the check in progress (#4034). `limit` replaces both
     `roadmap.alternatives.limit` and `roadmap.alternatives.first_pass_limit`.
     `investigator` is the pydantic-ai model of the runs,
-    the `analysis` task's by default."""
+    the `analysis` task's by default. `source` is a clone of the repository at HEAD, whose
+    deployed paths name the tools in use (#4661); with none, the run reads the SBOM only."""
     moment = now or datetime.now(UTC)
     web = web_search_of(store)
     if not web.on:
         return AlternativesPlan(repo=repo, off_reason=web.off_reason)
     config = load_settings().roadmap.alternatives
+    # The ADRs are the same for each item (#3505). The model sees only the entries that fit the
+    # cap, so only they can be confirmed, and their hash selects the items whose check read
+    # others (#4661).
+    adrs = fit_to_budget(read_adrs(store), max_tokens=CONST_ROADMAP_ALTERNATIVES_MAX_ADR_TOKENS)
     selection = select_items(
         store,
         item_number=item_number,
@@ -1117,21 +1211,29 @@ def plan_alternatives(
         recheck_days=config.recheck_days,
         retry_days=config.retry_days,
         now=moment,
+        adr_hash=adr_hash_of(adrs),
     )
     if not selection.selected:
         return AlternativesPlan(repo=repo, current=selection.current, coverage=selection.coverage)
     model = investigator or get_task_model("analysis")
-    # The ADRs are the same for each item, and a skip-class item makes no model call (#3505). The
-    # model sees only the entries that fit the cap, so only they can be confirmed.
-    adrs = (
-        fit_to_budget(read_adrs(store), max_tokens=CONST_ROADMAP_ALTERNATIVES_MAX_ADR_TOKENS)
+    # A skip-class item makes no model call and names no tool, so it needs no inventory.
+    inventory = (
+        read_inventory(store, source, config.inventory_paths)
         if any(skip_class_of(it) is None for it in selection.selected)
-        else ()
+        else None
     )
     checks: list[Check] = []
     failures: list[CheckFailure] = []
     for item in selection.selected:
-        outcome = _check_one(store, item, model=model, adrs=adrs, now=moment, fetch=web.fetch)
+        outcome = _check_one(
+            store,
+            item,
+            model=model,
+            adrs=adrs,
+            inventory=inventory,
+            now=moment,
+            fetch=web.fetch,
+        )
         if writer is not None:
             writer.settle(outcome)
         if isinstance(outcome, CheckFailure):
@@ -1226,6 +1328,8 @@ class AlternativesWriter:
                 AlternativesRecordKey.BODY_HASH: outcome.body_hash,
                 AlternativesRecordKey.VERDICT: outcome.verdict.value,
                 AlternativesRecordKey.TOOL: outcome.tool.url if outcome.tool else None,
+                AlternativesRecordKey.TOOL_ID: outcome.tool.canonical_id if outcome.tool else None,
+                AlternativesRecordKey.ADR_HASH: outcome.adr_hash,
                 AlternativesRecordKey.FAILED_AT: None,
                 AlternativesRecordKey.FAILED_ERROR: None,
             },
@@ -1343,6 +1447,7 @@ __all__ = [
     "Selection",
     "ToolFacts",
     "Verdict",
+    "adr_hash_of",
     "body_hash_of",
     "dry_run_alternatives",
     "plan_alternatives",

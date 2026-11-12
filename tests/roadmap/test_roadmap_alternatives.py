@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import logging
 from collections.abc import Callable
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -34,7 +35,11 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_REFINE_END_MARKER,
     CONST_ROADMAP_REFINE_START_MARKER,
 )
-from devops_cli.config.defaults import DEFAULT_FIRECRAWL_SEARCH_URL, DEFAULT_PYPI_PACKAGE_URL
+from devops_cli.config.defaults import (
+    DEFAULT_DEPS_DEV_PROJECT_URL,
+    DEFAULT_FIRECRAWL_SEARCH_URL,
+    DEFAULT_PYPI_PACKAGE_URL,
+)
 from devops_cli.exceptions.git import GitHubOperationError, GitHubRateLimitError
 from devops_cli.exceptions.roadmap import RoadmapAlternativesError
 from devops_cli.roadmap import alternatives
@@ -42,6 +47,7 @@ from devops_cli.roadmap.alternatives import (
     AlternativesReply,
     AlternativesTools,
     Verdict,
+    adr_hash_of,
     body_hash_of,
     plan_alternatives,
     raise_for_failed_checks,
@@ -144,7 +150,8 @@ def _item(
 def _mark_checked(
     store: InMemoryRoadmapStore, number: int, *, days: int, body: str | None = None
 ) -> None:
-    """Record a check of item `number` made `days` days before `NOW`, of `body` or its own."""
+    """Record a check of item `number` made `days` days before `NOW`, of `body` or its own, that
+    read the ADRs of the store: none."""
     item = store.item(number)
     assert item is not None
     store.set_marks(
@@ -153,6 +160,7 @@ def _mark_checked(
             AlternativesRecordKey.CHECKED_AT: _days_ago(days).isoformat(),
             AlternativesRecordKey.BODY_HASH: body_hash_of(item.body if body is None else body),
             AlternativesRecordKey.VERDICT: "none",
+            AlternativesRecordKey.ADR_HASH: adr_hash_of(()),
         },
     )
 
@@ -1006,18 +1014,65 @@ def test_a_repository_with_no_adr_directory_sends_no_decisions(
     assert "decisions" not in _prompt_of(script.seen[0])
 
 
-def test_a_run_reads_the_adrs_once_and_only_for_an_item_that_is_no_skip_class(
+def test_a_run_reads_the_adrs_once_and_the_sbom_once_and_only_for_an_item_that_is_no_skip_class(
     store: InMemoryRoadmapStore, web_key: None
 ) -> None:
+    """The ADRs select the items whose check read other ADRs, so every run reads them (#4661).
+    Only the check of an item of no skip class reads the tools in use."""
     _item(store, "docs(roadmap): explain the check")
     _plan(store, Script(AlternativesReply(reason=REASON, verdict=Verdict.NONE)))
-    skip_only = list(store.listed)
+    skip_only = (list(store.listed), store.sbom_reads)
     _item(store, "First change")
     _item(store, "Second change")
 
     _plan(store, _searching(AlternativesReply(reason=REASON, verdict=Verdict.NONE)))
 
-    assert (skip_only, store.listed) == ([], ["docs/adr"])
+    assert (skip_only, store.listed, store.sbom_reads) == (
+        (["docs/adr"], 0),
+        ["docs/adr", "docs/adr"],
+        1,
+    )
+
+
+def test_a_tool_that_the_deployed_paths_of_the_source_name_gives_the_verdict_in_use(
+    store: InMemoryRoadmapStore, web_key: None, tmp_path: Path
+) -> None:
+    """The run reads the deployed paths of the clone that `source` names (#4661)."""
+    (tmp_path / "k8s").mkdir()
+    (tmp_path / "k8s" / "scan.yaml").write_text("image: example/scanner:v1\n", encoding="utf-8")
+    number = _item(store)
+
+    plan = _plan(store, _search_then_read_then(_covers()), source=tmp_path)
+    apply_alternatives(store, plan)
+
+    assert (
+        [check.verdict for check in plan.checks],
+        _recorded(store, number, AlternativesRecordKey.VERDICT),
+        _recorded(store, number, AlternativesRecordKey.TOOL_ID),
+    ) == ([Verdict.IN_USE], "in-use", "github.com/example/scanner")
+
+
+def test_a_failed_read_of_deps_dev_skips_the_item_and_records_the_failure(
+    store: InMemoryRoadmapStore, web_key: None, web: WebFake
+) -> None:
+    """A tool that the SBOM and the deployed paths do not hold asks deps.dev for the packages of
+    its project. A failed read gives no verdict: the item is skipped and checked again later."""
+    store.seed_dependencies("pkg:pypi/httpx@0.28.1")
+    web.respond(
+        "GET",
+        DEFAULT_DEPS_DEV_PROJECT_URL.format(project="github.com%2Fexample%2Fscanner"),
+        502,
+    )
+    number = _item(store)
+
+    plan = _plan(store, _search_then_read_then(_covers()))
+    apply_alternatives(store, plan)
+
+    assert (
+        plan.checks,
+        [(failure.item.number, failure.error_class) for failure in plan.failures],
+        _failure_record(store, number)[1],
+    ) == ([], [(number, "HTTPStatusError")], "HTTPStatusError")
 
 
 def test_a_failed_read_of_the_adrs_stops_the_run_before_any_model_call(
@@ -1510,11 +1565,13 @@ def test_a_covering_tool_makes_one_comment_one_block_and_the_record(
             ]
         ),
         {
+            "alternatives.adr_hash": adr_hash_of(()),
             "alternatives.body_hash": body_hash_of("The job needs to read a directory."),
             "alternatives.checked_at": NOW.isoformat(),
             "alternatives.failed_at": None,
             "alternatives.failed_error": None,
             "alternatives.tool": TOOL_URL,
+            "alternatives.tool_id": "github.com/example/scanner",
             "alternatives.verdict": "covers",
         },
     )
@@ -2801,9 +2858,10 @@ def test_a_round_off_for_want_of_a_provider_runs_the_row_and_checks_nothing(
 def test_the_row_runs_in_a_round_and_records_its_success_until_the_interval_passes(
     store: InMemoryRoadmapStore, web_key: None, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
+    """The interval is the subject, so the row runs with no clone."""
     number = _item(store)
     _answer_with(monkeypatch, _searching(AlternativesReply(reason=REASON, verdict=Verdict.NONE)))
-    table = (_alternatives_row(),)
+    table = (replace(_alternatives_row(), needs_clone=False),)
 
     def round_at(now: datetime) -> tuple[str, ...]:
         return run_due_jobs(
@@ -2819,6 +2877,25 @@ def test_the_row_runs_in_a_round_and_records_its_success_until_the_interval_pass
         (),
         ("alternatives",),
         1,
+    )
+
+
+def test_the_row_reads_the_deployed_paths_of_the_clone_of_its_lane(
+    store: InMemoryRoadmapStore, web_key: None, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The row needs the clone of the model lane, and its deployed paths name the tools in use
+    (#4661)."""
+    (tmp_path / "k8s").mkdir()
+    (tmp_path / "k8s" / "scan.yaml").write_text("image: example/scanner:v1\n", encoding="utf-8")
+    number = _item(store)
+    _answer_with(monkeypatch, _search_then_read_then(_covers()))
+    row = _alternatives_row()
+
+    row.runner(store=store, repo=REPO, clone_path=tmp_path)
+
+    assert (row.needs_clone, _recorded(store, number, AlternativesRecordKey.VERDICT)) == (
+        True,
+        "in-use",
     )
 
 

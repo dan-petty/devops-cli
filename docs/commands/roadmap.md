@@ -70,6 +70,7 @@ devops roadmap alternatives [OPTIONS]
 | `--dry-run` | `boolean` | - | Make no request: print the requests a run makes, with placeholders. |
 | `--plan` | `boolean` | - | Run the checks and print them, and write nothing. This is the default. |
 | `--confirm` | `boolean` | - | Write each check to GitHub: its comment, its body block and its job record. |
+| `--source` | `path` | - | Path to a clone of the repository. The check reads the files of its deployed paths (roadmap.alternatives.inventory_paths) for the tools that the repository uses. Without it, the check reads the SBOM only. |
 
 ---
 

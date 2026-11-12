@@ -301,6 +301,9 @@ def alternatives_cmd(
     confirm: Annotated[
         bool, typer.Option("--confirm", help=HELP.roadmap.alternatives_confirm)
     ] = False,
+    source: Annotated[
+        Path | None, typer.Option("--source", help=HELP.roadmap.alternatives_source)
+    ] = None,
 ) -> None:
     """Check open items for an open, maintained tool that already covers their need."""
     _one_mode(dry_run=dry_run, plan=plan_only, confirm=confirm)
@@ -315,7 +318,7 @@ def alternatives_cmd(
         _, store = _open_store(target)
         writer = job.AlternativesWriter(store, target) if confirm else None
         plan = job.plan_alternatives(
-            store, repo=target, item_number=item, limit=limit, writer=writer
+            store, repo=target, item_number=item, limit=limit, writer=writer, source=source
         )
     write_stdout(job.render_alternatives_plan(plan) + "\n")
     if writer is None:

@@ -1479,6 +1479,11 @@ class RoadmapCommandHelp:
     alternatives_dry_run: str = (
         "Make no request: print the requests a run makes, with placeholders."
     )
+    alternatives_source: str = (
+        "Path to a clone of the repository. The check reads the files of its deployed paths "
+        "(roadmap.alternatives.inventory_paths) for the tools that the repository uses. Without "
+        "it, the check reads the SBOM only."
+    )
     consolidate: str = (
         "Propose groups of open items that share a root cause, and write the plan to a local "
         "file. A model proposes and then tries to refute each shortlist, code checks the answers, "
