@@ -6,6 +6,8 @@ from __future__ import annotations
 import ast
 import os
 import socket
+import subprocess
+import sys
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -25,9 +27,13 @@ def _run_with_floor(
     monkeypatch: pytest.MonkeyPatch,
     source: str,
 ) -> pytest.RunResult:
-    """Run `source` inside `pytester` with the root conftest floor loaded in-process."""
-    home = os.environ.get("HOME", str(pytester.path))
-    monkeypatch.setenv("HOME", home)
+    """Run `source` inside `pytester` with the root conftest floor loaded in-process. The real
+    home of the inner run, the HOME that its floor replaces, is `pytester.path / "real-home"`.
+    pytester sets HOME to `pytester.path`, where the inner run writes its cache, so another
+    path under `pytester.path` lies outside both the inner run and its real home."""
+    real_home = pytester.path / "real-home"
+    real_home.mkdir(exist_ok=True)
+    monkeypatch.setenv("HOME", str(real_home))
     pytester.makepyfile(test_inner=source)
     return pytester.runpytest(
         "-p",
@@ -556,6 +562,186 @@ def test_a_spend_ledger_write_outside_the_run_fails_at_the_write_naming_the_test
     }
     named = {test for test in failing for line in refused if f"::{test} (call)" in line}
     assert named == failing
+
+
+def test_a_write_under_the_real_home_fails_at_the_write_naming_the_test(
+    pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A test that opens a file for writing, opens a descriptor for writing, renames a file onto
+    one or removes one under the real home, the HOME that the floor replaces, fails at that
+    operation, naming itself, also when it catches the failure. The files stay as they were. A
+    read under the real home, and a write under `tmp_path`, under the isolated HOME and outside
+    the real home pass (#4739).
+
+    The real home of the inner run lies in this test's own temporary directory, so a guard that
+    lets a write through changes nothing a person keeps."""
+    real_home = pytester.path / "real-home"
+    (real_home / "tools").mkdir(parents=True)
+    (real_home / "tools" / "gitleaks").write_text("real\n", encoding="utf-8")
+    outside = pytester.path / "outside"
+    outside.mkdir()
+    before = _tree(real_home)
+    result = _run_with_floor(
+        pytester,
+        monkeypatch,
+        f"""
+        import os
+        from pathlib import Path
+
+        REAL_HOME = Path({str(real_home)!r})
+        OUTSIDE = Path({str(outside)!r})
+
+        def test_opens_for_writing():
+            (REAL_HOME / "notes.txt").write_text("notes\\n", encoding="utf-8")
+
+        def test_opens_a_descriptor_for_writing():
+            os.close(os.open(REAL_HOME / "tools" / "gitleaks", os.O_WRONLY | os.O_TRUNC))
+
+        def test_renames_onto(tmp_path):
+            staged = tmp_path / "gitleaks"
+            staged.write_text("#!/bin/sh\\necho mytool\\n", encoding="utf-8")
+            os.replace(staged, REAL_HOME / "tools" / "gitleaks")
+
+        def test_removes():
+            os.remove(REAL_HOME / "tools" / "gitleaks")
+
+        def test_catches_the_failure():
+            try:
+                (REAL_HOME / "tools" / "gitleaks").write_text("stub\\n", encoding="utf-8")
+            except Exception:
+                pass
+
+        def test_reads_under_the_real_home():
+            assert (REAL_HOME / "tools" / "gitleaks").read_text(encoding="utf-8") == "real\\n"
+
+        def test_writes_under_tmp_path(tmp_path):
+            (tmp_path / "notes.txt").write_text("notes\\n", encoding="utf-8")
+
+        def test_writes_under_the_isolated_home():
+            (Path.home() / "notes.txt").write_text("notes\\n", encoding="utf-8")
+
+        def test_writes_outside_the_real_home():
+            (OUTSIDE / "notes.txt").write_text("notes\\n", encoding="utf-8")
+        """,
+    )
+    result.assert_outcomes(passed=4, failed=5, errors=5)
+    output = result.stdout.str()
+    refused = [line for line in output.splitlines() if "write under the real home" in line]
+    failing = {
+        "test_opens_for_writing",
+        "test_opens_a_descriptor_for_writing",
+        "test_renames_onto",
+        "test_removes",
+        "test_catches_the_failure",
+    }
+    named = {test for test in failing for line in refused if f"::{test} (call)" in line}
+    assert named == failing
+    assert _tree(real_home) == before
+
+
+def test_the_home_write_guard_calls_no_function_that_a_test_replaces(
+    pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A test that replaces `os.lstat` with a function that removes a file, as the worktree
+    reclaim tests do, passes. The guard checks the removal and calls no replaced function, so the
+    function runs once and the removal does not start the guard again (#4739)."""
+    result = _run_with_floor(
+        pytester,
+        monkeypatch,
+        """
+        import os
+
+        def test_replaces_lstat_with_a_function_that_removes_a_file(tmp_path, monkeypatch):
+            doomed = tmp_path / "doomed.txt"
+            doomed.write_text("doomed\\n", encoding="utf-8")
+            real_lstat = os.lstat
+            calls = []
+
+            def removing_lstat(path, *args, **kwargs):
+                calls.append(os.fspath(path))
+                if os.fspath(path) == os.fspath(doomed) and doomed.exists():
+                    doomed.unlink()
+                return real_lstat(path, *args, **kwargs)
+
+            monkeypatch.setattr(os, "lstat", removing_lstat)
+            try:
+                os.lstat(doomed)
+            except FileNotFoundError:
+                pass
+            assert calls == [os.fspath(doomed)]
+            assert not doomed.exists()
+        """,
+    )
+    result.assert_outcomes(passed=1)
+
+
+def test_a_support_helper_writes_nothing_outside_the_run(
+    pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A support helper refuses a path outside the run's temporary directory before its first
+    write: `link_at_pin` with a user data root outside the run writes nothing (#4739).
+
+    The user data root lies in this test's own temporary directory, so a helper that writes
+    changes nothing a person keeps."""
+    outside = pytester.path / "outside"
+    outside.mkdir()
+    result = _run_with_floor(
+        pytester,
+        monkeypatch,
+        f"""
+        import pytest
+
+        from tests.support.tools import link_at_pin
+
+        def test_links_a_tool_under_a_user_data_root_outside_the_run(tmp_path, monkeypatch):
+            monkeypatch.setenv("DEVOPS_CLI_USER_DATA_ROOT", {str(outside)!r})
+            with pytest.raises(pytest.fail.Exception, match="outside the run's temporary"):
+                link_at_pin("gitleaks", tmp_path / "links")
+        """,
+    )
+    result.assert_outcomes(passed=1)
+    assert _tree(outside) == {}
+
+
+_LINK_A_TOOL_FROM_PLAIN_PYTHON = (
+    "import sys\n"
+    "from pathlib import Path\n"
+    "sys.path.insert(0, sys.argv[1])\n"
+    "from tests.support.tools import link_at_pin\n"
+    "link_at_pin('gitleaks', Path(sys.argv[2]))\n"
+)
+
+
+@pytest.mark.live("python")
+def test_a_support_helper_called_outside_pytest_writes_nothing(tmp_path: Path) -> None:
+    """`link_at_pin`, called from plain Python with no pytest run, as an agent once called it,
+    stops before its first write and says why (#4739).
+
+    The HOME of the child process lies in this test's own temporary directory, so a helper that
+    writes changes nothing a person keeps."""
+    home = tmp_path / "home"
+    home.mkdir()
+    env = {name: value for name, value in os.environ.items() if name != "DEVOPS_CLI_USER_DATA_ROOT"}
+    env["HOME"] = str(home)
+    child = subprocess.run(
+        [
+            sys.executable,
+            "-I",
+            "-c",
+            _LINK_A_TOOL_FROM_PLAIN_PYTHON,
+            str(REPO_ROOT),
+            str(tmp_path / "links"),
+        ],
+        cwd=tmp_path,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=120,
+    )
+    assert child.returncode != 0
+    assert "no pytest run is active" in child.stderr
+    assert sorted(home.rglob("*")) == []
 
 
 def test_test_modules_repeat_no_floor_resets() -> None:

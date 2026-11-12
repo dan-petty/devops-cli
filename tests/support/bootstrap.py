@@ -21,10 +21,16 @@ import pkgutil
 from collections.abc import Callable
 from pathlib import Path
 from types import ModuleType
+from typing import Any
 
 import pytest
 
 from tests import support
+
+# The real home: the HOME that `isolate_home` replaces, which the home write guard keeps (#4739).
+REAL_HOME = pytest.StashKey[Path]()
+# The key of `workerinput` by which the controller hands the real home to an xdist worker.
+_REAL_HOME_INPUT = "devops_cli_real_home"
 
 
 def is_xdist_worker(config: pytest.Config) -> bool:
@@ -51,9 +57,18 @@ def run_temp_root(config: pytest.Config) -> Path:
     return basetemp.parent if is_xdist_worker(config) else basetemp
 
 
+def _real_home(config: pytest.Config) -> Path:
+    """The HOME that `isolate_home` replaces. An xdist worker inherits the controller's isolated
+    HOME, so it takes the real home that the controller hands it in `workerinput` (#4739)."""
+    workerinput = getattr(config, "workerinput", None)
+    return Path(workerinput[_REAL_HOME_INPUT]) if workerinput is not None else Path.home()
+
+
 def isolate_home(config: pytest.Config) -> None:
     """Isolate HOME into an empty directory under pytest basetemp, with a git identity on
-    `example.com`, and record it for the workspace tripwire's worker-home check (#1311)."""
+    `example.com`, and record it for the workspace tripwire's worker-home check (#1311). Record
+    the real home that it replaces for the home write guard (#4739)."""
+    config.stash[REAL_HOME] = _real_home(config)
     basetemp = _basetemp(config)
     home_dir = basetemp / "home"
     home_dir.mkdir(parents=True, exist_ok=True)
@@ -192,3 +207,10 @@ def pytest_configure(config: pytest.Config) -> None:
     its paths under the isolated HOME (#1311, #1312)."""
     isolate_home(config)
     register_support_plugins(config.pluginmanager, support)
+
+
+@pytest.hookimpl(optionalhook=True)
+def pytest_configure_node(node: Any) -> None:
+    """Hand each xdist worker the real home, since the worker inherits the controller's isolated
+    HOME (#4739)."""
+    node.workerinput[_REAL_HOME_INPUT] = str(node.config.stash[REAL_HOME])
