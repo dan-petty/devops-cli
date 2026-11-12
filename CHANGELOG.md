@@ -2,6 +2,28 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.116.0](https://github.com/dan-petty/devops-cli/compare/v0.115.0...v0.116.0) (2026-11-12)
+
+
+### Features
+
+* **gh:** name the gh groups issue, run, label and secret ([#4923](https://github.com/dan-petty/devops-cli/issues/4923)) ([2dd4c97](https://github.com/dan-petty/devops-cli/commit/2dd4c97d74548405a5b5730504bb8b72e06ea20e))
+
+
+### Bug Fixes
+
+* **ci:** set job timeouts from the measured run times ([#4892](https://github.com/dan-petty/devops-cli/issues/4892)) ([e26dde5](https://github.com/dan-petty/devops-cli/commit/e26dde5716d7521a429d1872498f54ef6f7fd821))
+* **design:** check the design test bound and source hex values ([#4922](https://github.com/dan-petty/devops-cli/issues/4922)) ([e2c1a5a](https://github.com/dan-petty/devops-cli/commit/e2c1a5a15db9c5ba02a21457b1fc8d2edd184295))
+* **k8s:** check the credential sync context as a kubeconfig name ([#4916](https://github.com/dan-petty/devops-cli/issues/4916)) ([8797c88](https://github.com/dan-petty/devops-cli/commit/8797c88aef9c14881b5a8db2331d38245bada91b))
+* **roadmap:** bound the stage gate returns and start no return in a drain ([#4925](https://github.com/dan-petty/devops-cli/issues/4925)) ([77eed38](https://github.com/dan-petty/devops-cli/commit/77eed38d933029c0d27b7d4371daa6a3642aa9c6))
+* **roadmap:** count each implement outcome once with its repo ([#4903](https://github.com/dan-petty/devops-cli/issues/4903)) ([c17f71f](https://github.com/dan-petty/devops-cli/commit/c17f71ff6ed3349f0f92e31370c4214418432160))
+* **roadmap:** refine looks again at a wait that older rules set ([#4919](https://github.com/dan-petty/devops-cli/issues/4919)) ([e6f7cb9](https://github.com/dan-petty/devops-cli/commit/e6f7cb977c343b4bdbe1e2654fdbe8cd9b90a984))
+
+
+### Performance Improvements
+
+* **k8s:** put the dependencies in their own image layers ([#4872](https://github.com/dan-petty/devops-cli/issues/4872)) ([48dc866](https://github.com/dan-petty/devops-cli/commit/48dc86661dcd9d3221e2a1d947086f4c4ac7c112))
+
 ## [0.115.0](https://github.com/dan-petty/devops-cli/compare/v0.114.1...v0.115.0) (2026-11-12)
 
 
