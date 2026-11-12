@@ -20,10 +20,10 @@ Reads: `src/devops_cli/core/process.py`, `tests/support/fakes/github_repository.
 
 ## 3. Record the permission in ADR 0015 and TELEMETRY.md
 
-Reads: `src/devops_cli/config/constants.py`. Changes: `docs/adr/0015-roadmap-jobs-act-as-a-github-app-on-the-personal-account.md`, `src/devops_cli/docs/generator.py`, `docs/TELEMETRY.md`.
+Reads: `src/devops_cli/config/constants.py`. Changes: `docs/adr/0015-roadmap-jobs-act-as-a-github-app-on-the-personal-account.md`, `src/devops_cli/docs/generator.py`, `docs/TELEMETRY.md`, `tests/docs/test_docs.py`.
 
 - [x] 3.1 Add an amendment line dated 2026-11-12 that names `administration: read` and issue 4757, in the shape of the `workflows: write` line. Add the permission to the decision bullet that names the token's permissions. Replace the consequence sentence that says the metrics row asks for no traffic. Check by hand: the amendment line names `administration: read` and #4757, the decision bullet names Administration read, and the consequence paragraph says that each token asks for it
-- [x] 3.2 Replace the paragraph of the generator that says the Service sends no traffic gauge, and write `docs/TELEMETRY.md` again from it
+- [x] 3.2 Replace the paragraph of the generator that says the Service sends no traffic gauge, write `docs/TELEMETRY.md` again from it, and change `test_doc_generator_telemetry_docs` in `tests/docs/test_docs.py` to find the new paragraph once and the old sentence never
   - Verification: `$ uv run devops ci docs` passes
 
 ## Criteria

@@ -33,7 +33,7 @@ None.
 
 - Code: `src/devops_cli/config/constants.py`, `src/devops_cli/github/metrics.py`, `src/devops_cli/docs/generator.py` (the text of `docs/TELEMETRY.md`)
 - Documents: `docs/adr/0015-roadmap-jobs-act-as-a-github-app-on-the-personal-account.md`, `docs/TELEMETRY.md`
-- Tests: `tests/github/test_github_app_identity.py`, `tests/github/test_github_metrics.py`, `tests/roadmap/test_roadmap_run_metrics.py`
+- Tests: `tests/github/test_github_app_identity.py`, `tests/github/test_github_metrics.py`, `tests/roadmap/test_roadmap_run_metrics.py`, `tests/docs/test_docs.py`
 
 ## Feasibility
 
