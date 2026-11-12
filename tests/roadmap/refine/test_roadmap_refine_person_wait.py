@@ -247,3 +247,25 @@ def test_a_person_wait_that_the_current_rules_set_gets_no_new_look(
         plan.refined_items,
         model_fake.call_count - calls,
     ) == ([(number, "person")], [], 0)
+
+
+@pytest.mark.parametrize("no_zone", [False, True], ids=["no-time", "no-zone"])
+def test_a_recorded_version_that_is_no_time_counts_as_none_and_one_with_no_zone_as_utc(
+    git_repo: Path, model_fake: ModelFake, caplog: pytest.LogCaptureFixture, no_zone: bool
+) -> None:
+    """A hand edit of the job record can write a version that is no time, which gives way to the
+    time of refine's comment with a warning, or a time with no zone, which is a UTC time. Both
+    waits here are older than the rules."""
+    older = constants.CONST_ROADMAP_REFINE_RULES_SINCE + _DAY_BEFORE
+    store, number = _wait_set_at(_HOUR_AFTER if no_zone else _DAY_BEFORE, None)
+    version = older.replace(tzinfo=None).isoformat() if no_zone else "not a time"
+    store.set_marks(require_item(store, number), {RefineRecordKey.RULES: version})
+    model_fake.answer(READY)
+
+    plan = plan_refine(store, repo=REPO, source=git_repo)
+
+    warned = f"The rules version recorded on #{number} is not a time."
+    assert (
+        [r.item.number for r in plan.refined_items],
+        [r.getMessage() for r in caplog.records if r.getMessage() == warned],
+    ) == ([number], [] if no_zone else [warned])
