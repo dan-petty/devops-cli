@@ -17,10 +17,13 @@ of the same user can read either: the environment through `/proc/<pid>/environ`,
 a file. A pod cannot keep the child from it: the token must reach `git` and `gh` by their
 environment, a file the same user can read, or a pipe, and a user namespace for the agent's shell
 needs `unshare`, which the pod's `RuntimeDefault` seccomp profile refuses. So the job guarantees an
-order instead. The agent's shell is the only process of the user that the agent controls, and the
-job ends every process it started (`end_leftover_processes`) when a step ends, and again just
-before each git call that reaches `origin` (`roadmap/implement/git_isolation.py`). `adopt_orphans`
-makes the job the parent of a process that the agent daemonized, so that none escapes the count.
+order instead. The agent controls the agent's shell and the code that the job runs from the
+checkout: the tests, the hooks of `pre-commit` and the other exit checks. The job ends every
+process it started (`end_leftover_processes`) when a step ends, before the check of the git
+settings and before each git call that reaches `origin` (`roadmap/implement/git_isolation.py`),
+and, in a runner, before each child that gets the token (`core/process.py`). A process that
+survives stops the item. `adopt_orphans` makes the job the parent of a process that the agent or
+that code daemonized, so that none escapes the count.
 
 The order covers only processes. The agent can also write files that a git call reads: the git
 configuration of the home folder and of the clone, the hooks and the attribute files. So a git call

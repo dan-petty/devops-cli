@@ -1587,6 +1587,8 @@ CONST_GH_HOST_ENV: Final[str] = "GH_HOST"
 CONST_GH_HOSTS_FILE: Final[str] = "hosts.yml"
 CONST_GH_CONFIG_FILE: Final[str] = "config.yml"
 CONST_GH_PRIVATE_CONFIG_DIRNAME: Final[str] = "gh-config"
+# The prefix of the private gh configuration folder of one call in the temp folder of the system.
+CONST_GH_TEMP_FOLDER_PREFIX: Final[str] = "devops-cli-gh-"
 # Every variable gh reads a token from, so a pinned child is given none but the session's.
 CONST_GH_TOKEN_ENV_VARS: Final[tuple[str, ...]] = (CONST_GH_AUTH_ENV_VAR, "GITHUB_TOKEN")
 # Where `gh auth token` finds a stored login: its config directory and the keyring's session bus.

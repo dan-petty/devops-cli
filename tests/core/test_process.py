@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
@@ -762,7 +763,10 @@ def test_a_gh_child_gets_the_token_in_a_private_folder_that_goes_after_the_run(
         0o600,
         True,
     )
-    assert (folder.parent == tmp_path / "gh-config", folder.exists()) == (True, False)
+    assert (folder.parent == tmp_path / "devops-cli" / "gh-config", folder.exists()) == (
+        True,
+        False,
+    )
 
 
 def test_a_gh_child_of_the_app_gets_the_installation_token_in_the_private_folder(
@@ -786,17 +790,160 @@ def test_a_gh_child_of_the_app_gets_the_installation_token_in_the_private_folder
     assert not Path(child.env["GH_CONFIG_DIR"]).exists()
 
 
-def test_a_gh_child_with_no_runtime_folder_gets_its_folder_in_the_data_directory(
-    pin_github_session: str, monkeypatch: pytest.MonkeyPatch
+def _no_runtime_folder(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """A runtime folder that cannot hold a folder: a regular file stands in its place."""
+    import platformdirs
+
+    blocked = tmp_path / "runtime-file"
+    blocked.write_text("", encoding="utf-8")
+    monkeypatch.setattr(platformdirs, "user_runtime_path", lambda *_a, **_k: blocked)
+
+
+def _temp_folder(monkeypatch: pytest.MonkeyPatch, path: Path) -> None:
+    import tempfile
+
+    monkeypatch.setattr(tempfile, "tempdir", str(path))
+
+
+def test_a_gh_child_whose_runtime_folder_fails_gets_a_new_folder_of_the_temp_folder(
+    pin_github_session: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """A runner Job has no `XDG_RUNTIME_DIR` and a read-only root file system."""
-    from devops_cli.config.settings import load_settings
-    from devops_cli.core.repo import resolve_data_path
-
-    monkeypatch.delenv("XDG_RUNTIME_DIR", raising=False)
+    _no_runtime_folder(monkeypatch, tmp_path)
+    temp = tmp_path / "temp"
+    temp.mkdir()
+    _temp_folder(monkeypatch, temp)
     child = _GhChild()
 
     _run_gh(child)
 
-    data = resolve_data_path(load_settings().data.dir)
-    assert Path(child.env["GH_CONFIG_DIR"]).parent == data / "gh-config"
+    folder = Path(child.env["GH_CONFIG_DIR"])
+    assert (folder.parent, child.folder_mode, folder.exists()) == (temp, 0o700, False)
+
+
+def test_a_gh_child_gets_a_folder_of_the_absolute_data_directory_when_no_other_folder_works(
+    pin_github_session: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, isolate_data_dir: Path
+) -> None:
+    _no_runtime_folder(monkeypatch, tmp_path)
+    _temp_folder(monkeypatch, tmp_path / "runtime-file" / "temp")
+    child = _GhChild()
+
+    _run_gh(child)
+
+    assert Path(child.env["GH_CONFIG_DIR"]).parent == isolate_data_dir / "gh-config"
+
+
+def test_a_relative_data_directory_gets_no_token_folder_and_the_error_names_the_settings(
+    pin_github_session: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A relative data directory resolves under the current folder, which can be the working tree
+    of a project. The runtime folder and the temp folder fail, so no folder is left and the gh
+    child does not start."""
+    from devops_cli.config.settings import reset_settings_cache
+    from devops_cli.exceptions.config import ConfigurationError
+
+    _no_runtime_folder(monkeypatch, tmp_path)
+    _temp_folder(monkeypatch, tmp_path / "runtime-file" / "temp")
+    current = tmp_path / "read-only"
+    current.mkdir()
+    monkeypatch.chdir(current)
+    current.chmod(0o555)
+    monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", ".data")
+    reset_settings_cache()
+    child = _GhChild()
+
+    try:
+        with pytest.raises(ConfigurationError, match=r"data\.dir") as refused:
+            _run_gh(child)
+    finally:
+        current.chmod(0o755)
+
+    assert ("XDG_RUNTIME_DIR" in str(refused.value), child.env, list(current.iterdir())) == (
+        True,
+        {},
+        [],
+    )
+
+
+def test_in_a_runner_the_leftover_processes_end_before_each_child_that_gets_the_token(
+    pin_github_session: str, monkeypatch: pytest.MonkeyPatch, config: Callable[..., Path]
+) -> None:
+    """The implement job runs code of the checkout (tests, hooks) that can leave a process. In a
+    runner, each such process ends before a child that gets the token starts and before the token
+    folder of a gh child exists. A local git child starts no sweep."""
+    from devops_cli.core import process_hardening
+
+    config(roadmap={"implement": {"in_runner": True}})
+    order: list[str] = []
+
+    def sweep(timeout: float = 0.0) -> None:
+        order.append("sweep")
+
+    def child(argv: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        order.append(argv[1])
+        return subprocess.CompletedProcess(argv, 0, "", "")
+
+    monkeypatch.setattr(process_hardening, "end_leftover_processes", sweep)
+    with patch("subprocess.run", side_effect=child):
+        run_subprocess(["gh", "api", "rate_limit"])
+        run_subprocess(["git", "push", "origin", "feat/184-example"])
+        run_subprocess(["git", "status"])
+        run_subprocess(["gh", "--version"])
+
+    assert order == ["sweep", "api", "sweep", "push", "status", "--version"]
+
+
+def test_a_process_that_outlives_the_sweep_stops_the_gh_call_before_the_token_is_written(
+    pin_github_session: str,
+    monkeypatch: pytest.MonkeyPatch,
+    config: Callable[..., Path],
+    tmp_path: Path,
+) -> None:
+    from devops_cli.core import process_hardening
+    from devops_cli.exceptions import RoadmapImplementError
+
+    config(roadmap={"implement": {"in_runner": True}})
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+
+    def survives(timeout: float = 0.0) -> None:
+        raise RoadmapImplementError("example (4242) is still alive")
+
+    monkeypatch.setattr(process_hardening, "end_leftover_processes", survives)
+    child = _GhChild()
+
+    with pytest.raises(RoadmapImplementError, match="still alive"):
+        _run_gh(child)
+
+    assert (child.env, list(tmp_path.rglob("hosts.yml"))) == ({}, [])
+
+
+def test_a_gh_call_cancelled_while_it_looks_up_the_token_leaves_no_token_folder(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The token lookup of an async call runs in a thread, which goes on after a cancel. The folder
+    is made after the lookup, in the thread of the event loop, so a cancelled call makes none."""
+    import threading
+
+    from devops_cli.core import process
+
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    started, release = threading.Event(), threading.Event()
+
+    def slow_token() -> str:
+        started.set()
+        release.wait(THREAD_HANDOFF_BOUND_SECONDS)
+        return "example-token-1"
+
+    monkeypatch.setattr(process, "github_token", slow_token)
+
+    async def cancel() -> bool:
+        task = asyncio.ensure_future(run_subprocess_async(["gh", "api", "rate_limit"]))
+        await asyncio.to_thread(started.wait, THREAD_HANDOFF_BOUND_SECONDS)
+        task.cancel()
+        await asyncio.wait([task])
+        release.set()
+        return task.cancelled()
+
+    cancelled = asyncio.run(cancel())
+
+    assert (cancelled, list(tmp_path.rglob("hosts.yml"))) == (True, [])

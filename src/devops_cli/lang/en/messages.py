@@ -390,6 +390,15 @@ class ConfigMessages:
         "Quote <file> and <key> for the shell.\n"
         "A key that is not a config option needs only step 2."
     )
+    gh_config_root_not_private: str = (
+        "the folder is a link, belongs to another user, or others can read it"
+    )
+    gh_config_data_dir_relative: str = "the data directory is relative"
+    gh_config_folder_failed: str = (
+        "devops-cli found no private folder for the gh configuration of a gh call: {reasons}. "
+        "Set XDG_RUNTIME_DIR or TMPDIR to a folder that you can write, or set data.dir "
+        "(DEVOPS_CLI_DATA_DIR) to an absolute folder that you can write."
+    )
 
 
 @dataclass(frozen=True)

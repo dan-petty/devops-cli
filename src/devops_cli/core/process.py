@@ -4,15 +4,18 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import errno
 import fnmatch
 import json
 import os
 import shutil
 import signal
+import stat
 import subprocess
 import tempfile
 import threading
 import time
+import warnings
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
@@ -20,6 +23,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from devops_cli.config.constants import (
+    CONST_APP_NAME,
     CONST_CODE_LOADING_ENV_PATTERNS,
     CONST_DATA_EGRESS_ENV_VARS,
     CONST_EXIT_COMMAND_NOT_FOUND,
@@ -33,6 +37,7 @@ from devops_cli.config.constants import (
     CONST_GH_LOGIN_ENV_VARS,
     CONST_GH_NON_API_COMMANDS,
     CONST_GH_PRIVATE_CONFIG_DIRNAME,
+    CONST_GH_TEMP_FOLDER_PREFIX,
     CONST_GH_TOKEN_ENV_VARS,
     CONST_GIT_ACCEPTED_ENV,
     CONST_GIT_CLI,
@@ -451,58 +456,112 @@ def git_reaches_remote(args: Sequence[str]) -> bool:
     return False
 
 
-def _private_config_root() -> Path:
-    """Where the private gh configuration folders go: `$XDG_RUNTIME_DIR` when it is a folder, else
-    the data directory. Neither is on the root file system, which a runner Job mounts read-only."""
-    runtime = os.environ.get("XDG_RUNTIME_DIR", "")
-    if runtime and Path(runtime).is_dir():
-        return Path(runtime) / CONST_GH_PRIVATE_CONFIG_DIRNAME
-    from devops_cli.config.settings import load_settings
-    from devops_cli.core.repo import resolve_data_path
+def _private_root(root: Path) -> Path:
+    """A new folder (mode 0700) in `root`, which is made private when it is missing. Raises
+    `OSError` when `root` cannot be made, or is a link, a folder of another user or a folder that
+    others can read."""
+    root.mkdir(mode=0o700, parents=True, exist_ok=True)
+    held = root.lstat()
+    shared = os.name == "posix" and (held.st_mode & 0o077 or held.st_uid != os.getuid())
+    if not stat.S_ISDIR(held.st_mode) or shared:
+        from devops_cli.lang import MESSAGES
 
-    return resolve_data_path(load_settings().data.dir) / CONST_GH_PRIVATE_CONFIG_DIRNAME
+        raise PermissionError(errno.EACCES, MESSAGES.config.gh_config_root_not_private, str(root))
+    return Path(tempfile.mkdtemp(prefix="gh-", dir=root))
+
+
+def _runtime_folder() -> Path:
+    """A new folder in `<runtime folder>/devops-cli/gh-config`. platformdirs gives the runtime
+    folder of the user (`$XDG_RUNTIME_DIR` when it is private, else its own fallback)."""
+    import platformdirs
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", platformdirs.RuntimeDirWarning)
+        runtime = platformdirs.user_runtime_path(CONST_APP_NAME, ensure_exists=True)
+    return _private_root(Path(runtime) / CONST_GH_PRIVATE_CONFIG_DIRNAME)
+
+
+def _temp_folder() -> Path:
+    """A new folder (mode 0700) in the temp folder of the system (`TMPDIR`)."""
+    return Path(tempfile.mkdtemp(prefix=CONST_GH_TEMP_FOLDER_PREFIX))
+
+
+def _data_folder() -> Path:
+    """A new folder in `<data directory>/gh-config`, only when the data directory is absolute: a
+    relative one resolves under the current folder, which can be the working tree of a project."""
+    from devops_cli.config.settings import load_settings
+
+    data = Path(load_settings().data.dir).expanduser()
+    if not data.is_absolute():
+        from devops_cli.lang import MESSAGES
+
+        raise NotADirectoryError(
+            errno.ENOTDIR, MESSAGES.config.gh_config_data_dir_relative, str(data)
+        )
+    return _private_root(data / CONST_GH_PRIVATE_CONFIG_DIRNAME)
+
+
+def _private_gh_folder() -> Path:
+    """A new private folder for the configuration of one gh child: in the runtime folder of the
+    user, else in the temp folder of the system, else in the data directory when it is absolute.
+    None of them depends on the current folder, so no token file goes into a working tree. A
+    candidate that raises `OSError` gives way to the next. Raises `ConfigurationError`, which names
+    the settings, when none works."""
+    reasons: list[str] = []
+    for candidate in (_runtime_folder, _temp_folder, _data_folder):
+        try:
+            return candidate()
+        except OSError as exc:
+            reasons.append(f"{exc.filename or candidate.__name__}: {exc.strerror or exc}")
+    from devops_cli.exceptions.config import ConfigurationError
+    from devops_cli.lang import MESSAGES
+
+    raise ConfigurationError(
+        MESSAGES.config.gh_config_folder_failed.format(reasons="; ".join(reasons)),
+        key="data.dir",
+    )
 
 
 def _private_gh_config(token: str) -> Path:
     """A new folder (mode 0700) that holds `token` in `hosts.yml` (mode 0600) for one gh child.
-    `config.yml` names the version of the configuration, so gh moves nothing on its start."""
-    root = _private_config_root()
-    root.mkdir(mode=0o700, parents=True, exist_ok=True)
-    folder = Path(tempfile.mkdtemp(prefix="gh-", dir=root))
+    `config.yml` names the version of the configuration, so gh moves nothing on its start. A
+    folder that fails half-way is removed."""
+    folder = _private_gh_folder()
     hosts = json.dumps(token)
     files = {
         CONST_GH_HOSTS_FILE: f"{CONST_GITHUB_HOST}:\n    oauth_token: {hosts}\n    git_protocol: https\n",
         CONST_GH_CONFIG_FILE: 'version: "1"\n',
     }
-    for name, text in files.items():
-        handle = os.open(folder / name, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        with os.fdopen(handle, "w", encoding="utf-8") as written:
-            written.write(text)
+    try:
+        for name, text in files.items():
+            handle = os.open(folder / name, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            with os.fdopen(handle, "w", encoding="utf-8") as written:
+                written.write(text)
+    except BaseException:
+        shutil.rmtree(folder, ignore_errors=True)
+        raise
     return folder
 
 
-@contextlib.contextmanager
-def _removed_after(folder: Path | None) -> Iterator[None]:
-    """Remove `folder`, a private gh configuration, when the block ends, also on an error or a
-    timeout."""
-    try:
-        yield
-    finally:
-        if folder is not None:
-            shutil.rmtree(folder, ignore_errors=True)
+@dataclass(frozen=True)
+class _GitHubPin:
+    """The GitHub token that one child gets. `env` holds the token variables of its environment,
+    and `gh_token` the token that a gh child reads from a private configuration folder. `session`
+    says that the child gets the session's token."""
+
+    env: dict[str, str] = field(default_factory=dict)
+    gh_token: str = ""
+    session: bool = False
 
 
-def _pin_github_token(
-    cmd: list[str], sub_env: dict[str, str], caller_env: dict[str, str] | None = None
-) -> Path | None:
-    """Give a gh child, or a git child that reaches a remote, the session's token, and no other
-    GitHub token. Returns the private folder that the caller removes after the child ends.
+def _github_pin(cmd: list[str], caller_env: dict[str, str] | None = None) -> _GitHubPin | None:
+    """The GitHub token that the child `cmd` gets, or None for a program that is no GitHub client.
+    It looks the token up and writes no file, so an async call can run it in a thread.
 
-    A git child that reaches a remote gets the token as GH_TOKEN. Any other git child gets no
-    GitHub token and starts no lookup: a program that the configuration of its repository names
-    runs as its child (GHSA). A gh child gets no token in its environment: gh gives its environment
-    to each `--jq` filter. It gets a new private configuration folder (`GH_CONFIG_DIR`) whose
-    `hosts.yml` holds the token, and `GH_HOST` set to github.com.
+    A git child that reaches a remote gets the session's token as GH_TOKEN. Any other git child
+    gets no GitHub token and starts no lookup: a program that the configuration of its repository
+    names runs as its child (GHSA). A gh child gets no token in its environment: gh gives its
+    environment to each `--jq` filter. It reads the token from its own configuration folder.
 
     gh's local commands (`gh auth` subcommands, version and help) are exempt: they get the
     GH_TOKEN and GITHUB_TOKEN of the environment, or of `caller_env` where the caller set them,
@@ -512,25 +571,57 @@ def _pin_github_token(
     client = _github_client_name(cmd)
     if client is None or is_dry_run():
         return None
-    for name in CONST_GH_TOKEN_ENV_VARS:
-        sub_env.pop(name, None)
     if client == CONST_GIT_CLI:
         token, _ = (
             _session_github_token(retry_now=False) if git_reaches_remote(cmd[1:]) else ("", "")
         )
-        if token:
-            sub_env[CONST_GH_AUTH_ENV_VAR] = token
-        return None
+        return _GitHubPin({CONST_GH_AUTH_ENV_VAR: token}, session=True) if token else _GitHubPin()
     if is_local_gh_command(cmd[1:]):
         given = {**os.environ, **(caller_env or {})}
-        sub_env.update(
+        return _GitHubPin(
             {name: str(given[name]) for name in CONST_GH_TOKEN_ENV_VARS if name in given}
         )
-        return None
-    folder = _private_gh_config(github_token())
-    sub_env[CONST_GH_CONFIG_DIR_ENV] = str(folder)
-    sub_env[CONST_GH_HOST_ENV] = CONST_GITHUB_HOST
-    return folder
+    return _GitHubPin(gh_token=github_token(), session=True)
+
+
+def _end_leftover_processes_in_runner() -> None:
+    """In a runner, end every process that the job started, before a child that gets the session's
+    token starts. The job runs code of the checkout (tests, hooks, the agent's shell), and a
+    process that such code left would read the token of the child. Raises
+    `RoadmapImplementError`, which stops the item, when a process survives."""
+    from devops_cli.config.settings import load_settings
+
+    if load_settings().roadmap.implement.in_runner:
+        from devops_cli.core import process_hardening
+
+        process_hardening.end_leftover_processes()
+
+
+@contextlib.contextmanager
+def _pinned(pin: _GitHubPin | None, sub_env: dict[str, str]) -> Iterator[None]:
+    """Give the child of `sub_env` the token of `pin`, and no other GitHub token, for the life of
+    the block. Before a child that gets the session's token, the leftover processes end in a
+    runner. A gh child gets a new private configuration folder (`GH_CONFIG_DIR`) whose `hosts.yml`
+    holds the token, and `GH_HOST` set to github.com. The folder goes when the block ends, also
+    after an error, a timeout or a cancel."""
+    if pin is None:
+        yield
+        return
+    for name in CONST_GH_TOKEN_ENV_VARS:
+        sub_env.pop(name, None)
+    if pin.session:
+        _end_leftover_processes_in_runner()
+    sub_env.update(pin.env)
+    if not pin.gh_token:
+        yield
+        return
+    folder = _private_gh_config(pin.gh_token)
+    try:
+        sub_env[CONST_GH_CONFIG_DIR_ENV] = str(folder)
+        sub_env[CONST_GH_HOST_ENV] = CONST_GITHUB_HOST
+        yield
+    finally:
+        shutil.rmtree(folder, ignore_errors=True)
 
 
 class PlannedProcessResult(subprocess.CompletedProcess[str], PlannedRequest):
@@ -730,10 +821,10 @@ class DefaultProcessRunner:
             isolate_env=isolate_env,
             extra_allowed_keys=extra_allowed_env,
         )
-        credentials = _pin_github_token(full_cmd, sub_env, env)
+        pin = _github_pin(full_cmd, env)
 
         with (
-            _removed_after(credentials),
+            _pinned(pin, sub_env),
             trace_span(
                 f"subprocess.{bin_name}",
                 attributes=_subprocess_span_attributes(full_cmd, bin_name, cwd, timeout),
@@ -863,10 +954,10 @@ class DefaultProcessRunner:
             isolate_env=isolate_env,
             extra_allowed_keys=extra_allowed_env,
         )
-        credentials = await asyncio.to_thread(_pin_github_token, full_cmd, sub_env, env)
+        pin = await asyncio.to_thread(_github_pin, full_cmd, env)
 
         with (
-            _removed_after(credentials),
+            _pinned(pin, sub_env),
             trace_span(
                 f"subprocess.{bin_name}",
                 attributes=_subprocess_span_attributes(full_cmd, bin_name, cwd, timeout),
