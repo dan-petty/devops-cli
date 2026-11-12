@@ -19,7 +19,6 @@ not installed; CI's test job installs it.
 from __future__ import annotations
 
 import re
-import subprocess
 from functools import cache
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -56,6 +55,7 @@ from devops_cli.telemetry.instruments import (
     WEB_SEARCHES_TOTAL,
 )
 from tests.support.paths import FIXTURES, REPO_ROOT
+from tests.support.promtool import promtool
 
 K8S = REPO_ROOT / "k8s"
 K8S_README = K8S / "README.md"
@@ -1504,13 +1504,6 @@ def test_each_ai_spend_alert_has_a_row_with_the_first_step_in_the_readme() -> No
     ) == ([], [])
 
 
-def _promtool(*args: str | Path) -> subprocess.CompletedProcess[str]:
-    """Run the promtool on PATH and keep its output for the failure message."""
-    return subprocess.run(
-        ["promtool", *map(str, args)], capture_output=True, text=True, check=False
-    )
-
-
 @pytest.mark.live("promtool")
 def test_promtool_accepts_every_alert_rule(tmp_path: Path) -> None:
     """`promtool check rules` accepts the rule file the server loads, with each expression and
@@ -1520,7 +1513,7 @@ def test_promtool_accepts_every_alert_rule(tmp_path: Path) -> None:
         yaml.safe_dump(_yaml(PROMETHEUS_VALUES)["serverFiles"]["alerting_rules.yml"]),
         encoding="utf-8",
     )
-    result = _promtool("check", "rules", rules)
+    result = promtool("check", "rules", rules)
     assert result.returncode == 0, result.stdout + result.stderr
 
 
@@ -1586,7 +1579,7 @@ def test_each_unit_tested_rule_fires_on_a_sample_and_stays_quiet_on_a_normal_ser
     )
     copy = tmp_path / rule_tests.name
     copy.write_text(rule_tests.read_text(encoding="utf-8"), encoding="utf-8")
-    result = _promtool("test", "rules", copy)
+    result = promtool("test", "rules", copy)
     assert (
         sorted(_tested_alerts(rule_tests) - {rule["alert"] for rule in _group(group)}),
         result.returncode,
