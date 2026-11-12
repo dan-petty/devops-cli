@@ -17,8 +17,8 @@ The change fits one pull request.
 
 ## Capabilities
 
-- `pull-request-form`: MODIFIED "devops pr create refuses a pull request that breaks the form" and "A dry run checks the form without a request"; ADDED "devops pr create opens a pull request from the branch it is given".
-- `pr-merge-readiness`: ADDED "pr ready does not wait for checks in a repository with no CI".
+- `pull-request-form`: MODIFIED "devops pr create refuses a pull request that breaks the form" and "A dry run checks the form without a request"; ADDED "devops pr create checks the body only in a repository with OpenSpec" and "devops pr create opens a pull request from the branch it is given".
+- `pr-merge-readiness`: ADDED "pr ready does not wait for checks in a repository with no CI" and "pr ready waits for checks that a workflow can start".
 
 ## Impact
 

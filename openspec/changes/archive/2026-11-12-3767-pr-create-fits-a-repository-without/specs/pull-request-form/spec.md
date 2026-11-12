@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: devops pr create refuses a pull request that breaks the form
-Before it sends any request to open the pull request, `devops pr create` SHALL check `--title` with these rules, and SHALL check `--body` with them where the base branch of the target repository (the default branch without `--base`) holds `openspec/config.yaml`. In a repository without that file it SHALL NOT check the body. A read of `openspec/config.yaml` that fails for another reason than a missing file SHALL stop the command with exit 1 and the error. When there is a problem, it SHALL print every problem to stderr, exit 1, and open nothing, by `gh` or by the REST fallback. It SHALL check the scope against the labels file on the base branch and, without `--repo`, also against that of the checkout. A pull request that passes SHALL open as a draft, and the command SHALL have no option for another state.
+Before it sends the create request, `devops pr create` SHALL check `--title`, and `--body` in a repository with OpenSpec, with these rules. When there is a problem, it SHALL print every problem to stderr, exit 1, and open nothing, by `gh` or by the REST fallback. It SHALL check the scope against the labels file on the base branch and, without `--repo`, also against that of the checkout. A pull request that passes SHALL open as a draft, and the command SHALL have no option for another state.
 
 #### Scenario: A title and a body in the form
 - **WHEN** `devops pr create` is given a title and a body in the form
@@ -35,22 +35,6 @@ Before it sends any request to open the pull request, `devops pr create` SHALL c
 - **WHEN** the title is `A plain title`
 - **THEN** the REST fallback is not called
 
-#### Scenario: A repository without OpenSpec
-- **WHEN** the default branch of the repository that `--repo` names has no `openspec/config.yaml`, and the body has no `Closes` line and no `Change:` line
-- **THEN** the command sends the create request with `--draft` and the body as given, and stderr is empty
-
-#### Scenario: A repository with OpenSpec
-- **WHEN** the default branch of the repository that `--repo` names holds `openspec/config.yaml`, and the body has no `Closes` line and no `Change:` line
-- **THEN** the exit status is 1, no create request is sent, and stderr names the missing `Closes` line and the missing `Change:` line
-
-#### Scenario: The base branch decides
-- **WHEN** the default branch holds `openspec/config.yaml`, `--base legacy` names a branch without it, and the body has no `Closes` line
-- **THEN** the command sends the create request
-
-#### Scenario: A read of the switch that fails
-- **WHEN** the read of `openspec/config.yaml` fails with an error that is not a missing file
-- **THEN** the error is raised, and the command does not take the repository as one without OpenSpec
-
 ### Requirement: A dry run checks the form without a request
 `devops --dry-run pr create` SHALL check the offline rules of the title and SHALL exit 1 with the problems when one fails. It SHALL check the body only when `--repo` is not given and the checkout holds `openspec/config.yaml`, because it cannot read the switch of another repository. It SHALL NOT read the labels file or `openspec/config.yaml` of GitHub, or open a roadmap store. `devops pr describe --dry-run` SHALL list the read of the issue and the read of the labels file, and SHALL read nothing.
 
@@ -71,6 +55,25 @@ Before it sends any request to open the pull request, `devops pr create` SHALL c
 - **THEN** the output lists a read of `repos/<repo>/issues/1` and a read of `.github/labels.yml`, and the command opened no roadmap store
 
 ## ADDED Requirements
+
+### Requirement: devops pr create checks the body only in a repository with OpenSpec
+`devops pr create` SHALL check `--body` only where the base branch of the target repository (the default branch without `--base`) holds `openspec/config.yaml`. A read of the file that fails for another reason than a missing file SHALL stop the command with exit 1 and the error.
+
+#### Scenario: A repository without OpenSpec
+- **WHEN** the default branch of the repository that `--repo` names has no `openspec/config.yaml`, and the body has no `Closes` line and no `Change:` line
+- **THEN** the command sends the create request with `--draft` and the body as given, and stderr is empty
+
+#### Scenario: A repository with OpenSpec
+- **WHEN** the default branch of the repository that `--repo` names holds `openspec/config.yaml`, and the body has no `Closes` line and no `Change:` line
+- **THEN** the exit status is 1, no create request is sent, and stderr names the missing `Closes` line and the missing `Change:` line
+
+#### Scenario: The base branch decides
+- **WHEN** the default branch holds `openspec/config.yaml`, `--base legacy` names a branch without it, and the body has no `Closes` line
+- **THEN** the command sends the create request
+
+#### Scenario: A read of the switch that fails
+- **WHEN** the read of `openspec/config.yaml` fails with an error that is not a missing file
+- **THEN** the error is raised, and the command does not take the repository as one without OpenSpec
 
 ### Requirement: devops pr create opens a pull request from the branch it is given
 `devops pr create` SHALL take `--head` (`-H`), the branch that holds the commits of the pull request, and SHALL give it to `gh pr create` and to the REST fallback. Without `--head`, both SHALL use the branch of the checkout.
