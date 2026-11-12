@@ -6,6 +6,7 @@ option that an added requirement removes (#3287)."""
 
 from __future__ import annotations
 
+import logging
 from datetime import date
 from typing import Any
 
@@ -374,6 +375,94 @@ def test_a_citation_holds_when_the_white_space_differs() -> None:
     problems = _cited(f"The probe shows `{CITED}:4:def   f():` at the commit.")
 
     assert not any(CITED in p for p in problems)
+
+
+# ── A stale line citation whose text is on one other line (#4479) ────────────
+
+_CITATION_LOGGER = "devops_cli.roadmap.stage.stage_change"
+
+
+def _re_anchor_lines(caplog: pytest.LogCaptureFixture) -> list[str]:
+    return [
+        record.getMessage()
+        for record in caplog.records
+        if record.name == _CITATION_LOGGER and "re-anchored" in record.getMessage()
+    ]
+
+
+def test_a_stale_citation_whose_text_is_on_one_other_line_is_re_anchored(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    with caplog.at_level(logging.INFO, logger=_CITATION_LOGGER):
+        problems = _cited(f"The probe shows `{CITED}:4:return 1` at the commit.")
+
+    assert not any(CITED in p for p in problems)
+    assert _re_anchor_lines(caplog) == ["The citation gate re-anchored 1 of 1 line citations."]
+
+
+def test_a_stale_citation_that_quotes_part_of_one_other_line_is_re_anchored() -> None:
+    problems = _cited(f"The probe shows `{CITED}:4:return` at the commit.")
+
+    assert not any(CITED in p for p in problems)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        f"The probe shows `{CITED}:4:return 2` at the commit.",
+        f"The probe shows `{CITED}:1:def f():` at the commit.",
+    ],
+    ids=["on-no-line", "on-two-lines"],
+)
+def test_a_stale_citation_whose_text_is_on_no_line_or_on_two_lines_is_refused(
+    text: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    with caplog.at_level(logging.INFO, logger=_CITATION_LOGGER):
+        problems = _cited(text)
+
+    assert any("feasibility" in p and CITED in p and "no such text" in p for p in problems)
+    assert _re_anchor_lines(caplog) == ["The citation gate re-anchored 0 of 1 line citations."]
+
+
+def test_a_citation_of_a_line_that_holds_the_text_is_not_re_anchored(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    with caplog.at_level(logging.INFO, logger=_CITATION_LOGGER):
+        problems = _cited(f"The probe shows `{CITED}:7:def f():` at the commit.")
+
+    assert not any(CITED in p for p in problems)
+    assert _re_anchor_lines(caplog) == ["The citation gate re-anchored 0 of 1 line citations."]
+
+
+def test_a_short_text_on_one_other_line_is_refused_and_not_re_anchored(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    with caplog.at_level(logging.INFO, logger=_CITATION_LOGGER):
+        problems = _cited(f"The probe shows `{CITED}:4:G:` at the commit.")
+
+    assert any(CITED in p and "fewer than 3 characters" in p for p in problems)
+    assert _re_anchor_lines(caplog) == ["The citation gate re-anchored 0 of 1 line citations."]
+
+
+def test_the_gate_writes_one_line_with_the_count_of_the_plan(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    with caplog.at_level(logging.INFO, logger=_CITATION_LOGGER):
+        problems = _cited(
+            f"The probe shows `{CITED}:4:return 1` and `{OTHER_CITED}:1:def g(): pass` here."
+        )
+
+    assert not any(CITED in p or OTHER_CITED in p for p in problems)
+    assert _re_anchor_lines(caplog) == ["The citation gate re-anchored 2 of 2 line citations."]
+
+
+def test_a_check_with_no_reader_writes_no_count(caplog: pytest.LogCaptureFixture) -> None:
+    plan = make_stage_proposal(feasibility=[f"The probe shows `{CITED}:4:return 1` at the commit."])
+
+    with caplog.at_level(logging.INFO, logger=_CITATION_LOGGER):
+        _check(plan)
+
+    assert _re_anchor_lines(caplog) == []
 
 
 def test_a_rule_of_the_plan_check_needs_its_self_acceptance_test() -> None:
