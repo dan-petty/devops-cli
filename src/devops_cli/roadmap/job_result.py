@@ -24,6 +24,7 @@ from __future__ import annotations
 import logging
 import re
 from collections.abc import Mapping
+from dataclasses import dataclass
 from enum import StrEnum
 from types import MappingProxyType
 from typing import Final
@@ -76,9 +77,39 @@ SUCCESS_RESULTS: Final[Mapping[RoadmapJob, frozenset[str]]] = MappingProxyType(
     }
 )
 
+
+@dataclass(frozen=True)
+class CountLimit:
+    """A count of the result line and the most that a first-pass attempt has of it."""
+
+    count: str
+    most: int
+
+
+# A first-pass attempt is a success with no fix round (owner rule 2026-11-12, #5165). These jobs
+# write the counts of their fix rounds on the line, so a count over its limit is a fix round. The
+# other jobs get their rule when their line gets the counts (#5168); until then their first pass is
+# unknown, and the job grade `100` needs it.
+FIRST_PASS_LIMITS: Final[Mapping[RoadmapJob, tuple[CountLimit, ...]]] = MappingProxyType(
+    {
+        RoadmapJob.STAGE: (
+            CountLimit("plan_calls", 1),
+            CountLimit("gate_returns", 0),
+            CountLimit("verify_rounds", 1),
+        ),
+        RoadmapJob.IMPLEMENT: (CountLimit("repair_rounds", 0),),
+        RoadmapJob.FIX_PLAN: (
+            CountLimit("gate_returns", 0),
+            CountLimit("verify_rounds", 1),
+            CountLimit("after", 0),
+        ),
+    }
+)
+
 # The failure classes that a cut of the infrastructure gives: the model provider, the CI or the
-# cluster, the memory of a pod, and a used budget. The 80% check counts them as failures and the
-# dashboard shows their share apart.
+# cluster, the memory of a pod, and a used budget. The ratio of the dashboard counts them as
+# failures and shows their share apart. The job grade (`roadmap/job_grade.py`) leaves them out of
+# its ratio, because the action of a grade is for the job.
 INFRA_CLASSES: Final[frozenset[FailureClass]] = frozenset(
     {
         FailureClass.PROVIDER,
@@ -126,4 +157,12 @@ def log_job_result(
     logger.info("%s %s", LINE_PREFIX, " ".join(fields))
 
 
-__all__ = ["INFRA_CLASSES", "LINE_PREFIX", "SUCCESS_RESULTS", "RoadmapJob", "log_job_result"]
+__all__ = [
+    "FIRST_PASS_LIMITS",
+    "INFRA_CLASSES",
+    "LINE_PREFIX",
+    "SUCCESS_RESULTS",
+    "CountLimit",
+    "RoadmapJob",
+    "log_job_result",
+]

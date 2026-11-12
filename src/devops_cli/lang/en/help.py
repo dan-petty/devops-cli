@@ -1426,8 +1426,9 @@ class RoadmapCommandHelp:
         "and the record. It acts in every mode of roadmap.fix_plan.mode."
     )
     eval_app: str = (
-        "Score the plan and implement jobs on a golden set. Each command runs a job's real code "
-        "on committed cases with a chosen model. It is on demand and no part of devops ci."
+        "Score the roadmap jobs. grades reads the live result lines of each job in Loki. Each "
+        "other command runs a job's real code on committed cases with a chosen model. Each is on "
+        "demand and no part of devops ci."
     )
     eval_stage: str = (
         "Score the stage job on its golden set, the plans of 2026-11-01 with their known "
@@ -1518,6 +1519,27 @@ class RoadmapCommandHelp:
     eval_completeness_cases: str = (
         "Folder of the cases. Default: tests/fixtures/roadmap_eval/completeness."
     )
+    eval_grades: str = (
+        "Print the job grade of each roadmap workflow and repository from its result lines in "
+        "Loki (docs/roadmap/job-success.md). For each row: the attempts with no infrastructure "
+        "cut, the successes, p, the Wilson 95% interval, the grade (100, 90, 80, 70, 60, <60, or "
+        "too few under 30 attempts), the point grade and the range of grades of the interval, "
+        "the first-pass ratio, the all-attempts ratio and the infrastructure share, the top 3 "
+        "failure classes, the owner action of the grade, the tokens and seconds of each attempt "
+        "and of each success, each version with 10 attempts or more, the attempts in 24 h and in "
+        "6 h, and the broken and infrastructure signals. It sends LogQL metric queries to the "
+        "instant query endpoint of Loki and changes nothing. The 100 grade needs the first-pass "
+        "counts that only the stage, implement and fix_plan lines hold today."
+    )
+    eval_grades_repo: str = "Report only this repository (owner/name). Default: all repositories."
+    eval_grades_window: str = (
+        "The window of the grade. The policy grade uses 7d; the trend columns always show 24h "
+        "and 6h."
+    )
+    eval_grades_loki_url: str = (
+        "The Loki to query. Without it, the loki.url setting, else http://localhost:3100."
+    )
+    eval_grades_dry_run: str = "Send no request: print the LogQL queries that a run sends."
     run: str = (
         "Run the roadmap jobs that are due, in order: metrics, then intake, refine and "
         "the alternatives check, and record each one's last success. Intake is due on an issue reopened or a new issue, and decides at "

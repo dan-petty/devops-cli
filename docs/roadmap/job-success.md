@@ -1,6 +1,6 @@
 # The success of the roadmap jobs
 
-The owner tunes the caps and the limits of a roadmap job only after the job holds 80% success. This page gives the measure of each job, the log line that counts it, the query that reads it and the 80% rule. The rules that a test checks are in the spec named at the end of this page.
+Each roadmap job gets a job grade from its measured success, and each grade has one action. The owner tunes the caps and the limits of a roadmap job only after the job holds 80% success. This page gives the measure of each job, the log line that counts it, the queries that read it, the job grades and the 80% rule. The rules that a test checks are in the specs named at the end of this page.
 
 ## Why a log line and not a counter
 
@@ -17,7 +17,7 @@ roadmap job result: job=<job> repo=<owner/repo> item=#<n> result=<result> succes
 - `job` is `stage`, `implement`, `refine`, `refine_judge`, `alternatives`, `intake` or `fix_plan`.
 - `success` is `true` when the result is the intended result of the job (table below).
 - `class` is the failure class of `roadmap/failure.py`, or `none`.
-- `infra` is `true` for a class that a cut of the infrastructure gives: `provider`, `ci_infra`, `oom` and `limit_reached`. The ratio counts these attempts as failures, and the dashboard shows their share apart.
+- `infra` is `true` for a class that a cut of the infrastructure gives: `provider`, `ci_infra`, `oom` and `limit_reached`. The ratio of the dashboard counts these attempts as failures and shows their share apart. The job grade leaves them out of `p`.
 - The counts and the names of the job follow, and the devops-cli version ends the line, so a query can compare two images.
 
 A line holds no text of an issue, of a model or of a log. Each value is a number or a fixed name. The writer changes a value with another character than a letter, a digit, `_`, `-` or `.` to `other`. `src/devops_cli/roadmap/job_result.py` holds the form and the table below.
@@ -65,7 +65,38 @@ The label is `roadmap_job`, because the stream already has the label `job`. The 
 
 The `or on (roadmap_job)` part gives 0 successes to a job that has attempts and no success. Without it, the division drops that job, and a job at 0% looks the same as a job with no attempts.
 
-## The 80% rule
+`devops roadmap eval grades` reads the same lines with LogQL metric instant queries, so no line limit applies. Its base also takes `repo` and `version` from the line, and each query groups by the job and the repository. `--dry-run` prints each query and sends no request.
+
+## The job grades
+
+Each roadmap workflow gets a job grade from its result lines: `100`, `90`, `80`, `70`, `60`, `<60` or `too few`. Each grade has one action, from the owner request of 2026-11-12. A job grade is not the band of a decision point (ADR 0020). `devops roadmap eval grades` prints the grade of each workflow and repository, and `--format json` gives the same report to an agent.
+
+The ratio `p` is the successes divided by the attempts with `infra=false`. An infrastructure cut is not a fault of the workflow, so `p` does not count it, and one outage does not give each workflow the action of `<60`. The report shows the ratio of all attempts and the infrastructure share beside `p`.
+
+`src/devops_cli/roadmap/job_grade.py` holds the grade table, and `devops docs generate` writes it here:
+
+<!-- JOB_GRADES_START -->
+
+| Grade | Rule | Name | Action | Efficiency work |
+| :--- | :--- | :--- | :--- | :--- |
+| `100` | every attempt is a first pass | Check the measure | Look for measure defects or bugs. Look for ways to tighten gates, restrictions and correction suggestions. | optimize |
+| `90` | p ≥ 0.90 | Well performing | Apply routine updates and refinements. Give priority to new features. | optimize |
+| `80` | 0.80 ≤ p < 0.90 | Acceptable | Find the leading failure modes. Give priority to fixes and fixer jobs that increase success. | optimize |
+| `70` | 0.70 ≤ p < 0.80 | Degraded | Find the leading causes of failure, with high priority. | report only |
+| `60` | 0.60 ≤ p < 0.70 | Ineffective | Look for implementation alternatives, or serious defects that a fix can correct. | report only |
+| `<60` | p < 0.60 | Coin flip | Re-architect the workflow. | report only |
+| `too few` | fewer than 30 attempts | Not graded | Show p and the interval. Give no grade. | report only |
+
+<!-- JOB_GRADES_END -->
+
+- **Interval.** The report gives the Wilson 95% interval of `p` (statsmodels `proportion_confint`), the point grade of `p` and the grades of the two bounds. For example, 22 successes in 25 attempts give `p` 0.88, the interval [0.70, 0.96], the point grade 80 and the range 70 to 90. The grade is `too few`, because 25 attempts are fewer than 30.
+- **First pass.** A first pass is a success with no fix round. The grade `100` needs a first pass for each attempt. Three lines hold the counts of the rule (`FIRST_PASS_LIMITS` in `src/devops_cli/roadmap/job_result.py`): `stage` (`plan_calls` ≤ 1, `gate_returns` = 0, `verify_rounds` ≤ 1), `implement` (`repair_rounds` = 0) and `fix_plan` (`gate_returns` = 0, `verify_rounds` ≤ 1, `after` = 0). The line of another job has no count of its fix rounds, so its first pass is not known, and it cannot get the grade `100`.
+- **Windows.** The 7-day window gives the grade. The report also shows the attempts and the successes of the last 24 hours and of the last 6 hours. 5 attempts or more with no success in 6 hours give the signal `broken`. An infrastructure share over 20% of 10 attempts or more in 24 hours gives the signal `infra`, and not a grade.
+- **Versions.** The report shows each devops-cli version that has 10 attempts or more in the window.
+- **Failure classes.** The report shows the 3 largest failure classes of the attempts with `infra=false`.
+- **Efficiency.** For a job whose line has `tokens` and `seconds`, the report shows the median, the p90 and the max of each attempt, and the tokens and the seconds of all attempts divided by the successes. At the grades `100`, `90` and `80`, the efficiency work is `optimize`. At a lower grade it is `report only`, and the work goes to success first.
+
+### The 80% rule
 
 A job holds 80% when, at 3 daily checks in a row, its 7-day ratio is 0.80 or more and it has 30 attempts or more in the 7 days. Only then does the owner tune the caps of the job from its real performance. Under 30 attempts, the ratio is too few to judge, and the job does not hold 80%.
 
@@ -77,6 +108,7 @@ upper = (p + z²/(2n) + z·√(p(1 − p)/n + z²/(4n²))) / (1 + z²/n)
 
 When the upper bound is under 0.80, the job no longer holds 80%. For example, 20 successes in 30 attempts give an upper bound of 0.81, and the job keeps the hold. 18 successes in 30 attempts give 0.75, and the hold ends.
 
-## Spec
+## Specs
 
-`openspec/specs/roadmap-service-logs/spec.md`, requirement "Each roadmap job logs one result line for each attempt".
+- `openspec/specs/roadmap-service-logs/spec.md`, requirement "Each roadmap job logs one result line for each attempt".
+- `openspec/specs/roadmap-job-grades/spec.md`, the job grade of each workflow and the report of `devops roadmap eval grades`.

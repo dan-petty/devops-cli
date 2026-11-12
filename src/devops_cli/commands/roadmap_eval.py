@@ -1,15 +1,17 @@
-"""`devops roadmap eval`: the golden sets that measure the plan and implement jobs (#3027).
+"""`devops roadmap eval`: the measures of the roadmap jobs (#3027, #5165).
 
-A subcommand of this group runs a job's real code on a committed set of cases with a chosen model,
-prints a score and stores it under `.data/`. Each is an on-demand command and no part of
-`devops ci`: it calls the model through the gateway. Its `--replay` mode calls no model. The
-group is defined here, and each subcommand lives in its own module and is registered here with one
-line. `commands/roadmap.py` registers the group once.
+`grades` reads the live result line of each attempt in Loki and prints the job grade of each
+workflow. Each other subcommand runs a job's real code on a committed set of cases with a chosen
+model, prints a score and stores it under `.data/`. Each is an on-demand command and no part of
+`devops ci`: a golden-set subcommand calls the model through the gateway, and its `--replay` mode
+calls no model. The group is defined here, and each subcommand lives in its own module and is
+registered here with one line. `commands/roadmap.py` registers the group once.
 """
 
 from __future__ import annotations
 
 from devops_cli.commands.roadmap_eval_completeness import completeness_cmd
+from devops_cli.commands.roadmap_eval_grades import grades_cmd
 from devops_cli.commands.roadmap_eval_implement import implement_cmd
 from devops_cli.commands.roadmap_eval_intake import intake_cmd
 from devops_cli.commands.roadmap_eval_jev import jev_cmd
@@ -27,3 +29,4 @@ eval_app.command("jev", help=HELP.roadmap.eval_jev)(jev_cmd)
 eval_app.command("verify", help=HELP.roadmap.eval_verify)(verify_cmd)
 eval_app.command("screen", help=HELP.roadmap.eval_screen)(screen_cmd)
 eval_app.command("completeness", help=HELP.roadmap.eval_completeness)(completeness_cmd)
+eval_app.command("grades", help=HELP.roadmap.eval_grades)(grades_cmd)

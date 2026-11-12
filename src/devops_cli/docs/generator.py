@@ -18,6 +18,7 @@ from devops_cli.config.constants import (
     CONST_DOC_CREDENTIAL_NAME_WORD_PAIRS,
     CONST_DOC_CREDENTIAL_NAME_WORDS,
     CONST_DOC_CREDENTIAL_NAMING_WORD,
+    CONST_DOCS_DIR_NAME,
     CONST_DOMAIN_EXCEPTION_MODULES,
     CONST_MARKDOWN_HEADING_LEVEL,
     CONST_PROJECT_CONFIG_CANDIDATES,
@@ -42,6 +43,9 @@ _RICH_TAG_RE = re.compile(
 _PLACEHOLDER_TAG_RE = re.compile(r"<([a-zA-Z][a-zA-Z0-9_-]*)>")
 
 _IGNORED_PARAM_NAMES = {"help", "install_completion", "show_completion"}
+
+# The hand-written page of the job success, whose grade table the generator writes (#5165).
+JOB_SUCCESS_PAGE = "roadmap/job-success.md"
 
 
 def _escape_angle_brackets(text: str) -> str:
@@ -1406,6 +1410,17 @@ class DocGenerator:
         lines.append("")
         return "\n".join(lines)
 
+    def synced_blocks(self) -> dict[str, str]:
+        """Each hand-written page under `docs/` with a generated block, by its path under
+        `docs/`, with the block synced. A page with no markers is left out."""
+        from devops_cli.roadmap.job_grade import sync_grade_table
+
+        page = self.root_dir / CONST_DOCS_DIR_NAME / JOB_SUCCESS_PAGE
+        if not page.exists():
+            return {}
+        synced = sync_grade_table(page.read_text(encoding="utf-8"))
+        return {} if synced is None else {JOB_SUCCESS_PAGE: synced}
+
     def generate_all_docs(self, output_dir: Path) -> dict[str, str]:
         """Generate all documentation files and return a dict of {rel_path: content}."""
         with trace_span("docs.generate_all", attributes={"output_dir": str(output_dir)}) as span:
@@ -1451,6 +1466,9 @@ class DocGenerator:
                 )
                 if synced_readme is not None:
                     results["README.md"] = synced_readme
+
+            # 10. The job grade table in the hand-written page of the job success
+            results.update(self.synced_blocks())
 
             span.set_attributes({"file_count": len(results)})
             return results

@@ -5553,6 +5553,49 @@ class RoadmapMessages:
         "one request: a Noul question for each criterion and a Score question"
     )
     jev_eval_stored: str = "Stored the report in {path}."
+    # `devops roadmap eval grades` (#5165).
+    grades_title: str = (
+        "Job grades of the {window} window, {repo}, from the result lines in Loki at {url}. A "
+        "grade needs 30 attempts with no infrastructure cut; p and the 95% interval count only "
+        "those attempts."
+    )
+    grades_all_repos: str = "all repositories"
+    grades_none: str = "-"
+    grades_column_job: str = "Workflow"
+    grades_column_repo: str = "Repository"
+    grades_column_attempts: str = "n"
+    grades_column_successes: str = "OK"
+    grades_column_ratio: str = "p"
+    grades_column_interval: str = "95% interval"
+    grades_column_grade: str = "Grade"
+    grades_column_point: str = "Point"
+    grades_column_range: str = "Range"
+    grades_column_first_pass: str = "First pass"
+    grades_column_infra: str = "Infra"
+    grades_column_trend: str = "OK/n {window}"
+    grades_row: str = "{job} {repo}: grade {grade} ({name}). {action}"
+    grades_classes: str = "  Failure classes: {classes}."
+    grades_all_attempts: str = (
+        "  All attempts: {attempts}, success ratio {ratio}, infrastructure cuts {infra}."
+    )
+    grades_version: str = "  Version {version}: {successes} of {attempts}, p {ratio} {interval}."
+    grades_efficiency: str = (
+        "  Efficiency ({work}): tokens per attempt median {tokens_p50}, p90 {tokens_p90}, max "
+        "{tokens_max}; tokens per success {tokens_success}; seconds per attempt median "
+        "{seconds_p50}, p90 {seconds_p90}, max {seconds_max}; seconds per success "
+        "{seconds_success}."
+    )
+    grades_signal_broken: str = (
+        "  Signal: broken. {attempts} attempts or more in 6 h, and no success."
+    )
+    grades_signal_infra: str = (
+        "  Signal: infrastructure. More than {share:.0%} of {attempts} attempts or more in 24 h "
+        "are infrastructure cuts."
+    )
+    grades_dry_run: str = (
+        "Dry run: no request was made. A run sends these {count} LogQL instant queries to Loki "
+        "at {url}, in order:"
+    )
     intake_spend: str = (
         "Spent: {github} GitHub request(s) (REST {rest}, REST search {search}, GraphQL "
         "{graphql}; GraphQL points not known), {embeddings} embedding call(s) for {texts} "
