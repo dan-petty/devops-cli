@@ -110,6 +110,8 @@ from devops_cli.roadmap.adr import Adr, fit_to_budget, names, read_adrs
 from devops_cli.roadmap.agent_run import error_answer
 from devops_cli.roadmap.body_hash import extract_section_and_outside, hash_text
 from devops_cli.roadmap.commit_title import commit_type
+from devops_cli.roadmap.failure import FailureClass, failure_class_of
+from devops_cli.roadmap.job_result import RoadmapJob, log_job_result
 from devops_cli.roadmap.page_fetch import TOOLSET_ALTERNATIVES, PageFetch, named_urls
 from devops_cli.roadmap.refine.refine import (
     replies_after_marker,
@@ -486,12 +488,14 @@ class Check:
 @dataclass(frozen=True)
 class CheckFailure:
     """An item the job skipped, and why: a failed model call, a run that ended with no reply, or a
-    reply the job refused. `error_class` and `failed_at` go to the item's job record."""
+    reply the job refused. `error_class` and `failed_at` go to the item's job record.
+    `failure_class` is the class of a failed model call, which the result line logs (#4845)."""
 
     item: Item
     reason: str
     error_class: str
     failed_at: datetime
+    failure_class: FailureClass | None = None
 
 
 @dataclass(frozen=True)
@@ -1069,7 +1073,8 @@ def _check_one(
             type(exc).__name__,
         )
         error = type(exc).__name__
-        return CheckFailure(item, texts.alternatives_reason_error.format(error=error), error, now)
+        reason = texts.alternatives_reason_error.format(error=error)
+        return CheckFailure(item, reason, error, now, failure_class_of(exc))
     if isinstance(reply, InvestigationStopped):
         logger.warning(
             "The alternatives check of #%d was skipped: its run stopped (%s).",
@@ -1186,8 +1191,9 @@ class AlternativesWriter:
     run.
     """
 
-    def __init__(self, store: RoadmapStore) -> None:
+    def __init__(self, store: RoadmapStore, repo: str) -> None:
         self._store = store
+        self._repo = repo
         self.written = 0
 
     def settle(self, outcome: Check | CheckFailure) -> None:
@@ -1196,7 +1202,9 @@ class AlternativesWriter:
         the record (#4054). A check is counted in
         `devops_cli_roadmap_alternatives_total` by its verdict, and its searches in
         `devops_cli_roadmap_alternatives_searches` (#2950). A failure is recorded in the job record
-        of its item: the time and the class of the error."""
+        of its item: the time and the class of the error. Each written check and each failure logs
+        one result line for the repository (#4845); a check whose body a person changed since the
+        read logs none, as the next run checks the item again."""
         if isinstance(outcome, CheckFailure):
             self._store.set_marks(
                 outcome.item,
@@ -1205,6 +1213,7 @@ class AlternativesWriter:
                     AlternativesRecordKey.FAILED_ERROR: outcome.error_class,
                 },
             )
+            self._log(outcome)
             return
         if not _unchanged_since_read(self._store, outcome):
             return
@@ -1231,6 +1240,28 @@ class AlternativesWriter:
             {"verdict": outcome.verdict.value},
         )
         self.written += 1
+        self._log(outcome)
+
+    def _log(self, outcome: Check | CheckFailure) -> None:
+        """Log the result line of one item: the verdict of a check, or `refused` for a reply that
+        the job refused and `failed` for another failure, with the code of the error as the
+        reason. The reason of a check is its skip class, or `none`."""
+        if isinstance(outcome, CheckFailure):
+            refused = outcome.error_class == CONST_ROADMAP_ALTERNATIVES_REFUSED_ERROR
+            result = "refused" if refused else "failed"
+            failure, searches, reason = outcome.failure_class, 0, outcome.error_class
+        else:
+            result, failure = outcome.verdict.value, None
+            searches, reason = len(outcome.searches), outcome.skip_class or "none"
+        log_job_result(
+            RoadmapJob.ALTERNATIVES,
+            self._repo,
+            outcome.item.number,
+            result,
+            failure=failure,
+            counts={"searches": searches},
+            names={"reason": reason},
+        )
 
 
 def raise_for_failed_checks(plan: AlternativesPlan) -> None:

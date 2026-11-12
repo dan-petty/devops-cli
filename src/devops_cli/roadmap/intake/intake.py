@@ -156,6 +156,7 @@ from devops_cli.roadmap.intake.intake_model import (
     UnusableProposalError,
 )
 from devops_cli.roadmap.intake.intake_requests import Spend, planned_requests
+from devops_cli.roadmap.job_result import RoadmapJob, log_job_result
 from devops_cli.roadmap.nearest import embedding_text, nearest
 from devops_cli.roadmap.pull_form import SUMMARY_MAX_CHARS, summary_length
 from devops_cli.roadmap.stores.store import (
@@ -1420,8 +1421,12 @@ def start_candidate_counts(repo: str) -> None:
         emit(ROADMAP_INTAKE_CANDIDATES_TOTAL, 0, {"repo": repo, "result": result.value})
 
 
-def _count_candidate(repo: str, result: CandidateResult) -> None:
+def _count_candidate(
+    repo: str, result: CandidateResult, number: int | None, failure: FailureClass | None = None
+) -> None:
+    """Count the result of one candidate, and log its result line (#4845)."""
     emit(ROADMAP_INTAKE_CANDIDATES_TOTAL, 1, {"repo": repo, "result": result.value})
+    log_job_result(RoadmapJob.INTAKE, repo, number, result.value, failure=failure)
 
 
 def _written_result(decision: IntakeDecision) -> CandidateResult:
@@ -1458,23 +1463,28 @@ def apply_intake(
     person changed since the plan is refused before any write: it is no failure, the next plan
     decides the candidate again (#4042). A rate limit or a token GitHub refuses stops the round,
     since every later write would be refused too (#983). Each candidate adds 1 to
-    `devops_cli_roadmap_intake_candidates_total` for `repo` under its result (#4067); the
-    candidate whose write ends the round counts nothing."""
+    `devops_cli_roadmap_intake_candidates_total` for `repo` under its result (#4067), and logs
+    one result line with the number of its issue (#4845); the candidate whose write ends the
+    round counts nothing."""
     written: list[IntakeApplied] = []
     failed: list[PlacementFailure] = []
     for decision in plan.decisions:
+        number = decision.subject.number
         try:
-            written.append(_apply_decision(store, decision))
+            applied = _apply_decision(store, decision)
         except GitHubRateLimitError, GitHubUnauthenticatedError:
             raise
         except RoadmapItemChangedError:
             logger.info(MESSAGES.roadmap.intake_item_changed.format(name=decision.subject.name))
-            _count_candidate(repo, CandidateResult.SKIPPED)
+            _count_candidate(repo, CandidateResult.SKIPPED, number, FailureClass.HEAD_MOVED)
         except GitHubOperationError as exc:
-            failed.append(_failed_placement(decision.subject, exc))
-            _count_candidate(repo, CandidateResult.FAILED)
+            failure = _failed_placement(decision.subject, exc)
+            failed.append(failure)
+            _count_candidate(repo, CandidateResult.FAILED, number, failure.failure_class)
         else:
-            _count_candidate(repo, _written_result(decision))
+            written.append(applied)
+            filed = number if number is not None else next(iter(applied.filed), None)
+            _count_candidate(repo, _written_result(decision), filed)
     return IntakeApplied(
         placed=sum(each.placed for each in written),
         placed_critical_or_p0=sum(each.placed_critical_or_p0 for each in written),

@@ -40,6 +40,7 @@ Notes on the table:
 - The command `devops roadmap repair` lists the Items that a placeholder reply of a model stalled, and with `--confirm` it sets them back. It leaves each Item that a person set or answered. [The repair page](roadmap/repair.md) tells what it lists and writes.
 - The command `devops roadmap return <number> --comment "<evidence>" --confirm` sends an Item back to `status/new` when it cannot be built as written.
 - Refine moves a part of an Item that cannot be built or decided now to new issues when the rest of the Item is Ready (#2423). [The refine page](roadmap/refine.md) tells how.
+- Each Service job logs one result line for each attempt. [The job success page](roadmap/job-success.md) gives the success ratio of each job and the 80% rule that a job meets before its caps are tuned.
 
 ## The transitions
 

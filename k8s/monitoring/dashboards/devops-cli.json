@@ -2143,6 +2143,290 @@
           "refId": "B"
         }
       ]
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 153
+      },
+      "id": 55,
+      "title": "Roadmap Job Success",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "description": "The share of the attempts of each roadmap job in the last 7 days that ended with the intended result of the job, from the 'roadmap job result' log lines (#4845). A job with fewer than 30 attempts shows no bar: see Job Attempts. A job with 30 attempts or more and no success shows a bar at 0. The 80% rule (docs/roadmap/job-success.md): a job holds 80% when the ratio is 0.80 or more with 30 attempts or more at 3 daily checks in a row.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "decimals": 2,
+          "max": 1,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 0.8
+              }
+            ]
+          },
+          "unit": "percentunit"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 154
+      },
+      "id": 56,
+      "options": {
+        "displayMode": "basic",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showUnfilled": true,
+        "valueMode": "color"
+      },
+      "title": "Job Success Ratio (7 d)",
+      "type": "bargauge",
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "expr": "((sum by (roadmap_job) (count_over_time({namespace=\"devops\", app_kubernetes_io_name=\"roadmap-service\"} |= \"roadmap job result:\" | json message | line_format \"{{.message}}\" | regexp `^roadmap job result: job=(?P<roadmap_job>\\S+) repo=\\S+ item=\\S+ result=(?P<result>\\S+) success=(?P<success>\\S+) class=(?P<failure_class>\\S+) infra=(?P<infra>\\S+)` | success=\"true\" [7d])) or on (roadmap_job) (sum by (roadmap_job) (count_over_time({namespace=\"devops\", app_kubernetes_io_name=\"roadmap-service\"} |= \"roadmap job result:\" | json message | line_format \"{{.message}}\" | regexp `^roadmap job result: job=(?P<roadmap_job>\\S+) repo=\\S+ item=\\S+ result=(?P<result>\\S+) success=(?P<success>\\S+) class=(?P<failure_class>\\S+) infra=(?P<infra>\\S+)` [7d])) * 0)) / sum by (roadmap_job) (count_over_time({namespace=\"devops\", app_kubernetes_io_name=\"roadmap-service\"} |= \"roadmap job result:\" | json message | line_format \"{{.message}}\" | regexp `^roadmap job result: job=(?P<roadmap_job>\\S+) repo=\\S+ item=\\S+ result=(?P<result>\\S+) success=(?P<success>\\S+) class=(?P<failure_class>\\S+) infra=(?P<infra>\\S+)` [7d]))) and on (roadmap_job) (sum by (roadmap_job) (count_over_time({namespace=\"devops\", app_kubernetes_io_name=\"roadmap-service\"} |= \"roadmap job result:\" | json message | line_format \"{{.message}}\" | regexp `^roadmap job result: job=(?P<roadmap_job>\\S+) repo=\\S+ item=\\S+ result=(?P<result>\\S+) success=(?P<success>\\S+) class=(?P<failure_class>\\S+) infra=(?P<infra>\\S+)` [7d])) >= 30)",
+          "legendFormat": "{{roadmap_job}}",
+          "refId": "A",
+          "queryType": "instant"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "description": "The attempts of each roadmap job in the last 7 days: one 'roadmap job result' log line for each attempt (#4845). Under 30 attempts the ratio is too few to judge.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [
+            {
+              "options": {
+                "from": 0,
+                "result": {
+                  "color": "orange",
+                  "index": 0,
+                  "text": "too few"
+                },
+                "to": 29
+              },
+              "type": "range"
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "orange",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 30
+              }
+            ]
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 154
+      },
+      "id": 57,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value_and_name"
+      },
+      "title": "Job Attempts (7 d)",
+      "type": "stat",
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "expr": "sum by (roadmap_job) (count_over_time({namespace=\"devops\", app_kubernetes_io_name=\"roadmap-service\"} |= \"roadmap job result:\" | json message | line_format \"{{.message}}\" | regexp `^roadmap job result: job=(?P<roadmap_job>\\S+) repo=\\S+ item=\\S+ result=(?P<result>\\S+) success=(?P<success>\\S+) class=(?P<failure_class>\\S+) infra=(?P<infra>\\S+)` [7d]))",
+          "legendFormat": "{{roadmap_job}}",
+          "refId": "A",
+          "queryType": "instant"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "description": "The share of the attempts of each roadmap job in the last 7 days that a cut of the infrastructure ended: the model provider, the CI or the cluster, the memory of a pod, or a used budget (#4845). The ratio counts these attempts as failures.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "decimals": 2,
+          "max": 1,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.2
+              }
+            ]
+          },
+          "unit": "percentunit"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 154
+      },
+      "id": 58,
+      "options": {
+        "displayMode": "basic",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showUnfilled": true,
+        "valueMode": "color"
+      },
+      "title": "Infrastructure Cut Share (7 d)",
+      "type": "bargauge",
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "expr": "(sum by (roadmap_job) (count_over_time({namespace=\"devops\", app_kubernetes_io_name=\"roadmap-service\"} |= \"roadmap job result:\" | json message | line_format \"{{.message}}\" | regexp `^roadmap job result: job=(?P<roadmap_job>\\S+) repo=\\S+ item=\\S+ result=(?P<result>\\S+) success=(?P<success>\\S+) class=(?P<failure_class>\\S+) infra=(?P<infra>\\S+)` | infra=\"true\" [7d])) / sum by (roadmap_job) (count_over_time({namespace=\"devops\", app_kubernetes_io_name=\"roadmap-service\"} |= \"roadmap job result:\" | json message | line_format \"{{.message}}\" | regexp `^roadmap job result: job=(?P<roadmap_job>\\S+) repo=\\S+ item=\\S+ result=(?P<result>\\S+) success=(?P<success>\\S+) class=(?P<failure_class>\\S+) infra=(?P<infra>\\S+)` [7d]))) or on (roadmap_job) (sum by (roadmap_job) (count_over_time({namespace=\"devops\", app_kubernetes_io_name=\"roadmap-service\"} |= \"roadmap job result:\" | json message | line_format \"{{.message}}\" | regexp `^roadmap job result: job=(?P<roadmap_job>\\S+) repo=\\S+ item=\\S+ result=(?P<result>\\S+) success=(?P<success>\\S+) class=(?P<failure_class>\\S+) infra=(?P<infra>\\S+)` [7d])) * 0)",
+          "legendFormat": "{{roadmap_job}}",
+          "refId": "A",
+          "queryType": "instant"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "description": "The 7-day success ratio of each roadmap job at each daily check, with the line at 0.80 (#4845). A day with fewer than 30 attempts in its 7 days still shows its ratio here. A job with attempts and no success shows 0. The 80% rule (docs/roadmap/job-success.md): a job holds 80% when the ratio is 0.80 or more with 30 attempts or more at 3 daily checks in a row.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "drawStyle": "line",
+            "thresholdsStyle": {
+              "mode": "line"
+            }
+          },
+          "max": 1,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 0.8
+              }
+            ]
+          },
+          "unit": "percentunit"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 162
+      },
+      "id": 59,
+      "interval": "1d",
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "title": "Job Success Ratio by Day (7 d)",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "expr": "((sum by (roadmap_job) (count_over_time({namespace=\"devops\", app_kubernetes_io_name=\"roadmap-service\"} |= \"roadmap job result:\" | json message | line_format \"{{.message}}\" | regexp `^roadmap job result: job=(?P<roadmap_job>\\S+) repo=\\S+ item=\\S+ result=(?P<result>\\S+) success=(?P<success>\\S+) class=(?P<failure_class>\\S+) infra=(?P<infra>\\S+)` | success=\"true\" [7d])) or on (roadmap_job) (sum by (roadmap_job) (count_over_time({namespace=\"devops\", app_kubernetes_io_name=\"roadmap-service\"} |= \"roadmap job result:\" | json message | line_format \"{{.message}}\" | regexp `^roadmap job result: job=(?P<roadmap_job>\\S+) repo=\\S+ item=\\S+ result=(?P<result>\\S+) success=(?P<success>\\S+) class=(?P<failure_class>\\S+) infra=(?P<infra>\\S+)` [7d])) * 0)) / sum by (roadmap_job) (count_over_time({namespace=\"devops\", app_kubernetes_io_name=\"roadmap-service\"} |= \"roadmap job result:\" | json message | line_format \"{{.message}}\" | regexp `^roadmap job result: job=(?P<roadmap_job>\\S+) repo=\\S+ item=\\S+ result=(?P<result>\\S+) success=(?P<success>\\S+) class=(?P<failure_class>\\S+) infra=(?P<infra>\\S+)` [7d])))",
+          "legendFormat": "{{roadmap_job}}",
+          "refId": "A",
+          "queryType": "range"
+        }
+      ]
     }
   ],
   "refresh": "10s",

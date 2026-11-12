@@ -32,6 +32,8 @@ from devops_cli.lang import MESSAGES
 _BATCH = ("batch", "v1")
 _APPS = ("apps", "v1")
 _NOT_FOUND = 404
+# The conditions of a Job that ended.
+_END_CONDITIONS = frozenset({"Complete", "Failed"})
 
 
 class JobState(StrEnum):
@@ -46,19 +48,31 @@ class JobState(StrEnum):
 class ClusterJob:
     """A Job of namespace `devops` as the API lists it: its state, the time its pod started (None
     until the Job controller sets it), the `activeDeadlineSeconds` in force (None when it sets
-    none) and its annotations."""
+    none), its annotations, and the time it got the condition Complete or Failed (None until it
+    ends, #4845)."""
 
     name: str
     state: JobState
     started: datetime | None = None
     deadline: int | None = None
     annotations: Mapping[str, str] = field(default_factory=dict[str, str])
+    ended: datetime | None = None
 
 
 def _started(job: Mapping[str, Any]) -> datetime | None:
     """The `status.startTime` of a Job as a time, or None when the controller has not set it."""
     text = (job.get("status") or {}).get("startTime")
     return datetime.fromisoformat(text) if text else None
+
+
+def _ended(job: Mapping[str, Any]) -> datetime | None:
+    """The `lastTransitionTime` of the condition Complete or Failed of a Job as a time, or None
+    while the Job runs or when the controller set no time."""
+    for condition in ((job.get("status") or {}).get("conditions")) or []:
+        if condition.get("type") in _END_CONDITIONS and condition.get("status") == "True":
+            text = condition.get("lastTransitionTime")
+            return datetime.fromisoformat(text) if text else None
+    return None
 
 
 def _listed(job: Mapping[str, Any]) -> ClusterJob:
@@ -68,6 +82,7 @@ def _listed(job: Mapping[str, Any]) -> ClusterJob:
         started=_started(job),
         deadline=(job.get("spec") or {}).get("activeDeadlineSeconds"),
         annotations=dict(job["metadata"].get("annotations") or {}),
+        ended=_ended(job),
     )
 
 

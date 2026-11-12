@@ -524,8 +524,8 @@ def test_the_review_keeps_the_approval_of_an_unchanged_item_with_no_model_call(
     )
     verifier = _Verifier(_FALSE_PREMISE)
 
-    kept = judge(lambda: verifier, approved, "Body.", _READY, git_repo, unchanged=True)
-    again = judge(lambda: verifier, approved, "Body.", _READY, git_repo, unchanged=False)
+    kept = judge(lambda: verifier, approved, "Body.", _READY, git_repo, unchanged=True, repo=REPO)
+    again = judge(lambda: verifier, approved, "Body.", _READY, git_repo, unchanged=False, repo=REPO)
 
     assert (kept, again[0], len(verifier.prompts)) == (
         (JudgeVerdict.APPROVED, ()),

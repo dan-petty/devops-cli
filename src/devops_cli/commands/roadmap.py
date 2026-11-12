@@ -313,7 +313,7 @@ def alternatives_cmd(
         return
     with _exit_on_failure("Could not check for alternatives"):
         _, store = _open_store(target)
-        writer = job.AlternativesWriter(store) if confirm else None
+        writer = job.AlternativesWriter(store, target) if confirm else None
         plan = job.plan_alternatives(
             store, repo=target, item_number=item, limit=limit, writer=writer
         )

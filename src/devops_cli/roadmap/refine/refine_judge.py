@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Final
 
 from devops_cli.roadmap.body_hash import extract_section_and_outside
+from devops_cli.roadmap.job_result import RoadmapJob, log_job_result
 from devops_cli.roadmap.stage.stage_eval_cases import DefectType
 from devops_cli.roadmap.stage.stage_verify import (
     OPEN_TYPES,
@@ -53,12 +54,15 @@ def judge(
     source: Path,
     *,
     unchanged: bool,
+    repo: str,
 ) -> tuple[JudgeVerdict, tuple[str, ...]]:
     """The verdict on `proposal` for `item`, and the lines of the open findings that refuse it.
 
     `body` is the body that refine read. An item that the review approved before, and whose body is
     `unchanged` since, keeps its approval with no model call: the review looks again only after the
     body changes. `client_of` makes the client of the verification task, only when a call is made.
+    Each review that calls the model logs one result line for `repo` with its verdict and the count
+    of its open findings (#4845).
     """
     if unchanged and item.job_record.get(RefineRecordKey.JUDGE) == JudgeVerdict.APPROVED.value:
         return JudgeVerdict.APPROVED, ()
@@ -70,6 +74,12 @@ def judge(
         source=source,
     )
     findings = open_findings(verify(client_of(), given), given, types=JUDGE_OPEN_TYPES)
-    if not findings:
-        return JudgeVerdict.APPROVED, ()
-    return JudgeVerdict.REFUSED, tuple(finding_line(f).removeprefix("- ") for f in findings)
+    verdict = JudgeVerdict.REFUSED if findings else JudgeVerdict.APPROVED
+    log_job_result(
+        RoadmapJob.REFINE_JUDGE,
+        repo,
+        item.number,
+        verdict.value,
+        counts={"findings": len(findings)},
+    )
+    return verdict, tuple(finding_line(f).removeprefix("- ") for f in findings)

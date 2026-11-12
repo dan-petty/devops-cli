@@ -116,6 +116,7 @@ from devops_cli.roadmap.implement.implement import (
 )
 from devops_cli.roadmap.implement.implement_deadline import manage_deadlines
 from devops_cli.roadmap.implement.implement_size import RunnerSize, plan_file_count, runner_size
+from devops_cli.roadmap.job_result import RoadmapJob, log_job_result
 from devops_cli.roadmap.plan_read import tasks_at
 from devops_cli.roadmap.planned import PlannedChanges, read_planned_changes
 from devops_cli.roadmap.round_log import log_implement_attempt
@@ -345,6 +346,35 @@ def _report(
         tokens=new_tokens,
         digest=digest,
     )
+    log_job_result(
+        RoadmapJob.IMPLEMENT,
+        repo,
+        item.number,
+        _attempt_result(item),
+        failure=failure,
+        counts={
+            "repair_rounds": _repair_rounds(item),
+            "tokens": new_tokens,
+            "seconds": _seconds(ended),
+        },
+    )
+
+
+def _attempt_result(item: Item) -> str:
+    """The result of the attempt of a Job, as its runner recorded it: `ready`, `yielded`,
+    `returned` or `stopped`. A Job that recorded no result, such as a pod that the kernel killed,
+    stopped (#4845)."""
+    recorded = _record(item, ImplementRecordKey.RESULT)
+    results = {result.value for result in ImplementResult}
+    return recorded if recorded in results else ImplementResult.STOPPED.value
+
+
+def _seconds(ended: ClusterJob | None) -> int:
+    """The seconds from the start of the pod of a Job to its end, or 0 when the API does not hold
+    both times, as for a Job that is gone."""
+    if ended is None or ended.started is None or ended.ended is None:
+        return 0
+    return round((ended.ended - ended.started).total_seconds())
 
 
 def _repair_rounds(item: Item) -> int:

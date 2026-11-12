@@ -69,7 +69,7 @@ def test_a_stop_after_write_leaves_the_block_and_checked_at_together() -> None:
     store.fail_write(at=2, error=stop_error())
 
     with pytest.raises(RoadmapRunError) as stopped:
-        AlternativesWriter(store).settle(check)
+        AlternativesWriter(store, REPO).settle(check)
     item = store.item(number)
     assert item is not None
 
@@ -89,7 +89,7 @@ def test_a_check_is_one_write_that_holds_the_block_and_the_marks_then_the_commen
     labels = store.issues()[0].labels
     before = len(store.writes)
 
-    AlternativesWriter(store).settle(check)
+    AlternativesWriter(store, REPO).settle(check)
     item = store.item(number)
     assert item is not None
 
