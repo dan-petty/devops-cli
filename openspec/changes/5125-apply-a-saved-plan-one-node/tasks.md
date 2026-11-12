@@ -6,13 +6,19 @@
   - Verification: `$ uv run devops ci test tests/infra/test_apply.py tests/infra/test_nodes.py tests/commands/test_infra_apply.py`
 - [x] 1.2 Add `infra/apply.py`, `infra/nodes.py`, `apply_level`, `origin_holds`, `export_tree`, `Playbook.run`, the apply models, the counter, the dry-run plan and the command `devops infra apply`
   - Verification: `$ uv run devops ci test tests/infra tests/commands/test_infra_apply.py tests/commands/test_infra_plan.py tests/commands/test_infra_status.py tests/commands/test_infra_onboard.py tests/telemetry/test_telemetry_instruments.py tests/dry_run tests/lang`
-- [x] 1.3 Run the apply live on dan-petty/homelab as an agent at the level `full`: homelab #19 (`ansible/playbooks/03_k3s.yaml`) on each host alone, then homelab #20 (`ansible/playbooks/13_crash_capture.yaml`) on hawk, and record the audit records and the nodes before and after in a comment of the pull request
+- [x] 1.3 Make the drain bound cover the longest grace period of a pod, name the workloads that only the node of a host can run, and wait for the critical alerts after the uncordon, from what the live run showed
+  - Verification: `$ uv run devops ci test tests/infra/test_nodes.py tests/commands/test_infra_apply.py`
+- [x] 1.4 Run the apply live on dan-petty/homelab as an agent at the level `full`: homelab #19 (`ansible/playbooks/03_k3s.yaml`) on each agent node alone, then homelab #20 (`ansible/playbooks/13_crash_capture.yaml`) on hawk, and record the audit records and the nodes before and after in a comment of the pull request
   - Verification: `$ uv run devops infra status dan-petty/homelab --ping`
 
 ## 2. Documents
 
 - [x] 2.1 Write the section `## Infra Repos` of SECURITY.md and `ansible-runner` in its item 3, change "hosts" to "hardware" in the "Only a person" paragraph of AGENTS.md, add the glossary terms to CONTEXT.md, and regenerate the command reference
   - Verification: `$ uv run devops ci docs`
+
+## Workflow follow-up
+
+- Apply homelab #19 on the server node: its plan fails in check mode until dan-petty/homelab#10 removes the kubeconfig fetch of the k3s_server role, and its drain needs the CloudNativePG maintenance window of #5267.
 
 - Pending a person: review the diff in tuicr (tuicr -r origin/main..HEAD).
 - Pending a person: decide whether other text of AGENTS.md gets shorter, so that the "Only a person" paragraph can hold the full text of design section 11 within the cap of 6,500 characters.
