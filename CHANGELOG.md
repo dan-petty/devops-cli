@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.123.1](https://github.com/dan-petty/devops-cli/compare/v0.123.0...v0.123.1) (2026-11-12)
+
+
+### Bug Fixes
+
+* **roadmap:** write and read the kind of each plan task group ([#5262](https://github.com/dan-petty/devops-cli/issues/5262)) ([592227e](https://github.com/dan-petty/devops-cli/commit/592227ee04717eedb626b969818d730bf9b75568))
+
+
+### Code Refactoring
+
+* delete the src symbols that only tests call ([#4849](https://github.com/dan-petty/devops-cli/issues/4849)) ([2550643](https://github.com/dan-petty/devops-cli/commit/2550643cbf9e42c96d098817329c505f2aac0fa5))
+
 ## [0.123.0](https://github.com/dan-petty/devops-cli/compare/v0.122.0...v0.123.0) (2026-11-12)
 
 
