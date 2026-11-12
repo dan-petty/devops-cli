@@ -1386,7 +1386,8 @@ def test_the_pull_request_builds_and_starts_the_devcontainer_image_the_way_the_r
     cache the release writes, so it holds no write scope. It is in a workflow of its own, whose
     native `paths` filter stops a pull request that changes no image input before a job starts,
     so no step filters the paths again and `ci.yml` holds no copy of the job (#4658). The release
-    pull request skips the job (#4637)."""
+    pull request skips the job (#4637). The registry image is pinned by a digest, and the test
+    checks the form of the digest, not its value, so a digest update changes no test (#5065)."""
     job = _workflow("devcontainer-image.yml")["jobs"]["devcontainer"]
     release_build = _step_using(
         _workflow("release.yml")["jobs"]["devcontainer-image"], _BUILD_ACTION
@@ -1398,7 +1399,13 @@ def test_the_pull_request_builds_and_starts_the_devcontainer_image_the_way_the_r
         job.get("if"),
         [s.get("name") for s in job["steps"] if "if" in s],
         job["permissions"],
-        job["services"],
+        {
+            name: {
+                **service,
+                "image": re.sub(r"@sha256:[0-9a-f]{64}$", "@sha256:<digest>", service["image"]),
+            }
+            for name, service in job["services"].items()
+        },
         [s.get("name") for s in job["steps"]],
         _step_using(job, _BUILD_ACTION)["with"],
         _step_using(job, _SMOKE_ACTION)["with"],
@@ -1411,10 +1418,7 @@ def test_the_pull_request_builds_and_starts_the_devcontainer_image_the_way_the_r
         {"contents": "read", "packages": "read"},
         {
             "registry": {
-                "image": (
-                    "registry:3@sha256:"
-                    "01cd312e67026f06f5d89c3e133a4a9adc7cb9eeb9b1194e0b2954dfd770efd2"
-                ),
+                "image": "registry:3@sha256:<digest>",
                 "ports": ["5000:5000"],
             }
         },

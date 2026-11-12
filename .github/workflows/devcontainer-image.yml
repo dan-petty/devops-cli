@@ -57,7 +57,7 @@ jobs:
       packages: read
     services:
       registry:
-        image: registry:3@sha256:01cd312e67026f06f5d89c3e133a4a9adc7cb9eeb9b1194e0b2954dfd770efd2
+        image: registry:3@sha256:82f6ff4a7f982960c8aa51617fea3aabc485df6e55cce80d22deb1de36f1bc3c
         ports:
           - 5000:5000
 
@@ -75,7 +75,7 @@ jobs:
 
       # Read access only: the build reads the cache the release writes.
       - name: Log in to GitHub Container Registry (GHCR)
-        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}

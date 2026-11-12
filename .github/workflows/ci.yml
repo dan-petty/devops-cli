@@ -83,7 +83,7 @@ jobs:
       # The pinned actionlint validates the workflows. It is the same digest-pinned image that the
       # devcontainer Dockerfile copies, so the gate does not run actionlint twice (#1119).
       - name: Run actionlint
-        uses: docker://docker.io/kjanat/actionlint:1.17.0@sha256:d484cccadf56b6a356466ade9af4c8e05c5dce1badaf0a9ecd0d7639d68d9c92
+        uses: docker://docker.io/kjanat/actionlint:1.17.1@sha256:c0a63b3e5c974c2466ead39404b70e448176beaff8c5ec7af0b2e96191aea661
 
       - name: Static Analysis Quality Gate
         timeout-minutes: 3
@@ -97,7 +97,7 @@ jobs:
 
       - name: Upload Security Scan SARIF
         if: always()
-        uses: github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4
+        uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
         with:
           sarif_file: .data/scan.sarif
           category: "/devops-scan"
@@ -493,7 +493,7 @@ jobs:
           severity: HIGH,CRITICAL
           ignore-unfixed: true
           exit-code: "1"
-          version: v0.75.0
+          version: v0.76.2
 
   # Builds, smoke-tests and scans the runner image of every pull request but the release pull
   # request, without pushing it; release.yml publishes it when a release is created (#2667). It
@@ -595,7 +595,7 @@ jobs:
           severity: HIGH,CRITICAL
           ignore-unfixed: true
           exit-code: "1"
-          version: v0.75.0
+          version: v0.76.2
 
   # Builds, smoke-tests and scans the MCP server image of every pull request but the release pull
   # request, without pushing it (#3220).
@@ -690,7 +690,7 @@ jobs:
           ignore-unfixed: true
           trivyignores: .trivyignore,.trivyignore-mcp-server
           exit-code: "1"
-          version: v0.75.0
+          version: v0.76.2
 
 
   # Advisory only: reports newer upstream releases without gating any merge. Scheduled so
