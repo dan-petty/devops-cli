@@ -1,0 +1,140 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "description": "The shared Renovate preset of the Service repositories. A repository extends it with github>dan-petty/devops-cli//.github/renovate/base.",
+  "extends": [
+    "config:recommended"
+  ],
+  "timezone": "UTC",
+  "schedule": ["* * * * 1"],
+  "prHourlyLimit": 2,
+  "prConcurrentLimit": 8,
+  "rebaseWhen": "conflicted",
+  "separateMinorPatch": true,
+  "labels": ["type/chore", "scope/deps"],
+  "commitMessagePrefix": "chore(deps):",
+  "commitMessageAction": "update",
+  "commitMessageTopic": "{{{depName}}}",
+  "platformCommit": "enabled",
+  "prBodyTemplate": "{{{header}}}{{{table}}}{{{warnings}}}{{{notes}}}{{{changelogs}}}{{{configDescription}}}",
+  "dependencyDashboard": {
+    "enabled": true,
+    "title": "Dependency Dashboard",
+    "labels": ["type/chore", "scope/deps"],
+    "osvVulnerabilitySummary": "unresolved",
+    "reportAbandonment": true
+  },
+  "abandonmentThreshold": "1 year",
+  "osvVulnerabilityAlerts": true,
+  "vulnerabilityAlerts": {
+    "labels": ["type/security", "scope/deps"],
+    "commitMessagePrefix": "fix(deps):",
+    "commitMessageSuffix": "",
+    "prConcurrentLimit": 4,
+    "vulnerabilityFixStrategy": "highest"
+  },
+  "lockFileMaintenance": {
+    "enabled": true,
+    "schedule": ["* * * * 1"],
+    "commitMessageAction": "lock file maintenance"
+  },
+  "pin": {
+    "commitMessageAction": "pin"
+  },
+  "pinDigest": {
+    "commitMessageAction": "pin"
+  },
+  "replacement": {
+    "commitMessageAction": "replace"
+  },
+  "rollback": {
+    "commitMessageAction": "roll back"
+  },
+  "pre-commit": {
+    "enabled": true
+  },
+  "packageRules": [
+    {
+      "description": "Non-major updates come in one pull request for each ecosystem, on the schedule.",
+      "matchDatasources": ["pypi"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "python dependencies"
+    },
+    {
+      "matchManagers": ["github-actions"],
+      "matchDepTypes": ["action"],
+      "matchUpdateTypes": ["minor", "patch", "digest"],
+      "groupName": "github actions"
+    },
+    {
+      "matchDatasources": ["docker"],
+      "matchUpdateTypes": ["minor", "patch", "digest"],
+      "groupName": "container images"
+    },
+    {
+      "matchDatasources": ["helm"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "helm charts"
+    },
+    {
+      "matchManagers": ["pre-commit"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "pre-commit hooks"
+    },
+    {
+      "matchManagers": ["devcontainer"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "devcontainer features"
+    },
+    {
+      "matchDatasources": ["terraform-provider"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "opentofu providers"
+    },
+    {
+      "description": "A patch release holds bug and security fixes, so it comes at once, in its own patch-<group> branch.",
+      "matchUpdateTypes": ["patch"],
+      "schedule": ["at any time"]
+    },
+    {
+      "description": "These images publish several tags a day, so even a patch waits for the schedule.",
+      "matchPackageNames": ["ghcr.io/renovatebot/renovate", "renovatebot/renovate", "searxng/searxng", "docker.io/searxng/searxng"],
+      "schedule": ["* * * * 1"]
+    },
+    {
+      "description": "A new Python minor or major is a migration of the runtime. The Dependency Dashboard lists it until a person or an agent approves it when the stack supports it.",
+      "matchPackageNames": ["python"],
+      "matchUpdateTypes": ["minor", "major"],
+      "dependencyDashboardApproval": true
+    },
+    {
+      "description": "A major of the Node runtime or of a data service needs a migration, so it also waits for an approval on the Dependency Dashboard.",
+      "matchPackageNames": ["node", "ghcr.io/cloudnative-pg/postgresql", "mattermost/mattermost-team-edition"],
+      "matchUpdateTypes": ["major"],
+      "dependencyDashboardApproval": true
+    },
+    {
+      "description": "An action dependency names itself without the word action, so the title stays within 60 characters.",
+      "matchManagers": ["github-actions"],
+      "matchDepTypes": ["action"],
+      "commitMessageTopic": "{{{depName}}}"
+    },
+    {
+      "description": "A feature is named by the last part of its reference, so the title stays within 60 characters.",
+      "matchManagers": ["devcontainer"],
+      "matchDatasources": ["docker"],
+      "commitMessageTopic": "feature {{{replace '^.+/' '' depName}}}"
+    },
+    {
+      "matchManagers": ["github-actions", "pre-commit", "devcontainer"],
+      "addLabels": ["scope/ci"]
+    },
+    {
+      "matchManagers": ["dockerfile", "docker-compose", "kubernetes", "argocd", "helm-values", "terraform"],
+      "addLabels": ["scope/infra"]
+    },
+    {
+      "matchManagers": ["github-actions", "dockerfile"],
+      "pinDigests": true
+    }
+  ]
+}

@@ -1149,11 +1149,16 @@ _BODY_EDIT = (
 )
 
 
+# A pull request of the Renovate App: a dependency bump has no test that fails on its base (#4896).
+_NOT_RENOVATE = "github.event.pull_request.user.login != 'devops-cli-renovate[bot]'"
+
+
 def _title_prefixes(condition: str) -> list[str]:
-    """The title prefixes of a job condition that skips a body edit and then only joins
-    `startsWith` terms on the pull request title with `||`, failing on any other form."""
+    """The title prefixes of a job condition that skips a body edit and a pull request of the
+    Renovate App, and then only joins `startsWith` terms on the pull request title with `||`,
+    failing on any other form."""
     expression = " ".join(condition.split()).removeprefix("${{ ").removesuffix(" }}")
-    guard = f"!({_BODY_EDIT}) && ("
+    guard = f"!({_BODY_EDIT}) && {_NOT_RENOVATE} && ("
     assert (expression.startswith(guard), expression.endswith(")")) == (True, True), expression
     terms = expression.removeprefix(guard).removesuffix(")").split("||")
     matches = [_TITLE_PREFIX_TERM.fullmatch(term.strip()) for term in terms]
@@ -1186,6 +1191,22 @@ def test_the_fail_to_pass_job_runs_for_a_fix_title_and_no_other(title: str) -> N
     runs = any(title.lower().startswith(prefix.lower()) for prefix in prefixes)
     is_fix = re.match(CONST_DEFECT_TITLE_PATTERN, title, re.IGNORECASE) is not None
     assert runs == is_fix
+
+
+def test_the_fail_to_pass_job_skips_the_renovate_app_and_keeps_the_service_app() -> None:
+    """A version bump of the Renovate App has no test that fails on its base, so its `fix(deps)`
+    pull request does not run the job. The trigger names only that App: the fix pull requests of
+    the Service App and of a person keep the check (#4896)."""
+    job = _load_workflow(WORKFLOWS_DIR / "fail-to-pass.yml")["jobs"]["fail-to-pass"]
+    condition = " ".join(str(job.get("if", "")).split())
+
+    assert (
+        condition.count("github.event.pull_request.user.login"),
+        _NOT_RENOVATE in condition,
+    ) == (
+        1,
+        True,
+    )
 
 
 # ── The OpenSpec gate's workflows (#1844) ─────────────────────────────────────

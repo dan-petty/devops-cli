@@ -271,41 +271,39 @@ def test_the_digest_covers_each_node_tools_package_files(tmp_path: Path, filenam
     assert (before == tools_lock_digest(), tools_lock_digest(copy) != before) == (True, True)
 
 
-def test_renovate_leaves_every_node_tool_to_a_deliberate_bump() -> None:
-    """Renovate can edit neither `tools.lock` nor the files a bump regenerates, so its npm manager
-    is off and a new OpenSpec is one pull request that follows the runbook in the lock's header."""
-    renovate = json.loads((REPO_ROOT / ".github" / "renovate.json").read_text(encoding="utf-8"))
-
-    assert {"matchManagers": ["npm"], "enabled": False} in renovate["packageRules"]
+def _renovate() -> dict[str, Any]:
+    return json.loads((REPO_ROOT / ".github" / "renovate.json").read_text(encoding="utf-8"))
 
 
-def test_renovate_updates_the_style_dictionary_lock_alone() -> None:
-    """The Style Dictionary lock is no entry of `tools.lock`, so Renovate can update it (owner
-    decision 9 of #4735). A later rule wins in Renovate, so the rule for this lock comes after
-    the rule that stops npm. It sets no minimum release age (CONTRIBUTING.md, "Dependency
-    Versions"). The CI job "Design Tokens" fails when the new version changes an output
-    (docs/DESIGN.md)."""
-    rules = json.loads((REPO_ROOT / ".github" / "renovate.json").read_text(encoding="utf-8"))[
-        "packageRules"
+def test_renovate_updates_each_node_tool_with_its_tools_lock_version() -> None:
+    """The npm manager updates the `package.json` and `package-lock.json` of a Node tool, and a
+    custom manager updates its `version` in `tools.lock` to the same npm package, so one pull
+    request moves both (#4896)."""
+    lock_managers = {
+        manager["depNameTemplate"]: manager["datasourceTemplate"]
+        for manager in _renovate()["customManagers"]
+        if manager["managerFilePatterns"] == ["/^src/devops_cli/tools_lock/tools\\.lock$/"]
+        and "depNameTemplate" in manager
+    }
+    packages = {
+        name: next(iter(json.loads((LOCK_DIR / name / "package.json").read_text())["dependencies"]))
+        for name in load_tools_lock().npm
+    }
+
+    assert {
+        name: lock_managers.get(package) for name, package in packages.items()
+    } == dict.fromkeys(packages, "npm")
+
+
+def test_renovate_updates_the_style_dictionary_lock() -> None:
+    """The Style Dictionary lock is no entry of `tools.lock` (owner decision 9 of #4735), so the
+    npm manager alone updates it. No rule turns the npm manager off. The CI job "Design Tokens"
+    fails when the new version changes an output (docs/DESIGN.md)."""
+    npm_rules = [
+        rule for rule in _renovate()["packageRules"] if "npm" in rule.get("matchManagers", [])
     ]
-    npm_off = rules.index({"matchManagers": ["npm"], "enabled": False})
-    enabled = [
-        (index, {key: value for key, value in rule.items() if key != "description"})
-        for index, rule in enumerate(rules)
-        if rule.get("matchManagers") == ["npm"] and rule.get("enabled")
-    ]
 
-    assert [(index > npm_off, rule) for index, rule in enabled] == [
-        (
-            True,
-            {
-                "matchManagers": ["npm"],
-                "matchFileNames": ["src/devops_cli/tools_lock/style-dictionary/package.json"],
-                "enabled": True,
-            },
-        )
-    ]
-    assert "style-dictionary" not in load_tools_lock().npm
+    assert (npm_rules, "style-dictionary" in load_tools_lock().npm) == ([], False)
 
 
 def test_golangci_lint_binary_constant_is_exported() -> None:

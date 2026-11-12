@@ -31,7 +31,7 @@
 # (`checksums.txt.keyless.sig` and `checksums.txt.pem`), which `devops install-tools` does not check.
 #
 # To bump a Python tool, set its `version` here and in `<name>.in`, then, in this directory, run
-#   uv pip compile --universal --generate-hashes --python-version 3.14 <name>.in -o <name>.txt
+#   uv pip compile --universal --generate-hashes --python-version=3.14 <name>.in --output-file=<name>.txt
 # Bandit's version is the project's dev dependency in pyproject.toml.
 #
 # To bump a Node tool, set its `version` here and its one dependency in `<name>/package.json`, and

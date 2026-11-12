@@ -130,7 +130,7 @@ jobs:
           # This workflow publishes, so it restores no cache another run could have written
           # (zizmor cache-poisoning).
           enable-cache: false
-          version: "latest"
+          version: "0.13.6"
           python-version: "3.14"
 
       - name: Build Distribution Packages (Wheel & sdist)
@@ -178,7 +178,7 @@ jobs:
           # This workflow publishes, so it restores no cache another run could have written
           # (zizmor cache-poisoning).
           enable-cache: false
-          version: "latest"
+          version: "0.13.6"
           python-version: "3.14"
 
       - name: Synchronize dependencies
@@ -241,7 +241,7 @@ jobs:
           # This workflow publishes, so it restores no cache another run could have written
           # (zizmor cache-poisoning).
           enable-cache: false
-          version: "latest"
+          version: "0.13.6"
           python-version: "3.14"
 
       - name: Synchronize dependencies
@@ -284,7 +284,7 @@ jobs:
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
       - name: Attest Build Provenance
-        uses: actions/attest-build-provenance@9d57eef8c06cd9d6b433effeeb7a6a77b3ff94ad # v2
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-name: ghcr.io/${{ github.repository }}/devcontainer
           subject-digest: ${{ needs.devcontainer-image.outputs.digest }}
@@ -343,7 +343,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v3
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
       - name: Extract Metadata for Service Image
         id: meta
@@ -362,7 +362,7 @@ jobs:
             org.opencontainers.image.version=${{ needs.release-please.outputs.tag_name }}
 
       - name: Build and Load Service Image
-        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v6
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           file: ./Dockerfile
@@ -405,7 +405,7 @@ jobs:
       # a tag never names an unattested image and a failed attestation is retried by a re-run.
       - name: Build and Push Service Image
         id: push
-        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v6
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           file: ./Dockerfile
@@ -420,7 +420,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Attest Build Provenance
-        uses: actions/attest-build-provenance@9d57eef8c06cd9d6b433effeeb7a6a77b3ff94ad # v2
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-name: ghcr.io/${{ github.repository }}/service
           subject-digest: ${{ steps.push.outputs.digest }}
@@ -472,7 +472,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v3
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
       - name: Extract Metadata for Runner Image
         id: meta
@@ -491,7 +491,7 @@ jobs:
             org.opencontainers.image.version=${{ needs.release-please.outputs.tag_name }}
 
       - name: Build and Load Runner Image
-        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v6
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           file: ./Dockerfile
@@ -534,7 +534,7 @@ jobs:
       # a tag never names an unattested image and a failed attestation is retried by a re-run.
       - name: Build and Push Runner Image
         id: push
-        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v6
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           file: ./Dockerfile
@@ -548,7 +548,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Attest Build Provenance
-        uses: actions/attest-build-provenance@9d57eef8c06cd9d6b433effeeb7a6a77b3ff94ad # v2
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-name: ghcr.io/${{ github.repository }}/runner
           subject-digest: ${{ steps.push.outputs.digest }}
@@ -601,7 +601,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v3
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
       - name: Extract Metadata for MCP Server Image
         id: meta
@@ -620,7 +620,7 @@ jobs:
             org.opencontainers.image.version=${{ needs.release-please.outputs.tag_name }}
 
       - name: Build and Load MCP Server Image
-        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v6
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           file: ./Dockerfile
@@ -658,7 +658,7 @@ jobs:
       # a tag never names an unattested image and a failed attestation is retried by a re-run.
       - name: Build and Push MCP Server Image
         id: push
-        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v6
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           file: ./Dockerfile
@@ -672,7 +672,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Attest Build Provenance
-        uses: actions/attest-build-provenance@9d57eef8c06cd9d6b433effeeb7a6a77b3ff94ad # v2
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-name: ghcr.io/${{ github.repository }}/mcp-server
           subject-digest: ${{ steps.push.outputs.digest }}
