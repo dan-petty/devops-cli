@@ -276,3 +276,42 @@ def test_a_command_path_names_only_the_commands_and_counts_the_other_words(
     from devops_cli.core.command_resolver import resolve_command_path
 
     assert (resolve_command_path(words), capsys.readouterr().out) == (expected, "")
+
+
+@pytest.mark.parametrize(
+    ("words", "expected"),
+    [
+        (["ci", "to", "confirm", "the", "gate"], 1),
+        (["roadmap", "intake", "command", "with", "gh"], 2),
+        (["roadmap", "follow", "3076", "to", "see"], 2),
+        (["gh", "pages", "verify", "--root_dir", "docs", "to", "check"], 4),
+        (["format", "--check", "to", "confirm"], 2),
+        (["--dry-run", "config", "show", "the", "value"], 3),
+        (["to", "start"], 1),
+        ([], 0),
+        (["ai", "ast-graph", "--help", "to", "see"], 2),
+        (["ci", "again", "--", "it", "checks"], 1),
+        (["ci", "fail-to-pass", "--base", "origin/main", "to", "prove"], 4),
+        (["ci", "--only", "lint", "to", "confirm"], 3),
+        (["pr", "monitor", "4982", "--bogus", "to", "watch"], 4),
+        (["pr", "monitor", "4982", "until", "it", "passes"], 3),
+        (["ci", "test", "a.py", "b.py", "-x", "to", "confirm"], 5),
+        (["ci", "test", "a.py", "b.py", "to", "confirm"], 3),
+    ],
+)
+def test_a_cited_command_ends_at_the_first_word_the_tree_does_not_take(
+    words: list[str], expected: int, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Verify a command cited in a sentence ends at the first word that the command tree does
+    not take, and a group that needs a subcommand keeps that word as one (#4956).
+
+    `devops ci` runs with no subcommand and `roadmap intake` has no subcommands, so the next word
+    is prose. `devops roadmap` and `devops` need a subcommand, so the next word stays for the
+    resolver to report. The tree takes an option, the value of a known option and a declared
+    argument, such as the number of `pr monitor`. A sentence puts no option after an English word,
+    so a word before an option stays: `ast-graph` before `--help`, and a second path of `ci test`.
+    A `--` is a dash in a sentence, not an option. The walk parses no word, so it prints nothing.
+    """
+    from devops_cli.core.command_resolver import cited_command_length
+
+    assert (cited_command_length(words), capsys.readouterr().out) == (expected, "")
