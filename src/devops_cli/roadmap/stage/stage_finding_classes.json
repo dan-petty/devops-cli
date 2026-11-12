@@ -1,0 +1,165 @@
+{
+ "least_samples": 5,
+ "codes": {
+  "stage_problem_citation_stale": {
+   "gate": "citation",
+   "fix_class": "model_fixable",
+   "fixed": 46,
+   "n": 46,
+   "rate": 1.0,
+   "lower": 0.923
+  },
+  "stage_problem_command_reference": {
+   "gate": "citation",
+   "fix_class": "model_fixable",
+   "fixed": 9,
+   "n": 10,
+   "rate": 0.9,
+   "lower": 0.596
+  },
+  "stage_problem_constant_mismatch": {
+   "gate": "constants",
+   "fix_class": "model_fixable",
+   "fixed": 4,
+   "n": 4,
+   "rate": 1.0,
+   "lower": 0.51
+  },
+  "stage_problem_eval_replay": {
+   "gate": "eval-replay",
+   "fix_class": "model_fixable",
+   "fixed": 1,
+   "n": 1,
+   "rate": 1.0,
+   "lower": 0.207
+  },
+  "stage_problem_gate_defect_test": {
+   "gate": "content",
+   "fix_class": "model_fixable",
+   "fixed": 3,
+   "n": 3,
+   "rate": 1.0,
+   "lower": 0.439
+  },
+  "stage_problem_missing_caller": {
+   "gate": "paths",
+   "fix_class": "low_share",
+   "fixed": 11,
+   "n": 28,
+   "rate": 0.393,
+   "lower": 0.236
+  },
+  "stage_problem_missing_module_test": {
+   "gate": "paths",
+   "fix_class": "mechanical",
+   "fixed": 46,
+   "n": 51,
+   "rate": 0.902,
+   "lower": 0.79
+  },
+  "stage_problem_missing_test_file": {
+   "gate": "paths",
+   "fix_class": "never",
+   "fixed": 0,
+   "n": 17,
+   "rate": 0.0,
+   "lower": 0.0
+  },
+  "stage_problem_no_cost": {
+   "gate": "content",
+   "fix_class": "model_fixable",
+   "fixed": 1,
+   "n": 1,
+   "rate": 1.0,
+   "lower": 0.207
+  },
+  "stage_problem_no_quote": {
+   "gate": "content",
+   "fix_class": "low_share",
+   "fixed": 6,
+   "n": 7,
+   "rate": 0.857,
+   "lower": 0.487
+  },
+  "stage_problem_path": {
+   "gate": "paths",
+   "fix_class": "model_fixable",
+   "fixed": 1,
+   "n": 1,
+   "rate": 1.0,
+   "lower": 0.207
+  },
+  "stage_problem_reference_uncovered": {
+   "gate": "paths",
+   "fix_class": "model_fixable",
+   "fixed": 45,
+   "n": 45,
+   "rate": 1.0,
+   "lower": 0.921
+  },
+  "stage_problem_registry": {
+   "gate": "registry",
+   "fix_class": "model_fixable",
+   "fixed": 3,
+   "n": 3,
+   "rate": 1.0,
+   "lower": 0.439
+  },
+  "stage_problem_requirement_long": {
+   "gate": "spec-delta",
+   "fix_class": "model_fixable",
+   "fixed": 1,
+   "n": 1,
+   "rate": 1.0,
+   "lower": 0.207
+  },
+  "stage_problem_security": {
+   "gate": "content",
+   "fix_class": "model_fixable",
+   "fixed": 1,
+   "n": 1,
+   "rate": 1.0,
+   "lower": 0.207
+  },
+  "stage_problem_stale_command": {
+   "gate": "spec-delta",
+   "fix_class": "model_fixable",
+   "fixed": 5,
+   "n": 5,
+   "rate": 1.0,
+   "lower": 0.566
+  },
+  "stage_problem_trace_path": {
+   "gate": "trace",
+   "fix_class": "model_fixable",
+   "fixed": 13,
+   "n": 16,
+   "rate": 0.812,
+   "lower": 0.57
+  },
+  "stage_problem_trace_tool": {
+   "gate": "trace",
+   "fix_class": "model_fixable",
+   "fixed": 1,
+   "n": 1,
+   "rate": 1.0,
+   "lower": 0.207
+  },
+  "stage_problem_what_changes_path": {
+   "gate": "what-changes",
+   "fix_class": "model_fixable",
+   "fixed": 5,
+   "n": 5,
+   "rate": 1.0,
+   "lower": 0.566
+  },
+  "stage_scenario_untested_code": {
+   "gate": "spec-delta",
+   "fix_class": "model_fixable",
+   "fixed": 10,
+   "n": 10,
+   "rate": 1.0,
+   "lower": 0.722
+  }
+ }
+}

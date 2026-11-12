@@ -210,6 +210,79 @@ def test_a_problem_text_is_masked_before_it_is_kept(isolate_data_dir: Path) -> N
     assert "ghp_abcdefghijklmnopqrstuvwxyz0123456789" not in record.replies[0].problem
 
 
+# ── The findings of a refused reply ───────────────────────────────────────────
+
+MISSING_CODE = "stage_problem_path"
+
+
+def _two_gates() -> Any:
+    """A reply that two gates refuse on each try: `paths` for a file that does not exist, and
+    `what-changes` for a What Changes item that names a file that no group changes."""
+    proposal = _missing_path()
+    return proposal.model_copy(
+        update={"what_changes": [*proposal.what_changes, "`openspec/config.yaml` states the rule."]}
+    )
+
+
+def _counts(caplog: pytest.LogCaptureFixture, event: str) -> list[str]:
+    """The fields of each log line of `event`, with the version cut off."""
+    return [
+        r.getMessage().removeprefix(f"{event}: ").rsplit(" version=", 1)[0]
+        for r in caplog.records
+        if r.getMessage().startswith(f"{event}: ")
+    ]
+
+
+def test_the_refused_file_keeps_the_gate_the_code_and_the_path_of_each_finding(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo, model_fake: ModelFake
+) -> None:
+    model_fake.answer(_missing_path())
+
+    _plan(store, stage_repo)
+
+    for entry in _read().replies:
+        assert [(f.gate, f.code, f.path) for f in entry.findings] == [
+            ("paths", MISSING_CODE, "tests/test_missing.py")
+        ]
+        assert " ".join(f.text for f in entry.findings) == entry.problem
+
+
+def test_a_reply_that_two_gates_refuse_keeps_two_findings_and_returns_their_joined_text(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo, model_fake: ModelFake
+) -> None:
+    model_fake.answer(_two_gates())
+
+    _plan(store, stage_repo)
+
+    first = _read().replies[0]
+    returned = json.loads(model_fake.calls[1].prompt)["problem"]
+    assert ([(f.gate, f.code) for f in first.findings], returned) == (
+        [("paths", MISSING_CODE), ("what-changes", "stage_problem_what_changes_path")],
+        " ".join(f.text for f in first.findings),
+    )
+
+
+def test_each_return_logs_the_findings_before_and_those_gone_stuck_and_new(
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    model_fake.answer(_two_gates(), _missing_path())
+
+    with caplog.at_level(logging.INFO):
+        _plan(store, stage_repo)
+
+    assert _counts(caplog, "stage gate findings") == [
+        f"repo={STAGE_REPO} item=#1 return=1 in=2 gone=1 stuck=1 new=0",
+        f"repo={STAGE_REPO} item=#1 return=2 in=1 gone=0 stuck=1 new=0",
+        f"repo={STAGE_REPO} item=#1 return=3 in=1 gone=0 stuck=1 new=0",
+    ]
+    assert _counts(caplog, "stage gate returns") == [
+        f"repo={STAGE_REPO} item=#1 returns=3 result=refused gates=paths:1 codes={MISSING_CODE}:1"
+    ]
+
+
 # ── The reply of placeholders ─────────────────────────────────────────────────
 
 

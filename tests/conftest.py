@@ -134,6 +134,7 @@ _PROCESS_STATE_RESETS: dict[str, tuple[str, ...]] = {
     "devops_cli.roadmap.implement.consecutive_failures": ("reset_consecutive_failures",),
     "devops_cli.roadmap.implement.implement": ("reset_retry_reads",),
     "devops_cli.roadmap.service_stop": ("reset_service_stop",),
+    "devops_cli.roadmap.stage.stage_findings": ("reset_template_cache",),
     "devops_cli.roadmap.stage.stage_left_out": ("reset_left_out_log",),
     "devops_cli.roadmap.stores.store": ("reset_roadmap_store",),
     "devops_cli.security.reference_extractor": ("reset_reference_extractor_caches",),

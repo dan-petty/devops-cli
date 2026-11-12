@@ -14,23 +14,56 @@ with no repository writes `repo=none`.
 from __future__ import annotations
 
 import logging
+from collections import Counter
+from typing import TYPE_CHECKING
 
 from devops_cli import __version__
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable, Sequence
+
+    from devops_cli.roadmap.stage.stage_findings import ReturnCounts, StageFinding
 
 logger = logging.getLogger(__name__)
 
 
-def log_gate_returns(repo: str, item: int, returns: int, *, passed: bool) -> None:
+def _tally(names: Iterable[str]) -> str:
+    """Each name with its count, as `name:count` in the order of the names, or `none`."""
+    return ",".join(f"{name}:{count}" for name, count in sorted(Counter(names).items())) or "none"
+
+
+def log_gate_returns(
+    repo: str, item: int, returns: int, *, passed: bool, findings: Sequence[StageFinding] = ()
+) -> None:
     """Log the end of a stage reply that the checks refused at least once: the number of returns,
-    and whether the last reply passed. A reply that passed with no return logs nothing."""
+    whether the last reply passed, and the gates and the codes of the findings of the last refused
+    reply, each with its count (#4846). A reply that passed with no return logs nothing."""
     if returns == 0:
         return
     logger.info(
-        "stage gate returns: repo=%s item=#%d returns=%d result=%s version=%s",
+        "stage gate returns: repo=%s item=#%d returns=%d result=%s gates=%s codes=%s version=%s",
         repo or "none",
         item,
         returns,
         "passed" if passed else "refused",
+        _tally(f.gate for f in findings),
+        _tally(f.code for f in findings),
+        __version__,
+    )
+
+
+def log_gate_findings(repo: str, item: int, return_: int, counts: ReturnCounts) -> None:
+    """Log the findings of the reply after return `return_` of a stage plan against those of the
+    reply before it: the findings before, those gone, those stuck and the new ones (#4846)."""
+    logger.info(
+        "stage gate findings: repo=%s item=#%d return=%d in=%d gone=%d stuck=%d new=%d version=%s",
+        repo or "none",
+        item,
+        return_,
+        counts.before,
+        counts.gone,
+        counts.stuck,
+        counts.new,
         __version__,
     )
 
@@ -91,4 +124,10 @@ def log_implement_attempt(
     )
 
 
-__all__ = ["log_failed_item", "log_gate_returns", "log_implement_attempt", "log_review_round"]
+__all__ = [
+    "log_failed_item",
+    "log_gate_findings",
+    "log_gate_returns",
+    "log_implement_attempt",
+    "log_review_round",
+]

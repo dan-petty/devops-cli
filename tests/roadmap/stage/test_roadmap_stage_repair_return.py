@@ -289,7 +289,8 @@ def test_a_review_round_and_a_pass_after_a_return_each_log_one_line_with_counts(
         f"repo={STAGE_REPO} item=#1 round=1 findings=0 returned=0 open=0",
     ]
     assert _counts(caplog, "stage gate returns") == [
-        f"repo={STAGE_REPO} item=#1 returns=1 result=passed"
+        f"repo={STAGE_REPO} item=#1 returns=1 result=passed gates=paths:1 "
+        "codes=stage_problem_path:1"
     ]
 
 
@@ -307,5 +308,6 @@ def test_a_revision_that_stays_refused_logs_its_returns_as_refused(
         _plan(store, stage_repo, model_fake, verifier)
 
     assert _counts(caplog, "stage gate returns") == [
-        f"repo={STAGE_REPO} item=#1 returns={RoadmapStageConfig().gate_returns} result=refused"
+        f"repo={STAGE_REPO} item=#1 returns={RoadmapStageConfig().gate_returns} result=refused "
+        "gates=paths:1 codes=stage_problem_path:1"
     ]
