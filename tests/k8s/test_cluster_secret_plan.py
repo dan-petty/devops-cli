@@ -391,6 +391,15 @@ def test_table_holds_each_secret_entry_with_its_source_and_restarts() -> None:
             "monitoring/grafana admin-password",
             ("deployment/grafana",),
         ),
+        (
+            "monitoring/grafana-image-renderer",
+            "token",
+            "infra",
+            True,
+            SecretGenerator("urlsafe", 32),
+            None,
+            ("deployment/grafana", "deployment/grafana-image-renderer"),
+        ),
         ("monitoring/alertmanager-mattermost", "url", "infra", False, None, None, ()),
         ("argocd/argocd-notifications-secret", "github-appID", "infra", True, None, None, ()),
         (

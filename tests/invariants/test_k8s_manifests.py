@@ -21,6 +21,7 @@ from devops_cli.config.env import keyring_names, option_env_vars
 from devops_cli.k8s.cluster_secrets import (
     CLUSTER_SECRETS,
     DEVOPS_CACHE_VALKEY_AUTH_KEY,
+    GRAFANA_RENDERER_AUTH_KEY,
     LLM_GATEWAY_MASTER_KEY,
     MATTERMOST_DB_AUTH_KEY,
     SEARXNG_SERVER_KEY,
@@ -188,6 +189,34 @@ def test_no_ingress_is_in_the_logging_namespace() -> None:
         )
         == []
     )
+
+
+def _backend_services(node: Any) -> Iterator[str]:
+    """The name of each Service that an Ingress backend names, at any depth."""
+    if isinstance(node, list):
+        for item in node:
+            yield from _backend_services(item)
+    elif isinstance(node, dict):
+        service = node.get("service")
+        if isinstance(service, dict) and service.get("name"):
+            yield str(service["name"])
+        for value in node.values():
+            yield from _backend_services(value)
+
+
+def test_no_ingress_routes_to_the_grafana_image_renderer() -> None:
+    """Grafana calls the image renderer by the DNS name of its Service in namespace monitoring,
+    and the renderer calls Grafana back by the Grafana Service (#5185). No Ingress names the
+    Service of the renderer, so only the cluster reaches it. The Ingress of Grafana shows that
+    the scan reads the backends."""
+    routed = {
+        name
+        for _, document in manifests()
+        if document["kind"] == "Ingress"
+        for name in _backend_services(document.get("spec"))
+    }
+
+    assert ("grafana-image-renderer" in routed, "grafana" in routed) == (False, True)
 
 
 # ── Service account tokens (#1652) ───────────────────────────────────────────
@@ -371,6 +400,15 @@ _CHART_TOKENS: dict[
     # The dashboards sidecar lists the dashboard ConfigMaps.
     ("grafana", "14.4.1"): (
         TokenSite("grafana", _token("automountServiceAccountToken", True), "Role grafana"),
+        # The image renderer runs as ServiceAccount `default` and calls no API.
+        TokenSite(
+            "image-renderer",
+            _token(
+                "imageRenderer.automountServiceAccountToken",
+                False,
+                ("imageRenderer.enabled", False),
+            ),
+        ),
     ),
     ("k8s-monitoring", "4.6.0"): lambda values: (
         TokenSite("alloy-operator", _when(), "ClusterRole k8s-monitoring-alloy-operator"),
@@ -478,6 +516,7 @@ _EXPECTED_TOKENLESS_PODS = frozenset(
         "k8s/llm/valkey-runs.yaml:Deployment/valkey-runs",
         "k8s/llm/valkey.yaml:Deployment/valkey",
         "k8s/logging/loki-values.yaml:loki",
+        "k8s/monitoring/grafana-values.yaml:image-renderer",
         "k8s/monitoring/prometheus-values.yaml:alertmanager",
         "k8s/otel/tempo-values.yaml:tempo",
         "k8s/otel/values.yaml:collector",
@@ -993,6 +1032,7 @@ def test_keyring_sources_are_managed_keys_or_declared_keyring_only() -> None:
                 DEVOPS_CACHE_VALKEY_AUTH_KEY,
                 MATTERMOST_DB_AUTH_KEY,
                 SEARXNG_SERVER_KEY,
+                GRAFANA_RENDERER_AUTH_KEY,
             }
         ),
     )
@@ -1023,11 +1063,38 @@ def _manifest_workloads() -> set[str]:
     }
 
 
+# The workloads that a chart makes beside the one with the name of its release, each with its
+# values file and the value that turns it on (#5185).
+_CHART_WORKLOADS: dict[str, tuple[str, str]] = {
+    "deployment/grafana-image-renderer": (
+        "k8s/monitoring/grafana-values.yaml",
+        "imageRenderer.enabled",
+    ),
+}
+
+
+def _chart_workloads() -> set[str]:
+    """The workloads of _CHART_WORKLOADS that the values turn on."""
+    values = {relative: chart for _, relative, chart in chart_values()}
+    return {
+        workload
+        for workload, (relative, switch) in _CHART_WORKLOADS.items()
+        if value_at(values.get(relative), switch) is True
+    }
+
+
 def test_every_restart_target_is_a_manifest_workload_or_helm_release() -> None:
     releases = {r["name"] for rs in HELM_RELEASES_BY_STACK.values() for r in rs}
     targets = [w for secret in CLUSTER_SECRETS for w in secret.restarts]
-    workloads = _manifest_workloads()
+    workloads = _manifest_workloads() | _chart_workloads()
     assert [str(t) for t in targets if str(t) not in workloads and t.name not in releases] == []
+
+
+def test_each_chart_workload_is_a_restart_target() -> None:
+    """An entry of _CHART_WORKLOADS that no Secret restarts, or that its values turn off, would
+    let a wrong restart target pass."""
+    targets = {str(w) for secret in CLUSTER_SECRETS for w in secret.restarts}
+    assert sorted(_CHART_WORKLOADS.keys() - (_chart_workloads() & targets)) == []
 
 
 @pytest.mark.usefixtures("keyring_store")
