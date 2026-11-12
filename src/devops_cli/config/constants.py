@@ -2416,6 +2416,17 @@ CONST_FAIL_TO_PASS_COULD_NOT_RUN_EXIT_STATUSES: Final[frozenset[int]] = frozense
 # (#3124). The network, process and keyring guards are no part of it: a fix can prove itself by
 # a test that fails on base at one of those edges.
 CONST_FAIL_TO_PASS_HOST_PATH_GUARD_MESSAGE: Final[str] = "host path reached without a fake"
+# A gate row of `devops ci` that runs a check package with `tests/gate/runner.py`: the row `k8s`
+# runs the modules of `tests/gate/k8s_checks/` (#2164). The replay runs the row of a changed check
+# module on the base and head trees (#4554).
+CONST_GATE_DIR: Final[str] = "tests/gate"
+CONST_GATE_CHECKS_PACKAGE_SUFFIX: Final[str] = "_checks"
+CONST_PYTHON_PACKAGE_INIT_FILE: Final[str] = "__init__.py"
+CONST_GATE_ROW_SCRIPT: Final[str] = (
+    "import sys; from tests.gate.{module} import main; sys.exit(main())"
+)
+# The exit statuses of a gate row run that ran each case: 0 when all pass, 1 when one fails.
+CONST_FAIL_TO_PASS_GATE_ROW_EXIT_STATUSES: Final[frozenset[int]] = frozenset({0, 1})
 
 # ── Terraform / OpenTofu HCL AST Analysis ────────────────────────────────────
 # HCL configuration file extensions recognised by Terraform and OpenTofu.
