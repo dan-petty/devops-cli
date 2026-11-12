@@ -511,12 +511,14 @@ def test_the_workflow_runs_the_check_on_the_schedule_and_by_hand_and_no_job_wait
 
 def test_a_push_to_main_does_not_cancel_the_schedule_run() -> None:
     """The concurrency group of `ci.yml` holds the event, so the schedule run, which holds the
-    check, and a push run of the same ref are in two groups, and a merge cancels only an older
-    push run (#4634)."""
+    check, and a push run of the same ref are in two groups (#4634). The group of a push holds its
+    commit, so a merge cancels no push run of main, and each run ends and gives its test time to
+    the check (#4639)."""
     workflow = yaml.safe_load((REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text("utf-8"))
 
     assert workflow["concurrency"] == {
-        "group": "ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}",
+        "group": "ci-${{ github.workflow }}-${{ github.event_name }}-"
+        "${{ github.event_name == 'push' && github.sha || github.ref }}",
         "cancel-in-progress": True,
     }
 

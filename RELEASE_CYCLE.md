@@ -7,7 +7,7 @@ This page is for the person who releases `devops-cli`. [release-please](https://
 1. Every pull request into `main` has a [Conventional Commit](https://www.conventionalcommits.org/) title, and the squash commit takes it ([`CONTRIBUTING.md`](CONTRIBUTING.md)).
 2. On each push to `main`, the `Release` workflow (`.github/workflows/release.yml`) runs [release-please-action](https://github.com/googleapis/release-please-action). It opens one release pull request, or updates the one that is open.
 3. release-please derives the version from the titles merged since the last release. The release pull request holds that version, the new section of `CHANGELOG.md`, `.release-please-manifest.json` and the version lines of `pyproject.toml` and `uv.lock`.
-4. The release pull request runs the same required checks as every pull request.
+4. The release pull request shows the same required checks as every pull request. It runs no test shard: its `Tests & Coverage` passes when `Tests & Coverage` passed in the push run of `main` that it is based on ([ADR 0014](docs/adr/0014-required-checks-gate-the-merge-and-the-pre-push-hook-runs-the-fast-static-checks.md)). The job `Tests on Main` waits for that run to end.
 
 ## Scheduled Merge
 

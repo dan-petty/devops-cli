@@ -919,7 +919,8 @@ def test_changed_line_coverage_step_fails_a_pull_request_below_ninety_percent() 
 
     The step writes coverage.xml from the combined data that the gate keeps, before diff-cover
     reads it (#1743); the gate itself writes no XML. It runs only on pull requests that are not
-    plan-only, since a plan-only run writes no coverage data (#2860). It takes the base ref
+    plan-only and whose shards passed, since a plan-only run and the release pull request, whose
+    shards do not run, write no coverage data (#2860, #4639). It takes the base ref
     through env rather than an inline expression, and fails the job below 90% of the changed
     lines. The summary still gets the added `pragma: no cover` lines when the figure fails: the
     step keeps diff-cover's status and exits with it last. It is never part of `devops ci`, so no
@@ -948,7 +949,8 @@ def test_changed_line_coverage_step_fails_a_pull_request_below_ninety_percent() 
         any("diff-cover" in " ".join(s.cmd) for s in get_check_specs()),
     ) == (
         True,
-        "github.event_name == 'pull_request' && steps.changes.outputs.outside_plan != 'false'",
+        "needs.test-shard.result == 'success' && github.event_name == 'pull_request'"
+        " && steps.changes.outputs.outside_plan != 'false'",
         {"BASE_REF": "${{ github.base_ref }}"},
         True,
         True,
@@ -980,7 +982,8 @@ def test_ci_workflow_parallelizes_quality_gates() -> None:
         "runner-image",
     }.issubset(jobs.keys())
     # No `needs:` between them, so they start concurrently rather than in sequence. The one wait is
-    # the join of the test shards: the job `Tests & Coverage` needs them and nothing else (#3050).
+    # the join of the test shards: the job `Tests & Coverage` needs them (#3050) and the job that
+    # reads the tests of main for the release pull request (#4639), and nothing else.
     assert all(
         not jobs[name].get("needs")
         for name in (
@@ -990,7 +993,7 @@ def test_ci_workflow_parallelizes_quality_gates() -> None:
             "runner-image",
         )
     )
-    assert jobs["test"].get("needs") == "test-shard"
+    assert jobs["test"].get("needs") == ["test-shard", "main-tests"]
 
 
 def test_service_image_ci_job_invariants() -> None:
@@ -2294,6 +2297,10 @@ def _validate_ci_workflow_parity(workflow_data: dict[str, Any]) -> None:
             "job-time",
             "Check the duration of Tests & Coverage",
         ): "Reads the job times of the last runs of main from the Actions API, so it is no row of the gate (#2699)",
+        (
+            "main-tests",
+            "Read Tests & Coverage of Main",
+        ): "Reads the test result of the push run of main for the release pull request from the Actions API, so it is no row of the gate (#4639)",
         (
             "design-tokens",
             "Install Style Dictionary",
