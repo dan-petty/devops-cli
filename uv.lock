@@ -903,6 +903,7 @@ dev = [
     { name = "deptry" },
     { name = "diff-cover" },
     { name = "fakeredis", extra = ["valkey"] },
+    { name = "grafana-foundation-sdk" },
     { name = "h11" },
     { name = "hypothesis" },
     { name = "mutmut" },
@@ -1021,6 +1022,7 @@ dev = [
     { name = "deptry", specifier = "==0.25.1" },
     { name = "diff-cover", specifier = "==11.0.1" },
     { name = "fakeredis", extras = ["valkey"], specifier = "==2.40.0" },
+    { name = "grafana-foundation-sdk", specifier = "==0.0.22" },
     { name = "h11", specifier = "==0.16.0" },
     { name = "hypothesis", specifier = "==6.170.15" },
     { name = "mutmut", specifier = "==3.8.1" },
@@ -1412,6 +1414,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/62/b6/bc095b23a3e0d978e75c8c18cabe4c11f791837410670e4486f0d539bfba/googleapis_common_protos-1.76.0.tar.gz", hash = "sha256:71db0e44a1d4c2dd024ebad44ca67129cc1e2892e4861df466764749d5ef8642", size = 156250, upload-time = "2026-10-22T23:43:36.263Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/05/6d/78dc67a9e779e594b49bf62604034d3a6aa428a55afc729cafda4b7333e1/googleapis_common_protos-1.76.0-py3-none-any.whl", hash = "sha256:59e13344a9f3651aa201a03e2bee815a3bf43a4baf1f9ff8a9b62a840ce25fac", size = 307707, upload-time = "2026-10-22T23:43:10.445Z" },
+]
+
+[[package]]
+name = "grafana-foundation-sdk"
+version = "0.0.22"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/93/64/6c6d835e194148aefbb65ae30efd9748e3e8791b02d97647b5ea5e75758a/grafana_foundation_sdk-0.0.22.tar.gz", hash = "sha256:be93f9d2bc8728d07613d7fdf40076e301743113d53436715819b5ac301dfe1c", size = 783372, upload-time = "2026-10-29T15:01:37.823Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/9f/1a/363f2ccda66ec4332f850a96f88a07483f8c94fab79502b654d5eea2a97e/grafana_foundation_sdk-0.0.22-py3-none-any.whl", hash = "sha256:075f0bfa5da8a4d59cd7c834e171ef6296114605b3bbc7ecf344c4c80808d4cc", size = 535160, upload-time = "2026-10-29T15:01:35.648Z" },
 ]
 
 [[package]]

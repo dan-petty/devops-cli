@@ -289,15 +289,18 @@ cloudflared, Traefik, Alertmanager, roadmap-service, the three cert-manager pods
 
 ## Grafana Dashboards
 
-Dashboards live in `monitoring/dashboards/`. Its `kustomization.yaml` generates five ConfigMaps labelled `grafana_dashboard: "1"`, and the Grafana dashboard sidecar (`monitoring/grafana-values.yaml`) loads every ConfigMap with that label:
+Dashboards live in `monitoring/dashboards/`. Its `kustomization.yaml` generates six ConfigMaps labelled `grafana_dashboard: "1"`, and the Grafana dashboard sidecar (`monitoring/grafana-values.yaml`) loads every ConfigMap with that label:
 
 | ConfigMap | Dashboards |
 | :--- | :--- |
 | `grafana-k8s-global-dashboards` | `k8s-views-global.json`, `k8s-views-pods.json` |
 | `grafana-k8s-node-dashboards` | `k8s-views-nodes.json`, `k8s-views-namespaces.json` |
 | `grafana-devops-cli-dashboards` | `devops-cli.json`, `ai-spend.json`, `project-metrics.json` |
-| `grafana-stack-dashboards` | `sre-service.json`, `ingress-tunnel.json`, `llm-stack.json`, `otel-collector.json`, `prometheus-server.json`, `pyroscope.json`, `nvidia-dcgm.json`, `coredns.json` |
+| `grafana-service-dashboards` | `devops-roadmap-service.json`, `devops-sre-service.json` |
+| `grafana-stack-dashboards` | `ingress-tunnel.json`, `llm-stack.json`, `otel-collector.json`, `prometheus-server.json`, `pyroscope.json`, `nvidia-dcgm.json`, `coredns.json` |
 | `grafana-database-dashboards` | `cloudnative-pg.json` |
+
+The service dashboards are generated. `make dashboards` builds each `[[service]]` table of `monitoring/dashboards/services.toml` into `<uid>.json` with the SRE template of `src/devops_cli/grafana/service_dashboard.py` ([DESIGN.md](../docs/DESIGN.md), row "Grafana"): the SLO tiles, the burn rate and the error budget, the golden signals, then the collapsed rows of capacity, logs and profiles. To change one, change its table and run `make dashboards`. Do not edit the JSON. The CI job "Design Tokens" fails when a committed dashboard is not the build.
 
 `cloudnative-pg.json` is the upstream dashboard of [cloudnative-pg/grafana-dashboards](https://github.com/cloudnative-pg/grafana-dashboards) (Apache-2.0) at commit `7dd1bc255b52`, with two changes: its indentation is one space, not two, so its ConfigMap stays under the annotation limit below, and the empty query of its replication lag stat is removed, which `devops grafana dashboards lint` refuses. The operator chart can also write this dashboard, but to `cnpg-system`, where the sidecar does not look, so `monitoring.grafanaDashboard.create` is `false` in `mattermost/cloudnative-pg-values.yaml`. To update the copy, take the file of a newer commit and make the same two changes.
 
@@ -311,7 +314,7 @@ The stack dashboards chart the cluster workloads and infrastructure services:
 
 | Dashboard | Exporter / Sources | How Prometheus / Loki gets its series |
 | :--- | :--- | :--- |
-| `sre-service.json`, "SRE / Service Performance & Logs" (`devops-sre-service`) | cAdvisor container CPU, memory, network packets/drops, Loki service logs (Warnings & Errors (Loki), Live Service Logs (Loki)), and Pyroscope flamegraphs | Metrics scraped by Alloy from cAdvisor/Kubelet and Kube State Metrics; logs pushed to Loki via Alloy or OpenTelemetry collector; continuous profiles queried from Pyroscope datasource |
+| `devops-roadmap-service.json`, "Roadmap Service: SLO and golden signals" (`devops-roadmap-service`), and `devops-sre-service.json`, "Service: SLO and golden signals" (`devops-sre-service`, with the variables `namespace` and `workload`) | Traefik service metrics (`traefik_service_requests_total`, `traefik_service_request_duration_seconds`) of the Kubernetes Service that has the name of the workload, cAdvisor and kube-state-metrics container series, Loki pod logs (Logs: warnings and errors, Logs: all lines), and Pyroscope flame graphs | Traefik through Alloy's annotation autodiscovery; cAdvisor, the kubelet and kube-state-metrics through Alloy; logs pushed to Loki by Alloy; profiles queried from the Pyroscope data source |
 | `ingress-tunnel.json`, "SRE / Ingress & Cloudflare Tunnel" (`devops-ingress-tunnel`) | Traefik ingress metrics (port 9100) and Cloudflare Tunnel metrics (port 2000) | Alloy's annotation autodiscovery (`annotationAutodiscovery` in `monitoring/k8s-monitoring-values.yaml`), through the pods' `prometheus.io/*` annotations; network policy allows monitoring to scrape both ports |
 | `llm-stack.json`, "LLM Gateway & GPUs" (`devops-llm-stack`) | LiteLLM's Prometheus callback on the gateway (`/metrics/`), the NVIDIA DCGM exporter on every GPU node, and Qdrant's `/metrics` on port 6333 | The `llm-gateway` ServiceMonitor (`llm/gateway/servicemonitor.yaml`), the `dcgm-exporter` integration (`integrations` in `monitoring/k8s-monitoring-values.yaml`), and the `qdrant` ServiceMonitor (`metrics.serviceMonitor` in `llm/values-qdrant.yaml`, authenticating with the `qdrant-api-key` Secret), run by Alloy, which remote-writes to the server |
 | `otel-collector.json`, "OpenTelemetry Collector" (`devops-otel-traces`) | The collector's own telemetry on port 8888 | The server's `kubernetes-pods` job, which keeps only namespace `otel`, through the `prometheus.io/scrape` and `prometheus.io/port` pod annotations in `otel/values.yaml`; not through Alloy, whose annotation autodiscovery skips `otel`, so the collector's export failures stay visible when Alloy is what fails |

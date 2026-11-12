@@ -2373,8 +2373,12 @@ def _validate_ci_workflow_parity(workflow_data: dict[str, Any]) -> None:
         ): "Path-filtered make design-tokens when a design file changes (#4738)",
         (
             "design-tokens",
+            "Build the Service Dashboards",
+        ): "Path-filtered make dashboards when a dashboard or its template changes (#5184)",
+        (
+            "design-tokens",
             "Check the Committed Token Outputs",
-        ): "Git diff of the committed token outputs against the build (#4738)",
+        ): "Git diff of the committed token outputs and service dashboards against the build (#4738, #5184)",
         (
             "design-tokens",
             "Run the Design Tests",

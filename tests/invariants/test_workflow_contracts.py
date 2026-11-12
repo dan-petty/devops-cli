@@ -1885,6 +1885,7 @@ DESIGN_FILTER = [
     "docs/assets/css/**",
     "k8s/startpage/**",
     "k8s/monitoring/dashboards/**",
+    "src/devops_cli/grafana/service_dashboard.py",
     ".github/labels.yml",
     "Makefile",
     ".github/workflows/ci.yml",
@@ -1893,7 +1894,8 @@ DESIGN_FILTER = [
 
 def test_the_design_tokens_job_builds_the_tokens_only_when_a_path_of_its_filter_changes() -> None:
     """docs/DESIGN.md, "Token pipeline": the job builds the tokens with the pinned Style Dictionary
-    and fails when a committed output is not the build. It runs for every pull request and does
+    and the service dashboards with `make dashboards` (#5184), and fails when a committed output
+    is not the build. It runs for every pull request and does
     its steps only when a path of its filter changed. Each step limit is shorter than the job
     limit, so the step that hangs stops first and shows its name, and the bound of one design test
     is shorter than its step, so pytest-timeout names the test that hangs (ARCHITECTURE.md,
@@ -1927,10 +1929,18 @@ def test_the_design_tokens_job_builds_the_tokens_only_when_a_path_of_its_filter_
             for step in steps
             if step.get("timeout-minutes", 0) >= job["timeout-minutes"]
         ],
-        [runs[name] for name in ("Build the Design Tokens", "Run the Design Tests")],
+        [
+            runs[name]
+            for name in (
+                "Build the Design Tokens",
+                "Build the Service Dashboards",
+                "Run the Design Tests",
+            )
+        ],
         0 < test_bound < design_tests["timeout-minutes"] * 60,
         len(outputs),
         [str(path) for path in outputs if not any(path.is_relative_to(root) for root in checked)],
+        PurePosixPath("k8s/monitoring/dashboards") in checked,
     ) == (
         "Design Tokens",
         "github.event_name == 'pull_request' && !(startsWith(github.head_ref, 'release-please--')"
@@ -1940,10 +1950,11 @@ def test_the_design_tokens_job_builds_the_tokens_only_when_a_path_of_its_filter_
         {"design": DESIGN_FILTER},
         {"steps.changes.outputs.design == 'true'"},
         [],
-        ["make design-tokens", "uv run pytest tests/design -n 0 --timeout 60"],
+        ["make design-tokens", "make dashboards", "uv run pytest tests/design -n 0 --timeout 60"],
         True,
         11,
         [],
+        True,
     )
 
 

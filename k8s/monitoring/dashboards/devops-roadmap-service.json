@@ -1,0 +1,1756 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "description": "The SLO, the error budget and the golden signals of the roadmap Service, from the Traefik requests of its webhooks and API.",
+  "editable": false,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "panels": [
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "panels": [],
+      "title": "Service level objective: 99.9 % over 30 days",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "The share of the requests that must succeed over the last 30 days. The owner of the service sets it in k8s/monitoring/dashboards/services.toml.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "decimals": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          },
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 1
+      },
+      "id": 2,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "showPercentChange": false,
+        "text": {
+          "valueSize": 36
+        },
+        "textMode": "value",
+        "wideLayout": true
+      },
+      "repeatDirection": "h",
+      "targets": [
+        {
+          "expr": "vector(0.999)",
+          "instant": true,
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "SLO: target over 30 days",
+      "transparent": false,
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "The share of the requests of the last 30 days that did not fail. A failed request has a code that matches code=~\"5..\". Red: under the SLO. Orange: less than 25 % of the error budget is left.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "decimals": 3,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "semi-dark-orange",
+                "value": 0.999
+              },
+              {
+                "color": "text",
+                "value": 0.99925
+              }
+            ]
+          },
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 1
+      },
+      "id": 3,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "showPercentChange": false,
+        "text": {
+          "valueSize": 36
+        },
+        "textMode": "value",
+        "wideLayout": true
+      },
+      "repeatDirection": "h",
+      "targets": [
+        {
+          "expr": "1 - (sum(increase(traefik_service_requests_total{service=~\"devops-roadmap-service-[0-9]+@kubernetes\", code=~\"5..\"}[30d])) or sum(increase(traefik_service_requests_total{service=~\"devops-roadmap-service-[0-9]+@kubernetes\"}[30d])) * 0) / sum(increase(traefik_service_requests_total{service=~\"devops-roadmap-service-[0-9]+@kubernetes\"}[30d]))",
+          "instant": true,
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "SLI: successful requests",
+      "transparent": false,
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "The share of the error budget of the last 30 days that the failed requests did not spend. The budget is 0.1 % of the requests. Orange: less than 25 % is left. Red: the budget is spent.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "decimals": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "semi-dark-orange",
+                "value": 0.0
+              },
+              {
+                "color": "text",
+                "value": 0.25
+              }
+            ]
+          },
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 1
+      },
+      "id": 4,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "showPercentChange": false,
+        "text": {
+          "valueSize": 36
+        },
+        "textMode": "value",
+        "wideLayout": true
+      },
+      "repeatDirection": "h",
+      "targets": [
+        {
+          "expr": "1 - (sum(increase(traefik_service_requests_total{service=~\"devops-roadmap-service-[0-9]+@kubernetes\", code=~\"5..\"}[30d])) or sum(increase(traefik_service_requests_total{service=~\"devops-roadmap-service-[0-9]+@kubernetes\"}[30d])) * 0) / sum(increase(traefik_service_requests_total{service=~\"devops-roadmap-service-[0-9]+@kubernetes\"}[30d])) / 0.001",
+          "instant": true,
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "Error budget: left over 30 days",
+      "transparent": false,
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "How fast the requests of the last hour spend the error budget. At 1x the budget lasts 30 days. Orange: faster than 1x. Red: at the page line 14.4×, which spends 2 % of the budget in one hour.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "decimals": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              },
+              {
+                "color": "semi-dark-orange",
+                "value": 1.0
+              },
+              {
+                "color": "red",
+                "value": 14.4
+              }
+            ]
+          },
+          "unit": "x"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 1
+      },
+      "id": 5,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "showPercentChange": false,
+        "text": {
+          "valueSize": 36
+        },
+        "textMode": "value",
+        "wideLayout": true
+      },
+      "repeatDirection": "h",
+      "targets": [
+        {
+          "expr": "(sum(increase(traefik_service_requests_total{service=~\"devops-roadmap-service-[0-9]+@kubernetes\", code=~\"5..\"}[1h])) or sum(increase(traefik_service_requests_total{service=~\"devops-roadmap-service-[0-9]+@kubernetes\"}[1h])) * 0) / sum(increase(traefik_service_requests_total{service=~\"devops-roadmap-service-[0-9]+@kubernetes\"}[1h])) / 0.001",
+          "instant": true,
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "Burn rate: last hour",
+      "transparent": false,
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "How fast the failed requests spend the error budget. Compare the 1 h line only with its page line, and the 6 h line only with its page line. At the 1x pace the budget lasts 30 days.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "fixedColor": "text",
+            "mode": "fixed"
+          },
+          "custom": {
+            "axisLabel": "Burn rate (×)",
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "lineWidth": 1.5,
+            "showPoints": "never"
+          },
+          "min": 0,
+          "unit": "x"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "1 h burn rate"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "#a463f2",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "solid"
+                }
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 1.5
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "6 h burn rate"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "#e7298a",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "dash": [
+                    10,
+                    10
+                  ],
+                  "fill": "dash"
+                }
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 1.5
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Page line of the 1 h burn: 14.4×"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "red",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "dash": [
+                    0,
+                    10
+                  ],
+                  "fill": "dot"
+                }
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 1.0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Page line of the 6 h burn: 6×"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "red",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "dash": [
+                    0,
+                    10
+                  ],
+                  "fill": "dot"
+                }
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 1.0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Budget pace: 1×"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "text",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "dash": [
+                    0,
+                    10
+                  ],
+                  "fill": "dot"
+                }
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 1.0
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 5
+      },
+      "id": 6,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "repeatDirection": "h",
+      "targets": [
+        {
+          "expr": "(sum(increase(traefik_service_requests_total{service=~\"devops-roadmap-service-[0-9]+@kubernetes\", code=~\"5..\"}[1h])) or sum(increase(traefik_service_requests_total{service=~\"devops-roadmap-service-[0-9]+@kubernetes\"}[1h])) * 0) / sum(increase(traefik_service_requests_total{service=~\"devops-roadmap-service-[0-9]+@kubernetes\"}[1h])) / 0.001",
+          "legendFormat": "1 h burn rate",
+          "refId": "A"
+        },
+        {
+          "expr": "(sum(increase(traefik_service_requests_total{service=~\"devops-roadmap-service-[0-9]+@kubernetes\", code=~\"5..\"}[6h])) or sum(increase(traefik_service_requests_total{service=~\"devops-roadmap-service-[0-9]+@kubernetes\"}[6h])) * 0) / sum(increase(traefik_service_requests_total{service=~\"devops-roadmap-service-[0-9]+@kubernetes\"}[6h])) / 0.001",
+          "legendFormat": "6 h burn rate",
+          "refId": "B"
+        },
+        {
+          "expr": "vector(14.4)",
+          "legendFormat": "Page line of the 1 h burn: 14.4×",
+          "refId": "C"
+        },
+        {
+          "expr": "vector(6)",
+          "legendFormat": "Page line of the 6 h burn: 6×",
+          "refId": "D"
+        },
+        {
+          "expr": "vector(1)",
+          "legendFormat": "Budget pace: 1×",
+          "refId": "E"
+        }
+      ],
+      "title": "Burn rate: 1 h and 6 h windows",
+      "transparent": false,
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "Each point is the share of the error budget left of the 30 days before it. A steady burn at 1x keeps the line at 0 %. Under 0 % the failed requests spent more than the budget.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "fixedColor": "text",
+            "mode": "fixed"
+          },
+          "custom": {
+            "axisLabel": "Budget left (%)",
+            "axisSoftMin": 0,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "lineWidth": 1.5,
+            "showPoints": "never"
+          },
+          "max": 1.0,
+          "unit": "percentunit"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Budget left"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "text",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "solid"
+                }
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 1.5
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Warn: 25 % left"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "semi-dark-orange",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "dash": [
+                    0,
+                    10
+                  ],
+                  "fill": "dot"
+                }
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 1.0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Budget spent"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "red",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "dash": [
+                    0,
+                    10
+                  ],
+                  "fill": "dot"
+                }
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 1.0
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 5
+      },
+      "id": 7,
+      "interval": "15m",
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "repeatDirection": "h",
+      "targets": [
+        {
+          "expr": "1 - (sum(increase(traefik_service_requests_total{service=~\"devops-roadmap-service-[0-9]+@kubernetes\", code=~\"5..\"}[30d])) or sum(increase(traefik_service_requests_total{service=~\"devops-roadmap-service-[0-9]+@kubernetes\"}[30d])) * 0) / sum(increase(traefik_service_requests_total{service=~\"devops-roadmap-service-[0-9]+@kubernetes\"}[30d])) / 0.001",
+          "legendFormat": "Budget left",
+          "refId": "A"
+        },
+        {
+          "expr": "vector(0.25)",
+          "legendFormat": "Warn: 25 % left",
+          "refId": "B"
+        },
+        {
+          "expr": "vector(0)",
+          "legendFormat": "Budget spent",
+          "refId": "C"
+        }
+      ],
+      "title": "Error budget: left over the rolling 30 days",
+      "transparent": false,
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 13
+      },
+      "id": 8,
+      "panels": [],
+      "title": "Golden signals",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "The quantiles of the time to answer a request that did not fail, from the buckets of the latency histogram. A quantile is in its bucket, so it is only as exact as the bucket bounds.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "fixedColor": "text",
+            "mode": "fixed"
+          },
+          "custom": {
+            "axisLabel": "Latency (s)",
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "lineWidth": 1.5,
+            "showPoints": "never"
+          },
+          "min": 0,
+          "unit": "s"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "p50"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "#a463f2",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "solid"
+                }
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 1.5
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "p95"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "#e7298a",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "dash": [
+                    10,
+                    10
+                  ],
+                  "fill": "dash"
+                }
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 1.5
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "p99"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "text",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "dash": [
+                    30,
+                    3,
+                    3
+                  ],
+                  "fill": "dash"
+                }
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 1.5
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 14
+      },
+      "id": 9,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "repeatDirection": "h",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.5, sum by (le) (rate(traefik_service_request_duration_seconds_bucket{service=~\"devops-roadmap-service-[0-9]+@kubernetes\", code!~\"5..\"}[$__rate_interval])))",
+          "legendFormat": "p50",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(traefik_service_request_duration_seconds_bucket{service=~\"devops-roadmap-service-[0-9]+@kubernetes\", code!~\"5..\"}[$__rate_interval])))",
+          "legendFormat": "p95",
+          "refId": "B"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(traefik_service_request_duration_seconds_bucket{service=~\"devops-roadmap-service-[0-9]+@kubernetes\", code!~\"5..\"}[$__rate_interval])))",
+          "legendFormat": "p99",
+          "refId": "C"
+        }
+      ],
+      "title": "Latency: p50, p95 and p99 of successful requests",
+      "transparent": false,
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "The requests to the service each second, from the request counter.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "fixedColor": "text",
+            "mode": "fixed"
+          },
+          "custom": {
+            "axisLabel": "Traffic (requests/s)",
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "lineWidth": 1.5,
+            "showPoints": "never"
+          },
+          "min": 0,
+          "unit": "reqps"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Requests"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "text",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "solid"
+                }
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 1.5
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 14
+      },
+      "id": 10,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "repeatDirection": "h",
+      "targets": [
+        {
+          "expr": "sum(rate(traefik_service_requests_total{service=~\"devops-roadmap-service-[0-9]+@kubernetes\"}[$__rate_interval]))",
+          "legendFormat": "Requests",
+          "refId": "A"
+        }
+      ],
+      "title": "Traffic: requests per second",
+      "transparent": false,
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "The share of the requests that failed: a code that matches code=~\"5..\". Over the SLO line the service spends its budget faster than 1x.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "fixedColor": "text",
+            "mode": "fixed"
+          },
+          "custom": {
+            "axisLabel": "Errors (% of requests)",
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "lineWidth": 1.5,
+            "showPoints": "never"
+          },
+          "min": 0,
+          "unit": "percentunit"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Failed requests"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "text",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "solid"
+                }
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 1.5
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "SLO: 0.1 % can fail"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "text",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "dash": [
+                    0,
+                    10
+                  ],
+                  "fill": "dot"
+                }
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 1.0
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 22
+      },
+      "id": 11,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "repeatDirection": "h",
+      "targets": [
+        {
+          "expr": "(sum(rate(traefik_service_requests_total{service=~\"devops-roadmap-service-[0-9]+@kubernetes\", code=~\"5..\"}[$__rate_interval])) or sum(rate(traefik_service_requests_total{service=~\"devops-roadmap-service-[0-9]+@kubernetes\"}[$__rate_interval])) * 0) / sum(rate(traefik_service_requests_total{service=~\"devops-roadmap-service-[0-9]+@kubernetes\"}[$__rate_interval]))",
+          "legendFormat": "Failed requests",
+          "refId": "A"
+        },
+        {
+          "expr": "vector(0.001)",
+          "legendFormat": "SLO: 0.1 % can fail",
+          "refId": "B"
+        }
+      ],
+      "title": "Errors: share of failed requests",
+      "transparent": false,
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "For each resource, the highest share of its limit that one container of the workload uses. At the limit, the kernel kills the container for memory and throttles it for CPU.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "fixedColor": "text",
+            "mode": "fixed"
+          },
+          "custom": {
+            "axisLabel": "Saturation (% of the limit)",
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "lineWidth": 1.5,
+            "showPoints": "never"
+          },
+          "min": 0,
+          "unit": "percentunit"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Memory"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "#a463f2",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "solid"
+                }
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 1.5
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "CPU"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "#e7298a",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "dash": [
+                    10,
+                    10
+                  ],
+                  "fill": "dash"
+                }
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 1.5
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Limit"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "red",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "dash": [
+                    0,
+                    10
+                  ],
+                  "fill": "dot"
+                }
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 1.0
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 22
+      },
+      "id": 12,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "repeatDirection": "h",
+      "targets": [
+        {
+          "expr": "max(sum by (pod, container) (container_memory_working_set_bytes{namespace=\"devops\", pod=~\"roadmap-service-[a-z0-9]+-[a-z0-9]+\", container!=\"\"}) / sum by (pod, container) (kube_pod_container_resource_limits{namespace=\"devops\", pod=~\"roadmap-service-[a-z0-9]+-[a-z0-9]+\", resource=\"memory\"}))",
+          "legendFormat": "Memory",
+          "refId": "A"
+        },
+        {
+          "expr": "max(sum by (pod, container) (rate(container_cpu_usage_seconds_total{namespace=\"devops\", pod=~\"roadmap-service-[a-z0-9]+-[a-z0-9]+\", container!=\"\"}[$__rate_interval])) / sum by (pod, container) (kube_pod_container_resource_limits{namespace=\"devops\", pod=~\"roadmap-service-[a-z0-9]+-[a-z0-9]+\", resource=\"cpu\"}))",
+          "legendFormat": "CPU",
+          "refId": "B"
+        },
+        {
+          "expr": "vector(1)",
+          "legendFormat": "Limit",
+          "refId": "C"
+        }
+      ],
+      "title": "Saturation: highest share of a container limit",
+      "transparent": false,
+      "type": "timeseries"
+    },
+    {
+      "collapsed": true,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 30
+      },
+      "id": 13,
+      "panels": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "description": "The memory that the containers of the workload use and request, and their limit, summed over the pods.",
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "fixedColor": "text",
+                "mode": "fixed"
+              },
+              "custom": {
+                "axisLabel": "Memory (bytes)",
+                "drawStyle": "line",
+                "fillOpacity": 0,
+                "lineWidth": 1.5,
+                "showPoints": "never"
+              },
+              "min": 0,
+              "unit": "bytes"
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Use"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "fixedColor": "#a463f2",
+                      "mode": "fixed"
+                    }
+                  },
+                  {
+                    "id": "custom.lineStyle",
+                    "value": {
+                      "fill": "solid"
+                    }
+                  },
+                  {
+                    "id": "custom.lineWidth",
+                    "value": 1.5
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Request"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "fixedColor": "#e7298a",
+                      "mode": "fixed"
+                    }
+                  },
+                  {
+                    "id": "custom.lineStyle",
+                    "value": {
+                      "dash": [
+                        10,
+                        10
+                      ],
+                      "fill": "dash"
+                    }
+                  },
+                  {
+                    "id": "custom.lineWidth",
+                    "value": 1.5
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Limit"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "fixedColor": "red",
+                      "mode": "fixed"
+                    }
+                  },
+                  {
+                    "id": "custom.lineStyle",
+                    "value": {
+                      "dash": [
+                        0,
+                        10
+                      ],
+                      "fill": "dot"
+                    }
+                  },
+                  {
+                    "id": "custom.lineWidth",
+                    "value": 1.0
+                  }
+                ]
+              }
+            ]
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 31
+          },
+          "id": 14,
+          "options": {
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "none"
+            }
+          },
+          "repeatDirection": "h",
+          "targets": [
+            {
+              "expr": "sum(container_memory_working_set_bytes{namespace=\"devops\", pod=~\"roadmap-service-[a-z0-9]+-[a-z0-9]+\", container!=\"\"})",
+              "legendFormat": "Use",
+              "refId": "A"
+            },
+            {
+              "expr": "sum(kube_pod_container_resource_requests{namespace=\"devops\", pod=~\"roadmap-service-[a-z0-9]+-[a-z0-9]+\", resource=\"memory\"})",
+              "legendFormat": "Request",
+              "refId": "B"
+            },
+            {
+              "expr": "sum(kube_pod_container_resource_limits{namespace=\"devops\", pod=~\"roadmap-service-[a-z0-9]+-[a-z0-9]+\", resource=\"memory\"})",
+              "legendFormat": "Limit",
+              "refId": "C"
+            }
+          ],
+          "title": "Memory: use, request and limit",
+          "transparent": false,
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "description": "The CPU that the containers of the workload use and request, and their limit, summed over the pods.",
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "fixedColor": "text",
+                "mode": "fixed"
+              },
+              "custom": {
+                "axisLabel": "CPU (cores)",
+                "drawStyle": "line",
+                "fillOpacity": 0,
+                "lineWidth": 1.5,
+                "showPoints": "never"
+              },
+              "min": 0,
+              "unit": "short"
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Use"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "fixedColor": "#a463f2",
+                      "mode": "fixed"
+                    }
+                  },
+                  {
+                    "id": "custom.lineStyle",
+                    "value": {
+                      "fill": "solid"
+                    }
+                  },
+                  {
+                    "id": "custom.lineWidth",
+                    "value": 1.5
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Request"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "fixedColor": "#e7298a",
+                      "mode": "fixed"
+                    }
+                  },
+                  {
+                    "id": "custom.lineStyle",
+                    "value": {
+                      "dash": [
+                        10,
+                        10
+                      ],
+                      "fill": "dash"
+                    }
+                  },
+                  {
+                    "id": "custom.lineWidth",
+                    "value": 1.5
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Limit"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "fixedColor": "red",
+                      "mode": "fixed"
+                    }
+                  },
+                  {
+                    "id": "custom.lineStyle",
+                    "value": {
+                      "dash": [
+                        0,
+                        10
+                      ],
+                      "fill": "dot"
+                    }
+                  },
+                  {
+                    "id": "custom.lineWidth",
+                    "value": 1.0
+                  }
+                ]
+              }
+            ]
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 31
+          },
+          "id": 15,
+          "options": {
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "none"
+            }
+          },
+          "repeatDirection": "h",
+          "targets": [
+            {
+              "expr": "sum(rate(container_cpu_usage_seconds_total{namespace=\"devops\", pod=~\"roadmap-service-[a-z0-9]+-[a-z0-9]+\", container!=\"\"}[$__rate_interval]))",
+              "legendFormat": "Use",
+              "refId": "A"
+            },
+            {
+              "expr": "sum(kube_pod_container_resource_requests{namespace=\"devops\", pod=~\"roadmap-service-[a-z0-9]+-[a-z0-9]+\", resource=\"cpu\"})",
+              "legendFormat": "Request",
+              "refId": "B"
+            },
+            {
+              "expr": "sum(kube_pod_container_resource_limits{namespace=\"devops\", pod=~\"roadmap-service-[a-z0-9]+-[a-z0-9]+\", resource=\"cpu\"})",
+              "legendFormat": "Limit",
+              "refId": "C"
+            }
+          ],
+          "title": "CPU: use, request and limit",
+          "transparent": false,
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "description": "The memory that the containers of the workload can use before they reach their limits, summed over the pods.",
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
+              "decimals": 1,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "text",
+                    "value": null
+                  }
+                ]
+              },
+              "unit": "bytes"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 4,
+            "w": 12,
+            "x": 0,
+            "y": 39
+          },
+          "id": 16,
+          "options": {
+            "colorMode": "value",
+            "graphMode": "none",
+            "justifyMode": "center",
+            "orientation": "auto",
+            "percentChangeColorMode": "standard",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ]
+            },
+            "showPercentChange": false,
+            "text": {
+              "valueSize": 36
+            },
+            "textMode": "value",
+            "wideLayout": true
+          },
+          "repeatDirection": "h",
+          "targets": [
+            {
+              "expr": "sum(kube_pod_container_resource_limits{namespace=\"devops\", pod=~\"roadmap-service-[a-z0-9]+-[a-z0-9]+\", resource=\"memory\"}) - sum(container_memory_working_set_bytes{namespace=\"devops\", pod=~\"roadmap-service-[a-z0-9]+-[a-z0-9]+\", container!=\"\"})",
+              "instant": true,
+              "range": false,
+              "refId": "A"
+            }
+          ],
+          "title": "Headroom: memory under the limit",
+          "transparent": false,
+          "type": "stat"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "description": "The CPU that the containers of the workload can use before they reach their limits, summed over the pods.",
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
+              "decimals": 1,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "text",
+                    "value": null
+                  }
+                ]
+              },
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 4,
+            "w": 12,
+            "x": 12,
+            "y": 39
+          },
+          "id": 17,
+          "options": {
+            "colorMode": "value",
+            "graphMode": "none",
+            "justifyMode": "center",
+            "orientation": "auto",
+            "percentChangeColorMode": "standard",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ]
+            },
+            "showPercentChange": false,
+            "text": {
+              "valueSize": 36
+            },
+            "textMode": "value",
+            "wideLayout": true
+          },
+          "repeatDirection": "h",
+          "targets": [
+            {
+              "expr": "sum(kube_pod_container_resource_limits{namespace=\"devops\", pod=~\"roadmap-service-[a-z0-9]+-[a-z0-9]+\", resource=\"cpu\"}) - sum(rate(container_cpu_usage_seconds_total{namespace=\"devops\", pod=~\"roadmap-service-[a-z0-9]+-[a-z0-9]+\", container!=\"\"}[$__rate_interval]))",
+              "instant": true,
+              "range": false,
+              "refId": "A"
+            }
+          ],
+          "title": "Headroom: CPU under the limit",
+          "transparent": false,
+          "type": "stat"
+        }
+      ],
+      "title": "Capacity",
+      "type": "row"
+    },
+    {
+      "collapsed": true,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 31
+      },
+      "id": 18,
+      "panels": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "description": "The lines of the pods of the workload that Loki gives the level warn, error, critical, fatal or panic.",
+          "gridPos": {
+            "h": 8,
+            "w": 24,
+            "x": 0,
+            "y": 32
+          },
+          "id": 19,
+          "options": {
+            "dedupStrategy": "none",
+            "enableLogDetails": true,
+            "prettifyLogMessage": false,
+            "showCommonLabels": false,
+            "showLabels": false,
+            "showLogContextToggle": false,
+            "showTime": true,
+            "sortOrder": "Descending",
+            "wrapLogMessage": true
+          },
+          "repeatDirection": "h",
+          "targets": [
+            {
+              "expr": "{namespace=\"devops\"} | pod=~\"roadmap-service-[a-z0-9]+-[a-z0-9]+\" | detected_level=~\"(?i)(warn|warning|error|err|critical|fatal|panic)\"",
+              "refId": "A"
+            }
+          ],
+          "title": "Logs: warnings and errors",
+          "transparent": false,
+          "type": "logs"
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "description": "All lines of the pods of the workload.",
+          "gridPos": {
+            "h": 12,
+            "w": 24,
+            "x": 0,
+            "y": 40
+          },
+          "id": 20,
+          "options": {
+            "dedupStrategy": "none",
+            "enableLogDetails": true,
+            "prettifyLogMessage": false,
+            "showCommonLabels": false,
+            "showLabels": false,
+            "showLogContextToggle": false,
+            "showTime": true,
+            "sortOrder": "Descending",
+            "wrapLogMessage": true
+          },
+          "repeatDirection": "h",
+          "targets": [
+            {
+              "expr": "{namespace=\"devops\"} | pod=~\"roadmap-service-[a-z0-9]+-[a-z0-9]+\"",
+              "refId": "A"
+            }
+          ],
+          "title": "Logs: all lines",
+          "transparent": false,
+          "type": "logs"
+        }
+      ],
+      "title": "Logs",
+      "type": "row"
+    },
+    {
+      "collapsed": true,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 32
+      },
+      "id": 21,
+      "panels": [
+        {
+          "datasource": {
+            "type": "grafana-pyroscope-datasource",
+            "uid": "pyroscope"
+          },
+          "description": "Where the processes of the workload spend this resource over the time range, from the continuous profiles that Alloy sends to Pyroscope.",
+          "gridPos": {
+            "h": 12,
+            "w": 24,
+            "x": 0,
+            "y": 33
+          },
+          "id": 22,
+          "repeatDirection": "h",
+          "targets": [
+            {
+              "groupBy": [],
+              "labelSelector": "{service_namespace=\"devops\", service_name=\"roadmap-service\"}",
+              "profileTypeId": "process_cpu:cpu:nanoseconds:cpu:nanoseconds",
+              "queryType": "profile",
+              "refId": "A"
+            }
+          ],
+          "title": "Profiles: CPU time",
+          "transparent": false,
+          "type": "flamegraph"
+        }
+      ],
+      "title": "Profiles",
+      "type": "row"
+    }
+  ],
+  "refresh": "1m",
+  "schemaVersion": 42,
+  "tags": [
+    "sre",
+    "service",
+    "generated"
+  ],
+  "templating": {
+    "list": []
+  },
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
+  "timezone": "utc",
+  "title": "Roadmap Service: SLO and golden signals",
+  "uid": "devops-roadmap-service"
+}
