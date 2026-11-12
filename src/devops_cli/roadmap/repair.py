@@ -12,9 +12,10 @@ Two jobs once took placeholder text from a model as a real result:
 
 **What the pass lists.** An open Item that a job set: its label holds Status New, its job record
 holds the same Status, and no agent or person owns it and no runner Job holds it. The record names
-the cause, and the newest comment confirms it: it is the comment of the job that made the block.
-A comment after it, from anyone, is a reply, and the item is a person's. A refine section that a
-person edited does not hash as recorded, and its item is a person's too.
+the cause, and the newest comment of the job that made the block confirms it. A comment after it
+that holds no marker of a roadmap job is a reply, and the item is a person's. A comment of another
+job, such as the alternatives check, is no reply (#4799). A refine section that a person edited
+does not hash as recorded, and its item is a person's too.
 
 **Cost.** One listing of the open issues. An item whose record names the next step `ready` or
 `person` costs one more request, the listing of its comments. The pass calls no model.
@@ -28,11 +29,13 @@ without a section reads as a new item, but a section with no recorded hash reads
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from functools import partial
 
 from devops_cli.config.constants import (
+    CONST_ROADMAP_JOB_COMMENT_MARKERS,
     CONST_ROADMAP_REFINE_COMMENT_MARKER,
     CONST_ROADMAP_STAGE_COMMENT_MARKER,
     CONST_ROADMAP_STATUS_NEW,
@@ -44,7 +47,7 @@ from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.body_hash import extract_section_and_outside, hash_text
 from devops_cli.roadmap.claim import claimed_by
 from devops_cli.roadmap.pull_form import is_placeholder
-from devops_cli.roadmap.refine.refine import NextStep
+from devops_cli.roadmap.refine.refine import NextStep, replies_after_marker
 from devops_cli.roadmap.stage.stage import StageFailure, write_each
 from devops_cli.roadmap.status_sync import job_holds
 from devops_cli.roadmap.step_files import section_text
@@ -126,8 +129,16 @@ def _job_set_new(item: Item) -> bool:
     )
 
 
-def _newest(comments: list[IssueComment]) -> str:
-    return comments[-1].body if comments else ""
+def _unanswered(comments: Sequence[IssueComment], marker: str) -> str:
+    """The body of the newest comment that holds `marker`, or an empty text when no comment holds
+    it or a person replied after it. A comment of another roadmap job, such as the alternatives
+    check, is no reply (#4799)."""
+    replies = replies_after_marker(comments, marker)
+    if replies is None or any(
+        not any(job in reply.body for job in CONST_ROADMAP_JOB_COMMENT_MARKERS) for reply in replies
+    ):
+        return ""
+    return next(c.body for c in reversed(comments) if marker in c.body)
 
 
 def _filler_return(newest: str) -> bool:
@@ -154,15 +165,17 @@ def _stub_section(item: Item) -> bool:
 
 def _stall_of(store: RoadmapStore, item: Item) -> StallKind | None:
     """The cause that stalled `item`, or None. The record names the cause, and the newest comment
-    confirms it: a comment after the comment of the job means a person replied."""
+    of the job confirms it: a comment after it that no roadmap job wrote means a person replied."""
     if not _job_set_new(item):
         return None
     step = item.job_record.get(RefineRecordKey.NEXT_STEP)
     if step == NextStep.READY.value:
-        if _filler_return(_newest(store.comments_on(item.number))):
+        stage = _unanswered(store.comments_on(item.number), CONST_ROADMAP_STAGE_COMMENT_MARKER)
+        if _filler_return(stage):
             return StallKind.FILLER_RETURN
     elif step == NextStep.PERSON.value and _stub_section(item):
-        if _newest(store.comments_on(item.number)).startswith(CONST_ROADMAP_REFINE_COMMENT_MARKER):
+        refine = _unanswered(store.comments_on(item.number), CONST_ROADMAP_REFINE_COMMENT_MARKER)
+        if refine.startswith(CONST_ROADMAP_REFINE_COMMENT_MARKER):
             return StallKind.STUB_REFINE
     return None
 

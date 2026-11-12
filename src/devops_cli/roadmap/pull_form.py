@@ -115,6 +115,12 @@ _PLACEHOLDERS: Final[frozenset[str]] = frozenset(
         "why",
         "text",
         "probe",
+        # The stub texts that the census of 2026-11-11 found in refine sections (#4799).
+        "ignore",
+        "pending",
+        "draft",
+        "temporary",
+        "placeholder not final",
     }
 )
 _PLACEHOLDER_EDGES: Final[str] = " \t\r\n.,:;!?-_*<>[]()`'\""

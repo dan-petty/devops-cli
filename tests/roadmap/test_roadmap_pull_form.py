@@ -290,6 +290,12 @@ FILLER_REFUSAL = "Not yet: I need to inspect the repository first."
         "__PROBE__",
         FILLER_REFUSAL,
         "not yet:",
+        # The stub texts that the census of 2026-11-11 found in refine sections (#4799).
+        "ignore",
+        "Pending",
+        "draft",
+        "temporary",
+        "Placeholder not final.",
     ],
 )
 def test_a_stand_in_text_is_a_placeholder(text: str) -> None:
@@ -298,7 +304,16 @@ def test_a_stand_in_text_is_a_placeholder(text: str) -> None:
 
 @pytest.mark.parametrize(
     "text",
-    ["keep a label", "x-ray the cache", "a title", "The probe shows the path", "Not yet released"],
+    [
+        "keep a label",
+        "x-ray the cache",
+        "a title",
+        "The probe shows the path",
+        "Not yet released",
+        "Draft the release notes",
+        "Ignore the pending items",
+        "The placeholder is not final",
+    ],
 )
 def test_a_real_text_is_no_placeholder(text: str) -> None:
     assert not is_placeholder(text)
