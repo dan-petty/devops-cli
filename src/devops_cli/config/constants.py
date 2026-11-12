@@ -2416,6 +2416,17 @@ CONST_FAIL_TO_PASS_COULD_NOT_RUN_EXIT_STATUSES: Final[frozenset[int]] = frozense
 # (#3124). The network, process and keyring guards are no part of it: a fix can prove itself by
 # a test that fails on base at one of those edges.
 CONST_FAIL_TO_PASS_HOST_PATH_GUARD_MESSAGE: Final[str] = "host path reached without a fake"
+# A gate row of `devops ci` that runs a check package with `tests/gate/runner.py`: the row `k8s`
+# runs the modules of `tests/gate/k8s_checks/` (#2164). The replay runs the row of a changed check
+# module on the base and head trees (#4554).
+CONST_GATE_DIR: Final[str] = "tests/gate"
+CONST_GATE_CHECKS_PACKAGE_SUFFIX: Final[str] = "_checks"
+CONST_PYTHON_PACKAGE_INIT_FILE: Final[str] = "__init__.py"
+CONST_GATE_ROW_SCRIPT: Final[str] = (
+    "import sys; from tests.gate.{module} import main; sys.exit(main())"
+)
+# The exit statuses of a gate row run that ran each case: 0 when all pass, 1 when one fails.
+CONST_FAIL_TO_PASS_GATE_ROW_EXIT_STATUSES: Final[frozenset[int]] = frozenset({0, 1})
 
 # ── Terraform / OpenTofu HCL AST Analysis ────────────────────────────────────
 # HCL configuration file extensions recognised by Terraform and OpenTofu.
@@ -3152,8 +3163,10 @@ CONST_ROADMAP_REFINE_MAX_BODY_CHARS: Final[int] = 65536
 CONST_ROADMAP_REFINE_MAX_SEARCH_QUERIES: Final[int] = 10
 CONST_ROADMAP_REFINE_SEARCH_RESULTS_PER_QUERY: Final[int] = 5
 # The stage and refine context lists, for each symbol that an item cites, at most this many paths
-# of the Python files that name it, the tests first. The context says how many it left out (#3012).
+# of the source files that name it, the tests first, and at most this many of its definitions. The
+# context says how many of each it left out (#3012, #4638).
 CONST_ROADMAP_REFINE_MAX_PATHS_PER_SYMBOL: Final[int] = 50
+CONST_ROADMAP_REFINE_DEFINITIONS_PER_SYMBOL: Final[int] = 3
 # The context names the requirements of at most this many specs, and at most this many for each (#3012).
 CONST_ROADMAP_REFINE_MAX_SPECS: Final[int] = 10
 CONST_ROADMAP_REFINE_MAX_REQUIREMENTS_PER_SPEC: Final[int] = 100
@@ -3310,6 +3323,11 @@ CONST_ROADMAP_STAGE_SEARCH_LIMIT: Final[int] = 5
 # commands each, so 10 commands cover them and keep the probe short.
 CONST_ROADMAP_STAGE_PROBE_MAX_COMMANDS: Final[int] = 10
 CONST_ROADMAP_STAGE_PROBE_DEFINITION_LINES: Final[int] = 3
+# The definition lookup that the stage probe, the refine context and the implement job share
+# (#4638): when no Python file defines a name, it parses at most this many files of other languages
+# that name it. One `git grep` reads each of them whole, so the bound keeps that output small. When
+# more files name it and those it reads define it nowhere, the lookup is undecided.
+CONST_ROADMAP_DEFINITION_READ_FILES: Final[int] = 20
 # The verification pass of the stage job (#3153): the tokens of the issue body, the tokens of the
 # start of each file that the plan cites, and the most files in one request. 3000 tokens is the
 # cap that a step of the implement job gives a file; the pass reads less of each file, as it only

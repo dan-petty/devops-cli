@@ -1,6 +1,6 @@
 """The lanes of the service: the status, triage and model lanes run their own rows, keep their own
 schedule and use their own clone (#981). The triage lane reads every issue through the listing
-snapshot (#3670).
+snapshot (#3670), and the status lane through a snapshot of its own (#4854).
 """
 
 from __future__ import annotations
@@ -103,12 +103,13 @@ def test_a_model_lane_poll_when_not_due_reads_no_change_and_sends_no_request(
 
 
 @pytest.mark.usefixtures("roadmap_bot")
-def test_the_triage_lane_alone_reads_every_issue_through_the_snapshot_in_the_state_dir(
+def test_the_status_and_triage_lanes_read_every_issue_through_their_own_snapshots(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Test first for #3670: the triage lane runs intake, so it opens its store with the listing
-    snapshot that the Service keeps in its state directory, as the scoped intake does. The
-    status and model lanes read the whole listing."""
+    """Test first for #3670 and #4854: the triage lane runs intake, so it opens its store with the
+    listing snapshot that the Service keeps in its state directory, as the scoped intake does. The
+    status lane opens its store with a snapshot in a directory of its own, so each snapshot has one
+    writer. The model lane reads the whole listing."""
     github = service_github([])
     serve_over(tmp_path, monkeypatch, github, stamped=False)
     rows = (*STATUS_LANE_ROWS, *TRIAGE_LANE_ROWS, *MODEL_LANE_ROWS)
@@ -124,7 +125,40 @@ def test_the_triage_lane_alone_reads_every_issue_through_the_snapshot_in_the_sta
     jobs = service_jobs(tmp_path)
     for lane in (CONST_SERVICE_LANE_STATUS, CONST_SERVICE_LANE_TRIAGE, CONST_SERVICE_LANE_MODEL):
         jobs[lane](POLL)
-    assert snapshots == [None, FileSnapshotStore(tmp_path / "listing"), None]
+    assert snapshots == [
+        FileSnapshotStore(tmp_path / "listing-status"),
+        FileSnapshotStore(tmp_path / "listing"),
+        None,
+    ]
+
+
+@pytest.mark.usefixtures("roadmap_bot")
+def test_a_status_lane_round_with_a_kept_snapshot_reads_only_the_changed_issues(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Test first for #4854: the first round of the status lane reads the whole listing and keeps
+    a snapshot. The next round reads only the issues changed since its watermark, one request, and
+    not every page again."""
+    github = service_github([])
+    serve_over(tmp_path, monkeypatch, github, stamped=False)
+    install_roadmap_store(
+        lambda repo, *, listing=None, **_: GitHubRoadmapStore(
+            repo, runner=github, session=RunnerSession(github), listing=listing
+        )
+    )
+    recent = datetime.now(UTC) - timedelta(minutes=1)
+    others = {row.name: recent for row in STATUS_LANE_ROWS if row.name != "stage_ready"}
+    status_lane = service_jobs(tmp_path)[CONST_SERVICE_LANE_STATUS]
+    for _ in range(2):
+        stamp_successes(tmp_path, **others)
+        status_lane(POLL)
+    listings = [
+        args[-1].partition("?")[2] for args in github.calls if f"repos/{REPO}/issues?" in args[-1]
+    ]
+    assert [query.partition("&since=")[0] for query in listings] == [
+        "state=all&per_page=100",
+        "state=all&sort=updated&direction=desc",
+    ]
 
 
 def test_a_blocked_model_lane_holds_back_none_of_the_status_lanes_rounds(

@@ -17,6 +17,7 @@ from urllib.parse import urlsplit
 from devops_cli.ai.spend.models import ModelPricing
 from devops_cli.config.constants import (
     CONST_AI_GATEWAY_PROVIDER,
+    CONST_AI_GATEWAY_VIRTUAL_MODELS,
     CONST_GENAI_PRICES_LITELLM_PROVIDER,
     CONST_LOCAL_PROVIDER_NAMES,
     CONST_LOCAL_TRANSPORT_LABELS,
@@ -199,6 +200,12 @@ def _is_local_provider(provider: str | None) -> bool:
     return bool(provider and provider.strip().lower() in CONST_LOCAL_PROVIDER_NAMES)
 
 
+def _is_local_tier(name: str) -> bool:
+    """Whether `name` is a local gateway group or an `ollama:` model, the local tiers that
+    `roadmap.implement.ladder` accepts."""
+    return name in CONST_AI_GATEWAY_VIRTUAL_MODELS or name.startswith("ollama:")
+
+
 class _SettingsOnce:
     """The settings of one call of `is_local`, loaded on first use and then kept (#1420).
 
@@ -313,6 +320,7 @@ def is_local(
     provider: str | None = None,
     served_by: str | None = None,
     served_model: str | None = None,
+    model: str | None = None,
 ) -> bool:
     """Return True if the call ran on local hardware.
 
@@ -320,18 +328,26 @@ def is_local(
     (`ai/client/network.py` reads the header). When the reply names it, it decides: a hosted route
     behind a local gateway is hosted, and a local backend behind a gateway on a public host is
     local (#1631). LiteLLM names the API base of a route only when it knows it, so a local route
-    sets `api_base` and a hosted group sets none. So a gateway reply that names a deployment
-    model, `served_model`, and no backend is hosted, whatever host the gateway has (#3656). When
-    the reply names neither, the provider and the server the call was sent to decide. The call
-    loads the settings at most once, and only for a host that its address and its name do not
-    decide (#1420).
+    sets `api_base` and a hosted group sets none. A gateway reply that names no backend is
+    decided by the model that it names, `served_model`: the deployment model of a reply header,
+    or the group that answered, which LiteLLM writes in the reply body. A local gateway group or
+    an `ollama:` model is local, and each other model is hosted, whatever host the gateway has
+    (#3656). So a fallback is decided by the group that answered. When the reply names no model,
+    `model`, the model that the client asked for, is local when it is a local tier (#4523).
+    Otherwise the provider and the server the call was sent to decide. The call loads the
+    settings at most once, and only for a host that its address and its name do not decide
+    (#1420).
     """
     settings = _SettingsOnce()
     if served_by and served_by.strip():
         return _is_local_server(served_by, settings)
     is_gateway = provider is not None and provider.strip().lower() == CONST_AI_GATEWAY_PROVIDER
-    if is_gateway and served_model and served_model.strip():
-        return False
+    if is_gateway:
+        named = served_model.strip() if served_model else ""
+        if _is_local_tier(named or (model.strip() if model else "")):
+            return True
+        if named:
+            return False
     if _is_local_provider(provider):
         return True
     if _is_local_server(server, settings):
@@ -662,7 +678,11 @@ class PricingRegistry:
         not know. genai-prices takes the provider from the prefix of the reference (#2031).
         """
         if is_local(
-            server=server, provider=provider, served_by=served_by, served_model=served_model
+            server=server,
+            provider=provider,
+            served_by=served_by,
+            served_model=served_model,
+            model=model,
         ):
             return RequestCost(0.0, CONST_PRICING_SOURCE_LOCAL)
         if served_model:

@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    pass
+    from tests.support.roadmap_stage import StageRepo
 import pytest
 
 from devops_cli.ai.context_budget import count_tokens
@@ -111,6 +111,31 @@ def test_a_cited_symbol_brings_its_tests_and_its_callers(git_repo: Path) -> None
         [f"- {p}" in callers_part for p in ("src/caller.py", "src/contest.py", "src/sample.py")],
         "src/unrelated.py" in section,
     ) == ([True, True, True], [True, True, True], False)
+
+
+def test_a_cited_rust_function_brings_its_definition_and_its_callers(
+    stage_repo: StageRepo,
+) -> None:
+    """A symbol of another language than Python gets its section too: the files that name it, and
+    the file and line of its definition, which tree-sitter confirms (#4638)."""
+    stage_repo.track(
+        {
+            "src/game/unit.rs": "fn main() {\n    explorer_patrol_system();\n}\n\nfn explorer_patrol_system() {}\n",
+            "tests/patrol.rs": "#[test]\nfn patrols() {\n    explorer_patrol_system();\n}\n",
+        }
+    )
+    sha = stage_repo.git("rev-parse", "HEAD")
+
+    ctx = collect_context(stage_repo.clone, sha, "Fix `explorer_patrol_system`.", max_tokens=4000)
+
+    section = ctx.split("### Tests and callers of `explorer_patrol_system`")[1].split("###")[0]
+    assert section.splitlines()[1:6] == [
+        "Defined at: src/game/unit.rs:5",
+        "Tests:",
+        "- tests/patrol.rs",
+        "Callers:",
+        "- src/game/unit.rs",
+    ]
 
 
 def test_a_symbol_with_no_other_file_adds_no_section(git_repo: Path) -> None:

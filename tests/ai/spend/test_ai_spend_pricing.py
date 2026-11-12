@@ -787,6 +787,48 @@ def test_a_gateway_reply_that_names_a_deployment_model_and_no_backend_is_hosted(
 
 
 @pytest.mark.parametrize(
+    ("server", "served_model", "model", "expected"),
+    [
+        pytest.param("llm.example.com:4000", "devops-coder", None, True, id="local-group"),
+        pytest.param("llm.example.com:4000", "ollama:qwen3-coder:30b", None, True, id="ollama"),
+        pytest.param("localhost:4000", "deepseek-v4.1-flash-1017", None, False, id="hosted-group"),
+        pytest.param("localhost:4000", "openai/gpt-4o", None, False, id="deployment-model"),
+        pytest.param("llm.example.com:4000", None, "devops-coder", True, id="asked-local-group"),
+        pytest.param(
+            "llm.example.com:4000",
+            "deepseek-v4.1-flash-1017",
+            "devops-coder",
+            False,
+            id="local-group-falls-back-to-hosted",
+        ),
+        pytest.param(
+            "llm.example.com:4000",
+            "devops-coder",
+            "deepseek-v4.1-flash-1017",
+            True,
+            id="hosted-group-falls-back-to-local",
+        ),
+    ],
+)
+def test_the_gateway_group_that_answered_decides_whether_a_call_is_local(
+    config: Callable[..., Path],
+    server: str,
+    served_model: str | None,
+    model: str | None,
+    expected: bool,
+) -> None:
+    """Verify a gateway reply that names no backend is local when it names a local group or an
+    `ollama:` model, and hosted when it names a hosted group or another deployment model, on a
+    gateway host that nothing configures and on a loopback one. The asked model decides when the
+    reply names none (#4523)."""
+    from devops_cli.ai.spend.pricing import is_local
+
+    config()
+
+    assert is_local(server, "gateway", served_model=served_model, model=model) is expected
+
+
+@pytest.mark.parametrize(
     ("model", "served_model", "source"),
     [
         ("claude-haiku-5-5", "anthropic/claude-haiku-5-5", "genai_prices:anthropic"),
