@@ -1434,6 +1434,51 @@ def test_init_scaffolds_claude_settings_matching_the_repository_settings(
     assert (result.exit_code, scaffolded) == (0, committed)
 
 
+def test_init_scaffolds_claude_settings_that_allow_the_standard_project_commands(
+    runner: CliRunner, tmp_path: Path
+) -> None:
+    """Agents run make, kubectl, Ansible, `uv sync`, `uv lock` and the local git steps with no
+    auto-mode classifier check. Push, reset, checkout, switch and stash stay with the
+    classifier, and the deny rules keep `--no-verify` and bare `gh` refused."""
+    result = runner.invoke(app, ["init", str(tmp_path), "--name", "test-project"])
+
+    settings = json.loads((tmp_path / ".claude" / "settings.json").read_text(encoding="utf-8"))
+    assert result.exit_code == 0
+    assert settings["permissions"] == {
+        "allow": [
+            "Bash(uv run devops *)",
+            "Bash(uv run pytest *)",
+            "Bash(uv sync*)",
+            "Bash(uv lock*)",
+            "Bash(openspec *)",
+            "Bash(tuicr *)",
+            "Bash(make *)",
+            "Bash(kubectl *)",
+            "Bash(ansible *)",
+            "Bash(ansible-playbook *)",
+            "Bash(ansible-inventory *)",
+            "Bash(ansible-lint *)",
+            "Bash(git status*)",
+            "Bash(git diff*)",
+            "Bash(git log*)",
+            "Bash(git branch*)",
+            "Bash(git fetch*)",
+            "Bash(git show*)",
+            "Bash(git rev-parse*)",
+            "Bash(git merge-base*)",
+            "Bash(git worktree *)",
+            "Bash(git add *)",
+            "Bash(git commit *)",
+            "Bash(git rebase *)",
+        ],
+        "deny": [
+            "Bash(git push * --no-verify*)",
+            "Bash(git commit * --no-verify*)",
+            "Bash(gh *)",
+        ],
+    }
+
+
 def test_init_scaffolds_claude_settings_that_stop_the_uv_noise_lines(
     runner: CliRunner, tmp_path: Path
 ) -> None:
