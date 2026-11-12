@@ -43,6 +43,10 @@ jobs:
   # without coverage collection.
   service-image-test:
     name: Service Image Tests (shard ${{ matrix.shard }} of ${{ strategy.job-total }})
+    # The release pull request runs only the required checks (#4637).
+    if: >-
+      ${{ !(startsWith(github.head_ref, 'release-please--')
+      && github.event.pull_request.head.repo.full_name == github.repository) }}
     runs-on: ubuntu-26.04
     # About two times the longest run of a shard, 678 s. The test step stops 6 minutes earlier: the
     # steps before it took up to 4 minutes (#4677).

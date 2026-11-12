@@ -251,7 +251,9 @@ def test_the_changed_test_job_reruns_added_or_modified_test_files() -> None:
     ) == (
         (
             "Changed-Test Independence",
-            "github.event_name == 'pull_request'",
+            "github.event_name == 'pull_request'"
+            " && !(startsWith(github.head_ref, 'release-please--')"
+            " && github.event.pull_request.head.repo.full_name == github.repository)",
             {"contents": "read"},
             False,
         ),

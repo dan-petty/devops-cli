@@ -26,6 +26,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_SCOPE_LABEL_PREFIX,
 )
 from devops_cli.core.command_resolver import ArgvPlaceholder, ArgvToken, resolve_devops_argv
+from devops_cli.release.merge_candidate import RELEASE_FILES
 from devops_cli.roadmap.title_labels import declared_label_names
 from devops_cli.tools_lock import load_tools_lock
 from tests.support.markdown_examples import CodeSnippet, devops_commands
@@ -1672,6 +1673,92 @@ def test_a_pull_request_starts_only_the_path_checks_whose_paths_it_changes(
     ] == started
 
 
+# The term in the `if` of a job that skips the job on the release pull request: a branch of this
+# repository whose name starts as release-please names it. A branch of a fork does not match.
+RELEASE_PULL_REQUEST_SKIP = (
+    "!(startsWith(github.head_ref, 'release-please--')"
+    " && github.event.pull_request.head.repo.full_name == github.repository)"
+)
+# The required status checks of the `main` ruleset, and the workflow of its code scanning rule.
+REQUIRED_CHECKS = ("Static Analysis", "Tests & Coverage", "Semantic PR title")
+CODE_SCANNING_WORKFLOW = "codeql.yml"
+
+
+def _started_by_a_release_push(on: dict[str, Any]) -> bool:
+    """Whether a push to the release pull request starts a workflow with the triggers `on`: the
+    workflow runs on `synchronize` of a pull request into `main`, and its `paths` filter, when it
+    has one, holds a file that release-please changes."""
+    if "pull_request" not in on:
+        return False
+    trigger = on["pull_request"] or {}
+    return (
+        "synchronize" in trigger.get("types", ["synchronize"])
+        and "main" in trigger.get("branches", ["main"])
+        and any(_starts_on(trigger.get("paths", ["**"]), path) for path in RELEASE_FILES)
+    )
+
+
+def _required_jobs(name: str, jobs: dict[str, Any]) -> set[str]:
+    """The jobs of the workflow `name` that a rule of `main` reads: each job of the code scanning
+    workflow, each job whose name is a required check, and each job that one of these needs."""
+    if name == CODE_SCANNING_WORKFLOW:
+        return set(jobs)
+    found = {job_id for job_id, job in jobs.items() if job.get("name") in REQUIRED_CHECKS}
+    waiting = list(found)
+    while waiting:
+        needed = set(_needs(jobs[waiting.pop()])) - found
+        found |= needed
+        waiting.extend(needed)
+    return found
+
+
+def test_a_push_to_the_release_pull_request_starts_only_the_required_checks() -> None:
+    """release-please changes four files in its pull request. `pyproject.toml` and `uv.lock` are
+    image inputs, so a push to it started 18 jobs on the head of #5054. 12 of them were the image
+    builds, the Service Image Tests and the advisory checks, and `release.yml` builds, starts and
+    scans each image before it publishes it. So each job that no rule of `main` reads holds the
+    skip term in its `if`, and the required checks still report. Three other jobs hold no skip
+    term: Dependency Freshness and Test Job Duration run on no pull request, and the Plan Check
+    runs only for a plan of the Service's bot (#4637)."""
+    started: dict[tuple[str, str], str] = {}
+    unread: list[tuple[str, str]] = []
+    for path in sorted(WORKFLOWS_DIR.glob("*.yml")):
+        workflow = _load_workflow(path)
+        if not _started_by_a_release_push(workflow["on"]):
+            continue
+        required = _required_jobs(path.name, workflow["jobs"])
+        for job_id, job in workflow["jobs"].items():
+            if RELEASE_PULL_REQUEST_SKIP in " ".join(str(job.get("if", "")).split()):
+                continue
+            started[(path.name, job_id)] = str(job.get("name", job_id))
+            if job_id not in required:
+                unread.append((path.name, job_id))
+    # The release pull request as the condition of the Plan Check reads it: the release App
+    # opens it.
+    release_bot = "dan-petty-release[bot]"
+    event = {
+        EVENT_ACTOR: release_bot,
+        EVENT_AUTHOR: release_bot,
+        EVENT_TITLE: "chore(main): release 1.4.0",
+    }
+
+    assert (
+        unread,
+        _runs(_plan_check_job(), event),
+        [check for check in REQUIRED_CHECKS if check not in started.values()],
+        (CODE_SCANNING_WORKFLOW, "analyze") in started,
+    ) == (
+        [
+            ("ci.yml", "job-time"),
+            ("ci.yml", "dependency-freshness"),
+            ("pr-title.yml", "plan-check"),
+        ],
+        False,
+        [],
+        True,
+    )
+
+
 def test_a_pull_request_that_changes_the_site_builds_it_with_the_pages_builder() -> None:
     """GitHub Pages publishes `main:/docs` when a pull request merges, so a Liquid or Jekyll error
     in `docs/` breaks the site at the merge. The `docs-site` job builds `docs/` on the pull request
@@ -1801,7 +1888,8 @@ def test_the_design_tokens_job_builds_the_tokens_only_when_a_path_of_its_filter_
         [str(path) for path in outputs if not any(path.is_relative_to(root) for root in checked)],
     ) == (
         "Design Tokens",
-        "github.event_name == 'pull_request'",
+        "github.event_name == 'pull_request' && !(startsWith(github.head_ref, 'release-please--')"
+        " && github.event.pull_request.head.repo.full_name == github.repository)",
         {"contents": "read", "pull-requests": "read"},
         PATHS_FILTER,
         {"design": DESIGN_FILTER},

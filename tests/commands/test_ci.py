@@ -998,15 +998,18 @@ def test_ci_workflow_parallelizes_quality_gates() -> None:
 
 def test_service_image_ci_job_invariants() -> None:
     """The CI service-image job runs for every pull request or a dispatch, pushes nothing, and
-    avoids ${{ in scripts. The release pull request builds here too: release.yml publishes the
-    image only when release-please creates a release (#1486)."""
+    avoids ${{ in scripts. The release pull request skips the job: release.yml builds, starts and
+    scans the image before it publishes it, only when release-please creates a release (#1486,
+    #4637)."""
     import yaml
 
     ci = yaml.safe_load(Path(".github/workflows/ci.yml").read_text(encoding="utf-8")) or {}
     job = ci["jobs"]["service-image"]
 
     assert (job.get("if"), job.get("permissions")) == (
-        "github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'",
+        "(github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request')"
+        " && !(startsWith(github.head_ref, 'release-please--')"
+        " && github.event.pull_request.head.repo.full_name == github.repository)",
         {"contents": "read"},
     )
 
@@ -1053,7 +1056,8 @@ def test_service_image_test_ci_job_invariants() -> None:
             "group": "${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}",
             "cancel-in-progress": True,
         },
-        None,
+        "${{ !(startsWith(github.head_ref, 'release-please--')"
+        " && github.event.pull_request.head.repo.full_name == github.repository) }}",
         {"contents": "read"},
         {"fail-fast": False, "matrix": {"shard": [1, 2, 3, 4, 5, 6]}},
     )
@@ -1330,7 +1334,8 @@ def test_the_pull_request_builds_and_starts_the_devcontainer_image_the_way_the_r
     what the release publishes (#1895). It pushes to a registry on the runner and only reads the
     cache the release writes, so it holds no write scope. It is in a workflow of its own, whose
     native `paths` filter stops a pull request that changes no image input before a job starts,
-    so no step filters the paths again and `ci.yml` holds no copy of the job (#4658)."""
+    so no step filters the paths again and `ci.yml` holds no copy of the job (#4658). The release
+    pull request skips the job (#4637)."""
     job = _workflow("devcontainer-image.yml")["jobs"]["devcontainer"]
     release_build = _step_using(
         _workflow("release.yml")["jobs"]["devcontainer-image"], _BUILD_ACTION
@@ -1339,7 +1344,7 @@ def test_the_pull_request_builds_and_starts_the_devcontainer_image_the_way_the_r
     assert (
         "devcontainer" in _workflow("ci.yml")["jobs"],
         job["name"],
-        "if" in job,
+        job.get("if"),
         [s.get("name") for s in job["steps"] if "if" in s],
         job["permissions"],
         job["services"],
@@ -1349,7 +1354,8 @@ def test_the_pull_request_builds_and_starts_the_devcontainer_image_the_way_the_r
     ) == (
         False,
         "DevContainer Image",
-        False,
+        "${{ !(startsWith(github.head_ref, 'release-please--')"
+        " && github.event.pull_request.head.repo.full_name == github.repository) }}",
         [],
         {"contents": "read", "packages": "read"},
         {
