@@ -27,6 +27,33 @@ class AgentAccess(StrEnum):
     FULL = "full"
 
 
+# The levels from the lowest to the highest: each level allows what the levels below it allow.
+_ORDER: Final[tuple[AgentAccess, ...]] = (
+    AgentAccess.NONE,
+    AgentAccess.PLAN,
+    AgentAccess.SAFE,
+    AgentAccess.FULL,
+)
+
+
+def require_agent_level(level: AgentAccess, needed: AgentAccess, *, action: str, repo: str) -> None:
+    """Refuse `action` when an agent runs it on a repo at a level below `needed`. A person may
+    run every action.
+
+    Raises:
+        InfraAccessRefusedError: an agent tool, an MCP call or a cluster Job runs `action` on a
+            repo at a lower level.
+    """
+    if _ORDER.index(level) >= _ORDER.index(needed) or not is_agent_caller():
+        return
+    raise InfraAccessRefusedError(
+        ERRORS.infra.agent_access_too_low.format(
+            action=action, repo=repo, level=level.value, needed=needed.value, key=AGENT_ACCESS_KEY
+        ),
+        key=AGENT_ACCESS_KEY,
+    )
+
+
 def refuse_agent_raise(level: AgentAccess | None) -> None:
     """Refuse a level above `none` when an agent gives it.
 
@@ -42,4 +69,4 @@ def refuse_agent_raise(level: AgentAccess | None) -> None:
     )
 
 
-__all__ = ["AGENT_ACCESS_KEY", "AgentAccess", "refuse_agent_raise"]
+__all__ = ["AGENT_ACCESS_KEY", "AgentAccess", "refuse_agent_raise", "require_agent_level"]

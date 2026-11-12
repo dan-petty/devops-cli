@@ -687,6 +687,20 @@ class InfraCommandHelp:
         "gives a level above none. Default: the level of the entry, else none."
     )
     onboard_confirm: str = "Write the entry of the repo in infra.repos of the active config file."
+    status: str = (
+        "Show each inventory host of an infra repo with the state of its Kubernetes node: Ready, "
+        "cordoned, kernel, kubelet, memory capacity and allocatable memory, and GPUs. The hosts "
+        "come from the head of the default branch at origin, and the nodes from the kube "
+        "context of the entry. With --ping, also check SSH to each host in service and whether "
+        "it waits for a reboot."
+    )
+    status_repo: str = (
+        "The infra repo: owner/name, or the folder of a checkout, which its remote origin names."
+    )
+    status_ping: str = (
+        "Connect to each host in service with SSH and read /run/reboot-required. An agent needs "
+        "the agent access level plan or above."
+    )
 
 
 @dataclass(frozen=True)

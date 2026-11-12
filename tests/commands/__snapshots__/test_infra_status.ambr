@@ -1,0 +1,20 @@
+# serializer version: 1
+# name: test_dry_run_sends_no_request
+  '''
+  Plan for the status of example-org/infra at <tmp>/repo
+    1. kubernetes.client.CoreV1Api list_node in the kube context homelab-example
+    2. EXEC the fetch of origin into <tmp>/repo
+         git -C <tmp>/repo -c credential.https://github.com.helper= -c 'credential.https://github.com.helper=!gh auth git-credential' fetch --quiet origin
+    3. EXEC the default branch of origin and its commit
+         git -C <tmp>/repo rev-parse refs/remotes/origin/HEAD --abbrev-ref refs/remotes/origin/HEAD
+    4. EXEC the branch and the commit of the checkout
+         git -C <tmp>/repo rev-parse HEAD --abbrev-ref HEAD
+    5. EXEC the export of the default branch, unpacked and removed after the read
+         git -C <tmp>/repo archive --format=tar '--output=<private temporary folder>/tree.tar' '<commit of the default branch>'
+    6. EXEC the Ansible inventory of the export
+         <tmp>/user-data/tools/ansible-core/2.22.0/bin/ansible-inventory -i '<inventory>' --list
+    7. EXEC the SSH check of each host in service
+         <tmp>/user-data/tools/ansible-core/2.22.0/bin/ansible-runner run '<export>' --hosts all --limit '!<offline group>' -m ansible.builtin.stat -a path=/run/reboot-required
+  
+  '''
+# ---

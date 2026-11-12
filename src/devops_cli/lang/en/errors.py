@@ -411,6 +411,22 @@ class InfraErrorMessages:
         "remote set-head origin --auto, then run the command again."
     )
     export_failed: str = "The files of commit {commit} do not unpack: {reason}"
+    agent_access_too_low: str = (
+        "An agent cannot run {action} on the infra repo {repo}: its agent access level is "
+        "{level}, and {action} needs {needed}. Only a person raises the level, in the setting "
+        "{key}."
+    )
+    tool_missing: str = (
+        "No Ansible tool environment is installed. Run devops install-tools --tool ansible-core."
+    )
+    no_inventory: str = (
+        "The project profile of {repo} names no inventory. Run devops infra onboard {repo} for "
+        "the step."
+    )
+    no_kube_context: str = (
+        "The infra repo {repo} has no kube context in infra.repos. Run devops infra onboard "
+        "{repo} --kube-context <name> --confirm."
+    )
     read_not_json: str = "{command} did not print the JSON that devops reads."
     no_origin: str = (
         "The checkout at {path} has no GitHub remote origin. Give the repository as owner/name "
