@@ -59,7 +59,7 @@ Renovate opens a pull request for each new release of Style Dictionary, and the 
 
 ### Change a token
 
-1. Edit the token in `design/tokens/`. A color token in a theme file needs the same name in the other theme file.
+1. Edit the token in `design/tokens/`. A color token in a theme file needs the same name in the other theme file. Give a color the same value in `components` and in `hex`: the build reads only `components`.
 2. Run `make design-tokens`.
 3. Run `uv run pytest tests/design`.
 4. Commit the source and the outputs together.
@@ -69,11 +69,12 @@ Renovate opens a pull request for each new release of Style Dictionary, and the 
 - **The CI job "Design Tokens"** runs on a pull request that changes a file of its path filter: `design/`, the lock, `src/devops_cli/design/`, `docs/assets/css/`, `k8s/startpage/`, `k8s/monitoring/dashboards/`, `.github/labels.yml`, the `Makefile` or `ci.yml`. It installs the lock, runs `make design-tokens`, fails when an output is not the build, and runs `tests/design`. It takes less than 1 minute.
 - **`tests/design`** checks with coloraide:
   1. The light and the dark theme hold the same names in the sources, in the flat JSON and in each CSS file.
-  2. Each contrast rule holds in both themes: 37 rules for each theme, 74 in total.
-  3. The categorical colors pass the gates of [Categorical colors](#categorical-colors).
-  4. The sequential ramp has a monotonic lightness (`L*`), and the diverging ramp is red at step 1 and blue at step 9 in both themes.
-  5. Each width in an `@media` rule of this spec and of the CSS of the package is `breakpoint.md` or `breakpoint.lg`.
-  6. The dash patterns of the package are the patterns of [Line patterns](#line-patterns).
+  2. The `hex` of each source color is the color of its `components`.
+  3. Each contrast rule holds in both themes: 37 rules for each theme, 74 in total.
+  4. The categorical colors pass the gates of [Categorical colors](#categorical-colors).
+  5. The sequential ramp has a monotonic lightness (`L*`), and the diverging ramp is red at step 1 and blue at step 9 in both themes.
+  6. Each width in an `@media` rule of this spec and of the CSS of the package is `breakpoint.md` or `breakpoint.lg`.
+  7. The dash patterns of the package are the patterns of [Line patterns](#line-patterns).
 - **The ast-grep rule `css-color-literal`** rejects a hex color, a call of a CSS color function and a CSS named color in the hand-written CSS of `src/devops_cli/design/css/`. The docs site item (#4745) and the start page item (#4598) extend the rule to their CSS when they remove its color literals.
 
 ## Palette

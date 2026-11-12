@@ -4,12 +4,15 @@ and the light and the dark theme hold the same names in the sources and in every
 
 from __future__ import annotations
 
+from coloraide import Color
+
 from devops_cli.design import THEME_MODES, tokens
 from devops_cli.roadmap.workflow_labels import LabelColor
 from tests.support.design_tokens import (
     CSS_FILES,
     DOCS_TOKEN_CSS_DIR,
     PACKAGE_DESIGN_DIR,
+    SOURCE_FILES,
     css_variables,
     source_tokens,
 )
@@ -53,6 +56,28 @@ def test_the_light_and_dark_themes_hold_the_same_token_names() -> None:
         {key: names for key, names in css.items() if names != light_css},
         len(light_css),
     ) == (True, True, {}, 38)
+
+
+def test_the_hex_of_each_source_color_is_the_color_of_its_components() -> None:
+    """A DTCG source color holds its value in `components` and again in `hex`. The build reads
+    only `components`, so a `hex` that differs shows a color that no output has (docs/DESIGN.md,
+    "Change a token")."""
+    colors = [
+        (f"{file}:{dotted}", node["$value"])
+        for file in SOURCE_FILES
+        for dotted, node in source_tokens(file).items()
+        if isinstance(node["$value"], dict) and "components" in node["$value"]
+    ]
+
+    assert (
+        len(colors),
+        {
+            name: value["hex"]
+            for name, value in colors
+            if Color(value["colorSpace"], value["components"]).to_string(hex=True)
+            != value["hex"].lower()
+        },
+    ) == (66, {})
 
 
 def test_the_docs_site_and_the_package_hold_the_same_token_css() -> None:

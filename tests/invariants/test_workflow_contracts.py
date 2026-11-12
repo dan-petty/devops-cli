@@ -1500,12 +1500,17 @@ def test_the_design_tokens_job_builds_the_tokens_only_when_a_path_of_its_filter_
     """docs/DESIGN.md, "Token pipeline": the job builds the tokens with the pinned Style Dictionary
     and fails when a committed output is not the build. It runs for every pull request and does
     its steps only when a path of its filter changed. Each step limit is shorter than the job
-    limit, so the step that hangs stops first and shows its name. The diff step names a directory
+    limit, so the step that hangs stops first and shows its name, and the bound of one design test
+    is shorter than its step, so pytest-timeout names the test that hangs (ARCHITECTURE.md,
+    "Nested Time Limits"). The diff step names a directory
     that holds each output of each Style Dictionary config, so an output that the diff does not
     see cannot be added."""
     job = _load_workflow(WORKFLOWS_DIR / "ci.yml")["jobs"]["design-tokens"]
     detect, *steps = job["steps"]
     runs = {step["name"]: step.get("run", "") for step in steps}
+    design_tests = next(step for step in steps if step["name"] == "Run the Design Tests")
+    words = shlex.split(design_tests["run"])
+    test_bound = int(words[words.index("--timeout") + 1]) if "--timeout" in words else 0
     diff = next(text for text in runs.values() if "git diff --exit-code" in text)
     checked = [PurePosixPath(path) for path in shlex.split(diff.splitlines()[-1].split(" -- ")[1])]
     outputs = [
@@ -1528,6 +1533,7 @@ def test_the_design_tokens_job_builds_the_tokens_only_when_a_path_of_its_filter_
             if step.get("timeout-minutes", 0) >= job["timeout-minutes"]
         ],
         [runs[name] for name in ("Build the Design Tokens", "Run the Design Tests")],
+        0 < test_bound < design_tests["timeout-minutes"] * 60,
         len(outputs),
         [str(path) for path in outputs if not any(path.is_relative_to(root) for root in checked)],
     ) == (
@@ -1538,7 +1544,8 @@ def test_the_design_tokens_job_builds_the_tokens_only_when_a_path_of_its_filter_
         {"design": DESIGN_FILTER},
         {"steps.changes.outputs.design == 'true'"},
         [],
-        ["make design-tokens", "uv run pytest tests/design -n 0"],
+        ["make design-tokens", "uv run pytest tests/design -n 0 --timeout 60"],
+        True,
         11,
         [],
     )
