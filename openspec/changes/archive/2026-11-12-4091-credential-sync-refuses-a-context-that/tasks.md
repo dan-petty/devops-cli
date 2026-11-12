@@ -9,7 +9,7 @@
 
 ## 2. Archive
 
-- [ ] 2.1 Check that the change folders are valid
+- [x] 2.1 Check that the change folders are valid
   - Verification: `$ uv run devops openspec check`
 
 ## Workflow follow-up
