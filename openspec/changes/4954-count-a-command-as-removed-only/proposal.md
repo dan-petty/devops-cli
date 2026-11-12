@@ -31,7 +31,7 @@ None.
 
 ## Feasibility
 
-- origin/main at `d64c897e2` holds the defect: `_removed_names` tests `any(words in text for words in _REMOVAL_WORDS)` on the full text and returns each `devops `/`--` span. The new tests give 6 failures on that commit, among them the two #2530 sentences.
+- origin/main at `d64c897e2` holds the defect: `_removed_names` tests `any(words in text for words in _REMOVAL_WORDS)` on the full text and returns each `devops `/`--` span. `uv run devops ci fail-to-pass --base origin/main` gives 7 new cases that fail on that commit, among them the two #2530 sentences.
 - A scan of every `spec.md` under `openspec/` finds 83 requirement lines that the old rule reads as a removal. The new rule reads 82 of them as no removal, and none of the 82 removes a command or an option. It reads the one real removal, the #3185 line with `devops roadmap intake-eval`.
 - `uv run devops roadmap eval stage --replay` gives the same result before and after the change: 58 cases, 82 judged defects, each gate catches each known defect, and 5 of 5 good plans pass.
 
