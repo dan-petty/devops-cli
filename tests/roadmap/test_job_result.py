@@ -84,3 +84,15 @@ def test_each_intended_result_is_a_result_of_its_job() -> None:
     assert {job: SUCCESS_RESULTS[job] <= results[job] for job in RoadmapJob} == dict.fromkeys(
         RoadmapJob, True
     )
+
+
+def test_fix_plan_counts_only_a_pushed_repair_as_success() -> None:
+    """A fix-plan attempt is a success only when it pushes a repair that its review finds better
+    than the review of the head in the same attempt (#5213)."""
+    results = {result.value for result in FixPlanResult}
+
+    assert SUCCESS_RESULTS[RoadmapJob.FIX_PLAN] == {"revised", "cleared"}
+    assert {"regated", "dismissed", "unchanged", "stopped", "failed"} & set(
+        SUCCESS_RESULTS[RoadmapJob.FIX_PLAN]
+    ) == set()
+    assert SUCCESS_RESULTS[RoadmapJob.FIX_PLAN] <= results

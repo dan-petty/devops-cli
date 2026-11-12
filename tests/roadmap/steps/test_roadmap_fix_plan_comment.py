@@ -19,10 +19,7 @@ from devops_cli.roadmap.stage.stage_eval_cases import DefectType
 from devops_cli.roadmap.stage.stage_toolbox import ToolboxModel
 from devops_cli.roadmap.stage.stage_verify import (
     PLAN_NEEDS_FIX_LABEL,
-    Finding,
     Verification,
-    findings_section,
-    open_findings_section,
 )
 from devops_cli.roadmap.steps.fix_plan import (
     FixPlanResult,
@@ -42,6 +39,7 @@ from tests.support.roadmap_fix_plan import (
     finding,
     needs_fix_plan,
     planner_requests,
+    stage_comment,
     valid_changes,
 )
 from tests.support.roadmap_job_result import result_fields
@@ -64,14 +62,6 @@ def openspec(openspec_fake: OpenSpecFake) -> OpenSpecFake:
     return openspec_fake
 
 
-def _comment(pull: int, open_: list[Finding], other: list[Finding] | None = None) -> str:
-    """A stage comment of the plan pull request `pull`, in the form that the stage job writes."""
-    return (
-        f"{CONST_ROADMAP_STAGE_COMMENT_MARKER}\nStaged: branch `fix/1-x`, draft pull request "
-        f"#{pull}." + open_findings_section(open_) + findings_section(other or [])
-    )
-
-
 def test_the_reader_reads_the_open_findings_of_a_real_stage_comment() -> None:
     (read,) = comment_open_findings(STAGE_COMMENT)
 
@@ -90,14 +80,14 @@ def test_the_reader_reads_back_each_open_finding_and_no_point() -> None:
     ]
     point = finding(DefectType.OTHER, where="group 2")
 
-    assert comment_open_findings(_comment(5, open_, [point])) == tuple(open_)
+    assert comment_open_findings(stage_comment(5, open_, [point])) == tuple(open_)
 
 
 @pytest.mark.parametrize(
     "body",
     [
         f"{CONST_ROADMAP_STAGE_COMMENT_MARKER}\nStaged: draft pull request #5.",
-        _comment(5, [], [finding(DefectType.OTHER)]),
+        stage_comment(5, [], [finding(DefectType.OTHER)]),
         f"{CONST_ROADMAP_FIX_PLAN_COMMENT_MARKER}\nThe pull request loses the label.",
     ],
 )
@@ -149,10 +139,10 @@ def test_the_revision_is_compared_with_a_review_of_the_head_and_not_with_the_com
     assert stage_repo.origin_git("rev-parse", PLAN_BRANCH) != plan.head
     (line,) = result_fields(caplog)
     assert (line["comment"], line["before"], line["after"]) == ("1", "2", "1")
-    shown = MESSAGES.roadmap.fix_plan_attempt.format(
-        pull=plan.pull, number=plan.number, result="revised", before=2, after=1, comment=1
+    assert MESSAGES.roadmap.fix_plan_detail_repaired.format(before=2, after=1) in render_fix_plan(
+        run
     )
-    assert shown in render_fix_plan(run)
+    assert "The last plan comment listed 1 open finding(s)." in render_fix_plan(run)
 
 
 def test_the_planner_gets_the_open_findings_of_the_comment_and_of_the_review_of_the_head(
@@ -195,9 +185,9 @@ def test_a_head_that_its_review_finds_clean_loses_the_label_though_the_comment_l
     assert model_fake.call_count == 0
     assert run.attempt is not None
     assert (run.attempt.result, run.attempt.before, run.attempt.after) == (
-        FixPlanResult.CLEARED,
+        FixPlanResult.DISMISSED,
         0,
-        0,
+        None,
     )
     assert run.attempt.comment == 1
     assert stage_repo.origin_git("rev-parse", PLAN_BRANCH) == plan.head
@@ -219,7 +209,7 @@ def test_a_comment_of_another_pull_request_or_an_untrusted_author_is_not_read(
     plan = needs_fix_plan(store, stage_repo, github_api)
     store.seed_comment(
         plan.number,
-        _comment(pull, [finding(DefectType.CRITERION_DROPPED)]),
+        stage_comment(pull, [finding(DefectType.CRITERION_DROPPED)]),
         author_association=association,
     )
     verifier.answer(Verification(findings=[finding(DefectType.TASK_ORDER, SAMPLE_QUOTE)]))

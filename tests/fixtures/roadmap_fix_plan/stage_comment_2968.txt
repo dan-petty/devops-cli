@@ -1,0 +1,22 @@
+<!-- devops roadmap stage -->
+Staged: branch `feat/2968-emit-inbox-gauges-add-panel-show`, draft pull request #4963. The pull request plans the item and closes no issue.
+
+The task groups, with the tokens of the inputs of each step, for a budget of 64000 tokens:
+
+1. Declare the inbox gauge: 35507 tokens
+2. Send the gauge from the inbox command: 37131 tokens
+3. Add the inbox panel to the project dashboard: 26845 tokens
+4. Document the gauge, the panel and the digest reason: 19022 tokens
+
+A model review of the plan found these open findings. The stage keeps this pull request a draft with the label `plan/needs-fix` until a later round clears them:
+
+- `criterion_dropped` at specs (metric-instruments) and the rejected alternatives of group 2: The issue's refined acceptance criteria require `read_inbox` to return a `stage_retry` line and an `owner` line, but no group adds either kind and the plan rejects both, so no task delivers this criterion. The plan's evidence covers only `stage.failed_class`, not the owner frame. Evidence: "`read_inbox` SHALL return a `stage_retry` line for a Ready item whose job record holds a stage failure class, and an `owner` line for an open owner frame of #3077."
+- `criterion_dropped` at what_changes and decisions (the gauge of the 13 kinds of `InboxKind`): The plan sends one value for each of the 13 kinds of `InboxKind`, so seven repositories give 91 series, above the issue's cap of 63 series, and no task or spec delta states or enforces the cap. Evidence: "The gauge MUST hold 63 series or fewer for seven repositories and nine counted kinds."
+
+A model review of the plan found these points. They stop no draft, and a person judges them:
+
+- `criterion_dropped` at criteria (criterion 3) / group 4: The plan assigns the digest criterion to the non-existent group `pending-person` and only documents the reason in `docs/roadmap/inbox.md`, so no task records on the issue why the digest line cannot be built. Evidence: "A test shows the digest line, or the issue records why the line cannot be built."
+- `verify_form` at group 3: The group's verify runs only the telemetry test module, which does not include the dashboard lint; the lint case lives in `tests/grafana/test_grafana_dashboards.py`, so the verify does not run the dashboard check that criterion 2 needs. Evidence: "uv run devops ci test tests/telemetry/test_telemetry_instruments.py"
+- `false_premise` at criteria (criterion 2): The plan says the lint case is in the same module as the new panel case, but the lint case is in `tests/grafana/test_grafana_dashboards.py`, not in `tests/telemetry/test_telemetry_instruments.py`. Evidence: "the lint case of the same module runs on every dashboard file"
+- `other` at specs (metric-instruments) / feasibility: The plan sends one series for each of the 13 kinds for each repository, which makes 91 series for seven repositories, over the 63-series cap in the issue's refine block; the spec delta drops that cap. Evidence: "The gauge MUST hold 63 series or fewer for seven repositories and nine counted kinds."
+- `other` at group 2: The new test calls `read_inbox` and then `emit_inbox_gauges` directly and never runs `inbox_cmd`, so the group's verify passes even if the command never calls the new function and the existing inbox command test is not run. Evidence: "calls `read_inbox` and then `emit_inbox_gauges`"

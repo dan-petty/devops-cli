@@ -321,3 +321,5 @@ ADR 0001, ADR 0015 and ADR 0016 stay as they are. GitHub stays the source of tru
 The naming record of #4533 owns the object names, the labels, the Valkey key forms, the mutex names and the service names that this record uses. Until that record merges, tracker #4517 holds those rules. The pull request that merges second adds the link between the two records.
 
 2026-11-12: Living detail moved to tracker #4517 (the step order), to the OpenSpec change of each new row, and to [ADR 0022](0022-one-repository-reference-names-the-objects-labels-and-keys-of-each-repository.md) (the names) (#4617).
+
+2026-11-12: Fact out of date: section 8, row `fix-plan`, Work and Marker. [The fix-plan step](../roadmap/stage.md#the-fix-plan-step) holds the results and the read before the marks (#5213).

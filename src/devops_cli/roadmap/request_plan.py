@@ -860,11 +860,13 @@ def fix_plan_requests(
     repo: str, *, item: int | None = None
 ) -> tuple[tuple[PlannedRequest, ...], tuple[PlannedRequest, ...]]:
     """What `devops roadmap step fix-plan` reads, in order, and the writes `--confirm` adds after
-    them (#5061). The run reads every issue and the plan pull request of each Staged item until
-    one qualifies. With `--confirm`, the attempt fetches the default branch and the branch of the
-    plan, checks the head and its authors, reads the change folder at the head, moves the clone to
-    the default branch, reads the open findings of the last plan comment of the item, and calls the
-    review and the planner. The writes are the attempt marks, the
+    them (#5061, #5213). The run reads every issue and the plan pull request of each Staged item
+    until one qualifies. With `--confirm`, the attempt fetches the default branch and the branch of
+    the plan, checks the head and its authors, and reads the change folder at the head before the
+    attempt marks. A plan that the reader refuses gets only `fix_plan.at` and `fix_plan.result`.
+    Else the attempt moves the clone to the default branch, reads the open findings of the last
+    plan comment of the item, reads the open plans on the default branch when the premise cites a
+    missing path, and calls the review and the planner. The writes are the attempt marks, the
     commit on the default branch, its push with a lease, the title and the body of the pull
     request, the label, the comment and the result marks. `item` changes no request: it names the
     one item to judge."""
@@ -876,6 +878,7 @@ def fix_plan_requests(
     clone, tree, branch = "<model-clone>", "<worktree>", _p("branch")
     pull = f"/repos/{repo}/pulls/{_p('pull')}"
     attempt = cond["attempt"]
+    review = cond["review"]
 
     def git(key: str, cwd: str, *args: str, when: str = attempt) -> PlannedRequest:
         return PlannedRequest("git", req[key], argv=("git", "-C", cwd, *args), condition=when)
@@ -889,9 +892,32 @@ def fix_plan_requests(
         git("authors", clone, "log", "origin/main.." + f"origin/{branch}"),
         git("tree", clone, "ls-tree", "-r", "--name-only", "-z", "<head>"),
         git("show", clone, "show", f"<head>:openspec/changes/{_p('change')}/<file>"),
-        *within(store.comments_on(_p("item")), attempt),
-        git("move_clone", clone, "merge", "--ff-only", "-q", "<default head>"),
-        PlannedRequest("model", req["model_review"], condition=attempt),
+        *within(store.comments_on(_p("item")), cond["marks"]),
+        git("move_clone", clone, "merge", "--ff-only", "-q", "<default head>", when=cond["marks"]),
+        PlannedRequest(
+            "GraphQL read",
+            req["open_pulls"],
+            argv=("POST", f"{CONST_URL_GITHUB_API_BASE}/graphql"),
+            condition=cond["open_pulls"],
+        ),
+        git(
+            "open_plans",
+            clone,
+            "ls-tree",
+            "--name-only",
+            "origin/main",
+            "openspec/changes/",
+            "openspec/changes/archive/",
+            when=cond["open_plans"],
+        ),
+        git(
+            "open_tasks",
+            clone,
+            "show",
+            "origin/main:openspec/changes/<open change>/tasks.md",
+            when=cond["open_plans"],
+        ),
+        PlannedRequest("model", req["model_review"], condition=review),
         PlannedRequest("model", req["model_repair"], condition=cond["repair"]),
         PlannedRequest(
             "process",
@@ -902,7 +928,8 @@ def fix_plan_requests(
     ]
     push = cond["push"]
     writes = [
-        *within(store.set_marks(_p("item")), attempt),
+        *within(store.set_marks(_p("item")), cond["unreadable"]),
+        *within(store.set_marks(_p("item")), cond["marks"]),
         git("worktree", clone, "worktree", "add", "--detach", tree, "origin/main", when=push),
         git("commit", tree, "commit", "-q", "-m", _p("title"), when=push),
         git("rebase", tree, "rebase", "-q", "origin/main", when=push),
@@ -923,8 +950,8 @@ def fix_plan_requests(
             condition=cond["update_pull"],
         ),
         *within(store.unlabel_issue(_p("pull")), cond["unlabel"]),
-        *within(store.comment(_p("item")), attempt),
-        *within(store.set_marks(_p("item")), attempt),
+        *within(store.comment(_p("item")), cond["comment"]),
+        *within(store.set_marks(_p("item")), cond["marks"]),
     ]
     return tuple(reads), tuple(writes)
 

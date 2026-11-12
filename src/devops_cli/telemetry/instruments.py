@@ -352,8 +352,12 @@ ROADMAP_FIX_PLAN_TOTAL = Instrument(
     "1",
     "Attempts of the step fix-plan on a plan pull request with the label plan/needs-fix, one count "
     "for each attempt, by repository and result: revised for a pushed revision with fewer open "
-    "findings, cleared for a plan with no open finding left (the label goes), unchanged for a "
-    "revision that is not better, and failed for a plan run that failed or stopped",
+    "findings, cleared for a pushed revision with no open finding left (the label goes), regated "
+    "for a pushed plan that passes the checks in place of a head that they refused, dismissed for "
+    "a head with no open finding (the label goes, no push), unchanged for a revision that is not "
+    "better, stopped for a false premise, an open blocker or a head over the budget, failed for a "
+    "step that failed before a plan to push existed, and unreadable for a plan that the plan "
+    "reader refused (no attempt and no result line)",
 )
 ROADMAP_STAGE_PLAN_RECORD_TOTAL = Instrument(
     "devops_cli_roadmap_stage_plan_record_total",

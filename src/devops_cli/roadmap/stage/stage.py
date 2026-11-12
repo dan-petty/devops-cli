@@ -938,14 +938,41 @@ class StageFailure:
 
 @dataclass(frozen=True)
 class PlanRevision:
-    """What `revise_plan` made of the plan of an open pull request (#5061): the revision, or the
-    stop or the failure of the item, the open findings of the review of that plan before the
-    repair, and the counts of the attempt. With no open finding before, the revision is the plan
-    of the pull request as the checks passed it."""
+    """What `revise_plan` made of the plan of an open pull request (#5061, #5213): the revision,
+    or the stop or the failure of the item, the open findings of the review of the head before the
+    repair, and the counts of the attempt. `gated` is the plan that passed the checks when it is
+    not the same plan as the head (`same_plan`): the checks refused the head, and the planner wrote
+    a new plan. `reviewed` is true when the review of the head ran, so `before` is its count and
+    not an empty count. A failure after the checks keeps `gated`, and a failure after the review
+    keeps `before`, so the step can push the gated plan and report the count. With no open finding
+    in the review of the head, the outcome is the plan of the head as the checks passed it."""
 
     outcome: StagedChange | OverBudget | Blocked | FalsePremise | StageFailure
     before: tuple[Finding, ...] = ()
     attempt: StageAttempt | None = None
+    gated: StagedChange | None = None
+    reviewed: bool = False
+
+    @property
+    def repaired(self) -> StagedChange | None:
+        """The revision of a repair: the outcome when the review of the head found an open finding
+        and the repair gave a change that the checks passed, else None."""
+        outcome = self.outcome
+        return outcome if self.before and isinstance(outcome, StagedChange) else None
+
+
+# The change name and the date with which `same_plan` renders two plans.
+_SAME_PLAN_CHANGE: Final[str] = "0-same-plan"
+_SAME_PLAN_DATE: Final[date] = date(2000, 1, 1)
+
+
+def same_plan(first: StageProposal, second: StageProposal) -> bool:
+    """Whether `first` and `second` are the same plan (#5213): `render_change` gives the same files
+    for both, with one change name and one date. So the `Kind:` line of a plan of the old form, the
+    date of the folder and the fields that no file holds (`FIELDS_NOT_IN_FILES`) are no change."""
+    return render_change(_SAME_PLAN_CHANGE, first, (), created=_SAME_PLAN_DATE) == render_change(
+        _SAME_PLAN_CHANGE, second, (), created=_SAME_PLAN_DATE
+    )
 
 
 @dataclass(frozen=True)
@@ -1193,6 +1220,13 @@ class _Planner:
         self._returns = 0
         # The counts of each item that the planner tried, in order (#4845).
         self.attempts: list[StageAttempt] = []
+        # The repair of a plan of an open pull request (`revise`, #5213): the step that it is in,
+        # the plan that passed the checks when it is not the same plan as the head, and the open
+        # findings of the review of the head, None until that review ran. `revise_plan` copies
+        # them into the revision of a failed repair.
+        self.step = StepName.GATE
+        self.gated: StagedChange | None = None
+        self.head_findings: tuple[Finding, ...] | None = None
 
     @property
     def refused_problems(self) -> tuple[str, ...]:
@@ -1273,21 +1307,29 @@ class _Planner:
         self._refused = []
         self._stopped_by_checks = False
         self._returns = 0
+        self.step = StepName.GATE
+        self.gated = None
+        self.head_findings = None
 
     def revise(
         self, target: StageTarget, proposal: StageProposal, findings: Sequence[Finding] = ()
     ) -> PlanRevision:
         """The repair of `proposal`, the plan of the open pull request of `target`, for the step
-        `fix-plan` (#5061). The request is read at the commit of the planner, and the checks judge
-        `proposal` as they judge a kept plan (`_gated`). The review of the plan that passed the
-        checks gives the open findings before the repair, so the revision is compared with a review
-        of the same pass at the same commit (#5150). A plan with no open finding in that review is
-        the revision as it is. Else the planner gets the plan, each open finding of the review and
-        each of `findings`, the open findings that the last comment of the plan lists, as in a
-        repair round, and `_verified` reviews the revision with the normal repair rounds. An
-        earlier review wrote the comment, so its findings go to the planner but do not count. No
-        trace of the run that made `proposal` is in the process, so the trace gate judges only the
-        replies of this repair. The planner reads and writes no plan record."""
+        `fix-plan` (#5061, #5213). The request is read at the commit of the planner, and the checks
+        judge `proposal` as they judge a kept plan (`_gated`): a plan that they refuse gets a new
+        plan from the planner, the gated plan, which the revision keeps in `gated` when it is not
+        the same plan as `proposal`. The review of the plan that passed the checks gives the open
+        findings before the repair, so the revision is compared with a review of the same pass at
+        the same commit (#5150). This review skips the screen of `stage.verify_screen`: its count
+        is the baseline of the attempt. A plan with no open finding in that review is the revision
+        as it is. Else the planner gets the plan, each open finding of the review and each of
+        `findings`, the open findings that the last comment of the plan lists, as in a repair
+        round, and `_verified` reviews the revision with the normal repair rounds. An earlier
+        review wrote the comment, so its findings go to the planner but do not count. The planner
+        keeps the step, the gated plan and the findings of the review in `step`, `gated` and
+        `head_findings`, so `revise_plan` keeps them when a step fails. No trace of the run that
+        made `proposal` is in the process, so the trace gate judges only the replies of this
+        repair. The planner reads and writes no plan record."""
         verifier = self._verifier
         if verifier is None:
             raise _stage_error(MESSAGES.roadmap.fix_plan_no_review, target)
@@ -1300,7 +1342,10 @@ class _Planner:
         head = self._gated(target, request, first=proposal)
         if isinstance(head, OverBudget):
             return PlanRevision(head)
-        seen, before = self._review(target, head, verifier)
+        self.gated = None if same_plan(head.proposal, proposal) else head
+        self.step = StepName.REVIEW
+        seen, before = self._review(target, head, verifier, screen=False)
+        self.head_findings = tuple(before)
         log_review_round(
             self._pull_repo,
             target.item.number,
@@ -1309,18 +1354,22 @@ class _Planner:
             returned=len(before),
             open_=len(before),
         )
+        gated = self.gated
         if not before:
-            return PlanRevision(self._traced(replace(head, findings=tuple(seen))))
+            return PlanRevision(
+                self._traced(replace(head, findings=tuple(seen))), gated=gated, reviewed=True
+            )
+        self.step = StepName.PLAN
         problems = list(dict.fromkeys((*before, *findings)))
         revised = self._repaired(target, request, head, problems, None)
         if isinstance(revised, OverBudget):
-            return PlanRevision(revised, tuple(before))
+            return PlanRevision(revised, tuple(before), gated=gated, reviewed=True)
         final = self._verified(target, request, revised, verifier, None)
         if isinstance(final, StagedChange):
             final = self._traced(
                 replace(final, findings=tuple(dict.fromkeys((*seen, *final.findings))))
             )
-        return PlanRevision(final, tuple(before))
+        return PlanRevision(final, tuple(before), gated=gated, reviewed=True)
 
     def _traced(self, change: StagedChange) -> StagedChange:
         """`change` with the runs of the item so far as its trace, when it has any."""
@@ -1663,15 +1712,21 @@ class _Planner:
         )
 
     def _review(
-        self, target: StageTarget, change: StagedChange, verifier: ToolboxClient
+        self,
+        target: StageTarget,
+        change: StagedChange,
+        verifier: ToolboxClient,
+        *,
+        screen: bool = True,
     ) -> tuple[list[Finding], list[Finding]]:
         """The findings of the model review of `change`, and those that are open: each open
-        finding returns the plan to the planner (#5059)."""
+        finding returns the plan to the planner (#5059). With `screen` false, the screen of
+        `stage.verify_screen` does not decide, and the review runs (#5213)."""
         with observe_step(self._pull_repo, _ROW, StepName.REVIEW):
             given = self._input_of(target, change)
             decision = (
                 None
-                if self._screen is None
+                if self._screen is None or not screen
                 else self._screen.decide(
                     ScreenCase(given, self._tree.files), subject=target.item.number
                 )
@@ -2546,13 +2601,20 @@ def revise_plan(
     verifier: ToolboxModel,
     model: LLMClient | ToolboxModel | None = None,
     findings: Sequence[Finding] = (),
+    open_creates: Callable[[], Mapping[str, int]] | None = None,
+    screen: ResolverChain[ScreenCase] | None = None,
 ) -> PlanRevision:
     """Revise `proposal`, the plan of the open pull request of `target`, in the clone `checkout`
     at `sha`, the default branch of `origin` after the fetch, and write nothing (#5061). The clone
     moves to `sha` first, as in `plan_stage`, and `model` and `verifier` are those of `plan_stage`.
     `findings` are the open findings that the last comment of the plan lists (`_Planner.revise`).
-    A failed model call or a plan that the checks refuse gives a `StageFailure`. Rejected
-    credentials and the stop of the Service raise."""
+    `open_creates` reads the paths that the open plans create, as in `plan_stage`, so a premise
+    that cites such a path stops the repair with `Blocked` (#5213). `screen` is the screen of the
+    reviews of the revision; without it the setting `roadmap.decisions` chooses it. A failed model
+    call or a plan that the checks refuse gives a `StageFailure` with the step of the repair that
+    failed (`gate`, `review` or `plan`), and the revision keeps the gated plan and the findings of
+    the review of the head that the planner got before the failure. Rejected credentials and the
+    stop of the Service raise."""
     settings = load_settings()
     _move_clone(checkout, sha)
     toolbox = model if isinstance(model, ToolboxModel) else None
@@ -2571,8 +2633,9 @@ def revise_plan(
             tool=tool,
             toolbox=toolbox,
             verifier=verifier,
-            screen=screen_of(settings),
+            screen=screen or screen_of(settings),
             repo=repo,
+            open_creates=open_creates,
             gate_returns=settings.roadmap.stage.gate_returns,
         )
         try:
@@ -2586,7 +2649,13 @@ def revise_plan(
                 planner.refused_problems,
                 stopped_by_checks=planner.stopped_by_checks,
             )
-            revision = PlanRevision(failure)
+            found = planner.head_findings
+            revision = PlanRevision(
+                replace(failure, step=planner.step),
+                found or (),
+                gated=planner.gated,
+                reviewed=found is not None,
+            )
         planner.note_attempt(target.item.number, clock.monotonic() - started)
     return replace(revision, attempt=planner.attempts[-1])
 
@@ -3556,6 +3625,7 @@ __all__ = [
     "read_stage_selection",
     "render_stage_plan",
     "revise_plan",
+    "same_plan",
     "select_stageable",
     "skipped_reasons",
     "stage_results",

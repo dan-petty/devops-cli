@@ -4128,10 +4128,34 @@ class RoadmapMessages:
     )
     fix_plan_none: str = "The fix-plan step of {repo} selects no plan pull request."
     fix_plan_left: str = "- #{number}: {reason}"
+    # The line of an attempt (#5213): `detail` is one of the `fix_plan_detail_*` texts, and
+    # `reason` is `fix_plan_reason` or empty.
     fix_plan_attempt: str = (
-        "The fix-plan attempt on pull request #{pull} of item #{number} ended {result}: "
-        "the review of the attempt found {before} open finding(s) before the repair and {after} "
-        "after it. The last plan comment listed {comment}."
+        "The fix-plan attempt on pull request #{pull} of item #{number} ended {result}: {detail} "
+        "The last plan comment listed {comment} open finding(s).{reason}"
+    )
+    fix_plan_detail_stopped: str = "the planner stopped before the review of the head ({stop})."
+    fix_plan_detail_failed: str = (
+        "the step `{step}` failed before the review of the head, with the class {failure}."
+    )
+    fix_plan_detail_failed_reviewed: str = (
+        "the review of the head found {before} open finding(s), and then the step `{step}` "
+        "failed with the class {failure}."
+    )
+    fix_plan_detail_reviewed: str = "the review of the head found {before} open finding(s)."
+    fix_plan_detail_repaired: str = (
+        "the review of the head found {before} open finding(s) before the repair, and the last "
+        "review of the revision found {after}."
+    )
+    fix_plan_detail_over_budget: str = (
+        "the review of the head found {before} open finding(s), and a task group of the revision "
+        "is over the budget."
+    )
+    fix_plan_reason: str = " Reason: {reason}"
+    fix_plan_unreadable: str = (
+        "The fix-plan step cannot read the plan of pull request #{pull} of item #{number} at "
+        "{head}. The step uses no attempt of the head, writes no result line, and reads the plan "
+        "again after {hours} hours.{reason}"
     )
     fix_plan_counts: str = "The attempt made {counts}, and the head of the branch is {head}."
     fix_plan_plain_note: str = (
@@ -4149,10 +4173,48 @@ class RoadmapMessages:
         "review found {before} open finding(s) in the plan before the repair and none after it, "
         "so the pull request loses the label `plan/needs-fix`."
     )
-    fix_plan_comment_clean: str = (
-        "{marker}\nThe step fix-plan reviewed the plan of #{pull} at the latest default branch "
-        "and found no open finding, so the pull request loses the label `plan/needs-fix`. The plan "
-        "stays as it is."
+    fix_plan_comment_regated: str = (
+        "{marker}\nThe step fix-plan pushed a new plan of #{pull} ({head}). The checks refused "
+        "the plan of the old head at the latest default branch, and the stage planner wrote a "
+        "plan that they pass. {why}{findings}"
+    )
+    fix_plan_regated_clean: str = (
+        "The model review found no open finding in the new plan, so the pull request loses the "
+        "label `plan/needs-fix`."
+    )
+    fix_plan_regated_open: str = (
+        "The model review found {before} open finding(s) in the new plan, and the repair gave no "
+        "better plan, so the pull request keeps the label `plan/needs-fix`."
+    )
+    fix_plan_regated_failed: str = (
+        "Then the step `{step}` failed with the class {failure}, so the pull request keeps the "
+        "label `plan/needs-fix`."
+    )
+    fix_plan_comment_dismissed: str = (
+        "{marker}\nThe step fix-plan reviewed the plan of #{pull} ({head}) at the latest default "
+        "branch and found no open finding, so the pull request loses the label "
+        "`plan/needs-fix`. The plan stays as it is.{dismissed}"
+    )
+    fix_plan_dismissed_findings: str = (
+        "\n\nThe step dismisses these open findings of the last plan comment, because the review "
+        "of the plan did not find them:\n\n{findings}"
+    )
+    fix_plan_comment_stopped: str = (
+        "{marker}\nThe step fix-plan stopped before the review of the plan of #{pull} ({head}). "
+        "The pull request keeps the label `plan/needs-fix`, and the step does not return the item "
+        "to New: a person decides. {evidence}{findings}"
+    )
+    fix_plan_stop_premise: str = (
+        "The body of the item says that a class field is absent, and the default branch defines "
+        "it: {evidence}"
+    )
+    fix_plan_stop_blocked: str = (
+        "The premise of the item needs {paths}, and the default branch does not have it. The open "
+        "plan of {issues} creates it."
+    )
+    fix_plan_stop_over_budget: str = (
+        'The inputs of the step of the task group "{title}" hold {tokens} tokens, over the '
+        "budget of {budget} tokens, also after the model split the groups once."
     )
     # The requests of a fix-plan run, as a dry run lists them.
     fix_plan_requests: dict[str, str] = field(
@@ -4163,8 +4225,11 @@ class RoadmapMessages:
             "tip": "the head of the branch of the plan on origin",
             "identity": "the identity of the clone, to find a commit of another author",
             "authors": "the authors of the commits of the branch past the default branch",
-            "tree": "the files of the head of the plan",
-            "show": "each file of the change folder at the head",
+            "tree": "the files of the head of the plan, before the attempt marks",
+            "show": "each file of the change folder at the head, which the plan reader reads",
+            "open_pulls": "the open pull requests and their files, to find an overlap",
+            "open_plans": "the change folders of the default branch, for the paths that open plans create",
+            "open_tasks": "the tasks of each open plan on the default branch",
             "move_clone": "move the clone to the default branch of origin",
             "model_review": "the verification model reviews the plan of the head and each revision",
             "model_repair": "the stage model revises the plan with the open findings",
@@ -4179,11 +4244,17 @@ class RoadmapMessages:
     fix_plan_request_conditions: dict[str, str] = field(
         default_factory=lambda: {
             "attempt": "--confirm, and the round selects a plan pull request",
+            "marks": "the plan reader reads the plan of the head: the attempt marks",
+            "unreadable": "the plan reader refuses the plan of the head: only fix_plan.at and fix_plan.result, and no attempt",
+            "open_pulls": "the plan reader reads the plan of the head, and the item cites a path",
+            "open_plans": "the premise of the item cites a path that the default branch does not have",
+            "review": "the plan reader reads the plan of the head, and the checks pass it or a new plan",
             "repair": "the review of the head plan has an open finding",
-            "push": "the revision has fewer open findings than the plan of the head",
+            "push": "revised or cleared: the revision is not the same plan as the gated plan and has fewer open findings than the review of the head; or regated: the plan that the checks pass is not the same plan as the head",
             "validate": "the openspec binary is on PATH",
-            "update_pull": "the title or the body of the revision differs",
-            "unlabel": "no open finding remains",
+            "update_pull": "the title or the body of the pushed plan differs",
+            "unlabel": "cleared (no open finding remains), dismissed (the review of the head found none), or regated after a review of the new plan with no open finding and no failed step",
+            "comment": "the result is revised, cleared, regated, dismissed or stopped",
         }
     )
     jev_completeness_question_plan: str = (
