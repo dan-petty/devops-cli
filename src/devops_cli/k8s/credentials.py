@@ -167,12 +167,12 @@ def fetch_secret_data(
     Return an empty dict when the Secret does not exist. Raise StackCredentialError when kubectl
     fails for another reason, or when its output or a field cannot be decoded.
     """
-    from devops_cli.core.validation import validate_k8s_name
+    from devops_cli.core.validation import validate_k8s_context_name, validate_k8s_name
 
     validate_k8s_name(secret_name, "secret_name")
     validate_k8s_name(namespace, "namespace", namespace=True)
     if context:
-        validate_k8s_name(context, "context")
+        validate_k8s_context_name(context, "context")
 
     cmd = [
         "kubectl",
