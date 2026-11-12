@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.116.2](https://github.com/dan-petty/devops-cli/compare/v0.116.1...v0.116.2) (2026-11-12)
+
+
+### Bug Fixes
+
+* **openspec:** list the gate commands in a dry run of check ([#4936](https://github.com/dan-petty/devops-cli/issues/4936)) ([cc19a87](https://github.com/dan-petty/devops-cli/commit/cc19a87a7f293e1f061b25b260f51d39b1380d63))
+
+
+### Performance Improvements
+
+* **ci:** move the four path checks into filtered workflows ([#4935](https://github.com/dan-petty/devops-cli/issues/4935)) ([ed84240](https://github.com/dan-petty/devops-cli/commit/ed8424083d7334feb37c73d1f7d38595c9c29ab6))
+
 ## [0.116.1](https://github.com/dan-petty/devops-cli/compare/v0.116.0...v0.116.1) (2026-11-12)
 
 
