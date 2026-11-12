@@ -3,15 +3,21 @@ reports for each tree the real tool was recorded over (#1844)."""
 
 from __future__ import annotations
 
+import shlex
 import shutil
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 from devops_cli.config.constants import CONST_OPENSPEC_SCAFFOLD_MARKER
 from devops_cli.exceptions import DependencyError
+from devops_cli.openspec import gate
 from devops_cli.openspec.gate import GateCheck, GateFinding, check_openspec
 from tests.support.fakes.openspec import OpenSpecFake
+
+Cli = Callable[..., Any]
 
 INSTALL_COMMAND = "uv run devops install-tools --tool openspec --only-missing"
 # The commands the gate runs over a tree with no change and no spec, in order: the isolated
@@ -33,6 +39,14 @@ EMPTY_TREE_COMMANDS = [
     ("instructions", "tasks", "--change", "gate-probe", "--json"),
     ("instructions", "apply", "--change", "gate-probe", "--json"),
 ]
+# The command the overlap check runs once for each active change, as a dry run lists it.
+SHOW_EACH_CHANGE = ("show", "<change>", "--json", "--deltas-only")
+# The variables each run sets, as a dry run lists them: the opt-outs and a placeholder for the
+# configuration directory of the run.
+PLANNED_ENV = (
+    "DO_NOT_TRACK=1 OPENSPEC_TELEMETRY=0 OPENSPEC_NO_UPDATE_CHECK=1 OPEN_SPEC_INTERACTIVE=0 "
+    "XDG_CONFIG_HOME='<config-home>'"
+)
 
 
 def _archives(fake: OpenSpecFake) -> list[str]:
@@ -46,6 +60,42 @@ def test_the_gate_passes_a_tree_with_no_change_and_no_spec(openspec_fake: OpenSp
     findings = check_openspec(openspec_fake.tree("empty"))
 
     assert (findings, [call.argv for call in openspec_fake.calls]) == ([], EMPTY_TREE_COMMANDS)
+
+
+def test_check_in_dry_run_lists_the_commands(
+    cli: Cli, openspec_fake: OpenSpecFake, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A dry run starts no process and reads no planned output: it lists the commands of the gate
+    in order, each with the variables it sets, and says that it would run the gate."""
+    monkeypatch.chdir(openspec_fake.tree("empty"))
+    monkeypatch.setenv("DEVOPS_CLI_DRY_RUN", "1")
+
+    result = cli("openspec", "check")
+
+    commands = [shlex.join(("openspec", *arguments)) for arguments in EMPTY_TREE_COMMANDS]
+    show = shlex.join(("openspec", *SHOW_EACH_CHANGE))
+    assert result.exit_code == 0
+    assert result.output.splitlines() == [
+        "devops openspec check",
+        *(
+            f"{number:>3}. {PLANNED_ENV} {command}"
+            for number, command in enumerate(commands, start=1)
+        ),
+        f"{len(commands) + 1:>3}. {PLANNED_ENV} {show}  [repeated for each active change]",
+        "Would run the OpenSpec gate. The commands above are not run.",
+    ]
+    assert openspec_fake.calls == []
+
+
+def test_the_plan_is_the_commands_the_gate_runs(openspec_fake: OpenSpecFake) -> None:
+    """The plan of a dry run lists the commands that the gate runs over a tree with no change, in
+    the same order, then the command it runs once for each active change."""
+    check_openspec(openspec_fake.tree("empty"))
+
+    assert [request.argv for request in gate.plan_check()] == [
+        *(("openspec", *call.argv) for call in openspec_fake.calls),
+        ("openspec", *SHOW_EACH_CHANGE),
+    ]
 
 
 def test_every_run_opts_out_and_reads_a_configuration_directory_of_its_own(
