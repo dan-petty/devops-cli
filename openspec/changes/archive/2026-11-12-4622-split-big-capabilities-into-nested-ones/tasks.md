@@ -2,7 +2,7 @@
 
 ## 1. Split the four big capabilities into nested ones
 
-Kind: other. Reads: `openspec/specs/roadmap-stage/spec.md`, `openspec/specs/roadmap-implement-job/spec.md`, `openspec/specs/roadmap-implement-step/spec.md`, `openspec/specs/roadmap-refine/spec.md`. Changes: the nested capabilities under those four areas, the deltas and the texts of the 13 open change folders that name them, `tests/roadmap/implement/test_roadmap_implement_record_readers.py` and `tests/invariants/test_living_specs.py`.
+Kind: other. Reads: `openspec/specs/roadmap-stage/spec.md`, `openspec/specs/roadmap-implement-job/spec.md`, `openspec/specs/roadmap-implement-step/spec.md`, `openspec/specs/roadmap-refine/spec.md`. Changes: the nested capabilities under those four areas, the deltas and the texts of the 13 open change folders that name them, `tests/roadmap/implement/test_roadmap_implement_record_readers.py`, `tests/invariants/test_living_specs.py` and the list of invariant files in `docs/TESTING.md`.
 
 - [x] 1.1 Add `tests/invariants/test_living_specs.py`, which refuses a capability of more than 80 requirements and an area of nested capabilities that holds a `spec.md` of its own
   - Verification: `$ uv run devops ci fail-to-pass --base origin/main`
