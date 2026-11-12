@@ -47,6 +47,8 @@ from tests.support.paths import REPO_ROOT
 # the `missing_path` rule of the cited verification prompt and gets it wrong.
 # Pull request 4435 is the plan of #3462 as merged: a MODIFIED requirement text of 543 characters
 # that the strict validation of the spec refuses after the archive (#4524).
+# The good case of #2950 is the plan of #3173 with its promtool group as a `manifest` group: the
+# one `manifest` group of the set (#5205).
 EVALUATED_PULLS = frozenset(
     {2975, 2976, 2977, 2978, 2979, 2980, 2981, 2982, 2983, 2984, 2985, 2986, 2987, 2988, 2989}
     | {2990, 2991, 2992, 2993, 2994, 2995, 2996, 2997, 2998, 2999, 3001, 3002}
@@ -63,11 +65,11 @@ def cases() -> list[StageCase]:
     return load_cases(REPO_ROOT / CASES_DIRECTORY)
 
 
-def test_the_set_holds_the_reviewed_plans_and_five_good_ones(cases: list[StageCase]) -> None:
+def test_the_set_holds_the_reviewed_plans_and_six_good_ones(cases: list[StageCase]) -> None:
     reviewed = {case.pull for case in cases if case.verdict is not Verdict.GOOD}
     good = [case for case in cases if case.verdict is Verdict.GOOD]
 
-    assert (frozenset(reviewed), len(cases), len(good)) == (EVALUATED_PULLS, 58, 5)
+    assert (frozenset(reviewed), len(cases), len(good)) == (EVALUATED_PULLS, 59, 6)
     assert len(EVALUATED_PULLS) == 53
 
 

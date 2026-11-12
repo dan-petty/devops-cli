@@ -516,6 +516,7 @@ CONST_DOCS_INVENTORY: Final[dict[str, tuple[str, ...]]] = {
         "docs/agent/archive/**/*.md",
         "openspec/changes/**/*.md",
         "tests/fixtures/roadmap_eval/**/*.md",
+        "tests/fixtures/roadmap/plan_heads/**/*.md",
     ),
     CONST_DOCS_CLASS_PROMPT: (
         "src/devops_cli/ai/personas/**/*.md",

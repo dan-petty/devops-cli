@@ -44,6 +44,13 @@ commit, whatever the working tree of the checkout holds.
 - The read: the reader reports each change file that it cannot read, each task group that the
   model refuses, each criterion that the model refuses (such as `Group 0`) and each
   `Verification:` command that the implement step cannot run, as a `read` problem. It never ends in a traceback.
+  The reader takes the kind of each task group from its `Kind:` line (#5205). A plan that the
+  stage job wrote before that line existed has none, and a hand-written plan of that time may name
+  a word that is no kind, such as `documentation`: the reader then reads a group whose first task
+  fails on the base as `behavior` when it changes a path under `src/`, else as `manifest`, and
+  each other group as `other`. The reader reads
+  `## Unchanged references` of `design.md` into the references of the plan, which the gate of a
+  moved module reads.
 - The size of each task group (#3499): the command measures each group with `measure_groups`, the
   function of the stage job, on the tracked files of the head commit. The item and the files of the
   change folder are the shared text, as in the stage job. It reports a `group-over-budget` problem

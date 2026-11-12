@@ -4612,7 +4612,9 @@ class RoadmapMessages:
     stage_impact_code: str = "Code"
     stage_impact_documents: str = "Documents"
     stage_impact_tests: str = "Tests"
-    stage_group_files: str = "Reads: {reads}. Changes: {changes}."
+    # The line under the heading of a task group: its kind, and the files that it reads and changes.
+    # The plan reader reads the kind from this line (#5205).
+    stage_group_files: str = "Kind: {kind}. Reads: {reads}. Changes: {changes}."
     # The empty value of `reads` ends in no stop of its own: `stage_group_files` ends the sentence.
     stage_group_no_reads: str = "none"
     stage_group_new: str = " (new)"
@@ -4657,7 +4659,8 @@ class RoadmapMessages:
     )
     stage_kind_no_source: str = (
         "The group '{title}' has the kind behavior, and it changes no path under src/. "
-        "Use the kind other, or add the path of the code that it changes."
+        "Use the kind manifest for a group that changes only a rule, a dashboard or a case file, "
+        "and the kind other for a group with no test. Or add the path of the code that it changes."
     )
     stage_kind_other_test: str = (
         "The group '{title}' has the kind other, and it has a test. "
@@ -4706,6 +4709,10 @@ class RoadmapMessages:
         "`- **<check>**: Stopped: <stopped> Safeguard: <safeguard>`."
     )
     plan_read_bad_tasks: str = "`tasks.md` holds a group with no `Reads: ... Changes: ...` line."
+    plan_read_bad_reference: str = (
+        "`design.md` holds a line in `## Unchanged references` that is no entry: {text}. The form "
+        "is `- `<path>` (<kind>): <reason>`."
+    )
     plan_read_bad_task: str = "`tasks.md` holds a task that the reader cannot read: {text}"
     plan_read_bad_group: str = "Group `{title}` breaks a rule of the plan: {reason}"
     plan_read_bad_verification: str = (

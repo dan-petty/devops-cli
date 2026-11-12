@@ -66,6 +66,7 @@
   "3411-a-what-changes-item-that-names",
   "3462-a-modified-requirement-over-the-limit",
   "good-2739-the-subprocess-environment-guard-accepts-gh",
+  "good-2950-the-alert-case-is-a-manifest-group",
   "good-3264-the-stage-marks-a-plan-ready"
  ]
 }
