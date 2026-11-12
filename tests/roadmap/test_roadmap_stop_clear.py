@@ -97,6 +97,12 @@ def _item(store: InMemoryRoadmapStore, number: int) -> Item:
     return item
 
 
+def _ask_retry(store: InMemoryRoadmapStore, number: int) -> None:
+    """The owner comments `implement: retry`. The comment moves the `updated_at` of the issue, as
+    a comment does on GitHub."""
+    store.as_actor("owner").comment(number, "implement: retry")
+
+
 def _record(store: InMemoryRoadmapStore, number: int) -> dict[str, str | None]:
     return {str(key): value for key, value in _item(store, number).job_record.items()}
 
@@ -429,8 +435,8 @@ def test_a_digest_that_cannot_be_read_is_read_once_and_fails_each_item_that_need
 def test_an_idle_pass_reads_the_comments_of_each_stop_and_nothing_else(
     store: InMemoryRoadmapStore,
 ) -> None:
-    """The cost of a Blocked stop that no rule clears is one request for each round: the listing
-    of its comments. The issue is read again only before a write."""
+    """In the first pass of a process, a Blocked stop that no rule clears costs one request: the
+    listing of its comments. The issue is read again only before a write."""
     numbers = [_blocked(store) for _ in range(3)]
     reads: list[str] = []
     real_item, real_comments = store.item, store.comments_on
@@ -449,6 +455,36 @@ def test_an_idle_pass_reads_the_comments_of_each_stop_and_nothing_else(
     cleared = _clear(store, Template(DIGEST_A))
 
     assert (cleared.cleared, reads) == ((), ["comments"] * len(numbers))
+
+
+def test_a_later_pass_lists_no_comments_of_a_stop_whose_issue_did_not_change(
+    store: InMemoryRoadmapStore,
+) -> None:
+    """Test first for #4854: a new comment moves the `updated_at` of its issue. So after the first
+    pass of the process, a pass lists the comments of a stop only when its issue changed, and a
+    stop that nothing changed costs no request."""
+    numbers = [_blocked(store) for _ in range(3)]
+    template = Template(DIGEST_A)
+    _clear(store, template)
+    reads: list[int] = []
+    real_comments = store.comments_on
+
+    def comments_on(number: int) -> list[IssueComment]:
+        reads.append(number)
+        return real_comments(number)
+
+    store.comments_on = comments_on  # type: ignore[method-assign]
+
+    idle = [_clear(store, template).cleared for _ in range(3)]
+    _ask_retry(store, numbers[1])
+    retried = _clear(store, template)
+
+    assert (idle, reads, retried.cleared, _item(store, numbers[1]).status) == (
+        [()] * 3,
+        [numbers[1]],
+        (numbers[1],),
+        "Ready",
+    )
 
 
 def test_a_new_digest_does_not_clear_a_stop_for_a_lost_test(store: InMemoryRoadmapStore) -> None:
@@ -579,7 +615,7 @@ def test_a_stop_at_the_class_limit_stays_until_implement_retry(
     template = Template(DIGEST_B)
 
     held = _clear(store, template)
-    store.seed_comment(number, "implement: retry", author_association="OWNER")
+    _ask_retry(store, number)
     retried = _clear(store, template)
 
     assert (held.cleared, retried.cleared, _item(store, number).status) == ((), (number,), "Ready")
@@ -611,7 +647,7 @@ def test_a_stop_at_the_item_limit_stays_until_implement_retry(
     template = Template(DIGEST_B)
 
     held = _clear(store, template)
-    store.seed_comment(number, "implement: retry", author_association="OWNER")
+    _ask_retry(store, number)
     retried = _clear(store, template)
 
     assert (held.cleared, retried.cleared) == ((), (number,))
@@ -723,7 +759,7 @@ def test_a_record_that_does_not_parse_stops_the_clear_by_digest_but_not_a_retry(
 ) -> None:
     number = _blocked(store, **{mark: "not valid"})
     held = _clear(store, Template(DIGEST_B))
-    store.seed_comment(number, "implement: retry", author_association="OWNER")
+    _ask_retry(store, number)
 
     retried = _clear(store, Template(DIGEST_B))
 
@@ -784,7 +820,7 @@ def test_a_job_that_ended_without_a_result_waits_for_a_person_when_a_retry_canno
     number = _blocked(store, stopped="job", implement_failure=klass.value)
 
     held = _clear(store, Template(DIGEST_A))
-    store.seed_comment(number, "implement: retry", author_association="OWNER")
+    _ask_retry(store, number)
     retried = _clear(store, Template(DIGEST_A))
 
     assert (held.cleared, _continuations(store, number), retried.cleared) == ((), None, (number,))
@@ -923,7 +959,7 @@ def test_a_continuation_count_that_is_no_count_stops_the_continuation_but_not_a_
         store, stopped="job", implement_failure="ci_infra", implement_continuations=text
     )
     held = _clear(store, Template(DIGEST_A))
-    store.seed_comment(number, "implement: retry", author_association="OWNER")
+    _ask_retry(store, number)
 
     retried = _clear(store, Template(DIGEST_A))
 

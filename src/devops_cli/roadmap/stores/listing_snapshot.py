@@ -16,8 +16,9 @@ keeps the schema keeps the snapshot.
 
 `SnapshotStore` is the seam of the place that keeps the snapshots. `FileSnapshotStore` keeps them
 in the state directory of the roadmap: under the data directory for `devops roadmap intake`, and on
-the Service's volume for the intake of the triage lane and the scoped intake of a delivery. A
-shared store for the pods of the Service can plug in later (#4517).
+the Service's volume for the intake of the triage lane and the scoped intake of a delivery. The
+status lane of the Service keeps its own snapshots beside them (`lane_listing`, #4854), so each
+file has one writer. A shared store for the pods of the Service can plug in later (#4517).
 """
 
 from __future__ import annotations
@@ -217,6 +218,13 @@ def intake_listing(state_dir: Path | None = None, *, full: bool = False) -> Incr
     return IncrementalListing(FileSnapshotStore(snapshot_root(state_dir)), full=full)
 
 
+def lane_listing(state_dir: Path, lane: str) -> IncrementalListing:
+    """How the rounds of the Service lane `lane` read every issue: the snapshot that `state_dir`
+    keeps for the lane in `listing-<lane>`, apart from the one of intake, and the issues changed
+    since its watermark. The lane's worker is the one writer of each file of the lane (#4854)."""
+    return IncrementalListing(FileSnapshotStore(state_dir / f"{_SNAPSHOT_DIRNAME}-{lane}"))
+
+
 def merged(held: Sequence[IssueRecord], changed: Sequence[IssueRecord]) -> dict[int, IssueRecord]:
     """The issues of `held` with each issue of `changed` in place of its record, the highest
     number first, as the full listing gives them.
@@ -252,6 +260,7 @@ __all__ = [
     "SnapshotStore",
     "changed_listing",
     "intake_listing",
+    "lane_listing",
     "merged",
     "snapshot_root",
 ]
