@@ -210,7 +210,8 @@ class InMemoryRoadmapStore(RoadmapStore):
         # Every write this view made or tried, and every directory it listed, in order.
         self.writes: list[str] = []
         self.listed: list[str] = []
-        # Every read of an Item (`item`) and of a path's last change (`path_changed_at`).
+        # Every read of an Item (`item`), of an issue (`issue`) and of a path's last change
+        # (`path_changed_at`).
         self.reads: list[str] = []
         # How many times this view read the SBOM.
         self.sbom_reads = 0
@@ -734,6 +735,13 @@ class InMemoryRoadmapStore(RoadmapStore):
         self.reads.append("item")
         issue = self._roadmap.issues.get(number)
         return next(iter(select_items([self._read(issue)])), None) if issue else None
+
+    def issue(self, number: int) -> IssueRecord | None:
+        """The issue numbered `number`, Item or not, or None when it is a pull request or there is
+        none."""
+        self.reads.append("issue")
+        issue = self._roadmap.issues.get(number)
+        return self._read(issue) if issue and not issue.pull_request else None
 
     def items(self, *, milestone: int | None = None) -> list[Item]:
         """Every Item, open and closed, or only those in the milestone numbered `milestone`."""

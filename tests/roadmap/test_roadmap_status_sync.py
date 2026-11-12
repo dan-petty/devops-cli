@@ -2,23 +2,33 @@
 
 One pure function derives the Status. The sweep writes it with the family replace of the store, and
 only for an open item that holds Ready or Planned with the label that a job last wrote. The roadmap
-is in memory. The function derives Blocked from a stop on record. The runner Job and
-`devops pr ready` set In Review, so the function does not derive it. A sweep never writes a Blocked
-item: only the clear rules of the row `implement` do (`stop_clear.py`).
+is in memory. The function derives Blocked from a stop on record, In Review from a pull request that
+is ready for review, and New from a return. A sweep never writes a Blocked item: only the clear
+rules of the row `implement` do (`stop_clear.py`).
+
+Every job writes the Status through one writer, `write_status` (#5018). It writes the label only
+when it differs, and reads the issue again after the write: a label that another writer changed in
+between fails the write.
 """
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+from typing import Any
+
 import pytest
 
 from devops_cli.exceptions import GitHubOperationError, GitHubRateLimitError
+from devops_cli.exceptions.roadmap import RoadmapStatusLostError
 from devops_cli.roadmap.planned import PlannedChanges
 from devops_cli.roadmap.status_sync import (
     StatusFacts,
+    StatusWrite,
     derive_status,
     facts_of,
     sync_status,
     sync_statuses,
+    write_status,
 )
 from devops_cli.roadmap.stores.store import (
     CloseReason,
@@ -334,3 +344,129 @@ def test_the_facts_of_an_item_with_a_stop_on_record(store: InMemoryRoadmapStore)
     facts = facts_of(_item(store, number), plan_merged=False)
 
     assert facts == StatusFacts(stopped=True)
+
+
+@pytest.mark.parametrize(
+    ("facts", "status"),
+    [
+        (StatusFacts(needs_refine=True), "New"),
+        (StatusFacts(needs_refine=True, job_active=True, pull_ready=True), "New"),
+        (StatusFacts(pull_ready=True), "In Review"),
+        (StatusFacts(pull_ready=True, job_active=True, stopped=True), "In Review"),
+        (StatusFacts(pull_open=True), "In Progress"),
+        (StatusFacts(pull_open=True, stopped=True), "In Progress"),
+    ],
+)
+def test_the_status_writer_derives_new_and_in_review_and_a_pull_in_work(
+    facts: StatusFacts, status: str
+) -> None:
+    """A return or intake gives New, a pull request ready for review gives In Review, and an open
+    pull request gives In Progress. The order is: New, In Review, In Progress, Blocked, Planned,
+    Ready."""
+    assert derive_status(facts) == status
+
+
+def test_the_status_writer_sends_no_write_and_no_read_when_the_label_is_equal(
+    store: InMemoryRoadmapStore,
+) -> None:
+    number = _job_item(store, "Planned")
+    item = _item(store, number)
+    store.writes.clear()
+    store.reads.clear()
+
+    done = write_status(store, item, StatusFacts(plan_merged=True))
+
+    assert (done, done.written, store.writes, store.reads) == (
+        StatusWrite(number, "Planned", "Planned"),
+        False,
+        [],
+        [],
+    )
+
+
+def test_the_status_writer_writes_once_and_reads_the_label_back_on_a_difference(
+    store: InMemoryRoadmapStore,
+) -> None:
+    number = _job_item(store, "Ready")
+    item = _item(store, number)
+    store.writes.clear()
+    store.reads.clear()
+
+    done = write_status(store, item, StatusFacts(plan_merged=True))
+    writes, reads = list(store.writes), list(store.reads)
+
+    assert (done.written, writes, reads, _status(store, number)) == (
+        True,
+        ["set_field"],
+        ["issue"],
+        "Planned",
+    )
+
+
+def test_the_status_writer_sends_no_request_in_a_dry_run(store: InMemoryRoadmapStore) -> None:
+    number = _job_item(store, "Ready")
+    item = _item(store, number)
+    store.writes.clear()
+    store.reads.clear()
+
+    done = write_status(store, item, StatusFacts(plan_merged=True), dry_run=True)
+    writes, reads = list(store.writes), list(store.reads)
+
+    assert (done, done.written, writes, reads, _status(store, number)) == (
+        StatusWrite(number, "Ready", "Planned", dry_run=True),
+        False,
+        [],
+        [],
+        "Ready",
+    )
+
+
+def test_the_status_writer_writes_the_marks_alone_when_the_label_is_equal(
+    store: InMemoryRoadmapStore,
+) -> None:
+    number = _job_item(store, "In Progress")
+    store.writes.clear()
+
+    write_status(
+        store,
+        _item(store, number),
+        StatusFacts(job_active=True),
+        marks={ImplementRecordKey.BRANCH: "fix/1-one"},
+    )
+
+    assert (store.writes, _item(store, number).job_record.get(ImplementRecordKey.BRANCH)) == (
+        ["set_marks"],
+        "fix/1-one",
+    )
+
+
+class _LosingStore(InMemoryRoadmapStore):
+    """A roadmap where, once `losing` is set, another writer puts the old Status label back just
+    after each Status write of this view, as a parallel write that read the issue before (#4555)."""
+
+    losing = False
+
+    def set_field(
+        self,
+        item: Item,
+        field: ItemField,
+        value: str | None,
+        *,
+        marks: Mapping[Any, str | int | None] | None = None,
+        body: str | None = None,
+    ) -> None:
+        super().set_field(item, field, value, marks=marks, body=body)
+        if not self.losing:
+            return
+        person = self.as_actor("octocat")
+        person.remove_label(item.number, f"status/{str(value).lower().replace(' ', '-')}")
+        person.add_label(item.number, f"status/{str(item.status).lower().replace(' ', '-')}")
+
+
+def test_the_status_writer_detects_a_lost_write_by_its_read_back() -> None:
+    store = _LosingStore(repo=STAGE_REPO)
+    number = _job_item(store, "Ready")
+    store.losing = True
+
+    with pytest.raises(RoadmapStatusLostError, match=rf"#{number}\b.*Planned.*Ready"):
+        write_status(store, _item(store, number), StatusFacts(plan_merged=True))

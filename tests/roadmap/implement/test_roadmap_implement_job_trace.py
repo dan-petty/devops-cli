@@ -79,15 +79,20 @@ def _writes(world: JobWorld, monkeypatch: pytest.MonkeyPatch) -> list[dict[Any, 
     seen: list[dict[Any, str | None]] = []
     set_marks, set_field = world.store.set_marks, world.store.set_field
 
-    def marks(item: Any, written: dict[Any, str | None]) -> Any:
+    def marks(item: Any, written: dict[Any, str | None], *, body: str | None = None) -> Any:
         seen.append(dict(written))
-        return set_marks(item, written)
+        return set_marks(item, written, body=body)
 
     def field(
-        item: Any, name: Any, value: Any, *, marks: dict[Any, str | None] | None = None
+        item: Any,
+        name: Any,
+        value: Any,
+        *,
+        marks: dict[Any, str | None] | None = None,
+        body: str | None = None,
     ) -> Any:
         seen.append(dict(marks or {}))
-        return set_field(item, name, value, marks=marks)
+        return set_field(item, name, value, marks=marks, body=body)
 
     monkeypatch.setattr(world.store, "set_marks", marks)
     monkeypatch.setattr(world.store, "set_field", field)

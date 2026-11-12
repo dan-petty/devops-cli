@@ -115,7 +115,6 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_STAGE_PLAN_DEFECT_LIMIT,
     CONST_ROADMAP_STAGE_REFUSED_PROBLEM_MAX_CHARS,
     CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS_CEILING,
-    CONST_ROADMAP_STATUS_NEW,
     CONST_ROADMAP_STATUS_READY,
 )
 from devops_cli.config.settings import load_settings
@@ -289,12 +288,12 @@ from devops_cli.roadmap.stage.stage_verify import (
     repair_round_due,
     return_problem,
 )
+from devops_cli.roadmap.status_sync import StatusFacts, write_status
 from devops_cli.roadmap.step_files import code_spans
 from devops_cli.roadmap.step_metrics import observe_step
 from devops_cli.roadmap.stores.store import (
     GitHubState,
     Item,
-    ItemField,
     RefineRecordKey,
     RoadmapStore,
     StageRecordKey,
@@ -313,6 +312,9 @@ logger = logging.getLogger(__name__)
 
 # The row of the step seconds that this job sends (#4066).
 _ROW = "stage"
+
+# A rejected, blocked or returned item waits for refine: its Status is New.
+_RETURNED: Final[StatusFacts] = StatusFacts(needs_refine=True)
 
 # ── The filter ────────────────────────────────────────────────────────────────
 
@@ -2879,10 +2881,10 @@ def _reject_plan(store: RoadmapStore, source: Path, rejection: Rejection, *, sta
         _delete_rejected_branch(source, rejection.branch, rejection.branch_sha)
     store.comment(rejection.number, rejection.comment)
     marks = {key: None for key in StageRecordKey} | {StageRecordKey.REJECTED: rejection.plan.record}
-    if staged or rejection.item.status == CONST_ROADMAP_STATUS_NEW:
+    if staged:
         store.set_marks(rejection.item, marks)
     else:
-        store.set_field(rejection.item, ItemField.STATUS, CONST_ROADMAP_STATUS_NEW, marks=marks)
+        write_status(store, rejection.item, _RETURNED, marks=marks)
 
 
 _STOP_THE_RUN: tuple[type[DevOpsCLIError], ...] = (GitHubUnauthenticatedError, ServiceStoppingError)
@@ -2927,7 +2929,7 @@ def _return_blocked(store: RoadmapStore, blocked: Blocked) -> None:
         RefineRecordKey.BLOCKED_BY: ",".join(str(number) for number in blocked.blockers),
         RefineRecordKey.NEXT_STEP: NextStep.BLOCKED.value,
     }
-    store.set_field(item, ItemField.STATUS, CONST_ROADMAP_STATUS_NEW, marks=marks)
+    write_status(store, item, _RETURNED, marks=marks)
 
 
 def _false_premise(target: StageTarget, evidence: tuple[str, ...]) -> FalsePremise | None:
@@ -2947,12 +2949,7 @@ def _return_premise(store: RoadmapStore, premise: FalsePremise) -> None:
         f"{CONST_ROADMAP_STAGE_COMMENT_MARKER}\n\n"
         f"{texts.stage_returned_premise.format(evidence=' '.join(premise.evidence))}",
     )
-    store.set_field(
-        item,
-        ItemField.STATUS,
-        CONST_ROADMAP_STATUS_NEW,
-        marks={RefineRecordKey.NEXT_STEP: NextStep.EDIT.value},
-    )
+    write_status(store, item, _RETURNED, marks={RefineRecordKey.NEXT_STEP: NextStep.EDIT.value})
 
 
 def _record_failures(store: RoadmapStore, failures: Sequence[StageFailure], now: datetime) -> None:
@@ -3021,10 +3018,10 @@ def _return_plan_defects(
             problems="\n".join(f"- {safe_text(problem)}" for problem in problems),
         ),
     )
-    store.set_field(
+    write_status(
+        store,
         item,
-        ItemField.STATUS,
-        CONST_ROADMAP_STATUS_NEW,
+        _RETURNED,
         marks={
             **marks,
             StageRecordKey.PLAN_DEFECTS: None,

@@ -24,7 +24,8 @@ A stop of the implement job sets the Status Blocked and records `implement.stopp
   retry.
 
 A clear removes `implement.stopped`, sets the Status that `derive_status` gives (Ready, or Planned
-when the plan is on the default branch), and comments the rule that ran. A continuation counts
+when the plan is on the default branch) through the one Status writer (`write_status`), and
+comments the rule that ran. A continuation counts
 against its own limit and spends no clear by digest, and a continuation runs before the rule
 `digest`, which reads the template only when no continuation applies.
 
@@ -84,12 +85,11 @@ from devops_cli.roadmap.failure import ACTION_BY_CLASS, FailureAction, FailureCl
 from devops_cli.roadmap.implement.implement import retry_asked_on
 from devops_cli.roadmap.planned import PlannedChanges
 from devops_cli.roadmap.stage.stage import StageFailure, write_each
-from devops_cli.roadmap.status_sync import StatusFacts, derive_status, job_holds, plan_merged
+from devops_cli.roadmap.status_sync import StatusFacts, job_holds, plan_merged, write_status
 from devops_cli.roadmap.stores.store import (
     GitHubState,
     ImplementRecordKey,
     Item,
-    ItemField,
     RoadmapStore,
 )
 
@@ -352,8 +352,8 @@ def _clear_one(
         return
     if (decided := _rule(current, retry, template_digest, limits, now)) is None:
         return
-    status = derive_status(StatusFacts(plan_merged=plan_merged(current, planned)))
-    store.set_field(current, ItemField.STATUS, status, marks=_marks(decided, now))
+    facts = StatusFacts(plan_merged=plan_merged(current, planned))
+    status = write_status(store, current, facts, marks=_marks(decided, now)).status
     if decided.comment:
         store.comment(current.number, _comment(decided, current, status, limits))
     cleared.append(current.number)

@@ -121,14 +121,13 @@ from devops_cli.roadmap.plan_read import tasks_at
 from devops_cli.roadmap.planned import PlannedChanges, read_planned_changes
 from devops_cli.roadmap.round_log import log_implement_attempt
 from devops_cli.roadmap.stage.stage import StageFailure
-from devops_cli.roadmap.status_sync import StatusFacts, derive_status, sync_statuses
+from devops_cli.roadmap.status_sync import StatusFacts, sync_statuses, write_status
 from devops_cli.roadmap.stop_clear import clear_stops
 from devops_cli.roadmap.stores.store import (
     GitHubState,
     ImplementRecordKey,
     ImplementResult,
     Item,
-    ItemField,
     RoadmapStore,
 )
 from devops_cli.security.sanitizer import mask_secrets
@@ -327,10 +326,10 @@ def _report(
         marks[ImplementRecordKey.SPEND_COUNTED] = str(spend)
     service_release(store, item.number, marks)
     if stops and failure is not None:
-        store.set_field(
+        write_status(
+            store,
             _fresh(store, item.number),
-            ItemField.STATUS,
-            derive_status(StatusFacts(stopped=True)),
+            StatusFacts(stopped=True),
             marks={
                 ImplementRecordKey.STOPPED: CONST_ROADMAP_IMPLEMENT_JOB_STEP,
                 ImplementRecordKey.FAILURE: failure.value,

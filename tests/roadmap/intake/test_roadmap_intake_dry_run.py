@@ -141,6 +141,7 @@ STORE_OPERATIONS: dict[str, str] = {
     "file": "create_issue",
     "label": "label_issue",
     "field": "set_field",
+    "status_read_back": "issue",
     "comment": "comment",
     "priority": "set_field",
 }

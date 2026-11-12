@@ -348,9 +348,9 @@ def test_a_field_write_plans_one_read_of_its_issue_and_one_patch() -> None:
 def test_body_with_marks_a_refine_plan_lists_one_patch_for_the_body_the_labels_and_the_record() -> (
     None
 ):
-    """A refined item costs one read of its issue and one `PATCH` that carries its body, its
-    labels and its job record, in a round and for `--item`. The plan lists no separate write of
-    the body (#4049)."""
+    """A refined item costs one read of its issue, one `PATCH` that carries its body, its
+    labels and its job record, and one read of the issue that checks the Status label (#5018), in
+    a round and for `--item`. The plan lists no separate write of the body (#4049)."""
     from devops_cli.roadmap.request_plan import refine_requests
 
     _, round_writes = refine_requests(REPO, None)
@@ -362,8 +362,14 @@ def test_body_with_marks_a_refine_plan_lists_one_patch_for_the_body_the_labels_a
         return [_shape(r) for r in planned], sorted(json.loads(patch.stdin or "{}"))
 
     assert (result(round_writes), result(item_writes)) == (
-        ([f"api repos/{REPO}/issues/<item>", "issue patch"], ["body", "labels"]),
-        ([f"api repos/{REPO}/issues/7", "issue patch"], ["body", "labels"]),
+        (
+            [f"api repos/{REPO}/issues/<item>", "issue patch", f"api repos/{REPO}/issues/<item>"],
+            ["body", "labels"],
+        ),
+        (
+            [f"api repos/{REPO}/issues/7", "issue patch", f"api repos/{REPO}/issues/7"],
+            ["body", "labels"],
+        ),
     )
 
 
@@ -818,4 +824,4 @@ def test_the_stage_plan_lists_the_reads_and_the_writes_of_a_rejected_plan() -> N
         )
     ]
     of_a_rejection = [w for w in writes if w.repeat == texts.plan_repeat["stage_rejected"]]
-    assert len(of_a_rejection) == 4
+    assert len(of_a_rejection) == 5

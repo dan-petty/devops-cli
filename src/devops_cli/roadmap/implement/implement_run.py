@@ -82,8 +82,6 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_IMPLEMENT_REASON_CHARS,
     CONST_ROADMAP_IMPLEMENT_REASON_PATHS,
     CONST_ROADMAP_IMPLEMENT_STEPS_FILE,
-    CONST_ROADMAP_STATUS_IN_PROGRESS,
-    CONST_ROADMAP_STATUS_IN_REVIEW,
 )
 from devops_cli.config.settings import load_settings
 from devops_cli.core.process import acts_as_github_app, run_subprocess
@@ -186,14 +184,13 @@ from devops_cli.roadmap.stage.stage_criteria import StageCriterion, criterion_pr
 from devops_cli.roadmap.stage.stage_form import form_problems
 from devops_cli.roadmap.stage.stage_paths import StagedTree, path_problems
 from devops_cli.roadmap.stage.stage_split import ask_split
-from devops_cli.roadmap.status_sync import StatusFacts, derive_status
+from devops_cli.roadmap.status_sync import StatusFacts, write_status
 from devops_cli.roadmap.step_files import TaskGroup, parse_task_groups, section_text
 from devops_cli.roadmap.step_metrics import observe_implement
 from devops_cli.roadmap.stores.store import (
     ImplementRecordKey,
     ImplementResult,
     Item,
-    ItemField,
     RoadmapStore,
 )
 from devops_cli.roadmap.title_labels import title_labels
@@ -742,9 +739,7 @@ class _ItemRun:
             marks[ImplementRecordKey.CHECK] = None
             marks[ImplementRecordKey.SPEND] = None
             marks[ImplementRecordKey.SPEND_COUNTED] = None
-        self.store.set_field(
-            self._fresh(), ItemField.STATUS, CONST_ROADMAP_STATUS_IN_PROGRESS, marks=marks
-        )
+        write_status(self.store, self._fresh(), StatusFacts(job_active=True), marks=marks)
         self._sync()
         self._install_hooks()
 
@@ -1761,9 +1756,7 @@ class _ItemRun:
             ImplementRecordKey.PUBLISHED_SHA: None,
             ImplementRecordKey.RESULT: ImplementResult.READY.value,
         }
-        self.store.set_field(
-            self._fresh(), ItemField.STATUS, CONST_ROADMAP_STATUS_IN_REVIEW, marks=marks
-        )
+        write_status(self.store, self._fresh(), StatusFacts(pull_ready=True), marks=marks)
         spend = json.loads(self._spend())
         self.store.comment(
             self.number,
@@ -1891,12 +1884,7 @@ class _ItemRun:
         if self.wip is not None:
             marks[ImplementRecordKey.WIP] = _wip_record(self.wip)
         marks[ImplementRecordKey.RESULT] = ImplementResult.STOPPED.value
-        self.store.set_field(
-            self._fresh(),
-            ItemField.STATUS,
-            derive_status(StatusFacts(stopped=True)),
-            marks=marks,
-        )
+        write_status(self.store, self._fresh(), StatusFacts(stopped=True), marks=marks)
 
     def _drop_uncommitted(self) -> None:
         """Put the checkout back at its head, before the push of a stop (#4487). A project program
