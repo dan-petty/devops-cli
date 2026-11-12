@@ -17,7 +17,7 @@ For each selected item the job SHALL set Status to In Progress and rebase the st
 - **THEN** no step runs, the item is stopped with the step `rebase`, and the clone holds no rebase in progress
 
 ### Requirement: The job commits the documentation and the archive, and pushes
-After the last group the job SHALL run `uv run devops docs generate --sync-readme` and commit its changes, then `uv run devops openspec archive <change>` and commit its changes, then rebase, run the scoped checks, then push. The job SHALL run each of these outside the agent shell. When one of them fails, the job SHALL drop the files that no commit holds before the push of the stop, so the rebase of that push finds a clean checkout.
+After the last group the job SHALL run `uv run devops docs generate` and commit its changes, then `uv run devops openspec archive <change>` and commit its changes, then rebase, run the scoped checks, then push. The job SHALL run each of these outside the agent shell. When one of them fails, the job SHALL drop the files that no commit holds before the push of the stop, so the rebase of that push finds a clean checkout.
 
 #### Scenario: Two groups
 - **WHEN** a Staged low-effort P1 bug has a change with two unticked groups, and both steps pass

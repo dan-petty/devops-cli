@@ -38,11 +38,11 @@ The help entry that the scaffold writes SHALL hold at most three sentences and S
 - **THEN** The help holds at most three sentences and names the page of its command.
 
 ### Requirement: The scaffold prints the steps that remain manual
-The command scaffold SHALL print each step that it cannot do, and that list SHALL name `devops docs generate --sync-readme`.
+The command scaffold SHALL print each step that it cannot do, and that list SHALL name `devops docs generate`.
 
 #### Scenario: The checklist names the regeneration command
 - **WHEN** A user runs `devops new command sample hello`.
-- **THEN** The output holds `devops docs generate --sync-readme` and names no list that the change derives.
+- **THEN** The output holds `devops docs generate` and names no list that the change derives.
 
 ### Requirement: The test scaffold writes the test at the mirror path
 `devops new test <module>` SHALL write the test module at the mirror path of the source module.

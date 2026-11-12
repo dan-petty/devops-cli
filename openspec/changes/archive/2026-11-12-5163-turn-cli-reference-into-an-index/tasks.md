@@ -11,7 +11,7 @@
 
 ## 2. Documents
 
-- [x] 2.1 Move the matrix out of `README.md`, link the CLI reference from `README.md` and `docs/index.md`, open the site tab on the index, name `devops docs generate` in each living file that named `--sync-readme`, add the note to ADR 0025, and run `uv run devops docs generate`
+- [x] 2.1 Move the matrix out of `README.md`, link the CLI reference from `README.md`, `docs/index.md` and the command row of `AGENTS.md`, open the site tab on the index, name `devops docs generate` in each living file that named `--sync-readme`, add the note to ADR 0025, and run `uv run devops docs generate`
   - Verification: `$ uv run devops ci docs`
 
 - Pending a person: review the diff in tuicr (tuicr -r origin/main..HEAD).

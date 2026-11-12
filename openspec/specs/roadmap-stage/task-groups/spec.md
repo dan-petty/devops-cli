@@ -343,7 +343,7 @@ The stage prompt SHALL state that the `documentation` field starts with an imper
 - **THEN** the prompt states the imperative verb rule, the rule that names each document, and the `null` rule for a step that changes no document.
 
 ### Requirement: A documentation task runs the regeneration step for a command change
-A documentation task SHALL end with the command `uv run devops docs generate --sync-readme` only when the group changes a path under `src/devops_cli/commands/` or `src/devops_cli/lang/`. A documentation task of any other group SHALL hold the documentation text and no regeneration command.
+A documentation task SHALL end with the command `uv run devops docs generate` only when the group changes a path under `src/devops_cli/commands/` or `src/devops_cli/lang/`. A documentation task of any other group SHALL hold the documentation text and no regeneration command.
 
 #### Scenario: A group that changes a document only
 - **WHEN** a group has a `documentation` task and changes only `SECURITY.md`

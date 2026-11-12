@@ -5,7 +5,7 @@
 
 ## What Changes
 - `devops docs generate` writes `docs/CLI_REFERENCE.md` as a short index: one row for each command group, with its one-line help and a link to `commands/<group>.md`, and then the command matrix, with one row for each command. The full text of each command stays only on the page of its group. The page of a group also gets the description of the group, which only the old CLI reference held.
-- The command matrix moves out of `README.md` into the CLI reference. `README.md` links the CLI reference and holds no generated block.
+- The command matrix moves out of `README.md` into the CLI reference. `README.md` links the CLI reference and holds no generated block. The command row of `AGENTS.md` links the CLI reference too, so each group page stays within two links of `AGENTS.md`. The row of the knowledge base drops `devops <command> --help` to stay within the 6,500-character cap, because the group pages hold the same text.
 - The README sync is deleted with no shim: the command `devops docs sync-readme`, the options `--sync-readme/--no-sync-readme` of `devops docs generate` and `--check-readme/--no-check-readme` of `devops docs check`, and the generator functions `render_synced_readme`, `sync_readme`, `check_readme`, `_check_readme_matrix_content` and `_find_readme`. `devops ci docs --fix`, the `docs` row of `devops ci`, the implement job, its request plan, the stage plan text and the scaffold checklist run `devops docs generate`.
 - `devops docs check` checks the new index as each other generated page. The `CLI reference` tab of the docs site opens on the index.
 - Each living file that names `--sync-readme` names `devops docs generate`. ADR 0025 gets a note at its top.
@@ -19,7 +19,7 @@
 - `roadmap-stage/task-groups`: a documentation task ends with `uv run devops docs generate`.
 
 ## Impact
-- `docs/CLI_REFERENCE.md` falls from 419,891 to 56,284 characters. `README.md` falls from 65,905 to 14,733 bytes.
+- `docs/CLI_REFERENCE.md` falls from 421,673 to 56,887 characters at `050a6ef72`. `README.md` falls from 66,508 to 14,715 bytes.
 - A script or a person that runs `devops docs generate --sync-readme` or `devops docs sync-readme` gets a usage error. The implement job runs the command of the checkout, so an old runner image on a new `main` stops at the docs step until the image of this change rolls out.
 - The change fits one pull request.
 

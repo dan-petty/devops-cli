@@ -1,7 +1,7 @@
 # Design
 
 ## Decisions
-- **One page holds the index and the matrix.** The issue moves the README matrix into the generated reference. The index table comes first, so a reader finds the page of a group at once, and the matrix follows it. The page has 56,284 characters, below the 100,000 characters that a web fetch reads.
+- **One page holds the index and the matrix.** The issue moves the README matrix into the generated reference. The index table comes first, so a reader finds the page of a group at once, and the matrix follows it. The page has 56,887 characters, below the 100,000 characters that a web fetch reads.
 - **Links are relative to `docs/`.** A row links `commands/<group>.md`, so the link works on github.com and on the docs site, and the strict build checks it.
 - **The page of a group holds the description of the group.** The old CLI reference was the only page that showed it for seven groups, so the description moves to the group page and no text is lost.
 - **No README option and no shim.** The alpha rule deletes `devops docs sync-readme`, `--sync-readme/--no-sync-readme` and `--check-readme/--no-check-readme`. `write_all_docs` and `check_docs` lose their README parameters, and the generator returns no `README.md`.
@@ -10,5 +10,5 @@
 
 ## Rejected alternatives
 - **Keep the README matrix and add the index.** The owner approved the move on 2026-11-12, and two copies of the matrix need two sync paths.
-- **A link to the anchor of each group on one long page.** That keeps the 419,891 characters that a page fetch cannot read.
+- **A link to the anchor of each group on one long page.** That keeps the 421,673 characters that a page fetch cannot read.
 - **A generalized marker-block function now.** #4889 plans it for the README matrix and the `docs/index.md` list. With no README block left, this change has no caller for it, so #4889 adds it with its first caller.
