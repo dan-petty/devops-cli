@@ -33,9 +33,9 @@ None.
 
 ## Impact
 
-- Code: `src/devops_cli/roadmap/steps/fix_plan.py`, `src/devops_cli/roadmap/stage/stage.py` (`PlanRevision`, `same_plan`, `_Planner.revise`, `_Planner._review`, `revise_plan`), `src/devops_cli/roadmap/job_result.py` (comment), `src/devops_cli/roadmap/request_plan.py`, `src/devops_cli/lang/en/messages.py`, `src/devops_cli/telemetry/instruments.py`.
+- Code: `src/devops_cli/roadmap/steps/fix_plan.py`, `src/devops_cli/roadmap/stage/stage.py` (`PlanRevision`, `same_plan`, `_Planner.revise`, `_Planner._review`, `revise_plan`), `src/devops_cli/roadmap/job_result.py` and `src/devops_cli/roadmap/stores/store.py` (comments), `src/devops_cli/roadmap/request_plan.py`, `src/devops_cli/lang/en/messages.py`, `src/devops_cli/telemetry/instruments.py`.
 - Tests: `tests/roadmap/steps/test_roadmap_fix_plan.py`, `tests/roadmap/steps/test_roadmap_fix_plan_comment.py`, `tests/roadmap/test_job_result.py`, `tests/commands/test_roadmap_step_fix_plan.py`, `tests/support/roadmap_fix_plan.py`. The real head of #4917 goes to `tests/fixtures/roadmap/plan_heads/4917-ba8cc66fd2f4/`, beside the heads of #4963 and #5032 that #5205 added. The stage comments of #4472, #2968 and #4697 go to `tests/fixtures/roadmap_fix_plan/`.
-- Documents: ADR 0021 (section 8, row `fix-plan`), `docs/roadmap/job-success.md`, `docs/roadmap/stage.md`, `docs/ROADMAP_WORKFLOW.md`, `docs/TELEMETRY.md` (generated), `k8s/README.md` item 23.
+- Documents: ADR 0021 (one `Status History` line: the body of an accepted record does not change, `docs/adr/README.md`), `docs/roadmap/job-success.md`, `docs/roadmap/stage.md`, `docs/ROADMAP_WORKFLOW.md`, `docs/TELEMETRY.md` (generated), `k8s/README.md` item 23.
 - An unreadable plan no longer lowers the `fix_plan` grade, and the 6-hour wait spaces its reads. A `regated` attempt pushes one commit, as a `revised` attempt does.
 
 ## Feasibility

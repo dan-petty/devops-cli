@@ -19,24 +19,44 @@ other item costs one read of its pull request, until one qualifies. `--item` jud
 **Attempt.** Only with `--confirm`, or in the mode `on` of the row. No attempt starts once the
 Service stops (#4925). The step fetches the default branch and the branch of the plan, and stops
 before any write when the branch moved after the read, or holds a commit of another author than
-the clone identity. It writes the attempt marks, reads the change folder at the head with the plan
-reader, and gives it to `revise_plan` at the default branch of `origin`: the checks judge the plan,
-the review counts its open findings, the planner gets the plan with those findings and the open
-findings of the last plan comment, and the review judges the revision with the normal repair
-rounds. An earlier review wrote the comment, so the count of the comment is only reported: the
-step compares the revision with the review of the head of this attempt (#5150).
+the clone identity. It reads the change folder at the head with the plan reader before the attempt
+marks (#5213). A plan that the reader refuses is `unreadable`: the step writes only `fix_plan.at`
+and `fix_plan.result`, logs one warning with the file and the masked reason, and writes no result
+line, because the defect is in the writer or the reader of the plan and not in this step. Else the
+step writes the attempt marks and gives the plan to `revise_plan` at the default branch of
+`origin`: the checks judge the plan, and a plan that they refuse gets a new plan from the planner
+(the gated plan). The review of the plan that passed the checks counts its open findings
+(`before`), the planner gets the plan with those findings and the open findings of the last plan
+comment, and the review judges the revision with the normal repair rounds (`after`). An earlier
+review wrote the comment, so the count of the comment (`comment`) is only reported (#5150).
 
-**Writes.** A head plan with no open finding in its review loses the label, and the plan stays. A
-revision with fewer open findings than the review of the head plan is one commit on the latest default branch, which the step
-pushes with `--force-with-lease` on the head that it read; the pull request gets the title and the
-body of the revision, and loses the label when no open finding remains. A revision that is not
-better, and a failed plan run, write only the record. The step posts one comment with
-`CONST_ROADMAP_FIX_PLAN_COMMENT_MARKER` on the issue for each attempt that changes the plan or the
-label, and writes only its own record keys (`FixPlanRecordKey`, ADR 0021 section 8).
+**Results**, in this order:
 
-**Result.** Each attempt logs one result line (`log_job_result`, job `fix_plan`) with the open
-findings of the comment, of the review of the head and of the last review of the revision, and adds
-1 to `devops_cli_roadmap_fix_plan_total` by repository and result.
+- `stopped`: a false premise, an open blocker or a head over the budget stops the attempt before a
+  gated plan exists. The label stays, and the comment holds the evidence. A person decides.
+- `failed`: a model call or the checks fail before a gated plan exists, or a step after the checks
+  fails and the gated plan is the plan of the head. The label stays.
+- `revised` or `cleared`: the revision of a repair is not the same plan as the gated plan
+  (`same_plan`), and its last review has fewer open findings than the review of the head. The step
+  pushes the revision, and the label goes for `cleared`, when no open finding remains.
+- `regated`: else, the gated plan is not the same plan as the head. The step pushes the gated plan,
+  and the label goes only after a review of it with no open finding and no failed step.
+- `dismissed`: else, the review of the head found no open finding. The label goes, and the comment
+  dismisses the open findings of the last plan comment.
+- `unchanged`: else. The label stays.
+
+**Writes.** A push is one commit on the latest default branch, which the step pushes with
+`--force-with-lease` on the head that it read; the pull request gets the title and the body of the
+plan. The step posts one comment with `CONST_ROADMAP_FIX_PLAN_COMMENT_MARKER` on the issue for
+each attempt that ends `revised`, `cleared`, `regated`, `dismissed` or `stopped`, and writes only
+its own record keys (`FixPlanRecordKey`, ADR 0021 section 8).
+
+**Result.** Each attempt with a read plan logs one line and one result line (`log_job_result`, job
+`fix_plan`) with the counts of the plan runs and `comment`, `before` only when the review of the
+head ran, and `after` only when a review of a revision ran: a count that the attempt did not
+measure is left out, never written as 0. A stop names its kind (`stop`), and a failure its step
+(`step`) and its class. Each attempt adds 1 to `devops_cli_roadmap_fix_plan_total` by repository
+and result.
 """
 
 from __future__ import annotations
@@ -46,6 +66,7 @@ import re
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
+from functools import cache
 from typing import TYPE_CHECKING, Final
 
 from devops_cli.config.constants import (
@@ -60,9 +81,10 @@ from devops_cli.config.constants import (
 from devops_cli.git.branch_form import parse_branch
 from devops_cli.github.session import get_github_session
 from devops_cli.lang import MESSAGES
+from devops_cli.roadmap.agent_run import bounded_text
 from devops_cli.roadmap.claim import claimed_by
 from devops_cli.roadmap.clone_git import branch_authors, checkout_at, default_branch, git
-from devops_cli.roadmap.failure import FailureClass
+from devops_cli.roadmap.failure import FailureClass, StepName
 from devops_cli.roadmap.job_result import RoadmapJob, log_job_result
 from devops_cli.roadmap.plan_read import (
     PlanReadError,
@@ -71,23 +93,28 @@ from devops_cli.roadmap.plan_read import (
     read_change,
     tree_files,
 )
+from devops_cli.roadmap.planned import open_plan_creates, planned_changes_at
 from devops_cli.roadmap.pull_labels import remove_pull_labels
 from devops_cli.roadmap.request_plan import fix_plan_requests
 from devops_cli.roadmap.service_stop import raise_if_service_stops
 from devops_cli.roadmap.stage.stage import (
+    Blocked,
     FalsePremise,
+    OverBudget,
     PlanRevision,
     StagedChange,
     StageFailure,
     StageTarget,
     priority_order,
     revise_plan,
+    same_plan,
 )
-from devops_cli.roadmap.stage.stage_change import write_change_files
+from devops_cli.roadmap.stage.stage_change import safe_text, write_change_files
 from devops_cli.roadmap.stage.stage_eval_cases import DefectType
 from devops_cli.roadmap.stage.stage_verify import (
     PLAN_NEEDS_FIX_LABEL,
     Finding,
+    finding_line,
     open_findings_section,
 )
 from devops_cli.roadmap.stores.store import (
@@ -100,13 +127,15 @@ from devops_cli.roadmap.trust import trusted_replies
 from devops_cli.telemetry.instruments import ROADMAP_FIX_PLAN_TOTAL, emit
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Callable, Mapping
     from pathlib import Path
 
     from devops_cli.ai.client import LLMClient
     from devops_cli.dry_run import PlannedRequest
     from devops_cli.github.client import PullStatus
+    from devops_cli.roadmap.decision_point import ResolverChain
     from devops_cli.roadmap.stage.stage_change import StageProposal
+    from devops_cli.roadmap.stage.stage_jev_screen import ScreenCase
     from devops_cli.roadmap.stage.stage_toolbox import ToolboxModel
     from devops_cli.roadmap.stores.store import Item, JobRecord, RoadmapStore
 
@@ -128,14 +157,30 @@ _SHORT: Final[int] = 12
 
 
 class FixPlanResult(StrEnum):
-    """How an attempt ended: `revised` pushed a revision that still has an open finding, `cleared`
-    left no open finding (the label goes), `unchanged` made no better plan, and `failed` stopped in
-    the plan run or in the read of the plan."""
+    """How an attempt ended, as the module says: `revised` pushed a better revision that still has
+    an open finding, `cleared` pushed one with no open finding (the label goes), `regated` pushed
+    the plan that passed the checks in place of a head that they refused, `dismissed` found no
+    open finding in the head (the label goes, no push), `unchanged` made no better plan, `stopped`
+    stopped before a gated plan existed, `failed` failed before a plan to push existed, and
+    `unreadable` could not read the plan of the head (#5213)."""
 
     REVISED = "revised"
     CLEARED = "cleared"
+    REGATED = "regated"
+    DISMISSED = "dismissed"
     UNCHANGED = "unchanged"
+    STOPPED = "stopped"
     FAILED = "failed"
+    UNREADABLE = "unreadable"
+
+
+class FixPlanStop(StrEnum):
+    """Why the planner stopped before it judged a plan: a false premise of the item, an open item
+    whose plan creates a path that the premise cites, or a task group over the budget."""
+
+    PREMISE = "premise"
+    BLOCKED = "blocked"
+    OVER_BUDGET = "over_budget"
 
 
 @dataclass(frozen=True)
@@ -159,19 +204,25 @@ class FixPlanLeftOut:
 @dataclass(frozen=True)
 class FixPlanAttempt:
     """One attempt: the item, the pull request, the result, the open findings of the review of
-    the head before the repair and of the last review after it, the head of the branch after the
-    attempt, the class of a failure, the counts of the plan runs (`StageAttempt.counts`), and the
-    open findings that the last plan comment lists (#5150)."""
+    the head before the repair and of the last review of the revision, the head of the branch after
+    the attempt, the class of a failure, the counts of the plan runs (`StageAttempt.counts`), and
+    the open findings that the last plan comment lists (#5150). `before` is None when the review of
+    the head did not run, and `after` when no review of a revision ran (#5213). `step` is the step
+    of a failure, `stop` the kind of a stop of the planner, and `reason` the masked reason of a
+    failure or of a plan that the reader refused."""
 
     number: int
     pull: int
     result: FixPlanResult
-    before: int = 0
-    after: int = 0
+    before: int | None = None
+    after: int | None = None
     head: str = ""
     failure: FailureClass | None = None
     counts: tuple[tuple[str, int], ...] = ()
     comment: int = 0
+    step: StepName | None = None
+    stop: FixPlanStop | None = None
+    reason: str = ""
 
 
 @dataclass(frozen=True)
@@ -441,38 +492,6 @@ def _push(source: Path, target: FixPlanTarget, base: str, change: StagedChange) 
     return pushed
 
 
-def _comment(
-    target: FixPlanTarget, result: FixPlanResult, revision: PlanRevision, head: str
-) -> str:
-    """The comment of an attempt that changed the plan or the label."""
-    texts = MESSAGES.roadmap
-    change = revision.outcome
-    after = change.open_findings if isinstance(change, StagedChange) else ()
-    values = {
-        "marker": CONST_ROADMAP_FIX_PLAN_COMMENT_MARKER,
-        "pull": target.pull,
-        "head": head[:_SHORT],
-        "before": len(revision.before),
-        "after": len(after),
-    }
-    if result is FixPlanResult.REVISED:
-        return texts.fix_plan_comment_revised.format(
-            **values, findings=open_findings_section(after)
-        )
-    if head == target.status.head_sha:
-        return texts.fix_plan_comment_clean.format(**values)
-    return texts.fix_plan_comment_cleared.format(**values)
-
-
-def _failure(outcome: object) -> FailureClass:
-    """The class of an outcome that is no revision."""
-    if isinstance(outcome, StageFailure):
-        return outcome.failure_class
-    if isinstance(outcome, FalsePremise):
-        return FailureClass.PREMISE_FALSE
-    return FailureClass.PLAN_DEFECT
-
-
 @dataclass(frozen=True)
 class _Attempt:
     """The parts of one attempt that its writes need."""
@@ -484,29 +503,184 @@ class _Attempt:
     base: str
 
 
-def _settle(attempt: _Attempt, revision: PlanRevision) -> FixPlanAttempt:
-    """Write what `revision` makes of the plan, as the module says, and the attempt it was."""
-    target = attempt.target
-    outcome, before = revision.outcome, len(revision.before)
-    number, pull, head = target.item.number, target.pull, target.status.head_sha
-    if not isinstance(outcome, StagedChange):
-        failure = _failure(outcome)
-        return FixPlanAttempt(
-            number, pull, FixPlanResult.FAILED, before, head=head, failure=failure
+@dataclass(frozen=True)
+class _Decision:
+    """What the step makes of a revision: the result, the plan to push, and whether the label
+    goes."""
+
+    result: FixPlanResult
+    push: StagedChange | None = None
+    unlabel: bool = False
+
+
+def _stop_of(outcome: object) -> FixPlanStop | None:
+    """The kind of a stop of the planner, or None for another outcome."""
+    if isinstance(outcome, FalsePremise):
+        return FixPlanStop.PREMISE
+    if isinstance(outcome, Blocked):
+        return FixPlanStop.BLOCKED
+    if isinstance(outcome, OverBudget):
+        return FixPlanStop.OVER_BUDGET
+    return None
+
+
+def _decide(revision: PlanRevision, head: StageProposal) -> _Decision:
+    """The result of `revision` of the plan `head`, in the order of the module (#5213)."""
+    outcome, gated = revision.outcome, revision.gated
+    if _stop_of(outcome) is not None and not revision.reviewed:
+        return _Decision(FixPlanResult.STOPPED)
+    failed = isinstance(outcome, StageFailure)
+    if failed and gated is None:
+        return _Decision(FixPlanResult.FAILED)
+    repaired = revision.repaired
+    if (
+        repaired is not None
+        and not same_plan(repaired.proposal, head if gated is None else gated.proposal)
+        and len(repaired.open_findings) < len(revision.before)
+    ):
+        after = len(repaired.open_findings)
+        result = FixPlanResult.REVISED if after else FixPlanResult.CLEARED
+        return _Decision(result, repaired, unlabel=not after)
+    clean = revision.reviewed and not revision.before and not failed
+    if gated is not None:
+        return _Decision(FixPlanResult.REGATED, gated, unlabel=clean)
+    if clean:
+        return _Decision(FixPlanResult.DISMISSED, unlabel=True)
+    return _Decision(FixPlanResult.UNCHANGED)
+
+
+def _stop_evidence(outcome: object) -> str:
+    """The evidence of a stop of the planner, for the comment."""
+    texts = MESSAGES.roadmap
+    if isinstance(outcome, FalsePremise):
+        return texts.fix_plan_stop_premise.format(evidence=" ".join(outcome.evidence))
+    if isinstance(outcome, Blocked):
+        return texts.fix_plan_stop_blocked.format(
+            paths=", ".join(f"`{path}`" for path in outcome.paths),
+            issues=", ".join(f"#{number}" for number in outcome.blockers),
         )
-    after = len(outcome.open_findings)
-    if before and after >= before:
-        return FixPlanAttempt(number, pull, FixPlanResult.UNCHANGED, before, after, head)
-    if before:
-        head = _push(attempt.source, target, attempt.base, outcome)
-        if (outcome.title, outcome.body) != (target.status.title, target.status.body):
+    if isinstance(outcome, OverBudget):
+        worst = outcome.worst
+        return texts.fix_plan_stop_over_budget.format(
+            title=safe_text(worst.group.title), tokens=worst.tokens, budget=outcome.budget
+        )
+    return ""
+
+
+def _regated_why(done: FixPlanAttempt, decision: _Decision) -> str:
+    """Why the label of a pushed gated plan goes or stays."""
+    texts = MESSAGES.roadmap
+    if decision.unlabel:
+        return texts.fix_plan_regated_clean
+    if done.step is not None:
+        failure = done.failure.value if done.failure is not None else ""
+        return texts.fix_plan_regated_failed.format(step=done.step.value, failure=failure)
+    return texts.fix_plan_regated_open.format(before=done.before or 0)
+
+
+def _comment(
+    target: FixPlanTarget,
+    done: FixPlanAttempt,
+    decision: _Decision,
+    revision: PlanRevision,
+    listed: tuple[Finding, ...],
+) -> str | None:
+    """The comment of an attempt, or None for an attempt that posts none. A comment that keeps the
+    label lists the open findings that keep it: those of the last review, or those of the last
+    plan comment when no review ran, so the next attempt reads them (`comment_open_findings`)."""
+    texts = MESSAGES.roadmap
+    values = {
+        "marker": CONST_ROADMAP_FIX_PLAN_COMMENT_MARKER,
+        "pull": target.pull,
+        "head": done.head[:_SHORT],
+        "before": done.before or 0,
+        "after": done.after or 0,
+    }
+    held = revision.before if revision.reviewed else listed
+    match done.result:
+        case FixPlanResult.REVISED:
+            after = decision.push.open_findings if decision.push is not None else ()
+            return texts.fix_plan_comment_revised.format(
+                **values, findings=open_findings_section(after)
+            )
+        case FixPlanResult.CLEARED:
+            return texts.fix_plan_comment_cleared.format(**values)
+        case FixPlanResult.REGATED:
+            return texts.fix_plan_comment_regated.format(
+                **values,
+                why=_regated_why(done, decision),
+                findings="" if decision.unlabel else open_findings_section(held),
+            )
+        case FixPlanResult.DISMISSED:
+            dismissed = (
+                texts.fix_plan_dismissed_findings.format(
+                    findings="\n".join(finding_line(finding) for finding in listed)
+                )
+                if listed
+                else ""
+            )
+            return texts.fix_plan_comment_dismissed.format(**values, dismissed=dismissed)
+        case FixPlanResult.STOPPED:
+            return texts.fix_plan_comment_stopped.format(
+                **values,
+                evidence=_stop_evidence(revision.outcome),
+                findings=open_findings_section(listed),
+            )
+        case _:
+            return None
+
+
+def _attempt_of(
+    target: FixPlanTarget, revision: PlanRevision, decision: _Decision, head: str
+) -> FixPlanAttempt:
+    """The attempt that `revision` and `decision` make, with the head of the branch after it."""
+    outcome = revision.outcome
+    failure: FailureClass | None = None
+    step: StepName | None = None
+    reason = ""
+    if isinstance(outcome, StageFailure):
+        failure, step, reason = outcome.failure_class, outcome.step, bounded_text(outcome.reason)
+    elif isinstance(outcome, FalsePremise):
+        failure = FailureClass.PREMISE_FALSE
+    repaired = revision.repaired
+    return FixPlanAttempt(
+        target.item.number,
+        target.pull,
+        decision.result,
+        len(revision.before) if revision.reviewed else None,
+        len(repaired.open_findings) if repaired is not None else None,
+        head,
+        failure,
+        step=step,
+        stop=_stop_of(outcome),
+        reason=reason,
+    )
+
+
+def _settle(
+    attempt: _Attempt,
+    head_plan: StageProposal,
+    listed: tuple[Finding, ...],
+    revision: PlanRevision,
+) -> FixPlanAttempt:
+    """Write what `revision` makes of the plan `head_plan`, as the module says, and the attempt it
+    was. `listed` are the open findings of the last plan comment."""
+    target = attempt.target
+    decision = _decide(revision, head_plan)
+    head = target.status.head_sha
+    pushed = decision.push
+    if pushed is not None:
+        head = _push(attempt.source, target, attempt.base, pushed)
+        if (pushed.title, pushed.body) != (target.status.title, target.status.body):
             client = get_github_session().client
-            client.update_pull(attempt.repo, pull, title=outcome.title, body=outcome.body)
-    result = FixPlanResult.REVISED if after else FixPlanResult.CLEARED
-    if not after:
-        remove_pull_labels(attempt.store, pull, (PLAN_NEEDS_FIX_LABEL,))
-    attempt.store.comment(number, _comment(target, result, revision, head))
-    return FixPlanAttempt(number, pull, result, before, after, head)
+            client.update_pull(attempt.repo, target.pull, title=pushed.title, body=pushed.body)
+    if decision.unlabel:
+        remove_pull_labels(attempt.store, target.pull, (PLAN_NEEDS_FIX_LABEL,))
+    done = _attempt_of(target, revision, decision, head)
+    comment = _comment(target, done, decision, revision, listed)
+    if comment is not None:
+        attempt.store.comment(target.item.number, comment)
+    return done
 
 
 def _result_marks(target: FixPlanTarget, done: FixPlanAttempt) -> Mapping[FixPlanRecordKey, str]:
@@ -523,35 +697,107 @@ def _result_marks(target: FixPlanTarget, done: FixPlanAttempt) -> Mapping[FixPla
     }
 
 
+def _detail(done: FixPlanAttempt) -> str:
+    """What the attempt `done` found, for its line: one text for each path of the attempt."""
+    texts = MESSAGES.roadmap
+    if done.result is FixPlanResult.STOPPED:
+        stop = done.stop.value if done.stop is not None else ""
+        return texts.fix_plan_detail_stopped.format(stop=stop)
+    if done.step is not None:
+        failure = done.failure.value if done.failure is not None else ""
+        if done.before is None:
+            return texts.fix_plan_detail_failed.format(step=done.step.value, failure=failure)
+        return texts.fix_plan_detail_failed_reviewed.format(
+            before=done.before, step=done.step.value, failure=failure
+        )
+    if done.stop is FixPlanStop.OVER_BUDGET:
+        return texts.fix_plan_detail_over_budget.format(before=done.before or 0)
+    if done.after is not None:
+        return texts.fix_plan_detail_repaired.format(before=done.before or 0, after=done.after)
+    return texts.fix_plan_detail_reviewed.format(before=done.before or 0)
+
+
 def _attempt_line(done: FixPlanAttempt) -> str:
-    """The line that reports `done`: its result and its counts of open findings."""
-    return MESSAGES.roadmap.fix_plan_attempt.format(
+    """The line that reports `done`: its result, what it found, and the reason of a failure."""
+    texts = MESSAGES.roadmap
+    reason = texts.fix_plan_reason.format(reason=done.reason) if done.reason else ""
+    if done.result is FixPlanResult.UNREADABLE:
+        return texts.fix_plan_unreadable.format(
+            pull=done.pull,
+            number=done.number,
+            head=done.head[:_SHORT],
+            hours=CONST_ROADMAP_FIX_PLAN_WAIT_HOURS,
+            reason=reason,
+        )
+    return texts.fix_plan_attempt.format(
         pull=done.pull,
         number=done.number,
         result=done.result.value,
-        before=done.before,
-        after=done.after,
+        detail=_detail(done),
         comment=done.comment,
+        reason=reason,
     )
 
 
 def _report(repo: str, done: FixPlanAttempt) -> None:
-    """Log the line and the result line of `done`, and count its result."""
+    """Log the line and the result line of `done`, and count its result. The result line holds
+    `before` and `after` only when the attempt measured them (#5213)."""
     logger.info(_attempt_line(done))
+    counts = {**dict(done.counts), "comment": done.comment}
+    if done.before is not None:
+        counts["before"] = done.before
+    if done.after is not None:
+        counts["after"] = done.after
+    names = {
+        key: value.value
+        for key, value in (("stop", done.stop), ("step", done.step))
+        if value is not None
+    }
     log_job_result(
         RoadmapJob.FIX_PLAN,
         repo,
         done.number,
         done.result.value,
         failure=done.failure,
-        counts={
-            **dict(done.counts),
-            "comment": done.comment,
-            "before": done.before,
-            "after": done.after,
-        },
+        counts=counts,
+        names=names,
     )
     emit(ROADMAP_FIX_PLAN_TOTAL, 1, {"repo": repo, "result": done.result.value})
+
+
+def _unreadable(attempt: _Attempt, now: datetime, error: PlanReadError) -> FixPlanAttempt:
+    """The attempt on a plan that the reader refuses (#5213): the record gets only the time and the
+    result, so the attempt uses no attempt of the head and the next read waits the hours of
+    `fix_plan.at`. One warning names the file and the masked reason, and no result line counts it
+    against the job: the defect is in the writer or the reader of the plan."""
+    target = attempt.target
+    done = FixPlanAttempt(
+        target.item.number,
+        target.pull,
+        FixPlanResult.UNREADABLE,
+        head=target.status.head_sha,
+        reason=bounded_text(f"{error.path}: {error.reason}"),
+    )
+    attempt.store.set_marks(
+        target.item,
+        {FixPlanRecordKey.AT: now.isoformat(), FixPlanRecordKey.RESULT: done.result.value},
+    )
+    logger.warning(_attempt_line(done))
+    emit(ROADMAP_FIX_PLAN_TOTAL, 1, {"repo": attempt.repo, "result": done.result.value})
+    return done
+
+
+def _open_creates(store: RoadmapStore, source: Path, base: str) -> Callable[[], Mapping[str, int]]:
+    """The read of the paths that the open plans on the default branch create, as the stage job
+    reads them (#3418). The planner reads them once, and only when the premise cites a path that
+    the default branch lacks."""
+
+    @cache
+    def read() -> Mapping[str, int]:
+        planned = planned_changes_at(source, f"origin/{base}", base, operation=_GIT_OPERATION)
+        return open_plan_creates(store, source, planned, operation=_GIT_OPERATION)
+
+    return read
 
 
 def _attempt(
@@ -560,6 +806,7 @@ def _attempt(
     *,
     model: LLMClient | ToolboxModel | None,
     verifier: ToolboxModel,
+    screen: ResolverChain[ScreenCase] | None = None,
 ) -> FixPlanAttempt | FixPlanLeftOut:
     """One attempt on the selected plan, or why the branch stops it before any write."""
     store, source, target = attempt.store, attempt.source, attempt.target
@@ -568,6 +815,10 @@ def _attempt(
     _git(source, "fetch", "-q", "origin", attempt.base, status.head_ref)
     if (reason := _branch_reason(source, target)) is not None:
         return FixPlanLeftOut(number, reason)
+    try:
+        stage_target, proposal = _head_plan(source, target)
+    except PlanReadError as error:
+        return _unreadable(attempt, now, error)
     marks = _Marks.of(target.item.job_record)
     revisions = marks.revisions_on(target.pull)
     store.set_marks(
@@ -580,34 +831,23 @@ def _attempt(
             FixPlanRecordKey.RESULT: None,
         },
     )
-    findings: tuple[Finding, ...] = ()
-    try:
-        stage_target, proposal = _head_plan(source, target)
-    except PlanReadError:
-        done = FixPlanAttempt(
-            number,
-            target.pull,
-            FixPlanResult.FAILED,
-            head=status.head_sha,
-            failure=FailureClass.PLAN_DEFECT,
-        )
-        counts: Mapping[str, int] = {}
-    else:
-        sha = _git(source, "rev-parse", f"origin/{attempt.base}")
-        findings = comment_open_findings(plan_comment(store, number, target.pull))
-        revision = revise_plan(
-            stage_target,
-            proposal,
-            repo=attempt.repo,
-            checkout=source,
-            sha=sha,
-            verifier=verifier,
-            model=model,
-            findings=findings,
-        )
-        done = _settle(attempt, revision)
-        counts = revision.attempt.counts() if revision.attempt is not None else {}
-    done = replace(done, counts=tuple(counts.items()), comment=len(findings))
+    sha = _git(source, "rev-parse", f"origin/{attempt.base}")
+    listed = comment_open_findings(plan_comment(store, number, target.pull))
+    revision = revise_plan(
+        stage_target,
+        proposal,
+        repo=attempt.repo,
+        checkout=source,
+        sha=sha,
+        verifier=verifier,
+        model=model,
+        findings=listed,
+        open_creates=_open_creates(store, source, attempt.base),
+        screen=screen,
+    )
+    done = _settle(attempt, proposal, listed, revision)
+    counts = revision.attempt.counts() if revision.attempt is not None else {}
+    done = replace(done, counts=tuple(counts.items()), comment=len(listed))
     store.set_marks(store.item(number) or target.item, _result_marks(target, done))
     _report(attempt.repo, done)
     return done
@@ -624,12 +864,13 @@ def run_fix_plan(
     now: datetime | None = None,
     model: LLMClient | ToolboxModel | None = None,
     verifier: ToolboxModel | None = None,
+    screen: ResolverChain[ScreenCase] | None = None,
 ) -> FixPlanRun:
     """Select one plan pull request of `repo` and, with `confirm`, run one attempt on it in the
     clone `source`, as the module says. Without `confirm` the call makes no model call and no
-    write. `model` and `verifier` are those of `plan_stage`; with no `verifier`, the model of the
-    task `verification` reviews. A failed read or write of GitHub or git raises after the attempt
-    marks."""
+    write. `model`, `verifier` and `screen` are those of `plan_stage`; with no `verifier`, the
+    model of the task `verification` reviews. A failed read or write of GitHub or git raises after
+    the attempt marks."""
     now = now or datetime.now(UTC)
     target, left = select_fix_plan(store, repo=repo, item=item, pull=pull, now=now)
     run = FixPlanRun(repo, target, left)
@@ -653,7 +894,11 @@ def run_fix_plan(
         verifier = ToolboxModel(get_task_model("verification"))
     base = target.status.base_ref or default_branch(source, operation=_GIT_OPERATION)
     done = _attempt(
-        _Attempt(store, repo, source, target, base), now, model=model, verifier=verifier
+        _Attempt(store, repo, source, target, base),
+        now,
+        model=model,
+        verifier=verifier,
+        screen=screen,
     )
     if isinstance(done, FixPlanLeftOut):
         return FixPlanRun(repo, target, (*left, done))
@@ -698,6 +943,7 @@ __all__ = [
     "FixPlanLeftOut",
     "FixPlanResult",
     "FixPlanRun",
+    "FixPlanStop",
     "FixPlanTarget",
     "comment_open_findings",
     "dry_run_fix_plan",

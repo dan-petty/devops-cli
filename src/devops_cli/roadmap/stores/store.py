@@ -274,7 +274,8 @@ class FixPlanRecordKey(StrEnum):
     with 0 attempts. `fix_plan.revisions` counts the revisions that the step pushed to the pull
     request of the key, `fix_plan.at` holds the time of the last attempt, and `fix_plan.result`
     its result. The step writes the key, the count and the time before its first model call, so a
-    stop of the Service counts the attempt."""
+    stop of the Service counts the attempt. A plan that the plan reader refuses writes only
+    `fix_plan.at` and `fix_plan.result`, so it uses no attempt (#5213)."""
 
     KEY = "fix_plan.key"
     ATTEMPTS = "fix_plan.attempts"
