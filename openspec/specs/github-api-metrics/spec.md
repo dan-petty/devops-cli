@@ -39,12 +39,16 @@ devops-cli SHALL add the cost that a GraphQL answer reports in `rateLimit.cost` 
 - **THEN** `devops_cli_github_graphql_points_total` has one point with the value 3
 
 ### Requirement: The devops-cli dashboard shows the GitHub requests
-The dashboard `devops-cli.json` SHALL have the row "GitHub API" with a panel for each of these queries: the requests by resource, the throttles by resource, the throttle wait by resource, and the GraphQL points.
+The dashboard `devops-cli.json` SHALL have the row "GitHub API" with hourly bars of the core requests that cost quota, of the requests of the other resources and of the GraphQL points, each with a Min interval of 1h, and the throttles and their wait in the range. The answers 304 SHALL be a separate series, and the Service budget limit and the 5,000 GraphQL points of a token SHALL be reference lines.
 
 #### Scenario: The GitHub API row
 - **WHEN** `k8s/monitoring/dashboards/devops-cli.json` is read
-- **THEN** the row "GitHub API" holds the panels "GitHub Requests by Resource", "GitHub Throttles by Resource", "GitHub Throttle Wait by Resource" and "GitHub GraphQL Points"
-- **AND** they query `sum by (resource) (increase(devops_cli_github_requests_total{job=~"$job"}[1h]))`, `histogram_count(sum by (resource) (increase(devops_cli_github_throttle_wait_seconds{job=~"$job"}[1h])))`, `histogram_sum(sum by (resource) (increase(devops_cli_github_throttle_wait_seconds{job=~"$job"}[1h])))` and `sum(increase(devops_cli_github_graphql_points_total{job=~"$job"}[1h])) or vector(0)`
+- **THEN** the row "GitHub API" holds the panels "GitHub quota: core requests per hour", "GitHub quota: requests of the other resources per hour", "Throttles: count in the range", "Throttles: count and wait by resource in the range" and "GitHub quota: GraphQL points per hour"
+- **AND** the core panel queries `round(sum by (job) (increase(devops_cli_github_requests_total{job=~"$job",resource="core",status!="304"}[$__interval])))` and `round(sum(increase(devops_cli_github_requests_total{job=~"$job",resource="core",status="304"}[$__interval])))`
+
+#### Scenario: The throttles in the range
+- **WHEN** promtool evaluates the throttle panels over 24 h on a fixture histogram with 3 core throttles of 35 s and 1 graphql throttle of 5 s
+- **THEN** the stat gives 4, and the table gives 3 and 35 s for core and 1 and 5 s for graphql
 
 ### Requirement: Each paced GitHub request names its method
 Each count of `devops_cli_github_requests_total` SHALL carry the label `method`, the HTTP method of the request. A GraphQL request SHALL count as a POST, and a gh command other than `gh api` SHALL count as a POST when it writes and a GET when it reads.

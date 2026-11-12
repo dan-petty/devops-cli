@@ -37,11 +37,12 @@ devops-cli SHALL send each OTLP metric through `emit()` with an instrument that 
 - **THEN** `devops_cli_embedding_cache_lookups_total` gets the points `{result="hit", tier="disk"}` 1 and `{result="miss"}` 1, one time each
 
 ### Requirement: The devops-cli dashboard shows the embedding cache hit share
-The devops-cli dashboard SHALL have the panel "Embedding Cache Hit Share", which divides the embedding cache hits of the last hour by the lookups of the last hour, and shows 0 for an hour with lookups and no hits.
+The devops-cli dashboard SHALL have the panel "Cache: share of embedding lookups that hit", which divides the embedding cache hits of each window by the lookups of the window, and shows 0 for a window with lookups and no hits. The window SHALL be `$__rate_interval` with a Min step of 15m.
 
 #### Scenario: The panel query
-- **WHEN** the panel "Embedding Cache Hit Share" of `k8s/monitoring/dashboards/devops-cli.json` is read
-- **THEN** its query is `(sum(increase(devops_cli_embedding_cache_lookups_total{job=~"$job",result="hit"}[1h])) or sum(increase(devops_cli_embedding_cache_lookups_total{job=~"$job"}[1h])) * 0) / sum(increase(devops_cli_embedding_cache_lookups_total{job=~"$job"}[1h]))`
+- **WHEN** the panel "Cache: share of embedding lookups that hit" of `k8s/monitoring/dashboards/devops-cli.json` is read
+- **THEN** its query is `(sum(increase(devops_cli_embedding_cache_lookups_total{job=~"$job",result="hit"}[$__rate_interval])) or sum(increase(devops_cli_embedding_cache_lookups_total{job=~"$job"}[$__rate_interval])) * 0) / sum(increase(devops_cli_embedding_cache_lookups_total{job=~"$job"}[$__rate_interval]))`
+- **AND** its Min step is 15m
 
 ### Requirement: The tool-call instruments are declared and documented
 `INSTRUMENTS` SHALL hold `devops_cli_roadmap_tool_calls_total` and `devops_cli_roadmap_tool_limit_hits_total` as counters with the unit `1`, `devops_cli_roadmap_tool_answer_chars` as a histogram with the unit `{char}`, and `devops_cli_roadmap_tool_calls_per_run` as a histogram with the unit `{call}`. `docs/TELEMETRY.md` SHALL list each one with its kind and its unit.

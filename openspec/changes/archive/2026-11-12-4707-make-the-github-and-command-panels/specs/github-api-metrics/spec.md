@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: The devops-cli dashboard shows the GitHub requests
-The dashboard `devops-cli.json` SHALL have the row "GitHub API" with these panels: the core requests that cost quota in each hour by job, with the answers 304 as a separate series and the Service budget limit as a reference line; the requests of the other resources in each hour; the throttles in the range as a stat; the throttles and their wait by resource in the range as a table; and the GraphQL points in each hour by job, with a reference line at 5,000 points. The hourly panels SHALL show bars with a Min interval of 1h.
+The dashboard `devops-cli.json` SHALL have the row "GitHub API" with hourly bars of the core requests that cost quota, of the requests of the other resources and of the GraphQL points, each with a Min interval of 1h, and the throttles and their wait in the range. The answers 304 SHALL be a separate series, and the Service budget limit and the 5,000 GraphQL points of a token SHALL be reference lines.
 
 #### Scenario: The GitHub API row
 - **WHEN** `k8s/monitoring/dashboards/devops-cli.json` is read
