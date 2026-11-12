@@ -2457,6 +2457,10 @@ class RoadmapMessages:
     refine_failure_line: str = "{checks}: {tries} of {limit} tries. Last error: {error}"
     refine_failure_form: str = "The reply of the model failed the form check."
     refine_failure_open: str = "Open: {question}"
+    refine_failure_dependency: str = (
+        'The Dependencies section names "{title}", and no single issue has this title. '
+        "Write the dependency as #<number>."
+    )
     refine_failure_searched: str = "Searched: {calls}"
     refine_failure_none_searched: str = "Searched: nothing"
     refine_going_on: str = "## {count} item(s) go on without a person"

@@ -14,6 +14,8 @@ An item that refine cannot set to Ready gets one comment with its next step. The
 
 A proposal that names an open issue as a dependency is not whole. The item waits on that issue. Refine does not set it to Ready, and a Ready item goes back to New. A closed dependency holds nothing back.
 
+The Dependencies section of the body names an issue as `#N` or by its quoted title, such as `- "feat(roadmap): run each refine item in its own pod".`. Refine adds each issue that the body names by title to the dependencies of the proposal: the one open item with that exact title, else the one closed item with it. Quoted text that is no Conventional Commit title names no issue, and a list item that names `#N` names its issue by the number.
+
 Refine looks at the item again after a reply, a body edit, or the close of those open items. It also looks again after a commit on the default branch that changes a file that the block cites. The report groups every item by its next step.
 
 Refine writes the new body, the job record and the Status of an item with one request. The comment follows as a separate request. A stop after the write leaves the new body and its marks together.
@@ -83,6 +85,7 @@ An item that is too big for one pull request still waits for a person to split i
 A person has nothing to do for a failed job. These cases are job failures, not person waits:
 
 - The proposal fails a form check. The checks are `problem_statement`, `existing_tool` and `acceptance_criteria`. A proposal that needs a split has no criterion to check.
+- A quoted title in the Dependencies section names no item, or two items (`dependencies`). The error names the title and asks for the issue as `#<number>`.
 - A question has no verified source after the investigation (`missing_source`), or a question of the body has no answer (`unanswered_question`).
 - The investigation ended with no proposal while such a question is open (`investigation_stopped`).
 
