@@ -19,7 +19,7 @@ from devops_cli.roadmap.stage.stage_change import (
     check_gates,
     content_problems,
 )
-from devops_cli.roadmap.stage.stage_paths import StagedTree
+from devops_cli.roadmap.stage.stage_paths import StagedTree, existing_test_problems
 from tests.support.builders import make_stage_proposal
 
 MODULE = "src/devops_cli/roadmap/step_files.py"
@@ -28,6 +28,9 @@ EXISTING_TEST = "tests/roadmap/stage/test_roadmap_stage_paths.py"
 KNOWN = ["comment-thread"]
 TREE = StagedTree([EXISTING_TEST, MODULE, MODULE_TEST, "src/devops_cli/sample.py"])
 MODULE_TESTS = {MODULE: (MODULE_TEST,)}
+SECOND_MODULE = "src/devops_cli/roadmap/follow.py"
+SECOND_TEST = "tests/roadmap/test_roadmap_follow.py"
+TWO_TESTS = {**MODULE_TESTS, SECOND_MODULE: (SECOND_TEST,)}
 
 
 def _group(**update: object) -> StageGroup:
@@ -74,6 +77,42 @@ def test_the_paths_gate_judges_no_module_test_when_the_caller_passes_no_record()
     found = check_gates(make_stage_proposal(groups=[_group()]), KNOWN, TREE, registry=())
 
     assert found[ProposalGate.PATHS] == []
+
+
+def _missing(path: str, test: str) -> str:
+    """The problem of group 1 that names `path` and asks for `test`."""
+    return MESSAGES.roadmap.stage_problem_missing_module_test.format(group=1, path=path, test=test)
+
+
+def test_the_paths_gate_names_every_module_of_a_group_that_omits_its_tests() -> None:
+    """One refusal names each module of a group that has no named test, so one repair adds every
+    test (#5068). The gate named only the first module, and each repair round fixed one module."""
+    group = _group(changes=[MODULE, SECOND_MODULE])
+
+    problems = existing_test_problems([group], TREE, TWO_TESTS)
+
+    assert problems == [_missing(MODULE, MODULE_TEST), _missing(SECOND_MODULE, SECOND_TEST)]
+
+
+def test_the_paths_gate_still_names_a_later_module_when_the_first_test_is_named() -> None:
+    group = _group(changes=[MODULE, SECOND_MODULE], reads=[MODULE_TEST])
+
+    assert existing_test_problems([group], TREE, TWO_TESTS) == [
+        _missing(SECOND_MODULE, SECOND_TEST)
+    ]
+
+
+def test_one_named_test_that_runs_two_modules_answers_both() -> None:
+    """A test that the problem of one module asks for also runs a later module, so the gate asks
+    for no second test of that module: one repair that adds the named tests passes the group."""
+    record = {MODULE: (MODULE_TEST,), SECOND_MODULE: (SECOND_TEST, MODULE_TEST)}
+    group = _group(changes=[MODULE, SECOND_MODULE])
+
+    problems = existing_test_problems([group], TREE, record)
+    repaired = _group(changes=[MODULE, SECOND_MODULE], reads=[MODULE_TEST])
+
+    assert problems == [_missing(MODULE, MODULE_TEST)]
+    assert existing_test_problems([repaired], TREE, record) == []
 
 
 PLAN_OF_THIS_CHANGE: dict[str, Any] = {
