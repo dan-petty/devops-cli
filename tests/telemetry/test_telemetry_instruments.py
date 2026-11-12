@@ -48,6 +48,7 @@ from devops_cli.config.constants import (
     CONST_SERVICE_METRIC_QUEUE_DEPTH,
     CONST_SERVICE_METRIC_TRIGGERS,
     CONST_SERVICE_METRIC_WEBHOOK_DELIVERIES,
+    CONST_SERVICE_METRIC_WEBHOOK_DELIVERY_FAILURES,
 )
 from devops_cli.config.settings import AIConfig
 from devops_cli.models.ai import ChatMessage
@@ -99,6 +100,7 @@ SERVICE_SERIES: dict[str, InstrumentKind] = {
     "devops_cli_service_state_unkept": InstrumentKind.GAUGE,
     CONST_SERVICE_METRIC_TRIGGERS: InstrumentKind.COUNTER,
     CONST_SERVICE_METRIC_WEBHOOK_DELIVERIES: InstrumentKind.COUNTER,
+    CONST_SERVICE_METRIC_WEBHOOK_DELIVERY_FAILURES: InstrumentKind.GAUGE,
 }
 SENT_SERIES = {instrument.name for instrument in INSTRUMENTS} | set(SERVICE_SERIES)
 # `by (labels) (rate(selector[window]))` or `increase(...)`: the labels one series is summed by.

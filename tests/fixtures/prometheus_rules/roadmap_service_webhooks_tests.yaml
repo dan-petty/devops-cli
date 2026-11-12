@@ -1,7 +1,9 @@
 # promtool rule unit tests of the alert group roadmap-service-webhooks in
-# k8s/monitoring/prometheus-values.yaml (#2476). The alert fires on a burst of rejected
-# deliveries and stays quiet on a few. Accepted deliveries, and the rejected deliveries of another
-# job (a workstation as job="devops-cli"), are in each case, and the rule must not count them.
+# k8s/monitoring/prometheus-values.yaml (#2476). RoadmapServiceWebhooksRejected fires on a burst
+# of rejected deliveries and stays quiet on a few. Accepted deliveries, and the rejected
+# deliveries of another job (a workstation as job="devops-cli"), are in each case, and the rule
+# must not count them. RoadmapServiceWebhookDeliveriesFailed fires when GitHub records more than 5
+# failed deliveries of one repository in 15 minutes (#5017).
 #
 # tests/test_k8s_monitoring_alerting.py writes the group to the file that `rule_files` names,
 # beside a copy of this file, and runs `promtool test rules` on the copy. promtool starts each
@@ -78,4 +80,56 @@ tests:
         exp_alerts: []
       - eval_time: 79m
         alertname: RoadmapServiceWebhooksRejected
+        exp_alerts: []
+
+  # RoadmapServiceWebhookDeliveriesFailed (#5017). The metrics row sets the gauge of each code to
+  # the deliveries of the last 15 minutes with no 2xx answer, and the scrape reads it each minute.
+  - name: More than 5 failed deliveries of one repository fire; 5, another repository and another job do not
+    interval: 1m
+    input_series:
+      # 4 refusals of the edge from minute 10, and 5 from minute 20, with 1 answer 502 from
+      # minute 10: 5 failed deliveries in minutes 10-19, and 6 from minute 20.
+      - series: 'devops_cli_service_webhook_delivery_failures{job="roadmap-service", repo="example/app", code="403"}'
+        values: '0x9 4x9 5x10'
+      - series: 'devops_cli_service_webhook_delivery_failures{job="roadmap-service", repo="example/app", code="502"}'
+        values: '0x9 1x20'
+      - series: 'devops_cli_service_webhook_delivery_failures{job="roadmap-service", repo="example/other", code="403"}'
+        values: '3x30'
+      - series: 'devops_cli_service_webhook_delivery_failures{job="devops-cli", repo="example/app", code="403"}'
+        values: '20x30'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: RoadmapServiceWebhookDeliveriesFailed
+        exp_alerts: []
+      - eval_time: 15m
+        alertname: RoadmapServiceWebhookDeliveriesFailed
+        exp_alerts: []
+      - eval_time: 25m
+        alertname: RoadmapServiceWebhookDeliveriesFailed
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              repo: example/app
+            exp_annotations:
+              summary: "GitHub could not deliver 6 webhook deliveries of example/app in 15 minutes"
+              description: "More than 5 deliveries of the hooks of example/app got no 2xx answer in 15 minutes, as GitHub records them. GitHub does not send a failed delivery again. A 403 with the header Server: cloudflare comes from the Cloudflare edge, which RoadmapServiceWebhooksRejected cannot see. Read the failed deliveries of each hook (k8s/README.md, Roadmap service)."
+
+  - name: A read that sets the code to 0 ends the alert
+    interval: 1m
+    input_series:
+      # 8 refusals of the edge until the read of minute 13 finds none.
+      - series: 'devops_cli_service_webhook_delivery_failures{job="roadmap-service", repo="example/app", code="403"}'
+        values: '8x12 0x10'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: RoadmapServiceWebhookDeliveriesFailed
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              repo: example/app
+            exp_annotations:
+              summary: "GitHub could not deliver 8 webhook deliveries of example/app in 15 minutes"
+              description: "More than 5 deliveries of the hooks of example/app got no 2xx answer in 15 minutes, as GitHub records them. GitHub does not send a failed delivery again. A 403 with the header Server: cloudflare comes from the Cloudflare edge, which RoadmapServiceWebhooksRejected cannot see. Read the failed deliveries of each hook (k8s/README.md, Roadmap service)."
+      - eval_time: 15m
+        alertname: RoadmapServiceWebhookDeliveriesFailed
         exp_alerts: []

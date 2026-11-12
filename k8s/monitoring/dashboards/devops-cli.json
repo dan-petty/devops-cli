@@ -1989,6 +1989,51 @@
       ]
     },
     {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "The deliveries of the hooks of each repository that got no 2xx answer in the last 15 minutes, by repository and status code, as GitHub records them and the metrics row reads them every 13 minutes (#5017). A 403 of the Cloudflare edge never gets to the webhook route. The alert RoadmapServiceWebhookDeliveriesFailed fires above 5 for one repository.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "drawStyle": "line"
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 136
+      },
+      "id": 60,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "title": "Service Failed Webhook Deliveries",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "max by (repo, code) (last_over_time(devops_cli_service_webhook_delivery_failures{job=~\"$job\"}[5m]))",
+          "legendFormat": "{{repo}} {{code}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
       "collapsed": false,
       "gridPos": {
         "h": 1,

@@ -4,7 +4,8 @@
 bodies, milestones, comments, events and files, each write applied to what later reads return.
 It answers `PATCH` of an issue with its fields as JSON on stdin (`--input -`), as `gh api` sends
 them: `labels` replaces the issue's labels and `body` its body. It also answers the project
-metrics reads (the repository, its Actions runs and its traffic), `gh api user` with its `login`,
+metrics reads (the repository, its Actions runs and its traffic), the hooks of the repository and
+the deliveries of each hook (#5017), `gh api user` with its `login`,
 and `gh api rate_limit` with a full quota that resets in a minute. It keeps every argv, and
 `project_calls` gives each one that names a project board, so a test shows that a roadmap job
 sends none. Neither starts `gh` nor opens a socket. `GitHubFake.process` stands in for
@@ -49,7 +50,9 @@ class GitHubFake:
     `issues` maps a number to its REST payload. `files` maps a path to its text, or to the
     `(exit code, output)` `gh` gives for it, such as a 502. `traffic_answer`, when set, is the
     `(exit code, output)` that `gh` gives for every traffic path, such as the 403 that an
-    installation token gets (#2752).
+    installation token gets (#2752). `hooks_answer`, when set, is the `(exit code, output)` that
+    `gh` gives for the hooks of the repository, such as the 403 of a token with no Webhooks
+    permission (#5017).
     """
 
     def __init__(
@@ -66,6 +69,8 @@ class GitHubFake:
         self.repo = repo
         self.login = login
         self.traffic_answer = traffic_answer
+        self.hooks_answer: tuple[int, str] | None = None
+        self.hooks: dict[int, tuple[bool, list[dict[str, Any]]]] = {}
         self.milestones = list(milestones)
         self.files = dict(files or {})
         self.events = list(events)
@@ -217,6 +222,22 @@ class GitHubFake:
         """Another repository, by the `full_name` of its REST payload, and its latest release,
         which GitHub answers 404 when there is none (#2650)."""
         self.repositories[repository["full_name"]] = (repository, release)
+
+    def seed_hook(
+        self, hook_id: int, deliveries: Iterable[dict[str, Any]] = (), *, active: bool = True
+    ) -> None:
+        """Webhook `hook_id` of the repository and its deliveries, newest first, as GitHub
+        lists them at `hooks/<id>/deliveries` (#5017)."""
+        self.hooks[hook_id] = (active, list(deliveries))
+
+    def hook_calls(self) -> list[str]:
+        """The path of every request sent for the hooks or their deliveries, in order."""
+        return [
+            arg
+            for args in self.calls
+            for arg in args[1:]
+            if arg.startswith(f"repos/{self.repo}/hooks")
+        ]
 
     def labels(self, number: int) -> list[str]:
         """The labels issue `number` holds now."""
@@ -423,18 +444,35 @@ class GitHubFake:
             return self.events[(page - 1) * size : page * size]
         if parts == ["actions", "runs"]:
             return {"total_count": 0, "workflow_runs": []}
-        if parts[0] == "traffic" and self.traffic_answer is not None:
-            return self.traffic_answer
         if parts[0] == "traffic":
-            return [] if parts[1] == "popular" else {"count": 0, "uniques": 0}
+            return self._traffic_route(parts)
         if parts[0] == "milestones":
             return self.milestones if page == 1 else []
+        if parts[0] == "hooks":
+            return self._hooks_route(parts, query)
         if parts[0] in ("pulls", "labels", "releases"):
             return self._catalog(parts[0], query, page)
         if parts == ["issues"]:
             labels = [arg.split("=", 1)[1] for arg in args if arg.startswith("labels[]=")]
             return self._issues(method, query, fields | {"labels": json.dumps(labels)}, page)
         return self._issue_route(method, int(parts[1]), parts[2:], fields, page, stdin)
+
+    def _traffic_route(self, parts: list[str]) -> Any:
+        """A traffic path of the repository: `traffic_answer` when set, else no traffic."""
+        if self.traffic_answer is not None:
+            return self.traffic_answer
+        return [] if parts[1] == "popular" else {"count": 0, "uniques": 0}
+
+    def _hooks_route(self, parts: list[str], query: dict[str, str]) -> Any:
+        """The hooks of the repository, or the newest `per_page` deliveries of one hook."""
+        if parts == ["hooks"]:
+            if self.hooks_answer is not None:
+                return self.hooks_answer
+            return [{"id": key, "active": active} for key, (active, _) in self.hooks.items()]
+        hook = self.hooks.get(int(parts[1]))
+        if hook is None or parts[2:] != ["deliveries"]:
+            return (1, "gh: Not Found (HTTP 404)")
+        return hook[1][: int(query.get("per_page", "30"))]
 
     def _blockers_page(self, number: int, page: int) -> list[dict[str, Any]]:
         """A page of 100 issues that block issue `number`, as GitHub lists them at

@@ -36,6 +36,7 @@ from devops_cli.config.constants import (
     CONST_SERVICE_METRIC_JOB_SUSPENDED,
     CONST_SERVICE_METRIC_JOBS,
     CONST_SERVICE_METRIC_WEBHOOK_DELIVERIES,
+    CONST_SERVICE_METRIC_WEBHOOK_DELIVERY_FAILURES,
 )
 from devops_cli.prometheus.client import parse_duration
 from devops_cli.prometheus.promql import selectors
@@ -231,6 +232,8 @@ SERVED_SERIES = frozenset(
         CONST_SERVICE_METRIC_JOB_RETRY_AFTER_SECONDS,
         "devops_cli_service_state_unkept",
         CONST_SERVICE_METRIC_WEBHOOK_DELIVERIES,
+        # GitHub's record of the failed deliveries of the hooks, set by the metrics row (#5017).
+        CONST_SERVICE_METRIC_WEBHOOK_DELIVERY_FAILURES,
         AI_REQUESTS_TOTAL.name,
         # The USD spend of the model calls, priced by the model that the client asked for (#4222).
         AI_SPEND_USD_TOTAL.name,
@@ -388,6 +391,7 @@ def test_the_baseline_rule_set() -> None:
         ("RoadmapServiceToolUnused", "warning"),
         ("RoadmapServiceUnavailable", "warning"),
         ("RoadmapServiceWebSearchRefused", "warning"),
+        ("RoadmapServiceWebhookDeliveriesFailed", "warning"),
         ("RoadmapServiceWebhooksRejected", "warning"),
         ("TargetDown", "warning"),
         ("ValkeyCacheErrors", "warning"),
@@ -1097,14 +1101,18 @@ def test_roadmap_service_jobs_failing_rule_groups_and_joins_on_repo_lane_and_row
     assert "unless on (repo, lane, row)" in expr
 
 
-def test_the_webhook_rule_warns_on_more_than_20_rejected_deliveries_in_15_minutes() -> None:
+def test_the_webhook_rules_warn_on_rejected_deliveries_and_on_failed_deliveries() -> None:
     """`roadmap-service-webhooks`, a group apart from `roadmap-service`, warns when the webhook
     route of the Service rejects more than 20 deliveries in 15 minutes (#2476). A flood can start
     a new label set, so the count reads a series that starts in the 15 minutes from zero (#2505).
+    It also warns when GitHub records more than 5 failed deliveries of the hooks of one repository
+    in 15 minutes, as the metrics row reads them: a refusal at the Cloudflare edge never gets to
+    the route (#5017).
     """
     rejected = (
         f'{CONST_SERVICE_METRIC_WEBHOOK_DELIVERIES}{{job="roadmap-service", outcome="rejected"}}'
     )
+    failed = f'{CONST_SERVICE_METRIC_WEBHOOK_DELIVERY_FAILURES}{{job="roadmap-service"}}'
     assert [
         (rule["alert"], rule["expr"], rule["for"], rule["labels"]["severity"])
         for rule in _group(ROADMAP_SERVICE_WEBHOOKS_GROUP)
@@ -1114,7 +1122,13 @@ def test_the_webhook_rule_warns_on_more_than_20_rejected_deliveries_in_15_minute
             f"sum(increase({rejected}[15m])) > 20",
             "0m",
             "warning",
-        )
+        ),
+        (
+            "RoadmapServiceWebhookDeliveriesFailed",
+            f"sum by (repo) ({failed}) > 5",
+            "0m",
+            "warning",
+        ),
     ]
 
 
