@@ -78,12 +78,12 @@ The Grafana Loki datasource in `k8s/monitoring/grafana-values.yaml` SHALL config
 - **AND** it contains a label entry targeting `datasourceUid` `tempo` whose `matcherRegex` matches `trace_id`
 
 ### Requirement: devops-cli dashboard includes an error stream panel
-The `k8s/monitoring/dashboards/devops-cli.json` dashboard SHALL include a logs panel displaying the error and warning stream from Loki for `devops-cli`.
+The `k8s/monitoring/dashboards/devops-cli.json` dashboard SHALL include a logs panel that shows the log records of `devops-cli` in Loki at the levels error, critical and fatal, and no warnings.
 
 #### Scenario: Error stream panel is present in the dashboard
 - **WHEN** the panels of `devops-cli.json` are read
-- **THEN** a panel of type `logs` with title "devops-cli Error Stream" is present
-- **AND** the panel targets the `loki` datasource
+- **THEN** one panel of type `logs` has the title "Errors: error logs of devops-cli"
+- **AND** the panel targets the `loki` datasource with the query `{service_name="devops-cli"} | detected_level=~"error|critical|fatal"`
 
 ### Requirement: A command that reports its own failure counts once and records its exit code
 When a delegated devops command reports its own failure and exits with a non-zero code, `devops_cli_command_total` SHALL count the command one time with the status `error`. The command span SHALL record that code in `cli.exit_code` and the status `error` in `cli.status`. `devops` SHALL exit with that code and SHALL log no record for the exit.
@@ -104,18 +104,6 @@ When a delegated devops command reports its own failure and exits with a non-zer
 #### Scenario: A command with no group
 - **WHEN** a command `alone` runs with no command group above it
 - **THEN** `devops_cli_subcommand_duration_seconds` has one point with the `command` `alone` and the `sub_command` `alone`
-
-### Requirement: The devops-cli dashboard finds each sub-command from its series
-The `command` variable of `k8s/monitoring/dashboards/devops-cli.json` SHALL read its values with `label_values(devops_cli_command_total{job=~"$job"}, command)`. The multi-value variable `sub_command`, with All, SHALL read its values with `label_values(devops_cli_subcommand_duration_seconds{job=~"$job",command=~"$command"}, sub_command)`. The row "Sub-commands" SHALL hold the panel "Sub-command Calls" and the panel "Telemetry: $sub_command", which repeats for each selected sub-command.
-
-#### Scenario: The variables are queries
-- **WHEN** the dashboard file is read
-- **THEN** `command` and `sub_command` are query variables of the Prometheus datasource with Multi-value and All, and hold no fixed options
-
-#### Scenario: The latency panel repeats by sub-command
-- **WHEN** the dashboard file is read
-- **THEN** the panel "Telemetry: $sub_command" repeats by `sub_command`, four to a line
-- **AND** each query of the row filters `devops_cli_subcommand_duration_seconds` by `$job`, `$command` and `$sub_command`
 
 ### Requirement: A span starts without VCS attributes when the working directory is gone
 The telemetry client SHALL start a span, with no `vcs.*` attribute and no exception, when the working directory of the process no longer exists. When the working directory exists and lies inside a git repository, the span SHALL hold the branch and the revision of that repository in its `vcs.*` attributes.
@@ -207,3 +195,15 @@ The caller of a usage-error record SHALL be `mcp` for an MCP tool call, else `ag
 #### Scenario: A person runs the command
 - **WHEN** no agent, CI or MCP marker is set
 - **THEN** the ledger line has the caller `person` and no agent tool
+
+### Requirement: The devops-cli dashboard lists each sub-command of its series in one table
+The `command` variable of `k8s/monitoring/dashboards/devops-cli.json` SHALL read its values with `label_values(devops_cli_command_total{job=~"$job"}, command)`. The multi-value variable `sub_command`, with All, SHALL read its values with `label_values(devops_cli_subcommand_duration_seconds{job=~"$job",command=~"$command"}, sub_command)`. The row "Sub-commands" SHALL hold one table and no panel that repeats.
+
+#### Scenario: The variables are queries
+- **WHEN** the dashboard file is read
+- **THEN** `command` and `sub_command` are query variables of the Prometheus datasource with Multi-value and All, and hold no fixed options
+
+#### Scenario: The sub-command row is one table
+- **WHEN** the dashboard file is read
+- **THEN** the row "Sub-commands" holds one panel of type `table` with no repeat
+- **AND** each query of the table is instant and filters `devops_cli_subcommand_duration_seconds` by `$job`, `$command` and `$sub_command`

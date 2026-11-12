@@ -71,7 +71,7 @@ providers:
 1. **Declarative Dashboard Provisioning**: Manage dashboards as JSON files in Git (`dashboards/`) and provision them declaratively rather than creating them ad-hoc in the UI.
 2. **Standard Variable Filters**: Include template variables (`$namespace`, `$pod`, `$interval`) in all dashboards to enable fast scoping and exploration.
 3. **Alert Rule Consistency**: Configure alerting rules alongside panel definitions using unified Alertmanager endpoints.
-4. **Time Range Scoping**: Set default dashboard time ranges to relative values (`now-1h` to `now`) with auto-refresh intervals of 10s–30s.
+4. **Time Range Scoping**: Set the default time range and the refresh to the sample interval of the series. A dashboard of series that get a sample each 15 min, such as the OTLP series of devops-cli, opens on `now-24h` and refreshes each minute (`devops-cli.json`, #4707). A dashboard of series that Prometheus scrapes each 15 s to 60 s can open on `now-1h`.
 
 ---
 

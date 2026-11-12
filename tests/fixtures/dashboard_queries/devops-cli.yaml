@@ -91,3 +91,272 @@ tests:
             value: 3
           - labels: '{repo="example/two"}'
             value: 1
+
+  # The golden signals of the devops commands (#4707). Each 15 min, 100 calls of `gh api` end:
+  # 93 ok calls of 1 to 2 s and 7 error calls of 64 to 128 s. The series start with a zero
+  # sample at 24h.
+  - name: the CLI sends its sub-command histogram once each 15 min from a zero sample
+    shape: zero_start
+    interval: 15m
+    input_series:
+      - series: 'devops_cli_subcommand_duration_seconds{job="devops-cli", command="gh", sub_command="gh api", status="ok"}'
+        values: '_x96 {{schema:0 count:0 sum:0}}+{{schema:0 count:93 sum:139.5 buckets:[93] offset:1}}x96'
+      - series: 'devops_cli_subcommand_duration_seconds{job="devops-cli", command="gh", sub_command="gh api", status="error"}'
+        values: '_x96 {{schema:0 count:0 sum:0}}+{{schema:0 count:7 sum:700 buckets:[7] offset:7}}x96'
+    promql_expr_test:
+      # The p95 of the ok calls only, in the bucket from 1 to 2 s: 2^0.95 s. With the error
+      # calls in the sum, the p95 is in the bucket from 64 to 128 s (78 s).
+      - panel: 'Latency: p50, p95 and p99 of successful calls'
+        ref_id: B
+        variables: {__interval: 15m, job: devops-cli, command: '.*', sub_command: '.*'}
+        expr: 'histogram_quantile(0.95, sum(rate(devops_cli_subcommand_duration_seconds{job=~"$job",command=~"$command",sub_command=~"$sub_command",status="ok"}[$__rate_interval])))'
+        eval_time: 48h
+        exp_samples:
+          - labels: '{}'
+            value: 1.931872657849691
+      # 24 hourly bars of 400 calls: the 96 samples x 100 calls of the range.
+      - panel: 'Traffic: calls per hour'
+        ref_id: A
+        variables: {__interval: 1h, job: devops-cli, command: '.*', sub_command: '.*'}
+        expr: 'round(histogram_count(sum(increase(devops_cli_subcommand_duration_seconds{job=~"$job",command=~"$command",sub_command=~"$sub_command"}[$__interval]))))'
+        bars: 24h
+        total: 9600
+        eval_time: 48h
+        exp_samples:
+          - labels: '{}'
+            value: 9600
+      # 7 errors of 100 calls.
+      - panel: 'Errors: share of calls that failed'
+        ref_id: A
+        variables: {__interval: 15m, job: devops-cli, command: gh, sub_command: '.*'}
+        expr: '(histogram_count(sum(rate(devops_cli_subcommand_duration_seconds{job=~"$job",command=~"$command",sub_command=~"$sub_command",status="error"}[$__rate_interval]))) or histogram_count(sum(rate(devops_cli_subcommand_duration_seconds{job=~"$job",command=~"$command",sub_command=~"$sub_command"}[$__rate_interval]))) * 0) / histogram_count(sum(rate(devops_cli_subcommand_duration_seconds{job=~"$job",command=~"$command",sub_command=~"$sub_command"}[$__rate_interval])))'
+        eval_time: 48h
+        exp_samples:
+          - labels: '{}'
+            value: 0.07
+      # The table gives the same share for the sub-command over the range.
+      - panel: 'Sub-commands: calls, errors and latency in the range'
+        ref_id: C
+        variables: {__range: 24h, job: devops-cli, command: '.*', sub_command: '.*'}
+        expr: '(histogram_count(sum by (command, sub_command) (increase(devops_cli_subcommand_duration_seconds{job=~"$job",command=~"$command",sub_command=~"$sub_command",status="error"}[$__range]))) or histogram_count(sum by (command, sub_command) (increase(devops_cli_subcommand_duration_seconds{job=~"$job",command=~"$command",sub_command=~"$sub_command"}[$__range]))) * 0) / histogram_count(sum by (command, sub_command) (increase(devops_cli_subcommand_duration_seconds{job=~"$job",command=~"$command",sub_command=~"$sub_command"}[$__range])))'
+        eval_time: 48h
+        exp_samples:
+          - labels: '{command="gh", sub_command="gh api"}'
+            value: 0.07
+
+  - name: a command with calls and no error sends no error series
+    shape: sparse_counter
+    interval: 15m
+    input_series:
+      - series: 'devops_cli_subcommand_duration_seconds{job="devops-cli", command="ci", sub_command="ci test", status="ok"}'
+        values: '{{schema:0 count:0 sum:0}}+{{schema:0 count:4 sum:600 buckets:[4] offset:8}}x8'
+    promql_expr_test:
+      # The error share is 0, not a gap.
+      - panel: 'Errors: share of calls that failed'
+        ref_id: A
+        variables: {__interval: 15m, job: devops-cli, command: ci, sub_command: '.*'}
+        expr: '(histogram_count(sum(rate(devops_cli_subcommand_duration_seconds{job=~"$job",command=~"$command",sub_command=~"$sub_command",status="error"}[$__rate_interval]))) or histogram_count(sum(rate(devops_cli_subcommand_duration_seconds{job=~"$job",command=~"$command",sub_command=~"$sub_command"}[$__rate_interval]))) * 0) / histogram_count(sum(rate(devops_cli_subcommand_duration_seconds{job=~"$job",command=~"$command",sub_command=~"$sub_command"}[$__rate_interval])))'
+        eval_time: 2h
+        exp_samples:
+          - labels: '{}'
+            value: 0
+
+  - name: the Service writes its GitHub budget gauges each minute
+    shape: snapshot_gauge
+    interval: 1m
+    input_series:
+      - series: 'devops_cli_service_budget_spent_requests{job="roadmap-service"}'
+        values: '2000 2500 3000'
+      - series: 'devops_cli_service_budget_limit_requests{job="roadmap-service"}'
+        values: '4000 4000 4000'
+    promql_expr_test:
+      # The last spend of 3000 requests of the limit of 4000.
+      - panel: 'Saturation: share of the Service GitHub budget used'
+        ref_id: A
+        variables: {__interval: 1m, job: '.*'}
+        expr: 'max(last_over_time(devops_cli_service_budget_spent_requests{job=~"$job"}[$__rate_interval])) / max(last_over_time(devops_cli_service_budget_limit_requests{job=~"$job"}[$__rate_interval]))'
+        eval_time: 2m
+        exp_samples:
+          - labels: '{}'
+            value: 0.75
+
+  # Each 15 min, gh ends 9 ok calls of 1 to 2 s and 1 error call, and ci ends 2 ok calls of
+  # 128 to 256 s. A range of 24 h at 48h holds the samples from 24h15m: increase() gives the
+  # change of 95 samples, extrapolated by 15 min to 96 samples.
+  - name: the CLI sends its command counter once each 15 min
+    shape: sparse_counter
+    interval: 15m
+    input_series:
+      - series: 'devops_cli_command_total{job="devops-cli", command="gh", status="ok"}'
+        values: '0+9x192'
+      - series: 'devops_cli_command_total{job="devops-cli", command="gh", status="error"}'
+        values: '0+1x192'
+      - series: 'devops_cli_command_total{job="devops-cli", command="ci", status="ok"}'
+        values: '0+2x192'
+      - series: 'devops_cli_command_duration_seconds{job="devops-cli", command="gh"}'
+        values: '{{schema:0 count:0 sum:0}}+{{schema:0 count:10 sum:15 buckets:[10] offset:1}}x192'
+      - series: 'devops_cli_command_duration_seconds{job="devops-cli", command="ci"}'
+        values: '{{schema:0 count:0 sum:0}}+{{schema:0 count:2 sum:360 buckets:[2] offset:8}}x192'
+    promql_expr_test:
+      - panel: 'Traffic: calls of each command in the range'
+        ref_id: A
+        variables: {__range: 24h, job: devops-cli, command: '.*'}
+        expr: 'round(sum by (command) (increase(devops_cli_command_total{job=~"$job",command=~"$command"}[$__range])))'
+        eval_time: 48h
+        exp_samples:
+          - labels: '{command="ci"}'
+            value: 192
+          - labels: '{command="gh"}'
+            value: 960
+      - panel: 'Commands: calls, errors and latency in the range'
+        ref_id: A
+        variables: {__range: 24h, job: devops-cli, command: '.*'}
+        expr: 'round(sum by (command) (increase(devops_cli_command_total{job=~"$job",command=~"$command"}[$__range])))'
+        eval_time: 48h
+        exp_samples:
+          - labels: '{command="ci"}'
+            value: 192
+          - labels: '{command="gh"}'
+            value: 960
+      # ci sent no error series, and shows 0 errors.
+      - panel: 'Commands: calls, errors and latency in the range'
+        ref_id: B
+        variables: {__range: 24h, job: devops-cli, command: '.*'}
+        expr: 'round(sum by (command) (increase(devops_cli_command_total{job=~"$job",command=~"$command",status="error"}[$__range])) or sum by (command) (increase(devops_cli_command_total{job=~"$job",command=~"$command"}[$__range])) * 0)'
+        eval_time: 48h
+        exp_samples:
+          - labels: '{command="ci"}'
+            value: 0
+          - labels: '{command="gh"}'
+            value: 96
+      - panel: 'Commands: calls, errors and latency in the range'
+        ref_id: C
+        variables: {__range: 24h, job: devops-cli, command: '.*'}
+        expr: '(sum by (command) (increase(devops_cli_command_total{job=~"$job",command=~"$command",status="error"}[$__range])) or sum by (command) (increase(devops_cli_command_total{job=~"$job",command=~"$command"}[$__range])) * 0) / sum by (command) (increase(devops_cli_command_total{job=~"$job",command=~"$command"}[$__range]))'
+        eval_time: 48h
+        exp_samples:
+          - labels: '{command="ci"}'
+            value: 0
+          - labels: '{command="gh"}'
+            value: 0.1
+      # The p95 of each command: 2^0.95 s in the bucket from 1 to 2 s, and 128 x 2^0.95 s in the
+      # bucket from 128 to 256 s.
+      - panel: 'Commands: calls, errors and latency in the range'
+        ref_id: E
+        variables: {__range: 24h, job: devops-cli, command: '.*'}
+        expr: 'histogram_quantile(0.95, sum by (command) (increase(devops_cli_command_duration_seconds{job=~"$job",command=~"$command"}[$__range])))'
+        eval_time: 48h
+        exp_samples:
+          - labels: '{command="ci"}'
+            value: 247.2797002047605
+          - labels: '{command="gh"}'
+            value: 1.931872657849691
+
+  # The Service starts its counters at 24h: each 15 min 30 core requests that cost quota, 5
+  # core answers 304 and 2 graphql requests. A workstation starts at 30h with 10 core requests
+  # each 15 min.
+  - name: the GitHub request counters start with a zero sample
+    shape: zero_start
+    interval: 15m
+    input_series:
+      - series: 'devops_cli_github_requests_total{job="roadmap-service", resource="core", status="200"}'
+        values: '_x96 0+30x96'
+      - series: 'devops_cli_github_requests_total{job="roadmap-service", resource="core", status="304"}'
+        values: '_x96 0+5x96'
+      - series: 'devops_cli_github_requests_total{job="roadmap-service", resource="graphql", status="200"}'
+        values: '_x96 0+2x96'
+      - series: 'devops_cli_github_requests_total{job="devops-cli", resource="core", status="none"}'
+        values: '_x120 0+10x72'
+    promql_expr_test:
+      # 24 bars of 120 requests.
+      - panel: 'GitHub quota: core requests per hour'
+        ref_id: A
+        variables: {__interval: 1h, job: roadmap-service}
+        expr: 'round(sum by (job) (increase(devops_cli_github_requests_total{job=~"$job",resource="core",status!="304"}[$__interval])))'
+        bars: 24h
+        total: 2880
+        eval_time: 48h
+        exp_samples:
+          - labels: '{job="roadmap-service"}'
+            value: 2880
+      # The zero sample at 30h: 18 bars of 40 requests, and no bar before it.
+      - panel: 'GitHub quota: core requests per hour'
+        ref_id: A
+        variables: {__interval: 1h, job: devops-cli}
+        expr: 'round(sum by (job) (increase(devops_cli_github_requests_total{job=~"$job",resource="core",status!="304"}[$__interval])))'
+        bars: 24h
+        total: 720
+        eval_time: 48h
+        exp_samples:
+          - labels: '{job="devops-cli"}'
+            value: 720
+      # Only the answers 304 of every job: 96 x 5.
+      - panel: 'GitHub quota: core requests per hour'
+        ref_id: B
+        variables: {__interval: 1h, job: '.*'}
+        expr: 'round(sum(increase(devops_cli_github_requests_total{job=~"$job",resource="core",status="304"}[$__interval])))'
+        bars: 24h
+        total: 480
+        eval_time: 48h
+        exp_samples:
+          - labels: '{}'
+            value: 480
+      - panel: 'GitHub quota: requests of the other resources per hour'
+        ref_id: A
+        variables: {__interval: 1h, job: '.*'}
+        expr: 'round(sum by (resource) (increase(devops_cli_github_requests_total{job=~"$job",resource=~"graphql|search",status!="304"}[$__interval])))'
+        bars: 24h
+        total: 192
+        eval_time: 48h
+        exp_samples:
+          - labels: '{resource="graphql"}'
+            value: 192
+
+  # GitHub throttled the Service 2 times before 30h, 10 s each, and once more before 40h, 15 s,
+  # on core; and once before 36h on graphql, 5 s.
+  - name: the Service sends its throttle wait histogram once each 15 min
+    shape: sparse_counter
+    interval: 15m
+    input_series:
+      - series: 'devops_cli_github_throttle_wait_seconds{job="roadmap-service", resource="core"}'
+        values: '{{schema:0 count:0 sum:0}}x119 {{schema:0 count:2 sum:20 buckets:[2] offset:4}}x39 {{schema:0 count:3 sum:35 buckets:[3] offset:4}}x32'
+      - series: 'devops_cli_github_throttle_wait_seconds{job="roadmap-service", resource="graphql"}'
+        values: '{{schema:0 count:0 sum:0}}x143 {{schema:0 count:1 sum:5 buckets:[1] offset:3}}x48'
+    promql_expr_test:
+      - panel: 'Throttles: count in the range'
+        ref_id: A
+        variables: {__range: 24h, job: '.*'}
+        expr: 'round(sum(histogram_count(increase(devops_cli_github_throttle_wait_seconds{job=~"$job"}[$__range])))) or vector(0)'
+        eval_time: 48h
+        exp_samples:
+          - labels: '{}'
+            value: 4
+      # A job with no throttle shows 0.
+      - panel: 'Throttles: count in the range'
+        ref_id: A
+        variables: {__range: 24h, job: devops-cli-job}
+        expr: 'round(sum(histogram_count(increase(devops_cli_github_throttle_wait_seconds{job=~"$job"}[$__range])))) or vector(0)'
+        eval_time: 48h
+        exp_samples:
+          - labels: '{}'
+            value: 0
+      - panel: 'Throttles: count and wait by resource in the range'
+        ref_id: A
+        variables: {__range: 24h, job: '.*'}
+        expr: 'round(histogram_count(sum by (resource) (increase(devops_cli_github_throttle_wait_seconds{job=~"$job"}[$__range]))))'
+        eval_time: 48h
+        exp_samples:
+          - labels: '{resource="core"}'
+            value: 3
+          - labels: '{resource="graphql"}'
+            value: 1
+      - panel: 'Throttles: count and wait by resource in the range'
+        ref_id: B
+        variables: {__range: 24h, job: '.*'}
+        expr: 'histogram_sum(sum by (resource) (increase(devops_cli_github_throttle_wait_seconds{job=~"$job"}[$__range])))'
+        eval_time: 48h
+        exp_samples:
+          - labels: '{resource="core"}'
+            value: 35
+          - labels: '{resource="graphql"}'
+            value: 5
