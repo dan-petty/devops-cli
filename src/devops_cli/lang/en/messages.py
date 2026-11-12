@@ -3215,6 +3215,9 @@ class RoadmapMessages:
     verify_reason_bytes: str = "a word holds a NUL byte or a character that cannot be encoded"
     verify_reason_long: str = "it is longer than {limit} characters"
     verify_reason_program: str = "`{program}` is not one of: {allowed}"
+    verify_reason_git: str = (
+        "`git` runs only as the negative search `! git grep -n <literal> -- <paths>`"
+    )
     implement_stop_command_timeout: str = "{command} ran out of time after {seconds} s."
     implement_formatted: str = "Formatted: {paths}"
     implement_stop_link: str = (

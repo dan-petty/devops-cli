@@ -98,7 +98,7 @@ def test_the_reason_shows_the_escapes_of_a_command_that_is_refused() -> None:
 
     assert reason == (
         "The verification command curl \\x1b[31mRED\\u202e @octocat is refused: "
-        "`curl` is not one of: git, uv, ruff, mypy, grep, cat, ls, head, tail, wc, find, openspec, "
+        "`curl` is not one of: uv, ruff, mypy, grep, cat, ls, head, tail, wc, find, openspec, "
         "devops."
     )
 
@@ -240,7 +240,7 @@ def test_an_option_word_and_the_first_word_are_shown_escaped() -> None:
         "the option `-\\x1b[31m` is not allowed (the options are -n -I -F -i -w -l -c -q)"
     )
     assert verification_problem("cu\x1brl x") == (
-        "`cu\\x1brl` is not one of: git, uv, ruff, mypy, grep, cat, ls, head, tail, wc, find, "
+        "`cu\\x1brl` is not one of: uv, ruff, mypy, grep, cat, ls, head, tail, wc, find, "
         "openspec, devops"
     )
     assert verification_problem("! git grep -n x 'a\x1bb'") == (

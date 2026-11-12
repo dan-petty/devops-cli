@@ -17,8 +17,10 @@ from pathlib import Path
 import pytest
 
 from devops_cli.core.process import DefaultProcessRunner
-from tests.support.fakes.process import ProcessAnswer, ProcessCall
+from devops_cli.roadmap.implement.implement_step import commands_failure
+from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
 from tests.support.github_identity import PINNED_GITHUB_TOKEN
+from tests.support.implement_step import make_checkout
 from tests.support.model_script import ModelScript, say, tool_calls
 from tests.support.roadmap_implement import (
     BRANCH,
@@ -156,3 +158,39 @@ def test_no_program_that_the_configuration_of_the_clone_names_sees_the_token(
 
     seen = capture.read_text(encoding="utf-8") if capture.exists() else ""
     assert PINNED_GITHUB_TOKEN not in seen
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "git ls-remote --upload-pack={probe} {remote}",
+        "git -c gc.auto=0 ls-remote --upload-pack={probe} {remote}",
+        "git fetch --upload-pack={probe} {remote}",
+    ],
+)
+def test_a_verification_command_that_reaches_a_remote_runs_no_program_with_the_token(
+    implement_programs: ProcessFake, tmp_path: Path, command: str
+) -> None:
+    """A plan can name a network git call as a verification command. The step runs none: in the
+    checkout, such a call reads the configuration that the agent can write, and the process runner
+    gives a git call that reaches a remote the token. The probe that the command names never runs."""
+    implement_programs.answer("git", ProcessAnswer(side_effect=_through_the_runner))
+    checkout = make_checkout(tmp_path)
+    capture = tmp_path / "capture.txt"
+    probe = tmp_path / "probe"
+    probe.write_text(
+        f"#!/bin/sh\nprintf 'probe %s\\n' \"${{#GH_TOKEN}}\" >> '{capture}'\nexit 1\n",
+        encoding="utf-8",
+    )
+    probe.chmod(0o755)
+    named = command.format(probe=probe, remote=checkout)
+
+    reason = commands_failure(checkout, [named]) or ""
+
+    assert (
+        capture.exists(),
+        reason.startswith(f"The verification command {named} is refused: "),
+    ) == (
+        False,
+        True,
+    )

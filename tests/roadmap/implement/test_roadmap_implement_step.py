@@ -44,8 +44,8 @@ from devops_cli.roadmap.failure import FailureClass
 from devops_cli.roadmap.implement import implement_step
 from devops_cli.roadmap.implement.implement_limits import StepBudget
 from devops_cli.roadmap.implement.implement_shell_policy import (
-    IMPLEMENT_ALLOWED_PROGRAMS,
     IMPLEMENT_SHELL_PROGRAMS,
+    VERIFICATION_FIRST_WORDS,
 )
 from devops_cli.roadmap.implement.implement_step import (
     FixRequest,
@@ -471,7 +471,7 @@ def test_a_verification_command_outside_the_allowlist_does_not_run(
     assert (outcome.status, outcome.reason, programs_run(programs, "curl")) == (
         StepStatus.STOPPED,
         "The verification command curl http://example.com is refused: `curl` is not one of: "
-        + ", ".join(IMPLEMENT_ALLOWED_PROGRAMS)
+        + ", ".join(VERIFICATION_FIRST_WORDS)
         + ".",
         [],
     )

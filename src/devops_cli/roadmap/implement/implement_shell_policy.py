@@ -210,6 +210,13 @@ SHELL_REFUSALS: tuple[ShellRefusal, ...] = (
 # The views of the two tables that the guard, the log and the tests read.
 IMPLEMENT_SHELL_PROGRAMS: tuple[str, ...] = tuple(program.name for program in SHELL_PROGRAMS)
 IMPLEMENT_ALLOWED_PROGRAMS: tuple[str, ...] = (*IMPLEMENT_SHELL_PROGRAMS, *VERIFICATION_PROGRAMS)
+# The first words of a verification command other than the `!` of a negative search. git is not
+# one: the step runs a verification command in the checkout, where git reads the configuration that
+# the agent can write, and the process runner gives a git call that reaches a remote the token
+# (GHSA). So a verification command runs git only as the negative search, which reaches no remote.
+VERIFICATION_FIRST_WORDS: tuple[str, ...] = tuple(
+    name for name in IMPLEMENT_ALLOWED_PROGRAMS if name != BIN_GIT
+)
 IMPLEMENT_SHELL_REPLACEMENTS: dict[str, str] = {
     refusal.program: refusal.instead for refusal in SHELL_REFUSALS
 }
@@ -487,8 +494,9 @@ def read_verification(command: str) -> Verification | str:
     refuses. The words are readable and can be arguments (no NUL byte, no lone surrogate: both
     raise in `execve`), they hold at most `CONST_ROADMAP_IMPLEMENT_VERIFY_CHARS` characters in all
     (a longer argument list fails `execve` with E2BIG), and the first word is a program of the
-    verification list or the `!` of a negative search in the fixed shape. The step and the gate of
-    the stage job read this function, so no command is refused by one side only."""
+    verification list (`VERIFICATION_FIRST_WORDS`) or the `!` of a negative search in the fixed
+    shape. git runs only as that search. The step and the gate of the stage job read this function,
+    so no command is refused by one side only."""
     texts = MESSAGES.roadmap
     try:
         words = shlex.split(command)
@@ -503,9 +511,11 @@ def read_verification(command: str) -> Verification | str:
     if words[0] == NEGATIVE_SEARCH_WORD:
         found = read_negative_search(words)
         return found if isinstance(found, str) else Verification(found.argv, negative=True)
-    if words[0] not in IMPLEMENT_ALLOWED_PROGRAMS:
+    if words[0] == BIN_GIT:
+        return texts.verify_reason_git
+    if words[0] not in VERIFICATION_FIRST_WORDS:
         return texts.verify_reason_program.format(
-            program=shown(words[0]), allowed=", ".join(IMPLEMENT_ALLOWED_PROGRAMS)
+            program=shown(words[0]), allowed=", ".join(VERIFICATION_FIRST_WORDS)
         )
     return Verification(words)
 
