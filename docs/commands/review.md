@@ -10,7 +10,7 @@ devops review [OPTIONS] COMMAND [ARGS]...
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--explain`, `-e` | `boolean` | - | Explain code review personas, severity levels, and terminology. |
+| `--explain`, `-e` | `boolean` | - | Explain the review stages, severity levels and terms. |
 
 ## Commands
 
@@ -36,7 +36,7 @@ devops review path [OPTIONS] <targets>
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 | `--summary`, `-s` | `boolean` | - | Has no effect: every review runs the staged pipeline, which does not read it. |
 | `--full` | `boolean` | - | Print the whole report to the terminal: every finding with its details, every dependency and every network reference. By default the terminal lists CRITICAL to MEDIUM findings, with details for CRITICAL and HIGH, and gives LOW and INFO findings, dependencies and network references one line each that points at review.md. |
-| `--explain`, `-e` | `boolean` | - | Explain code review personas, severity levels, and terminology. |
+| `--explain`, `-e` | `boolean` | - | Explain the review stages, severity levels and terms. |
 | `--no-pre-analysis` | `boolean` | - | Disable pre-analysis and metadata refresh. |
 | `--pre-analysis-only` | `boolean` | - | Run pre-analysis only and skip subsequent stages. |
 | `--no-static-scan` | `boolean` | - | Disable the static scan: the security analyzers and the Ruff, mypy and complexity evidence. |
@@ -78,7 +78,7 @@ devops review branch [OPTIONS] <branch_name>
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 | `--summary`, `-s` | `boolean` | - | Has no effect: every review runs the staged pipeline, which does not read it. |
 | `--full` | `boolean` | - | Print the whole report to the terminal: every finding with its details, every dependency and every network reference. By default the terminal lists CRITICAL to MEDIUM findings, with details for CRITICAL and HIGH, and gives LOW and INFO findings, dependencies and network references one line each that points at review.md. |
-| `--explain`, `-e` | `boolean` | - | Explain code review personas, severity levels, and terminology. |
+| `--explain`, `-e` | `boolean` | - | Explain the review stages, severity levels and terms. |
 | `--no-pre-analysis` | `boolean` | - | Disable pre-analysis and metadata refresh. |
 | `--pre-analysis-only` | `boolean` | - | Run pre-analysis only and skip subsequent stages. |
 | `--no-static-scan` | `boolean` | - | Disable the static scan: the security analyzers and the Ruff, mypy and complexity evidence. |
@@ -118,7 +118,7 @@ devops review pr [OPTIONS] <number>
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 | `--summary`, `-s` | `boolean` | - | Has no effect: every review runs the staged pipeline, which does not read it. |
 | `--full` | `boolean` | - | Print the whole report to the terminal: every finding with its details, every dependency and every network reference. By default the terminal lists CRITICAL to MEDIUM findings, with details for CRITICAL and HIGH, and gives LOW and INFO findings, dependencies and network references one line each that points at review.md. |
-| `--explain`, `-e` | `boolean` | - | Explain code review personas, severity levels, and terminology. |
+| `--explain`, `-e` | `boolean` | - | Explain the review stages, severity levels and terms. |
 | `--no-pre-analysis` | `boolean` | - | Disable pre-analysis and metadata refresh. |
 | `--pre-analysis-only` | `boolean` | - | Run pre-analysis only and skip subsequent stages. |
 | `--no-static-scan` | `boolean` | - | Disable the static scan: the security analyzers and the Ruff, mypy and complexity evidence. |

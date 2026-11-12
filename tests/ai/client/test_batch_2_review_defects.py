@@ -5,7 +5,6 @@ from __future__ import annotations
 import re
 from pathlib import Path
 from typing import TYPE_CHECKING
-from unittest.mock import MagicMock
 
 from pydantic_ai import Agent
 from pydantic_ai.models.test import TestModel
@@ -99,29 +98,24 @@ def test_orchestrated_review_comment_includes_verified_high_finding() -> None:
         report_markdown=report_md,
         static_analyzers={"Bandit": "ran"},
     )
-    mock_persona = MagicMock()
-    mock_persona.title = "Security Architect"
-
     comment = format_pr_review_comment(
-        reviews=[(mock_persona, res)],
+        reviews=[res],
         files=["src/auth.py"],
         static_analyzers={"Bandit": "ran"},
     )
     assert (
         "Zero findings identified." in comment,
         "SQL Injection in auth" in comment,
-        "## Review by Security Architect" in comment,
-    ) == (False, True, True)
+        "Review by" in comment,
+    ) == (False, True, False)
 
 
 def test_format_pr_review_comment_no_static_scanners_empty() -> None:
     """When no static scanners ran, comment reports Analyzers: None without PATH fallback."""
-    mock_persona = MagicMock()
-    mock_persona.title = "QA Engineer"
     res = ReviewResult(findings=[], summary="All tests pass.")
 
     comment = format_pr_review_comment(
-        reviews=[(mock_persona, res)],
+        reviews=[res],
         files=["src/app.py"],
         static_analyzers={},
     )

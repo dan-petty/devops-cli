@@ -263,18 +263,6 @@ def test_ai_chat_refuses_unknown_persona(cli: Callable[..., Any]) -> None:
     assert res.exit_code == 1
 
 
-def test_ai_pipeline_refuses_unknown_persona(cli: Callable[..., Any]) -> None:
-    """Verify pipeline rejects unknown persona names."""
-    res = cli("ai", "pipeline", "--personas", "bad_persona")
-    assert res.exit_code == 1
-
-
-def test_ai_pipeline_dry_run_exits_zero(cli: Callable[..., Any]) -> None:
-    """Verify pipeline runs under dry run mode without real execution."""
-    res = cli("--dry-run", "ai", "pipeline", "review repo")
-    assert (res.exit_code, "devops ai pipeline" in res.stdout) == (0, True)
-
-
 def test_ai_config_updates_connection_options(cli: Callable[..., Any]) -> None:
     """Verify config subcommand updates parallel and timeout options."""
     res = cli(
@@ -362,13 +350,6 @@ def test_ai_test_disables_cache_and_targets_url(
         True,
         1,
     )
-
-
-def test_ai_pipeline_runs_steps(cli: Callable[..., Any], model_fake: ModelFake) -> None:
-    """Verify multi-agent pipeline completes steps over model_fake."""
-    model_fake.answer("Security audit passed cleanly.")
-    res = cli("ai", "pipeline", "Audit workspace", "--personas", "devsecops", "--no-rag")
-    assert (res.exit_code, "Security audit passed cleanly." in res.stdout) == (0, True)
 
 
 def test_ai_token_count_warns_when_over_budget(cli: Callable[..., Any]) -> None:
@@ -746,36 +727,3 @@ def test_run_interactive_chat_turn_non_streaming_with_thoughts_and_tools() -> No
         stream=False,
     )
     agent.run_sync.assert_called_once_with("hello", message_history=[])
-
-
-def test_extract_stage_tool_calls_and_run_pipeline_stage() -> None:
-    """Verify tool call extraction from stage messages and stage runner (#2489)."""
-    from unittest.mock import patch
-
-    from pydantic_ai.messages import ToolCallPart
-
-    from devops_cli.ai.personas import Persona
-    from devops_cli.commands.ai import _extract_stage_tool_calls, _run_pipeline_stage
-    from devops_cli.config.settings import Settings
-
-    dummy_msg = MagicMock(parts=[ToolCallPart(tool_name="k8s_describe", args={"pod": "test-pod"})])
-
-    mock_res = MagicMock()
-    mock_res.new_messages.return_value = [dummy_msg]
-    calls = _extract_stage_tool_calls(mock_res)
-    assert calls == [("k8s_describe", {"pod": "test-pod"})]
-
-    mock_run_result = MagicMock(
-        new_messages=lambda: [dummy_msg],
-        output="Stage completed",
-    )
-
-    with patch("pydantic_ai.Agent.run_sync", return_value=mock_run_result):
-        output, tool_count = _run_pipeline_stage(
-            Persona.ARCHITECT,
-            stage_index=1,
-            current_prompt="Assess architecture",
-            settings=Settings(ai={"ollama_urls": ["http://localhost:11434"]}),
-        )
-        assert output == "Stage completed"
-        assert tool_count == 1

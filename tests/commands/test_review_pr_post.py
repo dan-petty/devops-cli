@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
-from devops_cli.ai.personas import PERSONAS, Persona, PersonaDefinition
 from devops_cli.ai.review.runner import format_pr_review_comment
 from devops_cli.ai.review_schema import Finding, ReviewResult
 from tests.support.fakes.github import (
@@ -25,16 +24,15 @@ if TYPE_CHECKING:
 pytestmark = [pytest.mark.usefixtures("keyring_store", "scanner_fake")]
 
 
-def test_zero_findings_comment_names_files_personas_and_analyzers() -> None:
-    """Verify zero-findings PR comment states exact files, personas, and analyzers that ran."""
-    persona_devsec = PERSONAS[Persona.DEVSECOPS]
+def test_zero_findings_comment_names_files_and_analyzers() -> None:
+    """Verify zero-findings PR comment states exact files and analyzers that ran, and names no
+    persona (#4827)."""
     res = ReviewResult(
-        persona=Persona.DEVSECOPS,
         recommendation="APPROVE",
         findings=[],
         summary="No defects found; consider adding docstrings.",
     )
-    reviews: list[tuple[PersonaDefinition, ReviewResult | str]] = [(persona_devsec, res)]
+    reviews: list[ReviewResult | str] = [res]
     files = ["src/auth.py", "src/token.py"]
     analyzers = {
         "Bandit": "ran",
@@ -53,7 +51,6 @@ def test_zero_findings_comment_names_files_personas_and_analyzers() -> None:
         "## 🤖 AI Code Review",
         "Zero findings identified.",
         "- **Files checked:** `src/auth.py`, `src/token.py`",
-        f"- **Personas:** {persona_devsec.title}",
         "- **Analyzers:** Bandit, Gitleaks",
         "## Model Notes (Not Verified)",
         "No defects found; consider adding docstrings.",
@@ -61,19 +58,18 @@ def test_zero_findings_comment_names_files_personas_and_analyzers() -> None:
     assert (
         all(frag in comment for frag in expected_fragments),
         "Positive observations" in comment,
-    ) == (True, False)
+        "Persona" in comment,
+    ) == (True, False, False)
 
 
 def test_zero_findings_comment_with_no_analyzers_and_no_summary() -> None:
     """Verify zero-findings comment when no analyzers ran and no summary was emitted."""
-    persona_qa = PERSONAS[Persona.QA]
     res = ReviewResult(
-        persona=Persona.QA,
         recommendation="APPROVE",
         findings=[],
         summary="",
     )
-    reviews: list[tuple[PersonaDefinition, ReviewResult | str]] = [(persona_qa, res)]
+    reviews: list[ReviewResult | str] = [res]
 
     comment = format_pr_review_comment(
         reviews=reviews,
@@ -87,7 +83,6 @@ def test_zero_findings_comment_with_no_analyzers_and_no_summary() -> None:
         "Zero findings identified.",
         "",
         "- **Files checked:** None",
-        f"- **Personas:** {persona_qa.title}",
         "- **Analyzers:** None",
     ]
     assert (
@@ -96,26 +91,19 @@ def test_zero_findings_comment_with_no_analyzers_and_no_summary() -> None:
     ) == (True, False)
 
 
-def test_zero_findings_comment_multiple_personas_model_notes() -> None:
-    """Verify model notes from multiple personas are formatted under persona subheadings."""
-    p_devsec = PERSONAS[Persona.DEVSECOPS]
-    p_arch = PERSONAS[Persona.ARCHITECT]
+def test_zero_findings_comment_gives_the_model_notes_of_each_result() -> None:
+    """Verify the model notes of two results follow one another under one heading (#4827)."""
     r1 = ReviewResult(
-        persona=Persona.DEVSECOPS,
         recommendation="APPROVE",
         findings=[],
         summary="Security posture is clean.",
     )
     r2 = ReviewResult(
-        persona=Persona.ARCHITECT,
         recommendation="APPROVE",
         findings=[],
         summary="Architecture exhibits low coupling.",
     )
-    reviews: list[tuple[PersonaDefinition, ReviewResult | str]] = [
-        (p_devsec, r1),
-        (p_arch, r2),
-    ]
+    reviews: list[ReviewResult | str] = [r1, r2]
 
     comment = format_pr_review_comment(
         reviews=reviews,
@@ -127,18 +115,15 @@ def test_zero_findings_comment_multiple_personas_model_notes() -> None:
         "## 🤖 AI Code Review",
         "Zero findings identified.",
         "- **Files checked:** `main.py`",
-        f"- **Personas:** {p_devsec.title}, {p_arch.title}",
         "- **Analyzers:** Bandit",
-        "## Model Notes (Not Verified)",
-        f"### {p_devsec.title}\n\nSecurity posture is clean.",
-        f"### {p_arch.title}\n\nArchitecture exhibits low coupling.",
+        "## Model Notes (Not Verified)\n\nSecurity posture is clean.\n\n"
+        "Architecture exhibits low coupling.",
     )
-    assert all(frag in comment for frag in expected_fragments) is True
+    assert (all(frag in comment for frag in expected_fragments), "###" in comment) == (True, False)
 
 
 def test_comment_with_findings_renders_findings_and_model_notes() -> None:
     """Verify PR comment with findings renders finding details and unverified notes."""
-    p_devsec = PERSONAS[Persona.DEVSECOPS]
     finding = Finding(
         severity="HIGH",
         title="Unvalidated URL Redirect",
@@ -148,18 +133,16 @@ def test_comment_with_findings_renders_findings_and_model_notes() -> None:
         verified=True,
     )
     res = ReviewResult(
-        persona=Persona.DEVSECOPS,
         recommendation="REQUEST CHANGES",
         findings=[finding],
         summary="Review completed with 1 high finding.",
     )
-    reviews: list[tuple[PersonaDefinition, ReviewResult | str]] = [(p_devsec, res)]
+    reviews: list[ReviewResult | str] = [res]
 
     comment = format_pr_review_comment(reviews=reviews, files=["src/auth.py"])
 
     expected_fragments = (
-        "## 🤖 AI Code Review",
-        f"## Review by {p_devsec.title}",
+        "## 🤖 AI Code Review\n\n**Recommendation: REQUEST CHANGES**",
         "## Findings",
         "### [HIGH] Unvalidated URL Redirect",
         "**Location:** `src/auth.py:42-50`",
@@ -172,7 +155,8 @@ def test_comment_with_findings_renders_findings_and_model_notes() -> None:
         all(frag in comment for frag in expected_fragments),
         "Zero findings identified" in comment,
         "Positive Observations" in comment,
-    ) == (True, False, False)
+        "Review by" in comment,
+    ) == (True, False, False, False)
 
 
 def _route_the_pull_request(

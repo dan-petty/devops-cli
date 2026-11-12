@@ -90,7 +90,6 @@ class AICommandHelp:
         "Benchmark, evaluate, and peer-grade candidate AI models across engineering tasks."
     )
     cache: str = "Manage LLM response cache, performance metrics, and warm starting points."
-    pipeline: str = "Run multi-agent AI pipeline execution across personas."
     bundle: str = "Bundle local AI model artifacts and instruction context."
     bundle_output_dir: str = (
         "Bundle directory; a relative path is a data path under the main worktree, like "
@@ -145,13 +144,6 @@ class AICommandHelp:
     prewarm_evict: str = "Evict the model from GPU VRAM immediately (sets keep_alive to 0)."
     explain_chat: str = "Explain chat personas, tools, and reasoning modes."
     explain_all: str = "Explain AI agent workflows, FastMCP tools, RAG terminology, and metrics."
-    goal: str = "Initial goal or prompt for the multi-agent pipeline."
-    personas_seq: str = "Comma-separated persona pipeline sequence (e.g. devsecops,architect,qa)."
-    max_turns: str = "Maximum tool turns per agent stage."
-    pipeline_stage_context_tokens: str = (
-        "Maximum context tokens from previous stages to carry into each pipeline stage "
-        "(0 to disable budget)."
-    )
     token_target: str = "File path or text string to calculate tokens for."
     budget: str = "Max context token budget limit."
     cost_task: str = "Task name (e.g. review, scan)."
@@ -1965,7 +1957,7 @@ class ReviewCommandHelp:
         "JSONL dataset to append to (default: the configured data.feedback_dataset_path)."
     )
     status_export: str = "Finding status to export: INVALIDATED, VERIFIED, MITIGATED, or ALL."
-    explain_review: str = "Explain code review personas, severity levels, and terminology."
+    explain_review: str = "Explain the review stages, severity levels and terms."
     no_pre_analysis: str = "Disable pre-analysis and metadata refresh."
     pre_analysis_only: str = "Run pre-analysis only and skip subsequent stages."
     no_static_scan: str = "Disable the static scan: the security analyzers and the Ruff, mypy and complexity evidence."

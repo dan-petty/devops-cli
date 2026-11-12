@@ -138,7 +138,7 @@ CONST_SETTINGS_SECTION_METADATA: Final[dict[str, tuple[str, str]]] = {
     ),
     "ai": (
         "AI & LLM Configuration (`ai`)",
-        "AI code review, multi-agent pipelines, RAG semantic search, and embeddings.",
+        "AI code review, chat agents, RAG semantic search, and embeddings.",
     ),
     "open_webui": (
         "Open WebUI Configuration (`open_webui`)",
@@ -2998,9 +2998,6 @@ CONST_AI_GATEWAY_URL_SETTINGS: Final[dict[str, str]] = {
 # count in the same limit, so the cap is about 8 times the default. It is far under the 128,000
 # output tokens that `claude-sonnet-5-5` allows.
 CONST_AI_CLAUDE_GROUP_MAX_OUTPUT_TOKENS: Final[int] = 32_000
-CONST_PIPELINE_STAGE_TRUNCATION_SUFFIX: Final[str] = (
-    "\n...[stage output truncated to the stage context budget]"
-)
 # The loopback host name (RFC 6761). With the loopback addresses, which `ipaddress` recognises,
 # it names the workstation itself, so a configured service URL may use it without
 # `ai.allow_private_network` (`configured_level`).

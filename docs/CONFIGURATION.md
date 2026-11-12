@@ -192,7 +192,7 @@ Limit on how many CPU-heavy `devops ci` gates run at once on one host.
 
 ## AI & LLM Configuration (`ai`)
 
-AI code review, multi-agent pipelines, RAG semantic search, and embeddings.
+AI code review, chat agents, RAG semantic search, and embeddings.
 
 | Option | Type | Default | Environment Variable | Description |
 |---|---|---|---|---|

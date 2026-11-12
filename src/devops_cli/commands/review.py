@@ -10,7 +10,6 @@ from typing import TYPE_CHECKING, Annotated, Any
 
 if TYPE_CHECKING:
     from devops_cli.ai.analyze.symbols import BaseRevision
-    from devops_cli.ai.personas import PersonaDefinition
     from devops_cli.ai.review_schema import ReviewResult
     from devops_cli.config.settings import Settings
     from devops_cli.github.client import PullRequest
@@ -722,7 +721,7 @@ def _run_pr_review_workflow(
     repo_arg: str | None = None,
     *,
     checkout: Path,
-) -> list[tuple[PersonaDefinition, ReviewResult | str]]:
+) -> list[ReviewResult | str]:
     """Execute PR review workflow, using detached worktree if available, else partial context.
 
     `checkout` is the local checkout of the PR's repository, which the command gives."""

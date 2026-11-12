@@ -1771,7 +1771,7 @@ Review a git branch diff.
 | `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 | `summary` | `boolean` | No | `False` | Has no effect: every review runs the staged pipeline, which does not read it. |
 | `full` | `boolean` | No | `False` | Print the whole report to the terminal: every finding with its details, every dependency and every network reference. By default the terminal lists CRITICAL to MEDIUM findings, with details for CRITICAL and HIGH, and gives LOW and INFO findings, dependencies and network references one line each that points at review.md. |
-| `explain` | `boolean` | No | `False` | Explain code review personas, severity levels, and terminology. |
+| `explain` | `boolean` | No | `False` | Explain the review stages, severity levels and terms. |
 | `no_pre_analysis` | `boolean` | No | `False` | Disable pre-analysis and metadata refresh. |
 | `pre_analysis_only` | `boolean` | No | `False` | Run pre-analysis only and skip subsequent stages. |
 | `no_static_scan` | `boolean` | No | `False` | Disable the static scan: the security analyzers and the Ruff, mypy and complexity evidence. |
@@ -1852,7 +1852,7 @@ Review source files directly (no git required).
 | `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 | `summary` | `boolean` | No | `False` | Has no effect: every review runs the staged pipeline, which does not read it. |
 | `full` | `boolean` | No | `False` | Print the whole report to the terminal: every finding with its details, every dependency and every network reference. By default the terminal lists CRITICAL to MEDIUM findings, with details for CRITICAL and HIGH, and gives LOW and INFO findings, dependencies and network references one line each that points at review.md. |
-| `explain` | `boolean` | No | `False` | Explain code review personas, severity levels, and terminology. |
+| `explain` | `boolean` | No | `False` | Explain the review stages, severity levels and terms. |
 | `no_pre_analysis` | `boolean` | No | `False` | Disable pre-analysis and metadata refresh. |
 | `pre_analysis_only` | `boolean` | No | `False` | Run pre-analysis only and skip subsequent stages. |
 | `no_static_scan` | `boolean` | No | `False` | Disable the static scan: the security analyzers and the Ruff, mypy and complexity evidence. |
@@ -1885,7 +1885,7 @@ Review a GitHub pull request.
 | `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 | `summary` | `boolean` | No | `False` | Has no effect: every review runs the staged pipeline, which does not read it. |
 | `full` | `boolean` | No | `False` | Print the whole report to the terminal: every finding with its details, every dependency and every network reference. By default the terminal lists CRITICAL to MEDIUM findings, with details for CRITICAL and HIGH, and gives LOW and INFO findings, dependencies and network references one line each that points at review.md. |
-| `explain` | `boolean` | No | `False` | Explain code review personas, severity levels, and terminology. |
+| `explain` | `boolean` | No | `False` | Explain the review stages, severity levels and terms. |
 | `no_pre_analysis` | `boolean` | No | `False` | Disable pre-analysis and metadata refresh. |
 | `pre_analysis_only` | `boolean` | No | `False` | Run pre-analysis only and skip subsequent stages. |
 | `no_static_scan` | `boolean` | No | `False` | Disable the static scan: the security analyzers and the Ruff, mypy and complexity evidence. |

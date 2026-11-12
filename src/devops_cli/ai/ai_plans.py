@@ -242,36 +242,6 @@ def plan_ai_models() -> list[PlannedRequest]:
     ]
 
 
-def plan_ai_pipeline(
-    prompt: str,
-    personas: Sequence[str],
-    stage_context_tokens: int | None = None,
-) -> list[PlannedRequest]:
-    """Plan multi-agent pipeline prompt execution requests."""
-    settings = load_settings()
-    provider = settings.ai.provider
-    if provider == "ollama":
-        endpoint = (settings.ai.get_ollama_urls or ["http://localhost:11434"])[0]
-        target = f"{endpoint.rstrip('/')}/api/chat"
-    else:
-        base = settings.ai.api_base_url or "https://api.openai.com/v1"
-        target = f"{base.rstrip('/')}/chat/completions"
-
-    return [
-        PlannedRequest(
-            method="POST",
-            target=target,
-            stdin=(
-                f'{{"persona": "{p}", "prompt": "<stage-context>", "stage_context_tokens": {stage_context_tokens}}}'
-                if stage_context_tokens is not None
-                else f'{{"persona": "{p}", "prompt": "<stage-context>"}}'
-            ),
-            repeat=f"for persona '{p}'",
-        )
-        for p in personas
-    ]
-
-
 def plan_ai_preload() -> list[PlannedRequest]:
     """Plan preloading configured model into VRAM across all configured Ollama servers."""
     settings = load_settings()

@@ -36,7 +36,7 @@ def test_review_path_workflow(tmp_path: Path) -> None:
     py_file = tmp_path / "app.py"
     py_file.write_text("def run():\n    pass\n", encoding="utf-8")
 
-    mock_wf = [(MagicMock(title="Architect", name="architect"), "Review comments")]
+    mock_wf = ["Review comments"]
     with (
         patch(
             "devops_cli.commands.review._prepare_path_content",
@@ -51,7 +51,7 @@ def test_review_path_workflow(tmp_path: Path) -> None:
 def test_review_branch_workflow() -> None:
     """Verify devops review branch workflow execution, handed the base revision its diff
     starts from (#593)."""
-    mock_wf = [(MagicMock(title="DevSecOps", name="devsecops"), "Security comments")]
+    mock_wf = ["Security comments"]
     prepared = (
         ["diff content"],
         "Branch Review",
@@ -76,7 +76,7 @@ def test_review_pr_workflow() -> None:
     """Verify devops review pr workflow execution, handed the base revision its diff starts
     from (#593)."""
     mock_pull = MagicMock()
-    mock_wf = [(MagicMock(title="QA", name="qa"), "QA feedback")]
+    mock_wf = ["QA feedback"]
     prepared = (["pr diff"], "PR 10", mock_pull, "org/repo", sentinel.base_revision)
 
     with (

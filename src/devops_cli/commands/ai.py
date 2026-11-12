@@ -46,13 +46,9 @@ from devops_cli.config.constants import (
 )
 from devops_cli.config.defaults import (
     DEFAULT_AI_EVICT_KEEP_ALIVE,
-    DEFAULT_AI_PIPELINE_MAX_TURNS,
-    DEFAULT_AI_PIPELINE_PERSONAS,
-    DEFAULT_AI_PIPELINE_PROMPT,
     DEFAULT_AI_PREWARM_KEEP_ALIVE,
     DEFAULT_AI_TEST_PROMPT,
     DEFAULT_DIFF_CHUNK_BUDGET,
-    DEFAULT_PIPELINE_STAGE_CONTEXT_TOKENS,
     DEFAULT_TABLE_FORMAT,
     DEFAULT_TIKTOKEN_MODEL,
 )
@@ -1342,155 +1338,6 @@ def bundle_models(
 
     count, manifest_path = bundle_ollama_models(output_dir=output_dir)
     print_success(f"Bundled {count} model(s) → [bold]{manifest_path}[/bold]")
-
-
-# =============================================================================
-# Command: devops ai pipeline
-# =============================================================================
-
-
-def _extract_stage_tool_calls(res: Any) -> list[tuple[str, Any]]:
-    """Extract tool call names and args from run result messages."""
-    stage_tools_called: list[tuple[str, Any]] = []
-    for msg in res.new_messages():
-        for part in getattr(msg, "parts", []):
-            if type(part).__name__ == "ToolCallPart":
-                t_name = getattr(part, "tool_name", "")
-                t_args = (
-                    getattr(part, "args_as_dict", lambda: {})()
-                    if hasattr(part, "args_as_dict")
-                    else getattr(part, "args", {})
-                )
-                stage_tools_called.append((t_name, t_args))
-    return stage_tools_called
-
-
-def _run_pipeline_stage(
-    persona: Persona,
-    stage_index: int,
-    current_prompt: str,
-    settings: Any,
-) -> tuple[str, int]:
-    """Execute a single pipeline persona stage."""
-    from devops_cli.ai.client.factory import build_agent
-    from devops_cli.ai.personas import PERSONAS
-    from devops_cli.ai.tools import get_persona_tools
-
-    p_def = PERSONAS[persona]
-    stage_tools = get_persona_tools(persona)
-    stage_agent = build_agent(
-        task="chat",
-        system_prompt=p_def.system_prompt,
-        name=p_def.title,
-        tools=stage_tools,
-        settings=settings,
-    )
-    print_section(f" Stage {stage_index}: {p_def.title} ", style="bold green")
-    res = stage_agent.run_sync(current_prompt)
-    tools_called = _extract_stage_tool_calls(res)
-    if tools_called:
-        print_info(f"[dim]Executed {len(tools_called)} tool call(s):[/dim]", prefix=False)
-        for t_name, t_args in tools_called:
-            print_info(f"  [yellow]⚡ {t_name}[/yellow]({t_args})", prefix=False)
-    output_str = str(res.output).strip()
-    print_info(f"\n{output_str}\n", prefix=False)
-    return output_str, len(tools_called)
-
-
-@dry_run_class("request-plan")
-@app.command("pipeline")
-def pipeline(
-    prompt: Annotated[
-        str,
-        typer.Argument(
-            help=HELP.ai.goal,
-        ),
-    ] = DEFAULT_AI_PIPELINE_PROMPT,
-    personas: Annotated[
-        str,
-        typer.Option(
-            "--personas",
-            "-p",
-            help=HELP.ai.personas_seq,
-        ),
-    ] = DEFAULT_AI_PIPELINE_PERSONAS,
-    max_turns: Annotated[
-        int,
-        typer.Option("--max-turns", help=HELP.ai.max_turns),
-    ] = DEFAULT_AI_PIPELINE_MAX_TURNS,
-    rag: Annotated[bool, typer.Option("--rag/--no-rag", help=HELP.ai.rag_context)] = True,
-    thinking: Annotated[
-        bool,
-        typer.Option("--thinking/--no-thinking", help=HELP.ai.thinking),
-    ] = True,
-    stage_context_tokens: Annotated[
-        int,
-        typer.Option(
-            "--stage-context-tokens",
-            help=HELP.ai.pipeline_stage_context_tokens,
-        ),
-    ] = DEFAULT_PIPELINE_STAGE_CONTEXT_TOKENS,
-    dry_run: Annotated[
-        bool,
-        typer.Option("--dry-run", help=HELP.options.dry_run),
-    ] = False,
-) -> None:
-    """Run a multi-agent Pydantic pipeline with shared DevOps tools and RAG context."""
-    from devops_cli.ai.client import get_llm_client
-    from devops_cli.ai.context_budget import truncate_to_token_limit
-    from devops_cli.ai.personas import Persona
-    from devops_cli.config.settings import load_settings
-    from devops_cli.dry_run import is_dry_run
-
-    persona_names = [p.strip().lower() for p in personas.split(",") if p.strip()]
-    valid_personas: list[Persona] = []
-    for name in persona_names:
-        if name not in _PERSONA_NAMES:
-            print_error(
-                f"Unknown persona {name!r}. Choose from: {', '.join(_PERSONA_NAMES)}", prefix=False
-            )
-            raise typer.Exit(1)
-        valid_personas.append(Persona(name))
-
-    if dry_run or is_dry_run():
-        from devops_cli.ai.ai_plans import plan_ai_pipeline
-
-        planned = plan_ai_pipeline(
-            prompt=prompt,
-            personas=[p.value for p in valid_personas],
-            stage_context_tokens=stage_context_tokens,
-        )
-        render_request_plan("Plan for multi-agent AI pipeline (devops ai pipeline)", planned)
-        return
-
-    settings = load_settings()
-    client = get_llm_client(task="chat", settings=settings)
-
-    print_section(
-        f" [cyan]Multi-Agent Pipeline ({len(valid_personas)} Stages)[/cyan]  "
-        f"[dim]{client.backend_info}[/dim] ",
-        style="cyan",
-    )
-    print_info(f"[bold]Initial Prompt:[/bold] {prompt}\n", prefix=False)
-
-    effective_prompt = prompt
-    if rag:
-        rag_ctx = retrieve_rag_context(prompt, top_k=5)
-        if rag_ctx:
-            effective_prompt = f"{rag_ctx}\n\nPipeline Goal: {prompt}"
-
-    total_tool_calls = 0
-    current_prompt = effective_prompt
-    for idx, p in enumerate(valid_personas, 1):
-        output_str, calls_count = _run_pipeline_stage(p, idx, current_prompt, settings)
-        total_tool_calls += calls_count
-        truncated_prev = truncate_to_token_limit(output_str, stage_context_tokens)
-        current_prompt = f"Previous stage output:\n{truncated_prev}\n\nPipeline Goal: {prompt}"
-
-    print_success(
-        f"Multi-agent pipeline completed across {len(valid_personas)} stage(s) "
-        f"({len(valid_personas)} total turns, {total_tool_calls} tool executions)."
-    )
 
 
 # =============================================================================

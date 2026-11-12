@@ -381,10 +381,10 @@ def test_a_branch_with_only_routed_files_makes_no_model_call(
     monkeypatch: pytest.MonkeyPatch,
     secret_scan: dict[str, list[list[Path]]],
 ) -> None:
-    """Verify a branch that touches only a change folder calls no model and never reaches the
-    persona loop, still scans the change folder for secrets, and says nothing was left for the
-    personas. The page builder yielded one empty page, the orchestrator found no files, and the
-    legacy engine sent that page to the model."""
+    """Verify a branch that touches only a change folder calls no model, still scans the change
+    folder for secrets, and says that only the secret scan reads it. The page builder yielded one
+    empty page, the orchestrator found no files, and the legacy engine sent that page to the
+    model."""
     root = tmp_path / "project"
     _branch(root, git, ("openspec/changes/1-x/tasks.md",))
     pages, title, target, base_revision = prepare_branch_content(
@@ -411,7 +411,7 @@ def test_a_branch_with_only_routed_files_makes_no_model_call(
     assert (
         model.method_calls,
         secret_scan["Gitleaks"],
-        any("Nothing is left for the personas" in line for line in printed),
+        any("which only the secret scan reads" in line for line in printed),
     ) == ([], [[root / "openspec/changes/1-x/tasks.md"]], True)
 
 

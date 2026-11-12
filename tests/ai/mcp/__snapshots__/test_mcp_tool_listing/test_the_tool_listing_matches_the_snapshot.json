@@ -4297,7 +4297,7 @@
         },
         "explain": {
           "default": false,
-          "description": "Explain code review personas, severity levels, and terminology.",
+          "description": "Explain the review stages, severity levels and terms.",
           "type": "boolean"
         },
         "force": {
@@ -4536,7 +4536,7 @@
         },
         "explain": {
           "default": false,
-          "description": "Explain code review personas, severity levels, and terminology.",
+          "description": "Explain the review stages, severity levels and terms.",
           "type": "boolean"
         },
         "force": {
@@ -4669,7 +4669,7 @@
         },
         "explain": {
           "default": false,
-          "description": "Explain code review personas, severity levels, and terminology.",
+          "description": "Explain the review stages, severity levels and terms.",
           "type": "boolean"
         },
         "force": {
