@@ -3293,9 +3293,10 @@ CONST_ROADMAP_INVESTIGATION_REPLY_WINDOW_SHARE: Final[int] = 4
 CONST_ROADMAP_STAGE_TOOL_MAX_CALLS: Final[int] = 200
 CONST_ROADMAP_STAGE_MAX_REQUESTS: Final[int] = 250
 # The hard ceiling of `roadmap.stage.gate_returns` (#4900). Each return is one more plan run with
-# the counts above, so one item with a review makes 3R + 4 plan runs at most: 13 at this ceiling. A
-# plan run took about 728 s at p90 on 2026-11-11, so 13 runs are about 2.6 hours, and a value of 10
-# would give 34 runs. The settings load refuses a value above it.
+# the counts above, so one item with a review of the default 2 repair rounds makes 3R + 4 plan runs
+# at most: 13 at this ceiling. A plan run took about 728 s at p90 on 2026-11-11, so 13 runs are
+# about 2.6 hours, and a value of 10 would give 34 runs. The settings load refuses a value above it.
+# The ceiling of the review rounds below gives 5R + 6 plan runs at most: 21 (#5066).
 CONST_ROADMAP_STAGE_GATE_RETURNS_CEILING: Final[int] = 3
 # The call budget of a stage run (#4346). The prompt of a run says how many tool calls it needs
 # (`*_CALLS_ADVISED`), and from the call `*_CALLS_NOTICE` each tool answer ends with a notice to give
@@ -3373,9 +3374,13 @@ CONST_ROADMAP_DEFINITION_READ_FILES: Final[int] = 20
 CONST_ROADMAP_STAGE_VERIFY_BODY_MAX_TOKENS: Final[int] = 6000
 CONST_ROADMAP_STAGE_VERIFY_FILE_MAX_TOKENS: Final[int] = 1500
 CONST_ROADMAP_STAGE_VERIFY_MAX_FILES: Final[int] = 30
-# The repair rounds of a plan that the verification pass returns (#3039): the planner revises the
-# plan at most this many times, so a plan costs at most three verification runs.
-CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS: Final[int] = 2
+# The hard ceiling of the repair rounds of a plan that the model review returns (#5066): of the
+# setting `roadmap.stage.verify_repair_rounds`, and of the rounds that follow it while the count of
+# open findings drops. A plan costs at most 5 review runs at this ceiling. Each round is one more
+# plan run with its gate returns (R), so one item makes at most 5R + 6 plan runs: 21 at both
+# ceilings, about 4.2 hours at the p90 of 728 s of 2026-11-11. The settings load refuses a value
+# above it.
+CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS_CEILING: Final[int] = 4
 # The `plan_defect` failures of one item on the same body (#4491): the failure that reaches this
 # count returns the item to New with the problems of its refused replies. In 48 hours, 5 of the 6
 # plans that staged came after 2 refused plans, and 27 items failed more than 2 times.

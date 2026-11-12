@@ -341,7 +341,7 @@ uv run devops roadmap eval stage --replay
 
 A plan is acceptable when a person merges it without rework. The golden set measures this before a plan reaches a person. A model, a prompt or a cap is acceptable for the stage job when the golden set shows all of these:
 
-- **Recall.** After the gates and the verification pass, the job finds at least 90% of the known defects of the severities `blocker` and `major`. `devops roadmap eval verify` prints this recall and the floor, which is `CONST_ROADMAP_VERIFY_RECALL_FLOOR` (0.9), and states whether the recall reaches it. The verification pass returns a plan at most two repair rounds (`CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS`, #3039).
+- **Recall.** After the gates and the verification pass, the job finds at least 90% of the known defects of the severities `blocker` and `major`. `devops roadmap eval verify` prints this recall and the floor, which is `CONST_ROADMAP_VERIFY_RECALL_FLOOR` (0.9), and states whether the recall reaches it. The verification pass returns a plan `roadmap.stage.verify_repair_rounds` repair rounds (default 2, #3039), and one more round while the count of open findings drops, up to 4 rounds (`CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS_CEILING`, #5066).
 - **Good plans.** The verification pass makes no finding on the good plans of the golden set.
 - **Live plans.** At least 80% of the plan pull requests that the job opens in a period are merged without a hold. A person reads the pull requests and records the share.
 

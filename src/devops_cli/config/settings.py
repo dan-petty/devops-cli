@@ -44,6 +44,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_IMPLEMENT_STEP_CLASSES,
     CONST_ROADMAP_SIZE_OPTIONS,
     CONST_ROADMAP_STAGE_GATE_RETURNS_CEILING,
+    CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS_CEILING,
     CONST_SETTINGS_CACHE_SETTLE_SECONDS,
 )
 from devops_cli.config.constants import (
@@ -128,6 +129,7 @@ from devops_cli.config.defaults import (
     DEFAULT_ROADMAP_STAGE_PLANNED_LIMIT,
     DEFAULT_ROADMAP_STAGE_STEP_TOKENS,
     DEFAULT_ROADMAP_STAGE_TOOLSET,
+    DEFAULT_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS,
     DEFAULT_RUNS_DATA_DIR,
     DEFAULT_SAMPLES_DATA_DIR,
     DEFAULT_SANDBOX_EXCLUDE_HOME,
@@ -1008,6 +1010,12 @@ class RoadmapStageConfig(BaseModel):
         default=DEFAULT_ROADMAP_STAGE_GATE_RETURNS,
         ge=0,
         le=CONST_ROADMAP_STAGE_GATE_RETURNS_CEILING,
+    )
+    verify_repair_rounds: Annotated[int, Variable()] = Field(
+        description="How many times the model review of a stage plan sends the plan back to the planner while the review has an open finding. After the last of these rounds, one more round follows while the count of open findings of the last review is lower than that of the review before it. No item gets more than 4 repair rounds, so the value is at most 4. After the Service stops, no round starts",
+        default=DEFAULT_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS,
+        ge=0,
+        le=CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS_CEILING,
     )
     step_tokens: Annotated[int, Variable()] = Field(
         description="The most tokens that the inputs of one implementation step may hold: the step's instructions, the AGENTS.md of the repository and the documents it routes the group to, the item, the change folder and the packed files of one task group; `devops roadmap stage` splits a task group over it",
