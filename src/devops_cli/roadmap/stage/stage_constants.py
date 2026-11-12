@@ -3,7 +3,7 @@
 A plan that carries a number from an issue or plan text is a claim that the number holds in the
 code. This module extracts constant names and candidate numbers from plan texts, reads module-level
 integer constants from the staged repository commit using `git grep`, `git show`, and `ast`, and
-refuses a plan when a sentence states a different number.
+refuses a plan when a sentence gives a constant a different value.
 """
 
 from __future__ import annotations
@@ -46,8 +46,16 @@ _EXCLUDED_NAMES: Final[frozenset[str]] = frozenset(
 )
 
 # A candidate decimal integer: not part of a note reference (#2714), line location (:12),
-# date (2026-11-03), or version/path (v1.0.0, a/40).
-_CANDIDATE_NUMBER: Final[re.Pattern[str]] = re.compile(r"(?<![#:\w/.])(?<!\d-)(\d+)(?![/.]\w|-\d)")
+# date (2026-11-03), range (1790-2000), or version/path (v1.0.0, a/40). `(?!\d)` keeps the
+# digits whole, so the engine does not backtrack from `1790` to `179`.
+_CANDIDATE_NUMBER: Final[re.Pattern[str]] = re.compile(
+    r"(?<![#:\w/.])(?<!\d-)(\d+)(?!\d|[/.]\w|-\d)"
+)
+
+# The text between a constant name and the value that a plan gives it: `NAME = 40`,
+# `NAME: Final[int] = 40`, `NAME` is 40, or sets `NAME` to 40 (#5034). An operand (`NAME + 1`),
+# an option value (`-n 0`) or the value of another name in the sentence is no value of `NAME`.
+_VALUE_LINK: Final[str] = r"`?(?:\s*:\s*[\w.\[\]]+\s*=|\s*(?:==?|is\b|to\b))\s*`?"
 
 _PARAGRAPH_SPLIT: Final[re.Pattern[str]] = re.compile(r"\n\s*(?:[-*]\s+|\d+\.\s+|#+\s+|\n+)")
 _SENTENCE_SPLIT: Final[re.Pattern[str]] = re.compile(r"(?<=[.!?])\s+")
@@ -238,9 +246,16 @@ def staged_constants(source: Path, sha: str, names: Iterable[str]) -> dict[str, 
     return parse_constants(loaded_sources, names=candidate_set)
 
 
+def _states_value(sentence: str, constant: str, number: re.Match[str]) -> bool:
+    """Whether `number` follows `constant` with `=`, `is` or `to` in `sentence` (#5034)."""
+    link = re.compile(rf"\b{re.escape(constant)}\b{_VALUE_LINK}$")
+    return link.search(sentence, 0, number.start()) is not None
+
+
 def constant_problems(texts: Iterable[str], constants: Mapping[str, int]) -> list[str]:
-    """One problem for each sentence that names one known constant and holds one candidate number
-    that differs from the staged tree value (#3308)."""
+    """One problem for each sentence that names one known constant, holds one candidate number,
+    gives that number to the constant with `=`, `is` or `to`, and differs from the staged tree
+    value (#3308, #5034)."""
     if not constants:
         return []
     problems: list[str] = []
@@ -250,11 +265,11 @@ def constant_problems(texts: Iterable[str], constants: Mapping[str, int]) -> lis
             known = [name for name in constants if re.search(rf"\b{re.escape(name)}\b", sentence)]
             if len(known) != 1:
                 continue
-            numbers = [int(m.group(1)) for m in _CANDIDATE_NUMBER.finditer(sentence)]
-            if len(numbers) != 1:
-                continue
+            numbers = list(_CANDIDATE_NUMBER.finditer(sentence))
             constant = known[0]
-            plan_value = numbers[0]
+            if len(numbers) != 1 or not _states_value(sentence, constant, numbers[0]):
+                continue
+            plan_value = int(numbers[0].group(1))
             staged_value = constants[constant]
             if plan_value != staged_value:
                 problems.append(
