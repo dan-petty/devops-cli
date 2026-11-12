@@ -21,7 +21,7 @@ An entry of `infra.repos` SHALL hold operational keys only: `repo`, `path`, `kub
 - **THEN** the settings are refused
 
 ### Requirement: One row for each check
-`devops infra onboard <repo>` SHALL print one row for each of 17 checks, in order, each with one state: `present`, `missing`, `not readable` or `listed`. It SHALL read only local files and the output of local commands: the project profile of the checkout, `ansible-config dump` and `ansible-inventory -i <inventory of the profile> --list` in the checkout, `ssh-keygen -F` for each host in service, and `kubectl config get-contexts`. It SHALL exit 1 when a row is `missing`.
+`devops infra onboard <repo>` SHALL print one row for each of 17 checks, in order, each with one state: `present`, `missing`, `not readable` or `listed`. It SHALL read the export of the default branch at `origin`, with `ansible-config dump` and `ansible-inventory --list` in the export, `ssh-keygen -F` for each host in service and `kubectl config get-contexts`. The fetch of `origin` SHALL be its only request. It SHALL exit 1 when a row is `missing`.
 
 #### Scenario: A complete repo
 - **WHEN** the command checks a repo in the shape of dan-petty/homelab that holds every item and has an entry in `infra.repos`
@@ -90,7 +90,7 @@ With `--dry-run`, the command SHALL start no process and write no file, and SHAL
 
 #### Scenario: A dry run with confirm
 - **WHEN** the command runs with `--confirm --dry-run`
-- **THEN** no process starts, the config file keeps every byte, and the output lists the config dump, the inventory listing, `ssh-keygen -F <host>` for each host in service, the kubeconfig contexts and the write of `infra.repos`
+- **THEN** no process starts, the config file keeps every byte, and the output lists the fetch of `origin`, the reads of the default branch and of the checkout, the export, the config dump, the inventory listing, `ssh-keygen -F <host>` for each host in service, the kubeconfig contexts and the write of `infra.repos`
 
 ### Requirement: One pinned Ansible environment
 The tools lock SHALL hold `[python.ansible-core]`: one environment with ansible-core and ansible-runner from hashed requirements. Only `ansible-runner` SHALL go on PATH. The command SHALL start the Ansible commands from the environment that `devops install-tools` installed, else from the folder of the `ansible-runner` on PATH.
@@ -98,3 +98,32 @@ The tools lock SHALL hold `[python.ansible-core]`: one environment with ansible-
 #### Scenario: The lock is read
 - **WHEN** the packaged tools lock is read
 - **THEN** `ansible-core` is a Python tool, its requirements pin `ansible-runner==2.4.3`, and its only command is `ansible-runner`
+
+### Requirement: The report reads the default branch at origin
+The command SHALL read the infra repo at the head of its default branch at `origin`, never in the working tree of the checkout. It SHALL fetch `origin` with the credential of the GitHub session and no prompt, export the tracked files of the commit that `refs/remotes/origin/HEAD` names into a new private folder, run every read of the repo there, and remove the folder after. It MUST NOT change a file or a branch of the checkout.
+
+#### Scenario: The checkout is on an old branch
+- **WHEN** the checkout is on the branch `feat/old`, which has no collections file and no CI workflow, and `origin/main` holds both
+- **THEN** each of the 17 rows is `present`, and the Ansible commands ran in a folder outside the checkout that no longer exists
+
+#### Scenario: No default branch is recorded
+- **WHEN** the checkout has no `refs/remotes/origin/HEAD` after the fetch
+- **THEN** the command exits 1 with the error code `INFRA_READ_FAILED`, names the step `git -C <checkout> remote set-head origin --auto`, and starts no Ansible command
+
+#### Scenario: The fetch fails
+- **WHEN** `git fetch` exits 128 with a token in its error text
+- **THEN** the command exits 1 with the error code `INFRA_READ_FAILED`, names `git fetch --quiet origin` and git's reason with the token masked, and starts no other command
+
+### Requirement: The report names the commit that it read
+The command SHALL print the default branch and the commit that it read under the title. When the checkout is at another commit, it SHALL print one more line that names the branch of the checkout, or a detached HEAD, and its commit.
+
+#### Scenario: A checkout on another branch
+- **WHEN** the checkout is on the branch `feat/old` at another commit than `origin/main`
+- **THEN** the two lines under the title name `origin/main` with its commit, and the branch `feat/old` with its commit
+
+### Requirement: The export stays in its folder
+The unpack of the export SHALL refuse a member that links out of its folder, a device and a write bit for the group or others.
+
+#### Scenario: The export holds a link out of the folder
+- **WHEN** the tar file of the commit holds `ansible.cfg` as a link to a file outside the folder
+- **THEN** the command exits 1 with the error code `INFRA_READ_FAILED`, starts no Ansible command, and removes the folder

@@ -32,7 +32,7 @@ The unpack of the export SHALL refuse a member that links out of its folder, a d
 ## MODIFIED Requirements
 
 ### Requirement: One row for each check
-`devops infra onboard <repo>` SHALL print one row for each of 17 checks, in order, each with one state: `present`, `missing`, `not readable` or `listed`. It SHALL read only the export of the default branch at `origin`, the local files that a check names and the output of local commands: the project profile of the export, `ansible-config dump` and `ansible-inventory -i <inventory of the profile> --list` in the export, `ssh-keygen -F` for each host in service, and `kubectl config get-contexts`. The fetch of `origin` SHALL be its only request. It SHALL exit 1 when a row is `missing`.
+`devops infra onboard <repo>` SHALL print one row for each of 17 checks, in order, each with one state: `present`, `missing`, `not readable` or `listed`. It SHALL read the export of the default branch at `origin`, with `ansible-config dump` and `ansible-inventory --list` in the export, `ssh-keygen -F` for each host in service and `kubectl config get-contexts`. The fetch of `origin` SHALL be its only request. It SHALL exit 1 when a row is `missing`.
 
 #### Scenario: A complete repo
 - **WHEN** the command checks a repo in the shape of dan-petty/homelab that holds every item and has an entry in `infra.repos`
