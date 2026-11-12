@@ -113,7 +113,7 @@ def test_deployment_memory_is_sized_for_the_observed_growth() -> None:
         resources["limits"]["memory"],
         resources["requests"]["cpu"],
         resources["limits"]["cpu"],
-    ) == ("768Mi", "3Gi", "100m", "1")
+    ) == ("768Mi", "3Gi", "100m", "2")
     assert limit >= needed, (
         f"The memory limit {limit // MIB} MiB is below {needed // MIB} MiB, the working set after "
         f"{HOURS_TO_RUN_BEFORE_A_KILL} hours of growth. Fix the leak (#4116) before you cut the limit."

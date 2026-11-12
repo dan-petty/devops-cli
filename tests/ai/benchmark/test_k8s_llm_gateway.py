@@ -398,6 +398,7 @@ class TestK8sLLMGatewayManifests:
             container["ports"][0]["containerPort"],
             container["resources"]["requests"]["cpu"],
             container["resources"]["limits"]["cpu"],
+            container["resources"]["limits"]["memory"],
         ) == (
             "llm",
             True,
@@ -405,6 +406,7 @@ class TestK8sLLMGatewayManifests:
             4000,
             "200m",
             "1000m",
+            "4Gi",
         )
 
     def test_gateway_configmap_virtual_models(self) -> None:

@@ -91,12 +91,14 @@ redis:
     tag: 9.1.2-alpine
   exporter:
     enabled: true
+    # The exporter uses about 2m at peak, but CFS throttled it in 57% of the periods of 7 d at a
+    # 100m limit, and a throttled scrape is slow (#4991).
     resources:
       requests:
         cpu: 10m
         memory: 16Mi
       limits:
-        cpu: 100m
+        cpu: 500m
         memory: 64Mi
   metrics:
     enabled: true
