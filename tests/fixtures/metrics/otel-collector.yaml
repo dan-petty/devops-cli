@@ -10,6 +10,10 @@
 # not print at all until their first event, with their labels read from the collector's source
 # at the deployed version. The collector runs at the default telemetry level, so a failed send
 # carries the attributes of its sent counter, without `error.type` and `error.permanent`.
+# The metrics exporter is otlp_http since #4684, so the families of the remote-write exporter
+# of the capture are gone, and the metric point families carry the endpoint labels that
+# otlp_http adds (exporter/otlphttpexporter/factory.go#L82-L93 at v0.161.0), as the log record
+# families of the capture do.
 exporter: OpenTelemetry Collector internal telemetry
 image: otel/opentelemetry-collector-contrib:0.161.0
 chart: open-telemetry/opentelemetry-collector 0.175.0
@@ -32,13 +36,10 @@ families:
   otelcol_deltatocumulative_streams_max_stale: {type: gauge, labels: []}
   otelcol_deltatocumulative_streams_tracked: {type: gauge, labels: []}
   otelcol_exporter_in_flight_requests: {type: gauge, labels: [data_type, exporter]}
-  otelcol_exporter_prometheusremotewrite_consumers: {type: gauge, labels: [endpoint, exporter]}
-  otelcol_exporter_prometheusremotewrite_sent_batches: {type: counter, labels: [endpoint, exporter]}
-  otelcol_exporter_prometheusremotewrite_translated_time_series: {type: counter, labels: [endpoint, exporter]}
   otelcol_exporter_queue_capacity: {type: gauge, labels: [data_type, exporter]}
   otelcol_exporter_queue_size: {type: gauge, labels: [data_type, exporter]}
   otelcol_exporter_sent_log_records: {type: counter, labels: [exporter, server_address, server_port, url_path]}
-  otelcol_exporter_sent_metric_points: {type: counter, labels: [exporter]}
+  otelcol_exporter_sent_metric_points: {type: counter, labels: [exporter, server_address, server_port, url_path]}
   otelcol_exporter_sent_spans: {type: counter, labels: [exporter, server_address, server_port]}
   otelcol_process_cpu_seconds: {type: counter, labels: []}
   otelcol_process_memory_rss: {type: gauge, labels: []}
@@ -72,7 +73,7 @@ from_source:
     source: https://github.com/open-telemetry/opentelemetry-collector/blob/v0.161.0/exporter/exporterhelper/internal/obs_report_sender.go#L67-L101
   otelcol_exporter_send_failed_metric_points:
     type: counter
-    labels: [exporter]
+    labels: [exporter, server_address, server_port, url_path]
     source: https://github.com/open-telemetry/opentelemetry-collector/blob/v0.161.0/exporter/exporterhelper/internal/obs_report_sender.go#L67-L101
   otelcol_exporter_send_failed_spans:
     type: counter
