@@ -30,6 +30,10 @@ env:
   # UV_PYTHON_PREFERENCE; uv refuses to run with both.
   UV_MANAGED_PYTHON: "1"
 
+# Each job limit is about two times the longest run of the job, and 5 minutes at least, so a hung
+# job gives its runner back soon. The step that runs the gate or the tests has a shorter limit than
+# its job: a hung step then fails with a message that names it, and the job keeps time for the
+# steps after it (#4677).
 jobs:
   # Fast-failing static gates. Split from the test suite so lint, typing, and formatting
   # errors surface in roughly a minute instead of queuing behind the full suite.
@@ -37,7 +41,7 @@ jobs:
     name: Static Analysis
     if: github.event_name != 'schedule'
     runs-on: ubuntu-26.04
-    timeout-minutes: 15
+    timeout-minutes: 6
     permissions:
       contents: read
       security-events: write
@@ -75,6 +79,7 @@ jobs:
         uses: docker://docker.io/kjanat/actionlint:1.17.0@sha256:d484cccadf56b6a356466ade9af4c8e05c5dce1badaf0a9ecd0d7639d68d9c92
 
       - name: Static Analysis Quality Gate
+        timeout-minutes: 3
         run: uv run devops ci --check --no-cache --skip test,outdated,actionlint
 
       # The scan skips Trivy's filesystem scan, `trivy`, which took 194 s over this tree. The audit
@@ -112,7 +117,7 @@ jobs:
     name: Tests & Coverage (shard ${{ matrix.shard }} of ${{ strategy.job-total }})
     if: github.event_name != 'schedule'
     runs-on: ubuntu-26.04
-    timeout-minutes: 30
+    timeout-minutes: 20
     permissions:
       contents: read
       pull-requests: read # paths-filter reads the changed files from the REST API
@@ -159,6 +164,7 @@ jobs:
 
       - name: Tests & Coverage Quality Gate
         if: steps.changes.outputs.outside_plan != 'false'
+        timeout-minutes: 17
         env:
           SHARD: ${{ matrix.shard }}
           SHARDS: ${{ strategy.job-total }}
@@ -192,7 +198,7 @@ jobs:
     needs: test-shard
     if: ${{ !cancelled() && github.event_name != 'schedule' }}
     runs-on: ubuntu-26.04
-    timeout-minutes: 15
+    timeout-minutes: 5
     permissions:
       contents: read
       pull-requests: read # paths-filter reads the changed files from the REST API
@@ -297,7 +303,7 @@ jobs:
     name: Test Job Duration
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-26.04
-    timeout-minutes: 10
+    timeout-minutes: 5
     permissions:
       contents: read
       actions: read
@@ -329,7 +335,7 @@ jobs:
     if: >-
       github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'
     runs-on: ubuntu-26.04
-    timeout-minutes: 60
+    timeout-minutes: 20
     permissions:
       contents: read
       packages: read
@@ -440,7 +446,7 @@ jobs:
     if: >-
       github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'
     runs-on: ubuntu-26.04
-    timeout-minutes: 30
+    timeout-minutes: 12
     permissions:
       contents: read
 
@@ -539,7 +545,7 @@ jobs:
     if: >-
       github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'
     runs-on: ubuntu-26.04
-    timeout-minutes: 30
+    timeout-minutes: 12
     permissions:
       contents: read
 
@@ -636,7 +642,7 @@ jobs:
     if: >-
       github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'
     runs-on: ubuntu-26.04
-    timeout-minutes: 30
+    timeout-minutes: 12
     permissions:
       contents: read
 
@@ -729,7 +735,7 @@ jobs:
     name: Dependency Freshness
     if: github.event_name == 'schedule'
     runs-on: ubuntu-26.04
-    timeout-minutes: 15
+    timeout-minutes: 5
     permissions:
       contents: read
 
@@ -754,7 +760,7 @@ jobs:
     name: Changed-Test Independence
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-26.04
-    timeout-minutes: 30
+    timeout-minutes: 15
     permissions:
       contents: read
 
@@ -801,7 +807,7 @@ jobs:
     name: Rule Pack Tests
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-26.04
-    timeout-minutes: 15
+    timeout-minutes: 5
     permissions:
       contents: read
 
@@ -855,7 +861,7 @@ jobs:
     name: Docs Site Build
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-26.04
-    timeout-minutes: 10
+    timeout-minutes: 5
     permissions:
       contents: read
       pull-requests: read # paths-filter reads the changed files from the REST API
@@ -1026,7 +1032,7 @@ jobs:
     name: Image Pins
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-26.04
-    timeout-minutes: 10
+    timeout-minutes: 5
     permissions:
       contents: read
       pull-requests: read # paths-filter reads the changed files from the REST API
@@ -1075,7 +1081,7 @@ jobs:
     name: Third-Party Image Scan
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-26.04
-    timeout-minutes: 15
+    timeout-minutes: 5
     permissions:
       contents: read
       pull-requests: read # paths-filter reads the changed files from the REST API

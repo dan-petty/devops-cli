@@ -11,6 +11,7 @@ import copy
 import json
 import re
 import shlex
+import tomllib
 from collections.abc import Iterator
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -46,6 +47,112 @@ def _load_workflow(path: Path) -> dict[str, Any]:
 def test_update_prs_workflow_is_removed() -> None:
     """Validate that update-prs.yml is removed from workflows (#1217)."""
     assert not (WORKFLOWS_DIR / "update-prs.yml").exists()
+
+
+# The limit of each job, in minutes: about two times the longest run of the job, and 5 at least.
+# The comment gives the longest run of 2026-11-07 to 2026-11-11 in the Actions API (#4677).
+JOB_LIMIT_MINUTES = {
+    ("ci.yml", "static"): 6,  # 176 s
+    ("ci.yml", "test-shard"): 20,  # 641 s
+    ("ci.yml", "test"): 5,  # 63 s
+    ("ci.yml", "job-time"): 5,  # 125 s
+    ("ci.yml", "devcontainer"): 20,  # 416 s; a build with no cache takes longer
+    ("ci.yml", "service-image"): 12,  # 308 s
+    ("ci.yml", "runner-image"): 12,  # 297 s
+    ("ci.yml", "mcp-server-image"): 12,  # 331 s
+    ("ci.yml", "dependency-freshness"): 5,  # 33 s
+    ("ci.yml", "changed-tests"): 15,  # 797 s before #4509, 174 s after it
+    ("ci.yml", "rule-pack"): 5,  # 35 s on 2026-10-17; no rule changed after it
+    ("ci.yml", "docs-site"): 5,  # 35 s
+    ("ci.yml", "image-pins"): 5,  # 74 s
+    ("ci.yml", "third-party-image-scan"): 5,  # 47 s
+    ("service-image-test.yml", "service-image-test"): 20,  # 678 s
+}
+
+# The limit of the step that runs the gate or the tests, in minutes. The comment gives the longest
+# run of the step. The limit leaves time in the job for the steps before it and after it (#4677).
+SUITE_STEP_LIMIT_MINUTES = {
+    ("ci.yml", "static", "Static Analysis Quality Gate"): 3,  # 108 s
+    ("ci.yml", "test-shard", "Tests & Coverage Quality Gate"): 17,  # 610 s
+    (
+        "service-image-test.yml",
+        "service-image-test",
+        "Run Test Suite in Service Image",
+    ): 14,  # 527 s
+}
+
+
+def _step_named(job: dict[str, Any], name: str) -> dict[str, Any]:
+    """The step of `job` with the name `name`."""
+    return next(step for step in job["steps"] if step.get("name") == name)
+
+
+def test_each_job_limit_is_about_two_times_its_longest_run() -> None:
+    """A hung job holds one of the 20 runners of the account until its limit. A limit of 30 to 60
+    minutes for a job that ran 6 minutes at most held a runner for the rest of that time, and the
+    jobs of other pull requests waited in the queue. Each limit is about two times the longest run
+    of the job, so a slow runner does not stop a job that works (#4677)."""
+    observed = {
+        (name, job_id): _load_workflow(WORKFLOWS_DIR / name)["jobs"][job_id]["timeout-minutes"]
+        for name, job_id in JOB_LIMIT_MINUTES
+    }
+
+    assert observed == JOB_LIMIT_MINUTES
+
+
+def test_the_step_that_runs_the_suite_stops_before_its_job() -> None:
+    """A step that passes its own limit fails with a message that names the step and the limit,
+    and the job ends in failure. The steps after it then run by their conditions, as after any
+    other failure. A job that passes its limit is cancelled instead, and its log does not name the
+    step that hung. So the step limit is under the job limit, and the job keeps time for the steps
+    after the step, such as the Security Scan and its SARIF upload of `Static Analysis` (#4677)."""
+    observed = {
+        (name, job_id, step): _step_named(
+            _load_workflow(WORKFLOWS_DIR / name)["jobs"][job_id], step
+        ).get("timeout-minutes")
+        for name, job_id, step in SUITE_STEP_LIMIT_MINUTES
+    }
+
+    assert observed == SUITE_STEP_LIMIT_MINUTES
+
+
+def test_a_test_step_outlasts_the_hang_bound_of_one_test() -> None:
+    """The time limits nest: one test < its step < its job (ARCHITECTURE.md, Nested Time Limits).
+    pytest-timeout fails a hung test at the bound `timeout` of pyproject.toml and the run goes on,
+    so the step that runs the tests lasts longer than that bound (#4677)."""
+    pytest_options = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))["tool"][
+        "pytest"
+    ]["ini_options"]
+    test_steps = {
+        key: minutes
+        for key, minutes in SUITE_STEP_LIMIT_MINUTES.items()
+        if key[1] in ("test-shard", "service-image-test")
+    }
+
+    assert len(test_steps) == 2
+    assert all(minutes * 60 > pytest_options["timeout"] for minutes in test_steps.values())
+
+
+def test_every_job_has_a_limit_and_each_step_limit_is_under_it() -> None:
+    """With no `timeout-minutes`, a job runs for 360 minutes. A step limit that is not under the
+    limit of its job never fires, because the job limit cancels the job first (#4677)."""
+    problems = []
+    for path in sorted(WORKFLOWS_DIR.glob("*.yml")):
+        for job_id, job in _load_workflow(path)["jobs"].items():
+            if "uses" in job:
+                continue
+            limit = job.get("timeout-minutes")
+            if not isinstance(limit, int):
+                problems.append(f"{path.name}:{job_id} has no timeout-minutes")
+                continue
+            problems.extend(
+                f"{path.name}:{job_id}:{step.get('name')} step limit {step['timeout-minutes']}"
+                f" is not under the job limit {limit}"
+                for step in job.get("steps", [])
+                if "timeout-minutes" in step and not step["timeout-minutes"] < limit
+            )
+
+    assert problems == []
 
 
 def _extract_steps_with_action(
@@ -1417,7 +1524,7 @@ def test_a_pull_request_that_changes_the_site_builds_it_with_the_pages_builder()
     ) == (
         "github.event_name == 'pull_request'",
         {"contents": "read", "pull-requests": "read"},
-        10,
+        5,
         [],
         [
             {
@@ -1563,7 +1670,7 @@ def test_a_pull_request_that_changes_an_image_pin_resolves_each_pinned_image() -
     ) == (
         "github.event_name == 'pull_request'",
         {"contents": "read", "pull-requests": "read"},
-        10,
+        5,
         [],
         [
             {
