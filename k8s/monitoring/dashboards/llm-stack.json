@@ -68,35 +68,6 @@
                 }
               }
             ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Average (Mean)"
-            },
-            "properties": [
-              {
-                "id": "custom.lineStyle",
-                "value": {
-                  "dash": [
-                    10,
-                    10
-                  ],
-                  "fill": "dash"
-                }
-              },
-              {
-                "id": "custom.lineWidth",
-                "value": 2
-              },
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "#FFB357",
-                  "mode": "fixed"
-                }
-              }
-            ]
           }
         ]
       },
@@ -124,7 +95,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (api_base) (rate(litellm_llm_api_latency_metric_sum[2m]) * on (model_id) group_left (api_base) group by (model_id, api_base) (litellm_deployment_total_requests_total{api_base!=\"\"}))",
+          "expr": "sum by (api_base) (rate(litellm_llm_api_latency_metric_sum[$__rate_interval]) * on (model_id) group_left (api_base) group by (model_id, api_base) (litellm_deployment_total_requests_total{api_base!=\"\"}))",
           "legendFormat": "{{api_base}}",
           "refId": "A"
         },
@@ -133,18 +104,9 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(sum by (api_base) (rate(litellm_llm_api_latency_metric_sum[2m]) * on (model_id) group_left (api_base) group by (model_id, api_base) (litellm_deployment_total_requests_total{api_base!=\"\"})))",
+          "expr": "sum(sum by (api_base) (rate(litellm_llm_api_latency_metric_sum[$__rate_interval]) * on (model_id) group_left (api_base) group by (model_id, api_base) (litellm_deployment_total_requests_total{api_base!=\"\"})))",
           "legendFormat": "Total (Sum)",
           "refId": "B"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "avg(sum by (api_base) (rate(litellm_llm_api_latency_metric_sum[2m]) * on (model_id) group_left (api_base) group by (model_id, api_base) (litellm_deployment_total_requests_total{api_base!=\"\"})))",
-          "legendFormat": "Average (Mean)",
-          "refId": "C"
         }
       ],
       "description": "Mean concurrent calls the gateway had on each deployment (call seconds per second). Covers the Ollama nodes, which export no metrics."
@@ -195,35 +157,6 @@
                 }
               }
             ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Average (Mean)"
-            },
-            "properties": [
-              {
-                "id": "custom.lineStyle",
-                "value": {
-                  "dash": [
-                    10,
-                    10
-                  ],
-                  "fill": "dash"
-                }
-              },
-              {
-                "id": "custom.lineWidth",
-                "value": 2
-              },
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "#FFB357",
-                  "mode": "fixed"
-                }
-              }
-            ]
           }
         ]
       },
@@ -251,7 +184,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (api_base) (rate(litellm_deployment_total_requests_total{api_base!=\"\"}[5m]))",
+          "expr": "sum by (api_base) (rate(litellm_deployment_total_requests_total{api_base!=\"\"}[$__rate_interval]))",
           "legendFormat": "{{api_base}}",
           "refId": "A"
         },
@@ -260,27 +193,9 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(sum by (api_base) (rate(litellm_deployment_total_requests_total{api_base!=\"\"}[5m])))",
+          "expr": "sum(sum by (api_base) (rate(litellm_deployment_total_requests_total{api_base!=\"\"}[$__rate_interval])))",
           "legendFormat": "Total (Sum)",
           "refId": "B"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "avg(sum by (api_base) (rate(litellm_deployment_total_requests_total{api_base!=\"\"}[5m])))",
-          "legendFormat": "Average (Mean)",
-          "refId": "C"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "sum(rate(litellm_deployment_total_requests_total[30m]))",
-          "legendFormat": "Total Rolling Avg (30m)",
-          "refId": "D"
         }
       ]
     },
@@ -326,7 +241,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (api_base) (rate(litellm_deployment_failure_responses_total{api_base!=\"\"}[5m]))",
+          "expr": "sum by (api_base) (rate(litellm_deployment_failure_responses_total{api_base!=\"\"}[$__rate_interval]))",
           "legendFormat": "{{api_base}}",
           "refId": "A"
         }
@@ -387,7 +302,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_quantile(0.95, sum by (le, api_base) (rate(litellm_llm_api_latency_metric_bucket[5m]) * on (model_id) group_left (api_base) group by (model_id, api_base) (litellm_deployment_total_requests_total{api_base!=\"\"})))",
+          "expr": "histogram_quantile(0.95, sum by (le, api_base) (rate(litellm_llm_api_latency_metric_bucket[$__rate_interval]) * on (model_id) group_left (api_base) group by (model_id, api_base) (litellm_deployment_total_requests_total{api_base!=\"\"})))",
           "legendFormat": "{{api_base}}",
           "refId": "A"
         }
@@ -435,7 +350,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_quantile(0.95, sum by (le, model) (rate(litellm_llm_api_time_to_first_token_metric_bucket[5m])))",
+          "expr": "histogram_quantile(0.95, sum by (le, model) (rate(litellm_llm_api_time_to_first_token_metric_bucket[$__rate_interval])))",
           "legendFormat": "{{model}}",
           "refId": "A"
         }
@@ -484,7 +399,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_quantile(0.5, sum by (le, api_base, litellm_model_name) (rate(litellm_deployment_latency_per_output_token_bucket{api_base!=\"\"}[5m])))",
+          "expr": "histogram_quantile(0.5, sum by (le, api_base, litellm_model_name) (rate(litellm_deployment_latency_per_output_token_bucket{api_base!=\"\"}[$__rate_interval])))",
           "legendFormat": "{{api_base}} {{litellm_model_name}} p50",
           "refId": "A"
         },
@@ -493,7 +408,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_quantile(0.95, sum by (le, api_base, litellm_model_name) (rate(litellm_deployment_latency_per_output_token_bucket{api_base!=\"\"}[5m])))",
+          "expr": "histogram_quantile(0.95, sum by (le, api_base, litellm_model_name) (rate(litellm_deployment_latency_per_output_token_bucket{api_base!=\"\"}[$__rate_interval])))",
           "legendFormat": "{{api_base}} {{litellm_model_name}} p95",
           "refId": "B"
         }
@@ -555,7 +470,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (requested_model) (rate(litellm_proxy_total_requests_metric_total[5m]))",
+          "expr": "sum by (requested_model) (rate(litellm_proxy_total_requests_metric_total{route=~\"/v1/(chat/completions|embeddings)\"}[$__rate_interval]))",
           "legendFormat": "{{requested_model}}",
           "refId": "A"
         }
@@ -604,7 +519,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (status_code) (rate(litellm_proxy_total_requests_metric_total[5m]))",
+          "expr": "sum by (status_code) (rate(litellm_proxy_total_requests_metric_total{route=~\"/v1/(chat/completions|embeddings)\"}[$__rate_interval]))",
           "legendFormat": "{{status_code}}",
           "refId": "A"
         }
@@ -653,7 +568,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (model) (rate(litellm_output_tokens_metric_total[5m]))",
+          "expr": "sum by (model) (rate(litellm_output_tokens_metric_total[$__rate_interval]))",
           "legendFormat": "{{model}}",
           "refId": "A"
         }
@@ -667,16 +582,10 @@
       },
       "fieldConfig": {
         "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "drawStyle": "line",
-            "lineInterpolation": "smooth",
-            "fillOpacity": 10
-          },
+          "noValue": "none recorded",
           "unit": "short"
-        }
+        },
+        "overrides": []
       },
       "gridPos": {
         "h": 8,
@@ -686,28 +595,34 @@
       },
       "id": 24,
       "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
+        "colorMode": "none",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
         },
-        "tooltip": {
-          "mode": "multi"
-        }
+        "textMode": "value_and_name"
       },
-      "title": "Cooldowns per Deployment per 5 Minutes",
-      "type": "timeseries",
+      "title": "Cooldowns per Deployment in Range",
+      "type": "stat",
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (api_base, exception_status) (increase(litellm_deployment_cooled_down_total[5m]))",
+          "expr": "sum by (api_base, exception_status) (increase(litellm_deployment_cooled_down_total[$__range]))",
           "legendFormat": "{{api_base}} ({{exception_status}})",
-          "refId": "A"
+          "refId": "A",
+          "instant": true
         }
       ],
-      "description": "Times in each 5-minute window the router took a deployment out of rotation after repeated failures (allowed_fails 3, cooldown_time 30 s), by the status that caused it. Empty until the first cooldown."
+      "description": "Times in the time range the router took a deployment out of rotation after repeated failures (allowed_fails 3, cooldown_time 30 s), by the status that caused it. increase() needs two samples of a series, so the first cooldown of a new series adds nothing."
     },
     {
       "datasource": {
@@ -716,16 +631,10 @@
       },
       "fieldConfig": {
         "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "drawStyle": "line",
-            "lineInterpolation": "smooth",
-            "fillOpacity": 10
-          },
+          "noValue": "none recorded",
           "unit": "short"
-        }
+        },
+        "overrides": []
       },
       "gridPos": {
         "h": 8,
@@ -735,37 +644,44 @@
       },
       "id": 25,
       "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
+        "colorMode": "none",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
         },
-        "tooltip": {
-          "mode": "multi"
-        }
+        "textMode": "value_and_name"
       },
-      "title": "Fallbacks per Model Pair per 5 Minutes",
-      "type": "timeseries",
+      "title": "Fallbacks per Model Pair in Range",
+      "type": "stat",
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (requested_model, fallback_model) (increase(litellm_deployment_successful_fallbacks_total[5m]))",
+          "expr": "sum by (requested_model, fallback_model) (increase(litellm_deployment_successful_fallbacks_total[$__range]))",
           "legendFormat": "{{requested_model}} -> {{fallback_model}} succeeded",
-          "refId": "A"
+          "refId": "A",
+          "instant": true
         },
         {
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (requested_model, fallback_model) (increase(litellm_deployment_failed_fallbacks_total[5m]))",
+          "expr": "sum by (requested_model, fallback_model) (increase(litellm_deployment_failed_fallbacks_total[$__range]))",
           "legendFormat": "{{requested_model}} -> {{fallback_model}} failed",
-          "refId": "B"
+          "refId": "B",
+          "instant": true
         }
       ],
-      "description": "Requests in each 5-minute window that failed on their model and were retried on its fallback, and whether the fallback answered. Empty until the first fallback."
+      "description": "Requests in the time range that failed on their model and were retried on its fallback, and whether the fallback answered. increase() needs two samples of a series, so the first fallback of a new series adds nothing."
     },
     {
       "id": 12,
@@ -797,37 +713,7 @@
           },
           "unit": "percent"
         },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Average (Mean)"
-            },
-            "properties": [
-              {
-                "id": "custom.lineStyle",
-                "value": {
-                  "dash": [
-                    10,
-                    10
-                  ],
-                  "fill": "dash"
-                }
-              },
-              {
-                "id": "custom.lineWidth",
-                "value": 2
-              },
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "#FFB357",
-                  "mode": "fixed"
-                }
-              }
-            ]
-          }
-        ]
+        "overrides": []
       },
       "gridPos": {
         "h": 8,
@@ -856,24 +742,6 @@
           "expr": "avg by (hostname, gpu, modelName) (DCGM_FI_DEV_GPU_UTIL)",
           "legendFormat": "{{hostname}} GPU {{gpu}} ({{modelName}})",
           "refId": "A"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "avg(avg by (hostname, gpu, modelName) (DCGM_FI_DEV_GPU_UTIL))",
-          "legendFormat": "Average (Mean)",
-          "refId": "B"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "avg(avg_over_time(DCGM_FI_DEV_GPU_UTIL[30m]))",
-          "legendFormat": "Average Rolling Avg (30m)",
-          "refId": "C"
         }
       ]
     },
@@ -892,68 +760,9 @@
             "lineInterpolation": "smooth",
             "fillOpacity": 10
           },
-          "unit": "decmbytes"
+          "unit": "mbytes"
         },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Total (Sum)"
-            },
-            "properties": [
-              {
-                "id": "custom.lineStyle",
-                "value": {
-                  "dash": [
-                    10,
-                    10
-                  ],
-                  "fill": "dash"
-                }
-              },
-              {
-                "id": "custom.lineWidth",
-                "value": 2
-              },
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "#B0B0B0",
-                  "mode": "fixed"
-                }
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Average (Mean)"
-            },
-            "properties": [
-              {
-                "id": "custom.lineStyle",
-                "value": {
-                  "dash": [
-                    10,
-                    10
-                  ],
-                  "fill": "dash"
-                }
-              },
-              {
-                "id": "custom.lineWidth",
-                "value": 2
-              },
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "#FFB357",
-                  "mode": "fixed"
-                }
-              }
-            ]
-          }
-        ]
+        "overrides": []
       },
       "gridPos": {
         "h": 8,
@@ -982,33 +791,6 @@
           "expr": "max by (hostname, gpu, modelName) (DCGM_FI_DEV_FB_USED)",
           "legendFormat": "{{hostname}} GPU {{gpu}} ({{modelName}})",
           "refId": "A"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "sum(max by (hostname, gpu, modelName) (DCGM_FI_DEV_FB_USED))",
-          "legendFormat": "Total (Sum)",
-          "refId": "B"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "avg(max by (hostname, gpu, modelName) (DCGM_FI_DEV_FB_USED))",
-          "legendFormat": "Average (Mean)",
-          "refId": "C"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "avg(avg_over_time(DCGM_FI_DEV_FB_USED[30m]))",
-          "legendFormat": "Average Rolling Avg (30m)",
-          "refId": "D"
         }
       ]
     },
@@ -1052,7 +834,8 @@
             ]
           },
           "unit": "percent"
-        }
+        },
+        "overrides": []
       },
       "gridPos": {
         "h": 8,
@@ -1081,33 +864,6 @@
           "expr": "(max by (hostname, gpu, modelName) (DCGM_FI_DEV_FB_USED) / max by (hostname, gpu, modelName) (DCGM_FI_DEV_FB_USED + DCGM_FI_DEV_FB_FREE)) * 100",
           "legendFormat": "{{hostname}} GPU {{gpu}} ({{modelName}})",
           "refId": "A"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "(sum(DCGM_FI_DEV_FB_USED) / sum(DCGM_FI_DEV_FB_USED + DCGM_FI_DEV_FB_FREE)) * 100",
-          "legendFormat": "Total (Sum)",
-          "refId": "B"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "(avg(DCGM_FI_DEV_FB_USED) / avg(DCGM_FI_DEV_FB_USED + DCGM_FI_DEV_FB_FREE)) * 100",
-          "legendFormat": "Average (Mean)",
-          "refId": "C"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "avg_over_time(((avg(DCGM_FI_DEV_FB_USED) / avg(DCGM_FI_DEV_FB_USED + DCGM_FI_DEV_FB_FREE)) * 100)[30m:1m])",
-          "legendFormat": "Average Rolling Avg (30m)",
-          "refId": "D"
         }
       ]
     },
@@ -1157,35 +913,6 @@
                 }
               }
             ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Average (Mean)"
-            },
-            "properties": [
-              {
-                "id": "custom.lineStyle",
-                "value": {
-                  "dash": [
-                    10,
-                    10
-                  ],
-                  "fill": "dash"
-                }
-              },
-              {
-                "id": "custom.lineWidth",
-                "value": 2
-              },
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "#FFB357",
-                  "mode": "fixed"
-                }
-              }
-            ]
           }
         ]
       },
@@ -1225,15 +952,6 @@
           "expr": "sum(max by (hostname, gpu, modelName) (DCGM_FI_DEV_POWER_USAGE))",
           "legendFormat": "Total (Sum)",
           "refId": "B"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "avg(max by (hostname, gpu, modelName) (DCGM_FI_DEV_POWER_USAGE))",
-          "legendFormat": "Average (Mean)",
-          "refId": "C"
         }
       ]
     },
@@ -1522,21 +1240,12 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (method, endpoint, status) (rate(rest_responses_total[5m]))",
+          "expr": "sum by (method, endpoint, status) (rate(rest_responses_total[$__rate_interval]))",
           "legendFormat": "{{method}} {{endpoint}} ({{status}})",
           "refId": "A"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "sum by (method, endpoint, status) (rate(rest_responses_total{status!~\"2..\"}[5m]))",
-          "legendFormat": "{{method}} {{endpoint}} ({{status}} error)",
-          "refId": "B"
         }
       ],
-      "description": "REST requests per second across Qdrant's whitelisted collection and point endpoints, by HTTP status, and non-2xx error responses. Empty until the first REST request."
+      "description": "REST requests per second across Qdrant's whitelisted collection and point endpoints, by HTTP status. Empty until the first REST request."
     },
     {
       "datasource": {
@@ -1580,12 +1289,60 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_quantile(0.95, sum by (le, method, endpoint) (rate(rest_responses_duration_seconds_bucket[5m])))",
+          "expr": "histogram_quantile(0.95, sum by (le, method, endpoint) (rate(rest_responses_duration_seconds_bucket[$__rate_interval])))",
           "legendFormat": "{{method}} {{endpoint}}",
           "refId": "A"
         }
       ],
       "description": "95th-percentile REST response duration across Qdrant's whitelisted collection and point endpoints. Empty until the first 200 OK REST response."
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "Collections that Qdrant hosts.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 3,
+        "w": 8,
+        "x": 16,
+        "y": 77
+      },
+      "id": 34,
+      "options": {
+        "colorMode": "none",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(collections_total)",
+          "legendFormat": "Collections",
+          "refId": "A",
+          "instant": true
+        }
+      ],
+      "title": "Qdrant Collections",
+      "type": "stat"
     },
     {
       "datasource": {
@@ -1606,10 +1363,10 @@
         }
       },
       "gridPos": {
-        "h": 8,
+        "h": 5,
         "w": 8,
         "x": 16,
-        "y": 77
+        "y": 80
       },
       "id": 29,
       "options": {
@@ -1621,7 +1378,7 @@
           "mode": "multi"
         }
       },
-      "title": "Qdrant Collections and Vectors",
+      "title": "Qdrant Vectors per Collection",
       "type": "timeseries",
       "targets": [
         {
@@ -1629,30 +1386,12 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(collections_total)",
-          "legendFormat": "Collections",
-          "refId": "A"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "sum(collections_vector_total)",
-          "legendFormat": "Vectors (Total)",
-          "refId": "B"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
           "expr": "sum by (collection) (collection_vectors)",
           "legendFormat": "{{collection}}",
-          "refId": "C"
+          "refId": "A"
         }
       ],
-      "description": "Total collections and indexed vectors hosted by Qdrant, and vectors per collection."
+      "description": "Indexed vectors in each Qdrant collection."
     }
   ],
   "refresh": "10s",

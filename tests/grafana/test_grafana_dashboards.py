@@ -710,7 +710,7 @@ def test_sre_service_dashboard_readme_entry() -> None:
 
 
 def test_dashboards_contain_properly_labeled_sum_and_average_lines() -> None:
-    """Verify service, ingress, k8s, and LLM dashboards contain properly labeled sum/avg queries."""
+    """Verify service, ingress and k8s dashboards contain properly labeled sum/avg queries."""
     in_scope_panels = [
         ("sre-service.json", 7, "CPU Usage by Pod", True),
         ("sre-service.json", 8, "Memory Working Set by Pod", True),
@@ -721,11 +721,6 @@ def test_dashboards_contain_properly_labeled_sum_and_average_lines() -> None:
         ("k8s-views-nodes.json", 28, "Memory usage by Pod", True),
         ("k8s-views-pods.json", 29, "CPU Usage by container", True),
         ("k8s-views-pods.json", 51, "Memory Usage by container", True),
-        ("llm-stack.json", 2, "Calls in Flight per Deployment", True),
-        ("llm-stack.json", 4, "Requests per Deployment", True),
-        ("llm-stack.json", 13, "GPU Utilisation", False),
-        ("llm-stack.json", 14, "GPU Memory Used", True),
-        ("llm-stack.json", 15, "GPU Power", True),
     ]
 
     dashboards = {
@@ -943,6 +938,160 @@ def test_grafana_dashboard_projections_and_dcgm_grid_layout() -> None:
         [(0, 16, 12), (12, 16, 12), (0, 24, 12), (12, 24, 12)],
         False,
     )
+
+
+def _llm_stack_panels() -> dict[int, dict[str, Any]]:
+    """The panels of `llm-stack.json` by id."""
+    llm_dash = json.loads((_REPO_DASHBOARDS / "llm-stack.json").read_text(encoding="utf-8"))
+    return {panel["id"]: panel for panel in llm_dash["panels"]}
+
+
+def test_llm_stack_time_series_take_each_rate_over_the_rate_interval() -> None:
+    """A time series of `llm-stack.json` holds no fixed range window, so a short peak stays
+    visible at a wide time range (#4732)."""
+    fixed_windows = sorted(
+        (panel["title"], target["refId"], window)
+        for panel in _llm_stack_panels().values()
+        if panel.get("type") == "timeseries"
+        for target in panel.get("targets", [])
+        for window in re.findall(r"\[[^\]]*\]", target["expr"])
+        if window != "[$__rate_interval]"
+    )
+
+    assert fixed_windows == []
+
+
+def test_llm_stack_breakdown_panels_add_a_total_only_to_requests_and_power() -> None:
+    """A breakdown panel of `llm-stack.json` draws one line per entity and no mean or rolling
+    line; only calls, requests and power add `Total (Sum)`. GPU memory is in MiB (#4732)."""
+    panels = _llm_stack_panels()
+    gpu = "{{hostname}} GPU {{gpu}} ({{modelName}})"
+
+    assert {
+        panel_id: (
+            panels[panel_id]["title"],
+            panels[panel_id]["fieldConfig"]["defaults"]["unit"],
+            [(target["refId"], target["legendFormat"]) for target in panels[panel_id]["targets"]],
+            [
+                override["matcher"]["options"]
+                for override in panels[panel_id]["fieldConfig"].get("overrides", [])
+            ],
+            [
+                target["expr"] == f"sum({panels[panel_id]['targets'][0]['expr']})"
+                for target in panels[panel_id]["targets"][1:]
+            ],
+        )
+        for panel_id in (2, 4, 13, 14, 15, 17)
+    } == {
+        2: (
+            "Calls in Flight per Deployment",
+            "short",
+            [("A", "{{api_base}}"), ("B", "Total (Sum)")],
+            ["Total (Sum)"],
+            [True],
+        ),
+        4: (
+            "Requests per Deployment",
+            "reqps",
+            [("A", "{{api_base}}"), ("B", "Total (Sum)")],
+            ["Total (Sum)"],
+            [True],
+        ),
+        13: ("GPU Utilisation", "percent", [("A", gpu)], [], []),
+        14: ("GPU Memory Used", "mbytes", [("A", gpu)], [], []),
+        15: ("GPU Power", "watt", [("A", gpu), ("B", "Total (Sum)")], ["Total (Sum)"], [True]),
+        17: ("GPU Memory Utilization (%)", "percent", [("A", gpu)], [], []),
+    }
+
+
+def test_llm_stack_counts_only_the_model_routes() -> None:
+    """The virtual model and status code panels of `llm-stack.json` count only the chat and
+    embeddings routes, as `ai-spend.json` does, not a gateway route such as `/v1/systemone`
+    (#4732)."""
+    panels = _llm_stack_panels()
+
+    assert [panels[panel_id]["targets"][0]["expr"] for panel_id in (21, 22)] == [
+        "sum by (requested_model) (rate(litellm_proxy_total_requests_metric_total"
+        '{route=~"/v1/(chat/completions|embeddings)"}[$__rate_interval]))',
+        "sum by (status_code) (rate(litellm_proxy_total_requests_metric_total"
+        '{route=~"/v1/(chat/completions|embeddings)"}[$__rate_interval]))',
+    ]
+
+
+def test_llm_stack_counts_cooldowns_and_fallbacks_in_the_time_range() -> None:
+    """Cooldowns and fallbacks of `llm-stack.json` are stats of the count in the time range, and
+    show "none recorded" with no series rather than a constant zero (#4732)."""
+    panels = _llm_stack_panels()
+
+    assert {
+        panel_id: (
+            panels[panel_id]["type"],
+            panels[panel_id]["title"],
+            panels[panel_id]["fieldConfig"]["defaults"].get("noValue"),
+            [
+                (target["refId"], target["expr"], target.get("instant"))
+                for target in panels[panel_id]["targets"]
+            ],
+        )
+        for panel_id in (24, 25)
+    } == {
+        24: (
+            "stat",
+            "Cooldowns per Deployment in Range",
+            "none recorded",
+            [
+                (
+                    "A",
+                    "sum by (api_base, exception_status) "
+                    "(increase(litellm_deployment_cooled_down_total[$__range]))",
+                    True,
+                )
+            ],
+        ),
+        25: (
+            "stat",
+            "Fallbacks per Model Pair in Range",
+            "none recorded",
+            [
+                (
+                    "A",
+                    "sum by (requested_model, fallback_model) "
+                    "(increase(litellm_deployment_successful_fallbacks_total[$__range]))",
+                    True,
+                ),
+                (
+                    "B",
+                    "sum by (requested_model, fallback_model) "
+                    "(increase(litellm_deployment_failed_fallbacks_total[$__range]))",
+                    True,
+                ),
+            ],
+        ),
+    }
+
+
+def test_llm_stack_qdrant_row_draws_each_value_once_on_its_own_scale() -> None:
+    """The Qdrant row of `llm-stack.json` draws each status once, shows the collection count as
+    a stat and the vectors of each collection as lines (#4732)."""
+    panels = _llm_stack_panels()
+
+    assert [
+        (panel["type"], panel["title"], [target["expr"] for target in panel["targets"]])
+        for panel in panels.values()
+        if panel["id"] in (27, 29, 34)
+    ] == [
+        (
+            "timeseries",
+            "Qdrant Request Rate and Errors",
+            ["sum by (method, endpoint, status) (rate(rest_responses_total[$__rate_interval]))"],
+        ),
+        ("stat", "Qdrant Collections", ["sum(collections_total)"]),
+        (
+            "timeseries",
+            "Qdrant Vectors per Collection",
+            ["sum by (collection) (collection_vectors)"],
+        ),
+    ]
 
 
 def test_cli_dashboard_finds_each_command_and_sub_command_from_its_series() -> None:
