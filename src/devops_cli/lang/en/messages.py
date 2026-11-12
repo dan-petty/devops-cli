@@ -2284,6 +2284,10 @@ class RoadmapMessages:
         "no Priority label."
     )
     item_left_closed: str = "It is closed."
+    implement_round_no_repo: str = (
+        "The implement round has no repository. Each counter of the round needs a repository in "
+        "the label repo."
+    )
     item_heading_unmatched: str = "## Matched no filter"
     # The report of `devops roadmap explain` (#2911).
     explain_title: str = "# {repo} #{number}: {title}"
