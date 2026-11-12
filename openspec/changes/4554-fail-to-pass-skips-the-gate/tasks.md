@@ -9,7 +9,7 @@
 
 ## 2. Workflow trigger (behavior)
 
-- [ ] 2.1 Write failing tests: the path filter starts the workflow for a module under `tests/gate/*_checks/`, and the comment names `tests/gate/*_checks/`
+- [x] 2.1 Write failing tests: the path filter starts the workflow for a module under `tests/gate/*_checks/`, and the comment names `tests/gate/*_checks/`
   - Verification: `$ uv run devops ci test tests/invariants/test_workflow_contracts.py`
 - [ ] 2.2 Add `tests/gate/*_checks/**` to the path filter of `.github/workflows/fail-to-pass.yml` and correct its comment
   - Verification: `$ uv run devops ci test tests/invariants/test_workflow_contracts.py`
