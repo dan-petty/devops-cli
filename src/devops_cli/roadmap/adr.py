@@ -48,7 +48,8 @@ _OPTIONS_TITLE = frozenset({"considered options"})
 # The last section of an ADR holds its dated status lines. It is not part of the body that an
 # accepted ADR freezes (docs/adr/README.md).
 _HISTORY_TITLE = "status history"
-_FRONT_MATTER_TOKEN = "front_matter"
+# The type of the token that the front_matter plugin gives for the front matter.
+_FRONT_MATTER_TYPE = "front_matter"
 _RECORD_MARKDOWN = MarkdownIt("commonmark").use(front_matter_plugin)
 # A space, `-`, `_` or `.` between the words of a tool name is one separator, so "Argo Workflows"
 # names `argo-workflows`.
@@ -133,7 +134,7 @@ def number_of(path: str) -> int | None:
 
 def _front_matter(path: str, tokens: Sequence[Token]) -> AdrFrontMatter:
     """The front matter of the ADR `path` that `tokens` start with, or no keys when it has none."""
-    if not tokens or tokens[0].type != _FRONT_MATTER_TOKEN:
+    if not tokens or tokens[0].type != _FRONT_MATTER_TYPE:
         return AdrFrontMatter()
     try:
         data: Any = yaml.safe_load(tokens[0].content)
@@ -162,7 +163,7 @@ def body_tokens(text: str) -> list[Token]:
     history_level: int | None = None
     tokens = _RECORD_MARKDOWN.parse(text)
     for index, token in enumerate(tokens):
-        if token.type == _FRONT_MATTER_TOKEN:
+        if token.type == _FRONT_MATTER_TYPE:
             continue
         if token.type == "heading_open" and token.level == 0:
             level = int(token.tag[1:])
@@ -188,7 +189,7 @@ def adr_of(path: str, text: str) -> Adr | None:
     if title is None:
         return None
     front_matter = _front_matter(path, tokens)
-    body_start = tokens[0].map[1] if tokens[0].type == _FRONT_MATTER_TOKEN and tokens[0].map else 0
+    body_start = tokens[0].map[1] if tokens[0].type == _FRONT_MATTER_TYPE and tokens[0].map else 0
     body = "\n".join(text.splitlines()[body_start:])
     return Adr(number, title, section_text(body, _OPTIONS_TITLE), front_matter)
 
