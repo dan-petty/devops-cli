@@ -6,7 +6,7 @@ How `devops gh issue close` closes one issue of a repository with a reason, `com
 ## Requirements
 
 ### Requirement: The command closes an issue with its reason
-`devops gh issues close <number> --reason <reason>` SHALL read the issue, then close it with one `PATCH` of the issue whose body sets `state` to `closed` and `state_reason` to `completed` for `--reason completed` or to `not_planned` for `--reason not-planned`. `--repo` and `-R` SHALL name the repository, and the default SHALL be the origin of the checkout.
+`devops gh issue close <number> --reason <reason>` SHALL read the issue, then close it with one `PATCH` of the issue whose body sets `state` to `closed` and `state_reason` to `completed` for `--reason completed` or to `not_planned` for `--reason not-planned`. `--repo` and `-R` SHALL name the repository, and the default SHALL be the origin of the checkout.
 
 #### Scenario: Close as not planned
 - **WHEN** the user runs `close 7 --reason not-planned -R example/repo` and #7 is an open issue
@@ -43,7 +43,7 @@ The command SHALL exit with a status other than 0 and send no comment and no `PA
 - **THEN** the command exits 2, the output names `completed` and `not-planned`, and no request is sent
 
 ### Requirement: A dry run sends no request
-`devops gh issues close --dry-run` SHALL send no request and SHALL print the requests a run makes, in order: the read of the issue, the comment when `--comment-file` is given, and the `PATCH` of the close with its body.
+`devops gh issue close --dry-run` SHALL send no request and SHALL print the requests a run makes, in order: the read of the issue, the comment when `--comment-file` is given, and the `PATCH` of the close with its body.
 
 #### Scenario: Dry run with a comment
 - **WHEN** the user runs `close 7 --reason not-planned --comment-file evidence.md --dry-run`

@@ -12,7 +12,7 @@ The `devops gh` group SHALL name each command that does the work of a gh command
 - **THEN** the command exits 0
 
 #### Scenario: A plural name is a usage error
-- **WHEN** user executes `devops gh issues list`
+- **WHEN** user executes `devops gh` with the plural group `issues` and the command `list`
 - **THEN** the command exits 2 and prints `No such command 'issues'. Did you mean 'issue'?`
 
 #### Scenario: The underscore form of rate-limit is a usage error
