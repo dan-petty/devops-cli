@@ -757,9 +757,9 @@ def _fetch_repo_metadata(client: GhCliClient, repo: str) -> tuple[int, int, int]
 def get_repository_traffic_metrics(repo: str) -> TrafficSummaryMetric:
     """Aggregate traffic, engagement, and metadata analytics for a GitHub repository.
 
-    The four traffic endpoints need Administration read, which the App's installation token asks
-    for (#4757). When GitHub refuses them, one warning names the repository and the permission,
-    and the process asks for that traffic no more (#2752). The report then has
+    The four traffic endpoints need Administration read, which the installation token of the
+    Service asks for (#4757). When GitHub refuses them, one warning names the repository and the
+    permission, and the process asks for that traffic no more (#2752). The report then has
     `traffic_collected` false, and only the stars, forks and open issues.
     """
     client = GhCliClient()

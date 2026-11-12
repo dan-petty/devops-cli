@@ -392,11 +392,15 @@ A code that the last read of the repository set and this read does not find SHAL
 - **THEN** the read raises `GitHubOperationError`, and the gauge keeps the value of the last read
 
 ### Requirement: The installation token reads the hooks
-Each installation token of the App SHALL ask for `repository_hooks: read` with the permissions of the roadmap jobs.
+An installation token that names no repository, as the Service mints, SHALL ask for `repository_hooks: read` with the permissions of the roadmap jobs. A token that names one repository, as each runner Job mints, SHALL NOT ask for `repository_hooks`, because no step of a runner Job reads a hook.
 
 #### Scenario: The token asks for the hooks
-- **WHEN** the process mints an installation token of the App
+- **WHEN** the process mints an installation token of the App and `service.github_app.token_repository` is empty
 - **THEN** the token request asks for `repository_hooks: read` with the permissions of the roadmap jobs
+
+#### Scenario: The token of a runner Job does not ask for the hooks
+- **WHEN** the process mints an installation token of the App and `service.github_app.token_repository` holds `example-org/app`
+- **THEN** the token request asks for the permissions of the roadmap jobs and holds no `repository_hooks`
 
 ### Requirement: Failed deliveries of the hooks warn
 The rule group `roadmap-service-webhooks` SHALL hold the warning alert `RoadmapServiceWebhookDeliveriesFailed`. It SHALL fire when `devops_cli_service_webhook_delivery_failures` of the job `roadmap-service`, added by `repo`, is more than 5. Its summary and its description SHALL name the repository, and its description SHALL end with `(k8s/README.md, Roadmap service)`. It SHALL NOT count the series of another job.
