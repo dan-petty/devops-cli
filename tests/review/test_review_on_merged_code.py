@@ -18,6 +18,7 @@ from pydantic import ValidationError
 
 from devops_cli.ai.review_schema import ReviewCheckout, ReviewSessionPayload, SavedFinding
 from devops_cli.exceptions import GitOperationError
+from devops_cli.lang import MESSAGES
 from devops_cli.review.checkout import read_checkout, why_not_on_merged_code
 from devops_cli.review.session import ReviewSession, ReviewSessionStore
 
@@ -124,7 +125,9 @@ def test_a_session_without_a_checkout_is_not_on_merged_code(
     code, and that no git command decides it."""
     root = _repository(tmp_path / "project", git)
 
-    assert why_not_on_merged_code(_session("path", None), root) is not None
+    assert why_not_on_merged_code(_session("path", None), root) == (
+        MESSAGES.review.merged_reason_no_checkout
+    )
 
 
 def test_a_head_that_the_repository_does_not_hold_is_refused(
