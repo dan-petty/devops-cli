@@ -192,7 +192,8 @@ def test_the_release_scans_the_runner_image_for_high_and_critical_findings() -> 
 
 def test_the_pull_request_check_builds_the_runner_image_and_pushes_nothing() -> None:
     """Verify that CI builds the runner target for a pull request, loads it, pushes nothing, and
-    builds only when image content changed (the rule of the Service image job)."""
+    builds only when image content changed (the rule of the Service image job). The release pull
+    request skips the job (#4637)."""
     job = _workflow("ci.yml")["jobs"]["runner-image"]
     build = _step(job, "Build and Load Runner Image")
     steps = [step for step in job["steps"] if step.get("name") in RUNNER_STEPS[:3]]
@@ -206,7 +207,9 @@ def test_the_pull_request_check_builds_the_runner_image_and_pushes_nothing() -> 
         [step["if"] for step in steps],
         job.get("needs"),
     ) == (
-        "github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'",
+        "(github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request')"
+        " && !(startsWith(github.head_ref, 'release-please--')"
+        " && github.event.pull_request.head.repo.full_name == github.repository)",
         {"contents": "read"},
         "runner",
         True,

@@ -37,6 +37,10 @@ env:
 # job gives its runner back soon. The step that runs the gate or the tests has a shorter limit than
 # its job: a hung step then fails with a message that names it, and the job keeps time for the
 # steps after it (#4677).
+# The release pull request runs only the required checks: each job that no rule of `main` reads
+# skips a branch of this repository whose name starts with `release-please--`. That pull request
+# changes `pyproject.toml` and `uv.lock`, which are image inputs, and release.yml builds, starts
+# and scans each image before it publishes it (#4637).
 jobs:
   # Fast-failing static gates. Split from the test suite so lint, typing, and formatting
   # errors surface in roughly a minute instead of queuing behind the full suite.
@@ -391,12 +395,14 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: uv run devops ci job-time --repo "$GITHUB_REPOSITORY"
 
-  # Builds, smoke-tests and scans the Service image of every pull request, without pushing it;
-  # release.yml publishes it when a release is created (#1486).
+  # Builds, smoke-tests and scans the Service image of every pull request but the release pull
+  # request, without pushing it; release.yml publishes it when a release is created (#1486).
   service-image:
     name: Service Image
     if: >-
-      github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'
+      (github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request')
+      && !(startsWith(github.head_ref, 'release-please--')
+      && github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-26.04
     timeout-minutes: 12
     permissions:
@@ -489,13 +495,16 @@ jobs:
           exit-code: "1"
           version: v0.75.0
 
-  # Builds, smoke-tests and scans the runner image of every pull request, without pushing it;
-  # release.yml publishes it when a release is created (#2667). It runs next to the Service image
-  # job and shares its `builder` stage through the cache, so it adds no time to that job.
+  # Builds, smoke-tests and scans the runner image of every pull request but the release pull
+  # request, without pushing it; release.yml publishes it when a release is created (#2667). It
+  # runs next to the Service image job and shares its `builder` stage through the cache, so it adds
+  # no time to that job.
   runner-image:
     name: Runner Image
     if: >-
-      github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'
+      (github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request')
+      && !(startsWith(github.head_ref, 'release-please--')
+      && github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-26.04
     timeout-minutes: 12
     permissions:
@@ -588,11 +597,14 @@ jobs:
           exit-code: "1"
           version: v0.75.0
 
-  # Builds, smoke-tests and scans the MCP server image of every pull request, without pushing it (#3220).
+  # Builds, smoke-tests and scans the MCP server image of every pull request but the release pull
+  # request, without pushing it (#3220).
   mcp-server-image:
     name: MCP Server Image
     if: >-
-      github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'
+      (github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request')
+      && !(startsWith(github.head_ref, 'release-please--')
+      && github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-26.04
     timeout-minutes: 12
     permissions:
@@ -710,7 +722,10 @@ jobs:
   # Shuffling the whole suite waits for thread-leak isolation.
   changed-tests:
     name: Changed-Test Independence
-    if: github.event_name == 'pull_request'
+    if: >-
+      github.event_name == 'pull_request'
+      && !(startsWith(github.head_ref, 'release-please--')
+      && github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-26.04
     timeout-minutes: 15
     permissions:
@@ -755,16 +770,19 @@ jobs:
 
   # The token build of docs/DESIGN.md: the pinned Style Dictionary builds the token files of
   # design/tokens/ with the configs of design/sd/, and the job fails when a committed output is
-  # not the build, or when a test of tests/design fails. The job runs for every pull request and
-  # does its steps only when a path of its filter changed, so on any other pull request it reports
-  # success. The filter holds the inputs of the build, its outputs, and the files whose colors the
-  # design tests check. npm installs the lock outside the checkout, so no node_modules shows in
-  # the diff. The design tests run in one process: they take seconds, and pytest workers take
-  # longer to start. Each step limit is shorter than the job limit, and the bound of one design
-  # test is shorter than its step, so pytest-timeout names a test that hangs.
+  # not the build, or when a test of tests/design fails. The job runs for every pull request but
+  # the release pull request, and does its steps only when a path of its filter changed, so on any
+  # other pull request it reports success. The filter holds the inputs of the build, its outputs,
+  # and the files whose colors the design tests check. npm installs the lock outside the checkout,
+  # so no node_modules shows in the diff. The design tests run in one process: they take seconds,
+  # and pytest workers take longer to start. Each step limit is shorter than the job limit, and the
+  # bound of one design test is shorter than its step, so pytest-timeout names a test that hangs.
   design-tokens:
     name: Design Tokens
-    if: github.event_name == 'pull_request'
+    if: >-
+      github.event_name == 'pull_request'
+      && !(startsWith(github.head_ref, 'release-please--')
+      && github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-26.04
     timeout-minutes: 5
     permissions:

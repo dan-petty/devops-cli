@@ -45,6 +45,10 @@ env:
 jobs:
   devcontainer:
     name: DevContainer Image
+    # The release pull request runs only the required checks (#4637).
+    if: >-
+      ${{ !(startsWith(github.head_ref, 'release-please--')
+      && github.event.pull_request.head.repo.full_name == github.repository) }}
     runs-on: ubuntu-26.04
     # About three times its longest run of 416 s: a build with no cache takes longer (#4677).
     timeout-minutes: 20
