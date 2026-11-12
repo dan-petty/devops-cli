@@ -469,11 +469,12 @@ def _expected_custom_deps() -> dict[str, list[tuple[str, str]]]:
         ".github/actions/setup-toolchain/action.yml": [python_minor],
         ".github/workflows/release-merge.yml": [python_minor],
         ".github/workflows/release.yml": [python_minor] * 3,
-        ".devcontainer/Dockerfile": [python_minor] * 3,
+        ".devcontainer/Dockerfile": [python_minor] * 4,
         "pyproject.toml": [python_minor] * 2,
         "src/devops_cli/config/defaults.py": [python_minor],
         "src/devops_cli/tools_lock/semgrep.txt": [python_minor],
         "src/devops_cli/tools_lock/bandit.txt": [python_minor],
+        "src/devops_cli/tools_lock/ansible-core.txt": [python_minor],
         "src/devops_cli/tools_lock/tools.lock": [
             python_minor,
             python_minor,
