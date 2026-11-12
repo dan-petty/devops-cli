@@ -1493,9 +1493,14 @@ CONST_GITHUB_APP_TOKEN_PERMISSIONS: Final[dict[str, str]] = {
     "actions": "read",
     "metadata": "read",
     "workflows": "write",
-    # The metrics row reads the deliveries of the hooks of each repository (#5017).
+}
+# What a token that names no repository adds, as the Service mints, for its metrics row. No step of
+# a runner Job reads them, so the token of a Job, which names one repository, does not ask for
+# them (#5058).
+CONST_GITHUB_APP_METRICS_TOKEN_PERMISSIONS: Final[dict[str, str]] = {
+    # The deliveries of the hooks of each repository (#5017).
     "repository_hooks": "read",
-    # The metrics row reads the traffic endpoints of each repository (#4757).
+    # The traffic endpoints of each repository (#4757).
     "administration": "read",
 }
 # GitHub's commit email of an account, `<id>+<login>@users.noreply.github.com`, for a bot too.

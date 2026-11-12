@@ -39,8 +39,8 @@ BOT_LOGIN = "devops-roadmap[bot]"
 APP_LOGGER = "devops_cli.github.app_installation"
 MINT = "/app/installations/42/access_tokens"
 REPO = "/repos/example-org/app"
-# The permissions the roadmap jobs use (ADR 0015), which each token asks for.
-ROADMAP_PERMISSIONS = {
+# The permissions the roadmap jobs use (ADR 0015), which the token of a runner Job asks for.
+JOB_PERMISSIONS = {
     "issues": "write",
     "pull_requests": "write",
     "contents": "write",
@@ -48,9 +48,9 @@ ROADMAP_PERMISSIONS = {
     "actions": "read",
     "metadata": "read",
     "workflows": "write",
-    "repository_hooks": "read",
-    "administration": "read",
 }
+# A token that names no repository, as the Service mints, also asks for those of the metrics row.
+ROADMAP_PERMISSIONS = {**JOB_PERMISSIONS, "repository_hooks": "read", "administration": "read"}
 
 
 @pytest.fixture(scope="module")
@@ -138,17 +138,19 @@ def test_the_token_request_asks_only_for_the_permissions_the_roadmap_jobs_use(
     assert json.loads(app_identity.sent[0].content) == {"permissions": ROADMAP_PERMISSIONS}
 
 
-def test_a_runner_job_asks_for_a_token_that_names_one_repository(
+def test_a_runner_job_asks_for_a_token_that_names_one_repository_and_no_metrics_permission(
     app_identity: GitHubApiFake, config: Callable[..., Path]
 ) -> None:
     """A Job holds the setting `service.github_app.token_repository`, so its token names the
-    repository by name and a step cannot push to another one (#2667)."""
+    repository by name and a step cannot push to another one (#2667). No step reads a hook or the
+    traffic, so the token asks for neither `repository_hooks` nor `administration`, and a step
+    cannot read the hook URLs, the deliveries or the settings of the repository (#5058)."""
     config(service={"github_app": {**APP_SETTINGS, "token_repository": "example-org/app"}})
     reset_github_session()
     app_identity.route("POST", MINT, _installation_token("ghs_first", timedelta(hours=1)))
     github_token()
     assert json.loads(app_identity.sent[0].content) == {
-        "permissions": ROADMAP_PERMISSIONS,
+        "permissions": JOB_PERMISSIONS,
         "repositories": ["app"],
     }
 
@@ -259,7 +261,8 @@ def test_a_runner_job_whose_repository_the_installation_lacks_fails_naming_the_r
         "(HTTP 422): There is at least one repository that does not exist" in message,
         "The installation must include repository example-org/app" in message,
         "grant each permission that the token asks for" in message,
-    ) == (True, True, True)
+        "repository_hooks" in message or "administration" in message,
+    ) == (True, True, True, False)
 
 
 def test_the_apps_login_is_its_bot_and_no_get_user_is_sent(app_identity: GitHubApiFake) -> None:

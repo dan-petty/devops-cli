@@ -5,12 +5,15 @@ A process acts as the App when its environment holds the App's private key,
 cluster's pods. The App's ID, its installation's ID and its slug come from `service.github_app`.
 gidgethub signs a JWT with the key, and the process exchanges it for an installation token at
 `POST /app/installations/<id>/access_tokens`, over the session's client, so the request goes to
-GitHub's API origin only. The request asks for `CONST_GITHUB_APP_TOKEN_PERMISSIONS` only, the
+GitHub's API origin only. The request asks for `CONST_GITHUB_APP_TOKEN_PERMISSIONS`, the
 permissions the roadmap jobs use, so the token carries no other permission that the installation
 grants (#2473). A runner Job also sets `service.github_app.token_repository`, and then the request
 names that one repository, so a step cannot push to another one (#2667). The implement job runs
-no step without it. `gidgethub.apps.get_installation_access_token` sends no body, so the process
-posts the request through gidgethub's `GitHubAPI`. `core.process` keeps the token, gives it to
+no step without it. A request that names no repository, as the Service sends, also asks for
+`CONST_GITHUB_APP_METRICS_TOKEN_PERMISSIONS`, which the metrics row needs to read the hooks and
+the traffic (#5017, #4757). A runner Job reads neither, so its token cannot read them (#5058).
+`gidgethub.apps.get_installation_access_token` sends no body, so the process posts the request
+through gidgethub's `GitHubAPI`. `core.process` keeps the token, gives it to
 every gh and git child and mints a new one before it expires. The App's login is its bot's,
 `<slug>[bot]`: an installation token cannot read `GET /user`.
 """
@@ -26,6 +29,7 @@ from typing import Any
 
 from devops_cli.config.constants import (
     CONST_GITHUB_APP_LEDGER_KEY,
+    CONST_GITHUB_APP_METRICS_TOKEN_PERMISSIONS,
     CONST_GITHUB_APP_PRIVATE_KEY_ENV,
     CONST_GITHUB_APP_TOKEN_PERMISSIONS,
     CONST_GITHUB_USER_AGENT,
@@ -92,7 +96,7 @@ def configured_app() -> GitHubApp:
 def mint_installation_token() -> tuple[str, str, datetime | None]:
     """A new installation token of the App and when it expires, or "" and why GitHub gave none.
 
-    The token carries only `CONST_GITHUB_APP_TOKEN_PERMISSIONS`, and the log names the
+    The token carries only the permissions of `_token_permissions`, and the log names the
     permissions of GitHub's reply, without their levels. A reply that grants more is no error.
     The reason names the request and GitHub's status, or says that the key could not sign a JWT;
     it never holds the key or a token. GitHub refuses with HTTP 422 a permission that the
@@ -149,18 +153,30 @@ def _not_granted(app: GitHubApp, reason: str) -> str:
     which of the two is missing."""
     if app.token_repository:
         return ERRORS.git.github_app_repository_not_granted.format(
-            reason=reason, repository=app.token_repository, permissions=_asked_permissions()
+            reason=reason, repository=app.token_repository, permissions=_asked_permissions(app)
         )
     return ERRORS.git.github_app_permissions_not_granted.format(
-        reason=reason, permissions=_asked_permissions()
+        reason=reason, permissions=_asked_permissions(app)
     )
 
 
-def _asked_permissions() -> str:
-    """Each permission that the token asks for, with its level, as an error names them."""
-    return ", ".join(
-        f"{name} ({level})" for name, level in sorted(CONST_GITHUB_APP_TOKEN_PERMISSIONS.items())
-    )
+def _token_permissions(app: GitHubApp) -> dict[str, str]:
+    """The permissions that a token of `app` asks for (ADR 0015).
+
+    A token that names one repository, a runner Job's, asks for the roadmap jobs' permissions
+    only. A token that names no repository, the Service's, also asks for the permissions of the
+    metrics row, which reads the hooks and the traffic (#5017, #4757). No step of a runner Job
+    reads them, so a step cannot read a hook URL, a delivery or the settings of the repository
+    (#5058).
+    """
+    if app.token_repository:
+        return dict(CONST_GITHUB_APP_TOKEN_PERMISSIONS)
+    return {**CONST_GITHUB_APP_TOKEN_PERMISSIONS, **CONST_GITHUB_APP_METRICS_TOKEN_PERMISSIONS}
+
+
+def _asked_permissions(app: GitHubApp) -> str:
+    """Each permission that the token of `app` asks for, with its level, as an error names them."""
+    return ", ".join(f"{name} ({level})" for name, level in sorted(_token_permissions(app).items()))
 
 
 def _is_rsa_private_key(pem: str) -> bool:
@@ -186,8 +202,8 @@ def _token_failed(app: GitHubApp, reason: str) -> str:
 
 def _exchange(app: GitHubApp) -> dict[str, Any]:
     """GitHub's answer to the exchange of the App's JWT for an installation token that carries
-    only `CONST_GITHUB_APP_TOKEN_PERMISSIONS` and, when `service.github_app.token_repository` is
-    set, names only that repository (#2667).
+    only the permissions of `_token_permissions` and, when `service.github_app.token_repository`
+    is set, names only that repository (#2667).
 
     gidgethub signs the JWT with the App's ID and key. The exchange runs on a loop of its own, so
     a caller on any thread, an event loop's included, can wait for it.
@@ -197,7 +213,7 @@ def _exchange(app: GitHubApp) -> dict[str, Any]:
 
     from devops_cli.github.session_transport import session_client
 
-    body: dict[str, Any] = {"permissions": dict(CONST_GITHUB_APP_TOKEN_PERMISSIONS)}
+    body: dict[str, Any] = {"permissions": _token_permissions(app)}
     if app.token_repository:
         body["repositories"] = [app.token_repository.partition("/")[2]]
 
