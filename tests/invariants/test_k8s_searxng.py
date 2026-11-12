@@ -132,7 +132,8 @@ def test_the_pod_meets_pod_security_restricted() -> None:
 
 def test_the_environment_holds_the_server_secret_from_the_secret_and_an_ipv4_bind() -> None:
     """The settings file holds no secret: SearXNG reads `SEARXNG_SECRET` before it. The bind is an
-    IPv4 address, so a Service reaches the pod whatever the node's IPv6 setting."""
+    IPv4 address, so a Service reaches the pod whatever the node's IPv6 setting. Granian replaces a
+    worker that passes 512 MiB (#4939)."""
     container = _container()
 
     assert ({item["name"]: item for item in container["env"]}, container.get("envFrom")) == (
@@ -142,6 +143,7 @@ def test_the_environment_holds_the_server_secret_from_the_secret_and_an_ipv4_bin
                 "valueFrom": {"secretKeyRef": {"name": "searxng", "key": "SEARXNG_SECRET"}},
             },
             "GRANIAN_HOST": {"name": "GRANIAN_HOST", "value": BIND_ALL_IPV4},
+            "GRANIAN_WORKERS_MAX_RSS": {"name": "GRANIAN_WORKERS_MAX_RSS", "value": "512"},
         },
         None,
     )
@@ -180,12 +182,14 @@ def test_the_probes_read_healthz() -> None:
 
 
 def test_the_container_has_requests_and_limits() -> None:
-    """The limits follow the peak of 20 queries on the pinned image (117 MiB) with a margin."""
+    """The memory limit holds a worker at `GRANIAN_WORKERS_MAX_RSS` and the new worker that
+    Granian starts in its place, so the slow growth of one worker ends in a replacement, not in
+    an OOM kill (#4939)."""
     resources = _container()["resources"]
 
     assert resources == {
-        "requests": {"cpu": "50m", "memory": "192Mi", "ephemeral-storage": "64Mi"},
-        "limits": {"cpu": "1", "memory": "384Mi", "ephemeral-storage": "256Mi"},
+        "requests": {"cpu": "50m", "memory": "256Mi", "ephemeral-storage": "64Mi"},
+        "limits": {"cpu": "1", "memory": "1Gi", "ephemeral-storage": "256Mi"},
     }
 
 
