@@ -824,6 +824,9 @@ def test_ci_workflow_has_tooling_cache_step() -> None:
     assert "hashFiles" in cache_key
     # A commit-scoped key would miss on every run, defeating the cache entirely.
     assert "github.sha" not in cache_key
+    # actions/cache requires a path, so a job that runs no tool of the runner passes empty paths
+    # and the action skips the cache step (#4642).
+    assert cache_steps[0].get("if") == "inputs.tooling-cache-paths != ''"
 
     # Default paths cover the incremental type and lint caches; the test job overrides
     # them to cache pytest state instead.
@@ -1026,11 +1029,15 @@ def test_service_image_ci_job_invariants() -> None:
 
 
 def test_service_image_test_ci_job_invariants() -> None:
-    """The service-image-test job builds the service stage locally and runs the sharded test
-    suite inside `devops-cli-service:local` without pushing or interpolating ${{ in scripts (#1643).
+    """The service-image-test shards run the test suite inside `devops-cli-service:local` without
+    pushing it or interpolating ${{ in scripts (#1643).
 
     It is in a workflow of its own, so the native `paths` filter stops a pull request that changes
-    only src/ before a job starts, and no push to a pull request of ci.yml starts it (#4644)."""
+    only src/ before a job starts, and no push to a pull request of ci.yml starts it (#4644).
+
+    One job builds the service stage and passes it to the shards as an artifact, as the Docker
+    guide "Share built image between jobs" does. Each shard loads it, restores no tooling cache,
+    and prints its 10 slowest tests and the reason for each skip (#4642)."""
     import yaml
 
     ci = yaml.safe_load(Path(".github/workflows/ci.yml").read_text(encoding="utf-8")) or {}
@@ -1038,14 +1045,22 @@ def test_service_image_test_ci_job_invariants() -> None:
         yaml.safe_load(Path(".github/workflows/service-image-test.yml").read_text(encoding="utf-8"))
         or {}
     )
+    build_job = workflow["jobs"]["service-image-build"]
     job = workflow["jobs"]["service-image-test"]
+    release_skip = (
+        "${{ !(startsWith(github.head_ref, 'release-please--')"
+        " && github.event.pull_request.head.repo.full_name == github.repository) }}"
+    )
 
     assert (
         "service-image-test" in ci["jobs"],
         workflow[True]["pull_request"]["types"],
         workflow[True]["pull_request"]["branches"],
         workflow.get("concurrency"),
+        build_job.get("if"),
+        build_job.get("permissions"),
         job.get("if"),
+        job.get("needs"),
         job.get("permissions"),
         job.get("strategy"),
     ) == (
@@ -1056,35 +1071,71 @@ def test_service_image_test_ci_job_invariants() -> None:
             "group": "${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}",
             "cancel-in-progress": True,
         },
-        "${{ !(startsWith(github.head_ref, 'release-please--')"
-        " && github.event.pull_request.head.repo.full_name == github.repository) }}",
+        release_skip,
+        {"contents": "read"},
+        release_skip,
+        "service-image-build",
         {"contents": "read"},
         {"fail-fast": False, "matrix": {"shard": [1, 2, 3, 4, 5, 6]}},
     )
 
-    build_step = next(s for s in job["steps"] if s.get("name") == "Build and Load Service Image")
+    def step(steps: list[dict[str, Any]], name: str) -> dict[str, Any]:
+        return next(s for s in steps if s.get("name") == name)
+
+    build_step = step(build_job["steps"], "Build Service Image")
     build_with = build_step.get("with", {})
+    upload_with = step(build_job["steps"], "Upload Service Image").get("with", {})
+    download_with = step(job["steps"], "Download Service Image").get("with", {})
+    archive = "${{ runner.temp }}/service-image.tar"
     assert (
         build_with.get("file"),
         build_with.get("target"),
         build_with.get("push") in (False, "false"),
-        build_with.get("load") in (True, "true"),
+        "load" in build_with,
+        build_with.get("outputs"),
         build_with.get("no-cache-filters"),
-    ) == ("./Dockerfile", "service", True, True, "service")
-
-    install_step = next(
-        s for s in job["steps"] if s.get("name") == "Install Service Image Test Dependencies"
+        build_step.get("env", {}).get("DOCKER_BUILD_RECORD_UPLOAD"),
+        upload_with.get("name"),
+        upload_with.get("path"),
+        upload_with.get("retention-days"),
+        upload_with.get("compression-level"),
+        download_with.get("name"),
+        download_with.get("path"),
+        step(job["steps"], "Load Service Image").get("run"),
+        [s["name"] for s in job["steps"] if "docker/build-push-action" in str(s.get("uses"))],
+    ) == (
+        "./Dockerfile",
+        "service",
+        True,
+        False,
+        f"type=docker,dest={archive}",
+        "service",
+        "false",
+        "service-image",
+        archive,
+        1,
+        0,
+        "service-image",
+        "${{ runner.temp }}",
+        'docker load --input "$RUNNER_TEMP/service-image.tar"',
+        [],
     )
-    install_run = str(install_step.get("run", ""))
-    test_step = next(s for s in job["steps"] if s.get("name") == "Run Test Suite in Service Image")
-    test_run = str(test_step.get("run", ""))
+
+    toolchain = next(s for s in job["steps"] if "setup-toolchain" in str(s.get("uses", "")))
+    install_run = str(step(job["steps"], "Install Service Image Test Dependencies").get("run", ""))
+    test_run = str(step(job["steps"], "Run Test Suite in Service Image").get("run", ""))
     assert (
+        toolchain.get("with", {}).get("tooling-cache-paths"),
         "HOME=/tmp" in install_run,
         "UV_NO_CONFIG=1" in install_run,
         "/workspace/project" in test_run,
-    ) == (True, True, True)
+        '"-rs"' in test_run,
+        '"--durations=10"' in test_run,
+    ) == ("", True, True, True, True, True)
 
-    interpolated_runs = [s.get("name", "") for s in job["steps"] if "${{" in s.get("run", "")]
+    interpolated_runs = [
+        s.get("name", "") for s in (*build_job["steps"], *job["steps"]) if "${{" in s.get("run", "")
+    ]
     assert interpolated_runs == []
 
 
