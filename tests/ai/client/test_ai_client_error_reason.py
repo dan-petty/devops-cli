@@ -12,10 +12,8 @@ from typing import Any
 import httpx2
 import pytest
 
-from devops_cli.ai.client import AIClientError, LLMClient
+from devops_cli.ai.client import AIClientError, AICredentialsError, LLMClient
 from devops_cli.config.settings import AIConfig
-from devops_cli.http.egress import EgressLevel
-from devops_cli.http.entry import http_client
 from tests.support.fakes.http import WebFake
 from tests.support.llm_stream_fakes import reply, serve_llm, sse_data
 
@@ -116,36 +114,43 @@ def test_a_call_that_times_out_says_so(web: WebFake) -> None:
     )
 
 
-def test_a_claude_reply_with_a_status_gives_the_status(web: WebFake) -> None:
-    """The Anthropic SDK reads the status of a reply that a plain client returns; the client of
-    this test has no retry transport, which raises before the SDK sees the reply."""
-    plain_client = http_client(EgressLevel.PRIVATE)
-    client = LLMClient(
-        AIConfig(
-            provider="claude",
-            model="claude-test",
-            api_base_url="http://example.com",
-            allow_private_network=True,
-            max_retries=1,
-        ),
-        api_key="sk-test",
-        cache_enabled=False,
-        http_client=plain_client,
-    )
-    serve_llm(
-        web,
-        lambda request: httpx2.Response(
-            529,
-            json={"type": "error", "error": {"type": "overloaded_error", "message": _MODEL_TEXT}},
-        ),
-    )
+def _claude_error(error_type: str, status: int) -> Any:
+    def answer(request: httpx2.Request) -> httpx2.Response:
+        return httpx2.Response(
+            status, json={"type": "error", "error": {"type": error_type, "message": _MODEL_TEXT}}
+        )
 
-    try:
-        error = _failure(client)
-    finally:
-        plain_client.close()
+    return answer
 
-    assert (error.status, error.reason) == (529, "LLM_INFERENCE_ERROR, HTTP 529")
+
+def _claude_failure(call: str) -> AIClientError:
+    client = _claude_client()
+    with pytest.raises(AIClientError) as caught:
+        if call == "stream":
+            list(client.chat_stream("You are terse.", "Reply with OK."))
+        else:
+            client.chat("You are terse.", "Reply with OK.", use_cache=False)
+    return caught.value
+
+
+@pytest.mark.parametrize("call", ["chat", "stream"])
+def test_a_claude_reply_with_a_status_gives_the_status(call: str, web: WebFake) -> None:
+    """The retry transport of the shared client raises the status error of its last try, and the
+    Anthropic SDK raises `APIConnectionError` from that error (#3797)."""
+    sent = serve_llm(web, _claude_error("overloaded_error", 529))
+
+    error = _claude_failure(call)
+
+    tries = [request for request in sent if request.url.path == "/v1/messages"]
+    assert (error.status, error.reason, len(tries)) == (529, "LLM_INFERENCE_ERROR, HTTP 529", 2)
+
+
+def test_a_claude_reply_that_refuses_the_key_gives_the_credentials_error(web: WebFake) -> None:
+    serve_llm(web, _claude_error("authentication_error", 401))
+
+    error = _claude_failure("chat")
+
+    assert (type(error), "(HTTP 401)" in str(error)) == (AICredentialsError, True)
 
 
 def test_a_transport_timeout_of_the_shared_client_says_so() -> None:
@@ -189,14 +194,19 @@ def _time_out(request: httpx2.Request) -> httpx2.Response:
     raise httpx2.ConnectTimeout("connect timed out", request=request)
 
 
+def _refuse(request: httpx2.Request) -> httpx2.Response:
+    raise httpx2.ConnectError("connection refused", request=request)
+
+
 @pytest.mark.parametrize(
     ("make_client", "handler", "status", "timed_out"),
     [
         (_claude_client, _time_out, None, True),
+        (_claude_client, _refuse, None, False),
         (_ollama_client, _time_out, None, True),
         (_ollama_client, lambda request: httpx2.Response(500, text=_MODEL_TEXT), 500, False),
     ],
-    ids=["claude-timeout", "ollama-timeout", "ollama-status"],
+    ids=["claude-timeout", "claude-refused", "ollama-timeout", "ollama-status"],
 )
 def test_a_provider_that_builds_its_own_error_gives_the_status_or_the_timeout(
     make_client: Any,
