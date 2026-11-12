@@ -21,19 +21,22 @@ Service stops (#4925). The step fetches the default branch and the branch of the
 before any write when the branch moved after the read, or holds a commit of another author than
 the clone identity. It writes the attempt marks, reads the change folder at the head with the plan
 reader, and gives it to `revise_plan` at the default branch of `origin`: the checks judge the plan,
-the review counts its open findings, the planner gets the plan and those findings, and the review
-judges the revision with the normal repair rounds.
+the review counts its open findings, the planner gets the plan with those findings and the open
+findings of the last plan comment, and the review judges the revision with the normal repair
+rounds. An earlier review wrote the comment, so the count of the comment is only reported: the
+step compares the revision with the review of the head of this attempt (#5150).
 
-**Writes.** A head plan with no open finding loses the label, and the plan stays. A revision with
-fewer open findings than the head plan is one commit on the latest default branch, which the step
+**Writes.** A head plan with no open finding in its review loses the label, and the plan stays. A
+revision with fewer open findings than the review of the head plan is one commit on the latest default branch, which the step
 pushes with `--force-with-lease` on the head that it read; the pull request gets the title and the
 body of the revision, and loses the label when no open finding remains. A revision that is not
 better, and a failed plan run, write only the record. The step posts one comment with
 `CONST_ROADMAP_FIX_PLAN_COMMENT_MARKER` on the issue for each attempt that changes the plan or the
 label, and writes only its own record keys (`FixPlanRecordKey`, ADR 0021 section 8).
 
-**Result.** Each attempt logs one result line (`log_job_result`, job `fix_plan`) and adds 1 to
-`devops_cli_roadmap_fix_plan_total` by repository and result.
+**Result.** Each attempt logs one result line (`log_job_result`, job `fix_plan`) with the open
+findings of the comment, of the review of the head and of the last review of the revision, and adds
+1 to `devops_cli_roadmap_fix_plan_total` by repository and result.
 """
 
 from __future__ import annotations
@@ -155,9 +158,10 @@ class FixPlanLeftOut:
 
 @dataclass(frozen=True)
 class FixPlanAttempt:
-    """One attempt: the item, the pull request, the result, the open findings before and after
-    the repair, the head of the branch after the attempt, the class of a failure, and the counts of
-    the plan runs (`StageAttempt.counts`)."""
+    """One attempt: the item, the pull request, the result, the open findings of the review of
+    the head before the repair and of the last review after it, the head of the branch after the
+    attempt, the class of a failure, the counts of the plan runs (`StageAttempt.counts`), and the
+    open findings that the last plan comment lists (#5150)."""
 
     number: int
     pull: int
@@ -167,6 +171,7 @@ class FixPlanAttempt:
     head: str = ""
     failure: FailureClass | None = None
     counts: tuple[tuple[str, int], ...] = ()
+    comment: int = 0
 
 
 @dataclass(frozen=True)
@@ -518,24 +523,33 @@ def _result_marks(target: FixPlanTarget, done: FixPlanAttempt) -> Mapping[FixPla
     }
 
 
+def _attempt_line(done: FixPlanAttempt) -> str:
+    """The line that reports `done`: its result and its counts of open findings."""
+    return MESSAGES.roadmap.fix_plan_attempt.format(
+        pull=done.pull,
+        number=done.number,
+        result=done.result.value,
+        before=done.before,
+        after=done.after,
+        comment=done.comment,
+    )
+
+
 def _report(repo: str, done: FixPlanAttempt) -> None:
     """Log the line and the result line of `done`, and count its result."""
-    logger.info(
-        MESSAGES.roadmap.fix_plan_attempt.format(
-            pull=done.pull,
-            number=done.number,
-            result=done.result.value,
-            before=done.before,
-            after=done.after,
-        )
-    )
+    logger.info(_attempt_line(done))
     log_job_result(
         RoadmapJob.FIX_PLAN,
         repo,
         done.number,
         done.result.value,
         failure=done.failure,
-        counts={**dict(done.counts), "before": done.before, "after": done.after},
+        counts={
+            **dict(done.counts),
+            "comment": done.comment,
+            "before": done.before,
+            "after": done.after,
+        },
     )
     emit(ROADMAP_FIX_PLAN_TOTAL, 1, {"repo": repo, "result": done.result.value})
 
@@ -566,6 +580,7 @@ def _attempt(
             FixPlanRecordKey.RESULT: None,
         },
     )
+    findings: tuple[Finding, ...] = ()
     try:
         stage_target, proposal = _head_plan(source, target)
     except PlanReadError:
@@ -592,7 +607,7 @@ def _attempt(
         )
         done = _settle(attempt, revision)
         counts = revision.attempt.counts() if revision.attempt is not None else {}
-    done = replace(done, counts=tuple(counts.items()))
+    done = replace(done, counts=tuple(counts.items()), comment=len(findings))
     store.set_marks(store.item(number) or target.item, _result_marks(target, done))
     _report(attempt.repo, done)
     return done
@@ -671,15 +686,7 @@ def render_fix_plan(run: FixPlanRun) -> str:
     ]
     done = run.attempt
     if done is not None:
-        lines.append(
-            texts.fix_plan_attempt.format(
-                pull=done.pull,
-                number=done.number,
-                result=done.result.value,
-                before=done.before,
-                after=done.after,
-            )
-        )
+        lines.append(_attempt_line(done))
         if done.counts:
             shown = ", ".join(f"{name} {value}" for name, value in done.counts)
             lines.append(texts.fix_plan_counts.format(counts=shown, head=done.head[:_SHORT]))

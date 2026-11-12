@@ -463,7 +463,7 @@ def test_each_attempt_logs_one_result_line_and_counts_its_result(
         "success": "true",
         "class": "none",
     }
-    assert (line["before"], line["after"]) == ("1", "0")
+    assert (line["comment"], line["before"], line["after"]) == ("0", "1", "0")
     assert {"plan_calls", "gate_returns", "verify_rounds", "tokens", "seconds"} <= set(line)
     points = otlp.points(ROADMAP_FIX_PLAN_TOTAL.name)
     assert [(attrs["repo"], attrs["result"], value) for attrs, value in points] == [
