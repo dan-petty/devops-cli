@@ -360,6 +360,15 @@ class FakeNode:
         }
 
 
+def _pod(node: str, grace: int) -> dict[str, Any]:
+    """A running pod of a ReplicaSet on `node` with the grace period `grace`."""
+    return {
+        "metadata": {"name": f"app-{node}", "ownerReferences": [{"kind": "ReplicaSet"}]},
+        "spec": {"nodeName": node, "terminationGracePeriodSeconds": grace},
+        "status": {"phase": "Running"},
+    }
+
+
 @dataclass
 class FakeCluster:
     """`kubectl` of the kube context `KUBE_CONTEXT`, answered from `nodes`. A drain cordons the
@@ -372,6 +381,9 @@ class FakeCluster:
     steps: list[str] = field(default_factory=list)
     blocked: set[str] = field(default_factory=set)
     down: int = 0
+    # The grace period in seconds of a pod of a ReplicaSet on each node; a node with none has no
+    # pod that a drain evicts.
+    graces: dict[str, int] = field(default_factory=dict)
 
     @classmethod
     def of(cls, *nodes: FakeNode) -> FakeCluster:
@@ -388,6 +400,10 @@ class FakeCluster:
         if args[:2] == ("get", "nodes"):
             items = [node.item() for node in self.nodes.values()]
             return ProcessAnswer(stdout=json.dumps({"items": items}))
+        if args[:2] == ("get", "pods"):
+            name = args[args.index("--field-selector") + 1].removeprefix("spec.nodeName=")
+            pods = [_pod(name, self.graces[name])] if name in self.graces else []
+            return ProcessAnswer(stdout=json.dumps({"items": pods}))
         if args[:2] == ("get", "node"):
             found = self.nodes.get(args[2])
             if found is None:

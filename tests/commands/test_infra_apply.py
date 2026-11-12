@@ -302,6 +302,26 @@ def test_a_drain_that_a_budget_blocks_stops_before_the_node_is_cordoned(
     assert not lab.cluster.nodes["node-3"].cordoned
 
 
+def test_the_drain_waits_for_the_longest_grace_period_of_a_pod_of_the_node(
+    lab: Lab, person_caller: None
+) -> None:
+    """A pod with a grace period of 660 s makes the drain bound 720 s, above the setting of
+    180 s."""
+    lab.cluster.graces["node-3"] = 660
+    plan = lab.plan(NODE_3)
+
+    result = lab.apply(plan)
+
+    assert result.exit_code == 0, result.output
+    [drain] = [
+        call.argv
+        for call in lab.process_fake.calls
+        if call.argv[:5] == ("kubectl", "--context", KUBE_CONTEXT, "--request-timeout=30s", "drain")
+        and "--dry-run=server" not in call.argv
+    ]
+    assert "--timeout=720s" in drain
+
+
 def test_a_cluster_that_is_not_healthy_before_refuses_the_apply(
     lab: Lab, person_caller: None
 ) -> None:

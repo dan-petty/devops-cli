@@ -13,7 +13,14 @@ import httpx2
 import pytest
 
 from devops_cli.config.settings import load_settings
-from devops_cli.infra.nodes import Cluster, critical_alerts, node_problems, parse_node
+from devops_cli.infra.nodes import (
+    Cluster,
+    critical_alerts,
+    grace_period,
+    is_evicted,
+    node_problems,
+    parse_node,
+)
 from devops_cli.models.infra import NodeState
 from tests.support.fakes.clock import ClockFake
 from tests.support.fakes.http import WebFake
@@ -117,3 +124,50 @@ def test_a_prometheus_that_does_not_answer_is_a_problem(
     [problem] = critical_alerts(load_settings())
 
     assert problem.startswith("Prometheus did not answer the query of the critical alerts")
+
+
+@pytest.mark.parametrize(
+    ("item", "evicted", "grace"),
+    [
+        pytest.param(
+            {"metadata": {"ownerReferences": [{"kind": "ReplicaSet"}]}, "spec": {}},
+            True,
+            30,
+            id="replica-set-default-grace",
+        ),
+        pytest.param(
+            {"metadata": {"ownerReferences": [{"kind": "DaemonSet"}]}, "spec": {}},
+            False,
+            30,
+            id="daemon-set",
+        ),
+        pytest.param(
+            {"metadata": {"annotations": {"kubernetes.io/config.mirror": "x"}}, "spec": {}},
+            False,
+            30,
+            id="mirror-pod",
+        ),
+        pytest.param(
+            {"metadata": {}, "spec": {"terminationGracePeriodSeconds": 1800}},
+            True,
+            1800,
+            id="long-grace",
+        ),
+        pytest.param(
+            {"metadata": {}, "spec": {}, "status": {"phase": "Succeeded"}},
+            False,
+            30,
+            id="ended",
+        ),
+    ],
+)
+def test_the_drain_bound_reads_the_pods_that_the_drain_evicts(
+    item: dict[str, object], evicted: bool, grace: int
+) -> None:
+    assert (is_evicted(item), grace_period(item)) == (evicted, grace)
+
+
+def test_the_drain_bound_is_the_setting_when_no_pod_needs_more(cluster: FakeCluster) -> None:
+    cluster.graces["node-1"] = 90
+
+    assert Cluster(KUBE_CONTEXT, load_settings()).drain_bound("node-1") == 180

@@ -24,6 +24,7 @@ from devops_cli.infra.nodes import (
     drain_args,
     get_node_args,
     kubectl_argv,
+    pods_args,
     uncordon_args,
 )
 from devops_cli.infra.onboard import KUBE_CONTEXTS_ARGV, known_hosts_file
@@ -333,7 +334,12 @@ def _host_steps(
             f"the server dry run of the drain of {host}",
             drain_args(node, DEFAULT_INFRA_DRAIN_CHECK_TIMEOUT_SECONDS, check=True),
         ),
-        kubectl(f"the drain of {host}", drain_args(node, timeout, check=False)),
+        kubectl(f"the grace periods of the pods of {host}", pods_args(node)),
+        kubectl(
+            f"the drain of {host}, with the longer of {timeout} s and the longest grace period "
+            "and 60 s",
+            drain_args(node, timeout, check=False),
+        ),
         PlannedRequest(
             method="EXEC",
             target=f"the fresh check of {host}, which must give its plan",

@@ -24,21 +24,23 @@
          kubectl --context homelab-example --request-timeout=30s get node '<node of node-3.example.com>' -o json
    11. EXEC the server dry run of the drain of node-3.example.com
          kubectl --context homelab-example --request-timeout=30s drain '<node of node-3.example.com>' --ignore-daemonsets --delete-emptydir-data --timeout=30s --dry-run=server
-   12. EXEC the drain of node-3.example.com
+   12. EXEC the grace periods of the pods of node-3.example.com
+         kubectl --context homelab-example --request-timeout=30s get pods --all-namespaces --field-selector 'spec.nodeName=<node of node-3.example.com>' -o json
+   13. EXEC the drain of node-3.example.com, with the longer of 180 s and the longest grace period and 60 s
          kubectl --context homelab-example --request-timeout=30s drain '<node of node-3.example.com>' --ignore-daemonsets --delete-emptydir-data --timeout=180s
-   13. EXEC the fresh check of node-3.example.com, which must give its plan
+   14. EXEC the fresh check of node-3.example.com, which must give its plan
          <tmp>/user-data/tools/ansible-core/2.22.0/bin/ansible-runner run '<tmp>/.data/infra/example-org/infra/plans/<plan id>/applies/<apply id>' --playbook ansible/playbooks/03_k3s.yaml --ident '<ident>' --limit 'node-3.example.com:!<offline group>' --quiet '--cmdline=--check --diff -v -i '"'"'<inventory>'"'"' -e '"'"'ansible_ssh_private_key_file=<key of devops ssh>'"'"''
-   14. EXEC the run of node-3.example.com
+   15. EXEC the run of node-3.example.com
          <tmp>/user-data/tools/ansible-core/2.22.0/bin/ansible-runner run '<tmp>/.data/infra/example-org/infra/plans/<plan id>/applies/<apply id>' --playbook ansible/playbooks/03_k3s.yaml --ident '<ident>' --limit 'node-3.example.com:!<offline group>' --quiet '--cmdline=-v -i '"'"'<inventory>'"'"' -e '"'"'ansible_ssh_private_key_file=<key of devops ssh>'"'"''
-   15. EXEC Ready and the GPUs of node-3.example.com
+   16. EXEC Ready and the GPUs of node-3.example.com
          kubectl --context homelab-example --request-timeout=30s get node '<node of node-3.example.com>' -o json  [repeated once each poll interval until it passes twice or the wait ends]
-   16. EXEC the health of each node in service
+   17. EXEC the health of each node in service
          kubectl --context homelab-example --request-timeout=30s get nodes -o json  [repeated once each poll interval until it passes twice or the wait ends]
-   17. EXEC the uncordon of node-3.example.com
+   18. EXEC the uncordon of node-3.example.com
          kubectl --context homelab-example --request-timeout=30s uncordon '<node of node-3.example.com>'  [only if the node was schedulable before the drain]
-   18. EXEC the node of node-3.example.com after the apply
+   19. EXEC the node of node-3.example.com after the apply
          kubectl --context homelab-example --request-timeout=30s get node '<node of node-3.example.com>' -o json
-   19. WRITE the audit record infra.apply
+   20. WRITE the audit record infra.apply
   Each disruptive host runs alone in plan order. The node of a host stays cordoned when it was cordoned before. The first failure stops the apply.
   
   '''

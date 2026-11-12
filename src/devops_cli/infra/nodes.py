@@ -9,6 +9,8 @@ process runner with a request bound below its process bound:
   apply before the node is cordoned.
 - **Drain**: `kubectl drain <node> --ignore-daemonsets --delete-emptydir-data`, with no `--force`:
   a pod that no controller owns, and a budget, stop the drain. The drain cordons the node first.
+  Its bound is `infra.drain_timeout_seconds`, or the longest grace period of a pod that it evicts
+  and a margin, when that is longer (`kubectl get pods --field-selector spec.nodeName=<node>`).
 - **Uncordon**: `kubectl uncordon <node>`.
 
 The health gate reads every node of the cluster except the nodes of the hosts out of service:
@@ -74,6 +76,44 @@ def drain_args(node: str, timeout_seconds: int, *, check: bool) -> tuple[str, ..
     """The drain of `node` with no `--force`; with `check`, the server dry run of the drain."""
     args = ("drain", node, *_DRAIN_OPTIONS, f"--timeout={timeout_seconds}s")
     return (*args, _SERVER_DRY_RUN) if check else args
+
+
+def pods_args(node: str) -> tuple[str, ...]:
+    """The read of the pods of `node` as JSON."""
+    return (
+        "get",
+        "pods",
+        "--all-namespaces",
+        "--field-selector",
+        f"spec.nodeName={node}",
+        "-o",
+        "json",
+    )
+
+
+# The grace period of a pod that sets none (the Kubernetes default), in seconds.
+_DEFAULT_GRACE_SECONDS: Final[int] = 30
+_DAEMON_SET: Final[str] = "DaemonSet"
+_MIRROR: Final[str] = "kubernetes.io/config.mirror"
+_ENDED: Final[frozenset[str]] = frozenset({"Succeeded", "Failed"})
+
+
+def is_evicted(item: Mapping[str, Any]) -> bool:
+    """Whether a drain with `--ignore-daemonsets` evicts the pod: not a pod of a DaemonSet, not a
+    mirror pod of the kubelet, and not a pod that ended."""
+    metadata = item.get("metadata") or {}
+    owners = metadata.get("ownerReferences") or ()
+    if any(owner.get("kind") == _DAEMON_SET for owner in owners):
+        return False
+    if _MIRROR in (metadata.get("annotations") or {}):
+        return False
+    return (item.get("status") or {}).get("phase") not in _ENDED
+
+
+def grace_period(item: Mapping[str, Any]) -> int:
+    """The grace period of a pod in seconds."""
+    value = (item.get("spec") or {}).get("terminationGracePeriodSeconds")
+    return int(value) if value is not None else _DEFAULT_GRACE_SECONDS
 
 
 def uncordon_args(node: str) -> tuple[str, ...]:
@@ -177,9 +217,22 @@ class Cluster:
         args = drain_args(node, timeout, check=True)
         return self._kubectl(args, timeout + DEFAULT_INFRA_DRAIN_MARGIN_SECONDS).problem
 
+    def drain_bound(self, node: str) -> int:
+        """The bound of the drain of `node` in seconds: `infra.drain_timeout_seconds`, or the
+        longest grace period of a pod that the drain evicts and the margin, when that is longer.
+        The drain waits for each pod to stop in its own grace period, so a shorter bound stops a
+        drain that goes as it should. A read that fails gives the setting."""
+        setting = self.settings.infra.drain_timeout_seconds
+        read = self._kubectl(pods_args(node), DEFAULT_INFRA_KUBECTL_TIMEOUT_SECONDS)
+        items = (read.document or {}).get("items") or ()
+        graces = [grace_period(item) for item in items if is_evicted(item)]
+        longest = max(graces, default=0)
+        return max(setting, longest + DEFAULT_INFRA_DRAIN_MARGIN_SECONDS if longest else 0)
+
     def drain(self, node: str) -> str | None:
-        """Cordon and drain `node`; the problem when the drain does not finish."""
-        timeout = self.settings.infra.drain_timeout_seconds
+        """Cordon and drain `node` within its drain bound; the problem when the drain does not
+        finish."""
+        timeout = self.drain_bound(node)
         args = drain_args(node, timeout, check=False)
         return self._kubectl(args, timeout + DEFAULT_INFRA_DRAIN_MARGIN_SECONDS).problem
 
@@ -276,8 +329,11 @@ __all__ = [
     "critical_alerts",
     "drain_args",
     "get_node_args",
+    "grace_period",
+    "is_evicted",
     "kubectl_argv",
     "node_problems",
     "parse_node",
+    "pods_args",
     "uncordon_args",
 ]

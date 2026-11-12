@@ -318,7 +318,7 @@ The infra repos that `devops infra` manages, each with its agent access level, a
 | Option | Type | Default | Environment Variable | Description |
 |---|---|---|---|---|
 | `plan_max_age_hours` | `int` | `24` | `DEVOPS_CLI_INFRA_PLAN_MAX_AGE_HOURS` | The age in hours after which a plan of an infra repo is too old to apply |
-| `drain_timeout_seconds` | `int` | `180` | `DEVOPS_CLI_INFRA_DRAIN_TIMEOUT_SECONDS` | The longest time in seconds that the drain of one node may take |
+| `drain_timeout_seconds` | `int` | `180` | `DEVOPS_CLI_INFRA_DRAIN_TIMEOUT_SECONDS` | The time in seconds that the drain of one node may take. A pod on the node with a longer grace period makes the bound its grace period and 60 s more |
 | `node_ready_timeout_seconds` | `int` | `900` | `DEVOPS_CLI_INFRA_NODE_READY_TIMEOUT_SECONDS` | The longest time in seconds that `devops infra` waits for a node to be Ready again |
 | `repos` | `list` | `[]` | - | The infra repos, each with operational keys only: `repo` (owner/name), `path`, `kube_context`, `ssh_key_prefix` and `agent_access` (`none`, `plan`, `safe` or `full`; `none` when absent). The facts of a repository are in its project profile, `.devops/project.toml`. `devops infra onboard` writes an entry |
 

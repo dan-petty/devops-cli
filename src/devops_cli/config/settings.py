@@ -1631,7 +1631,7 @@ class InfraConfig(BaseModel):
     drain_timeout_seconds: Annotated[int, Variable()] = Field(
         default=DEFAULT_INFRA_DRAIN_TIMEOUT_SECONDS,
         gt=0,
-        description="The longest time in seconds that the drain of one node may take",
+        description="The time in seconds that the drain of one node may take. A pod on the node with a longer grace period makes the bound its grace period and 60 s more",
     )
     node_ready_timeout_seconds: Annotated[int, Variable()] = Field(
         default=DEFAULT_INFRA_NODE_READY_TIMEOUT_SECONDS,
