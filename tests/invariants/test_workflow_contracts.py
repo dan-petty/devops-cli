@@ -497,7 +497,7 @@ def test_a_pull_request_title_summary_has_at_most_60_characters() -> None:
     assert (
         _title_summary_accepted(pattern, "a" * 60),
         _title_summary_accepted(pattern, "a" * 61),
-        _title_summary_accepted(pattern, "devops gh issues close records a close reason"),
+        _title_summary_accepted(pattern, "devops gh issue close records a close reason"),
         "60 characters" in inputs["subjectPatternError"],
         "CONTRIBUTING.md" in inputs["subjectPatternError"],
     ) == (True, False, True, True, True)
@@ -663,7 +663,7 @@ def assert_audit_workflow_contract(workflow: dict[str, Any], text: str) -> None:
     assert not any("--fail-on-missing" in run for run in step_runs), (
         "Workflow must not pass --fail-on-missing: the audit runs after the merge and cannot block it (#3479)"
     )
-    assert not any("issues create" in run or "devops roadmap intake" in run for run in step_runs), (
+    assert not any("issue create" in run or "devops roadmap intake" in run for run in step_runs), (
         "Workflow must not file an issue: the text has no root cause and uses an intake round (#3479)"
     )
 
@@ -704,7 +704,7 @@ def test_defect_pr_hardening_audit_workflow_mutation() -> None:
         assert_audit_workflow_contract(mutated3, text)
 
     mutated4 = copy.deepcopy(workflow)
-    mutated4["jobs"]["audit-hardening"]["steps"].append({"run": "uv run devops gh issues create"})
+    mutated4["jobs"]["audit-hardening"]["steps"].append({"run": "uv run devops gh issue create"})
     with pytest.raises(AssertionError, match="must not file an issue"):
         assert_audit_workflow_contract(mutated4, text)
 

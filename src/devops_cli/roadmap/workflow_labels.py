@@ -5,7 +5,7 @@ declares them once, with the color and the description of each. `.github/labels.
 repository declares only its own labels, such as `scope/*`. A reader of that file gets the
 workflow labels first, then each label of the file that no workflow label names
 (`title_labels.declared_label_specs`). `devops roadmap onboard --confirm` and
-`devops gh labels sync` create the labels of both sources on GitHub.
+`devops gh label sync` create the labels of both sources on GitHub.
 """
 
 from __future__ import annotations

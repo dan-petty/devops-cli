@@ -80,11 +80,11 @@ def test_a_request_with_a_basic_credential_is_refused(client: TestClient) -> Non
 
 
 def test_a_mutating_tool_called_by_name_on_a_job_endpoint_is_unknown(client: TestClient) -> None:
-    body = _rpc("tools/call", {"name": "gh_issues_create", "arguments": {}})
+    body = _rpc("tools/call", {"name": "gh_issue_create", "arguments": {}})
     result = _post(client, "/planning/mcp", body).json()["result"]
     assert (result["isError"], result["content"][0]["text"]) == (
         True,
-        "Unknown tool: 'gh_issues_create'",
+        "Unknown tool: 'gh_issue_create'",
     )
 
 

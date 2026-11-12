@@ -23,7 +23,7 @@ The following matrix categorizes all project routine tasks by operational layer,
 
 | Operational Cadence | Routine Task | Sequence Order | Primary Command(s) | Methodology & Scope | Success Verification Gate |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **Inner Loop (Daily / Per Edit)** | Task Grounding | Step 1 | `devops gh issues triage` && `devops roadmap intake` | Verify the labels of the issue, or file the work through intake | Task grounded in an open issue with a `priority/*` label |
+| **Inner Loop (Daily / Per Edit)** | Task Grounding | Step 1 | `devops gh issue triage` && `devops roadmap intake` | Verify the labels of the issue, or file the work through intake | Task grounded in an open issue with a `priority/*` label |
 | **Inner Loop (Daily / Per Edit)** | Dependency Synchronization | Step 2 | `uv sync` | Synchronizes virtual environment with `uv.lock` | Clean exit; all dependencies resolved |
 | **Inner Loop (Daily / Per Edit)** | Constant & Config Placement | Step 3 | Manual / Refactor | Put each table beside its one owner, and in `config/` once a second package imports it; put messages in `lang/en/` | No hardcoded string literals in command code |
 | **Inner Loop (Daily / Per Edit)** | Targeted Linting & Formatting | Step 4 | `uv run ruff check --fix <file>` | Fast focused linting on modified files | `ruff check` reports 0 errors |
@@ -36,7 +36,7 @@ The following matrix categorizes all project routine tasks by operational layer,
 | **Final Pre-Commit / Pre-PR** | Observability, Log & Trace Audit | Step 4 | `devops telemetry status` / `.data/logs/` | Audit CLI command outputs, application logs, metrics, and OpenTelemetry tracing data for performance issues and misconfigurations | Zero unhandled exceptions or warnings in logs/spans |
 | **Feature / PR Lifecycle** | Branch Creation | Step 1 | `devops repos worktrees add <issue> --type <type> --slug <slug>` | Dedicated worktree and topic branch off the fetched `origin/main`, named as [CONTRIBUTING.md](../CONTRIBUTING.md#5-naming) says; the command takes over a staged branch that the App pushed for the issue, and refuses an issue that a worktree or any other pushed branch already holds | Clean worktree based on `origin/main` |
 | **Feature / PR Lifecycle** | PR Submission | Step 2 | `devops pr create --title "<type>(<scope>): <summary>"` | Opens a draft PR into `main`; the title becomes the changelog line | Draft PR opened with Conventional Commit title |
-| **Feature / PR Lifecycle** | Taxonomy Linking | Step 3 | `devops gh labels audit` | Audits open PRs for mandatory `type/*` and `scope/*` labels | Zero taxonomy audit findings |
+| **Feature / PR Lifecycle** | Taxonomy Linking | Step 3 | `devops gh label audit` | Audits open PRs for mandatory `type/*` and `scope/*` labels | Zero taxonomy audit findings |
 | **Feature / PR Lifecycle** | PR Monitoring & Review Resolution | Step 4 | `devops pr monitor <pr_number>`, then `devops pr ready <pr_number>` | Actively monitors checks and any review a person requested, remediates in-thread, then marks the draft ready | All checks green, requested reviews settled, 0 unresolved threads |
 | **Feature / PR Lifecycle** | AI Code Review | Step 5 | `devops ai review branch <name> --dry-run` | Automated review and group analysis | Findings inspected in `.data/reviews/` |
 | **Feature / PR Lifecycle** | Human Squash Merge | Step 6 | GitHub web UI (a person) | Maintainer squash-merges the approved PR into `main` | PR merged and topic branch deleted |
@@ -51,7 +51,7 @@ The following matrix categorizes all project routine tasks by operational layer,
 | **Workspace & Sync** | DevContainer Lifecycle Hooks | Daily / On Start | `devops devcontainer run-lifecycle --post-start` | Cross-platform container initialization tasks | All lifecycle tasks complete successfully |
 | **Workspace & Sync** | Multi-Repo Synchronization | Daily / On Demand | `devops repos sync` / `devops repos list` | Pulls upstream changes across all managed repos | All repositories up to date |
 | **Workspace & Sync** | GitHub Pages Publishing & Readiness Audit | Pre-PR | `devops gh pages status` / `devops gh pages verify` | Inspects live publishing health, HTTPS enforcement, and validates `docs/_config.yml`, the site settings that the Pages build reads, and `docs/` | Clean verification; HTTPS strictly enforced |
-| **Workspace & Sync** | GitHub Issues Lifecycle & Triage Audit | Daily / Pre-PR | `devops gh issues triage` / `devops gh issues status` | Audits open issues for mandatory taxonomy labels (`type/*`, `scope/*`) and a `priority/*` label, and reports those with no `priority/*` label as awaiting intake | Zero untriaged open issues; `devops roadmap intake` clears those awaiting intake |
+| **Workspace & Sync** | GitHub Issues Lifecycle & Triage Audit | Daily / Pre-PR | `devops gh issue triage` / `devops gh issue status` | Audits open issues for mandatory taxonomy labels (`type/*`, `scope/*`) and a `priority/*` label, and reports those with no `priority/*` label as awaiting intake | Zero untriaged open issues; `devops roadmap intake` clears those awaiting intake |
 | **Workspace & Sync** | GitHub Projects & Issues Views Sync & Audit | On Demand | `devops gh project sync` / `devops gh project audit` / `devops gh views audit` | Provisions and links the board, reconciles card fields, and audits the 4 declarative project views | All projects and views populated with zero drift or empty state (`projects` & `issues/views`) |
 | **Workspace & Sync** | SSH Keys & Host Audit | On Demand | `devops ssh status` / `devops ssh audit` | Validates ED25519 keys, permissions, and GitHub keys | No keys past rotation_days |
 | **Workspace & Sync** | Roadmap Implement Job (Service) | Every 7 minutes (row `implement`) | `kubectl -n devops get jobs -l implement-repo` / `devops roadmap implement --repo <owner/name> --item <number> --confirm` | The Service makes one runner Job per repository at a time for a Staged or Planned item, reports each Job that ended on its item, and sets Blocked on an item whose Job left it eligible, then clears that stop on a retry, on a continuation of a Job with no result, or on a new runner image | No Job ends without a comment on its item; no item runs twice after a failed Job until a person comments `implement: retry`, the Service continues a Job with no result (at most `roadmap.implement.continuations_per_item` times), or one new runner image rolls out |
@@ -80,7 +80,7 @@ flowchart TD
 
 #### Step-by-Step Order:
 1. **GitHub Project Bootstrap, Issue Grounding & Task State Setup**:
-   - **Inspect the Triage Queue**: Read the triage queue with `devops gh issues triage` (or FastMCP `gh_issues_triage`). The labels of each issue hold its state, so this step does not read the project board.
+   - **Inspect the Triage Queue**: Read the triage queue with `devops gh issue triage` (or FastMCP `gh_issue_triage`). The labels of each issue hold its state, so this step does not read the project board.
    - **Ground Requirement in a GitHub Issue**: Every feature, bug fix, or refactor must map to an open issue that is a roadmap item: it holds a `priority/*` label.
      - If a matching issue exists: link the task to it and verify its taxonomy labels.
      - Without a matching issue: **FILE THE TASK AS A CANDIDATE** (`devops roadmap intake --title "<conventional title>" --body-file <file> --confirm` or FastMCP `roadmap_intake` with `mode="confirm"`). Intake files it (a possible duplicate too, which its reason comment names for a person to close), labels its type, Status, Priority, Value and Effort, and puts it in the backlog; set no milestone or priority on it yourself.
@@ -140,8 +140,8 @@ Executed at the final stage of work after all iterative feature modifications an
    - Verify absence of performance bottlenecks, resource leaks, configuration warnings, or suppressed exceptions.
 4. **Validate GitHub Governance, Pages Readiness & Issues Triage**:
    - Verify the syntax and the required keys of `docs/_config.yml`, the one file of site settings that the Pages build reads, and the `docs/` publishing root, with `devops gh pages verify`.
-   - Audit open issues for mandatory taxonomy labels (`type/*`, `scope/*`) and a `priority/*` label via `devops gh issues triage`, and run `devops roadmap intake` for those it reports as awaiting intake.
-   - Inspect issue portfolio distribution via `devops gh issues status`.
+   - Audit open issues for mandatory taxonomy labels (`type/*`, `scope/*`) and a `priority/*` label via `devops gh issue triage`, and run `devops roadmap intake` for those it reports as awaiting intake.
+   - Inspect issue portfolio distribution via `devops gh issue status`.
 
 
 ---
@@ -272,8 +272,8 @@ Executed on workspace initialization (DevContainer startup) or on-demand.
   ```bash
   devops gh pages status
   devops gh pages verify
-  devops gh issues triage
-  devops gh issues status
+  devops gh issue triage
+  devops gh issue status
   devops gh project audit
   devops gh views audit
   ```

@@ -47,15 +47,15 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`docker_sandbox`](#docker-sandbox) | `false` | Execute workload inside an isolated, disposable Docker container sandbox. |
 | [`docker_sign`](#docker-sign) | `false` | Sign a container image using Sigstore Cosign (keyless or keyed). |
 | [`docker_verify`](#docker-verify) | `true` | Verify container image signature or attestation using Sigstore Cosign. |
-| [`gh_issues_close`](#gh-issues-close) | `false` | Close an open issue with its reason, completed or not planned. With --comment-file, the command posts the comment first, then closes the issue, so a failed close leaves the comment. It refuses a pull request and an issue that is already closed, because GitHub ignores a reason unless the state changes. |
-| [`gh_issues_create`](#gh-issues-create) | `false` | Create a new issue linking milestone and taxonomy labels. |
-| [`gh_issues_edit`](#gh-issues-edit) | `false` | Edit an existing issue title, body, state, milestone, or taxonomy labels. |
-| [`gh_issues_list`](#gh-issues-list) | `true` | List repository issues with milestone, taxonomy labels, and status. |
-| [`gh_issues_status`](#gh-issues-status) | `true` | Display aggregated issue counts by priority, type, and milestone. |
-| [`gh_issues_triage`](#gh-issues-triage) | `true` | Audit open issues for mandatory taxonomy labels, and report those with no priority/* label as awaiting intake. |
-| [`gh_issues_view`](#gh-issues-view) | `true` | Print one issue with its state, milestone, labels, assignees, dates and full body. |
-| [`gh_labels_list`](#gh-labels-list) | `true` | List all labels defined in the remote repository. |
-| [`gh_labels_sync`](#gh-labels-sync) | `false` | Synchronize repository labels with the workflow labels and the declarative YAML schema. |
+| [`gh_issue_close`](#gh-issue-close) | `false` | Close an open issue with its reason, completed or not planned. With --comment-file, the command posts the comment first, then closes the issue, so a failed close leaves the comment. It refuses a pull request and an issue that is already closed, because GitHub ignores a reason unless the state changes. |
+| [`gh_issue_create`](#gh-issue-create) | `false` | Create a new issue linking milestone and taxonomy labels. |
+| [`gh_issue_edit`](#gh-issue-edit) | `false` | Edit an existing issue title, body, state, milestone, or taxonomy labels. |
+| [`gh_issue_list`](#gh-issue-list) | `true` | List repository issues with milestone, taxonomy labels, and status. |
+| [`gh_issue_status`](#gh-issue-status) | `true` | Display aggregated issue counts by priority, type, and milestone. |
+| [`gh_issue_triage`](#gh-issue-triage) | `true` | Audit open issues for mandatory taxonomy labels, and report those with no priority/* label as awaiting intake. |
+| [`gh_issue_view`](#gh-issue-view) | `true` | Print one issue with its state, milestone, labels, assignees, dates and full body. |
+| [`gh_label_list`](#gh-label-list) | `true` | List all labels defined in the remote repository. |
+| [`gh_label_sync`](#gh-label-sync) | `false` | Synchronize repository labels with the workflow labels and the declarative YAML schema. |
 | [`gh_milestones_close`](#gh-milestones-close) | `false` | Close the milestone with this title or number. |
 | [`gh_milestones_edit`](#gh-milestones-edit) | `false` | Edit a milestone's title, description, state, or due date; fields left out stay as they are. |
 | [`gh_milestones_list`](#gh-milestones-list) | `true` | List every milestone, by due date and then by number, with its issue completion rate. |
@@ -68,8 +68,8 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`gh_project_status`](#gh-project-status) | `true` | Inspect the declarative GitHub Projects v2 template structure and views. |
 | [`gh_project_sync`](#gh-project-sync) | `false` | Find or create the project board from its template, link it, create the fields it lacks, and reconcile Status and Priority on the cards already on it. Sync adds no issue or pull request to the board, and a pull request's progress shows on its issue's card. No roadmap job reads the board: labels hold an item's fields. Exits 1 when reconcile stops early. |
 | [`gh_rate_limit`](#gh-rate-limit) | `true` | Display GitHub REST and GraphQL API rate limits, quotas, and reset countdowns. |
-| [`gh_runs_list`](#gh-runs-list) | `true` | List recent workflow runs for the repository or branch. |
-| [`gh_runs_view`](#gh-runs-view) | `true` | View details and failure logs of a specific workflow run. |
+| [`gh_run_list`](#gh-run-list) | `true` | List recent workflow runs for the repository or branch. |
+| [`gh_run_view`](#gh-run-view) | `true` | View details and failure logs of a specific workflow run. |
 | [`gh_views_audit`](#gh-views-audit) | `true` | Audit remote project views against standardized template specifications. |
 | [`gh_views_spec`](#gh-views-spec) | `true` | Output JSON schema specification for all configured project views. |
 | [`gh_views_sync`](#gh-views-sync) | `false` | Synchronize standardized views with the remote GitHub Projects v2 board. |
@@ -810,7 +810,7 @@ Verify container image signature or attestation using Sigstore Cosign.
 | `insecure_ignore_tlog` | `boolean` | No | `False` | Ignore Rekor transparency log verification |
 | `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
-### `gh_issues_close`
+### `gh_issue_close`
 
 Close an open issue with its reason, completed or not planned. With --comment-file, the command posts the comment first, then closes the issue, so a failed close leaves the comment. It refuses a pull request and an issue that is already closed, because GitHub ignores a reason unless the state changes.
 
@@ -826,7 +826,7 @@ Close an open issue with its reason, completed or not planned. With --comment-fi
 | `repo` | `string` | No | - | Target repository |
 | `dry_run` | `boolean` | No | `False` | Make no request: print the requests a run makes, in order. |
 
-### `gh_issues_create`
+### `gh_issue_create`
 
 Create a new issue linking milestone and taxonomy labels.
 
@@ -843,7 +843,7 @@ Create a new issue linking milestone and taxonomy labels.
 | `repo` | `string` | No | - | Target repository |
 | `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
-### `gh_issues_edit`
+### `gh_issue_edit`
 
 Edit an existing issue title, body, state, milestone, or taxonomy labels.
 
@@ -864,7 +864,7 @@ Edit an existing issue title, body, state, milestone, or taxonomy labels.
 | `repo` | `string` | No | - | Target repository |
 | `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
-### `gh_issues_list`
+### `gh_issue_list`
 
 List repository issues with milestone, taxonomy labels, and status.
 
@@ -881,7 +881,7 @@ List repository issues with milestone, taxonomy labels, and status.
 | `limit` | `integer` | No | `30` | Max issues to return |
 | `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
-### `gh_issues_status`
+### `gh_issue_status`
 
 Display aggregated issue counts by priority, type, and milestone.
 
@@ -894,7 +894,7 @@ Display aggregated issue counts by priority, type, and milestone.
 | `repo` | `string` | No | - | Target repository |
 | `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
-### `gh_issues_triage`
+### `gh_issue_triage`
 
 Audit open issues for mandatory taxonomy labels, and report those with no priority/* label as awaiting intake.
 
@@ -907,7 +907,7 @@ Audit open issues for mandatory taxonomy labels, and report those with no priori
 | `repo` | `string` | No | - | Target repository |
 | `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
-### `gh_issues_view`
+### `gh_issue_view`
 
 Print one issue with its state, milestone, labels, assignees, dates and full body.
 
@@ -920,7 +920,7 @@ Print one issue with its state, milestone, labels, assignees, dates and full bod
 | `number` | `integer` | Yes | - | Issue number. |
 | `repo` | `string` | No | - | Target repository |
 
-### `gh_labels_list`
+### `gh_label_list`
 
 List all labels defined in the remote repository.
 
@@ -933,7 +933,7 @@ List all labels defined in the remote repository.
 | `repo` | `string` | No | - | Target repository |
 | `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
-### `gh_labels_sync`
+### `gh_label_sync`
 
 Synchronize repository labels with the workflow labels and the declarative YAML schema.
 
@@ -1114,7 +1114,7 @@ Display GitHub REST and GraphQL API rate limits, quotas, and reset countdowns.
 | `output_format` | `string` | No | `table` | Output format type (table, json, yaml, markdown). |
 | `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
-### `gh_runs_list`
+### `gh_run_list`
 
 List recent workflow runs for the repository or branch.
 
@@ -1130,7 +1130,7 @@ List recent workflow runs for the repository or branch.
 | `output_format` | `string` | No | `table` | Output format type (table, json, yaml, markdown). |
 | `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
-### `gh_runs_view`
+### `gh_run_view`
 
 View details and failure logs of a specific workflow run.
 

@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 
 # Nothing derived from a dispatched command reaches a log record here. This dispatcher
 # runs arbitrary `devops` command lines and some carry a credential as an argument --
-# `gh secrets set NAME VALUE`, a token passed as a flag -- so logging the argument list
+# `gh secret set NAME VALUE`, a token passed as a flag -- so logging the argument list
 # wrote that credential out in clear text. CodeQL reported it as three high-severity
 # `py/clear-text-logging-sensitive-data` alerts, and they blocked the v0.2.22 release.
 #

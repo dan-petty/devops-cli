@@ -1,7 +1,7 @@
 # gh-issues-close Specification
 
 ## Purpose
-How `devops gh issues close` closes one issue of a repository with a reason, `completed` or `not planned`, posts an optional evidence comment before the close, refuses what it cannot close, and lists its requests in a dry run without sending any.
+How `devops gh issue close` closes one issue of a repository with a reason, `completed` or `not planned`, posts an optional evidence comment before the close, refuses what it cannot close, and lists its requests in a dry run without sending any.
 
 ## Requirements
 

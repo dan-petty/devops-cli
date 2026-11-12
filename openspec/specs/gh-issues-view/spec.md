@@ -1,7 +1,7 @@
 # gh-issues-view Specification
 
 ## Purpose
-How `devops gh issues view` reads one issue of a repository through the GitHub session and prints all of it as plain text, and how it refuses a number that names no issue or names a pull request.
+How `devops gh issue view` reads one issue of a repository through the GitHub session and prints all of it as plain text, and how it refuses a number that names no issue or names a pull request.
 
 ## Requirements
 

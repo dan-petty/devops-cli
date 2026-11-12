@@ -43,11 +43,11 @@ REQUEST_PLAN_COMMANDS = [
     ),
     ("metrics", project_metrics_cmd, ["gh", "metrics", "-R", "owner/repo"]),
     ("rate_limit", rate_limit_cmd, ["gh", "rate-limit"]),
-    ("secrets_list", list_secrets_cmd, ["gh", "secrets", "list", "-R", "owner/repo"]),
+    ("secrets_list", list_secrets_cmd, ["gh", "secret", "list", "-R", "owner/repo"]),
     (
         "secrets_sync",
         sync_secrets_cmd,
-        ["gh", "secrets", "sync", "-n", "MY_TOKEN", "-R", "owner/repo"],
+        ["gh", "secret", "sync", "-n", "MY_TOKEN", "-R", "owner/repo"],
     ),
     ("gh_status", gh_status_cmd, ["gh", "status"]),
     ("status", status_main, ["status"]),
@@ -78,9 +78,8 @@ def test_commands_removed_from_gaps_fixture() -> None:
         "gh branch-protection sync",
         "gh metrics",
         "gh rate-limit",
-        "gh rate_limit",
-        "gh secrets list",
-        "gh secrets sync",
+        "gh secret list",
+        "gh secret sync",
         "gh status",
         "status",
     ]
@@ -291,5 +290,5 @@ def test_branch_coverage_for_dry_run_options(
     assert "Plan for status" in res_cf.output
 
     # secrets sync with empty secret names
-    res_empty = cli("gh", "secrets", "sync", "-n", "   ", "--dry-run", "-R", "owner/repo")
+    res_empty = cli("gh", "secret", "sync", "-n", "   ", "--dry-run", "-R", "owner/repo")
     assert res_empty.exit_code == 0

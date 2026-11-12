@@ -774,7 +774,7 @@ def test_generate_agents_md_root_cause_and_premise_rules() -> None:
     ingestion_rules = (
         "Automatic Roadmap Ingestion",
         "STRUCTURED ROADMAP TASKS",
-        "MUST FILE A CANDIDATE ISSUE (`devops gh issues create`)",
+        "MUST FILE A CANDIDATE ISSUE (`devops gh issue create`)",
         "release_credit",
         "Continuous Interaction & Collaborative Value Improvement",
     )

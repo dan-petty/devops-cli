@@ -216,7 +216,7 @@ def test_each_line_has_its_number_its_age_and_the_step_that_clears_it(
     assert clears[InboxKind.IMPLEMENT] == f"Review it, then merge it (G2): {_url(work)}"
     assert clears[InboxKind.RELEASE] == f"Review it, then merge it (G3): {_url(release)}"
     assert clears[InboxKind.CLAIM] == f"devops roadmap release {claimed} --repo {REPO} --confirm"
-    assert clears[InboxKind.LABELS] == f"devops gh labels sync --repo {REPO}"
+    assert clears[InboxKind.LABELS] == f"devops gh label sync --repo {REPO}"
 
 
 def _url(number: int) -> str:

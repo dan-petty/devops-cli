@@ -439,15 +439,15 @@ and draft readiness. |
 |  | `devops gh rate-limit [OPTIONS]` | Display GitHub REST and GraphQL API rate limits, quotas, and reset countdowns. |
 |  | `devops gh status [OPTIONS]` | Display GitHub published operational status, key components, and active incidents. |
 |  | `devops gh metrics [OPTIONS]` | Display comprehensive project metrics including release frequency, PRs, commits, CI pass rates, milestones, and roadmap Items. |
-|  | `devops gh labels COMMAND [ARGS]...` | GitHub Views, Projects, Issues, Pages, Milestones, and Labels automation. |
+|  | `devops gh label COMMAND [ARGS]...` | GitHub Views, Projects, Issues, Pages, Milestones, and Labels automation. |
 |  | `devops gh milestones COMMAND [ARGS]...` | GitHub Views, Projects, Issues, Pages, Milestones, and Labels automation. |
 |  | `devops gh project COMMAND [ARGS]...` | GitHub Views, Projects, Issues, Pages, Milestones, and Labels automation. |
 |  | `devops gh views COMMAND [ARGS]...` | GitHub Views, Projects, Issues, Pages, Milestones, and Labels automation. |
 |  | `devops gh pages COMMAND [ARGS]...` | GitHub Views, Projects, Issues, Pages, Milestones, and Labels automation. |
-|  | `devops gh issues COMMAND [ARGS]...` | GitHub Views, Projects, Issues, Pages, Milestones, and Labels automation. |
-|  | `devops gh runs COMMAND [ARGS]...` | GitHub Views, Projects, Issues, Pages, Milestones, and Labels automation. |
+|  | `devops gh issue COMMAND [ARGS]...` | GitHub Views, Projects, Issues, Pages, Milestones, and Labels automation. |
+|  | `devops gh run COMMAND [ARGS]...` | GitHub Views, Projects, Issues, Pages, Milestones, and Labels automation. |
 |  | `devops gh branch-protection COMMAND [ARGS]...` | Manage classic branch protection policies; does not cover rulesets. |
-|  | `devops gh secrets COMMAND [ARGS]...` | GitHub Views, Projects, Issues, Pages, Milestones, and Labels automation. |
+|  | `devops gh secret COMMAND [ARGS]...` | GitHub Views, Projects, Issues, Pages, Milestones, and Labels automation. |
 |  | `devops gh pr COMMAND [ARGS]...` | GitHub Views, Projects, Issues, Pages, Milestones, and Labels automation. |
 | [**tf**](docs/commands/tf.md) | `devops tf init [OPTIONS] <directory>` | Initialize an OpenTofu working directory. |
 |  | `devops tf plan [OPTIONS] <directory>` | Generate and show an OpenTofu execution plan. |

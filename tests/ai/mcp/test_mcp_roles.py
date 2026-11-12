@@ -22,7 +22,7 @@ from devops_cli.ai.mcp.roles import (
 )
 from devops_cli.ai.mcp.server import mcp
 
-_MUTATING_TOOLS = ("gh_issues_create", "k8s_deploy_stack", "k8s_teardown_stack", "docker_sign")
+_MUTATING_TOOLS = ("gh_issue_create", "k8s_deploy_stack", "k8s_teardown_stack", "docker_sign")
 
 
 def _names(role: str) -> set[str]:

@@ -68,28 +68,28 @@ def test_cli_milestones_close_command(
 
 
 def test_cli_labels_list(gh_edge: ProcessFake) -> None:
-    """devops gh labels list prints table of labels or info if empty."""
+    """devops gh label list prints table of labels or info if empty."""
     gh_edge.answer(["gh", "label", "list"], ProcessAnswer(stdout="[]"))
-    res = runner.invoke(gh_app, ["labels", "list", "-R", "o/empty"])
+    res = runner.invoke(gh_app, ["label", "list", "-R", "o/empty"])
     assert res.exit_code == 0
     assert "No remote repository labels found" in res.output
 
     labels = [{"name": "type/bug", "color": "d73a4a", "description": "Bug"}]
     gh_edge.answer(["gh", "label", "list"], ProcessAnswer(stdout=json.dumps(labels)))
-    res = runner.invoke(gh_app, ["labels", "list", "-R", "o/labelled"])
+    res = runner.invoke(gh_app, ["label", "list", "-R", "o/labelled"])
     assert res.exit_code == 0
     assert "type/bug" in res.output
 
 
 def test_cli_labels_sync(tmp_path: Path, gh_edge: ProcessFake) -> None:
-    """devops gh labels sync reconciles labels through the gh label client; a dry run creates none."""
+    """devops gh label sync reconciles labels through the gh label client; a dry run creates none."""
     labels_file = tmp_path / "labels.yml"
     labels_file.write_text(
         "- name: type/bug\n  color: d73a4a\n  description: Defect\n", encoding="utf-8"
     )
 
     res = runner.invoke(
-        gh_app, ["labels", "sync", "--file", str(labels_file), "--dry-run", "-R", "o/r"]
+        gh_app, ["label", "sync", "--file", str(labels_file), "--dry-run", "-R", "o/r"]
     )
     assert (res.exit_code, "Plan for synchronizing labels in o/r" in res.output) == (0, True)
     # A dry run makes no external request.
@@ -97,7 +97,7 @@ def test_cli_labels_sync(tmp_path: Path, gh_edge: ProcessFake) -> None:
 
 
 def test_cli_labels_audit(gh_edge: ProcessFake) -> None:
-    """devops gh labels audit detects PRs with missing taxonomy."""
+    """devops gh label audit detects PRs with missing taxonomy."""
     # Compliant PRs
     compliant = [
         {
@@ -107,7 +107,7 @@ def test_cli_labels_audit(gh_edge: ProcessFake) -> None:
         }
     ]
     gh_edge.answer(["gh", "pr", "list"], ProcessAnswer(stdout=json.dumps(compliant)))
-    res = runner.invoke(gh_app, ["labels", "audit", "-R", "o/compliant"])
+    res = runner.invoke(gh_app, ["label", "audit", "-R", "o/compliant"])
     assert res.exit_code == 0
     assert "comply with taxonomy" in res.output
 
@@ -116,7 +116,7 @@ def test_cli_labels_audit(gh_edge: ProcessFake) -> None:
         ["gh", "pr", "list"],
         ProcessAnswer(stdout=json.dumps([{"number": 2, "title": "fix: bug", "labels": []}])),
     )
-    res = runner.invoke(gh_app, ["labels", "audit", "-R", "o/broken"])
+    res = runner.invoke(gh_app, ["label", "audit", "-R", "o/broken"])
     assert res.exit_code == 0
     assert "Pull Request Taxonomy Audit Findings" in res.output
 
@@ -187,11 +187,11 @@ def test_cli_milestones_status(
 def test_gh_helper_subprocess_fallbacks(gh_edge: ProcessFake) -> None:
     """The label and pull request listings read the JSON that gh prints."""
     gh_edge.answer(["gh", "label", "list"], ProcessAnswer(stdout=json.dumps([{"name": "test"}])))
-    labels = runner.invoke(gh_app, ["labels", "list", "-R", "dan-petty/devops-cli"])
+    labels = runner.invoke(gh_app, ["label", "list", "-R", "dan-petty/devops-cli"])
 
     prs = json.dumps([{"number": 10, "title": "feat: test", "labels": []}])
     gh_edge.answer(["gh", "pr", "list"], ProcessAnswer(stdout=prs))
-    audit = runner.invoke(gh_app, ["labels", "audit", "-R", "dan-petty/devops-cli"])
+    audit = runner.invoke(gh_app, ["label", "audit", "-R", "dan-petty/devops-cli"])
 
     assert (
         labels.exit_code,

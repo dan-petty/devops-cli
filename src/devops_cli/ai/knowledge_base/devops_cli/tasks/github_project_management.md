@@ -16,11 +16,11 @@ GitHub project governance in `devops-cli` standardizes repository metadata acros
 
 ```mermaid
 graph TD
-    A[Declarative Schemas<br/>.github/labels.yml & project-template.json] -->|devops gh labels sync| B[Remote GitHub Labels]
+    A[Declarative Schemas<br/>.github/labels.yml & project-template.json] -->|devops gh label sync| B[Remote GitHub Labels]
     E[Issues placed by devops roadmap intake] -->|devops gh project sync| F[GitHub Projects v2 Items]
     G[docs/_config.yml] -->|devops gh pages verify| H[GitHub Pages Deployment]
-    I[Open Issues Queue] -->|devops gh issues triage| J[Triage Audit & Taxonomies]
-    B --> K[devops gh labels audit]
+    I[Open Issues Queue] -->|devops gh issue triage| J[Triage Audit & Taxonomies]
+    B --> K[devops gh label audit]
     D[Remote GitHub Milestones<br/>planning buckets set by a person] --> L[devops gh milestones list]
     F --> M[Standardized Views Engine]
     M --> N[Sprint Kanban]
@@ -60,16 +60,16 @@ devops gh pages verify
 ### Issue Management & Triage Commands
 ```bash
 # List repository issues filtered by state, milestone, or label
-devops gh issues list --state open --milestone "<milestone>" --limit 30
+devops gh issue list --state open --milestone "<milestone>" --limit 30
 
 # Preview a candidate: --plan reads GitHub and calls the model and writes nothing; --dry-run makes no request; --confirm files it
 devops roadmap intake --title "feat(rag): vector index optimization" --body-file candidate.md --plan
 
 # Audit open issues for taxonomy compliance; issues with no priority/* label are reported as awaiting intake
-devops gh issues triage
+devops gh issue triage
 
 # Display aggregated issue counts by priority, type, and milestone
-devops gh issues status
+devops gh issue status
 ```
 
 ### Project & Views Inspection Commands
@@ -108,13 +108,13 @@ devops gh views spec
 ### Label & Milestone Management Commands
 ```bash
 # List all labels defined in the remote repository
-devops gh labels list
+devops gh label list
 
 # Synchronize labels with the workflow labels and the declarative schema (.github/labels.yml)
-devops gh labels sync
+devops gh label sync
 
 # Audit open pull requests for mandatory type/ and scope/ taxonomy labels
-devops gh labels audit
+devops gh label audit
 
 # List the milestones and their issue progress rates
 devops gh milestones list
@@ -130,7 +130,7 @@ devops gh milestones list
 2. **Issue Triage & Zero-Untracked Defect Policy**:
    - Every open issue must have at least one `type/*` label, at least one `scope/*` label, and one `priority/*` label.
    - New feature or defect issues enter through intake (`devops roadmap intake --title … --body-file … --confirm`), which sets their `priority/*` label and puts them in the backlog; nobody sets a milestone or priority on a new issue by hand.
-   - Regularly execute `devops gh issues triage` to catch issues missing labels, and `devops roadmap intake` for those awaiting intake.
+   - Regularly execute `devops gh issue triage` to catch issues missing labels, and `devops roadmap intake` for those awaiting intake.
 3. **Task-to-Issue Grounding**:
    - Ground every user task to a corresponding GitHub issue that is a roadmap item: it holds a `priority/*` label.
    - If an open issue exists: verify its taxonomy labels. `devops gh project sync` moves the card to In Progress when a draft pull request is open.
@@ -178,16 +178,16 @@ AI coding agents have native access to GitHub project management through the Fas
 
 ### Registered FastMCP Tools
 - **Pages**: `gh_pages_status`, `gh_pages_build`, `gh_pages_verify`
-- **Issues**: `gh_issues_list`, `gh_issues_view`, `gh_issues_create`, `gh_issues_edit`, `gh_issues_triage`, `gh_issues_status`
+- **Issues**: `gh_issue_list`, `gh_issue_view`, `gh_issue_create`, `gh_issue_edit`, `gh_issue_triage`, `gh_issue_status`
 - **Projects**: `gh_project_list`, `gh_project_status`, `gh_project_audit`, `gh_project_sync`, `gh_project_reconcile` (`mode="plan"` by default; `"write"` makes the changes and `"dry-run"` makes no request)
 - **Views**: `gh_views_audit`, `gh_views_sync`, `gh_views_spec`
 - **Milestones**: `gh_milestones_list`, `gh_milestones_close`, `gh_milestones_edit`. A person closes and edits milestones.
-- **Roadmap**: `roadmap_intake` (`"confirm"` writes): its `mode` default, `"plan"`, reads GitHub and writes nothing, and its `"dry-run"` makes no request. An agent files a new issue through `roadmap_intake`, not `gh_issues_create`.
-- **Labels**: `gh_labels_list`, `gh_labels_sync`
+- **Roadmap**: `roadmap_intake` (`"confirm"` writes): its `mode` default, `"plan"`, reads GitHub and writes nothing, and its `"dry-run"` makes no request. An agent files a new issue through `roadmap_intake`, not `gh_issue_create`.
+- **Labels**: `gh_label_list`, `gh_label_sync`
 
 ### Registered Dynamic System Resources
 - `resource://gh/pages/status`: Real-time GitHub Pages publishing status and build health.
-- `resource://gh/issues/status`: Live issue distribution across priorities, types, and milestones.
+- `resource://gh/issue/status`: Live issue distribution across priorities, types, and milestones.
 - `resource://gh/project/status`: GitHub Projects v2 board configuration and field definitions.
 - `resource://gh/views/status`: Remote project views synchronization and schema audit status.
 

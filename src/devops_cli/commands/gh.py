@@ -124,25 +124,25 @@ logger = logging.getLogger(__name__)
 # Every `devops gh` command reports a GitHub failure, an unauthenticated one included, as its
 # error rather than a traceback.
 app = new_typer(help=HELP.gh.app, no_args_is_help=True)
-labels_app = new_typer(help=HELP.gh.labels_app, no_args_is_help=True)
+label_app = new_typer(help=HELP.gh.label_app, no_args_is_help=True)
 milestones_app = new_typer(help=HELP.gh.milestones_app, no_args_is_help=True)
 project_app = new_typer(help=HELP.gh.project_app, no_args_is_help=True)
 views_app = new_typer(help=HELP.gh.views_app, no_args_is_help=True)
 pages_app = new_typer(help=HELP.gh.pages_app, no_args_is_help=True)
-issues_app = new_typer(help=HELP.gh.issues_app, no_args_is_help=True)
-runs_app = new_typer(help=HELP.gh.runs_app, no_args_is_help=True)
+issue_app = new_typer(help=HELP.gh.issue_app, no_args_is_help=True)
+run_app = new_typer(help=HELP.gh.run_app, no_args_is_help=True)
 branch_protection_app = new_typer(help=HELP.gh.branch_protection_app, no_args_is_help=True)
-secrets_app = new_typer(help=HELP.gh.secrets_app, no_args_is_help=True)
+secret_app = new_typer(help=HELP.gh.secret_app, no_args_is_help=True)
 
-app.add_typer(labels_app, name="labels")
+app.add_typer(label_app, name="label")
 app.add_typer(milestones_app, name="milestones")
 app.add_typer(project_app, name="project")
 app.add_typer(views_app, name="views")
 app.add_typer(pages_app, name="pages")
-app.add_typer(issues_app, name="issues")
-app.add_typer(runs_app, name="runs")
+app.add_typer(issue_app, name="issue")
+app.add_typer(run_app, name="run")
 app.add_typer(branch_protection_app, name="branch-protection", help=HELP.gh.branch_protection_app)
-app.add_typer(secrets_app, name="secrets")
+app.add_typer(secret_app, name="secret")
 app.add_typer(pr_app, name="pr")
 
 
@@ -229,7 +229,7 @@ def _get_repo_prs(repo: str | None = None, limit: int = 30) -> list[dict[str, An
 # =============================================================================
 
 
-@labels_app.command("list")
+@label_app.command("list")
 @dry_run_class("request-plan")
 def list_labels(
     repo: Annotated[str | None, typer.Option("--repo", "-R", help="Target repository")] = None,
@@ -261,7 +261,7 @@ def list_labels(
     print_table("Repository Labels", columns, rows)
 
 
-@labels_app.command("sync")
+@label_app.command("sync")
 @dry_run_class("request-plan")
 def sync_labels(
     file: Annotated[
@@ -306,7 +306,7 @@ def sync_labels(
     )
 
 
-@labels_app.command("audit")
+@label_app.command("audit")
 @dry_run_class("request-plan")
 def audit_labels(
     repo: Annotated[str | None, typer.Option("--repo", "-R", help="Target repository")] = None,
@@ -1159,7 +1159,7 @@ def pages_verify_cmd(
 # =============================================================================
 
 
-@issues_app.command("list", help=HELP.gh.issues_list)
+@issue_app.command("list", help=HELP.gh.issue_list)
 @dry_run_class("request-plan")
 def issues_list_cmd(
     repo: Annotated[str | None, typer.Option("--repo", "-R", help="Target repository")] = None,
@@ -1206,7 +1206,7 @@ def issues_list_cmd(
     print_table(f"Repository Issues ({target_repo})", columns, rows)
 
 
-@issues_app.command("view", help=HELP.gh.issues_view)
+@issue_app.command("view", help=HELP.gh.issue_view)
 def issues_view_cmd(
     number: Annotated[int, typer.Argument(min=1, help="Issue number.")],
     repo: Annotated[str | None, typer.Option("--repo", "-R", help="Target repository")] = None,
@@ -1216,7 +1216,7 @@ def issues_view_cmd(
     write_stream(render_issue(get_repository_issue(target_repo, number)) + "\n")
 
 
-@issues_app.command("create", help=HELP.gh.issues_create)
+@issue_app.command("create", help=HELP.gh.issue_create)
 @dry_run_class("request-plan")
 def issues_create_cmd(
     title: Annotated[str, typer.Option("--title", "-t", help="Issue title")],
@@ -1255,7 +1255,7 @@ def issues_create_cmd(
         print_warning(f"Milestone '{milestone}' was not set on issue #{created.number}.")
 
 
-@issues_app.command("triage", help=HELP.gh.issues_triage)
+@issue_app.command("triage", help=HELP.gh.issue_triage)
 @dry_run_class("request-plan")
 def issues_triage_cmd(
     repo: Annotated[str | None, typer.Option("--repo", "-R", help="Target repository")] = None,
@@ -1300,7 +1300,7 @@ def issues_triage_cmd(
         print_info(MESSAGES.roadmap.triage_awaiting_intake)
 
 
-@issues_app.command("status", help=HELP.gh.issues_status)
+@issue_app.command("status", help=HELP.gh.issue_status)
 @dry_run_class("request-plan")
 def issues_status_cmd(
     repo: Annotated[str | None, typer.Option("--repo", "-R", help="Target repository")] = None,
@@ -1331,7 +1331,7 @@ def issues_status_cmd(
     print_table(f"GitHub Issues Status Summary ({target_repo})", columns, rows)
 
 
-@issues_app.command("edit", help=HELP.gh.issues_edit)
+@issue_app.command("edit", help=HELP.gh.issue_edit)
 @dry_run_class("request-plan")
 def edit_issue_cmd(  # noqa: C901
     number: Annotated[int, typer.Argument(help="Issue number to edit.")],
@@ -1438,7 +1438,7 @@ def edit_issue_cmd(  # noqa: C901
 
 
 class IssueCloseReason(StrEnum):
-    """The reasons `devops gh issues close` takes, as the command line names them."""
+    """The reasons `devops gh issue close` takes, as the command line names them."""
 
     COMPLETED = "completed"
     NOT_PLANNED = "not-planned"
@@ -1459,16 +1459,16 @@ def _close_comment(comment_file: TextIO | None) -> str | None:
     return text
 
 
-@issues_app.command("close", help=HELP.gh.issues_close)
+@issue_app.command("close", help=HELP.gh.issue_close)
 def issues_close_cmd(
-    number: Annotated[int, typer.Argument(min=1, help=HELP.gh.issues_close_number)],
-    reason: Annotated[IssueCloseReason, typer.Option("--reason", help=HELP.gh.issues_close_reason)],
+    number: Annotated[int, typer.Argument(min=1, help=HELP.gh.issue_close_number)],
+    reason: Annotated[IssueCloseReason, typer.Option("--reason", help=HELP.gh.issue_close_reason)],
     comment_file: Annotated[
         typer.FileText | None,
-        typer.Option("--comment-file", help=HELP.gh.issues_close_comment_file),
+        typer.Option("--comment-file", help=HELP.gh.issue_close_comment_file),
     ] = None,
     repo: Annotated[str | None, typer.Option("--repo", "-R", help="Target repository")] = None,
-    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.gh.issues_close_dry_run)] = False,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.gh.issue_close_dry_run)] = False,
 ) -> None:
     """Close an issue with its reason, after an optional comment (#1658)."""
     comment = _close_comment(comment_file)
@@ -1583,7 +1583,6 @@ def api_cmd(
 
 
 @app.command("rate-limit", help=HELP.gh.rate_limit)
-@app.command("rate_limit", hidden=True)
 @dry_run_class("request-plan")
 def rate_limit_cmd(
     output_format: Annotated[
@@ -1708,7 +1707,7 @@ def gh_status_cmd(
 
 
 # =============================================================================
-# Command Group: devops gh runs
+# Command Group: devops gh run
 # =============================================================================
 
 
@@ -1739,7 +1738,7 @@ def _format_runs_table_rows(runs: list[dict[str, Any]]) -> list[list[str]]:
     ]
 
 
-@runs_app.command("list", help=HELP.gh.runs_list)
+@run_app.command("list", help=HELP.gh.run_list)
 @dry_run_class("request-plan")
 def runs_list_cmd(
     limit: Annotated[int, typer.Option("--limit", "-n", help=HELP.options.limit)] = 10,
@@ -1808,13 +1807,13 @@ def runs_list_cmd(
     )
 
 
-@runs_app.command("view", help=HELP.gh.runs_view)
+@run_app.command("view", help=HELP.gh.run_view)
 @dry_run_class("request-plan")
 def runs_view_cmd(
     run_id: Annotated[int, typer.Argument(help="Workflow run database ID.")],
-    log_failed: Annotated[bool, typer.Option("--log-failed", help=HELP.gh.runs_log_failed)] = False,
-    full_log: Annotated[bool, typer.Option("--log", help=HELP.gh.runs_log)] = False,
-    job: Annotated[str | None, typer.Option("--job", "-j", help=HELP.gh.runs_job)] = None,
+    log_failed: Annotated[bool, typer.Option("--log-failed", help=HELP.gh.run_log_failed)] = False,
+    full_log: Annotated[bool, typer.Option("--log", help=HELP.gh.run_log)] = False,
+    job: Annotated[str | None, typer.Option("--job", "-j", help=HELP.gh.run_job)] = None,
     repo: Annotated[str | None, typer.Option("--repo", "-R", help="Target repository")] = None,
     dry_run: Annotated[
         bool,
@@ -1992,21 +1991,21 @@ def sync_branch_protection_cmd(
 # =============================================================================
 
 
-@secrets_app.command("sync", help=HELP.gh.secrets_sync)
+@secret_app.command("sync", help=HELP.gh.secret_sync)
 @dry_run_class("request-plan")
 def sync_secrets_cmd(
     secret_names: Annotated[
         str,
-        typer.Option("--secret-names", "-n", help=HELP.gh.secrets_names),
+        typer.Option("--secret-names", "-n", help=HELP.gh.secret_names),
     ],
     repo: Annotated[str | None, typer.Option("--repo", "-R", help="Target repository")] = None,
     source: Annotated[
         str,
-        typer.Option("--source", "-s", help=HELP.gh.secrets_source),
+        typer.Option("--source", "-s", help=HELP.gh.secret_source),
     ] = "keyring",
     vault_path: Annotated[
         str,
-        typer.Option("--vault-path", help=HELP.gh.secrets_vault_path),
+        typer.Option("--vault-path", help=HELP.gh.secret_vault_path),
     ] = "secret/devops",
     dry_run: Annotated[
         bool,
@@ -2057,7 +2056,7 @@ def sync_secrets_cmd(
         print_success(summary)
 
 
-@secrets_app.command("list")
+@secret_app.command("list")
 @dry_run_class("request-plan")
 def list_secrets_cmd(
     repo: Annotated[str | None, typer.Option("--repo", "-R", help="Target repository")] = None,

@@ -70,7 +70,7 @@ def test_a_text_path_option_leaves_its_command_out(monkeypatch: pytest.MonkeyPat
 def test_a_read_only_command_with_no_path_parameter_is_an_entry() -> None:
     allowlist = build_allowlist()
 
-    assert "repo" in allowlist[("gh", "labels", "list")]
+    assert "repo" in allowlist[("gh", "label", "list")]
 
 
 def test_a_write_command_is_not_an_entry() -> None:
@@ -134,7 +134,7 @@ def test_an_option_outside_the_permitted_set_is_refused() -> None:
 
 
 def test_a_permitted_option_of_a_read_only_command_runs() -> None:
-    assert _refusal(("gh", "labels", "list"), "repo") is None
+    assert _refusal(("gh", "label", "list"), "repo") is None
 
 
 def test_vault_get_stays_in_the_allow_list_without_its_show_option() -> None:

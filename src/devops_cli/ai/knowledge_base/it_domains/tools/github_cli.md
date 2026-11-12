@@ -57,10 +57,10 @@ devops pr ready 17
 devops pr monitor 17
 
 # List recent workflow runs on a specific branch
-devops gh runs list --branch main --limit 5
+devops gh run list --branch main --limit 5
 
 # View failure logs for a specific GitHub Actions workflow run
-devops gh runs view <run_id> --log-failed
+devops gh run view <run_id> --log-failed
 
 # Read a release and its assets through the rate-managed client
 devops gh api repos/<owner>/<repo>/releases/tags/<tag>
