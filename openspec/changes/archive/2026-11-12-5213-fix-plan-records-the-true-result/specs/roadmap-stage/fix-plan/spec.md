@@ -24,7 +24,7 @@ In each attempt the verification pass SHALL review the plan that passed the chec
 - **THEN** the verification pass reviews the plan of the head, and its open findings are `before`
 
 ### Requirement: The step pushes a revision with fewer open findings
-When the revision of a repair is not the same plan as the plan that passed the checks, and its last review has fewer open findings than the review of the head, the step SHALL write the change folder as one commit on the latest default branch, push it to the branch of the pull request with `--force-with-lease` on the head that it read, and set the title and the body of the pull request to those of the revision. Two plans SHALL be the same plan when `render_change` gives the same files for both with one change name and one date.
+When the revision of a repair is not the same plan as the plan that passed the checks, and its last review has fewer open findings than the review of the head, the step SHALL write the change folder as one commit on the latest default branch, push it to the branch of the pull request with `--force-with-lease` on the head that it read, and set the title and the body of the pull request to those of the revision.
 
 #### Scenario: A revision with fewer open findings
 - **WHEN** the review of the head has two open findings and the review of the revision has one
@@ -32,7 +32,7 @@ When the revision of a repair is not the same plan as the plan that passed the c
 
 #### Scenario: A repair that gives the same plan
 - **WHEN** the review of the head has one open finding, the planner answers the plan of the head, and the review of that plan has none
-- **THEN** the head of the branch does not change, the result is `unchanged`, the result line holds `success=false`, and the pull request keeps `plan/needs-fix`
+- **THEN** the two plans are the same plan, because `render_change` gives the same files for both with one change name and one date, so the head of the branch does not change, the result is `unchanged`, the result line holds `success=false`, and the pull request keeps `plan/needs-fix`
 
 ### Requirement: The label goes when no open finding remains
 The step SHALL remove `plan/needs-fix` for the result `cleared` (a pushed revision whose last review has no open finding), for `dismissed` (a review of the head with no open finding), and for `regated` only when the review of the gated plan has no open finding and no step failed. It SHALL keep the label for each other result.
@@ -72,7 +72,7 @@ The step SHALL read the plan of the head before it writes a mark. For a plan tha
 - **THEN** the step makes no model call and writes no mark
 
 ### Requirement: Each attempt logs one result line and counts its result
-Each attempt on a plan that the reader reads SHALL log one result line with the job `fix_plan`, its result, the counts of the plan runs and the open findings that the last plan comment lists (`comment`). The line SHALL hold the open findings of the review of the head (`before`) only when that review ran, and those of the last review of the revision (`after`) only when a review of a revision ran. A stop of the planner SHALL add `stop`, and a failure SHALL add `step` and its class. Each attempt SHALL add 1 to `devops_cli_roadmap_fix_plan_total` with the labels `repo` and `result`. Only `revised` and `cleared` SHALL be a success.
+Each attempt on a plan that the reader reads SHALL log one result line with the job `fix_plan`, its result, the counts of the plan runs and `comment`, the open findings of the last plan comment. It SHALL hold `before` (the review of the head) only when that review ran, and `after` (the last review of the revision) only when such a review ran. Each attempt SHALL add 1 to `devops_cli_roadmap_fix_plan_total` by `repo` and `result`. Only `revised` and `cleared` SHALL be a success.
 
 #### Scenario: A counted attempt
 - **WHEN** an attempt ends with the result `cleared`
