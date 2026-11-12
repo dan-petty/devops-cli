@@ -62,6 +62,7 @@ pytestmark = pytest.mark.usefixtures("keyring_store")
 
 STEP_SECONDS = "devops_cli_roadmap_step_seconds"
 GATE_REFUSALS = "devops_cli_roadmap_stage_gate_refusals_total"
+GATE_PROBLEMS = "devops_cli_roadmap_stage_gate_problems"
 BRANCH = "fix/1-the-job-drops-a-comment"
 PULLS = f"/repos/{STAGE_REPO}/pulls"
 OPENED = github_json({"number": 5, "html_url": "https://example.com/pull/5"}, status=201)
@@ -392,6 +393,35 @@ def test_gate_refusal_a_plan_that_a_gate_refuses_after_each_return_counts_each_r
     )
 
 
+def _gate_problems(otlp: FakeCollector) -> dict[str, tuple[int, float]]:
+    """The count and the sum of the findings histogram for each reply number."""
+    found: dict[str, tuple[int, float]] = {}
+    for metric in otlp.metrics:
+        if metric["name"] != GATE_PROBLEMS:
+            continue
+        for point in metric["exponentialHistogram"]["dataPoints"]:
+            attrs = {a["key"]: next(iter(a["value"].values())) for a in point["attributes"]}
+            assert (sorted(attrs), attrs["repo"]) == (["reply", "repo"], STAGE_REPO)
+            count, total = found.get(attrs["reply"], (0, 0.0))
+            found[attrs["reply"]] = (count + int(point["count"]), total + point.get("sum", 0.0))
+    return found
+
+
+def test_gate_problems_each_judged_reply_observes_its_findings_under_its_reply_number(
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    otlp: FakeCollector,
+) -> None:
+    """The first reply has two findings of the gate `paths`, and the reply after the return passes
+    the checks and observes 0 (#4846)."""
+    model_fake.answer(_refused_once(), make_stage_proposal())
+
+    plan = _plan(store, stage_repo)
+
+    assert (len(plan.ready), _gate_problems(otlp)) == (1, {"0": (1, 2.0), "1": (1, 0.0)})
+
+
 # ── The instruments and the documents ─────────────────────────────────────────
 
 
@@ -428,6 +458,28 @@ def test_gate_refusal_the_counter_is_declared_with_its_series_count_and_document
         True,
     )
     assert re.search(rf"\b{len(ProposalGate)} series\b", instrument.description)
+
+
+def test_gate_problems_the_histogram_is_declared_with_its_series_count_and_documented() -> None:
+    """The description states the series count: one repository and one series for each reply of
+    the hard ceiling of the gate returns."""
+    from devops_cli.config.constants import CONST_ROADMAP_STAGE_GATE_RETURNS_CEILING
+    from devops_cli.telemetry.instruments import INSTRUMENTS, InstrumentKind
+
+    declared = {instrument.name: instrument for instrument in INSTRUMENTS}
+    documented = (REPO_ROOT / "docs" / "TELEMETRY.md").read_text(encoding="utf-8")
+
+    assert GATE_PROBLEMS in declared, "the instrument is not declared"
+    instrument = declared[GATE_PROBLEMS]
+    assert (instrument.kind, instrument.unit, GATE_PROBLEMS in documented) == (
+        InstrumentKind.HISTOGRAM,
+        "1",
+        True,
+    )
+    assert re.search(
+        rf"\bat most {CONST_ROADMAP_STAGE_GATE_RETURNS_CEILING + 1} series\b",
+        instrument.description,
+    )
 
 
 def test_step_label_the_series_of_the_stage_row_are_five_steps_and_two_results() -> None:

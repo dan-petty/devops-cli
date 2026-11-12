@@ -30,6 +30,7 @@ from devops_cli.output.file_writer import write_json_file
 from devops_cli.roadmap.agent_run import TraceFacts
 from devops_cli.roadmap.body_hash import body_hashes
 from devops_cli.roadmap.stage.stage_change import CHANGE_TASK, StageProposal
+from devops_cli.roadmap.stage.stage_findings import StageFinding
 from devops_cli.roadmap.stage.stage_request import StageRequest
 from devops_cli.roadmap.stage.stage_split import SPLIT_TASK
 from devops_cli.roadmap.stage.stage_toolbox import (
@@ -40,7 +41,7 @@ from devops_cli.roadmap.stage.stage_toolbox import (
 from devops_cli.security.sanitizer import mask_secrets
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Mapping
+    from collections.abc import Iterable, Mapping, Sequence
     from pathlib import Path
 
 # The prompts of the planner. The version is the hash of their texts, because the code has no other
@@ -95,14 +96,16 @@ class StagePlanRecord(BaseModel):
 
 
 class RefusedReply(BaseModel):
-    """A reply that the checks refused, with the problem that they found. `reply` is None for a
-    reply over the size bound, and `reply_bytes` is the size of its JSON text."""
+    """A reply that the checks refused, with the problem that they found and its findings: the
+    gate, the code, the path and the text of each part of the problem (#4846). `reply` is None
+    for a reply over the size bound, and `reply_bytes` is the size of its JSON text."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     reply: dict[str, Any] | None
     reply_bytes: int
     problem: str
+    findings: list[StageFinding]
 
 
 class RefusedSchemaFailure(BaseModel):
@@ -143,10 +146,12 @@ class RefusedRecord(BaseModel):
         key: str,
         refused: Iterable[tuple[Mapping[str, Any], str]],
         schema_failure: StructuredOutputValidationError | None = None,
+        findings: Mapping[str, Sequence[StageFinding]] | None = None,
     ) -> Self:
         """The record of `refused`, each a reply (the dump of the model) and its problem, and of
-        `schema_failure`. The problem is masked for secrets and cut, and a reply over the byte
-        bound is dropped."""
+        `schema_failure`. `findings` gives the findings of each problem text; a problem that it
+        does not hold has none. The problem and the text of each finding are masked for secrets
+        and cut, and a reply over the byte bound is dropped."""
         replies: list[RefusedReply] = []
         for reply, problem in refused:
             size = len(json.dumps(reply, ensure_ascii=False, separators=(",", ":")).encode())
@@ -155,7 +160,11 @@ class RefusedRecord(BaseModel):
                 RefusedReply(
                     reply=kept,
                     reply_bytes=size,
-                    problem=mask_secrets(problem)[:CONST_ROADMAP_STAGE_REFUSED_PROBLEM_MAX_CHARS],
+                    problem=_kept_text(problem),
+                    findings=[
+                        finding.model_copy(update={"text": _kept_text(finding.text)})
+                        for finding in (findings or {}).get(problem, ())
+                    ],
                 )
             )
         return cls(
@@ -163,6 +172,11 @@ class RefusedRecord(BaseModel):
             replies=replies,
             schema_failure=RefusedSchemaFailure.of(schema_failure) if schema_failure else None,
         )
+
+
+def _kept_text(text: str) -> str:
+    """`text` as the refused file keeps it: masked for secrets and cut to the bound."""
+    return mask_secrets(text)[:CONST_ROADMAP_STAGE_REFUSED_PROBLEM_MAX_CHARS]
 
 
 def _digest(parts: list[Any]) -> str:

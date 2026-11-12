@@ -499,6 +499,15 @@ ROADMAP_STAGE_GATE_REFUSALS_TOTAL = Instrument(
     "1 to each. The gates run again on the reply that answers a problem, so the count is of "
     "refused replies and not of refused items. One repository adds 16 series, one for each gate",
 )
+ROADMAP_STAGE_GATE_PROBLEMS = Instrument(
+    "devops_cli_roadmap_stage_gate_problems",
+    InstrumentKind.HISTOGRAM,
+    "1",
+    "Findings of the stage checks in one reply of a plan, one observation for each reply that the "
+    "checks judged, by repo and reply: 0 for the first reply of a plan run and 1 more for each "
+    "return, so at most roadmap.stage.gate_returns plus 1. A reply that passes the checks "
+    "observes 0. One repository adds at most 4 series",
+)
 EMBEDDING_CACHE_LOOKUPS_TOTAL = Instrument(
     "devops_cli_embedding_cache_lookups_total",
     InstrumentKind.COUNTER,
@@ -743,6 +752,7 @@ INSTRUMENTS: tuple[Instrument, ...] = (
     ROADMAP_JEV_COMPLETENESS_TOTAL,
     ROADMAP_INTAKE_JEV_FIELDS_TOTAL,
     ROADMAP_IMPLEMENT_EXTENSION_TOTAL,
+    ROADMAP_STAGE_GATE_PROBLEMS,
     ROADMAP_STAGE_GATE_REFUSALS_TOTAL,
     EMBEDDING_CACHE_LOOKUPS_TOTAL,
     EMBEDDING_CACHE_SIZE,
@@ -885,6 +895,7 @@ __all__ = [
     "ROADMAP_PAGE_FETCHES_TOTAL",
     "ROADMAP_REFINE_COMMENTS_CAPPED_TOTAL",
     "ROADMAP_ROW_SECONDS",
+    "ROADMAP_STAGE_GATE_PROBLEMS",
     "ROADMAP_STAGE_GATE_REFUSALS_TOTAL",
     "ROADMAP_STAGE_PLAN_RECORD_TOTAL",
     "ROADMAP_STAGE_TOTAL",

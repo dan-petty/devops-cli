@@ -176,7 +176,7 @@ from devops_cli.roadmap.refine.refine import (
     title_dependencies,
 )
 from devops_cli.roadmap.refine.refine_investigation import task_window
-from devops_cli.roadmap.round_log import log_gate_returns, log_review_round
+from devops_cli.roadmap.round_log import log_gate_findings, log_gate_returns, log_review_round
 from devops_cli.roadmap.service_stop import raise_if_service_stops
 from devops_cli.roadmap.stage.stage_change import (
     CHANGE_TASK,
@@ -185,7 +185,6 @@ from devops_cli.roadmap.stage.stage_change import (
     StageProposal,
     check_gates,
     closing_keyword_in,
-    joined_problems,
     measure_groups,
     moved_modules,
     plan_texts,
@@ -199,6 +198,15 @@ from devops_cli.roadmap.stage.stage_change import (
 from devops_cli.roadmap.stage.stage_constants import candidate_names, staged_constants
 from devops_cli.roadmap.stage.stage_context_facts import collect_stage_facts_context
 from devops_cli.roadmap.stage.stage_filter import split_filter_entry
+from devops_cli.roadmap.stage.stage_findings import (
+    BODY_GATE,
+    TITLE_GATE,
+    VALIDATE_GATE,
+    StageFinding,
+    check_findings,
+    gate_findings,
+    return_counts,
+)
 from devops_cli.roadmap.stage.stage_form import (
     record_search_evidence,
 )
@@ -284,6 +292,7 @@ from devops_cli.roadmap.stores.store import (
 from devops_cli.roadmap.trust import is_approved, is_trusted
 from devops_cli.security.sanitizer import mask_secrets, redact_text
 from devops_cli.telemetry.instruments import (
+    ROADMAP_STAGE_GATE_PROBLEMS,
     ROADMAP_STAGE_GATE_REFUSALS_TOTAL,
     ROADMAP_STAGE_PLAN_RECORD_TOTAL,
     ROADMAP_STAGE_TOTAL,
@@ -1117,6 +1126,9 @@ class _Planner:
         self._pull_requests = 0
         # The trace facts of the kept plan in hand, for the trace gate (#4281).
         self._kept_facts: TraceFacts | None = None
+        # The findings of each problem text that the checks sent back for the item in hand: the
+        # problem is their joined text (#4846).
+        self._findings: dict[str, tuple[StageFinding, ...]] = {}
         # The replies of the item in hand that the checks refused, with their problems, from the
         # first ask to the last revision of a repair round (#4312).
         self._refused: list[tuple[StageProposal, str]] = []
@@ -1144,6 +1156,7 @@ class _Planner:
         13 planner calls is also the hard ceiling of an item (#4900)."""
         self._split_asked = False
         self._premise = None
+        self._findings = {}
         self._traces.clear()
         self._refused = []
         self._stopped_by_checks = False
@@ -1275,15 +1288,28 @@ class _Planner:
             if _is_degenerate(proposal):
                 self._stop_degenerate(target, key, refused, proposal, floor)
             outcome = self._settle(target, proposal, request, trace=self._trace_facts())
+            self._note_gates(target, returns, outcome)
             if not isinstance(outcome, _Refused):
-                log_gate_returns(self._pull_repo, target.item.number, returns, passed=True)
+                log_gate_returns(
+                    self._pull_repo,
+                    target.item.number,
+                    returns,
+                    passed=True,
+                    findings=self._last_findings(),
+                )
                 return outcome
             self._note_refused(target, floor, "refused")
             refused.append((outcome.reply, outcome.problem))
             if returns >= self._gate_returns:
                 self._stopped_by_checks = True
                 self._keep_refused(target, key, refused)
-                log_gate_returns(self._pull_repo, target.item.number, returns, passed=False)
+                log_gate_returns(
+                    self._pull_repo,
+                    target.item.number,
+                    returns,
+                    passed=False,
+                    findings=self._last_findings(),
+                )
                 raise _stage_error(invalid.format(problem=outcome.problem), target)
             raise_if_service_stops(f"return {returns + 1} of the plan of #{target.item.number}")
             returns += 1
@@ -1344,6 +1370,34 @@ class _Planner:
             result,
         )
 
+    def _refusal(self, findings: Sequence[StageFinding], reply: StageProposal) -> _Refused:
+        """The refusal of `reply` for `findings`. The model gets their texts in order, joined by one
+        space, and the job keeps the findings under that text (#4846)."""
+        problem = " ".join(finding.text for finding in findings)
+        self._findings[problem] = tuple(findings)
+        return _Refused(problem, reply)
+
+    def _last_findings(self) -> tuple[StageFinding, ...]:
+        """The findings of the last reply of the item in hand that the checks refused, or none."""
+        return self._findings.get(self._refused[-1][1], ()) if self._refused else ()
+
+    def _note_gates(
+        self, target: StageTarget, returns: int, outcome: StagedChange | OverBudget | _Refused
+    ) -> None:
+        """Observe the count of findings of one reply that the checks judged, under its number in
+        the plan: 0 for the first reply, and 1 more for each return. A reply after a return also
+        logs how its findings changed from those of the reply before it (#4846)."""
+        findings = self._findings.get(outcome.problem, ()) if isinstance(outcome, _Refused) else ()
+        if self._pull_repo:
+            emit(
+                ROADMAP_STAGE_GATE_PROBLEMS,
+                len(findings),
+                {"repo": self._pull_repo, "reply": str(returns)},
+            )
+        if returns:
+            counts = return_counts(self._last_findings(), findings)
+            log_gate_findings(self._pull_repo, target.item.number, returns, counts)
+
     def _keep_refused(
         self,
         target: StageTarget,
@@ -1357,7 +1411,10 @@ class _Planner:
         if files is None or key is None:
             return
         record = RefusedRecord.of(
-            key, [(reply.model_dump(), problem) for reply, problem in refused], schema_failure
+            key,
+            [(reply.model_dump(), problem) for reply, problem in refused],
+            schema_failure,
+            self._findings,
         )
         write_refused_record(refused_record_path(files.repo, target.item.number), record)
 
@@ -1596,7 +1653,7 @@ class _Planner:
             return pull_request_body(target.item.number, target.change, proposal)
         except ValidationError as exc:
             lines = (line.removeprefix("- ") for line in str(exc).splitlines())
-            return _Refused(" ".join(lines), proposal)
+            return self._refusal(check_findings(BODY_GATE, [" ".join(lines)]), proposal)
 
     def _settle(
         self,
@@ -1619,7 +1676,7 @@ class _Planner:
         ]
         referenced = referenced_classes(texts)
         models = model_fields(self._source, self._sha, referenced)
-        problems = self._problems(
+        findings = self._problems(
             proposal,
             self._tree_of(target, proposal),
             request,
@@ -1627,11 +1684,11 @@ class _Planner:
             models=models,
             trace=trace,
         )
-        if problems:
-            return _Refused(" ".join(problems), proposal)
+        if findings:
+            return self._refusal(findings, proposal)
         title = staging_title(target.item.number, proposal.summary)
         if problems := title_problems(title):
-            return _Refused(" ".join(problems), proposal)
+            return self._refusal(check_findings(TITLE_GATE, problems), proposal)
         body = self._plan_body(target, title, proposal)
         if isinstance(body, _Refused):
             return body
@@ -1639,7 +1696,7 @@ class _Planner:
         if asked is not proposal:
             # The split gave new groups, and the model can bring back a fault that only one gate
             # refuses. Every gate of the first reply judges the split too.
-            problems = self._problems(
+            findings = self._problems(
                 asked,
                 self._tree.with_files(files),
                 request,
@@ -1647,8 +1704,8 @@ class _Planner:
                 models=models,
                 trace=trace,
             )
-            if problems:
-                return _Refused(" ".join(problems), asked)
+            if findings:
+                return self._refusal(findings, asked)
         proposal = asked
         if any(m.tokens > self._budget for m in measured):
             return OverBudget(target, tuple(measured), self._budget)
@@ -1658,7 +1715,7 @@ class _Planner:
                 raise _stage_error(MESSAGES.roadmap.stage_secret.format(path=path), target)
         problem = self._validate(target.change, files)
         if problem is not None:
-            return _Refused(problem, proposal)
+            return self._refusal(check_findings(VALIDATE_GATE, [problem]), proposal)
         warnings = _check_removal_references(self._source, target, files)
         return StagedChange(
             target,
@@ -1682,8 +1739,8 @@ class _Planner:
         change: str = "",
         models: Mapping[str, tuple[str, Sequence[str]]] | None = None,
         trace: TraceFacts | None = None,
-    ) -> list[str]:
-        """The problems that every gate finds in one reply: the first one and a split of it. Each
+    ) -> list[StageFinding]:
+        """The findings that every gate makes in one reply: the first one and a split of it. Each
         gate with a problem adds 1 to the refusal counter of the job (#4066)."""
         with observe_step(self._pull_repo, _ROW, StepName.GATE):
             return self._gate_problems(
@@ -1699,7 +1756,7 @@ class _Planner:
         change: str,
         models: Mapping[str, tuple[str, Sequence[str]]] | None,
         trace: TraceFacts | None,
-    ) -> list[str]:
+    ) -> list[StageFinding]:
         evidence = (
             record_search_evidence(proposal.groups, self._grep) if self._grep is not None else None
         )
@@ -1745,7 +1802,7 @@ class _Planner:
                         1,
                         {"repo": self._pull_repo, "gate": gate.value},
                     )
-        return joined_problems(found)
+        return gate_findings(found)
 
     def _probe_references(self, groups: Sequence[StageGroup]) -> list[str]:
         """The files of the staged commit that hold the old path or the dotted name of each moved
