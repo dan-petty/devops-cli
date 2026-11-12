@@ -31,7 +31,7 @@ from tests.support.copilot_review_payloads import (
     work_started,
 )
 from tests.support.fakes.clock import ClockFake
-from tests.support.fakes.github import GitHubApiFake, github_json, route_file
+from tests.support.fakes.github import GitHubApiFake, github_json, route_compare_files, route_file
 from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
 from tests.support.fakes.roadmap_store import (
     InMemoryRoadmapStore,
@@ -138,10 +138,11 @@ class _GitHub:
         )
 
     def files(self, *files: dict[str, str]) -> None:
+        route_compare_files(self.api, _REPO, _BASE, _HEAD, *files)
+        # The draft readiness of an implement pull request still reads the pulls files endpoint
+        # (#2530).
         self.api.route(
-            "GET",
-            f"/repos/{_REPO}/pulls/335/files?per_page=100",
-            github_json(list(files)),
+            "GET", f"/repos/{_REPO}/pulls/335/files?per_page=100", github_json(list(files))
         )
 
     def threads(self, *threads: dict[str, Any]) -> None:
@@ -274,6 +275,14 @@ def _running(github: _GitHub) -> None:
             1,
             "PR #335 is not grounded: it adds no openspec/changes/archive/<date>-704-<slug>/ for #704.",
         ),
+        (
+            lambda g: g.files(
+                *[{"filename": f"src/m{n}.py", "status": "modified"} for n in range(300)]
+            ),
+            (),
+            1,
+            "GitHub lists at most 300 files of one comparison",
+        ),
     ],
     ids=[
         "ready",
@@ -295,6 +304,7 @@ def _running(github: _GitHub) -> None:
         "unreplied-thread",
         "threads-unread",
         "not-grounded",
+        "compare-at-the-file-limit",
     ],
 )
 def test_check_readiness_prints_the_verdict_and_exits_on_it(

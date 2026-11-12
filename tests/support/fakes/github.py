@@ -28,9 +28,10 @@ over the fake and over `RecordedGitHubApi`, which answers with GitHub's own answ
 `github_api` fixture installs the fake, and refuses any gh command the rate limiter would run
 (`run_gh` and the quota refresh).
 
-`pull_request_payload`, `pull_request_file_payload`, `route_pull_request`, `route_file` and
-`route_merge_base` give a test a pull request to read: the fields devops-cli reads of one, and the
-routes that answer the reads a review or an analysis makes of it (#891).
+`pull_request_payload`, `pull_request_file_payload`, `route_pull_request`, `route_file`,
+`route_merge_base` and `route_compare_files` give a test a pull request to read: the fields
+devops-cli reads of one, and the routes that answer the reads a review or an analysis makes of it
+(#891, #2530).
 
 `RunnerSession` is a session whose listings a scripted gh runner answers, for the roadmap store
 tests that script gh for the board as well.
@@ -205,6 +206,19 @@ def route_merge_base(api: GitHubApiFake, repo: str, base: str, head: str, sha: s
         "GET",
         f"/repos/{repo}/compare/{base}...{head}?per_page=1",
         github_json({"merge_base_commit": {"sha": sha}}),
+    )
+
+
+def route_compare_files(
+    api: GitHubApiFake, repo: str, base: str, head: str, *files: Mapping[str, Any]
+) -> None:
+    """Answer the comparison of `base` and `head` in `repo` with `files` as the files it changes,
+    and `base` as their merge base. `head` is a commit, or `owner:branch` for the head of a fork
+    (#2530)."""
+    api.route(
+        "GET",
+        f"/repos/{repo}/compare/{quote(base)}...{quote(head)}?per_page=1",
+        github_json({"merge_base_commit": {"sha": base}, "files": list(files)}),
     )
 
 

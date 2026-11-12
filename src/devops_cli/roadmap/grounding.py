@@ -34,10 +34,12 @@ from devops_cli.lang import MESSAGES
 
 
 class ChangedFilesRead(NamedTuple):
-    """The files a pull request changes, or why they could not be read."""
+    """The files a pull request changes, or why they could not be read. `truncated` says that
+    GitHub listed its limit of files, so the list may be incomplete."""
 
     files: list[PullRequestFile]
     error: str = ""
+    truncated: bool = False
 
 
 class _GraphModel(BaseModel):

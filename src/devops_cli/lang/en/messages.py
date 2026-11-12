@@ -1729,6 +1729,11 @@ class PRMessages:
     grounding_files_unread: str = (
         "PR #{number} is not grounded: the files it changes could not be read ({error})."
     )
+    grounding_files_truncated: str = (
+        "PR #{number} could not be judged on its change folder: GitHub lists at most 300 files of"
+        " one comparison, and the compare answer holds that limit, so the list of changed files"
+        " may be truncated. Read the full diff of the pull request."
+    )
     grounding_changes_dir_unread: str = (
         "PR #{number} is not grounded: {path}/ could not be read at its base ({error})."
     )
