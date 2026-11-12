@@ -29,8 +29,8 @@ module (#3414). `record_module_tests` reads the record from the tree and the sea
 test belongs to a module when it imports the module, a package whose `__init__.py` imports it, or
 another module that the plan changes and that imports it (#4467). `ast` and the import graph read
 the imports, so a test that holds the name of the module in a string or a path is no test of it. `existing_test_problems` refuses the group that names none
-of the tests of a module it changes. A test that the plan creates is no existing test, and a
-module with no test passes.
+of the tests of a module it changes, and names each such module of the group at once (#5068). A
+test that the plan creates is no existing test, and a module with no test passes.
 
 A plan that adds a parameter to a function also lists each file under `src/` that calls the
 function (#3307). `changed_functions` reads a task clause that adds a parameter, an argument or a
@@ -615,18 +615,24 @@ def record_module_tests(
     return modules
 
 
-def _unnamed_module_test(
+def _unnamed_module_tests(
     group: StageGroup,
     named: set[str],
     created: set[str],
     module_tests: Mapping[str, Sequence[str]],
-) -> tuple[str, str] | None:
-    """The first module that `group` changes whose test it names nowhere, with that test."""
+) -> list[tuple[str, str]]:
+    """Each module that `group` changes whose test it names nowhere, with the test to name, in the
+    order of `changes` (#5068). A test that an earlier module asks for counts as named, so a later
+    module that the test also runs asks for no second test, and a repair that names every test of
+    the list passes the group in one round."""
+    asked = set(named)
+    missing: list[tuple[str, str]] = []
     for path in group.changes:
         tests = [test for test in module_tests.get(path, ()) if test not in created]
-        if tests and not any(test in named for test in tests):
-            return path, tests[0]
-    return None
+        if tests and not any(test in asked for test in tests):
+            missing.append((path, tests[0]))
+            asked.add(tests[0])
+    return missing
 
 
 def existing_test_problems(
@@ -634,11 +640,12 @@ def existing_test_problems(
     tree: StagedTree,
     module_tests: Mapping[str, Sequence[str]],
 ) -> list[str]:
-    """One sentence for each behavior group that changes a module whose existing test the group
-    names nowhere (#3414). A group names a test when it lists it in `reads`, in `changes`, in a task
-    code span or in `verify`: a group reads a test that pins a module it changes and must not edit
-    it. A test that a group lists in `creates` is no existing test. A module with no test of
-    `module_tests` passes, so a caller that recorded none judges nothing."""
+    """One sentence for each module that a behavior group changes and whose existing test the group
+    names nowhere (#3414), so that one repair names every test (#5068). A group names a test when
+    it lists it in `reads`, in `changes`, in a task code span or in `verify`: a group reads a test
+    that pins a module it changes and must not edit it. A test that a group lists in `creates` is
+    no existing test. A module with no test of `module_tests` passes, so a caller that recorded
+    none judges nothing."""
     created = {path for group in groups for path in group.creates}
     texts = MESSAGES.roadmap
     problems: list[str] = []
@@ -646,13 +653,10 @@ def existing_test_problems(
         if group.kind != "behavior":
             continue
         named = {path for _place, path in _named(group, tree)}
-        missing = _unnamed_module_test(group, named, created, module_tests)
-        if missing is not None:
-            problems.append(
-                texts.stage_problem_missing_module_test.format(
-                    group=number, path=missing[0], test=missing[1]
-                )
-            )
+        problems.extend(
+            texts.stage_problem_missing_module_test.format(group=number, path=path, test=test)
+            for path, test in _unnamed_module_tests(group, named, created, module_tests)
+        )
     return problems
 
 

@@ -36,7 +36,9 @@ commit, whatever the working tree of the checkout holds.
   (#4467). A test of another module that the plan changes, and that imports the module, is a test
   of it too. A test file that holds the name of the module in a string or a path is no test of it.
   A test file that the plan creates is no existing test. The `paths` gate refuses the group that
-  names none of these tests and names the group, the module and the test.
+  names none of these tests and names the group, the module and the test. It names each such
+  module of the group in one refusal (#5068), so that one repair adds every test. A test that
+  the problem of one module asks for, and that is also a test of a later module, answers both.
   The command gives the gate no record of these tests, because it runs no search, so the stage job
   and [plan-recheck](plan-recheck.md) report this refusal, and this command does not.
 - The read: the reader reports each change file that it cannot read, each task group that the
