@@ -19,7 +19,7 @@ from typing import Any
 import pytest
 
 from devops_cli.exceptions import GitHubOperationError, GitHubRateLimitError
-from devops_cli.exceptions.roadmap import RoadmapStatusLostError
+from devops_cli.exceptions.roadmap import RoadmapItemChangedError, RoadmapStatusLostError
 from devops_cli.roadmap.planned import PlannedChanges
 from devops_cli.roadmap.status_sync import (
     StatusFacts,
@@ -438,6 +438,52 @@ def test_the_status_writer_writes_the_marks_alone_when_the_label_is_equal(
 
     assert (store.writes, _item(store, number).job_record.get(ImplementRecordKey.BRANCH)) == (
         ["set_marks"],
+        "fix/1-one",
+    )
+
+
+def test_the_status_writer_refuses_the_marks_when_another_writer_changed_an_equal_label(
+    store: InMemoryRoadmapStore,
+) -> None:
+    """Refine reads a Ready item, then calls a model for minutes. A person moves the item to New
+    in that time. The marks and the body of refine are refused as a label write is (ADR 0002), so
+    the lost write is not silent."""
+    number = _job_item(store, "Ready")
+    read_before = _item(store, number)
+    store.remove_label(number, "status/ready")
+    store.add_label(number, "status/new")
+
+    with pytest.raises(RoadmapItemChangedError, match=rf"#{number}\b.*New.*Ready"):
+        write_status(
+            store,
+            read_before,
+            StatusFacts(),
+            marks={ImplementRecordKey.BRANCH: "fix/1-one"},
+            body="A new body.",
+        )
+
+    after = _item(store, number)
+    assert (after.status, after.job_record.get(ImplementRecordKey.BRANCH), after.body) == (
+        "New",
+        None,
+        read_before.body,
+    )
+
+
+def test_the_status_writer_writes_the_marks_when_a_person_changed_another_field(
+    store: InMemoryRoadmapStore,
+) -> None:
+    """The guard of an equal label checks the Status only: a person who changed the Priority
+    since the read does not stop the marks."""
+    number = _job_item(store, "Ready")
+    read_before = _item(store, number)
+    store.as_actor("octocat").set_field(read_before, ItemField.PRIORITY, "P1-High")
+
+    write_status(store, read_before, StatusFacts(), marks={ImplementRecordKey.BRANCH: "fix/1-one"})
+
+    after = _item(store, number)
+    assert (after.status, after.job_record.get(ImplementRecordKey.BRANCH)) == (
+        "Ready",
         "fix/1-one",
     )
 

@@ -528,6 +528,41 @@ def test_marks_are_kept_in_the_job_record_and_change_no_field(world: World) -> N
     )
 
 
+def test_marks_on_a_field_a_person_changed_since_the_read_are_refused(world: World) -> None:
+    """The job read the Item as Ready and decided its marks and body on that read; a person then
+    set New. The marks guard the Status as a field write does (ADR 0002, #5114)."""
+    number = world.seed("moved meanwhile", labels=("priority/p2-medium",), body="Problem")
+    world.store.set_field(read(world, number), ItemField.STATUS, "Ready")
+    item = read(world, number)
+    world.person_adds(number, "status/new")
+    writes = world.writes()
+    with pytest.raises(RoadmapItemChangedError) as raised:
+        world.store.set_marks(
+            item,
+            {RefineRecordKey.NEXT_STEP: "ready"},
+            body="Refined",
+            unchanged=ItemField.STATUS,
+        )
+    kept = read(world, number)
+    assert (
+        world.writes() - writes,
+        kept.body,
+        RefineRecordKey.NEXT_STEP in kept.job_record,
+        {key: raised.value.details[key] for key in ("field", "read", "now")},
+    ) == (0, "Problem", False, {"field": "Status", "read": "Ready", "now": "New"})
+
+
+def test_marks_on_a_field_the_jobs_own_store_wrote_since_the_read_go_ahead(world: World) -> None:
+    number = world.seed("planned meanwhile", labels=("priority/p2-medium",))
+    item = read(world, number)
+    world.store.set_field(item, ItemField.STATUS, "Planned")
+    world.store.set_marks(item, {RefineRecordKey.NEXT_STEP: "ready"}, unchanged=ItemField.STATUS)
+    assert read(world, number).job_record == {
+        ItemField.STATUS: "Planned",
+        RefineRecordKey.NEXT_STEP: "ready",
+    }
+
+
 def test_a_body_write_keeps_the_job_record(world: World) -> None:
     """The body the store returns holds no record block, and a body write puts the issue's
     block back at its end."""

@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from devops_cli.exceptions import RoadmapRunError
+from devops_cli.exceptions.roadmap import RoadmapItemChangedError
 from devops_cli.roadmap.refine.refine import NextStep, apply_refine, plan_refine
 from devops_cli.roadmap.stores.store import RefineRecordKey
 from tests.support.roadmap_refine import (
@@ -112,6 +113,34 @@ def test_an_item_with_no_status_change_is_written_with_one_request_that_holds_th
         _DESIGN in item.body,
         item.job_record.get(RefineRecordKey.NEXT_STEP),
     ) == (["set_marks", "comment"], "New", True, NextStep.PERSON.value)
+
+
+def test_a_ready_item_whose_status_a_person_changed_during_the_round_gets_no_write(
+    git_repo: Path, store: InMemoryRoadmapStore, model_fake: ModelFake
+) -> None:
+    """Refine reads a Ready item and calls the model; a person moves the item to New before the
+    write. Refine writes no body, no mark and no comment for the old decision, and the write
+    fails with the change, as a Status write does (ADR 0002, #5114)."""
+    _private(store)
+    number = seed_item(store, "Ready", "P1-High")
+    model_fake.answer(READY)
+    plan = plan_refine(store, repo=REPO, source=git_repo)
+    person = store.as_actor("octocat")
+    person.remove_label(number, "status/ready")
+    person.add_label(number, "status/new")
+    before = len(store.writes)
+
+    with pytest.raises(RoadmapItemChangedError, match=rf"#{number}\b.*New.*Ready"):
+        apply_refine(store, plan)
+    item = require_item(store, number)
+
+    assert (
+        store.writes[before:],
+        item.status,
+        _DESIGN in item.body,
+        RefineRecordKey.NEXT_STEP in item.job_record,
+        store.comments_on(number),
+    ) == (["set_marks"], "New", False, False, [])
 
 
 def test_a_ready_item_that_goes_back_to_new_is_written_with_one_request_for_body_and_status(

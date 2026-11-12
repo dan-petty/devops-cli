@@ -345,11 +345,16 @@ class _StopsOnBody(InMemoryRoadmapStore):
         super().set_field(item, field, value, **options)
 
     def set_marks(
-        self, item: Item, marks: Mapping[Any, str | None], *, body: str | None = None
+        self,
+        item: Item,
+        marks: Mapping[Any, str | None],
+        *,
+        body: str | None = None,
+        **options: Any,
     ) -> None:
         if item.number == self.stopped and body is not None:
             raise stop_error()
-        super().set_marks(item, marks, body=body)
+        super().set_marks(item, marks, body=body, **options)
 
 
 def test_a_stop_of_the_service_keeps_the_items_whose_model_call_failed(

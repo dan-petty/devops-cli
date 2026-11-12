@@ -858,12 +858,23 @@ class InMemoryRoadmapStore(RoadmapStore):
 
     @_write
     def set_marks(
-        self, item: Item, marks: Mapping[Any, str | int | None], *, body: str | None = None
+        self,
+        item: Item,
+        marks: Mapping[Any, str | int | None],
+        *,
+        body: str | None = None,
+        unchanged: ItemField | None = None,
     ) -> None:
         """Set or clear a job's marks in the Item's job record; a person's view keeps no record.
         With `body`, the same step writes the body too. `job_writes` keeps the body's entry, then
-        one entry for each mark."""
-        issue = self._require_issue(item.number, "roadmap.item.set_marks")
+        one entry for each mark. A job's write when a person changed the field `unchanged` since
+        the read raises."""
+        operation = "roadmap.item.set_marks"
+        issue = self._require_issue(item.number, operation)
+        if unchanged is not None and self._writes_job_record:
+            now = item_of(self._read(issue)).field_value(unchanged)
+            read = self._written.get((item.number, unchanged), item.field_value(unchanged))
+            require_unchanged(f"#{item.number}", unchanged, read, now, read, operation)
         self._relabel(issue, issue.labels, marks, body)
         self._log_body(item.number, body)
         for mark, value in marks.items():
