@@ -5,43 +5,9 @@ Keeps the settings of the GitHub Pages documentation site in the one file that t
 
 ## Requirements
 
-### Requirement: The site settings are in docs/_config.yml only
-
-The repository SHALL keep every setting of the documentation site in `docs/_config.yml`, and SHALL have no other YAML file at the top of `docs/`. GitHub Pages builds `main:/docs` and runs Jekyll with no `--config` option, so Jekyll reads `docs/_config.yml` and no other file.
-
-#### Scenario: The repository has one site configuration file
-
-- **WHEN** the top level of `docs/` of the repository is listed
-- **THEN** `_config.yml` is the only YAML file
-- **AND** `devops gh pages verify` passes on the repository
-
-### Requirement: devops gh pages verify checks docs/_config.yml
-
-`devops gh pages verify` SHALL read `docs/_config.yml` under the project root, and SHALL pass only when that file is valid YAML with a value for each of `title`, `url`, `baseurl` and `markdown`, and `docs/` holds a Markdown file.
-
-#### Scenario: A complete docs/_config.yml passes
-
-- **WHEN** `docs/_config.yml` sets `title`, `url`, `baseurl` and `markdown`, and `docs/` holds a Markdown file
-- **THEN** the check passes and reports that the Jekyll configuration is valid
-
-#### Scenario: A missing docs/_config.yml fails
-
-- **WHEN** `docs/` has no `_config.yml`
-- **THEN** the check fails and the diagnostic names `_config.yml`
-
-#### Scenario: Settings in a different file fail
-
-- **WHEN** `docs/` has no `_config.yml`, and a different YAML file in `docs/` sets `title`, `url`, `baseurl` and `markdown`
-- **THEN** the check fails and the diagnostic names `_config.yml`
-
-#### Scenario: A docs/_config.yml with missing keys fails
-
-- **WHEN** `docs/_config.yml` sets `title` only
-- **THEN** the check fails and the diagnostic names the missing Jekyll configuration keys
-
 ### Requirement: The documentation site provides an index home page
 
-The repository SHALL maintain `docs/index.md` as the home page that routes visitors to the primary documentation guides. When built, the site root SHALL serve `index.html`.
+The site SHALL use `README.md` as its home page, as the first nav tab "Home". When built, the site root SHALL serve `index.html`. `docs/index.md` SHALL stay as the "Overview" page of the "Guides" tab.
 
 #### Scenario: The documentation directory includes an index page
 
@@ -49,21 +15,147 @@ The repository SHALL maintain `docs/index.md` as the home page that routes visit
 - **THEN** `docs/index.md` exists as a Markdown file with non-empty content
 - **AND** `index.html` is generated at the site root during the build
 
-### Requirement: The documentation site removes source Markdown files
+#### Scenario: The home page is README.md
 
-The documentation site settings in `docs/_config.yml` SHALL configure `optional_front_matter.remove_originals: true`. The built site output SHALL contain no raw `.md` files.
+- **WHEN** `.nav.yml` of the repository is read
+- **THEN** its first entry is the tab "Home" with `README.md`
 
-#### Scenario: Built site contains no source Markdown files
+### Requirement: The built site holds no source Markdown file
 
-- **WHEN** `docs/_config.yml` is inspected
-- **THEN** `optional_front_matter` sets `remove_originals` to `true`
-- **AND** no `.md` files exist in the built site output
+The built site output SHALL contain no raw `.md` files. The `Docs Site Build` check SHALL fail when the built site holds a `.md` file or has no `index.html` at its root.
 
-### Requirement: Default layout navigation links reach only built pages
+#### Scenario: The check verifies the built site
 
-The default site layout in `docs/_layouts/default.html` SHALL contain no links to `/ARCHITECTURE.html` or non-existent built pages. Every navigation and footer link SHALL resolve to a built page or external repository target.
+- **WHEN** `.github/workflows/docs-site.yml` is read
+- **THEN** its job builds the site with `uv run devops docs site build --strict`
+- **AND** a later step named "Verify Built Site Pages" checks the built site
 
-#### Scenario: Layout contains no broken Architecture link
+### Requirement: devops gh pages verify checks zensical.toml
 
-- **WHEN** `docs/_layouts/default.html` is inspected
-- **THEN** neither header navigation nor footer contains `/ARCHITECTURE.html`
+`devops gh pages verify` SHALL read `zensical.toml` at the project root, and SHALL pass only when that file is valid TOML with a value for each of `site_name`, `site_url` and `repo_url` in its `[project]` table, and `docs/` holds a Markdown file.
+
+#### Scenario: A complete zensical.toml passes
+
+- **WHEN** `zensical.toml` sets `site_name`, `site_url` and `repo_url`, and `docs/` holds a Markdown file
+- **THEN** the check passes and reports that the Zensical configuration is valid
+
+#### Scenario: A missing zensical.toml fails
+
+- **WHEN** the project root has no `zensical.toml`, and a `mkdocs.yml` sets the site settings
+- **THEN** the check fails and the diagnostic names `zensical.toml`
+
+#### Scenario: A zensical.toml with missing settings fails
+
+- **WHEN** `zensical.toml` sets `site_name` only
+- **THEN** the check fails and the diagnostic names `site_url` and `repo_url`
+
+#### Scenario: A zensical.toml that is not TOML fails
+
+- **WHEN** `zensical.toml` holds a table header with no closing bracket
+- **THEN** the check fails and the diagnostic names the invalid TOML syntax
+
+### Requirement: devops docs site build stages the site pages at their repository paths
+
+`devops docs site build` SHALL copy `docs/` without `docs/agent/`, the root documents `README.md`, `ARCHITECTURE.md`, `CONTRIBUTING.md`, `SECURITY.md`, `RELEASE_CYCLE.md`, `CONTEXT.md`, `AGENTS.md` and `CHANGELOG.md`, and `.nav.yml` to `.data/site-src/pages/` at their repository paths. It SHALL delete the pages and the built site of an earlier build first.
+
+#### Scenario: The stage holds the site pages
+
+- **WHEN** the site of a repository with `docs/agent/README.md` is staged
+- **THEN** the stage holds the root documents, `.nav.yml` and the files of `docs/`
+- **AND** the stage holds no file of `docs/agent/`
+
+#### Scenario: A missing root document fails the stage
+
+- **WHEN** the repository has no `CONTEXT.md`
+- **THEN** the stage fails with the error code `DOCS_SITE_INVALID`, and the details name `CONTEXT.md`
+
+#### Scenario: A deleted page leaves the site
+
+- **WHEN** a page of `docs/` is deleted after a build, and the site is staged again
+- **THEN** the stage does not hold the page
+
+### Requirement: The staged config adds the stage folders and the build data
+
+The stage SHALL write `.data/site-src/zensical.yml` with each setting of `zensical.toml`, `docs_dir` `pages`, `site_dir` `site`, `theme.custom_dir` set to the `overrides/` folder of the repository, and `extra.build` with the build data.
+
+#### Scenario: The staged config keeps the site settings
+
+- **WHEN** the site of a repository with `zensical.toml` is staged
+- **THEN** the staged config holds each setting of `zensical.toml`, the two stage folders, the overrides folder and the build data
+
+### Requirement: The stage changes a link to a repository file outside the site into a GitHub link
+
+The stage SHALL change each relative link of a staged page to a repository file or folder that the site does not publish into a link at the build commit: `blob` for a file, `tree` for a folder and `raw` for an image, with the query and the fragment. It SHALL keep a link to a page of the site, a link with a scheme or a host, a link to no repository file, and the text of code.
+
+#### Scenario: Links to files outside the site go to GitHub
+
+- **WHEN** `README.md` links to `src/x.py#L1`, `k8s/` and `docs/agent/README.md`, and a page of `docs/guide/` links to `../../src/x.py`
+- **THEN** each link goes to GitHub at the build commit, with `blob` for a file and `tree` for the folder
+- **AND** a link to `docs/TESTING.md#run-time` stays relative
+- **AND** a link in a code span or a code block keeps its text
+
+### Requirement: Each built page shows the build data
+
+The build data SHALL hold the version of `pyproject.toml`, the commit of the checkout, its short form and date from git, the link of the commit and the build time in UTC. Each built page SHALL show them in its footer and hold the commit in the meta tag `devops-build-commit`. A built page whose meta tag does not hold the build commit SHALL be a defect of the built site.
+
+#### Scenario: The build data comes from the checkout
+
+- **WHEN** git gives the commit, its short form and its date
+- **THEN** the build data holds the version of `pyproject.toml`, the three values and the link of the commit
+
+#### Scenario: A checkout with no commit has no build data
+
+- **WHEN** `git show` exits with code 128
+- **THEN** the command fails with the error code `SUBPROCESS_FAILED` and the exit code 128
+
+#### Scenario: A page without the build commit is a defect
+
+- **WHEN** a built page holds another commit in its meta tag
+- **THEN** the check of the built site names the page as a page without the build commit
+
+### Requirement: Each built page is in a nav tab
+
+Each built page SHALL have a link in the nav of the home page. A built page with no nav link SHALL be a defect of the built site. With `--strict`, a defect SHALL fail the command and name the page. Without `--strict`, the command SHALL warn and name the page.
+
+#### Scenario: A page that no tab lists fails a strict build
+
+- **WHEN** Zensical builds a page that the nav of the home page does not list, and the command runs with `--strict`
+- **THEN** the command exits 1 and names the page
+
+#### Scenario: A page that no tab lists warns without strict
+
+- **WHEN** Zensical builds a page that the nav of the home page does not list, and the command runs without `--strict`
+- **THEN** the command exits 0 and names the page
+
+### Requirement: A strict site build fails on a Zensical warning
+
+`devops docs site build --strict` SHALL run `zensical build --config-file .data/site-src/zensical.yml --strict`, so a link to a missing page or anchor fails the build. A Zensical build that fails SHALL fail the command with its exit code.
+
+#### Scenario: The strict build runs Zensical with --strict
+
+- **WHEN** the command runs with `--strict`, and Zensical builds each page with a nav link and the build commit
+- **THEN** Zensical runs with `--strict` on the staged config
+- **AND** the command exits 0 and reports the pages, the version and the commit
+
+#### Scenario: A failed Zensical build fails the command
+
+- **WHEN** Zensical exits with code 1
+- **THEN** the command exits 1
+
+### Requirement: devops docs site build --serve serves the staged site
+
+With `--serve`, the command SHALL stage the site and run `zensical serve --config-file .data/site-src/zensical.yml`. It SHALL check no built page.
+
+#### Scenario: The command serves the staged site
+
+- **WHEN** the command runs with `--serve`
+- **THEN** Zensical runs `serve` on the staged config, and the command exits 0
+
+### Requirement: The MCP tool catalog links each tool to the heading id that GitHub writes
+
+The table of `docs/MCP_TOOLS.md` SHALL link each tool to the id that GitHub writes for its heading, with the underscores of the tool name kept.
+
+#### Scenario: The link of ai_ask_jev keeps its underscores
+
+- **WHEN** the catalog of the tool `ai_ask_jev` is written
+- **THEN** its table row links to `#ai_ask_jev`
