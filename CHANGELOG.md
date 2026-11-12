@@ -2,6 +2,50 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.119.0](https://github.com/dan-petty/devops-cli/compare/v0.118.0...v0.119.0) (2026-11-12)
+
+
+### Features
+
+* **repos:** the claim sets In Progress ([#5111](https://github.com/dan-petty/devops-cli/issues/5111)) ([06ef1c6](https://github.com/dan-petty/devops-cli/commit/06ef1c61d4bb907e5189c895d534b9b2cd00a6e5))
+* **roadmap:** a fix-plan step repairs a plan PR with open findings ([#5104](https://github.com/dan-petty/devops-cli/issues/5104)) ([ca5b16d](https://github.com/dan-petty/devops-cli/commit/ca5b16d12d9a6a97c6f6ba195292a6d24e0f40c2))
+* **roadmap:** extend stage review rounds while open findings drop ([#5090](https://github.com/dan-petty/devops-cli/issues/5090)) ([bacf713](https://github.com/dan-petty/devops-cli/commit/bacf7132143e9e8db5659998cebb7c8958a58272))
+* **roadmap:** re-anchor a stale citation that matches one line ([#5040](https://github.com/dan-petty/devops-cli/issues/5040)) ([16356d8](https://github.com/dan-petty/devops-cli/commit/16356d8174e2590c33a20337010a72afe698cf4c))
+
+
+### Bug Fixes
+
+* **ci:** keep failed test IDs in the service image shard summary ([#5106](https://github.com/dan-petty/devops-cli/issues/5106)) ([88589ef](https://github.com/dan-petty/devops-cli/commit/88589efe232a624a5890a6473c4c9b220e1cb504))
+* **github:** count each page of a paginated GitHub read ([#5070](https://github.com/dan-petty/devops-cli/issues/5070)) ([908e24a](https://github.com/dan-petty/devops-cli/commit/908e24a73349ac99b50748ecb58433f7e2871fe7))
+* **github:** keep the metrics permissions out of the runner Job token ([#5064](https://github.com/dan-petty/devops-cli/issues/5064)) ([fb549ff](https://github.com/dan-petty/devops-cli/commit/fb549ff60026a42ec414e1d0170d99b3514e3b16))
+* **github:** pace mutations through the clock seam ([#5063](https://github.com/dan-petty/devops-cli/issues/5063)) ([2bd87bc](https://github.com/dan-petty/devops-cli/commit/2bd87bc50c066db40350418b0abfca23bfbc5859))
+* **k8s:** delete the CoreDNS files that k3s never applies ([#5055](https://github.com/dan-petty/devops-cli/issues/5055)) ([463f601](https://github.com/dan-petty/devops-cli/commit/463f6016675386ecc18b10d1a918ba6866d9ddc1))
+* **monitoring:** tidy LLM stack windows, units and lines ([#5052](https://github.com/dan-petty/devops-cli/issues/5052)) ([375d724](https://github.com/dan-petty/devops-cli/commit/375d72402ca8e9a83d3f0e2e3817b8e44450ddc1))
+* **roadmap:** a refused kept plan uses no stage gate return ([#4983](https://github.com/dan-petty/devops-cli/issues/4983)) ([b8adbca](https://github.com/dan-petty/devops-cli/commit/b8adbcad7117753117d0a8ca1d20e43e199f642d))
+* **roadmap:** count a command as removed only when MUST NOT governs it ([#4985](https://github.com/dan-petty/devops-cli/issues/4985)) ([2e6f407](https://github.com/dan-petty/devops-cli/commit/2e6f407f0fa36e58b4a8419c3986fa205247a691))
+* **roadmap:** cut prose after a cited stage command ([#4982](https://github.com/dan-petty/devops-cli/issues/4982)) ([a172563](https://github.com/dan-petty/devops-cli/commit/a172563f715de7bab41bae66bdfb497087e20c9d))
+* **roadmap:** name every module of a group with no named test ([#5089](https://github.com/dan-petty/devops-cli/issues/5089)) ([27a0e79](https://github.com/dan-petty/devops-cli/commit/27a0e794ab04a970dcf233b4ade29b9f721cbdee))
+* **roadmap:** stage returns every open review finding to the planner ([#5067](https://github.com/dan-petty/devops-cli/issues/5067)) ([21b116e](https://github.com/dan-petty/devops-cli/commit/21b116eace363ef1a0c0b6f0e7f6aad09f01e5e7))
+* **roadmap:** the alternatives check reads the tools in use ([#5062](https://github.com/dan-petty/devops-cli/issues/5062)) ([8903233](https://github.com/dan-petty/devops-cli/commit/89032330120d9f373fb43202317dbf396045d2b8))
+* **roadmap:** the constants gate reads 6_500 and no new value ([#5080](https://github.com/dan-petty/devops-cli/issues/5080)) ([8a7b113](https://github.com/dan-petty/devops-cli/commit/8a7b1137e12ef9abef1d30481456477b3e0da868))
+* **roadmap:** the constants gate reads only a stated value ([#5042](https://github.com/dan-petty/devops-cli/issues/5042)) ([cf4733e](https://github.com/dan-petty/devops-cli/commit/cf4733e005d4bed91e48716332b746d6cf597396))
+* **telemetry:** read repository traffic as the GitHub App ([#4932](https://github.com/dan-petty/devops-cli/issues/4932)) ([7c42823](https://github.com/dan-petty/devops-cli/commit/7c42823a7189627d1796068deb3c5abdcdf9b206))
+* **tests:** close the UDP, DNS and git gaps of the network floor ([#5101](https://github.com/dan-petty/devops-cli/issues/5101)) ([047ee48](https://github.com/dan-petty/devops-cli/commit/047ee480625a8fa74e4cedbcab43e2bfccfce2ad))
+* **tests:** repair the bwrap contract suite and gate it ([#5110](https://github.com/dan-petty/devops-cli/issues/5110)) ([9a0659d](https://github.com/dan-petty/devops-cli/commit/9a0659dccde718d4a90bc8fcfe4c204bdf3e0354)), closes [#4715](https://github.com/dan-petty/devops-cli/issues/4715)
+
+
+### Performance Improvements
+
+* **ci:** build the Service image once for its test shards ([#5079](https://github.com/dan-petty/devops-cli/issues/5079)) ([dcf5bd5](https://github.com/dan-petty/devops-cli/commit/dcf5bd5422d114b235bea938953ac45f6ca5d2a4))
+* **ci:** run only the required checks on the release PR ([#5057](https://github.com/dan-petty/devops-cli/issues/5057)) ([8174071](https://github.com/dan-petty/devops-cli/commit/8174071a7998f3dd0adf2e816f4e80c52706da00))
+* **ci:** stop the cache export of pull request image builds ([#5113](https://github.com/dan-petty/devops-cli/issues/5113)) ([ba30820](https://github.com/dan-petty/devops-cli/commit/ba30820250ce5299448823e5efdc726ab890e268))
+* **roadmap:** consolidate keeps its vectors in the shared tiers ([#5099](https://github.com/dan-petty/devops-cli/issues/5099)) ([2a8bf1a](https://github.com/dan-petty/devops-cli/commit/2a8bf1a6cbdd74da8e2208fad9e44f264b394ed9))
+
+
+### Code Refactoring
+
+* **roadmap:** one Status writer for every job ([#5109](https://github.com/dan-petty/devops-cli/issues/5109)) ([24cfedc](https://github.com/dan-petty/devops-cli/commit/24cfedc0a160d60fe37a365c8a7b29c88a13c49c))
+
 ## [0.118.0](https://github.com/dan-petty/devops-cli/compare/v0.117.2...v0.118.0) (2026-11-12)
 
 
