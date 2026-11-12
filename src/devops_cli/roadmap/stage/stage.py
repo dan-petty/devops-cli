@@ -1140,7 +1140,8 @@ class _Planner:
         With a verifier, the model review of the plan (#3153) follows the checks and may return the
         plan up to `CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS` times (#3039). So an item costs R + 2
         planner calls at most without a verifier (5 at the default of 3), 3R + 4 with one (13), and
-        three calls of the verifier."""
+        three calls of the verifier. R is at most `CONST_ROADMAP_STAGE_GATE_RETURNS_CEILING` (3), so
+        13 planner calls is also the hard ceiling of an item (#4900)."""
         self._split_asked = False
         self._premise = None
         self._traces.clear()
@@ -1264,8 +1265,10 @@ class _Planner:
         """The change of `proposal`, a reply for the first ask or for a repair round. A reply that
         the checks refuse goes back to the model with the problem, up to
         `roadmap.stage.gate_returns` times. A reply that stays refused ends the item, and the
-        file of refused replies holds each of them (#4348, #4312). `floor` is the number of runs
-        before the ask. `invalid` is the failure text, with `{problem}`."""
+        file of refused replies holds each of them (#4348, #4312). Once the Service stops, no
+        return starts: a return is a new plan run of model requests, which the cut at the end of
+        the drain does not stop (#4900). `floor` is the number of runs before the ask. `invalid` is
+        the failure text, with `{problem}`."""
         refused = self._refused
         returns = 0
         while True:
@@ -1282,6 +1285,7 @@ class _Planner:
                 self._keep_refused(target, key, refused)
                 log_gate_returns(self._pull_repo, target.item.number, returns, passed=False)
                 raise _stage_error(invalid.format(problem=outcome.problem), target)
+            raise_if_service_stops(f"return {returns + 1} of the plan of #{target.item.number}")
             returns += 1
             again = {
                 **request.for_model(),

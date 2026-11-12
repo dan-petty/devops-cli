@@ -3259,6 +3259,11 @@ CONST_ROADMAP_INVESTIGATION_REPLY_WINDOW_SHARE: Final[int] = 4
 # few more than the calls, for the tool-free turn near the limit and the retries of a reply.
 CONST_ROADMAP_STAGE_TOOL_MAX_CALLS: Final[int] = 200
 CONST_ROADMAP_STAGE_MAX_REQUESTS: Final[int] = 250
+# The hard ceiling of `roadmap.stage.gate_returns` (#4900). Each return is one more plan run with
+# the counts above, so one item with a review makes 3R + 4 plan runs at most: 13 at this ceiling. A
+# plan run took about 728 s at p90 on 2026-11-11, so 13 runs are about 2.6 hours, and a value of 10
+# would give 34 runs. The settings load refuses a value above it.
+CONST_ROADMAP_STAGE_GATE_RETURNS_CEILING: Final[int] = 3
 # The call budget of a stage run (#4346). The prompt of a run says how many tool calls it needs
 # (`*_CALLS_ADVISED`), and from the call `*_CALLS_NOTICE` each tool answer ends with a notice to give
 # the reply, with the tools still on. A plan run needs about 30 calls and a review run about 40: the

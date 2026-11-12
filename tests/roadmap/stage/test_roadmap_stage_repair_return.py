@@ -9,8 +9,11 @@ import logging
 from typing import TYPE_CHECKING, Any, cast
 
 import pytest
+from pydantic import ValidationError
 
 from devops_cli.config.settings import RoadmapStageConfig
+from devops_cli.exceptions import ServiceStoppingError, ended_by_stop
+from devops_cli.roadmap.service_stop import begin_service_stop
 from devops_cli.roadmap.stage.stage import StagePlan, parse_filters, plan_stage
 from devops_cli.roadmap.stage.stage_eval_cases import DefectType
 from devops_cli.roadmap.stage.stage_plan_record import RefusedRecord, refused_record_path
@@ -180,6 +183,34 @@ def test_the_returns_of_one_round_follow_the_setting_and_no_more(
     _plan(store, stage_repo, model_fake, verifier)
 
     assert model_fake.call_count == 1 + 1 + 2
+
+
+def test_a_gate_returns_value_over_the_ceiling_fails_the_settings_load() -> None:
+    """`roadmap.stage.gate_returns` has a hard ceiling of 3: each return is one more planner run,
+    so a ConfigMap value cannot give an item more planner calls than the measured cap (#4900)."""
+    assert RoadmapStageConfig(gate_returns=3).gate_returns == 3
+    with pytest.raises(ValidationError, match="gate_returns"):
+        RoadmapStageConfig(gate_returns=4)
+
+
+def test_a_refused_reply_gets_no_return_once_the_service_stops(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo, model_fake: ModelFake, verifier: ModelFake
+) -> None:
+    """A return is a new planner run that sends model requests, and the cut at the end of the
+    drain stops only GitHub requests. Once the Service stops, no return starts: the round ends
+    with the stop and records no failed item (#4900)."""
+
+    def refused_in_the_drain(prompt: str) -> Any:
+        begin_service_stop()
+        return _refused()
+
+    model_fake.answer(refused_in_the_drain)
+
+    with pytest.raises(ServiceStoppingError) as stopped:
+        _plan(store, stage_repo, model_fake, verifier)
+
+    assert (ended_by_stop(stopped.value), model_fake.call_count) == (True, 1)
+    assert refused_record_path(STAGE_REPO, 1).exists() is False
 
 
 def test_a_revision_that_stays_refused_is_kept_with_its_problem_beside_the_earlier_replies(

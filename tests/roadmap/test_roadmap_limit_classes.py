@@ -161,6 +161,10 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
     # ── Stage ─────────────────────────────────────────────────────────────────────────────
     "CONST_ROADMAP_STAGE_TOOL_MAX_CALLS": ("guard", "was 30; the window ends the run first"),
     "CONST_ROADMAP_STAGE_MAX_REQUESTS": ("guard", "was 40; the window ends the run first"),
+    "CONST_ROADMAP_STAGE_GATE_RETURNS_CEILING": (
+        "guard",
+        "the hard ceiling of `roadmap.stage.gate_returns`; 13 plan runs of an item at most (#4900)",
+    ),
     "CONST_ROADMAP_STAGE_LOG_MAX_COUNT": ("raised", "was 20; commits of one `git_log` answer"),
     "CONST_ROADMAP_STAGE_MAP_MAX_FILES": ("raised", "was 20; files of one `repo_map` answer"),
     "CONST_ROADMAP_STAGE_MAP_LINE_CHARS": (
