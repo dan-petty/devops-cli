@@ -144,8 +144,9 @@ def _extract_pyproject_meta(
 def _pre_push_commands(repo_path: Path) -> list[str]:
     """The command of each pre-push hook in the project's `.pre-commit-config.yaml`.
 
-    A local hook runs its `entry`; a hook from another repository is named by its `id`. A file
-    that does not parse, or a project without one, has no pre-push commands.
+    A local hook with no `args` runs its `entry`. A hook with `args`, whose `entry` alone is not
+    its command, and a hook from another repository are named by their `id`. A file that does not
+    parse, or a project without one, has no pre-push commands.
     """
     config_file = repo_path / CONST_PRE_COMMIT_CONFIG_FILENAME
     try:
@@ -161,7 +162,7 @@ def _pre_push_commands(repo_path: Path) -> list[str]:
         return []
     default_stages = config.get("default_stages") or []
     return [
-        str(hook.get("entry") or hook.get("id"))
+        str(hook.get("id") if hook.get("args") else hook.get("entry") or hook.get("id"))
         for repo in config.get("repos") or []
         if isinstance(repo, dict)
         for hook in repo.get("hooks") or []

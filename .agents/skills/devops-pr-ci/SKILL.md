@@ -12,6 +12,7 @@ Do not run bare `gh` commands. The `devops ci` and `devops pr` commands enforce 
 1. Run `uv run devops ci test <paths>` to run tests that cover your changed files.
 2. Run `uv run devops ci fail-to-pass --base origin/main` to prove that a defect test fails before your fix.
 3. Run `uv run devops ci` to run the full local quality suite before you push.
+4. Run `git fetch origin && git rebase origin/main` right before each push. The pre-push hook refuses a branch that does not hold `origin/main`.
 
 ## Open and Advance a Pull Request
 

@@ -93,6 +93,31 @@ repos:
         pass_filenames: false
         require_serial: true
 
+      # Each push holds the latest `origin/main` (docs/SDLC.md, Branch Governance & Hierarchy;
+      # #4670). `check-merge-conflict` finds conflict markers in the files of a commit; this hook
+      # finds a branch behind `main`, which has none. A branch that holds `main` merges into it
+      # with no conflict. Only a `git push` of a branch sets `PRE_COMMIT_REMOTE_BRANCH` to
+      # `refs/heads/...`: a tag and the scoped run of the implement Job, which rebases in code,
+      # pass. pre-commit runs no hook for a delete. `fail_fast` skips the hooks after a refusal.
+      - id: branch-current
+        name: branch holds origin/main (docs/SDLC.md, Phase 5)
+        entry: sh -c
+        args:
+          - |
+            case "$PRE_COMMIT_REMOTE_BRANCH" in refs/heads/*) ;; *) exit 0 ;; esac
+            if ! timeout 20 git fetch --quiet --no-tags origin main; then
+              echo "The hook cannot fetch main from origin, so it cannot check the branch. Make sure that origin is available, then push again."
+              exit 1
+            fi
+            git merge-base --is-ancestor FETCH_HEAD "${PRE_COMMIT_TO_REF:-HEAD}" && exit 0
+            echo "The branch does not hold the latest origin/main. Run: git fetch origin && git rebase origin/main"
+            exit 1
+        language: system
+        stages: [pre-push]
+        pass_filenames: false
+        always_run: true
+        fail_fast: true
+
       # A push runs only the fast static checks, in check-only mode, so the hook changes no file
       # (#1752). A commit runs no tests (#2086). The required checks of CI run the test suite and
       # the other checks of `devops ci` before a merge, and `uv run devops ci` runs them by hand.

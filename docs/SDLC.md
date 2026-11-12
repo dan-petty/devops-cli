@@ -82,7 +82,7 @@ Every significant feature, structural refactoring, or tooling upgrade begins wit
    - The labels of each item hold its Status, Priority, Value, Effort and Owner (ADR 0001, ADR 0016). No roadmap job reads or writes the project board. A change folder holds no status, milestone, priority or pull request number (`tests/invariants/test_change_folders.py`).
 5. **Topic Branch Creation**:
    - Create an isolated worktree on a topic branch from the fetched upstream: `devops repos worktrees add <issue> --type <type> --slug <slug>`. The command fetches `origin/main` and refuses an issue that a worktree or a pushed branch already holds. When the App staged the branch of the issue (every commit past `origin/main` has the App as author), the command takes that branch over instead, and `--type` and `--slug` come from the branch. The command then claims the issue for an agent with the label `owner/agent`, and it only warns if the claim fails. [CONTRIBUTING.md](../CONTRIBUTING.md#5-naming) gives the form of the branch name.
-   - Before each push, rebase the branch onto the latest `origin/main`, and update an open pull request only for the causes that Phase 6 gives ([Branch Governance & Hierarchy](#branch-governance--hierarchy)).
+   - Before each push, rebase the branch onto the latest `origin/main`, and update an open pull request only for the causes that Phase 6 gives ([Branch Governance & Hierarchy](#branch-governance--hierarchy)). The pre-push hook `branch-current` fetches `main` and refuses a push of a branch that does not hold it.
 
 ---
 
@@ -161,6 +161,7 @@ flowchart TD
     end
 
     subgraph PrePush["Git Pre-Push Hook (fast static checks)"]
+        P0[branch holds origin/main]
         P1[ruff check]
         P2[ruff format --check]
         P3[actionlint]
@@ -307,7 +308,7 @@ gitGraph
 
 #### Branch Governance & Hierarchy
 - **Zero Direct Commits to `main`**: All work occurs on dedicated topic branches, named as [`CONTRIBUTING.md`](../CONTRIBUTING.md#5-naming) says.
-- **Current Branch at Every Push**: Immediately before each push to GitHub, the first push included, fetch `origin` and rebase the branch onto `origin/main`. Do not push a branch that does not hold `origin/main` or that does not merge cleanly into it. After a rebase, push with `git push --force-with-lease`.
+- **Current Branch at Every Push**: Immediately before each push to GitHub, the first push included, fetch `origin` and rebase the branch onto `origin/main`. Do not push a branch that does not hold `origin/main` or that does not merge cleanly into it. A branch that holds `origin/main` merges cleanly, so the pre-push hook `branch-current` checks only that and refuses the push with the fix, `git fetch origin && git rebase origin/main`. The implement Job installs no git hook: it rebases before each push and pushes nothing after a rebase conflict. After a rebase, push with `git push --force-with-lease`.
 - **No Catch-Up Updates**: Do not update an open pull request only to catch up with `main`, with `devops pr update`, the **Update branch** button or a merge of `main`. Update it only when GitHub reports a conflict, or when a required check fails and its fix is on `main`. The rule above then applies to that push.
 - **Branch Push Policy**: Nobody pushes to `main`. An agent can create, delete and force-push (`--force-with-lease`) any other branch that no other session works on.
 - **No Stacked Pull Requests**: Never base a pull request on another pull request that is not merged and that changes the same files. When the owner asks for pull requests, open them at once, with no report before them.

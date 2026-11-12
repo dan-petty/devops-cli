@@ -892,22 +892,23 @@ def _argv(hook: dict[str, Any]) -> list[str]:
 
 
 def test_the_pre_push_hooks_run_only_the_fast_static_checks() -> None:
-    """A push runs the fast static checks and changes no file. The required checks of CI run the
-    test suite and the other checks before a merge, and the full `devops ci` is a manual run
-    (#1752)."""
-    hooks = _pre_push_hooks()
-    commands = [_argv(hook) for hook in hooks]
-    assert [resolve_step_rows(shlex.join(argv)) for argv in commands] == [
-        FAST_STATIC_CHECKS,
-        WORKFLOW_CHECKS,
-    ]
+    """A push first checks that the branch holds `origin/main` (`branch-current`, #4670), then
+    runs the fast static checks and changes no file. The required checks of CI run the test suite
+    and the other checks before a merge, and the full `devops ci` is a manual run (#1752)."""
+    first, *rows = _pre_push_hooks()
+    commands = [_argv(hook) for hook in rows]
+    assert (first["id"], [resolve_step_rows(shlex.join(argv)) for argv in commands]) == (
+        "branch-current",
+        [FAST_STATIC_CHECKS, WORKFLOW_CHECKS],
+    )
     assert [argv for argv in commands if "--check" not in argv] == []
 
 
 def test_the_workflow_checks_run_only_when_a_push_changes_a_workflow() -> None:
-    """The first hook has no file filter and always runs. The second runs when the pushed commits
-    change a file of `.github/workflows/` or `.github/actions/`."""
-    always, workflows = _pre_push_hooks()
+    """The hook of the fast static checks has no file filter and always runs. The hook of the
+    workflow checks runs when the pushed commits change a file of `.github/workflows/` or
+    `.github/actions/`."""
+    _, always, workflows = _pre_push_hooks()
     pattern = re.compile(str(workflows["files"]))
     assert (always.get("always_run"), workflows.get("always_run"), workflows["pass_filenames"]) == (
         True,

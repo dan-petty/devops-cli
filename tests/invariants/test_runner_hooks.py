@@ -16,6 +16,7 @@ from typing import Any
 import yaml
 
 from devops_cli.git.branch_form import branch_name
+from devops_cli.roadmap.runner_tools import tool_names
 from tests.support.dockerfile import stages
 from tests.support.paths import REPO_ROOT as ROOT
 
@@ -56,15 +57,22 @@ def _dev_dependencies() -> set[str]:
 
 
 def test_every_local_hook_runs_a_tool_that_the_runner_image_holds() -> None:
-    """A local hook starts with `uv run`, and its tool is a dev dependency of the lock (the
-    `runner` stage syncs the dev group) or the `devops` script. A hook that needs another program
-    fails here until the image holds the program (#3072)."""
+    """A local hook that starts with `uv run` runs a dev dependency of the lock (the `runner` stage
+    syncs the dev group) or the `devops` script. Any other local hook starts a program that the
+    runner image holds (`RUNNER_TOOLS`), as `sh` for `branch-current` (#4670). A hook that needs
+    another program fails here until the image holds the program (#3072)."""
     provided = _dev_dependencies() | {"devops"}
+    image = set(tool_names())
     unsupported = []
     for hook in _local_hooks():
         words = shlex.split(str(hook["entry"]))
-        tool = words[2] if words[:2] == ["uv", "run"] and len(words) > 2 else words[0]
-        if words[:2] != ["uv", "run"] or PROVIDERS.get(tool) not in provided:
+        if words[:2] == ["uv", "run"]:
+            tool = words[2] if len(words) > 2 else ""
+            held = PROVIDERS.get(tool) in provided
+        else:
+            tool = words[0]
+            held = tool in image
+        if not held:
             unsupported.append((hook["id"], tool))
     assert unsupported == []
 

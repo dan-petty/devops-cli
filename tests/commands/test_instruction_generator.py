@@ -357,11 +357,13 @@ def test_a_project_with_several_manifests_names_each_toolchain(tmp_path: Path) -
 
 
 def test_devops_cli_renders_the_check_line_of_its_pre_push_hooks() -> None:
-    """Verify the AGENTS.md that `devops ai agents` writes for devops-cli names the same two
-    checks as before #4641, which come from its pre-push hooks."""
+    """Verify the AGENTS.md that `devops ai agents` writes for devops-cli names its pre-push
+    hooks: `branch-current` by its id, because its `entry` alone is not its command (#4670), and
+    the two checks of `devops ci`."""
     content = generate_agents_md(parse_project_metadata(REPO_ROOT))
     assert (
-        "Run these before each push: `uv run devops ci --check --only lint,format`, "
+        "Run these before each push: `branch-current`, "
+        "`uv run devops ci --check --only lint,format`, "
         "`uv run devops ci --check --only actionlint,zizmor`." in content
     )
 

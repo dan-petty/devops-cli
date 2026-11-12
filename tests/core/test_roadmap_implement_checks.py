@@ -77,7 +77,8 @@ def test_a_check_that_fails_once_gets_a_fix_step_with_its_log_and_then_passes(
     assert _item(job_world)[0] == "In Review"
 
 
-def test_a_conflict_on_the_rebase_after_the_fix_pushes_the_fix_commit(job_world: JobWorld) -> None:
+def test_a_conflict_on_the_rebase_after_the_fix_pushes_nothing(job_world: JobWorld) -> None:
+    """The fix commit stays off `origin`, because its head does not hold `main` (#4670)."""
     job_world.pull.runs = [[FAIL], [PASS]]
     move_main_when(
         job_world,
@@ -94,7 +95,7 @@ def test_a_conflict_on_the_rebase_after_the_fix_pushes_the_fix_commit(job_world:
         "Blocked",
         "push",
     )
-    assert job_world.origin_log()[-1] == f"fix(roadmap): Make check {CHECK} pass (#1)"
+    assert job_world.origin_log()[-1] == "docs(openspec): archive the change (#1)"
     assert job_world.pull.ready_calls == []
 
 
