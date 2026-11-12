@@ -45,17 +45,19 @@ _EXCLUDED_NAMES: Final[frozenset[str]] = frozenset(
     }
 )
 
-# A candidate decimal integer: not part of a note reference (#2714), line location (:12),
-# date (2026-11-03), range (1790-2000), or version/path (v1.0.0, a/40). `(?!\d)` keeps the
-# digits whole, so the engine does not backtrack from `1790` to `179`.
+# A candidate decimal integer, with the `_` digit separators of a Python literal (6_500): not
+# part of a note reference (#2714), line location (:12), date (2026-11-03), range (1790-2000), or
+# version/path (v1.0.0, a/40). `(?![\d_])` keeps the literal whole, so the engine does not
+# backtrack from `1790` to `179` or from `6_500` to `6`.
 _CANDIDATE_NUMBER: Final[re.Pattern[str]] = re.compile(
-    r"(?<![#:\w/.])(?<!\d-)(\d+)(?!\d|[/.]\w|-\d)"
+    r"(?<![#:\w/.])(?<!\d-)(\d+(?:_\d+)*)(?![\d_]|[/.]\w|-\d)"
 )
 
-# The text between a constant name and the value that a plan gives it: `NAME = 40`,
-# `NAME: Final[int] = 40`, `NAME` is 40, or sets `NAME` to 40 (#5034). An operand (`NAME + 1`),
-# an option value (`-n 0`) or the value of another name in the sentence is no value of `NAME`.
-_VALUE_LINK: Final[str] = r"`?(?:\s*:\s*[\w.\[\]]+\s*=|\s*(?:==?|is\b|to\b))\s*`?"
+# The text between a constant name and the value that a plan states for it in the staged tree:
+# `NAME = 40`, `NAME: Final[int] = 40` or `NAME` is 40 (#5034). An operand (`NAME + 1`), an
+# option value (`-n 0`), the value of another name in the sentence, and a new value that the
+# change sets (raise `NAME` to 80) are no staged value of `NAME`.
+_VALUE_LINK: Final[str] = r"`?(?:\s*:\s*[\w.\[\]]+\s*=|\s*(?:==?|is\b))\s*`?"
 
 _PARAGRAPH_SPLIT: Final[re.Pattern[str]] = re.compile(r"\n\s*(?:[-*]\s+|\d+\.\s+|#+\s+|\n+)")
 _SENTENCE_SPLIT: Final[re.Pattern[str]] = re.compile(r"(?<=[.!?])\s+")
@@ -247,15 +249,15 @@ def staged_constants(source: Path, sha: str, names: Iterable[str]) -> dict[str, 
 
 
 def _states_value(sentence: str, constant: str, number: re.Match[str]) -> bool:
-    """Whether `number` follows `constant` with `=`, `is` or `to` in `sentence` (#5034)."""
+    """Whether `number` follows `constant` with `=` or `is` in `sentence` (#5034)."""
     link = re.compile(rf"\b{re.escape(constant)}\b{_VALUE_LINK}$")
     return link.search(sentence, 0, number.start()) is not None
 
 
 def constant_problems(texts: Iterable[str], constants: Mapping[str, int]) -> list[str]:
     """One problem for each sentence that names one known constant, holds one candidate number,
-    gives that number to the constant with `=`, `is` or `to`, and differs from the staged tree
-    value (#3308, #5034)."""
+    gives that number to the constant with `=` or `is`, and differs from the staged tree value
+    (#3308, #5034)."""
     if not constants:
         return []
     problems: list[str] = []

@@ -60,9 +60,8 @@ def test_candidate_names_extracts_constant_identifiers() -> None:
         "A spec scenario says `SUMMARY_MAX_CHARS` is 40.",
         "The design keeps `SUMMARY_MAX_CHARS = 40` in `pull_form.py`.",
         "`pull_form.py:12:SUMMARY_MAX_CHARS: Final[int] = 40` gives the bound.",
-        "The plan sets `SUMMARY_MAX_CHARS` to 40.",
     ],
-    ids=["is", "assignment", "annotated-assignment", "set-to"],
+    ids=["is", "assignment", "annotated-assignment"],
 )
 def test_constant_problems_yields_problem_on_mismatch(text: str) -> None:
     constants = {"SUMMARY_MAX_CHARS": 60}
@@ -104,6 +103,14 @@ def test_constant_problems_yields_problem_on_mismatch(text: str) -> None:
             "`CONST_ROADMAP_IMPLEMENT_MAX_REFUSALS`.",
             {"CONST_ROADMAP_IMPLEMENT_MAX_REFUSALS": 30},
         ),
+        (
+            "Raise `SUMMARY_MAX_CHARS` to 80 in `pull_form.py`.",
+            {"SUMMARY_MAX_CHARS": 60},
+        ),
+        (
+            "The test patches `SUMMARY_MAX_CHARS` to 1, so that each summary is too long.",
+            {"SUMMARY_MAX_CHARS": 60},
+        ),
     ],
     ids=[
         "line-range",
@@ -112,12 +119,36 @@ def test_constant_problems_yields_problem_on_mismatch(text: str) -> None:
         "new-constant-value",
         "line-number",
         "new-constant-of",
+        "new-value-to",
+        "patch-to",
     ],
 )
 def test_constant_problems_ignores_number_that_is_no_value_of_the_constant(
     text: str, constants: dict[str, int]
 ) -> None:
     assert constant_problems([text], constants) == []
+
+
+@pytest.mark.parametrize(
+    ("number", "problems"),
+    [
+        ("6_500", []),
+        (
+            "6_400",
+            ["CONST_AGENTS_MD_MAX_CHARS is 6500 in the staged tree, but the plan says 6400."],
+        ),
+    ],
+    ids=["same-value", "other-value"],
+)
+def test_constant_problems_reads_number_with_digit_separators(
+    number: str, problems: list[str]
+) -> None:
+    texts = [
+        "`src/devops_cli/config/constants.py:195:CONST_AGENTS_MD_MAX_CHARS: Final[int] = "
+        f"{number}` gives the bound."
+    ]
+    constants = {"CONST_AGENTS_MD_MAX_CHARS": 6500}
+    assert constant_problems(texts, constants) == problems
 
 
 def test_constant_problems_accepts_matching_number() -> None:
