@@ -9,6 +9,7 @@ from typing import Any
 
 import pytest
 
+from devops_cli.config.settings import RoadmapStageConfig
 from devops_cli.exceptions.roadmap import RoadmapStageError
 from devops_cli.roadmap.agent_run import RunTrace, ToolCallRecord
 from devops_cli.roadmap.stage.stage import PlanFiles, StagedChange, StageTarget, _Planner
@@ -148,8 +149,10 @@ def test_a_revision_of_a_kept_plan_keeps_the_claims_of_the_run_that_made_it() ->
 
 def test_a_kept_plan_is_gated_with_its_facts_and_not_skipped() -> None:
     _write_record(_plan(), {"tools": [], "paths": []})
-    # The kept plan and each reply of its three returns cite a read that no run made.
-    fresh = _planner(_ScriptedToolbox([(_plan(), RunTrace(row=PLAN_ROW))] * 3))
+    # The kept plan, the new first reply and each reply of its returns cite a read that no run
+    # made. The refused kept plan uses no return (#4950).
+    replies = 1 + RoadmapStageConfig().gate_returns
+    fresh = _planner(_ScriptedToolbox([(_plan(), RunTrace(row=PLAN_ROW))] * replies))
 
     with pytest.raises(RoadmapStageError, match="read_issue"):
         fresh.plan(_target())
