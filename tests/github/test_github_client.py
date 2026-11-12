@@ -33,6 +33,7 @@ from tests.support.fakes.github import (
     github_json,
     github_redirect,
     github_text,
+    pull_request_file_payload,
     quota_headers,
 )
 from tests.support.fakes.process import ProcessAnswer, ProcessFake
@@ -290,6 +291,36 @@ def test_the_merge_base_is_read_from_the_compare_endpoint(
     assert (merge_base, github_api.requested, _carried(github_api)) == (
         _BASE_SHA,
         [f"GET https://api.github.com{_COMPARE}"],
+        {f"token {pin_github_session}"},
+    )
+
+
+def test_the_compare_files_are_read_with_the_limit_flag(
+    github_api: GitHubApiFake, pin_github_session: str
+) -> None:
+    """The compare answer's files are the files of the two commits, and an answer that holds
+    GitHub's limit of 300 files is a possibly truncated list."""
+    two = [pull_request_file_payload("README"), pull_request_file_payload("README.md", "added")]
+    at_the_limit = [pull_request_file_payload(f"docs/{number}.md") for number in range(300)]
+    github_api.route(
+        "GET",
+        _COMPARE,
+        github_json({"files": two}),
+        github_json({"files": at_the_limit}),
+    )
+    whole = _client().get_compare_files("octocat/Hello-World", _BASE_SHA, _HEAD_SHA)
+    capped = _client().get_compare_files("octocat/Hello-World", _BASE_SHA, _HEAD_SHA)
+    assert (whole.files, whole.truncated, capped.truncated, len(capped.files)) == (
+        [
+            PullRequestFile(filename="README", status="modified", additions=1, changes=1),
+            PullRequestFile(filename="README.md", status="added", additions=1, changes=1),
+        ],
+        False,
+        True,
+        300,
+    )
+    assert (github_api.requested, _carried(github_api)) == (
+        [f"GET https://api.github.com{_COMPARE}"] * 2,
         {f"token {pin_github_session}"},
     )
 
