@@ -322,7 +322,7 @@ Exits 1 when a row fails or a pod opens a connection. |
 |  | `devops ci run [OPTIONS]` | Run full CI and return a single pass/fail status. |
 |  | `devops ci mutate [OPTIONS] <paths>` | Mutation-test functions with mutmut and show each mutant no test killed; never a gate. |
 |  | `devops ci job-time [OPTIONS]` | Fail when the last runs of a CI job took more than the limit on average. Reads the job time of the last completed push runs of a workflow on a branch from GitHub's Actions API. A job that passed, failed or timed out counts, whatever the run concluded. Fails too when fewer runs than asked for could be read. |
-|  | `devops ci fail-to-pass [OPTIONS]` | Replay added or modified tests against the merge-base tree to prove a defect fix's tests fail unpatched. |
+|  | `devops ci fail-to-pass [OPTIONS]` | Replay added or modified tests against the merge-base tree to prove a defect fix's tests fail unpatched. A changed module under tests/gate/*_checks/ runs its gate row on the base and head trees: a case of that module that fails on base and passes on head proves the fix. |
 | [**uv**](docs/commands/uv.md) | `devops uv sync [OPTIONS]` | Sync project dependencies into the virtual environment. |
 |  | `devops uv lock [OPTIONS]` | Regenerate the uv lockfile. |
 |  | `devops uv python-install [OPTIONS]` | Install project Python version with uv. |
