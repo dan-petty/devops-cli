@@ -1,0 +1,158 @@
+# promtool rule unit tests of the alert group llm-gateway-db in
+# k8s/monitoring/prometheus-values.yaml (#4994). The Cluster llm-gateway-db has one instance,
+# the pod llm-gateway-db-1, and PodMonitor llm-gateway-db brings the series of its metrics
+# exporter. The Mattermost database sends the same series from namespace mattermost, and no rule
+# fires on them.
+#
+# tests/prometheus/test_k8s_monitoring_alerting.py writes the group to the file that
+# `rule_files` names, beside a copy of this file, and runs `promtool test rules` on the copy.
+# promtool starts each series at time 0, with one sample each `interval`. The labels are the
+# labels of the live series: Alloy adds `cluster` to each series that has none, and the exporter
+# sets `cluster` only on cnpg_collector_up.
+rule_files:
+  - llm-gateway-db.rules.yaml
+
+evaluation_interval: 1m
+
+tests:
+  - name: An exporter with no connection to PostgreSQL fires after 5 minutes
+    interval: 1m
+    input_series:
+      - series: 'cnpg_collector_up{job="llm/llm-gateway-db", namespace="llm", pod="llm-gateway-db-1", cluster="llm-gateway-db"}'
+        values: '0x15'
+      - series: 'cnpg_collector_up{job="mattermost/mattermost-db", namespace="mattermost", pod="mattermost-db-1", cluster="mattermost-db"}'
+        values: '1x15'
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: GatewayDatabaseDown
+        exp_alerts: []
+      - eval_time: 10m
+        alertname: GatewayDatabaseDown
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: "The gateway database llm/llm-gateway-db is down"
+              description: "The metrics exporter of the gateway database (Cluster llm/llm-gateway-db) has had no connection to PostgreSQL, or Prometheus has had no series from it, for 5 minutes. While the database is down, the gateway refuses each virtual key, and only the master key works. Read the status of the Cluster and the log of its pod (k8s/README.md, Alerting)."
+
+  - name: No series of the exporter fires after 5 minutes, and a series of 1 stays quiet
+    interval: 1m
+    input_series:
+      - series: 'cnpg_collector_up{job="mattermost/mattermost-db", namespace="mattermost", pod="mattermost-db-1", cluster="mattermost-db"}'
+        values: '1x15'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: GatewayDatabaseDown
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              namespace: llm
+            exp_annotations:
+              summary: "The gateway database llm/llm-gateway-db is down"
+              description: "The metrics exporter of the gateway database (Cluster llm/llm-gateway-db) has had no connection to PostgreSQL, or Prometheus has had no series from it, for 5 minutes. While the database is down, the gateway refuses each virtual key, and only the master key works. Read the status of the Cluster and the log of its pod (k8s/README.md, Alerting)."
+
+  - name: An exporter that reports 1 stays quiet
+    interval: 1m
+    input_series:
+      - series: 'cnpg_collector_up{job="llm/llm-gateway-db", namespace="llm", pod="llm-gateway-db-1", cluster="llm-gateway-db"}'
+        values: '1x15'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: GatewayDatabaseDown
+        exp_alerts: []
+
+  - name: Client connections above 80% of max_connections fire after 10 minutes
+    interval: 1m
+    input_series:
+      - series: 'cnpg_backends_total{job="llm/llm-gateway-db", namespace="llm", pod="llm-gateway-db-1", cluster="homelab-k3s", datname="litellm", usename="litellm", application_name="", state="idle"}'
+        values: '70x20'
+      - series: 'cnpg_backends_total{job="llm/llm-gateway-db", namespace="llm", pod="llm-gateway-db-1", cluster="homelab-k3s", datname="litellm", usename="litellm", application_name="", state="active"}'
+        values: '14x20'
+      - series: 'cnpg_backends_total{job="llm/llm-gateway-db", namespace="llm", pod="llm-gateway-db-1", cluster="homelab-k3s", datname="litellm", usename="cnpg_metrics_exporter", application_name="cnpg_metrics_exporter", state="active"}'
+        values: '1x20'
+      - series: 'cnpg_pg_settings_setting{job="llm/llm-gateway-db", namespace="llm", pod="llm-gateway-db-1", cluster="homelab-k3s", name="max_connections"}'
+        values: '100x20'
+      - series: 'cnpg_pg_settings_setting{job="llm/llm-gateway-db", namespace="llm", pod="llm-gateway-db-1", cluster="homelab-k3s", name="max_wal_senders"}'
+        values: '10x20'
+      - series: 'cnpg_backends_total{job="mattermost/mattermost-db", namespace="mattermost", pod="mattermost-db-1", cluster="homelab-k3s", datname="mattermost", usename="mattermost", application_name="", state="idle"}'
+        values: '95x20'
+      - series: 'cnpg_pg_settings_setting{job="mattermost/mattermost-db", namespace="mattermost", pod="mattermost-db-1", cluster="homelab-k3s", name="max_connections"}'
+        values: '100x20'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: GatewayDatabaseConnectionsNearMax
+        exp_alerts: []
+      - eval_time: 15m
+        alertname: GatewayDatabaseConnectionsNearMax
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              namespace: llm
+              pod: llm-gateway-db-1
+            exp_annotations:
+              summary: "The gateway database llm/llm-gateway-db-1 uses 85% of max_connections"
+              description: "The client connections of the gateway database llm/llm-gateway-db-1 have been above 80% of max_connections for 10 minutes. At the limit, PostgreSQL refuses each new connection, and the gateway cannot check a virtual key. Find the client that holds the connections on the CloudNativePG dashboard (k8s/README.md, Alerting)."
+
+  - name: Client connections at half of max_connections stay quiet
+    interval: 1m
+    input_series:
+      - series: 'cnpg_backends_total{job="llm/llm-gateway-db", namespace="llm", pod="llm-gateway-db-1", cluster="homelab-k3s", datname="litellm", usename="litellm", application_name="", state="idle"}'
+        values: '50x20'
+      - series: 'cnpg_pg_settings_setting{job="llm/llm-gateway-db", namespace="llm", pod="llm-gateway-db-1", cluster="homelab-k3s", name="max_connections"}'
+        values: '100x20'
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: GatewayDatabaseConnectionsNearMax
+        exp_alerts: []
+
+  # 4,010,000,000 + 2 x 8,265,920 bytes of databases and 536,870,912 bytes of WAL are
+  # 4,563,402,752 bytes: 85% of the claim of 5 GiB (5,368,709,120 bytes).
+  - name: Databases and WAL above 80% of the claim fire after 15 minutes
+    interval: 1m
+    input_series:
+      - series: 'cnpg_pg_database_size_bytes{job="llm/llm-gateway-db", namespace="llm", pod="llm-gateway-db-1", cluster="homelab-k3s", datname="litellm"}'
+        values: '4010000000x25'
+      - series: 'cnpg_pg_database_size_bytes{job="llm/llm-gateway-db", namespace="llm", pod="llm-gateway-db-1", cluster="homelab-k3s", datname="postgres"}'
+        values: '8265920x25'
+      - series: 'cnpg_pg_database_size_bytes{job="llm/llm-gateway-db", namespace="llm", pod="llm-gateway-db-1", cluster="homelab-k3s", datname="template1"}'
+        values: '8265920x25'
+      - series: 'cnpg_collector_pg_wal{job="llm/llm-gateway-db", namespace="llm", pod="llm-gateway-db-1", cluster="homelab-k3s", value="size"}'
+        values: '536870912x25'
+      - series: 'cnpg_collector_pg_wal{job="llm/llm-gateway-db", namespace="llm", pod="llm-gateway-db-1", cluster="homelab-k3s", value="count"}'
+        values: '32x25'
+      - series: 'kube_persistentvolumeclaim_resource_requests_storage_bytes{job="integrations/kubernetes/kube-state-metrics", namespace="llm", persistentvolumeclaim="llm-gateway-db-1", cluster="homelab-k3s"}'
+        values: '5368709120x25'
+      - series: 'cnpg_pg_database_size_bytes{job="mattermost/mattermost-db", namespace="mattermost", pod="mattermost-db-1", cluster="homelab-k3s", datname="mattermost"}'
+        values: '9900000000x25'
+      - series: 'cnpg_collector_pg_wal{job="mattermost/mattermost-db", namespace="mattermost", pod="mattermost-db-1", cluster="homelab-k3s", value="size"}'
+        values: '536870912x25'
+      - series: 'kube_persistentvolumeclaim_resource_requests_storage_bytes{job="integrations/kubernetes/kube-state-metrics", namespace="mattermost", persistentvolumeclaim="mattermost-db-1", cluster="homelab-k3s"}'
+        values: '10737418240x25'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: GatewayDatabaseNearClaim
+        exp_alerts: []
+      - eval_time: 20m
+        alertname: GatewayDatabaseNearClaim
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              namespace: llm
+              pod: llm-gateway-db-1
+            exp_annotations:
+              summary: "The gateway database llm/llm-gateway-db-1 uses 85% of its claim"
+              description: "The databases and the WAL of the gateway database llm/llm-gateway-db-1 have been above 80% of its claim for 15 minutes. local-path does not enforce the size of a claim, so the data can fill the root disk of the node. Find what grows on the CloudNativePG dashboard: the gateway keeps its spend logs for 30 days (k8s/README.md, Alerting)."
+
+  - name: Databases and WAL under 80% of the claim stay quiet
+    interval: 1m
+    input_series:
+      - series: 'cnpg_pg_database_size_bytes{job="llm/llm-gateway-db", namespace="llm", pod="llm-gateway-db-1", cluster="homelab-k3s", datname="litellm"}'
+        values: '1000000000x25'
+      - series: 'cnpg_collector_pg_wal{job="llm/llm-gateway-db", namespace="llm", pod="llm-gateway-db-1", cluster="homelab-k3s", value="size"}'
+        values: '536870912x25'
+      - series: 'kube_persistentvolumeclaim_resource_requests_storage_bytes{job="integrations/kubernetes/kube-state-metrics", namespace="llm", persistentvolumeclaim="llm-gateway-db-1", cluster="homelab-k3s"}'
+        values: '5368709120x25'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: GatewayDatabaseNearClaim
+        exp_alerts: []

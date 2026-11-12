@@ -45,3 +45,8 @@ configMapGenerator:
       - pyroscope.json
       - nvidia-dcgm.json
       - coredns.json
+  # The upstream CloudNativePG dashboard (cloudnative-pg/grafana-dashboards, Apache-2.0) for each
+  # CloudNativePG Cluster: llm-gateway-db and mattermost-db (#4994). It fills most of a ConfigMap.
+  - name: grafana-database-dashboards
+    files:
+      - cloudnative-pg.json

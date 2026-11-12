@@ -186,6 +186,18 @@ def test_serialisation_omits_unset_optional_fields() -> None:
     assert "datasource" not in payload["panels"][0]
 
 
+def test_a_generated_target_has_no_expression_key() -> None:
+    """Only a target of the expression datasource has `expression` (#4994), so a PromQL target
+    that the builders make has none."""
+    payload = dashboard("uid-1", "Test", [timeseries("CPU", targets("up"))]).to_grafana_json()
+    assert sorted(payload["panels"][0]["targets"][0]) == [
+        "datasource",
+        "expr",
+        "legendFormat",
+        "refId",
+    ]
+
+
 def test_generated_dashboard_round_trips_through_the_schema() -> None:
     """Serialised output re-parses to an equivalent dashboard."""
     original = dashboard("uid-1", "Round Trip", [timeseries("CPU", targets("up"))])
@@ -299,6 +311,40 @@ def test_malformed_promql_in_a_target_is_reported() -> None:
         )
     )
     assert any("Invalid PromQL" in issue.message for issue in report.errors)
+
+
+@pytest.mark.parametrize(
+    ("expression", "errors"),
+    [("$A + $B * 10", []), ("", ["Panel target has an empty query"])],
+    ids=["filled", "empty"],
+)
+def test_an_expression_target_is_checked_by_its_expression(
+    expression: str, errors: list[str]
+) -> None:
+    """A target of the Grafana expression datasource (`__expr__`) holds its query in
+    `expression` and has no `expr`. Grafana evaluates it on the server from the other targets of
+    the panel, as the upstream CloudNativePG dashboard does (#4994), so only an empty expression
+    is an error, and it is not PromQL."""
+    panel = {
+        "id": 1,
+        "type": "stat",
+        "title": "Errors",
+        "gridPos": {"h": 2, "w": 2, "x": 0, "y": 0},
+        "datasource": {"type": "prometheus", "uid": "prometheus"},
+        "targets": [
+            {"expr": "up", "refId": "A", "hide": True},
+            {"expr": "up", "refId": "B", "hide": True},
+            {
+                "datasource": {"type": "__expr__", "uid": "${DS_EXPRESSION}"},
+                "expression": expression,
+                "refId": "C",
+                "type": "math",
+            },
+        ],
+    }
+    report = lint_dashboard(load_dashboard({"uid": "u", "title": "T", "panels": [panel]}))
+
+    assert [issue.message for issue in report.errors] == errors
 
 
 def test_duplicate_target_ref_ids_are_reported() -> None:

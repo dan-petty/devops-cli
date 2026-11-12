@@ -8,6 +8,7 @@
 #
 # The operator is Helm release `cloudnative-pg` (Argo CD Application `cloudnative-pg`, stack
 # `infra` of deploy-stack). The policy comes first, so it exists before the operator makes the pod.
+# The PodMonitor comes last: Alloy scrapes the metrics exporter of each instance through it (#4994).
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -43,6 +44,14 @@ spec:
           port: 8000
         - protocol: TCP
           port: 5432
+    # Alloy in `monitoring` scrapes the metrics exporter of the instance (PodMonitor below).
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 9187
   egress:
     - to:
         - namespaceSelector:
@@ -96,3 +105,22 @@ spec:
     limits:
       cpu: 1000m
       memory: 1Gi
+---
+# The metrics exporter of each instance listens on the container port `metrics` (9187). Alloy
+# reads PodMonitors (`prometheusOperatorObjects` in k8s/monitoring/k8s-monitoring-values.yaml),
+# as it does for k8s/mattermost/podmonitor.yaml. The rules of group `llm-gateway-db` in
+# k8s/monitoring/prometheus-values.yaml and the CloudNativePG dashboard read these series.
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: llm-gateway-db
+  namespace: llm
+  labels:
+    app.kubernetes.io/name: llm-gateway-db
+    app.kubernetes.io/part-of: devops-cli-stack
+spec:
+  selector:
+    matchLabels:
+      cnpg.io/cluster: llm-gateway-db
+  podMetricsEndpoints:
+    - port: metrics

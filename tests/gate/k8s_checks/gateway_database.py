@@ -18,11 +18,18 @@ LLM_DIR = REPO_ROOT / "k8s" / "llm"
 DATABASE_FILE = LLM_DIR / "gateway-db.yaml"
 GATEWAY_DIR = LLM_DIR / "gateway"
 
+MONITORING_VALUES = REPO_ROOT / "k8s" / "monitoring" / "k8s-monitoring-values.yaml"
+MONITORING_POLICY = REPO_ROOT / "k8s" / "monitoring" / "networkpolicy.yaml"
+
 CLUSTER_NAME = "llm-gateway-db"
 # CloudNativePG names the Secret of the application user `<cluster>-app`, and puts a ready
 # connection string in its `uri` key.
 OPERATOR_SECRET = f"{CLUSTER_NAME}-app"
 DATABASE_PORT = 5432
+# The metrics exporter of each CloudNativePG instance listens on the container port `metrics`.
+EXPORTER_PORT = 9187
+# LiteLLM deletes the rows of its spend-log tables that are older than this (#4994).
+SPEND_LOGS_RETENTION = "30d"
 
 
 def _documents(path: Path) -> list[dict[str, Any]]:
@@ -163,12 +170,63 @@ def check_the_gateway_refuses_a_key_it_cannot_check_when_the_database_is_down() 
     ) == (False, False)
 
 
+def check_the_gateway_keeps_its_spend_logs_for_30_days() -> None:
+    """The spend-log table gets about 71,000 rows a week, and no code reads a row older than a
+    month. LiteLLM deletes the older rows once a day (its default interval) when
+    `maximum_spend_logs_retention_period` is set (#4994)."""
+    settings = yaml.safe_load((GATEWAY_DIR / "config.yaml").read_text(encoding="utf-8"))[
+        "general_settings"
+    ]
+
+    assert (
+        settings.get("maximum_spend_logs_retention_period"),
+        "maximum_spend_logs_retention_interval" in settings,
+    ) == (SPEND_LOGS_RETENTION, False)
+
+
+def check_alloy_scrapes_the_exporter_of_the_database_through_a_pod_monitor() -> None:
+    """PodMonitor `llm-gateway-db` selects the pods of the Cluster on their port `metrics`, as
+    `k8s/mattermost/podmonitor.yaml` does, and Alloy reads PodMonitors. The policy of the
+    `monitoring` namespace admits its egress to namespace `llm` on 9187 (#4994)."""
+    (monitor,) = _of_kind(_documents(DATABASE_FILE), "PodMonitor")
+    values = yaml.safe_load(MONITORING_VALUES.read_text(encoding="utf-8"))
+    (policy,) = _documents(MONITORING_POLICY)
+    llm_egress_ports = [
+        port["port"]
+        for rule in policy["spec"]["egress"]
+        for peer in rule["to"]
+        if peer.get("namespaceSelector", {}).get("matchLabels")
+        == {"kubernetes.io/metadata.name": "llm"}
+        for port in rule.get("ports", [])
+    ]
+
+    assert (
+        monitor["apiVersion"],
+        monitor["metadata"]["name"],
+        monitor["metadata"]["namespace"],
+        monitor["spec"],
+        values["prometheusOperatorObjects"]["enabled"],
+        EXPORTER_PORT in llm_egress_ports,
+    ) == (
+        "monitoring.coreos.com/v1",
+        CLUSTER_NAME,
+        "llm",
+        {
+            "selector": {"matchLabels": {"cnpg.io/cluster": CLUSTER_NAME}},
+            "podMetricsEndpoints": [{"port": "metrics"}],
+        },
+        True,
+        True,
+    )
+
+
 def check_only_the_gateway_reaches_the_database_and_the_database_calls_only_dns_and_the_api() -> (
     None
 ):
     """The database admits the gateway's pods and the operator on 5432, and nothing else on that
-    port. Its egress is DNS and the Kubernetes API (the instance manager reads Secrets and updates
-    status through it), the form of the Mattermost database."""
+    port. The `monitoring` namespace reaches only the metrics exporter on 9187 (#4994). Its egress
+    is DNS and the Kubernetes API (the instance manager reads Secrets and updates status through
+    it), the form of the Mattermost database."""
     policy = next(
         doc
         for doc in _of_kind(_documents(DATABASE_FILE), "NetworkPolicy")
@@ -204,6 +262,16 @@ def check_only_the_gateway_reaches_the_database_and_the_database_calls_only_dns_
                 ],
                 sort_keys=True,
             ): [8000, DATABASE_PORT],
+            yaml.safe_dump(
+                [
+                    {
+                        "namespaceSelector": {
+                            "matchLabels": {"kubernetes.io/metadata.name": "monitoring"}
+                        }
+                    }
+                ],
+                sort_keys=True,
+            ): [EXPORTER_PORT],
         },
         [[53, 53], [443, 6443]],
     )
@@ -238,7 +306,8 @@ def check_the_default_perimeter_leaves_the_database_to_its_own_policy() -> None:
 def check_argo_cd_and_deploy_stack_both_apply_the_database_and_the_operator_comes_first() -> None:
     """Argo CD's `llm` Application lists the file. deploy-stack applies it after the Helm releases
     (the Cluster needs the operator's CRD), and the operator is a release of stack `infra`, which
-    every stack that holds a CloudNativePG Cluster needs, so no stack installs it twice."""
+    every stack that holds a CloudNativePG Cluster needs, so no stack installs it twice. The
+    PodMonitor is in the same file, after the Helm release that installs its CRD."""
     kustomization = yaml.safe_load((LLM_DIR / "kustomization.yaml").read_text(encoding="utf-8"))
     post_helm = [str(path) for path in POST_HELM_BY_STACK["llm"]]
     releases = {
@@ -252,4 +321,4 @@ def check_argo_cd_and_deploy_stack_both_apply_the_database_and_the_operator_come
         "cloudnative-pg" in releases["infra"],
         "cloudnative-pg" in releases["chat"],
         [doc["kind"] for doc in applied_documents(DATABASE_FILE)],
-    ) == (True, True, True, False, ["NetworkPolicy", "Cluster"])
+    ) == (True, True, True, False, ["NetworkPolicy", "Cluster", "PodMonitor"])

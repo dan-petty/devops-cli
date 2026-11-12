@@ -17,6 +17,7 @@ from typing import Any
 from devops_cli.config.constants import (
     CONST_GRAFANA_DASHBOARD_GRID_WIDTH,
     CONST_GRAFANA_DEFAULT_DATASOURCE_TYPE,
+    CONST_GRAFANA_EXPRESSION_DATASOURCE_TYPE,
 )
 from devops_cli.grafana.schema import Dashboard, Panel
 from devops_cli.models.grafana import DashboardLintIssue, DashboardLintReport
@@ -106,7 +107,9 @@ def _check_targets(panels: list[Panel]) -> list[DashboardLintIssue]:
                 )
             seen_refs.add(query.ref_id)
 
-            if not query.expr.strip():
+            expression = query.datasource.type == CONST_GRAFANA_EXPRESSION_DATASOURCE_TYPE
+            text = (query.expression or "") if expression else query.expr
+            if not text.strip():
                 issues.append(_issue("error", "Panel target has an empty query", panel.title))
                 continue
             if query.datasource.type != CONST_GRAFANA_DEFAULT_DATASOURCE_TYPE:

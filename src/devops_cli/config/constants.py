@@ -2320,6 +2320,9 @@ CONST_GRAFANA_DASHBOARD_GRID_WIDTH: Final[int] = 24
 # Dashboard JSON schema version targeted by the generated models (Grafana 10+).
 CONST_GRAFANA_SCHEMA_VERSION: Final[int] = 39
 CONST_GRAFANA_DEFAULT_DATASOURCE_TYPE: Final[str] = "prometheus"
+# The type of the Grafana expression datasource: its targets hold a server-side expression over
+# the other targets of the panel in `expression`, and no `expr`.
+CONST_GRAFANA_EXPRESSION_DATASOURCE_TYPE: Final[str] = "__expr__"
 
 # Panel types emitted by the builder library.
 CONST_GRAFANA_PANEL_TYPE_TIMESERIES: Final[str] = "timeseries"
