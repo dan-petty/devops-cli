@@ -190,8 +190,30 @@ def node(
     ready: str = "True",
     unschedulable: bool = False,
     addresses: dict[str, str] | None = None,
+    *,
+    kernel: str | None = None,
+    kubelet: str | None = None,
+    capacity: dict[str, str] | None = None,
+    allocatable: dict[str, str] | None = None,
 ) -> Any:
-    """A node whose Ready condition holds the given status, with its addresses by type."""
+    """A node whose Ready condition holds the given status, with its addresses by type, and with
+    its kernel and kubelet versions and its resources when given."""
+    info = (
+        client.V1NodeSystemInfo(
+            architecture="amd64",
+            boot_id="boot",
+            container_runtime_version="containerd://2.1.4",
+            kernel_version=kernel or "",
+            kube_proxy_version="",
+            kubelet_version=kubelet or "",
+            machine_id="machine",
+            operating_system="linux",
+            os_image="Debian GNU/Linux 13 (trixie)",
+            system_uuid="uuid",
+        )
+        if kernel or kubelet
+        else None
+    )
     return client.V1Node(
         metadata=client.V1ObjectMeta(name=name),
         spec=client.V1NodeSpec(unschedulable=unschedulable),
@@ -202,6 +224,9 @@ def node(
                 for kind, address in (addresses or {}).items()
             ]
             or None,
+            node_info=info,
+            capacity=capacity,
+            allocatable=allocatable,
         ),
     )
 

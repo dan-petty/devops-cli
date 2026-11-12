@@ -466,6 +466,7 @@ and draft readiness. |
 |  | `devops tf notify-plan [OPTIONS]` | Format an OpenTofu plan as a collapsible pull request comment and print it. The command sends no request. |
 |  | `devops tf cost COMMAND [ARGS]...` | OpenTofu and Terraform Infrastructure-as-Code operations. |
 | [**infra**](docs/commands/infra.md) | `devops infra onboard [OPTIONS] <repo>` | Check an Ansible infra repo for what devops infra needs, and print one row for each check with its state and the next step. The check fetches origin and reads the head of the default branch, not the working tree of the checkout, with local tool output only. With --confirm, write the entry of the repo in infra.repos, at agent access none unless a person gives --agent-access. |
+|  | `devops infra status [OPTIONS] <repo>` | Show each inventory host of an infra repo with the state of its Kubernetes node: Ready, cordoned, kernel, kubelet, memory capacity and allocatable memory, and GPUs. The hosts come from the head of the default branch at origin, and the nodes from the kube context of the entry. With --ping, also check SSH to each host in service and whether it waits for a reboot. |
 | [**tls**](docs/commands/tls.md) | `devops tls ca [OPTIONS]` | Generate a self-signed Root Certificate Authority (CA) key pair. |
 |  | `devops tls cert [OPTIONS]` | Generate an X.509 TLS certificate signed by local CA or self-signed. |
 |  | `devops tls homelab [OPTIONS]` | Generate complete Homelab TLS bundle (Root CA, Wildcard + Stack Services Cert). |

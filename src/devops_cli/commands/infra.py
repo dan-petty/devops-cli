@@ -7,6 +7,7 @@ from typing import Annotated
 
 import typer
 
+from devops_cli.config.constants import CONST_OUTPUT_FORMAT_TABLE
 from devops_cli.core.cli import new_typer
 from devops_cli.dry_run import is_dry_run
 from devops_cli.dry_run.decorator import dry_run_class
@@ -95,3 +96,65 @@ def onboard(
     write_stdout(render_onboarding(report) + "\n")
     if report.has_missing:
         raise typer.Exit(1)
+
+
+@app.command("status", help=HELP.infra.status)
+@dry_run_class("request-plan")
+@trace_span("infra.status")
+def status(
+    repo: Annotated[str, typer.Argument(help=HELP.infra.status_repo)],
+    path: Annotated[Path | None, typer.Option("--path", help=HELP.infra.onboard_path)] = None,
+    ping: Annotated[bool, typer.Option("--ping", help=HELP.infra.status_ping)] = False,
+    output_format: Annotated[
+        str, typer.Option("--format", "-f", help=HELP.options.format_type)
+    ] = CONST_OUTPUT_FORMAT_TABLE,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
+) -> None:
+    """Show the hosts of an infra repo with the state of their nodes."""
+    from devops_cli.config.settings import load_settings
+    from devops_cli.dry_run.requests import render_request_plan
+    from devops_cli.github.repo_ref import RepoRef, is_repository_name
+    from devops_cli.infra.infra_plans import plan_status
+    from devops_cli.infra.onboard import default_checkout, resolve_target
+    from devops_cli.infra.status import (
+        check_status,
+        render_status_header,
+        status_caption,
+        status_entry,
+        status_table,
+    )
+    from devops_cli.output import print_table
+    from devops_cli.output.serialization import emit_serialized, resolve_format
+
+    fmt = resolve_format(output_format)
+    settings = load_settings()
+    if dry_run or is_dry_run():
+        named = is_repository_name(repo)
+        entry = settings.infra.entry(RepoRef(repo)) if named else None
+        checkout = (
+            (path or (entry.path if entry else None) or default_checkout(RepoRef(repo), settings))
+            if named
+            else Path(repo)
+        )
+        render_request_plan(
+            MESSAGES.infra.status_plan_title.format(repo=repo, path=checkout),
+            plan_status(
+                checkout,
+                origin_lookup=not named,
+                kube_context=entry.kube_context if entry else None,
+                ping=ping,
+            ),
+            [],
+            described=True,
+        )
+        return
+
+    target = resolve_target(repo, path=path, settings=settings)
+    entry = status_entry(target, settings, ping=ping)
+    report = check_status(target, entry, settings, ping=ping)
+    if fmt != CONST_OUTPUT_FORMAT_TABLE:
+        emit_serialized(report.model_dump(mode="json"), fmt)
+        return
+    write_stdout("\n".join(render_status_header(report)) + "\n")
+    columns, cells = status_table(report, ping=ping)
+    print_table(columns=columns, rows=cells, caption=status_caption(ping=ping))

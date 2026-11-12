@@ -1281,6 +1281,27 @@ class InfraMessages:
         "devops owns the node life cycle: cordon, drain, restart and reboot. Move these steps out "
         "of the Makefile."
     )
+    # `devops infra status` (#5123): one row for each host with its node.
+    status_title: str = "Hosts of {repo} (kube context {context})"
+    status_plan_title: str = "Plan for the status of {repo} at {path}"
+    status_columns: tuple[str, ...] = (
+        "Host",
+        "In service",
+        "Node",
+        "Ready",
+        "Cordoned",
+        "Kernel",
+        "Kubelet",
+        "Memory GiB",
+        "GPU",
+    )
+    status_ping_columns: tuple[str, ...] = ("SSH", "Reboot")
+    status_caption: str = "Memory GiB: capacity / allocatable. GPU: allocatable."
+    status_ping_caption: str = "Reboot: /run/reboot-required exists."
+    status_no_host: str = "(no host)"
+    status_no_node: str = "no node"
+    status_yes: str = "yes"
+    status_no: str = "no"
     settings_level: str = "agent access {level}"
     settings_written: str = "agent access {level}; written to {path}"
     settings_step: str = (

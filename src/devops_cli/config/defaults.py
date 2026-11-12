@@ -62,6 +62,9 @@ DEFAULT_INFRA_ANSIBLE_READ_TIMEOUT_SECONDS: float = 120.0
 # The bound of each git command of the read of an infra repo at its default branch (#5162): the
 # fetch of origin and the export of the commit.
 DEFAULT_INFRA_GIT_TIMEOUT_SECONDS: float = 300.0
+# The bound of the SSH check of `devops infra status --ping` (#5123): one ansible-runner run on the
+# hosts in service, each with a connection bound of 10 s.
+DEFAULT_INFRA_PING_TIMEOUT_SECONDS: float = 300.0
 DEFAULT_DOCS_DIR = CONST_DOCS_DIR_PATH
 DEFAULT_GRAFANA_DASHBOARDS_DIR = Path("k8s/monitoring/dashboards")
 DEFAULT_WORKSPACE_FILE = Path(".code-workspace")
