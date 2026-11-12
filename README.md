@@ -128,6 +128,8 @@ Specialized personas available for interactive conversations via `devops ai chat
 - **QA / Test Engineer (`--persona qa`)**: Regression prevention, test coverage gaps, edge cases, pytest code skeletons, validation steps.
 - **Challenger (`--persona challenger`)**: Argues against a claim, design, or plan put to it in chat and names the evidence that would settle it.
 
+Each persona chats with its role, the chat task and its own prompt (`src/devops_cli/ai/personas/<name>/prompt.md`). Each persona has its own tool set and its own RAG search terms. Challenger only reads and searches: it gets no scanner, cluster or MCP tool.
+
 ---
 
 ## Local Workstation Model & Security Architecture

@@ -11,6 +11,7 @@ from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any
 
 from devops_cli.ai.lexical import bm25_scores
+from devops_cli.ai.personas import Persona
 from devops_cli.ai.rag.embeddings import EmbedderProtocol, EmbeddingsError
 from devops_cli.ai.rag.models import CodeChunk, RAGContext, SearchResult
 from devops_cli.ai.rag.reranker import SearchReranker
@@ -243,20 +244,23 @@ def reciprocal_rank_fusion(
     return fused
 
 
+# The search terms each persona adds to a query, and the category it searches (None: all).
+_PERSONA_RAG_TERMS: dict[Persona, tuple[str, str | None]] = {
+    Persona.DEVSECOPS: ("security auth secrets token validation permissions", "code"),
+    Persona.ARCHITECT: ("architecture design patterns interfaces abstractions", None),
+    Persona.PM: ("requirements api specification contract docs", "docs"),
+    Persona.AUDITOR: ("compliance logging error handling telemetry reliability", None),
+    Persona.QA: ("tests fixtures mocks assertions coverage", "code"),
+    Persona.CHALLENGER: ("decision rationale trade-offs alternatives failure modes", None),
+}
+
+
 def _expand_persona_rag_query(query: str, persona: str) -> tuple[str, str | None]:
-    """Expand query with persona-specific semantic terms and filter category."""
-    persona_lower = persona.lower()
-    if "sec" in persona_lower:
-        return f"{query} security auth secrets token validation permissions", "code"
-    if "arch" in persona_lower:
-        return f"{query} architecture design patterns interfaces abstractions", None
-    if "qa" in persona_lower or "test" in persona_lower:
-        return f"{query} tests fixtures mocks assertions coverage", "code"
-    if "pm" in persona_lower or "product" in persona_lower:
-        return f"{query} requirements api specification contract docs", "docs"
-    if "audit" in persona_lower:
-        return f"{query} compliance logging error handling telemetry reliability", None
-    return query, None
+    """Add the search terms of a `Persona` to the query; any other name keeps the query."""
+    if persona not in _PERSONA_RAG_TERMS:
+        return query, None
+    words, category = _PERSONA_RAG_TERMS[Persona(persona)]
+    return f"{query} {words}", category
 
 
 _SEARCH_VERIFIED_MODELS: dict[tuple[str, str, str], str] = {}
