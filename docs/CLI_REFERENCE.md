@@ -7126,7 +7126,7 @@ devops roadmap release [OPTIONS] <item>
 
 ### `devops roadmap eval`
 
-**Score the plan and implement jobs on a golden set. Each command runs a job's real code on committed cases with a chosen model. It is on demand and no part of devops ci.**
+**Score the roadmap jobs. grades reads the live result lines of each job in Loki. Each other command runs a job's real code on committed cases with a chosen model. Each is on demand and no part of devops ci.**
 
 ```bash
 devops roadmap eval COMMAND [ARGS]...
@@ -7264,6 +7264,25 @@ devops roadmap eval completeness [OPTIONS]
 | `--json` | `boolean` | - | Print the report as JSON in place of the table. |
 | `--dry-run` | `boolean` | - | Make no request: list the cases and the model calls that a run makes. |
 | `--cases` | `path` | - | Folder of the cases. Default: tests/fixtures/roadmap_eval/completeness. |
+
+#### `devops roadmap eval grades`
+
+**Print the job grade of each roadmap workflow and repository from its result lines in Loki (docs/roadmap/job-success.md). For each row: the attempts with no infrastructure cut, the successes, p, the Wilson 95% interval, the grade (100, 90, 80, 70, 60, <60, or too few under 30 attempts), the point grade and the range of grades of the interval, the first-pass ratio, the all-attempts ratio and the infrastructure share, the top 3 failure classes, the owner action of the grade, the tokens and seconds of each attempt and of each success, each version with 10 attempts or more, the attempts in 24 h and in 6 h, and the broken and infrastructure signals. It sends LogQL metric queries to the instant query endpoint of Loki and changes nothing. The 100 grade needs the first-pass counts that only the stage, implement and fix_plan lines hold today.**
+
+```bash
+devops roadmap eval grades [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--repo` | `string` | - | Report only this repository (owner/name). Default: all repositories. |
+| `--window` | `choice (6h|24h|7d)` | `7d` | The window of the grade. The policy grade uses 7d; the trend columns always show 24h and 6h. |
+| `--loki-url` | `string` | - | The Loki to query. Without it, the loki.url setting, else http://localhost:3100. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
+| `--json`, `-j` | `boolean` | - | Output findings or metrics as JSON. |
+| `--dry-run` | `boolean` | - | Send no request: print the LogQL queries that a run sends. |
 
 ### `devops roadmap review`
 

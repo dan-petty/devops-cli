@@ -5,9 +5,10 @@ from __future__ import annotations
 import json
 import logging
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Any
+from typing import Any, Final
 
 import httpx2
 
@@ -25,9 +26,14 @@ from devops_cli.exceptions import ValidationError
 from devops_cli.exceptions.k8s import KubernetesLoggingError
 from devops_cli.http.egress import EgressLevel
 from devops_cli.http.entry import http_client
+from devops_cli.lang import ERRORS
+from devops_cli.models.prometheus import PrometheusQueryResult
 from devops_cli.telemetry.tracer import trace_span
 
 logger = logging.getLogger(__name__)
+
+# The read timeout of one metric query. A 7-day count over the result lines takes about 1 s.
+_METRIC_QUERY_TIMEOUT_SECONDS: Final = 60.0
 
 
 _TRACE_ID_REGEX = re.compile(
@@ -441,6 +447,36 @@ def execute_loki_query(
         source="loki",
         duration_ms=0.0,
     )
+
+
+def query_loki_metrics(expressions: Sequence[str], loki_url: str) -> list[PrometheusQueryResult]:
+    """Run each LogQL metric expression as an instant query at the current time
+    (`/loki/api/v1/query`) and return the vector of each, in order.
+
+    A metric query counts the lines in Loki, so no line limit applies. One client at the private
+    level sends all the queries. A Loki that does not answer, or that refuses a query, raises
+    `KubernetesLoggingError`.
+    """
+    endpoint = f"{loki_url.strip().rstrip('/')}/loki/api/v1/query"
+    results: list[PrometheusQueryResult] = []
+    with http_client(EgressLevel.PRIVATE, timeout=_METRIC_QUERY_TIMEOUT_SECONDS) as client:
+        for expression in expressions:
+            try:
+                resp = client.get(endpoint, params={"query": expression})
+            except httpx2.TransportError as exc:
+                raise KubernetesLoggingError(
+                    ERRORS.k8s.loki_unreachable.format(url=loki_url, error=exc), query=expression
+                ) from exc
+            if resp.status_code != 200:
+                raise KubernetesLoggingError(
+                    ERRORS.k8s.loki_query_failed.format(
+                        url=loki_url, status=resp.status_code, reply=resp.text.strip()[:500]
+                    ),
+                    status_code=resp.status_code,
+                    query=expression,
+                )
+            results.append(PrometheusQueryResult.from_instant_response(resp.json()))
+    return results
 
 
 def resolve_loki_url(loki_url: str | None = None) -> str:

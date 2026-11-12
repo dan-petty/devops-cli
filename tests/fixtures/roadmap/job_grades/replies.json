@@ -1,0 +1,79 @@
+{
+  "counts@7d": [
+    {"metric": {"roadmap_job": "intake", "repo": "example/app", "version": "0.118.0", "success": "true", "infra": "false"}, "value": [1794528000, "20"]},
+    {"metric": {"roadmap_job": "intake", "repo": "example/app", "version": "0.118.0", "success": "false", "infra": "false"}, "value": [1794528000, "14"]},
+    {"metric": {"roadmap_job": "intake", "repo": "example/app", "version": "0.119.0", "success": "true", "infra": "false"}, "value": [1794528000, "5"]},
+    {"metric": {"roadmap_job": "intake", "repo": "example/app", "version": "0.119.0", "success": "false", "infra": "false"}, "value": [1794528000, "2"]},
+    {"metric": {"roadmap_job": "refine", "repo": "example/app", "version": "0.120.0", "success": "true", "infra": "false"}, "value": [1794528000, "22"]},
+    {"metric": {"roadmap_job": "refine", "repo": "example/app", "version": "0.120.0", "success": "false", "infra": "false"}, "value": [1794528000, "3"]},
+    {"metric": {"roadmap_job": "refine", "repo": "example/app", "version": "0.120.0", "success": "false", "infra": "true"}, "value": [1794528000, "1"]},
+    {"metric": {"roadmap_job": "stage", "repo": "example/app", "version": "0.120.0", "success": "true", "infra": "false"}, "value": [1794528000, "2"]},
+    {"metric": {"roadmap_job": "stage", "repo": "example/app", "version": "0.120.0", "success": "false", "infra": "false"}, "value": [1794528000, "1"]},
+    {"metric": {"roadmap_job": "stage", "repo": "example/infra", "version": "0.120.0", "success": "false", "infra": "true"}, "value": [1794528000, "1"]},
+    {"metric": {"roadmap_job": "implement", "repo": "example/app", "version": "0.121.0", "success": "false", "infra": "false"}, "value": [1794528000, "1"]}
+  ],
+  "classes@7d": [
+    {"metric": {"roadmap_job": "intake", "repo": "example/app", "failure_class": "head_moved"}, "value": [1794528000, "12"]},
+    {"metric": {"roadmap_job": "intake", "repo": "example/app", "failure_class": "concurrency"}, "value": [1794528000, "2"]},
+    {"metric": {"roadmap_job": "intake", "repo": "example/app", "failure_class": "premise"}, "value": [1794528000, "1"]},
+    {"metric": {"roadmap_job": "intake", "repo": "example/app", "failure_class": "parser"}, "value": [1794528000, "1"]},
+    {"metric": {"roadmap_job": "refine", "repo": "example/app", "failure_class": "none"}, "value": [1794528000, "2"]},
+    {"metric": {"roadmap_job": "refine", "repo": "example/app", "failure_class": "head_moved"}, "value": [1794528000, "1"]},
+    {"metric": {"roadmap_job": "stage", "repo": "example/app", "failure_class": "plan_defect"}, "value": [1794528000, "1"]},
+    {"metric": {"roadmap_job": "implement", "repo": "example/app", "failure_class": "types"}, "value": [1794528000, "1"]}
+  ],
+  "first_pass@7d": [
+    {"metric": {"roadmap_job": "stage", "repo": "example/app", "plan_calls": "1", "gate_returns": "0", "verify_rounds": "1"}, "value": [1794528000, "1"]},
+    {"metric": {"roadmap_job": "stage", "repo": "example/app", "plan_calls": "4", "gate_returns": "1", "verify_rounds": "3"}, "value": [1794528000, "1"]},
+    {"metric": {"roadmap_job": "intake", "repo": "example/app"}, "value": [1794528000, "25"]},
+    {"metric": {"roadmap_job": "refine", "repo": "example/app"}, "value": [1794528000, "22"]}
+  ],
+  "tokens_p50@7d": [
+    {"metric": {"roadmap_job": "stage", "repo": "example/app"}, "value": [1794528000, "70000"]},
+    {"metric": {"roadmap_job": "stage", "repo": "example/infra"}, "value": [1794528000, "0"]},
+    {"metric": {"roadmap_job": "implement", "repo": "example/app"}, "value": [1794528000, "4000000"]}
+  ],
+  "tokens_p90@7d": [
+    {"metric": {"roadmap_job": "stage", "repo": "example/app"}, "value": [1794528000, "2100000.4"]},
+    {"metric": {"roadmap_job": "stage", "repo": "example/infra"}, "value": [1794528000, "0"]},
+    {"metric": {"roadmap_job": "implement", "repo": "example/app"}, "value": [1794528000, "4000000"]}
+  ],
+  "tokens_max@7d": [
+    {"metric": {"roadmap_job": "stage", "repo": "example/app"}, "value": [1794528000, "2400000"]},
+    {"metric": {"roadmap_job": "stage", "repo": "example/infra"}, "value": [1794528000, "0"]},
+    {"metric": {"roadmap_job": "implement", "repo": "example/app"}, "value": [1794528000, "4000000"]}
+  ],
+  "tokens_sum@7d": [
+    {"metric": {"roadmap_job": "stage", "repo": "example/app"}, "value": [1794528000, "2500000"]},
+    {"metric": {"roadmap_job": "stage", "repo": "example/infra"}, "value": [1794528000, "0"]},
+    {"metric": {"roadmap_job": "implement", "repo": "example/app"}, "value": [1794528000, "4000000"]}
+  ],
+  "seconds_p50@7d": [
+    {"metric": {"roadmap_job": "stage", "repo": "example/app"}, "value": [1794528000, "600"]},
+    {"metric": {"roadmap_job": "stage", "repo": "example/infra"}, "value": [1794528000, "30"]},
+    {"metric": {"roadmap_job": "implement", "repo": "example/app"}, "value": [1794528000, "3000"]}
+  ],
+  "seconds_p90@7d": [
+    {"metric": {"roadmap_job": "stage", "repo": "example/app"}, "value": [1794528000, "1500"]},
+    {"metric": {"roadmap_job": "stage", "repo": "example/infra"}, "value": [1794528000, "30"]},
+    {"metric": {"roadmap_job": "implement", "repo": "example/app"}, "value": [1794528000, "3000"]}
+  ],
+  "seconds_max@7d": [
+    {"metric": {"roadmap_job": "stage", "repo": "example/app"}, "value": [1794528000, "1800"]},
+    {"metric": {"roadmap_job": "stage", "repo": "example/infra"}, "value": [1794528000, "30"]},
+    {"metric": {"roadmap_job": "implement", "repo": "example/app"}, "value": [1794528000, "3000"]}
+  ],
+  "seconds_sum@7d": [
+    {"metric": {"roadmap_job": "stage", "repo": "example/app"}, "value": [1794528000, "2700"]},
+    {"metric": {"roadmap_job": "stage", "repo": "example/infra"}, "value": [1794528000, "30"]},
+    {"metric": {"roadmap_job": "implement", "repo": "example/app"}, "value": [1794528000, "3000"]}
+  ],
+  "counts@24h": [
+    {"metric": {"roadmap_job": "refine", "repo": "example/app", "version": "0.120.0", "success": "true", "infra": "false"}, "value": [1794528000, "6"]},
+    {"metric": {"roadmap_job": "refine", "repo": "example/app", "version": "0.120.0", "success": "false", "infra": "false"}, "value": [1794528000, "1"]},
+    {"metric": {"roadmap_job": "refine", "repo": "example/app", "version": "0.120.0", "success": "false", "infra": "true"}, "value": [1794528000, "3"]}
+  ],
+  "counts@6h": [
+    {"metric": {"roadmap_job": "intake", "repo": "example/app", "version": "0.119.0", "success": "false", "infra": "false"}, "value": [1794528000, "5"]}
+  ]
+}

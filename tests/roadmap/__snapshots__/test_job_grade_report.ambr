@@ -1,0 +1,43 @@
+# serializer version: 1
+# name: test_the_table_shows_each_workflow
+  '''
+  Job grades of the 7d window, all repositories, from the result lines in Loki at http://example.com:3100. A grade needs 30 attempts with no infrastructure cut; p and the 95% interval count only those attempts.
+  
+  Workflow      Repository     n   OK  p     95% interval  Grade    Point  Range   First pass  Infra  OK/n 24h  OK/n 6h
+  stage         example/app    3   2   0.67  [0.21, 0.94]  too few  60     <60–90  0.33        0.00   0/0       0/0
+  stage         example/infra  0   0   -     -             too few  -      -       -           1.00   0/0       0/0
+  implement     example/app    1   0   0.00  [0.00, 0.79]  too few  <60    <60–70  0.00        0.00   0/0       0/0
+  refine        example/app    25  22  0.88  [0.70, 0.96]  too few  80     70–90   -           0.04   6/7       0/0
+  refine_judge  -              0   0   -     -             too few  -      -       -           -      0/0       0/0
+  alternatives  -              0   0   -     -             too few  -      -       -           -      0/0       0/0
+  intake        example/app    41  25  0.61  [0.46, 0.74]  60       60     <60–70  -           0.00   0/0       0/5
+  fix_plan      -              0   0   -     -             too few  -      -       -           -      0/0       0/0
+  
+  stage example/app: grade too few (Not graded). Show p and the interval. Give no grade.
+    Failure classes: plan_defect 1.
+    All attempts: 3, success ratio 0.67, infrastructure cuts 0.
+    Efficiency (report only): tokens per attempt median 70,000, p90 2,100,000, max 2,400,000; tokens per success 1,250,000; seconds per attempt median 600, p90 1,500, max 1,800; seconds per success 1,350.
+  
+  stage example/infra: grade too few (Not graded). Show p and the interval. Give no grade.
+    All attempts: 1, success ratio 0.00, infrastructure cuts 1.
+    Efficiency (report only): tokens per attempt median 0, p90 0, max 0; tokens per success -; seconds per attempt median 30, p90 30, max 30; seconds per success -.
+  
+  implement example/app: grade too few (Not graded). Show p and the interval. Give no grade.
+    Failure classes: types 1.
+    All attempts: 1, success ratio 0.00, infrastructure cuts 0.
+    Efficiency (report only): tokens per attempt median 4,000,000, p90 4,000,000, max 4,000,000; tokens per success -; seconds per attempt median 3,000, p90 3,000, max 3,000; seconds per success -.
+  
+  refine example/app: grade too few (Not graded). Show p and the interval. Give no grade.
+    Failure classes: none 2, head_moved 1.
+    All attempts: 26, success ratio 0.85, infrastructure cuts 1.
+    Version 0.120.0: 22 of 25, p 0.88 [0.70, 0.96].
+    Signal: infrastructure. More than 20% of 10 attempts or more in 24 h are infrastructure cuts.
+  
+  intake example/app: grade 60 (Ineffective). Look for implementation alternatives, or serious defects that a fix can correct.
+    Failure classes: head_moved 12, concurrency 2, parser 1.
+    All attempts: 41, success ratio 0.61, infrastructure cuts 0.
+    Version 0.118.0: 20 of 34, p 0.59 [0.42, 0.74].
+    Signal: broken. 5 attempts or more in 6 h, and no success.
+  
+  '''
+# ---

@@ -127,6 +127,11 @@ class ConfigErrorMessages:
 
 @dataclass(frozen=True)
 class K8sErrorMessages:
+    loki_unreachable: str = (
+        "Loki at {url} did not answer: {error}. Set loki.url, or give --loki-url with the "
+        "address of a Loki that this host reaches."
+    )
+    loki_query_failed: str = "Loki at {url} refused the query with HTTP {status}: {reply}"
     context_not_found: str = "Kubernetes context '{context}' was not found."
     resource_lookup_failed: str = "Failed to lookup Kubernetes {resource}: {exc}"
     port_forward_failed: str = "Port-forwarding to {service}:{port} failed: {exc}"

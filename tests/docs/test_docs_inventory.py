@@ -146,10 +146,13 @@ def test_an_inventory_entry_is_a_pattern_when_it_holds_a_glob_wildcard(
 def test_the_generated_class_is_what_the_generator_writes() -> None:
     """Verify the generated class is the documents `DocGenerator` writes under `docs/` plus the
     three instruction stubs. The generator also returns `README.md`, whose synced command matrix
-    is its only generated part, so it is hand-written."""
-    written = DocGenerator(REPO_ROOT).generate_all_docs(REPO_ROOT / "docs")
+    is its only generated part, and each page with a synced block, such as the grade table of
+    `docs/roadmap/job-success.md`, so these are hand-written."""
+    generator = DocGenerator(REPO_ROOT)
+    written = generator.generate_all_docs(REPO_ROOT / "docs")
+    synced = {"README.md", *generator.synced_blocks()}
     generated_by_the_generator = {
-        *(f"docs/{name}" for name in written if name != "README.md"),
+        *(f"docs/{name}" for name in written if name not in synced),
         CONST_CLAUDE_MD_FILENAME,
         CONST_GEMINI_MD_FILENAME,
         CONST_COPILOT_INSTRUCTIONS_PATH,
