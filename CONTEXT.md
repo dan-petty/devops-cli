@@ -127,7 +127,7 @@ The mark that says who works on an item now: one label of `owner/service`, `owne
 _Avoid_: lock, assignment
 
 **Step**:
-The work of one task group of a staged change, sized so that its inputs fit a budget of tokens: the instructions of the group, the `AGENTS.md` of the repository and the routed sections of its documents, the item, the change folder and the packed files of the group.
+The work of one task group of a staged change, sized so that its inputs fit a budget of tokens: the instructions of the group, the `AGENTS.md` of the repository and the routed sections of its documents, the item, the change folder and the packed files of the group. A roadmap step is a different term.
 _Avoid_: chunk, phase
 
 **Draft readiness**:
@@ -157,6 +157,14 @@ _Avoid_: poll, tick, cron
 **Due mark**:
 A key in Valkey that makes a job of a repository due before its interval ends (ADR 0021). A unit of work that makes more work due sets it, as intake does for refine and refine does for stage. The router sets it for a sweep that exists, and during a hold. The next sweep reads it and creates the unit. A due mark has a TTL and is never the only copy of a decision.
 _Avoid_: trigger, chain, flag
+
+**Roadmap step**:
+One part of a roadmap job that runs the same way each time, such as `push`, `open`, `watch`, `ready`, `fix-checks` and `fix-conflict` (ADR 0021 section 8). Each is one module and one command of the group that ADR 0021 section 8 names, and every caller uses it. It writes one JSON result line, exits 0 (done, or nothing to do), 1 (a typed stop) or 75 (try again later), and sends no request with `--dry-run`. GitHub state is its first marker, so a second run changes nothing.
+_Avoid_: step alone (a step is the work of one task group), action, task
+
+**Step job**:
+A unit of work whose pod runs one roadmap step alone for one pull request: `fix-checks` or `fix-conflict` (ADR 0021 section 8). The sweep creates it from the due mark that `watch` sets. A short roadmap step, such as `watch` or `ready`, is no step job: it runs in the sweep, because a pod for each tick costs more than the work. `push` and `open` run inside the unit of their producer.
+_Avoid_: fix job, step pod
 
 **Project brain**:
 The index of what the alternatives checks found, with the caches of the GitHub answers, the tool facts and the documents that they read (ADR 0023, ADR 0025). The check of one item reads a digest of it before its model call. Two scheduled runs, `brain-daily` and `brain-weekly`, keep it. Valkey holds it. Each entry is derived and has a durable copy: the block of its item, a hidden block on the tracker issue of its repository, or the document on `main` that its citation names. The brain never holds the only copy of a fact.
