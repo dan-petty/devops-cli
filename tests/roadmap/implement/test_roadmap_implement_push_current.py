@@ -167,9 +167,10 @@ def test_a_stop_pushes_a_branch_that_holds_the_commit_that_main_gained(
     assert f"The last is `{sha}`." in planned_world.issue_comments()[0]
 
 
-def test_a_conflict_at_a_wip_push_keeps_the_work_and_the_final_push_stops_on_it(
+def test_a_conflict_at_a_wip_push_and_at_the_stop_pushes_nothing(
     planned_world: JobWorld, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    """A head that does not hold `main` never goes to `origin` (#4670)."""
     script = ModelScript(
         *_task(1),
         ModelAPIError("example-model", "The pod died."),
@@ -181,7 +182,7 @@ def test_a_conflict_at_a_wip_push_keeps_the_work_and_the_final_push_stops_on_it(
     applied = planned_world.run(script)
 
     assert applied.stopped == (1,)
-    assert "wip: 1 of 5" in planned_world.origin_log()[0]
+    assert planned_world.repo.origin_git("branch", "--list", BRANCH) == ""
     assert "The rebase onto origin/main stopped." in capsys.readouterr().err
     status = planned_world.repo.git("worktree", "list")
     assert status.count("\n") == 0

@@ -857,9 +857,9 @@ def test_a_conflict_on_the_rebase_stops_the_item_before_any_step(job_world: JobW
     assert job_world.origin_log() == ["fix(roadmap): plan"]
 
 
-def test_a_conflict_on_the_rebase_before_the_push_pushes_the_commits_that_passed(
-    job_world: JobWorld,
-) -> None:
+def test_a_conflict_on_the_rebase_before_the_push_pushes_nothing(job_world: JobWorld) -> None:
+    """`origin` keeps the checkpoint of group 1: a head that does not hold `main` never goes to
+    `origin` (#4670)."""
     move_main_when(
         job_world,
         lambda call: command_text(call).startswith("uv run devops docs generate"),
@@ -870,13 +870,7 @@ def test_a_conflict_on_the_rebase_before_the_push_pushes_the_commits_that_passed
 
     status, record = _item(job_world)
     assert (applied.stopped, status, record.get("implement.stopped")) == ((1,), "Blocked", "push")
-    assert job_world.origin_log() == [
-        "fix(roadmap): plan",
-        "fix(roadmap): The first group (#1)",
-        "fix(roadmap): The second group (#1)",
-        "docs: regenerate the documentation (#1)",
-        "docs(openspec): archive the change (#1)",
-    ]
+    assert job_world.origin_log() == ["fix(roadmap): plan", "fix(roadmap): The first group (#1)"]
     assert job_world.pull.ready_calls == []
     assert "conflict" in job_world.issue_comments()[0].lower()
 

@@ -214,7 +214,7 @@ When `draft_readiness` answers ready for the implement pull request and no revie
 - **THEN** the item is Blocked with the reason that a check runs, and `gh pr ready` ran never
 
 ### Requirement: A stopped item is Blocked and the job does not retry it
-When a step, the rebase, the documentation, the archive, a push or the checks stop the item, the job SHALL post a comment that starts with the marker and names the step, the reason and the last message of the agent, SHALL set Status to Blocked, and SHALL record `implement.stopped` with the step. It SHALL push the commits of the steps that passed. The job SHALL NOT run the item again until a clear rule removes the record. The job SHALL go on to the next selected item.
+When a step, the rebase, the documentation, the archive, a push or the checks stop the item, the job SHALL post a comment that starts with the marker and names the step, the reason and the last message of the agent, SHALL set Status to Blocked, and SHALL record `implement.stopped` with the step. It SHALL push the commits of the steps that passed, unless a rebase stopped. The job SHALL NOT run the item again until a clear rule removes the record. The job SHALL go on to the next selected item.
 
 #### Scenario: A step stops
 - **WHEN** the step of group 2 reports stopped
@@ -222,7 +222,7 @@ When a step, the rebase, the documentation, the archive, a push or the checks st
 
 #### Scenario: A conflict on the rebase before a push
 - **WHEN** the default branch gains a change that conflicts with the branch after the last group, or after the fix step
-- **THEN** the job aborts the rebase, `origin` holds the commits that passed, Status is Blocked, and `implement.stopped` is `push`
+- **THEN** the job aborts the rebase, `origin` holds only the commits that a checkpoint pushed, Status is Blocked, and `implement.stopped` is `push`
 
 ### Requirement: The stop comment cuts a long reason
 The job SHALL cut the reason of a stop to `CONST_ROADMAP_IMPLEMENT_REASON_CHARS` characters after it masks secrets in it, so that the stop comment stays below the limit of GitHub.
@@ -1857,7 +1857,7 @@ The job SHALL clear `implement.spend_counted` in the same write that clears `imp
 - **THEN** the record holds no `implement.spend_counted`.
 
 ### Requirement: Every push holds the default branch
-The job SHALL fetch `origin/<default>` before each push of the item branch, and SHALL push a commit that holds it. Between steps and at a stop the job SHALL rebase the checkout. During a step the job SHALL rebase a copy of `HEAD` in a detached worktree and push the tip of the copy with a lease on the remote tip that it has seen, and the checkout MUST stay as it is. A conflict SHALL abort the rebase, go to the log, and leave the push to go on with the head.
+The job SHALL fetch `origin/<default>` before each push of the item branch, and SHALL push a commit that holds it. Between steps and at a stop the job SHALL rebase the checkout. During a step the job SHALL rebase a copy of `HEAD` in a detached worktree and push the tip of the copy with a lease on the remote tip that it has seen, and the checkout MUST stay as it is. A conflict SHALL abort the rebase and go to the log, and the job SHALL push nothing.
 
 #### Scenario: The first push of a Planned item
 - **WHEN** `main` gains a commit while the first step runs, and the step commits its first `wip:` commit
@@ -1876,8 +1876,8 @@ The job SHALL fetch `origin/<default>` before each push of the item branch, and 
 - **THEN** the push of the stop holds that commit, and `implement.wip` names the last `wip:` commit of the branch on `origin`
 
 #### Scenario: A conflict during a step
-- **WHEN** `main` gains a commit that conflicts with the first `wip:` commit
-- **THEN** the push keeps the `wip:` commit on `origin`, the log holds the text of the rebase conflict, and no rebase stays in progress
+- **WHEN** `main` of a Planned item gains a commit that conflicts with the first `wip:` commit, and the step then stops
+- **THEN** `origin` has no item branch, the log holds the text of the rebase conflict, and no rebase stays in progress
 
 ### Requirement: The comments and the record show the extension of a step budget
 The record `implement.spend` SHALL hold, for each step that got the one extension of its token budget, the old budget, the new budget, the counts that gave it and whether the ceiling cut it. The ready comment and the stop comment of the item SHALL list each such step of the run, the earlier Jobs included, with the budgets and the counts only. A run with no extension SHALL show no such list.

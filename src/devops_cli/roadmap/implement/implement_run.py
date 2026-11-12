@@ -745,7 +745,7 @@ class _ItemRun:
         self.store.set_field(
             self._fresh(), ItemField.STATUS, CONST_ROADMAP_STATUS_IN_PROGRESS, marks=marks
         )
-        self._sync(push_on_conflict=False)
+        self._sync()
         self._install_hooks()
 
     def _base(self) -> str:
@@ -786,18 +786,18 @@ class _ItemRun:
         if failure is not None:
             raise _StopError(self.step, failure, push=False)
 
-    def _sync(self, *, push_on_conflict: bool = True) -> None:
+    def _sync(self) -> None:
         """Fetch the default branch and rebase onto it. A conflict aborts the rebase, which puts the
-        branch back on its tip, and stops the item. The stop pushes the commits that passed, unless
-        `push_on_conflict` is false: at the start of the run there is nothing new to push."""
+        branch back on its tip, and stops the item."""
         self._git("fetch", "-q", "origin", self.default)
-        self._rebase(self.path, push_on_conflict=push_on_conflict)
+        self._rebase(self.path)
 
-    def _rebase(self, path: Path, *, push_on_conflict: bool = True) -> None:
+    def _rebase(self, path: Path) -> None:
         """Rebase the checkout `path` onto `origin/<default>`. The conflict path of `_sync`. A
         rebase that git refuses to start, as in a checkout that holds changes, is no conflict: no
         abort runs, and the stop has the class `ci_infra`, as a new Job starts from a new worktree
-        (#4487)."""
+        (#4487). Either stop pushes nothing, because the head does not hold the default branch
+        (#4670)."""
         try:
             git(path, "rebase", f"origin/{self.default}", operation=GIT_OPERATION)
         except GitOperationError as exc:
@@ -807,7 +807,7 @@ class _ItemRun:
                     MESSAGES.roadmap.implement_stop_rebase_not_started.format(
                         branch=self.default, output=str(exc)
                     ),
-                    push=push_on_conflict,
+                    push=False,
                     failure_class=FailureClass.CI_INFRA,
                 ) from exc
             timeout = load_settings().roadmap.implement.command_timeout_seconds
@@ -833,7 +833,7 @@ class _ItemRun:
             raise _StopError(
                 self.step,
                 reason,
-                push=push_on_conflict,
+                push=False,
                 failure_class=FailureClass.CONFLICT,
                 conflict_files=files[:CONST_ROADMAP_IMPLEMENT_REASON_PATHS],
             ) from exc
@@ -1354,20 +1354,17 @@ class _ItemRun:
         return self.branch if tip == self._head() else f"{tip}:refs/heads/{self.branch}"
 
     def _current_tip(self, *, in_step: bool) -> str:
-        """The commit to push, which holds `origin/<default>` as far as a rebase allows (#4380). A
-        run takes minutes, and the default branch moves in that time. Between steps the checkout is
-        clean, and a stop drops what no commit holds first (`_drop_uncommitted`), so the job rebases
-        it as `_sync` does. A step that runs holds the shas of its `wip:` commits and may hold
-        edits, so `_rebased_copy` rebases a copy and leaves the checkout alone. A conflict aborts
-        the rebase and goes to the log: the push goes on with the head, so that the work stays on
-        `origin`, and the sync of `_push` stops the item with the same conflict."""
-        try:
-            if in_step:
-                return self._rebased_copy()
-            self._sync()
-            self._move_wip()
-        except _StopError as conflict:
-            print_muted(conflict.reason.strip(), to_stderr=True, safe=True)
+        """The commit to push, which holds `origin/<default>` (#4380). A run takes minutes, and the
+        default branch moves in that time. Between steps the checkout is clean, and a stop drops
+        what no commit holds first (`_drop_uncommitted`), so the job rebases it as `_sync` does. A
+        step that runs holds the shas of its `wip:` commits and may hold edits, so `_rebased_copy`
+        rebases a copy and leaves the checkout alone. A conflict aborts the rebase and raises
+        `_StopError`, so the job pushes no head that does not hold the default branch (#4670). The
+        sync of `_push` stops the item with the same conflict."""
+        if in_step:
+            return self._rebased_copy()
+        self._sync()
+        self._move_wip()
         return self._head()
 
     def _move_wip(self) -> None:
@@ -1914,7 +1911,7 @@ class _ItemRun:
         (`_current_tip`). A Planned item with a commit publishes its branch and opens its draft;
         with none, nothing is pushed. `in_step` is true for the `wip:` push of a step that runs, and
         `at_stop` for the push of a stop, which drops what no commit holds first. The text to add to
-        the comment when the push fails, else empty."""
+        the comment when the push fails or a rebase conflict pushes nothing, else empty."""
         texts = MESSAGES.roadmap
         try:
             if self.pull is None and not self._has_new_commits():

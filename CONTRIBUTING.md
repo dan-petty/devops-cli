@@ -77,7 +77,7 @@ The project settings of Claude Code, `.claude/settings.json`, turn off the plugi
    uv run devops ci test tests/invariants/test_architectural_invariants.py
    ```
 4. **Push Through the Fast Checks, and Merge Through CI**:
-   The pre-push hooks run only the fast static checks: `uv run devops ci --check --only lint,format`, and `uv run devops ci --check --only actionlint,zizmor` when the push changes a file of `.github/workflows/` or `.github/actions/`. A push goes only when they pass. Never use `--no-verify`. The required checks of CI, `Static Analysis`, `Tests & Coverage` and `Semantic PR title`, must pass on the pull request before it merges (#1752). The release pull request shows a defect that two merged pull requests make together ([docs/SDLC.md](docs/SDLC.md#branch-governance--hierarchy), Phase 6). To run every check before a push, run the full gate by hand:
+   The first pre-push hook, `branch-current`, fetches `main` and refuses a push of a branch that does not hold `origin/main`. It checks only the first branch of a push, so push one branch at a time. The other pre-push hooks run only the fast static checks: `uv run devops ci --check --only lint,format`, and `uv run devops ci --check --only actionlint,zizmor` when the push changes a file of `.github/workflows/` or `.github/actions/`. A push goes only when they pass. Never use `--no-verify`. The required checks of CI, `Static Analysis`, `Tests & Coverage` and `Semantic PR title`, must pass on the pull request before it merges (#1752). The release pull request shows a defect that two merged pull requests make together ([docs/SDLC.md](docs/SDLC.md#branch-governance--hierarchy), Phase 6). To run every check before a push, run the full gate by hand:
    ```bash
    uv run devops ci
    ```
