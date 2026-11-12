@@ -15,6 +15,19 @@
     "UV_COMPILE_BYTECODE": "0",
     "VIRTUAL_ENV": ""
   },
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ \"$CLAUDE_CODE_REMOTE\" = true ] && [ -f \"$CLAUDE_PROJECT_DIR/.pre-commit-config.yaml\" ] && command -v uv >/dev/null || exit 0; cd \"$CLAUDE_PROJECT_DIR\" && uv run pre-commit install >&2"
+          }
+        ]
+      }
+    ]
+  },
   "permissions": {
     "allow": [
       "Bash(uv run devops *)",
