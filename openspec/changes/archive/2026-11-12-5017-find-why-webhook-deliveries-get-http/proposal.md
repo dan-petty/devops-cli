@@ -8,6 +8,7 @@ GitHub records HTTP 403 with the header `Server: cloudflare` for many deliveries
 - The metrics row of the Service reads the active hooks of its repository and the newest 100 deliveries of each one, and sets the gauge `devops_cli_service_webhook_delivery_failures` by `repo` and `code` to the deliveries of the last 15 minutes with no 2xx answer (`src/devops_cli/github/hook_deliveries.py`). A failed read fails the row.
 - Each installation token of the App also asks for `repository_hooks: read` (ADR 0015 amended). The App has read and write on every repository permission, so the installation grants it.
 - The alert `RoadmapServiceWebhookDeliveriesFailed` in the group `roadmap-service-webhooks` warns when more than 5 deliveries of one repository failed in 15 minutes, with promtool unit tests.
+- The panel "Service Failed Webhook Deliveries" of the row "Roadmap Service" of the `devops-cli` dashboard charts the gauge by repository and code.
 - `k8s/README.md` names the edge check: setup steps 1, 6 and 12, the Webhook route section and the Alerts table.
 - The behavior of the Service and a manifest change, so the change has a spec delta.
 - The change fits one pull request.

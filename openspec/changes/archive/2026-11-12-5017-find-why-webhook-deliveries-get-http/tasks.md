@@ -13,6 +13,8 @@
   - Verification: `$ uv run devops ci test tests/prometheus/test_k8s_monitoring_alerting.py`
 - [x] 2.2 Add the rule to the group `roadmap-service-webhooks`
   - Verification: `$ uv run devops ci test tests/prometheus/test_k8s_monitoring_alerting.py tests/telemetry/test_telemetry_instruments.py`
+- [x] 2.3 Chart the gauge in the row "Roadmap Service" of the `devops-cli` dashboard
+  - Verification: `$ uv run devops ci test tests/grafana/test_grafana_dashboards.py`
 
 ## 3. Documents
 
