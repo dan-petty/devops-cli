@@ -11,6 +11,7 @@ A branch that holds `origin/main` merges into `main` with no conflict, because `
 - A new pre-push hook `branch-current` in `.pre-commit-config.yaml`, with `language: system` and a few lines of `sh`. On a `git push` of a branch (`PRE_COMMIT_REMOTE_BRANCH` is `refs/heads/...`), it fetches `main` of `origin` with a limit of 20 s. It refuses the push when `git merge-base --is-ancestor FETCH_HEAD <pushed commit>` fails, and names the fix: `git fetch origin && git rebase origin/main`. A fetch that fails gives its own message. A tag push passes, and pre-commit runs no hook for a delete. A run of the stage that is no `git push`, as the scoped checks of the implement Job, passes. Thus a move of `main` during those checks does not go to the model as a defect of the code. The hook runs first in the stage with `fail_fast: true`, so a refused push does not wait for the other hooks.
 - The implement Job pushes nothing after a rebase conflict. `_sync` and `_rebase` lose `push_on_conflict`, and each rebase stop has `push=False`. `_current_tip` no longer catches the conflict. A checkpoint, a `wip:` push and the push of a stop that meet a conflict push nothing, and the conflict goes to the log or to the stop comment. The rebases before each push stay as they are.
 - No catch-up check. #4674 deletes `devops pr update`, the main source of catch-up pushes.
+- `devops ai agents` names a local pre-push hook with `args` by its `id`, as it names a hook of another repository. The `entry` of `branch-current` alone is `sh -c`, which is not its command.
 
 ## Capabilities
 
@@ -21,11 +22,12 @@ A branch that holds `origin/main` merges into `main` with no conflict, because `
 ### Modified Capabilities
 
 - `roadmap-implement-job`: Every push holds the default branch, A stopped item is Blocked and the job does not retry it.
+- `agent-instructions`: A generated AGENTS.md names only the detected toolchain and checks.
 
 ## Impact
 
-- Code: `.pre-commit-config.yaml`, `src/devops_cli/roadmap/implement/implement_run.py`
-- Tests: `tests/git/test_branch_current_hook.py`, `tests/roadmap/implement/test_roadmap_implement_job.py`, `tests/roadmap/implement/test_roadmap_implement_push_current.py`, `tests/core/test_roadmap_implement_checks.py`
+- Code: `.pre-commit-config.yaml`, `src/devops_cli/roadmap/implement/implement_run.py`, `src/devops_cli/ai/instruction_generator.py`
+- Tests: `tests/git/test_branch_current_hook.py`, `tests/roadmap/implement/test_roadmap_implement_job.py`, `tests/roadmap/implement/test_roadmap_implement_push_current.py`, `tests/core/test_roadmap_implement_checks.py`, `tests/invariants/test_runner_hooks.py` (a local hook may start a program of `RUNNER_TOOLS`), `tests/invariants/test_workflow_contracts.py`, `tests/commands/test_instruction_generator.py`
 - Documents: `docs/SDLC.md`, `docs/ROADMAP_WORKFLOW.md`, `CONTRIBUTING.md`, ADR 0014, the skill `devops-pr-ci` and its two copies.
 - Each push from a workstation makes one fetch of `main`. A push with no network stops with the fetch message.
 - After a conflict, the work of a run that no checkpoint pushed stays only in the Pod. The next Job starts from the branch on `origin` and gets the conflict files (`implement.conflict`).

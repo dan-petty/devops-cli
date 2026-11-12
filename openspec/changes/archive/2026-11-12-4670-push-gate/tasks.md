@@ -4,8 +4,8 @@
 
 - [x] 1.1 Write the tests: a branch behind `main` is refused with the fix, a rebased branch passes, a tag and a run that is no push pass
   - Verification: `$ uv run devops ci test tests/git/test_branch_current_hook.py`
-- [x] 1.2 Add the hook `branch-current` to `.pre-commit-config.yaml`, first in the pre-push stage
-  - Verification: `$ uv run devops ci test tests/git/test_branch_current_hook.py tests/roadmap/test_roadmap_runner_tools.py`
+- [x] 1.2 Add the hook `branch-current` to `.pre-commit-config.yaml`, first in the pre-push stage, let the invariants of the hooks accept it, and let `devops ai agents` name it by its `id`
+  - Verification: `$ uv run devops ci test tests/git/test_branch_current_hook.py tests/roadmap/test_roadmap_runner_tools.py tests/invariants/test_runner_hooks.py tests/invariants/test_workflow_contracts.py tests/commands/test_instruction_generator.py`
 
 ## 2. The implement Job
 

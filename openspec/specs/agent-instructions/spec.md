@@ -61,7 +61,7 @@ A pointer stub that `devops ai agents` writes with an import line SHALL say that
 
 ### Requirement: A generated AGENTS.md names only the detected toolchain and checks
 
-`devops ai agents` SHALL name a toolchain only for a manifest of the project (`pyproject.toml`, `Cargo.toml`, `package.json` or `go.mod`), and a check to run before a push only for a pre-push hook of the project. It SHALL render the `fail-to-pass` sentence only for a Python project, and the OpenSpec sentence only when `openspec/config.yaml` exists.
+`devops ai agents` SHALL name a toolchain only for a manifest of the project (`pyproject.toml`, `Cargo.toml`, `package.json` or `go.mod`), and a check to run before a push only for a pre-push hook of the project. It SHALL name a local hook with `args` by its `id`, because its `entry` alone is not its command. It SHALL render the `fail-to-pass` sentence only for a Python project, and the OpenSpec sentence only when `openspec/config.yaml` exists.
 
 #### Scenario: A folder holds only Cargo.toml
 - **WHEN** `devops ai agents` writes the `AGENTS.md` of a folder that holds only `Cargo.toml`
@@ -74,7 +74,7 @@ A pointer stub that `devops ai agents` writes with an import line SHALL say that
 
 #### Scenario: devops-cli keeps its check line
 - **WHEN** `devops ai agents` renders the template for devops-cli
-- **THEN** the check line names the two pre-push hooks of `.pre-commit-config.yaml`
+- **THEN** the check line names the three pre-push hooks of `.pre-commit-config.yaml`, `branch-current` by its `id`
 
 #### Scenario: The OpenSpec sentence needs the config file
 - **WHEN** a project has no `openspec/config.yaml`
