@@ -10,7 +10,7 @@ The stale-command check of the stage job (#3287) reads an ADDED requirement as t
 - The rule of `src/devops_cli/ai/tasks/roadmap_stage_change.md` for a removed or renamed command tells the planner to state the removal in an added requirement with the sentence "`<old name>` MUST NOT exist.", the form that the check reads.
 - A requirement that keeps a command and forbids one act of it removes nothing, so the stage job no longer refuses such a plan.
 - The check still catches the removal that #3287 was filed for: the plan of #3185 wrote "MUST NOT register `devops roadmap intake-eval` as a command or as an alias".
-- The spec delta adds the check requirement again. The archive of #4047 dropped the two #3287 requirements of the stale-command check from `openspec/specs/roadmap-stage/spec.md`. The delta adds "A base requirement that names a removed command is updated" with the new rule, and "The stale-command check reads the base requirement texts of its caller" as #3287 wrote it.
+- The spec delta adds the check requirement again. The archive of #4047 dropped the two #3287 requirements of the stale-command check from the `roadmap-stage` spec. The delta adds to `roadmap-stage/spec-delta` "A base requirement that names a removed command is updated" with the new rule, and "The stale-command check reads the base requirement texts of its caller" as #3287 wrote it.
 - The stage job refuses or accepts a plan by this check, which a consumer observes, so the change has a spec delta.
 - The change fits one pull request.
 
@@ -22,7 +22,7 @@ None.
 
 ### Modified Capabilities
 
-- `roadmap-stage`: two ADDED requirements for the stale-command check.
+- `roadmap-stage/spec-delta`: two ADDED requirements for the stale-command check.
 
 ## Impact
 
