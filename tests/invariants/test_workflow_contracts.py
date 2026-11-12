@@ -1416,6 +1416,7 @@ def test_copilot_setup_steps_installs_the_pinned_openspec_with_the_opt_outs() ->
             "uv run devops install-tools --tool osv-scanner --only-missing",
             "uv run devops install-tools --tool semgrep --only-missing",
             "uv run devops install-tools --tool tuicr --only-missing",
+            "uv run pre-commit install --install-hooks",
         ],
     )
     code = "\n".join(

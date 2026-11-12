@@ -1450,6 +1450,27 @@ def test_init_scaffolds_claude_settings_that_stop_the_uv_noise_lines(
     )
 
 
+def test_init_scaffolds_claude_settings_whose_cloud_session_installs_the_git_hooks(
+    runner: CliRunner, tmp_path: Path
+) -> None:
+    """Only the devcontainer installs the git hooks, so a Claude Code cloud session committed with
+    no hook. Claude Code runs the SessionStart hooks of the repository in a cloud session too, and
+    the cloud VM sets `CLAUDE_CODE_REMOTE` to `true`."""
+    result = runner.invoke(app, ["init", str(tmp_path), "--name", "test-project"])
+
+    settings = json.loads((tmp_path / ".claude" / "settings.json").read_text(encoding="utf-8"))
+    (group,) = settings["hooks"]["SessionStart"]
+    (hook,) = group["hooks"]
+    assert (result.exit_code, group["matcher"], hook["type"], hook["command"]) == (
+        0,
+        "startup|resume",
+        "command",
+        '[ "$CLAUDE_CODE_REMOTE" = true ] && [ -f "$CLAUDE_PROJECT_DIR/.pre-commit-config.yaml" ]'
+        ' && command -v uv >/dev/null || exit 0; cd "$CLAUDE_PROJECT_DIR" && uv run pre-commit'
+        " install >&2",
+    )
+
+
 class SubprocessCallsRecorder:
     def __init__(self, fake: ProcessFake) -> None:
         self.fake = fake

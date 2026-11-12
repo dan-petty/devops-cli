@@ -60,3 +60,9 @@ jobs:
           uv run devops install-tools --tool osv-scanner --only-missing
           uv run devops install-tools --tool semgrep --only-missing
           uv run devops install-tools --tool tuicr --only-missing
+
+      # The commits and pushes of the agent run the hooks of `.pre-commit-config.yaml` only when this
+      # step installs them. The firewall of the agent does not govern a setup step, so the step also
+      # builds the environments of the hook repositories, which come from github.com and PyPI.
+      - name: Install the git hooks
+        run: uv run pre-commit install --install-hooks
