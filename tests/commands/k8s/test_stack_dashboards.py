@@ -646,8 +646,8 @@ def test_qdrant_values_without_an_authenticated_service_monitor_fail() -> None:
 
 
 def test_llm_stack_dashboard_includes_qdrant_row_over_captured_metrics() -> None:
-    """Verify `llm-stack.json` restores the Qdrant row with request rate/errors, latency, and
-    collections/vectors panels over captured Qdrant metrics (#823)."""
+    """Verify `llm-stack.json` restores the Qdrant row with request rate/errors, latency, the
+    collection count and the vectors per collection over captured Qdrant metrics (#823, #4732)."""
     dashboard = _dashboard("llm-stack.json")
     qdrant_series, _ = _capture("qdrant")
     panels = _panels(dashboard)
@@ -672,7 +672,8 @@ def test_llm_stack_dashboard_includes_qdrant_row_over_captured_metrics() -> None
         [
             "Qdrant Request Rate and Errors",
             "Qdrant Request Latency p95",
-            "Qdrant Collections and Vectors",
+            "Qdrant Collections",
+            "Qdrant Vectors per Collection",
         ],
     )
 
