@@ -45,8 +45,8 @@
 # `uv run devops openspec check`, and record the tool again for the tests that replay it
 # (`tests/support/openspec_recording.py` says how).
 #
-# Then run `uv run pytest tests/test_tools_lock.py tests/test_install_tools.py
-# tests/test_workflow_contracts.py`, and `devops install-tools --target-dir <dir>` followed by
+# Then run `uv run pytest tests/tools_lock tests/commands/test_install_tools.py
+# tests/invariants/test_workflow_contracts.py`, and `devops install-tools --target-dir <dir>` followed by
 # `devops install-tools --check --target-dir <dir>` to install and confirm every pin.
 
 python_version = "3.14"
@@ -584,7 +584,7 @@ requirements = "bandit.txt"
 entry_points = ["bandit"]
 
 [npm.openspec]
-version = "1.14.3"
+version = "1.17.0"
 description = "OpenSpec spec and change-proposal CLI"
 source = "https://github.com/Fission-AI/OpenSpec"
 bin = "openspec"
