@@ -1,5 +1,7 @@
 # The project brain is a derived index in two cache tiers, and two scheduled runs keep it
 
+Amended on 2026-11-12 by [ADR 0025](0025-generated-documents-stay-in-git-and-the-project-brain-cites-them.md).
+
 This record amends ADR 0020, ADR 0021 and ADR 0022, and it changes the scope that #2648 set. The Status section gives each change.
 
 The alternatives check judges one item at a time. It does not see the tools that the project uses, the verdicts of near items or the ADRs that changed after its verdict. The project brain is an index of what the checks found, with caches of the GitHub answers and tool facts that they read. This record sets the tiers and the data classes, with the durable copy of each class. It also sets the two runs that keep the index, the canonical tool id and three decision points. Tracker #4624 holds the items that build it.

@@ -159,8 +159,12 @@ A key in Valkey that makes a job of a repository due before its interval ends (A
 _Avoid_: trigger, chain, flag
 
 **Project brain**:
-The index of what the alternatives checks found, with the caches of the GitHub answers and the tool facts that they read (ADR 0023). The check of one item reads a digest of it before its model call. Two scheduled runs, `brain-daily` and `brain-weekly`, keep it. Valkey holds it. Each entry has a durable copy on GitHub: the block of its item, or a hidden block on the tracker issue of its repository.
+The index of what the alternatives checks found, with the caches of the GitHub answers, the tool facts and the documents that they read (ADR 0023, ADR 0025). The check of one item reads a digest of it before its model call. Two scheduled runs, `brain-daily` and `brain-weekly`, keep it. Valkey holds it. Each entry is derived and has a durable copy: the block of its item, a hidden block on the tracker issue of its repository, or the document on `main` that its citation names. The brain never holds the only copy of a fact.
 _Avoid_: memory, knowledge base (the knowledge base is the reference corpus of the AI commands)
+
+**Citation**:
+The pointer from a brain entry to the document text that supports it (ADR 0025): the path, a first-parent commit of `main`, the lines, a hash of the span, the class of the document in the docs inventory and the date of the commit. A generated document adds its source, and an ADR adds its status. A citation is stale when the text at the head commit no longer has the hash.
+_Avoid_: reference, link, source (the source is the document that the citation names)
 
 **Service**:
 The long-running devops-cli deployment that runs the roadmap jobs when they are due, as found by webhook or by polling.
@@ -220,6 +224,10 @@ _Avoid_: test run, task, action, status
 **Required check**:
 A check configured in repository rulesets that must complete with a passing status before a pull request can merge.
 _Avoid_: mandatory check, blocking check, required status check
+
+**Generated document**:
+A document that `DocGenerator` or the instruction generator writes: a document of class `generated` in the docs inventory, or the command matrix of `README.md` (ADR 0025). It stays in git. The pull request that changes its source regenerates it, and the `docs` row of `Static Analysis` refuses it when it is not the output of its generator. Nobody edits it by hand.
+_Avoid_: reference doc, build output, artifact
 
 ## Telemetry
 
