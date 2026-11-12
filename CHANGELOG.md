@@ -2,6 +2,45 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.118.0](https://github.com/dan-petty/devops-cli/compare/v0.117.2...v0.118.0) (2026-11-12)
+
+
+### Features
+
+* **ci:** devops ci stops its rows when timeout ends it ([#5031](https://github.com/dan-petty/devops-cli/issues/5031)) ([1fa4e9c](https://github.com/dan-petty/devops-cli/commit/1fa4e9cdb943f6205c3dbd3fd96edabc5608dcb3))
+* **monitoring:** scrape the gateway database and alert on its size ([#5048](https://github.com/dan-petty/devops-cli/issues/5048)) ([65473bc](https://github.com/dan-petty/devops-cli/commit/65473bcdc378270053e1f143019490496637d820))
+* **roadmap:** keep the stage gate problems as a list with a code ([#5022](https://github.com/dan-petty/devops-cli/issues/5022)) ([5819627](https://github.com/dan-petty/devops-cli/commit/5819627a04ad2d35cfbf3138f4a29f5ef75da5c9))
+* **roadmap:** log one result line for each roadmap job attempt ([#4966](https://github.com/dan-petty/devops-cli/issues/4966)) ([2b6fe3f](https://github.com/dan-petty/devops-cli/commit/2b6fe3f1ece4a1245828d1d42ea4144cd4a2bda2))
+* **telemetry:** record each CLI usage error by name and kind ([#4973](https://github.com/dan-petty/devops-cli/issues/4973)) ([a179fd9](https://github.com/dan-petty/devops-cli/commit/a179fd91322571c9f04f7194b13a258e0d16cc56))
+
+
+### Bug Fixes
+
+* **ai:** chat loads each persona prompt and challenger gets tools ([#5037](https://github.com/dan-petty/devops-cli/issues/5037)) ([c40b0ad](https://github.com/dan-petty/devops-cli/commit/c40b0ad58b5d5e820f005e6ad96c2f7900f6b1cd))
+* **ai:** keep the HTTP status of a Claude reply after retries ([#4976](https://github.com/dan-petty/devops-cli/issues/4976)) ([5bf9466](https://github.com/dan-petty/devops-cli/commit/5bf9466d270910c6216598388442f397eebf9550))
+* **deps:** keep Renovate uv bumps green and groups on Monday ([#4987](https://github.com/dan-petty/devops-cli/issues/4987)) ([b19e153](https://github.com/dan-petty/devops-cli/commit/b19e15319718c3238067dd38b081e2272ba49184))
+* **k8s:** raise the limits that 7 d of use shows are too low ([#5030](https://github.com/dan-petty/devops-cli/issues/5030)) ([028c62b](https://github.com/dan-petty/devops-cli/commit/028c62b669bce9a88e3652e00d661fe9030a0230))
+* **roadmap:** a job posts no comment that repeats a recent one ([#4978](https://github.com/dan-petty/devops-cli/issues/4978)) ([fff903a](https://github.com/dan-petty/devops-cli/commit/fff903aebacd189a5e39e78e86cf2359fb23523c))
+* **service:** alert when GitHub cannot deliver a webhook ([#5045](https://github.com/dan-petty/devops-cli/issues/5045)) ([2bfbfcb](https://github.com/dan-petty/devops-cli/commit/2bfbfcb7b842153fc680ef0f58059e417faa62ab))
+* **service:** delete the stream route that sends canned verified text ([#5038](https://github.com/dan-petty/devops-cli/issues/5038)) ([e9d51b5](https://github.com/dan-petty/devops-cli/commit/e9d51b5cbcf01d37655f3d6648048bf491b26bd2))
+* **telemetry:** keep one upstream status series per service ([#4986](https://github.com/dan-petty/devops-cli/issues/4986)) ([3e4ca56](https://github.com/dan-petty/devops-cli/commit/3e4ca56f41f57a1b3637b97e65d1e160a9b87691))
+* **tests:** remove the runner variable in the test floor ([#4988](https://github.com/dan-petty/devops-cli/issues/4988)) ([093aa61](https://github.com/dan-petty/devops-cli/commit/093aa61a659ee260fc767058e4d0d1b65a3215f3))
+
+
+### Performance Improvements
+
+* **ai:** make the ast graph walk and call search faster ([#5039](https://github.com/dan-petty/devops-cli/issues/5039)) ([3b25cc6](https://github.com/dan-petty/devops-cli/commit/3b25cc61c16e090f1dac1f7775d0123062acf5f0)), closes [#4662](https://github.com/dan-petty/devops-cli/issues/4662)
+* **ci:** build the devcontainer only on its own inputs ([#4977](https://github.com/dan-petty/devops-cli/issues/4977)) ([c5b15ac](https://github.com/dan-petty/devops-cli/commit/c5b15ac1e2abb6aeb7430227c28b17aa31ec35af))
+* **ci:** test each merge once, on the push to main ([#5043](https://github.com/dan-petty/devops-cli/issues/5043)) ([c6992b1](https://github.com/dan-petty/devops-cli/commit/c6992b11e36cd0240a757770e8a3fd156f98f9a0))
+* **tests:** remove fixed waste in six slow tests ([#4995](https://github.com/dan-petty/devops-cli/issues/4995)) ([1c7044e](https://github.com/dan-petty/devops-cli/commit/1c7044efa96ecd204a0725c7c0bea01f5f78db24))
+
+
+### Code Refactoring
+
+* **ai:** delete devops ai pipeline and persona leftovers ([#5044](https://github.com/dan-petty/devops-cli/issues/5044)) ([d5fefde](https://github.com/dan-petty/devops-cli/commit/d5fefde2373d59dfce73b8b1e5a583cdc4d92a56)), closes [#4827](https://github.com/dan-petty/devops-cli/issues/4827)
+* **openspec:** split big capabilities into nested ones ([#4981](https://github.com/dan-petty/devops-cli/issues/4981)) ([dfb09bd](https://github.com/dan-petty/devops-cli/commit/dfb09bd1335719a7e9f0f4ad2a06c755504011a0))
+* **pr:** devops pr update acts only on a failed check ([#4990](https://github.com/dan-petty/devops-cli/issues/4990)) ([aa4fa1a](https://github.com/dan-petty/devops-cli/commit/aa4fa1ad92b5d992bbe76e3ee7e7f132d0425d10))
+
 ## [0.117.2](https://github.com/dan-petty/devops-cli/compare/v0.117.1...v0.117.2) (2026-11-12)
 
 
