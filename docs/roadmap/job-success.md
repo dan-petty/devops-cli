@@ -55,9 +55,14 @@ The dashboard `devops-cli Telemetry` has the row `Roadmap Job Success`. It shows
 The label is `roadmap_job`, because the stream already has the label `job`. The ratio of the last 7 days is:
 
 ```logql
-sum by (roadmap_job) (count_over_time(<base> | success="true" [7d]))
+(
+  sum by (roadmap_job) (count_over_time(<base> | success="true" [7d]))
+    or on (roadmap_job) (sum by (roadmap_job) (count_over_time(<base> [7d])) * 0)
+)
   / sum by (roadmap_job) (count_over_time(<base> [7d]))
 ```
+
+The `or on (roadmap_job)` part gives 0 successes to a job that has attempts and no success. Without it, the division drops that job, and a job at 0% looks the same as a job with no attempts.
 
 ## The 80% rule
 
