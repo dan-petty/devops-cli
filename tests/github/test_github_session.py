@@ -700,6 +700,49 @@ def test_a_listing_of_exactly_the_page_cap_reads_every_page(
     assert (items, len(github_api.sent)) == ([{"id": 1}, {"id": 2}], 2)
 
 
+@pytest.mark.parametrize("iterable_key", [None, "workflow_runs"])
+def test_linked_pages_yield_each_page_as_github_sent_it(
+    github_api: GitHubApiFake, iterable_key: str | None
+) -> None:
+    """`pages` gives each page whole, an array or an object, in the order of the `rel="next"`
+    links, and sends one request for each page (#4737)."""
+    second, third = _LINK_STYLES["page-links"]
+    github_api.route("GET", _ISSUES, _page([{"id": 1}], iterable_key, next_url=second))
+    github_api.route("GET", second, _page([{"id": 2}], iterable_key, next_url=third))
+    github_api.route("GET", third, _page([{"id": 3}], iterable_key))
+    pages = list(get_github_session().pages(_ISSUES))
+    expected = [
+        [{"id": n}] if iterable_key is None else {"total_count": 5, iterable_key: [{"id": n}]}
+        for n in (1, 2, 3)
+    ]
+    assert (pages, github_api.requested) == (
+        expected,
+        [f"GET {API}{_ISSUES}", f"GET {API}{second}", f"GET {API}{third}"],
+    )
+
+
+def test_an_empty_page_ends_the_pages_of_a_listing(github_api: GitHubApiFake) -> None:
+    """`[]` is the last page, even when GitHub still links a next page."""
+    github_api.route("GET", _ISSUES, _page([], None, next_url=_LINK_STYLES["page-links"][0]))
+    assert (list(get_github_session().pages(_ISSUES)), len(github_api.sent)) == ([[]], 1)
+
+
+def test_pages_that_run_past_the_page_cap_fail_closed(github_api: GitHubApiFake) -> None:
+    """A `rel="next"` chain past the cap raises naming the endpoint and the cap, after the pages
+    within the cap."""
+    second, third = _LINK_STYLES["page-links"]
+    github_api.route("GET", _ISSUES, _page([{"id": 1}], None, next_url=second))
+    github_api.route("GET", second, _page([{"id": 2}], None, next_url=third))
+    read: list[Any] = []
+    with pytest.raises(GitHubUnreadError) as raised:
+        read.extend(get_github_session().pages(_ISSUES, max_pages=2))
+    assert (read, len(github_api.sent), raised.value.details["max_pages"]) == (
+        [[{"id": 1}], [{"id": 2}]],
+        2,
+        2,
+    )
+
+
 def test_a_link_to_another_origin_is_refused_before_it_is_sent(github_api: GitHubApiFake) -> None:
     """A `Link` naming another origin is refused by the origin hook, so the token never goes
     there: the transport sees no request to it."""

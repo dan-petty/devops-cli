@@ -84,6 +84,7 @@ dependencies = [
     "opentelemetry-instrumentation-httpx==0.66b1",
     "detect-agent==0.6.0",
     "packageurl-python==0.17.6",
+    "jq==1.13.0",
 ]
 
 [project.optional-dependencies]
@@ -191,6 +192,9 @@ python_version = "3.14"
 strict = true
 plugins = ['pydantic.mypy']
 enable_error_code = ["ignore-without-code"]
+# Stubs of the libraries that ship no type information and that devops-cli types itself: jq.py,
+# which runs the `--jq` filter of `devops gh api --paginate` (#4737).
+mypy_path = "typings"
 
 # statsmodels ships no type information; `devops review score` calls its fleiss_kappa and
 # aggregate_raters (#1138).

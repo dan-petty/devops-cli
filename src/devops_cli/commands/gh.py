@@ -1512,7 +1512,13 @@ def api_cmd(
     ] = None,
     paginate: Annotated[
         bool,
-        typer.Option("--paginate", help="Paginate across all result pages"),
+        typer.Option(
+            "--paginate",
+            help=(
+                "Read every result page. The GitHub session reads each page of a REST GET, so"
+                " each page counts as one request; gh keeps the other reads"
+            ),
+        ),
     ] = False,
     jq: Annotated[
         str | None,
@@ -1536,6 +1542,13 @@ def api_cmd(
     ] = False,
 ) -> None:
     """Execute a GitHub API request with quota-derived spacing, rate-limit backoff, and optional caching."""
+    from devops_cli.github.api_pages import reads_through_session
+
+    if paginate and reads_through_session(
+        endpoint, method=method, template=template, cache=cache, gh_flags=ctx.args
+    ):
+        _api_pages_through_session(endpoint, jq, dry_run=dry_run or is_dry_run())
+        return
     args = ["api", endpoint]
     if method:
         args.extend(["-X", method.upper()])
@@ -1575,6 +1588,26 @@ def api_cmd(
         from devops_cli.security.sanitizer import mask_secrets
 
         write_stream(mask_secrets(res.stdout))
+
+
+def _api_pages_through_session(endpoint: str, jq_filter: str | None, *, dry_run: bool) -> None:
+    """Print each page of the REST listing at `endpoint` as the GitHub session reads it, or plan
+    its read (#4737)."""
+    from devops_cli.github.api_pages import listing_text, session_path
+    from devops_cli.security.sanitizer import mask_secrets
+
+    if dry_run:
+        from devops_cli.roadmap.request_plan import planned_session_read
+
+        planned = planned_session_read(
+            session_path(endpoint),
+            f"GitHub API {endpoint}",
+            repeat=MESSAGES.roadmap.plan_repeat_page,
+        )
+        render_request_plan(f"Plan for api ({endpoint})", [planned])
+        return
+    for text in listing_text(endpoint, jq_filter):
+        write_stream(mask_secrets(text))
 
 
 # =============================================================================
