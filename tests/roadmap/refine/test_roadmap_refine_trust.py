@@ -1,10 +1,11 @@
 """Refine and the items that the Service App or `github-actions[bot]` opens (#3502).
 
 A round takes an item of the Service App's bot or of `github-actions[bot]`, and sets it Ready only
-when a review of the issue and the proposal approves it. An item of another bot or of a stranger
-waits, and its author gets one comment. The model of refine reads the replies of trusted authors
-only. The roadmap is the in-memory store, the proposal step and the review are test doubles, and
-git runs on a temporary repository.
+when a review of the issue and the proposal approves it. A refusal is a job failure: the next round
+refines the item again with the findings, and the third refusal fails the job (#4798). An item of
+another bot or of a stranger waits, and its author gets one comment. The model of refine reads the
+replies of trusted authors only. The roadmap is the in-memory store, the proposal step and the
+review are test doubles, and git runs on a temporary repository.
 """
 
 from __future__ import annotations
@@ -22,10 +23,12 @@ import time_machine
 from devops_cli.ai.client.models import StructuredOutputValidationError
 from devops_cli.config.constants import (
     CONST_ROADMAP_ACTIONS_BOT_LOGIN,
+    CONST_ROADMAP_LABELS_PATH,
     CONST_ROADMAP_REFINE_COMMENT_MARKER,
     CONST_ROADMAP_REFINE_MAX_BODY_CHARS,
     CONST_ROADMAP_REFINE_OUTSIDE_MARKER,
 )
+from devops_cli.roadmap.inbox import InboxKind, read_inbox
 from devops_cli.roadmap.refine.refine import (
     AcceptanceCriterion,
     NextStep,
@@ -69,6 +72,13 @@ _FALSE_PREMISE = Finding(
 _ADVICE = Finding(
     type=DefectType.CONTRIVED_TEST, where="criterion 1", problem="A test repeats the code."
 )
+# The line of `_FALSE_PREMISE` that the job record keeps and the next request gives (#4798).
+_FALSE_PREMISE_LINE = (
+    "`false_premise` at problem_statement: The issue does not say that the item needs a design. "
+    f'Evidence: "{PREMISE}"'
+)
+_NOW = datetime(2026, 11, 11, 12, 0, tzinfo=UTC)
+_LABELS = "- name: type/bug\n  color: D73A4A\n  description: A defect\n"
 
 
 def _git(cwd: Path, *args: str) -> None:
@@ -201,7 +211,7 @@ def test_a_ready_proposal_for_an_item_of_a_bot_goes_to_the_review_and_an_approva
     ) == ("Ready", "approved", "feat(roadmap): a report", PREMISE)
 
 
-def test_a_refusal_keeps_the_item_new_and_one_comment_gives_each_finding_with_its_evidence(
+def test_a_refusal_is_a_job_failure_that_records_each_finding_and_asks_no_person(
     store: InMemoryRoadmapStore, git_repo: Path
 ) -> None:
     number = _seed(store)
@@ -209,34 +219,117 @@ def test_a_refusal_keeps_the_item_new_and_one_comment_gives_each_finding_with_it
     plan = _round(store, git_repo, _Proposer(), _Verifier(_FALSE_PREMISE, _ADVICE))
 
     (refined,) = plan.refined_items
-    (comment,) = _refine_comments(store, number)
     assert (
         _status(store, number),
         _record(store, number, RefineRecordKey.JUDGE),
         _record(store, number, RefineRecordKey.NEXT_STEP),
+        _record(store, number, RefineRecordKey.TRIES),
+        _record(store, number, RefineRecordKey.FAILED_CHECK),
+        _record(store, number, RefineRecordKey.JUDGE_FINDINGS),
         (refined.is_ready, refined.next_step),
-        "`false_premise` at problem_statement" in comment,
-        f'Evidence: "{PREMISE}"' in comment,
-        "contrived_test" in comment,
-    ) == ("New", "refused", "edit", (False, NextStep.EDIT), True, True, False)
+        _refine_comments(store, number),
+    ) == (
+        "New",
+        "refused",
+        "retry",
+        "1",
+        "judge_refused",
+        _FALSE_PREMISE_LINE,
+        (False, NextStep.RETRY),
+        [],
+    )
 
 
-def test_a_second_round_with_an_unchanged_body_makes_no_second_review_and_no_second_comment(
+def test_the_next_round_refines_a_refused_item_again_with_the_findings_and_an_approval_sets_it_ready(
     store: InMemoryRoadmapStore, git_repo: Path
 ) -> None:
     number = _seed(store)
     proposer, verifier = _Proposer(), _Verifier(_FALSE_PREMISE)
     _round(store, git_repo, proposer, verifier)
+    verifier.findings = []
 
-    second = _round(store, git_repo, proposer, verifier)
+    _round(store, git_repo, proposer, verifier)
+
+    first, second = (json.loads(prompt) for prompt in proposer.prompts)
+    record = {
+        key: _record(store, number, key)
+        for key in (
+            RefineRecordKey.JUDGE,
+            RefineRecordKey.NEXT_STEP,
+            RefineRecordKey.TRIES,
+            RefineRecordKey.FAILED_CHECK,
+            RefineRecordKey.JUDGE_FINDINGS,
+        )
+    }
+    assert (
+        first["judge_findings"],
+        second["judge_findings"],
+        len(verifier.prompts),
+        _status(store, number),
+        record,
+        len(_refine_comments(store, number)),
+    ) == (
+        [],
+        [_FALSE_PREMISE_LINE],
+        2,
+        "Ready",
+        {
+            RefineRecordKey.JUDGE: "approved",
+            RefineRecordKey.NEXT_STEP: "ready",
+            RefineRecordKey.TRIES: None,
+            RefineRecordKey.FAILED_CHECK: None,
+            RefineRecordKey.JUDGE_FINDINGS: None,
+        },
+        1,
+    )
+
+
+def test_the_third_refusal_fails_the_job_and_the_inbox_lists_the_item(
+    store: InMemoryRoadmapStore, git_repo: Path
+) -> None:
+    number = _seed(store)
+    store.seed_file(CONST_ROADMAP_LABELS_PATH, _LABELS)
+    store.seed_label("type/bug", "D73A4A", "A defect")
+    proposer, verifier = _Proposer(), _Verifier(_FALSE_PREMISE)
+
+    with time_machine.travel(_NOW, tick=False):
+        steps = [_round(store, git_repo, proposer, verifier).refined_items for _ in range(3)]
+        fourth = _round(store, git_repo, proposer, verifier)
+        inbox = read_inbox(store, repo=REPO, now=_NOW, planned_limit=20, draft_days=7, wait_days=7)
+
+    assert (
+        [refined.next_step for (refined,) in steps],
+        _record(store, number, RefineRecordKey.TRIES),
+        [(w.item.number, w.step) for w in fourth.waiting_items],
+        (len(proposer.prompts), len(verifier.prompts)),
+        [line.number for line in (*inbox.jobs, *inbox.people) if line.kind is InboxKind.FAILED],
+        _refine_comments(store, number),
+    ) == (
+        [NextStep.RETRY, NextStep.RETRY, NextStep.FAILED],
+        "3",
+        [(number, NextStep.FAILED)],
+        (3, 3),
+        [number],
+        [],
+    )
+
+
+def test_a_failed_refusal_ends_with_a_body_edit(
+    store: InMemoryRoadmapStore, git_repo: Path
+) -> None:
+    number = _seed(store)
+    proposer, verifier = _Proposer(), _Verifier(_FALSE_PREMISE)
+    for _ in range(3):
+        _round(store, git_repo, proposer, verifier)
+    store.write_issue_body(number, f"{store.read_issue_body(number)}\n\nA person's answer.")
+
+    _round(store, git_repo, proposer, verifier)
 
     assert (
         len(verifier.prompts),
-        len(proposer.prompts),
-        second.refined_items,
-        [(w.item.number, w.step) for w in second.waiting_items],
-        len(_refine_comments(store, number)),
-    ) == (1, 1, [], [(number, NextStep.EDIT)], 1)
+        _record(store, number, RefineRecordKey.NEXT_STEP),
+        _record(store, number, RefineRecordKey.TRIES),
+    ) == (4, "retry", "1")
 
 
 def test_a_body_edit_after_a_refusal_makes_the_review_look_again(
@@ -312,7 +405,7 @@ def test_a_review_that_refuses_the_edited_text_sets_the_item_back_to_new(
         _status(store, number),
         _record(store, number, RefineRecordKey.JUDGE),
         _record(store, number, RefineRecordKey.NEXT_STEP),
-    ) == (False, "New", "refused", "edit")
+    ) == (False, "New", "refused", "retry")
 
 
 def test_an_item_that_a_round_records_with_no_review_loses_its_approval_too_big_to_refine(
