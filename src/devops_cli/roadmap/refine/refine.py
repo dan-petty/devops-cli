@@ -88,6 +88,10 @@ checks and keeps the last error, with the calls of the read tools that found no 
 step is `RETRY`, which a later round tries again, and `FAILED` at `CONST_ROADMAP_REFINE_MAX_TRIES`
 tries, which only a body edit ends and which the inbox lists. The plan report counts the items that
 go on without a person.
+A round that writes a proposal records the version of the rules that set its next step
+(`RefineRecordKey.RULES`, `CONST_ROADMAP_REFINE_RULES_SINCE`). A wait on a person that older rules
+set gets one new round, with no reply and no body edit (#4795). A record from before the version
+was recorded is dated by the time of refine's last comment.
 A model call that fails skips only its item: refine writes the others, then fails with
 `RoadmapRefineError` naming each skipped item, its error's class and its schema violation count.
 Rejected credentials still stop the run at the first item.
@@ -165,6 +169,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_REFINE_MAX_WAIT_CHECKS,
     CONST_ROADMAP_REFINE_NO_BLOCK_TEXTS,
     CONST_ROADMAP_REFINE_OUTSIDE_MARKER,
+    CONST_ROADMAP_REFINE_RULES_SINCE,
     CONST_ROADMAP_REFINE_START_MARKER,
     CONST_ROADMAP_STAGE_COMMENT_MARKER,
     CONST_ROADMAP_STAGE_COMMENT_MARKERS,
@@ -294,6 +299,8 @@ _MAX_DEFERRED_PARTS: Final[int] = 3
 # How many times the proposal call sends a reply back to the model: one return, as the stage job
 # does. A reply with a placeholder text is sent back with the schema report (#3478).
 _REPLY_RETURNS: Final[int] = 1
+# The version of the rules of this round, as the job record holds it (#4795).
+_RULES_VERSION: Final[str] = CONST_ROADMAP_REFINE_RULES_SINCE.isoformat()
 
 
 class DeferredPart(BaseModel):
@@ -1956,6 +1963,29 @@ def _read_marks(item: Item, commented_at: datetime, refs: str) -> JobRecord | No
     return None if all(held.get(key) == value for key, value in marks.items()) else marks
 
 
+def _set_by_older_rules(item: Item, commented_at: datetime) -> bool:
+    """Whether rules older than `CONST_ROADMAP_REFINE_RULES_SINCE` set the wait of `item` (#4795):
+    the version that its job record holds, or, when it holds none, `commented_at`, the time of
+    refine's last comment. A version that is no time counts as none."""
+    recorded = item.job_record.get(RefineRecordKey.RULES)
+    version = commented_at
+    if recorded:
+        try:
+            version = datetime.fromisoformat(recorded)
+        except ValueError:
+            logger.warning("The rules version recorded on #%d is not a time.", item.number)
+    if version.tzinfo is None:
+        version = version.replace(tzinfo=UTC)
+    return version < CONST_ROADMAP_REFINE_RULES_SINCE
+
+
+def _person_wait_over(store: RoadmapStore, item: Item, refs: str, commented_at: datetime) -> bool:
+    """Whether the wait of `item` on a person is over with no reply: rules older than the current
+    ones set it (#4795), or an issue or a file that `refs` names closed or changed at or after
+    `commented_at`, the time of refine's last comment (#3483)."""
+    return _set_by_older_rules(item, commented_at) or _named_cause_ended(store, refs, commented_at)
+
+
 def _stage_return(item: Item, comments: Sequence[IssueComment]) -> IssueComment | None:
     """The newest comment of the stage job after refine's last comment on `item`, when the job
     returned the item to New, or None. A stage comment on an item that holds a staged branch
@@ -2032,7 +2062,8 @@ def _still_waiting(
     the wait is over and refine looks at it again (#1758): the round recorded no step, a blocker
     closed, a comment followed refine's last one, a commit on the default branch changed a
     path the block cites after that comment (#2005), or, for a wait on a person, an issue or a
-    file that the text of the wait names closed or changed after it (#3483). An item the stage
+    file that the text of the wait names closed or changed after it (#3483), or rules older than
+    the current ones set it (#4795). An item the stage
     job returned gets one new look, and the second return on the same body waits on a person.
     Only a body edit ends an `EDIT` or a `FAILED` wait, and a `RETRY` is never a wait: the job
     failed and the next round tries again (#3632). `comments_on` reads the item's comments, which
@@ -2065,7 +2096,7 @@ def _still_waiting(
     commented_at, refs, marks = state
     if _cited_code_changed(store, item, commented_at):
         return None
-    if names_cause and _named_cause_ended(store, refs, commented_at):
+    if names_cause and _person_wait_over(store, item, refs, commented_at):
         return None
     return WaitingItem(item, step, details, marks=marks)
 
@@ -3172,6 +3203,7 @@ def _refine_marks(r: RefinedItem, deferred: Sequence[int]) -> JobRecord:
         RefineRecordKey.NEEDS_SPLIT: "true" if r.needs_split else "false",
         RefineRecordKey.FAILED_BODY_HASH: None,
         RefineRecordKey.NEXT_STEP: r.next_step.value,
+        RefineRecordKey.RULES: _RULES_VERSION,
         RefineRecordKey.BLOCKED_BY: ",".join(str(number) for number in r.blocked_by) or None,
         RefineRecordKey.BLOCK_PATHS: ",".join(r.block_paths) or None,
         RefineRecordKey.ALTERNATIVES_ASKED: r.alternatives_asked,

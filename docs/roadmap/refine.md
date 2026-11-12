@@ -22,6 +22,8 @@ Refine writes the new body, the job record and the Status of an item with one re
 
 An item that waits on a person has one more way out. The comment of refine names issues and files in its questions. Refine looks at the item again when an issue that the comment names closes after the comment, or when a file that it names changes on the default branch after the comment. A round reads at most 5 issues and 5 files from one comment.
 
+A wait on a person also ends when older rules set it. Each round that writes a proposal records the version of its rules in the job record (`refine.rules`). The version is the time from which the rules hold (`CONST_ROADMAP_REFINE_RULES_SINCE`). A round refines an unchanged item again when its recorded version is older than the current one. A record with no version comes from before the version was recorded: its version is the time of refine's last comment. The new round records the current version, so the item gets one new look for each change of the rules. A pull request that changes a rule that sets a next step sets a later time in the constant.
+
 ## Items that the stage job returns
 
 The stage job can return an item to New with evidence that the plan cannot hold. That is the act of a job, not of a person, so the next round refines the item again with no reply and no body edit. The model reads the evidence of the return in `stage_return`. A plan pull request that a person closed with no merge is such a return. The stage job copies the reason of the person to the issue and returns the item to New. Then `stage_return` holds that reason. A round that looks at the same body again records its hash in `refine.returned_body_hash`. When the stage job returns the item a second time on that body, refine does not look again. The item waits on a person, and the reason is `devops roadmap explain <number>` and a line in `devops roadmap inbox`. A reply or a body edit ends that wait. A person who sets an item back to New with no comment is the other case: the item waits for the reason of that person.
@@ -108,7 +110,7 @@ With the step `retry`, the next round refines the item again. At 3 tries (`CONST
 
 A Ready item whose new proposal fails a form check keeps its Status and its old design, because refine writes no body for a job failure. The record shows the failure, and the item has the step `retry` or `failed` like a New item. A Ready item that refine finds not ready, by contrast, goes back to New with a comment.
 
-An item that already waits on a person when this rule starts keeps its recorded wait. Refine reads it again only after a reply, a body edit, a change to an issue or a file that the wait names, or `devops roadmap refine --item <number>`.
+An item that waited on a person under the rules before this one gets one new look: the version of these rules is the release of 0.72.0 (2026-11-06T19:25:37Z). A new proposal that fails a form check is then a job failure, and a new proposal that asks a person again writes one new comment.
 
 The plan report starts with the count of the items that go on without a person: the items that are Ready, blocked or in `retry`.
 

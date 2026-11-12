@@ -1,4 +1,5 @@
-"""The wait on a person: what gives the item a new look, and the bounds of the check (#1335)."""
+"""The wait on a person: what gives the item a new look, and the bounds of the check (#1335). A wait
+that older rules set gets one new look (#4795)."""
 
 from __future__ import annotations
 
@@ -25,9 +26,12 @@ from devops_cli.roadmap.stores.store import (
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.roadmap_refine import (
     CITED_PATH,
+    QUESTION,
     READY,
     REFINE_MARKER,
     REPO,
+    BodyReadCountingStore,
+    refine_round,
     require_item,
     seed_item,
     seed_person_wait,
@@ -168,3 +172,100 @@ def test_the_check_of_a_wait_text_reads_at_most_the_bound_of_issues_and_of_paths
         [number],
         {"item": bound, "path_changed_at": bound},
     )
+
+
+# ── A wait that older rules set gets one new look (#4795) ─────────────────────────────────
+
+_DAY_BEFORE = timedelta(days=-1)
+_HOUR_AFTER = timedelta(hours=1)
+
+
+def _wait_set_at(commented: timedelta, rules: timedelta | None) -> tuple[InMemoryRoadmapStore, int]:
+    """A New item that waits on a person since refine's comment at `commented` from the time of the
+    current rules, whose job record holds the rules of `rules` from that time as the version of the
+    rules of that round, or no version, as a round wrote it before rounds recorded one. The clock
+    of the roadmap then reads now."""
+    current = constants.CONST_ROADMAP_REFINE_RULES_SINCE
+    clock = [current + commented]
+    store = BodyReadCountingStore(repo=REPO, clock=lambda: clock[0])
+    store.seed_visibility(is_private=True)
+    number = seed_person_wait(store, "Which store holds the record?")
+    if rules is not None:
+        version = (current + rules).isoformat()
+        store.set_marks(require_item(store, number), {RefineRecordKey.RULES: version})
+    clock[0] = datetime.now(UTC)
+    return store, number
+
+
+@pytest.mark.parametrize(
+    ("commented", "rules"),
+    [(_DAY_BEFORE, None), (_HOUR_AFTER, _DAY_BEFORE)],
+    ids=["comment-before-the-rules", "older-recorded-rules"],
+)
+def test_a_person_wait_that_older_rules_set_gets_one_new_look_on_an_unchanged_body(
+    git_repo: Path, model_fake: ModelFake, commented: timedelta, rules: timedelta | None
+) -> None:
+    """A rule that changed since the round that left the wait could set another step. The next
+    round refines the item once and records the current rules. When the new proposal asks a
+    person again, a round after it leaves the item in its wait with no model call."""
+    store, number = _wait_set_at(commented, rules)
+    model_fake.answer(QUESTION)
+    first = refine_round(store, git_repo)
+    calls = model_fake.call_count
+
+    again = plan_refine(store, repo=REPO, source=git_repo)
+
+    assert (
+        [r.item.number for r in first.refined_items],
+        require_item(store, number).job_record.get(RefineRecordKey.RULES),
+        [(w.item.number, w.step.value) for w in again.waiting_items],
+        model_fake.call_count - calls,
+    ) == (
+        [number],
+        constants.CONST_ROADMAP_REFINE_RULES_SINCE.isoformat(),
+        [(number, "person")],
+        0,
+    )
+
+
+@pytest.mark.parametrize(
+    ("commented", "rules"),
+    [(_HOUR_AFTER, None), (_DAY_BEFORE, timedelta(0))],
+    ids=["comment-after-the-rules", "current-recorded-rules"],
+)
+def test_a_person_wait_that_the_current_rules_set_gets_no_new_look(
+    git_repo: Path, model_fake: ModelFake, commented: timedelta, rules: timedelta | None
+) -> None:
+    """The version that the job record holds counts before the time of refine's comment."""
+    store, number = _wait_set_at(commented, rules)
+    calls = model_fake.call_count
+
+    plan = plan_refine(store, repo=REPO, source=git_repo)
+
+    assert (
+        [(w.item.number, w.step.value) for w in plan.waiting_items],
+        plan.refined_items,
+        model_fake.call_count - calls,
+    ) == ([(number, "person")], [], 0)
+
+
+@pytest.mark.parametrize("no_zone", [False, True], ids=["no-time", "no-zone"])
+def test_a_recorded_version_that_is_no_time_counts_as_none_and_one_with_no_zone_as_utc(
+    git_repo: Path, model_fake: ModelFake, caplog: pytest.LogCaptureFixture, no_zone: bool
+) -> None:
+    """A hand edit of the job record can write a version that is no time, which gives way to the
+    time of refine's comment with a warning, or a time with no zone, which is a UTC time. Both
+    waits here are older than the rules."""
+    older = constants.CONST_ROADMAP_REFINE_RULES_SINCE + _DAY_BEFORE
+    store, number = _wait_set_at(_HOUR_AFTER if no_zone else _DAY_BEFORE, None)
+    version = older.replace(tzinfo=None).isoformat() if no_zone else "not a time"
+    store.set_marks(require_item(store, number), {RefineRecordKey.RULES: version})
+    model_fake.answer(READY)
+
+    plan = plan_refine(store, repo=REPO, source=git_repo)
+
+    warned = f"The rules version recorded on #{number} is not a time."
+    assert (
+        [r.item.number for r in plan.refined_items],
+        [r.getMessage() for r in caplog.records if r.getMessage() == warned],
+    ) == ([number], [] if no_zone else [warned])
