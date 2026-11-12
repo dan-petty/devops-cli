@@ -67,6 +67,12 @@ _AGENT_ROWS: Final[Mapping[type[BaseModel], str]] = {
     StageProposal: PLAN_ROW,
     Verification: REVIEW_ROW,
 }
+# The limits of each plan run and review run when the caller gives none: the loop guard of the
+# stage job (#3206).
+_RUN_LIMITS: Final = UsageLimits(
+    request_limit=CONST_ROADMAP_STAGE_MAX_REQUESTS,
+    tool_calls_limit=CONST_ROADMAP_STAGE_TOOL_MAX_CALLS,
+)
 
 
 @dataclass(frozen=True)
@@ -88,7 +94,9 @@ class ToolboxClient:
     leave too little of it for the reply offers no tool. `openspec` reads the specs for `read_spec`. `toolset` is
     `base`, `extended` or `research`; without it the setting `roadmap.stage.toolset` decides. `github` serves
     `read_issue` and `find_issues` of `extended` and `research`; the Service passes it, and a run without it
-    answers that GitHub is not available.
+    answers that GitHub is not available. `usage_limits` holds the requests and the tool calls of
+    each run: `CONST_ROADMAP_STAGE_MAX_REQUESTS` and `CONST_ROADMAP_STAGE_TOOL_MAX_CALLS` when the
+    caller gives none (#4688).
 
     Raises `RoadmapStageError` when the checkout is not the commit `sha` with no change, because
     three tools read its files and the others read the commit.
@@ -107,8 +115,10 @@ class ToolboxClient:
         github: StageGitHub | None = None,
         traces: list[RunTrace] | None = None,
         mcp_toolset: RoadmapMcpToolset | None = None,
+        usage_limits: UsageLimits = _RUN_LIMITS,
     ) -> None:
         self._model = model
+        self._usage_limits = usage_limits
         self._inner = inner
         settings = load_settings()
         chosen = toolset or settings.roadmap.stage.toolset
@@ -173,10 +183,7 @@ class ToolboxClient:
                 self._tools,
                 schema,
                 toolsets=toolsets,
-                limits=UsageLimits(
-                    request_limit=CONST_ROADMAP_STAGE_MAX_REQUESTS,
-                    tool_calls_limit=CONST_ROADMAP_STAGE_TOOL_MAX_CALLS,
-                ),
+                limits=self._usage_limits,
                 output_retries=max_retries,
                 trace=trace,
                 window=self._window,

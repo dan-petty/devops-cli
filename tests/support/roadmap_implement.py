@@ -21,6 +21,7 @@ from typing import Any
 import pytest
 from pydantic_ai.messages import ModelResponse
 
+from devops_cli.config.defaults import DEFAULT_ROADMAP_IMPLEMENT_POLL_SECONDS
 from devops_cli.github.rate_limiter import get_github_rate_limiter
 from devops_cli.roadmap.implement.implement import parse_implement_filters, plan_implement
 from devops_cli.roadmap.implement.implement_run import ImplementApplied, apply_implement
@@ -98,6 +99,10 @@ TASKS_PATH = f"{CHANGE_DIR}/tasks.md"
 # world holds it on `main`, as the repository of devops-cli does; `undeclare_steps` takes it off.
 STEPS_FILE = ".devops/roadmap.toml"
 STEPS_DECLARATION = "[implement.steps]\ndocs = true\narchive = true\n"
+# The most seconds that the job of a test world waits for the checks of its pull request: three
+# polls, and not the hour of a Job, so a watch that waits out the monitor polls the pull request four
+# times and not 121 (#4688).
+WATCH_SECONDS = 3 * DEFAULT_ROADMAP_IMPLEMENT_POLL_SECONDS
 
 OPEN_DRAFT = {
     "state": "open",
@@ -616,7 +621,7 @@ def _world(
             resource, remaining=5000, limit=5000, reset_epoch=time.time() + 86400.0
         )
     config(
-        roadmap={"implement": {"in_runner": True}},
+        roadmap={"implement": {"in_runner": True, "monitor_timeout_seconds": WATCH_SECONDS}},
         service={"github_app": {"token_repository": STAGE_REPO}},
     )
     programs.answer("git", ProcessAnswer(side_effect=git_for_real))

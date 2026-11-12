@@ -180,6 +180,11 @@ _PROMPT = "roadmap_implement_step.md"
 _REQUIREMENT_PREFIX = "requirement:"
 # The start of an HTML comment, such as a marker of a job in an issue body.
 _COMMENT_OPEN = "<!--"
+# The limits of the run of a step when the caller gives none: the loop guard of the job (#3206).
+_STEP_LIMITS: Final = UsageLimits(
+    request_limit=CONST_ROADMAP_IMPLEMENT_MAX_REQUESTS,
+    tool_calls_limit=CONST_ROADMAP_IMPLEMENT_MAX_TOOL_CALLS,
+)
 
 
 class StepClass(StrEnum):
@@ -843,17 +848,19 @@ def _run_agent(
     log: ToolCallLog,
     message: str,
     conversation: Conversation | None = None,
+    *,
+    usage_limits: UsageLimits,
 ) -> _Run:
     """One turn of the agent, and each send again of a request that failed inside a stream (#2794).
     A request is sent again at most `CONST_ROADMAP_IMPLEMENT_MODEL_RESENDS` times in a row. A send
-    that gets a reply gives the next failed request its own resends. The request limit of the
-    step ends the loop. The turn ends with the last send.
+    that gets a reply gives the next failed request its own resends. The request limit of
+    `usage_limits` ends the loop. The turn ends with the last send.
 
     A failure of class `parser` is deterministic for one conversation, so its resend carries the
     message that asks for a smaller edit, once on a tier. The next parser failure of the tier ends
     the turn with no resend, and the step stops with class `parser` (#3053). A tier is a new
     conversation, so the tier loop of `run_step` starts the count again."""
-    run = _run_turn(agent, model, log, message, conversation)
+    run = _run_turn(agent, model, log, message, conversation, usage_limits=usage_limits)
     resends = CONST_ROADMAP_IMPLEMENT_MODEL_RESENDS
     while run.resend is not None and resends > 0:
         sent = run.resend
@@ -864,7 +871,7 @@ def _run_agent(
             sent = _ask_smaller_edit(sent)
         if log.trace is not None:
             log.trace.retry(run.reason)
-        later = _run_turn(agent, model, log, None, sent)
+        later = _run_turn(agent, model, log, None, sent, usage_limits=usage_limits)
         stalled = later.resend is not None and len(later.resend.messages) <= len(sent.messages)
         resends = resends - 1 if stalled else CONST_ROADMAP_IMPLEMENT_MODEL_RESENDS
         run = run.then(later)
@@ -877,16 +884,14 @@ def _run_turn(
     log: ToolCallLog,
     message: str | None,
     conversation: Conversation | None = None,
+    *,
+    usage_limits: UsageLimits,
 ) -> _Run:
-    """One send of a request to the agent under the limits of a step, and its spend as one record.
-    With `conversation`, the turn continues it: its messages and its usage carry over, so the
-    limits count both turns. Without `message`, it resumes the request that the conversation ends
-    with. A failed model call ends the turn as stopped, with the replies that came before
-    it, as a limit does. Raises `AICredentialsError` when the model refuses the key."""
-    limits = UsageLimits(
-        request_limit=CONST_ROADMAP_IMPLEMENT_MAX_REQUESTS,
-        tool_calls_limit=CONST_ROADMAP_IMPLEMENT_MAX_TOOL_CALLS,
-    )
+    """One send of a request to the agent under `usage_limits`, the limits of a step, and its spend
+    as one record. With `conversation`, the turn continues it: its messages and its usage carry
+    over, so the limits count both turns. Without `message`, it resumes the request that the
+    conversation ends with. A failed model call ends the turn as stopped, with the replies that came
+    before it, as a limit does. Raises `AICredentialsError` when the model refuses the key."""
     reason = last = ""
     kept = resend = None
     cut: list[ModelResponse] = []
@@ -899,7 +904,7 @@ def _run_turn(
             result = agent.run_sync(
                 message,
                 conversation=conversation,
-                usage_limits=limits,
+                usage_limits=usage_limits,
                 event_stream_handler=drain_events,
             )
             last, kept = result.output, result.conversation
@@ -1722,11 +1727,13 @@ def _turn(
     log: ToolCallLog,
     message: str,
     conversation: Conversation | None = None,
+    *,
+    usage_limits: UsageLimits,
 ) -> _Run:
-    """One turn of the agent. When it ends, so does every process of the agent's shell, before
-    the job runs a program that gets the session's token."""
+    """One turn of the agent under `usage_limits`. When it ends, so does every process of the
+    agent's shell, before the job runs a program that gets the session's token."""
     try:
-        return _run_agent(agent, model, log, message, conversation)
+        return _run_agent(agent, model, log, message, conversation, usage_limits=usage_limits)
     finally:
         _end_agent_processes()
 
@@ -1787,6 +1794,8 @@ def _extra_turn(
     keeper: WipKeeper,
     first: _Run,
     ask: _Ask,
+    *,
+    usage_limits: UsageLimits,
 ) -> tuple[_Run, _Failure | None]:
     """One extra turn of a step (#2721, #2795, #3043): the same conversation and the same limits as
     the first turn, and the message of `ask`. The turns so far and this one together, and the
@@ -1800,7 +1809,9 @@ def _extra_turn(
     # in it is no ground for a `wip:` commit (#3054).
     before_request, log.before_request = log.before_request, None
     try:
-        run = first.then(_turn(agent, model, log, ask.message, first.conversation))
+        run = first.then(
+            _turn(agent, model, log, ask.message, first.conversation, usage_limits=usage_limits)
+        )
     finally:
         log.before_request = before_request
     if run.reason:
@@ -1859,6 +1870,7 @@ def _repair_rounds(
     *,
     tier: str,
     trace: ImplementTrace | None,
+    usage_limits: UsageLimits,
 ) -> _Rounds:
     """Judge the attempt of `start`, and run an extra turn for its failure while a round is left
     and the failure can be repaired. Each attempt is an event of the trace, with whether a round
@@ -1872,7 +1884,9 @@ def _repair_rounds(
             return _Rounds(run, failure, used, number, start.allowed, spent=ask is not None)
         if trace is not None:
             trace.retry(failure.reason if failure else "")
-        run, failure = _extra_turn(agent, model, log, source, inputs, keeper, run, ask)
+        run, failure = _extra_turn(
+            agent, model, log, source, inputs, keeper, run, ask, usage_limits=usage_limits
+        )
         used += 1
         number += 1
 
@@ -1916,6 +1930,7 @@ def _attempt(
     model_for_tier: Callable[[str], Any] | None,
     tier_health: Callable[[Sequence[str]], Mapping[str, bool]],
     limits: StepBudget,
+    usage_limits: UsageLimits,
     trace: ImplementTrace | None = None,
     mcp_toolset: AbstractToolset[Any] | None = None,
 ) -> StepOutcome:
@@ -1926,7 +1941,8 @@ def _attempt(
     on a class that selects `change_tier` moves to the next healthy tier at once, spends no repair
     round, and discards the checkout of the failed attempt, back to the last `wip:` commit of the
     keeper (#3060, #3054). Each attempt is an event of the `trace`, and the agent stops before a
-    request when `limits` is spent."""
+    request when `limits` is spent. Each run of the agent has the requests and tool calls of
+    `usage_limits`, and its extra turns count against them."""
     settings = load_settings()
     budget = settings.roadmap.implement.repair_rounds
     if mcp_toolset is None and settings.roadmap.implement.mcp:
@@ -1963,7 +1979,7 @@ def _attempt(
             log.fail_to_pass = None
             log.verified.clear()
             log.parser_failures = 0
-            run = _turn(agent, tier_model, log, inputs.message)
+            run = _turn(agent, tier_model, log, inputs.message, usage_limits=usage_limits)
             first_request = first_request or run.first_request_tokens
             failure = (
                 _Failure(run.reason, klass=run.failure_class)
@@ -1980,6 +1996,7 @@ def _attempt(
                 _Rounds(run, failure, rounds, number, budget),
                 tier=tier,
                 trace=trace,
+                usage_limits=usage_limits,
             )
             run, failure, rounds, number = (
                 repaired.run,
@@ -2102,6 +2119,7 @@ def run_step(
     recorded_tests: frozenset[str] = frozenset(),
     mcp_toolset: AbstractToolset[Any] | None = None,
     earlier: EarlierStop | None = None,
+    usage_limits: UsageLimits = _STEP_LIMITS,
 ) -> StepOutcome:
     """Run group `group` of item `item` in the checkout `source`, with the pydantic-ai `model`.
 
@@ -2134,6 +2152,9 @@ def run_step(
     `recorded_tests` holds each test, as `path::name`, that the step may lose (#3490). The caller
     reads it from a text that the agent cannot edit. With no value, each lost test stops the step.
     `earlier` holds the stop of the earlier Job, which only the first step of a run gets (#4071).
+    `usage_limits` holds the requests and the tool calls of a run of the agent: the loop guard of
+    the job, `CONST_ROADMAP_IMPLEMENT_MAX_REQUESTS` and `CONST_ROADMAP_IMPLEMENT_MAX_TOOL_CALLS`,
+    when the caller gives none (#4688).
     """
     inputs = replace(
         build_step_inputs(
@@ -2161,6 +2182,7 @@ def run_step(
             model_for_tier=model_for_tier,
             tier_health=tier_health or _gateway_tier_health,
             limits=StepBudget(spend, progress=log.progress),
+            usage_limits=usage_limits,
             trace=trace,
             mcp_toolset=mcp_toolset,
         )
@@ -2186,11 +2208,13 @@ def run_fix_step(
     trace: ImplementTrace | None = None,
     spend: ItemSpend | None = None,
     recorded_tests: frozenset[str] = frozenset(),
+    usage_limits: UsageLimits = _STEP_LIMITS,
 ) -> StepOutcome:
     """Run the fix of the failed check `fix` for item `item` in the checkout `source`: a step
     whose group is "Make check <name> pass". It commits with the type and the scope of the item,
     that title and the issue reference (`step_commit_title`) when the exit checks pass, and
-    `tasks.md` is as it was. Its ladder is the `repair` ladder (#3060)."""
+    `tasks.md` is as it was. Its ladder is the `repair` ladder (#3060). `usage_limits` is as in
+    `run_step`."""
     return run_step(
         store,
         item=item,
@@ -2207,6 +2231,7 @@ def run_fix_step(
         trace=trace,
         spend=spend,
         recorded_tests=recorded_tests,
+        usage_limits=usage_limits,
     )
 
 

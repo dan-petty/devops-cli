@@ -22,6 +22,7 @@ from pydantic_ai.messages import (
     TextPart,
     ToolCallPart,
 )
+from pydantic_ai.usage import UsageLimits
 
 from devops_cli.ai.client.models import (
     AIClientError,
@@ -81,10 +82,12 @@ _TOOLS = [
 _EXTENDED_TOOLS = [*_TOOLS, "references", "read_issue", "find_issues"]
 _RESEARCH_TOOLS = [*_EXTENDED_TOOLS, "search_web"]
 _PLAN = make_stage_proposal()
+# The limits of the runs that spend their call budget (#4688): a run spends it in a few requests,
+# and the request limit comes after the call budget.
+_CALLS = 8
+_SMALL_LIMITS = UsageLimits(request_limit=12, tool_calls_limit=_CALLS)
 # The calls after which a request offers no tool: fewer than a turn of calls is left.
-_LAST_WITH_TOOLS = (
-    CONST_ROADMAP_STAGE_TOOL_MAX_CALLS - CONST_ROADMAP_REFINE_INVESTIGATION_TURN_CALLS + 1
-)
+_LAST_WITH_TOOLS = _CALLS - CONST_ROADMAP_REFINE_INVESTIGATION_TURN_CALLS + 1
 
 
 def _git(cwd: Path, *args: str) -> str:
@@ -124,6 +127,13 @@ def _client(
 ) -> ToolboxClient:
     source, sha = checkout
     return ToolboxClient(script.model(), _Inner(), source, sha, toolset=toolset)
+
+
+def _limited_client(checkout: tuple[Path, str], script: Script) -> ToolboxClient:
+    source, sha = checkout
+    return ToolboxClient(
+        script.model(), _Inner(), source, sha, toolset="base", usage_limits=_SMALL_LIMITS
+    )
 
 
 def _plan(client: ToolboxClient) -> Any:
@@ -176,7 +186,7 @@ def test_the_request_after_the_last_call_that_leaves_a_turn_offers_no_tool(
 ) -> None:
     script = Script(_read(), without_tools=_PLAN)
 
-    plan = _plan(_client(checkout, script))
+    plan = _plan(_limited_client(checkout, script))
 
     offered = [len(tools) for tools in script.tools_offered]
     assert (plan, offered) == (_PLAN, [9] * _LAST_WITH_TOOLS + [0])
@@ -188,16 +198,16 @@ def test_a_call_to_a_tool_that_is_gone_gets_a_retry_and_the_plan_stands(
 ) -> None:
     script = Script(*([_read()] * (_LAST_WITH_TOOLS + gone_calls)), _PLAN)
 
-    assert _plan(_client(checkout, script)) == _PLAN
+    assert _plan(_limited_client(checkout, script)) == _PLAN
 
 
 def test_a_third_call_to_a_tool_that_is_gone_fails_the_run_with_the_retry_limit(
     checkout: tuple[Path, str],
 ) -> None:
-    script = Script(*([_read()] * CONST_ROADMAP_STAGE_TOOL_MAX_CALLS), _PLAN)
+    script = Script(*([_read()] * _CALLS), _PLAN)
 
     with pytest.raises(RoadmapStageError) as caught:
-        _plan(_client(checkout, script))
+        _plan(_limited_client(checkout, script))
 
     message = str(caught.value)
     assert ("max retries count of 2" in message, "_limit" in message) == (True, False)
@@ -503,7 +513,9 @@ def test_the_trace_records_the_tools_offered_for_each_request(
 ) -> None:
     source, sha = _big_file_checkout(checkout)
     script = Script(_read("src/big.py"), without_tools=_PLAN)
-    client = ToolboxClient(script.model(), _Inner(), source, sha, window=45000)
+    client = ToolboxClient(
+        script.model(), _Inner(), source, sha, window=45000, usage_limits=_SMALL_LIMITS
+    )
 
     _plan(client)
 
@@ -524,7 +536,7 @@ def test_a_run_with_no_window_keeps_the_tools_until_the_budget_takes_them(
     source, sha = _big_file_checkout(checkout)
     script = Script(_read("src/big.py"), without_tools=_PLAN)
 
-    _plan(ToolboxClient(script.model(), _Inner(), source, sha))
+    _plan(ToolboxClient(script.model(), _Inner(), source, sha, usage_limits=_SMALL_LIMITS))
 
     assert [len(tools) for tools in script.tools_offered] == [
         len(_EXTENDED_TOOLS)
@@ -791,7 +803,7 @@ def test_the_answer_histogram_observes_the_text_of_each_answer_and_none_for_a_ca
 def test_a_run_that_spends_its_call_budget_observes_its_calls_and_counts_the_calls_limit(
     checkout: tuple[Path, str], otlp: FakeCollector
 ) -> None:
-    _plan(_client(checkout, Script(_read(), without_tools=_PLAN)))
+    _plan(_limited_client(checkout, Script(_read(), without_tools=_PLAN)))
 
     assert (
         otlp.points(ROADMAP_TOOL_CALLS_PER_RUN.name),

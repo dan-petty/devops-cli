@@ -19,10 +19,12 @@ The classes:
 
 from __future__ import annotations
 
+import inspect
 from typing import Final
 
 import pytest
 import yaml
+from pydantic_ai.usage import UsageLimits
 
 from devops_cli.config import constants, defaults
 from devops_cli.config.defaults import (
@@ -30,7 +32,8 @@ from devops_cli.config.defaults import (
     DEFAULT_ROADMAP_IMPLEMENT_REQUEST_TIMEOUT_SECONDS,
     DEFAULT_ROADMAP_STAGE_STEP_TOKENS,
 )
-from devops_cli.roadmap.implement.implement_step import output_cap
+from devops_cli.roadmap.implement.implement_step import output_cap, run_fix_step, run_step
+from devops_cli.roadmap.stage.stage_toolbox import ToolboxClient
 from tests.support.paths import REPO_ROOT
 
 CLASSES: Final = frozenset({"raised", "guard", "window", "setting", "kept", "other"})
@@ -686,6 +689,24 @@ def test_every_class_in_the_table_is_a_known_class_with_a_reason() -> None:
 @pytest.mark.parametrize("name", REMOVED)
 def test_a_removed_limit_does_not_come_back(name: str) -> None:
     assert [module.__name__ for module in (constants, defaults) if name in vars(module)] == []
+
+
+def test_a_step_and_a_toolbox_run_default_to_the_guards_of_their_jobs() -> None:
+    """The tests that reach a limit pass small limits, so that a run reaches them in a few
+    requests (#4688). The jobs give none, and run at the guards."""
+    step = UsageLimits(
+        request_limit=constants.CONST_ROADMAP_IMPLEMENT_MAX_REQUESTS,
+        tool_calls_limit=constants.CONST_ROADMAP_IMPLEMENT_MAX_TOOL_CALLS,
+    )
+    toolbox_run = UsageLimits(
+        request_limit=constants.CONST_ROADMAP_STAGE_MAX_REQUESTS,
+        tool_calls_limit=constants.CONST_ROADMAP_STAGE_TOOL_MAX_CALLS,
+    )
+
+    assert [
+        inspect.signature(caller).parameters["usage_limits"].default
+        for caller in (run_step, run_fix_step, ToolboxClient)
+    ] == [step, step, toolbox_run]
 
 
 # ── The limits fit the windows ────────────────────────────────────────────────────────────

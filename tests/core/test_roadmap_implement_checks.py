@@ -11,10 +11,7 @@ from pathlib import Path
 import pytest
 from pydantic_ai.messages import ModelResponse
 
-from devops_cli.config.defaults import (
-    DEFAULT_ROADMAP_IMPLEMENT_MONITOR_TIMEOUT_SECONDS,
-    DEFAULT_ROADMAP_IMPLEMENT_POLL_SECONDS,
-)
+from devops_cli.config.defaults import DEFAULT_ROADMAP_IMPLEMENT_POLL_SECONDS
 from tests.support.fakes.process import ProcessAnswer
 from tests.support.model_script import say, tool_calls
 from tests.support.roadmap_implement import (
@@ -25,6 +22,7 @@ from tests.support.roadmap_implement import (
     PULL,
     RUNNING,
     SHOUT,
+    WATCH_SECONDS,
     JobWorld,
     a_fix,
     move_main_when,
@@ -34,7 +32,6 @@ from tests.support.roadmap_implement import (
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
 MARKER = "<!-- devops roadmap implement -->"
-WATCH = DEFAULT_ROADMAP_IMPLEMENT_MONITOR_TIMEOUT_SECONDS
 CHECK = "Tests & Coverage"
 
 
@@ -155,9 +152,9 @@ def test_a_head_that_holds_no_check_is_waited_for_until_the_checks_time_out(
     assert (applied.stopped, record.get("implement.stopped"), len(job_world.clock.waits)) == (
         (1,),
         "checks",
-        WATCH // DEFAULT_ROADMAP_IMPLEMENT_POLL_SECONDS,
+        WATCH_SECONDS // DEFAULT_ROADMAP_IMPLEMENT_POLL_SECONDS,
     )
-    assert f"did not finish in {WATCH} s" in job_world.issue_comments()[0]
+    assert f"did not finish in {WATCH_SECONDS} s" in job_world.issue_comments()[0]
     assert job_world.pull.ready_calls == []
 
 
@@ -186,7 +183,7 @@ def test_a_check_that_does_not_settle_in_time_stops_the_item_with_no_fix_step(
     applied = job_world.run(script)
 
     assert (applied.stopped, len(script.seen)) == ((1,), 4)
-    assert f"did not finish in {WATCH} s" in job_world.issue_comments()[0]
+    assert f"did not finish in {WATCH_SECONDS} s" in job_world.issue_comments()[0]
     assert job_world.pull.ready_calls == []
 
 
