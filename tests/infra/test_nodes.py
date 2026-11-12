@@ -188,3 +188,37 @@ def test_a_volume_that_names_another_node_too_is_not_pinned() -> None:
     volume = {"spec": {"nodeAffinity": {"required": {"nodeSelectorTerms": [term]}}}}
 
     assert (is_pinned(volume, "node-1"), is_pinned({"spec": {}}, "node-1")) == (False, False)
+
+
+_NO_ALERT = {"status": "success", "data": {"resultType": "vector", "result": []}}
+
+
+def test_the_alert_wait_reads_again_while_prometheus_does_not_answer(
+    web: WebFake, config: Callable[..., Path], clock: ClockFake
+) -> None:
+    """Prometheus can mount a volume that only the node of the host mounts, so it answers only
+    some time after the uncordon."""
+    config(
+        prometheus={"url": "http://prometheus.example.com:9090"},
+        infra={"node_ready_timeout_seconds": 120},
+    )
+    answers = iter([httpx2.Response(503, text="unavailable")] * 2)
+
+    def answer(request: httpx2.Request) -> httpx2.Response:
+        return next(answers, httpx2.Response(200, json=_NO_ALERT))
+
+    web.serve(answer)
+
+    problems = Cluster(KUBE_CONTEXT, load_settings()).wait_alerts_clear()
+
+    assert problems == []
+    assert (len(web.sent), clock.waits) == (4, [10.0] * 4)
+
+
+def test_the_node_gate_does_not_read_the_alerts(
+    cluster: FakeCluster, web: WebFake, config: Callable[..., Path]
+) -> None:
+    config(prometheus={"url": "http://prometheus.example.com:9090"})
+
+    assert Cluster(KUBE_CONTEXT, load_settings()).node_health() == []
+    assert web.sent == []

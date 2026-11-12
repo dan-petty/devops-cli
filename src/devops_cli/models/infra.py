@@ -277,6 +277,8 @@ class ApplyStep(StrEnum):
     READY = "ready"
     HEALTH = "health"
     UNCORDON = "uncordon"
+    # The critical alerts after the uncordon: Prometheus can run on the node of the host.
+    ALERTS = "alerts"
 
 
 class HostOutcome(StrEnum):

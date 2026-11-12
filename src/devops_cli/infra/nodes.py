@@ -19,7 +19,8 @@ process runner with a request bound below its process bound:
 
 The health gate reads every node of the cluster except the nodes of the hosts out of service:
 each is Ready and has no memory, disk or PID pressure. When `prometheus.url` is set, no alert with
-`severity="critical"` fires. A read that fails is a problem, not an error: the waits read again
+`severity="critical"` fires. After a host, the apply waits for the nodes before the uncordon and
+for the alerts after it, because Prometheus can run on the node of the host. A read that fails is a problem, not an error: the waits read again
 until their time ends, so they go on through the short gap in which the API server of a
 control-plane node restarts.
 """
@@ -272,6 +273,15 @@ class Cluster:
     def health(self) -> list[str]:
         """The problems of the cluster: each node that is not Ready or has pressure, except the
         nodes out of service, and each critical alert that fires."""
+        problems = self.node_health()
+        return problems if problems else critical_alerts(self.settings)
+
+    def alert_health(self) -> list[str]:
+        """Each critical alert that fires, or the problem of a query that gets no answer."""
+        return critical_alerts(self.settings)
+
+    def node_health(self) -> list[str]:
+        """Each node that is not Ready or has pressure, except the nodes out of service."""
         read = self._kubectl(GET_NODES_ARGS, DEFAULT_INFRA_KUBECTL_TIMEOUT_SECONDS)
         if read.problem is not None:
             return [read.problem]
@@ -282,7 +292,7 @@ class Cluster:
             if parse_node(item).name not in self.offline_nodes
             for problem in node_problems(item)
         ]
-        return problems + critical_alerts(self.settings)
+        return problems
 
     def drain_check(self, node: str) -> str | None:
         """The problem that would stop the drain of `node`, from a server dry run that changes
@@ -356,10 +366,19 @@ class Cluster:
 
         return self._wait(check)
 
-    def wait_healthy(self) -> list[str]:
-        """Wait until the health gate finds no problem on two reads one poll interval apart; the
-        problems of the last read when the time ends."""
-        return self._wait(self.health)
+    def wait_nodes_healthy(self) -> list[str]:
+        """Wait until every node in service is Ready with no pressure on two reads one poll
+        interval apart; the problems of the last read when the time ends."""
+        return self._wait(self.node_health)
+
+    def wait_alerts_clear(self) -> list[str]:
+        """Wait until no critical alert fires on two reads one poll interval apart, when
+        `prometheus.url` is set; the problems of the last read when the time ends. A Prometheus
+        that does not answer yet, such as one whose volume only the node of the host mounts, is
+        read again."""
+        if not self.settings.prometheus.url:
+            return []
+        return self._wait(self.alert_health)
 
     def _wait(
         self, read: Callable[[], list[str]], *, reads: int = _CLEAR_READS, first_wait: bool = True

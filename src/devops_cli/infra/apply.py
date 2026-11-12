@@ -17,7 +17,8 @@ with these guards for every caller and at every level:
 6. **One disruptive node at a time.** The hosts with no disruptive class run together in one run.
    Each disruptive host runs alone, in plan order: read its node, check the drain with a server
    dry run, drain, a fresh check of the host that must equal its plan, the run, wait for Ready
-   and the GPUs of before, health again, and uncordon only a node that was schedulable before.
+   and the GPUs of before, the health of the nodes, uncordon only a node that was schedulable
+   before, and wait for the critical alerts to clear.
 7. **Result matches the plan.** A task that changed in the run and that the plan does not show
    as changed or unchecked stops the apply.
 8. **Stop at the first failure.** The apply stops, the node stays cordoned, and the command
@@ -658,18 +659,21 @@ def _change(context: _Context, work: _HostRun) -> _Stop | None:
 
 
 def _settle(context: _Context, work: _HostRun) -> _Stop | None:
-    """Wait for Ready and the GPUs of before, wait for the health of the cluster, then uncordon a
-    node that was schedulable before. The health comes first, so a cluster that is not healthy
-    after the host leaves the node cordoned."""
+    """Wait for Ready and the GPUs of before, and for the health of every node, then uncordon a
+    node that was schedulable before, and wait for the critical alerts to clear. The nodes come
+    before the uncordon, so a node that is not healthy after the host leaves it cordoned. The
+    alerts come after it, because Prometheus can mount a volume that only this node mounts."""
     cluster = context.cluster
     before = work.before
     gpus = before.gpu_allocatable if before else None
     if problems := cluster.wait_ready(work.node, gpus):
         return ApplyStep.READY, "; ".join(problems)
-    if problems := cluster.wait_healthy():
+    if problems := cluster.wait_nodes_healthy():
         return ApplyStep.HEALTH, "; ".join(problems)
     if before is not None and not before.cordoned and (problems := cluster.uncordon(work.node)):
         return ApplyStep.UNCORDON, "; ".join(problems)
+    if problems := cluster.wait_alerts_clear():
+        return ApplyStep.ALERTS, "; ".join(problems)
     return None
 
 

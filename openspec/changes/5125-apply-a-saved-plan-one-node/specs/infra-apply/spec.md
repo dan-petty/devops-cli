@@ -75,6 +75,10 @@ The command SHALL refuse the apply when a node of the kube context that is not t
 - **WHEN** `prometheus.url` is set and the alert `KubeNodeNotReady` with `severity="critical"` fires
 - **THEN** the health gate names the alert
 
+#### Scenario: Prometheus answers only after the uncordon
+- **WHEN** Prometheus does not answer the first two queries of the alert wait after a host, then answers with no alert
+- **THEN** the wait ends with no problem
+
 ### Requirement: The hosts with no disruptive class run together
 The hosts of a plan with no disruptive class SHALL run together in one run, with no drain, before the disruptive hosts.
 
@@ -83,7 +87,7 @@ The hosts of a plan with no disruptive class SHALL run together in one run, with
 - **THEN** node-4 runs first with no drain, then node-3 runs alone
 
 ### Requirement: One disruptive host at a time
-Each disruptive host SHALL run alone in plan order: the drain check (`kubectl drain --dry-run=server`), the drain with no `--force`, a fresh check-mode run that must equal its plan, the run, a wait for Ready and the GPUs of before, the health gate, and the uncordon only when the node was schedulable before the drain.
+Each disruptive host SHALL run alone in plan order: the drain check (`kubectl drain --dry-run=server`), the drain with no `--force`, a fresh check-mode run that must equal its plan, the run, a wait for Ready and the GPUs of before, a wait for the health of every node, the uncordon only when the node was schedulable before the drain, and a wait for the critical alerts to clear when `prometheus.url` is set.
 
 #### Scenario: Two disruptive hosts
 - **WHEN** a person applies a plan of node-2 and node-1, both disruptive

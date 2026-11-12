@@ -357,12 +357,16 @@ def _host_steps(
             repeat=repeat,
         ),
         kubectl(f"Ready and the GPUs of {host}", get_node_args(node), repeat=wait),
-        *[replace(request, repeat=wait) for request in _health(context, target.prometheus_url)],
+        kubectl("the health of each node in service", GET_NODES_ARGS, repeat=wait),
         kubectl(
             f"the uncordon of {host}",
             uncordon_args(node),
             condition="the node was schedulable before the drain",
         ),
+        *[
+            replace(request, repeat=wait, condition="prometheus.url is set")
+            for request in _health(context, target.prometheus_url)[1:]
+        ],
         kubectl(f"the node of {host} after the apply", get_node_args(node)),
     ]
 

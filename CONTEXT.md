@@ -274,7 +274,7 @@ A task that check mode skipped, such as a `command` with no `creates` or `remove
 _Avoid_: skipped task
 
 **Infra apply**:
-The run of a saved infra plan on the hosts of an infra repo with `devops infra apply`, at the commit of the plan. The hosts with no disruptive class run together. Each disruptive host runs alone in plan order: drain check, drain, fresh check, run, Ready, health, and uncordon only when the node was schedulable before. The first failure stops it. Each apply writes one audit record, `infra.apply`.
+The run of a saved infra plan on the hosts of an infra repo with `devops infra apply`, at the commit of the plan. The hosts with no disruptive class run together. Each disruptive host runs alone in plan order: drain check, drain, fresh check, run, Ready, the health of the nodes, uncordon only when the node was schedulable before, and the critical alerts. The first failure stops it. Each apply writes one audit record, `infra.apply`.
 _Avoid_: deploy, rollout, make target
 
 **Fresh check**:
