@@ -1,10 +1,10 @@
 """The stop of the Service, as the rounds in flight see it (#4485).
 
 A pod that gets SIGTERM drains. The Service sets the stop, and from then on a round starts no
-new row, and the stage and refine rows start no new item. The row in flight ends after its item
-in progress, through the stop path of #2753: it writes what it did, counts no failure, and
-leaves the items it did not take to the next pod. The stop is process-wide, as SIGTERM is. The
-command line never sets it.
+new row, the stage and refine rows start no new item, and the stage row starts no return of a
+refused reply (#4900). The row in flight ends after its item in progress, through the stop path of
+#2753: it writes what it did, counts no failure, and leaves the items it did not take to the next
+pod. The stop is process-wide, as SIGTERM is. The command line never sets it.
 """
 
 from __future__ import annotations

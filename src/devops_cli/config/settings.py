@@ -43,6 +43,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_IMPLEMENT_DEADLINE_CAP_SECONDS,
     CONST_ROADMAP_IMPLEMENT_STEP_CLASSES,
     CONST_ROADMAP_SIZE_OPTIONS,
+    CONST_ROADMAP_STAGE_GATE_RETURNS_CEILING,
     CONST_SETTINGS_CACHE_SETTLE_SECONDS,
 )
 from devops_cli.config.constants import (
@@ -997,9 +998,10 @@ class RoadmapStageConfig(BaseModel):
         ge=1,
     )
     gate_returns: Annotated[int, Variable()] = Field(
-        description="How many times a plan run sends a reply that the stage checks refuse back to the planner with its problem, for the first reply and for the revision of each repair round; a reply that is refused after the last return ends the item with the class plan_defect",
+        description="How many times a plan run sends a reply that the stage checks refuse back to the planner with its problem, for the first reply and for the revision of each repair round; a reply that is refused after the last return ends the item with the class plan_defect. Each return is one more plan run, so the value is at most 3. After the Service stops, no return starts",
         default=DEFAULT_ROADMAP_STAGE_GATE_RETURNS,
         ge=0,
+        le=CONST_ROADMAP_STAGE_GATE_RETURNS_CEILING,
     )
     step_tokens: Annotated[int, Variable()] = Field(
         description="The most tokens that the inputs of one implementation step may hold: the step's instructions, the AGENTS.md of the repository and the documents it routes the group to, the item, the change folder and the packed files of one task group; `devops roadmap stage` splits a task group over it",
