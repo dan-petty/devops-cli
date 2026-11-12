@@ -12,7 +12,7 @@ import typer
 
 from devops_cli import __version__
 from devops_cli.config.constants import CONST_CLI_ROOT_LEVEL_COMMANDS, CONST_REVIEW_COMMAND_WORDS
-from devops_cli.core.cli import new_typer, require_working_directory
+from devops_cli.core.cli import UsageRecordingGroup, new_typer, require_working_directory
 from devops_cli.dry_run import dry_run_requested_by_environment, is_dry_run, set_dry_run
 from devops_cli.lang import HELP
 
@@ -86,6 +86,7 @@ _COMMAND_SPECS: Final[dict[str, tuple[str, str]]] = {
 
 app = new_typer(
     name="devops",
+    cls=UsageRecordingGroup,
     help=HELP.main.app,
     no_args_is_help=True,
     rich_markup_mode="rich",

@@ -286,9 +286,13 @@ def _invoke_on_thread(
     worker_exc: BaseException | None = None
 
     def _worker() -> None:
+        # A context variable does not pass to a new thread, so the thread marks its own call.
+        from devops_cli.telemetry.usage_errors import mcp_call
+
         nonlocal res, worker_exc
         try:
-            res = runner.invoke(app, sub_args, env=env)
+            with mcp_call():
+                res = runner.invoke(app, sub_args, env=env)
         except (
             RuntimeError,
             ValueError,

@@ -11,6 +11,9 @@ from pathlib import Path
 from typing import Any, TypeVar
 
 import typer
+from typer._click.core import Context
+from typer._click.exceptions import NoArgsIsHelpError, UsageError
+from typer.core import TyperCommand, TyperGroup
 
 from devops_cli.config.constants import CONST_HELP_OPTION_NAMES
 from devops_cli.exceptions.base import DevOpsCLIError
@@ -136,16 +139,10 @@ def _handle_lazy_proxy_dry_run(target: str, cmd_name: str, args: list[str]) -> N
 
     require_working_directory()
 
-    import click
-    import typer._click.exceptions as click_exc
-
     from devops_cli.core.command_resolver import resolve_proxy_dry_run
 
-    try:
-        declares_dry_run, forwarded_args = resolve_proxy_dry_run(mod_path, cmd_name, args)
-    except (click_exc.ClickException, click.ClickException) as exc:
-        exc.show()
-        raise typer.Exit(getattr(exc, "exit_code", 2)) from exc
+    # A usage error goes on to the root group, which records it and shows it as Typer does (#4839).
+    declares_dry_run, forwarded_args = resolve_proxy_dry_run(mod_path, cmd_name, args)
 
     if declares_dry_run and forwarded_args is not None:
         _delegate(mod_path, cmd_name, forwarded_args)
@@ -154,6 +151,79 @@ def _handle_lazy_proxy_dry_run(target: str, cmd_name: str, args: list[str]) -> N
     from devops_cli.output import print_dry_run_command
 
     print_dry_run_command(["devops", cmd_name, *args], delegated=True)
+
+
+@contextmanager
+def _tagged_parse_errors(ctx: Context) -> Iterator[None]:
+    """Mark a usage error of the parse of `ctx` with its command path, and a plain `UsageError`
+    there as an extra argument. The parser raises some errors with no context, and Click then
+    gives them the context of the parent group."""
+    try:
+        yield
+    except UsageError as error:
+        from devops_cli.telemetry.usage_errors import tag_parse_error
+
+        tag_parse_error(error, ctx.command_path)
+        raise
+
+
+class UsageTaggedCommand(TyperCommand):
+    """A command that marks a usage error of its parse with its command path, and an extra
+    argument as such: Click raises a plain `UsageError` for it."""
+
+    def parse_args(self, ctx: Context, args: list[str]) -> list[str]:
+        with _tagged_parse_errors(ctx):
+            return super().parse_args(ctx, args)
+
+
+class UsageTaggedGroup(TyperGroup):
+    """A command group that marks a usage error of its parse with its command path, and an
+    unknown command word as such, with the typed word: Click raises a plain `UsageError` for
+    it."""
+
+    def parse_args(self, ctx: Context, args: list[str]) -> list[str]:
+        with _tagged_parse_errors(ctx):
+            return super().parse_args(ctx, args)
+
+    def resolve_command(
+        self, ctx: Context, args: list[str]
+    ) -> tuple[str | None, Any | None, list[str]]:
+        try:
+            return super().resolve_command(ctx, args)
+        except UsageError as error:
+            if type(error) is UsageError and args:
+                from devops_cli.telemetry.usage_errors import tag_unknown_command
+
+                tag_unknown_command(error, args[0], self.commands)
+            raise
+
+
+class UsageRecordingGroup(UsageTaggedGroup):
+    """The root group of the CLI. It records each usage error of the command line, also of a
+    help query, a dry run and an MCP tool, and raises it again, so Typer shows the same error box
+    with exit code 2 (#4839). A request for help with no arguments is not an error."""
+
+    def make_context(
+        self, info_name: str | None, args: list[str], parent: Context | None = None, **extra: Any
+    ) -> Context:
+        with _recorded_usage_errors():
+            return super().make_context(info_name, args, parent=parent, **extra)
+
+    def invoke(self, ctx: Context) -> Any:
+        with _recorded_usage_errors():
+            return super().invoke(ctx)
+
+
+@contextmanager
+def _recorded_usage_errors() -> Iterator[None]:
+    try:
+        yield
+    except UsageError as error:
+        if not isinstance(error, NoArgsIsHelpError):
+            from devops_cli.telemetry.usage_errors import record_usage_error
+
+            record_usage_error(error)
+        raise
 
 
 class OTelTyper(typer.Typer):
@@ -209,6 +279,8 @@ class OTelTyper(typer.Typer):
         return super().add_typer(typer_instance, *args, name=name, help=help, **kwargs)
 
     def command(self, *args: Any, **kwargs: Any) -> Callable[[_CommandFunc], _CommandFunc]:
+        if kwargs.get("cls") is None:
+            kwargs["cls"] = UsageTaggedCommand
         decorator = super().command(*args, **kwargs)
 
         def wrapper(f: _CommandFunc) -> _CommandFunc:
@@ -242,7 +314,10 @@ class OTelTyper(typer.Typer):
 
 
 def new_typer(**kwargs: Any) -> OTelTyper:
-    """Create an OTel-instrumented Typer app with consistent help option names."""
+    """Create an OTel-instrumented Typer app with consistent help option names, whose group marks
+    an unknown command word (`UsageTaggedGroup`)."""
+    if kwargs.get("cls") is None:
+        kwargs["cls"] = UsageTaggedGroup
     context_settings = dict(kwargs.pop("context_settings", {}))
     context_settings.setdefault("help_option_names", list(CONST_HELP_OPTION_NAMES))
     return OTelTyper(context_settings=context_settings, **kwargs)

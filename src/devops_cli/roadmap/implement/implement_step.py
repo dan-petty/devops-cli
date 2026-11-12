@@ -542,13 +542,15 @@ def shell_environment(home: Path) -> dict[str, str]:
     when the process has them. `UV_PYTHON`: the runner image sets it, as it forbids a Python
     download and `uv run` finds no interpreter without it. `PYTEST_XDIST_AUTO_NUM_WORKERS`: the
     pod of the runner sets it to its CPU limit, as `pytest-xdist` counts the CPUs of the node and
-    a test run started one worker for each of them (#2806)."""
+    a test run started one worker for each of them (#2806). `AI_AGENT` names the agent tool, so a
+    usage error of a devops command that the agent runs records the caller agent (#4839)."""
     env = {
         "HOME": str(home),
         "XDG_CONFIG_HOME": str(home / ".config"),
         "GIT_CONFIG_NOSYSTEM": "1",
         "GIT_TERMINAL_PROMPT": "0",
         "UV_CACHE_DIR": os.environ.get("UV_CACHE_DIR") or user_cache_dir("uv"),
+        "AI_AGENT": "devops-implement",
     }
     env.update({name: os.environ[name] for name in _PASSED_VARIABLES if os.environ.get(name)})
     return env
