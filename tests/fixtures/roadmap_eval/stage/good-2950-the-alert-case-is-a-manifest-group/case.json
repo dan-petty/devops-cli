@@ -18,6 +18,7 @@
  "notes": [
   "Group 5 changes `tests/fixtures/prometheus_rules/roadmap_service_activity_tests.yaml`, so its kind is `manifest`: its promtool cases come first, and its verify runs them. The twin has the kind `other`.",
   "The plan has a `security` text, because it changes manifests under `k8s/`, and the scenario 'The queries of the three panels' names the count of the selector with no code span, so that the gates `paths` and `content` accept the plan. The twin has neither edit.",
+  "Group 7 runs `uv run devops docs generate`, because #5198 deleted the option `--sync-readme` that the twin names.",
   "The scores are set by hand. No review scored this plan."
  ],
  "defects": [],

@@ -393,7 +393,7 @@
    "creates": [],
    "creates_lines": {},
    "test": null,
-   "implementation": "Run `uv run devops docs generate --sync-readme` to write the three instruments to `docs/TELEMETRY.md`",
+   "implementation": "Run `uv run devops docs generate` to write the three instruments to `docs/TELEMETRY.md`",
    "documentation": "Edit `k8s/README.md` and `docs/TELEMETRY.md`",
    "verify": "uv run devops ci docs",
    "process": null
