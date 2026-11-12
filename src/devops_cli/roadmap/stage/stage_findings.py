@@ -184,6 +184,11 @@ def _templates() -> tuple[_Template, ...]:
     return tuple(template for template in found if template is not None)
 
 
+def reset_template_cache() -> None:
+    """Forget the compiled templates, so the next finding compiles them from `MESSAGES` again."""
+    _templates.cache_clear()
+
+
 def stage_finding(gate: str, text: str) -> StageFinding:
     """The finding of the gate `gate` for the problem `text`, with the code of its template."""
     stripped = text.strip()
@@ -303,6 +308,7 @@ __all__ = [
     "fix_counts",
     "gate_findings",
     "load_finding_classes",
+    "reset_template_cache",
     "return_counts",
     "stage_finding",
     "wilson_lower",
