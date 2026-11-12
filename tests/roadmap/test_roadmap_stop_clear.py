@@ -462,7 +462,8 @@ def test_a_later_pass_lists_no_comments_of_a_stop_whose_issue_did_not_change(
 ) -> None:
     """Test first for #4854: a new comment moves the `updated_at` of its issue. So after the first
     pass of the process, a pass lists the comments of a stop only when its issue changed, and a
-    stop that nothing changed costs no request."""
+    stop that nothing changed costs no request. The clear comment reads the comments again before
+    it posts, as each comment of a job does (#4793)."""
     numbers = [_blocked(store) for _ in range(3)]
     template = Template(DIGEST_A)
     _clear(store, template)
@@ -481,7 +482,7 @@ def test_a_later_pass_lists_no_comments_of_a_stop_whose_issue_did_not_change(
 
     assert (idle, reads, retried.cleared, _item(store, numbers[1]).status) == (
         [()] * 3,
-        [numbers[1]],
+        [numbers[1], numbers[1]],
         (numbers[1],),
         "Ready",
     )

@@ -4725,6 +4725,12 @@ class RoadmapMessages:
     plan_conditions: dict[str, str] = field(
         default_factory=lambda: {
             "posted": "the change posts a comment",
+            "job_comment": "the comment holds the marker of a roadmap job",
+            "no_repeat": (
+                "the comment repeats no comment that the same job made on the issue in the last "
+                "7 days after the last comment of another author"
+            ),
+            "repeat_refused": "the store refuses the comment of refine as a repeat",
             "job_drafts": "the pull request is an open draft of a job",
             "check_on": "the repository is public and a search provider is configured",
             "check_changed": (

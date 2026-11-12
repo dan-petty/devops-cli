@@ -34,7 +34,7 @@ import json
 import subprocess
 import threading
 from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from http import HTTPStatus
 from itertools import islice
 from pathlib import PurePosixPath
@@ -59,6 +59,7 @@ from devops_cli.github.error_classifier import classify_gh_failure, gh_http_stat
 from devops_cli.github.rate_limiter import run_gh
 from devops_cli.github.repo_ref import is_repository_name
 from devops_cli.github.session import get_github_session
+from devops_cli.roadmap.stores.comment_repeat import refused_repeat
 from devops_cli.roadmap.stores.listing_snapshot import FULL_LISTING, IncrementalListing
 from devops_cli.roadmap.stores.store import (
     Candidate,
@@ -674,8 +675,11 @@ class GitHubRoadmapStore(RoadmapStore):
         runner: GhRunner = run_gh,
         session: ListingSession | None = None,
         listing: IncrementalListing | None = None,
+        clock: Callable[[], datetime] = lambda: datetime.now(UTC),
     ) -> None:
         self._repo = repo
+        # The time now, which the guard against a repeated job comment reads (#4793).
+        self._clock = clock
         # The REST listings are read through this session, or the process's when it is None.
         self._session = session
         # How every issue is read: in full when None, else from a snapshot and its changes.
@@ -934,9 +938,14 @@ class GitHubRoadmapStore(RoadmapStore):
             self._path_changes[path] = commits[0].committed_at if commits else None
         return self._path_changes[path]
 
-    def comment(self, number: int, body: str) -> None:
-        """Comment `body` on issue `number`."""
+    def comment(self, number: int, body: str) -> bool:
+        """Comment `body` on issue `number`, unless it repeats a recent comment of the same
+        roadmap job there: then it reads the comments of the issue, writes nothing and returns
+        False (#4793)."""
+        if refused_repeat(number, body, lambda: self.comments_on(number), now=self._clock()):
+            return False
         self._write(comment_args(self._repo, number, body), f"comment on #{number}")
+        return True
 
     def close(self, number: int, reason: CloseReason, *, comment: str | None = None) -> None:
         """Read issue `number`, post `comment` on it when given, then close it for `reason` in

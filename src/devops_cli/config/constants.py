@@ -3747,6 +3747,7 @@ CONST_ROADMAP_JOB_COMMENT_MARKERS: Final[tuple[str, ...]] = (
     CONST_ROADMAP_ALTERNATIVES_COMMENT_MARKER,
     CONST_ROADMAP_INTAKE_REASON_MARKER,
     CONST_ROADMAP_STAGE_COMMENT_MARKER,
+    CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER,
 )
 # `devops roadmap consolidate` (#1127): where its files are, under the data directory, and the name
 # of the file that holds the embeddings of the open items.

@@ -71,7 +71,8 @@ def dry_run_return(
     reads = [*store_req.issue(subject)]
     writes = [
         *store_req.issue(subject),
-        *store_req.comment(subject),
+        # The comment is the person's text, with no job marker, so no read of the comments.
+        *store_req.comment(subject, job=False),
         *store_req.set_field(subject, field_name=ItemField.STATUS.value),
     ]
     return reads, writes

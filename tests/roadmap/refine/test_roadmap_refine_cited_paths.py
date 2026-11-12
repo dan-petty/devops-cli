@@ -1,16 +1,17 @@
 """The paths that an item cites: refine records them, and a change of one on main gives a waiting
-item a new look (#1335).
+item a new look (#1335), one for each change (#4793).
 """
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from tests.support.fakes.model import ModelFake
 import pytest
+import time_machine
 
 from devops_cli.roadmap.refine.refine import (
     RefinementProposal,
@@ -56,6 +57,29 @@ def test_a_waiting_item_whose_cited_path_changes_on_main_after_refines_comment_i
         again.waiting_items,
         model_fake.call_count - calls,
     ) == (CITED_PATH, [number], [], 1)
+
+
+@pytest.mark.parametrize("blocked", [True, False], ids=["blocked", "suspected-block"])
+def test_each_change_of_a_cited_path_gives_one_new_look_when_the_look_finds_the_same_wait(
+    git_repo: Path, store: InMemoryRoadmapStore, model_fake: ModelFake, blocked: bool
+) -> None:
+    """A commit changes the cited path after refine's comment, and the new look finds the same
+    wait, so the store refuses the repeat of the comment. The round of that look starts the wait
+    again: the rounds after it make no model call until the next change (#4793)."""
+    looks: list[int] = []
+    with time_machine.travel(datetime(2026, 11, 12, 9, tzinfo=UTC), tick=False) as clock:
+        number = seed_item_blocked_in_code(store, model_fake, blocked=blocked)
+        refine_round(store, git_repo)
+        for _change in range(2):
+            calls = model_fake.call_count
+            clock.shift(timedelta(minutes=10))
+            store.seed_commit(CITED_PATH, at=datetime.now(UTC))
+            for _round in range(3):
+                clock.shift(timedelta(minutes=17))
+                refine_round(store, git_repo)
+            looks.append(model_fake.call_count - calls)
+
+    assert (looks, len(store.comments_on(number))) == ([1, 1], 1)
 
 
 def test_a_waiting_item_whose_cited_path_does_not_change_keeps_waiting_with_no_model_call(

@@ -216,6 +216,20 @@ def test_a_refine_round_plans_the_record_of_the_comments_it_read_of_a_waiting_it
     ) == ([f"api repos/{REPO}/issues/<item>", "issue patch"], [])
 
 
+def test_a_refine_plan_records_the_round_of_a_comment_that_the_store_refuses_as_a_repeat() -> None:
+    """When the store refuses refine's comment as a repeat, refine records the time of the round:
+    a read of the issue, then one `PATCH` of its job record, in a round and for `--item` (#4793)."""
+    from devops_cli.roadmap.request_plan import refine_requests
+
+    refused = MESSAGES.roadmap.plan_conditions["repeat_refused"]
+    plans = [refine_requests(REPO, None)[1], refine_requests(REPO, None, item=7)[1]]
+    shapes = [[_shape(r) for r in writes if r.condition == refused] for writes in plans]
+    assert shapes == [
+        [f"api repos/{REPO}/issues/<item>", "issue patch"],
+        [f"api repos/{REPO}/issues/7", "issue patch"],
+    ]
+
+
 def test_a_refine_round_plans_the_record_of_a_comment_the_cap_stops_and_an_item_plan_none() -> None:
     """A round records, on an item that the cap on refine's comments leaves alone, when its
     newest comment was made: a read of the issue, then one `PATCH` of its job record. `--item`
@@ -241,17 +255,18 @@ def test_a_refine_round_plans_the_read_and_the_notice_for_an_item_of_an_untruste
     single_reads, single_writes = refine_requests(REPO, None, item=7)
     texts = MESSAGES.roadmap
     read, notice = texts.plan_conditions["outside_author"], texts.plan_conditions["outside_notice"]
+    posted = {
+        f"{notice} and {texts.plan_conditions['job_comment']}",
+        f"{notice} and {texts.plan_conditions['no_repeat']}",
+    }
     repeat = texts.plan_repeat["outside_item"]
     paged = f"{repeat}; {texts.plan_repeat_page}"
+    comments = f"{API}{listing_path(comments_endpoint(REPO, '<item>'))}"
     assert (
         [(r.argv[1:], r.repeat) for r in reads if r.condition == read],
-        [(_shape(r), r.repeat) for r in writes if r.condition == notice],
-        [r for r in [*single_reads, *single_writes] if r.condition in {read, notice}],
-    ) == (
-        [((f"{API}{listing_path(comments_endpoint(REPO, '<item>'))}",), paged)],
-        [("api -X POST", repeat)],
-        [],
-    )
+        [(_shape(r), r.repeat) for r in writes if r.condition in posted],
+        [r for r in [*single_reads, *single_writes] if r.condition in {read, notice, *posted}],
+    ) == ([((comments,), paged)], [(comments, paged), ("api -X POST", repeat)], [])
 
 
 def test_a_refine_plan_lists_the_intake_requests_of_a_deferred_part() -> None:
@@ -289,6 +304,20 @@ def _shape(request: PlannedRequest) -> str:
     if args[:3] == ["api", "-X", "PATCH"]:
         return "issue patch"
     return " ".join(args[:3])
+
+
+def test_a_comment_plans_the_read_of_the_comments_of_a_job_then_the_post() -> None:
+    """A store reads the comments of the issue before a comment of a roadmap job, and posts no
+    repeat of the job's recent comment (#4793)."""
+    conditions = MESSAGES.roadmap.plan_conditions
+    read, post = StoreRequests(REPO).comment("#7")
+    assert (read.argv, read.condition, _shape(post), post.argv[4], post.condition) == (
+        ("GET", f"{API}{listing_path(comments_endpoint(REPO, 7))}"),
+        conditions["job_comment"],
+        "api -X POST",
+        comments_endpoint(REPO, 7),
+        conditions["no_repeat"],
+    )
 
 
 def test_a_field_write_plans_one_read_of_its_issue_and_one_patch() -> None:
@@ -340,7 +369,8 @@ def test_body_with_marks_a_refine_plan_lists_one_patch_for_the_body_the_labels_a
 
 def test_body_with_marks_an_alternatives_plan_lists_one_patch_for_the_block_and_the_marks() -> None:
     """A check costs one read of its issue, one `PATCH` that carries its new body and its marks,
-    and one comment. The plan lists no separate write of the body (#4049)."""
+    and one comment after a read of the comments (#4793). The plan lists no separate write of the
+    body (#4049)."""
     from devops_cli.roadmap.request_plan import alternatives_requests
 
     _, writes = alternatives_requests(REPO, item=7)
@@ -349,7 +379,15 @@ def test_body_with_marks_an_alternatives_plan_lists_one_patch_for_the_block_and_
     assert (
         [_shape(r) for r in writes],
         [sorted(json.loads(r.stdin or "{}")) for r in patches],
-    ) == ([f"api repos/{REPO}/issues/7", "issue patch", "api -X POST"], [["body"]])
+    ) == (
+        [
+            f"api repos/{REPO}/issues/7",
+            "issue patch",
+            f"{API}{listing_path(comments_endpoint(REPO, 7))}",
+            "api -X POST",
+        ],
+        [["body"]],
+    )
 
 
 def test_an_alternatives_plan_lists_the_comment_for_a_first_or_changed_check() -> None:
@@ -361,12 +399,14 @@ def test_an_alternatives_plan_lists_the_comment_for_a_first_or_changed_check() -
     _, writes = alternatives_requests(REPO, item=7)
     texts = MESSAGES.roadmap
 
-    comment = writes[-1]
-    assert (_shape(comment), comment.condition) == (
+    changed = f"{texts.plan_conditions['check_on']} and {texts.plan_conditions['check_changed']}"
+    read, comment = writes[-2:]
+    assert (_shape(comment), comment.condition, read.condition) == (
         "api -X POST",
-        f"{texts.plan_conditions['check_on']} and {texts.plan_conditions['check_changed']}",
+        f"{changed} and {texts.plan_conditions['no_repeat']}",
+        f"{changed} and {texts.plan_conditions['job_comment']}",
     )
-    assert all(texts.plan_conditions["check_changed"] not in w.condition for w in writes[:-1])
+    assert all(texts.plan_conditions["check_changed"] not in w.condition for w in writes[:-2])
 
 
 def test_no_roadmap_plan_lists_a_request_to_a_project_board() -> None:
@@ -401,7 +441,8 @@ def test_no_roadmap_plan_lists_a_request_to_a_project_board() -> None:
 
 def test_each_field_write_of_a_placement_reads_its_issue_first() -> None:
     """A placement writes Status, Value, Effort and Priority, each a read of the issue and then
-    one `PATCH`, and reads no listing between them."""
+    one `PATCH`, and reads no listing between them. The only listing is the read of the comments
+    before the reason comment (#4793)."""
     from devops_cli.roadmap.intake.intake import dry_run_intake
 
     writes = [r for r in dry_run_intake(REPO, ref="main", issues=(7,)).writes if r.argv]
@@ -409,8 +450,12 @@ def test_each_field_write_of_a_placement_reads_its_issue_first() -> None:
     assert (
         len(patches),
         [_shape(writes[i - 1]) for i in patches],
-        [r for r in writes if r.argv[:1] == ("GET",)],
-    ) == (4, [f"api repos/{REPO}/issues/7"] * 4, [])
+        [r.argv[1:] for r in writes if r.argv[:1] == ("GET",)],
+    ) == (
+        4,
+        [f"api repos/{REPO}/issues/7"] * 4,
+        [(f"{API}{listing_path(comments_endpoint(REPO, 7))}",)],
+    )
 
 
 # ── Through the real entry point ──────────────────────────────────────────────
@@ -722,10 +767,11 @@ def test_the_implement_plan_lists_amendment_commit_split_and_return_with_conditi
         for request in writes
         if request.method == "model" and request.condition == cond["split"]
     )
+    posted = f"{cond['return']} and {MESSAGES.roadmap.plan_conditions['no_repeat']}"
     return_comment = next(
         request
         for request in writes
-        if request.condition == cond["return"] and any("comments" in arg for arg in request.argv)
+        if request.condition == posted and any("comments" in arg for arg in request.argv)
     )
     return_status = next(
         request

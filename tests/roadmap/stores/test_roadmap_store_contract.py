@@ -21,6 +21,7 @@ from typing import Protocol
 
 import pytest
 
+from devops_cli.config.constants import CONST_ROADMAP_REFINE_COMMENT_MARKER
 from devops_cli.exceptions.git import (
     GitHubFileNotFoundError,
     GitHubOperationError,
@@ -181,8 +182,12 @@ class GitHubWorld:
 
     def __init__(self) -> None:
         self.github = GitHubFake(REPO)
+        # `GitHubFake` dates each comment on 2026-10-01, so the store's clock reads that day.
         self.store: RoadmapStore = GitHubRoadmapStore(
-            REPO, runner=self.github, session=RunnerSession(self.github)
+            REPO,
+            runner=self.github,
+            session=RunnerSession(self.github),
+            clock=lambda: datetime(2026, 10, 1, 12, tzinfo=UTC),
         )
 
     def seed(
@@ -632,6 +637,27 @@ def test_a_close_posts_its_comment_and_closes_the_issue_for_its_reason(world: Wo
         _closed_as(world, number),
         world.writes(),
     ) == (["Superseded by #2399."], (GitHubState.CLOSED, "not_planned"), 2)
+
+
+def test_a_job_comment_that_repeats_the_jobs_last_one_is_refused(world: World) -> None:
+    """A comment of a roadmap job whose text, with its commit left out, is the text of the job's
+    last comment on the item makes no write, and the store says so (#4793). A changed fact
+    posts."""
+    number = world.seed("waits")
+    first = f"{CONST_ROADMAP_REFINE_COMMENT_MARKER}\nReady at a9d6d9fd373f after #3566."
+    changed = f"{CONST_ROADMAP_REFINE_COMMENT_MARKER}\nReady at a9d6d9fd373f after #3567."
+
+    posted = [
+        world.store.comment(number, first),
+        world.store.comment(number, first.replace("a9d6d9fd373f", "0232651a6e35")),
+        world.store.comment(number, changed),
+    ]
+
+    assert (posted, [c.body for c in world.store.comments_on(number)], world.writes()) == (
+        [True, False, True],
+        [first, changed],
+        2,
+    )
 
 
 def test_a_close_with_no_comment_only_closes(world: World) -> None:

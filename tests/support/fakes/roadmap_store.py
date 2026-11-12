@@ -37,7 +37,10 @@ from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from typing import Any, Concatenate, Final, cast
 
-from devops_cli.config.constants import CONST_GH_ISSUE_STATE_REASON_REOPENED
+from devops_cli.config.constants import (
+    CONST_GH_ISSUE_STATE_REASON_REOPENED,
+    CONST_ROADMAP_JOB_COMMENT_MARKERS,
+)
 from devops_cli.exceptions.git import GitHubFileNotFoundError, GitHubOperationError
 from devops_cli.roadmap.stores.store import (
     Candidate,
@@ -575,10 +578,25 @@ class InMemoryRoadmapStore(RoadmapStore):
         """Whether the evidence was seeded as one GitHub confirms."""
         return evidence in self._roadmap.evidence
 
-    @_write
-    def comment(self, number: int, body: str) -> None:
-        """Comment `body` on issue `number`."""
-        self._comment(number, body)
+    def comment(self, number: int, body: str) -> bool:
+        """Comment `body` on issue `number`, unless it repeats a recent comment of the same
+        roadmap job there, as the GitHub adapter does (#4793): a refused repeat is no write, and
+        returns False."""
+        if self._refused_repeat(number, body):
+            return False
+        self._attempt("comment", number, lambda: self._comment(number, body))
+        return True
+
+    def _refused_repeat(self, number: int, body: str) -> bool:
+        if not any(marker in body for marker in CONST_ROADMAP_JOB_COMMENT_MARKERS):
+            return False
+        # Imported here, and only for a comment of a job, so that the fail-to-pass replay loads
+        # this module, and posts a person's comment, against a base tree that has no guard yet.
+        from devops_cli.roadmap.stores.comment_repeat import refused_repeat
+
+        return refused_repeat(
+            number, body, lambda: self.comments_on(number), now=self._roadmap.clock()
+        )
 
     def _comment(self, number: int, body: str) -> None:
         issue = self._require_issue(number, "roadmap.issue.comment")
@@ -632,7 +650,7 @@ class InMemoryRoadmapStore(RoadmapStore):
         issue = self._require_issue(number, "roadmap.issue.close")
         if issue.state is GitHubState.CLOSED:
             raise already_closed(number, {"number": number})
-        if comment is not None:
+        if comment is not None and not self._refused_repeat(number, comment):
             self._comment(number, comment)
         self._close(self._roadmap.issues[number], reason)
         self._log("close", number, value=reason.value)

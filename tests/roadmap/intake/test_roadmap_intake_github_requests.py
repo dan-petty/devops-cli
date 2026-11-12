@@ -77,15 +77,15 @@ def test_a_placement_sends_the_same_few_requests_whatever_the_number_of_items(
     items: int,
 ) -> None:
     """Filing and placing a critical fix: the file, the type label, a read and one `PATCH` for
-    each of four fields, and the reason comment, 11 requests, none of them GraphQL, on a
-    repository of 120 items or of 1,080."""
+    each of four fields, and the reason comment after a read of the comments (#4793), 12
+    requests, none of them GraphQL, on a repository of 120 items or of 1,080."""
     github, store = on_github(items=items)
     model = FakeModel(proposals={CRITICAL_FIX.title: REGRESSION})
     _, apply = intake_on_github(store, model, new=CRITICAL_FIX)
     start = len(github.calls)
     apply()
     sent = github.calls[start:]
-    assert (len(sent), [args for args in sent if "graphql" in args]) == (11, [])
+    assert (len(sent), [args for args in sent if "graphql" in args]) == (12, [])
 
 
 def test_a_candidate_with_status_and_value_labels_gets_only_effort_and_priority() -> None:

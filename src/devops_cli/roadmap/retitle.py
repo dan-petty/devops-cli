@@ -59,7 +59,6 @@ from pydantic import BaseModel, ConfigDict
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config.constants import (
     CONST_BRANCH_TYPES,
-    CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER,
     CONST_ROADMAP_JOB_COMMENT_MARKERS,
     CONST_ROADMAP_RETITLE_COMMENT_MARKER,
 )
@@ -95,8 +94,6 @@ logger = logging.getLogger(__name__)
 _PROMPT = "roadmap_retitle.md"
 # The requests to the model for one item: the first, and one with the faults of its reply.
 _ATTEMPTS = 2
-# The markers of the comments that a job wrote: those of a person do not count.
-_JOB_MARKERS = (*CONST_ROADMAP_JOB_COMMENT_MARKERS, CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER)
 # The reason keys of the log line of a skip (#4508): a title type that the stage job cannot take,
 # and a title summary over the limit.
 _KEY_TYPE = "invalid-title-type"
@@ -248,7 +245,7 @@ def retitle_items(store: RoadmapStore, item_number: int | None = None) -> list[I
 
 
 def _is_job_comment(comment: IssueComment) -> bool:
-    return any(marker in comment.body for marker in _JOB_MARKERS)
+    return any(marker in comment.body for marker in CONST_ROADMAP_JOB_COMMENT_MARKERS)
 
 
 def person_changed_title(comments: Sequence[IssueComment], renamed_at: datetime | None) -> bool:

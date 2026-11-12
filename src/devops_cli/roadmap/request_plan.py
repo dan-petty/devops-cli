@@ -265,9 +265,16 @@ class StoreRequests:
         edit = self._edit(subject, "set_field", stdin, field=field_name or _p("field"))
         return [*self.issue_now(subject), edit]
 
-    def comment(self, subject: str) -> Requests:
+    def comment(self, subject: str, *, job: bool = True) -> Requests:
+        """The comment. A comment that can be a roadmap job's (`job`) first reads the comments
+        of the issue, and a repeat of a recent comment of the job does not post (#4793)."""
         args = gh.comment_args(self.repo, _number(subject), _p("comment"))
-        return [self.gh(args, "comment", subject=subject)]
+        post = [self.gh(args, "comment", subject=subject)]
+        if not job:
+            return post
+        conditions = MESSAGES.roadmap.plan_conditions
+        read = within(self.comments_on(subject), conditions["job_comment"])
+        return [*read, *within(post, conditions["no_repeat"])]
 
     def close(self, subject: str, reason: CloseReason, *, comment: bool) -> Requests:
         """The issue, which a close refuses when it is no open issue, then its comment when one
@@ -391,6 +398,11 @@ def refine_requests(
     part_reads, part_writes = planned_requests([_p("deferred_part")], repo=repo, ref=None, new=True)
     deferred_reads = within(part_reads, cond["deferred"])
     deferred_writes = within([*part_writes, *store.set_marks(target_item)], cond["deferred"])
+    # A repeat that the store refuses records the time of the round as the start of the wait.
+    comment_writes = [
+        *within(store.comment(target_item), cond["posted"]),
+        *within(store.set_marks(target_item), cond["repeat_refused"]),
+    ]
 
     if item is not None:
         reads = [
@@ -404,7 +416,7 @@ def refine_requests(
         writes = [
             *deferred_writes,
             *store.set_field(target_item, field_name="Status"),
-            *within(store.comment(target_item), cond["posted"]),
+            *comment_writes,
         ]
     else:
         each_milestone = rep["milestone"]
@@ -435,7 +447,7 @@ def refine_requests(
                 [
                     *deferred_writes,
                     *store.set_field(target_item, field_name="Status"),
-                    *within(store.comment(target_item), cond["posted"]),
+                    *comment_writes,
                 ],
                 repeat=each_candidate,
             ),

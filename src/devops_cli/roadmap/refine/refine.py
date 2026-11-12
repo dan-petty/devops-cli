@@ -61,7 +61,10 @@ A proposal with a suspected block or an open dependency also names the repositor
 code causes the block (`block_paths`). Refine records those that the checkout holds, at most
 `CONST_ROADMAP_REFINE_MAX_BLOCK_PATHS`, and a later round looks at the waiting item again when a
 commit on the default branch changed one of them at or after refine's last comment (#2005). That
-costs one commit read for each recorded path of an item that still waits, once a round.
+costs one commit read for each recorded path of an item that still waits, once a round. When the
+store refuses the comment of such a look as a repeat, the round records its time
+(`RefineRecordKey.REPEATED_AT`), and the wait starts at that time, so one change gives one look
+(#4793).
 The check of the alternatives job (#2650) is an input of both model calls (`alternatives`: its
 verdict, tool, block and latest comment). A `covers` verdict is a question that only a person
 answers: adopt the tool, or keep the item with a reason. It is open, and the item waits on a
@@ -234,6 +237,7 @@ from devops_cli.roadmap.stores.store import (
     RoadmapStore,
     StageRecordKey,
     Verdict,
+    as_utc,
 )
 from devops_cli.roadmap.trust import is_approved, is_bot_filed, is_trusted, trusted_replies
 from devops_cli.telemetry.instruments import ROADMAP_REFINE_COMMENTS_CAPPED_TOTAL, emit
@@ -1869,7 +1873,7 @@ def changed_since(store: RoadmapStore, paths: Sequence[str], since: datetime) ->
 
 def _cited_code_changed(store: RoadmapStore, item: Item, since: datetime) -> bool:
     """Whether a commit on the default branch changed a path the item's block cites at or after
-    `since`, the time of refine's last comment on it (#2005)."""
+    `since`, the start of the wait (`_wait_start`, #2005)."""
     return changed_since(store, _recorded_block_paths(item), since)
 
 
@@ -1980,11 +1984,28 @@ def _set_by_older_rules(item: Item, commented_at: datetime) -> bool:
     return version < CONST_ROADMAP_REFINE_RULES_SINCE
 
 
-def _person_wait_over(store: RoadmapStore, item: Item, refs: str, commented_at: datetime) -> bool:
+def _person_wait_over(store: RoadmapStore, item: Item, refs: str, since: datetime) -> bool:
     """Whether the wait of `item` on a person is over with no reply: rules older than the current
     ones set it (#4795), or an issue or a file that `refs` names closed or changed at or after
-    `commented_at`, the time of refine's last comment (#3483)."""
-    return _set_by_older_rules(item, commented_at) or _named_cause_ended(store, refs, commented_at)
+    `since`, the start of the wait (`_wait_start`, #3483)."""
+    return _set_by_older_rules(item, since) or _named_cause_ended(store, refs, since)
+
+
+def _wait_start(item: Item, commented_at: datetime) -> datetime:
+    """The start of the wait of `item`: `commented_at`, the time of refine's last comment, or the
+    later time of a round whose comment the store refused as a repeat of it
+    (`RefineRecordKey.REPEATED_AT`). That round looked at the item after the change that ended
+    the wait before, so the change ends no later wait (#4793). A value that is no time counts as
+    none."""
+    recorded = item.job_record.get(RefineRecordKey.REPEATED_AT)
+    if not recorded:
+        return commented_at
+    try:
+        repeated_at = datetime.fromisoformat(recorded)
+    except ValueError:
+        logger.warning("The time of the refused repeat recorded on #%d is not a time.", item.number)
+        return commented_at
+    return max(commented_at, as_utc(repeated_at))
 
 
 def _stage_return(item: Item, comments: Sequence[IssueComment]) -> IssueComment | None:
@@ -2095,9 +2116,10 @@ def _still_waiting(
     if state is None:
         return None
     commented_at, refs, marks = state
-    if _cited_code_changed(store, item, commented_at):
+    since = _wait_start(item, commented_at)
+    if _cited_code_changed(store, item, since):
         return None
-    if names_cause and _person_wait_over(store, item, refs, commented_at):
+    if names_cause and _person_wait_over(store, item, refs, since):
         return None
     return WaitingItem(item, step, details, marks=marks)
 
@@ -3253,12 +3275,13 @@ def _apply_refined(store: RoadmapStore, r: RefinedItem, *, repo: str) -> RefineA
     else:
         store.set_marks(r.item, marks, body=r.new_body)
 
-    # Comment
+    # Comment: a repeat that the store refuses starts the wait at this round (#4793)
     comments = 0
     comment = _with_deferrals(r.reason_comment, deferred)
-    if comment:
-        store.comment(r.item.number, comment)
+    if comment and store.comment(r.item.number, comment):
         comments = 1
+    elif comment:
+        store.set_marks(r.item, {RefineRecordKey.REPEATED_AT: datetime.now(UTC).isoformat()})
     return RefineApplied(
         refined_count=1,
         readied_count=readied,
