@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.123.0](https://github.com/dan-petty/devops-cli/compare/v0.122.0...v0.123.0) (2026-11-12)
+
+
+### Features
+
+* **infra:** plan a playbook of an infra repo in check mode ([#5196](https://github.com/dan-petty/devops-cli/issues/5196)) ([050a6ef](https://github.com/dan-petty/devops-cli/commit/050a6ef721aa6de619088f09df65f516c0cdbdc8))
+* **monitoring:** enable the image renderer for panel checks ([#5193](https://github.com/dan-petty/devops-cli/issues/5193)) ([e413c40](https://github.com/dan-petty/devops-cli/commit/e413c40455adbdd7d6136beb7845de7772a25394))
+
+
+### Bug Fixes
+
+* **monitoring:** make the GitHub and command panels readable ([#5194](https://github.com/dan-petty/devops-cli/issues/5194)) ([e99810e](https://github.com/dan-petty/devops-cli/commit/e99810ea6872cfd8e31924bc11d253528791d224))
+
 ## [0.122.0](https://github.com/dan-petty/devops-cli/compare/v0.121.1...v0.122.0) (2026-11-12)
 
 
