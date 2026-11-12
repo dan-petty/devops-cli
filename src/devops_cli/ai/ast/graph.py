@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+import os
 import re
 from pathlib import Path
 
@@ -9,28 +11,67 @@ from devops_cli.ai.ast.engine import EXT_TO_LANG, TreeSitterEngine
 from devops_cli.ai.ast.models import CodeGraph, CodeGraphEdge, PolyglotFileMap, PolyglotSymbol
 from devops_cli.core.repo import find_worktree_root, is_ignored_by_git
 
+logger = logging.getLogger(__name__)
+
 
 def _is_excluded(path: Path, repo_root: Path) -> bool:
     """Whether `path` is left out of the graph: a symlink, or ignored by `repo_root`'s rules."""
     return path.is_symlink() or is_ignored_by_git(repo_root, path)
 
 
-def _collect_target_files(root_dir: Path, max_files: int) -> list[Path]:
+def _list_folder(folder: Path, repo_root: Path) -> tuple[list[Path], list[Path]]:
+    """Return the files of `folder` and its subfolders that git does not ignore, as listed."""
     files: list[Path] = []
+    subfolders: list[Path] = []
+    try:
+        with os.scandir(folder) as entries:
+            for entry in entries:
+                path = folder / entry.name
+                if not entry.is_dir(follow_symlinks=False):
+                    files.append(path)
+                elif not is_ignored_by_git(repo_root, path, is_dir=True):
+                    subfolders.append(path)
+    except OSError as exc:
+        # `Path.rglob` also went past a folder that it could not list.
+        logger.debug("Cannot list %s for the code graph: %s", folder, exc)
+    return files, subfolders
+
+
+def _walk_files(root_dir: Path, repo_root: Path) -> list[Path]:
+    """List the files under `root_dir` once, and skip each folder that git ignores, whole.
+
+    A walk per extension also went into `.venv` and the other ignored folders, which took
+    most of a build. The order is the order of `Path.rglob`, so `max_files` keeps the same
+    files: each subfolder of a folder gives its files in turn, then the walk goes into the
+    last subfolder first.
+    """
+    files, subfolders = _list_folder(root_dir, repo_root)
+    pending = [subfolders]
+    while pending:
+        for folder in pending.pop():
+            folder_files, folder_subfolders = _list_folder(folder, repo_root)
+            files.extend(folder_files)
+            pending.append(folder_subfolders)
+    return files
+
+
+def _collect_target_files(root_dir: Path, max_files: int) -> list[Path]:
     repo_root = find_worktree_root(root_dir)
-    for ext in sorted(EXT_TO_LANG.keys()):
-        for candidate in root_dir.rglob(f"*{ext}"):
-            if not _is_excluded(candidate, repo_root):
-                files.append(candidate)
+    walked = _walk_files(root_dir, repo_root)
+    candidates = [path for ext in sorted(EXT_TO_LANG) for path in walked if path.name.endswith(ext)]
+    candidates.extend(
+        path
+        for path in walked
+        if path.name.startswith(("Dockerfile", "Containerfile"))
+        and path.is_file()
+        and path not in candidates
+    )
+    files: list[Path] = []
+    for candidate in candidates:
+        if not _is_excluded(candidate, repo_root):
+            files.append(candidate)
             if len(files) >= max_files:
-                return files
-    for pattern in ("Dockerfile*", "Containerfile*"):
-        for candidate in root_dir.rglob(pattern):
-            if candidate.is_file() and not _is_excluded(candidate, repo_root):
-                if candidate not in files:
-                    files.append(candidate)
-            if len(files) >= max_files:
-                return files
+                break
     return files
 
 
@@ -53,7 +94,10 @@ def _extract_symbol_body(sym: PolyglotSymbol, file_lines: list[str]) -> str:
 
 
 def _is_call_in_body(target_name: str, body: str) -> bool:
-    return bool(re.search(rf"\b{re.escape(target_name)}\s*\(", body))
+    # The call pattern holds the name as written, so a body without the name cannot match it.
+    # The substring test skips the regex for almost every pair; one compile per pair missed
+    # the `re` cache and took most of a build.
+    return target_name in body and bool(re.search(rf"\b{re.escape(target_name)}\s*\(", body))
 
 
 def _link_call_edges(
