@@ -12,6 +12,7 @@ The traffic row of the project dashboard has no sample since 2026-10-30. The Ser
 - Rename the base requirement `The Service collects no repository traffic` to `The Service collects repository traffic`, and modify it.
 - Modify the base requirement `A path that the token cannot read is not asked again`: it adds the refused repository and the warning, and it corrects the count of its first scenario, as the code asks each traffic path once.
 - Modify the base requirement `A refused permission names each permission that the token asks for`, because the HTTP 422 message now names eight permissions.
+- Modify the base requirement `A report without traffic sends no traffic gauge`: its scenario under the App now has GitHub refuse the traffic paths.
 - Record the permission in an amendment line, the decision bullet and the consequences of ADR 0015, and correct the traffic paragraph of `docs/TELEMETRY.md`.
 - Update the traffic tests of `tests/github/test_github_metrics.py`, `tests/roadmap/test_roadmap_run_metrics.py` and `tests/github/test_github_app_identity.py`.
 - The change fits one pull request.
@@ -26,7 +27,7 @@ None.
 
 - `github-app-identity`: Each installation token asks only for the roadmap jobs' permissions
 - `github-app-identity`: A refused permission names each permission that the token asks for
-- `project-metrics-dashboard`: The Service collects repository traffic (renamed from The Service collects no repository traffic), A path that the token cannot read is not asked again
+- `project-metrics-dashboard`: The Service collects repository traffic (renamed from The Service collects no repository traffic), A report without traffic sends no traffic gauge, A path that the token cannot read is not asked again
 
 ## Impact
 

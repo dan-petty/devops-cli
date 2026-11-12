@@ -20,6 +20,13 @@ A process that acts as the GitHub App or as a person SHALL send one request to e
 - **WHEN** `devops gh metrics` prints a report whose `traffic_collected` is false
 - **THEN** its traffic line says "not collected" and shows no count of views or clones
 
+### Requirement: A report without traffic sends no traffic gauge
+`emit_project_metrics_telemetry` SHALL send none of the six `devops_cli_project_traffic_*` gauges for a report whose `traffic_collected` is false, and SHALL still send the stars and the forks.
+
+#### Scenario: A round of the metrics row under the App
+- **WHEN** the metrics row runs in a process that acts as the GitHub App, and GitHub, faked at the `gh` edge, refuses the traffic paths with 403 "Resource not accessible by integration"
+- **THEN** the row sends no `devops_cli_project_traffic_*` point and sends `devops_cli_project_stars` and `devops_cli_project_forks`
+
 ### Requirement: A path that the token cannot read is not asked again
 The project metrics collector SHALL NOT send a GitHub path again in the same process after GitHub answered that path with HTTP 403 and the message "Resource not accessible by integration". After such a traffic refusal it SHALL send no traffic request for that repository and SHALL log one warning that names the repository and `administration: read`. Another repository and any other failure SHALL NOT set the guard. A new process SHALL start with no refused path.
 
