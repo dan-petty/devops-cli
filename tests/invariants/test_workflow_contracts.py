@@ -62,6 +62,7 @@ JOB_LIMIT_MINUTES = {
     ("ci.yml", "mcp-server-image"): 12,  # 331 s
     ("ci.yml", "dependency-freshness"): 5,  # 33 s
     ("ci.yml", "changed-tests"): 15,  # 797 s before #4509, 174 s after it
+    ("service-image-test.yml", "service-image-build"): 8,  # new in #4642; 129 s of shard builds
     ("service-image-test.yml", "service-image-test"): 20,  # 678 s
     ("devcontainer-image.yml", "devcontainer"): 20,  # 416 s; a build with no cache takes longer
     ("rule-pack.yml", "rule-pack"): 5,  # 35 s on 2026-10-17; no rule changed after it

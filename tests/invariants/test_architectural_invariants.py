@@ -1727,9 +1727,13 @@ def _service_image_test_job_problems(
     workflow: Mapping[Any, Any], expected_release: str
 ) -> list[str]:
     """Return problems when the in-image test workflow does not build `./Dockerfile` and run
-    `pytest` inside it (#1643) daily and on the pull requests that change the image (#4644)."""
+    `pytest` inside it (#1643) daily and on the pull requests that change the image (#4644).
+
+    One job that the shards need builds the image and exports it as a Docker archive, and each
+    shard loads that archive and builds nothing (#4642)."""
     jobs = workflow.get("jobs")
-    job = jobs.get(_SERVICE_IMAGE_TEST_JOB) if isinstance(jobs, Mapping) else None
+    jobs = jobs if isinstance(jobs, Mapping) else {}
+    job = jobs.get(_SERVICE_IMAGE_TEST_JOB)
     if not isinstance(job, Mapping):
         return [
             f"{_SERVICE_IMAGE_TEST_WORKFLOW} lacks job {_SERVICE_IMAGE_TEST_JOB!r} while Dockerfile "
@@ -1738,26 +1742,41 @@ def _service_image_test_job_problems(
     problems: list[str] = _image_workflow_trigger_problems(
         workflow, _SERVICE_IMAGE_TEST_WORKFLOW, _SERVICE_IMAGE_TEST_INPUTS
     )
-    steps = [s for s in job.get("steps", ()) if isinstance(s, Mapping)]
+
+    def job_steps(job_id: object) -> list[Mapping[Any, Any]]:
+        found = jobs.get(job_id)
+        steps = found.get("steps", ()) if isinstance(found, Mapping) else ()
+        return [s for s in steps if isinstance(s, Mapping)]
+
+    def builds_image(step: Mapping[Any, Any]) -> bool:
+        return str(step.get("uses", "")).startswith("docker/build-push-action@")
+
+    steps = job_steps(_SERVICE_IMAGE_TEST_JOB)
+    needs = job.get("needs", ())
     builds = [
-        s.get("with", {})
-        for s in steps
-        if str(s.get("uses", "")).startswith("docker/build-push-action@")
-        and isinstance(s.get("with"), Mapping)
+        s["with"]
+        for needed in ([needs] if isinstance(needs, str) else needs)
+        for s in job_steps(needed)
+        if builds_image(s) and isinstance(s.get("with"), Mapping)
     ]
-    valid_tags = [
+    exported_tags = [
         str(w.get("tags"))
         for w in builds
         if w.get("file") in ("./Dockerfile", "Dockerfile")
         and w.get("target") in (None, "service")
-        and w.get("load") in (True, "true")
         and w.get("push") in (False, "false")
+        and str(w.get("outputs", "")).startswith("type=docker,")
         and w.get("tags")
     ]
+    loads = any("docker load" in str(s.get("run", "")) for s in steps)
+    valid_tags = exported_tags if loads else []
     if not valid_tags:
         problems.append(
-            f"{_SERVICE_IMAGE_TEST_JOB} does not build and load the service stage of ./Dockerfile"
+            f"{_SERVICE_IMAGE_TEST_JOB} does not load the service stage of ./Dockerfile that a "
+            "job it needs builds"
         )
+    if any(builds_image(s) for s in steps):
+        problems.append(f"{_SERVICE_IMAGE_TEST_JOB} builds the image in each shard")
     runs_suite_in_container = any(
         "docker run" in str(s.get("run", ""))
         and "pytest" in str(s.get("run", ""))
@@ -1834,8 +1853,9 @@ def test_service_and_devcontainer_debian_releases_are_aligned_or_tested_in_ci() 
 def _patch_service_image_test_step(
     ci_workflow: dict[Any, Any], step_name: str, field: str, value: str
 ) -> None:
-    """Mutate one field on a named step inside `service-image-test` for negative invariant tests."""
-    for step in ci_workflow["jobs"][_SERVICE_IMAGE_TEST_JOB]["steps"]:
+    """Mutate one field on a named step of the in-image test workflow for negative invariant
+    tests."""
+    for step in (s for job in ci_workflow["jobs"].values() for s in job["steps"]):
         if step.get("name") != step_name:
             continue
         if field == "target":
@@ -1906,9 +1926,10 @@ def _patch_service_image_test_step(
             None,
             None,
             False,
-            ("Build and Load Service Image", "target", "runner"),
+            ("Build Service Image", "target", "runner"),
             [
-                "service-image-test does not build and load the service stage of ./Dockerfile",
+                "service-image-test does not load the service stage of ./Dockerfile that a job it "
+                "needs builds",
                 "service-image-test does not run pytest inside the built trixie service image via docker run",
             ],
             id="wrong-build-target",
@@ -2010,6 +2031,71 @@ def test_the_in_image_suite_runs_daily_and_on_image_pull_requests_only(
         (REPO_ROOT / _SERVICE_IMAGE_TEST_WORKFLOW).read_text(encoding="utf-8")
     )
     mutate(workflow[True])
+
+    assert _service_image_test_job_problems(workflow, "trixie") == expected
+
+
+_SERVICE_IMAGE_BUILD_JOB: Final[str] = "service-image-build"
+_NOT_LOADED: Final[str] = (
+    "service-image-test does not load the service stage of ./Dockerfile that a job it needs builds"
+)
+_NOT_RUN_IN_IMAGE: Final[str] = (
+    "service-image-test does not run pytest inside the built trixie service image via docker run"
+)
+
+
+def _workflow_step(workflow: dict[Any, Any], job_id: str, name: str) -> dict[str, Any]:
+    """The step of the job `job_id` with the name `name`."""
+    return next(s for s in workflow["jobs"][job_id]["steps"] if s.get("name") == name)
+
+
+def _build_in_each_shard(workflow: dict[Any, Any]) -> None:
+    """Give each shard its own build of the image again, as before #4642."""
+    build = _workflow_step(workflow, _SERVICE_IMAGE_BUILD_JOB, "Build Service Image")
+    workflow["jobs"][_SERVICE_IMAGE_TEST_JOB]["steps"].insert(1, copy.deepcopy(build))
+
+
+@pytest.mark.parametrize(
+    ("mutate", "expected"),
+    [
+        pytest.param(lambda wf: None, [], id="one-build-loaded-by-each-shard"),
+        pytest.param(
+            lambda wf: wf["jobs"][_SERVICE_IMAGE_TEST_JOB].pop("needs"),
+            [_NOT_LOADED, _NOT_RUN_IN_IMAGE],
+            id="no-build-job",
+        ),
+        pytest.param(
+            lambda wf: _workflow_step(wf, _SERVICE_IMAGE_BUILD_JOB, "Build Service Image")[
+                "with"
+            ].pop("outputs"),
+            [_NOT_LOADED, _NOT_RUN_IN_IMAGE],
+            id="build-not-exported",
+        ),
+        pytest.param(
+            lambda wf: _workflow_step(wf, _SERVICE_IMAGE_TEST_JOB, "Load Service Image").update(
+                run="docker image ls"
+            ),
+            [_NOT_LOADED, _NOT_RUN_IN_IMAGE],
+            id="image-not-loaded",
+        ),
+        pytest.param(
+            _build_in_each_shard,
+            ["service-image-test builds the image in each shard"],
+            id="build-in-each-shard",
+        ),
+    ],
+)
+def test_the_shards_load_one_build_of_the_service_stage(
+    mutate: Callable[[dict[Any, Any]], object], expected: list[str]
+) -> None:
+    """One job builds the `service` stage and exports it as a Docker archive. Each shard needs
+    that job and loads the archive. A build in each shard took 100 s of each shard (#4642)."""
+    import yaml
+
+    workflow: dict[Any, Any] = yaml.safe_load(
+        (REPO_ROOT / _SERVICE_IMAGE_TEST_WORKFLOW).read_text(encoding="utf-8")
+    )
+    mutate(workflow)
 
     assert _service_image_test_job_problems(workflow, "trixie") == expected
 
