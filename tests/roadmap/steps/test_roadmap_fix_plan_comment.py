@@ -46,7 +46,7 @@ if TYPE_CHECKING:
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
-STAGE_COMMENT = (FIXTURES / "roadmap_fix_plan" / "stage_comment.md").read_text(encoding="utf-8")
+STAGE_COMMENT = (FIXTURES / "roadmap_fix_plan" / "stage_comment.txt").read_text(encoding="utf-8")
 
 
 @pytest.fixture(autouse=True)
