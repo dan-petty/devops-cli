@@ -372,7 +372,7 @@
     },
     {
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "description": "Total repository page views and unique visitors over the last 14 days. It shows the latest value of each series in the time range, and no data when none was sent in it. Only `devops gh metrics --emit-telemetry`, run with a person's `gh` login, sends traffic numbers. The roadmap Service sends none, so the panel shows the last value that a workstation sent, and it can be old.",
+      "description": "Total repository page views and unique visitors over the last 14 days. It shows the latest value of each series in the time range, and no data when none was sent in it. The roadmap Service and `devops gh metrics --emit-telemetry` send traffic numbers. A repository whose traffic GitHub refused has no traffic series.",
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "palette-classic" },
@@ -419,7 +419,7 @@
     },
     {
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "description": "Total git clones and unique cloners over the last 14 days. It shows the latest value of each series in the time range, and no data when none was sent in it. Only `devops gh metrics --emit-telemetry`, run with a person's `gh` login, sends traffic numbers. The roadmap Service sends none, so the panel shows the last value that a workstation sent, and it can be old.",
+      "description": "Total git clones and unique cloners over the last 14 days. It shows the latest value of each series in the time range, and no data when none was sent in it. The roadmap Service and `devops gh metrics --emit-telemetry` send traffic numbers. A repository whose traffic GitHub refused has no traffic series.",
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "palette-classic" },
@@ -513,7 +513,7 @@
     },
     {
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "description": "Top GitHub repository traffic referral sources over the last 14 days. It shows the latest value of each series in the time range, and no data when none was sent in it. Only `devops gh metrics --emit-telemetry`, run with a person's `gh` login, sends traffic numbers. The roadmap Service sends none, so the panel shows the last value that a workstation sent, and it can be old.",
+      "description": "Top GitHub repository traffic referral sources over the last 14 days. It shows the latest value of each series in the time range, and no data when none was sent in it. The roadmap Service and `devops gh metrics --emit-telemetry` send traffic numbers. A repository whose traffic GitHub refused has no traffic series.",
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "palette-classic" },
@@ -552,7 +552,7 @@
     },
     {
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "description": "Most popular content paths and documentation visited over the last 14 days. It shows the latest value of each series in the time range, and no data when none was sent in it. Only `devops gh metrics --emit-telemetry`, run with a person's `gh` login, sends traffic numbers. The roadmap Service sends none, so the panel shows the last value that a workstation sent, and it can be old.",
+      "description": "Most popular content paths and documentation visited over the last 14 days. It shows the latest value of each series in the time range, and no data when none was sent in it. The roadmap Service and `devops gh metrics --emit-telemetry` send traffic numbers. A repository whose traffic GitHub refused has no traffic series.",
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "palette-classic" },

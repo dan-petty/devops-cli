@@ -522,12 +522,15 @@ TRAFFIC_PANELS = (
     "Top Referral Sources (14 Days)",
     "Popular Content Paths (14 Days)",
 )
-TRAFFIC_SOURCE = "devops gh metrics --emit-telemetry"
+TRAFFIC_SOURCES = (
+    "The roadmap Service and `devops gh metrics --emit-telemetry` send traffic numbers.",
+    "A repository whose traffic GitHub refused has no traffic series.",
+)
 
 
-def test_each_traffic_panel_names_the_workstation_command_that_sends_its_numbers() -> None:
-    """The roadmap Service sends no traffic gauge (#2752). Only a person's workstation does, so a
-    panel shows the last value of a workstation and can be old. Its description says so."""
+def test_each_traffic_panel_names_the_senders_of_its_numbers() -> None:
+    """The roadmap Service and a person's workstation send the traffic gauges (#2752, #4757). A
+    repository whose traffic GitHub refused has no series. Each traffic panel says so."""
     dashboard = json.loads((DASHBOARDS_DIR / "project-metrics.json").read_text(encoding="utf-8"))
     descriptions = {
         panel["title"]: panel.get("description", "")
@@ -535,6 +538,7 @@ def test_each_traffic_panel_names_the_workstation_command_that_sends_its_numbers
         if panel["title"] in TRAFFIC_PANELS
     }
 
-    assert {title: TRAFFIC_SOURCE in text for title, text in descriptions.items()} == dict.fromkeys(
-        TRAFFIC_PANELS, True
-    )
+    assert {
+        title: all(source in text for source in TRAFFIC_SOURCES) and "sends none" not in text
+        for title, text in descriptions.items()
+    } == dict.fromkeys(TRAFFIC_PANELS, True)
