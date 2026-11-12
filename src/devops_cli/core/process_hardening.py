@@ -11,15 +11,21 @@ not changed.
 The standard library has no `prctl`, and `python-prctl` is unmaintained, so `ctypes` makes the
 call. It is Linux only: the pod of a runner Job is Linux.
 
-**What this does not close.** Every `git` and `gh` child of the job gets the session's token in
-its environment while it runs, and a process of the same user can read that through
-`/proc/<pid>/environ`. A pod cannot keep the child from it: the token must reach `git` and `gh`
-by their environment, a file the same user can read, or a pipe, and a user namespace for the
-agent's shell needs `unshare`, which the pod's `RuntimeDefault` seccomp profile refuses. So the
-job guarantees an order instead. The agent's shell is the only process of the user that the agent
-controls, and the job ends every process it started (`end_leftover_processes`) when a step ends,
-before it runs any program with the token. `adopt_orphans` makes the job the parent of a process
-that the agent daemonized, so that none escapes the count.
+**What this does not close.** A `git` child that reaches a remote gets the session's token in its
+environment while it runs, and a `gh` child gets it in a private configuration folder. A process
+of the same user can read either: the environment through `/proc/<pid>/environ`, and the folder as
+a file. A pod cannot keep the child from it: the token must reach `git` and `gh` by their
+environment, a file the same user can read, or a pipe, and a user namespace for the agent's shell
+needs `unshare`, which the pod's `RuntimeDefault` seccomp profile refuses. So the job guarantees an
+order instead. The agent's shell is the only process of the user that the agent controls, and the
+job ends every process it started (`end_leftover_processes`) when a step ends, and again just
+before each git call that reaches `origin` (`roadmap/implement/git_isolation.py`). `adopt_orphans`
+makes the job the parent of a process that the agent daemonized, so that none escapes the count.
+
+The order covers only processes. The agent can also write files that a git call reads: the git
+configuration of the home folder and of the clone, the hooks and the attribute files. So a git call
+with the token runs in a new git folder and reads none of them (`OriginGit`), and a local git call
+of the job gets no token (`core/process.py`, `git_reaches_remote`).
 """
 
 from __future__ import annotations

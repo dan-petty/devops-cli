@@ -67,6 +67,15 @@ class RoadmapImplementError(DevOpsCLIError):
     error_code = "ROADMAP_IMPLEMENT_REFUSED"
 
 
+class GitSettingsError(RoadmapImplementError):
+    """Raised when the git settings of the checkout of the implement job hold a key, an attribute
+    or a file that the job does not allow. `settings` names each one, and holds no value."""
+
+    def __init__(self, message: str, *, settings: tuple[str, ...]) -> None:
+        self.settings = settings
+        super().__init__(message, details={"settings": ", ".join(settings)[:256]})
+
+
 class OverWindowError(RoadmapImplementError):
     """Raised when the inputs of an implement step measure more than the window allows (#3057)."""
 

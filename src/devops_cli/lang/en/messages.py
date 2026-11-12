@@ -3453,6 +3453,12 @@ class RoadmapMessages:
         "A process that the agent's shell started is still alive after the step: {names}. The job "
         "runs no program with the GitHub token while such a process lives, so it stops the item."
     )
+    implement_git_settings_refused: str = (
+        "The git settings of the checkout hold {settings}, which the implement job does not allow. "
+        "The job runs no more git commands in the checkout and pushes nothing. A person removes "
+        "the setting and its cause, and then retries the item."
+    )
+    implement_git_attribute_refused: str = "the attribute {attribute} ({path}, {more} more paths)"
     implement_job_runner_refused: str = (
         "The implement job runs a step only in a runner pod. Set roadmap.implement.in_runner to "
         "true there. The shell of the agent is no security boundary, so the runner is the "

@@ -6,16 +6,20 @@ step's shell checks the first word of a command and is no security boundary, so 
 runner Job is the sandbox. The job clears the dumpable flag of its own process, so that the shell,
 a child of the same user, cannot read the job's environment (#2667). Every `git` command, every
 GitHub call and every `gh` call of the job runs in this process, never in the agent's shell. The
-process runner gives a `git` or `gh` child the session's token, and any other child (`uv`,
-`ruff`) none. A `git` or `gh` child holds that token in its environment while it runs, so the job
-ends every process of a step when the step ends (`end_leftover_processes`), before such a child
-can start.
+process runner gives the session's token only to a `gh` child, in a private configuration folder,
+and to a `git` child that reaches a remote; a local `git` child (`git add`, `git commit`) and any
+other child (`uv`, `ruff`) get none. Each git call that reaches `origin` runs through `OriginGit`
+(`git_isolation.py`, GHSA): in a new git folder, with no configuration, hook or attribute file that
+the agent can write, after the job ends every leftover process (`end_leftover_processes`). The job
+also ends every process of a step when the step ends, and checks the git settings of the checkout
+(`check_settings`): a setting that it does not allow stops the item with the class `git_config`.
 
 **One item.** The job takes over the staged branch in a worktree, sets Status In Progress and
 rebases onto the fetched default branch. It runs one step for each group that has an unticked
 task, regenerates the documentation, archives the change, rebases again and pushes with a lease.
 Each other push (the first push of a Planned item, a `wip:` push, a checkpoint and the push of a
-stop) also sends a commit that holds the default branch (`_current_tip`, #4380).
+stop) also sends a commit that holds the default branch (`_current_tip`, #4380). Each push sends a
+commit (`<sha>:refs/heads/<branch>`) and moves the remote-tracking ref of the branch.
 Then it sets the title and the body of the pull request, comments the outcome of each step, and
 watches the checks. A failed check gets one fix step. When the checks pass the job marks the pull
 request ready and sets Status In Review. It never merges.
@@ -23,7 +27,7 @@ request ready and sets Status In Review. It never merges.
 **A Planned item** (#2714) has its plan on the default branch and no branch. The job makes the
 branch `<type>/<issue>-<slug>` at the fetched default branch, and goes on as above. A pull request
 needs a commit past its base, so the job publishes the branch at its first push (`_publish`): it
-pushes with `-u`, opens the draft, and records `implement.branch` and `implement.pr`. A stop before
+pushes the branch, opens the draft, and records `implement.branch` and `implement.pr`. A stop before
 the first commit pushes nothing. A stop after it publishes what passed, so a retry finds the branch
 and the draft and takes them over as a Staged item.
 
@@ -94,7 +98,7 @@ from devops_cli.exceptions import (
     RoadmapImplementError,
     ValidationError,
 )
-from devops_cli.exceptions.roadmap import OverWindowError
+from devops_cli.exceptions.roadmap import GitSettingsError, OverWindowError
 from devops_cli.git.worktree_add import add_worktree
 from devops_cli.github.check_verdict import PRCheckItem, read_check_runs
 from devops_cli.github.session import get_github_session
@@ -112,6 +116,7 @@ from devops_cli.roadmap.failure import (
     left_action,
 )
 from devops_cli.roadmap.fence import code_fence
+from devops_cli.roadmap.implement.git_isolation import OriginGit, origin_url
 from devops_cli.roadmap.implement.implement import GIT_OPERATION, ImplementPlan, ImplementTarget
 from devops_cli.roadmap.implement.implement_amend import (
     Amendment,
@@ -462,16 +467,18 @@ def _outcome_label(outcome: StepOutcome) -> str:
 
 
 @contextmanager
-def _worktree(source: Path, target: ImplementTarget) -> Iterator[Path]:
+def _worktree(source: Path, target: ImplementTarget, url: str) -> Iterator[Path]:
     """The worktree on the staged branch, taken over from `origin`, or for a Planned item on the new
-    branch at the fetched default branch. The worktree and the local branch go when the block
-    ends, so the clone keeps its HEAD and holds no issue."""
+    branch at the fetched default branch. Its reads of `origin` run through `OriginGit` at `url`.
+    The worktree and the local branch go when the block ends, so the clone keeps its HEAD and holds
+    no issue."""
     parts = target.new_branch
     report = add_worktree(
         source,
         issue=target.item.number,
         type_=parts.type if parts else None,
         slug=parts.slug if parts else None,
+        origin=OriginGit(source, url),
     )
     path = Path(report.path)
     try:
@@ -535,6 +542,8 @@ class _ItemRun:
     model: Any
     window: int
     default: str
+    # The network git calls of the item, at the URL of `origin` that the job read first (GHSA).
+    origin: OriginGit
     model_for_tier: Callable[[str], Any] | None = None
     splitter: Any = None
     split_done: bool = False
@@ -744,9 +753,7 @@ class _ItemRun:
         self._install_hooks()
 
     def _base(self) -> str:
-        if self.target.pull is None and not self._git(
-            "ls-remote", "--heads", "origin", self.branch
-        ):
+        if self.target.pull is None and not self.origin.heads(self.branch):
             return "new"
         return self._git("rev-parse", f"origin/{self.branch}")
 
@@ -784,7 +791,7 @@ class _ItemRun:
     def _sync(self) -> None:
         """Fetch the default branch and rebase onto it. A conflict aborts the rebase, which puts the
         branch back on its tip, and stops the item."""
-        self._git("fetch", "-q", "origin", self.default)
+        self.origin.fetch(self.default)
         self._rebase(self.path)
 
     def _rebase(self, path: Path) -> None:
@@ -1163,21 +1170,22 @@ class _ItemRun:
         if not base:
             return
         try:
-            if base == "new" and not self._git("ls-remote", "--heads", "origin", self.branch):
+            if base == "new" and not self.origin.heads(self.branch):
                 return
             tip = self._git("rev-parse", f"origin/{self.branch}")
-            lease = f"--force-with-lease={self.branch}:{tip}"
             if base == "new":
-                self._git("push", lease, "origin", "--delete", self.branch)
+                self.origin.push(self.branch, None, lease=tip)
                 if self.pull is not None:
                     get_github_session().client.close_pull(self.repo, self.pull)
             elif tip != base:
-                self._git("push", lease, "origin", f"{base}:refs/heads/{self.branch}")
+                self.origin.push(self.branch, base, lease=tip)
         except (GitOperationError, DevOpsCLIError) as exc:
             reason = MESSAGES.roadmap.implement_stop_withdraw_failed.format(
                 branch=self.branch, output=mask_secrets(str(exc))
             )
-            raise _StopError(self.step, reason, push=False) from exc
+            raise _StopError(
+                self.step, reason, push=False, failure_class=_failure_class_of(exc)
+            ) from exc
 
     def _keep(self, commit: WipCommit) -> None:
         """Take note of a `wip:` commit of the step (#3054). When tasks are left, push it and
@@ -1339,14 +1347,7 @@ class _ItemRun:
         tip = tip or self._head()
         remote = self._git("rev-parse", f"origin/{self.branch}")
         if remote != tip:
-            self._git(
-                "push", f"--force-with-lease={self.branch}:{remote}", "origin", self._refspec(tip)
-            )
-
-    def _refspec(self, tip: str) -> str:
-        """The source of a push: the branch, or the commit `tip` when it is no head of the
-        checkout."""
-        return self.branch if tip == self._head() else f"{tip}:refs/heads/{self.branch}"
+            self.origin.push(self.branch, tip, lease=remote)
 
     def _current_tip(self, *, in_step: bool) -> str:
         """The commit to push, which holds `origin/<default>` (#4380). A run takes minutes, and the
@@ -1372,7 +1373,7 @@ class _ItemRun:
     def _rebased_copy(self) -> str:
         """The tip of the commits of `HEAD` rebased onto `origin/<default>` in a detached worktree
         that goes at once, or `HEAD` when the default branch has no commit that it lacks."""
-        self._git("fetch", "-q", "origin", self.default)
+        self.origin.fetch(self.default)
         if not self._git("rev-list", "-n", "1", f"HEAD..origin/{self.default}"):
             return self._head()
         folder = Path(tempfile.mkdtemp(prefix="rebase-", dir=self.path.parent))
@@ -1391,14 +1392,14 @@ class _ItemRun:
         return self._head() != self._git("rev-parse", f"origin/{self.default}")
 
     def _publish(self, tip: str | None = None) -> int:
-        """The first push of a Planned item: push the new branch with `-u`, open its draft pull
-        request, and record both. The first body already closes the delivered issue, so a stop
+        """The first push of a Planned item: push the new branch, open its draft pull request, and
+        record both. The first body already closes the delivered issue, so a stop
         leaves a grounded draft (#3273); the final body comes after the archive. A draft that GitHub
         refuses takes the branch off `origin` again, so no branch stays without a pull request, and
         stops the item with nothing left to push."""
         texts = MESSAGES.roadmap
         title = self._delivery_title()
-        self._git("push", "-u", "origin", self._refspec(tip or self._head()))
+        self.origin.push(self.branch, tip or self._head())
         try:
             created = get_github_session().client.create_draft_pull(
                 self.repo,
@@ -1408,7 +1409,7 @@ class _ItemRun:
                 base=self.default,
             )
         except DevOpsCLIError as exc:
-            self._git("push", "origin", "--delete", self.branch)
+            self.origin.push(self.branch, None)
             reason = texts.implement_stop_draft_failed.format(
                 branch=self.branch, output=mask_secrets(str(exc))
             )
@@ -1911,7 +1912,7 @@ class _ItemRun:
                 self._push_with_lease(tip)
             else:
                 self._publish(tip)
-        except GitOperationError as exc:
+        except (GitOperationError, GitSettingsError) as exc:
             return texts.implement_stop_push_failed.format(output=mask_secrets(str(exc)))
         except _StopError as exc:
             return texts.implement_stop_push_failed.format(output=mask_secrets(exc.reason))
@@ -1944,12 +1945,27 @@ def _wip_record(commit: WipCommit) -> str:
     )
 
 
+def _failure_class_of(exc: Exception) -> FailureClass | None:
+    """The class of a stop that `exc` causes, when the error knows it: a git setting that the job
+    does not allow is `git_config` (GHSA). None lets the classifier read the text."""
+    return FailureClass.GIT_CONFIG if isinstance(exc, GitSettingsError) else None
+
+
 def _error_stop(step: str, exc: Exception, *, kept_branch: bool = False) -> _StopError:
-    """The stop that an error ends the run with: its class and its message, secrets masked."""
+    """The stop that an error ends the run with: its class and its message, secrets masked. A git
+    setting that the job does not allow stops with the class `git_config` and pushes nothing: the
+    push would meet the same setting."""
     reason = MESSAGES.roadmap.implement_stop_error.format(
         error=type(exc).__name__, message=mask_secrets(str(exc))
     )
-    return _StopError(step, reason, kept_branch=kept_branch)
+    refused = isinstance(exc, GitSettingsError)
+    return _StopError(
+        step,
+        reason,
+        kept_branch=kept_branch,
+        push=not refused,
+        failure_class=_failure_class_of(exc),
+    )
 
 
 def _implement_item(
@@ -1958,14 +1974,15 @@ def _implement_item(
     source: Path,
     target: ImplementTarget,
     *,
+    url: str,
     model: Any,
     window: int,
     model_for_tier: Callable[[str], Any] | None = None,
     splitter: Any = None,
 ) -> ImplementResult:
-    """Run one item: how its run ended (`ImplementResult`)."""
+    """Run one item: how its run ended (`ImplementResult`). `url` is the URL of `origin`."""
     default = default_branch(source, operation=GIT_OPERATION)
-    with _worktree(source, target) as path:
+    with _worktree(source, target, url) as path:
         run = _ItemRun(
             store,
             repo,
@@ -1974,6 +1991,7 @@ def _implement_item(
             model,
             window,
             default,
+            OriginGit(path, url),
             model_for_tier=model_for_tier,
             splitter=splitter,
         )
@@ -2008,11 +2026,14 @@ def apply_implement(
     model credentials stop the run. Raises `RoadmapImplementError` before anything runs unless
     the process is a runner Job for the plan's repository (`require_runner`). It then makes its
     own process unreadable by the shell of an agent, which runs as the same user
-    (`deny_environment_reads`), and adopts the orphans of a step (`adopt_orphans`)."""
+    (`deny_environment_reads`), and adopts the orphans of a step (`adopt_orphans`). It reads the
+    URL of `origin` before the first step, so that no later edit of the clone moves the remote of
+    a network git call (GHSA)."""
     require_runner(plan.repo)
     deny_environment_reads()
     adopt_orphans()
     checkout = Path(source)
+    url = origin_url(checkout) if plan.selected else ""
     ended: dict[ImplementResult, list[int]] = {kind: [] for kind in ImplementResult}
     failed: list[ImplementFailure] = []
     for target in plan.selected:
@@ -2023,6 +2044,7 @@ def apply_implement(
                 plan.repo,
                 checkout,
                 target,
+                url=url,
                 model=model,
                 window=window,
                 model_for_tier=model_for_tier,
