@@ -61,6 +61,7 @@ from devops_cli.dry_run import dry_run_class, is_dry_run, render_dry_run_result,
 from devops_cli.dry_run.requests import PlannedRequest, render_request_plan
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import (
+    escape_text,
     print_error,
     print_info,
     print_muted,
@@ -141,6 +142,8 @@ class CheckResult(BaseModel):
     timeout_seconds: float | None = None
     dry_run: bool = False
     requests: tuple[PlannedRequest, ...] = ()
+    # Why the host could not run the check, which then started nothing and did not fail.
+    skipped: str | None = None
 
 
 class CheckSpec(BaseModel):
@@ -163,6 +166,9 @@ class CheckSpec(BaseModel):
     # Whether the check keeps the host's CPUs busy for minutes: a p90 above 200 s in the CI cache
     # of the host (#2336). A run that selects one waits for a gate slot (`_gate_slot`).
     heavy: bool = False
+    # The check of the host that the row needs: it returns why the host cannot run the row, or
+    # None when it can. A row whose host cannot run it starts no command and shows as skipped.
+    host_refusal: Callable[[], str | None] | None = None
 
     @property
     def commands(self) -> list[list[str]]:
@@ -546,6 +552,21 @@ async def _execute_check_async(
             requests=_planned_requests(check_spec),
         )
 
+    if check_spec.host_refusal is not None:
+        refusal = await asyncio.to_thread(check_spec.host_refusal)
+        if refusal is not None:
+            print_muted(
+                f"  – [{check_spec.name}] {MESSAGES.ci.row_skipped.format(cause=refusal)}",
+                safe=True,
+            )
+            return CheckResult(
+                name=check_spec.name,
+                display_title=check_spec.display_title,
+                passed=True,
+                duration_seconds=0.0,
+                skipped=refusal,
+            )
+
     start_time = clock.monotonic()
     root = _get_project_root()
 
@@ -740,6 +761,22 @@ _TEST_SETTINGS_SCRIPT = (
 )
 
 
+# The contract suites that run the real sandbox: the cases with the `bwrap` mark, which a default
+# test run deselects (#2149, #4715).
+_BWRAP_SUITE_FILES: Final[tuple[str, ...]] = (
+    "tests/sandbox/test_host_sandbox.py",
+    "tests/ai/test_tool_executor_contract.py",
+)
+
+
+def _sandbox_host_refusal() -> str | None:
+    """Why this host cannot make the sandbox of a review, from the check of the sandbox executor:
+    bubblewrap and prlimit are installed, and bubblewrap can make a sandbox. None when it can."""
+    from devops_cli.security.tool_executor import SandboxToolExecutor
+
+    return SandboxToolExecutor().host_refusal()
+
+
 def _python_check_cmd(module: str) -> list[str]:
     """The command that runs the `main` of a module of `tests/gate`: a check of committed files and
     tool configuration, which is a row of `devops ci` and no pytest test (#2164)."""
@@ -906,6 +943,14 @@ def get_check_specs() -> list[CheckSpec]:
             cmd=["uv", "run", "python", "-c", _TEST_SETTINGS_SCRIPT],
             span_name="ci.step.test_settings",
             metric_step="test_settings",
+        ),
+        CheckSpec(
+            name="bwrap",
+            display_title=MESSAGES.ci.bwrap_contract,
+            cmd=["uv", "run", "pytest", "-m", "bwrap", "-n", "0", *_BWRAP_SUITE_FILES],
+            span_name="ci.step.bwrap",
+            metric_step="bwrap",
+            host_refusal=_sandbox_host_refusal,
         ),
         CheckSpec(
             name="k8s",
@@ -1287,6 +1332,9 @@ def _print_summary(
         if res.timed_out:
             limit_str = f"{res.timeout_seconds:g}s" if res.timeout_seconds else "limit"
             status_text = f"[red]✗ fail (timed out after {limit_str})[/red]"
+        elif res.skipped is not None:
+            reason = escape_text(MESSAGES.ci.row_skipped.format(cause=res.skipped))
+            status_text = f"[yellow]– {reason}[/yellow]"
         elif cached and res.passed:
             status_text = "[green]✓ pass (cached)[/green]"
         elif res.passed:
@@ -1295,7 +1343,7 @@ def _print_summary(
             status_text = "[red]✗ fail[/red]"
         dur_text = (
             "-"
-            if res.name == "coverage"
+            if res.name == "coverage" or res.skipped is not None
             else (format_duration(res.duration_seconds) if res.duration_seconds > 0 else "<0.01s")
         )
         rows.append([res.name, status_text, dur_text])
@@ -1349,6 +1397,7 @@ def _try_get_ci_cache(
             duration_seconds=c.duration_seconds,
             stdout=c.stdout,
             stderr=c.stderr,
+            skipped=c.skipped,
         )
         for c in entry.checks
     ]
@@ -1372,6 +1421,7 @@ def _try_save_ci_cache(
             duration_seconds=res.duration_seconds,
             stdout=res.stdout,
             stderr=res.stderr,
+            skipped=res.skipped,
         )
         for res in results
     ]

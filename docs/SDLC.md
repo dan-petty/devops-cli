@@ -216,6 +216,7 @@ CI is the authoritative gate ([ADR 0004](adr/0004-ci-is-the-authoritative-gate.m
 12. `lockfile`: Verifies lockfile synchronization via `uv lock --check`.
 13. `outdated`: Inspects dependency tree for outdated packages via `uv tree --outdated`.
 14. `openspec`: Runs `devops openspec check`, the OpenSpec gate: `openspec validate --all --strict` and `--archived`, a regeneration of the committed skills under the isolated profile compared with the tree, the instructions of a probe change with nothing on standard error, and a check that no requirement is rewritten by two active changes. It needs Node and the pinned `openspec` (`uv run devops install-tools --tool openspec --only-missing`), runs in every `devops ci` and in the `static` job with no path filter and no exemption, and runs alone in a commit hook when a commit touches `openspec/` or the generated skills ([ADR 0010](adr/0010-openspec-is-the-spec-and-change-proposal-layer.md)).
+15. `bwrap`: Runs the tests marked `bwrap` of the two contract suites of the sandbox (`pytest -m bwrap -n 0`) in the real sandbox. It runs where the host can make the sandbox of a review, as in the devcontainer. On a host that cannot, such as the GitHub-hosted runner of `Static Analysis`, it starts no test and shows as skipped with the cause.
 
 #### Where a Check Runs
 - A check that does not apply to a change does not run for it: scope its trigger, for example with a path filter, as the jobs below do. Do not add an escape, an exemption or a special case to make a check pass.

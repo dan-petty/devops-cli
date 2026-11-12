@@ -50,6 +50,8 @@ class CICachedCheck(BaseModel):
     duration_seconds: float
     stdout: str = ""
     stderr: str = ""
+    # Why the host could not run the check, which then started nothing and did not fail.
+    skipped: str | None = None
 
 
 class CICacheEntry(BaseModel):

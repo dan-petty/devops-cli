@@ -782,14 +782,19 @@ class SandboxToolExecutor:
         detail = next(iter(done.stderr.strip().splitlines()), f"exit code {done.returncode}")
         return f"bubblewrap cannot make a sandbox on this host: {detail}"
 
-    def _check_host(self) -> None:
-        """Raise `SandboxUnavailableError` when this host cannot start the sandbox. The host is
-        checked one time."""
+    def host_refusal(self) -> str | None:
+        """Why this host cannot start the sandbox, or None when it can. The host is checked one
+        time, and `refusal` keeps the cause."""
         if not self._checked:
             self._refusal = self._host_cause()
             self._checked = True
-        if self._refusal is not None:
-            raise SandboxUnavailableError(self._refusal)
+        return self._refusal
+
+    def _check_host(self) -> None:
+        """Raise `SandboxUnavailableError` when this host cannot start the sandbox."""
+        refusal = self.host_refusal()
+        if refusal is not None:
+            raise SandboxUnavailableError(refusal)
 
     def command(self, request: ToolRequest, relay: KubeApiRelay | None = None) -> list[str]:
         """The whole command that runs `request`: bubblewrap, its options, `prlimit` and the tool.

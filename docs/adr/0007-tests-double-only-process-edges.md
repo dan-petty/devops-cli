@@ -28,4 +28,4 @@ This decision removes the following earlier allowances:
 - bwrap with the `bwrap` mark.
 - `@pytest.mark.live` for live local tools.
 
-Real child processes stay only in the contract suite of the process runner (`tests/test_process_contract.py` and the process-group tests of `core/process.py`). Every other real tool goes to a contract suite that replays recorded transcripts or to a `devops ci` row. Checks of committed files and tool configuration belong in `devops ci`. The bwrap suite is an opt-in contract suite that a person runs in the devcontainer. A test must not skip based on host state.
+Real child processes stay only in the contract suite of the process runner (`tests/test_process_contract.py` and the process-group tests of `core/process.py`). Every other real tool goes to a contract suite that replays recorded transcripts or to a `devops ci` row. Checks of committed files and tool configuration belong in `devops ci`. The bwrap suite is an opt-in contract suite that the `bwrap` row of `devops ci` runs where the host can make the sandbox, as in the devcontainer. A test must not skip based on host state.

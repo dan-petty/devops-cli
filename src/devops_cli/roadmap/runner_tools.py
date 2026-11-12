@@ -129,7 +129,7 @@ RUNNER_TOOLS: tuple[RunnerTool, ...] = (
         pin=f"v{NODE_MAJOR}.",
     ),
     _locked("openspec", "ci:openspec", "hook:openspec-gate"),
-    _dev("pytest", "ci:test", package="pytest"),
+    _dev("pytest", "ci:test", "ci:bwrap", package="pytest"),
     _dev("ruff", "ci:lint", "ci:format", "hook:ruff-check", "hook:ruff-format"),
     _dev("mypy", "ci:typecheck"),
     _dev("bandit", "ci:security"),
@@ -239,7 +239,11 @@ NOT_IN_RUNNER: dict[str, str] = {
     "zsh": (
         "The image of the GitHub runner has no zsh, so the tests that need it skip in the gate too."
     ),
-    "bwrap": "The tests marked `bwrap` run only with `-m bwrap`, and the gate does not select it.",
+    "bwrap": (
+        "Only the `bwrap` row runs the tests marked `bwrap`, and it skips with the cause on a host "
+        "that cannot make the sandbox."
+    ),
+    "ps": "Only the tests marked `bwrap` start it, and the image holds no bubblewrap for them.",
 }
 
 
