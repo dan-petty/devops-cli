@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import pytest
+from hypothesis import given
+from hypothesis import strategies as st
+from pydantic import ValidationError
 
+from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.plan_read import PlanReadError, read_change, specs_at
 from devops_cli.roadmap.stage.stage_change import (
     GroupKind,
@@ -24,6 +29,10 @@ if TYPE_CHECKING:
 CREATED = datetime(2026, 11, 4, tzinfo=UTC).date()
 CHANGE = "1-keep-the-last-comment"
 NESTED = "roadmap-stage/paths-gate"
+GOLDEN = REPO_ROOT / "tests" / "fixtures" / "roadmap_eval" / "stage"
+PLAN_HEADS = REPO_ROOT / "tests" / "fixtures" / "roadmap" / "plan_heads"
+TASKS = f"openspec/changes/{CHANGE}/tasks.md"
+DESIGN = f"openspec/changes/{CHANGE}/design.md"
 
 
 def _files(proposal: StageProposal, known: set[str] | None = None) -> dict[str, str]:
@@ -353,3 +362,354 @@ def test_the_reader_reads_a_plan_whose_spans_the_step_runs() -> None:
     (group,) = read_change(_two_tasks("uv run devops ci test tests/test_sample.py")).groups
 
     assert group.verify == "uv run devops ci docs"
+
+
+# ── The kind of a group and the facts of the files (#5205) ────────────────────────────────
+
+BEHAVIOR_GROUP: dict[str, Any] = {
+    "title": "Keep the last comment",
+    "kind": "behavior",
+    "reads": ["src/devops_cli/sample.py"],
+    "changes": ["src/devops_cli/sample.py", "tests/test_sample.py"],
+    "creates": ["tests/test_sample.py"],
+    "creates_lines": {"tests/test_sample.py": 40},
+    "test": "Write `test_the_job_keeps_the_last_comment` in `tests/test_sample.py`",
+    "implementation": "Keep the last comment in `src/devops_cli/sample.py`",
+    "verify": "uv run devops ci test tests/test_sample.py",
+}
+# A rule and its promtool case: no path under `src/`, as group 3 of #4963 and groups 3 and 4 of
+# #5032 change.
+MANIFEST_GROUP: dict[str, Any] = {
+    "title": "Alert on a stuck item",
+    "kind": "manifest",
+    "reads": ["k8s/monitoring/prometheus-values.yaml"],
+    "changes": [
+        "k8s/monitoring/prometheus-values.yaml",
+        "tests/fixtures/prometheus_rules/stuck_item_tests.yaml",
+    ],
+    "creates": ["tests/fixtures/prometheus_rules/stuck_item_tests.yaml"],
+    "creates_lines": {"tests/fixtures/prometheus_rules/stuck_item_tests.yaml": 30},
+    "test": "Write the promtool case `A stuck item fires` in "
+    "`tests/fixtures/prometheus_rules/stuck_item_tests.yaml`",
+    "implementation": "Add the alert `RoadmapItemStuck` to `k8s/monitoring/prometheus-values.yaml`",
+    "verify": "uv run devops ci test tests/prometheus/test_k8s_monitoring_alerting.py",
+}
+OTHER_GROUP: dict[str, Any] = {
+    "title": "Describe the alert",
+    "kind": "other",
+    "changes": ["k8s/README.md"],
+    "implementation": "Add the row of the alert to the alert table of `k8s/README.md`",
+    "verify": "uv run devops ci docs",
+}
+KIND_GROUPS: dict[str, dict[str, Any]] = {
+    "behavior": BEHAVIOR_GROUP,
+    "manifest": MANIFEST_GROUP,
+    "other": OTHER_GROUP,
+}
+
+
+@pytest.mark.parametrize("kind", sorted(KIND_GROUPS))
+def test_each_group_kind_reads_back(kind: str) -> None:
+    original = make_stage_proposal(groups=[KIND_GROUPS[kind]])
+
+    read = read_change(_files(original, known=set()))
+
+    assert read.groups == [_same_group(group) for group in original.groups]
+    assert [group.kind.value for group in read.groups] == [kind]
+
+
+# A hand-written group whose `Kind:` line says another kind than the tasks suggest: the first task
+# of each "fails on the base", except for the behavior group, whose tasks both "pass".
+EXPLICIT_KIND_GROUPS: dict[str, str] = {
+    "behavior": (
+        "## 1. Keep the last comment\n\n"
+        "Kind: behavior. Reads: `src/devops_cli/sample.py`. "
+        "Changes: `src/devops_cli/sample.py`, `tests/test_sample.py`.\n\n"
+        "- [ ] 1.1 Write the failing test\n"
+        "  - Verification: `$ uv run devops ci test tests/test_sample.py` passes\n"
+        "- [ ] 1.2 Keep the last comment\n"
+        "  - Verification: `$ uv run devops ci test tests/test_sample.py` passes\n"
+    ),
+    "manifest": (
+        "## 1. Alert on a stuck item\n\n"
+        "Kind: manifest. Reads: none. "
+        "Changes: `src/devops_cli/sample.py`, `tests/fixtures/prometheus_rules/stuck_tests.yaml`.\n\n"
+        "- [ ] 1.1 Write the promtool case of the stuck item\n"
+        "  - Verification: `$ uv run devops ci test tests/test_sample.py` fails on the base\n"
+        "- [ ] 1.2 Add the alert of the stuck item\n"
+        "  - Verification: `$ uv run devops ci test tests/test_sample.py` passes\n"
+    ),
+    "other": (
+        "## 1. Move the sample\n\n"
+        "Kind: other. Reads: none. Changes: `src/devops_cli/sample.py`.\n\n"
+        "- [ ] 1.1 Move the sample and keep its behavior\n"
+        "  - Verification: `$ uv run devops ci test tests/test_sample.py` fails on the base\n"
+    ),
+}
+EXPLICIT_KIND_TEXTS: dict[str, tuple[str | None, str]] = {
+    "behavior": ("Write the failing test", "Keep the last comment"),
+    "manifest": ("Write the promtool case of the stuck item", "Add the alert of the stuck item"),
+    "other": (None, "Move the sample and keep its behavior"),
+}
+
+
+@pytest.mark.parametrize("kind", sorted(EXPLICIT_KIND_GROUPS))
+def test_explicit_kind_line_sets_the_kind(kind: str) -> None:
+    (group,) = read_change(_tasks_with(EXPLICIT_KIND_GROUPS[kind])).groups
+
+    assert (group.kind.value, group.test, group.implementation, group.verify) == (
+        kind,
+        *EXPLICIT_KIND_TEXTS[kind],
+        "uv run devops ci test tests/test_sample.py",
+    )
+
+
+# A hand-written group of the old form whose `Kind:` line names a word that is no kind: the head of
+# #3164 says `Kind: documentation.` for a group of documents.
+NO_KIND_WORDS: dict[str, tuple[str, str]] = {
+    "documentation": (
+        "## 1. Regenerate the tool reference\n\n"
+        "Kind: documentation. Reads: none. Changes: `docs/MCP_TOOLS.md`.\n\n"
+        "- [ ] 1.1 Regenerate the tool reference\n"
+        "  - Verification: `$ uv run devops ci docs` passes\n",
+        "other",
+    ),
+    "feature": (
+        "## 1. Alert on a stuck item\n\n"
+        "Kind: feature. Reads: none. Changes: `k8s/monitoring/prometheus-values.yaml`, "
+        "`tests/fixtures/prometheus_rules/stuck_tests.yaml`.\n\n"
+        "- [ ] 1.1 Write the promtool case of the stuck item\n"
+        "  - Verification: `$ uv run devops ci test tests/prometheus/test_k8s_monitoring_alerting.py`"
+        " fails on the base\n"
+        "- [ ] 1.2 Add the alert of the stuck item\n"
+        "  - Verification: `$ uv run devops ci test tests/prometheus/test_k8s_monitoring_alerting.py`"
+        " passes\n",
+        "manifest",
+    ),
+}
+
+
+@pytest.mark.parametrize("word", sorted(NO_KIND_WORDS))
+def test_a_word_that_is_no_kind_reads_as_the_old_form(word: str) -> None:
+    text, kind = NO_KIND_WORDS[word]
+
+    (group,) = read_change(_tasks_with(text)).groups
+
+    assert group.kind.value == kind
+
+
+UNCHANGED_REFERENCE: dict[str, Any] = {
+    "path": "openspec/specs/roadmap-stage/task-groups/spec.md",
+    "kind": "living spec",
+    "unchanged": True,
+    "reason": "`openspec archive` writes the living spec from the spec delta.",
+}
+CHANGED_REFERENCE: dict[str, Any] = {
+    "path": "src/devops_cli/roadmap/plan_read.py",
+    "kind": "import",
+    "unchanged": False,
+}
+
+
+def test_unchanged_references_read_back() -> None:
+    original = make_stage_proposal(references=[UNCHANGED_REFERENCE])
+
+    assert read_change(_files(original)).references == original.references
+
+
+def test_a_changed_reference_is_no_fact_of_the_files() -> None:
+    from devops_cli.roadmap.plan_read import file_facts
+
+    original = make_stage_proposal(references=[CHANGED_REFERENCE, UNCHANGED_REFERENCE])
+    unchanged = original.references[1:]
+
+    assert read_change(_files(original)).references == unchanged
+    assert file_facts(original).references == unchanged
+
+
+def test_the_fields_that_no_file_holds() -> None:
+    from devops_cli.roadmap.plan_read import FIELDS_NOT_IN_FILES
+
+    assert (
+        frozenset(
+            {"summary", "pull_request_body", "builds_own", "creates_lines", "weakened_checks"}
+        )
+        == FIELDS_NOT_IN_FILES
+    )
+
+
+def _golden_plans() -> list[str]:
+    """The cases of the golden set whose `plan.json` is a valid `StageProposal`."""
+    names: list[str] = []
+    for plan in sorted(GOLDEN.glob("*/plan.json")):
+        try:
+            StageProposal.model_validate_json(plan.read_text(encoding="utf-8"))
+        except ValidationError:
+            continue
+        names.append(plan.parent.name)
+    return names
+
+
+@pytest.mark.parametrize("case", _golden_plans())
+def test_each_golden_plan_reads_back(case: str) -> None:
+    from devops_cli.roadmap.plan_read import file_facts
+
+    plan = json.loads((GOLDEN / case / "plan.json").read_text(encoding="utf-8"))
+    original = StageProposal.model_validate(plan)
+
+    assert read_change(_files(original, known=set())) == file_facts(original)
+
+
+def _head_files(head: str) -> dict[str, str]:
+    """The files of the change folder of a plan pull request head, by path from the root."""
+    folder = PLAN_HEADS / head
+    return {
+        f"openspec/changes/{path.relative_to(folder).as_posix()}": path.read_text(encoding="utf-8")
+        for path in folder.rglob("*")
+        if path.is_file()
+    }
+
+
+# The change folders of three plan pull requests that the stage job wrote, at their heads: #4963
+# and #5032 hold `manifest` groups that the job wrote with no `Kind:` line, and #5182 holds two
+# `other` groups.
+PLAN_HEAD_KINDS: dict[str, list[str]] = {
+    "4963-9c4b2cf75c64": ["behavior", "behavior", "manifest", "other"],
+    "5032-7fd165f69611": ["behavior", "behavior", "manifest", "manifest", "other"],
+    "5182-5209df86045d": ["other", "other"],
+}
+
+
+@pytest.mark.parametrize("head", sorted(PLAN_HEAD_KINDS))
+def test_a_plan_head_reads_with_its_kinds(head: str) -> None:
+    read = read_change(_head_files(head))
+
+    assert [group.kind.value for group in read.groups] == PLAN_HEAD_KINDS[head]
+
+
+# ── The property: write, then read, keeps each fact that the files hold ───────────────────
+
+WORDS = ("the", "job", "keeps", "each", "comment", "plan", "reader", "group", "Write", "Add")
+PATHS = (
+    "src/devops_cli/sample.py",
+    "src/devops_cli/commands/sample.py",
+    "tests/test_sample.py",
+    "tests/roadmap/test_plan.py",
+    "docs/TESTING.md",
+    "SECURITY.md",
+    "k8s/monitoring/prometheus-values.yaml",
+    "tests/fixtures/prometheus_rules/stuck_tests.yaml",
+)
+TEST_COMMANDS = (
+    "uv run devops ci test tests/test_sample.py",
+    "uv run devops ci test tests/roadmap/test_plan.py",
+)
+CHECK_COMMANDS = (*TEST_COMMANDS, "uv run devops ci docs", "uv run devops openspec check")
+# `plan` and `plan-check` sort in one order as names and in the other as paths of spec files.
+CAPABILITIES = ("plan", "plan-check", "plan/reader", "comment-thread")
+texts = st.lists(st.sampled_from(WORDS), min_size=1, max_size=4).map(" ".join)
+# The line that the writer adds to `## What Changes`, which a model may also write.
+FITS_ONE_PR = MESSAGES.roadmap.stage_fits_one_pr
+
+
+@st.composite
+def _group(draw: st.DrawFn) -> dict[str, Any]:
+    kind = draw(st.sampled_from(list(GroupKind)))
+    changes = draw(st.lists(st.sampled_from(PATHS), min_size=1, max_size=4, unique=True))
+    if kind is GroupKind.BEHAVIOR and not any(path.startswith("src/") for path in changes):
+        changes.insert(0, PATHS[0])
+    creates = draw(st.lists(st.sampled_from(changes), unique=True))
+    group: dict[str, Any] = {
+        "title": draw(texts),
+        "kind": kind,
+        "reads": draw(st.lists(st.sampled_from(PATHS), max_size=3, unique=True)),
+        "changes": changes,
+        "creates": creates,
+        "creates_lines": {path: draw(st.integers(1, 400)) for path in creates},
+        "implementation": draw(texts),
+        "documentation": draw(
+            st.none() | texts | st.sampled_from(["SECURITY.md", "docs/TESTING.md"])
+        ),
+    }
+    if kind is GroupKind.OTHER and draw(st.booleans()):
+        return {**group, "process": draw(texts)}
+    if kind is GroupKind.OTHER:
+        return {**group, "verify": draw(st.sampled_from(CHECK_COMMANDS))}
+    return {**group, "test": draw(texts), "verify": draw(st.sampled_from(TEST_COMMANDS))}
+
+
+@st.composite
+def _spec(draw: st.DrawFn, capability: str) -> dict[str, Any]:
+    scenario = st.fixed_dictionaries({"name": texts, "when": texts, "then": texts})
+    requirement = st.fixed_dictionaries(
+        {"name": texts, "text": texts, "scenarios": st.lists(scenario, min_size=1, max_size=2)}
+    )
+    return {
+        "capability": capability,
+        "purpose": draw(st.none() | texts),
+        "added": draw(st.lists(requirement, max_size=2)),
+        "modified": draw(st.lists(requirement, max_size=2)),
+    }
+
+
+@st.composite
+def _reference(draw: st.DrawFn) -> dict[str, Any]:
+    unchanged = draw(st.booleans())
+    return {
+        "path": draw(st.sampled_from(PATHS)),
+        "kind": draw(st.sampled_from(["", "import", "living spec"])),
+        "unchanged": unchanged,
+        "reason": draw(texts if unchanged else st.none() | texts),
+    }
+
+
+@st.composite
+def _criterion(draw: st.DrawFn) -> dict[str, Any]:
+    if draw(st.booleans()):
+        return {"criterion": draw(texts), "group": PENDING_PERSON, "reason": draw(texts)}
+    return {"criterion": draw(texts), "group": draw(st.integers(1, 5))}
+
+
+@st.composite
+def proposals(draw: st.DrawFn) -> StageProposal:
+    """A valid `StageProposal` with groups of each kind, created paths, and unchanged and changed
+    references. Its texts hold no mark of the reader, such as a `Verify that` phrase."""
+    named = st.fixed_dictionaries({"decision": texts, "reason": texts})
+    rejected = st.fixed_dictionaries({"alternative": texts, "evidence": texts})
+    weakened = st.fixed_dictionaries({"check": texts, "stopped": texts, "safeguard": texts})
+    capabilities = draw(st.lists(st.sampled_from(CAPABILITIES), max_size=3, unique=True))
+    return StageProposal.model_validate(
+        {
+            "summary": "Keep the kind of each group",
+            "pull_request_body": draw(texts),
+            "why": draw(texts),
+            "what_changes": draw(st.lists(texts | st.just(FITS_ONE_PR), min_size=1, max_size=3)),
+            "skip_specs": draw(st.booleans()),
+            "feasibility": draw(st.lists(texts, min_size=1, max_size=3)),
+            "existing_tool": draw(texts),
+            "builds_own": draw(st.booleans()),
+            "decisions": draw(st.lists(named, max_size=2)),
+            "rejected": draw(st.lists(rejected, max_size=2)),
+            "specs": [draw(_spec(capability)) for capability in capabilities],
+            "groups": draw(st.lists(_group(), min_size=1, max_size=3)),
+            "criteria": draw(st.lists(_criterion(), max_size=3)),
+            "dependencies": draw(st.lists(texts, max_size=2)),
+            "references": draw(st.lists(_reference(), max_size=3)),
+            "security": draw(st.just("") | texts),
+            "weakened_checks": draw(st.lists(weakened, max_size=1)),
+        }
+    )
+
+
+@given(proposals())
+def test_no_fact_is_lost(proposal: StageProposal) -> None:
+    from devops_cli.roadmap.plan_read import file_facts
+
+    assert read_change(_files(proposal, known=set())) == file_facts(proposal)
+
+
+@given(proposals())
+def test_a_read_plan_is_a_fixed_point(proposal: StageProposal) -> None:
+    read = read_change(_files(proposal, known=set()))
+
+    assert read_change(_files(read, known=set())) == read
