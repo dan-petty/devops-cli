@@ -13,5 +13,5 @@
 
 ## 2. Documents
 
-- [x] 2.1 Add the requirement of a command cited in a sentence to the `roadmap-stage` spec.
+- [x] 2.1 Add the requirement of a command cited in a sentence to the `roadmap-stage/claims` spec.
   - Verification: `$ uv run devops ci docs`

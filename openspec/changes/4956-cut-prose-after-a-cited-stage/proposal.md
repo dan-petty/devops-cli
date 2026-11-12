@@ -11,7 +11,7 @@ The command citation gate of `devops roadmap stage` (#3302, #4197) reads a `devo
 
 ## Capabilities
 
-- `roadmap-stage`: a command cited in a sentence ends at the first word that the command tree does not take, and keeps its subcommand and a word before an option.
+- `roadmap-stage/claims`: a command cited in a sentence ends at the first word that the command tree does not take, and keeps its subcommand and a word before an option.
 
 ## Impact
 
