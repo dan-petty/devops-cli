@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import posixpath
 import tempfile
 import time
 from collections.abc import Sequence
@@ -232,8 +233,10 @@ def _resolve_fallback_physical_route(
 
 def _wildcard_pattern(items: list[dict[str, Any]]) -> str:
     """Name a wildcard deployment from the models it expanded into, e.g. `ollama/*`."""
-    prefix = os.path.commonprefix([str(i.get("model_name") or "") for i in items])
-    return f"{prefix[: prefix.rfind('/') + 1]}*"
+    parent = posixpath.commonpath(
+        [posixpath.dirname(str(i.get("model_name") or "")) for i in items]
+    )
+    return f"{parent}/*" if parent else "*"
 
 
 def _parse_remote_model_items(data: list[dict[str, Any]], clean_url: str) -> list[GatewayRoute]:

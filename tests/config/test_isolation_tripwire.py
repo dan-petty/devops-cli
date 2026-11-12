@@ -13,6 +13,7 @@ from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
+from _pytest.config import PluginImportFailure
 
 from tests.support.bootstrap import is_xdist_worker, register_support_plugins
 from tests.support.paths import REPO_ROOT
@@ -129,12 +130,15 @@ def test_a_support_package_that_fails_to_import_fails_the_registration_naming_it
             ),
         },
     )
-    with pytest.raises(ImportError) as raised:
+    # Since pytest 9.2, `import_plugin` raises `PluginImportFailure`, which names the module, from
+    # the error of the import.
+    with pytest.raises(PluginImportFailure) as raised:
         register_support_plugins(pytest.PytestPluginManager(), package)
     assert (
-        f'"{_SUPPORT_UNDER_TEST}.broken.inner"' in str(raised.value),
-        "a name the module needs is gone" in str(raised.value),
-    ) == (True, True)
+        str(raised.value),
+        type(raised.value.__cause__),
+        str(raised.value.__cause__),
+    ) == (f"{_SUPPORT_UNDER_TEST}.broken.inner", ImportError, "a name the module needs is gone")
 
 
 def test_a_plain_helper_is_left_for_its_importers_to_load(support_under_test: Path) -> None:

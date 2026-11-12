@@ -263,7 +263,7 @@ class AsyncVettingBackend(httpcore2.AsyncNetworkBackend):
         self, level: EgressLevel, inner: httpcore2.AsyncNetworkBackend | None = None
     ) -> None:
         self.level = level
-        self.inner = inner or httpcore2.AnyIOBackend()
+        self.inner: httpcore2.AsyncNetworkBackend = inner or httpcore2.AnyIOBackend()
 
     async def connect_tcp(
         self,

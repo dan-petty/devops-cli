@@ -223,7 +223,7 @@ def test_pytest_randomly_is_installed_and_blocked_by_default() -> None:
 
     assert (
         ("-p", "no:randomly") in pairwise(addopts),
-        "pytest-randomly==5.0.0" in pyproject["dependency-groups"]["dev"],
+        "pytest-randomly==5.1.0" in pyproject["dependency-groups"]["dev"],
     ) == (True, True)
 
 

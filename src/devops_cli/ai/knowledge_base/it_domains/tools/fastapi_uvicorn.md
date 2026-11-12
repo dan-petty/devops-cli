@@ -1,6 +1,6 @@
 ---
 applies_to:
-  - "pkg:pypi/fastapi@0.142.*"
+  - "pkg:pypi/fastapi@0.162.*"
 sources:
   - "https://fastapi.tiangolo.com/"
   - "https://www.uvicorn.org/"

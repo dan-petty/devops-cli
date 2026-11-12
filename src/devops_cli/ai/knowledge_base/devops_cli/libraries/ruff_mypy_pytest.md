@@ -1,8 +1,8 @@
 ---
 applies_to:
-  - "pkg:pypi/ruff@0.16.*"
-  - "pkg:pypi/mypy@2.3.*"
-  - "pkg:pypi/pytest@9.1.*"
+  - "pkg:pypi/ruff@0.17.*"
+  - "pkg:pypi/mypy@2.4.*"
+  - "pkg:pypi/pytest@9.2.*"
 sources:
   - "https://docs.astral.sh/ruff/"
   - "https://mypy.readthedocs.io/"
@@ -22,7 +22,7 @@ tags:
 | :--- | :--- |
 | **Official Documentation** | [docs.astral.sh/ruff/](https://docs.astral.sh/ruff/) • [mypy.readthedocs.io](https://mypy.readthedocs.io/) • [docs.pytest.org](https://docs.pytest.org/) |
 | **Public Git Repository** | [github.com/astral-sh/ruff](https://github.com/astral-sh/ruff) • [github.com/python/mypy](https://github.com/python/mypy) • [github.com/pytest-dev/pytest](https://github.com/pytest-dev/pytest) |
-| **Official PyPI Packages** | `ruff==0.16.8`, `mypy==2.3.1`, `pytest==9.1.1`, `pytest-cov==7.1.0`, `pytest-xdist==3.8.0`, `pytest-asyncio==1.4.0`, `pytest-mock==3.16.0`, `pytest-randomly==5.0.0` |
+| **Official PyPI Packages** | `ruff==0.17.4`, `mypy==2.4.1`, `pytest==9.2.0`, `pytest-cov==7.1.0`, `pytest-xdist==3.8.0`, `pytest-asyncio==1.4.1.post1`, `pytest-mock==3.17.0`, `pytest-randomly==5.1.0` |
 | **DevOps CLI Integration** | [`src/devops_cli/commands/ci.py`](../../../../../../src/devops_cli/commands/ci.py) • [`pyproject.toml`](../../../../../../pyproject.toml) |
 
 ---

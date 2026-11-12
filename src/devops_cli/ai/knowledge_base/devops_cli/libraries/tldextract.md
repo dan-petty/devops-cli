@@ -1,6 +1,6 @@
 ---
 applies_to:
-  - "pkg:pypi/tldextract@5.3.*"
+  - "pkg:pypi/tldextract@5.4.*"
 sources:
   - "https://github.com/john-kurkowski/tldextract"
 reviewed: "2026-10-15"

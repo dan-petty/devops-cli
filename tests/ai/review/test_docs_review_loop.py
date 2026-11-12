@@ -9,7 +9,6 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from functools import cache
-from os.path import commonprefix
 from pathlib import Path, PurePosixPath
 
 from devops_cli.ai.review.exporter import export_invalidated_feedback
@@ -112,7 +111,7 @@ def test_every_metric_self_improvement_names_is_one_devops_cli_sends() -> None:
     """A metric name in SELF_IMPROVEMENT is a registered instrument.
     Section 4 once listed `devops_cli_review_sessions_total` and four more metrics nothing sends."""
     sent = {i.name for i in INSTRUMENTS}
-    namespace = commonprefix([instrument.name for instrument in INSTRUMENTS])
+    namespace = "devops_cli_"
     named = {s.text for s in code_snippets(_SELF_IMPROVEMENT) if s.text.startswith(namespace)}
     assert (sorted(named - sent), bool(named)) == ([], True)
 

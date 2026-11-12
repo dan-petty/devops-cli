@@ -1,6 +1,6 @@
 ---
 applies_to:
-  - "pkg:pypi/qdrant-client@1.19.*"
+  - "pkg:pypi/qdrant-client@1.20.*"
 sources:
   - "https://qdrant.tech/documentation/"
   - "https://github.com/qdrant/qdrant-client-python"

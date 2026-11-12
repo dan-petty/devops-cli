@@ -54,7 +54,7 @@ graph TD
 ### 1. CLI & Terminal Interface
 
 #### `typer` & `click` ([Dedicated Manual](libraries/typer.md))
-- **Pinned Versions**: `typer==0.27.2`, `click==8.5.0`
+- **Pinned Versions**: `typer==0.28.0`, `click==8.5.1`
 - **Ecosystem Role**: Provides declarative CLI application scaffolding, subcommand dispatching, argument/option parsing, shell autocompletion, and type inference.
 - **Codebase Integration**:
   - `devops_cli.core.cli.new_typer`: Factory creating standardized Typer apps with unified formatting, error handlers, and help text from `devops_cli.lang.HELP`.
@@ -88,7 +88,7 @@ def run_command(
 ### 2. Data Validation, Settings & Secrets
 
 #### `pydantic` (v2) ([Dedicated Manual](libraries/pydantic.md))
-- **Pinned Version**: `pydantic==2.13.5`
+- **Pinned Version**: `pydantic==2.14.3`
 - **Ecosystem Role**: High-performance data validation, parsing, serialization, and JSON Schema generation using compiled Rust core (`pydantic-core`).
 - **Codebase Integration**:
   - Domain models (`devops_cli.models`), review findings (`devops_cli.ai.review_schema.Finding`), tool schemas, and AI agent outputs inherit from `BaseModel`.
@@ -100,7 +100,7 @@ from devops_cli.ai.review_schema import Finding
 ```
 
 #### `pydantic-settings` ([Dedicated Manual](libraries/pydantic.md))
-- **Pinned Version**: `pydantic-settings==2.15.0`
+- **Pinned Version**: `pydantic-settings==2.16.2`
 - **Ecosystem Role**: Layered configuration management loading settings from environment variables, `.env` files, TOML/JSON configs, and CLI overrides.
 - **Codebase Integration**:
   - `devops_cli.config.settings.Settings`: Unified singleton loading application configuration with prefix `DEVOPS_CLI_` and automatic type coercion.
@@ -123,7 +123,7 @@ from devops_cli.ai.review_schema import Finding
   - `pydantic_ai.mcp.MCPToolset`: Pydantic AI's own client for an external Model Context Protocol server. devops-cli wires no outbound MCP client today; see the manual for the pattern.
 
 #### `httpx2` (Pydantic HTTP/2 Client) ([Dedicated Manual](libraries/httpx2.md))
-- **Pinned Version**: `httpx2==2.13.0`
+- **Pinned Version**: `httpx2==2.16.0`
 - **Ecosystem Role**: Advanced HTTP/2 and HTTP/1.1 client supporting connection pooling, asynchronous streaming, mTLS, and multiplexed requests.
 - **Codebase Integration**:
   - `devops_cli.ai.client.unified.LLMClient`: Executes high-throughput streaming requests to LLM inference endpoints (Ollama, Claude, OpenAI-compatible, Copilot, the LLM gateway) with bounded timeouts and TLS verification.
@@ -142,13 +142,13 @@ from devops_cli.ai.review_schema import Finding
   - `devops_cli.roadmap.implement.implement_run`: Runs the steps of a staged item to a ready pull request (`devops roadmap implement`), in a runner pod only.
 
 #### `json-repair` ([Dedicated Manual](libraries/json_repair.md))
-- **Pinned Version**: `json-repair==0.63.4`
+- **Pinned Version**: `json-repair==0.64.9`
 - **Ecosystem Role**: Resilient JSON parser capable of repairing malformed, unclosed, or truncated JSON responses emitted by LLMs.
 - **Codebase Integration**:
   - `devops_cli.ai.response_repair` & `devops_cli.ai.client.structured`: Automatically repairs and parses structured model outputs without crashing when tokens are abruptly truncated.
 
 #### `qdrant-client` ([Dedicated Manual](libraries/qdrant_client.md))
-- **Pinned Version**: `qdrant-client==1.19.1`
+- **Pinned Version**: `qdrant-client==1.20.0`
 - **Ecosystem Role**: Vector database client supporting in-memory, local on-disk storage, and remote server connectivity for dense embeddings.
 - **Codebase Integration**:
   - `devops_cli.ai.rag.qdrant`, `.indexer` and `.retriever`: Manages vector collections, cosine distance indexing, and semantic search retrieval to ground AI code reviews against knowledge base manuals.
@@ -172,7 +172,7 @@ from devops_cli.ai.review_schema import Finding
   - `devops_cli.commands.ssh`: Generates and rotates Ed25519 SSH keys with 90-day expiry naming conventions.
 
 #### `tldextract` ([Dedicated Manual](libraries/tldextract.md))
-- **Pinned Version**: `tldextract==5.3.2`
+- **Pinned Version**: `tldextract==5.4.0`
 - **Ecosystem Role**: Accurately separates domain subtotals using the Public Suffix List (PSL).
 - **Codebase Integration**:
   - `devops_cli.security.reference_extractor`: Parses hosts from URLs and IP literals referenced in code (never bare words) for threat-intel lookups.
@@ -206,19 +206,19 @@ from devops_cli.ai.review_schema import Finding
   - `devops_cli.commands.docker`: Collects real-time container CPU/memory statistics, checks container health, and inspects image layers.
 
 #### `fastmcp` ([Dedicated Manual](libraries/fastmcp.md))
-- **Pinned Version**: `fastmcp==4.1.2`
+- **Pinned Version**: `fastmcp==4.1.8`
 - **Ecosystem Role**: High-level Model Context Protocol (MCP) server framework exposing Python functions as standardized tools and prompts.
 - **Codebase Integration**:
   - `devops_cli.ai.mcp.server`: Exposes `devops-cli` tools (`review_path`, `k8s_pods`, `tf_plan`, `scan_uv_audit`, `security_intel_package`) to AI assistants via stdio and SSE transports.
 
 #### `fastapi` & `uvicorn` ([Dedicated Manual](libraries/fastapi_uvicorn.md))
-- **Pinned Versions**: `fastapi==0.142.2`, `uvicorn==0.53.0`
+- **Pinned Versions**: `fastapi==0.162.5`, `uvicorn==0.54.0`
 - **Ecosystem Role**: Asynchronous web framework and lightning-fast ASGI server for building high-performance REST APIs with auto-generated OpenAPI documentation.
 - **Codebase Integration**:
   - `devops_cli.server`: Powers `devops serve`, providing REST endpoints for health probes (`/health`, `/healthz`), Prometheus metrics (`/metrics`), status, workspaces, config and telemetry.
 
 #### `opentelemetry-sdk` ([Dedicated Manual](libraries/opentelemetry.md))
-- **Pinned Version**: `opentelemetry-sdk==1.45.1`
+- **Pinned Version**: `opentelemetry-sdk==1.45.2`
 - **Ecosystem Role**: The OpenTelemetry SDK: the `MeterProvider` that aggregates metrics as deltas before export.
 - **Codebase Integration**:
   - `devops_cli.telemetry.tracer`: Builds the spans, metrics and logs of CLI subcommands, multi-agent review stages and tool executions; `devops_cli.telemetry.exporter` posts them over OTLP/HTTP to the OpenTelemetry Collector.
@@ -243,20 +243,20 @@ The development environment leverages modern Python engineering tools managed vi
 
 | Tool | Pinned Version | Quality Gate Role | Execution Command |
 | :--- | :--- | :--- | :--- |
-| **`ruff`** | `0.16.8` | Extreme-speed linter and code formatter running the rule families selected in `pyproject.toml` `[tool.ruff.lint]`. | `uv run ruff check .` / `uv run ruff format .` |
-| **`mypy`** | `2.3.1` | Strict static type checker validating 100% type coverage with Pydantic v2 plugin. | `uv run mypy src` |
-| **`ty`** | `0.0.92` | Type checker that `uv check` runs. The `dev` group pins it, and `uv check` uses the version in `uv.lock`, so a new release cannot fail `main` with no change in the repository. | `uv check` |
-| **`pytest`** | `9.1.1` | Comprehensive unit and integration test runner. | `uv run pytest` |
-| **`pytest-asyncio`** | `1.4.0` | Asyncio fixture and test execution plugin for asynchronous tool loops. | Included in pytest suite |
-| **`pytest-mock`** | `3.16.0` | Thin wrapper around standard library `unittest.mock` for clean fixture patching. | Included in pytest suite |
+| **`ruff`** | `0.17.4` | Extreme-speed linter and code formatter running the rule families selected in `pyproject.toml` `[tool.ruff.lint]`. | `uv run ruff check .` / `uv run ruff format .` |
+| **`mypy`** | `2.4.1` | Strict static type checker validating 100% type coverage with Pydantic v2 plugin. | `uv run mypy src` |
+| **`ty`** | `0.0.101` | Type checker that `uv check` runs. The `dev` group pins it, and `uv check` uses the version in `uv.lock`, so a new release cannot fail `main` with no change in the repository. | `uv check` |
+| **`pytest`** | `9.2.0` | Comprehensive unit and integration test runner. | `uv run pytest` |
+| **`pytest-asyncio`** | `1.4.1.post1` | Asyncio fixture and test execution plugin for asynchronous tool loops. | Included in pytest suite |
+| **`pytest-mock`** | `3.17.0` | Thin wrapper around standard library `unittest.mock` for clean fixture patching. | Included in pytest suite |
 | **`pytest-cov`** | `7.1.0` | Code coverage measurement enforcing strict $\ge 90\%$ minimum threshold project-wide. | `uv run pytest --cov=src` |
 | **`pytest-xdist`** | `3.8.0` | Multi-core parallel test execution distribution across worker subprocesses. | `uv run pytest -n auto` |
-| **`pytest-randomly`** | `5.0.0` | Shuffles test order and reseeds `random` for each test; blocked in `addopts` (`-p no:randomly`) and enabled only by `devops ci test --repeat`. | `uv run devops ci test --repeat 3 <test files>` |
+| **`pytest-randomly`** | `5.1.0` | Shuffles test order and reseeds `random` for each test; blocked in `addopts` (`-p no:randomly`) and enabled only by `devops ci test --repeat`. | `uv run devops ci test --repeat 3 <test files>` |
 | **`pytest-timeout`** | `2.4.0` | Fails a test that hangs at the per-test bound in `[tool.pytest.ini_options]` (`timeout`, `timeout_method = "signal"`), so a stuck test fails in its own process and the run carries on. | `@pytest.mark.timeout(<seconds>)` for a test that needs longer |
 | **`bandit`** | `1.9.4` | AST-based Python security analyzer detecting insecure patterns (CWE checks). | `uv run devops ci security` (`bandit -r src` at low, `bandit -r tests` at medium, with `--ini .bandit`) |
 
-| **`pre-commit`** | `4.6.2` | Multi-hook manager orchestrating git commit quality gates. | `uv run pre-commit run --all-files` |
-| **`hatchling`** | `>=1.32.4` | Build backend complying with PEP 517 / PEP 621 for wheel generation. | `uv build` |
+| **`pre-commit`** | `4.7.0` | Multi-hook manager orchestrating git commit quality gates. | `uv run pre-commit run --all-files` |
+| **`hatchling`** | `>=1.33.0` | Build backend complying with PEP 517 / PEP 621 for wheel generation. | `uv build` |
 
 ---
 

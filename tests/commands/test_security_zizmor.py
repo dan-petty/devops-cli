@@ -123,7 +123,7 @@ def test_the_ci_gate_runs_the_scan_with_the_pinned_dev_zizmor() -> None:
     assert (
         get_check_spec("zizmor").cmd,
         [spec for spec in dev["dev"] if spec.startswith("zizmor")],
-    ) == (["uv", "run", "devops", "scan", "workflows"], ["zizmor==1.30.1"])
+    ) == (["uv", "run", "devops", "scan", "workflows"], ["zizmor==1.32.0"])
 
 
 def test_scan_workflows_json_marks_which_findings_block(
