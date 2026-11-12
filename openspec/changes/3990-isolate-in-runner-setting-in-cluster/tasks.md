@@ -4,7 +4,7 @@
 
 Kind: behavior. Changes: `tests/invariants/test_hermetic_floor.py`, `tests/conftest.py`, `tests/roadmap/implement/test_roadmap_implement_records.py`.
 
-- [ ] 1.1 Write a failing test: in a pytester run whose outer environment sets `DEVOPS_CLI_ROADMAP_IMPLEMENT_IN_RUNNER` to `true`, the inner test sees no such variable, and `roadmap.implement.in_runner` is false.
+- [x] 1.1 Write a failing test: in a pytester run whose outer environment sets `DEVOPS_CLI_ROADMAP_IMPLEMENT_IN_RUNNER` to `true`, the inner test sees no such variable, and `roadmap.implement.in_runner` is false.
   - Verification: `$ uv run devops ci test tests/invariants/test_hermetic_floor.py`
 - [ ] 1.2 Remove the variable in `isolate_devops_cli_config` of `tests/conftest.py`. Delete the removal in `test_the_job_runs_no_step_unless_the_setting_says_it_is_in_a_runner`.
   - Verification: `$ uv run devops ci test tests/invariants/test_hermetic_floor.py tests/roadmap/implement/test_roadmap_implement_records.py`

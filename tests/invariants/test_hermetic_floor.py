@@ -341,6 +341,35 @@ def test_config_writes_overrides_and_isolates_tests(
     result.assert_outcomes(passed=2)
 
 
+def test_the_runner_variable_of_the_outer_environment_reaches_no_test(
+    pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The pod of a runner Job sets `DEVOPS_CLI_ROADMAP_IMPLEMENT_IN_RUNNER` before pytest starts,
+    and a variable wins over the config file (#3990). The floor removes the variable for each
+    test, so a test gets `roadmap.implement.in_runner` from its config alone."""
+    monkeypatch.setenv("DEVOPS_CLI_ROADMAP_IMPLEMENT_IN_RUNNER", "true")
+    result = _run_with_floor(
+        pytester,
+        monkeypatch,
+        """
+        import os
+
+        from devops_cli.config.settings import load_settings
+
+        def test_the_default_is_outside_a_runner():
+            assert (
+                os.environ.get("DEVOPS_CLI_ROADMAP_IMPLEMENT_IN_RUNNER"),
+                load_settings().roadmap.implement.in_runner,
+            ) == (None, False)
+
+        def test_the_config_puts_the_test_in_a_runner(config):
+            config(roadmap={"implement": {"in_runner": True}})
+            assert load_settings().roadmap.implement.in_runner is True
+        """,
+    )
+    result.assert_outcomes(passed=2)
+
+
 def test_process_wide_state_resets_between_tests(
     pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch
 ) -> None:
