@@ -265,9 +265,16 @@ class StoreRequests:
         edit = self._edit(subject, "set_field", stdin, field=field_name or _p("field"))
         return [*self.issue_now(subject), edit]
 
-    def comment(self, subject: str) -> Requests:
+    def comment(self, subject: str, *, job: bool = True) -> Requests:
+        """The comment. A comment that can be a roadmap job's (`job`) first reads the comments
+        of the issue, and a repeat of a recent comment of the job does not post (#4793)."""
         args = gh.comment_args(self.repo, _number(subject), _p("comment"))
-        return [self.gh(args, "comment", subject=subject)]
+        post = [self.gh(args, "comment", subject=subject)]
+        if not job:
+            return post
+        conditions = MESSAGES.roadmap.plan_conditions
+        read = within(self.comments_on(subject), conditions["job_comment"])
+        return [*read, *within(post, conditions["no_repeat"])]
 
     def close(self, subject: str, reason: CloseReason, *, comment: bool) -> Requests:
         """The issue, which a close refuses when it is no open issue, then its comment when one

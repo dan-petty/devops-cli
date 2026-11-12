@@ -14,16 +14,23 @@ from typing import TYPE_CHECKING
 import pytest
 
 from devops_cli.exceptions import RoadmapRunError
-from devops_cli.roadmap.refine.refine import NextStep, apply_refine, plan_refine
+from devops_cli.roadmap.refine.refine import (
+    NextStep,
+    RefinementProposal,
+    apply_refine,
+    plan_refine,
+)
 from devops_cli.roadmap.stores.store import RefineRecordKey
 from tests.support.roadmap_refine import (
     QUESTION,
     READY,
     REPO,
+    refine_round,
     require_item,
     seed_item,
 )
 from tests.support.service_stop import stop_error
+from tests.support.write_stops import stop_after_each_write
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -132,4 +139,56 @@ def test_a_ready_item_that_goes_back_to_new_is_written_with_one_request_for_body
         ["set_field", "comment"],
         "New",
         True,
+    )
+
+
+@pytest.mark.parametrize("answer", [READY, QUESTION], ids=["ready", "question"])
+def test_a_stop_after_each_write_of_a_result_leaves_no_second_comment(
+    git_repo: Path,
+    store: InMemoryRoadmapStore,
+    model_fake: ModelFake,
+    answer: RefinementProposal,
+) -> None:
+    """A result writes the issue, then the comment. After a stop of the Service after either
+    write, the next round leaves no comment that one whole round does not leave (ADR 0021,
+    #4793)."""
+    _private(store)
+    seed_item(store, "New", "P1-High")
+    model_fake.answer(answer)
+
+    replay = stop_after_each_write(store, lambda copied: refine_round(copied, git_repo))
+
+    assert (replay.whole[-1], [run.at for run in replay.runs], replay.extra_comments()) == (
+        "comment",
+        [1, 2],
+        [],
+    )
+
+
+def test_a_round_that_asks_the_same_question_again_posts_no_second_comment(
+    git_repo: Path, store: InMemoryRoadmapStore, model_fake: ModelFake
+) -> None:
+    """A person edits the body, and the model asks the same question: the comment of the first
+    round still holds it, so the store refuses the repeat (#4793). A new question posts."""
+    _private(store)
+    number = seed_item(store, "New", "P1-High")
+    model_fake.answer(QUESTION)
+    refine_round(store, git_repo)
+    person = store.as_actor("alice")
+    person.write_issue_body(number, f"{require_item(store, number).body}\n\nThe store is Valkey.")
+    refine_round(store, git_repo)
+    once = len(store.comments_on(number))
+    model_fake.answer(_asks("Which key holds the record?"))
+    person.write_issue_body(number, f"{require_item(store, number).body}\n\nOne key per item.")
+
+    refine_round(store, git_repo)
+
+    assert (model_fake.call_count, once, len(store.comments_on(number))) == (3, 1, 2)
+
+
+def _asks(question: str) -> RefinementProposal:
+    """The answer of `QUESTION` with another question for a person."""
+    (asked,) = QUESTION.key_questions
+    return QUESTION.model_copy(
+        update={"key_questions": [asked.model_copy(update={"question": question})]}
     )

@@ -266,6 +266,15 @@ ROADMAP_REFINE_COMMENTS_CAPPED_TOTAL = Instrument(
     "on a person and takes no place under the round's limit. A later round that finds no newer "
     "comment on the item does not count it again",
 )
+ROADMAP_COMMENT_REPEATS_REFUSED_TOTAL = Instrument(
+    "devops_cli_roadmap_comment_repeats_refused_total",
+    InstrumentKind.COUNTER,
+    "1",
+    "Comments of a roadmap job that the store did not post, by row: the same text, with its "
+    "commits, digests and run IDs left out, is in the job's trailing run of comments on the item "
+    "and is less than 7 days old. The label row names the job: retitle, refine, alternatives, "
+    "intake, stage or implement, so the counter has at most 6 series",
+)
 ROADMAP_ALTERNATIVES_TOTAL = Instrument(
     "devops_cli_roadmap_alternatives_total",
     InstrumentKind.COUNTER,
@@ -721,6 +730,7 @@ INSTRUMENTS: tuple[Instrument, ...] = (
     WEB_SEARCHES_TOTAL,
     CRAWL4AI_FETCHES_TOTAL,
     ROADMAP_REFINE_COMMENTS_CAPPED_TOTAL,
+    ROADMAP_COMMENT_REPEATS_REFUSED_TOTAL,
     ROADMAP_ALTERNATIVES_TOTAL,
     ROADMAP_ALTERNATIVES_UNCHECKED_ITEMS,
     ROADMAP_ALTERNATIVES_OLDEST_CHECK_AGE,
@@ -877,6 +887,7 @@ __all__ = [
     "ROADMAP_ALTERNATIVES_TOTAL",
     "ROADMAP_ALTERNATIVES_UNCHECKED_ITEMS",
     "ROADMAP_CLAIM_AGE",
+    "ROADMAP_COMMENT_REPEATS_REFUSED_TOTAL",
     "ROADMAP_CONFLICTED_PULLS",
     "ROADMAP_INTAKE_CANDIDATES_TOTAL",
     "ROADMAP_ITEM_AGE",

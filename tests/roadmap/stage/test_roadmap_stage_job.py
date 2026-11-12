@@ -38,6 +38,7 @@ from tests.support.roadmap_stage import (
     validate_args,
 )
 from tests.support.scripted_model import Script, call
+from tests.support.write_stops import stop_after_each_write
 
 if TYPE_CHECKING:
     from tests.support.fakes.github import GitHubApiFake
@@ -383,6 +384,17 @@ def test_three_rounds_that_fail_outside_any_item_suspend_the_row(
 
 
 NEW_MODULE = "src/devops_cli/roadmap/stage_constants.py"
+# The GraphQL answer of a repository with no open pull request.
+NO_OPEN_PULLS = {
+    "data": {
+        "repository": {
+            "pullRequests": {
+                "nodes": [],
+                "pageInfo": {"hasNextPage": False, "endCursor": None},
+            }
+        }
+    }
+}
 OPEN_PLAN = f"""\
 # Tasks
 
@@ -406,22 +418,7 @@ def test_dependency_returns_item_without_model_call(
     get_github_rate_limiter().update_quota(
         "graphql", remaining=5000, limit=5000, reset_epoch=time.time() + 600.0
     )
-    github_api.route(
-        "POST",
-        "/graphql",
-        github_json(
-            {
-                "data": {
-                    "repository": {
-                        "pullRequests": {
-                            "nodes": [],
-                            "pageInfo": {"hasNextPage": False, "endCursor": None},
-                        }
-                    }
-                }
-            }
-        ),
-    )
+    github_api.route("POST", "/graphql", github_json(NO_OPEN_PULLS))
     open_plan = store.seed_issue(
         "fix(roadmap): add the stage constants",
         body="The stage job reads constants.",
@@ -440,6 +437,37 @@ def test_dependency_returns_item_without_model_call(
     assert held.job_record[RefineRecordKey.BLOCKED_BY] == str(open_plan)
     assert held.job_record[RefineRecordKey.NEXT_STEP] == NextStep.BLOCKED.value
     assert any(f"#{open_plan}" in comment.body for comment in store.comments_on(target))
+
+
+def test_a_stop_after_each_write_of_a_dependency_return_posts_no_second_comment(
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    github_api: GitHubApiFake,
+) -> None:
+    """The return of an item to New writes its comment, then its Status. A stop of the Service
+    after either write leaves the next round no second comment to post (ADR 0021, #4793)."""
+    get_github_rate_limiter().update_quota(
+        "graphql", remaining=5000, limit=5000, reset_epoch=time.time() + 600.0
+    )
+    github_api.route("POST", "/graphql", github_json(NO_OPEN_PULLS))
+    open_plan = store.seed_issue(
+        "fix(roadmap): add the stage constants",
+        body="The stage job reads constants.",
+        labels=("type/bug",),
+        fields={ItemField.STATUS: "Planned", ItemField.PRIORITY: "P1-High"},
+    )
+    merge_plan(stage_repo, open_plan, tasks=OPEN_PLAN)
+    seed_stageable(store, body=f"The job needs `{NEW_MODULE}`.")
+
+    replay = stop_after_each_write(store, lambda copied: _round(copied, stage_repo))
+
+    assert (
+        replay.whole,
+        [(run.at, run.again) for run in replay.runs],
+        replay.extra_comments(),
+        model_fake.calls,
+    ) == (("comment", "set_field"), [(1, ("set_field",)), (2, ())], [], [])
 
 
 def test_a_false_field_absence_returns_the_item_without_model_call(
