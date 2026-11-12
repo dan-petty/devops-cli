@@ -10,6 +10,10 @@ file (`promtool test rules`), with these keys added:
   variables.
 - `variables` of a case gives the value of each variable of `expr`: `__range` and `__interval`
   as durations, and each dashboard variable as the text that Grafana puts in its place.
+- `bars` of a case of a bar panel gives the range that the bars cover, such as `24h`, and
+  `total` gives what the series of the case add in that range. The test adds up the bars of
+  each `__interval` in the range, as Grafana draws them, and each expected sum is within 1 % of
+  `total`.
 
 The test replaces the variables as Grafana does, removes the added keys, writes one promtool
 file for each dashboard and runs promtool once on it. docs/TESTING.md tells how to add a case.
@@ -44,7 +48,11 @@ SHAPES = frozenset({"sparse_counter", "zero_start", "counter_reset", "snapshot_g
 # The keys that the case files add to the promtool format. promtool refuses a key it does not
 # know, so the test removes them.
 GROUP_KEYS = frozenset({"shape"})
-CASE_KEYS = frozenset({"panel", "ref_id", "variables"})
+CASE_KEYS = frozenset({"panel", "ref_id", "variables", "bars", "total"})
+
+# How far the sum of the bars of a case can be from the total of its series: `increase()`
+# extrapolates each bar to the edges of its window (#4707).
+BARS_TOLERANCE = 0.01
 
 # The variable syntax of Grafana: `$name`, `[[name:format]]` and `${name.path:format}`
 # (`variableRegex`, public/app/features/variables/utils.ts).
@@ -93,6 +101,13 @@ def grafana_values(given: Mapping[str, object], target: dict[str, Any]) -> dict[
             "__rate_interval": f"{rate_interval(interval_s, _scrape_s(target))}s",
         }
     return values
+
+
+def summed_bars(query: str, bars: object, values: Mapping[str, str]) -> str:
+    """`query` as the sum of its bars over the range `bars`: one bar each `$__interval`, at the
+    multiples of the interval, as Grafana aligns the steps of a range query."""
+    assert "__interval" in values, "a case with bars gives __interval"
+    return f"sum_over_time(({query})[{_seconds(bars)}s:{values['__interval']}])"
 
 
 def interpolate(expr: str, values: Mapping[str, str]) -> str:
@@ -189,7 +204,10 @@ def promtool_file(name: str, case_file: dict[str, Any]) -> dict[str, Any]:
         test["promql_expr_test"] = []
         for case in group.get("promql_expr_test", []):
             (target,) = targets[(case["panel"], case["ref_id"])]
-            query = interpolate(case["expr"], grafana_values(case.get("variables", {}), target))
+            values = grafana_values(case.get("variables", {}), target)
+            query = interpolate(case["expr"], values)
+            if "bars" in case:
+                query = summed_bars(query, case["bars"], values)
             left = sorted({match[0] for match in VARIABLE.finditer(query)})
             assert not left, f"{_where(name, case)}: the case gives no value for {left}"
             test["promql_expr_test"].append(
@@ -257,6 +275,36 @@ def test_a_changed_query_names_the_dashboard_the_panel_and_the_ref_id() -> None:
         ["devops-cli.json panel 'AI Spend in Range' refId A: the case query is not the panel query"]
         * len(changed),
     )
+
+
+def test_a_bars_case_adds_up_one_bar_each_interval_of_its_range() -> None:
+    """A case with `bars` evaluates the sum of the bars of its panel: a subquery over the range
+    of the bars, with one step each `$__interval`."""
+    values = grafana_values({"__interval": "1h"}, {"interval": "60s"})
+    assert summed_bars(interpolate("sum(increase(x[$__interval]))", values), "24h", values) == (
+        "sum_over_time((sum(increase(x[3600s])))[86400s:3600s])"
+    )
+
+
+def _bars_off_their_total(case: Mapping[str, Any]) -> list[str]:
+    """One line for each expected sample of a bars case that is not within `BARS_TOLERANCE` of
+    the `total` of the case, or for a bars case with no total."""
+    if "total" not in case:
+        return [f"{case['panel']!r} refId {case['ref_id']}: a case with bars gives total"]
+    total = float(case["total"])
+    return [
+        f"{case['panel']!r} refId {case['ref_id']}: {sample['value']} is not within 1 % of {total}"
+        for sample in case["exp_samples"]
+        if abs(float(sample["value"]) - total) > BARS_TOLERANCE * total
+    ]
+
+
+@pytest.mark.parametrize("cases", CASE_FILES, ids=CASE_IDS)
+def test_the_bars_of_each_case_add_up_to_its_total_within_one_percent(cases: Path) -> None:
+    """The hourly bars of a sparse counter add up to what the counter added in the range, within
+    1 %: a bar panel does not count a sample in two bars or leave a gap between bars (#4707)."""
+    bars = [case for case in _cases(_case_file(cases)) if "bars" in case]
+    assert [line for case in bars for line in _bars_off_their_total(case)] == []
 
 
 def test_the_cases_hold_each_series_shape() -> None:

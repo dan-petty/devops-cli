@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Iterator
 from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
@@ -28,7 +29,7 @@ from devops_cli.config.defaults import (
     DEFAULT_AI_REFERENCE_MODEL,
     DEFAULT_AI_REFERENCE_PROVIDER,
 )
-from devops_cli.prometheus.promql import grouping_labels, selectors
+from devops_cli.prometheus.promql import falls_back_to_constant, grouping_labels, selectors
 from tests.support.paths import FIXTURES, REPO_ROOT
 
 K8S_DIR = REPO_ROOT / "k8s"
@@ -542,3 +543,345 @@ def test_each_traffic_panel_names_the_senders_of_its_numbers() -> None:
         title: all(source in text for source in TRAFFIC_SOURCES) and "sends none" not in text
         for title, text in descriptions.items()
     } == dict.fromkeys(TRAFFIC_PANELS, True)
+
+
+CLI_DASHBOARD = DASHBOARDS_DIR / "devops-cli.json"
+# The rows of devops-cli.json that #4718 makes readable with the same chart rules. The rules
+# check each other panel of the dashboard (#4707).
+SERVICE_ROWS = frozenset(
+    {
+        "AI Spend & Economics",
+        "Planner Tools",
+        "Roadmap Service",
+        "Alternatives Check",
+        "Roadmap Job Success",
+    }
+)
+GOLDEN_SIGNALS_ROW = "Golden signals: devops commands"
+# The golden signals in the order of the SRE book, with the unit of each (docs/DESIGN.md C12 d).
+GOLDEN_SIGNALS = (
+    ("Latency", "s"),
+    ("Traffic", "short"),
+    ("Errors", "percentunit"),
+    ("Saturation", "percentunit"),
+)
+# The range windows that follow the step of a time series, so its points do not overlap.
+STEP_WINDOWS = frozenset({"$__interval", "$__rate_interval"})
+RANGE_WINDOW = re.compile(r"\[([^\]]+)\]")
+DURATION_UNITS = frozenset({"s", "ms"})
+# The functions of a native histogram that give a duration: each histogram that a duration panel
+# reads counts seconds or milliseconds.
+DURATION_OF_HISTOGRAM = re.compile(r"\bhistogram_(?:quantile|avg|sum)\(")
+# A reference line, such as a limit, is a constant query.
+REFERENCE_LINE = re.compile(r"vector\(\s*[0-9.]+\s*\)")
+# The override properties that give a field a y axis of its own.
+SECOND_AXIS = frozenset({"unit", "custom.axisPlacement"})
+INNERMOST_PARENTHESES = re.compile(r"\([^()]*\)")
+
+
+def _outermost(query: str) -> str:
+    """A query with each part in parentheses collapsed, which leaves its outermost operators."""
+    collapsed = INNERMOST_PARENTHESES.sub("<>", query)
+    return query if collapsed == query else _outermost(collapsed)
+
+
+def measure(expr: str) -> str | None:
+    """The quantity that a query gives: `share` for a ratio, `duration` for a quantile, a mean or
+    a sum of a duration histogram, `count` for another query, and None for a reference line."""
+    if REFERENCE_LINE.fullmatch(expr.strip()):
+        return None
+    if " / " in _outermost(expr):
+        return "share"
+    if DURATION_OF_HISTOGRAM.search(expr):
+        return "duration"
+    return "count"
+
+
+def _second_axes(panel: dict[str, Any]) -> list[str]:
+    """The override properties of a panel that give a field its own y axis."""
+    return [
+        prop["id"]
+        for override in panel.get("fieldConfig", {}).get("overrides", [])
+        for prop in override.get("properties", [])
+        if prop.get("id") in SECOND_AXIS
+    ]
+
+
+def _time_series_problems(title: str, expr: str) -> list[str]:
+    """The problems of one target of a time series: a window that does not follow the step, and
+    a line for each command or sub-command."""
+    problems = []
+    windows = sorted(set(RANGE_WINDOW.findall(expr)) - STEP_WINDOWS)
+    if windows or "$__range" in expr:
+        problems.append(f"{title}: the window {windows} does not follow the step")
+    if grouping_labels(expr) & {"command", "sub_command"}:
+        problems.append(f"{title}: draws a line for each command")
+    return problems
+
+
+def readability_problems(panel: dict[str, Any]) -> list[str]:
+    """One line for each chart rule of #4707 that a panel breaks: no repeat, a description, a
+    title that names the signal and the measure, one unit and one y axis in a panel that is not
+    a table, no count on a duration axis, `or vector(0)` only in a stat, and time series windows
+    that follow the step and draw no line for each command."""
+    title = panel.get("title", "")
+    exprs = [target.get("expr", "") for target in panel.get("targets", [])]
+    unit = panel.get("fieldConfig", {}).get("defaults", {}).get("unit")
+    problems = []
+    if "repeat" in panel:
+        problems.append(f"{title}: repeats by {panel['repeat']}")
+    if not panel.get("description"):
+        problems.append(f"{title}: has no description")
+    if ": " not in title:
+        problems.append(f"{title}: the title does not name the signal and the measure")
+    if panel.get("type") != "table":
+        measures = sorted({measure(expr) for expr in exprs} - {None})
+        if len(measures) > 1:
+            problems.append(f"{title}: targets of two units: {measures}")
+        if _second_axes(panel):
+            problems.append(f"{title}: an override sets a second axis: {_second_axes(panel)}")
+    if unit in DURATION_UNITS and any("histogram_count(" in expr for expr in exprs):
+        problems.append(f"{title}: a count on a {unit} axis")
+    if panel.get("type") != "stat" and any(falls_back_to_constant(expr) for expr in exprs):
+        problems.append(f"{title}: or vector(0) outside a stat")
+    if panel.get("type") == "timeseries":
+        problems.extend(problem for expr in exprs for problem in _time_series_problems(title, expr))
+    return problems
+
+
+def _cli_dashboard() -> dict[str, Any]:
+    loaded: dict[str, Any] = json.loads(CLI_DASHBOARD.read_text(encoding="utf-8"))
+    return loaded
+
+
+def _panels_by_row(panels: list[dict[str, Any]]) -> Iterator[tuple[str, dict[str, Any]]]:
+    """Each panel that is not a row, with the title of the row above it."""
+    row = ""
+    for panel in panels:
+        if panel.get("type") == "row":
+            row = panel.get("title", "")
+            yield from ((row, inner) for inner in panel.get("panels", []))
+        else:
+            yield row, panel
+
+
+def _row(title: str) -> list[dict[str, Any]]:
+    return [panel for row, panel in _panels_by_row(_cli_dashboard()["panels"]) if row == title]
+
+
+def test_each_panel_outside_the_service_rows_follows_the_chart_rules() -> None:
+    """Each panel of devops-cli.json outside the rows of #4718 has one unit and one y axis, no
+    repeat, a description and a title that names the signal and the measure. A time series has
+    no window of `$__range` or of a fixed length, and no line for each command (#4707)."""
+    panels = [
+        panel
+        for row, panel in _panels_by_row(_cli_dashboard()["panels"])
+        if row not in SERVICE_ROWS
+    ]
+    assert (
+        len(panels) > 10,
+        [line for panel in panels for line in readability_problems(panel)],
+    ) == (
+        True,
+        [],
+    )
+
+
+_P95 = (
+    "histogram_quantile(0.95, sum(rate("
+    'devops_cli_subcommand_duration_seconds{job=~"$job"}[$__rate_interval])))'
+)
+_CALLS = 'histogram_count(sum(increase(devops_cli_subcommand_duration_seconds{job=~"$job"}[$__interval])))'
+
+
+def _latency_panel(**changes: Any) -> dict[str, Any]:
+    """A time series of the p95 of calls that follows each chart rule, with `changes` put in."""
+    panel: dict[str, Any] = {
+        "type": "timeseries",
+        "title": "Latency: p95 of successful calls",
+        "description": "The p95 of the calls of each step.",
+        "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []},
+        "targets": [{"refId": "A", "expr": _P95}],
+    }
+    return panel | changes
+
+
+def _override(prop: str, value: object) -> dict[str, Any]:
+    return {
+        "defaults": {"unit": "s"},
+        "overrides": [
+            {
+                "matcher": {"id": "byName", "options": "calls"},
+                "properties": [{"id": prop, "value": value}],
+            }
+        ],
+    }
+
+
+@pytest.mark.parametrize(
+    ("changes", "rule"),
+    [
+        pytest.param({}, None, id="a panel that follows the rules"),
+        pytest.param(
+            {"fieldConfig": {"defaults": {}}, "targets": [{"expr": _P95}, {"expr": _CALLS}]},
+            "targets of two units",
+            id="two units",
+        ),
+        pytest.param(
+            {"fieldConfig": _override("custom.axisPlacement", "right")},
+            "second axis",
+            id="an axis on the right",
+        ),
+        pytest.param(
+            {"fieldConfig": _override("unit", "short")}, "second axis", id="a unit override"
+        ),
+        pytest.param(
+            {"fieldConfig": {"defaults": {"unit": "s"}}, "targets": [{"expr": _CALLS}]},
+            "a count on a s axis",
+            id="a count on a duration axis",
+        ),
+        pytest.param({"repeat": "sub_command"}, "repeats", id="a repeat"),
+        pytest.param({"description": ""}, "no description", id="no description"),
+        pytest.param(
+            {"title": "Command latency"}, "signal and the measure", id="a title with no signal"
+        ),
+        pytest.param(
+            {"targets": [{"expr": _P95.replace("$__rate_interval", "1h")}]},
+            "does not follow the step",
+            id="a fixed window",
+        ),
+        pytest.param(
+            {"targets": [{"expr": _P95.replace("$__rate_interval", "$__range")}]},
+            "does not follow the step",
+            id="the range as a window",
+        ),
+        pytest.param(
+            {"targets": [{"expr": _P95.replace("sum(", "sum by (command) (")}]},
+            "a line for each command",
+            id="a line for each command",
+        ),
+        pytest.param(
+            {"targets": [{"expr": f"{_P95} or vector(0)"}]},
+            "or vector(0) outside a stat",
+            id="a zero fallback in a time series",
+        ),
+    ],
+)
+def test_each_broken_chart_rule_is_reported_once(changes: dict[str, Any], rule: str | None) -> None:
+    """A panel that breaks one chart rule gets one problem line, which names the rule, and a
+    panel that breaks none gets no line."""
+    problems = readability_problems(_latency_panel(**changes))
+    assert [rule is not None and rule in line for line in problems] == ([True] if rule else [])
+
+
+def test_a_reference_line_and_a_table_take_more_than_one_unit() -> None:
+    """A constant reference line takes the unit of its panel, and the columns of a table each
+    have their own unit."""
+    limit = _latency_panel(targets=[{"expr": _P95}, {"expr": "vector(1)"}])
+    table = _latency_panel(type="table", targets=[{"expr": _P95}, {"expr": _CALLS}])
+    table["fieldConfig"]["defaults"]["unit"] = "short"
+    assert (readability_problems(limit), readability_problems(table)) == ([], [])
+
+
+def test_the_first_row_holds_the_golden_signals_in_the_order_of_the_book() -> None:
+    """The first row of devops-cli.json is "Golden signals: devops commands" with latency,
+    traffic, errors and saturation, `w12 h8` each and two to a line, each with its unit
+    (docs/DESIGN.md, "Grafana layout" and C12 d)."""
+    panels = _cli_dashboard()["panels"]
+    golden = _row(GOLDEN_SIGNALS_ROW)
+
+    assert (
+        (panels[0]["type"], panels[0]["title"]),
+        [
+            (panel["title"].partition(": ")[0], panel["fieldConfig"]["defaults"]["unit"])
+            for panel in golden
+        ],
+        [
+            (
+                panel["gridPos"]["x"],
+                panel["gridPos"]["y"],
+                panel["gridPos"]["w"],
+                panel["gridPos"]["h"],
+            )
+            for panel in golden
+        ],
+    ) == (
+        ("row", GOLDEN_SIGNALS_ROW),
+        list(GOLDEN_SIGNALS),
+        [(0, 1, 12, 8), (12, 1, 12, 8), (0, 9, 12, 8), (12, 9, 12, 8)],
+    )
+
+
+def test_the_golden_signals_read_the_sub_command_histogram_of_the_selection() -> None:
+    """Latency, traffic and errors read `devops_cli_subcommand_duration_seconds`, the histogram
+    with the label `status`, for the selected job, command and sub-command. Latency reads the ok
+    calls only. Saturation divides the spend of the Service budget by its limit, with a reference
+    line at 100 % (#4707)."""
+    latency, traffic, errors, saturation = _row(GOLDEN_SIGNALS_ROW)
+    selection = (
+        'devops_cli_subcommand_duration_seconds{job=~"$job",command=~"$command",'
+        'sub_command=~"$sub_command"'
+    )
+
+    assert (
+        [
+            all(selection in target["expr"] for target in panel["targets"])
+            for panel in (latency, traffic, errors)
+        ],
+        [target["expr"].count('status="ok"') for target in latency["targets"]],
+        (traffic["interval"], traffic["fieldConfig"]["defaults"]["custom"]["drawStyle"]),
+        [target["expr"] for target in saturation["targets"]][1:],
+        [panel["fieldConfig"]["defaults"].get("min") for panel in (traffic, errors, saturation)],
+    ) == ([True, True, True], [1, 1, 1], ("1h", "bars"), ["vector(1)"], [0, 0, 0])
+
+
+def _links(panel: dict[str, Any]) -> list[str]:
+    return [
+        link["url"]
+        for override in panel["fieldConfig"].get("overrides", [])
+        for prop in override["properties"]
+        if prop["id"] == "links"
+        for link in prop["value"]
+    ]
+
+
+def _sort(table: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """The sort of a table: the fields of its last transformation, and the initial sort of the
+    table, each as (field, descending)."""
+    last = table["transformations"][-1]
+    return (
+        [(field["field"], field["desc"]) for field in last["options"]["sort"]]
+        if last["id"] == "sortBy"
+        else [],
+        [(field["displayName"], field["desc"]) for field in table["options"]["sortBy"]],
+    )
+
+
+def test_each_breakdown_table_sorts_by_errors_and_opens_the_golden_signals_of_a_row() -> None:
+    """The tables of the commands and of the sub-commands are sorted by errors, then by calls.
+    A row links to this dashboard with `var-command`, and `var-sub_command` for a sub-command, set
+    to the row, so the golden signals show that command over time (#4707)."""
+    (_, commands, _) = _row("Breakdown by command")
+    (sub_commands,) = _row("Sub-commands")
+    keep = "/d/devops-cli-telemetry/devops-cli-telemetry?${__url_time_range}&${job:queryparam}"
+    errors_then_calls = [("Errors", True), ("Calls", True)]
+
+    assert (
+        [(table["type"], _sort(table)) for table in (commands, sub_commands)],
+        _links(commands),
+        _links(sub_commands),
+    ) == (
+        [("table", (errors_then_calls, errors_then_calls))] * 2,
+        [f"{keep}&var-command=${{__data.fields.command}}"],
+        [
+            f"{keep}&var-command=${{__data.fields.command}}"
+            "&var-sub_command=${__data.fields.sub_command:percentencode}"
+        ],
+    )
+
+
+def test_the_cli_dashboard_opens_on_a_day_and_refreshes_each_minute() -> None:
+    """An OTLP series gets about 4 samples an hour, so the dashboard opens on the last 24 h and
+    refreshes each minute (#4707)."""
+    dashboard = _cli_dashboard()
+    assert (dashboard["time"], dashboard["refresh"]) == ({"from": "now-24h", "to": "now"}, "1m")
