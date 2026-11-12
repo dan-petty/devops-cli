@@ -1740,6 +1740,26 @@ def test_the_note_that_a_change_sets_skip_specs_is_no_problem(
     assert problem is None
 
 
+@pytest.mark.parametrize("capability", ["comment-thread", "area/comment-thread"])
+def test_the_validation_sees_the_base_spec_of_a_flat_or_a_nested_capability(
+    stage_repo: StageRepo, openspec_fake: OpenSpecFake, capability: str
+) -> None:
+    base = f"openspec/specs/{capability}/spec.md"
+    stage_repo.track({base: BASE_SPEC})
+    seen: list[bool] = []
+    openspec_fake.script(
+        VALIDATE, 0, VALID_REPORT, effect=lambda cwd: seen.append((cwd / base).is_file())
+    )
+    delta = f"openspec/changes/{CHANGE}/specs/{capability}/spec.md"
+
+    with isolated_openspec() as tool:
+        problem = validate_change(
+            tool, stage_repo.clone, CHANGE, {delta: "## ADDED Requirements\n"}
+        )
+
+    assert (problem, seen) == (None, [True])
+
+
 def test_another_note_of_openspec_stays_a_problem_next_to_the_skip_specs_note(
     stage_repo: StageRepo, openspec_fake: OpenSpecFake
 ) -> None:

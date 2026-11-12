@@ -874,17 +874,30 @@ def _module_capability_key(path: str) -> str | None:
     return "-".join(part.replace("_", "-") for part in named)
 
 
+def _capability_of(path: str) -> str:
+    """The capability of the spec file `path`: the folder path under `openspec/specs/`, flat as
+    `<name>` or nested as `<area>/<name>` (#4622)."""
+    return PurePosixPath(path).parent.relative_to(_SPECS_DIR).as_posix()
+
+
+def _covers_module(capability: str, key: str) -> bool:
+    """Whether `capability` covers the module of the key `key`: the capability, or the area of a
+    nested one, is the key or the start of the key up to a hyphen."""
+    area = capability.split("/", 1)[0]
+    return key == area or key.startswith(f"{area}-")
+
+
 def _capabilities_of_files(source: Path, sha: str, cited: Sequence[str]) -> list[str]:
     """The sorted capabilities of the specs at `sha` that cover a cited file: by the name of its
-    module, or because the spec names its path."""
+    module, or because the spec names its path. A nested capability has the name of its area."""
     code, out = git_result(source, "ls-tree", "-r", "-z", "--name-only", sha, _SPECS_DIR)
     if code != 0 or not out or not cited:
         return []
     listed = out.split("\0") if "\0" in out else out.splitlines()
-    known = {PurePosixPath(p).parent.name for p in listed if p.endswith("/spec.md")}
+    known = {_capability_of(p) for p in listed if p.endswith("/spec.md")}
     keys = {key for path in cited if (key := _module_capability_key(path))}
-    by_name = {c for c in known if any(k == c or k.startswith(f"{c}-") for k in keys)}
-    by_path = {PurePosixPath(p).parent.name for p in _grep_files(source, sha, cited, [_SPECS_DIR])}
+    by_name = {c for c in known if any(_covers_module(c, k) for k in keys)}
+    by_path = {_capability_of(p) for p in _grep_files(source, sha, cited, [_SPECS_DIR])}
     return sorted(by_name | (by_path & known))
 
 

@@ -2,7 +2,7 @@
 
 A key that the job only writes is dead weight, unless a person reads it or the spec requires it. So
 each member of `ImplementRecordKey` is named below with the place that reads it: a read in the code
-of `src/devops_cli`, a line of the spec `roadmap-implement-job`, or a line of
+of `src/devops_cli`, a line of a spec of the area `roadmap-implement-job`, or a line of
 `docs/ROADMAP_WORKFLOW.md`, which a person reads. A key that nothing reads is removed, and a new
 key needs a line here.
 """
@@ -17,7 +17,8 @@ import pytest
 from devops_cli.roadmap.stores.store import ImplementRecordKey
 from tests.support.paths import REPO_ROOT
 
-SPEC = "openspec/specs/roadmap-implement-job/spec.md"
+SPEC = "openspec/specs/roadmap-implement-job/record/spec.md"
+PULL_SPEC = "openspec/specs/roadmap-implement-job/pull-request/spec.md"
 DOCUMENT = "docs/ROADMAP_WORKFLOW.md"
 ROADMAP = "src/devops_cli/roadmap"
 
@@ -37,7 +38,7 @@ READERS: Final[dict[str, tuple[str, ...]]] = {
     "implement.check": ("text", DOCUMENT, "The check that failed in the stop"),
     "implement.check_log": ("code", f"{ROADMAP}/implement/implement_run.py"),
     "implement.conflict": ("code", f"{ROADMAP}/implement/implement_run.py"),
-    "implement.wip": ("text", SPEC, "The job SHALL write `implement.wip` to the job record"),
+    "implement.wip": ("text", PULL_SPEC, "The job SHALL write `implement.wip` to the job record"),
     "implement.base": ("code", f"{ROADMAP}/implement/implement_run.py"),
     "implement.checked_sha": ("code", f"{ROADMAP}/implement/implement_run.py"),
     "implement.published_sha": ("code", f"{ROADMAP}/implement/implement_run.py"),

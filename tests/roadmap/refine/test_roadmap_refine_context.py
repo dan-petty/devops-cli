@@ -197,6 +197,32 @@ def test_a_cited_file_brings_the_requirement_names_of_its_capability(git_repo: P
     assert "An unrelated capability" not in ctx
 
 
+def test_the_context_names_the_requirements_of_a_nested_capability(git_repo: Path) -> None:
+    _write(git_repo, "src/devops_cli/widget/render.py", "def render_widget():\n    return 1\n")
+    _write(
+        git_repo,
+        "openspec/specs/widget-render/output/spec.md",
+        "### Requirement: A widget renders its output\nIt SHALL.\n",
+    )
+    _write(
+        git_repo,
+        "openspec/specs/named/by-path/spec.md",
+        "### Requirement: The renderer is named by path\nSee `src/devops_cli/widget/render.py`.\n",
+    )
+    _write(
+        git_repo,
+        "openspec/specs/other/nested/spec.md",
+        "### Requirement: An unrelated capability\nIt SHALL.\n",
+    )
+    sha = inspect_checkout(git_repo, REPO)
+
+    ctx = collect_context(git_repo, sha, "Change src/devops_cli/widget/render.py now.", 4000)
+
+    assert "### Requirements of widget-render/output\n- A widget renders its output" in ctx
+    assert "### Requirements of named/by-path\n- The renderer is named by path" in ctx
+    assert "An unrelated capability" not in ctx
+
+
 def test_a_cited_file_with_no_capability_adds_no_requirement_section(git_repo: Path) -> None:
     _write(git_repo, "openspec/specs/other/spec.md", "### Requirement: Unrelated\nIt SHALL.\n")
     sha = inspect_checkout(git_repo, REPO)

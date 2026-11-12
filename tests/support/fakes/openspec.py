@@ -21,12 +21,16 @@ commits, which are the real tool's output at the pin, and it removes every other
 OpenSpec's, as the real tool removes a workflow the profile does not hold (tried: 1.14.3 removed a
 hand-made `openspec-archive-change`). It moves the folder of a change that a recorded `archive`
 run archives, to the folder that run names, as the real tool does (#4270); a scripted `archive`
-moves nothing unless the test gives it an `effect`. `calls` holds every command the fake answered, with the
+moves nothing unless the test gives it an `effect`. It answers `list --specs --json` from the tree,
+as the real tool does, unless a test scripts it (#4622): the stage job lists the base specs of
+each checkout that it plans, and a record of one tree cannot answer for another.
+`calls` holds every command the fake answered, with the
 directory and the OpenSpec environment it was started with.
 """
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
@@ -47,6 +51,8 @@ _PROGRAM = "openspec"
 _TOOL_ENV_PREFIXES = ("OPENSPEC_", "OPEN_SPEC_", "XDG_CONFIG_HOME", "DO_NOT_TRACK")
 # What a successful `openspec archive` prints, with the name of the folder it moved the change to.
 _ARCHIVED_AS = re.compile(r"archived as '(?P<folder>[^']+)'")
+# The listing of the capabilities, which the fake answers from the tree.
+LIST_SPECS = ("list", "--specs", "--json")
 
 
 @dataclass(frozen=True)
@@ -197,7 +203,13 @@ class OpenSpecFake:
             return subprocess.CompletedProcess(
                 argv, 0, "" if as_text else b"", "" if as_text else b""
             )
-        recorded = self._recorded(arguments)
+        recorded = (
+            RecordedRun(arguments, 0, spec_listing(cwd), "")
+            if arguments == LIST_SPECS
+            and arguments not in self._scripted
+            and arguments not in self._sequences
+            else self._recorded(arguments)
+        )
         if arguments == ("update", "--force"):
             self._update(cwd)
         if arguments in self._effects:
@@ -213,6 +225,21 @@ class OpenSpecFake:
             stdout if as_text else stdout.encode(),
             stderr if as_text else stderr.encode(),
         )
+
+
+def spec_listing(cwd: Path) -> str:
+    """What `openspec list --specs --json` prints over `cwd`, trimmed to the ids: each `spec.md`
+    under `openspec/specs/`, below a folder and outside a dot folder, as the capability of its
+    folder path, flat or nested, sorted by that path (`dist/utils/spec-discovery.js` of 1.14.3).
+    The live contract test compares it with the real tool."""
+    root = cwd / "openspec" / "specs"
+    found = (path.parent.relative_to(root) for path in root.rglob("spec.md"))
+    ids = sorted(
+        folder.as_posix()
+        for folder in found
+        if folder.parts and not any(part.startswith(".") for part in folder.parts)
+    )
+    return json.dumps({"specs": [{"id": capability} for capability in ids]})
 
 
 @pytest.fixture

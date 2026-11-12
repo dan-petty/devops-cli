@@ -12,7 +12,7 @@
 - `tests/roadmap/stage/test_roadmap_stage_companions.py` pins the rule with and without each companion registration, and pins that `content_problems` finds no problem in the plan of this change.
 - `docs/roadmap/plan-recheck.md` gains the row of the `companions` gate in the table of the gates of `check_proposal`.
 - No MCP requirement is planned: the merged #3204 test requires no exposure entry and no exclusion entry for a new command, so the MCP half of the issue has no check to serve.
-- The change adds a requirement to the existing `roadmap-stage` capability, so it is not a test-only or document-only change.
+- The change adds a requirement to the existing `roadmap-stage/claims` capability, so it is not a test-only or document-only change.
 - The change fits one pull request.
 
 ## Capabilities
@@ -23,7 +23,7 @@ None.
 
 ### Modified Capabilities
 
-- `roadmap-stage`: The plan registers the companions of a new command
+- `roadmap-stage/claims`: The plan registers the companions of a new command
 
 ## Impact
 

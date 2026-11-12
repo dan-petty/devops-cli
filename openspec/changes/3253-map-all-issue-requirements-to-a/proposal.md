@@ -25,7 +25,7 @@ None.
 
 ### Modified Capabilities
 
-- `roadmap-stage`: The stage context lists each requirement line of the issue, The plan maps each requirement ID, The plan check refuses a vague scenario WHEN clause, The plan reader reads the coverage of the change folder
+- `roadmap-stage/criteria`: The stage context lists each requirement line of the issue, The plan maps each requirement ID, The plan check refuses a vague scenario WHEN clause, The plan reader reads the coverage of the change folder
 - `roadmap-stage-eval`: The golden set holds a case of a dropped caller
 
 ## Impact

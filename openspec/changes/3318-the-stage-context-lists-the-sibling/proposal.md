@@ -13,7 +13,7 @@ A sibling tree is a top-level tree such as `.agents/skills/`. The list holds a t
 - Add the message strings for the section to `src/devops_cli/lang/en/messages.py`.
 - Add the rule to `src/devops_cli/ai/tasks/roadmap_stage_change.md` that the plan writes the file in each listed tree, or states in `decisions` why one tree is enough.
 - State the section and the rule in `docs/roadmap/stage.md`.
-- Add the requirements to `roadmap-stage`, with the tests of the helper and the request.
+- Add the requirements to `roadmap-stage/context`, with the tests of the helper and the request.
 - The change fits one pull request.
 
 ## Capabilities
@@ -24,7 +24,7 @@ None.
 
 ### Modified Capabilities
 
-- `roadmap-stage`: The stage context lists the sibling trees of a created file, The stage context omits a single sibling tree, The stage prompt asks for each tree or a reason, A sibling tree matches the relative path, The sibling trees are sorted
+- `roadmap-stage/context`: The stage context lists the sibling trees of a created file, The stage context omits a single sibling tree, The stage prompt asks for each tree or a reason, A sibling tree matches the relative path, The sibling trees are sorted
 
 ## Impact
 

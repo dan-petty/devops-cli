@@ -2267,7 +2267,7 @@ def _planner_of(
         toolbox=runner,
         source=checkout,
         sha=sha,
-        specs=read_base_specs(checkout),
+        specs=read_base_specs(checkout, tool),
         tree=StagedTree.read(checkout, operation=_GIT_OPERATION),
         budget=budget,
         window=window,

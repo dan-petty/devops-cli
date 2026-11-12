@@ -21,7 +21,7 @@ None.
 
 ### Modified Capabilities
 
-- `roadmap-implement-job`: The job rewrites the pull request after the push
+- `roadmap-implement-job/pull-request`: The job rewrites the pull request after the push
 
 ## Impact
 

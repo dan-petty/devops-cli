@@ -11,7 +11,7 @@
 - **An entry satisfies a detected deletion when its `check` text holds the detected name or path.**: The match is deterministic, and a plan that deletes two checks needs two entries. A sentence that names the check still counts.
 - **`render_change` writes `## Weakened checks` after `## Impact` and before `## Feasibility`, and only when the list is not empty.**: The proposal states what the change gives up, so a reviewer sees the weakened threshold beside the impact. A plan that weakens nothing keeps its file unchanged.
 - **The new problem text lives in `MESSAGES.roadmap`, and the writer uses the section texts that #3490 put there.**: Every text of `stage_change.py` uses that namespace, and one text of the form holds the writer and the reader together.
-- **The change carries an ADDED requirement in the capability `roadmap-stage`.**: The stage job's answer to a plan is observable, so the change is no test, document or refactor and the config asks for a delta.
+- **The change carries an ADDED requirement in the capability `roadmap-stage/plan-text`.**: The stage job's answer to a plan is observable, so the change is no test, document or refactor and the config asks for a delta.
 
 ## Rejected alternatives
 

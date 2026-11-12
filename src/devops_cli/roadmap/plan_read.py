@@ -47,13 +47,15 @@ from devops_cli.roadmap.stage.stage_specs import BaseSpec, read_spec
 from devops_cli.roadmap.step_files import FAILS_ON_BASE, KIND_LINE, TaskGroup, parse_task_groups
 
 _CHANGE_FILE: Final[str] = "/.openspec.yaml"
+# A capability is flat, `<name>`, or nested, `<area>/<name>`, as `openspec list --specs` finds it.
+_CAPABILITY: Final[str] = r"(?P<capability>[^/]+(?:/[^/]+)*)"
 _SPEC_FILE: Final[re.Pattern[str]] = re.compile(
-    rf"^{CONST_OPENSPEC_SPECS_DIR}/(?P<capability>[^/]+)/spec\.md$"
+    rf"^{CONST_OPENSPEC_SPECS_DIR}/{_CAPABILITY}/spec\.md$"
 )
 _PROPOSAL: Final[str] = "proposal.md"
 _DESIGN: Final[str] = "design.md"
 _TASKS: Final[str] = "tasks.md"
-_SPEC: Final[re.Pattern[str]] = re.compile(r"^(?P<root>.*)/specs/(?P<capability>[^/]+)/spec\.md$")
+_SPEC: Final[re.Pattern[str]] = re.compile(rf"^(?P<root>.*?)/specs/{_CAPABILITY}/spec\.md$")
 _HEADING: Final[re.Pattern[str]] = re.compile(r"^## (?P<title>.+?)[ \t]*$", re.M)
 _REQUIREMENT: Final[re.Pattern[str]] = re.compile(r"^### Requirement: (?P<name>.+?)[ \t]*$", re.M)
 _SCENARIO: Final[re.Pattern[str]] = re.compile(r"^#### Scenario: (?P<name>.+?)[ \t]*$", re.M)

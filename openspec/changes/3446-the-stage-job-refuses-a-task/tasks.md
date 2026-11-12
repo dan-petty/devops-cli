@@ -2,7 +2,7 @@
 
 ## 1. Refuse a task path that the group lists nowhere
 
-Reads: `src/devops_cli/roadmap/stage_paths.py`, `src/devops_cli/roadmap/stage_change.py`, `src/devops_cli/lang/en/messages.py`, `tests/roadmap/test_roadmap_stage_content.py`, `openspec/specs/roadmap-stage/spec.md`. Changes: `src/devops_cli/roadmap/stage_paths.py`, `src/devops_cli/lang/en/messages.py`, `tests/roadmap/test_roadmap_stage_content.py`.
+Reads: `src/devops_cli/roadmap/stage_paths.py`, `src/devops_cli/roadmap/stage_change.py`, `src/devops_cli/lang/en/messages.py`, `tests/roadmap/test_roadmap_stage_content.py`, `openspec/specs/roadmap-stage/task-groups/spec.md`. Changes: `src/devops_cli/roadmap/stage_paths.py`, `src/devops_cli/lang/en/messages.py`, `tests/roadmap/test_roadmap_stage_content.py`.
 
 - [ ] 1.1 In `tests/roadmap/test_roadmap_stage_content.py`, write a case that stages a proposal whose group names `tests/roadmap/test_roadmap_stage_eval_cases.py` in a task code span while the group lists it in no field, and asserts that `path_problems` returns one problem that names the group and the path. Add cases for a listed path, a path under `openspec/changes/` and `openspec/specs/`, a folder of a created path, and a missing unlisted path that keeps the missing-path problem
   - Verification: `$ uv run devops ci test tests/roadmap/test_roadmap_stage_content.py` fails on the base

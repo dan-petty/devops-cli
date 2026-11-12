@@ -4000,7 +4000,8 @@ class RoadmapMessages:
     )
     stage_reference_no_reason: str = "The reference `{path}` is unchanged, but gives no reason."
     stage_bad_capability: str = (
-        "'{capability}' is not a name. Use lowercase letters and digits joined by single hyphens."
+        "'{capability}' is not a name. Use lowercase letters and digits joined by single hyphens, "
+        "and a slash between the area and the name of a nested capability."
     )
     stage_problem_purpose: str = (
         "The capability {capability} is not in openspec/specs/, so its entry needs a purpose of "

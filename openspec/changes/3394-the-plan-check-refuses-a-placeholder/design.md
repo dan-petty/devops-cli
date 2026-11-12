@@ -6,7 +6,7 @@
 - **Name the field `what_changes` for every line of that list.**: The problem message names the reply key that holds the text, as it does for `why` and `existing_tool`, and the issue asks for the field name.
 - **Keep the rules of `PLAN_FIELD_MIN_CHARS` and `is_placeholder` for the two new fields.**: The issue asks for the same rules, and one rule set keeps the check and the prompt in step.
 - **State both fields in the existing Texts rule of the plan stage prompt, and assert the rule in a test.**: The rule already lists the fields that the check refuses, so one list cannot drift from the check, and the prompt test fails when the rule drops a field.
-- **Modify the `roadmap-stage` requirement `A plan text is no placeholder` and keep all five of its scenarios beside the five new ones.**: A MODIFIED requirement replaces the whole block, so the archive refuses a block that drops a scenario that the living spec holds.
+- **Modify the `roadmap-stage/plan-text` requirement `A plan text is no placeholder` and keep all five of its scenarios beside the five new ones.**: A MODIFIED requirement replaces the whole block, so the archive refuses a block that drops a scenario that the living spec holds.
 
 ## Rejected alternatives
 

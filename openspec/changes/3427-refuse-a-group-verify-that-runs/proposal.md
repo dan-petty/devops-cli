@@ -22,7 +22,7 @@ None.
 
 ### Modified Capabilities
 
-- `roadmap-stage`: A verify command runs a test that its group names, and the staging prompt states the rule
+- `roadmap-stage/tests-gate`: A verify command runs a test that its group names, and the staging prompt states the rule
 
 ## Impact
 
