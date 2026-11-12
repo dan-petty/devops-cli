@@ -46,8 +46,10 @@ label that a job last recorded, and records a stop. A Blocked label that a perso
 Service takes no item that an agent or a person claimed, or that a runner Job still holds. The
 pass reads the issue again before it writes, and skips an item that changed since the cached read.
 
-**Cost.** A Blocked stop that no rule clears costs one request in each round: the listing of its
-comments. The issue is read again only when a rule holds, right before the write.
+**Cost.** A Blocked stop that no rule clears costs one request in the first round of a process:
+the listing of its comments. A later round lists them again only when the `updated_at` of the
+issue moved, as a new comment moves it (`retry_asked_on`, #4854). The issue is read again only when
+a rule holds, right before the write.
 """
 
 from __future__ import annotations
@@ -79,14 +81,13 @@ from devops_cli.roadmap.digest_clears import (
     recorded_clears,
 )
 from devops_cli.roadmap.failure import ACTION_BY_CLASS, FailureAction, FailureClass
-from devops_cli.roadmap.implement.implement import retry_asked
+from devops_cli.roadmap.implement.implement import retry_asked_on
 from devops_cli.roadmap.planned import PlannedChanges
 from devops_cli.roadmap.stage.stage import StageFailure, write_each
 from devops_cli.roadmap.status_sync import StatusFacts, derive_status, job_holds, plan_merged
 from devops_cli.roadmap.stores.store import (
     GitHubState,
     ImplementRecordKey,
-    IssueComment,
     Item,
     ItemField,
     RoadmapStore,
@@ -259,15 +260,15 @@ def _digest_decision(
 
 def _rule(
     item: Item,
-    comments: list[IssueComment],
+    retry: bool,
     template_digest: Callable[[], str | None],
     limits: ClearLimits,
     now: datetime,
 ) -> _Decision | None:
-    """The rule that clears the stop of `item`, or None. A retry wins, clears a stop of any class,
-    and needs no read of the template. A continuation comes before the digest, and needs no read
-    either."""
-    if retry_asked(comments):
+    """The rule that clears the stop of `item`, or None, where `retry` says that a person asked
+    for a retry. A retry wins, clears a stop of any class, and needs no read of the template. A
+    continuation comes before the digest, and needs no read either."""
+    if retry:
         return _Decision(ClearRule.RETRY)
     return _continue_decision(item, limits) or _digest_decision(item, template_digest, limits, now)
 
@@ -338,17 +339,18 @@ def _clear_one(
     now: datetime,
 ) -> None:
     """Clear the stop of `item` by the first rule that holds. The rule comes from the cached item
-    and one listing of the comments. Only when a rule holds, the issue is read again: an item that
-    a person, another lane or an earlier write changed since `item` was read is left for the next
-    round. The write comes before the comment, because the comment starts with the marker of the
-    job and so ends a retry that the stop waited for."""
-    comments = store.comments_on(item.number)
-    if _rule(item, comments, template_digest, limits, now) is None:
+    and the comments, which are listed only when the issue changed (`retry_asked_on`). Only when a
+    rule holds, the issue is read again: an item that a person, another lane or an earlier write
+    changed since `item` was read is left for the next round. The write comes before the comment,
+    because the comment starts with the marker of the job and so ends a retry that the stop waited
+    for."""
+    retry = retry_asked_on(store, item)
+    if _rule(item, retry, template_digest, limits, now) is None:
         return
     current = store.item(item.number)
     if current is None or not is_service_stop(current):
         return
-    if (decided := _rule(current, comments, template_digest, limits, now)) is None:
+    if (decided := _rule(current, retry, template_digest, limits, now)) is None:
         return
     status = derive_status(StatusFacts(plan_merged=plan_merged(current, planned)))
     store.set_field(current, ItemField.STATUS, status, marks=_marks(decided, now))
