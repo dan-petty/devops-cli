@@ -29,6 +29,22 @@ from devops_cli.core.process import run_subprocess
 from devops_cli.exceptions import ToolExecutionError
 from devops_cli.lang import MESSAGES
 
+# The arguments of the run that lists the active changes.
+LIST_ARGS: tuple[str, ...] = ("list", "--json")
+
+
+def isolated_environment(config_home: str) -> dict[str, str]:
+    """The variables of a run under the configuration directory `config_home`: the opt-outs and
+    the directory."""
+    return {**CONST_OPENSPEC_OPT_OUT_ENV, CONST_OPENSPEC_CONFIG_HOME_ENV: config_home}
+
+
+def settings_args() -> list[tuple[str, ...]]:
+    """The arguments of the `config set` runs that make the isolated configuration, in order."""
+    return [
+        ("config", "set", setting, value) for setting, value in CONST_OPENSPEC_ISOLATED_SETTINGS
+    ]
+
 
 def output_of(run: subprocess.CompletedProcess[str]) -> str:
     """What a command printed, standard output then standard error, each trimmed."""
@@ -45,10 +61,7 @@ class OpenSpecTool:
     def environment(self) -> dict[str, str]:
         """The variables every run sets, over the sanitized environment `run_subprocess` builds,
         which keeps none of them."""
-        return {
-            **CONST_OPENSPEC_OPT_OUT_ENV,
-            CONST_OPENSPEC_CONFIG_HOME_ENV: str(self.config_home),
-        }
+        return isolated_environment(str(self.config_home))
 
     def run(self, args: Sequence[str], cwd: Path) -> subprocess.CompletedProcess[str]:
         """Run `openspec <args>` in `cwd`, whatever its exit code."""
@@ -102,7 +115,7 @@ class OpenSpecTool:
 
 def active_changes(tool: OpenSpecTool, directory: Path) -> list[str]:
     """The name of each active change under `directory`, in the order OpenSpec lists them."""
-    listing = tool.read_json(["list", "--json"], directory)
+    listing = tool.read_json(LIST_ARGS, directory)
     return [change["name"] for change in listing["changes"]]
 
 
@@ -116,6 +129,6 @@ def isolated_openspec() -> Iterator[OpenSpecTool]:
     require_binary(BIN_OPENSPEC, install_hint=MESSAGES.openspec.missing_hint)
     with tempfile.TemporaryDirectory(prefix="openspec-config-") as scratch:
         tool = OpenSpecTool(Path(scratch))
-        for setting, value in CONST_OPENSPEC_ISOLATED_SETTINGS:
-            tool.run_checked(["config", "set", setting, value], Path(scratch))
+        for args in settings_args():
+            tool.run_checked(args, Path(scratch))
         yield tool

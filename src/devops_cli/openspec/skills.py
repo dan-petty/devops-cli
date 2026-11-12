@@ -17,6 +17,10 @@ from devops_cli.config.constants import CONST_OPENSPEC_DIR, CONST_OPENSPEC_GENER
 from devops_cli.lang import MESSAGES
 from devops_cli.openspec.tool import OpenSpecTool
 
+# The arguments of the run that rewrites the skills, and removes the skills of a workflow the
+# profile does not hold.
+UPDATE_ARGS: tuple[str, ...] = ("update", "--force")
+
 
 def generated_files(directory: Path) -> dict[str, bytes]:
     """The content of each file OpenSpec's skills occupy under `directory`, by its path from it."""
@@ -32,7 +36,7 @@ def regenerate_skills(tool: OpenSpecTool, directory: Path) -> None:
     """Rewrite the skills under `directory` with `openspec update --force`, which also removes the
     skills of a workflow the profile does not hold. Under any profile but the isolated one this
     would write the archive and sync skills, so it takes the tool `isolated_openspec` gives."""
-    tool.run_checked(["update", "--force"], directory)
+    tool.run_checked(UPDATE_ARGS, directory)
 
 
 def _drift_message(path: str, committed: dict[str, bytes], regenerated: dict[str, bytes]) -> str:
