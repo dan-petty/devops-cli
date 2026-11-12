@@ -447,11 +447,6 @@ _CHART_TOKENS: dict[
 # each with its reason. A key is `<values file>:<pod>` for a chart pod or
 # `<manifest>:<kind>/<name>` for a manifest pod.
 _TOKEN_EXCEPTIONS: dict[str, str] = {
-    "k8s/coredns/deployment-patch.yaml:Deployment/coredns": (
-        "k3s makes the CoreDNS Deployment, its ServiceAccount coredns and the ClusterRoleBinding "
-        "system:coredns, and CoreDNS reads Services and EndpointSlices through the API. The file "
-        "patches only the resources of that Deployment, so the tree does not show the binding."
-    ),
     "k8s/llm/values-qdrant.yaml:qdrant": (
         "Qdrant does not call the API, but chart 1.19.1 sets automountServiceAccountToken on "
         "neither its pod nor its ServiceAccount and has no value for it. qdrant/qdrant-helm#506 "
