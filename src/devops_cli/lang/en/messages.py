@@ -1374,14 +1374,19 @@ class PRMessages:
         "✓ Successfully updated branch for PR #{number} from base '{base}'."
     )
     update_branch_failed: str = "✗ Failed to update PR #{number}: {error}"
-    update_branch_dry_run: str = r"[yellow]\[dry-run][/yellow] Would update PR #{number} ({branch}) with latest commits from '{base}'"
-    update_branch_already_up_to_date: str = (
-        "PR #{number} branch is already up to date with base '{base}'."
+    update_pr_unread: str = "✗ Cannot read PR #{number}, so it gets no update. Make sure that GitHub is available, then run the command again."
+    update_conflict: str = (
+        "✗ PR #{number} has a merge conflict with '{base}', and GitHub cannot update a branch that has a conflict. "
+        "Run: git fetch origin && git rebase origin/{base}. Solve the conflict, then push with git push --force-with-lease."
     )
-    update_branch_no_prs: str = "No open pull requests found to update."
-    update_branch_conflict: str = (
-        "✗ Merge conflict detected on PR #{number} with base '{base}'. Manual resolution required."
+    update_checks_unread: str = (
+        "✗ Cannot read the required checks of PR #{number}, so it gets no update: {error}"
     )
+    update_no_failed_check: str = (
+        "PR #{number} gets no update: no required check failed on its head. "
+        "An update only to catch up with '{base}' starts CI runs that the merge does not need (docs/SDLC.md, No Catch-Up Updates)."
+    )
+    update_failed_checks: str = "PR #{number} has a failed required check ({checks}). The command merges the base branch into it."
     update_dispatch_ci_success: str = (
         "✓ Dispatched {workflow} for PR #{number} on branch '{branch}'."
     )
@@ -1395,10 +1400,6 @@ class PRMessages:
     update_dry_run_heading: str = (
         r"[yellow]\[dry-run][/yellow] Planned external requests to update PR #{number}:"
     )
-    update_all_dry_run_heading: str = (
-        r"[yellow]\[dry-run][/yellow] Planned external requests to update all open PRs:"
-    )
-    update_table_title: str = "Pull Request Branch Update Summary"
     grounding_not_into_default: str = (
         "PR #{number} is not grounded: it targets {base}, not the default branch {default}. "
         "Change its base with devops pr edit {number} --base {default}."

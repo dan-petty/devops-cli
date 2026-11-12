@@ -36,9 +36,8 @@ from devops_cli.exceptions.git import GitHubOperationError, GitHubUnreadError
 from devops_cli.github.branch_update import (
     build_dispatch_ci_cmd,
     build_update_branch_cmd,
-    open_prs_argv,
+    failed_required_checks,
     parse_update_error,
-    plan_update_all_prs,
     plan_update_single_pr,
 )
 from devops_cli.github.client import PullStatus
@@ -55,11 +54,11 @@ from devops_cli.github.merge_readiness import (
     MergeReadiness,
     ReadinessOptions,
     assess_merge_readiness,
+    merge_conflict,
 )
 from devops_cli.github.pr_monitor import (
     PRMonitorResult,
     fetch_pr_details,
-    sort_prs_oldest_first,
 )
 from devops_cli.github.pr_plans import (
     merged_prs_payload_args,
@@ -1730,8 +1729,6 @@ _build_update_branch_cmd = build_update_branch_cmd
 _parse_update_error = parse_update_error
 _build_dispatch_ci_cmd = build_dispatch_ci_cmd
 _plan_update_single_pr = plan_update_single_pr
-_open_prs_argv = open_prs_argv
-_plan_update_all_prs = plan_update_all_prs
 
 
 def _execute_update_branch(cmd: list[str]) -> tuple[bool, str]:
@@ -1815,7 +1812,9 @@ def _update_single_pr(
     dry_run: bool = False,
     dispatch_ci: bool = False,
 ) -> tuple[bool, str]:
-    """Update a specific pull request branch from its base branch."""
+    """Merge the base branch into pull request `number` only when a required check failed on its
+    head and GitHub reports no conflict; print the reason and change nothing in every other
+    case (docs/SDLC.md, No Catch-Up Updates)."""
     _require_gh_cli()
     target_repo = _target_repo(repo)
     if not target_repo or "/" not in target_repo:
@@ -1837,10 +1836,28 @@ def _update_single_pr(
         return True, "dry-run"
 
     pr = _shown_pr(number, target_repo)
-    base_ref = pr.get("base", {}).get("ref", "base")
-    pre_sha = pr.get("head", {}).get("sha", "")
+    base_ref = str(pr.get("base", {}).get("ref", ""))
+    pre_sha = str(pr.get("head", {}).get("sha", ""))
+    if not base_ref or not pre_sha:
+        print_error(MESSAGES.pr.update_pr_unread.format(number=number), prefix=False)
+        return False, "unread"
 
-    cmd = _build_update_branch_cmd(target_repo, number, expected_head_sha)
+    if merge_conflict(pr.get("mergeable"), str(pr.get("mergeable_state") or "")):
+        print_error(MESSAGES.pr.update_conflict.format(number=number, base=base_ref), prefix=False)
+        return False, "conflict"
+
+    failed, unread = failed_required_checks(target_repo, base_ref, pre_sha)
+    if unread:
+        print_error(
+            MESSAGES.pr.update_checks_unread.format(number=number, error=unread), prefix=False
+        )
+        return False, unread
+    if not failed:
+        print_info(MESSAGES.pr.update_no_failed_check.format(number=number, base=base_ref))
+        return True, "no failed required check"
+
+    print_info(MESSAGES.pr.update_failed_checks.format(number=number, checks=", ".join(failed)))
+    cmd = _build_update_branch_cmd(target_repo, number, expected_head_sha or pre_sha)
     success, message = _execute_update_branch(cmd)
     if not success:
         print_error(
@@ -1856,119 +1873,13 @@ def _update_single_pr(
     return _dispatch_ci_for_head(target_repo, number, pr, pre_sha)
 
 
-def _fetch_open_prs(repo: str | None, base: str | None) -> list[dict[str, Any]]:
-    """Fetch the open pull requests the current account wrote, into `base` when one is given,
-    oldest first."""
-    res = run_gh(_open_prs_argv(repo, base), check=False, quiet=True)
-    if res.returncode != 0 or not res.stdout.strip():
-        return []
-    try:
-        prs = json.loads(res.stdout)
-        if not isinstance(prs, list):
-            return []
-        return sort_prs_oldest_first(prs)
-    except json.JSONDecodeError:
-        return []
-
-
-def _process_candidate_pr_row(
-    pr: dict[str, Any],
-    repo: str | None,
-    dry_run: bool,
-    dispatch_ci: bool = False,
-) -> list[str] | None:
-    """Evaluate and update a single candidate PR, returning a summary table row."""
-    num = pr.get("number")
-    if not num:
-        return None
-    head = str(pr.get("headRefName", ""))
-    b_ref = str(pr.get("baseRefName", ""))
-    if bool(pr.get("isDraft", False)):
-        return [f"#{num}", head, b_ref, "[dim]draft (skipped)[/dim]"]
-    success, msg = _update_single_pr(
-        int(num),
-        repo=repo,
-        dry_run=dry_run,
-        dispatch_ci=dispatch_ci,
-    )
-    if not dispatch_ci:
-        status_text = "[green]✓ updated[/green]" if success else "[red]✗ failed[/red]"
-    elif success:
-        status_text = (
-            f"[green]✓ updated ({msg})[/green]"
-            if msg in ("dispatched", "fork")
-            else "[green]✓ updated[/green]"
-        )
-    else:
-        status_text = (
-            f"[yellow]✓ updated ({msg})[/yellow]"
-            if msg == "head unchanged"
-            else "[red]✗ failed[/red]"
-        )
-    return [f"#{num}", head, b_ref, status_text]
-
-
-def _update_all_prs(
-    base: str | None = None,
-    repo: str | None = None,
-    dry_run: bool = False,
-    dispatch_ci: bool = False,
-) -> None:
-    """Update the open non-draft pull requests the current account wrote, into `base` when one
-    is given.
-
-    Only the account's own pull requests are updated, so a pull request that a bot or another
-    person owns, such as the one release-please writes, is never merged into.
-    """
-    target_repo = _target_repo(repo)
-    if dry_run or is_dry_run():
-        plan = _plan_update_all_prs(
-            target_repo=target_repo,
-            target_base=base,
-            dispatch_ci=dispatch_ci,
-        )
-        render_request_plan(
-            MESSAGES.pr.update_all_dry_run_heading,
-            plan,
-            (MESSAGES.dry_run.placeholders_note,),
-        )
-        return
-
-    prs = _fetch_open_prs(repo, base)
-    if not prs:
-        print_info(MESSAGES.pr.update_branch_no_prs)
-        return
-
-    prs = sort_prs_oldest_first(prs)
-
-    rows: list[list[str]] = []
-    for pr in prs:
-        row = _process_candidate_pr_row(pr, repo=repo, dry_run=dry_run, dispatch_ci=dispatch_ci)
-        if row:
-            rows.append(row)
-
-    print_table(
-        title=MESSAGES.pr.update_table_title,
-        columns=["PR", "Head Branch", "Base Branch", "Status"],
-        rows=rows,
-    )
-
-
 @app.command("update")
 @dry_run_class("request-plan")
 def update_pr(
     number: Annotated[
-        int | None,
+        int,
         typer.Argument(help=HELP.pr.update_number),
-    ] = None,
-    all_prs: Annotated[
-        bool,
-        typer.Option("--all", "-a", help=HELP.pr.update_all),
-    ] = False,
-    base: Annotated[
-        str | None,
-        typer.Option("--base", "-B", help=HELP.pr.update_base),
-    ] = None,
+    ],
     repo: Annotated[
         str | None,
         typer.Option("--repo", "-R", help=HELP.pr.target_repo),
@@ -1986,26 +1897,10 @@ def update_pr(
         typer.Option("--dry-run", help=HELP.options.dry_run),
     ] = False,
 ) -> None:
-    """Update pull request branch with latest commits from its base branch."""
+    """Merge the base branch into a pull request only when a required check failed on its head."""
     _require_gh_cli()
     if dry_run:
         set_dry_run(True)
-
-    if all_prs:
-        _update_all_prs(
-            base=base,
-            repo=repo,
-            dry_run=dry_run,
-            dispatch_ci=dispatch_ci,
-        )
-        return
-
-    if number is None:
-        print_error(
-            "Please specify a PR number or use --all to update all open pull requests.",
-            prefix=False,
-        )
-        raise typer.Exit(1)
 
     success, _ = _update_single_pr(
         number=number,

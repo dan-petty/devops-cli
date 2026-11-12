@@ -399,6 +399,23 @@ def read_check_runs(
     return CheckVerdictSummary(items=_synthesize_check_items(check_items, [], None))
 
 
+def read_required_check_names(
+    session: PaginatingSession, repository: str, branch: str
+) -> frozenset[str]:
+    """The names of the checks that the rules of `branch` of `repository` require.
+
+    A page that cannot be read raises the `GitHubOperationError` of the session.
+    """
+    names: set[str] = set()
+    for rule in session.paginate(
+        f"/repos/{repository}/rules/branches/{branch}?per_page={DEFAULT_GH_REST_PER_PAGE}"
+    ):
+        if isinstance(rule, dict) and rule.get("type") == "required_status_checks":
+            for check in rule.get("parameters", {}).get("required_status_checks", []):
+                names.add(str(check["context"]))
+    return frozenset(names)
+
+
 def read_commit_checks(
     owner: str,
     repo_name: str,

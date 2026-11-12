@@ -1150,7 +1150,7 @@ devops gh pr check-readiness [OPTIONS] <number>
 
 ### `devops gh pr update`
 
-**Update pull request branch with latest commits from its base branch.**
+**Merge the base branch into a pull request only when a required check failed on its head.**
 
 ```bash
 devops gh pr update [OPTIONS] <number>
@@ -1160,14 +1160,12 @@ devops gh pr update [OPTIONS] <number>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<number>` | `integer` | No | Pull request number to update (optional if --all is specified). |
+| `<number>` | `integer` | Yes | Number of the pull request to update. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--all`, `-a` | `boolean` | - | Update every open pull request that the current account wrote. |
-| `--base`, `-B` | `string` | - | With --all, update only the pull requests into this base branch. |
 | `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
 | `--expected-head-sha` | `string` | - | Expected SHA of the pull request's HEAD ref for optimistic locking. |
 | `--dispatch-ci` | `boolean` | - | Dispatch the ci.yml workflow on the head branch after updating. |

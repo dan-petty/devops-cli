@@ -27,7 +27,12 @@ from pydantic import AliasPath, BaseModel, ConfigDict, Field, field_validator
 
 from devops_cli.config.defaults import DEFAULT_GH_REST_PER_PAGE
 from devops_cli.exceptions.git import GitHubOperationError
-from devops_cli.github.check_verdict import CheckBucket, CheckVerdictSummary, read_check_runs
+from devops_cli.github.check_verdict import (
+    CheckBucket,
+    CheckVerdictSummary,
+    read_check_runs,
+    read_required_check_names,
+)
 from devops_cli.github.client import PullRequestFile
 from devops_cli.github.session import get_github_session
 from devops_cli.lang import MESSAGES
@@ -218,18 +223,6 @@ class Candidate:
     head_sha: str
 
 
-def _required_checks(session: RestSession, repository: str) -> tuple[str, ...]:
-    """The names of the checks that the rules of `main` require."""
-    names: set[str] = set()
-    for rule in session.paginate(
-        f"/repos/{repository}/rules/branches/{BASE_BRANCH}?per_page={DEFAULT_GH_REST_PER_PAGE}"
-    ):
-        if isinstance(rule, dict) and rule.get("type") == "required_status_checks":
-            for check in rule.get("parameters", {}).get("required_status_checks", []):
-                names.add(str(check["context"]))
-    return tuple(sorted(names))
-
-
 def _release_numbers(session: RestSession, repository: str) -> list[int]:
     """The numbers of the open pull requests into `main` that carry the release label, lowest first."""
     listing = session.paginate(
@@ -266,7 +259,7 @@ def pick(
     if not numbers:
         say(texts.no_release_pull.format(label=RELEASE_LABEL) + "\n")
         return None
-    required = _required_checks(session, repository)
+    required = tuple(sorted(read_required_check_names(session, repository, BASE_BRANCH)))
     base_sha = str(
         session.rest("GET", f"/repos/{repository}/branches/{BASE_BRANCH}")["commit"]["sha"]
     )
