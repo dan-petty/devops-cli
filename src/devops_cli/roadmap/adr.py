@@ -1,11 +1,15 @@
 """The ADRs of a repository, as the alternatives check reads them (#3505).
 
-An ADR is a file of `docs/adr/` named `<four digits>-<name>.md`. The check keeps its number, the
-title of its first level-1 heading, the status paragraphs under that title and its
+An ADR is a file of `docs/adr/` named `<four digits>-<name>.md`. Its front matter holds its status
+and its links to other ADRs (#5225): the keys of MADR 4 (`status`, `date`, `decision-makers`,
+`consulted` and `informed`) and the keys of this project (`issue`, `tracker`, `supersedes`,
+`superseded-by`, `amends`, `amended-by` and `body-hash`). An ADR with no front matter has none of
+them. The check keeps the number, the title of the first level-1 heading, the front matter and the
 `Considered Options` section: each ADR of the project records there the tools it chose and the
-tools it rejected, and a whole ADR holds many times the tokens of its options. An ADR that a later
-ADR supersedes is not in force, so the check drops it. A repository with no `docs/adr/` has no ADR,
-and that is no error.
+tools it rejected, and a whole ADR holds many times the tokens of its options. Only an ADR in force
+reaches the check: one that is accepted, or has no status, and that no ADR supersedes. A repository
+with no `docs/adr/` has no ADR, and that is no error. A front matter that does not validate stops
+the read with an error that names the file.
 
 `names` is the test of the check whether a text names a tool. The check applies it to the title and
 the body of an item, and to the text of an ADR. `rejects` is the test whether an ADR rejects a tool:
@@ -14,17 +18,26 @@ only its rejected options name the tool.
 
 from __future__ import annotations
 
+import datetime
 import logging
 import re
-from collections.abc import Iterable, Sequence
-from dataclasses import dataclass
+from collections.abc import Sequence
+from dataclasses import dataclass, field
+from enum import StrEnum
 from pathlib import PurePosixPath
+from typing import Annotated, Any
 
+import pydantic
+import yaml
+from markdown_it import MarkdownIt
 from markdown_it.token import Token
+from mdit_py_plugins.front_matter import front_matter_plugin
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from devops_cli.ai.context_budget import count_tokens
 from devops_cli.config.constants import CONST_ROADMAP_ADR_DIRECTORY
 from devops_cli.exceptions.git import GitHubFileNotFoundError
+from devops_cli.exceptions.validation import ValidationError
 from devops_cli.roadmap.step_files import MARKDOWN, section_text
 from devops_cli.roadmap.stores.store import RoadmapStore
 
@@ -32,15 +45,11 @@ logger = logging.getLogger(__name__)
 
 _ADR_NAME = re.compile(r"(?P<number>\d{4})-.+\.md")
 _OPTIONS_TITLE = frozenset({"considered options"})
-# A status paragraph names another ADR and says that it supersedes or amends. The ADRs of the
-# project have no structured status field, so the paragraphs right under the title are the status.
-_STATUS_VERB = re.compile(r"\b(?:supersede[sd]?|amend(?:s|ed)?)\b", re.IGNORECASE)
-_ADR_REFERENCE = re.compile(r"\bADR \d{4}\b")
-# An ADR that another one supersedes in whole says so in its own note, "ADR 0015 supersedes this
-# ADR.", and the later ADR says "ADR 0015 supersedes ADR 0002.". A partial supersession, such as
-# "supersedes the webhook clause of ADR 0003", matches neither form.
-_SUPERSEDED_BY = re.compile(r"\bADR (?P<number>\d{4}) supersedes this ADR\b")
-_SUPERSEDES = re.compile(r"\bsupersedes ADR (?P<number>\d{4})\b")
+# The last section of an ADR holds its dated status lines. It is not part of the body that an
+# accepted ADR freezes (docs/adr/README.md).
+_HISTORY_TITLE = "status history"
+_FRONT_MATTER_TOKEN = "front_matter"
+_RECORD_MARKDOWN = MarkdownIt("commonmark").use(front_matter_plugin)
 # A space, `-`, `_` or `.` between the words of a tool name is one separator, so "Argo Workflows"
 # names `argo-workflows`.
 _SEPARATOR = r"[\s._-]+"
@@ -48,100 +57,147 @@ _SEPARATOR = r"[\s._-]+"
 # "not chosen".
 _REJECTED_OPTION = re.compile(r"\b(?:rejected|not chosen)\b", re.IGNORECASE)
 
+# The number of another ADR in a link key: four digits in quotes. YAML reads an unquoted `0017` as
+# the octal 15, so a strict string refuses it.
+AdrNumber = Annotated[str, StringConstraints(strict=True, pattern=r"^\d{4}$")]
+
+
+class AdrStatus(StrEnum):
+    """The status values of MADR 4 that the project uses."""
+
+    PROPOSED = "proposed"
+    ACCEPTED = "accepted"
+    REJECTED = "rejected"
+    DEPRECATED = "deprecated"
+    SUPERSEDED = "superseded"
+
+
+class AdrFrontMatter(BaseModel):
+    """The front matter of an ADR. Each key is optional, as in MADR 4; the invariant test of the
+    project asks for `status`, `date`, `decision-makers` and, after acceptance, `body-hash`. A file
+    names each key by its alias, such as `superseded-by`; code can give the field name."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid", validate_by_name=True)
+
+    status: AdrStatus | None = None
+    date: datetime.date | None = None
+    decision_makers: tuple[str, ...] = Field(default=(), alias="decision-makers")
+    consulted: tuple[str, ...] = ()
+    informed: tuple[str, ...] = ()
+    issue: int | None = None
+    tracker: int | None = None
+    supersedes: tuple[AdrNumber, ...] = ()
+    superseded_by: tuple[AdrNumber, ...] = Field(default=(), alias="superseded-by")
+    amends: tuple[AdrNumber, ...] = ()
+    amended_by: tuple[AdrNumber, ...] = Field(default=(), alias="amended-by")
+    body_hash: str | None = Field(default=None, alias="body-hash")
+
 
 @dataclass(frozen=True)
 class Adr:
-    """What the check keeps of one ADR: its number, its title, its status paragraphs as plain text
-    (a line for each paragraph, or no text when it has none) and its `Considered Options` section
-    with the heading (or no text when it has none)."""
+    """What the check keeps of one ADR: its number, its title, its `Considered Options` section
+    with the heading (or no text when it has none) and its front matter."""
 
     number: int
     title: str
     options: str
-    status: str = ""
+    front_matter: AdrFrontMatter = field(default_factory=AdrFrontMatter)
+
+    @property
+    def in_force(self) -> bool:
+        """Whether the ADR is accepted, or has no status, and names no ADR that supersedes it."""
+        status = self.front_matter.status
+        return status in {None, AdrStatus.ACCEPTED} and not self.front_matter.superseded_by
 
     @property
     def entry(self) -> str:
         """The ADR as the request to the model shows it: its number as four digits and its title,
-        then its status lines, then its options."""
+        then the ADRs that amend it, then its options."""
+        amended_by = ", ".join(f"ADR {number}" for number in self.front_matter.amended_by)
         return "\n".join(
             part
-            for part in (f"ADR {self.number:04d}: {self.title}", self.status, self.options)
+            for part in (
+                f"ADR {self.number:04d}: {self.title}",
+                f"Amended by {amended_by}." if amended_by else "",
+                self.options,
+            )
             if part
         )
 
 
-def _number_of(path: str) -> int | None:
+def number_of(path: str) -> int | None:
     """The number in the file name of `path`, or None when the name is no ADR name."""
     found = _ADR_NAME.fullmatch(PurePosixPath(path).name)
     return int(found["number"]) if found else None
 
 
-def _plain(inline: Token) -> str:
-    """The text of an inline token with the marks of the markdown taken away: a link is its text."""
-    return "".join(
-        " " if child.type in {"softbreak", "hardbreak"} else child.content
-        for child in inline.children or ()
-        if child.type in {"text", "code_inline", "softbreak", "hardbreak"}
-    )
+def _front_matter(path: str, tokens: Sequence[Token]) -> AdrFrontMatter:
+    """The front matter of the ADR `path` that `tokens` start with, or no keys when it has none."""
+    if not tokens or tokens[0].type != _FRONT_MATTER_TOKEN:
+        return AdrFrontMatter()
+    try:
+        data: Any = yaml.safe_load(tokens[0].content)
+        return AdrFrontMatter.model_validate(
+            {} if data is None else data, by_alias=True, by_name=False
+        )
+    except (yaml.YAMLError, pydantic.ValidationError) as error:
+        raise ValidationError(
+            f"{path}: the front matter is not valid: {error}", field="front matter"
+        ) from error
 
 
-def _title_and_status(tokens: Sequence[Token]) -> tuple[str, str] | None:
-    """The text of the first level-1 heading of `tokens`, and the status under it, or None when it
-    has no such heading. The status is each paragraph straight after the heading that names an ADR
-    and says that it supersedes or amends, up to the first block that is not one."""
+def _title(tokens: Sequence[Token]) -> str | None:
+    """The text of the first level-1 heading of `tokens`, or None when it has none or it is
+    blank."""
     for index, token in enumerate(tokens[:-1]):
         if token.type == "heading_open" and token.tag == "h1" and token.level == 0:
-            title = tokens[index + 1].content.strip()
-            if not title:
-                return None
-            break
-    else:
-        return None
-    notes: list[str] = []
-    position = index + 3
-    while position + 1 < len(tokens) and tokens[position].type == "paragraph_open":
-        note = _plain(tokens[position + 1]).strip()
-        if not (_ADR_REFERENCE.search(note) and _STATUS_VERB.search(note)):
-            break
-        notes.append(note)
-        position += 3
-    return title, "\n".join(notes)
+            return tokens[index + 1].content.strip() or None
+    return None
+
+
+def body_tokens(text: str) -> list[Token]:
+    """The tokens of the body of the ADR `text`: every token but the front matter and the
+    `Status History` section. An accepted ADR freezes this body (docs/adr/README.md)."""
+    body: list[Token] = []
+    history_level: int | None = None
+    tokens = _RECORD_MARKDOWN.parse(text)
+    for index, token in enumerate(tokens):
+        if token.type == _FRONT_MATTER_TOKEN:
+            continue
+        if token.type == "heading_open" and token.level == 0:
+            level = int(token.tag[1:])
+            if history_level is not None and level <= history_level:
+                history_level = None
+            if history_level is None and tokens[index + 1].content.strip().casefold() == (
+                _HISTORY_TITLE
+            ):
+                history_level = level
+        if history_level is None:
+            body.append(token)
+    return body
 
 
 def adr_of(path: str, text: str) -> Adr | None:
     """The ADR that the file `path` holds as `text`, or None when its name is no ADR name or it
-    has no title."""
-    number = _number_of(path)
-    head = _title_and_status(MARKDOWN.parse(text))
-    if number is None or head is None:
+    has no title. A front matter that does not validate raises `ValidationError`."""
+    number = number_of(path)
+    if number is None:
         return None
-    title, status = head
-    return Adr(number, title, section_text(text, _OPTIONS_TITLE), status)
-
-
-def _superseded(adrs: Iterable[Adr]) -> set[int]:
-    """The numbers of the ADRs that a later ADR supersedes in whole, as either of the two ADRs says
-    so in its status."""
-    numbers: set[int] = set()
-    for adr in adrs:
-        numbers.update(
-            adr.number
-            for found in _SUPERSEDED_BY.finditer(adr.status)
-            if int(found["number"]) > adr.number
-        )
-        numbers.update(
-            int(found["number"])
-            for found in _SUPERSEDES.finditer(adr.status)
-            if int(found["number"]) < adr.number
-        )
-    return numbers
+    tokens = _RECORD_MARKDOWN.parse(text)
+    title = _title(tokens)
+    if title is None:
+        return None
+    front_matter = _front_matter(path, tokens)
+    body_start = tokens[0].map[1] if tokens[0].type == _FRONT_MATTER_TOKEN and tokens[0].map else 0
+    body = "\n".join(text.splitlines()[body_start:])
+    return Adr(number, title, section_text(body, _OPTIONS_TITLE), front_matter)
 
 
 def read_adrs(store: RoadmapStore) -> tuple[Adr, ...]:
     """The ADRs of the repository on its default branch that are in force, the highest number
-    first. An ADR that a later ADR supersedes is left out. A repository with no `docs/adr/` has
-    none. Any other failed read raises."""
+    first. An ADR that is not accepted, that names a successor or that another ADR supersedes is
+    left out. A repository with no `docs/adr/` has none. Any other failed read raises, and so does a
+    front matter that does not validate."""
     try:
         paths = store.repository_files(CONST_ROADMAP_ADR_DIRECTORY)
     except GitHubFileNotFoundError:
@@ -149,12 +205,15 @@ def read_adrs(store: RoadmapStore) -> tuple[Adr, ...]:
     found = [
         adr
         for path in paths
-        if _number_of(path) is not None
+        if number_of(path) is not None
         and (adr := adr_of(path, store.repository_file(path))) is not None
     ]
-    superseded = _superseded(found)
+    superseded = {number for adr in found for number in adr.front_matter.supersedes}
     return tuple(
-        sorted((adr for adr in found if adr.number not in superseded), key=lambda adr: -adr.number)
+        sorted(
+            (adr for adr in found if adr.in_force and f"{adr.number:04d}" not in superseded),
+            key=lambda adr: -adr.number,
+        )
     )
 
 
@@ -258,4 +317,16 @@ def rejects(adr: Adr, *tool_names: str) -> bool:
     return bool(named) and all(_REJECTED_OPTION.search(option) for option in named)
 
 
-__all__ = ["Adr", "adr_of", "fit_to_budget", "names", "read_adrs", "rejects"]
+__all__ = [
+    "Adr",
+    "AdrFrontMatter",
+    "AdrNumber",
+    "AdrStatus",
+    "adr_of",
+    "body_tokens",
+    "fit_to_budget",
+    "names",
+    "number_of",
+    "read_adrs",
+    "rejects",
+]

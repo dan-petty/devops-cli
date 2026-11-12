@@ -508,7 +508,7 @@ CONST_DOCS_INVENTORY: Final[dict[str, tuple[str, ...]]] = {
         "openspec/specs/**/*.md",
     ),
     CONST_DOCS_CLASS_RECORD: (
-        "docs/adr/*.md",
+        "docs/adr/[0-9]*.md",
         "docs/agent/archive/**/*.md",
         "openspec/changes/**/*.md",
         "tests/fixtures/roadmap_eval/**/*.md",

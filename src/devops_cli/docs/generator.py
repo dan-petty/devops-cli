@@ -1283,14 +1283,26 @@ class DocGenerator:
 
     def synced_blocks(self) -> dict[str, str]:
         """Each hand-written page under `docs/` with a generated block, by its path under
-        `docs/`, with the block synced. A page with no markers is left out."""
+        `docs/`, with the block synced: the grade table of the job success page and the index of
+        the decision records (#5225). A missing page or a page with no markers is left out."""
+        from devops_cli.docs.adr_records import ADR_INDEX_PAGE, read_record_texts, sync_index
         from devops_cli.roadmap.job_grade import sync_grade_table
 
-        page = self.root_dir / CONST_DOCS_DIR_NAME / JOB_SUCCESS_PAGE
-        if not page.exists():
-            return {}
-        synced = sync_grade_table(page.read_text(encoding="utf-8"))
-        return {} if synced is None else {JOB_SUCCESS_PAGE: synced}
+        docs = self.root_dir / CONST_DOCS_DIR_NAME
+        blocks: dict[str, str] = {}
+        job_page = docs / JOB_SUCCESS_PAGE
+        if job_page.exists():
+            synced = sync_grade_table(job_page.read_text(encoding="utf-8"))
+            if synced is not None:
+                blocks[JOB_SUCCESS_PAGE] = synced
+        index_page = docs / ADR_INDEX_PAGE
+        if index_page.exists():
+            synced = sync_index(
+                index_page.read_text(encoding="utf-8"), read_record_texts(index_page.parent)
+            )
+            if synced is not None:
+                blocks[ADR_INDEX_PAGE] = synced
+        return blocks
 
     def generate_all_docs(self, output_dir: Path) -> dict[str, str]:
         """Generate all documentation files and return a dict of {rel_path: content}."""
