@@ -23,9 +23,31 @@ The implement job SHALL run each git call that reaches `origin`, also the calls 
 - **WHEN** the configuration of the clone sets `core.hooksPath` to a folder with a `pre-push` hook, and the job pushes to a bare repository on disk
 - **THEN** the branch is on the bare repository, and the hook did not run
 
+### Requirement: The leftover processes end before each part of a network git call
+`OriginGit` SHALL end every leftover process before the check of the settings, again before it makes the new folder, and again just before the call with the token. A refused setting SHALL stop the call after the first sweep and before the folder exists.
+
 #### Scenario: The order of the calls
 - **WHEN** the job fetches a branch
-- **THEN** the leftover processes end before the new folder is made, again after the refs are copied, and only then the fetch with the token runs
+- **THEN** the leftover processes end before the check of the settings, again after the check and before the new folder is made, again after the refs are copied, and only then the fetch with the token runs
+
+#### Scenario: A refused setting before the call
+- **WHEN** the configuration of the clone holds `credential.helper`, and the job fetches a branch in a runner
+- **THEN** the leftover processes end before the check, the call raises `GitSettingsError` that names `credential.helper`, and no new folder is made
+
+### Requirement: The new git folder of a shallow clone gets its shallow file
+The new git folder of a network call SHALL get a copy of the `shallow` file of a shallow clone, which the job SHALL open with `O_NOFOLLOW`. A link, or anything but a regular file, at that place SHALL raise `GitSettingsError` that names `shallow`. A fetch that changes the file SHALL write it back into the clone through a new file with a random name, which then replaces the old file (`os.replace`), so the write follows no link.
+
+#### Scenario: A fetch in a shallow clone
+- **WHEN** the clone was made with `--depth 1`, `origin` gets a new commit on `main`, and the job fetches `main`
+- **THEN** the remote-tracking ref of `main` in the clone is the new commit, and the clone stays shallow
+
+#### Scenario: A link at the shallow file
+- **WHEN** the `shallow` file of the clone is a link, and the job fetches `main`
+- **THEN** the call raises `GitSettingsError` that names `shallow`
+
+#### Scenario: A link at a temporary name
+- **WHEN** a link waits at `shallow.devops-cli` in the git folder of the clone, and a fetch changes the `shallow` file
+- **THEN** the target of the link does not change, `shallow` is a regular file with the new text, and no temporary file stays
 
 ### Requirement: A git setting that the job does not allow stops the item
 In a runner, the implement job SHALL check the git settings of the checkout when each turn of the agent ends and before each network git call (`check_settings`). A setting that the job does not allow SHALL stop the item with the failure class `git_config` and push nothing. The reason and the log line SHALL name each key, or each attribute with its path, and SHALL hold no value.
@@ -49,3 +71,14 @@ In a runner, the implement job SHALL check the git settings of the checkout when
 #### Scenario: The settings of a new clone
 - **WHEN** the job runs an item in a clone that `git clone` made, with the identity that `ensure_checkout` sets
 - **THEN** the check refuses no key
+
+### Requirement: A refused setting at a push stops the item at once
+A refused setting at the push of a `wip:` commit or of a checkpoint SHALL stop the item with the class `git_config` at once, before the job writes a record of the push. A refused setting at the push of a stop SHALL give the stop the class `git_config`.
+
+#### Scenario: A setting before the push of a `wip:` commit
+- **WHEN** the agent writes `credential.helper` into the configuration of the clone, ticks a task of a group of five, and the job pushes the `wip:` commit before the next model request
+- **THEN** the item stops with the class `git_config`, and the job asks the model for nothing more
+
+#### Scenario: A setting that an exit check writes
+- **WHEN** an exit check of the step writes `credential.helper` into the configuration of the clone and fails, and no repair round is left
+- **THEN** the item stops with the class `git_config`, and the comment names `credential.helper` and holds no value
