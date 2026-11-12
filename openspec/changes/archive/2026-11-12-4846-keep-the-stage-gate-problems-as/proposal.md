@@ -21,7 +21,7 @@ Issue #4846: the stage job joins the gate problems of a refused reply into one s
 ## Impact
 
 - `src/devops_cli/roadmap/stage/stage_findings.py` (new), `stage_finding_classes.json` (new), `stage.py`, `stage_plan_record.py`, `src/devops_cli/roadmap/round_log.py`, `src/devops_cli/telemetry/instruments.py`, `docs/TELEMETRY.md` (generated), `k8s/README.md`.
-- Tests: `tests/roadmap/stage/test_roadmap_stage_findings.py` (new), `test_roadmap_stage_refused_reply.py`, `test_roadmap_stage_repair_return.py`, `tests/telemetry/test_roadmap_stage_steps.py`, and the fixture `tests/fixtures/roadmap/stage_refused_findings.json`.
+- Tests: `tests/roadmap/stage/test_roadmap_stage_findings.py` (new), `test_roadmap_stage_refused_reply.py`, `test_roadmap_stage_repair_return.py`, `tests/telemetry/test_roadmap_stage_steps.py`, the reset of the template cache in `tests/conftest.py`, and the fixture `tests/fixtures/roadmap/stage_refused_findings.json`.
 - No prompt text, gate, cap or setting changes. The change fits one pull request.
 
 ## Feasibility

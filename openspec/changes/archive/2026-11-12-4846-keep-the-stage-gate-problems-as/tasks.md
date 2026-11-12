@@ -2,11 +2,11 @@
 
 ## 1. The gates give findings with a gate and a code
 
-Kind: behavior. Changes: `src/devops_cli/roadmap/stage/stage_findings.py`, `src/devops_cli/roadmap/stage/stage.py`, `src/devops_cli/roadmap/stage/stage_plan_record.py`, `src/devops_cli/roadmap/round_log.py`, `src/devops_cli/telemetry/instruments.py`, `tests/roadmap/stage/test_roadmap_stage_findings.py`, `tests/roadmap/stage/test_roadmap_stage_refused_reply.py`, `tests/roadmap/stage/test_roadmap_stage_repair_return.py`, `tests/telemetry/test_roadmap_stage_steps.py`.
+Kind: behavior. Changes: `src/devops_cli/roadmap/stage/stage_findings.py`, `src/devops_cli/roadmap/stage/stage.py`, `src/devops_cli/roadmap/stage/stage_plan_record.py`, `src/devops_cli/roadmap/round_log.py`, `src/devops_cli/telemetry/instruments.py`, `tests/roadmap/stage/test_roadmap_stage_findings.py`, `tests/roadmap/stage/test_roadmap_stage_refused_reply.py`, `tests/roadmap/stage/test_roadmap_stage_repair_return.py`, `tests/telemetry/test_roadmap_stage_steps.py`, `tests/conftest.py`.
 
 - [x] 1.1 Write the failing tests: each `stage_problem_` message gives its own key as its code, a reply that two gates refuse gives two findings, the joined text of the findings is the joined text of the gates, the counts of a return, the refused file keeps the findings, the two log lines, and the histogram by reply.
   - Verification: `$ uv run devops ci test tests/roadmap/stage/test_roadmap_stage_findings.py tests/roadmap/stage/test_roadmap_stage_refused_reply.py tests/roadmap/stage/test_roadmap_stage_repair_return.py tests/telemetry/test_roadmap_stage_steps.py`
-- [x] 1.2 Add `stage_findings.py`, keep the findings in the planner and the refused file, log them, and declare `devops_cli_roadmap_stage_gate_problems`.
+- [x] 1.2 Add `stage_findings.py`, keep the findings in the planner and the refused file, log them, declare `devops_cli_roadmap_stage_gate_problems`, and reset the template cache in the test floor.
   - Verification: `$ uv run devops ci test tests/roadmap/stage/test_roadmap_stage_findings.py tests/roadmap/stage/test_roadmap_stage_refused_reply.py tests/roadmap/stage/test_roadmap_stage_repair_return.py tests/telemetry/test_roadmap_stage_steps.py`
 
 ## 2. The seed fix class of each code
