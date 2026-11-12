@@ -1,0 +1,19 @@
+<!-- devops roadmap stage -->
+Staged: branch `fix/4697-keep-one-metric-stream-per-workload`, draft pull request #5032. The pull request plans the item and closes no issue.
+
+The task groups, with the tokens of the inputs of each step, for a budget of 64000 tokens:
+
+1. Build the metric resource from the stable attribute set: 18285 tokens
+2. Run one cluster Job of the workload at a time: 35640 tokens
+3. Set one instance id in both CronJob templates: 17900 tokens
+4. Alert on two metric streams in one Prometheus series: 43166 tokens
+5. Describe the stable metric resource in the telemetry reference: 31212 tokens
+
+A model review of the plan found these open findings. The stage keeps this pull request a draft with the label `plan/needs-fix` until a later round clears them:
+
+- `criterion_dropped` at group 4: The acceptance criterion asks for a 10-minute overlap of two target_info series at a pod change to stay quiet, but the group's second promtool case makes one series end as the other starts, so no task tests the overlap; the plan's own spec delta still claims a ten-minute overlap. Evidence: "it stays quiet over a 10 min overlap at a pod change and for one series."
+
+A model review of the plan found these points. They stop no draft, and a person judges them:
+
+- `false_premise` at group 2 (and the decision on service.instance.id): The plan gives every Job pod of `k8s/devops/cronjob.yaml` one `service.instance.id`, but that template sets `concurrencyPolicy: Allow`, so two concurrent Jobs write one stream and `deltatocumulative` drops their interleaved deltas; #2039 rejected this exact alternative for that reason, and the plan neither handles nor names it. Evidence: "Concurrent jobs send interleaved deltas, causing `deltatocumulative` to drop points with `ErrOutOfOrder` and `ErrOlderStart`."
+- `task_order` at group 2: The group declares no test and writes the manifest change before the test that pins it, so the new variable is added to both templates before `test_both_cluster_job_templates_set_one_runner_instance` exists and the test cannot fail first. Evidence: "Add OTEL_RESOURCE_ATTRIBUTES with the value service.instance.id=devops-cli-job to the container environment of both templates, below OTEL_SERVICE_NAME, with a comment that the Job pods of the workload then share one metric stream, as the Service Deployment does. Add `test_both_cluster_job_templates_set_one_runner_instance` to `tests/config/test_k8s_devops_runtime.py`"

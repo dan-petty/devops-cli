@@ -1,0 +1,31 @@
+<!-- devops roadmap stage -->
+Staged: branch `fix/4472-a-narrowed-ci-test-runs-many`, draft pull request #4917. The pull request plans the item and closes no issue.
+
+The task groups, with the tokens of the inputs of each step, for a budget of 64000 tokens:
+
+1. Add the collection command builder: 24575 tokens
+2. Choose a narrowed run's workers from the collected tests: 19812 tokens
+3. Skip the collection when the driving tests read the pytest run: 19980 tokens
+4. Describe the collected-test worker rule in the docs: 30460 tokens
+
+The default branch changed these paths that the plan names, after the commit that the planner read. Read the commits before you judge the plan:
+
+- `src/devops_cli/commands/ci.py`: 59bfc5713 fix(ci): replay a changed gate check in fail-to-pass (#4898)
+- `src/devops_cli/lang/en/messages.py`: 59bfc5713 fix(ci): replay a changed gate check in fail-to-pass (#4898)
+- `src/devops_cli/lang/en/help.py`: 59bfc5713 fix(ci): replay a changed gate check in fail-to-pass (#4898)
+- `docs/TESTING.md`: e80db62c8 perf(ci): direct pytest runs wait for a gate slot (#4901)
+- `docs/CLI_REFERENCE.md`: 59bfc5713 fix(ci): replay a changed gate check in fail-to-pass (#4898)
+- `docs/commands/ci.md`: 59bfc5713 fix(ci): replay a changed gate check in fail-to-pass (#4898)
+
+A model review of the plan found these open findings. The stage keeps this pull request a draft with the label `plan/needs-fix` until a later round clears them:
+
+- `ignores_existing_code` at group 1: Group 1 adds `collection_argv` as a second builder of the pytest collection command, while the repository already holds that command in `_form_failure` (`src/devops_cli/roadmap/implement/implement_step.py:1428`) and already holds a builder of `uv run pytest` with the `-k` filter and targets in `_build_test_cmd` (`src/devops_cli/commands/ci.py:1809`), the file group 1 reads. The change should extract and reuse one builder instead of writing a third one in a new module. Evidence: "argv = [BIN_UV, "run", BIN_PYTEST, "--collect-only", "-q", "--", form.path]"
+
+A model review of the plan found these points. They stop no draft, and a person judges them:
+
+- `other` at group 2: The new collection call runs on every narrowed `devops ci test`, but the plan patches `run_subprocess` only in the cases it adds to `tests/commands/test_test_selection.py`. Other tests that drive a narrowed run and double only `asyncio.create_subprocess_exec` start a real `uv run pytest --collect-only`, which `refuse_nested_test_runs` fails, and tests that count pytest calls (for example `tests/commands/test_ci.py:1887`, `tests/ci/test_ci_gate_admission.py:169`) see the extra collection call. The group names no task for these tests, so its own verify command fails. Evidence: "Add a helper that patches `run_subprocess` in `devops_cli.commands.ci` with a fake that answers the collection command and refuses any other command, and give the parametrized worker case its collection answer too."
+- `ignores_existing_code` at group 2: The plan adds a helper that patches `run_subprocess` in the module under test, although the project already fakes the process-runner seam with `ProcessFake` and the `process_fake` fixture, which `tests/commands/test_test_selection.py` already imports and uses. The existing fake answers a scripted `run_subprocess` call and records it, so the new helper builds what the repository already holds. Evidence: "Installs an in-memory `ProcessFake` into the process runner seam."
+- `other` at group 2: Decision 7 says a dry run makes no collection call, but the group's implementation guards only a given `-n`, the full suite and `--repeat`. A `--dry-run` narrowed run therefore still makes the collection, `run_subprocess` answers it with an empty dry-run result, and the command reads zero tests and prints `-n 0` instead of the worker count the real run would use. Evidence: "Make no collection call when the caller gives `-n`, when no path is given, or in a dry run."
+- `ignores_existing_code` at group 1: Group 1 adds a new `collected_tests` that counts the test-id lines of a quiet pytest collection, but the project already holds the public `collected_items` in `src/devops_cli/roadmap/implement/implement_test_form.py`, which does exactly that and returns zero for a collection with no item; the plan duplicates it instead of reusing or moving it. Evidence: "def collected_items(output: str) -> int:"
+- `missing_path` at group 2: The new collection runs in every narrowed `devops ci test`, but the plan changes no file for `tests/commands/test_ci.py` and `tests/ci/test_ci_gate_admission.py`, whose narrowed-run tests answer only `record_spawns`; the collection there would start a real `uv run pytest --collect-only` in the suite, contrary to the plan's claim that all tests of the command use `process_fake`. Evidence: "result = runner.invoke(app, ["test", "tests/test_x.py"])"
+- `other` at group 2: The new count function starts the collection through `_run_in_own_session`, whose stop-signal handlers cancel the task, but the plan handles only `subprocess.TimeoutExpired` and the exit codes. A Ctrl-C, SIGTERM or SIGHUP during the collection therefore escapes as an unhandled cancellation instead of exiting as cancelled the way `_session_returncode` does, so the collection path breaks the stop behavior that `devops ci test` already has. Evidence: "returns None on `subprocess.TimeoutExpired` and on any exit code except 0 and 5 with the warning printed"

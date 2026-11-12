@@ -62,7 +62,7 @@ def test_confirm_with_item_runs_the_attempt(
     result = _fix_plan(cli, stage_repo, "--confirm", "--item", str(plan.number))
 
     assert result.exit_code == 0, result.output
-    assert "cleared" in result.output
+    assert "dismissed" in result.output
     assert PLAN_NEEDS_FIX_LABEL not in roadmap_store._roadmap.issues[plan.pull].labels
 
 
@@ -74,16 +74,27 @@ def test_the_dry_run_makes_no_request_and_lists_the_reads_and_the_writes(
 ) -> None:
     result = cli("roadmap", "step", "fix-plan", "--repo", STAGE_REPO, "--dry-run", "--item", "7")
 
+    from devops_cli.lang import MESSAGES
+
     assert result.exit_code == 0, result.output
     assert "Dry run: no request was made" in result.output
     shown = result.output.replace("'", "")
+    conditions = MESSAGES.roadmap.fix_plan_request_conditions
     for expected in (
         "GET https://api.github.com/repos/example/roadmap/pulls/<pull request>",
         "stage model",
         "--force-with-lease",
         "PATCH https://api.github.com/repos/example/roadmap/pulls/<pull request>",
+        conditions["unreadable"],
+        conditions["push"],
+        conditions["unlabel"],
+        conditions["comment"],
     ):
         assert expected in shown
+    reads, writes = shown.split("With --confirm", 1)
+    head, marks = reads.index("ls-tree -r --name-only -z <head>"), reads.index(conditions["marks"])
+    assert head < marks
+    assert writes.index(conditions["unreadable"]) < writes.index(conditions["marks"])
     assert (github_api.requested, model_fake.call_count, openspec_fake.calls) == ([], 0, [])
 
 
