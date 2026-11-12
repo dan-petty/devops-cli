@@ -656,7 +656,7 @@ def _dockerfile_build_context_sources(dockerfile: Path) -> set[str]:
     return sources
 
 
-def _ci_image_content_paths(workflow: Path, job_name: str = "devcontainer") -> set[str]:
+def _ci_image_content_paths(workflow: Path, job_name: str) -> set[str]:
     """Read the IMAGE_CONTENT_PATHS list the CI workflow watches for image changes."""
     import yaml
 
@@ -671,7 +671,6 @@ def _ci_image_content_paths(workflow: Path, job_name: str = "devcontainer") -> s
 @pytest.mark.parametrize(
     ("job_name", "dockerfile_rel"),
     [
-        ("devcontainer", ".devcontainer/Dockerfile"),
         ("service-image", "Dockerfile"),
         ("runner-image", "Dockerfile"),
         ("mcp-server-image", "Dockerfile"),
@@ -717,15 +716,6 @@ def test_image_path_filter_covers_dockerfile_sources(job_name: str, dockerfile_r
     assert _covered(".dockerignore"), (
         f"The CI image-change filter for {job_name} must watch .dockerignore."
     )
-
-    # Shared actions build and start the devcontainer image, and their steps alter the check
-    # as much as the workflow that calls them (#1895).
-    if job_name == "devcontainer":
-        assert [
-            action
-            for action in ("devcontainer-image", "devcontainer-smoke")
-            if not _covered(f".github/actions/{action}/action.yml")
-        ] == [], "The CI image-change filter for devcontainer must watch the actions it runs."
 
 
 def _find_workflow_runner_mutations(workflow_path: Path, pattern: re.Pattern[str]) -> list[str]:
@@ -1606,6 +1596,20 @@ _SERVICE_IMAGE_TEST_INPUTS: Final[tuple[str, ...]] = (
     _SERVICE_IMAGE_TEST_WORKFLOW,
 )
 _SRC_ONLY_CHANGE: Final[str] = "src/devops_cli/__init__.py"
+_DEVCONTAINER_IMAGE_WORKFLOW: Final[str] = ".github/workflows/devcontainer-image.yml"
+# The inputs of the devcontainer image besides the files that its Dockerfile copies: the build
+# definition, the build context filter, the lock that pins the Dev Containers CLI that builds it,
+# the actions that build and start it (#1895), and its own workflow (#4658).
+_DEVCONTAINER_IMAGE_FIXED_INPUTS: Final[tuple[str, ...]] = (
+    ".devcontainer/Dockerfile",
+    ".devcontainer/image/devcontainer.json",
+    ".devcontainer/image/devcontainer-lock.json",
+    ".dockerignore",
+    "src/devops_cli/tools_lock/tools.lock",
+    ".github/actions/devcontainer-image/action.yml",
+    ".github/actions/devcontainer-smoke/action.yml",
+    _DEVCONTAINER_IMAGE_WORKFLOW,
+)
 
 
 def _debian_release_of_image(image_ref: str) -> str | None:
@@ -1687,9 +1691,12 @@ def _paths_filter_includes(patterns: Sequence[str], path: str) -> bool:
     return included
 
 
-def _service_image_test_trigger_problems(workflow: Mapping[Any, Any]) -> list[str]:
-    """Return problems when the in-image suite does not run daily, on a manual run and on a pull
-    request that changes an image input other than src/ (#4644)."""
+def _image_workflow_trigger_problems(
+    workflow: Mapping[Any, Any], workflow_rel: str, inputs: Sequence[str]
+) -> list[str]:
+    """Return problems when an image workflow does not run daily, on a manual run and on a pull
+    request that changes one of `inputs`, or when it runs on a pull request that changes only
+    src/ (#4644, #4658)."""
     # PyYAML reads the key `on` as the boolean True.
     triggers = workflow.get("on", workflow.get(True))
     triggers = triggers if isinstance(triggers, Mapping) else {}
@@ -1699,24 +1706,20 @@ def _service_image_test_trigger_problems(workflow: Mapping[Any, Any]) -> list[st
         isinstance(schedule, list)
         and any(isinstance(e, Mapping) and e.get("cron") for e in schedule)
     ):
-        problems.append(f"{_SERVICE_IMAGE_TEST_WORKFLOW} has no schedule trigger")
+        problems.append(f"{workflow_rel} has no schedule trigger")
     if "workflow_dispatch" not in triggers:
-        problems.append(f"{_SERVICE_IMAGE_TEST_WORKFLOW} has no workflow_dispatch trigger")
+        problems.append(f"{workflow_rel} has no workflow_dispatch trigger")
     paths: list[str] = []
     if "pull_request" in triggers:
         pull_request = (
             triggers["pull_request"] if isinstance(triggers["pull_request"], Mapping) else {}
         )
         paths = [str(p) for p in pull_request.get("paths", ["**"])]
-    unwatched = [p for p in _SERVICE_IMAGE_TEST_INPUTS if not _paths_filter_includes(paths, p)]
+    unwatched = [p for p in inputs if not _paths_filter_includes(paths, p)]
     if unwatched:
-        problems.append(
-            f"{_SERVICE_IMAGE_TEST_WORKFLOW} does not run on a pull request that changes {unwatched}"
-        )
+        problems.append(f"{workflow_rel} does not run on a pull request that changes {unwatched}")
     if _paths_filter_includes(paths, _SRC_ONLY_CHANGE):
-        problems.append(
-            f"{_SERVICE_IMAGE_TEST_WORKFLOW} runs on a pull request that changes only src/"
-        )
+        problems.append(f"{workflow_rel} runs on a pull request that changes only src/")
     return problems
 
 
@@ -1732,7 +1735,9 @@ def _service_image_test_job_problems(
             f"{_SERVICE_IMAGE_TEST_WORKFLOW} lacks job {_SERVICE_IMAGE_TEST_JOB!r} while Dockerfile "
             "and .devcontainer/Dockerfile name different Debian releases"
         ]
-    problems: list[str] = _service_image_test_trigger_problems(workflow)
+    problems: list[str] = _image_workflow_trigger_problems(
+        workflow, _SERVICE_IMAGE_TEST_WORKFLOW, _SERVICE_IMAGE_TEST_INPUTS
+    )
     steps = [s for s in job.get("steps", ()) if isinstance(s, Mapping)]
     builds = [
         s.get("with", {})
@@ -2007,3 +2012,89 @@ def test_the_in_image_suite_runs_daily_and_on_image_pull_requests_only(
     mutate(workflow[True])
 
     assert _service_image_test_job_problems(workflow, "trixie") == expected
+
+
+def _devcontainer_image_inputs() -> list[str]:
+    """Name each input of the devcontainer image other than the CLI source tree `src/`.
+
+    A file that `.devcontainer/Dockerfile` copies from `src/`, such as a tool lock, is an input.
+    A directory source counts by a file in it.
+    """
+    copied = _dockerfile_build_context_sources(REPO_ROOT / ".devcontainer" / "Dockerfile")
+    probes = {
+        f"{source}/probe" if (REPO_ROOT / source).is_dir() else source
+        for source in copied - {"src"}
+    }
+    return sorted({*probes, *_DEVCONTAINER_IMAGE_FIXED_INPUTS})
+
+
+@pytest.mark.parametrize(
+    ("mutate", "expected"),
+    [
+        pytest.param(lambda on: None, [], id="daily-dispatch-and-input-pull-requests"),
+        pytest.param(
+            lambda on: on.pop("schedule"),
+            [f"{_DEVCONTAINER_IMAGE_WORKFLOW} has no schedule trigger"],
+            id="missing-schedule",
+        ),
+        pytest.param(
+            lambda on: on.pop("workflow_dispatch"),
+            [f"{_DEVCONTAINER_IMAGE_WORKFLOW} has no workflow_dispatch trigger"],
+            id="missing-dispatch",
+        ),
+        pytest.param(
+            lambda on: on["pull_request"].pop("paths"),
+            [f"{_DEVCONTAINER_IMAGE_WORKFLOW} runs on a pull request that changes only src/"],
+            id="every-pull-request",
+        ),
+        pytest.param(
+            lambda on: on["pull_request"]["paths"].append("src/**"),
+            [f"{_DEVCONTAINER_IMAGE_WORKFLOW} runs on a pull request that changes only src/"],
+            id="src-only-pull-request",
+        ),
+        pytest.param(
+            lambda on: on["pull_request"]["paths"].remove("README.md"),
+            [
+                f"{_DEVCONTAINER_IMAGE_WORKFLOW} does not run on a pull request that changes "
+                "['README.md']"
+            ],
+            id="unwatched-copied-file",
+        ),
+        pytest.param(
+            lambda on: on["pull_request"]["paths"].remove(".dockerignore"),
+            [
+                f"{_DEVCONTAINER_IMAGE_WORKFLOW} does not run on a pull request that changes "
+                "['.dockerignore']"
+            ],
+            id="unwatched-build-context-filter",
+        ),
+        pytest.param(
+            lambda on: on["pull_request"]["paths"].remove(".github/actions/devcontainer-smoke/**"),
+            [
+                f"{_DEVCONTAINER_IMAGE_WORKFLOW} does not run on a pull request that changes "
+                "['.github/actions/devcontainer-smoke/action.yml']"
+            ],
+            id="unwatched-smoke-action",
+        ),
+    ],
+)
+def test_the_devcontainer_image_builds_daily_and_on_its_own_inputs(
+    mutate: Callable[[dict[str, Any]], object], expected: list[str]
+) -> None:
+    """The devcontainer image builds on the daily schedule, on a manual run and on a pull request
+    that changes an input of the image other than `src/`. The image installs the CLI with
+    `--no-deps`, and Static Analysis builds the package, so a pull request that changes only
+    `src/` starts no job of it. The next daily run builds the image from `main` (#4658)."""
+    import yaml
+
+    workflow: dict[Any, Any] = yaml.safe_load(
+        (REPO_ROOT / _DEVCONTAINER_IMAGE_WORKFLOW).read_text(encoding="utf-8")
+    )
+    mutate(workflow[True])
+
+    assert (
+        _image_workflow_trigger_problems(
+            workflow, _DEVCONTAINER_IMAGE_WORKFLOW, _devcontainer_image_inputs()
+        )
+        == expected
+    )

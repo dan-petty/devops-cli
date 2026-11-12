@@ -976,7 +976,6 @@ def test_ci_workflow_parallelizes_quality_gates() -> None:
         "static",
         "test-shard",
         "test",
-        "devcontainer",
         "service-image",
         "runner-image",
     }.issubset(jobs.keys())
@@ -987,24 +986,11 @@ def test_ci_workflow_parallelizes_quality_gates() -> None:
         for name in (
             "static",
             "test-shard",
-            "devcontainer",
             "service-image",
             "runner-image",
         )
     )
     assert jobs["test"].get("needs") == "test-shard"
-
-
-def test_the_devcontainer_image_is_built_for_a_pull_request_or_a_dispatch() -> None:
-    """Every pull request targets main, so the job runs on the event alone; its own step skips
-    the build when the change alters no image content."""
-    import yaml
-
-    ci = yaml.safe_load(Path(".github/workflows/ci.yml").read_text(encoding="utf-8")) or {}
-
-    assert ci["jobs"]["devcontainer"]["if"] == (
-        "github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'"
-    )
 
 
 def test_service_image_ci_job_invariants() -> None:
@@ -1339,19 +1325,29 @@ def test_the_pull_request_builds_and_starts_the_devcontainer_image_the_way_the_r
 ):
     """The pull request job runs the two actions the release runs, so its check builds and starts
     what the release publishes (#1895). It pushes to a registry on the runner and only reads the
-    cache the release writes, so it holds no write scope."""
-    job = _workflow("ci.yml")["jobs"]["devcontainer"]
+    cache the release writes, so it holds no write scope. It is in a workflow of its own, whose
+    native `paths` filter stops a pull request that changes no image input before a job starts,
+    so no step filters the paths again and `ci.yml` holds no copy of the job (#4658)."""
+    job = _workflow("devcontainer-image.yml")["jobs"]["devcontainer"]
     release_build = _step_using(
         _workflow("release.yml")["jobs"]["devcontainer-image"], _BUILD_ACTION
     )
 
     assert (
+        "devcontainer" in _workflow("ci.yml")["jobs"],
+        job["name"],
+        "if" in job,
+        [s.get("name") for s in job["steps"] if "if" in s],
         job["permissions"],
         job["services"],
         [s.get("name") for s in job["steps"]],
         _step_using(job, _BUILD_ACTION)["with"],
         _step_using(job, _SMOKE_ACTION)["with"],
     ) == (
+        False,
+        "DevContainer Image",
+        False,
+        [],
         {"contents": "read", "packages": "read"},
         {
             "registry": {
@@ -1364,7 +1360,6 @@ def test_the_pull_request_builds_and_starts_the_devcontainer_image_the_way_the_r
         },
         [
             "Check out repository",
-            "Detect Image Content Changes",
             "Set up uv toolchain",
             "Log in to GitHub Container Registry (GHCR)",
             "Extract Metadata for DevContainer Image",
@@ -1425,8 +1420,8 @@ def test_only_the_shared_actions_build_and_start_the_devcontainer_image() -> Non
     assert (other_builders, callers) == (
         [],
         [
-            (".github/workflows/ci.yml", "devcontainer", _BUILD_ACTION),
-            (".github/workflows/ci.yml", "devcontainer", _SMOKE_ACTION),
+            (".github/workflows/devcontainer-image.yml", "devcontainer", _BUILD_ACTION),
+            (".github/workflows/devcontainer-image.yml", "devcontainer", _SMOKE_ACTION),
             (".github/workflows/release.yml", "devcontainer-image", _BUILD_ACTION),
             (".github/workflows/release.yml", "devcontainer-smoke", _SMOKE_ACTION),
         ],
