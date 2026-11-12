@@ -111,7 +111,7 @@ def edges(judge: Judge, source: Source | None = None) -> Edges:
     def embed(texts: Sequence[str]) -> list[list[float]]:
         return [deterministic_embedding(text, dimension=8) for text in texts]
 
-    return Edges(judge=judge, embed=embed, embedding_model="fake", source=source or Source(FILES))
+    return Edges(judge=judge, embed=embed, source=source or Source(FILES))
 
 
 def item(

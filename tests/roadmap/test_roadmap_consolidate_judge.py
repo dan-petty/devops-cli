@@ -171,13 +171,6 @@ def test_an_embedding_that_cannot_reach_the_gateway_names_the_gateway() -> None:
     assert GATEWAY in str(caught.value)
 
 
-def test_the_embedder_names_the_model_of_the_embedding_task() -> None:
-    ai = AIConfig()
-    ai.tasks.embedding.model = "bge-m3"
-
-    assert GatewayEmbedder(ai, embedder=FakeEmbedder()).model == "bge-m3"
-
-
 def test_the_digest_of_a_case_follows_its_texts_and_its_evidence() -> None:
     changed = case(digest_text="The parser drops two rows.")
 

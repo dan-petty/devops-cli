@@ -1,14 +1,9 @@
 """The shortlists of the consolidation job (#1127): evidence from tools, the contest rule and the
-cache of embeddings. No test calls a model, a network or a cluster."""
+text that is embedded. No test calls a model, a network or a cluster."""
 
 from __future__ import annotations
 
-import json
-import logging
 from collections.abc import Sequence
-from pathlib import Path
-
-import pytest
 
 from devops_cli.config.constants import (
     CONST_ROADMAP_ALTERNATIVES_END_MARKER,
@@ -28,7 +23,6 @@ from devops_cli.roadmap.consolidate_shortlist import (
     assign_groups,
     consolidation_groups,
     embed_issues,
-    embeddings_path,
     read_blockers,
     shortlists,
 )
@@ -303,7 +297,7 @@ def test_equal_input_gives_equal_groups() -> None:
     assert first == again
 
 
-# ── The cache ──
+# ── The embedded text ──
 
 
 def refined(body: str, section: str) -> str:
@@ -312,67 +306,24 @@ def refined(body: str, section: str) -> str:
     )
 
 
-def test_a_second_run_over_the_same_issues_embeds_nothing(tmp_path: Path) -> None:
-    issues = [issue(1, "one"), issue(2, "two")]
+def test_a_section_that_a_job_writes_is_no_part_of_the_embedded_text() -> None:
     embedder = Embedder()
-    path = embeddings_path(tmp_path)
-    first = embed_issues(issues, embedder, model="m", path=path)
-    second = embed_issues(issues, embedder, model="m", path=path)
-    assert (len(embedder.calls), second) == (1, first)
-    assert len(json.loads(path.read_text(encoding="utf-8"))["vectors"]) == 2
+    embed_issues([issue(1, "one")], embedder)
+    embed_issues([issue(1, refined("one", "## Proposed design"))], embedder)
+    assert embedder.calls == [["Item 1\n\none"], ["Item 1\n\none"]]
 
 
-def test_an_edited_body_embeds_that_issue_only(tmp_path: Path) -> None:
+def test_issues_with_the_same_text_are_embedded_once() -> None:
+    twin = issue(2, "one").model_copy(update={"title": "Item 1"})
     embedder = Embedder()
-    path = embeddings_path(tmp_path)
-    embed_issues([issue(1, "one"), issue(2, "two")], embedder, model="m", path=path)
-    embed_issues([issue(1, "one"), issue(2, "two, edited")], embedder, model="m", path=path)
-    assert embedder.calls[1] == ["Item 2\n\ntwo, edited"]
-
-
-def test_a_section_that_a_job_writes_is_no_edit(tmp_path: Path) -> None:
-    embedder = Embedder()
-    path = embeddings_path(tmp_path)
-    embed_issues([issue(1, "one")], embedder, model="m", path=path)
-    embed_issues([issue(1, refined("one", "## Proposed design"))], embedder, model="m", path=path)
-    assert len(embedder.calls) == 1
-
-
-def test_another_model_embeds_every_issue_again(tmp_path: Path) -> None:
-    embedder = Embedder()
-    path = embeddings_path(tmp_path)
-    issues = [issue(1, "one"), issue(2, "two")]
-    embed_issues(issues, embedder, model="m", path=path)
-    embed_issues(issues, embedder, model="other", path=path)
-    assert [len(call) for call in embedder.calls] == [2, 2]
-
-
-def test_the_file_keeps_the_vectors_of_the_issues_of_the_run_only(tmp_path: Path) -> None:
-    embedder = Embedder()
-    path = embeddings_path(tmp_path)
-    embed_issues([issue(1, "one"), issue(2, "two")], embedder, model="m", path=path)
-    embed_issues([issue(1, "one")], embedder, model="m", path=path)
-    assert len(json.loads(path.read_text(encoding="utf-8"))["vectors"]) == 1
-    assert len(embedder.calls) == 1
-
-
-def test_a_file_that_cannot_be_read_is_logged_and_built_again(
-    tmp_path: Path, caplog: pytest.LogCaptureFixture
-) -> None:
-    path = embeddings_path(tmp_path)
-    path.parent.mkdir(parents=True)
-    path.write_text("not json", encoding="utf-8")
-    embedder = Embedder()
-    with caplog.at_level(logging.WARNING):
-        vectors = embed_issues([issue(1, "one")], embedder, model="m", path=path)
-    assert (len(embedder.calls), list(vectors)) == (1, [1])
-    assert str(path) in caplog.text
+    vectors = embed_issues([issue(1, "one"), twin], embedder)
+    assert (embedder.calls, vectors) == ([["Item 1\n\none"]], {1: [11.0, 1.0], 2: [11.0, 1.0]})
 
 
 # ── The whole read ──
 
 
-def test_the_groups_of_a_store_come_from_its_open_items_and_call_no_model(tmp_path: Path) -> None:
+def test_the_groups_of_a_store_come_from_its_open_items_and_call_no_model() -> None:
     store = InMemoryRoadmapStore(repo="example/roadmap")
     first = store.seed_issue("first", body="It is in `src/a.py`.", labels=PRIORITY)
     second = store.seed_issue("second", body="It is in `src/a.py`.", labels=PRIORITY)
@@ -382,10 +333,8 @@ def test_the_groups_of_a_store_come_from_its_open_items_and_call_no_model(tmp_pa
     third = store.seed_issue("third", labels=PRIORITY)
     store.seed_blocked_by(third, first)
     embedder = Embedder()
-    groups = consolidation_groups(store, embedder, model="m", directory=tmp_path)
+    groups = consolidation_groups(store, embedder)
     assert [(g.anchor, [m.number for m in g.members]) for g in groups] == [(first, [second, third])]
     assert len(embedder.calls) == 1
     assert len(embedder.calls[0]) == 3
     assert store.job_writes() == []
-    again = consolidation_groups(store, embedder, model="m", directory=tmp_path)
-    assert (again, len(embedder.calls)) == (groups, 1)

@@ -8,6 +8,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+import httpx2
 import pytest
 
 from devops_cli.config.settings import load_settings
@@ -15,11 +16,16 @@ from devops_cli.core.repo import resolve_data_path
 from devops_cli.lang import HELP
 from devops_cli.roadmap.consolidate import read_plan
 from devops_cli.roadmap.stores.store import ConsolidateRecordKey, ItemField
+from devops_cli.telemetry.instruments import EMBEDDING_CACHE_LOOKUPS_TOTAL
+from tests.support.embedding_replies import gateway_reply, inputs, serve
+from tests.support.fakes.http import WebFake
 from tests.support.fakes.model import ModelFake
+from tests.support.fakes.otlp import FakeCollector
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.paths import REPO_ROOT
 
 REPO = "example/roadmap"
+GATEWAY = "http://example.com:4000"
 BODY = "The parser in src/a.py drops a row in `parse_row`."
 
 
@@ -64,7 +70,7 @@ def _answer(model_fake: ModelFake) -> None:
 
 def _plan_files() -> list[Path]:
     folder = resolve_data_path(load_settings().data.dir) / "roadmap/consolidate"
-    return sorted(p for p in folder.glob("*.json") if p.name != "embeddings.json")
+    return sorted(folder.glob("*.json"))
 
 
 def test_the_help_names_every_option_and_the_page_and_the_page_exists(
@@ -92,6 +98,66 @@ def test_a_run_prints_the_summary_and_writes_the_plan_and_no_github_change(
     assert read_plan(written).repo == REPO
     assert roadmap_store.job_writes() == []
     assert len(board.calls) == 2
+
+
+@pytest.fixture
+def embedded(
+    roadmap_store: InMemoryRoadmapStore,
+    model_fake: ModelFake,
+    keyring_store: Any,
+    config: Callable[..., Path],
+    web: WebFake,
+) -> list[httpx2.Request]:
+    """Two open items, a judge that answers, and the gateway that the real embedding engine
+    reaches through the HTTP fake. Returns the embedding requests that the gateway got."""
+    config(ai={"gateway_enabled": True, "gateway_url": GATEWAY})
+    for title in ("Parser drops a row", "Parser drops a column"):
+        roadmap_store.seed_issue(title, body=BODY, fields={ItemField.PRIORITY: "P2-Medium"})
+    _answer(model_fake)
+    return serve(web, gateway_reply)
+
+
+def _consolidate(cli: Callable[..., Any]) -> None:
+    result = cli("roadmap", "consolidate", "--repo", REPO)
+    assert result.exit_code == 0, result.output
+
+
+def test_a_second_run_reads_the_vectors_from_the_shared_cache_tiers_and_embeds_nothing(
+    cli: Callable[..., Any], embedded: list[httpx2.Request], otlp: FakeCollector
+) -> None:
+    _consolidate(cli)
+    otlp.clear()
+
+    _consolidate(cli)
+
+    assert [len(inputs(request)) for request in embedded] == [2]
+    assert otlp.points(EMBEDDING_CACHE_LOOKUPS_TOTAL.name) == [
+        ({"result": "hit", "tier": "disk"}, 2.0)
+    ]
+
+
+def test_an_edited_body_sends_that_item_only_to_the_embedding_model(
+    cli: Callable[..., Any], embedded: list[httpx2.Request], roadmap_store: InMemoryRoadmapStore
+) -> None:
+    _consolidate(cli)
+    body = roadmap_store.read_issue_body(1)
+    roadmap_store.edit_body_by_hand(1, body.replace(BODY, f"{BODY} It drops a column too."))
+
+    _consolidate(cli)
+
+    assert [len(inputs(request)) for request in embedded] == [2, 1]
+    assert "It drops a column too." in inputs(embedded[1])[0]
+
+
+def test_another_embedding_model_sends_every_item_again(
+    cli: Callable[..., Any], embedded: list[httpx2.Request], config: Callable[..., Path]
+) -> None:
+    _consolidate(cli)
+    config(ai={"tasks": {"embedding": {"model": "other-embedding"}}})
+
+    _consolidate(cli)
+
+    assert [len(inputs(request)) for request in embedded] == [2, 2]
 
 
 def test_a_dry_run_makes_no_request_no_model_call_and_no_file(

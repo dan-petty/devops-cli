@@ -422,7 +422,6 @@ def consolidate_cmd(
         edges = job.Edges(
             judge=judge,
             embed=embedder.embed,
-            embedding_model=embedder.model,
             source=job.GitSource(Path.cwd(), target, ref),
         )
         plan = job.run_consolidate(
