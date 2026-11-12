@@ -153,7 +153,8 @@ class RefineRecordKey(StrEnum):
     text of the wait names, comma separated. A later round reads the comments again only when the
     count moved (#3667). A round whose model call failed records the time, the step and the class
     of the failure, so the next round leaves the item out until the wait of the class passes
-    (#4061)."""
+    (#4061). A round that writes a proposal records the version of the rules that set its next step
+    (`CONST_ROADMAP_REFINE_RULES_SINCE`, #4795)."""
 
     BODY_HASH = "refine.body_hash"
     SECTION_HASH = "refine.section_hash"
@@ -177,6 +178,7 @@ class RefineRecordKey(StrEnum):
     FAILED_AT = "refine.failed_at"
     FAILED_STEP = "refine.failed_step"
     FAILED_CLASS = "refine.failed_class"
+    RULES = "refine.rules"
 
 
 class JudgeVerdict(StrEnum):
