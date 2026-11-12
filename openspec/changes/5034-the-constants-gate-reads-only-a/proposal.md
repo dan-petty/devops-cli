@@ -8,11 +8,11 @@ The constants gate of the stage job refuses good plans. `constant_problems` take
 
 - `_CANDIDATE_NUMBER` in `src/devops_cli/roadmap/stage/stage_constants.py` gets `(?!\d)` after the digits, so a range such as `1790-2000` gives no number.
 - `constant_problems` compares the one candidate number of a sentence only when the number follows the constant name with `=`, `is` or `to`: `NAME = 40`, `NAME: Final[int] = 40`, `` `NAME` is 40 `` and sets `` `NAME` `` to 40. An operand (`NAME + 1`), an option value (`-n 0`), a line number and the value of another name in the sentence are no value of the constant.
-- The requirement "A plan number beside a constant matches the staged value" of `roadmap-stage` states the link, with scenarios for the texts of #4472 and #4043.
+- The requirement "A plan number beside a constant matches the staged value" of `roadmap-stage/claims` states the link, with scenarios for the texts of #4472 and #4043.
 
 ## Capabilities
 
-- `roadmap-stage`: the constants gate compares only a number that the plan gives to the constant.
+- `roadmap-stage/claims`: the constants gate compares only a number that the plan gives to the constant.
 
 ## Impact
 
