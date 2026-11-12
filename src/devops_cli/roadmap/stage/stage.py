@@ -53,13 +53,13 @@ files with the same name, and a missing path after the last return stops the ite
 opens. The groups of a split are checked in the same
 way. After the checks, the model review of the plan (`stage_verify`, #3153) reads the issue, the
 plan and the files that the plan cites, and reads the repository with the read tools, on the model
-of the task `verification` (#3039). A finding of the type `missing_path`, `false_premise`,
-`ignores_existing_code`, `task_order` or `verify_form` that quotes its evidence sends the plan back
-to the planner, up to `CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS` times (#3039). The planner gets
-each open finding of that round. A finding of such a type, of `spec_delta_wrong` or
-`criterion_dropped`, or one that reports a placeholder is open: if the last review repeats it, the
-job keeps the draft with the label `plan/needs-fix` and puts the finding first in the comment
-(#3264). The comment lists every other finding of each round (#3039).
+of the task `verification` (#3039). A finding is open when it is of the type `missing_path`,
+`false_premise`, `ignores_existing_code`, `task_order`, `verify_form`, `spec_delta_wrong` or
+`criterion_dropped` and quotes its evidence, or when it reports a placeholder. An open finding sends
+the plan back to the planner, with each open finding of that round, up to
+`CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS` times (#3039, #5059). If the last review has an open
+finding, the job keeps the draft with the label `plan/needs-fix` and puts the finding first in the
+comment (#3264). The comment lists every other finding of each round (#3039).
 The review never merges and never marks a draft ready. `plan_item` plans one item with a given client
 and checkout: the golden set of the job runs
 it on each case (`stage_eval_run`, #3028). The plan writes nothing to git or to GitHub. A model call
@@ -280,7 +280,6 @@ from devops_cli.roadmap.stage.stage_verify import (
     open_findings,
     open_findings_section,
     return_problem,
-    returning,
 )
 from devops_cli.roadmap.step_files import code_spans
 from devops_cli.roadmap.step_metrics import observe_step
@@ -1501,37 +1500,37 @@ class _Planner:
         verifier: ToolboxClient,
         key: str | None,
     ) -> StagedChange | OverBudget:
-        """The change after the model review. A finding of a type that returns the plan, with a
-        quote that is in the input, sends the plan back to the planner with each open finding of
-        the round. The revised plan passes the checks and the review again, up to
+        """The change after the model review. An open finding sends the plan back to the planner
+        with each open finding of the round (#5059). The revised plan passes the checks and the
+        review again, up to
         `CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS` times (#3039), and a revision that stays refused
         stops the item. Every finding of each round stays on the change for the comment (#3039). The last
         review judges the last plan, so only its open findings keep the draft with
         `plan/needs-fix` (#3264). Each review logs one line with its counts (#4535)."""
         number = target.item.number
-        seen, returned, open_ = self._review(target, change, verifier)
+        seen, open_ = self._review(target, change, verifier)
         log_review_round(
             self._pull_repo,
             number,
             0,
             findings=len(seen),
-            returned=len(returned),
+            returned=len(open_),
             open_=len(open_),
         )
         for round_ in range(1, CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS + 1):
-            if not returned:
+            if not open_:
                 break
             revised = self._repaired(target, request, change, open_, key)
             if isinstance(revised, OverBudget):
                 return revised
             change = revised
-            findings, returned, open_ = self._review(target, change, verifier)
+            findings, open_ = self._review(target, change, verifier)
             log_review_round(
                 self._pull_repo,
                 number,
                 round_,
                 findings=len(findings),
-                returned=len(returned),
+                returned=len(open_),
                 open_=len(open_),
             )
             seen = [*seen, *findings]
@@ -1573,9 +1572,9 @@ class _Planner:
 
     def _review(
         self, target: StageTarget, change: StagedChange, verifier: ToolboxClient
-    ) -> tuple[list[Finding], list[Finding], list[Finding]]:
-        """The findings of the model review of `change`, those that return the plan, and those
-        that are open."""
+    ) -> tuple[list[Finding], list[Finding]]:
+        """The findings of the model review of `change`, and those that are open: each open
+        finding returns the plan to the planner (#5059)."""
         with observe_step(self._pull_repo, _ROW, StepName.REVIEW):
             given = self._input_of(target, change)
             decision = (
@@ -1586,12 +1585,12 @@ class _Planner:
                 )
             )
             if decision is not None and decision.acts and decision.band is Band.CONTINUE:
-                return [], [], []
+                return [], []
             findings, given = review(verifier, given)
         open_ = open_findings(findings, given)
         if decision is not None:
             record_review(decision, open_)
-        return findings, returning(findings, given), open_
+        return findings, open_
 
     def _read_fact_file(self, path: str) -> str | None:
         """The text of a runner image fact file: at the staged commit and, when the planner holds

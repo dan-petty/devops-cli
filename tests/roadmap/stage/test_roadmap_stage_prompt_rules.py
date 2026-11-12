@@ -153,6 +153,15 @@ def test_the_prompt_names_the_value_of_a_criterion_that_only_a_person_delivers()
     assert f"`{PENDING_PERSON}`" in _PROMPT
 
 
+def test_the_prompt_tells_how_to_fix_each_open_type_that_the_review_returns() -> None:
+    """The review returns `criterion_dropped` and `spec_delta_wrong` findings to the planner too
+    (#5059), so the text that explains `problem` says how to fix each one."""
+    problem = _PROMPT.split("\n\n", 1)[0]
+    assert "open findings of a model review of the plan" in problem
+    assert "For a `criterion_dropped` finding," in problem
+    assert "For a `spec_delta_wrong` finding," in problem
+
+
 def test_the_split_prompt_says_what_a_group_with_text_means() -> None:
     prompt = load_task_prompt(_SPLIT_PROMPT)
     assert (

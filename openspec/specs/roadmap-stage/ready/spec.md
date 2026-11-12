@@ -114,7 +114,7 @@ When the last review of a plan returns a finding that has a quote in its input o
 
 #### Scenario: A test-only group with no code
 - **WHEN** A group of a plan changes only a fixture file and a test file, no group changes the code that its criterion needs, and the verification reply holds a `criterion_dropped` finding that quotes the criterion of the issue.
-- **THEN** `open_findings` returns the finding and `returning` returns none.
+- **THEN** `open_findings` returns the finding, and the finding returns the plan to the planner while a repair round remains.
 
 ### Requirement: A plan with an open finding is a failed attempt
 An item whose plan carries an open finding SHALL NOT count as a staged plan in the round budget of the Service, and its result SHALL be recorded as a failed attempt of failure class `plan_defect`.

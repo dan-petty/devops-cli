@@ -73,7 +73,8 @@ def log_review_round(
 ) -> None:
     """Log one model review of a stage plan: `round_` 0 is the first review, and each repair round
     adds 1. `returned` counts the findings that send the plan back, and `open_` those that stay
-    open."""
+    open. Each open finding sends the plan back (#5059), so the two counts are equal; the line
+    keeps both fields for the log queries that read them."""
     logger.info(
         "stage review round: repo=%s item=#%d round=%d findings=%d returned=%d open=%d version=%s",
         repo or "none",

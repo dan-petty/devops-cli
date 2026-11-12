@@ -26,7 +26,6 @@ from devops_cli.roadmap.stage.stage_toolbox import ToolboxClient, review
 from devops_cli.roadmap.stage.stage_verify import (
     OPEN_TYPES,
     PLAN_NEEDS_FIX_LABEL,
-    RETURN_TYPES,
     VERIFY_TYPES,
     Finding,
     Verification,
@@ -37,7 +36,6 @@ from devops_cli.roadmap.stage.stage_verify import (
     open_findings,
     open_findings_section,
     return_problem,
-    returning,
     verify,
 )
 from devops_cli.roadmap.stage.stage_verify import Verification as VerificationReply
@@ -115,21 +113,23 @@ def test_a_finding_with_a_type_outside_the_nine_is_refused() -> None:
         )
 
 
-def test_the_return_types_add_task_order_and_verify_form() -> None:
-    assert RETURN_TYPES == {
+def test_the_open_types_are_the_seven_types_that_the_planner_can_fix() -> None:
+    assert OPEN_TYPES == {
         DefectType.MISSING_PATH,
         DefectType.FALSE_PREMISE,
         DefectType.IGNORES_EXISTING_CODE,
         DefectType.TASK_ORDER,
         DefectType.VERIFY_FORM,
+        DefectType.SPEC_DELTA_WRONG,
+        DefectType.CRITERION_DROPPED,
     }
+    assert PLAN_NEEDS_FIX_LABEL == "plan/needs-fix"
     given = _input()
     findings = [
         _finding(DefectType.TASK_ORDER, "The job drops the last comment"),
         _finding(DefectType.VERIFY_FORM, "The job drops the last comment"),
     ]
 
-    assert returning(findings, given) == findings
     assert open_findings(findings, given) == findings
 
 
@@ -214,7 +214,7 @@ def test_a_quote_of_the_issue_the_plan_or_a_file_is_in_the_input(tmp_path: Path)
     ] == [True, True, True, False, False, False]
 
 
-def test_a_return_type_with_a_quote_in_the_input_returns_the_plan() -> None:
+def test_an_open_type_with_a_quote_in_the_input_is_open() -> None:
     given = _input()
     findings = [
         _finding(DefectType.FALSE_PREMISE, "The job drops the last comment"),
@@ -223,12 +223,7 @@ def test_a_return_type_with_a_quote_in_the_input_returns_the_plan() -> None:
         _finding(DefectType.IGNORES_EXISTING_CODE),
     ]
 
-    assert returning(findings, given) == [findings[0]]
-
-
-def test_the_open_types_add_the_spec_delta_and_the_dropped_criterion_to_the_return_types() -> None:
-    assert OPEN_TYPES == RETURN_TYPES | {DefectType.SPEC_DELTA_WRONG, DefectType.CRITERION_DROPPED}
-    assert PLAN_NEEDS_FIX_LABEL == "plan/needs-fix"
+    assert open_findings(findings, given) == [findings[0]]
 
 
 def test_an_open_finding_is_a_listed_type_or_a_placeholder_with_a_quote_in_the_input() -> None:
@@ -305,15 +300,6 @@ def test_a_dropped_criterion_finding_with_no_quote_in_the_input_is_advice() -> N
     )
 
     assert open_findings([invented, unquoted], given) == []
-
-
-def test_a_dropped_criterion_finding_does_not_return_the_plan_to_the_planner() -> None:
-    given = _test_only_input()
-    finding = Finding(
-        type=DefectType.CRITERION_DROPPED, where="group 2", problem="No code.", quote=CRITERION
-    )
-
-    assert returning([finding], given) == []
 
 
 def test_the_dropped_criterion_type_names_a_test_only_group_and_one_that_delivers() -> None:
@@ -486,8 +472,8 @@ def test_a_quote_may_come_from_a_tool_answer_of_the_run(verify_checkout: tuple[P
 
     findings, given = review(client, _input())
 
-    assert (findings, returning(findings, _input())) == ([finding], [])
-    assert (returning(findings, given), open_findings(findings, given)) == ([finding], [finding])
+    assert (findings, open_findings(findings, _input())) == ([finding], [])
+    assert open_findings(findings, given) == [finding]
 
 
 def test_a_placeholder_in_a_tool_answer_is_no_open_finding() -> None:
