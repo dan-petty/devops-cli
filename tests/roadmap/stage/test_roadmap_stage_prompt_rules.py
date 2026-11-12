@@ -629,6 +629,37 @@ def test_the_stage_prompt_requires_a_modified_requirement_for_a_removed_command(
     assert "refuses an unmodified base requirement that names it" in rule
 
 
+def test_the_stage_prompt_gives_the_removal_sentence_that_the_check_reads() -> None:
+    """The check counts a name as removed only when MUST NOT governs it (#4954), so the prompt gives
+    the planner one sentence for a removal, and the check reads the old name from that sentence."""
+    (rule,) = re.findall(r"- When the issue removes or renames[^\n]*", _PROMPT)
+    (sentence,) = re.findall(r'"(`<old name>` MUST NOT exist\.)"', rule)
+    old = "devops roadmap intake-eval"
+    scenario = {"name": "The old name", "when": "a person runs it", "then": "the CLI refuses it"}
+    spec = {
+        "capability": "roadmap-eval",
+        "added": [
+            {
+                "name": "The old command is gone",
+                "text": sentence.replace("<old name>", old),
+                "scenarios": [scenario],
+            }
+        ],
+        "modified": [],
+    }
+
+    problems = check_proposal(
+        make_stage_proposal(specs=[spec]),
+        ["roadmap-eval"],
+        StagedTree(["src/devops_cli/sample.py", "tests/test_sample.py"]),
+        registry=(),
+        requirement_texts={"roadmap-eval": {"The old command runs": f"`{old}` SHALL run."}},
+    )
+
+    assert len(problems) == 1
+    assert f"`{old}`" in problems[0]
+
+
 # ── A plan that changes a planner prompt (#3347) ──────────────────────────────
 
 

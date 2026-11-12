@@ -1,15 +1,18 @@
-"""`devops roadmap stage`: check test references to entities a plan removes (#3324)."""
+"""`devops roadmap stage`: check test references to entities a plan removes (#3324), and read
+which command or option an added requirement removes (#3287, #4954)."""
 
 from __future__ import annotations
 
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
 from devops_cli.exceptions.roadmap import RoadmapStageError
 from devops_cli.roadmap.stage.stage import StagedChange, StageTarget, _stage_one
+from devops_cli.roadmap.stage.stage_change import check_proposal
+from devops_cli.roadmap.stage.stage_paths import StagedTree
 from devops_cli.roadmap.stage.stage_removal_references import (
     find_removed_names,
     scan_removal_references,
@@ -235,3 +238,216 @@ def test_stage_succeeds_and_comments_warning_on_unhandled_source_reference(
     # Issue comment names src/example.py as a warning
     comments = [c.body for c in store.comments_on(1)]
     assert any("src/example.py" in c and "warning" in c.lower() for c in comments)
+
+
+# ── The command or option that an added requirement removes (#3287, #4954) ────
+
+KEPT_COMMAND = "devops pr check-readiness"
+REMOVED_COMMAND = "devops roadmap intake-eval"
+REMOVED_OPTION = "--old"
+BASE_TEXTS = {
+    "Readiness names a missing change folder": (
+        f"The command `{KEPT_COMMAND}` SHALL name each missing change folder."
+    ),
+    "The intake-eval command runs each case": f"`{REMOVED_COMMAND}` SHALL run each case.",
+    "The old option writes the plan": f"`devops roadmap stage {REMOVED_OPTION}` SHALL write it.",
+}
+TREE = StagedTree(["src/devops_cli/sample.py", "tests/test_sample.py"])
+
+
+def _stale_command_problems(added: str) -> list[str]:
+    """The problems of a plan that adds one requirement with the text `added` to the capability
+    `comment-thread`, whose base requirements name each command and option of `BASE_TEXTS`."""
+    scenario = {"name": "The case", "when": "the command runs", "then": "the case runs"}
+    spec: dict[str, Any] = {
+        "capability": "comment-thread",
+        "added": [{"name": "The added rule", "text": added, "scenarios": [scenario]}],
+        "modified": [],
+    }
+    plan = make_stage_proposal(specs=[spec])
+
+    return check_proposal(
+        plan,
+        ["comment-thread"],
+        TREE,
+        registry=(),
+        requirement_texts={"comment-thread": BASE_TEXTS},
+    )
+
+
+@pytest.mark.parametrize(
+    "added",
+    [
+        pytest.param(
+            f"The command `{KEPT_COMMAND}` SHALL read the changed files of a pull request from the "
+            "compare endpoint of the base branch's tip and the head commit, and MUST NOT request "
+            "the pulls files list for them.",
+            id="2530-must-not-request",
+        ),
+        pytest.param(
+            f"The command `{KEPT_COMMAND}` SHALL report a compare answer that holds GitHub's limit "
+            "of 300 files as a possibly truncated list, naming the limit, and MUST NOT report a "
+            "missing change folder as a blocker from that list.",
+            id="2530-must-not-report",
+        ),
+        pytest.param(
+            f"The command `{KEPT_COMMAND} --dry-run` SHALL list the compare request that reads the "
+            "file list and MUST NOT list the pulls files request.",
+            id="2530-must-not-list-a-request",
+        ),
+        pytest.param(
+            f"`{KEPT_COMMAND}` SHALL NOT read the files of a closed pull request.",
+            id="shall-not-read",
+        ),
+        pytest.param(
+            f"`{KEPT_COMMAND}` SHALL list each missing folder, and MUST NOT list the cases of "
+            f"`{REMOVED_COMMAND}`.",
+            id="must-not-list-the-cases-of-a-command",
+        ),
+        pytest.param(
+            f"The alias that replaces `{REMOVED_COMMAND}` MUST NOT exist.",
+            id="relative-clause-of-the-subject",
+        ),
+        pytest.param(
+            f"`{KEPT_COMMAND}` SHALL NOT have a word between its last literal and "
+            f"`{REMOVED_OPTION}`.",
+            id="must-not-have-a-word-between",
+        ),
+    ],
+)
+def test_a_requirement_that_forbids_one_act_of_a_command_removes_nothing(added: str) -> None:
+    assert _stale_command_problems(added) == []
+
+
+@pytest.mark.parametrize(
+    ("added", "removed"),
+    [
+        pytest.param(
+            f"The `{REMOVED_COMMAND}` command MUST NOT exist.", REMOVED_COMMAND, id="subject"
+        ),
+        pytest.param(f"`{REMOVED_COMMAND}` SHALL NOT exist.", REMOVED_COMMAND, id="bare-subject"),
+        pytest.param(
+            f"The command `{REMOVED_COMMAND}` MUST NOT be available.",
+            REMOVED_COMMAND,
+            id="be-available",
+        ),
+        pytest.param(
+            f"The commands `devops roadmap intake-old` and `{REMOVED_COMMAND}` MUST NOT exist.",
+            REMOVED_COMMAND,
+            id="subject-list",
+        ),
+        pytest.param(
+            f"The command `{KEPT_COMMAND}` SHALL stay, and `{REMOVED_COMMAND}` MUST NOT exist.",
+            REMOVED_COMMAND,
+            id="second-clause",
+        ),
+        pytest.param(
+            f"The CLI SHALL keep `{KEPT_COMMAND}` (the `{REMOVED_COMMAND}` command MUST NOT exist).",
+            REMOVED_COMMAND,
+            id="in-parentheses",
+        ),
+        pytest.param(
+            "The CLI SHALL run the intake duplicate evaluation as `devops roadmap eval intake`, "
+            f"and MUST NOT register `{REMOVED_COMMAND}` as a command or as an alias.",
+            REMOVED_COMMAND,
+            id="3185-must-not-register",
+        ),
+        pytest.param(
+            "The command matrix and the CLI reference SHALL list `devops roadmap eval intake` and "
+            f"MUST NOT list `{REMOVED_COMMAND}`.",
+            REMOVED_COMMAND,
+            id="3185-must-not-list",
+        ),
+        pytest.param(
+            f"The `{REMOVED_OPTION}` option of `{KEPT_COMMAND}` MUST NOT exist.",
+            REMOVED_OPTION,
+            id="option-of-a-command",
+        ),
+        pytest.param(
+            f"`{KEPT_COMMAND}` MUST NOT accept `{REMOVED_OPTION}`.",
+            REMOVED_OPTION,
+            id="must-not-accept",
+        ),
+        pytest.param(
+            f"The old `{REMOVED_COMMAND}` command MUST NOT exist.",
+            REMOVED_COMMAND,
+            id="adjective-in-the-subject",
+        ),
+        pytest.param(
+            f"The former `{REMOVED_COMMAND}` command MUST NOT exist.",
+            REMOVED_COMMAND,
+            id="other-adjective-in-the-subject",
+        ),
+        pytest.param(
+            f"The command `{REMOVED_COMMAND}` and its alias MUST NOT exist.",
+            REMOVED_COMMAND,
+            id="noun-phrase-after-the-name",
+        ),
+        pytest.param(
+            "The CLI SHALL run `devops roadmap eval intake`; the old name "
+            f"`{REMOVED_COMMAND}` MUST NOT exist.",
+            REMOVED_COMMAND,
+            id="apposition-after-a-semicolon",
+        ),
+        pytest.param(
+            f"`{REMOVED_COMMAND}` MUST NOT be registered as a command.",
+            REMOVED_COMMAND,
+            id="passive-of-register",
+        ),
+        pytest.param(f"**`{REMOVED_COMMAND}`** MUST NOT exist.", REMOVED_COMMAND, id="bold-name"),
+        pytest.param(
+            f"`{REMOVED_COMMAND}` (the old alias) MUST NOT exist.",
+            REMOVED_COMMAND,
+            id="closed-parenthesis-in-the-subject",
+        ),
+        pytest.param(
+            f"The CLI MUST NOT register the old `{REMOVED_COMMAND}` command.",
+            REMOVED_COMMAND,
+            id="adjective-in-the-object",
+        ),
+        pytest.param(
+            f"The CLI MUST NOT register or list `{REMOVED_COMMAND}`.",
+            REMOVED_COMMAND,
+            id="two-verbs-of-one-object",
+        ),
+        pytest.param(
+            f"`{KEPT_COMMAND}` MUST NOT support `{REMOVED_OPTION}`.",
+            REMOVED_OPTION,
+            id="must-not-support",
+        ),
+        pytest.param(
+            f"`{KEPT_COMMAND}` MUST NOT have the `{REMOVED_OPTION}` option.",
+            REMOVED_OPTION,
+            id="must-not-have",
+        ),
+        pytest.param(
+            f"The CLI MUST NOT keep `{REMOVED_COMMAND}` as an alias.",
+            REMOVED_COMMAND,
+            id="must-not-keep",
+        ),
+        pytest.param(
+            f"The following commands MUST NOT exist: `{REMOVED_COMMAND}` and "
+            "`devops roadmap intake-old`.",
+            REMOVED_COMMAND,
+            id="list-after-a-colon",
+        ),
+        pytest.param(
+            f"When `{KEPT_COMMAND}` runs, the `{REMOVED_OPTION}` option MUST NOT be available.",
+            REMOVED_OPTION,
+            id="subordinate-clause-before-the-subject",
+        ),
+        pytest.param(
+            f"The CLI SHALL keep `{KEPT_COMMAND}`, and the commands `devops roadmap intake-old` "
+            f"and `{REMOVED_COMMAND}` MUST NOT exist.",
+            REMOVED_COMMAND,
+            id="subject-list-after-a-kept-object",
+        ),
+    ],
+)
+def test_an_added_requirement_removes_the_name_that_must_not_governs(
+    added: str, removed: str
+) -> None:
+    problems = _stale_command_problems(added)
+
+    assert len(problems) == 1
+    assert f"`{removed}`" in problems[0]
