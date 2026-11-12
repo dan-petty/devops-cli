@@ -84,16 +84,16 @@ def test_the_row_follows_retitle_before_refine_runs_on_a_clone_and_is_due_every_
 ):
     """The stage row runs after retitle and before refine, so a new pod's first round stages
     first; a refine that set an item Ready makes it due through `stage_due`, not in the same
-    round (#2659, #4796)."""
+    round (#2659, #4796). Only the row fix_plan is between stage and refine (#5061)."""
     names = [row.name for row in MODEL_LANE_ROWS]
     assert (
         names[names.index("retitle") + 1],
-        names[names.index("stage") + 1],
+        names[names.index("stage") + 1 : names.index("refine")],
         STAGE_ROW.needs_clone,
         STAGE_ROW.first_run_due,
         STAGE_ROW.interval,
         STAGE_ROW.cross_job_predicate,
-    ) == ("stage", "refine", True, True, timedelta(minutes=37), None)
+    ) == ("stage", ["fix_plan"], True, True, timedelta(minutes=37), None)
 
 
 def test_a_round_stages_the_items_the_settings_name_and_counts_each_once(

@@ -3815,6 +3815,97 @@ class RoadmapMessages:
         "`plan/needs-fix`, because the model review of its plan found an open finding. Fix the "
         "plan, or remove the label when the finding is no defect."
     )
+    # The step fix-plan (#5061).
+    fix_plan_no_review: str = (
+        "The step fix-plan needs the model review of the verification task, and the planner has "
+        "none."
+    )
+    fix_plan_left_not_staged: str = (
+        "It is not Staged: the item is not open with the Status Ready, or its record holds no "
+        "plan pull request."
+    )
+    fix_plan_left_runner: str = "A runner Job works on it."
+    fix_plan_left_recent: str = (
+        "Its last fix-plan attempt was at {at}, less than {hours} hours ago."
+    )
+    fix_plan_left_revisions: str = (
+        "The step pushed {count} revisions to pull request #{pull}, which is the limit."
+    )
+    fix_plan_left_not_draft: str = "Pull request #{pull} is not an open draft."
+    fix_plan_left_no_label: str = "Pull request #{pull} does not hold the label `plan/needs-fix`."
+    fix_plan_left_attempts: str = (
+        "The step tried head {head} of pull request #{pull} {count} times, which is the limit."
+    )
+    fix_plan_left_branch: str = (
+        "The branch {branch} of pull request #{pull} does not name the item."
+    )
+    fix_plan_left_moved: str = (
+        "The branch of pull request #{pull} moved after the read: origin holds {tip}, and GitHub "
+        "gave {head}."
+    )
+    fix_plan_left_person: str = (
+        "The branch of pull request #{pull} holds {count} commit(s) of another author."
+    )
+    fix_plan_selected: str = (
+        "The fix-plan step of {repo} selects plan pull request #{pull} of item #{number} at {head}."
+    )
+    fix_plan_none: str = "The fix-plan step of {repo} selects no plan pull request."
+    fix_plan_left: str = "- #{number}: {reason}"
+    fix_plan_attempt: str = (
+        "The fix-plan attempt on pull request #{pull} of item #{number} ended {result}: "
+        "{before} open finding(s) before the repair, {after} after it."
+    )
+    fix_plan_plain_note: str = (
+        "fix-plan without --confirm selects the plan pull request, calls no model and writes "
+        "nothing. --dry-run makes no request."
+    )
+    fix_plan_commit_body: str = "Plans #{number}."
+    fix_plan_comment_revised: str = (
+        "{marker}\nThe step fix-plan pushed a revision of the plan of #{pull} ({head}). The model "
+        "review found {before} open finding(s) in the plan before the repair and {after} after "
+        "it, so the pull request keeps the label `plan/needs-fix`.{findings}"
+    )
+    fix_plan_comment_cleared: str = (
+        "{marker}\nThe step fix-plan pushed a revision of the plan of #{pull} ({head}). The model "
+        "review found {before} open finding(s) in the plan before the repair and none after it, "
+        "so the pull request loses the label `plan/needs-fix`."
+    )
+    fix_plan_comment_clean: str = (
+        "{marker}\nThe step fix-plan reviewed the plan of #{pull} at the latest default branch "
+        "and found no open finding, so the pull request loses the label `plan/needs-fix`. The plan "
+        "stays as it is."
+    )
+    # The requests of a fix-plan run, as a dry run lists them.
+    fix_plan_requests: dict[str, str] = field(
+        default_factory=lambda: {
+            "pull_state": "the state, the labels and the head of the plan pull request of the item",
+            "fetch": "fetch the default branch and the branch of the plan",
+            "tip": "the head of the branch of the plan on origin",
+            "identity": "the identity of the clone, to find a commit of another author",
+            "authors": "the authors of the commits of the branch past the default branch",
+            "tree": "the files of the head of the plan",
+            "show": "each file of the change folder at the head",
+            "move_clone": "move the clone to the default branch of origin",
+            "model_review": "the verification model reviews the plan of the head and each revision",
+            "model_repair": "the stage model revises the plan with the open findings",
+            "validate": "validate the change with OpenSpec in a scratch directory",
+            "worktree": "a detached worktree at the default branch",
+            "commit": "commit the revised change folder as the identity of the clone",
+            "rebase": "fetch the default branch again and rebase the commit onto it",
+            "push": "push the commit to the branch of the plan, with a lease on the head read",
+            "update_pull": "set the title and the body of the pull request to those of the revision",
+        }
+    )
+    fix_plan_request_conditions: dict[str, str] = field(
+        default_factory=lambda: {
+            "attempt": "--confirm, and the round selects a plan pull request",
+            "repair": "the review of the head plan has an open finding",
+            "push": "the revision has fewer open findings than the plan of the head",
+            "validate": "the openspec binary is on PATH",
+            "update_pull": "the title or the body of the revision differs",
+            "unlabel": "no open finding remains",
+        }
+    )
     jev_completeness_question_plan: str = (
         "Does the plan in the state deliver this acceptance criterion of the issue, with a task "
         "or a requirement that verifies it? Criterion: {criterion}"
@@ -4809,6 +4900,7 @@ class RoadmapMessages:
             "search": "for each search the model asks for, at most {limit} for an item",
             "fact": "for each fact read the model asks for, at most {limit} for an item",
             "stage_item": "for each item the run stages, up to the limit",
+            "fix_plan_item": "for each Staged item with a plan pull request, until one qualifies",
             "stage_closed": "for each closed item whose record holds a staged branch",
             "stage_plan": "for each open New or Ready item whose record holds a staged pull request",
             "stage_rejected": "for each item whose plan pull request closed with no merge",

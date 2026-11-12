@@ -949,6 +949,10 @@ DEFAULT_ROADMAP_STAGE_FILTER: Final[tuple[str, ...]] = ("status=ready",)
 # How often the stage row is due on its own, besides its first run and its cross-job trigger
 # (#2659).
 DEFAULT_ROADMAP_STAGE_INTERVAL_MINUTES: int = 37
+# How often the fix_plan row is due on its own, besides its first run (#5061). A round takes at
+# most one plan, and an item waits 6 hours between two attempts, so 53 minutes reaches 6 plans in
+# less than 6 hours.
+DEFAULT_ROADMAP_FIX_PLAN_INTERVAL_MINUTES: int = 53
 # How often the stage_ready row is due on its own, besides its first run (#2865). A round with no
 # recorded draft sends no request; a draft that waits for its checks costs two requests a round.
 DEFAULT_ROADMAP_STAGE_READY_INTERVAL_MINUTES: int = 3
@@ -974,6 +978,10 @@ DEFAULT_ROADMAP_STAGE_TOOLSET: StageToolset = "extended"
 # answer beside the real result, and `on` lets the answer decide.
 JevMode = Literal["off", "shadow", "on"]
 DEFAULT_ROADMAP_INTAKE_JEV: JevMode = "off"
+# The mode of a row of ADR 0021 section 8: `off` is the stop switch, `plan` writes the plan to the
+# log and nothing to GitHub, and `on` acts. Each new row starts in `plan` (rule 5).
+RowMode = Literal["off", "plan", "on"]
+DEFAULT_ROADMAP_FIX_PLAN_MODE: RowMode = "plan"
 # The mode of a decision point in `roadmap.decisions` (ADR 0020).
 DecisionMode = Literal["off", "shadow", "on"]
 DEFAULT_GH_MUTATION_MIN_INTERVAL_SECONDS: float = 1.0

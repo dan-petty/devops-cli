@@ -3767,6 +3767,13 @@ CONST_ROADMAP_STAGE_COMMENT_MARKERS: Final[tuple[str, ...]] = (
 CONST_ROADMAP_STAGE_ORPHAN_AGE_SECONDS: Final[int] = 3600
 # The comment marker of `devops roadmap retitle` (#3486).
 CONST_ROADMAP_RETITLE_COMMENT_MARKER: Final[str] = "<!-- devops roadmap retitle -->"
+# The step `fix-plan` (#5061): the marker of its comment, the attempts on one head of a plan pull
+# request, the hours between two attempts of one item, and the revisions that it pushes to one
+# pull request. ADR 0021 gives a fix unit at most 3 heads of one pull request.
+CONST_ROADMAP_FIX_PLAN_COMMENT_MARKER: Final[str] = "<!-- devops roadmap fix-plan -->"
+CONST_ROADMAP_FIX_PLAN_HEAD_ATTEMPTS: Final[int] = 2
+CONST_ROADMAP_FIX_PLAN_WAIT_HOURS: Final[int] = 6
+CONST_ROADMAP_FIX_PLAN_REVISIONS: Final[int] = 3
 # The marker of every roadmap job's comment: a comment that holds none of them is a person's.
 CONST_ROADMAP_JOB_COMMENT_MARKERS: Final[tuple[str, ...]] = (
     CONST_ROADMAP_RETITLE_COMMENT_MARKER,
@@ -3776,6 +3783,7 @@ CONST_ROADMAP_JOB_COMMENT_MARKERS: Final[tuple[str, ...]] = (
     CONST_ROADMAP_INTAKE_REASON_MARKER,
     CONST_ROADMAP_STAGE_COMMENT_MARKER,
     CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER,
+    CONST_ROADMAP_FIX_PLAN_COMMENT_MARKER,
 )
 # `devops roadmap consolidate` (#1127): where its files are, under the data directory.
 CONST_ROADMAP_CONSOLIDATE_DIR: Final[str] = "roadmap/consolidate"

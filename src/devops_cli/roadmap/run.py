@@ -2,10 +2,12 @@
 
 The due table runs the status lane's rows, metrics, implement, stage_ready, release_comments,
 github_status, cloudflare_status and pr_conflicts, before the model lane's, intake, retitle, stage,
-refine and alternatives, so a burst of candidates never holds back the metrics (#1360), and a slow model never holds back the implement or stage_ready row
+fix_plan, refine and alternatives, so a burst of candidates never holds back the metrics (#1360), and a slow model never holds back the implement or stage_ready row
 (#2757, #2865). The row stage_ready marks a green stage draft pull request ready. The row
 release_comments comments the version, and the time it runs, on the issues of a release (#2917).
 The row pr_conflicts comments once on a ready delivery pull request with merge conflicts (#4027).
+The row fix_plan runs the step fix-plan in the mode of `roadmap.fix_plan.mode`: it repairs at most
+one stage plan pull request with the label `plan/needs-fix` in a round (#5061).
 `devops roadmap run` runs the whole table in one round. The Service runs each lane in its own worker and its own clone
 (`service_jobs`), so a status-lane round never waits for a model-bound one (#1532); both lanes
 read and write the repository's one `schedule.json`. The Service's ledger of failed rounds is
@@ -82,6 +84,7 @@ from devops_cli.config.constants import (
 from devops_cli.config.defaults import (
     DEFAULT_GH_REST_PER_PAGE,
     DEFAULT_ROADMAP_ALTERNATIVES_INTERVAL_MINUTES,
+    DEFAULT_ROADMAP_FIX_PLAN_INTERVAL_MINUTES,
     DEFAULT_ROADMAP_IMPLEMENT_INTERVAL_MINUTES,
     DEFAULT_ROADMAP_INTAKE_INTERVAL_MINUTES,
     DEFAULT_ROADMAP_INTAKE_LIMIT,
@@ -160,6 +163,7 @@ from devops_cli.roadmap.stage.stage_ready import mark_stage_ready
 from devops_cli.roadmap.stage.stage_toolbox import ToolboxModel
 from devops_cli.roadmap.stage.stage_verify import PLAN_NEEDS_FIX_LABEL
 from devops_cli.roadmap.status_sync import sync_statuses
+from devops_cli.roadmap.steps.fix_plan import run_fix_plan
 from devops_cli.roadmap.stores.listing_snapshot import (
     IncrementalListing,
     intake_listing,
@@ -669,6 +673,31 @@ def _run_stage_adapter(
     return JobOutcome(missing=plan.missing)
 
 
+def _run_fix_plan_adapter(
+    store: RoadmapStore,
+    repo: str = "",
+    clone_path: Path | None = None,
+    **_: Any,
+) -> JobOutcome:
+    """Run the step fix-plan in the mode of `roadmap.fix_plan.mode` (#5061): `off` sends no
+    request, `plan` selects and logs one plan pull request with `plan/needs-fix` and makes no model
+    call and no write, and `on` runs one attempt on it in the job's clone, with the models of the
+    tasks `stage` and `verification`. A round takes at most one plan."""
+    mode = load_settings().roadmap.fix_plan.mode
+    if mode == "off":
+        return JobOutcome()
+    acts = mode == "on"
+    run_fix_plan(
+        store,
+        repo=repo,
+        source=_job_clone("fix_plan", clone_path),
+        confirm=acts,
+        model=ToolboxModel(get_task_model("stage")) if acts else None,
+        verifier=ToolboxModel(get_task_model("verification")) if acts else None,
+    )
+    return JobOutcome()
+
+
 def _run_implement_adapter(
     store: RoadmapStore,
     repo: str = "",
@@ -919,6 +948,13 @@ MODEL_LANE_ROWS: tuple[JobRow, ...] = (
         first_run_due=True,
     ),
     JobRow(
+        name="fix_plan",
+        interval=timedelta(minutes=DEFAULT_ROADMAP_FIX_PLAN_INTERVAL_MINUTES),
+        runner=_run_fix_plan_adapter,
+        needs_clone=True,
+        first_run_due=True,
+    ),
+    JobRow(
         name="refine",
         interval=timedelta(minutes=DEFAULT_ROADMAP_REFINE_INTERVAL_MINUTES),
         batch_keys=CONST_ROADMAP_REFINE_BATCH_KEYS,
@@ -935,8 +971,9 @@ MODEL_LANE_ROWS: tuple[JobRow, ...] = (
         first_run_due=True,
     ),
 )
-"""The rows that call the model, which answers one call at a time: intake, retitle, stage, refine
-and the daily check for alternative tools (#2652). Stage runs before refine: a round of 7 refine
+"""The rows that call the model, which answers one call at a time: intake, retitle, stage,
+fix_plan, refine and the daily check for alternative tools (#2652). fix_plan follows stage and
+repairs at most one plan pull request with `plan/needs-fix` in a round (#5061). Stage runs before refine: a round of 7 refine
 items takes 35 to 65 minutes and refine is due again when it ends, so with refine first the first
 round of each new pod held the lane before stage had a turn (#4796)."""
 
@@ -1026,7 +1063,7 @@ def build_stub_table(
 ) -> tuple[JobRow, ...]:
     """The due table's rows, in its order, each running `runners`' stub for its job: metrics,
     implement, stage_ready, release_comments, github_status, cloudflare_status, pr_conflicts,
-    intake, retitle, stage, refine and alternatives.
+    intake, retitle, stage, fix_plan, refine and alternatives.
     Intake is always in; the others are added when asked for or given a stub."""
     r = runners or {}
     add_retitle = include_retitle if include_retitle is not None else ("retitle" in r)
@@ -1056,6 +1093,7 @@ def build_stub_table(
         "github_status": "github_status" in r,
         "cloudflare_status": "cloudflare_status" in r,
         "pr_conflicts": "pr_conflicts" in r,
+        "fix_plan": "fix_plan" in r,
         "alternatives": add_alternatives,
     }
     return tuple(

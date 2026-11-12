@@ -151,6 +151,12 @@ data:
       # must not decide yet. An image from before #4395 refuses `shadow`: roll the image first.
       intake:
         jev: "off"
+      # The row fix_plan repairs one plan pull request with the label plan/needs-fix in a round
+      # (#5061, ADR 0021 section 8). `off` sends no request, `plan` logs the pull request that it
+      # would take and writes nothing, and `on` revises the plan with the stage models and pushes a
+      # better revision. Each new row starts in `plan`, and a person sets `on`.
+      fix_plan:
+        mode: plan
       # The mode of each decision point (ADR 0020): `off`, `shadow` or `on`. The verify screen
       # (`stage.verify_screen`) asks the decision model before the model review of a plan. In
       # `shadow` the review always runs and the log records the band and the result of the review.
