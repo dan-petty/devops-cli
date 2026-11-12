@@ -1352,6 +1352,60 @@ class InfraMessages:
         "Check mode changes no host. A task with check_mode: false runs for real; devops infra "
         "onboard lists each one."
     )
+    # `devops infra apply` (#5125): the problems of a node step, and the report of an apply.
+    apply_node_not_ready: str = "{node} is not Ready ({ready})"
+    apply_node_pressure: str = "{node} has {condition}"
+    apply_no_node: str = "the cluster has no node {node}"
+    apply_kubectl_failed: str = "kubectl {command} stopped with exit code {code}: {detail}"
+    apply_gpu_differs: str = "{node} has {now} GPUs, not the {before} that it had before the run"
+    apply_alert_firing: str = "the critical alert {name} fires"
+    apply_alerts_unread: str = (
+        "Prometheus did not answer the query of the critical alerts: {detail}"
+    )
+    apply_fresh_no_host: str = "the fresh check did not reach the host"
+    apply_fresh_failed: str = "the task {task} failed in the fresh check: {reason}"
+    apply_fresh_changed: str = "changed tasks"
+    apply_fresh_disruptive: str = "disruptive classes"
+    apply_fresh_unchecked: str = "unchecked tasks"
+    apply_fresh_part: str = "{part}: the plan has {plan}, the fresh check has {fresh}"
+    apply_task_failed: str = "the task {task} ({path}) failed: {reason}"
+    apply_run_failed: str = "ansible-runner stopped with exit code {code} and wrote no error line"
+    apply_host_not_reached: str = "the run did not reach {host}"
+    apply_unplanned: str = (
+        "tasks changed that the plan does not show as changed or unchecked: {names}"
+    )
+    apply_stopped_reason: str = "{host} stopped at the step {step}: {reason}"
+    apply_title: str = "Apply of {repo}: {playbook} at {commit} (plan {plan})"
+    apply_caller: str = "Caller: {caller}{tool}, agent access {level}"
+    apply_confirm: str = (
+        "Apply the plan {id} of {repo} to {hosts}? Each disruptive host is drained, changed and "
+        "checked alone."
+    )
+    apply_columns: tuple[str, ...] = (
+        "Host",
+        "Node",
+        "Disruptive",
+        "Result",
+        "Step",
+        "Cordoned",
+        "Memory before",
+        "Memory after",
+    )
+    apply_caption: str = (
+        "Cordoned: before -> after. Memory: capacity / allocatable, in GiB, of the node before the "
+        "drain and after the apply."
+    )
+    apply_done: str = "Apply {id}: {result}, in {seconds:.0f} s. Audit record infra.apply."
+    apply_folder: str = "Runner artifacts: {folder}"
+    apply_stopped: str = (
+        "The apply stopped: {reason}. The node stays as the step left it, cordoned after a drain. "
+        "Read the runner artifacts, fix the cause, then plan and apply again."
+    )
+    apply_plan_title: str = "Plan for the apply of the plan {id} of {repo} at {path}"
+    apply_dry_run_note: str = (
+        "Each disruptive host runs alone in plan order. The node of a host stays cordoned when it "
+        "was cordoned before. The first failure stops the apply."
+    )
     settings_level: str = "agent access {level}"
     settings_written: str = "agent access {level}; written to {path}"
     settings_step: str = (

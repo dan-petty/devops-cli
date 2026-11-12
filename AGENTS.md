@@ -21,7 +21,7 @@ devops-cli is a Python command-line tool, `devops`, that automates workstation, 
 13. **Use a decision model for a closed choice, a generative model for text.** Ask Jev (`devops ai ask-jev`, skill [`ask-jev`](.agents/skills/ask-jev/SKILL.md)) for yes/no, one option or a rubric on short evidence. It writes no text and does not read a long document. Run one `devops ai` call at a time, only when no file or deterministic check can answer.
 14. **Keep tool output small.** Search before you read, and read only the lines you need. Ask each command for less output: `git diff --stat`, `--jq`, `--limit`, a Loki `limit`. Do not remove a fact that the reader needs: error lines, `file:line`, failed test IDs.
 
-**Only a person** merges pull requests (`release-merge.yml` merges the release pull request), records verdicts, plans milestones and changes secrets, repository settings and hosts. Agents run every other project command but no release step: release-please writes `CHANGELOG.md`, manifests and version lines, and agents change the release workflow only by ordinary pull requests ([RELEASE_CYCLE.md](RELEASE_CYCLE.md)). Intake sets the priority label, so set no milestone or priority.
+**Only a person** merges pull requests (`release-merge.yml` merges the release pull request), records verdicts, plans milestones and changes secrets, repository settings and hardware. Agents run every other project command but no release step: release-please writes `CHANGELOG.md`, manifests and version lines, and agents change the release workflow only by ordinary pull requests ([RELEASE_CYCLE.md](RELEASE_CYCLE.md)). Intake sets the priority label, so set no milestone or priority.
 
 ## Where to look
 

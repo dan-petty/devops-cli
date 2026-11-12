@@ -30,14 +30,21 @@ the folder `<scratch>/state` with the files `node-token` and `demo.yaml` (`value
 with only `HOME`, `LANG` and the environment of `runner_env` set, and `probe/bin` first on PATH.
 Then put `{project}` in place of `<scratch>/project`, `/srv/example` in place of `<scratch>/state`,
 and `/root` in place of the home folder and its user.
+
+An apply (#5125) runs the playbook on a few hosts at a time. `answer_runs` answers each run with
+the recorded events of `site` of the hosts of its `--limit` only (`site_events`), with no failure,
+and `FakeCluster` answers `kubectl` from a set of nodes: the reads, the drain check, the drain and
+the uncordon. Both write each step in one list, so a test reads the order of the steps.
 """
 
 from __future__ import annotations
 
 import json
+import shlex
 import shutil
 import tarfile
 from collections.abc import Callable, Collection, Sequence
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Final
 
@@ -241,3 +248,166 @@ def ssh_key_dir(tmp_path: Path) -> Path:
     (key_dir / SSH_KEY_NAME).write_text("private\n", encoding="utf-8")
     (key_dir / f"{SSH_KEY_NAME}.pub").write_text("ssh-ed25519 AAAA ansible\n", encoding="utf-8")
     return key_dir
+
+
+def site_events(project: Path, hosts: Collection[str]) -> list[dict[str, Any]]:
+    """The job events of the recorded run `site` of `hosts` only, without the failed task of
+    node-4, so the run ends successful."""
+    events = []
+    for event in recorded_events("site", project):
+        host = (event.get("event_data") or {}).get("host")
+        if event["event"] != "runner_on_failed" and (host is None or host in hosts):
+            events.append(event)
+    return events
+
+
+def limit_hosts(call: ProcessCall) -> tuple[str, ...]:
+    """The hosts of the `--limit` of an `ansible-runner run`, before `:!<offline group>`."""
+    pattern = call.argv[call.argv.index("--limit") + 1]
+    return tuple(pattern.split(":", 1)[0].split(","))
+
+
+def is_check_run(call: ProcessCall) -> bool:
+    """Whether an `ansible-runner run` runs in check mode."""
+    prefix = "--cmdline="
+    words = next(word[len(prefix) :] for word in call.argv if word.startswith(prefix))
+    return "--check" in shlex.split(words)
+
+
+EventsOf = Callable[[ProcessCall, Path], list[dict[str, Any]]]
+
+
+def _site_of_limit(call: ProcessCall, project: Path) -> list[dict[str, Any]]:
+    return site_events(project, limit_hosts(call))
+
+
+def answer_runs(
+    fake: ProcessFake,
+    bin_dir: Path,
+    *,
+    events: EventsOf = _site_of_limit,
+    steps: list[str] | None = None,
+    after: Callable[[ProcessCall], None] | None = None,
+) -> None:
+    """Answer each `ansible-runner run` with the events that `events` gives for the call and
+    the project folder of the call: by default the recorded events of `site` of the hosts of its
+    limit. The run ends `failed` with exit code 2 when an event is a failure, else `successful`.
+    Each call adds `check <hosts>` or `run <hosts>` to `steps`, then `after` runs."""
+
+    def answer(call: ProcessCall) -> ProcessAnswer:
+        private = Path(call.argv[2])
+        ident = call.argv[call.argv.index("--ident") + 1]
+        artifacts = private / "artifacts" / ident
+        job_events = artifacts / "job_events"
+        job_events.mkdir(parents=True)
+        written = events(call, private / "project")
+        for event in written:
+            (job_events / f"{event['counter']}-{event['uuid']}.json").write_text(
+                json.dumps(event), encoding="utf-8"
+            )
+        failed = any(event["event"] == "runner_on_failed" for event in written)
+        returncode = 2 if failed else 0
+        (artifacts / "status").write_text("failed" if failed else "successful", encoding="utf-8")
+        (artifacts / "rc").write_text(str(returncode), encoding="utf-8")
+        if steps is not None:
+            kind = "check" if is_check_run(call) else "run"
+            steps.append(f"{kind} {','.join(limit_hosts(call))}")
+        if after is not None:
+            after(call)
+        return ProcessAnswer(returncode=returncode)
+
+    fake.answer([str(bin_dir / "ansible-runner"), "run"], answer)
+
+
+_GIB_KI: Final[int] = 1024 * 1024
+_API_DOWN: Final[str] = (
+    "The connection to the server 192.0.2.1:6443 was refused - did you specify the right host or "
+    "port?\n"
+)
+
+
+@dataclass
+class FakeNode:
+    """One Kubernetes node of `FakeCluster`."""
+
+    name: str
+    ready: str = "True"
+    cordoned: bool = False
+    gpus: int | None = 1
+    capacity_gib: int = 16
+    allocatable_gib: int = 15
+    pressure: tuple[str, ...] = ()
+
+    def item(self) -> dict[str, Any]:
+        """The node as `kubectl get node -o json` prints it."""
+        conditions = [{"type": "Ready", "status": self.ready}]
+        conditions += [
+            {"type": kind, "status": "True" if kind in self.pressure else "False"}
+            for kind in ("MemoryPressure", "DiskPressure", "PIDPressure")
+        ]
+        allocatable = {"memory": f"{self.allocatable_gib * _GIB_KI}Ki"}
+        if self.gpus is not None:
+            allocatable["nvidia.com/gpu"] = str(self.gpus)
+        return {
+            "metadata": {"name": self.name},
+            "spec": {"unschedulable": True} if self.cordoned else {},
+            "status": {
+                "conditions": conditions,
+                "capacity": {"memory": f"{self.capacity_gib * _GIB_KI}Ki"},
+                "allocatable": allocatable,
+                "nodeInfo": {"kernelVersion": "6.12.0", "kubeletVersion": "v1.37.2+k3s1"},
+            },
+        }
+
+
+@dataclass
+class FakeCluster:
+    """`kubectl` of the kube context `KUBE_CONTEXT`, answered from `nodes`. A drain cordons the
+    node, an uncordon makes it schedulable, a drain check of a node in `blocked` fails as a
+    PodDisruptionBudget makes it fail, and while `down` is above zero each call fails as during
+    a restart of the API server, and counts it down. Each change and drain check is added to
+    `steps`."""
+
+    nodes: dict[str, FakeNode]
+    steps: list[str] = field(default_factory=list)
+    blocked: set[str] = field(default_factory=set)
+    down: int = 0
+
+    @classmethod
+    def of(cls, *nodes: FakeNode) -> FakeCluster:
+        return cls(nodes={node.name: node for node in nodes})
+
+    def install(self, fake: ProcessFake, context: str = KUBE_CONTEXT) -> None:
+        fake.answer(["kubectl", "--context", context], self._answer)
+
+    def _answer(self, call: ProcessCall) -> ProcessAnswer:
+        if self.down > 0:
+            self.down -= 1
+            return ProcessAnswer(returncode=1, stderr=_API_DOWN)
+        args = call.argv[4:]
+        if args[:2] == ("get", "nodes"):
+            items = [node.item() for node in self.nodes.values()]
+            return ProcessAnswer(stdout=json.dumps({"items": items}))
+        if args[:2] == ("get", "node"):
+            found = self.nodes.get(args[2])
+            if found is None:
+                return ProcessAnswer(returncode=1, stderr=f'nodes "{args[2]}" not found\n')
+            return ProcessAnswer(stdout=json.dumps(found.item()))
+        node = self.nodes[args[1]]
+        if args[0] == "drain" and "--dry-run=server" in args:
+            self.steps.append(f"drain check {node.name}")
+            if node.name in self.blocked:
+                return ProcessAnswer(
+                    returncode=1,
+                    stderr='error when evicting pods/"db-1" -n "db": global timeout reached: 30s\n',
+                )
+            return ProcessAnswer(stdout=f"node/{node.name} drained (server dry run)\n")
+        if args[0] == "drain":
+            self.steps.append(f"drain {node.name}")
+            node.cordoned = True
+            return ProcessAnswer(stdout=f"node/{node.name} drained\n")
+        if args[0] == "uncordon":
+            self.steps.append(f"uncordon {node.name}")
+            node.cordoned = False
+            return ProcessAnswer(stdout=f"node/{node.name} uncordoned\n")
+        raise AssertionError(call.argv)

@@ -80,7 +80,7 @@ def _quantity(value: object) -> Decimal | None:
     return Decimal(parse_quantity(str(value)))
 
 
-def _gpus(resources: dict[str, str] | None) -> int | None:
+def gpu_total(resources: dict[str, str] | None) -> int | None:
     """The sum of each `<vendor>/gpu` resource; none when the node has no GPU resource."""
     found = [
         _quantity(value) for name, value in (resources or {}).items() if name.endswith(_GPU_SUFFIX)
@@ -88,7 +88,8 @@ def _gpus(resources: dict[str, str] | None) -> int | None:
     return int(sum(value for value in found if value is not None)) if found else None
 
 
-def _bytes(resources: dict[str, str] | None) -> int | None:
+def memory_bytes(resources: dict[str, str] | None) -> int | None:
+    """The memory of a resource list, such as `16310540Ki`, in bytes; none when it has none."""
     value = _quantity((resources or {}).get(_MEMORY))
     return int(value) if value is not None else None
 
@@ -107,9 +108,9 @@ def node_state(node: Any) -> NodeState:
         cordoned=bool(node.spec and node.spec.unschedulable),
         kernel=(info.kernel_version or None) if info else None,
         kubelet=(info.kubelet_version or None) if info else None,
-        memory_capacity_bytes=_bytes(capacity),
-        memory_allocatable_bytes=_bytes(allocatable),
-        gpu_allocatable=_gpus(allocatable),
+        memory_capacity_bytes=memory_bytes(capacity),
+        memory_allocatable_bytes=memory_bytes(allocatable),
+        gpu_allocatable=gpu_total(allocatable),
     )
 
 
@@ -394,7 +395,9 @@ __all__ = [
     "NODE_NAME_VARIABLE",
     "PING_ACTION",
     "check_status",
+    "gpu_total",
     "host_statuses",
+    "memory_bytes",
     "node_name",
     "node_state",
     "ping_argv",

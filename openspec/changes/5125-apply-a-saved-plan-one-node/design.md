@@ -1,0 +1,25 @@
+# Design
+
+## Decisions
+
+- **The caller gives the playbook, limit and tags again.** `apply <repo> <playbook> --plan <id> [--limit] [--tags]` has the arguments of `plan`, so the guard "the playbook, limit and tags of the apply are the plan's" compares what the caller means with what the plan holds. An apply of the wrong id for another host stops before any process.
+- **The id is the folder name and is checked first.** A plan id is 64 lower-case hexadecimal characters; any other text is refused before a file is read, so `--plan` cannot name a path out of the plans folder.
+- **The health gate runs before the uncordon.** The design list puts the uncordon before the last health check. The acceptance case "a health failure after a host stops the run and leaves it cordoned" needs the other order: Ready, health, then uncordon. The safe side wins: a cluster that is not healthy after a host keeps that node cordoned.
+- **A drain check before the drain.** `kubectl drain --dry-run=server` sends each eviction with `dryRun=All`, so the API server checks the PodDisruptionBudgets and changes nothing. A blocked drain stops the apply with the node schedulable, not after the drain cordoned it and moved its other pods. The probe of the feasibility section showed this on the control-plane node of homelab.
+- **The drain has no `--force`.** It has `--ignore-daemonsets`, because a DaemonSet pod stays on its node in any case, and `--delete-emptydir-data`, because most workloads have an `emptyDir` and lose only scratch data. A pod that no controller owns stops the drain.
+- **The waits poll, and two clear reads end a wait.** A wait reads every 10 s until it finds no problem twice in a row, or `infra.node_ready_timeout_seconds` ends. A read that fails is a problem, not an error, so the wait goes on while the API server of the control-plane node restarts. The first read comes one interval after the run, so the kubelet posts its new status first.
+- **The node service wait is the run and Ready.** The systemd task of the play waits for the unit to start, and the kubelet of k3s posts Ready only while the unit runs. A separate SSH read of the unit adds a connection and no fact. `devops_infra_node_service` is a template in homelab, which only Ansible renders; `devops infra node` (#5128) reads it.
+- **The run shows no diffs.** The plan and the fresh check run with `--diff`, so they compare equal. The run of the apply has only `-v`: a play that writes a file with a secret, such as the kubeconfig that homelab fetches from the server, leaves no text of it in the runner artifacts.
+- **The fresh check compares the changed tasks, the disruptive classes and the unchecked tasks.** A failed task in the fresh check is a difference. The task paths are relative to the export, so a new export of the same commit gives the same paths.
+- **An unplanned change is a changed task that the plan does not show as changed or unchecked.** A task that check mode skipped may change in the run; that is what an unchecked task means.
+- **Refused and stopped.** A guard that stops the apply before a host changes gives `refused`; a failure after the first host step gives `stopped`. Both write the audit record and the counter, then the command exits 1. A person who says no to the question gives `refused` with no process started.
+- **One audit record for each apply.** The record holds the ids of the runner runs and no output of a task, no path of a key and no argument value. The id of the apply names its folder, `plans/<id>/applies/<apply id>/`.
+- **The tool of an agent caller.** The audit record names the tool that `detect_agent` names, `mcp` for an MCP call, or `job` for a cluster Job.
+
+## Rejected alternatives
+
+- **`apply <repo> --plan <id>` with no playbook, limit or tags.** The guard of design section 7.2 then compares the plan with itself. The acceptance case "refusal for another limit" needs a limit from the caller.
+- **The Python client of Kubernetes for the node steps.** `kubectl drain` holds the eviction loop, the DaemonSet and `emptyDir` rules and the PodDisruptionBudget retries; the Python client has no drain. One `kubectl` for reads and changes gives one fake in the tests and one list in the dry run.
+- **Uncordon, then health.** It leaves a node schedulable in a cluster that is not healthy; see the decision above.
+- **A drain with `--disable-eviction` or `--force` for the control-plane node.** It bypasses the PodDisruptionBudgets that the design keeps. The probe shows that the CloudNativePG primaries on the control-plane node block its drain; the owner decides how that node gets its apply.
+- **The plan and the run with `--diff` both.** The run would keep the text of a file with a secret in the artifacts.

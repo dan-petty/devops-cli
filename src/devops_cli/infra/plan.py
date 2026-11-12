@@ -111,6 +111,9 @@ _FOLDER_MARK: Final[str] = "<plan folder>"
 # The options of `ansible-playbook` of every plan: check mode, the diffs, and verbosity 1, at which
 # the default callback prints the result of a skipped task.
 _CHECK_OPTIONS: Final[tuple[str, ...]] = ("--check", "--diff", "-v")
+# The options of the run of an apply (#5125): verbosity 1 and no diffs, so the artifacts of a run
+# that changes a file with a secret do not hold its text.
+_RUN_OPTIONS: Final[tuple[str, ...]] = ("-v",)
 # What the run adds to the environment of `ping_env`: the rendered arguments in each result, the
 # results as JSON, and a line for each skipped host.
 _PLAN_ENV: Final[dict[str, str]] = {
@@ -428,11 +431,14 @@ def runner_argv(
     sources: tuple[str, ...],
     tags: str | None,
     key: Path | None,
+    check: bool = True,
 ) -> list[str]:
-    """`ansible-runner run` of `playbook` in check mode with diffs on the hosts of `pattern`. The
-    options after `--cmdline=` go to `ansible-playbook`: check mode, the inventory, the tags, and
-    the key of `devops ssh` when there is one."""
-    words = [*_CHECK_OPTIONS, *(word for source in sources for word in ("-i", source))]
+    """`ansible-runner run` of `playbook` on the hosts of `pattern`, by default in check mode with
+    diffs. The options after `--cmdline=` go to `ansible-playbook`: check mode, the inventory, the
+    tags, and the key of `devops ssh` when there is one. With no `check`, the run changes the
+    hosts and shows no diffs."""
+    options = _CHECK_OPTIONS if check else _RUN_OPTIONS
+    words = [*options, *(word for source in sources for word in ("-i", source))]
     if tags:
         words += ["--tags", tags]
     if key is not None:
@@ -544,39 +550,20 @@ def _run(
     if not sources:
         raise InfraReadError(ERRORS.infra.no_inventory.format(repo=target.repo.display))
     inventory = read_inventory(tool, project, sources)
-    collections = install_collections(tool, project)
-    key = find_newest_key(settings.ssh.key_dir, prefix=entry.ssh_key_prefix)
     pattern = host_pattern(request.limit, ansible.offline_group)
-    ident = uuid.uuid4().hex
-    settings_file = folder.joinpath(*_SETTINGS_FILE)
-    settings_file.parent.mkdir(mode=_PRIVATE)
-    settings_file.write_text(runner_settings(), encoding="utf-8")
-    result = run_subprocess(
-        runner_argv(
-            tool,
-            folder,
-            playbook,
-            ident=ident,
-            pattern=pattern,
-            sources=sources,
-            tags=request.tags,
-            key=key,
-        ),
-        env=runner_env(tool, project, collections),
-        quiet=True,
-        timeout=DEFAULT_INFRA_PLAN_TIMEOUT_SECONDS,
+    run = Playbook(
+        tool=tool,
+        folder=folder,
+        playbook=playbook,
+        sources=sources,
+        tags=request.tags,
+        key=find_newest_key(settings.ssh.key_dir, prefix=entry.ssh_key_prefix),
+        collections=install_collections(tool, project),
+        nondisruptive=nondisruptive_units(inventory),
     )
-    artifacts = folder / _ARTIFACTS / ident
-    hosts = host_plans(
-        read_job_events(artifacts / _JOB_EVENTS), project, nondisruptive_units(inventory)
-    )
-    detail = _last_line(_read(artifacts / _STDOUT_FILE) or result.stderr or result.stdout)
-    status, error = plan_outcome(
-        hosts,
-        _read(artifacts / _STATUS_FILE).strip(),
-        result.returncode,
-        detail.replace(str(folder), _FOLDER_MARK),
-    )
+    write_runner_settings(folder)
+    outcome = run.run(pattern)
+    status, error = plan_outcome(outcome.hosts, outcome.status, outcome.returncode, outcome.detail)
     content = PlanContent(
         repo=target.repo.display,
         ref=read.ref,
@@ -589,9 +576,82 @@ def _run(
         inventory_hash=inventory_hash(inventory),
         status=status,
         error=error,
-        hosts=hosts,
+        hosts=outcome.hosts,
     )
-    return content, ident
+    return content, outcome.ident
+
+
+def write_runner_settings(folder: Path) -> None:
+    """Write the `env/settings` of the private data folder `folder` (`runner_settings`)."""
+    settings_file = folder.joinpath(*_SETTINGS_FILE)
+    settings_file.parent.mkdir(mode=_PRIVATE)
+    settings_file.write_text(runner_settings(), encoding="utf-8")
+
+
+@dataclass(frozen=True)
+class RunOutcome:
+    """How one `ansible-runner` run ended: its ident, the plan of each host from its job events,
+    its status file, its exit code and the last line of its output."""
+
+    ident: str
+    hosts: tuple[HostPlan, ...]
+    status: str
+    returncode: int
+    detail: str
+
+
+@dataclass(frozen=True)
+class Playbook:
+    """A playbook in the export of an infra repo in `<folder>/project`, and what each run of it
+    gets: the inventory, the tags, the key of `devops ssh`, the pinned collections, and the units
+    of each host whose restart does not disrupt it."""
+
+    tool: AnsibleTool
+    folder: Path
+    playbook: str
+    sources: tuple[str, ...]
+    tags: str | None
+    key: Path | None
+    collections: Path | None
+    nondisruptive: Mapping[str, Collection[str]]
+
+    @property
+    def project(self) -> Path:
+        """The export of the repo."""
+        return self.folder / PROJECT_FOLDER
+
+    def run(self, pattern: str, *, check: bool = True) -> RunOutcome:
+        """Run the playbook on the hosts of `pattern` with a new ident, by default in check mode,
+        and read its job events."""
+        ident = uuid.uuid4().hex
+        result = run_subprocess(
+            runner_argv(
+                self.tool,
+                self.folder,
+                self.playbook,
+                ident=ident,
+                pattern=pattern,
+                sources=self.sources,
+                tags=self.tags,
+                key=self.key,
+                check=check,
+            ),
+            env=runner_env(self.tool, self.project, self.collections),
+            quiet=True,
+            timeout=DEFAULT_INFRA_PLAN_TIMEOUT_SECONDS,
+        )
+        artifacts = self.folder / _ARTIFACTS / ident
+        hosts = host_plans(
+            read_job_events(artifacts / _JOB_EVENTS), self.project, self.nondisruptive
+        )
+        detail = _last_line(_read(artifacts / _STDOUT_FILE) or result.stderr or result.stdout)
+        return RunOutcome(
+            ident=ident,
+            hosts=hosts,
+            status=_read(artifacts / _STATUS_FILE).strip(),
+            returncode=result.returncode,
+            detail=detail.replace(str(self.folder), _FOLDER_MARK),
+        )
 
 
 def _playbook(project: Path, playbook: str) -> str:
@@ -692,6 +752,8 @@ __all__ = [
     "REQUIREMENTS_FILE",
     "SERVICE_RESTART",
     "PlanRequest",
+    "Playbook",
+    "RunOutcome",
     "collections_folder",
     "disruptive_class",
     "galaxy_argv",
@@ -712,4 +774,5 @@ __all__ = [
     "runner_argv",
     "runner_env",
     "runner_settings",
+    "write_runner_settings",
 ]

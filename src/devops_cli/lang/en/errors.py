@@ -445,6 +445,52 @@ class InfraErrorMessages:
         "{playbook} is not a playbook file of the infra repo. Give its path from the repo root, "
         "such as ansible/playbooks/site.yaml."
     )
+    # `devops infra apply` (#5125): the guards that refuse an apply before it changes a host.
+    apply_plan_id_invalid: str = (
+        "{id} is not a plan id. Give the id of 64 hexadecimal characters that devops infra plan "
+        "printed."
+    )
+    apply_plan_not_found: str = (
+        "No saved plan of {repo} has the id {id}. Run devops infra plan, then apply the id that it "
+        "prints."
+    )
+    apply_plan_not_readable: str = (
+        "The plan record {path} does not read as a record of devops infra plan. Plan again."
+    )
+    apply_plan_hash_differs: str = (
+        "The facts of the plan record {id} give the id {hash}: the record changed after the plan. "
+        "Plan again."
+    )
+    apply_plan_failed: str = (
+        "The plan {id} failed, so it cannot be applied. Fix the failure, then plan again."
+    )
+    apply_plan_too_old: str = (
+        "The plan {id} ran at {created}, more than {hours} hours ago (infra.plan_max_age_hours). "
+        "Plan again."
+    )
+    apply_plan_differs: str = (
+        "The {name} of the plan {id} is {planned}, not {given}. Give the {name} of the plan, or "
+        "plan again."
+    )
+    apply_not_approved: str = "Nothing changed: the apply of the plan {id} was not approved."
+    apply_commit_not_on_origin: str = (
+        "The remote origin holds no commit {commit} of the plan ({ref}). Plan a commit that origin "
+        "holds."
+    )
+    apply_agent_branch: str = (
+        "An agent applies only a commit of the default branch of origin, or at agent access full "
+        "the head of an open pull request. The plan has the commit {commit} of {ref}."
+    )
+    apply_agent_pull_not_open: str = (
+        "An agent applies the head of a pull request only while the pull request is open and its "
+        "head is the commit of the plan. Pull request {number} is {state} at {head}, and the plan "
+        "has {commit}."
+    )
+    apply_host_key_checks_off: str = (
+        "An agent apply needs host key checks on, and the commit of the plan turns them off: "
+        "{found}. Turn them on in the infra repo, then plan again."
+    )
+    apply_unhealthy: str = "The cluster is not healthy, so the apply starts no host: {problems}"
 
 
 @dataclass(frozen=True)

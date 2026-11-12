@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated
 
 import typer
 
@@ -15,6 +15,10 @@ from devops_cli.infra.access import AgentAccess, refuse_agent_raise
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import write_stdout
 from devops_cli.telemetry import trace_span
+
+if TYPE_CHECKING:
+    from devops_cli.config.settings import Settings
+    from devops_cli.infra.apply import ApplyRequest
 
 app = new_typer(
     help=HELP.infra.app,
@@ -241,3 +245,107 @@ def plan(
         write_stdout("\n".join(render_plan_footer(record)) + "\n")
     if record.status is PlanStatus.FAILED:
         raise typer.Exit(1)
+
+
+@app.command("apply", help=HELP.infra.apply)
+@dry_run_class("request-plan")
+@trace_span("infra.apply")
+def apply(
+    repo: Annotated[str, typer.Argument(help=HELP.infra.apply_repo)],
+    playbook: Annotated[str, typer.Argument(help=HELP.infra.apply_playbook)],
+    plan_id: Annotated[str, typer.Option("--plan", help=HELP.infra.apply_plan)],
+    limit: Annotated[str | None, typer.Option("--limit", help=HELP.infra.apply_limit)] = None,
+    tags: Annotated[str | None, typer.Option("--tags", help=HELP.infra.apply_tags)] = None,
+    path: Annotated[Path | None, typer.Option("--path", help=HELP.infra.onboard_path)] = None,
+    auto_approve: Annotated[
+        bool, typer.Option("--auto-approve", help=HELP.infra.apply_auto_approve)
+    ] = False,
+    output_format: Annotated[
+        str, typer.Option("--format", "-f", help=HELP.options.format_type)
+    ] = CONST_OUTPUT_FORMAT_TABLE,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
+) -> None:
+    """Apply a saved plan of an infra repo, one disruptive node at a time."""
+    from devops_cli.config.settings import load_settings
+    from devops_cli.infra.apply import (
+        ApplyRequest,
+        apply_saved_plan,
+        apply_table,
+        render_apply_footer,
+        render_apply_header,
+    )
+    from devops_cli.infra.onboard import resolve_target
+    from devops_cli.models.infra import ApplyResult, InfraPlan
+    from devops_cli.output import print_table
+    from devops_cli.output.serialization import emit_serialized, resolve_format
+
+    fmt = resolve_format(output_format)
+    settings = load_settings()
+    request = ApplyRequest(plan_id=plan_id, playbook=playbook, limit=limit, tags=tags)
+    if dry_run or is_dry_run():
+        _render_apply_plan(repo, path, request, settings)
+        return
+
+    def approve(plan: InfraPlan) -> bool:
+        if auto_approve:
+            return True
+        hosts = ", ".join(host.host for host in plan.hosts) or "-"
+        return typer.confirm(
+            MESSAGES.infra.apply_confirm.format(id=plan.id, repo=plan.repo, hosts=hosts),
+            default=False,
+        )
+
+    target = resolve_target(repo, path=path, settings=settings)
+    report = apply_saved_plan(target, settings, request, approve=approve)
+    if fmt != CONST_OUTPUT_FORMAT_TABLE:
+        emit_serialized(report.model_dump(mode="json"), fmt)
+    else:
+        write_stdout("\n".join(render_apply_header(report)) + "\n")
+        columns, cells = apply_table(report)
+        print_table(columns=columns, rows=cells, caption=MESSAGES.infra.apply_caption)
+        write_stdout("\n".join(render_apply_footer(report)) + "\n")
+    if report.result is not ApplyResult.OK:
+        raise typer.Exit(1)
+
+
+def _render_apply_plan(
+    repo: str, path: Path | None, request: ApplyRequest, settings: Settings
+) -> None:
+    """List the requests of an apply. The dry run reads the plan record when it is there, a
+    local file, so it names the hosts in plan order; it starts no process."""
+    from devops_cli.dry_run.requests import render_request_plan
+    from devops_cli.github.repo_ref import RepoRef, is_repository_name
+    from devops_cli.infra.apply import saved_plan
+    from devops_cli.infra.infra_plans import ApplyTarget, plan_apply
+    from devops_cli.infra.onboard import default_checkout
+    from devops_cli.infra.plan import plans_folder
+
+    named = is_repository_name(repo)
+    entry = settings.infra.entry(RepoRef(repo)) if named else None
+    checkout = (
+        (path or (entry.path if entry else None) or default_checkout(RepoRef(repo), settings))
+        if named
+        else Path(repo)
+    )
+    plans = plans_folder(RepoRef(repo)) if named else Path("<data dir>/infra/<owner>/<name>/plans")
+    plan = saved_plan(RepoRef(repo), request) if named else None
+    render_request_plan(
+        MESSAGES.infra.apply_plan_title.format(id=request.plan_id, repo=repo, path=checkout),
+        plan_apply(
+            ApplyTarget(
+                repo=repo,
+                checkout=checkout,
+                origin_lookup=not named,
+                plans=plans,
+                plan_id=request.plan_id,
+                plan=plan,
+                playbook=request.playbook,
+                tags=request.tags,
+                kube_context=entry.kube_context if entry else None,
+                drain_timeout_seconds=settings.infra.drain_timeout_seconds,
+                prometheus_url=settings.prometheus.url,
+            )
+        ),
+        [MESSAGES.infra.apply_dry_run_note],
+        described=True,
+    )

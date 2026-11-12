@@ -723,6 +723,13 @@ RESEARCH_OPEN_FINDINGS = Instrument(
     "Open research findings, by severity: the advisories that affect a pin of the project. `devops research sweep` sets one value for each severity of the scale, with zero for a severity that has no finding. It sets none when a lookup got no answer",
 )
 
+INFRA_RUNS_TOTAL = Instrument(
+    "devops_cli_infra_runs_total",
+    InstrumentKind.COUNTER,
+    "1",
+    "Runs of devops infra that can change the hosts of an infra repo, by repo, command (apply) and result: ok, refused or stopped",
+)
+
 INSTRUMENTS: tuple[Instrument, ...] = (
     COMMAND_TOTAL,
     COMMAND_DURATION,
@@ -812,6 +819,7 @@ INSTRUMENTS: tuple[Instrument, ...] = (
     UPSTREAM_SERVICE_STATUS,
     UPSTREAM_COMPONENT_STATUS,
     RESEARCH_OPEN_FINDINGS,
+    INFRA_RUNS_TOTAL,
 )
 
 
@@ -881,6 +889,7 @@ __all__ = [
     "GITHUB_GRAPHQL_POINTS_TOTAL",
     "GITHUB_REQUESTS_TOTAL",
     "GITHUB_THROTTLE_WAIT",
+    "INFRA_RUNS_TOTAL",
     "INSTRUMENTS",
     "PROJECT_CI_RUNS",
     "PROJECT_COMMITS",

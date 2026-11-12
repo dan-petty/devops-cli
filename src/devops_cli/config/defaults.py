@@ -71,6 +71,15 @@ DEFAULT_INFRA_PING_TIMEOUT_SECONDS: float = 300.0
 DEFAULT_INFRA_GALAXY_TIMEOUT_SECONDS: float = 600.0
 DEFAULT_INFRA_PLAN_TIMEOUT_SECONDS: float = 1800.0
 DEFAULT_INFRA_PLAN_TIMEOUT_MARGIN_SECONDS: int = 60
+# The node steps of `devops infra apply` (#5125). Each kubectl request stops at its request bound,
+# below the process bound of the command. The drain check (`kubectl drain --dry-run=server`) stops
+# at its own bound, and a drain at `infra.drain_timeout_seconds`, each the margin below its
+# process bound. The waits for Ready and for health read the cluster once each poll interval.
+DEFAULT_INFRA_KUBECTL_REQUEST_TIMEOUT_SECONDS: int = 30
+DEFAULT_INFRA_KUBECTL_TIMEOUT_SECONDS: float = 60.0
+DEFAULT_INFRA_DRAIN_CHECK_TIMEOUT_SECONDS: int = 30
+DEFAULT_INFRA_DRAIN_MARGIN_SECONDS: int = 60
+DEFAULT_INFRA_NODE_POLL_SECONDS: float = 10.0
 DEFAULT_DOCS_DIR = CONST_DOCS_DIR_PATH
 DEFAULT_GRAFANA_DASHBOARDS_DIR = Path("k8s/monitoring/dashboards")
 DEFAULT_WORKSPACE_FILE = Path(".code-workspace")

@@ -725,6 +725,30 @@ class InfraCommandHelp:
         "The ref at origin to plan: a branch of origin, or pull/<number>/head for the head of a "
         "pull request. Default: the default branch."
     )
+    apply: str = (
+        "Apply a saved plan of devops infra plan to the hosts of an infra repo. The apply needs the "
+        "plan id and the playbook, limit and tags of the plan, a plan not older than "
+        "infra.plan_max_age_hours, a commit that origin holds and a healthy cluster. The hosts "
+        "with no disruptive change run together. Each disruptive host runs alone in plan order: "
+        "drain check, drain, a fresh check that must equal the plan, the run, Ready with the GPUs "
+        "of before, health again, and uncordon only when the node was schedulable before. A "
+        "change that the plan does not show, or the first failure, stops the apply. Each apply "
+        "writes an audit record. An agent needs the agent access level safe for a plan with no "
+        "disruptive change and no unchecked task, else full; an agent applies only a commit of "
+        "the default branch, or at full the head of an open pull request, and only with host "
+        "key checks on. An agent runs the command as one plain command: the project allow rule "
+        "Bash(uv run devops *) lets it start, and the owner keeps that rule. A compound shell "
+        "line (an assignment, ;, &&, |) goes to the auto-mode classifier. The agent access level "
+        "of the repo is the real control."
+    )
+    apply_repo: str = (
+        "The infra repo: owner/name, or the folder of a checkout, which its remote origin names."
+    )
+    apply_playbook: str = "The playbook of the plan, as a path from the repo root."
+    apply_plan: str = "The id of the saved plan, as devops infra plan printed it."
+    apply_limit: str = "The --limit of the plan. The apply refuses a plan with another limit."
+    apply_tags: str = "The --tags of the plan. The apply refuses a plan with other tags."
+    apply_auto_approve: str = "Apply with no question. An agent gives it."
 
 
 @dataclass(frozen=True)
