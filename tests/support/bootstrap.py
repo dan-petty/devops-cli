@@ -67,7 +67,11 @@ def _real_home(config: pytest.Config) -> Path:
 def isolate_home(config: pytest.Config) -> None:
     """Isolate HOME into an empty directory under pytest basetemp, with a git identity on
     `example.com`, and record it for the workspace tripwire's worker-home check (#1311). Record
-    the real home that it replaces for the home write guard (#4739)."""
+    the real home that it replaces for the home write guard (#4739).
+
+    The git config of the isolated HOME refuses every transport but the local one, with the
+    default policy of git for it, so a real git child refuses an https, ssh or git remote before
+    it makes a lookup or asks a credential helper (#4711)."""
     config.stash[REAL_HOME] = _real_home(config)
     basetemp = _basetemp(config)
     home_dir = basetemp / "home"
@@ -75,7 +79,9 @@ def isolate_home(config: pytest.Config) -> None:
     gitconfig = home_dir / ".gitconfig"
     if not gitconfig.exists():
         gitconfig.write_text(
-            "[user]\n\tname = Test User\n\temail = test@example.com\n",
+            "[user]\n\tname = Test User\n\temail = test@example.com\n"
+            "[protocol]\n\tallow = never\n"
+            '[protocol "file"]\n\tallow = user\n',
             encoding="utf-8",
         )
     os.environ["HOME"] = str(home_dir)
