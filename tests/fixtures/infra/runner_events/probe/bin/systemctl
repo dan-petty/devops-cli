@@ -1,0 +1,6 @@
+#!/bin/sh
+# A stand-in for systemctl in a container with no systemd: each unit is loaded and active.
+case "$*" in
+  *show*) printf 'Id=%s.service\nNames=%s.service\nLoadState=loaded\nActiveState=active\nSubState=running\nUnitFileState=enabled\n' demo demo ;;
+  *) exit 0 ;;
+esac

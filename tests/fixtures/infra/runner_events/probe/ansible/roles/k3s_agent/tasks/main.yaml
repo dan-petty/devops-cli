@@ -1,0 +1,46 @@
+---
+- name: Create Rancher K3s configuration directory on agent
+  ansible.builtin.file:
+    path: "{{ state_dir }}"
+    state: directory
+
+- name: Read cluster join token from K3s server
+  ansible.builtin.slurp:
+    src: "{{ state_dir }}/node-token"
+  register: k3s_server_node_token
+  no_log: true
+
+- name: Set cluster join token fact
+  ansible.builtin.set_fact:
+    k3s_join_token: "{{ k3s_server_node_token['content'] | b64decode | trim }}"
+  no_log: true
+
+- name: Deploy K3s agent configuration file
+  ansible.builtin.template:
+    src: k3s-agent-config.yaml.j2
+    dest: "{{ state_dir }}/config.yaml"
+    mode: "0600"
+  register: k3s_agent_config
+  diff: false
+
+- name: Check if K3s agent binary exists
+  ansible.builtin.stat:
+    path: "{{ state_dir }}"
+  register: k3s_agent_binary
+
+- name: Download and execute K3s agent installation script
+  ansible.builtin.shell: >
+    curl -sfL https://get.k3s.io | sh -
+  when: not k3s_agent_binary.stat.exists
+
+- name: Remove join token and server URL from K3s agent systemd environment file
+  ansible.builtin.lineinfile:
+    path: "{{ state_dir }}/absent.env"
+    regexp: '^K3S_(TOKEN|URL)='
+    state: absent
+  register: k3s_agent_env
+
+- name: Ensure K3s-agent systemd service is started and enabled
+  ansible.builtin.systemd:
+    name: k3s-agent
+    state: "{{ 'restarted' if (k3s_agent_config.changed or k3s_agent_env.changed) else 'started' }}"

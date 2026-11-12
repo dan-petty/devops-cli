@@ -1322,6 +1322,37 @@ class InfraMessages:
     status_no_node: str = "no node"
     status_yes: str = "yes"
     status_no: str = "no"
+    # `devops infra plan` (#5124): a table of hosts and a table of tasks of a check-mode run.
+    plan_title: str = "Plan of {repo}: {playbook} on {pattern} (check mode)"
+    plan_plan_title: str = "Plan for the check-mode run of {playbook} of {repo} at {path}"
+    plan_host_columns: tuple[str, ...] = (
+        "Host",
+        "Changed",
+        "Disruptive",
+        "Diff hidden",
+        "Unchecked",
+        "Result",
+    )
+    plan_task_columns: tuple[str, ...] = ("Host", "Kind", "Task", "Path")
+    plan_ok: str = "ok"
+    plan_failed: str = "failed"
+    plan_kind_changed: str = "changed"
+    plan_kind_hidden: str = "changed, diff hidden"
+    plan_kind_unchecked: str = "unchecked"
+    plan_kind_failed: str = "failed"
+    plan_no_host: str = "The run reached no host."
+    plan_caption: str = (
+        "Unchecked: check mode skipped the task, so the plan does not show what it does. Diff "
+        "hidden: the task sets diff: false or no_log."
+    )
+    plan_error: str = "The run failed: {error}"
+    plan_saved: str = "Plan {id} ({status}), in {folder}"
+    plan_timed_out: str = "The check-mode run passed its time limit and stopped."
+    plan_run_failed: str = "ansible-runner stopped with exit code {code} and wrote no error line."
+    plan_dry_run_note: str = (
+        "Check mode changes no host. A task with check_mode: false runs for real; devops infra "
+        "onboard lists each one."
+    )
     settings_level: str = "agent access {level}"
     settings_written: str = "agent access {level}; written to {path}"
     settings_step: str = (

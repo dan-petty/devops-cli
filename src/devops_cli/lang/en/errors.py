@@ -437,6 +437,14 @@ class InfraErrorMessages:
         "The checkout at {path} has no GitHub remote origin. Give the repository as owner/name "
         "and its folder with --path."
     )
+    ref_not_found: str = (
+        "The remote origin of the checkout at {path} holds no ref {ref}. Give a branch of origin or "
+        "pull/<number>/head. {reason}"
+    )
+    playbook_not_found: str = (
+        "{playbook} is not a playbook file of the infra repo. Give its path from the repo root, "
+        "such as ansible/playbooks/site.yaml."
+    )
 
 
 @dataclass(frozen=True)

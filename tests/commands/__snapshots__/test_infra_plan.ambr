@@ -1,0 +1,25 @@
+# serializer version: 1
+# name: test_dry_run_starts_no_process
+  '''
+  Plan for the check-mode run of ansible/playbooks/03_k3s.yaml of example-org/infra at <tmp>/repo
+    1. EXEC the fetch of origin into <tmp>/repo
+         git -C <tmp>/repo -c credential.https://github.com.helper= -c 'credential.https://github.com.helper=!gh auth git-credential' fetch --quiet origin
+    2. EXEC the check of the branch name fix/k3s
+         git -C <tmp>/repo check-ref-format --branch fix/k3s
+    3. EXEC the commit of origin/fix/k3s
+         git -C <tmp>/repo rev-parse --verify --end-of-options 'refs/remotes/origin/fix/k3s^{commit}'
+    4. EXEC the branch and the commit of the checkout
+         git -C <tmp>/repo rev-parse HEAD --abbrev-ref HEAD
+    5. EXEC the export of <commit of origin/fix/k3s> into <tmp>/.data/infra/example-org/infra/plans/<new folder>/project
+         git -C <tmp>/repo archive --format=tar '--output=<tmp>/.data/infra/example-org/infra/plans/<new folder>/tree.tar' '<commit of origin/fix/k3s>'
+    6. EXEC the Ansible inventory of the export
+         <tmp>/user-data/tools/ansible-core/2.22.0/bin/ansible-inventory -i '<inventory>' --list
+    7. EXEC the install of the pinned collections
+         <tmp>/user-data/tools/ansible-core/2.22.0/bin/ansible-galaxy collection install -r '<tmp>/.data/infra/example-org/infra/plans/<new folder>/project/collections/requirements.yml' -p '<collections folder>'  [only if the repo has collections/requirements.yml and no install of it is kept]
+    8. EXEC the check-mode run of the playbook on the hosts in service
+         <tmp>/user-data/tools/ansible-core/2.22.0/bin/ansible-runner run '<tmp>/.data/infra/example-org/infra/plans/<new folder>' --playbook ansible/playbooks/03_k3s.yaml --ident '<ident>' --limit 'node-3.example.com:!<offline group>' --quiet '--cmdline=--check --diff -v -i '"'"'<inventory>'"'"' -e '"'"'ansible_ssh_private_key_file=<key of devops ssh>'"'"''
+    9. WRITE <tmp>/.data/infra/example-org/infra/plans/<plan id>/plan.json
+  Check mode changes no host. A task with check_mode: false runs for real; devops infra onboard lists each one.
+  
+  '''
+# ---
