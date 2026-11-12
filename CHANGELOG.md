@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.120.0](https://github.com/dan-petty/devops-cli/compare/v0.119.0...v0.120.0) (2026-11-12)
+
+
+### Features
+
+* **agents:** remote agent sessions install the git hooks ([#5126](https://github.com/dan-petty/devops-cli/issues/5126)) ([a04e7a9](https://github.com/dan-petty/devops-cli/commit/a04e7a94c1a31433c22aaedb5762c02636eca3fa))
+
+
+### Bug Fixes
+
+* **k8s:** give the ollama-16gib tier a memory limit ([#5117](https://github.com/dan-petty/devops-cli/issues/5117)) ([22176a0](https://github.com/dan-petty/devops-cli/commit/22176a02be18ee118227cda8aa7a4d2e5eceef48))
+* **roadmap:** the Status writer guards an equal label ([#5116](https://github.com/dan-petty/devops-cli/issues/5116)) ([aaf3eaf](https://github.com/dan-petty/devops-cli/commit/aaf3eaf3cf9c726543c6f9f81995b9b1d3402a5b))
+
 ## [0.119.0](https://github.com/dan-petty/devops-cli/compare/v0.118.0...v0.119.0) (2026-11-12)
 
 
