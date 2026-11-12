@@ -13,7 +13,7 @@ The step SHALL read the plan of the head of the pull request with `read_change` 
 - **THEN** the first planner request holds the head plan as `previous` and both findings in `problem`
 
 ### Requirement: The review of the head counts the open findings before the repair
-In each attempt the verification pass SHALL review the plan of the head at the latest default branch, and the open findings of that review SHALL be the findings before the repair that the step compares with the last review of the revision. The step SHALL also read the open findings of the last comment of the stage job or of the step on the item that names the pull request and that a trusted author made, and give them to the planner. It SHALL NOT count them: an earlier review wrote the comment, at an earlier commit.
+In each attempt the verification pass SHALL review the head plan at the latest default branch, and the step SHALL compare the last review of the revision with the open findings of that review. The step SHALL give the planner the open findings of the last trusted comment of the stage job or of the step that names the pull request, and SHALL NOT count them, because an earlier review wrote that comment.
 
 #### Scenario: No comment lists an open finding
 - **WHEN** no trusted comment of the item lists an open finding for the pull request, and the review of the head plan has one

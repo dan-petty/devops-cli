@@ -25,22 +25,30 @@ The step `fix-plan` SHALL select, for one call, at most one item of the reposito
 - **THEN** the step makes no model call and writes nothing
 
 ### Requirement: The step repairs the plan with the stage planner
-The step SHALL read the plan of the head of the pull request with `read_change` and give it to the stage planner at the latest default branch. The planner SHALL get the plan as `previous` and each open finding as `problem`, and the revision SHALL pass the gates and the verification repair rounds of the stage job.
+The step SHALL read the plan of the head of the pull request with `read_change` and give it to the stage planner at the latest default branch. The planner SHALL get the plan as `previous` and each open finding of the review of the head and of the last plan comment as `problem`, and the revision SHALL pass the gates and the verification repair rounds of the stage job.
 
 #### Scenario: The open findings of the stage comment
-- **WHEN** the stage comment of the item lists an open finding for the pull request
-- **THEN** the first planner request holds the head plan as `previous` and that finding in `problem`, and the verification pass reviews only the revision
+- **WHEN** the stage comment of the item lists an open finding for the pull request, and the review of the head plan has another open finding
+- **THEN** the first planner request holds the head plan as `previous` and both findings in `problem`
 
-### Requirement: The open findings come from the last plan comment
-The open findings SHALL come from the last comment of the stage job or of the step on the item that names the pull request and that a trusted author made. When no such comment lists an open finding, the verification pass SHALL review the plan of the head and give them.
+### Requirement: The review of the head counts the open findings before the repair
+In each attempt the verification pass SHALL review the head plan at the latest default branch, and the step SHALL compare the last review of the revision with the open findings of that review. The step SHALL give the planner the open findings of the last trusted comment of the stage job or of the step that names the pull request, and SHALL NOT count them, because an earlier review wrote that comment.
 
 #### Scenario: No comment lists an open finding
 - **WHEN** no trusted comment of the item lists an open finding for the pull request, and the review of the head plan has one
 - **THEN** the next planner request holds the head plan as `previous` and the finding of the review in `problem`
 
 #### Scenario: A comment of an untrusted author
-- **WHEN** the only comment that lists an open finding has an author with no write access
-- **THEN** the step does not read it and reviews the plan of the head
+- **WHEN** the only comment that lists an open finding has an author with no write access, and the review of the head plan has an open finding
+- **THEN** the next planner request holds the finding of the review in `problem` and no finding of that comment
+
+#### Scenario: The comment lists fewer open findings than the review of the head
+- **WHEN** the stage comment lists 1 open finding, the review of the head plan has 2 and the last review of the revision has 1
+- **THEN** the step pushes the revision with the result `revised`, and its result line holds `comment=1`, `before=2` and `after=1`
+
+#### Scenario: The review of the head finds no open finding that the comment lists
+- **WHEN** the stage comment lists an open finding and the review of the head plan has none
+- **THEN** the planner gets no request, the head of the branch does not change, and the pull request loses `plan/needs-fix`
 
 ### Requirement: The step pushes a revision with fewer open findings
 When the last review of the revision has fewer open findings than the review of the head plan, the step SHALL write the change folder as one commit on the latest default branch, push it to the branch of the pull request with `--force-with-lease` on the head that it read, and set the title and the body of the pull request to those of the revision.
@@ -79,11 +87,11 @@ The step SHALL write `fix_plan.key` (`<pull>:<head>`), `fix_plan.attempts` and `
 - **THEN** the step makes no model call and writes no mark
 
 ### Requirement: Each attempt logs one result line and counts its result
-Each attempt SHALL log one result line with the job `fix_plan`, its result, the counts of the plan runs and the open findings before and after. It SHALL add 1 to `devops_cli_roadmap_fix_plan_total` with the labels `repo` and `result`.
+Each attempt SHALL log one result line with the job `fix_plan`, its result, the counts of the plan runs, the open findings that the last plan comment lists (`comment`), the open findings of the review of the head (`before`) and those of the last review of the revision (`after`). It SHALL add 1 to `devops_cli_roadmap_fix_plan_total` with the labels `repo` and `result`.
 
 #### Scenario: A counted attempt
 - **WHEN** an attempt ends with the result `cleared`
-- **THEN** the log holds one line `roadmap job result: job=fix_plan` with `result=cleared`, and the counter holds 1 for that result
+- **THEN** the log holds one line `roadmap job result: job=fix_plan` with `result=cleared` and the counts `comment`, `before` and `after`, and the counter holds 1 for that result
 
 ### Requirement: The Service runs the step as the row fix_plan in its mode
 The model lane SHALL hold the row `fix_plan` after `stage`. The row SHALL need a clone and be due on a first run. The setting `roadmap.fix_plan.mode` SHALL be `off`, `plan` or `on`, with `plan` as the default. Mode `off` SHALL send no request. Mode `plan` SHALL select and log the pull request, and SHALL make no model call and no write. Mode `on` SHALL run the attempt.
