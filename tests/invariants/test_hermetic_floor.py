@@ -718,7 +718,9 @@ def test_a_support_helper_called_outside_pytest_writes_nothing(tmp_path: Path) -
     stops before its first write and says why (#4739).
 
     The HOME of the child process lies in this test's own temporary directory, so a helper that
-    writes changes nothing a person keeps."""
+    writes changes nothing a person keeps. The child keeps `PYTHONPATH`: the Service image test
+    job finds pytest and the test dependencies only there (#4891). `-P` keeps the working
+    directory off the import path, and `-s` drops the user site directory."""
     home = tmp_path / "home"
     home.mkdir()
     env = {name: value for name, value in os.environ.items() if name != "DEVOPS_CLI_USER_DATA_ROOT"}
@@ -726,7 +728,8 @@ def test_a_support_helper_called_outside_pytest_writes_nothing(tmp_path: Path) -
     child = subprocess.run(
         [
             sys.executable,
-            "-I",
+            "-P",
+            "-s",
             "-c",
             _LINK_A_TOOL_FROM_PLAIN_PYTHON,
             str(REPO_ROOT),
