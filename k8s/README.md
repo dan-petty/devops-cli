@@ -462,7 +462,6 @@ Kubernetes mounts a token of the pod's ServiceAccount into each pod. A process i
 A pod that keeps a token with no binding is in `_TOKEN_EXCEPTIONS` of the test, with its reason:
 
 - Qdrant: chart 1.19.1 has no value for the field. qdrant/qdrant-helm#506 asks for the value. When a chart release adds it, set the value and remove the exception in one pull request.
-- The CoreDNS patch (`coredns/deployment-patch.yaml`): k3s makes the CoreDNS Deployment, its ServiceAccount and its binding. CoreDNS reads Services and EndpointSlices through the API.
 
 `kubectl get pods -A -o json` shows a `kube-api-access-*` volume only on the pods that keep a token.
 
@@ -1129,6 +1128,8 @@ When the root `cluster` Application is present in the cluster, `devops k8s deplo
 
 An object in the cluster that git does not hold is drift: remove it, or add it to git. Back up the data on a PersistentVolume before you delete its claim. Public access goes through the Cloudflare tunnel and Cloudflare Access, and only the owner changes the Cloudflare configuration.
 
+k3s, not git, holds CoreDNS. The k3s server applies its packaged manifest `coredns.yaml` as the add-on `coredns` in `kube-system`, and writes the file again at each start. The Deployment `coredns` has 1 replica. It requests 100m CPU and 70Mi of memory, with a 170Mi memory limit and no CPU limit. k3s does not install CoreDNS from a Helm chart, so a HelmChartConfig has no chart to change, and a change by hand to the Deployment stays only until k3s applies the manifest again. Only the owner changes the k3s server, and so the size of CoreDNS. No alert reads the memory of the CoreDNS container: #4993 asks for an alert on each container near its memory limit. `kubectl -n kube-system get deployment coredns -o jsonpath='{.spec.replicas} {.spec.template.spec.containers[0].resources}'` shows the live values.
+
 ### Homelab Values at Deploy Time
 
 This repository is public, so it holds no homelab value. Ingress hosts sit under the placeholder domain `example.com`, and the devops-cli config holds only its template, `k8s/devops/configmap.example.yaml`. `devops k8s deploy-stack` supplies the real values from `config.yaml` and the keyring:
@@ -1177,9 +1178,6 @@ devops k8s deploy-stack --stack devops
 2. Merge. Argo CD builds `main` with the staged hosts.
 3. The service image changes only with a release. When the release pull request merges, the `Release` workflow's run on `main` builds, smoke-tests, scans, pushes and attests the service image, then tags it with the release tag and `latest` ([`RELEASE_CYCLE.md`](../RELEASE_CYCLE.md)). Within one poll of `latest` moving, Image Updater puts the `devops` Application on the new digest ([Service Image Updates](#service-image-updates)), and roadmap-service, which uses the Recreate strategy, is down only while its pod restarts. Until then both workloads keep the previous release's digest: the merge's own sync changes no image, and nothing is committed. A person who re-runs a failed publish job moves both tags when it passes, and Image Updater rolls the workloads onto the new digest.
 4. Check: `devops argo cd apps status devops` and `devops argo cd apps status ingress` are Synced and Healthy and exit 0. For `devops`, the command also reads the digest that `service:latest` names in GHCR and exits 1 when the Application's `spec.source.kustomize.images` pins another one, so ImageUpdater `devops` stopped updating ([Service Image Updates](#service-image-updates)). `kubectl get ingress,ingressroute -A -o yaml | grep example.com` prints nothing, and `kubectl -n devops get configmap devops-cli-config -o yaml` holds the configured repositories and the template values of `main` (gateway URL, models, context windows).
-
-> [!NOTE]
-> `k8s/coredns/` remains managed outside Argo CD to preserve cluster DNS resolution during bootstrap and recovery cycles.
 
 ### Image Pins
 

@@ -1268,22 +1268,6 @@ def test_k8s_workload_resource_limits_and_probes() -> None:
     assert gfd_res["limits"]["cpu"] == "200m"
     assert gfd_res["limits"]["memory"] == "256Mi"
 
-    # 12. CoreDNS values and deployment patch: elevated memory limits (384Mi) to eliminate OOM kills
-    coredns_values = yaml.safe_load(
-        (REPO_ROOT / "k8s" / "coredns" / "values.yaml").read_text(encoding="utf-8")
-    )
-    assert coredns_values["resources"]["limits"]["memory"] == "384Mi"
-    assert coredns_values["resources"]["requests"]["memory"] == "70Mi"
-
-    coredns_patch_docs = list(
-        yaml.safe_load_all(
-            (REPO_ROOT / "k8s" / "coredns" / "deployment-patch.yaml").read_text(encoding="utf-8")
-        )
-    )
-    coredns_dep = next(d for d in coredns_patch_docs if d and d.get("kind") == "Deployment")
-    coredns_res = coredns_dep["spec"]["template"]["spec"]["containers"][0]["resources"]
-    assert coredns_res["limits"]["memory"] == "384Mi"
-
 
 # =============================================================================
 # No In-Cluster Image Registry (#1630)
