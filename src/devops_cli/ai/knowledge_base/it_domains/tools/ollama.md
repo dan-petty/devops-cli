@@ -124,6 +124,7 @@ curl http://localhost:11434/api/embeddings -d '{
      - Ollama runs `llama-server` as a child process. By default, `llama-server` reserves up to 8,192 MiB in host RAM for prompt caching across idle slots.
      - To bound host RAM consumption on nodes with high context windows, set environment variable `LLAMA_ARG_CACHE_RAM`.
      - The `ollama-64gib` tier sets `LLAMA_ARG_CACHE_RAM: "4096"` and `limits.memory: 12Gi` to prevent host memory exhaustion on 16 GiB nodes (#2382). Node `gemini` now has 62.5 GiB, and the bounds stay.
+     - The `ollama-16gib` tier sets `limits.memory: 8Gi`, equal to its request, and no cache bound (#5115). Its node has 16 GiB, and the tier serves nothing, so a long session past the gateway ends in an OOM kill of the container, not of the node.
 2. **Model Quantization & Sizing**: Use `q4_K_M` or `q8_0` quantized models to maximize inference throughput while staying within workstation VRAM / RAM limits.
 3. **Constrain Review Token Generation**: Set `max_tokens: 2048` and `reasoning_effort: low` for code reviews to prevent long generation delays during multi-file reviews.
 4. **Context Window Sizing**: Set `num_ctx` appropriately (e.g. `8192` or `16384`) in Ollama modelfiles when reviewing large multi-file diffs.

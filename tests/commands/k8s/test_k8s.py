@@ -1097,7 +1097,8 @@ def test_k8s_deploy_stack_no_wait(
 def test_k8s_workload_resource_limits_and_probes() -> None:
     """Verify workload resource limits, relaxed memory constraints, and resilient probes."""
 
-    # 1. Ollama DaemonSet: unconstrained memory limits for node-adaptive scaling, requests 8Gi, robust startup, readiness and liveness probes
+    # 1. Ollama DaemonSet: requests 8Gi and 3000m, robust startup, readiness and liveness probes.
+    # test_ollama_16gib_tier_limits_its_memory_to_its_request checks its memory limit (#5115).
     ollama_path = REPO_ROOT / "k8s" / "llm" / "profiles" / "ollama-profiles.yaml"
     ollama_docs = list(yaml.safe_load_all(ollama_path.read_text(encoding="utf-8")))
     dep = next(d for d in ollama_docs if d and d.get("kind") in ("Deployment", "DaemonSet"))
@@ -1111,7 +1112,6 @@ def test_k8s_workload_resource_limits_and_probes() -> None:
 
     assert (
         ollama_path.is_file(),
-        "memory" in resources.get("limits", {}),
         resources["requests"]["memory"],
         resources["requests"]["cpu"],
         startup["initialDelaySeconds"],
@@ -1130,7 +1130,6 @@ def test_k8s_workload_resource_limits_and_probes() -> None:
         liveness["failureThreshold"],
     ) == (
         True,
-        False,
         "8Gi",
         "3000m",
         10,
