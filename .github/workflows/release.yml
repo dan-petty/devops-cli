@@ -373,7 +373,6 @@ jobs:
           # packages a security update has since fixed.
           no-cache-filters: service
           cache-from: type=gha
-          cache-to: type=gha,mode=max
 
       - name: Run Service Image Smoke Test
         env:
@@ -417,6 +416,8 @@ jobs:
           # packages a security update has since fixed.
           no-cache-filters: service
           cache-from: type=gha
+          # The one write of the cache of this image, from the build that the release publishes.
+          # The image jobs of each pull request read it from main and write none (#4646).
           cache-to: type=gha,mode=max
 
       - name: Attest Build Provenance
@@ -503,7 +504,6 @@ jobs:
           # security update has since fixed.
           no-cache-filters: runner
           cache-from: type=gha
-          cache-to: type=gha,mode=max
 
       - name: Run Runner Image Smoke Test
         env:
@@ -545,6 +545,7 @@ jobs:
           sbom: true
           no-cache-filters: runner
           cache-from: type=gha
+          # The one write of the cache of this image, as in the Service image job (#4646).
           cache-to: type=gha,mode=max
 
       - name: Attest Build Provenance
@@ -630,7 +631,6 @@ jobs:
           tags: devops-cli-mcp-server:local
           no-cache-filters: mcp-server
           cache-from: type=gha
-          cache-to: type=gha,mode=max
 
       - name: Run MCP Server Image Smoke Test
         env:
@@ -669,6 +669,7 @@ jobs:
           sbom: true
           no-cache-filters: mcp-server
           cache-from: type=gha
+          # The one write of the cache of this image, as in the Service image job (#4646).
           cache-to: type=gha,mode=max
 
       - name: Attest Build Provenance

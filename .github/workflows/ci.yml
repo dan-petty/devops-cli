@@ -464,8 +464,11 @@ jobs:
           # The final stage runs `apt-get upgrade`: never reuse it, or a cached layer keeps
           # packages a security update has since fixed.
           no-cache-filters: service
+          # The image jobs of a pull request read the cache that release.yml writes on main, and
+          # write none: GitHub keeps the cache of a pull request in the scope of its merge ref, so
+          # no other pull request reads it, and these exports filled the Actions cache past its
+          # limit (#4646).
           cache-from: type=gha
-          cache-to: type=gha,mode=max
 
       - name: Run Service Image Smoke Test
         if: steps.image_changes.outputs.changed == 'true'
@@ -497,8 +500,9 @@ jobs:
 
   # Builds, smoke-tests and scans the runner image of every pull request but the release pull
   # request, without pushing it; release.yml publishes it when a release is created (#2667). It
-  # runs next to the Service image job and shares its `builder` stage through the cache, so it adds
-  # no time to that job.
+  # runs next to the Service image job, so it adds no time to that job. It builds the stages that
+  # it shares with that job, such as `builder`, again: it reads only the cache that the release
+  # writes on main.
   runner-image:
     name: Runner Image
     if: >-
@@ -567,8 +571,8 @@ jobs:
           # The stage runs `apt-get upgrade`: never reuse it, or a cached layer keeps packages a
           # security update has since fixed.
           no-cache-filters: runner
+          # Reads the cache that the release writes on main, as the Service image job does.
           cache-from: type=gha
-          cache-to: type=gha,mode=max
 
       - name: Run Runner Image Smoke Test
         if: steps.image_changes.outputs.changed == 'true'
@@ -665,8 +669,8 @@ jobs:
           push: false
           tags: devops-cli-mcp-server:local
           no-cache-filters: mcp-server
+          # Reads the cache that the release writes on main, as the Service image job does.
           cache-from: type=gha
-          cache-to: type=gha,mode=max
 
       - name: Run MCP Server Image Smoke Test
         if: steps.image_changes.outputs.changed == 'true'
