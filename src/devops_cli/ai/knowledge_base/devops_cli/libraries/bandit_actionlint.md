@@ -19,7 +19,7 @@ tags:
 | :--- | :--- |
 | **Official Documentation** | [bandit.readthedocs.io](https://bandit.readthedocs.io/) • [github.com/rhysd/actionlint](https://github.com/rhysd/actionlint) |
 | **Public Git Repository** | [github.com/PyCQA/bandit](https://github.com/PyCQA/bandit) • [github.com/rhysd/actionlint](https://github.com/rhysd/actionlint) |
-| **Pinned Packages** | `bandit==1.9.4` (PyPI) • `actionlint 1.17.0` (docker.io/kjanat/actionlint, digest-pinned) |
+| **Pinned Packages** | `bandit==1.9.4` (PyPI) • `actionlint 1.17.1` (docker.io/kjanat/actionlint, digest-pinned) |
 | **DevOps CLI Integration** | [`src/devops_cli/commands/ci.py`](../../../../../../src/devops_cli/commands/ci.py) • [`src/devops_cli/security/`](../../../../../../src/devops_cli/security/) |
 
 ---
