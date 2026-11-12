@@ -17,7 +17,7 @@ design-tokens:
 # The service dashboards: each spec of k8s/monitoring/dashboards/services.toml to
 # k8s/monitoring/dashboards/<uid>.json, with the SRE template of
 # src/devops_cli/grafana/service_dashboard.py and the Grafana Foundation SDK of the dependency
-# group `dashboards` (docs/DESIGN.md, "Grafana").
+# group `dev` (docs/DESIGN.md, "Grafana").
 .PHONY: dashboards
 dashboards:
-	uv run --group dashboards python -m devops_cli.grafana.service_dashboard k8s/monitoring/dashboards/services.toml
+	uv run python -m devops_cli.grafana.service_dashboard k8s/monitoring/dashboards/services.toml

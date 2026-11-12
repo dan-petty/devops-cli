@@ -6,7 +6,7 @@ Kind: behavior.
 
 - [x] 1.1 Write the failing tests of the template: the layout, one unit, a sentence-case title and a description on each panel, at most 3 series, the burn-rate chart, the reference lines, the tile states, the variables, the log and profile rows, the colors and the build of each spec.
   - Verification: `$ uv run pytest tests/grafana/test_service_dashboard.py -q`
-- [x] 1.2 Add the dependency group `dashboards` with `grafana-foundation-sdk==0.0.22`, and write `src/devops_cli/grafana/service_dashboard.py` with `ServiceSpec`, `service_dashboard`, `dashboard_text`, `load_specs`, `write_dashboards` and `main`.
+- [x] 1.2 Add `grafana-foundation-sdk==0.0.22` to the dev dependency group, and write `src/devops_cli/grafana/service_dashboard.py` with `ServiceSpec`, `service_dashboard`, `dashboard_text`, `load_specs`, `write_dashboards` and `main`.
   - Verification: `$ uv run pytest tests/grafana/test_service_dashboard.py -q`
 
 ## 2. The SLO cases of the query harness

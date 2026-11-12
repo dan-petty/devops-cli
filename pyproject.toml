@@ -127,16 +127,15 @@ dev = [
     "types-docker==7.2.0.20261102",
     "cel-expr-python==0.1.4",
     "coloraide==8.14.1",
+    # The template of the service dashboards (#5184): `make dashboards` writes the classic dashboard
+    # JSON of k8s/monitoring/dashboards/ with it. It is not a runtime dependency. Its release 0.0.22
+    # builds the schema version 42 of Grafana 12.3.3 to 13.3.1. The dev group holds it, so the test
+    # images and the type check of the runner have it.
+    "grafana-foundation-sdk==0.0.22",
 ]
 # The docs site builder (#5152). Zensical is a beta from 0.1.0, so the pin is exact.
 docs = [
     "zensical==0.1.1",
-]
-# The build of the service dashboards (#5184): `make dashboards` writes the classic dashboard JSON
-# of k8s/monitoring/dashboards/ with the Grafana Foundation SDK. The SDK is not a runtime
-# dependency. Its release 0.0.22 builds the schema version 42 of Grafana 12.3.3 to 13.3.1.
-dashboards = [
-    "grafana-foundation-sdk==0.0.22",
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -374,7 +373,7 @@ DEP003 = [
     "pydantic_evals",
 ]
 # The template of the service dashboards (grafana/service_dashboard.py) runs only at build time,
-# in `make dashboards`, so its SDK is the dependency group `dashboards` (#5184).
+# in `make dashboards`, so its SDK is in the dev group (#5184).
 DEP004 = [
     "grafana_foundation_sdk",
 ]

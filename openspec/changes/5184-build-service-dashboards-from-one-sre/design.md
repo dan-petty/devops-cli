@@ -2,7 +2,7 @@
 
 ## Decisions
 
-- **One module, one spec file.** `src/devops_cli/grafana/service_dashboard.py` holds `ServiceSpec`, the template and `main`. `k8s/monitoring/dashboards/services.toml` holds the specs as `[[service]]` tables, next to the dashboards. TOML, not YAML: many tests read each YAML file under `k8s/` as a Kubernetes manifest. `make dashboards` runs `uv run --group dashboards python -m devops_cli.grafana.service_dashboard` on the file.
+- **One module, one spec file.** `src/devops_cli/grafana/service_dashboard.py` holds `ServiceSpec`, the template and `main`. `k8s/monitoring/dashboards/services.toml` holds the specs as `[[service]]` tables, next to the dashboards. TOML, not YAML: many tests read each YAML file under `k8s/` as a Kubernetes manifest. `make dashboards` runs `uv run python -m devops_cli.grafana.service_dashboard` on the file.
 - **The SDK lays out the grid.** Each panel gets its width and height, and the dashboard builder puts it in the next free place. A collapsed row takes one grid line, so each collapsed row after the first gets the `y` after the row before it.
 - **Variables in every query.** Each query names `$namespace` and `$workload`. A spec with `variables` keeps them as single-value dashboard variables on its values; another spec puts its values in their place. Thus one set of queries serves both dashboards, and an exact matcher never meets a variable with more than one value.
 - **Failed requests.** The share of failed requests is `(sum(failed) or sum(requests) * 0) / sum(requests)`. Traefik writes no counter for a code until the first request with it, so with requests and no failure the count is the zero of the requests. It is not a constant: with no request the SLI has no value.
@@ -15,6 +15,8 @@
 - **Harness of the template.** A case file of `tests/fixtures/dashboard_queries/` with the key `spec` holds the cases of the template build of that spec. Thus the cases of the SLO of 99 % in #5184 need no committed dashboard with that SLO.
 
 ## Rejected alternatives
+
+- **A dependency group of its own (`dashboards`).** The Service image and the runner image install only the `dev` group (`uv export --only-dev` in the `Dockerfile`), so the suite in the Service image failed on the import of the SDK, and the type check of a runner step reads all of `src/`. The dev group is a dependency group too, and no runtime install holds it.
 
 - **The calendar window of C12 b, with an even-burn line from 100 % to 0 %.** PromQL has no window that grows from the start of a range, and the cumulative sums of Grafana transformations cannot be checked with promtool. On a rolling window, a steady 1x burn holds the line at 0 %, so the 0 % line is the even burn.
 - **`or vector(0)` for no failed request.** `devops grafana dashboards lint` and the chart rules of #4707 refuse a fall back to a constant outside a stat, because it shows a zero with no data.

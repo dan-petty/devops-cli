@@ -7,7 +7,7 @@ saturation), then the collapsed rows of capacity, logs and profiles. `make dashb
 module on `k8s/monitoring/dashboards/services.toml`, which writes `<uid>.json` for each spec next
 to that file, and the dashboard sidecar provisions the files.
 
-The SDK is in the dependency group `dashboards`, not in the runtime dependencies. Its release
+The SDK is in the dev dependency group, not in the runtime dependencies. Its release
 0.0.22 writes the schema version 42 of the classic dashboard, which Grafana 13.3.1 reads and the
 dashboard sidecar provisions. The SDK marks its classic builder deprecated in favor of its v2
 builder, which the sidecar does not provision, so the import keeps that one warning out.
