@@ -789,15 +789,14 @@ def _unreadable(attempt: _Attempt, now: datetime, error: PlanReadError) -> FixPl
 
 def _open_creates(store: RoadmapStore, source: Path, base: str) -> Callable[[], Mapping[str, int]]:
     """The read of the paths that the open plans on the default branch create, as the stage job
-    reads them (#3418). The planner reads them once, and only when the premise cites a path that
-    the default branch lacks."""
+    reads them (#3418). The planner reads them at most once for the attempt, and only when the
+    premise cites a path that the default branch lacks."""
 
-    @cache
     def read() -> Mapping[str, int]:
         planned = planned_changes_at(source, f"origin/{base}", base, operation=_GIT_OPERATION)
         return open_plan_creates(store, source, planned, operation=_GIT_OPERATION)
 
-    return read
+    return cache(read)
 
 
 def _attempt(
