@@ -91,18 +91,18 @@ devops gh metrics [OPTIONS]
 
 ---
 
-## `devops gh labels`
+## `devops gh label`
 
 ```bash
-devops gh labels COMMAND [ARGS]...
+devops gh label COMMAND [ARGS]...
 ```
 
-### `devops gh labels list`
+### `devops gh label list`
 
 **List all labels defined in the remote repository.**
 
 ```bash
-devops gh labels list [OPTIONS]
+devops gh label list [OPTIONS]
 ```
 
 **Options:**
@@ -112,12 +112,12 @@ devops gh labels list [OPTIONS]
 | `--repo`, `-R` | `string` | - | Target repository |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
-### `devops gh labels sync`
+### `devops gh label sync`
 
 **Synchronize repository labels with the workflow labels and the declarative YAML schema.**
 
 ```bash
-devops gh labels sync [OPTIONS]
+devops gh label sync [OPTIONS]
 ```
 
 **Options:**
@@ -128,12 +128,12 @@ devops gh labels sync [OPTIONS]
 | `--repo`, `-R` | `string` | - | Target repository |
 | `--dry-run` | `boolean` | - | Preview label reconciliation without making changes |
 
-### `devops gh labels audit`
+### `devops gh label audit`
 
 **Audit open pull requests for mandatory type/ and scope/ taxonomy labels.**
 
 ```bash
-devops gh labels audit [OPTIONS]
+devops gh label audit [OPTIONS]
 ```
 
 **Options:**
@@ -519,18 +519,18 @@ devops gh pages verify [OPTIONS]
 
 ---
 
-## `devops gh issues`
+## `devops gh issue`
 
 ```bash
-devops gh issues COMMAND [ARGS]...
+devops gh issue COMMAND [ARGS]...
 ```
 
-### `devops gh issues list`
+### `devops gh issue list`
 
 **List repository issues with milestone, taxonomy labels, and status.**
 
 ```bash
-devops gh issues list [OPTIONS]
+devops gh issue list [OPTIONS]
 ```
 
 **Options:**
@@ -544,12 +544,12 @@ devops gh issues list [OPTIONS]
 | `--limit` | `integer` | `30` | Max issues to return |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
-### `devops gh issues view`
+### `devops gh issue view`
 
 **Print one issue with its state, milestone, labels, assignees, dates and full body.**
 
 ```bash
-devops gh issues view [OPTIONS] <number>
+devops gh issue view [OPTIONS] <number>
 ```
 
 **Arguments:**
@@ -564,12 +564,12 @@ devops gh issues view [OPTIONS] <number>
 |---|---|---|---|
 | `--repo`, `-R` | `string` | - | Target repository |
 
-### `devops gh issues create`
+### `devops gh issue create`
 
 **Create a new issue linking milestone and taxonomy labels.**
 
 ```bash
-devops gh issues create [OPTIONS]
+devops gh issue create [OPTIONS]
 ```
 
 **Options:**
@@ -583,12 +583,12 @@ devops gh issues create [OPTIONS]
 | `--repo`, `-R` | `string` | - | Target repository |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
-### `devops gh issues triage`
+### `devops gh issue triage`
 
 **Audit open issues for mandatory taxonomy labels, and report those with no priority/* label as awaiting intake.**
 
 ```bash
-devops gh issues triage [OPTIONS]
+devops gh issue triage [OPTIONS]
 ```
 
 **Options:**
@@ -598,12 +598,12 @@ devops gh issues triage [OPTIONS]
 | `--repo`, `-R` | `string` | - | Target repository |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
-### `devops gh issues status`
+### `devops gh issue status`
 
 **Display aggregated issue counts by priority, type, and milestone.**
 
 ```bash
-devops gh issues status [OPTIONS]
+devops gh issue status [OPTIONS]
 ```
 
 **Options:**
@@ -613,12 +613,12 @@ devops gh issues status [OPTIONS]
 | `--repo`, `-R` | `string` | - | Target repository |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
-### `devops gh issues edit`
+### `devops gh issue edit`
 
 **Edit an existing issue title, body, state, milestone, or taxonomy labels.**
 
 ```bash
-devops gh issues edit [OPTIONS] <number>
+devops gh issue edit [OPTIONS] <number>
 ```
 
 **Arguments:**
@@ -641,12 +641,12 @@ devops gh issues edit [OPTIONS] <number>
 | `--repo`, `-R` | `string` | - | Target repository |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
-### `devops gh issues close`
+### `devops gh issue close`
 
 **Close an open issue with its reason, completed or not planned. With --comment-file, the command posts the comment first, then closes the issue, so a failed close leaves the comment. It refuses a pull request and an issue that is already closed, because GitHub ignores a reason unless the state changes.**
 
 ```bash
-devops gh issues close [OPTIONS] <number>
+devops gh issue close [OPTIONS] <number>
 ```
 
 **Arguments:**
@@ -666,18 +666,18 @@ devops gh issues close [OPTIONS] <number>
 
 ---
 
-## `devops gh runs`
+## `devops gh run`
 
 ```bash
-devops gh runs COMMAND [ARGS]...
+devops gh run COMMAND [ARGS]...
 ```
 
-### `devops gh runs list`
+### `devops gh run list`
 
 **List recent workflow runs for the repository or branch.**
 
 ```bash
-devops gh runs list [OPTIONS]
+devops gh run list [OPTIONS]
 ```
 
 **Options:**
@@ -690,12 +690,12 @@ devops gh runs list [OPTIONS]
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
-### `devops gh runs view`
+### `devops gh run view`
 
 **View details and failure logs of a specific workflow run.**
 
 ```bash
-devops gh runs view [OPTIONS] <run_id>
+devops gh run view [OPTIONS] <run_id>
 ```
 
 **Arguments:**
@@ -762,18 +762,18 @@ devops gh branch-protection sync [OPTIONS]
 
 ---
 
-## `devops gh secrets`
+## `devops gh secret`
 
 ```bash
-devops gh secrets COMMAND [ARGS]...
+devops gh secret COMMAND [ARGS]...
 ```
 
-### `devops gh secrets sync`
+### `devops gh secret sync`
 
 **Synchronize repository secrets from OS Keyring or HashiCorp Vault with libsodium sealing.**
 
 ```bash
-devops gh secrets sync [OPTIONS]
+devops gh secret sync [OPTIONS]
 ```
 
 **Options:**
@@ -786,12 +786,12 @@ devops gh secrets sync [OPTIONS]
 | `--vault-path` | `string` | `secret/devops` | Vault KV-v2 secret path when source is vault (default: secret/devops). |
 | `--dry-run` | `boolean` | - | Preview secret synchronization without mutations |
 
-### `devops gh secrets list`
+### `devops gh secret list`
 
 **List Actions secrets configured in the repository (names only, values are hidden).**
 
 ```bash
-devops gh secrets list [OPTIONS]
+devops gh secret list [OPTIONS]
 ```
 
 **Options:**

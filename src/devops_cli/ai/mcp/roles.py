@@ -29,16 +29,16 @@ _HYDRATE_TOOL: Final = "hydrate_tool_domain"
 
 _GITHUB_READS: Final[frozenset[str]] = frozenset(
     {
-        "gh_issues_list",
-        "gh_issues_status",
-        "gh_issues_view",
-        "gh_labels_list",
+        "gh_issue_list",
+        "gh_issue_status",
+        "gh_issue_view",
+        "gh_label_list",
         "gh_milestones_list",
         "gh_pages_status",
         "gh_project_list",
         "gh_rate_limit",
-        "gh_runs_list",
-        "gh_runs_view",
+        "gh_run_list",
+        "gh_run_view",
         "pr_checks",
         "pr_diff",
         "pr_list",

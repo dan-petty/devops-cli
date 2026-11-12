@@ -64,7 +64,7 @@ When creating or updating pull requests, `devops-cli` provides active remote che
 devops pr monitor 17
 
 # View recent workflow runs on main
-devops gh runs list --branch main --limit 5
+devops gh run list --branch main --limit 5
 ```
 
 ---

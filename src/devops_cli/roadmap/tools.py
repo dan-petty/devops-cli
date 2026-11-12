@@ -122,16 +122,16 @@ TOOLS: Final[dict[str, ToolEntry]] = {
         "Runs a command of the allowlist in the workspace and waits until it ends.", _IMPLEMENT
     ),
     # The reads of GitHub, which every job role holds.
-    "gh_issues_list": _read(
+    "gh_issue_list": _read(
         "Lists the issues of the repository on GitHub, with their labels and milestone.",
         _EVERY_JOB_ROLE,
     ),
-    "gh_issues_status": _read(
+    "gh_issue_status": _read(
         "Shows the counts of the issues of the repository on GitHub by priority, type and milestone.",
         _EVERY_JOB_ROLE,
     ),
-    "gh_issues_view": _read("Shows one issue of the repository on GitHub.", _EVERY_JOB_ROLE),
-    "gh_labels_list": _read("Lists the labels of the repository on GitHub.", _EVERY_JOB_ROLE),
+    "gh_issue_view": _read("Shows one issue of the repository on GitHub.", _EVERY_JOB_ROLE),
+    "gh_label_list": _read("Lists the labels of the repository on GitHub.", _EVERY_JOB_ROLE),
     "gh_milestones_list": _read(
         "Lists the milestones of the repository on GitHub, with their progress.", _EVERY_JOB_ROLE
     ),
@@ -142,10 +142,10 @@ TOOLS: Final[dict[str, ToolEntry]] = {
         "Lists the GitHub Projects boards of the repository.", _EVERY_JOB_ROLE
     ),
     "gh_rate_limit": _read("Shows the rate limit of the GitHub API.", _EVERY_JOB_ROLE),
-    "gh_runs_list": _read(
+    "gh_run_list": _read(
         "Lists the recent workflow runs of the repository on GitHub.", _EVERY_JOB_ROLE
     ),
-    "gh_runs_view": _read(
+    "gh_run_view": _read(
         "Shows one workflow run of the repository on GitHub, with the logs of a failure.",
         _EVERY_JOB_ROLE,
     ),

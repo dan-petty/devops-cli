@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
-from devops_cli.ai.mcp.server import gh_issues_edit, gh_milestones_edit
+from devops_cli.ai.mcp.server import gh_issue_edit, gh_milestones_edit
 from devops_cli.exceptions.git import GitHubOperationError, GitHubUnreadError
 from devops_cli.github.issues import (
     resolve_milestone_number,
@@ -215,7 +215,7 @@ def test_cli_gh_issues_edit(
     cli: Callable[..., Any],
     github_api_and_gh: tuple[GitHubApiFake, ProcessFake],
 ) -> None:
-    """CLI devops gh issues edit sends the PATCH for the fields given."""
+    """CLI devops gh issue edit sends the PATCH for the fields given."""
     github_api, process_fake = github_api_and_gh
     github_api.route(
         "GET",
@@ -245,7 +245,7 @@ def test_cli_gh_issues_edit(
     )
     result = cli(
         "gh",
-        "issues",
+        "issue",
         "edit",
         "42",
         "--title",
@@ -276,5 +276,5 @@ def test_fastmcp_gh_tools(
         ["gh", "api", "-X", "PATCH"],
         ProcessAnswer(returncode=0, stdout='{"title": "Updated"}'),
     )
-    r2 = gh_issues_edit(number=10, milestone="12", repo="example/repo")
+    r2 = gh_issue_edit(number=10, milestone="12", repo="example/repo")
     assert "updated successfully" in r2.lower()

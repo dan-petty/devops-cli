@@ -1766,7 +1766,7 @@
       "type": "object"
     }
   },
-  "gh_issues_close": {
+  "gh_issue_close": {
     "description": "Close an open issue with its reason, completed or not planned. With --comment-file, the command posts the comment first, then closes the issue, so a failed close leaves the comment. It refuses a pull request and an issue that is already closed, because GitHub ignores a reason unless the state changes.",
     "input_schema": {
       "additionalProperties": false,
@@ -1821,7 +1821,7 @@
       "type": "object"
     }
   },
-  "gh_issues_create": {
+  "gh_issue_create": {
     "description": "Create a new issue linking milestone and taxonomy labels.",
     "input_schema": {
       "additionalProperties": false,
@@ -1886,7 +1886,7 @@
       "type": "object"
     }
   },
-  "gh_issues_edit": {
+  "gh_issue_edit": {
     "description": "Edit an existing issue title, body, state, milestone, or taxonomy labels.",
     "input_schema": {
       "additionalProperties": false,
@@ -2003,7 +2003,7 @@
       "type": "object"
     }
   },
-  "gh_issues_list": {
+  "gh_issue_list": {
     "description": "List repository issues with milestone, taxonomy labels, and status.",
     "input_schema": {
       "additionalProperties": false,
@@ -2063,7 +2063,7 @@
       "type": "object"
     }
   },
-  "gh_issues_status": {
+  "gh_issue_status": {
     "description": "Display aggregated issue counts by priority, type, and milestone.",
     "input_schema": {
       "additionalProperties": false,
@@ -2089,7 +2089,7 @@
       "type": "object"
     }
   },
-  "gh_issues_triage": {
+  "gh_issue_triage": {
     "description": "Audit open issues for mandatory taxonomy labels, and report those with no priority/* label as awaiting intake.",
     "input_schema": {
       "additionalProperties": false,
@@ -2115,7 +2115,7 @@
       "type": "object"
     }
   },
-  "gh_issues_view": {
+  "gh_issue_view": {
     "description": "Print one issue with its state, milestone, labels, assignees, dates and full body.",
     "input_schema": {
       "additionalProperties": false,
@@ -2144,7 +2144,7 @@
       "type": "object"
     }
   },
-  "gh_labels_list": {
+  "gh_label_list": {
     "description": "List all labels defined in the remote repository.",
     "input_schema": {
       "additionalProperties": false,
@@ -2170,7 +2170,7 @@
       "type": "object"
     }
   },
-  "gh_labels_sync": {
+  "gh_label_sync": {
     "description": "Synchronize repository labels with the workflow labels and the declarative YAML schema.",
     "input_schema": {
       "additionalProperties": false,
@@ -2607,7 +2607,7 @@
       "type": "object"
     }
   },
-  "gh_runs_list": {
+  "gh_run_list": {
     "description": "List recent workflow runs for the repository or branch.",
     "input_schema": {
       "additionalProperties": false,
@@ -2655,7 +2655,7 @@
       "type": "object"
     }
   },
-  "gh_runs_view": {
+  "gh_run_view": {
     "description": "View details and failure logs of a specific workflow run.",
     "input_schema": {
       "additionalProperties": false,

@@ -4162,8 +4162,8 @@ The stage plan validation SHALL report one problem for each behavior group that 
 The builder SHALL hold each command path whose row of `CONST_MCP_EXPOSURE_TABLE` is read-only and whose permitted parameters hold no path parameter, with the permitted parameter names as its value.
 
 #### Scenario: A read-only command with no path parameter
-- **WHEN** the builder runs and the row of `gh labels list` is read-only and its permitted parameters hold no path parameter
-- **THEN** the table holds `('gh', 'labels', 'list')` with `repo` among its parameters
+- **WHEN** the builder runs and the row of `gh label list` is read-only and its permitted parameters hold no path parameter
+- **THEN** the table holds `('gh', 'label', 'list')` with `repo` among its parameters
 
 ### Requirement: A path parameter keeps its command out of the allow-list
 The builder SHALL leave out each command path whose permitted parameters hold a path parameter: a parameter that Typer types as a path, or a parameter that `PATH_CONFINEMENTS` names for the command.

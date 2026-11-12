@@ -203,7 +203,7 @@ def test_vault_source_with_a_rejected_token_uploads_nothing(
     """A 403 from Vault fails the sync through the command's handler; nothing reaches GitHub."""
     vault_api.respond("GET", "http://127.0.0.1:8200/v1/secret/devops", 403, {})
     res = cli(
-        "gh", "secrets", "sync", "-n", "A,B", "--repo", "dan-petty/devops-cli", "--source", "vault"
+        "gh", "secret", "sync", "-n", "A,B", "--repo", "dan-petty/devops-cli", "--source", "vault"
     )
     assert res.exit_code == 1
     assert "Vault rejected the token from the environment (HTTP 403)" in res.output
@@ -353,7 +353,7 @@ def test_cli_secrets_list_displays_entries(
             stdout='{"secrets": [{"name": "GITHUB_TOKEN"}, {"name": "DOCKER_PASSWORD"}]}'
         ),
     )
-    res = cli("gh", "secrets", "list", "--repo", "dan-petty/devops-cli")
+    res = cli("gh", "secret", "list", "--repo", "dan-petty/devops-cli")
     assert res.exit_code == 0
     assert "GITHUB_TOKEN" in res.stdout
     assert "DOCKER_PASSWORD" in res.stdout
@@ -366,7 +366,7 @@ def test_cli_secrets_list_reports_empty_when_no_secrets(
         ["gh", "api", "repos/dan-petty/devops-cli/actions/secrets"],
         ProcessAnswer(stdout='{"secrets": []}'),
     )
-    res = cli("gh", "secrets", "list", "--repo", "dan-petty/devops-cli")
+    res = cli("gh", "secret", "list", "--repo", "dan-petty/devops-cli")
     assert res.exit_code == 0
     assert "No repository secrets found" in res.stdout
 
@@ -376,7 +376,7 @@ def test_cli_secrets_sync_dry_run_previews_sync(
 ) -> None:
     keyring_store.set_password("devops-cli", "MY_TOKEN", "dummy-val")
     res = cli(
-        "gh", "secrets", "sync", "-n", "MY_TOKEN", "--repo", "dan-petty/devops-cli", "--dry-run"
+        "gh", "secret", "sync", "-n", "MY_TOKEN", "--repo", "dan-petty/devops-cli", "--dry-run"
     )
     assert res.exit_code == 0
     assert "Plan for synchronizing secrets (dan-petty/devops-cli)" in res.stdout
@@ -407,6 +407,6 @@ def test_cli_secrets_sync_failure_exit_on_upload_error(
         ],
         ProcessAnswer(returncode=1, stderr="Rejected"),
     )
-    res = cli("gh", "secrets", "sync", "-n", "FAIL_TOKEN", "--repo", "dan-petty/devops-cli")
+    res = cli("gh", "secret", "sync", "-n", "FAIL_TOKEN", "--repo", "dan-petty/devops-cli")
     assert res.exit_code == 1
     assert "Failed: 1" in res.stdout

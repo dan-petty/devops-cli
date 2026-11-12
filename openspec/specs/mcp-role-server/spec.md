@@ -20,7 +20,7 @@ The streamable HTTP transport of `devops mcp serve` serves one endpoint for each
 A job role SHALL hold a tool only when the role table names it and the exposure table marks it read-only. A tool that no table names, or that is not read-only, SHALL be unknown on every job endpoint, so a call by name SHALL fail before any handler runs. A name in a table that no tool carries SHALL stop the server from starting.
 
 #### Scenario: A mutating tool called by name
-- **WHEN** a client with the token calls `gh_issues_create` on `/planning/mcp`
+- **WHEN** a client with the token calls `gh_issue_create` on `/planning/mcp`
 - **THEN** the result is an error that names an unknown tool, and no command runs
 
 #### Scenario: A tool outside the role

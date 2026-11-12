@@ -3,7 +3,7 @@ repository only (ADR 0016, #2910, #4652).
 
 A job that writes a label GitHub does not know creates it with a default color. The package list
 keeps the color and the description of each label that the roadmap code reads or writes, and
-`devops roadmap onboard --confirm` and `devops gh labels sync` create the labels of the package
+`devops roadmap onboard --confirm` and `devops gh label sync` create the labels of the package
 and of the file.
 """
 

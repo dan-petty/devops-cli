@@ -24,6 +24,8 @@ from tests.support.paths import REPO_ROOT
 from tests.support.project_reconcile_fake import REPO, ProjectGitHub, card, issue
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from tests.support.fakes.clock import ClockFake
     from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 
@@ -44,21 +46,21 @@ def _board_with_every_view() -> str:
 
 
 def test_gh_labels_list(gh_edge: ProcessFake) -> None:
-    """devops gh labels list outputs label records."""
+    """devops gh label list outputs label records."""
     labels = [
         {"name": "type/feature", "color": "0E8A16", "description": "Feature addition"},
         {"name": "type/bug", "color": "D73A4A", "description": "Bug fix"},
     ]
     gh_edge.answer(["gh", "label", "list"], ProcessAnswer(stdout=json.dumps(labels)))
-    result = runner.invoke(app, ["labels", "list"])
+    result = runner.invoke(app, ["label", "list"])
     assert result.exit_code == 0
     assert "type/feature" in result.output
     assert "type/bug" in result.output
 
 
 def test_gh_labels_sync_dry_run(gh_edge: ProcessFake) -> None:
-    """devops gh labels sync --dry-run previews label reconciliations without mutations."""
-    result = runner.invoke(app, ["labels", "sync", "--dry-run"])
+    """devops gh label sync --dry-run previews label reconciliations without mutations."""
+    result = runner.invoke(app, ["label", "sync", "--dry-run"])
     assert result.exit_code == 0
     assert "DRY RUN" in result.output or "dry-run" in result.output.lower() or "5" in result.output
     assert gh_argv(gh_edge) == []
@@ -67,7 +69,7 @@ def test_gh_labels_sync_dry_run(gh_edge: ProcessFake) -> None:
 def test_gh_labels_sync_exits_nonzero_when_unauthenticated(
     tmp_path: Path, gh_edge: ProcessFake
 ) -> None:
-    """`devops gh labels sync` fails when gh cannot list or create labels (#961).
+    """`devops gh label sync` fails when gh cannot list or create labels (#961).
 
     With no token and gh logged out, the label list came back empty, every create failed
     unseen, and the command still printed "Label sync complete" and exited 0.
@@ -76,7 +78,7 @@ def test_gh_labels_sync_exits_nonzero_when_unauthenticated(
     labels_file.write_text("- name: type/bug\n  color: D73A4A\n", encoding="utf-8")
     gh_edge.answer(["gh", "label"], ProcessAnswer(returncode=1, stderr="gh auth login required"))
 
-    result = runner.invoke(app, ["labels", "sync", "-f", str(labels_file), "-R", "o/r"])
+    result = runner.invoke(app, ["label", "sync", "-f", str(labels_file), "-R", "o/r"])
 
     assert (
         result.exit_code,
@@ -86,9 +88,9 @@ def test_gh_labels_sync_exits_nonzero_when_unauthenticated(
 
 
 def test_gh_labels_list_asks_for_every_label(gh_edge: ProcessFake) -> None:
-    """`devops gh labels list` asks gh for more than its default 30 labels."""
+    """`devops gh label list` asks gh for more than its default 30 labels."""
     gh_edge.answer(["gh", "label", "list"], ProcessAnswer(stdout='[{"name": "type/bug"}]'))
-    runner.invoke(app, ["labels", "list", "-R", "o/r"])
+    runner.invoke(app, ["label", "list", "-R", "o/r"])
     argv = gh_argv(gh_edge)[0]
     # Without --limit, gh lists 30.
     assert (int(argv[argv.index("--limit") + 1]) if "--limit" in argv else 30) > 30
@@ -179,7 +181,7 @@ def test_gh_pages_verify(tmp_path: Path) -> None:
 
 
 def test_gh_issues_list(gh_edge: ProcessFake) -> None:
-    """devops gh issues list outputs open issues."""
+    """devops gh issue list outputs open issues."""
     listed = [
         {
             "number": 77,
@@ -191,7 +193,7 @@ def test_gh_issues_list(gh_edge: ProcessFake) -> None:
         }
     ]
     gh_edge.answer(["gh", "issue", "list"], ProcessAnswer(stdout=json.dumps(listed)))
-    result = runner.invoke(app, ["issues", "list", "--repo", "dan-petty/devops-cli"])
+    result = runner.invoke(app, ["issue", "list", "--repo", "dan-petty/devops-cli"])
     assert result.exit_code == 0
     assert "#77" in result.output
     assert "feat(rag)" in result.output
@@ -216,9 +218,9 @@ def _rest_issue(**fields: Any) -> dict[str, Any]:
 
 
 def test_gh_issues_view_prints_the_whole_issue(github_api: GitHubApiFake) -> None:
-    """`devops gh issues view` prints the full title, each field and every line of the body."""
+    """`devops gh issue view` prints the full title, each field and every line of the body."""
     github_api.route("GET", "/repos/octo/repo/issues/9999", github_json(_rest_issue()))
-    result = runner.invoke(app, ["issues", "view", "9999", "-R", "octo/repo"])
+    result = runner.invoke(app, ["issue", "view", "9999", "-R", "octo/repo"])
     lines = result.output.splitlines()
     assert (result.exit_code, len(github_api.sent), lines[0]) == (
         0,
@@ -242,7 +244,7 @@ def test_gh_issues_view_shows_a_dash_for_each_empty_field(github_api: GitHubApiF
     """An issue with no milestone, label, assignee or body prints a dash for each."""
     bare = _rest_issue(milestone=None, labels=[], assignees=[], body=None)
     github_api.route("GET", "/repos/octo/repo/issues/9999", github_json(bare))
-    result = runner.invoke(app, ["issues", "view", "9999", "-R", "octo/repo"])
+    result = runner.invoke(app, ["issue", "view", "9999", "-R", "octo/repo"])
     lines = result.output.splitlines()
     assert (
         result.exit_code,
@@ -258,7 +260,7 @@ def test_gh_issues_view_prints_markup_as_written(github_api: GitHubApiFake) -> N
         "/repos/octo/repo/issues/9999",
         github_json(_rest_issue(title="fix [bold]x[/bold]")),
     )
-    result = runner.invoke(app, ["issues", "view", "9999", "-R", "octo/repo"])
+    result = runner.invoke(app, ["issue", "view", "9999", "-R", "octo/repo"])
     assert (result.exit_code, "#9999 fix [bold]x[/bold]" in result.output) == (0, True)
 
 
@@ -267,7 +269,7 @@ def test_gh_issues_view_exits_1_naming_a_missing_issue(github_api: GitHubApiFake
     github_api.route(
         "GET", "/repos/octo/repo/issues/9999", github_json({"message": "Not Found"}, status=404)
     )
-    result = runner.invoke(app, ["issues", "view", "9999", "-R", "octo/repo"])
+    result = runner.invoke(app, ["issue", "view", "9999", "-R", "octo/repo"])
     text = _flat(result.output)
     assert (result.exit_code, "octo/repo/issues/9999" in text, "State:" in text) == (1, True, False)
 
@@ -278,13 +280,13 @@ def test_gh_issues_view_exits_1_naming_the_command_for_a_pull_request(
     """A pull request number exits 1 and names `devops pr view`."""
     pull = _rest_issue(number=12, pull_request={"url": "https://example.com/pull/12"})
     github_api.route("GET", "/repos/octo/repo/issues/12", github_json(pull))
-    result = runner.invoke(app, ["issues", "view", "12", "-R", "octo/repo"])
+    result = runner.invoke(app, ["issue", "view", "12", "-R", "octo/repo"])
     text = _flat(result.output)
     assert (result.exit_code, "devops pr view 12" in text, "State:" in text) == (1, True, False)
 
 
 def test_gh_issues_create(gh_edge: ProcessFake) -> None:
-    """devops gh issues create hands the title, body, milestone and label to gh."""
+    """devops gh issue create hands the title, body, milestone and label to gh."""
     gh_edge.answer(
         ["gh", "issue", "create"],
         ProcessAnswer(stdout="https://github.com/dan-petty/devops-cli/issues/99\n"),
@@ -292,7 +294,7 @@ def test_gh_issues_create(gh_edge: ProcessFake) -> None:
     result = runner.invoke(
         app,
         [
-            "issues",
+            "issue",
             "create",
             "--repo",
             "dan-petty/devops-cli",
@@ -336,7 +338,7 @@ def test_gh_issues_triage_reports_the_items_and_the_candidates(
     )
     unscoped = roadmap_store.seed_issue("unscoped", labels=("type/bug", "priority/p3-low"))
     candidate = roadmap_store.seed_issue("candidate", labels=("type/bug",))
-    result = runner.invoke(app, ["issues", "triage", "--repo", "dan-petty/devops-cli"])
+    result = runner.invoke(app, ["issue", "triage", "--repo", "dan-petty/devops-cli"])
     output = _flat(result.output)
     assert (
         result.exit_code,
@@ -357,12 +359,12 @@ def test_gh_issues_triage_does_not_hide_a_failed_read(
 
     limited = GitHubRateLimitError("API rate limit exceeded")
     with patch.object(roadmap_store, "candidates", side_effect=limited):
-        result = runner.invoke(app, ["issues", "triage", "--repo", "dan-petty/devops-cli"])
+        result = runner.invoke(app, ["issue", "triage", "--repo", "dan-petty/devops-cli"])
     assert result.exit_code != 0
 
 
 def test_gh_issues_status(roadmap_store: InMemoryRoadmapStore) -> None:
-    """devops gh issues status outputs category counts."""
+    """devops gh issue status outputs category counts."""
     roadmap_store.seed_milestone("2026-11")
     roadmap_store.seed_issue(
         "feat(rag): one",
@@ -377,7 +379,7 @@ def test_gh_issues_status(roadmap_store: InMemoryRoadmapStore) -> None:
             milestone="2026-11",
             fields={ItemField.PRIORITY: "P2-Medium"},
         )
-    result = runner.invoke(app, ["issues", "status", "--repo", "dan-petty/devops-cli"])
+    result = runner.invoke(app, ["issue", "status", "--repo", "dan-petty/devops-cli"])
     assert result.exit_code == 0
     assert "Total Open" in result.output
     assert "2026-11" in result.output
@@ -698,7 +700,7 @@ def test_gh_rate_limit_table(process_fake: ProcessFake) -> None:
 
 
 def test_gh_runs_list(gh_edge: ProcessFake) -> None:
-    """devops gh runs list renders recent workflow runs table."""
+    """devops gh run list renders recent workflow runs table."""
     mock_runs = json.dumps(
         [
             {
@@ -714,19 +716,19 @@ def test_gh_runs_list(gh_edge: ProcessFake) -> None:
     )
     answer_origin(gh_edge, "owner/repo")
     gh_edge.answer(["gh", "run", "list"], ProcessAnswer(stdout=mock_runs))
-    result = runner.invoke(app, ["runs", "list"])
+    result = runner.invoke(app, ["run", "list"])
     assert result.exit_code == 0
     assert "CI Quality Gate" in result.output
     assert "12345678" in result.output
 
 
 def test_gh_runs_view_failed_logs(gh_edge: ProcessFake) -> None:
-    """devops gh runs view with --log-failed fetches failed workflow logs."""
+    """devops gh run view with --log-failed fetches failed workflow logs."""
     answer_origin(gh_edge, "owner/repo")
     gh_edge.answer(
         ["gh", "run", "view"], ProcessAnswer(stdout="Error: Step failed with exit code 1")
     )
-    result = runner.invoke(app, ["runs", "view", "12345678", "--log-failed"])
+    result = runner.invoke(app, ["run", "view", "12345678", "--log-failed"])
     assert result.exit_code == 0
     assert "Step failed" in result.output
     args = gh_argv(gh_edge)[0]
@@ -737,12 +739,12 @@ def test_gh_runs_view_failed_logs(gh_edge: ProcessFake) -> None:
 
 
 def test_gh_issues_edit_success(gh_edge: ProcessFake) -> None:
-    """devops gh issues edit patches issue title, body, and state via stdin."""
+    """devops gh issue edit patches issue title, body, and state via stdin."""
     answer_origin(gh_edge, "owner/repo")
     result = runner.invoke(
         app,
         [
-            "issues",
+            "issue",
             "edit",
             "185",
             "--title",
@@ -766,7 +768,7 @@ def test_gh_issues_edit_success(gh_edge: ProcessFake) -> None:
 
 
 def test_gh_issues_edit_error_masked(gh_edge: ProcessFake) -> None:
-    """devops gh issues edit masks secret tokens in error output."""
+    """devops gh issue edit masks secret tokens in error output."""
     answer_origin(gh_edge, "owner/repo")
     gh_edge.answer(
         ["gh", "api", "--method", "PATCH"],
@@ -775,15 +777,15 @@ def test_gh_issues_edit_error_masked(gh_edge: ProcessFake) -> None:
             stderr="HTTP 401: Bad credentials token ghp_secrettoken1234567890abcdefghijklmn",
         ),
     )
-    result = runner.invoke(app, ["issues", "edit", "185", "--title", "New Title"])
+    result = runner.invoke(app, ["issue", "edit", "185", "--title", "New Title"])
     assert result.exit_code == 1
     assert "ghp_secrettoken" not in result.output
 
 
 def test_gh_issues_edit_no_changes(gh_edge: ProcessFake) -> None:
-    """devops gh issues edit warns when no changes are specified."""
+    """devops gh issue edit warns when no changes are specified."""
     answer_origin(gh_edge, "owner/repo")
-    result = runner.invoke(app, ["issues", "edit", "185"])
+    result = runner.invoke(app, ["issue", "edit", "185"])
     assert result.exit_code == 0
     assert "No changes specified" in result.output
 
@@ -800,25 +802,25 @@ def test_gh_rate_limit_error_masked(process_fake: ProcessFake, clock: ClockFake)
 
 
 def test_gh_runs_list_error_masked(gh_edge: ProcessFake) -> None:
-    """devops gh runs list masks secrets on error."""
+    """devops gh run list masks secrets on error."""
     answer_origin(gh_edge, "owner/repo")
     gh_edge.answer(
         ["gh", "run", "list"],
         ProcessAnswer(returncode=1, stderr="Error ghp_secrettoken1234567890abcdefghijklmn"),
     )
-    result = runner.invoke(app, ["runs", "list"])
+    result = runner.invoke(app, ["run", "list"])
     assert result.exit_code == 1
     assert "ghp_secrettoken" not in result.output
 
 
 def test_gh_runs_view_error_masked(gh_edge: ProcessFake) -> None:
-    """devops gh runs view masks secrets on error."""
+    """devops gh run view masks secrets on error."""
     answer_origin(gh_edge, "owner/repo")
     gh_edge.answer(
         ["gh", "run", "view"],
         ProcessAnswer(returncode=1, stderr="Error ghp_secrettoken1234567890abcdefghijklmn"),
     )
-    result = runner.invoke(app, ["runs", "view", "123456"])
+    result = runner.invoke(app, ["run", "view", "123456"])
     assert result.exit_code == 1
     assert "ghp_secrettoken" not in result.output
 
@@ -851,7 +853,7 @@ def test_a_run_log_is_masked_before_the_run_view_helper_returns_it() -> None:
 def test_gh_runs_view_prints_a_run_log_masked_and_gives_gh_the_run_log_timeout(
     gh_edge: ProcessFake,
 ) -> None:
-    """`devops gh runs view` prints the log of a successful run with a secret masked, and gives
+    """`devops gh run view` prints the log of a successful run with a secret masked, and gives
     gh the run-log timeout, which is longer than the timeout of one request (#1883)."""
     from devops_cli.config.defaults import DEFAULT_GH_RUN_LOG_TIMEOUT_SECONDS
 
@@ -859,7 +861,7 @@ def test_gh_runs_view_prints_a_run_log_masked_and_gives_gh_the_run_log_timeout(
         ["gh", "run", "view"],
         ProcessAnswer(stdout="Job log ghp_secrettoken1234567890abcdefghijklmn\n"),
     )
-    result = runner.invoke(app, ["runs", "view", "123456", "--log", "--repo", "owner/repo"])
+    result = runner.invoke(app, ["run", "view", "123456", "--log", "--repo", "owner/repo"])
     view = next(call for call in gh_edge.calls if call.argv[1:3] == ("run", "view"))
     assert (result.exit_code, result.output, view.timeout) == (
         0,
@@ -896,11 +898,11 @@ def test_gh_rate_limit_invalid_format(gh_edge: ProcessFake) -> None:
 
 
 def test_gh_runs_list_json(gh_edge: ProcessFake) -> None:
-    """devops gh runs list --format json outputs serialized json list."""
+    """devops gh run list --format json outputs serialized json list."""
     mock_runs = json.dumps([{"databaseId": 1234, "name": "CI", "status": "completed"}])
     answer_origin(gh_edge, "owner/repo")
     gh_edge.answer(["gh", "run", "list"], ProcessAnswer(stdout=mock_runs))
-    result = runner.invoke(app, ["runs", "list", "--format", "json"])
+    result = runner.invoke(app, ["run", "list", "--format", "json"])
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     assert len(parsed) == 1
@@ -908,9 +910,9 @@ def test_gh_runs_list_json(gh_edge: ProcessFake) -> None:
 
 
 def test_gh_runs_list_options(gh_edge: ProcessFake) -> None:
-    """devops gh runs list forwards branch and repo flags."""
+    """devops gh run list forwards branch and repo flags."""
     gh_edge.answer(["gh", "run", "list"], ProcessAnswer(stdout="[]"))
-    result = runner.invoke(app, ["runs", "list", "--branch", "feat/test", "--repo", "custom/repo"])
+    result = runner.invoke(app, ["run", "list", "--branch", "feat/test", "--repo", "custom/repo"])
     assert result.exit_code == 0
     cmd = gh_argv(gh_edge)[0]
     assert "--branch" in cmd
@@ -920,10 +922,10 @@ def test_gh_runs_list_options(gh_edge: ProcessFake) -> None:
 
 
 def test_gh_runs_view_full_log_and_job(gh_edge: ProcessFake) -> None:
-    """devops gh runs view forwards --log, --job, and --repo."""
+    """devops gh run view forwards --log, --job, and --repo."""
     gh_edge.answer(["gh", "run", "view"], ProcessAnswer(stdout="Job log content\n"))
     result = runner.invoke(
-        app, ["runs", "view", "999", "--log", "--job", "build", "--repo", "custom/repo"]
+        app, ["run", "view", "999", "--log", "--job", "build", "--repo", "custom/repo"]
     )
     assert result.exit_code == 0
     assert "Job log content" in result.output
@@ -1079,7 +1081,7 @@ def test_gh_api_error_masked(gh_edge: ProcessFake, clock: ClockFake) -> None:
 
 @pytest.mark.parametrize(
     "argv",
-    [["issues", "list", "-R", "octo/repo"], ["labels", "sync", "-R", "octo/repo"]],
+    [["issue", "list", "-R", "octo/repo"], ["label", "sync", "-R", "octo/repo"]],
     ids=["issues-list", "labels-sync"],
 )
 def test_gh_commands_report_no_identity_without_a_traceback(
@@ -1106,7 +1108,7 @@ def test_gh_issues_list_reports_a_refused_token_as_the_unauthenticated_error(
     process_fake.answer(
         ["gh", "api", "rate_limit"], ProcessAnswer(returncode=1, stderr="HTTP 401: Bad credentials")
     )
-    result = runner.invoke(app, ["issues", "list", "-R", "octo/repo"])
+    result = runner.invoke(app, ["issue", "list", "-R", "octo/repo"])
     text = _flat(result.output)
     assert (
         result.exit_code,
@@ -1128,7 +1130,7 @@ def test_gh_issues_list_reports_a_refresh_that_timed_out_as_the_unread_error(
         ["gh", "api", "rate_limit"],
         ProcessAnswer(side_effect=subprocess.TimeoutExpired(["gh", "api", "rate_limit"], 10.0)),
     )
-    result = runner.invoke(app, ["issues", "list", "-R", "octo/repo"])
+    result = runner.invoke(app, ["issue", "list", "-R", "octo/repo"])
     assert (
         result.exit_code,
         type(result.exception),
@@ -1151,3 +1153,39 @@ def test_views_sync_prints_gh_s_scope_list_as_gh_wrote_it(gh_edge: ProcessFake) 
     )
     result = runner.invoke(app, ["views", "sync", "-R", "octo/repo"])
     assert (result.exit_code, "[read:project]" in _flat(result.output)) == (0, True)
+
+
+# The command names of gh 2.x that a `devops gh` command mirrors (#4835).
+GH_NOUNS = ("issue", "pr", "run", "label", "secret", "project", "api", "status")
+
+
+@pytest.mark.parametrize("noun", GH_NOUNS)
+def test_a_devops_gh_command_that_mirrors_gh_has_the_gh_name(
+    noun: str, cli: Callable[..., Result]
+) -> None:
+    """An agent types the gh name, so `devops gh <noun>` is a command for each gh noun (#4835)."""
+    assert cli("gh", noun, "--help").exit_code == 0
+
+
+@pytest.mark.parametrize(
+    ("old", "new"),
+    [
+        ("issues", "issue"),
+        ("runs", "run"),
+        ("labels", "label"),
+        ("secrets", "secret"),
+        ("rate_limit", "rate-limit"),
+    ],
+)
+def test_an_old_name_is_a_usage_error_that_names_the_new_one(
+    old: str, new: str, cli: Callable[..., Result]
+) -> None:
+    """The old name is not an alias: it exits 2 and Click suggests the new name (#4835)."""
+    result = cli("gh", old, "list")
+    assert (
+        result.exit_code,
+        f"No such command '{old}'. Did you mean '{new}'" in _flat(result.output),
+    ) == (
+        2,
+        True,
+    )

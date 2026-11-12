@@ -104,8 +104,7 @@ CONST_CLI_VALUE_COMMANDS: Final[frozenset[str]] = frozenset(
         "gh pr wait",
         "gh project workflows list",
         "gh rate-limit",
-        "gh rate_limit",
-        "gh runs list",
+        "gh run list",
         "gh status",
         "grafana dashboards lint",
         "k8s chaos",
@@ -204,6 +203,6 @@ def test_negative_control_detects_missing_format_option() -> None:
 
 
 def test_value_commands_registry_is_non_empty_and_sorted() -> None:
-    """Verify CONST_CLI_VALUE_COMMANDS invariant: 142 registered value commands."""
+    """Verify CONST_CLI_VALUE_COMMANDS invariant: 141 registered value commands."""
     assert isinstance(CONST_CLI_VALUE_COMMANDS, frozenset)
-    assert len(CONST_CLI_VALUE_COMMANDS) == 142
+    assert len(CONST_CLI_VALUE_COMMANDS) == 141

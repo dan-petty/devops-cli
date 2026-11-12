@@ -4603,7 +4603,7 @@ class RoadmapMessages:
             ),
             "stopped": "Fix the cause, then comment `{retry}` on #{number}.",
             "blocked": (
-                "Fix the cause, then set the status by hand: `devops gh issues edit {number} "
+                "Fix the cause, then set the status by hand: `devops gh issue edit {number} "
                 "--repo {repo} --add-label status/ready --remove-label status/blocked`."
             ),
             "refine": (
@@ -4615,7 +4615,7 @@ class RoadmapMessages:
                 "`devops roadmap explain {number} --repo {repo}` says what refine waits for."
             ),
             "claim": "devops roadmap release {number} --repo {repo} --confirm",
-            "labels": "devops gh labels sync --repo {repo}",
+            "labels": "devops gh label sync --repo {repo}",
             "queue": (
                 "Deliver Planned items with `devops roadmap implement --repo {repo}`, "
                 "or raise roadmap.stage.planned_limit."
@@ -5446,9 +5446,9 @@ class RoadmapMessages:
 
 @dataclass(frozen=True)
 class IssueMessages:
-    """Messages of `devops gh issues`."""
+    """Messages of `devops gh issue`."""
 
-    close_dry_run_title: str = "# devops gh issues close for {repo}"
+    close_dry_run_title: str = "# devops gh issue close for {repo}"
     closed: str = "Closed #{number} as {reason}."
     close_empty_comment: str = (
         "The comment is empty. Give a file with the comment text, or no --comment-file."

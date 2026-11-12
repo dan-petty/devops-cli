@@ -1,4 +1,4 @@
-"""`devops gh issues close` closes an issue with its reason, its comment first (#1658)."""
+"""`devops gh issue close` closes an issue with its reason, its comment first (#1658)."""
 
 from __future__ import annotations
 
@@ -33,7 +33,7 @@ def test_a_not_planned_close_posts_the_comment_file_then_closes(
     number = roadmap_store.seed_issue("superseded")
     evidence = _evidence(tmp_path, "Superseded by #2399.\n")
     result = cli(
-        "gh", "issues", "close", str(number), "--reason", "not-planned",
+        "gh", "issue", "close", str(number), "--reason", "not-planned",
         "--comment-file", str(evidence), "-R", REPO,
     )  # fmt: skip
     assert (result.exit_code, _writes(roadmap_store), _closed_as(roadmap_store, number)) == (
@@ -47,7 +47,7 @@ def test_a_completed_close_with_no_comment_only_closes(
     cli: Callable[..., Any], roadmap_store: InMemoryRoadmapStore
 ) -> None:
     number = roadmap_store.seed_issue("done")
-    result = cli("gh", "issues", "close", str(number), "--reason", "completed", "-R", REPO)
+    result = cli("gh", "issue", "close", str(number), "--reason", "completed", "-R", REPO)
     assert (result.exit_code, _writes(roadmap_store), _closed_as(roadmap_store, number)) == (
         0,
         [("close", "completed")],
@@ -60,7 +60,7 @@ def test_a_comment_file_of_a_dash_is_read_from_standard_input(
 ) -> None:
     number = roadmap_store.seed_issue("done")
     result = cli(
-        "gh", "issues", "close", str(number), "--reason", "completed",
+        "gh", "issue", "close", str(number), "--reason", "completed",
         "--comment-file", "-", "-R", REPO,
         input="Done in #2400.\n",
     )  # fmt: skip
@@ -79,7 +79,7 @@ def test_an_empty_comment_is_refused_before_any_request(
     number = roadmap_store.seed_issue("superseded")
     evidence = _evidence(tmp_path, "  \n")
     result = cli(
-        "gh", "issues", "close", str(number), "--reason", "not-planned",
+        "gh", "issue", "close", str(number), "--reason", "not-planned",
         "--comment-file", str(evidence), "-R", REPO,
     )  # fmt: skip
     assert (result.exit_code != 0, "empty" in result.output, roadmap_store_repos) == (
@@ -95,7 +95,7 @@ def test_a_closed_issue_is_refused_with_no_write(
     number = roadmap_store.seed_issue("closed", state=GitHubState.CLOSED)
     evidence = _evidence(tmp_path, "Superseded by #2399.")
     result = cli(
-        "gh", "issues", "close", str(number), "--reason", "not-planned",
+        "gh", "issue", "close", str(number), "--reason", "not-planned",
         "--comment-file", str(evidence), "-R", REPO,
     )  # fmt: skip
     assert (result.exit_code != 0, "already closed" in result.output, _writes(roadmap_store)) == (
@@ -108,7 +108,7 @@ def test_a_closed_issue_is_refused_with_no_write(
 def test_an_unknown_reason_exits_2_naming_the_reasons_with_no_request(
     cli: Callable[..., Any], roadmap_store_repos: list[str]
 ) -> None:
-    result = cli("gh", "issues", "close", "7", "--reason", "wontfix", "-R", REPO)
+    result = cli("gh", "issue", "close", "7", "--reason", "wontfix", "-R", REPO)
     assert (
         result.exit_code,
         "completed" in result.output,
@@ -122,7 +122,7 @@ def test_a_dry_run_lists_the_read_the_comment_and_the_close_and_sends_nothing(
 ) -> None:
     evidence = _evidence(tmp_path, "Superseded by #2399.")
     result = cli(
-        "gh", "issues", "close", "7", "--reason", "not-planned",
+        "gh", "issue", "close", "7", "--reason", "not-planned",
         "--comment-file", str(evidence), "-R", REPO, "--dry-run",
     )  # fmt: skip
     output = " ".join(result.output.split())

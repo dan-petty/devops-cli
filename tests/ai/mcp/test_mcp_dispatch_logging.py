@@ -7,7 +7,7 @@ def test_no_dispatch_argument_reaches_a_log_record(caplog) -> None:
     """The dispatcher runs arbitrary `devops` command lines, and some carry a credential.
 
     `logger.debug("In-process dispatch %s ...", sub_args)` wrote the argument list
-    verbatim, so `gh secrets set NAME <token>` put that token in the log in clear text.
+    verbatim, so `gh secret set NAME <token>` put that token in the log in clear text.
     CodeQL reported it as three high-severity `py/clear-text-logging-sensitive-data`
     alerts and they blocked the v0.2.22 release. Masking the values first made it worse --
     the sanitizer is not a barrier CodeQL recognises, so three alerts became six -- so

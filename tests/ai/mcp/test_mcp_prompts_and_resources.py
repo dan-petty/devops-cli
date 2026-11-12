@@ -12,7 +12,7 @@ from tests.support.fakes.mcp_dispatcher import DispatcherFake
 
 # The resources of the MCP server that run a `devops gh` command.
 _GH_RESOURCES: Final = (
-    "resource://gh/issues/status",
+    "resource://gh/issue/status",
     "resource://gh/pages/status",
     "resource://gh/project/status",
     "resource://gh/views/status",
@@ -50,7 +50,7 @@ def test_fastmcp_prompts_and_resources_registration() -> None:
         "resource://ai/spend",
         "resource://mcp/tools",
         "resource://gh/pages/status",
-        "resource://gh/issues/status",
+        "resource://gh/issue/status",
         "resource://gh/project/status",
         "resource://gh/views/status",
         "resource://libraries/indexed",

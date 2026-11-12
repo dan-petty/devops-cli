@@ -1,7 +1,7 @@
 [
   "argo cd apps retire-helm-records",
-  "gh issues close",
-  "gh issues view",
+  "gh issue close",
+  "gh issue view",
   "k8s image-pins",
   "k8s tunnel start",
   "k8s tunnel status",

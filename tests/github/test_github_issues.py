@@ -211,7 +211,7 @@ def test_gh_issues_create_says_the_milestone_was_not_set_when_the_patch_fails(
     )
     result = cli(
         "gh",
-        "issues",
+        "issue",
         "create",
         "--repo",
         "octo/repo",

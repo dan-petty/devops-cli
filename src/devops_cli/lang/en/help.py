@@ -1112,16 +1112,16 @@ class GHCommandHelp:
     rate_limit: str = (
         "Display GitHub REST and GraphQL API rate limits, quotas, and reset countdowns."
     )
-    runs_app: str = "Inspect GitHub Actions workflow runs and diagnostic failure logs."
-    runs_list: str = "List recent workflow runs for the repository or branch."
-    runs_view: str = "View details and failure logs of a specific workflow run."
-    runs_log_failed: str = "Display logs for failed jobs or steps in the workflow run."
-    runs_log: str = "Display full execution logs for the workflow run."
-    runs_job: str = "Filter workflow run logs to a specific job ID."
-    labels_app: str = "Manage declarative repository labels and audit PR taxonomy."
-    labels_list: str = "List all repository labels."
-    labels_sync: str = "Synchronize repository labels against declarative schema."
-    labels_audit: str = "Audit pull requests for mandatory type/ and scope/ taxonomy."
+    run_app: str = "Inspect GitHub Actions workflow runs and diagnostic failure logs."
+    run_list: str = "List recent workflow runs for the repository or branch."
+    run_view: str = "View details and failure logs of a specific workflow run."
+    run_log_failed: str = "Display logs for failed jobs or steps in the workflow run."
+    run_log: str = "Display full execution logs for the workflow run."
+    run_job: str = "Filter workflow run logs to a specific job ID."
+    label_app: str = "Manage declarative repository labels and audit PR taxonomy."
+    label_list: str = "List all repository labels."
+    label_sync: str = "Synchronize repository labels against declarative schema."
+    label_audit: str = "Audit pull requests for mandatory type/ and scope/ taxonomy."
     milestones_app: str = (
         "Manage the roadmap's milestones, the planning buckets, and track their progress."
     )
@@ -1194,33 +1194,33 @@ class GHCommandHelp:
     pages_builds: str = "List recent GitHub Pages build history and durations."
     pages_build: str = "Trigger a new deployment build for GitHub Pages."
     pages_verify: str = "Verify local repository readiness for GitHub Pages publishing."
-    issues_app: str = "Manage GitHub Issues, track milestones, and enforce taxonomy standards."
-    issues_list: str = "List repository issues with milestone, taxonomy labels, and status."
-    issues_view: str = (
+    issue_app: str = "Manage GitHub Issues, track milestones, and enforce taxonomy standards."
+    issue_list: str = "List repository issues with milestone, taxonomy labels, and status."
+    issue_view: str = (
         "Print one issue with its state, milestone, labels, assignees, dates and full body."
     )
-    issues_create: str = "Create a new issue linking milestone and taxonomy labels."
-    issues_triage: str = (
+    issue_create: str = "Create a new issue linking milestone and taxonomy labels."
+    issue_triage: str = (
         "Audit open issues for mandatory taxonomy labels, and report those with no priority/* "
         "label as awaiting intake."
     )
-    issues_status: str = "Display aggregated issue counts by priority, type, and milestone."
-    issues_edit: str = "Edit an existing issue title, body, state, milestone, or taxonomy labels."
-    issues_close: str = (
+    issue_status: str = "Display aggregated issue counts by priority, type, and milestone."
+    issue_edit: str = "Edit an existing issue title, body, state, milestone, or taxonomy labels."
+    issue_close: str = (
         "Close an open issue with its reason, completed or not planned. With --comment-file, the "
         "command posts the comment first, then closes the issue, so a failed close leaves the "
         "comment. It refuses a pull request and an issue that is already closed, because GitHub "
         "ignores a reason unless the state changes."
     )
-    issues_close_number: str = "Number of the issue to close."
-    issues_close_reason: str = (
+    issue_close_number: str = "Number of the issue to close."
+    issue_close_reason: str = (
         "Why the issue closes: completed, or not-planned for a rejected or superseded issue."
     )
-    issues_close_comment_file: str = (
+    issue_close_comment_file: str = (
         "File with the comment to post before the close, such as the evidence for a not-planned close. "
         "Give - to read it from standard input."
     )
-    issues_close_dry_run: str = "Make no request: print the requests a run makes, in order."
+    issue_close_dry_run: str = "Make no request: print the requests a run makes, in order."
     branch_protection_app: str = (
         "Manage classic branch protection policies; does not cover rulesets."
     )
@@ -1234,13 +1234,13 @@ class GHCommandHelp:
         "Target specific branch for protection audit or synchronization."
     )
     branch_protection_policy_file: str = "Path to declarative branch protection policy YAML file."
-    secrets_app: str = "Manage and synchronize libsodium-sealed repository secrets."
-    secrets_sync: str = (
+    secret_app: str = "Manage and synchronize libsodium-sealed repository secrets."
+    secret_sync: str = (
         "Synchronize repository secrets from OS Keyring or HashiCorp Vault with libsodium sealing."
     )
-    secrets_source: str = "Source store for secrets to synchronize (keyring or vault)."
-    secrets_names: str = "Comma-separated list of secret names to synchronize."
-    secrets_vault_path: str = (
+    secret_source: str = "Source store for secrets to synchronize (keyring or vault)."
+    secret_names: str = "Comma-separated list of secret names to synchronize."
+    secret_vault_path: str = (
         "Vault KV-v2 secret path when source is vault (default: secret/devops)."
     )
 

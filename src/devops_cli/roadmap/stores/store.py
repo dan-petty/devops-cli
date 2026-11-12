@@ -108,7 +108,7 @@ def already_closed(number: int, details: dict[str, object]) -> GitHubOperationEr
     unless the state changes, so the close is refused before any write (#1658)."""
     return GitHubOperationError(
         f"#{number} is already closed, and GitHub ignores a reason unless the state changes. "
-        f"Reopen it first with `devops gh issues edit {number} --state open`.",
+        f"Reopen it first with `devops gh issue edit {number} --state open`.",
         operation="roadmap.issue.close",
         details=details,
     )

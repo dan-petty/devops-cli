@@ -194,11 +194,11 @@ def get_gh_pages_resource() -> str:
     )
 
 
-@mcp.resource("resource://gh/issues/status")
-def get_gh_issues_resource() -> str:
+@mcp.resource("resource://gh/issue/status")
+def get_gh_issue_resource() -> str:
     """Return aggregated open GitHub issues counts grouped by priority, type, and milestone."""
     return _run_mcp_cmd(
-        ["uv", "run", "devops", "gh", "issues", "status"],
+        ["uv", "run", "devops", "gh", "issue", "status"],
         timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS,
     )
 

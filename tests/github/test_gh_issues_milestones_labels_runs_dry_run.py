@@ -1,4 +1,4 @@
-"""Tests for dry-run request plans and classifications across gh issues, labels, milestones, runs, roadmap run, and survey.
+"""Tests for dry-run request plans and classifications across gh issue, label, milestones, run, roadmap run, and survey.
 
 Issue #2235: The dry-run rule (#412) states that a dry run makes no external request and
 returns the requests that the real run would make.
@@ -39,14 +39,14 @@ from tests.support.fakes.process import ProcessAnswer, ProcessFake
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 
 REQUEST_PLAN_COMMANDS = [
-    ("issues_create", issues_create_cmd, ["gh", "issues", "create", "--title", "test"]),
-    ("issues_edit", edit_issue_cmd, ["gh", "issues", "edit", "1", "--title", "new-title"]),
-    ("issues_list", issues_list_cmd, ["gh", "issues", "list"]),
-    ("issues_status", issues_status_cmd, ["gh", "issues", "status"]),
-    ("issues_triage", issues_triage_cmd, ["gh", "issues", "triage"]),
-    ("labels_audit", audit_labels, ["gh", "labels", "audit"]),
-    ("labels_list", list_labels, ["gh", "labels", "list"]),
-    ("labels_sync", sync_labels, ["gh", "labels", "sync"]),
+    ("issues_create", issues_create_cmd, ["gh", "issue", "create", "--title", "test"]),
+    ("issues_edit", edit_issue_cmd, ["gh", "issue", "edit", "1", "--title", "new-title"]),
+    ("issues_list", issues_list_cmd, ["gh", "issue", "list"]),
+    ("issues_status", issues_status_cmd, ["gh", "issue", "status"]),
+    ("issues_triage", issues_triage_cmd, ["gh", "issue", "triage"]),
+    ("labels_audit", audit_labels, ["gh", "label", "audit"]),
+    ("labels_list", list_labels, ["gh", "label", "list"]),
+    ("labels_sync", sync_labels, ["gh", "label", "sync"]),
     ("milestones_close", close_milestone, ["gh", "milestones", "close", "v1.0"]),
     (
         "milestones_edit",
@@ -55,8 +55,8 @@ REQUEST_PLAN_COMMANDS = [
     ),
     ("milestones_list", list_milestones, ["gh", "milestones", "list"]),
     ("milestones_status", status_milestone, ["gh", "milestones", "status", "v1.0"]),
-    ("runs_list", runs_list_cmd, ["gh", "runs", "list"]),
-    ("runs_view", runs_view_cmd, ["gh", "runs", "view", "123"]),
+    ("runs_list", runs_list_cmd, ["gh", "run", "list"]),
+    ("runs_view", runs_view_cmd, ["gh", "run", "view", "123"]),
     ("roadmap_run", roadmap_run_cmd, ["roadmap", "run"]),
     ("survey", survey_main, ["survey"]),
 ]
@@ -115,20 +115,20 @@ def test_gaps_file_does_not_contain_the_sixteen_commands() -> None:
     gaps = json.loads(gaps_path.read_text(encoding="utf-8"))
 
     expected_removed = [
-        "gh issues create",
-        "gh issues edit",
-        "gh issues list",
-        "gh issues status",
-        "gh issues triage",
-        "gh labels audit",
-        "gh labels list",
-        "gh labels sync",
+        "gh issue create",
+        "gh issue edit",
+        "gh issue list",
+        "gh issue status",
+        "gh issue triage",
+        "gh label audit",
+        "gh label list",
+        "gh label sync",
         "gh milestones close",
         "gh milestones edit",
         "gh milestones list",
         "gh milestones status",
-        "gh runs list",
-        "gh runs view",
+        "gh run list",
+        "gh run view",
         "roadmap run",
         "survey",
     ]
@@ -167,7 +167,7 @@ def test_runs_list_json_dry_run_output(
     monkeypatch.setattr(
         "devops_cli.core.repo.get_repo_origin_name", lambda *args, **kwargs: "dan-petty/devops-cli"
     )
-    res = cli("gh", "runs", "list", "--dry-run", "--format", "json")
+    res = cli("gh", "run", "list", "--dry-run", "--format", "json")
     assert res.exit_code == 0, res.output
     data = json.loads(res.output)
     assert data["dry_run"] is True
@@ -280,7 +280,7 @@ def test_additional_branch_coverage_for_dry_run_commands(
     # 3. Issues edit with milestone, labels, and clear_milestone
     res_ie = cli(
         "gh",
-        "issues",
+        "issue",
         "edit",
         "42",
         "--title",
@@ -298,7 +298,7 @@ def test_additional_branch_coverage_for_dry_run_commands(
 
     res_ie_clear = cli(
         "gh",
-        "issues",
+        "issue",
         "edit",
         "42",
         "--clear-milestone",
@@ -310,7 +310,7 @@ def test_additional_branch_coverage_for_dry_run_commands(
     assert "Plan for editing issue" in res_ie_clear.output
 
     # 4. Runs list with branch
-    res_rl = cli("gh", "runs", "list", "--branch", "feature-x", "--dry-run", "-R", "owner/repo")
+    res_rl = cli("gh", "run", "list", "--branch", "feature-x", "--dry-run", "-R", "owner/repo")
     assert res_rl.exit_code == 0
     assert "Plan for listing workflow runs" in res_rl.output
 
@@ -350,6 +350,6 @@ def test_additional_branch_coverage_for_dry_run_commands(
     )
     assert "issue" in built_cmd
 
-    res_json = cli("gh", "runs", "list", "--format", "json", "--dry-run", "-R", "owner/repo")
+    res_json = cli("gh", "run", "list", "--format", "json", "--dry-run", "-R", "owner/repo")
     assert res_json.exit_code == 0
     assert '"dry_run": true' in res_json.output

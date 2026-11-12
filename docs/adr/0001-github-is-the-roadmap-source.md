@@ -13,5 +13,5 @@ The roadmap used to live in a hand-edited `docs/ROADMAP.md` that was synced out 
 
 ## Consequences
 
-- `devops gh issues sync-roadmap` and `reconcile-roadmap` are removed rather than kept alongside the new flow, per the pre-1.0 policy.
+- `devops gh issue sync-roadmap` and `reconcile-roadmap` are removed rather than kept alongside the new flow, per the pre-1.0 policy.
 - Task files stop carrying status, milestone and priority, because GitHub owns those.

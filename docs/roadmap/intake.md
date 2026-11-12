@@ -40,7 +40,7 @@ A run can stop after it filed a new candidate. The next run finds the open issue
 To keep an issue off the roadmap, close it as not planned:
 
 ```text
-devops gh issues close <number> --reason not-planned
+devops gh issue close <number> --reason not-planned
 ```
 
 ## Jev for the proposal

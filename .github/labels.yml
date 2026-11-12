@@ -2,7 +2,7 @@
 # The package declares the workflow labels that the roadmap code reads or
 # writes (src/devops_cli/roadmap/workflow_labels.py, #4652), so this file
 # holds none of them. Each color is a design token color (LabelColor).
-# Synced via: devops gh labels sync
+# Synced via: devops gh label sync
 
 # ── Scope Labels ────────────────────────────────────────────────────────────
 - name: "scope/ai"
