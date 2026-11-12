@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import shutil
 import subprocess
 import tarfile
 from pathlib import Path
@@ -19,7 +20,18 @@ from tests.support.fakes.process import ProcessAnswer, ProcessCall
 
 
 @pytest.fixture(autouse=True)
-def _stub_git(git_fake: GitFake) -> GitFake:
+def _stub_git(git_fake: GitFake, monkeypatch: pytest.MonkeyPatch) -> GitFake:
+    """git and `kubectl kustomize` answer from the fake. The lookup of kubectl on PATH is part of
+    its fake, so the gate finds kubectl on a host that holds none, such as the runner image of the
+    roadmap jobs (#5132)."""
+    real_which = shutil.which
+
+    def which(cmd: str, *args: Any, **kwargs: Any) -> str | None:
+        if Path(cmd).name == "kubectl":
+            return "/usr/local/bin/kubectl"
+        return real_which(cmd, *args, **kwargs)
+
+    monkeypatch.setattr(shutil, "which", which)
     git_fake.answer(
         lambda call: "config" in call.argv and "remote.origin.url" in call.argv,
         ProcessAnswer(returncode=1, stdout="", stderr=""),

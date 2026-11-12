@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import subprocess
 from collections.abc import Callable, Iterator
 from importlib.resources import files
 from pathlib import Path
@@ -10,6 +9,7 @@ from typing import Any
 
 import httpx2
 import pytest
+import yaml
 
 from devops_cli.dry_run.state import set_dry_run
 from devops_cli.exceptions.k8s import ImagePinError
@@ -73,14 +73,22 @@ spec:
 """
 
 
-def _real_kustomize(call: ProcessCall) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(list(call.argv), capture_output=True, text=True, check=False)
+def _kustomize(call: ProcessCall) -> ProcessAnswer:
+    """`kubectl kustomize <directory>` prints each resource that the kustomization of the directory
+    lists, as one YAML stream."""
+    directory = Path(call.argv[2])
+    kustomization = yaml.safe_load((directory / "kustomization.yaml").read_text(encoding="utf-8"))
+    resources = [
+        (directory / name).read_text(encoding="utf-8") for name in kustomization["resources"]
+    ]
+    return ProcessAnswer(stdout="---\n".join(resources))
 
 
 @pytest.fixture(autouse=True)
-def _kustomize_runs_for_real(process_fake: ProcessFake) -> Iterator[None]:
-    """The renders of a path source run the real `kubectl kustomize`; helm answers from a test."""
-    process_fake.answer(("kubectl", "kustomize"), ProcessAnswer(side_effect=_real_kustomize))
+def _kustomize_answers(process_fake: ProcessFake) -> Iterator[None]:
+    """`kubectl kustomize` answers from the files of the tree, and helm answers from a test. The
+    `image-pins` workflow runs the real kubectl and helm over the committed Applications (#5132)."""
+    process_fake.answer(("kubectl", "kustomize"), _kustomize)
     yield
 
 
@@ -118,17 +126,23 @@ def _chart_answers(
     """`helm template` writes the canned chart, with two things that the real charts write and that
     PyYAML refuses, which the committed fixture cannot hold (the repository's hooks read it with
     PyYAML): the tab after a value of the `prometheus` chart's Alertmanager StatefulSet, and the
-    lone `=` of a CRD schema of `prometheus-operator-crds`. `alertmanager` is the image that the
-    value files give the StatefulSet."""
-    rendered = (
-        _CHART_RENDER.read_text(encoding="utf-8")
-        .replace("- apiVersion: v1\n", "- apiVersion: v1\t\n", 1)
-        .replace('- "="\n', "- =\n", 1)
-        .replace(_ALERTMANAGER, alertmanager)
+    lone `=` of a CRD schema of `prometheus-operator-crds`. `kubectl kustomize` of the chart's
+    output writes it again as YAML that PyYAML reads, which the committed fixture holds.
+    `alertmanager` is the image that the value files give the StatefulSet."""
+    normalized = _CHART_RENDER.read_text(encoding="utf-8").replace(_ALERTMANAGER, alertmanager)
+    rendered = normalized.replace("- apiVersion: v1\n", "- apiVersion: v1\t\n", 1).replace(
+        '- "="\n', "- =\n", 1
     )
     stdout = rendered if returncode == 0 else ""
     process_fake.answer(
         ("helm", "template"), ProcessAnswer(returncode=returncode, stdout=stdout, stderr=stderr)
+    )
+    process_fake.answer(
+        lambda call: (
+            call.argv[:2] == ("kubectl", "kustomize")
+            and (Path(call.argv[2]) / "chart.yaml").is_file()
+        ),
+        ProcessAnswer(stdout=normalized),
     )
 
 

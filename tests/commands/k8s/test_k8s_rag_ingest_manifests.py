@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 import math
-import subprocess
 from pathlib import Path
-from typing import Any
 
 import yaml
 from typer.testing import CliRunner
@@ -26,48 +24,6 @@ def cron_schedule_for_poll_interval(interval_seconds: int) -> str:
     """The shortest whole-minute cron period that is not shorter than interval_seconds."""
     minutes = max(1, math.ceil(interval_seconds / 60))
     return f"*/{minutes} * * * *"
-
-
-def _rendered_devops_manifests() -> list[dict[str, Any]]:
-    """Render k8s/devops offline via kubectl kustomize."""
-    res = subprocess.run(
-        ["kubectl", "kustomize", str(DEVOPS_DIR)],
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-    docs = [d for d in yaml.safe_load_all(res.stdout) if isinstance(d, dict)]
-    return docs
-
-
-def _extract_secret_refs(node: Any) -> set[str]:
-    """Collect all secret names referenced in a Kubernetes manifest."""
-    refs: set[str] = set()
-    stack = [node]
-    while stack:
-        curr = stack.pop()
-        if isinstance(curr, dict):
-            if "secretRef" in curr and isinstance(curr["secretRef"], dict):
-                refs.add(curr["secretRef"].get("name", ""))
-            if "secretKeyRef" in curr and isinstance(curr["secretKeyRef"], dict):
-                refs.add(curr["secretKeyRef"].get("name", ""))
-            if "secret" in curr and isinstance(curr["secret"], dict):
-                refs.add(curr["secret"].get("secretName", ""))
-            stack.extend(curr.values())
-        elif isinstance(curr, list):
-            stack.extend(curr)
-    return refs
-
-
-def test_qdrant_secret_scoped_to_ingest_workflow_template_only() -> None:
-    """The stack references Secret qdrant-api-key from the ingest WorkflowTemplate only."""
-    docs = _rendered_devops_manifests()
-    secret_references = {
-        f"{doc.get('kind', '')}/{doc.get('metadata', {}).get('name', '')}": refs
-        for doc in docs
-        if "qdrant-api-key" in (refs := _extract_secret_refs(doc))
-    }
-    assert list(secret_references.keys()) == ["WorkflowTemplate/rag-ingest"]
 
 
 def test_network_policy_selects_only_ingest_pods_for_qdrant_6333() -> None:

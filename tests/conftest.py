@@ -537,24 +537,16 @@ def prevent_external_network_calls() -> Iterator[None]:
         pytest.fail(f"Edge reached outside a test: {late_reaches}", pytrace=False)
 
 
-def _is_allowed_kubectl_renderer(words: list[str]) -> bool:
-    """Report whether `kubectl` argv invokes an offline renderer (`kustomize` or `patch --local`)."""
-    if len(words) < 2:
-        return False
-    subcommand = words[1]
-    if subcommand == "kustomize":
-        return True
-    if subcommand == "patch":
-        return any(token == "--local" or token.startswith("--local=") for token in words[2:])
-    return False
-
-
 def _is_allowed_process(words: list[str]) -> bool:
-    """Report whether `words` names an allowed process (`git`, `bwrap` in a `bwrap` test, offline kubectl, or `@pytest.mark.live`).
+    """Report whether `words` names an allowed process (`git`, `bwrap` in a `bwrap` test, or `@pytest.mark.live`).
 
     A review runs its tools in the sandbox by default (#2096), so a real tool would start as the
     program that bubblewrap confines, where a refusal by its name does not see it. Bubblewrap
-    therefore starts only in a test with the `bwrap` mark, which runs the real sandbox.
+    therefore starts only in a test with the `bwrap` mark, which runs the real sandbox. kubectl
+    has no allowance, also not for its offline renderers `kubectl kustomize` and `kubectl patch
+    --local` (ADR 0007): the runner image of the roadmap jobs holds no kubectl, so a test that
+    needs the real binary fails there (#5132). The `k8s` row of `devops ci` renders the
+    committed manifests.
     """
     if not words:
         return True
@@ -564,14 +556,12 @@ def _is_allowed_process(words: list[str]) -> bool:
         return True
     if program == "bwrap":
         return _BWRAP_TEST[0]
-    if program in _ALLOWED_LIVE_BINARIES or raw_program in _ALLOWED_LIVE_BINARIES:
-        return True
-    return program == "kubectl" and _is_allowed_kubectl_renderer(words)
+    return program in _ALLOWED_LIVE_BINARIES or raw_program in _ALLOWED_LIVE_BINARIES
 
 
 @pytest.fixture(autouse=True, scope="session")
 def refuse_real_programs() -> None:
-    """Deny any process other than git, bwrap, offline kubectl renderers, or `@pytest.mark.live` tools (#1310).
+    """Deny any process other than git, bwrap, or `@pytest.mark.live` tools (#1310, #5132).
 
     The refusal sits on `subprocess.Popen`, beneath `run_subprocess`, `run_gh`, `subprocess.run`
     and asyncio's subprocesses, so a test that fakes any of those is untouched and only a program
