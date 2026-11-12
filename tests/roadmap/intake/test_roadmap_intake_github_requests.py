@@ -139,8 +139,8 @@ def test_a_value_a_person_sets_between_the_plan_and_its_write_stays_and_the_next
 ):
     """A person labels the candidate `value/high` between the plan and the writes: the Value
     write refuses without a failure, so the candidate keeps the person's Value and no Priority. The next run
-    finds it a candidate again and writes only Effort, its reason comment, which gives no
-    Value, and Priority. The job record claims no Value (#1404, ADR 0002)."""
+    finds it a candidate again and writes only Effort and Priority: the labels show each fact,
+    so it posts no reason comment (#4836). The job record claims no Value (#1404, ADR 0002)."""
     github, store = on_github()
     github.seed_issue(1, "feat: issue one", labels=("type/feature",))
     _, apply = intake_on_github(store, FakeModel())
@@ -149,21 +149,18 @@ def test_a_value_a_person_sets_between_the_plan_and_its_write_stays_and_the_next
     later = GitHubRoadmapStore(REPO, runner=github, session=RunnerSession(github))
     _, apply_again = intake_on_github(later, FakeModel())
     second = apply_again()
-    comments = github.comments.get(1, [])
     assert (
         first.failed,
         second.placed,
         github.labels(1),
         _record(github, 1),
-        len(comments),
-        "- Value:" in comments[0],
+        github.comments.get(1, []),
     ) == (
         (),
         1,
         ["type/feature", "value/high", "status/new", "effort/low", "priority/p2-medium"],
         {"Effort": "Low", "Priority": "P2-Medium", "Status": "New"},
-        1,
-        False,
+        [],
     )
 
 

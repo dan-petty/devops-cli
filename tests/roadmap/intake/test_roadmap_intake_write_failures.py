@@ -41,16 +41,17 @@ def test_a_run_that_stops_after_the_status_write_is_finished_by_the_next_run(
     roadmap: Roadmap,
 ) -> None:
     """A run that wrote Status and stopped leaves a candidate: the next run decides it again,
-    writes only what it holds no label for, and leaves one reason comment."""
+    writes only what it holds no label for, and leaves one reason comment for its P1-High."""
     number = roadmap.issue("feat: resumable")
     roadmap.store.fail_write(write="set_field", applied=True)
+    urgent = FakeModel(proposals={"feat: resumable": {"priority": "P1-High"}})
     with pytest.raises(
         RoadmapIntakeError,
         match=f"#{number} \\(GitHubOperationError: HTTP 502 after the write applied\\)",
     ):
-        roadmap.run(FakeModel())
+        roadmap.run(urgent)
     stopped = roadmap.fields(number)
-    writes = roadmap.run(FakeModel())
+    writes = roadmap.run(urgent)
     assert (
         stopped,
         roadmap.fields(number),
@@ -59,7 +60,7 @@ def test_a_run_that_stops_after_the_status_write_is_finished_by_the_next_run(
         [(w.operation, w.key) for w in writes],
     ) == (
         ("New", None, None, None, None),
-        ("New", "P2-Medium", "Medium", "Low", None),
+        ("New", "P1-High", "Medium", "Low", None),
         1,
         ("type/feature",),
         [
