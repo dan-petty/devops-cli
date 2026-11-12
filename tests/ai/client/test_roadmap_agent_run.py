@@ -598,6 +598,50 @@ def test_a_run_on_a_local_group_that_no_reply_names_stays_local(
     assert _spend_row(spend_ledger) == (None, "local", 0.0)
 
 
+def test_a_run_on_a_local_group_whose_reply_names_the_group_is_local(
+    spend_ledger: SpendLedger,
+    config: Callable[..., Any],
+    otlp: FakeCollector,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Verify a run on a local group keeps its local record, its local tokens and no warning when
+    the gateway reply names the group, as a LiteLLM reply does (#4523)."""
+    with caplog.at_level(logging.WARNING, logger="devops_cli.ai.spend.pricing"):
+        _run_on_the_gateway(config, "devops-coder", "devops-coder")
+
+    local_labels = {a["local"] for a, _v in otlp.points("devops_cli_ai_tokens_total")}
+    warnings = [r.getMessage() for r in caplog.records if "devops-coder" in r.getMessage()]
+    assert (_spend_row(spend_ledger), local_labels, warnings) == (
+        ("devops-coder", "local", 0.0),
+        {"true"},
+        [],
+    )
+
+
+def test_a_hosted_group_that_a_local_group_answers_is_local(
+    spend_ledger: SpendLedger, config: Callable[..., Any]
+) -> None:
+    """Verify a gateway fallback from a hosted group to a local group is priced at the group that
+    answered: the record is local at $0 (#4523)."""
+    _run_on_the_gateway(config, "deepseek-v4.1-flash-1017", "devops-coder")
+
+    assert _spend_row(spend_ledger) == ("devops-coder", "local", 0.0)
+
+
+def test_a_local_group_that_a_hosted_group_answers_is_priced_at_the_hosted_group(
+    spend_ledger: SpendLedger, config: Callable[..., Any]
+) -> None:
+    """Verify a gateway fallback from a local group to a hosted group is priced at the hosted
+    group that answered, and not at the local group that the run asked for (#4523)."""
+    _run_on_the_gateway(config, "devops-coder", "deepseek-v4.1-flash-1017")
+
+    served_model, pricing_source, _cost = _spend_row(spend_ledger)
+    assert (served_model, pricing_source) == (
+        "deepseek-v4.1-flash-1017",
+        "builtin:hosted_group_prices",
+    )
+
+
 def test_a_reply_that_names_a_model_keeps_that_name_for_the_price(
     spend_ledger: SpendLedger, config: Callable[..., Any]
 ) -> None:
