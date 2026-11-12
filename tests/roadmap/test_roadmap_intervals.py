@@ -20,7 +20,7 @@ def _is_prime(number: int) -> bool:
 
 
 def test_interval_constants_are_found() -> None:
-    assert len(INTERVALS) == 11
+    assert len(INTERVALS) == 12
 
 
 @pytest.mark.parametrize("name", INTERVALS)

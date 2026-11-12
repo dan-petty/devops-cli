@@ -446,8 +446,8 @@ ROADMAP_ROW_SECONDS = Instrument(
     "s",
     "Seconds that a roadmap row took to run, one sample for each run, by repo, row and result: "
     "success, error or stopped. A row that is not due, that the failure ledger suspends, or "
-    "that a clone failure keeps from running adds no sample. One repository adds at most 36 "
-    "series: 12 rows and 3 results",
+    "that a clone failure keeps from running adds no sample. One repository adds at most 39 "
+    "series: 13 rows and 3 results",
 )
 ROADMAP_STEP_SECONDS = Instrument(
     "devops_cli_roadmap_step_seconds",

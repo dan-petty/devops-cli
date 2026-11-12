@@ -656,6 +656,20 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
     ),
     "DEFAULT_ROADMAP_RELEASE_COMMENTS_INTERVAL_MINUTES": ("other", "a schedule"),
     "DEFAULT_ROADMAP_PR_CONFLICTS_INTERVAL_MINUTES": ("other", "a schedule"),
+    "DEFAULT_ROADMAP_FIX_PLAN_INTERVAL_MINUTES": ("other", "a schedule"),
+    "CONST_ROADMAP_FIX_PLAN_HEAD_ATTEMPTS": (
+        "kept",
+        "the model spend on one head of a plan pull request: a third try of the same input "
+        "seldom gives a better plan",
+    ),
+    "CONST_ROADMAP_FIX_PLAN_WAIT_HOURS": (
+        "kept",
+        "the time between two attempts of one plan, so the model lane serves the other rows",
+    ),
+    "CONST_ROADMAP_FIX_PLAN_REVISIONS": (
+        "kept",
+        "the heads that a fix step pushes to one pull request (ADR 0021 section 8)",
+    ),
 }
 
 # The window of the planner in the example ConfigMap of the stack, which no raised cap passes.
