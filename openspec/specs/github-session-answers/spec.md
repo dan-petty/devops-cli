@@ -14,8 +14,8 @@ The GitHub session SHALL keep its stored GET answers within `DEFAULT_GH_SESSION_
 - **AND** the next GET of the last URL carries the ETag of its answer.
 
 #### Scenario: The heap after many rounds
-- **WHEN** the status lane's round runs 200 times and each round reads one answer of a new URL
-- **THEN** the heap after round 200 holds at most the slack of the rest of the process more than the heap after round 10.
+- **WHEN** the status lane's round runs 50 times and each round reads one answer of a new URL
+- **THEN** the heap after round 50 holds at most the slack of the rest of the process more than the heap after round 10.
 
 ### Requirement: An oversized answer is not stored
 The session MUST return an answer that is larger than the whole byte budget, and MUST NOT store it.

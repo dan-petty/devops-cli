@@ -100,7 +100,7 @@ REQUEST_PLAN_COMMANDS = [
     ("ai research socratic", socratic_cmd, ["ai", "research", "socratic", "question", "--dry-run"]),
 ]
 
-NO_EXTERNAL_REQUEST_COMMANDS = [
+IN_PLACE_COMMANDS = [
     ("ai analyze", analyze_main, ["--dry-run", "ai", "analyze", "--explain"]),
     ("ai ingest library", ingest_library, ["--dry-run", "ai", "ingest", "library", "devops_cli"]),
     ("ai rag", rag_main, ["--dry-run", "ai", "rag", "--explain"]),
@@ -109,8 +109,18 @@ NO_EXTERNAL_REQUEST_COMMANDS = [
         annotate_cmd,
         ["--dry-run", "ai", "research", "annotate", "README.md"],
     ),
-    ("ai research forage", forage_cmd, ["--dry-run", "ai", "research", "forage", "pyproject.toml"]),
 ]
+"""The no-external-request commands that run on this checkout."""
+
+FORAGE_COMMAND = (
+    "ai research forage",
+    forage_cmd,
+    ["--dry-run", "ai", "research", "forage", "pyproject.toml"],
+)
+"""Forage crawls the repository and reads the git history of each file it visits, so its test
+gives it a directory of one file with `--repo`."""
+
+NO_EXTERNAL_REQUEST_COMMANDS = [*IN_PLACE_COMMANDS, FORAGE_COMMAND]
 
 
 @pytest.fixture(autouse=True)
@@ -204,10 +214,20 @@ def test_request_plan_flag_order_global_dry_run(name: str, callback: Any, argv: 
     )
 
 
-@pytest.mark.parametrize("name,callback,argv", NO_EXTERNAL_REQUEST_COMMANDS)
+@pytest.mark.parametrize("name,callback,argv", IN_PLACE_COMMANDS)
 def test_no_external_request_commands_run(name: str, callback: Any, argv: list[str]) -> None:
     """Test commands classified as no-external-request run normally without error."""
     result = runner.invoke(app, argv)
+    assert result.exit_code == 0, f"{name} failed with {result.output}"
+
+
+def test_forage_dry_run_runs_on_the_repository_it_is_given(tmp_path: Path) -> None:
+    """The forage dry run runs normally on a directory of one file that `--repo` names."""
+    (tmp_path / "pyproject.toml").write_text('[project]\nname = "example"\n', encoding="utf-8")
+    name, _, argv = FORAGE_COMMAND
+
+    result = runner.invoke(app, [*argv, "--repo", str(tmp_path)])
+
     assert result.exit_code == 0, f"{name} failed with {result.output}"
 
 

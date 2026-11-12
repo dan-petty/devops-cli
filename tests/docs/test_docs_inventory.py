@@ -27,10 +27,10 @@ from devops_cli.core.repo import list_repo_files
 from devops_cli.docs.generator import DocGenerator
 from devops_cli.docs.inventory import document_class, hand_written_documents
 from devops_cli.docs.markdown_argv_collector import (
-    check_documented_argv,
     collect_documented_argv_references,
     is_pattern_entry,
 )
+from devops_cli.docs.source_argv_collector import describe_unresolved_references
 from tests.support.paths import REPO_ROOT
 
 
@@ -169,8 +169,8 @@ def test_the_generated_class_is_what_the_generator_writes() -> None:
 def test_every_hand_written_document_names_only_real_commands() -> None:
     """Verify every `devops` command line in a hand-written or prompt document, the knowledge
     base included, resolves statically against the live command tree."""
-    problems = check_documented_argv(REPO_ROOT)
     references = collect_documented_argv_references(REPO_ROOT)
+    problems = describe_unresolved_references(references)
 
     documents_read = {reference.path for reference in references}
     cli_reference_lines = sum(

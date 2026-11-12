@@ -220,17 +220,7 @@ def test_docs_cli_generate_and_check(runner: CliRunner, tmp_path: Path) -> None:
     )
     assert gen_check_res.exit_code == 0
 
-    # JSON export
-    json_res = runner.invoke(
-        docs_app, ["generate", "--format", "json", "--output-dir", str(tmp_path)]
-    )
-    assert json_res.exit_code == 0
-    schema_file = tmp_path / "cli_schema.json"
-    assert schema_file.exists()
-    data = json.loads(schema_file.read_text(encoding="utf-8"))
-    assert "groups" in data
-
-    # Invalid format error
+    # Invalid format error; test_docs_cli_dry_run_and_format_helpers writes the JSON export
     inv_res = runner.invoke(
         docs_app, ["generate", "--format", "xml", "--output-dir", str(tmp_path)]
     )
@@ -419,7 +409,8 @@ def test_docs_cli_dry_run_and_format_helpers(runner: CliRunner, tmp_path: Path) 
             ["generate", "--format", "json", "--output-dir", str(tmp_path)],
         )
         assert res_json_dry.exit_code == 0
-        assert (tmp_path / "cli_schema.json").exists()
+        schema = json.loads((tmp_path / "cli_schema.json").read_text(encoding="utf-8"))
+        assert "groups" in schema
 
         readme = tmp_path / "README.md"
         readme.write_text(

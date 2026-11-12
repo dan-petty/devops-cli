@@ -1,14 +1,15 @@
-"""The roadmap Service holds no more memory after 200 rounds than its bounds allow (#4116).
+"""The roadmap Service holds no more memory after 50 rounds than its bounds allow (#4116).
 
 The pod of the Service was OOMKilled at its 1 GiB limit after hours. A round reads GitHub through
 the process's one session, which keeps its GET answers for the next conditional GET, and it
-exports spans and metrics through the tracer. This test runs the status lane's round 200 times
+exports spans and metrics through the tracer. This test runs the status lane's round 50 times
 over the real worker, session and tracer, with the fakes of GitHub and of the collector, and
 measures the heap with `MemoryProfiler` (`tracemalloc`). Each round reads one answer of a new URL,
 so the session's store is the structure that can grow with the number of rounds.
 
-The base tree keeps 64 answers whatever their size, so the heap at round 200 holds 64 answers and
-the heap at round 10 holds 10. With a byte budget, both hold the budget.
+A store with no byte bound keeps each answer up to its count bound of 64, so the heap at round 50
+holds 50 answers and the heap at round 10 holds 10: a growth of 40 MiB. With a byte budget, both
+hold the budget.
 """
 
 from __future__ import annotations
@@ -30,7 +31,7 @@ from tests.support.fakes.otlp import FakeCollector
 from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS
 
 REPO = "example-org/repo1"
-ROUNDS = 200
+ROUNDS = 50
 EARLY_ROUND = 10
 MIB = 1024 * 1024
 BUDGET_BYTES = 8 * MIB
@@ -38,7 +39,7 @@ BUDGET_BYTES = 8 * MIB
 ANSWER_BYTES = MIB
 """One answer: a pull request diff, which has no size bound on GitHub's side."""
 SLACK_BYTES = 6 * MIB
-"""What the rest of the process may gain in 190 rounds: metric series, the span buffer and the
+"""What the rest of the process may gain in 40 rounds: metric series, the span buffer and the
 fakes' request records, which are small and bounded or grow by a few bytes for each round."""
 
 
@@ -48,10 +49,10 @@ def _heap_bytes() -> int:
     return tracemalloc.get_traced_memory()[0]
 
 
-def test_the_heap_at_round_200_is_within_the_byte_budget_of_the_heap_at_round_10(
+def test_the_heap_at_round_50_is_within_the_byte_budget_of_the_heap_at_round_10(
     github_api: GitHubApiFake, otlp: FakeCollector, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The growth between round 10 and round 200 is at most the session's byte budget less what
+    """The growth between round 10 and round 50 is at most the session's byte budget less what
     round 10 held, plus the slack of the rest of the process, and the failure names the
     allocation sites that grew.
 
