@@ -6,8 +6,6 @@ returns the requests that the real run would make.
 
 from __future__ import annotations
 
-import socket
-import subprocess
 from typing import Any
 
 import pytest
@@ -35,8 +33,8 @@ from devops_cli.commands.k8s.security_audit import (
     k8s_audit,
     rbac_audit,
 )
-from devops_cli.dry_run import get_dry_run_class
 from devops_cli.main import app
+from tests.support.dry_run_classes import misclassified
 
 runner = CliRunner()
 
@@ -65,40 +63,10 @@ NO_EXTERNAL_REQUEST_COMMANDS = [
 ]
 
 
-@pytest.fixture
-def block_external_calls(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Ensure no real subprocess, socket, or process executions occur during dry-run."""
-
-    def _fail_process(*args: Any, **kwargs: Any) -> Any:
-        raise AssertionError(f"Unexpected process invocation: {args}, {kwargs}")
-
-    def _fail_socket(*args: Any, **kwargs: Any) -> Any:
-        raise AssertionError(f"Unexpected socket call: {args}, {kwargs}")
-
-    monkeypatch.setattr(subprocess, "run", _fail_process)
-    monkeypatch.setattr(subprocess, "Popen", _fail_process)
-    monkeypatch.setattr(socket, "socket", _fail_socket)
-    monkeypatch.setattr(socket, "create_connection", _fail_socket)
-
-
-@pytest.mark.parametrize("cmd_name,callback,argv", REQUEST_PLAN_COMMANDS)
-def test_request_plan_commands_classified(cmd_name: str, callback: Any, argv: list[str]) -> None:
-    """Verify that external-request commands carry request-plan dry-run class."""
-    cls = get_dry_run_class(callback)
-    assert cls == "request-plan", (
-        f"Command '{cmd_name}' has dry-run class {cls!r}, expected 'request-plan'"
-    )
-
-
-@pytest.mark.parametrize("cmd_name,callback,argv", NO_EXTERNAL_REQUEST_COMMANDS)
-def test_no_external_request_commands_classified(
-    cmd_name: str, callback: Any, argv: list[str]
-) -> None:
-    """Verify that local commands carry no-external-request dry-run class."""
-    cls = get_dry_run_class(callback)
-    assert cls == "no-external-request", (
-        f"Command '{cmd_name}' has dry-run class {cls!r}, expected 'no-external-request'"
-    )
+def test_commands_carry_their_dry_run_class() -> None:
+    """Cluster commands carry request-plan, and local k8s commands carry no-external-request."""
+    assert misclassified(REQUEST_PLAN_COMMANDS, "request-plan") == {}
+    assert misclassified(NO_EXTERNAL_REQUEST_COMMANDS, "no-external-request") == {}
 
 
 @pytest.mark.parametrize("cmd_name,callback,argv", REQUEST_PLAN_COMMANDS)
@@ -106,7 +74,7 @@ def test_request_plan_commands_zero_external_calls(
     cmd_name: str,
     callback: Any,
     argv: list[str],
-    block_external_calls: None,
+    refuse_requests: list[str],
 ) -> None:
     """Executing request-plan command with --dry-run makes zero external calls."""
     res = runner.invoke(app, argv)
@@ -122,7 +90,7 @@ def test_request_plan_commands_zero_external_calls(
 
 
 def test_port_forward_stop_dry_run_local_preview(
-    block_external_calls: None, monkeypatch: pytest.MonkeyPatch
+    refuse_requests: list[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Executing k8s port-forward-stop --dry-run prints preview and terminates no daemon."""
     from devops_cli.k8s.port_forward_daemon import PortForwardDaemonManager
@@ -136,7 +104,7 @@ def test_port_forward_stop_dry_run_local_preview(
     assert "Would terminate" in res.output or "dry-run" in res.output.lower()
 
 
-def test_gpu_matrix_no_external_request_runs_under_root_proxy(block_external_calls: None) -> None:
+def test_gpu_matrix_no_external_request_runs_under_root_proxy(refuse_requests: list[str]) -> None:
     """Executing devops --dry-run k8s gpu-matrix runs normally without external calls."""
     res = runner.invoke(app, ["--dry-run", "k8s", "gpu-matrix"])
     assert res.exit_code == 0, res.output
@@ -144,7 +112,7 @@ def test_gpu_matrix_no_external_request_runs_under_root_proxy(block_external_cal
 
 
 def test_port_forward_status_no_external_request_runs_under_root_proxy(
-    block_external_calls: None,
+    refuse_requests: list[str],
 ) -> None:
     """Executing devops --dry-run k8s port-forward-status runs normally without external calls."""
     res = runner.invoke(app, ["--dry-run", "k8s", "port-forward-status"])
@@ -234,7 +202,7 @@ def test_plan_k8s_service_url_variations() -> None:
 
 
 def test_k8s_port_forward_stop_with_service_filter(
-    block_external_calls: None,
+    refuse_requests: list[str],
 ) -> None:
     """Executing k8s port-forward-stop with --service filter previews correctly."""
     res = runner.invoke(app, ["k8s", "port-forward-stop", "--service", "ollama", "--dry-run"])
@@ -242,7 +210,7 @@ def test_k8s_port_forward_stop_with_service_filter(
     assert "Would terminate" in res.output
 
 
-def test_k8s_service_url_fetch_dry_run(block_external_calls: None) -> None:
+def test_k8s_service_url_fetch_dry_run(refuse_requests: list[str]) -> None:
     """Executing k8s service-url with --fetch and --dry-run prints planned GET request."""
     res = runner.invoke(app, ["k8s", "service-url", "grafana", "--fetch", "--dry-run"])
     assert res.exit_code == 0, res.output

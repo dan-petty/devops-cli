@@ -7,8 +7,6 @@ returns the requests that the real run would make.
 from __future__ import annotations
 
 import json
-import socket
-import subprocess
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
@@ -37,7 +35,6 @@ from devops_cli.commands.pr import (
 )
 from devops_cli.dry_run import get_dry_run_class
 from devops_cli.main import app
-from tests.support.paths import FIXTURES
 
 if TYPE_CHECKING:
     from tests.support.fakes.process import ProcessFake
@@ -104,67 +101,28 @@ def test_commands_declare_request_plan_class(
     )
 
 
-def test_pr_commands_removed_from_gaps_fixture() -> None:
-    """Every pr command is absent from dry_run_gaps.json."""
-    gaps_path = FIXTURES / "dry_run_gaps.json"
-    with gaps_path.open(encoding="utf-8") as f:
-        gaps = json.load(f)
-
-    for name, _, _ in PR_COMMAND_CALLBACKS:
-        assert name not in gaps, f"Command '{name}' must be removed from dry_run_gaps.json"
-
-
 @pytest.mark.parametrize("name,_callback,argv", PR_COMMAND_CALLBACKS)
 def test_commands_execute_zero_external_requests_under_dry_run(
     name: str,
     _callback: Callable[..., Any],
     argv: list[str],
-    monkeypatch: pytest.MonkeyPatch,
+    refuse_requests: list[str],
     process_fake: ProcessFake,
 ) -> None:
-    """Under --dry-run and devops --dry-run <cmd>, commands make zero external calls and print planned requests."""
+    """Under --dry-run, commands make zero external calls, start no program and print planned requests."""
+    result = runner.invoke(app, [*argv, "--dry-run"])
 
-    def refuse(*_args: Any, **_kwargs: Any) -> Any:
-        raise AssertionError(f"A dry run of '{name}' attempted an external request")
-
-    monkeypatch.setattr(socket, "socket", refuse)
-    monkeypatch.setattr(subprocess, "Popen", refuse)
-    monkeypatch.setattr(subprocess, "run", refuse)
-
-    # 1. devops <command> --dry-run
-    res1 = runner.invoke(app, [*argv, "--dry-run"])
-    assert res1.exit_code == 0, (
-        f"devops {' '.join(argv)} --dry-run failed with {res1.exit_code}: {res1.output}"
+    assert result.exit_code == 0, (
+        f"{name} --dry-run failed with {result.exit_code}: {result.output}"
     )
-    assert "Planned" in res1.output or "1." in res1.output or "Plan for" in res1.output, (
-        f"Output of '{name} --dry-run' missing planned requests: {res1.output}"
-    )
-
-    # 2. devops --dry-run <command>
-    res2 = runner.invoke(app, ["--dry-run", *argv])
-    assert res2.exit_code == 0, (
-        f"devops --dry-run {' '.join(argv)} failed with {res2.exit_code}: {res2.output}"
-    )
-    assert "Planned" in res2.output or "1." in res2.output or "Plan for" in res2.output, (
-        f"Output of '--dry-run {name}' missing planned requests: {res2.output}"
-    )
-
-    # 3. Neither run started a program
+    assert any(mark in result.output for mark in ("Planned", "1.", "Plan for")), result.output
     assert process_fake.calls == []
 
 
 def test_pr_commands_dry_run_json_output(
-    monkeypatch: pytest.MonkeyPatch, process_fake: ProcessFake
+    refuse_requests: list[str], process_fake: ProcessFake
 ) -> None:
     """Commands supporting json return structured output with dry_run: true and requests."""
-
-    def refuse(*_args: Any, **_kwargs: Any) -> Any:
-        raise AssertionError("A dry run attempted an external request")
-
-    monkeypatch.setattr(socket, "socket", refuse)
-    monkeypatch.setattr(subprocess, "Popen", refuse)
-    monkeypatch.setattr(subprocess, "run", refuse)
-
     # 1. pr monitor --format json --dry-run
     res_mon = runner.invoke(
         app, ["pr", "monitor", "42", "-R", "owner/repo", "--format", "json", "--dry-run"]

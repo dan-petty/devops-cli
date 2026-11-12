@@ -30,8 +30,8 @@ from devops_cli.commands.tf import (
     tf_plan,
     tf_validate,
 )
-from devops_cli.dry_run import get_dry_run_class
 from devops_cli.main import app
+from tests.support.dry_run_classes import misclassified
 
 runner = CliRunner()
 
@@ -57,39 +57,10 @@ NO_EXTERNAL_REQUEST_COMMANDS = [
 ]
 
 
-@pytest.fixture
-def block_external_calls(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Ensure no subprocess, network, or external socket calls execute during tests."""
-
-    def _fail_subprocess(*args: Any, **kwargs: Any) -> Any:
-        raise AssertionError(f"Subprocess call attempted during dry-run: {args} {kwargs}")
-
-    monkeypatch.setattr("subprocess.run", _fail_subprocess)
-    monkeypatch.setattr("subprocess.Popen", _fail_subprocess)
-
-
-@pytest.mark.parametrize("name,callback,_argv", REQUEST_PLAN_COMMANDS)
-def test_request_plan_commands_classified_correctly(
-    name: str,
-    callback: Any,
-    _argv: list[str],
-) -> None:
-    """Criterion 2: external-request commands carry the request-plan classification."""
-    assert get_dry_run_class(callback) == "request-plan", (
-        f"Command '{name}' must have dry_run_class 'request-plan'"
-    )
-
-
-@pytest.mark.parametrize("name,callback,_argv", NO_EXTERNAL_REQUEST_COMMANDS)
-def test_no_external_request_commands_classified_correctly(
-    name: str,
-    callback: Any,
-    _argv: list[str],
-) -> None:
-    """Criterion 3: local commands carry the no-external-request classification."""
-    assert get_dry_run_class(callback) == "no-external-request", (
-        f"Command '{name}' must have dry_run_class 'no-external-request'"
-    )
+def test_commands_carry_their_dry_run_class() -> None:
+    """Criteria 2 and 3: OpenTofu commands that call out carry request-plan, local ones no-external-request."""
+    assert misclassified(REQUEST_PLAN_COMMANDS, "request-plan") == {}
+    assert misclassified(NO_EXTERNAL_REQUEST_COMMANDS, "no-external-request") == {}
 
 
 @pytest.mark.parametrize("name,_callback,argv", REQUEST_PLAN_COMMANDS)
@@ -97,7 +68,7 @@ def test_request_plan_commands_make_no_external_request(
     name: str,
     _callback: Any,
     argv: list[str],
-    block_external_calls: None,
+    refuse_requests: list[str],
     tmp_path: Path,
 ) -> None:
     """Criterion 4 & 5: request-plan commands make no external calls and output plans."""
@@ -115,7 +86,7 @@ def test_request_plan_commands_make_no_external_request(
 
 
 def test_request_plan_json_output(
-    block_external_calls: None,
+    refuse_requests: list[str],
     tmp_path: Path,
 ) -> None:
     """Criterion 6: request-plan commands with json format return result type with dry_run true."""
