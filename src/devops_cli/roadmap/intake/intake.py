@@ -60,10 +60,12 @@ plans the milestones. A milestone the issue already has stands.
 new candidate only), link it as a sub-issue when `--source` is an issue of the repository, add a
 `type/*` label when it has none, set each of Status (New), Value and Effort that the issue holds
 no label for, leave one reason comment carrying `CONST_ROADMAP_INTAKE_REASON_MARKER` unless one
-is there, then set Priority. Each field write replaces the labels of its family and records the
-value in the issue's job record (`RoadmapStore.set_field`). A label a person set stays, and the
-job record never claims it (ADR 0002); a person's change between the plan and the write stops
-that write.
+is there, then set Priority. The comment gives only the facts that the labels do not show
+(#4836): a scope with no label, the reason of a Priority other than P2-Medium or of a P0 decision
+on evidence, and the possible original or the related item. With no such fact, intake posts
+none. Each field write replaces the labels of its family and records the value in the issue's
+job record (`RoadmapStore.set_field`). A label a person set stays, and the job record never
+claims it (ADR 0002); a person's change between the plan and the write stops that write.
 
 A run that stops part-way leaves an open issue with no Priority, a candidate, and the next run
 decides it again: it writes only the fields the issue holds no label for, and no second reason
@@ -116,6 +118,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_LABELS_PATH,
     CONST_ROADMAP_MODEL_PRIORITIES,
     CONST_ROADMAP_P0_PRIORITIES,
+    CONST_ROADMAP_P2_PRIORITY,
     CONST_ROADMAP_SCOPE_LABEL_PREFIX,
     CONST_ROADMAP_SIZE_OPTIONS,
     CONST_ROADMAP_SOURCE_AGENT_LABEL,
@@ -301,13 +304,10 @@ class Proposal:
     """The model's proposal once code has checked it."""
 
     type: str
-    type_reason: str
     priority: str
     priority_reason: str
     value: str
-    value_reason: str
     effort: str
-    effort_reason: str
     evidence: Evidence | None = None
     notes: tuple[str, ...] = ()
 
@@ -325,12 +325,12 @@ class IntakeDecision:
     """What intake does with one candidate, and every write it makes for it.
 
     `shown` is the type, Priority, Value and Effort the item ends with, for the report.
-    `reasons` holds the reason comment's lines, each value intake sets with its reason, so the
-    comment can be written for the placement and fields the writes make. `possible_duplicate`
-    is the item the model names as asking for the same change, with `duplicate_reason`, for a
-    person to judge (#2218). `related` is the item a placed candidate is related to but does not
-    duplicate, with `related_reason` (#1755). `shadow` is the mark of the shadow observation of
-    Jev, which the placement records in the job record of the issue (#4395).
+    `reasons` holds the reason comment's lines: each fact the labels do not show, with its
+    reason (#4836). `possible_duplicate` is the item the model names as asking for the same
+    change, with `duplicate_reason`, for a person to judge (#2218). `related` is the item a
+    placed candidate is related to but does not duplicate, with `related_reason` (#1755).
+    `shadow` is the mark of the shadow observation of Jev, which the placement records in the job
+    record of the issue (#4395).
     """
 
     subject: Subject
@@ -610,7 +610,7 @@ class _Run:
 @dataclass(frozen=True)
 class _TitleLabels:
     """The labels the Conventional Commit title of a candidate gives (#2715): its `type/*` label,
-    its `scope/*` label, and the reason lines for the labels intake adds."""
+    its `scope/*` label, and the reason line of a scope that has no label."""
 
     type_label: str | None = None
     scope_label: str | None = None
@@ -618,26 +618,19 @@ class _TitleLabels:
 
 
 def _title_labels(subject: Subject, run: _Run) -> _TitleLabels:
-    """The type and scope labels the title of `subject` gives. A label the issue already holds
-    stays, and gets no line. A type with no declared label gives none, and the model picks it. A
-    scope with no declared label gives none, and one line names the label to add."""
-    texts = MESSAGES.roadmap
+    """The type and scope labels the title of `subject` gives. A type with no declared label
+    gives none, and the model picks it. A scope with no declared label gives none, and one line
+    names the label to add: the labels cannot show it (#4836)."""
     found = title_labels(subject.title, run.declared)
-    lines: list[tuple[str, str, str]] = []
-    if found.type_label and subject.type_label is None:
-        prefix = commit_type(subject.title)
-        lines.append(("Type", found.type_label, texts.intake_type_from_title.format(prefix=prefix)))
-    scope = commit_scope(subject.title)
-    if found.undeclared_scope:
-        undeclared = texts.intake_scope_undeclared.format(
-            scope=scope, path=CONST_ROADMAP_LABELS_PATH, label=found.undeclared_scope
-        )
-        lines.append(("Scope", "none", undeclared))
-    elif found.scope_label and subject.scope_label is None:
-        lines.append(
-            ("Scope", found.scope_label, texts.intake_scope_from_title.format(scope=scope))
-        )
-    return _TitleLabels(found.type_label, found.scope_label, tuple(lines))
+    if not found.undeclared_scope:
+        return _TitleLabels(found.type_label, found.scope_label)
+    undeclared = MESSAGES.roadmap.intake_scope_undeclared.format(
+        scope=commit_scope(subject.title),
+        path=CONST_ROADMAP_LABELS_PATH,
+        label=found.undeclared_scope,
+    )
+    line = ("Scope", "none", undeclared)
+    return _TitleLabels(found.type_label, found.scope_label, (line,))
 
 
 def _needs_type(subject: Subject, run: _Run) -> bool:
@@ -920,13 +913,10 @@ def validate_proposal(raw: ModelProposal, types: Sequence[str], *, needs_type: b
     notes: list[str] = []
     proposal = Proposal(
         type=_choice("type", raw.type, types, problems) if needs_type else raw.type,
-        type_reason=_line(raw.type_reason),
         priority=_priority_choice(raw.priority, problems, notes),
         priority_reason=_line(raw.priority_reason),
         value=_choice("value", raw.value, CONST_ROADMAP_SIZE_OPTIONS, problems),
-        value_reason=_line(raw.value_reason),
         effort=_choice("effort", raw.effort, CONST_ROADMAP_SIZE_OPTIONS, problems),
-        effort_reason=_line(raw.effort_reason),
         evidence=_evidence(raw.evidence, notes),
         notes=tuple(notes),
     )
@@ -1060,22 +1050,17 @@ def _filing_labels(subject: Subject) -> tuple[str, ...]:
 
 def _reason_lines(
     proposal: Proposal,
-    type_label: str | None,
-    fields: Sequence[tuple[ItemField, str]],
     priority: tuple[str, str],
     judgement: _Judgement,
     title: _TitleLabels,
 ) -> tuple[tuple[str, str, str], ...]:
-    """Each value intake sets that the reason comment gives, with its name and reason, then
-    the possible original or the related item, whose number the comment links. The title gives
-    the reason of a type and a scope it sets."""
-    reasons = {ItemField.VALUE: proposal.value_reason, ItemField.EFFORT: proposal.effort_reason}
-    lines = [(name, value, why) for name, value, why in title.lines if name == "Type"]
-    if type_label and not lines:
-        lines = [("Type", type_label, proposal.type_reason)]
-    lines += [line for line in title.lines if line[0] == "Scope"]
-    lines.append((ItemField.PRIORITY.value, priority[0], priority[1]))
-    lines += [(f.value, value, reasons[f]) for f, value in fields if f in reasons]
+    """The facts of the reason comment that the labels do not show (#4836), each with its name
+    and reason: a scope with no label, the reason of a Priority other than P2-Medium, which most
+    items get, or of a P0 decision on evidence, then the possible original or the related item,
+    whose number the comment links. The type, scope, Value and Effort are on the labels."""
+    lines = list(title.lines)
+    if priority[0] != CONST_ROADMAP_P2_PRIORITY or proposal.evidence is not None:
+        lines.append((ItemField.PRIORITY.value, priority[0], priority[1]))
     texts = MESSAGES.roadmap
     if judgement.possible_duplicate is not None:
         original = texts.intake_possible_duplicate_value.format(number=judgement.possible_duplicate)
@@ -1087,9 +1072,9 @@ def _reason_lines(
     return tuple(lines)
 
 
-def _comment(placement: Placement, lines: Sequence[tuple[str, str, str]]) -> str:
-    """The reason comment: where the item went, and each value intake set with its reason. A
-    line with no reason ends at its value."""
+def _comment(lines: Sequence[tuple[str, str, str]]) -> str:
+    """The reason comment: one line for each fact, with its reason. A line with no reason ends
+    at its value."""
     rendered = "\n".join(
         MESSAGES.roadmap.intake_comment_field.format(
             field=name, value=value, reason=reason
@@ -1097,7 +1082,7 @@ def _comment(placement: Placement, lines: Sequence[tuple[str, str, str]]) -> str
         for name, value, reason in lines
     )
     return MESSAGES.roadmap.intake_comment.format(
-        marker=CONST_ROADMAP_INTAKE_REASON_MARKER, placement=placement.text, fields=rendered
+        marker=CONST_ROADMAP_INTAKE_REASON_MARKER, fields=rendered
     )
 
 
@@ -1238,11 +1223,12 @@ class _Planner:
         fields = _fields(subject, proposal)
         added = None if subject.type_label else type_label
         scope_added = title.scope_label if subject.scope_label is None else None
-        lines = _reason_lines(proposal, added, fields, priority, judgement, title)
+        lines = _reason_lines(proposal, priority, judgement, title)
         comment = (
             None
-            if _has_comment(self.run.store, subject, CONST_ROADMAP_INTAKE_REASON_MARKER)
-            else _comment(placement, lines)
+            if not lines
+            or _has_comment(self.run.store, subject, CONST_ROADMAP_INTAKE_REASON_MARKER)
+            else _comment(lines)
         )
         parent = _source_issue(self.run, subject) if subject.number is None else None
         return IntakeDecision(

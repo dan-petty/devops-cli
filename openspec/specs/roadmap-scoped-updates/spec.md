@@ -10,7 +10,7 @@ The update that a subscribed webhook event of the roadmap runs at once, scoped t
 
 #### Scenario: A delivery about one of three candidates
 - **WHEN** a delivery of `issues` with the action `opened`, `edited` or `reopened` names candidate 2 of three candidates
-- **THEN** the model judges candidate 2 alone, and only candidate 2 gets labels and a reason comment
+- **THEN** the model judges candidate 2 alone, and only candidate 2 gets labels
 
 #### Scenario: An edit of an issue that is already an Item
 - **WHEN** a delivery of `issues` `edited` names an issue that holds a `priority/*` label, and no other candidate is open

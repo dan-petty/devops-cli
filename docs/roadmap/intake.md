@@ -22,7 +22,7 @@ For each candidate, intake sets these fields on GitHub:
 1. A `type/*` label and a `scope/*` label, from the Conventional Commit title. The model picks the type only for a title that has no Conventional Commit type.
 2. The label `status/new`.
 3. A Value label and an Effort label.
-4. A reason comment.
+4. A reason comment, only when the labels do not show a fact: a scope that `.github/labels.yml` does not declare, the reason of a Priority other than P2-Medium or of a P0 decision on evidence, the possible original and the related item. The comment does not state the labels again.
 5. The `priority/*` label, last. The item then goes to the backlog.
 
 A label that a person set stays. Intake sets no milestone, because a person plans the milestones. A milestone that an issue has stays.
@@ -138,6 +138,7 @@ The issue events report no opened issue, so the poll reads the newest issue from
 | :--- | :--- |
 | Duplicate verdict, report lines, no close, retry of a stopped run, the source of a part | [roadmap-intake-duplicates](../../openspec/specs/roadmap-intake-duplicates/spec.md) |
 | Type and scope labels from the title | [roadmap-intake-title-labels](../../openspec/specs/roadmap-intake-title-labels/spec.md) |
+| What the reason comment holds | [roadmap-intake-reason-comment](../../openspec/specs/roadmap-intake-reason-comment/spec.md) |
 | The reply of the model | [roadmap-intake-reply-schema](../../openspec/specs/roadmap-intake-reply-schema/spec.md) |
 | The snapshot of the issue listing and the read of the changed issues | [roadmap-intake-listing](../../openspec/specs/roadmap-intake-listing/spec.md) |
 | Intake of one issue on an `issues` event of GitHub | [roadmap-scoped-updates](../../openspec/specs/roadmap-scoped-updates/spec.md) |

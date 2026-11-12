@@ -4846,7 +4846,7 @@ class RoadmapMessages:
         "intake puts every new item in the backlog. A person plans the milestones."
     )
     intake_reason_person: str = "a person placed it in {milestone}, and that placement stands."
-    intake_comment: str = "{marker}\nIntake placed this item {placement}\n\n{fields}"
+    intake_comment: str = "{marker}\n{fields}"
     intake_comment_field: str = "- {field}: {value}. {reason}"
     intake_p0_granted: str = (
         "P0: the {kind} {value} is evidence GitHub confirms, from a trusted source."
@@ -5309,12 +5309,12 @@ class RoadmapMessages:
             "no_snapshot": "the data directory holds no such snapshot of the listing",
             "embed": "the run has a candidate",
             "evidence": "the model cites any",
-            "comments": "{subject} is placed",
+            "comments": "{subject} is placed with a fact that its labels do not show",
             "file": "no open issue with no Priority holds its title and body",
             "sub_issue": "the candidate's source is an issue of the repository",
             "placed": "intake places {subject}",
             "field": "it has none",
-            "comment": "intake's is not there",
+            "comment": "it has such a fact, and intake's is not there",
             "priority": "it has none",
         }
     )
@@ -5351,8 +5351,6 @@ class RoadmapMessages:
         "{repo} has no {path} at {ref}. Intake decides no candidate without it: the file must "
         "declare the scope/* labels intake may assign."
     )
-    intake_type_from_title: str = "The `{prefix}` prefix of the title gives the type."
-    intake_scope_from_title: str = "The `({scope})` scope of the title gives the scope."
     intake_scope_undeclared: str = (
         "The title has the scope `{scope}`, and {path} declares no {label} label. Add the label "
         "to the file to give the scope to this item."

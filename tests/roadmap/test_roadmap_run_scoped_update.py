@@ -68,8 +68,8 @@ def test_an_issues_delivery_intakes_only_its_issue_and_writes_no_last_success(
     action: str, tmp_path: Path
 ) -> None:
     """The scoped update of an `issues` delivery decides and places only the issue it names: the
-    model judges it alone, only it gets labels and a reason comment, and `schedule.json` keeps
-    each job's last success as it was."""
+    model judges it alone, only it gets labels, and `schedule.json` keeps each job's last
+    success as it was."""
     store, _, _ = make_candidates(3)
     stamp_successes(tmp_path, intake=TWENTY_MINUTES_AGO)
     model = IntakeModel()
@@ -83,14 +83,12 @@ def test_an_issues_delivery_intakes_only_its_issue_and_writes_no_last_success(
         model.asked,
         sorted({write.number for write in store.job_writes()}),
         [store.item(number) is not None for number in (1, 2, 3)],
-        [len(store.comments_on(number)) for number in (1, 2, 3)],
         read_schedule(tmp_path),
     ) == (
         JobOutcome(),
         ["candidate 2"],
         [2],
         [False, True, False],
-        [0, 1, 0],
         {"intake": TWENTY_MINUTES_AGO.isoformat()},
     )
 
