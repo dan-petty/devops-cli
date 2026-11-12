@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.121.1](https://github.com/dan-petty/devops-cli/compare/v0.121.0...v0.121.1) (2026-11-12)
+
+
+### Bug Fixes
+
+* **roadmap:** fix-plan compares the revision with a review of the head ([#5160](https://github.com/dan-petty/devops-cli/issues/5160)) ([490513f](https://github.com/dan-petty/devops-cli/commit/490513f9ccdb1d9f42d71cbc5ef705b00646793e))
+
 ## [0.121.0](https://github.com/dan-petty/devops-cli/compare/v0.120.1...v0.121.0) (2026-11-12)
 
 
