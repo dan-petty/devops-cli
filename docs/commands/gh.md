@@ -23,7 +23,7 @@ devops gh api [OPTIONS] <endpoint>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--method`, `-X` | `string` | - | HTTP method (GET, POST, PUT, DELETE, PATCH) |
-| `--paginate` | `boolean` | - | Paginate across all result pages |
+| `--paginate` | `boolean` | - | Read every result page. The GitHub session reads each page of a REST GET, so each page counts as one request; gh keeps the other reads |
 | `--jq`, `-q` | `string` | - | Filter JSON output using a jq expression |
 | `--template`, `-t` | `string` | - | Format JSON output using a Go template |
 | `--cache` | `boolean` | - | Cache response in-memory for subsequent reads |

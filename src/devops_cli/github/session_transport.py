@@ -428,14 +428,20 @@ class SessionGitHubAPI(GitHubAPI):
         self, endpoint: str, url: str, *, number: int, iterable_key: str | None
     ) -> tuple[list[Any], str | None]:
         """Page `number` of the listing at `endpoint`, read from `url`: its items, and the URL of
-        the next page, which an empty page or one without `rel="next"` has none of. A page that
-        links no next page is read in full and not kept: an answer a `rest` GET stored for its
-        URL is dropped before the read, and the page's own after it."""
+        the next page, which an empty page or one without `rel="next"` has none of."""
+        answer, more = await self.read_page(endpoint, url, number=number)
+        items = listed_items(answer, path=endpoint, page=number, iterable_key=iterable_key)
+        return items, (more if items else None)
+
+    async def read_page(self, endpoint: str, url: str, *, number: int) -> tuple[Any, str | None]:
+        """Page `number` of the listing at `endpoint`, read from `url`, decoded as GitHub sent
+        it, and the URL of the next page, which an empty array or a page without `rel="next"`
+        has none of. A page that links no next page is read in full and not kept: an answer a
+        `rest` GET stored for its URL is dropped before the read, and the page's own after it."""
         self._forget_last_page(url)
         answer, more = await self._exchange("GET", endpoint, url, page=number)
         self._forget_last_page(url)
-        items = listed_items(answer, path=endpoint, page=number, iterable_key=iterable_key)
-        return items, (more if items else None)
+        return answer, (None if answer == [] else more)
 
     async def _exchange(
         self,
@@ -528,6 +534,13 @@ class RestTransport:
         next page's URL, or None after the last page."""
         read = partial(self._api.page, endpoint, url, number=number, iterable_key=iterable_key)
         result: tuple[list[Any], str | None] = self._call("GET", endpoint, read)
+        return result
+
+    def read_page(self, endpoint: str, url: str, *, number: int) -> tuple[Any, str | None]:
+        """Read one page of the listing at `endpoint` on the portal's loop: the page decoded as
+        GitHub sent it, and the next page's URL, or None after the last page."""
+        read = partial(self._api.read_page, endpoint, url, number=number)
+        result: tuple[Any, str | None] = self._call("GET", endpoint, read)
         return result
 
     def _call(self, method: str, path: str, request: Callable[[], Awaitable[Any]]) -> Any:

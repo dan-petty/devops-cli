@@ -11,10 +11,10 @@ or the App's installation, so each new installation token keeps them. The typed 
 calls is built here, from the session, and nowhere else.
 
 `rest()` sends a REST request as the identity through gidgethub (#983, ADR 0006), paced and
-charged on the same ledger as `run_gh`, and `paginate()` reads a REST listing page by page; a GET
-is conditional on the ETag of the session's last answer for its URL. `github.session_transport`
-holds the client, the event loop it runs on, the retry rules and those answers, in memory, and
-opens them on the first request.
+charged on the same ledger as `run_gh`. `paginate()` reads the items of a REST listing page by
+page, and `pages()` gives each of its pages whole; a GET is conditional on the ETag of the
+session's last answer for its URL. `github.session_transport` holds the client, the event loop it
+runs on, the retry rules and those answers, in memory, and opens them on the first request.
 """
 
 from __future__ import annotations
@@ -35,7 +35,7 @@ from devops_cli.github.error_classifier import listing_past_page_cap
 from devops_cli.github.rate_limiter import resolve_identity_cache_dir
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Callable, Iterator
     from pathlib import Path
 
     from devops_cli.github.client import GitHubClient
@@ -129,16 +129,43 @@ class GitHubSession:
         and next link; a page that links no next one is read in full and not kept, since its 304
         could not show a page added after it.
         """
+
+        def read(url: str, number: int) -> tuple[list[Any], str | None]:
+            return self._rest_transport().page(path, url, number=number, iterable_key=iterable_key)
+
+        for items in self._follow(path, read, max_pages):
+            yield from items
+
+    def pages(self, path: str, *, max_pages: int | None = None) -> Iterator[Any]:
+        """Each page of the REST listing at `path`, decoded as GitHub sent it, one read at a time
+        as they are asked for (#4737).
+
+        A page is whatever GitHub answers: a JSON array, or an object such as a search answer
+        that holds the array beside its count. Pages follow `Link: rel="next"` as `paginate`
+        follows them, through the same pacing, retries, origin hook, error classes and page cap,
+        and each page's request counts on its own. An empty array, or a page without a next
+        link, is the last page.
+        """
+
+        def read(url: str, number: int) -> tuple[Any, str | None]:
+            return self._rest_transport().read_page(path, url, number=number)
+
+        return self._follow(path, read, max_pages)
+
+    @staticmethod
+    def _follow[T](
+        path: str, read: Callable[[str, int], tuple[T, str | None]], max_pages: int | None
+    ) -> Iterator[T]:
+        """What `read` gives for each page of the listing at `path`, from the first page to the
+        last one it links, raising past the page cap."""
         cap = DEFAULT_GH_MAX_PAGINATED_PAGES if max_pages is None else max_pages
         url: str | None = path
         number = 1
         while url is not None:
             if number > cap:
                 raise listing_past_page_cap(path=path, max_pages=cap)
-            items, url = self._rest_transport().page(
-                path, url, number=number, iterable_key=iterable_key
-            )
-            yield from items
+            page, url = read(url, number)
+            yield page
             number += 1
 
     def close(self) -> None:

@@ -17,7 +17,8 @@ from devops_cli.ai.mcp.server import gh_project_reconcile
 from devops_cli.commands.gh import app, milestones_app
 from devops_cli.github.projects import load_project_template
 from devops_cli.roadmap.stores.store import GitHubState, ItemField
-from tests.support.fakes.github import GitHubApiFake, github_json
+from devops_cli.telemetry.instruments import GITHUB_REQUESTS_TOTAL
+from tests.support.fakes.github import GitHubApiFake, github_json, next_page
 from tests.support.fakes.process import ProcessAnswer, ProcessFake
 from tests.support.gh_process import answer_origin, gh_argv, mentions
 from tests.support.paths import REPO_ROOT
@@ -27,6 +28,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from tests.support.fakes.clock import ClockFake
+    from tests.support.fakes.otlp import FakeCollector
     from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 
 runner = CliRunner()
@@ -1025,6 +1027,69 @@ def test_gh_api_hands_gh_its_paginate_and_jq_flags_unchanged(gh_edge: ProcessFak
     result = runner.invoke(app, argv)
     assert (result.exit_code, result.output, gh_argv(gh_edge)) == (0, "1\n2\n3\n", [argv])
     assert gh_edge.calls[-1].argv[0] == CONST_GH_CLI
+
+
+_OPEN_ISSUES = "/repos/octo/repo/issues?state=open&per_page=1"
+
+
+def _route_issue_pages(github_api: GitHubApiFake, pages: list[list[dict[str, Any]]]) -> None:
+    """The open issues of octo/repo on linked pages, one page for each list of `pages`."""
+    urls = [_OPEN_ISSUES] + [
+        f"/repositories/1/issues?state=open&per_page=1&page={n}" for n in range(2, len(pages) + 1)
+    ]
+    for page, url, after in zip(pages, urls, [*urls[1:], None], strict=True):
+        github_api.route("GET", url, github_json(page, headers=next_page(after) if after else None))
+
+
+def test_gh_api_paginate_counts_each_page_it_reads(
+    github_api: GitHubApiFake, otlp: FakeCollector
+) -> None:
+    """`devops gh api --paginate` of a REST GET reads each page through the GitHub session, so
+    each of the 4 pages counts one request with its status, and the items of the pages print as
+    one JSON array (#4737)."""
+    _route_issue_pages(github_api, [[{"number": n}] for n in range(1, 5)])
+
+    result = runner.invoke(app, ["api", _OPEN_ISSUES.removeprefix("/"), "--paginate"])
+
+    assert (result.exit_code, json.loads(result.output)) == (
+        0,
+        [{"number": n} for n in range(1, 5)],
+    )
+    assert otlp.points(GITHUB_REQUESTS_TOTAL.name) == [
+        (
+            {"resource": "core", "method": "GET", "status": "200", "repo": "other", "row": "other"},
+            4.0,
+        )
+    ]
+
+
+def test_gh_api_paginate_runs_the_jq_filter_on_each_page(github_api: GitHubApiFake) -> None:
+    """With `--jq`, the filter runs on each page, as gh runs it (#4737)."""
+    _route_issue_pages(github_api, [[{"number": 1}, {"number": 2}], [{"number": 3}]])
+
+    argv = ["api", _OPEN_ISSUES.removeprefix("/"), "--paginate", "--jq", "length, .[].number"]
+    result = runner.invoke(app, argv)
+
+    assert (result.exit_code, result.output) == (0, "2\n1\n2\n1\n3\n")
+
+
+def test_gh_api_paginate_exits_1_naming_a_listing_github_does_not_find(
+    github_api: GitHubApiFake,
+) -> None:
+    """A page that GitHub answers with 404 exits 1 and names the endpoint (#4737)."""
+    github_api.route("GET", _OPEN_ISSUES, github_json({"message": "Not Found"}, status=404))
+
+    result = runner.invoke(app, ["api", _OPEN_ISSUES.removeprefix("/"), "--paginate"])
+
+    assert (result.exit_code, "octo/repo/issues" in _flat(result.output)) == (1, True)
+
+
+def test_gh_api_paginate_dry_run_plans_the_session_read(github_api: GitHubApiFake) -> None:
+    """A dry run of `devops gh api --paginate` lists the GET of the first page, which repeats
+    for each page, and sends no request (#4737)."""
+    result = runner.invoke(app, ["api", _OPEN_ISSUES.removeprefix("/"), "--paginate", "--dry-run"])
+
+    assert (result.exit_code, "GET" in result.output, github_api.sent) == (0, True, [])
 
 
 def test_gh_api_prints_the_number_a_jq_filter_selects_from_the_rate_limit(

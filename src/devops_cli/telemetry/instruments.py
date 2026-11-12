@@ -226,6 +226,8 @@ GITHUB_REQUESTS_TOTAL = Instrument(
     "request, one of service.repos, and "
     "the row is the job row that sent it, such as metrics, intake, refine or alternatives; each is "
     "other outside a worker or a row. A gh command and a request of the GitHub session both count. "
+    "A gh command counts once, also when gh reads many pages for it; devops gh api --paginate "
+    "reads a REST GET through the GitHub session, so each page counts. "
     "The counter holds every attempt. The request budget of the Service leaves out the attempts "
     "with status 304, as GitHub does not count them against its rate limit",
 )
