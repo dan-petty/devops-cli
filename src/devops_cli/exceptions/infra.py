@@ -21,7 +21,8 @@ class InfraAccessRefusedError(InfraError):
 
 
 class InfraReadError(InfraError):
-    """A local read of an infra repo failed: an Ansible command, or its output is not JSON."""
+    """A read of an infra repo failed: a git command of the read of its default branch, an Ansible
+    command, or its output is not JSON."""
 
     error_code = "INFRA_READ_FAILED"
 

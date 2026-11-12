@@ -1,10 +1,13 @@
 """Check an Ansible infra repo for what `devops infra` needs, and write its settings entry (#5121).
 
-The check reads only the local checkout and local tool output: the project profile of the repo
-(`devops_cli.project.profile`), `ansible-config dump` and `ansible-inventory --list` of the Ansible
-tool environment, `ssh-keygen -F` against `~/.ssh/known_hosts`, `kubectl config get-contexts`,
-and the files of the repo. It opens no connection to a host and sends no request. Each check gives
-one row with a state, a reason and the step that fixes a gap, as `devops roadmap onboard` does.
+The check reads the head of the default branch at `origin`, never the working tree of the checkout
+(`devops_cli.infra.repo_tree`, #5162): it fetches `origin` and exports that commit into a private
+folder. In the export it reads the project profile of the repo (`devops_cli.project.profile`),
+`ansible-config dump` and `ansible-inventory --list` of the Ansible tool environment and the files
+of the repo. It also reads `ssh-keygen -F` against `~/.ssh/known_hosts` and `kubectl config
+get-contexts`. It opens no connection to a host, and the fetch is its only request. Each check
+gives one row with a state, a reason and the step that fixes a gap, as `devops roadmap onboard`
+does.
 
 The profile gives the layout: the inventory, the playbook folder, the role folders and the group of
 hosts out of service. A host variable comes raw from `ansible-inventory --list`: onboarding reads
@@ -51,6 +54,7 @@ from devops_cli.infra.repo_content import (
     read_collection_requirements,
     read_yaml_content,
 )
+from devops_cli.infra.repo_tree import default_branch_tree, render_read
 from devops_cli.lang import ERRORS, MESSAGES
 from devops_cli.models.infra import OnboardReport, OnboardRow, OnboardState
 from devops_cli.project.profile import ProjectType, ResolvedProfile, resolve_profile
@@ -166,8 +170,23 @@ def check_onboarding(
         ssh_key_prefix=ssh_key_prefix,
         agent_access=agent_access,
     )
-    facts = _read_facts(target.path)
-    rows = [
+    with default_branch_tree(target.path) as tree:
+        facts = _read_facts(tree.root)
+        rows = _rows(target, facts, entry, settings)
+    return OnboardReport(
+        repo=target.repo.display,
+        path=str(target.path),
+        read=tree.read,
+        rows=tuple(row.model_copy(update={"number": n}) for n, row in enumerate(rows, start=1)),
+        entry=entry.model_dump(mode="json"),
+    )
+
+
+def _rows(
+    target: OnboardTarget, facts: _Facts, entry: InfraRepoConfig, settings: Settings
+) -> list[OnboardRow]:
+    """One row for each check, in order, with no number yet."""
+    return [
         _tool_row(facts),
         _profile_row(facts),
         _config_file_row(facts),
@@ -186,12 +205,6 @@ def check_onboarding(
         _node_targets_row(facts),
         _settings_row(target, settings),
     ]
-    return OnboardReport(
-        repo=target.repo.display,
-        path=str(target.path),
-        rows=tuple(row.model_copy(update={"number": n}) for n, row in enumerate(rows, start=1)),
-        entry=entry.model_dump(mode="json"),
-    )
 
 
 def _read_facts(root: Path) -> _Facts:
@@ -557,7 +570,10 @@ def write_entry(report: OnboardReport, settings: Settings) -> OnboardReport:
 
 def render_onboarding(report: OnboardReport) -> str:
     """The report as text: one line for each row, then its items and its step."""
-    lines = [MESSAGES.infra.onboard_title.format(repo=report.repo, path=report.path)]
+    lines = [
+        MESSAGES.infra.onboard_title.format(repo=report.repo, path=report.path),
+        *render_read(report.read),
+    ]
     for row in report.rows:
         reason = f" ({row.reason})" if row.reason else ""
         lines.append(f"{row.number}. {row.check}: {row.state}{reason}")

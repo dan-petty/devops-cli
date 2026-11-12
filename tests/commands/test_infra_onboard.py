@@ -19,7 +19,13 @@ from syrupy.assertion import SnapshotAssertion
 
 from tests.support.fakes.git import GitFake
 from tests.support.fakes.process import ProcessFake
-from tests.support.infra import KUBE_CONTEXT, answer_infra_reads
+from tests.support.infra import (
+    KUBE_CONTEXT,
+    OLD_COMMIT,
+    ORIGIN_COMMIT,
+    answer_default_branch,
+    answer_infra_reads,
+)
 
 REPO = "example-org/infra"
 
@@ -63,6 +69,29 @@ def test_onboard_prints_one_row_for_each_check(
     assert result.exit_code == 1
     assert result.output.replace(str(infra_repo), "<repo>") == snapshot
     assert ready.read_bytes() == before
+
+
+def test_onboard_names_the_commit_it_reads_and_a_checkout_on_another_branch(
+    cli: Callable[..., Any],
+    ready: Path,
+    infra_repo: Path,
+    process_fake: ProcessFake,
+    person_caller: None,
+) -> None:
+    """The checkout is on an old branch: one line says so under the commit that the rows read."""
+    answer_infra_reads(process_fake, infra_repo)
+    answer_default_branch(
+        process_fake, infra_repo, checkout_branch="feat/old", checkout_commit=OLD_COMMIT
+    )
+
+    result = cli(
+        "infra", "onboard", REPO, "--path", str(infra_repo), "--kube-context", KUBE_CONTEXT
+    )
+
+    assert result.output.splitlines()[1:3] == [
+        f"Reads origin/main at {ORIGIN_COMMIT}, not the working tree of the checkout.",
+        f"The checkout is on the branch feat/old at {OLD_COMMIT}, not on origin/main.",
+    ]
 
 
 def test_a_person_confirms_the_entry_at_level_none(

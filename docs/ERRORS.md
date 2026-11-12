@@ -67,7 +67,7 @@ Each exception class declares its `error_code` and `exit_code`. A command that a
 | `ImplementEvalError` | `ROADMAP_EVAL_REFUSED` | `1` | Roadmap | Raised when `devops roadmap eval implement` cannot read or use a fixture, or is asked for |
 | `InfraAccessRefusedError` | `INFRA_ACCESS_REFUSED` | `1` | Infra | An agent gave an agent access level above `none` for an infra repo. Only a person sets it. |
 | `InfraError` | `INFRA_ERROR` | `1` | Infra | Base exception of the infra repo commands. |
-| `InfraReadError` | `INFRA_READ_FAILED` | `1` | Infra | A local read of an infra repo failed: an Ansible command, or its output is not JSON. |
+| `InfraReadError` | `INFRA_READ_FAILED` | `1` | Infra | A read of an infra repo failed: a git command of the read of its default branch, an Ansible |
 | `InfraRepoNotFoundError` | `INFRA_REPO_NOT_FOUND` | `1` | Infra | The checkout of an infra repo is not where the settings or the arguments put it. |
 | `InvalidBranchNameError` | `INVALID_BRANCH_NAME` | `1` | Git | Raised when a proposed Git branch name violates naming conventions. |
 | `InvalidURLError` | `INVALID_URL` | `1` | Validation | Raised when an invalid URL or URI scheme is provided. |

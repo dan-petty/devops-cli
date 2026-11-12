@@ -59,6 +59,9 @@ DEFAULT_INFRA_NODE_READY_TIMEOUT_SECONDS: int = 900
 DEFAULT_INFRA_SSH_KEY_PREFIX: str = "ansible"
 # The bound of each local Ansible read of `devops infra onboard`: the config dump, the inventory.
 DEFAULT_INFRA_ANSIBLE_READ_TIMEOUT_SECONDS: float = 120.0
+# The bound of each git command of the read of an infra repo at its default branch (#5162): the
+# fetch of origin and the export of the commit.
+DEFAULT_INFRA_GIT_TIMEOUT_SECONDS: float = 300.0
 DEFAULT_DOCS_DIR = CONST_DOCS_DIR_PATH
 DEFAULT_GRAFANA_DASHBOARDS_DIR = Path("k8s/monitoring/dashboards")
 DEFAULT_WORKSPACE_FILE = Path(".code-workspace")

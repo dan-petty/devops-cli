@@ -465,7 +465,7 @@ and draft readiness. |
 |  | `devops tf lint [OPTIONS] <directory>` | Run TFLint static analysis on Terraform/OpenTofu configurations. |
 |  | `devops tf notify-plan [OPTIONS]` | Format an OpenTofu plan as a collapsible pull request comment and print it. The command sends no request. |
 |  | `devops tf cost COMMAND [ARGS]...` | OpenTofu and Terraform Infrastructure-as-Code operations. |
-| [**infra**](docs/commands/infra.md) | `devops infra onboard [OPTIONS] <repo>` | Check an Ansible infra repo for what devops infra needs, from local files and local tool output only, and print one row for each check with its state and the next step. With --confirm, write the entry of the repo in infra.repos, at agent access none unless a person gives --agent-access. |
+| [**infra**](docs/commands/infra.md) | `devops infra onboard [OPTIONS] <repo>` | Check an Ansible infra repo for what devops infra needs, and print one row for each check with its state and the next step. The check fetches origin and reads the head of the default branch, not the working tree of the checkout, with local tool output only. With --confirm, write the entry of the repo in infra.repos, at agent access none unless a person gives --agent-access. |
 | [**tls**](docs/commands/tls.md) | `devops tls ca [OPTIONS]` | Generate a self-signed Root Certificate Authority (CA) key pair. |
 |  | `devops tls cert [OPTIONS]` | Generate an X.509 TLS certificate signed by local CA or self-signed. |
 |  | `devops tls homelab [OPTIONS]` | Generate complete Homelab TLS bundle (Root CA, Wildcard + Stack Services Cert). |

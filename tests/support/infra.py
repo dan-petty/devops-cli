@@ -10,13 +10,20 @@ with only `HOME`, `PATH` and `LANG` set, and put `{root}` in place of the folder
 
 The CI workflow of the complete repo is written into the copy, not kept under `tests/fixtures/`,
 so no workflow check reads it as a workflow of this repository.
+
+A command reads an infra repo at the head of its default branch at `origin`, exported into a
+private folder (#5162). `answer_default_branch` answers the git commands of that read, and its
+export writes the files of a folder, by default the checkout, as the tar file of `git archive`.
+The Ansible reads run in the export, so their answers name the export where the recording names
+`{root}`.
 """
 
 from __future__ import annotations
 
 import json
 import shutil
-from collections.abc import Collection, Sequence
+import tarfile
+from collections.abc import Callable, Collection, Sequence
 from pathlib import Path
 from typing import Any, Final
 
@@ -32,6 +39,12 @@ INFRA_REPO_SHAPE: Final[Path] = INFRA_FIXTURES / "homelab_shape"
 KUBE_CONTEXT: Final[str] = "homelab-example"
 IN_SERVICE_HOSTS: Final[tuple[str, ...]] = tuple(f"192.0.2.{n}" for n in range(1, 5))
 SSH_KEY_NAME: Final[str] = "ansible-id_ed25519-20261101"
+DEFAULT_BRANCH: Final[str] = "origin/main"
+ORIGIN_COMMIT: Final[str] = "f5961bd2da6856e31914037c0f048337989dfbe7"
+OLD_COMMIT: Final[str] = "6b5a7fa70022cffbdc09ff0e5c6e82ac7916b864"
+_OUTPUT: Final[str] = "--output="
+_CONFIG_OPTION: Final[str] = "-c"
+_GIT_DIR: Final[str] = ".git"
 _CI_WORKFLOW: Final[str] = ".github/workflows/lint.yml"
 _CI_TEXT: Final[str] = (
     "name: lint\non: [pull_request]\npermissions: {}\njobs:\n  lint:\n    runs-on: ubuntu-latest\n"
@@ -51,6 +64,73 @@ def recorded_read(name: str, root: Path) -> Any:
     return json.loads(text.replace("{root}", str(root)))
 
 
+def answer_default_branch(
+    fake: ProcessFake,
+    checkout: Path,
+    *,
+    tree: Path | None = None,
+    commit: str = ORIGIN_COMMIT,
+    checkout_branch: str = "main",
+    checkout_commit: str | None = None,
+) -> None:
+    """Answer the git commands that read the default branch of the checkout at `checkout`: the
+    fetch, `origin/main` at `commit`, the checkout on `checkout_branch` at `checkout_commit`
+    (default `commit`), and the export, which writes the files of `tree` (default the checkout,
+    as they are at the time of the call) as a tar file."""
+    fake.answer(git_command(checkout, "fetch", "--quiet", "origin"), ProcessAnswer())
+    fake.answer(
+        git_command(checkout, "rev-parse", "refs/remotes/origin/HEAD"),
+        ProcessAnswer(stdout=f"{commit}\n{DEFAULT_BRANCH}\n"),
+    )
+    fake.answer(
+        git_command(checkout, "rev-parse", "HEAD"),
+        ProcessAnswer(stdout=f"{checkout_commit or commit}\n{checkout_branch}\n"),
+    )
+    fake.answer(git_command(checkout, "archive"), _export(tree or checkout))
+
+
+def git_words(call: ProcessCall) -> tuple[str, ...]:
+    """The words of a `git -C <folder>` call after the folder and each `-c <value>`."""
+    words = call.argv[3:]
+    while words[:1] == (_CONFIG_OPTION,):
+        words = words[2:]
+    return words
+
+
+def git_command(checkout: Path, *words: str) -> Callable[[ProcessCall], bool]:
+    """Whether a call is `git -C <checkout>` whose words after each `-c <value>` start with
+    `words`."""
+
+    def matches(call: ProcessCall) -> bool:
+        return call.argv[:3] == ("git", "-C", str(checkout)) and (
+            git_words(call)[: len(words)] == words
+        )
+
+    return matches
+
+
+def _export(source: Path) -> Callable[[ProcessCall], ProcessAnswer]:
+    """The answer of `git archive --output=<file>`: a tar file of the files of `source`, with no
+    `.git` folder."""
+
+    def answer(call: ProcessCall) -> ProcessAnswer:
+        output = next(word[len(_OUTPUT) :] for word in call.argv if word.startswith(_OUTPUT))
+        with tarfile.open(output, "w") as tar:
+            for path in sorted(source.rglob("*")):
+                relative = path.relative_to(source)
+                if relative.parts[0] != _GIT_DIR:
+                    tar.add(path, arcname=relative.as_posix(), recursive=False)
+        return ProcessAnswer()
+
+    return answer
+
+
+def in_export(text: str, root: Path) -> Callable[[ProcessCall], ProcessAnswer]:
+    """An answer that prints `text` with the folder of the call, the export, in place of
+    `root`."""
+    return lambda call: ProcessAnswer(stdout=text.replace(str(root), str(call.cwd)))
+
+
 def answer_infra_reads(
     fake: ProcessFake,
     root: Path,
@@ -60,14 +140,16 @@ def answer_infra_reads(
     contexts: Sequence[str] = (KUBE_CONTEXT,),
     known_hosts: Collection[str] = IN_SERVICE_HOSTS,
 ) -> None:
-    """Answer the local reads of an onboarding of the repo at `root`: the config dump and the
-    inventory (recorded unless given), the kubeconfig contexts, and `ssh-keygen -F`, which finds
-    each host of `known_hosts`."""
+    """Answer the reads of an onboarding of the repo at `root`: the read of its default branch,
+    whose export holds the files of the checkout, the config dump and the inventory in the export
+    (recorded unless given, with each path of `root` in the export), the kubeconfig contexts, and
+    `ssh-keygen -F`, which finds each host of `known_hosts`."""
+    answer_default_branch(fake, root)
     bin_dir = ansible_bin_dir()
     dump = recorded_read("config", root) if config is None else config
     listing = recorded_read("inventory", root) if inventory is None else inventory
-    fake.answer([str(bin_dir / "ansible-config"), "dump"], ProcessAnswer(stdout=json.dumps(dump)))
-    fake.answer([str(bin_dir / "ansible-inventory")], ProcessAnswer(stdout=json.dumps(listing)))
+    fake.answer([str(bin_dir / "ansible-config"), "dump"], in_export(json.dumps(dump), root))
+    fake.answer([str(bin_dir / "ansible-inventory")], in_export(json.dumps(listing), root))
     fake.answer(
         ["kubectl", "config", "get-contexts"],
         ProcessAnswer(stdout="".join(f"{name}\n" for name in contexts)),

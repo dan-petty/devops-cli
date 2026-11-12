@@ -2,22 +2,31 @@
 # name: test_dry_run_starts_no_process_and_writes_nothing
   '''
   Plan for the onboarding of example-org/infra at <tmp>/repo
-    1. EXEC the Ansible config of <tmp>/repo
+    1. EXEC the fetch of origin into <tmp>/repo
+         git -C <tmp>/repo -c credential.https://github.com.helper= -c 'credential.https://github.com.helper=!gh auth git-credential' fetch --quiet origin
+    2. EXEC the default branch of origin and its commit
+         git -C <tmp>/repo rev-parse refs/remotes/origin/HEAD --abbrev-ref refs/remotes/origin/HEAD
+    3. EXEC the branch and the commit of the checkout
+         git -C <tmp>/repo rev-parse HEAD --abbrev-ref HEAD
+    4. EXEC the export of the default branch, unpacked and removed after the read
+         git -C <tmp>/repo archive --format=tar '--output=<private temporary folder>/tree.tar' '<commit of the default branch>'
+    5. EXEC the Ansible config of the export
          <tmp>/user-data/tools/ansible-core/2.22.0/bin/ansible-config dump --format json --only-changed  [only if an Ansible tool environment is installed]
-    2. EXEC the Ansible inventory of <tmp>/repo
+    6. EXEC the Ansible inventory of the export
          <tmp>/user-data/tools/ansible-core/2.22.0/bin/ansible-inventory -i '<inventory>' --list  [only if an Ansible tool environment is installed and the project profile names an inventory]
-    3. EXEC the host key of <host> in known_hosts
+    7. EXEC the host key of <host> in known_hosts
          ssh-keygen -F '<host>' -f <tmp>/home/.ssh/known_hosts  [only if <tmp>/home/.ssh/known_hosts exists]  [repeated for each host in service]
-    4. EXEC the kubeconfig contexts
+    8. EXEC the kubeconfig contexts
          kubectl config get-contexts -o name
-    5. WRITE infra.repos in <tmp>/.test_config/config.yaml
-  The command also reads the files of the checkout and the devops ssh key folder.
+    9. WRITE infra.repos in <tmp>/.test_config/config.yaml
+  The command also reads the files of the export of the default branch and the devops ssh key folder.
   
   '''
 # ---
 # name: test_onboard_prints_one_row_for_each_check
   '''
   # Onboarding of example-org/infra at <repo>
+  Reads origin/main at f5961bd2da6856e31914037c0f048337989dfbe7, not the working tree of the checkout.
   1. The Ansible tool environment is installed: present (ansible-core 2.22.0)
   2. The project profile of the repository has the type ansible-k8s: present (declared in .devops/project.toml; each value with its source)
      - extends = "ansible-k8s" (.devops/project.toml)
