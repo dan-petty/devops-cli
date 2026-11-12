@@ -598,7 +598,7 @@
     },
     {
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "description": "Published operational status reported by GitHub Statuspage (0=Operational, 1=Minor, 2=Major, 3=Critical). It shows the latest value of each series in the time range, and no data when none was sent in it.",
+      "description": "Published operational status reported by GitHub Statuspage (0=Operational, 1=Minor, 2=Major, 3=Critical). It shows the latest value sent in the last hour, whatever the time range, and no data when none was sent in that hour.",
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "thresholds" },
@@ -645,7 +645,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "max(last_over_time(devops_cli_upstream_service_status{service=\"github\"}[$__range]))",
+          "expr": "last_over_time(devops_cli_upstream_service_status{service=\"github\"}[1h])",
           "instant": true,
           "legendFormat": "GitHub",
           "refId": "A"
@@ -654,7 +654,7 @@
     },
     {
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "description": "Published operational status reported by Cloudflare Statuspage (0=Operational, 1=Minor, 2=Major, 3=Critical). It shows the latest value of each series in the time range, and no data when none was sent in it.",
+      "description": "Published operational status reported by Cloudflare Statuspage (0=Operational, 1=Minor, 2=Major, 3=Critical). It shows the latest value sent in the last hour, whatever the time range, and no data when none was sent in that hour.",
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "thresholds" },
@@ -701,7 +701,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "max(last_over_time(devops_cli_upstream_service_status{service=\"cloudflare\"}[$__range]))",
+          "expr": "last_over_time(devops_cli_upstream_service_status{service=\"cloudflare\"}[1h])",
           "instant": true,
           "legendFormat": "Cloudflare",
           "refId": "A"

@@ -115,17 +115,17 @@ def filter_key_components(
 
 
 def emit_service_status_telemetry(summary: StatuspageSummary, service: str) -> None:
-    """Emit upstream service status and key component metrics over OpenTelemetry to Prometheus."""
-    emit(
-        UPSTREAM_SERVICE_STATUS,
-        float(summary.status.severity_code),
-        {"service": service, "indicator": summary.status.indicator},
-    )
+    """Emit upstream service status and key component metrics over OpenTelemetry to Prometheus.
+
+    The value holds the indicator or the component status, so no label does: a new status
+    replaces the value of the one series of the service or component (#4701).
+    """
+    emit(UPSTREAM_SERVICE_STATUS, float(summary.status.severity_code), {"service": service})
     for comp in filter_key_components(summary, service):
         emit(
             UPSTREAM_COMPONENT_STATUS,
             float(comp.status_code),
-            {"service": service, "component": comp.name, "status": comp.status},
+            {"service": service, "component": comp.name},
         )
 
 

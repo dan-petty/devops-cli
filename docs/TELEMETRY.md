@@ -152,7 +152,7 @@ writes by name.
 | `devops_cli_project_traffic_paths` | Gauge | `1` | GitHub repository traffic page views by repo and content path. |
 | `devops_cli_project_stars` | Gauge | `1` | GitHub repository stargazers count, by repo. |
 | `devops_cli_project_forks` | Gauge | `1` | GitHub repository forks count, by repo. |
-| `devops_cli_upstream_service_status` | Gauge | `1` | Upstream cloud service operational status severity code (0=none/operational, 1=minor, 2=major, 3=critical) by service and indicator. |
+| `devops_cli_upstream_service_status` | Gauge | `1` | Upstream cloud service operational status severity code (0=none/operational, 1=minor, 2=major, 3=critical) by service. |
 | `devops_cli_upstream_component_status` | Gauge | `1` | Upstream cloud service component status code (0=operational, 1=degraded, 2=partial_outage, 3=major_outage) by service and component. |
 | `devops_cli_research_open_findings` | Gauge | `1` | Open research findings, by severity: the advisories that affect a pin of the project. `devops research sweep` sets one value for each severity of the scale, with zero for a severity that has no finding. It sets none when a lookup got no answer. |
 
