@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.120.1](https://github.com/dan-petty/devops-cli/compare/v0.120.0...v0.120.1) (2026-11-12)
+
+
+### Bug Fixes
+
+* **github:** a paginated devops gh api read sends per_page=100 ([#5141](https://github.com/dan-petty/devops-cli/issues/5141)) ([621f24c](https://github.com/dan-petty/devops-cli/commit/621f24cd52f661c7d28b30272bcf15ec581ebb71))
+* **pr:** pr create fits a repository without openspec ([#5142](https://github.com/dan-petty/devops-cli/issues/5142)) ([aed68b3](https://github.com/dan-petty/devops-cli/commit/aed68b3cb3990f2d2d3d4aa92ab2bd1a7d1dc34d))
+
 ## [0.120.0](https://github.com/dan-petty/devops-cli/compare/v0.119.0...v0.120.0) (2026-11-12)
 
 
