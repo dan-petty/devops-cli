@@ -171,33 +171,6 @@ devops ai bundle-models [OPTIONS]
 
 ---
 
-## `devops ai pipeline`
-
-**Run a multi-agent Pydantic pipeline with shared DevOps tools and RAG context.**
-
-```bash
-devops ai pipeline [OPTIONS] <prompt>
-```
-
-**Arguments:**
-
-| Argument | Type | Required | Description |
-|---|---|---|---|
-| `<prompt>` | `string` | No | Initial goal or prompt for the multi-agent pipeline. |
-
-**Options:**
-
-| Option / Flag | Type | Default | Description |
-|---|---|---|---|
-| `--personas`, `-p` | `string` | `devsecops,architect,qa` | Comma-separated persona pipeline sequence (e.g. devsecops,architect,qa). |
-| `--max-turns` | `integer` | `5` | Maximum tool turns per agent stage. |
-| `--rag` / `--no-rag` | `boolean` | `True` | Retrieve relevant semantic RAG context. |
-| `--thinking` / `--no-thinking` | `boolean` | `True` | Enable model reasoning/thinking. |
-| `--stage-context-tokens` | `integer` | `4096` | Maximum context tokens from previous stages to carry into each pipeline stage (0 to disable budget). |
-| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
-
----
-
 ## `devops ai token-count`
 
 **Calculate exact BPE tokens for text or files using tiktoken context budgeting.**
@@ -577,7 +550,7 @@ devops ai review [OPTIONS] COMMAND [ARGS]...
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--explain`, `-e` | `boolean` | - | Explain code review personas, severity levels, and terminology. |
+| `--explain`, `-e` | `boolean` | - | Explain the review stages, severity levels and terms. |
 
 ### `devops ai review path`
 
@@ -601,7 +574,7 @@ devops ai review path [OPTIONS] <targets>
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 | `--summary`, `-s` | `boolean` | - | Has no effect: every review runs the staged pipeline, which does not read it. |
 | `--full` | `boolean` | - | Print the whole report to the terminal: every finding with its details, every dependency and every network reference. By default the terminal lists CRITICAL to MEDIUM findings, with details for CRITICAL and HIGH, and gives LOW and INFO findings, dependencies and network references one line each that points at review.md. |
-| `--explain`, `-e` | `boolean` | - | Explain code review personas, severity levels, and terminology. |
+| `--explain`, `-e` | `boolean` | - | Explain the review stages, severity levels and terms. |
 | `--no-pre-analysis` | `boolean` | - | Disable pre-analysis and metadata refresh. |
 | `--pre-analysis-only` | `boolean` | - | Run pre-analysis only and skip subsequent stages. |
 | `--no-static-scan` | `boolean` | - | Disable the static scan: the security analyzers and the Ruff, mypy and complexity evidence. |
@@ -641,7 +614,7 @@ devops ai review branch [OPTIONS] <branch_name>
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 | `--summary`, `-s` | `boolean` | - | Has no effect: every review runs the staged pipeline, which does not read it. |
 | `--full` | `boolean` | - | Print the whole report to the terminal: every finding with its details, every dependency and every network reference. By default the terminal lists CRITICAL to MEDIUM findings, with details for CRITICAL and HIGH, and gives LOW and INFO findings, dependencies and network references one line each that points at review.md. |
-| `--explain`, `-e` | `boolean` | - | Explain code review personas, severity levels, and terminology. |
+| `--explain`, `-e` | `boolean` | - | Explain the review stages, severity levels and terms. |
 | `--no-pre-analysis` | `boolean` | - | Disable pre-analysis and metadata refresh. |
 | `--pre-analysis-only` | `boolean` | - | Run pre-analysis only and skip subsequent stages. |
 | `--no-static-scan` | `boolean` | - | Disable the static scan: the security analyzers and the Ruff, mypy and complexity evidence. |
@@ -679,7 +652,7 @@ devops ai review pr [OPTIONS] <number>
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 | `--summary`, `-s` | `boolean` | - | Has no effect: every review runs the staged pipeline, which does not read it. |
 | `--full` | `boolean` | - | Print the whole report to the terminal: every finding with its details, every dependency and every network reference. By default the terminal lists CRITICAL to MEDIUM findings, with details for CRITICAL and HIGH, and gives LOW and INFO findings, dependencies and network references one line each that points at review.md. |
-| `--explain`, `-e` | `boolean` | - | Explain code review personas, severity levels, and terminology. |
+| `--explain`, `-e` | `boolean` | - | Explain the review stages, severity levels and terms. |
 | `--no-pre-analysis` | `boolean` | - | Disable pre-analysis and metadata refresh. |
 | `--pre-analysis-only` | `boolean` | - | Run pre-analysis only and skip subsequent stages. |
 | `--no-static-scan` | `boolean` | - | Disable the static scan: the security analyzers and the Ruff, mypy and complexity evidence. |

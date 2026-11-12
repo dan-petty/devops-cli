@@ -348,7 +348,6 @@ and excessive permissions fail it, and every other finding is shown. |
 |  | `devops ai agents [OPTIONS]` | Generate LLM/Agent instruction files (AGENTS.md, CLAUDE.md, GEMINI.md, copilot-instructions.md). |
 |  | `devops ai chat [OPTIONS]` | Start an interactive chat with a Pydantic AI persona (tools, thinking, streaming, RAG). |
 |  | `devops ai bundle-models [OPTIONS]` | Bundle Ollama model metadata into tarball for air-gapped DevContainers. |
-|  | `devops ai pipeline [OPTIONS] <prompt>` | Run a multi-agent Pydantic pipeline with shared DevOps tools and RAG context. |
 |  | `devops ai token-count [OPTIONS] <target>` | Calculate exact BPE tokens for text or files using tiktoken context budgeting. |
 |  | `devops ai spec [OPTIONS] <spec_path>` | Verify codebase against executable markdown architecture specification contracts. |
 |  | `devops ai repomap [OPTIONS]` | Generate compact whole-repository AST symbol and relationship map. |

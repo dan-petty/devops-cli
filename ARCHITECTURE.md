@@ -27,7 +27,7 @@ flowchart TD
     subgraph Subsystems["Infrastructure & AI Subsystems"]
         SUB_INFRA["Infra Management (Git, K8s, Docker, SSH, Argo)"]
         SUB_SECOPS["Static Security Scanners (Trivy, Pluto, Popeye, KubeLinter)"]
-        SUB_AI_REV["Multi-Persona Code Review Pipeline"]
+        SUB_AI_REV["Evidence-First Code Review Pipeline"]
         SUB_DEVCONTAINER["Python DevContainer Lifecycle Engine"]
     end
 
@@ -50,9 +50,9 @@ flowchart TD
 
 ---
 
-## 2. Multi-Persona Code Review Pipeline
+## 2. Evidence-First Code Review Pipeline
 
-The Agentic Code Review engine splits code analysis across specialized domain personas with structured reasoning context; static scanners' findings are admitted against the code, and a person gives the verdicts.
+The code review gets its findings from tools, not from models ([ADR 0005](docs/adr/0005-review-findings-come-from-tools-not-models.md)). Static scanners raise the findings, and the review admits each one against the reviewed code and `.devops/review.toml`. One bounded model call explains each group of admitted findings. No model gives a verdict: a person does. [docs/SELF_IMPROVEMENT.md](docs/SELF_IMPROVEMENT.md#1-the-loop-as-it-runs) gives each stage.
 
 ```mermaid
 sequenceDiagram
@@ -60,27 +60,25 @@ sequenceDiagram
     actor Dev as Developer / CI
     participant Orch as ReviewPipelineOrchestrator
     participant Meta as Metadata Analyzer
-    participant LLM as Multi-Persona LLMs
-    participant Store as .data/reviews/ Storage
+    participant Tools as Static Scanners (sandbox)
+    participant LLM as Group Analysis Model
+    participant Store as Review Session Directory
 
-    Dev->>Orch: devops ai review branch <name>
-    Orch->>Meta: Pre-analysis scan & AST refresh
-    Meta-->>Orch: FileAnalysisMeta payload
-    loop For each Persona (devsecops, architect, pm, auditor, qa)
-        Orch->>LLM: Multi-turn prompt + diff + ScratchpadBuffer
-        LLM-->>Orch: Structured JSON findings (ReviewResult)
+    Dev->>Orch: devops review path / branch / pr
+    Orch->>Meta: Pre-analysis of each file under review
+    Meta-->>Orch: FileAnalysisMeta
+    Orch->>Tools: Payloads: run the scanners
+    Tools-->>Orch: Candidate findings
+    Orch->>Orch: Admit each finding (location, suppressions, severity caps)
+    opt Group analysis is on
+        Orch->>LLM: One call for each group of admitted findings
+        LLM-->>Orch: Explanation and plan, no verdict
     end
-    Orch->>Orch: Dynamic Finding Reranking
-    Orch->>Store: Save session JSON & Markdown summary
-    Orch-->>Dev: Render Rich Review Table & Recommendations
+    Orch->>Store: findings.json, candidates.json, review.md, profile.json
+    Dev->>Store: devops review verify: a person's verdict
 ```
 
-### Review Personas & Specializations
-- **`devsecops`**: Static vulnerability scanning, secret detection, and IAM least-privilege analysis.
-- **`architect`**: Scalability, SOLID design principles, structural coupling, and boundary cohesion.
-- **`pm`**: Feature completeness, requirement traceability, and non-functional guarantees.
-- **`auditor`**: Compliance, governance, audit trail logging, and regulatory controls.
-- **`qa`**: Edge cases, error handling paths, test mocking adherence, and regression risk.
+The personas of `src/devops_cli/ai/personas/` serve AI commands such as `devops ai chat`. No review stage calls them.
 
 ---
 
@@ -202,10 +200,8 @@ All external binaries run through `run_subprocess` / `run_subprocess_async` (`de
 - **Shared container**: Never set `RLIMIT_NPROC`: Linux counts it for the real user across the container, so it starves VS Code Server and the shells. Never set `O_NONBLOCK` on descriptors 0, 1 or 2: it corrupts the terminal.
 
 ### 4. Multi-Stage Workflow Architecture
-The review workflow runs as `ReviewPipelineOrchestrator` methods (pre-analysis, payload init, persona review, re-ranking, reporting):
+The review workflow runs as `ReviewPipelineOrchestrator` methods (pre-analysis, payloads, group analysis, report):
 - **The report**: `review/report.py` renders review.md (`render_markdown`) and the terminal view (`render_console`) from one frozen `ReportInput`. It reads no orchestrator attribute and opens no file. `generate_consolidated_report` collects, deduplicates and persists the session, reads the review history and the knowledge-base drift that the report shows, and builds the input one time.
-- Standardized stage lifecycle hooks (`before_stage`, `after_stage`, `on_stage_error`).
-- Scratchpad buffer reasoning state handover between stages.
 - The implement job checks a plan with the stage gates before it runs a task, and it refuses a plan that fails them (#3393).
 - A roadmap stage job plans on the commit that it fetched from `origin`, never on a local branch that may be behind it (#3301).
 - **Workspace from the caller**: the command layer reads the working directory one time and gives it down. The orchestrator takes the absolute path of the reviewed directory (`target_dir`) and the `ToolExecutor` of its analyzers, evidence tools and canaries through its constructor, and no stage takes them again. The command layer makes one `SandboxToolExecutor` for each review, and an orchestrator that gets no executor makes one (`SECURITY.md`, item 7). A scanner takes the tree, the target or the directory that it starts in from its caller, and a scanner entry point has no default for it. No module under `ai/review/`, `review/` or `security/` reads `Path.cwd()` or `os.getcwd()`, names `DEFAULT_CURRENT_PATH`, or gives a parameter the default `Path(".")`: the ast-grep rule `review-cwd-read` holds this in the `constructs` row of `devops ci`. `get_repo_origin_name` takes the root of its repository from its caller and reads only the origin remote of that root. A command that has no `--repo` gives it `find_repo_root(Path.cwd())`, and an invariant test holds the parameter to no default. An allowed root of a boundary check, such as the review boundary of `devops review path` and the paths of `devops review export-feedback`, is the directory that the command gives.

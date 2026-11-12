@@ -13,9 +13,8 @@ there: `ai/review/pipeline.py:2842` is `src/devops_cli/ai/review/pipeline.py`, l
 
 The review is being redesigned so that findings come from tools and checked facts, and models
 only explain and plan ([ADR 0005](adr/0005-review-findings-come-from-tools-not-models.md)). #1150
-deleted the model
-verifier, the hallucination catalog, the model-claim guards and the mitigations ledger; until the
-persona stage goes too, persona findings are reported unverified.
+deleted the model verifier, the hallucination catalog, the model-claim guards and the mitigations
+ledger, and #1151 deleted the persona stage.
 
 ```mermaid
 flowchart TD
@@ -120,7 +119,7 @@ session that records no subject is a subject of its own, and a finding with no f
 matched only in its own session, never by its title or location.
 
 One command reads the dataset: `devops ai prompt-eval` (`commands/ai.py:1868`,
-`ai/prompt_eval.py:104`). It counts the recorded INVALIDATED and VERIFIED verdicts of one persona's
+`ai/prompt_eval.py:104`). It counts the recorded INVALIDATED and VERIFIED verdicts of one producer's
 findings, per labeller; the deterministic layer it once replayed is gone. Nothing indexes the
 dataset for RAG and no prompt is built from it: a prompt changes when someone edits a file under
 `ai/tasks/` or `ai/personas/`, which each review's `prompt_digest` records
@@ -143,7 +142,8 @@ revision a branch or pull request diff starts from.
 
 These documents said otherwise once; the code does none of it.
 
-- There is no `performance` or `sre` persona, and a review is no ensemble by default.
+- There is no `performance` or `sre` persona, and a review runs no persona and no ensemble:
+  #1151 deleted the persona stage.
 - `tasks/review.md` has four steps (ground, inspect, falsify, formulate), not five phases.
 - `devops review verify` verifies nothing; it records the verdict a person gives.
 - No model, criterion or keyword rule gives a finding a verdict, and no verdict teaches a later
@@ -832,7 +832,7 @@ The score gives:
 - for each injection, how many of the k runs found it and how many still reported it;
 - pass@k, the share of injections found in at least one run, and pass^k, the share found in every
   run, among the candidates and among the reported findings;
-- each run's recall, findings, tokens and unparsed persona replies;
+- each run's recall, findings and tokens;
 - the mean of each figure (`recall_found`, `recall_reported`, `candidate_findings`,
   `invalidated_findings`, `reported_findings`, `prompt_tokens`, `completion_tokens`), and its
   `[min, max]` across the runs as `spread`. One run measures no spread, so its `spread` is null.
@@ -842,9 +842,8 @@ package's `ai/tasks/` and `ai/personas/` when the review started. Prompts load o
 its own checkout, and the digest says which prompts a session ran. It does not cover the target's
 conventions, which `conventions_digest` records beside it. Sessions with different digests, or
 whose profile records `code_changed_during_run: true`, are refused rather than scored as one arm.
-The run record's setup names the prompt digest, k, the
-personas that replied, each task's model, temperature and `top_p`, and the gateway pool of each
-group the review used. When a group
+The run record's setup names the prompt digest, k, each
+task's model, temperature and `top_p`, and the gateway pool of each group the review used. When a group
 serves more than one model, the report says `not model-pinned`: pin one model with a single-model
 gateway group before comparing prompts.
 
@@ -856,10 +855,9 @@ significance test is run. `devops ai runs check` still compares the means.
 Both arms must read one configuration file. `config.yaml` is git-ignored and the config lookup
 stops at a worktree's `.git`, so point both checkouts at a shared copy with `DEVOPS_CLI_CONFIG`,
 and pin the analysis and verification models there. Run the base arm twice first: the A/A ranges
-are the noise floor a prompt change is read against. A review learns nothing from its own
-verdicts: only a person's INVALIDATED verdict teaches the catalog (section 5.7). Give no verdicts
-between the runs of a comparison, or the claims judged after an earlier run are suppressed in, and
-shown to the personas of, the runs after it.
+are the noise floor a prompt change is read against. A review learns nothing from verdicts: a
+person's verdict labels its own session only (section 5.7). Add no `.devops/review.toml`
+suppression between the runs of a comparison, or the runs after it admit fewer findings.
 
 To compare models rather than prompts, run every arm from one checkout and pin each arm's model
 from the shell. The model that `devops-review` serves has a gateway group of its own
@@ -1230,7 +1228,7 @@ Bandit's B102 title.
 disproved. A person's verdict labels its own session only. A claim a tool keeps raising becomes a
 `.devops/review.toml` suppression of its rule on its path, with the reason and an expiry, and a
 branch or pull request review that changes that path lists the suppression for a person to
-re-check. A persona's repeats are reported until the persona stage is removed (#1151).
+re-check.
 
 The feedback dataset is read honestly too. `devops review export-feedback` appends to the one
 configured dataset, `.data/feedback_dataset.jsonl`, skipping each verdict it already holds, reads

@@ -91,106 +91,6 @@ class MCPToolInfo(BaseModel):
         return item == "readOnlyHint" or hasattr(self, item)
 
 
-class ScratchpadEntry(BaseModel):
-    """An individual structured reasoning record within an AI agent scratchpad."""
-
-    persona: str
-    stage: str
-    hypothesis: str = ""
-    notes: list[str] = Field(default_factory=list)
-    key_findings: list[str] = Field(default_factory=list)
-    timestamp: str = ""
-
-
-class ScratchpadBuffer(BaseModel):
-    """Structured multi-turn reasoning scratchpad buffer for agentic pipeline turns."""
-
-    session_id: str = "default-session"
-    max_entries: int = 10
-    max_chars: int = 4000
-    keep_recent: int = 3
-    summary: str = ""
-    entries: list[ScratchpadEntry] = Field(default_factory=list)
-
-    def add_entry(
-        self,
-        persona: str,
-        stage: str,
-        hypothesis: str = "",
-        notes: list[str] | None = None,
-        key_findings: list[str] | None = None,
-    ) -> ScratchpadEntry:
-        """Append a new reasoning entry to the scratchpad buffer."""
-        from datetime import UTC, datetime
-
-        entry = ScratchpadEntry(
-            persona=persona,
-            stage=stage,
-            hypothesis=hypothesis,
-            notes=notes or [],
-            key_findings=key_findings or [],
-            timestamp=datetime.now(UTC).isoformat(),
-        )
-        self.entries.append(entry)
-        self.auto_summarize_if_needed()
-        return entry
-
-    @property
-    def total_chars(self) -> int:
-        """Total character length across all scratchpad hypotheses, notes, and findings."""
-        return sum(
-            len(e.hypothesis) + sum(len(n) for n in e.notes) + sum(len(k) for k in e.key_findings)
-            for e in self.entries
-        )
-
-    def should_summarize(self) -> bool:
-        """Return True if entry count or total character threshold is exceeded."""
-        return len(self.entries) > self.max_entries or self.total_chars > self.max_chars
-
-    def auto_summarize_if_needed(self, llm_client: Any | None = None) -> bool:
-        """Automatically compress older scratchpad entries into a summary if size
-        limits are reached.
-        """
-        if not self.should_summarize() or len(self.entries) <= self.keep_recent:
-            return False
-
-        cutoff = len(self.entries) - self.keep_recent
-        to_summarize = self.entries[:cutoff]
-        to_keep = self.entries[cutoff:]
-
-        bullets: list[str] = []
-        if self.summary:
-            bullets.append(self.summary)
-        for e in to_summarize:
-            n_str = (", ".join(e.notes))[:80] if e.notes else ""
-            h_str = e.hypothesis[:100]
-            entry_line = f"[{e.persona.upper()}/{e.stage}] {h_str}"
-            if n_str:
-                entry_line += f" ({n_str})"
-            bullets.append(entry_line)
-
-        new_summary = " -> ".join(bullets)
-        if len(new_summary) > self.max_chars // 2:
-            new_summary = new_summary[: (self.max_chars // 2) - 3] + "..."
-
-        self.summary = new_summary
-        self.entries = to_keep
-        return True
-
-    def render_context_summary(self) -> str:
-        """Render a concise markdown summary of intermediate scratchpad reasoning."""
-        if not self.entries and not self.summary:
-            return ""
-        lines: list[str] = ["### Scratchpad Reasoning Context"]
-        if self.summary:
-            lines.append(f"- **[ACCUMULATED SUMMARY]**: {self.summary}")
-        for entry in self.entries:
-            lines.append(f"- **[{entry.persona.upper()} | {entry.stage}]**: {entry.hypothesis}")
-            for note in entry.notes:
-                lines.append(f"  • {note}")
-        return "\n".join(lines)
-
-
 # ── AI Review & MCP Request/Response Resource Models ─────────────────────────
 
 
@@ -199,7 +99,6 @@ class ReviewPathRequest(BaseModel):
 
     target: str = Field(default=".", description="File or directory path to review")
     pattern: str = Field(default="*", description="Glob pattern filter")
-    persona: str = Field(default="devsecops", description="Reviewer persona to activate")
     all_files: bool = Field(default=False, description="Review all files matching pattern")
 
 
@@ -208,7 +107,6 @@ class ReviewBranchRequest(BaseModel):
 
     branch: str = Field(default="", description="Branch to review (empty for active branch)")
     base: str = Field(default="main", description="Target base branch to diff against")
-    persona: str = Field(default="devsecops", description="Reviewer persona to activate")
 
 
 class ReviewPRRequest(BaseModel):
@@ -216,7 +114,6 @@ class ReviewPRRequest(BaseModel):
 
     number: int = Field(..., description="GitHub Pull Request number")
     post: bool = Field(default=False, description="Post inline review comments directly to PR")
-    persona: str = Field(default="devsecops", description="Reviewer persona to activate")
 
 
 class ReviewFindingsRequest(BaseModel):
@@ -236,7 +133,6 @@ class FindingSummaryEntry(BaseModel):
     severity: str = Field(..., description="Severity level")
     location: str = Field(..., description="Location in canonical file.ext:line format")
     status: str = Field(default="VERIFIED", description="Verification status")
-    persona: str = Field(default="devsecops", description="Originating persona")
 
 
 class ReviewFindingsResult(BaseModel):
@@ -277,16 +173,13 @@ class ReviewStatsRequest(BaseModel):
 
 
 class ReviewStatsResult(BaseModel):
-    """Aggregated statistics on code review accuracy, findings, and personas."""
+    """Aggregated statistics on code review accuracy and findings."""
 
     total_sessions_analyzed: int = Field(default=0, description="Count of reviewed sessions")
     total_findings: int = Field(default=0, description="Total findings across analyzed sessions")
     verified_findings: int = Field(default=0, description="Count of verified findings")
     invalidated_findings: int = Field(default=0, description="Count of invalidated false positives")
     accuracy_rate: float = Field(default=1.0, description="Verified findings ratio (0.0 - 1.0)")
-    persona_distribution: dict[str, int] = Field(
-        default_factory=dict, description="Finding counts grouped by persona"
-    )
 
 
 class ExportFeedbackRequest(BaseModel):

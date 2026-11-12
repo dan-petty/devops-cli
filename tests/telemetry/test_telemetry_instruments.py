@@ -23,7 +23,6 @@ import pytest
 import yaml
 
 from devops_cli.ai.client import LLMClient, LLMResponse
-from devops_cli.ai.personas import PersonaDefinition
 from devops_cli.ai.response_cache import get_llm_response_cache
 from devops_cli.ai.review.runner import record_review_metrics
 from devops_cli.ai.review_schema import Finding, ReviewResult
@@ -1292,23 +1291,17 @@ def test_two_processes_with_different_references_send_the_same_local_series(
     assert (len(workstation) > 0, workstation) == (True, service)
 
 
-def test_a_review_sends_its_duration_and_findings_by_persona_severity_and_status(
+def test_a_review_sends_its_duration_and_findings_by_severity_and_status(
     otlp: FakeCollector,
 ) -> None:
-    """Verify findings are counted once per persona, severity and status, and failed personas
-    contribute none."""
-    persona = PersonaDefinition(
-        name="devsecops", title="DevSecOps", system_prompt="", chat_prompt=""
-    )
+    """Verify findings are counted once per severity and status, and a result that is not a
+    ReviewResult adds none."""
     findings = [
         Finding(severity="high", title="a", location="x:1", status="VERIFIED"),
         Finding(severity="HIGH", title="b", location="x:2", status="VERIFIED"),
         Finding(severity="LOW", title="c", location="x:3", status="INVALIDATED"),
     ]
-    results: list[tuple[PersonaDefinition, ReviewResult | str]] = [
-        (persona, ReviewResult(findings=findings)),
-        (persona, "the persona failed"),
-    ]
+    results: list[ReviewResult | str] = [ReviewResult(findings=findings), "a raw reply"]
 
     record_review_metrics(results, 312.5, "path")
 

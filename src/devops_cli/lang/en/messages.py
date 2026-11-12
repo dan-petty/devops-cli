@@ -42,9 +42,9 @@ class ReviewMessages:
     no_reviewable_files_changed: str = "No reviewable files changed."
     diffing_branches: str = "Diffing {branch} against {base}..."
     no_diff_found: str = "No differences found between branches."
-    nothing_for_personas: str = (
-        "Nothing is left for the personas: every file under review is a lockfile, a planning "
-        "document or a generated reference. The secret scan still reads {count} of them."
+    secret_scan_only: str = (
+        "Every file under review is a lockfile, a planning document or a generated reference, "
+        "which only the secret scan reads. It reads {count} of them."
     )
     tools_not_sandboxed: str = (
         "The review tools did not run: {cause}. No tool runs outside the sandbox, so the report "
@@ -52,9 +52,9 @@ class ReviewMessages:
         "on this host, or let bubblewrap make user namespaces (on Ubuntu, an AppArmor profile "
         "with the userns rule)."
     )
-    nothing_for_personas_unscanned: str = (
-        "Nothing is left for the personas: every file under review is a lockfile, a planning "
-        "document or a generated reference. The static scan is off, so none of the {count} "
+    secret_scan_only_unscanned: str = (
+        "Every file under review is a lockfile, a planning document or a generated reference, "
+        "which only the secret scan reads. The static scan is off, so none of the {count} "
         "is read."
     )
     fetching_pr: str = "Fetching PR #{number} from {repo}..."
@@ -101,8 +101,8 @@ class ReviewMessages:
     candidate_moved: str = "Candidate #{index} added to findings.json as finding #{number}"
     candidate_copy_ambiguous: str = (
         "Finding #{number} in findings.json reports candidates {candidates}, which share a "
-        "persona, title, location and description; give the verdict there with --index {number}, "
-        "which records it on each."
+        "fingerprint and a location; give the verdict there with --index {number}, which records "
+        "it on each."
     )
     session_write_failed: str = (
         "Cannot write the session's files, so the verdict was not recorded: {error}"

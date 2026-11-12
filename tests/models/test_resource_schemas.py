@@ -453,13 +453,13 @@ def test_git_resource_models_roundtrip() -> None:
 
 def test_review_request_models_roundtrip() -> None:
     """Verify review path, branch, and PR request models."""
-    review_p_req = ReviewPathRequest(target="src/devops_cli", pattern="*.py", persona="devsecops")
+    review_p_req = ReviewPathRequest(target="src/devops_cli", pattern="*.py")
     assert review_p_req.target == "src/devops_cli"
 
-    review_b_req = ReviewBranchRequest(branch="feat/test", base="main", persona="architect")
+    review_b_req = ReviewBranchRequest(branch="feat/test", base="main")
     assert review_b_req.base == "main"
 
-    review_pr_req = ReviewPRRequest(number=42, post=True, persona="devsecops")
+    review_pr_req = ReviewPRRequest(number=42, post=True)
     assert review_pr_req.number == 42
 
 
@@ -473,7 +473,6 @@ def test_review_findings_and_stats_models_roundtrip() -> None:
         severity="HIGH",
         location="src/auth.py:45",
         status="VERIFIED",
-        persona="devsecops",
     )
     findings_res = ReviewFindingsResult(
         session_id="20260827-test", total_findings=1, findings=[finding_item]
@@ -495,7 +494,6 @@ def test_review_findings_and_stats_models_roundtrip() -> None:
         verified_findings=18,
         invalidated_findings=2,
         accuracy_rate=0.9,
-        persona_distribution={"devsecops": 12, "architect": 8},
     )
     assert stats_res.accuracy_rate == 0.9
 

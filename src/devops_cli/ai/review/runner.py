@@ -17,7 +17,6 @@ from pydantic import BaseModel, ConfigDict
 from devops_cli.ai.analyze.cache import _load_file_analysis_metas
 from devops_cli.ai.analyze.symbols import BaseRevision
 from devops_cli.ai.client import get_llm_client
-from devops_cli.ai.personas import PERSONAS, Persona, PersonaDefinition
 from devops_cli.ai.review.flags import ReviewStageFlags
 from devops_cli.ai.review.path_classes import load_path_classes, load_review_config
 from devops_cli.ai.review.profile import (
@@ -340,9 +339,9 @@ def _review_to_markdown(review: ReviewResult | str) -> str:
     return "\n".join(lines)
 
 
-def _has_review_findings(reviews: list[tuple[PersonaDefinition, ReviewResult | str]]) -> bool:
+def _has_review_findings(reviews: list[ReviewResult | str]) -> bool:
     """Return True if any review contains actionable findings."""
-    for _, rev in reviews:
+    for rev in reviews:
         if isinstance(rev, ReviewResult) and any(
             getattr(f, "reportable", True) for f in rev.findings
         ):
@@ -361,11 +360,11 @@ def _has_review_findings(reviews: list[tuple[PersonaDefinition, ReviewResult | s
 
 
 def _extract_review_summaries(
-    reviews: list[tuple[PersonaDefinition, ReviewResult | str]],
-) -> list[tuple[str, str]]:
-    """Extract non-empty summaries from persona reviews."""
-    summaries: list[tuple[str, str]] = []
-    for pd, rev in reviews:
+    reviews: list[ReviewResult | str],
+) -> list[str]:
+    """Extract the non-empty summaries of the review results."""
+    summaries: list[str] = []
+    for rev in reviews:
         text = ""
         if isinstance(rev, ReviewResult) and rev.summary:
             text = rev.summary.strip()
@@ -378,19 +377,18 @@ def _extract_review_summaries(
             if isinstance(parsed, dict) and parsed.get("summary"):
                 text = str(parsed["summary"]).strip()
         if text:
-            summaries.append((pd.title, text))
+            summaries.append(text)
     return summaries
 
 
 def _format_zero_findings_comment(
-    reviews: list[tuple[PersonaDefinition, ReviewResult | str]],
+    reviews: list[ReviewResult | str],
     files: list[str] | None,
     static_analyzers: dict[str, str] | None,
 ) -> str:
-    """Construct fixed zero-findings comment naming files, personas, and analyzers that ran."""
+    """Construct fixed zero-findings comment naming the files and analyzers that ran."""
     files_list = files or []
     files_str = ", ".join(f"`{f}`" for f in files_list) if files_list else "None"
-    personas_str = ", ".join(pd.title for pd, _ in reviews) if reviews else "None"
 
     if static_analyzers:
         ran = [
@@ -406,33 +404,28 @@ def _format_zero_findings_comment(
         "## 🤖 AI Code Review\n",
         "Zero findings identified.\n",
         f"- **Files checked:** {files_str}",
-        f"- **Personas:** {personas_str}",
         f"- **Analyzers:** {analyzers_str}",
     ]
 
     summaries = _extract_review_summaries(reviews)
     if summaries:
         lines.append("\n## Model Notes (Not Verified)\n")
-        if len(summaries) == 1:
-            lines.append(summaries[0][1])
-        else:
-            for persona_title, summary_text in summaries:
-                lines.append(f"### {persona_title}\n\n{summary_text}\n")
+        lines.append("\n\n".join(summaries))
 
     return "\n".join(lines).strip() + "\n"
 
 
 def format_pr_review_comment(
-    reviews: list[tuple[PersonaDefinition, ReviewResult | str]],
+    reviews: list[ReviewResult | str],
     files: list[str] | None = None,
     target_dir: Path | None = None,
     static_analyzers: dict[str, str] | None = None,
 ) -> str:
     """Format PR comment body for post_comment review workflow.
 
-    Emits a fixed zero-findings comment naming files, personas, and analyzers when zero
-    findings are identified, routing model suggestions under 'Model Notes (Not Verified)'.
-    Emits persona finding sections when findings exist.
+    Emits a fixed zero-findings comment naming files and analyzers when zero findings are
+    identified, routing model suggestions under 'Model Notes (Not Verified)'. Emits the findings
+    of each result when findings exist.
     """
     if not reviews:
         return ""
@@ -443,7 +436,7 @@ def format_pr_review_comment(
         effective_analyzers = static_analyzers
     else:
         analyzers_found = None
-        for _, rev in reviews:
+        for rev in reviews:
             if isinstance(rev, ReviewResult) and getattr(rev, "static_analyzers", None) is not None:
                 analyzers_found = rev.static_analyzers
                 break
@@ -452,9 +445,7 @@ def format_pr_review_comment(
     if not _has_review_findings(reviews):
         return _format_zero_findings_comment(reviews, files, effective_analyzers)
 
-    sections = "\n\n---\n\n".join(
-        f"## Review by {pd.title}\n\n{_review_to_markdown(text)}" for pd, text in reviews
-    )
+    sections = "\n\n---\n\n".join(_review_to_markdown(rev) for rev in reviews)
     return f"## 🤖 AI Code Review\n\n{sections}\n"
 
 
@@ -472,7 +463,7 @@ def resolve_pr_files(pages: list[str], repo_name: str, number: int) -> list[str]
 
 
 def post_pr_review_comment(
-    reviews: list[tuple[PersonaDefinition, ReviewResult | str]],
+    reviews: list[ReviewResult | str],
     pages: list[str],
     head_dir: Path,
     repo_name: str,
@@ -1322,7 +1313,7 @@ def _finding_producer(finding: Finding) -> str:
 
 
 def record_review_metrics(
-    results: list[tuple[PersonaDefinition, ReviewResult | str]],
+    results: list[ReviewResult | str],
     seconds: float,
     target_type: str,
 ) -> None:
@@ -1332,7 +1323,7 @@ def record_review_metrics(
     emit(REVIEW_DURATION, seconds, {"target_type": target_type})
     counts = Counter(
         (_finding_producer(finding), finding.severity.upper(), finding.status.upper())
-        for _, result in results
+        for result in results
         if isinstance(result, ReviewResult)
         for finding in result.findings
     )
@@ -1352,7 +1343,7 @@ def _run_profiled_session(
     target_ref: str,
     stage_flags: ReviewStageFlags | None,
     base_revision: BaseRevision | None = None,
-) -> list[tuple[PersonaDefinition, ReviewResult | str]] | None:
+) -> list[ReviewResult | str] | None:
     """Run the orchestrated review under a profiler; None when there are no files to review."""
     with profiling() as profiler:
         with review_stage("pre_analysis"):
@@ -1387,7 +1378,7 @@ def run_orchestrator_review(
     metadata_by_path: dict[str, FileAnalysisMeta],
     pages: list[str],
     stage_flags: ReviewStageFlags | None = None,
-) -> list[tuple[PersonaDefinition, ReviewResult | str]]:
+) -> list[ReviewResult | str]:
     """Execute orchestrator pipeline review for all files."""
     diff_map = {f: "\n".join(p for p in pages if f in diff_file_names(p)) for f in all_files}
     with review_stage("payloads"):
@@ -1466,12 +1457,11 @@ def _report_review(
     orchestrator: ReviewPipelineOrchestrator,
     payloads: list[Any],
     stage_flags: ReviewStageFlags | None,
-) -> list[tuple[PersonaDefinition, ReviewResult | str]]:
+) -> list[ReviewResult | str]:
     """Write the session's report and findings, and return them as the review's result."""
     payload_data, report_md = orchestrator.generate_consolidated_report(
         payloads, stage_flags=stage_flags
     )
-    p_def = PERSONAS[Persona.DEVSECOPS]
     findings_list = _collect_review_findings(orchestrator, payloads, payload_data, stage_flags)
     raw_analyzers = getattr(orchestrator, "static_analyzers", None)
     analyzers_dict = raw_analyzers if isinstance(raw_analyzers, dict) else {}
@@ -1481,22 +1471,20 @@ def _report_review(
         static_analyzers=analyzers_dict,
         summary="",
     )
-    return [(p_def, result)]
+    return [result]
 
 
 def _review_routed_files_only(
     orchestrator: ReviewPipelineOrchestrator,
     stage_flags: ReviewStageFlags | None,
-) -> list[tuple[PersonaDefinition, ReviewResult | str]]:
-    """A review whose every file is routed past the personas: the secret scan reads them, the
-    report says what it found, and no model is called (#948)."""
+) -> list[ReviewResult | str]:
+    """A review whose every file is a routed file: only the secret scan reads them, the report
+    says what it found, and no model is called (#948)."""
     from devops_cli.lang import MESSAGES
 
     scanned = stage_flags is None or stage_flags.static_scan
     message = (
-        MESSAGES.review.nothing_for_personas
-        if scanned
-        else MESSAGES.review.nothing_for_personas_unscanned
+        MESSAGES.review.secret_scan_only if scanned else MESSAGES.review.secret_scan_only_unscanned
     )
     print_info(message.format(count=len(orchestrator.secret_scan_files)), prefix=False)
     payloads = orchestrator.scan_routed_files(stage_flags=stage_flags)
@@ -1567,7 +1555,7 @@ def execute_review_workflow(
     routed_files: Sequence[str] = (),
     session_id: str | None = None,
     partial_context: bool = False,
-) -> list[tuple[PersonaDefinition, ReviewResult | str]]:
+) -> list[ReviewResult | str]:
     """Common review execution workflow for path, branch, and PR reviews.
 
     `base_revision` is where a branch or PR diff starts; pre-analysis records each changed
@@ -1642,7 +1630,7 @@ def _run_review_with_executor(
     routed_files: Sequence[str],
     session_id: str | None,
     partial_context: bool,
-) -> list[tuple[PersonaDefinition, ReviewResult | str]]:
+) -> list[ReviewResult | str]:
     """Build the orchestrator of the review with `executor` and run the review of `all_files`."""
     from devops_cli.ai.review.history import review_subject
     from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator

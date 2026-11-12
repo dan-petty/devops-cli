@@ -424,12 +424,6 @@ DEFAULT_RAG_KB_SYNC_FAILURE_COOLDOWN_SECONDS: Final[float] = (
 # per attempt. 60 s is too short for a homelab Qdrant search; 300 to 600 s suits one (#975).
 DEFAULT_QDRANT_TIMEOUT_SECONDS: float = 300.0
 DEFAULT_QDRANT_DISTANCE: str = "Cosine"
-DEFAULT_AI_PIPELINE_PROMPT: str = (
-    "Perform a multi-agent review of workspace security, architecture, and code quality."
-)
-DEFAULT_AI_PIPELINE_PERSONAS: str = "devsecops,architect,qa"
-DEFAULT_AI_PIPELINE_MAX_TURNS: int = 5
-DEFAULT_PIPELINE_STAGE_CONTEXT_TOKENS: int = 4096
 DEFAULT_AI_TEST_PROMPT: str = "Hello, world!"
 DEFAULT_MAX_AST_FILE_SIZE_BYTES: int = 50 * 1024 * 1024  # 50MB DoS protection limit
 DEFAULT_AI_SPEND_DB_FILENAME: str = "spend.db"
