@@ -24,7 +24,7 @@ Closes #5061. The stage job keeps a plan pull request in draft with the label `p
 
 ## Impact
 
-- The Service runs the row in mode `plan` until a person sets `roadmap.fix_plan.mode: on` in the ConfigMap of the Service. Then each attempt spends at most the model limits of one stage item: 13 planner calls and 3 review calls with the default `roadmap.stage.gate_returns`, plus one review and one repair of the head plan.
+- The Service runs the row in mode `plan` until a person sets `roadmap.fix_plan.mode: on` in the ConfigMap of the Service. Then each attempt spends at most the model limits of one stage item (`roadmap.stage.gate_returns` and `roadmap.stage.verify_repair_rounds`, #5066), plus one review of the head plan when no comment lists its open findings.
 - The model lane gets one more row. A round with no selected plan reads the issues of the store, which the lane already holds, and one pull request for each Staged item that the bounds do not leave out.
 - The change fits one pull request.
 
