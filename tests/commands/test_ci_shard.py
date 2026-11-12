@@ -9,12 +9,15 @@ shard passes the paths of its own files to pytest, so it collects no file of ano
 from __future__ import annotations
 
 import re
+import tomllib
 from pathlib import Path
 
 import pytest
+import yaml
 from typer.testing import CliRunner
 
 from devops_cli.ci.cache import resolve_ci_cache_path
+from devops_cli.ci.fail_to_pass import parse_junit_xml
 from devops_cli.commands.ci import app, get_check_spec
 from devops_cli.core.test_selection import directory_modules, shard_test_files
 from devops_cli.dry_run import set_dry_run
@@ -24,6 +27,25 @@ from tests.support.paths import REPO_ROOT
 runner = CliRunner()
 
 _SPLIT_OPTIONS = ("--splits", "--group", "--splitting-algorithm")
+_JUNIT_OPTION = "--junitxml="
+
+# One test of each outcome whose reason the log of a shard must give.
+_SHARD_SUITE = """
+import pytest
+
+
+def test_passes() -> None:
+    assert True
+
+
+@pytest.mark.skip(reason="promtool is not installed")
+def test_skips() -> None:
+    pass
+
+
+def test_fails() -> None:
+    assert False
+"""
 
 
 def _said(output: str) -> str:
@@ -37,6 +59,13 @@ def _planned_test_row(*options: str) -> list[str]:
     set_dry_run(False)
     words = _said(result.output).split()
     return words[words.index("1.") + 1 :]
+
+
+def _report_path(row: list[str]) -> str | None:
+    """The path of the JUnit XML report that the test row `row` writes, or None when it writes none."""
+    return next(
+        (word.removeprefix(_JUNIT_OPTION) for word in row if word.startswith(_JUNIT_OPTION)), None
+    )
 
 
 def test_the_unsharded_test_row_has_no_split_option_and_prints_the_term_report() -> None:
@@ -74,6 +103,59 @@ def test_a_shard_runs_its_own_test_files_and_checks_no_floor() -> None:
         "--cov-report=term-missing" in cmd,
         "--snapshot-warn-unused" in cmd,
     ) == (own_files, [False, False, False], True, True, True, False, True)
+
+
+def test_a_shard_reports_each_test_id_and_the_reason_of_each_skip_and_failure(
+    pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The split by measured time (#4250) needs the time of each test of a shard, and the log of a
+    shard must give the reason of each skip (#4673). The report options of the shard row, on a
+    suite with a pass, a skip and a failure, write the three tests to the JUnit XML report and
+    print the reason of the skip. The option `-r` of pytest replaces its default `fE`, so the row
+    asks again for the failures and errors, and the failure stays in the summary."""
+    # The inner run loads no installed plugin: autoloading each plugin costs seconds.
+    monkeypatch.setenv("PYTEST_DISABLE_PLUGIN_AUTOLOAD", "1")
+    pytester.makepyprojecttoml('[tool.pytest.ini_options]\naddopts = "-p no:randomly --tb=no"\n')
+    pytester.makepyfile(test_shard=_SHARD_SUITE)
+    row = _planned_test_row("--shard", "2", "--shards", "4")
+    report_path = _report_path(row)
+    assert report_path is not None, "the shard row writes no JUnit XML report"
+
+    result = pytester.runpytest(
+        *[word for word in row if word.startswith(("-r", _JUNIT_OPTION))], "test_shard.py"
+    )
+
+    report = parse_junit_xml((pytester.path / report_path).read_text(encoding="utf-8"))
+    output = _said(result.stdout.str())
+    assert (
+        sorted(f"{case.classname}::{case.name}" for case in report),
+        re.search(r"SKIPPED \[1\] test_shard\.py:\d+: promtool is not installed", output)
+        is not None,
+        "FAILED test_shard.py::test_fails" in output,
+    ) == (
+        ["test_shard::test_fails", "test_shard::test_passes", "test_shard::test_skips"],
+        True,
+        True,
+    )
+
+
+def test_each_shard_job_uploads_the_report_of_its_row_with_its_coverage_data() -> None:
+    """Each shard job of CI uploads the JUnit XML report that its test row writes, in the artifact
+    that holds its coverage data, so that the split by measured time can read the time of each
+    test of the suite from the artifacts of a run (#4250, #4673)."""
+    workflow = yaml.safe_load((REPO_ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8"))
+    upload = next(
+        step
+        for step in workflow["jobs"]["test-shard"]["steps"]
+        if step.get("uses", "").startswith("actions/upload-artifact@")
+    )
+    pyproject = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    coverage_data = pyproject["tool"]["coverage"]["run"]["data_file"]
+
+    assert upload["with"]["path"].split() == [
+        coverage_data,
+        _report_path(_planned_test_row("--shard", "2", "--shards", "4")),
+    ]
 
 
 @pytest.mark.parametrize("shards", [2, 3, 4])

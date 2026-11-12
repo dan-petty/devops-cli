@@ -27,6 +27,8 @@ from devops_cli.config.constants import (
     CONST_AST_GREP_SCAN_ARGS,
     CONST_BANDIT_INI_NAME,
     CONST_CI_RUN_STOP_SIGNAL_NAMES,
+    CONST_CI_SHARD_JUNIT_PATH,
+    CONST_CI_SHARD_SUMMARY_CHARS,
     CONST_CI_SLOWEST_TESTS_SHOWN,
     CONST_CI_SUBCOMMAND_SHOWS_HELP_META_KEY,
     CONST_CI_TEST_BUDGET_SECONDS,
@@ -633,7 +635,9 @@ def _resolve_pytest_cmd(*, shard: int = 1, shards: int = 1) -> list[str]:
     that deselects after collection makes every xdist worker collect the whole suite (#2371). A
     shard measures a part of the tree: it checks no floor and prints no report, and the job that
     combines the data of every shard does both. A shard also warns on, and does not fail on, an
-    unused snapshot: the snapshots of the tests in the other shards are unused in it.
+    unused snapshot: the snapshots of the tests in the other shards are unused in it. A shard writes
+    the time of each test to a JUnit XML report, which CI uploads with the coverage data, and its
+    log gives the reason of each skip (#4673).
     """
     from devops_cli.core.test_selection import shard_test_files
 
@@ -651,6 +655,8 @@ def _resolve_pytest_cmd(*, shard: int = 1, shards: int = 1) -> list[str]:
         "--cov-report=",
         "--cov-fail-under=0",
         "--snapshot-warn-unused",
+        f"-r{CONST_CI_SHARD_SUMMARY_CHARS}",
+        f"--junitxml={CONST_CI_SHARD_JUNIT_PATH}",
         *shard_test_files(shard, shards, _get_project_root()),
     ]
 
