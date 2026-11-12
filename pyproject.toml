@@ -70,6 +70,8 @@ dependencies = [
     "markdown-it-py==4.3.0",
     "graphql-core==3.3.2",
     "statsmodels==0.15.0",
+    "numpy==2.5.4",
+    "pytrec-eval-terrier==0.5.11",
     "prometheus-client==0.26.0",
     "gidgethub==6.0.0",
     "cachetools==8.0.0",
@@ -200,6 +202,12 @@ mypy_path = "typings"
 # aggregate_raters (#1138).
 [[tool.mypy.overrides]]
 module = "statsmodels.*"
+ignore_missing_imports = true
+
+# pytrec-eval-terrier ships no type information; the embedding benchmark's retrieval metrics
+# module is the one caller of its recall, MRR and nDCG (#1928).
+[[tool.mypy.overrides]]
+module = "pytrec_eval.*"
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
