@@ -276,3 +276,31 @@ def test_a_command_path_names_only_the_commands_and_counts_the_other_words(
     from devops_cli.core.command_resolver import resolve_command_path
 
     assert (resolve_command_path(words), capsys.readouterr().out) == (expected, "")
+
+
+@pytest.mark.parametrize(
+    ("words", "expected"),
+    [
+        (["ci", "to", "confirm", "the", "gate"], 1),
+        (["roadmap", "intake", "command", "with", "gh"], 2),
+        (["roadmap", "follow", "3076", "to", "see"], 2),
+        (["gh", "pages", "verify", "--root_dir", "docs", "to", "check"], 4),
+        (["format", "--check", "to", "confirm"], 2),
+        (["--dry-run", "config", "show", "the", "value"], 3),
+        (["to", "start"], 1),
+        ([], 0),
+    ],
+)
+def test_a_cited_command_ends_at_the_first_word_the_tree_does_not_list(
+    words: list[str], expected: int, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Verify a command cited in a sentence ends at the first word that is no option and no
+    subcommand, and a group that needs a subcommand keeps that word as one (#4956).
+
+    `devops ci` runs with no subcommand and `roadmap intake` has no subcommands, so the next word
+    is prose. `devops roadmap` and `devops` need a subcommand, so the next word stays for the
+    resolver to report. The walk parses no word, so it prints nothing.
+    """
+    from devops_cli.core.command_resolver import cited_command_length
+
+    assert (cited_command_length(words), capsys.readouterr().out) == (expected, "")

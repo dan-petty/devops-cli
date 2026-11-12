@@ -2,9 +2,11 @@
 
 A plan that cites a `devops` command line in Feasibility or tasks is checked against the Click
 command tree with `resolve_devops_argv`, without running any command. An unknown command, an
-unknown option flag or an unexpected extra argument is refused. A quoted tuple key cited in
-Feasibility or tasks, in a sentence that names the exposure table, is checked against
-`CONST_MCP_EXPOSURE_TABLE` and refused when absent.
+unknown option flag or an unexpected extra argument is refused. A code span marks where its
+command ends. A command cited in a sentence ends at the first word that the command tree does not
+list (`cited_command_length`, #4956), so the English words after it are no arguments. A quoted
+tuple key cited in Feasibility or tasks, in a sentence that names the exposure table, is checked
+against `CONST_MCP_EXPOSURE_TABLE` and refused when absent.
 """
 
 from __future__ import annotations
@@ -17,7 +19,12 @@ from itertools import takewhile
 from typing import TYPE_CHECKING, Final
 
 from devops_cli.config.constants import CONST_MCP_EXPOSURE_TABLE
-from devops_cli.core.command_resolver import ArgvPlaceholder, ArgvToken, resolve_devops_argv
+from devops_cli.core.command_resolver import (
+    ArgvPlaceholder,
+    ArgvToken,
+    cited_command_length,
+    resolve_devops_argv,
+)
 from devops_cli.lang.en.messages import MESSAGES
 
 if TYPE_CHECKING:
@@ -37,15 +44,13 @@ _EXPOSURE_CONTEXT: Final[re.Pattern[str]] = re.compile(
 _SENTENCE_BREAK: Final[re.Pattern[str]] = re.compile(r"[.!?](?:\s|$)")
 _CODE_SPAN: Final[re.Pattern[str]] = re.compile(r"`([^`]+)`")
 _SHELL_OPERATORS: Final[frozenset[str]] = frozenset(";|><&")
-_COMMAND_PREFIXES: Final[tuple[str, ...]] = (
-    "uv run devops",
-    "devops ",
-    "! uv run devops",
-    "! devops ",
+# The start of a command cited in a sentence: `uv run devops` anywhere, or `devops` that opens the
+# text. A bare `devops` inside a sentence names the project, not a command.
+_PROSE_COMMAND_START: Final[re.Pattern[str]] = re.compile(
+    r"\A\s*(?:!\s+)?devops(?=\s)|\buv\s+run\s+devops(?![\w-])"
 )
-_COMMAND_PROSE_PATTERN: Final[re.Pattern[str]] = re.compile(
-    r"\b(?:!\s+)?uv\s+run\s+devops\b[^\n.!?]*"
-)
+# The end of a sentence or a line, after which a cited command holds no more words.
+_PROSE_COMMAND_END: Final[re.Pattern[str]] = re.compile(rf"{_SENTENCE_BREAK.pattern}|\n")
 
 
 def _is_operator(word: str) -> bool:
@@ -95,38 +100,51 @@ def _proposal_citation_texts(proposal: StageProposal) -> list[str]:
     return texts
 
 
-def _command_spans(text: str) -> list[str]:
-    """Find all devops command spans in `text`."""
-    code_spans = [m.group(1).strip() for m in _CODE_SPAN.finditer(text)]
-    devops_code_spans = [cs for cs in code_spans if "devops" in cs]
-    if devops_code_spans:
-        return devops_code_spans
-    trimmed = text.strip()
-    if trimmed.startswith(_COMMAND_PREFIXES):
-        return [trimmed]
-    spans: list[str] = []
-    for match in _COMMAND_PROSE_PATTERN.finditer(text):
-        cmd = match.group(0).strip()
-        if cmd:
-            spans.append(cmd)
-    return spans
+def _command_words(words: list[str]) -> list[str]:
+    """The words of `words` up to the first shell operator, which ends a command."""
+    return list(takewhile(lambda word: not _is_operator(word), words))
 
 
-def _resolve_command_span(span: str) -> Iterator[str]:
-    """Check each devops command in `span` and yield any problem."""
+def _code_span_commands(span: str) -> Iterator[tuple[str, list[str]]]:
+    """Each devops command in the code span `span`: its prefix and all the words after `devops`."""
     words = _shell_words(span)
     for idx, word in enumerate(words):
         if word == "devops":
-            raw_tokens = list(takewhile(lambda w: not _is_operator(w), words[idx + 1 :]))
-            tokens = [_argv_token(w) for w in raw_tokens]
-            finding = resolve_devops_argv(tokens)
-            if finding is not None:
-                start = idx - 2 if idx >= 2 and words[idx - 2 : idx] == ["uv", "run"] else idx
-                cmd_str = " ".join(words[start : idx + 1 + len(raw_tokens)])
-                yield MESSAGES.roadmap.stage_problem_command_reference.format(
-                    command=cmd_str,
-                    problem=finding.describe(),
-                )
+            start = idx - 2 if idx >= 2 and words[idx - 2 : idx] == ["uv", "run"] else idx
+            yield " ".join(words[start : idx + 1]), _command_words(words[idx + 1 :])
+
+
+def _prose_commands(text: str) -> Iterator[tuple[str, list[str]]]:
+    """Each devops command that `text` cites in a sentence: its prefix and the words after
+    `devops` that the command tree lists (#4956). A command ends at the next cited command too."""
+    starts = list(_PROSE_COMMAND_START.finditer(text))
+    for index, match in enumerate(starts):
+        stop = starts[index + 1].start() if index + 1 < len(starts) else len(text)
+        end = _PROSE_COMMAND_END.search(text, match.end(), stop)
+        words = _command_words(_shell_words(text[match.end() : end.start() if end else stop]))
+        length = cited_command_length([_clean_word(word) for word in words])
+        prefix = " ".join(word for word in match.group(0).split() if word != "!")
+        yield prefix, words[:length]
+
+
+def _cited_commands(text: str) -> Iterator[tuple[str, list[str]]]:
+    """Each devops command cited in `text`: from its code spans when one names `devops`, else
+    from its sentences."""
+    code_spans = [m.group(1).strip() for m in _CODE_SPAN.finditer(text)]
+    devops_code_spans = [cs for cs in code_spans if "devops" in cs]
+    if not devops_code_spans:
+        return _prose_commands(text)
+    return (command for span in devops_code_spans for command in _code_span_commands(span))
+
+
+def _command_problem(prefix: str, words: list[str]) -> str | None:
+    """The problem of the cited command `<prefix> <words>`, or None when it resolves."""
+    finding = resolve_devops_argv([_argv_token(word) for word in words])
+    if finding is None:
+        return None
+    return MESSAGES.roadmap.stage_problem_command_reference.format(
+        command=" ".join([prefix, *words]), problem=finding.describe()
+    )
 
 
 def _sentence_around(text: str, start: int, end: int) -> str:
@@ -162,7 +180,8 @@ def command_citation_problems(proposal: StageProposal) -> list[str]:
     """The problems of commands, options and MCP exposure table keys cited in `proposal` (#3302)."""
     problems: list[str] = []
     for text in _proposal_citation_texts(proposal):
-        for span in _command_spans(text):
-            problems.extend(_resolve_command_span(span))
+        for prefix, words in _cited_commands(text):
+            if problem := _command_problem(prefix, words):
+                problems.append(problem)
         problems.extend(_mcp_exposure_problems(text))
     return list(dict.fromkeys(problems))

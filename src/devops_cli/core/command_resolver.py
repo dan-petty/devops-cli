@@ -124,6 +124,54 @@ def resolve_command_path(words: Sequence[str]) -> tuple[str, int]:
     return context.command_path, len(words) - names
 
 
+def cited_command_length(words: Sequence[str]) -> int:
+    """The number of words at the start of `devops <words>` that a sentence cites as a command.
+
+    A sentence marks no end of the command that it cites, so the command ends at the first word
+    that the command tree does not list as an option or a subcommand (#4956). A group that needs a
+    subcommand keeps that word as its subcommand, so `resolve_devops_argv` still reports an
+    unknown one. A group that runs with no subcommand, such as `devops ci`, and a command with no
+    subcommands end before the word. An argument or an option value also ends the command, as a
+    sentence cannot tell it from the next English word. The walk only looks up names: it parses
+    no word, so no callback of a command starts.
+    """
+    root = _root_command()
+    node: Any = root
+    for index, word in enumerate(words):
+        if len(word) > 1 and word.startswith("-"):
+            continue
+        child = _top_command(word) if node is root else _named_child(node, word)
+        if child is None:
+            return index + (0 if _runs_alone(node) else 1)
+        node = child
+    return len(words)
+
+
+def _top_command(name: str) -> Any | None:
+    """The command that a top-level command name gives, as `main._delegate` runs it."""
+    command = _module_command(name)
+    if command is None or name not in CONST_CLI_ROOT_LEVEL_COMMANDS:
+        return command
+    # The module app of a root-level command takes its name as a subcommand.
+    return _named_child(command, name)
+
+
+def _named_child(command: Any, name: str) -> Any | None:
+    """The subcommand `name` of `command`, or None when `command` is no group or has no such
+    subcommand. The context is parsed from no word, so only the defaults of `command` bind."""
+    if not callable(getattr(command, "resolve_command", None)):
+        return None
+    context = command.make_context(command.name or _ROOT, [], resilient_parsing=True)
+    return _child(command, context, name)
+
+
+def _runs_alone(command: Any) -> bool:
+    """Whether `command` runs with no subcommand: a command with no subcommands, or a group with
+    `invoke_without_command`."""
+    is_group = callable(getattr(command, "resolve_command", None))
+    return not is_group or bool(getattr(command, "invoke_without_command", False))
+
+
 def _walk_delegated(command_name: str, args: Sequence[ArgvToken]) -> CommandReferenceFinding | None:
     """Walk a top-level command as `main._delegate` runs it: its module app, from the top."""
     command = _module_command(command_name)

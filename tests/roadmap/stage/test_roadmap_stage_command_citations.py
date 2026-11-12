@@ -117,6 +117,78 @@ def test_placeholder_argument_is_accepted() -> None:
     assert command_citation_problems(plan) == []
 
 
+def test_the_prose_after_a_command_in_a_sentence_is_no_argument() -> None:
+    # The sentence of the recorded plan 2152: the gate read "to confirm ..." as a subcommand of
+    # `devops ci` (#4956).
+    plan = make_stage_proposal(
+        feasibility=[
+            "First checks the implementation runs: uv run pytest tests/test_reference_extractor.py"
+            " tests/test_builtin_tools.py -k 'numeric or ip' to confirm existing tests pass before"
+            " and after the change; uv run devops ci to confirm the full gate including the"
+            " constructs row passes."
+        ]
+    )
+
+    assert command_citation_problems(plan) == []
+
+
+def test_the_prose_after_a_command_with_no_arguments_is_no_argument() -> None:
+    # The task text of the recorded plan 2524 (#4956).
+    group = make_stage_proposal().groups[0]
+    update = {
+        "implementation": "In the handoff step, replace the uv run devops roadmap intake command"
+        " with gh issue create."
+    }
+    plan = make_stage_proposal(groups=[group.model_copy(update=update)])
+
+    assert command_citation_problems(plan) == []
+
+
+def test_a_text_that_starts_with_a_command_ends_it_at_the_prose() -> None:
+    group = make_stage_proposal().groups[0]
+    update = {"implementation": "uv run devops ci and confirm exit code 0."}
+    plan = make_stage_proposal(groups=[group.model_copy(update=update)])
+
+    assert command_citation_problems(plan) == []
+
+
+def test_each_command_of_a_sentence_is_checked_on_its_own() -> None:
+    plan = make_stage_proposal(
+        feasibility=[
+            "(1) uv run devops ci test tests/test_sample.py to confirm the test fails; (2) uv run"
+            " devops gh pages verify --root_dir docs to confirm the pages."
+        ]
+    )
+
+    problems = command_citation_problems(plan)
+
+    assert len(problems) == 1
+    assert "--root_dir" in problems[0]
+    assert "uv run devops gh pages verify --root_dir`" in problems[0]
+
+
+def test_an_unknown_option_in_prose_is_refused() -> None:
+    plan = make_stage_proposal(
+        feasibility=["Run uv run devops gh pages verify --root_dir docs to check the pages."]
+    )
+
+    problems = command_citation_problems(plan)
+
+    assert len(problems) == 1
+    assert "--root_dir" in problems[0]
+
+
+def test_an_unknown_subcommand_of_a_group_in_prose_is_refused() -> None:
+    plan = make_stage_proposal(
+        feasibility=["Run uv run devops roadmap follow 3076 to see the job of the item."]
+    )
+
+    problems = command_citation_problems(plan)
+
+    assert len(problems) == 1
+    assert "'follow'" in problems[0]
+
+
 def test_check_proposal_refuses_unknown_command_under_citation_gate() -> None:
     plan = make_stage_proposal(feasibility=["The probe cites `uv run devops ai ast-graph --help`."])
 
