@@ -465,6 +465,9 @@ class OpenSpecMessages:
     command_failed: str = "{command} failed with exit code {code}: {reason}"
     check_passed: str = "OpenSpec check passed."
     check_failed: str = "OpenSpec check found {count} problem(s)."
+    check_dry_run_heading: str = "devops openspec check"
+    check_dry_run_each_change: str = "for each active change"
+    check_dry_run_output: str = "Would run the OpenSpec gate. The commands above are not run."
     finding_line: str = "{check}: {detail}"
     skill_differs: str = (
         "{path} is not what `openspec update` writes under the isolated custom profile: run "

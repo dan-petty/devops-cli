@@ -12,6 +12,9 @@ finds:
    tool warns with exit 0 about a rule it ignores or a context it drops.
 5. The overlap check: no requirement is rewritten by two active changes.
 
+In a dry run the gate starts no process: `plan_check` lists the commands it would run, from the
+arguments that the real run uses.
+
 The gate archives nothing and reads no git history. The pull request that closes a change archives
 it. The tool refuses a delta it cannot apply. Checks 1 and 2 fail what the archive leaves wrong,
 such as a placeholder Purpose or an unticked task. A tree with no change and no spec passes every
@@ -26,6 +29,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 
+from devops_cli.config.commands import BIN_OPENSPEC, build_openspec_cmd
 from devops_cli.config.constants import (
     CONST_OPENSPEC_CHANGES_DIR,
     CONST_OPENSPEC_CONFIG_FILENAME,
@@ -34,13 +38,31 @@ from devops_cli.config.constants import (
     CONST_OPENSPEC_PROBE_CHANGE,
     CONST_OPENSPEC_SCAFFOLD_MARKER,
 )
+from devops_cli.dry_run.requests import PlannedRequest
 from devops_cli.exceptions import ToolExecutionError
 from devops_cli.lang import MESSAGES
-from devops_cli.openspec.overlap import overlapping_requirements
-from devops_cli.openspec.skills import skill_drift
-from devops_cli.openspec.tool import OpenSpecTool, active_changes, isolated_openspec, output_of
+from devops_cli.openspec.overlap import overlapping_requirements, show_args
+from devops_cli.openspec.skills import UPDATE_ARGS, skill_drift
+from devops_cli.openspec.tool import (
+    LIST_ARGS,
+    OpenSpecTool,
+    active_changes,
+    isolated_environment,
+    isolated_openspec,
+    output_of,
+    settings_args,
+)
 
 CONFIG_PATH = Path(CONST_OPENSPEC_DIR) / CONST_OPENSPEC_CONFIG_FILENAME
+# The directories a dry run names in place of the real ones: the scratch configuration, the
+# checkout, the scratch copy of the skills and the scratch probe, and an active change.
+CONFIG_HOME_PLACEHOLDER = "<config-home>"
+CHECKOUT_PLACEHOLDER = "<checkout>"
+SKILLS_COPY_PLACEHOLDER = "<skills-copy>"
+PROBE_PLACEHOLDER = "<probe>"
+CHANGE_PLACEHOLDER = "<change>"
+# The arguments of the run that makes the probe change.
+_PROBE_ARGS: tuple[str, ...] = ("new", "change", CONST_OPENSPEC_PROBE_CHANGE)
 
 
 class GateCheck(StrEnum):
@@ -67,15 +89,23 @@ class GateFinding:
         return MESSAGES.openspec.finding_line.format(check=self.check, detail=self.detail)
 
 
+# The arguments of the runs of checks 1 and 2, by the check each run is.
+_VALIDATION_ARGS: dict[GateCheck, tuple[str, ...]] = {
+    GateCheck.VALIDATE: ("validate", "--all", "--strict"),
+    GateCheck.VALIDATE_ARCHIVED: ("validate", "--archived"),
+}
+
+
+def _instruction_args(artifact: str) -> tuple[str, ...]:
+    """The arguments of the run that renders the instructions of `artifact` for the probe."""
+    return ("instructions", artifact, "--change", CONST_OPENSPEC_PROBE_CHANGE, "--json")
+
+
 def _validation_findings(tool: OpenSpecTool, root: Path) -> list[GateFinding]:
     """Checks 1 and 2: every change, spec and archived change validates."""
-    runs = {
-        GateCheck.VALIDATE: ["validate", "--all", "--strict"],
-        GateCheck.VALIDATE_ARCHIVED: ["validate", "--archived"],
-    }
     return [
         GateFinding(check, output_of(run))
-        for check, args in runs.items()
+        for check, args in _VALIDATION_ARGS.items()
         if (run := tool.run(args, root)).returncode != 0
     ]
 
@@ -98,11 +128,9 @@ def _instruction_findings(tool: OpenSpecTool, root: Path) -> list[GateFinding]:
         probe = Path(scratch)
         (probe / CONST_OPENSPEC_DIR).mkdir()
         (probe / CONFIG_PATH).write_bytes((root / CONFIG_PATH).read_bytes())
-        tool.run_checked(["new", "change", CONST_OPENSPEC_PROBE_CHANGE], probe)
+        tool.run_checked(_PROBE_ARGS, probe)
         runs = [
-            tool.run(
-                ["instructions", artifact, "--change", CONST_OPENSPEC_PROBE_CHANGE, "--json"], probe
-            )
+            tool.run(_instruction_args(artifact), probe)
             for artifact in CONST_OPENSPEC_INSTRUCTION_ARTIFACTS
         ]
     reports = dict.fromkeys(line for run in runs for line in _instruction_report(run).splitlines())
@@ -176,3 +204,37 @@ def check_openspec(root: Path) -> list[GateFinding]:
             *_overlap_findings(tool, root, changes),
             *_scaffold_findings(root),
         ]
+
+
+def _planned(args: tuple[str, ...], directory: str, repeat: str = "") -> PlannedRequest:
+    """The run of `openspec <args>` in `directory` under the isolated configuration, as a dry run
+    lists it."""
+    return PlannedRequest(
+        method=BIN_OPENSPEC,
+        target=directory,
+        argv=tuple(build_openspec_cmd(*args)),
+        env=tuple(isolated_environment(CONFIG_HOME_PLACEHOLDER).items()),
+        repeat=repeat,
+    )
+
+
+def plan_check() -> list[PlannedRequest]:
+    """The `openspec` commands that `check_openspec` runs, in order, as a dry run lists them. Each
+    has the variables that the run sets and the directory that it runs in, a scratch directory as a
+    named placeholder. The `show` command of the overlap check runs once for each active change."""
+    return [
+        *(_planned(args, CONFIG_HOME_PLACEHOLDER) for args in settings_args()),
+        _planned(LIST_ARGS, CHECKOUT_PLACEHOLDER),
+        *(_planned(args, CHECKOUT_PLACEHOLDER) for args in _VALIDATION_ARGS.values()),
+        _planned(UPDATE_ARGS, SKILLS_COPY_PLACEHOLDER),
+        _planned(_PROBE_ARGS, PROBE_PLACEHOLDER),
+        *(
+            _planned(_instruction_args(artifact), PROBE_PLACEHOLDER)
+            for artifact in CONST_OPENSPEC_INSTRUCTION_ARTIFACTS
+        ),
+        _planned(
+            show_args(CHANGE_PLACEHOLDER),
+            CHECKOUT_PLACEHOLDER,
+            repeat=MESSAGES.openspec.check_dry_run_each_change,
+        ),
+    ]

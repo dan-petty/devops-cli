@@ -13,7 +13,7 @@ from devops_cli.dry_run.requests import render_request_plan
 from devops_cli.exceptions import DevOpsCLIError
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.openspec.archive import archive_change, plan_archive
-from devops_cli.openspec.gate import check_openspec
+from devops_cli.openspec.gate import check_openspec, plan_check
 from devops_cli.openspec.scaffold import scaffold_change
 from devops_cli.openspec.skills import regenerate_skills
 from devops_cli.openspec.tool import isolated_openspec
@@ -27,7 +27,15 @@ app = new_typer(help=HELP.openspec.app, no_args_is_help=True)
 @dry_run_class("no-external-request")
 @trace_span("openspec.check")
 def check() -> None:
-    """Run the OpenSpec gate over the checkout; exit 1 when it finds a problem."""
+    """Run the OpenSpec gate over the checkout; exit 1 when it finds a problem. A dry run lists
+    the commands of the gate and runs none of them."""
+    if is_dry_run():
+        render_request_plan(
+            MESSAGES.openspec.check_dry_run_heading,
+            plan_check(),
+            [MESSAGES.openspec.check_dry_run_output],
+        )
+        return
     findings = check_openspec(find_worktree_root())
     for finding in findings:
         print_error(finding.line(), prefix=False)

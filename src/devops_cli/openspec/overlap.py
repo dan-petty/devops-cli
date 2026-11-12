@@ -35,9 +35,14 @@ def _rewritten_requirement(delta: dict[str, Any]) -> str:
     return str(delta["rename"]["from"] if renamed else delta["requirement"]["name"])
 
 
+def show_args(change: str) -> tuple[str, ...]:
+    """The arguments of the run that gives the deltas of `change`."""
+    return ("show", change, "--json", "--deltas-only")
+
+
 def _rewrites(tool: OpenSpecTool, root: Path, change: str) -> set[tuple[str, str, str]]:
     """The (capability, requirement, operation) triples `change` rewrites."""
-    shown = tool.read_json(["show", change, "--json", "--deltas-only"], root)
+    shown = tool.read_json(show_args(change), root)
     return {
         (delta["spec"], _rewritten_requirement(delta), delta["operation"])
         for delta in shown["deltas"]
