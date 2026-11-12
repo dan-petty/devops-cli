@@ -6,6 +6,7 @@ import asyncio
 import subprocess
 from pathlib import Path
 from typing import Any
+from unittest.mock import patch
 
 import pytest
 
@@ -653,3 +654,149 @@ def test_dry_run_intent_handling() -> None:
         assert res_read.stdout.strip() == "true"
     finally:
         set_dry_run(False)
+
+
+# The words of each git child, with the GH_TOKEN and GITHUB_TOKEN of its environment (GHSA). A git
+# child that reaches a remote gets the session's token; a local one, also after the global options
+# of git, gets none, as a program that its configuration names would see it.
+NETWORK_GIT = (
+    ["git", "push", "origin", "feat/184-example"],
+    ["git", "-C", "/tmp/example", "fetch", "origin", "main"],
+    ["git", "ls-remote", "--heads", "origin"],
+    ["git", "-c", "credential.helper=", "pull", "origin", "main"],
+    ["git", "remote", "set-head", "origin", "--auto"],
+)
+LOCAL_GIT = (
+    ["git", "add", "-A"],
+    ["git", "-c", "user.name=example", "commit", "-q", "-m", "fix"],
+    ["git", "diff", "--cached"],
+    ["git", "-C", "push", "status"],
+    ["git", "--git-dir", "fetch", "rev-parse", "HEAD"],
+    ["git", "remote", "get-url", "origin"],
+)
+
+
+def _tokens_of(argv: list[str]) -> tuple[str | None, str | None]:
+    with patch("subprocess.run", return_value=subprocess.CompletedProcess(argv, 0, "", "")) as run:
+        run_subprocess(argv, env={"GITHUB_TOKEN": "caller"})
+    env = run.call_args.kwargs["env"]
+    return env.get("GH_TOKEN"), env.get("GITHUB_TOKEN")
+
+
+@pytest.mark.parametrize("argv", NETWORK_GIT, ids=lambda argv: " ".join(argv[1:3]))
+def test_a_git_child_that_reaches_a_remote_gets_the_session_token(
+    argv: list[str], pin_github_session: str
+) -> None:
+    assert _tokens_of(argv) == (pin_github_session, None)
+
+
+@pytest.mark.parametrize("argv", LOCAL_GIT, ids=lambda argv: " ".join(argv[1:3]))
+def test_a_local_git_child_gets_no_token(
+    argv: list[str], monkeypatch: pytest.MonkeyPatch, pin_github_session: str
+) -> None:
+    monkeypatch.setenv("GH_TOKEN", "ambient")
+    assert _tokens_of(argv) == (None, None)
+
+
+# A gh child gets no token in its environment, since gh gives its environment to each `--jq`
+# filter; it reads the token from `hosts.yml` of a private configuration folder that the runner
+# removes after the child ends (GHSA).
+GH_CALL = ["gh", "api", "rate_limit", "--jq", "[env.GH_TOKEN, env.GITHUB_TOKEN]"]
+
+
+class _GhChild:
+    """Stands in for `subprocess.run`: keeps what the gh child would find, then ends as told."""
+
+    def __init__(self, end: Exception | int = 0) -> None:
+        self.end = end
+        self.env: dict[str, str] = {}
+        self.folder_mode = self.hosts_mode = 0
+        self.hosts = ""
+
+    def __call__(self, argv: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        self.env = dict(kwargs["env"])
+        folder = Path(self.env["GH_CONFIG_DIR"])
+        self.folder_mode = folder.stat().st_mode & 0o777
+        self.hosts_mode = (folder / "hosts.yml").stat().st_mode & 0o777
+        self.hosts = (folder / "hosts.yml").read_text(encoding="utf-8")
+        if isinstance(self.end, Exception):
+            raise self.end
+        return subprocess.CompletedProcess(argv, self.end, "", "")
+
+
+def _run_gh(child: _GhChild) -> None:
+    with patch("subprocess.run", side_effect=child):
+        run_subprocess(GH_CALL, env={"GITHUB_TOKEN": "caller"})
+
+
+@pytest.mark.parametrize(
+    "end",
+    [0, 1, subprocess.TimeoutExpired(GH_CALL, 1.0)],
+    ids=["success", "failure", "timeout"],
+)
+def test_a_gh_child_gets_the_token_in_a_private_folder_that_goes_after_the_run(
+    end: Exception | int,
+    pin_github_session: str,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    monkeypatch.setenv("GH_TOKEN", "ambient")
+    child = _GhChild(end)
+
+    if isinstance(end, Exception):
+        with pytest.raises(type(end)) as raised:
+            _run_gh(child)
+        assert raised.value is end
+    else:
+        _run_gh(child)
+
+    folder = Path(child.env["GH_CONFIG_DIR"])
+    assert ("GH_TOKEN" in child.env, "GITHUB_TOKEN" in child.env, child.env["GH_HOST"]) == (
+        False,
+        False,
+        "github.com",
+    )
+    assert (child.folder_mode, child.hosts_mode, pin_github_session in child.hosts) == (
+        0o700,
+        0o600,
+        True,
+    )
+    assert (folder.parent == tmp_path / "gh-config", folder.exists()) == (True, False)
+
+
+def test_a_gh_child_of_the_app_gets_the_installation_token_in_the_private_folder(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from datetime import UTC, datetime, timedelta
+
+    from devops_cli.core import process
+
+    process.reset_github_token()
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    monkeypatch.setattr(process, "acts_as_github_app", lambda: True)
+    installation = "ghs_" + "x" * 36
+    expires = datetime.now(UTC) + timedelta(hours=1)
+    monkeypatch.setattr(process, "_lookup_session_token", lambda: (installation, "", expires))
+    child = _GhChild()
+
+    _run_gh(child)
+
+    assert ("GH_TOKEN" in child.env, installation in child.hosts) == (False, True)
+    assert not Path(child.env["GH_CONFIG_DIR"]).exists()
+
+
+def test_a_gh_child_with_no_runtime_folder_gets_its_folder_in_the_data_directory(
+    pin_github_session: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A runner Job has no `XDG_RUNTIME_DIR` and a read-only root file system."""
+    from devops_cli.config.settings import load_settings
+    from devops_cli.core.repo import resolve_data_path
+
+    monkeypatch.delenv("XDG_RUNTIME_DIR", raising=False)
+    child = _GhChild()
+
+    _run_gh(child)
+
+    data = resolve_data_path(load_settings().data.dir)
+    assert Path(child.env["GH_CONFIG_DIR"]).parent == data / "gh-config"

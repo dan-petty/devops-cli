@@ -10,12 +10,33 @@ this suite's own run sees them there too.
 
 from __future__ import annotations
 
+import json
+from collections.abc import Mapping
+from pathlib import Path
+
 import pytest
 
 from devops_cli.core import process
 from devops_cli.lang import ERRORS
 
 PINNED_GITHUB_TOKEN = "test-github-token"
+
+
+def token_seen(env: Mapping[str, str]) -> str | None:
+    """The GitHub token that a child finds while it runs: its `GH_TOKEN`, else the `oauth_token` of
+    `hosts.yml` in its `GH_CONFIG_DIR`, where the process runner puts the token of a gh child. Call
+    it from the stand-in of the child: the runner removes the folder when the child ends."""
+    if "GH_TOKEN" in env:
+        return env["GH_TOKEN"]
+    hosts = Path(env.get("GH_CONFIG_DIR", "/nonexistent")) / "hosts.yml"
+    if not hosts.is_file():
+        return None
+    for line in hosts.read_text(encoding="utf-8").splitlines():
+        key, _, value = line.strip().partition(":")
+        if key == "oauth_token":
+            found: str = json.loads(value.strip())
+            return found
+    return None
 
 
 def fail_the_github_lookup(monkeypatch: pytest.MonkeyPatch) -> None:

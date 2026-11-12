@@ -504,24 +504,31 @@ def test_the_record_of_a_staged_item_keeps_its_branch_and_its_pull_request(
     assert (record["implement.branch"], record["implement.pr"]) == (BRANCH, str(PULL))
 
 
-def test_the_push_runs_in_the_worktree_with_a_lease_and_leaves_no_worktree_behind(
+def test_the_push_runs_in_a_new_git_folder_with_a_lease_and_leaves_no_worktree_behind(
     job_world: JobWorld,
 ) -> None:
+    """Each push sends a commit from a new git folder outside the clone and its worktree (GHSA),
+    with a lease on the tip that the job saw."""
     before = job_world.repo.origin_git("rev-parse", BRANCH)
     job_world.run(two_groups())
 
-    pushes = [call for call in job_world.programs.calls if call.argv[3:4] == ("push",)]
+    pushes = [call.argv for call in job_world.programs.calls if "push" in call.argv]
     tip = job_world.repo.origin_git("rev-parse", BRANCH)
     # The checkpoint of group 1 at the boundary of group 2 (#3677), then the final push, which
     # holds its lease on the tip that the checkpoint pushed.
     assert len(pushes) == 2
-    assert pushes[0].argv[1] == "-C"
-    assert pushes[0].argv[2] != str(job_world.repo.clone)
-    assert pushes[0].argv[4:] == (f"--force-with-lease={BRANCH}:{before}", "origin", BRANCH)
-    checkpoint = pushes[1].argv[4].removeprefix(f"--force-with-lease={BRANCH}:")
+    folders = [Path(argv[1].removeprefix("--git-dir=")) for argv in pushes]
+    assert [job_world.repo.clone in (folder, *folder.parents) for folder in folders] == [False] * 2
+    after_push = [argv[argv.index("push") + 1 :] for argv in pushes]
+    lease = f"--force-with-lease=refs/heads/{BRANCH}:"
+    assert after_push[0][:3] == ("--quiet", "--no-verify", f"{lease}{before}")
+    checkpoint = after_push[1][2].removeprefix(lease)
     assert checkpoint != before
-    assert (pushes[1].argv[5:], tip != checkpoint) == (("origin", BRANCH), True)
-    assert tip != before
+    assert [argv[-2:] for argv in after_push] == [
+        (str(job_world.repo.origin), f"{checkpoint}:refs/heads/{BRANCH}"),
+        (str(job_world.repo.origin), f"{tip}:refs/heads/{BRANCH}"),
+    ]
+    assert tip != checkpoint != before
     assert job_world.repo.git("branch", "--show-current") == "main"
     assert job_world.repo.git("worktree", "list").count("\n") == 0
     assert job_world.repo.git("branch", "--format=%(refname:short)") == "main"

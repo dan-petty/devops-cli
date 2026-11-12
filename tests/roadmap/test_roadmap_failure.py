@@ -415,6 +415,7 @@ TYPED_BY_SITE = {
     FailureClass.OUTPUT_CAP,
     FailureClass.LIMIT_REACHED,
     FailureClass.OUTSIDE_PLAN,
+    FailureClass.GIT_CONFIG,
 }
 
 
@@ -478,7 +479,7 @@ def test_a_signal_exit_status_beats_the_text() -> None:
     assert classify_failure(FailureEvidence(text="ruff failed", exit_status=1)) is FailureClass.LINT
 
 
-def test_the_classes_are_the_nineteen_of_the_taxonomy() -> None:
+def test_the_classes_are_the_twenty_of_the_taxonomy() -> None:
     assert {klass.value for klass in FailureClass} == {
         "provider",
         "parser",
@@ -499,6 +500,7 @@ def test_the_classes_are_the_nineteen_of_the_taxonomy() -> None:
         "read_only_path",
         "limit_reached",
         "outside_plan",
+        "git_config",
     }
 
 
@@ -528,6 +530,7 @@ def test_the_default_actions_are_the_ones_of_the_design() -> None:
         "read_only_path": "wait",
         "limit_reached": "raise_limit",
         "outside_plan": "wait",
+        "git_config": "wait",
     }
 
 

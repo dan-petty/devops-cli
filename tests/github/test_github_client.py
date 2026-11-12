@@ -36,6 +36,7 @@ from tests.support.fakes.github import (
     quota_headers,
 )
 from tests.support.fakes.process import ProcessAnswer, ProcessFake
+from tests.support.github_identity import token_seen
 from tests.support.paths import FIXTURES
 
 if TYPE_CHECKING:
@@ -553,19 +554,18 @@ def test_one_identity_reaches_the_pr_diff_gh_and_the_quota_refresh(
         "https://api.github.com/repos/octo/repo/pulls/42",
         github_text("diff --git a/f b/f", media_type=CONST_GITHUB_DIFF_MEDIA_TYPE),
     )
-    with patch("subprocess.run", side_effect=_scripted_gh) as run:
+    children: list[tuple[list[str], str | None, str | None]] = []
+
+    def gh(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        env = kwargs["env"]
+        if cmd[0] == CONST_GH_CLI:
+            children.append((cmd[1:3], token_seen(env), env.get("GITHUB_TOKEN")))
+        return _scripted_gh(cmd, **kwargs)
+
+    with patch("subprocess.run", side_effect=gh):
         diff = get_github_session().client.get_pr_diff("octo/repo", 42)
         run_gh(["issue", "list"])
         run_gh(["label", "list"])
-    children = [
-        (
-            call.args[0][1:3],
-            call.kwargs["env"].get("GH_TOKEN"),
-            call.kwargs["env"].get("GITHUB_TOKEN"),
-        )
-        for call in run.call_args_list
-        if call.args[0][0] == CONST_GH_CLI
-    ]
     github_requests = [sent for sent in api.sent if sent.url.host == "api.github.com"]
     assert (diff, [sent.headers["authorization"] for sent in github_requests], children) == (
         "diff --git a/f b/f",

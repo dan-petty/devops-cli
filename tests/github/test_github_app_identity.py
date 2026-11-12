@@ -33,6 +33,7 @@ from devops_cli.github.session import get_github_session, reset_github_session
 from devops_cli.telemetry.instruments import GITHUB_REQUESTS_TOTAL
 from tests.support.fakes.github import API, GitHubApiFake, github_json, quota_headers
 from tests.support.fakes.otlp import FakeCollector
+from tests.support.github_identity import token_seen
 
 APP_SETTINGS = {"app_id": 1001, "installation_id": 42, "slug": "devops-roadmap"}
 BOT_LOGIN = "devops-roadmap[bot]"
@@ -112,13 +113,19 @@ def test_the_app_mints_an_installation_token_and_a_new_one_before_it_expires(
         _installation_token("ghs_first", timedelta(minutes=5)),
         _installation_token("ghs_second", timedelta(hours=1)),
     )
-    with patch("subprocess.run", side_effect=_finished) as run:
+    tokens: list[str | None] = []
+
+    def child(*_args: Any, **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        tokens.append(token_seen(kwargs["env"]))
+        return _finished()
+
+    with patch("subprocess.run", side_effect=child):
         for _ in range(3):
             run_subprocess([CONST_GH_CLI, "issue", "list"])
     scheme, _, bearer = app_identity.sent[0].headers["authorization"].partition(" ")
     claims = jwt.decode(bearer, app_key.public_key(), algorithms=["RS256"])
     assert (
-        [call.kwargs["env"].get("GH_TOKEN") for call in run.call_args_list],
+        tokens,
         app_identity.requested,
         (scheme.lower(), claims["iss"]),
     ) == (

@@ -7,7 +7,8 @@ import os
 import subprocess
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from typing import Any
+from unittest.mock import patch
 
 import pytest
 
@@ -34,6 +35,7 @@ from devops_cli.exceptions import SecurityError
 from devops_cli.exceptions.git import GitHubUnauthenticatedError
 from tests.support.fakes.clock import ClockFake
 from tests.support.fakes.process import ProcessAnswer, ProcessFake
+from tests.support.github_identity import token_seen
 
 
 def test_build_subprocess_env_allowlist_and_denylist(
@@ -682,12 +684,53 @@ def _gh_answers(stdout: str = "", returncode: int = 0) -> subprocess.CompletedPr
     return subprocess.CompletedProcess([], returncode, stdout=stdout, stderr="")
 
 
-def _child_envs(run: MagicMock) -> list[tuple[list[str], str | None, str | None]]:
-    """Each child's argv with the GH_TOKEN and GITHUB_TOKEN it was given."""
-    return [
-        (call.args[0], call.kwargs["env"].get("GH_TOKEN"), call.kwargs["env"].get("GITHUB_TOKEN"))
-        for call in run.call_args_list
-    ]
+class _Children:
+    """Stands in for `subprocess.run`: gives each answer in turn and the last one after that, and
+    keeps each child's argv with the token that it finds while it runs and its GITHUB_TOKEN."""
+
+    def __init__(self, *answers: subprocess.CompletedProcess[str] | BaseException) -> None:
+        self.answers = list(answers)
+        self.seen: list[tuple[list[str], str | None, str | None]] = []
+
+    def __call__(self, argv: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        env = kwargs["env"]
+        self.seen.append((argv, token_seen(env), env.get("GITHUB_TOKEN")))
+        answer = self.answers.pop(0) if len(self.answers) > 1 else self.answers[0]
+        if isinstance(answer, BaseException):
+            raise answer
+        return answer
+
+
+def _child_envs(children: _Children) -> list[tuple[list[str], str | None, str | None]]:
+    """Each child's argv with the token that it found and the GITHUB_TOKEN it was given."""
+    return children.seen
+
+
+@pytest.mark.parametrize("isolate_env", [True, False], ids=["isolated", "not-isolated"])
+def test_the_git_keys_that_turn_a_configuration_file_off_reach_the_child(
+    isolate_env: bool,
+) -> None:
+    """`GIT_CONFIG_GLOBAL=/dev/null` and `GIT_CONFIG_NOSYSTEM=1` name no program and no file, so
+    the network git calls of the implement job set them (GHSA)."""
+    fixed = {"GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_NOSYSTEM": "1"}
+
+    env = build_subprocess_env(env=fixed, isolate_env=isolate_env)
+
+    assert {key: env.get(key) for key in fixed} == fixed
+
+
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        ("GIT_CONFIG_GLOBAL", "/tmp/example.gitconfig"),
+        ("GIT_CONFIG_NOSYSTEM", "0"),
+        ("git_config_global", "/dev/null"),
+        ("git_config_nosystem", "1"),
+    ],
+)
+def test_another_value_of_a_git_key_that_turns_a_file_off_is_refused(key: str, value: str) -> None:
+    with pytest.raises(SecurityError, match=f"override: '{key}'"):
+        build_subprocess_env(env={key: value})
 
 
 def test_build_subprocess_env_refuses_less_override() -> None:
@@ -733,17 +776,17 @@ def test_the_identity_lookup_honours_the_environment_tokens(
     """`gh auth token` gets GH_TOKEN and GITHUB_TOKEN from the environment; its answer is the token."""
     monkeypatch.setenv("GH_TOKEN", "B")
     monkeypatch.setenv("GITHUB_TOKEN", "C")
-    with patch("subprocess.run", return_value=_gh_answers("B\n")) as run:
+    with patch("subprocess.run", side_effect=(children := _Children(_gh_answers("B\n")))):
         token = process.github_token()
-    assert (_child_envs(run), token) == ([([CONST_GH_CLI, "auth", "token"], "B", "C")], "B")
+    assert (_child_envs(children), token) == ([([CONST_GH_CLI, "auth", "token"], "B", "C")], "B")
 
 
 def test_the_identity_is_looked_up_once_per_process(unresolved_identity: None) -> None:
     """Every gh call after the first reuses the token `gh auth token` printed."""
-    with patch("subprocess.run", return_value=_gh_answers("A\n")) as run:
+    with patch("subprocess.run", side_effect=(children := _Children(_gh_answers("A\n")))):
         run_subprocess([CONST_GH_CLI, "issue", "list"])
         run_subprocess([CONST_GH_CLI, "pr", "list"])
-    assert _child_envs(run) == [
+    assert _child_envs(children) == [
         ([CONST_GH_CLI, "auth", "token"], None, None),
         ([CONST_GH_CLI, "issue", "list"], "A", None),
         ([CONST_GH_CLI, "pr", "list"], "A", None),
@@ -766,12 +809,12 @@ def test_a_failed_lookup_raises_and_runs_no_other_gh(unresolved_identity: None) 
 def test_a_failed_lookup_is_not_kept(unresolved_identity: None) -> None:
     """After `gh auth login` fixes a failed lookup, the next gh call acts as the new login."""
     answers = [_gh_answers(returncode=1), _gh_answers("A\n"), _gh_answers()]
-    with patch("subprocess.run", side_effect=answers) as run:
+    with patch("subprocess.run", side_effect=(children := _Children(*answers))):
         with pytest.raises(GitHubUnauthenticatedError) as raised:
             run_subprocess([CONST_GH_CLI, "issue", "list"])
         assert raised.value.error_code == "GITHUB_UNAUTHENTICATED"
         run_subprocess([CONST_GH_CLI, "issue", "list"])
-    assert _child_envs(run)[1:] == [
+    assert _child_envs(children)[1:] == [
         ([CONST_GH_CLI, "auth", "token"], None, None),
         ([CONST_GH_CLI, "issue", "list"], "A", None),
     ]
@@ -782,12 +825,12 @@ def test_git_waits_before_looking_again_after_a_failed_lookup(
 ) -> None:
     """git does not run `gh auth token` on every call while gh has no login; it looks again later."""
     with patch("subprocess.run", return_value=_gh_answers(returncode=1)) as run:
-        run_subprocess(["git", "status"])
-        run_subprocess(["git", "status"])
+        run_subprocess(["git", "fetch"])
+        run_subprocess(["git", "fetch"])
         clock.shift(DEFAULT_GH_AUTH_TOKEN_RETRY_SECONDS - 1)
-        run_subprocess(["git", "status"])
+        run_subprocess(["git", "fetch"])
         clock.shift(1)
-        run_subprocess(["git", "status"])
+        run_subprocess(["git", "fetch"])
     assert [call.args[0][0] for call in run.call_args_list] == [
         CONST_GH_CLI,
         "git",
@@ -810,16 +853,18 @@ def test_a_lookup_that_cannot_run_leaves_git_working_and_says_why(
     failure: Exception, reason: str, unresolved_identity: None
 ) -> None:
     """A hung or unrunnable gh means no token: git still runs, and gh's error names the cause."""
-    with patch("subprocess.run", side_effect=[failure, _gh_answers(), failure]) as run:
-        proc = run_subprocess(["git", "status"])
+    with patch(
+        "subprocess.run", side_effect=(children := _Children(failure, _gh_answers(), failure))
+    ) as run:
+        proc = run_subprocess(["git", "fetch"])
         with pytest.raises(GitHubUnauthenticatedError) as raised:
             run_subprocess([CONST_GH_CLI, "issue", "list"])
     assert (
         run.call_args_list[0].kwargs["timeout"],
         proc.returncode,
-        _child_envs(run)[1],
+        _child_envs(children)[1],
         reason in raised.value.message,
-    ) == (DEFAULT_GH_AUTH_TOKEN_TIMEOUT_SECONDS, 0, (["git", "status"], None, None), True)
+    ) == (DEFAULT_GH_AUTH_TOKEN_TIMEOUT_SECONDS, 0, (["git", "fetch"], None, None), True)
 
 
 @pytest.mark.parametrize(
@@ -838,31 +883,44 @@ def test_the_unauthenticated_error_says_why_gh_gave_no_token(
 def test_gh_and_git_children_get_only_the_pinned_token(
     monkeypatch: pytest.MonkeyPatch, pin_github_session: str
 ) -> None:
-    """gh and a `git push` get GH_TOKEN set to the session's token and never a GITHUB_TOKEN."""
+    """gh and a `git push` get the session's token and never a GITHUB_TOKEN: gh in the
+    `hosts.yml` of its private folder, git as GH_TOKEN."""
     monkeypatch.setenv("GH_TOKEN", "B")
     monkeypatch.setenv("GITHUB_TOKEN", "C")
-    with patch("subprocess.run", return_value=_gh_answers()) as run:
+    with patch("subprocess.run", side_effect=(children := _Children(_gh_answers()))):
         run_subprocess([CONST_GH_CLI, "pr", "view", "184"], env={"GITHUB_TOKEN": "D"})
         run_subprocess(["git", "push", "origin", "feat/184-example"])
-    assert _child_envs(run) == [
+    assert _child_envs(children) == [
         ([CONST_GH_CLI, "pr", "view", "184"], pin_github_session, None),
         (["git", "push", "origin", "feat/184-example"], pin_github_session, None),
     ]
 
 
 def test_git_runs_without_a_token_when_gh_has_no_login(unresolved_identity: None) -> None:
-    """A local git command still runs when no identity resolves; it just gets no token."""
-    with patch("subprocess.run", side_effect=[_gh_answers(returncode=1), _gh_answers()]) as run:
+    """A network git command still runs when no identity resolves; it just gets no token."""
+    with patch(
+        "subprocess.run",
+        side_effect=(children := _Children(_gh_answers(returncode=1), _gh_answers())),
+    ):
+        proc = run_subprocess(["git", "fetch"])
+    assert (proc.returncode, _child_envs(children)[1:]) == (0, [(["git", "fetch"], None, None)])
+
+
+def test_a_local_git_command_starts_no_lookup_when_gh_has_no_login(
+    unresolved_identity: None,
+) -> None:
+    """A local git command needs no token, so it starts no `gh auth token` (GHSA)."""
+    with patch("subprocess.run", side_effect=(children := _Children(_gh_answers()))):
         proc = run_subprocess(["git", "status"])
-    assert (proc.returncode, _child_envs(run)[1:]) == (0, [(["git", "status"], None, None)])
+    assert (proc.returncode, _child_envs(children)) == (0, [(["git", "status"], None, None)])
 
 
 @pytest.mark.parametrize("argv", [[CONST_GH_CLI, "--version"], [CONST_GH_CLI, "help"]])
 def test_gh_version_and_help_need_no_identity(argv: list[str], unresolved_identity: None) -> None:
     """gh's local commands make no call of the session's, so they run without looking one up."""
-    with patch("subprocess.run", return_value=_gh_answers()) as run:
+    with patch("subprocess.run", side_effect=(children := _Children(_gh_answers()))):
         proc = run_subprocess(argv)
-    assert (proc.returncode, _child_envs(run)) == (0, [(argv, None, None)])
+    assert (proc.returncode, _child_envs(children)) == (0, [(argv, None, None)])
 
 
 @pytest.mark.parametrize("subcommand", _GH_AUTH_SUBCOMMANDS)
@@ -875,30 +933,30 @@ def test_gh_auth_gets_the_ambient_tokens_and_never_the_pin(
         monkeypatch.delenv(name, raising=False)
     if ambient:
         monkeypatch.setenv("GH_TOKEN", ambient)
-    with patch("subprocess.run", return_value=_gh_answers()) as run:
+    with patch("subprocess.run", side_effect=(children := _Children(_gh_answers()))):
         run_subprocess([CONST_GH_CLI, "auth", subcommand])
-    assert _child_envs(run) == [([CONST_GH_CLI, "auth", subcommand], ambient, None)]
+    assert _child_envs(children) == [([CONST_GH_CLI, "auth", subcommand], ambient, None)]
 
 
 def test_gh_auth_gets_a_token_its_caller_passes(monkeypatch: pytest.MonkeyPatch) -> None:
     """A token the caller hands `gh auth` in `env` reaches it, ahead of the environment's."""
     monkeypatch.setenv("GH_TOKEN", "B")
-    with patch("subprocess.run", return_value=_gh_answers()) as run:
+    with patch("subprocess.run", side_effect=(children := _Children(_gh_answers()))):
         run_subprocess([CONST_GH_CLI, "auth", "status"], env={"GH_TOKEN": "C"})
-    assert _child_envs(run) == [([CONST_GH_CLI, "auth", "status"], "C", None)]
+    assert _child_envs(children) == [([CONST_GH_CLI, "auth", "status"], "C", None)]
 
 
 @pytest.mark.anyio
 async def test_the_async_runner_pins_gh_too(
     monkeypatch: pytest.MonkeyPatch, pin_github_session: str
 ) -> None:
-    """The async runner gives a gh child the same pinned GH_TOKEN as the sync one."""
+    """The async runner gives a gh child the pinned token as the sync one does."""
     import asyncio
 
     spawned: list[tuple[list[str], str | None]] = []
 
     async def spawn(*argv: str, env: dict[str, str], **_: object) -> None:
-        spawned.append((list(argv), env.get("GH_TOKEN")))
+        spawned.append((list(argv), token_seen(env)))
         raise FileNotFoundError(argv[0])
 
     monkeypatch.setattr(asyncio, "create_subprocess_exec", spawn)
