@@ -44,7 +44,7 @@ _BASIC_AUTH_SECRET_TYPE: SecretType = "kubernetes.io/basic-auth"
 SEARXNG_SERVER_KEY = "searxng_secret_key"
 # The token that Grafana sends to its image renderer (#5185). No Settings option reads it: only
 # the two pods do.
-GRAFANA_RENDERER_TOKEN_KEY = "grafana_renderer_token"
+GRAFANA_RENDERER_AUTH_KEY = "grafana_renderer_token"
 
 
 @dataclass(frozen=True)
@@ -475,7 +475,7 @@ CLUSTER_SECRETS: tuple[ClusterSecret, ...] = (
         entries=(
             SecretEntry(
                 "token",
-                KeyringSource(GRAFANA_RENDERER_TOKEN_KEY),
+                KeyringSource(GRAFANA_RENDERER_AUTH_KEY),
                 generator=SecretGenerator("urlsafe", 32),
             ),
         ),

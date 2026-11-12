@@ -21,7 +21,7 @@ from devops_cli.config.env import keyring_names, option_env_vars
 from devops_cli.k8s.cluster_secrets import (
     CLUSTER_SECRETS,
     DEVOPS_CACHE_VALKEY_AUTH_KEY,
-    GRAFANA_RENDERER_TOKEN_KEY,
+    GRAFANA_RENDERER_AUTH_KEY,
     LLM_GATEWAY_MASTER_KEY,
     MATTERMOST_DB_AUTH_KEY,
     SEARXNG_SERVER_KEY,
@@ -1032,7 +1032,7 @@ def test_keyring_sources_are_managed_keys_or_declared_keyring_only() -> None:
                 DEVOPS_CACHE_VALKEY_AUTH_KEY,
                 MATTERMOST_DB_AUTH_KEY,
                 SEARXNG_SERVER_KEY,
-                GRAFANA_RENDERER_TOKEN_KEY,
+                GRAFANA_RENDERER_AUTH_KEY,
             }
         ),
     )
