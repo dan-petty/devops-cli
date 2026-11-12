@@ -18,12 +18,12 @@ Reads: `src/devops_cli/core/process.py`, `tests/support/fakes/github_repository.
 - [x] 2.2 Drop `acts_as_github_app()` from the guard of `get_repository_traffic_metrics` and from the import of `devops_cli.core.process`, keep the refused set of repositories, and rewrite the docstring. Replace the debug line with one warning that names the repository and `administration: read`. In `tests/github/test_github_metrics.py`, remove the `app` flag of the `_github` helper and `test_the_app_asks_no_traffic_endpoint_and_says_so`, give the fake the refusal in `test_a_report_without_traffic_sends_no_traffic_series`, and answer the four traffic paths with the refusal in `test_the_command_prints_that_the_traffic_was_not_collected`
   - Verification: `$ uv run devops ci test tests/github/test_github_metrics.py tests/roadmap/test_roadmap_run_metrics.py` passes
 
-## 3. Record the permission in ADR 0015
+## 3. Record the permission in ADR 0015 and TELEMETRY.md
 
-Reads: `src/devops_cli/config/constants.py`. Changes: `docs/adr/0015-roadmap-jobs-act-as-a-github-app-on-the-personal-account.md`.
+Reads: `src/devops_cli/config/constants.py`. Changes: `docs/adr/0015-roadmap-jobs-act-as-a-github-app-on-the-personal-account.md`, `src/devops_cli/docs/generator.py`, `docs/TELEMETRY.md`.
 
 - [x] 3.1 Add an amendment line dated 2026-11-12 that names `administration: read` and issue 4757, in the shape of the `workflows: write` line. Add the permission to the decision bullet that names the token's permissions. Replace the consequence sentence that says the metrics row asks for no traffic. Check by hand: the amendment line names `administration: read` and #4757, the decision bullet names Administration read, and the consequence paragraph says that each token asks for it
-- [x] 3.2 Run the documentation check
+- [x] 3.2 Replace the paragraph of the generator that says the Service sends no traffic gauge, and write `docs/TELEMETRY.md` again from it
   - Verification: `$ uv run devops ci docs` passes
 
 ## Criteria
