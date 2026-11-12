@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.117.2](https://github.com/dan-petty/devops-cli/compare/v0.117.1...v0.117.2) (2026-11-12)
+
+
+### Bug Fixes
+
+* **terraform:** say that tf notify-plan prints and sends nothing ([#4962](https://github.com/dan-petty/devops-cli/issues/4962)) ([72762d7](https://github.com/dan-petty/devops-cli/commit/72762d7b4b55bd5a28b280e72ba2f3812fe5c7d1))
+
 ## [0.117.1](https://github.com/dan-petty/devops-cli/compare/v0.117.0...v0.117.1) (2026-11-12)
 
 
