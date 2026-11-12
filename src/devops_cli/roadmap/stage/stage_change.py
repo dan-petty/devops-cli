@@ -761,55 +761,104 @@ def _length_problems(spec: StageSpec) -> list[str]:
 
 
 # An added requirement removes a command or an option when MUST NOT or SHALL NOT governs its name, a
-# code span that starts with `devops ` or with `--` (#3287). The name is the subject of a clause
-# whose verb is exist or be available ("The `devops roadmap intake-eval` command MUST NOT exist"),
-# or the object of a verb that offers it ("MUST NOT register `devops roadmap intake-eval` as a
-# command"). A requirement that keeps a command and forbids one act of it ("`devops pr
-# check-readiness` SHALL read ... and MUST NOT request the pulls files list") removes nothing
-# (#4954).
+# code span that starts with `devops ` or with `--` (#3287). The name is in the subject of a clause
+# whose verb is exist, be available or the passive of a verb that offers a name ("The old `devops
+# roadmap intake-eval` command MUST NOT exist", "`devops x` MUST NOT be registered"), or in the
+# object of a verb that offers a name ("MUST NOT register the old `devops x` command"). A
+# requirement that keeps a command and forbids one act of it ("`devops pr check-readiness` SHALL
+# read ... and MUST NOT request the pulls files list") removes nothing (#4954).
 _CODE_SPAN: Final[re.Pattern[str]] = re.compile(r"`([^`]+)`")
 _REMOVED_NAME_PREFIXES: Final[tuple[str, ...]] = ("devops ", "--")
-_REMOVAL_NOUN: Final[str] = r"(?:(?:sub)?commands?|options?|flags?|alias(?:es)?)"
-_REMOVAL_NAME: Final[str] = rf"`[^`]+`(?:\s+{_REMOVAL_NOUN})?"
-# A list of names: "`a`, `b` and its alias `c`".
-_REMOVAL_NAMES: Final[str] = (
-    rf"{_REMOVAL_NAME}(?:(?:\s*,\s*|,?\s+(?:and|or)\s+)"
-    rf"(?:(?:its|the)\s+)?(?:{_REMOVAL_NOUN}\s+)?{_REMOVAL_NAME})*"
-)
 _REMOVAL_MODAL: Final[str] = r"\b(?:MUST|SHALL)\s+NOT\s+"
-# A clause starts at the start of a line or after a list marker, after a punctuation mark, after a
-# quotation mark or a parenthesis, or after `and` or `or`.
-_REMOVAL_CLAUSE_START: Final[str] = (
-    r"(?:^(?:[-*]\s+)?|(?<=[.;:,]\s)|(?<=[\"(])|(?<=\band\s)|(?<=\bor\s))"
-)
-# The subject can name what holds it: "The `--old` option of `devops x`" removes `--old` only.
+_OFFER_VERB: Final[str] = r"(?:register|offer|list|accept|expose|provide|support|have|keep)"
+_OFFERED: Final[str] = r"(?:registered|offered|listed|accepted|exposed|provided|supported|kept)"
+# The subject is before the verb, or after a colon: "The following commands MUST NOT exist: `a`".
 _REMOVED_SUBJECT: Final[re.Pattern[str]] = re.compile(
-    rf"{_REMOVAL_CLAUSE_START}(?:(?:[Tt]he|[Ee]ach)\s+)?(?:{_REMOVAL_NOUN}\s+)?"
-    rf"(?P<names>{_REMOVAL_NAMES})"
-    rf"(?:\s+(?:of|in|for)\s+(?:the\s+)?(?:{_REMOVAL_NOUN}\s+)?{_REMOVAL_NAME})?"
-    rf"\s+{_REMOVAL_MODAL}(?:exist|be\s+available)\b",
-    re.MULTILINE,
+    rf"{_REMOVAL_MODAL}(?:exist|be\s+(?:available|{_OFFERED}))\b(?P<colon>\s*:)?"
 )
+# One object can follow a list of verbs: "MUST NOT register or list `devops x`".
 _REMOVED_OBJECT: Final[re.Pattern[str]] = re.compile(
-    rf"{_REMOVAL_MODAL}(?:register|offer|list|accept|expose|provide)\s+"
-    rf"(?:(?:the|a|an|any)\s+)?(?:{_REMOVAL_NOUN}\s+)?(?P<names>{_REMOVAL_NAMES})"
+    rf"{_REMOVAL_MODAL}{_OFFER_VERB}(?:\s*(?:,|\bor\b|\band\b)\s*{_OFFER_VERB})*\b"
 )
+# A clause starts at the start of a line, after a sentence mark, or after a parenthesis that does not
+# close before the verb. "`devops x` (the old alias) MUST NOT exist" keeps `devops x` in its subject.
+_REMOVAL_CLAUSE_MARK: Final[re.Pattern[str]] = re.compile(r"[.;:!?](?=\s)|\(")
+# A phrase ends at a sentence mark, a closing parenthesis or the end of a line. A colon starts the
+# list of an object, so it ends no object.
+_REMOVAL_PHRASE_END: Final[re.Pattern[str]] = re.compile(r"[.;!?](?=\s|\Z)|\)|\n")
+_REMOVAL_MODAL_WORD: Final[re.Pattern[str]] = re.compile(r"\b(?:MUST|SHALL|SHOULD|MAY)\b")
+_REMOVAL_JOINER: Final[re.Pattern[str]] = re.compile(r",|\b(?:and|or|but)\b")
+# A name after one of these words is not the head of its phrase: "The `--old` option of `devops x`"
+# and "When `devops x` runs, `--old`" remove `--old` only.
+_NOT_HEAD: Final[re.Pattern[str]] = re.compile(
+    r"\b(?:of|in|into|for|from|to|by|with|within|without|on|under|over|at|than|as|between"
+    r"|among|about|through|via|per|against|that|which|who|whose|when|if|while|unless|until|after"
+    r"|before|where|because|since)\b",
+    re.IGNORECASE,
+)
+
+
+def _subject_phrase(text: str, verb: int) -> str:
+    """The subject of the removal verb at `verb`: the text from the start of its clause. After a
+    modal verb of an earlier clause, the subject starts after the first comma, `and`, `or` or `but`,
+    as in "The CLI SHALL keep `devops a`, and `devops b` MUST NOT exist"."""
+    start = text.rfind("\n", 0, verb) + 1
+    for mark in _REMOVAL_CLAUSE_MARK.finditer(text, start, verb):
+        if mark[0] != "(" or ")" not in text[mark.end() : verb]:
+            start = mark.end()
+    phrase = text[start:verb]
+    modals = list(_REMOVAL_MODAL_WORD.finditer(phrase))
+    if modals:
+        joiner = _REMOVAL_JOINER.search(phrase, modals[-1].end())
+        phrase = phrase[joiner.end() if joiner else modals[-1].end() :]
+    return phrase
+
+
+def _clause_rest(text: str, start: int) -> str:
+    """The object of the removal verb that ends at `start`, or the list of subjects after its colon:
+    the text to the end of its clause. A modal verb starts a new clause, whose subject starts at the
+    last comma, `and`, `or` or `but` before it, as in "MUST NOT accept `--old`, and `devops x` SHALL
+    print an error"."""
+    end = _REMOVAL_PHRASE_END.search(text, start)
+    phrase = text[start : end.start() if end else len(text)]
+    modal = _REMOVAL_MODAL_WORD.search(phrase)
+    if modal:
+        phrase = phrase[: modal.start()]
+        joiners = list(_REMOVAL_JOINER.finditer(phrase))
+        phrase = phrase[: joiners[-1].start()] if joiners else phrase
+    return phrase
+
+
+def _head_names(phrase: str) -> Iterator[str]:
+    """Each code span of `phrase` that starts with `devops ` or with `--` and that heads the phrase:
+    no word such as `of`, `for` or `when` is between the span and the span or the comma before it."""
+    previous = 0
+    for span in _CODE_SPAN.finditer(phrase):
+        lead = phrase[previous : span.start()].rpartition(",")[2]
+        previous = span.end()
+        name = span[1].strip()
+        if name.startswith(_REMOVED_NAME_PREFIXES) and not _NOT_HEAD.search(lead):
+            yield name
 
 
 def _removed_names(text: str) -> tuple[str, ...]:
     """The commands and the options that a requirement removes: each code span that starts with
-    `devops ` or with `--` and that MUST NOT or SHALL NOT governs, as the subject of exist or be
-    available or as the object of a verb that offers it (#3287, #4954)."""
-    matches = sorted(
-        (*_REMOVED_SUBJECT.finditer(text), *_REMOVED_OBJECT.finditer(text)),
-        key=lambda match: match.start(),
+    `devops ` or with `--` and that MUST NOT or SHALL NOT governs, in the subject of exist, be
+    available or the passive of a verb that offers a name, or in the object of a verb that offers a
+    name (#3287, #4954)."""
+    phrases = [
+        (match.start(), _subject_phrase(text, match.start()))
+        for match in _REMOVED_SUBJECT.finditer(text)
+    ]
+    phrases.extend(
+        (match.end(), _clause_rest(text, match.end()))
+        for match in _REMOVED_SUBJECT.finditer(text)
+        if match["colon"]
     )
-    return tuple(
-        span
-        for match in matches
-        for span in (found.strip() for found in _CODE_SPAN.findall(match["names"]))
-        if span.startswith(_REMOVED_NAME_PREFIXES)
+    phrases.extend(
+        (match.end(), _clause_rest(text, match.end())) for match in _REMOVED_OBJECT.finditer(text)
     )
+    return tuple(name for _, phrase in sorted(phrases) for name in _head_names(phrase))
 
 
 def _names(text: str, name: str) -> bool:

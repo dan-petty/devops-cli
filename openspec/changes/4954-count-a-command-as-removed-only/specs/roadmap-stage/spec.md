@@ -1,11 +1,23 @@
 ## ADDED Requirements
 
 ### Requirement: A base requirement that names a removed command is updated
-`check_proposal` SHALL count a command or an option as removed only when MUST NOT or SHALL NOT in an ADDED requirement governs its code span: the span is the subject and the verb is exist or be available, or the span is the object of register, offer, list, accept, expose or provide. It SHALL return a problem for each unmodified base requirement of the capability that names a removed name, and for each `modified` requirement whose text keeps it.
+`check_proposal` SHALL count a command or an option as removed only when MUST NOT or SHALL NOT in an ADDED requirement governs its code span: the span is in the subject of exist, be available or a passive such as be registered, or in the object of a verb that offers a name, such as register, list or support. It SHALL return a problem for each unmodified base requirement of the capability that names a removed name, and for each `modified` requirement whose text keeps it.
 
 #### Scenario: An added removal leaves a base requirement unchanged
 - **WHEN** A proposal adds the requirement "The `devops roadmap intake-eval` command MUST NOT exist.", and the base texts hold an unmodified requirement that names it
 - **THEN** `check_proposal` returns a problem that names `devops roadmap intake-eval` and that base requirement
+
+#### Scenario: Other words are in the subject of a removal
+- **WHEN** A proposal adds the requirement "The old `devops roadmap intake-eval` command MUST NOT exist.", "The command `devops roadmap intake-eval` and its alias MUST NOT exist." or "`devops roadmap intake-eval` MUST NOT be registered as a command.", and the base texts hold an unmodified requirement that names it
+- **THEN** `check_proposal` returns a problem that names `devops roadmap intake-eval`
+
+#### Scenario: Other words are in the object of a removal
+- **WHEN** A proposal adds the requirement "The CLI MUST NOT register the old `devops roadmap intake-eval` command." or "`devops pr check-readiness` MUST NOT support `--old`.", and the base texts hold unmodified requirements that name the two spans
+- **THEN** `check_proposal` returns one problem, and it names the span after the verb
+
+#### Scenario: The stage prompt gives the removal sentence
+- **WHEN** the planner reads the rule of `roadmap_stage_change.md` for a command or an option that the issue removes or renames
+- **THEN** the rule gives the sentence "`<old name>` MUST NOT exist.", and `check_proposal` reads the old name from that sentence
 
 #### Scenario: A removal is the object of a verb
 - **WHEN** A proposal adds a requirement that MUST NOT register `devops roadmap intake-eval` as a command, and the base texts hold an unmodified requirement that names it
@@ -13,6 +25,10 @@
 
 #### Scenario: An option of a command is removed
 - **WHEN** A proposal adds the requirement "The `--old` option of `devops pr check-readiness` MUST NOT exist.", and unmodified base requirements name `--old` and `devops pr check-readiness`
+- **THEN** `check_proposal` returns one problem, and it names `--old`
+
+#### Scenario: A span after a preposition is not removed
+- **WHEN** A proposal adds the requirement "When `devops pr check-readiness` runs, the `--old` option MUST NOT be available.", and unmodified base requirements name `--old` and `devops pr check-readiness`
 - **THEN** `check_proposal` returns one problem, and it names `--old`
 
 #### Scenario: A requirement forbids one act of a kept command
