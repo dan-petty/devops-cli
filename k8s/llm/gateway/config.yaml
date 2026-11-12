@@ -285,6 +285,11 @@ general_settings:
   # allow_requests_on_db_unavailable stays unset (false): the gateway is reachable from outside
   # the cluster, so a key that it cannot check while the database is down is refused.
   proxy_batch_write_at: 10
+  # The spend-log table gets about 71,000 rows a week, and no code reads a row older than a
+  # month: the AI spend dashboard reads Prometheus. Once a day (the default
+  # maximum_spend_logs_retention_interval) the gateway deletes the rows older than 30 days, so
+  # the database stays inside its 5Gi claim (#4994).
+  maximum_spend_logs_retention_period: 30d
   # TypeSafe Jev 1.14 is a decision model. OpenRouter refuses it on chat completions (HTTP 400),
   # so it has no model_list entry. The client (src/devops_cli/ai/jev.py) posts the System One
   # protocol to {ai.gateway_url}/systemone, and this pass-through forwards that body unchanged to

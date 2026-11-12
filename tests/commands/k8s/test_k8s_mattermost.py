@@ -56,13 +56,18 @@ def test_kustomization_resources() -> None:
 
 
 def test_cloudnative_pg_values() -> None:
-    """Verify cloudnative-pg Helm values configure monitoring, security context, and resources."""
+    """Verify cloudnative-pg Helm values configure monitoring, security context, and resources.
+
+    The chart's dashboard ConfigMap stays off: the chart writes it to `cnpg-system`, where the
+    Grafana sidecar does not look, and `k8s/monitoring/dashboards/cloudnative-pg.json` holds the
+    dashboard (#4994).
+    """
     values = _yaml(MATTERMOST_DIR / "cloudnative-pg-values.yaml")
     monitoring = values.get("monitoring", {})
     assert (
         monitoring.get("podMonitorEnabled"),
         monitoring.get("grafanaDashboard", {}).get("create"),
-    ) == (True, True)
+    ) == (True, False)
 
     resources = values.get("resources", {})
     assert (

@@ -128,6 +128,9 @@ spec:
         # Valkey redis_exporter (#551)
         - protocol: TCP
           port: 9121
+        # The CloudNativePG metrics exporter of the gateway database (#4994)
+        - protocol: TCP
+          port: 9187
     - to:
         - namespaceSelector:
             matchLabels:

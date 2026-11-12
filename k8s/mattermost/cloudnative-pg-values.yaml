@@ -24,5 +24,8 @@ podSecurityContext:
 
 monitoring:
   podMonitorEnabled: true
+  # The chart writes its dashboard ConfigMap to the release namespace, cnpg-system, where the
+  # Grafana sidecar does not look. k8s/monitoring/dashboards/cloudnative-pg.json holds the
+  # dashboard (#4994).
   grafanaDashboard:
-    create: true
+    create: false

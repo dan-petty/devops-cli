@@ -1,6 +1,6 @@
 """Alertmanager, its receiver and the homelab alert rules (#549), with #550's retention rules,
-the roadmap Service's rules (#2472, #2475), the rule of its webhook route (#2476) and the rule
-of a Valkey near its memory bound (#2094).
+the roadmap Service's rules (#2472, #2475), the rule of its webhook route (#2476), the rule
+of a Valkey near its memory bound (#2094) and the rules of the gateway database (#4994).
 
 The rules live in `k8s/monitoring/prometheus-values.yaml` (`serverFiles.alerting_rules.yml`).
 A rule over a series nothing in the stack serves never fires, so every expression may name
@@ -90,6 +90,7 @@ OTEL_COLLECTOR_RULE_TESTS = FIXTURES / "prometheus_rules" / "otel_collector_test
 VALKEY_MEMORY_RULE_TESTS = FIXTURES / "prometheus_rules" / "valkey_memory_tests.yaml"
 RESEARCH_RULE_TESTS = FIXTURES / "prometheus_rules" / "research_tests.yaml"
 AI_SPEND_RULE_TESTS = FIXTURES / "prometheus_rules" / "ai_spend_tests.yaml"
+GATEWAY_DATABASE_RULE_TESTS = FIXTURES / "prometheus_rules" / "llm_gateway_db_tests.yaml"
 
 # The job of every series the roadmap Service sends, by the scrape and by OTLP alike (#2472).
 ROADMAP_SERVICE_JOB = "roadmap-service"
@@ -123,6 +124,8 @@ VALKEY_MEMORY_GROUP = "valkey-memory"
 RESEARCH_GROUP = "research"
 # The rules over the daily USD spend of the hosted models (#4222).
 AI_SPEND_GROUP = "ai-spend"
+# The rules of the database of the LLM gateway, a CloudNativePG Cluster of one instance (#4994).
+GATEWAY_DATABASE_GROUP = "llm-gateway-db"
 # Each group whose rules have promtool unit tests, with a file of its tests.
 RULE_GROUP_TESTS = (
     *ROADMAP_SERVICE_GROUP_TESTS,
@@ -131,6 +134,7 @@ RULE_GROUP_TESTS = (
     (VALKEY_MEMORY_GROUP, VALKEY_MEMORY_RULE_TESTS),
     (RESEARCH_GROUP, RESEARCH_RULE_TESTS),
     (AI_SPEND_GROUP, AI_SPEND_RULE_TESTS),
+    (GATEWAY_DATABASE_GROUP, GATEWAY_DATABASE_RULE_TESTS),
 )
 RULE_TEST_IDS = [rule_tests.stem for _, rule_tests in RULE_GROUP_TESTS]
 # promtool evaluates the rules of a group once each `evaluation_interval` of a file, from 0 to
@@ -208,8 +212,13 @@ SERVED_SERIES = frozenset(
         # autodiscovery.
         "alertmanager_config_last_reload_successful",
         "alertmanager_notifications_failed_total",
-        # CloudNativePG PostgreSQL metrics exporter (#1391).
+        # The CloudNativePG metrics exporter of each instance, through the PodMonitors
+        # `mattermost-db` (#1391) and `llm-gateway-db` (#4994).
+        "cnpg_backends_total",
+        "cnpg_collector_pg_wal",
         "cnpg_collector_up",
+        "cnpg_pg_database_size_bytes",
+        "cnpg_pg_settings_setting",
         # Argo CD, cloudflared, CoreDNS (#822), and Valkey redis_exporter (#551, #2094).
         "argocd_app_info",
         "cloudflared_tunnel_ha_connections",
@@ -319,7 +328,8 @@ def test_the_baseline_rule_set() -> None:
     """The rules #549 names (nodes, k3s and power-cap units, GPUs, storage, and self-health),
     #550's two volume rules (`LogOrMetricVolumeDiskLow`, `PrometheusNearRetentionSizeCap`), and
     the roadmap Service's rules (#2472, #2475) with the rule of its webhook route (#2476), the
-    Crawl4AI rules (#3893), the OpenTelemetry collector's export rules (#1642), and the Valkey memory rule (#2094), and the daily spend rules (#4222).
+    Crawl4AI rules (#3893), the OpenTelemetry collector's export rules (#1642), the Valkey memory
+    rule (#2094), the daily spend rules (#4222) and the gateway database rules (#4994).
 
     A rule with a warning and a critical threshold is one alert name at two severities, so
     Alertmanager's critical-over-warning inhibition hides the warning while both fire.
@@ -339,6 +349,9 @@ def test_the_baseline_rule_set() -> None:
         ("CoreDnsServfailResponses", "warning"),
         ("Crawl4AIFetchesFailing", "warning"),
         ("Crawl4AIUnavailable", "warning"),
+        ("GatewayDatabaseConnectionsNearMax", "warning"),
+        ("GatewayDatabaseDown", "warning"),
+        ("GatewayDatabaseNearClaim", "warning"),
         ("GpuPowerLimitServiceNotActive", "critical"),
         ("GpuPowerOverSiteBudget", "critical"),
         ("GpuTemperatureHigh", "critical"),
@@ -1299,6 +1312,61 @@ def test_mattermost_alert_rules() -> None:
     )
 
 
+def test_the_gateway_database_rules_watch_the_exporter_the_connections_and_the_claim() -> None:
+    """`llm-gateway-db` warns when the exporter of the gateway database is down or absent, when
+    its client connections pass 80% of `max_connections`, and when its databases and its WAL
+    pass 80% of its claim (#4994). Each CloudNativePG selector names namespace `llm` and the pods
+    of the Cluster, so the Mattermost database cannot fire them. The claim is the claim of the pod:
+    CloudNativePG gives the claim of an instance the name of its pod. Each alert has a row in the
+    Alerting table, and its description points to it."""
+    instance = 'namespace="llm", pod=~"llm-gateway-db-[0-9]+"'
+    text = K8S_README.read_text(encoding="utf-8")
+    table = text[text.index("\n## Alerting\n") : text.index("\n### Free space")]
+    rules = _group(GATEWAY_DATABASE_GROUP)
+
+    assert (
+        [(rule["alert"], rule["for"], rule["labels"]) for rule in rules],
+        [[(s.metric, sorted(s.labels)) for s in selectors(rule["expr"])] for rule in rules],
+        [rule["expr"].count(instance) for rule in rules],
+        [rule["expr"].count("> 0.8") for rule in rules],
+        'persistentvolumeclaim=~"llm-gateway-db-[0-9]+"' in rules[2]["expr"],
+        [
+            rule["alert"]
+            for rule in rules
+            if f"| `{rule['alert']}` |" not in table
+            or "(k8s/README.md, Alerting)" not in rule["annotations"]["description"]
+        ],
+    ) == (
+        [
+            ("GatewayDatabaseDown", "5m", {"severity": "warning"}),
+            ("GatewayDatabaseConnectionsNearMax", "10m", {"severity": "warning"}),
+            ("GatewayDatabaseNearClaim", "15m", {"severity": "warning"}),
+        ],
+        [
+            [
+                ("cnpg_collector_up", ["namespace", "pod"]),
+                ("cnpg_collector_up", ["namespace", "pod"]),
+            ],
+            [
+                ("cnpg_backends_total", ["namespace", "pod"]),
+                ("cnpg_pg_settings_setting", ["name", "namespace", "pod"]),
+            ],
+            [
+                ("cnpg_pg_database_size_bytes", ["namespace", "pod"]),
+                ("cnpg_collector_pg_wal", ["namespace", "pod", "value"]),
+                (
+                    "kube_persistentvolumeclaim_resource_requests_storage_bytes",
+                    ["namespace", "persistentvolumeclaim"],
+                ),
+            ],
+        ],
+        [2, 2, 2],
+        [0, 1, 1],
+        True,
+        [],
+    )
+
+
 def _readme_section(heading: str) -> str:
     """The text of one `###` section of k8s/README.md, its subsections included."""
     text = K8S_README.read_text(encoding="utf-8")
@@ -1563,8 +1631,8 @@ def test_each_unit_tested_rule_fires_on_a_sample_and_stays_quiet_on_a_normal_ser
     """`promtool test rules` passes the unit tests of each rule of `roadmap-service` (#2472), of
     `roadmap-service-webhooks` (#2476), of `roadmap-service-activity` (#2475), of
     `roadmap-service-items` (#2919), of `roadmap-service-tools` (#3240), of `crawl4ai` (#3893), of
-    `otel-collector` (#1642), of `valkey-memory` (#2094), of `research` (#3899) and of `ai-spend`
-    (#4222).
+    `otel-collector` (#1642), of `valkey-memory` (#2094), of `research` (#3899), of `ai-spend`
+    (#4222) and of `llm-gateway-db` (#4994).
 
     Each alert fires on a sample series with the labels and annotations it pins, and stays quiet
     on a normal series, before its wait ends, and on the series it must not count. Each file

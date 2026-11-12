@@ -1076,6 +1076,55 @@ serverFiles:
             annotations:
               summary: "Mattermost CloudNativePG database is down"
               description: "Mattermost PostgreSQL database in namespace mattermost is unreachable or has no healthy instances for 5 minutes."
+      # The database of the LLM gateway, a CloudNativePG Cluster of one instance in
+      # k8s/llm/gateway-db.yaml (#4994). PodMonitor llm-gateway-db brings the series of the metrics
+      # exporter of the instance. Each selector names the pods of the Cluster, because the
+      # Mattermost database sends the same series. CloudNativePG gives the claim of an instance the
+      # name of its pod, and local-path does not enforce the size of a claim, so the size rule
+      # compares the databases and the WAL with the size of the claim.
+      - name: llm-gateway-db
+        rules:
+          - alert: GatewayDatabaseDown
+            expr: >-
+              max(cnpg_collector_up{namespace="llm", pod=~"llm-gateway-db-[0-9]+"}) < 1
+              or absent(cnpg_collector_up{namespace="llm", pod=~"llm-gateway-db-[0-9]+"})
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "The gateway database llm/llm-gateway-db is down"
+              description: "The metrics exporter of the gateway database (Cluster llm/llm-gateway-db) has had no connection to PostgreSQL, or Prometheus has had no series from it, for 5 minutes. While the database is down, the gateway refuses each virtual key, and only the master key works. Read the status of the Cluster and the log of its pod (k8s/README.md, Alerting)."
+          - alert: GatewayDatabaseConnectionsNearMax
+            expr: >-
+              sum by (namespace, pod) (cnpg_backends_total{namespace="llm", pod=~"llm-gateway-db-[0-9]+"})
+              / on (namespace, pod)
+              max by (namespace, pod) (cnpg_pg_settings_setting{namespace="llm", pod=~"llm-gateway-db-[0-9]+", name="max_connections"})
+              > 0.8
+            for: 10m
+            labels:
+              severity: warning
+            annotations:
+              summary: "The gateway database {{ $labels.namespace }}/{{ $labels.pod }} uses {{ $value | humanizePercentage }} of max_connections"
+              description: "The client connections of the gateway database {{ $labels.namespace }}/{{ $labels.pod }} have been above 80% of max_connections for 10 minutes. At the limit, PostgreSQL refuses each new connection, and the gateway cannot check a virtual key. Find the client that holds the connections on the CloudNativePG dashboard (k8s/README.md, Alerting)."
+          - alert: GatewayDatabaseNearClaim
+            expr: >-
+              (
+                sum by (namespace, pod) (cnpg_pg_database_size_bytes{namespace="llm", pod=~"llm-gateway-db-[0-9]+"})
+                + on (namespace, pod)
+                max by (namespace, pod) (cnpg_collector_pg_wal{namespace="llm", pod=~"llm-gateway-db-[0-9]+", value="size"})
+              )
+              / on (namespace, pod)
+              label_replace(
+                max by (namespace, persistentvolumeclaim) (kube_persistentvolumeclaim_resource_requests_storage_bytes{namespace="llm", persistentvolumeclaim=~"llm-gateway-db-[0-9]+"}),
+                "pod", "$1", "persistentvolumeclaim", "(.+)"
+              )
+              > 0.8
+            for: 15m
+            labels:
+              severity: warning
+            annotations:
+              summary: "The gateway database {{ $labels.namespace }}/{{ $labels.pod }} uses {{ $value | humanizePercentage }} of its claim"
+              description: "The databases and the WAL of the gateway database {{ $labels.namespace }}/{{ $labels.pod }} have been above 80% of its claim for 15 minutes. local-path does not enforce the size of a claim, so the data can fill the root disk of the node. Find what grows on the CloudNativePG dashboard: the gateway keeps its spend logs for 30 days (k8s/README.md, Alerting)."
       # Argo workflow for RAG ingestion (#1653).
       - name: rag-ingest
         rules:

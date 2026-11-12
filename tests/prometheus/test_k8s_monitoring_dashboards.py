@@ -50,6 +50,8 @@ PROVISIONED = {
         "nvidia-dcgm.json",
         "coredns.json",
     ],
+    # The upstream CloudNativePG dashboard (#4994) fills most of one ConfigMap alone.
+    "grafana-database-dashboards": ["cloudnative-pg.json"],
 }
 # All dashboards are now provisioned via sidecar ConfigMaps.
 SYNC_ONLY: set[str] = set()

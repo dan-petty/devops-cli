@@ -62,6 +62,10 @@ class Target(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     expr: str = Field(default="", description="PromQL expression")
+    expression: str | None = Field(
+        default=None,
+        description="Server-side expression of a target of the Grafana expression datasource",
+    )
     legend_format: str = Field(default="", alias="legendFormat")
     ref_id: str = Field(default="A", alias="refId")
     datasource: Datasource = Field(default_factory=Datasource)
