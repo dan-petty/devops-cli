@@ -96,7 +96,7 @@ The job SHALL record `stage.file_cap`, the file cap of the measure, with `stage.
 - **THEN** the plan leaves the item out and says why, and `--item` stages it
 
 ### Requirement: A task group has a kind
-A task group of the reply SHALL have a `kind`: `behavior` or `other`. A `behavior` group SHALL have a `test` and a `verify`, no `process`, and a path under `src/` in `changes`. An `other` group SHALL have no `test`, and exactly one of `verify` and `process`. The reply that breaks a rule SHALL fail the schema, and the problem text SHALL name each rule it breaks.
+A task group of the reply SHALL have a `kind`: `behavior`, `manifest` or `other`. A `behavior` group SHALL have a `test` and a `verify`, no `process`, and a path under `src/` in `changes`. A `manifest` group SHALL have a `test` and a `verify`, and no `process`. An `other` group SHALL have no `test`, and exactly one of `verify` and `process`. The reply that breaks a rule SHALL fail the schema, and the problem text SHALL name each rule it breaks.
 
 #### Scenario: A test on an other group
 - **WHEN** the reply holds an `other` group with a `test`
@@ -440,3 +440,17 @@ The job SHALL judge the proposal that a split gives with the same call as the fi
 #### Scenario: A split names a registry item and not its test module
 - **WHEN** The split gives a group whose task names a registry item that a test module declares, and no task names the declared test module
 - **THEN** the job sends the reply back with the problem of the `registry` gate
+
+### Requirement: A task group writes its kind
+`group_text` SHALL write the kind of each group on the line under its heading, in the form `Kind: <kind>. Reads: <reads>. Changes: <changes>.`, so that the plan reader reads the kind back.
+
+#### Scenario: A manifest group writes its kind
+- **WHEN** `group_text` renders a `manifest` group
+- **THEN** the line under its heading starts with `Kind: manifest. Reads: `
+
+### Requirement: The problem of a behavior group with no source names the other kinds
+The problem text of a `behavior` group that changes no path under `src/` SHALL name the kind `manifest` for a group that changes only a rule, a dashboard or a case file, and the kind `other` for a group with no test.
+
+#### Scenario: A test-first group of a dashboard
+- **WHEN** the reply holds a `behavior` group whose `changes` hold only a dashboard file and its test
+- **THEN** the problem text names the kinds `manifest` and `other`

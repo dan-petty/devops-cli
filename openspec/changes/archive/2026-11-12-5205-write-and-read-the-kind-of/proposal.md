@@ -29,7 +29,7 @@ None.
 ## Impact
 
 - Code: `src/devops_cli/roadmap/plan_read.py`, `src/devops_cli/roadmap/step_files.py`, `src/devops_cli/roadmap/stage/stage_change.py`, `src/devops_cli/lang/en/messages.py`.
-- Tests: `tests/roadmap/test_roadmap_plan_read.py`, the snapshots and the tests that hold a rendered files line, the plan heads of #4963, #5032 and #5182 in `tests/fixtures/roadmap/plan_heads/`, and one `manifest` case in the golden set.
+- Tests: `tests/roadmap/test_roadmap_plan_read.py`, the snapshots and the tests that hold a rendered files line, the plan heads of #4963, #5032 and #5182 in `tests/fixtures/roadmap/plan_heads/`, and one `manifest` case in the golden set. The plan heads are records: `CONST_DOCS_INVENTORY` of `src/devops_cli/config/constants.py` lists them, so `devops docs check` does not resolve their old commands.
 - Documents: `docs/TESTING.md`, `docs/roadmap/plan-check.md`, `k8s/README.md`.
 
 ## Feasibility
