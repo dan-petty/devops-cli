@@ -43,6 +43,38 @@ affinity:
 initChownData:
   enabled: false
 
+# The Grafana Image Renderer, so the render API, the Grafana MCP tool `get_panel_image` and alert
+# images get a PNG of a panel (#5185). The chart sets GF_RENDERING_SERVER_URL to the Service of the
+# renderer (http://grafana-image-renderer.monitoring:8081/render) and GF_RENDERING_CALLBACK_URL to
+# the Grafana Service, so no Ingress routes to the renderer. The chart's NetworkPolicy admits
+# Grafana to port 8081 of the renderer. Grafana and the renderer read the token of Secret
+# grafana-image-renderer, which `devops k8s push-secrets` writes from the keyring (k8s/README.md,
+# Cluster Secrets): the chart's own Secret makes a new random token at each `helm template`,
+# and Argo CD renders with `helm template`.
+# Measured with v5.12.11 and Grafana 13.3.1 under these limits: 10 panel renders in a row peaked
+# at 370 MiB, and 3 renders at one time and one render of a dashboard of 55 panels peaked at
+# 897 MiB, with no OOM kill. The renderer docs ask for GOMEMLIMIT below the limit, 1 GiB for each
+# 8 GiB, because Chromium needs the rest.
+imageRenderer:
+  enabled: true
+  image:
+    registry: docker.io
+    repository: grafana/grafana-image-renderer
+    tag: v5.12.11
+    pullPolicy: IfNotPresent
+  existingSecret: grafana-image-renderer
+  env:
+    GOMEMLIMIT: 192MiB
+  resources:
+    requests:
+      cpu: 100m
+      memory: 512Mi
+    limits:
+      cpu: "2"
+      memory: 1536Mi
+  networkPolicy:
+    limitIngress: true
+
 admin:
   existingSecret: grafana-admin
 

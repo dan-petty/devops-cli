@@ -328,6 +328,31 @@ devops grafana dashboards sync                            # posts every file in 
 
 `tests/commands/k8s/test_stack_dashboards.py` checks every query in `llm-stack.json`, `otel-collector.json`, `prometheus-server.json`, `coredns.json`, `ingress-tunnel.json`, `k8s-views-global.json`, `k8s-views-namespaces.json` and `k8s-views-nodes.json` against captures of these exporters in `tests/fixtures/metrics/` (filtered by `tests/fixtures/k8s_monitoring/cluster_metrics/` and `includeMetrics` for cAdvisor, kube-state-metrics and the kubelet): each series it selects, each label it matches or groups by, and the scrape in the table. No query falls back to a constant such as `or vector(0)`, so a panel without data reads "No data" rather than zero, and a panel drawn against a limit extends its axis to that limit. The gateway's failure panel, Qdrant's REST request rate and latency panels, and the collector's span export failures (`noValue: "none recorded"`) stay empty until the first such event. The gateway's cooldown and fallback stats count the events in the time range and show "none recorded" before the first one.
 
+## Grafana Image Renderer
+
+The `grafana` chart runs the [Grafana Image Renderer](https://github.com/grafana/grafana-image-renderer) (Apache-2.0) as Deployment and Service `grafana-image-renderer` in namespace `monitoring` (`imageRenderer` in `monitoring/grafana-values.yaml`). It gives a PNG of a panel or a dashboard to the render API of Grafana (`/render/d-solo/...` and `/render/d/...`), to the Grafana MCP tool `get_panel_image`, and to alert notifications.
+
+- Grafana calls the renderer at `http://grafana-image-renderer.monitoring:8081/render` (`GF_RENDERING_SERVER_URL`), and the renderer opens the page at `http://grafana.monitoring:80/` (`GF_RENDERING_CALLBACK_URL`). The chart sets both URLs from the Service names. No Ingress routes to the renderer. The NetworkPolicy of the chart, `grafana-image-renderer-ingress`, admits Grafana to port 8081, and `monitoring-default-perimeter` admits the other pods of the namespace.
+- Each request carries the token of Secret `monitoring/grafana-image-renderer` ([Cluster Secrets](#cluster-secrets)). The chart can make this Secret, but its template makes a new random token at each `helm template`, and Argo CD renders the chart with `helm template`. So each new revision would change the token while the pods keep the old one.
+- The image has a release tag, and the helm-values manager of Renovate reads it.
+- The renderer requests `100m` of CPU and `512Mi` of memory, and its limits are `2` CPUs and `1536Mi`. `GOMEMLIMIT` is `192MiB`: the renderer documents ask for a value below the limit, 1 GiB for each 8 GiB of limit, because Chromium uses the remaining memory. A local measurement with v5.12.11 and Grafana 13.3.1 under these limits: 10 panel renders in a row used 370 MiB at most (24 % of the limit), and 3 renders at one time and one render of the 55 panels of `devops-cli-telemetry` used 897 MiB at most (58 %). One panel render took 4 s to 7 s.
+
+After a change to a dashboard or to the renderer, render a panel in the light and the dark theme. Grafana lets an anonymous Viewer render:
+
+```bash
+kubectl -n monitoring port-forward svc/grafana 3000:80
+for theme in light dark; do
+  curl -s -o "panel-$theme.png" -w "%{http_code} %{content_type} $theme\n" \
+    "http://localhost:3000/render/d-solo/devops-cli-telemetry/x?orgId=1&panelId=11&width=1000&height=500&from=now-6h&to=now&theme=$theme"
+done
+```
+
+Each line shows `200 image/png`. Open the two files, and make sure that the text and the series are clear on each background. The MCP tool `get_panel_image` does the same check with the dashboard UID, the panel ID and the theme. After 10 renders in a row, the working set of the renderer stays below 80 % of its memory limit:
+
+```promql
+max_over_time(container_memory_working_set_bytes{namespace="monitoring", container="grafana-image-renderer"}[30m]) / (1536 * 1024 * 1024)
+```
+
 ## Log and Metric Retention
 
 Logs and metrics are kept for 30 days:
@@ -625,6 +650,7 @@ Every Secret the stacks read comes from the workstation's OS keyring. `devops k8
 | `devops/qdrant-api-key` | `api-key` | keyring `qdrant_api_key` | yes | adopt from `llm/qdrant-api-key api-key`; else generate `token_urlsafe(32)` | devops | none |
 | `monitoring/grafana-admin` | `admin-user` | literal | yes | fail | infra | `deployment/grafana` |
 | `monitoring/grafana-admin` | `admin-password` | keyring `grafana_password` | yes | adopt from `monitoring/grafana admin-password`; else generate `token_urlsafe(32)` | infra | `deployment/grafana` |
+| `monitoring/grafana-image-renderer` | `token` | keyring `grafana_renderer_token` | yes | adopt the live value; else generate `token_urlsafe(32)` | infra | `deployment/grafana`, `deployment/grafana-image-renderer` |
 | `monitoring/alertmanager-mattermost` | `url` | derived from keyring mattermost_alerts_hook | no | skip with a warning | infra | none |
 | `argocd/argocd-notifications-secret` | `github-appID` | setting argocd.github_app_id | yes | fail | infra | none |
 | `argocd/argocd-notifications-secret` | `github-installationID` | setting argocd.github_app_installation_id | yes | fail | infra | none |
@@ -648,6 +674,7 @@ Every Secret the stacks read comes from the workstation's OS keyring. `devops k8
 - `DEVOPS_CLI_SERVICE_GITHUB_APP_PRIVATE_KEY` is the private key of GitHub App `devops-cli-service`, which the roadmap Service and the cluster Jobs act as ([ADR 0015](../docs/adr/0015-roadmap-jobs-act-as-a-github-app-on-the-personal-account.md)). Store it with `devops config set service.github_app.private_key --from-file <key.pem>`. A pod whose environment holds the key acts as the App: it mints an installation token, mints a new one before the token expires, and gives the current token to each gh and git child as GH_TOKEN. A workstation keeps the key only in the keyring, so a workstation run keeps the gh login of its person.
 - `argocd/argocd-notifications-secret` holds the GitHub App that Argo CD's GitHub notifier acts as, and the webhook URL for Mattermost deploys. Its `service.github` refers to the keys as `$github-appID`, `$github-installationID` and `$github-privateKey`, and `service.webhook.mattermost` refers to `$mattermost-deploys-url`. Store the values with `devops config set argocd.github_app_id <id>`, `devops config set argocd.github_app_installation_id <id>`, `devops config set argocd.github_app_private_key --from-file <key.pem>`, and `devops config set mattermost.deploys_hook`, then run `devops k8s push-secrets --only argocd/argocd-notifications-secret`. The Argo CD values set `notifications.secret.create: false`, so the chart never creates a Secret of the same name, and the `homelab` project ignores the pushed Secret as an orphan.
 - `monitoring/alertmanager-mattermost` holds the incoming webhook URL that Alertmanager uses to post critical and warning alerts to Mattermost. Store the webhook token with `devops config set mattermost.alerts_hook`, then push with `devops k8s push-secrets --only monitoring/alertmanager-mattermost`. The `homelab` project ignores the Secret as an orphan.
+- `monitoring/grafana-image-renderer` holds the token that Grafana sends to its image renderer ([Grafana Image Renderer](#grafana-image-renderer)). Its keyring value, `grafana_renderer_token`, is no managed credential: no setting reads it, and only the Grafana pod and the renderer pod do. Neither pod starts without the Secret. `deploy-stack` pushes it before the Helm releases. On a cluster that Argo CD manages, a person runs `devops k8s push-secrets --only monitoring/grafana-image-renderer` before the first sync of values that enable the renderer. A change restarts `deployment/grafana` and `deployment/grafana-image-renderer`. The `homelab` project ignores the Secret as an orphan.
 - `DEVOPS_CLI_MATTERMOST_COMMAND_TOKEN` holds the authentication token that verifies `/roadmap` slash command requests from Mattermost to the Service's webhook router. Store the token with `devops config set mattermost.command_token`, then push with `devops k8s push-secrets --only devops/devops-cli`.
 - `devops` rows are pushed wherever namespace `devops` exists, also by every deploy-stack run. `devops k8s deploy-stack --no-push-secrets` skips the push on a cluster without a keyring.
 - `gitea` rows are pushed by `push-secrets` with no `--stack` or with `--stack gitea`, and by `deploy-stack --stack gitea` or `all`. The root kustomization creates namespace `gitea` on every cluster, so these pushes need the Gitea admin password in the keyring. A deploy of another stack never reads it.

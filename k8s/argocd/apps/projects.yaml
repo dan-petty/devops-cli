@@ -95,6 +95,9 @@ spec:
         name: grafana-admin
       - group: ''
         kind: Secret
+        name: grafana-image-renderer
+      - group: ''
+        kind: Secret
         name: argocd-notifications-secret
       - group: ''
         kind: Secret

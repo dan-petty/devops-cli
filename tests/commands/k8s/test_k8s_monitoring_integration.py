@@ -11,6 +11,7 @@ from urllib.parse import urlsplit
 
 import pytest
 import yaml
+from kubernetes.utils.quantity import parse_quantity
 from packaging.version import InvalidVersion, Version
 
 from devops_cli.commands.k8s.stack_lifecycle import (
@@ -73,6 +74,10 @@ GRAFANA_DRILLDOWN_APPS = (
     "grafana-exploretraces-app",
 )
 GRAFANA_13_DRILLDOWN_MAJOR = 3
+
+# The chart names the Deployment, the Service and the token Secret of its image renderer
+# `<release>-image-renderer` (#5185).
+GRAFANA_RENDERER = "grafana-image-renderer"
 
 
 def _k8s_yaml(relative: str) -> Any:
@@ -359,6 +364,45 @@ def test_grafana_pins_each_drilldown_app_at_its_release_for_grafana_13() -> None
     assert {
         app: _pinned_major(pinned.get(app, "")) for app in GRAFANA_DRILLDOWN_APPS
     } == dict.fromkeys(GRAFANA_DRILLDOWN_APPS, GRAFANA_13_DRILLDOWN_MAJOR)
+
+
+def test_grafana_runs_the_image_renderer_of_its_chart_at_a_release_tag() -> None:
+    """With no renderer, the render API of Grafana returned HTTP 500, so no panel image could be
+    made (#5185). The renderer of the chart runs its image at a release tag, not `latest`, with
+    CPU and memory requests and limits, `GOMEMLIMIT` below the memory limit, and the ingress
+    policy of the chart. The values set no renderer URL and no callback URL, so the chart gives
+    Grafana the Service DNS name of the renderer and gives the renderer the Grafana Service. The
+    token comes from a Secret of the cluster table, not from git."""
+    renderer = _k8s_yaml("monitoring/grafana-values.yaml")["imageRenderer"]
+    image = renderer["image"]
+    resources = renderer["resources"]
+    memory_limit = parse_quantity(resources["limits"]["memory"])
+    # Go writes the unit of GOMEMLIMIT as MiB or GiB; Kubernetes writes Mi or Gi.
+    go_memory_limit = parse_quantity(renderer["env"]["GOMEMLIMIT"].removesuffix("B"))
+
+    assert (
+        renderer["enabled"],
+        image["repository"],
+        re.fullmatch(r"v\d+\.\d+\.\d+", image["tag"]) is not None,
+        image["pullPolicy"],
+        (sorted(resources["requests"]), sorted(resources["limits"])),
+        parse_quantity(resources["requests"]["memory"]) <= memory_limit,
+        0 < go_memory_limit < memory_limit,
+        renderer.get("networkPolicy", {}).get("limitIngress", True),
+        (renderer.get("serverURL", ""), renderer.get("renderingCallbackURL", "")),
+        (renderer.get("token", ""), renderer["existingSecret"]),
+    ) == (
+        True,
+        "grafana/grafana-image-renderer",
+        True,
+        "IfNotPresent",
+        (["cpu", "memory"], ["cpu", "memory"]),
+        True,
+        True,
+        True,
+        ("", ""),
+        ("", GRAFANA_RENDERER),
+    )
 
 
 def test_grafana_stops_the_old_pod_before_the_new_pod_opens_its_sqlite_database() -> None:

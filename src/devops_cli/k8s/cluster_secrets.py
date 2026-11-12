@@ -42,6 +42,9 @@ MATTERMOST_DB_AUTH_KEY = "mattermost_db_password"
 _BASIC_AUTH_SECRET_TYPE: SecretType = "kubernetes.io/basic-auth"
 # The server secret of SearXNG (#3924). No Settings option reads it: only the pod does.
 SEARXNG_SERVER_KEY = "searxng_secret_key"
+# The token that Grafana sends to its image renderer (#5185). No Settings option reads it: only
+# the two pods do.
+GRAFANA_RENDERER_TOKEN_KEY = "grafana_renderer_token"
 
 
 @dataclass(frozen=True)
@@ -462,6 +465,25 @@ CLUSTER_SECRETS: tuple[ClusterSecret, ...] = (
         ),
         restarts=(Workload("deployment", "grafana"),),
         labels={"app.kubernetes.io/name": "grafana"},
+    ),
+    # The token of the Grafana image renderer. Grafana sends it with each render request, and the
+    # renderer refuses a request without it. Both pods read it at start, so a change restarts both.
+    ClusterSecret(
+        namespace="monitoring",
+        name="grafana-image-renderer",
+        stack="infra",
+        entries=(
+            SecretEntry(
+                "token",
+                KeyringSource(GRAFANA_RENDERER_TOKEN_KEY),
+                generator=SecretGenerator("urlsafe", 32),
+            ),
+        ),
+        restarts=(
+            Workload("deployment", "grafana"),
+            Workload("deployment", "grafana-image-renderer"),
+        ),
+        labels={"app.kubernetes.io/name": "grafana-image-renderer"},
     ),
     ClusterSecret(
         namespace="monitoring",
