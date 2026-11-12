@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: A plan number beside a constant matches the staged value
-The plan check SHALL refuse a plan when a sentence names one known module-level integer constant of the staged tree, holds one candidate decimal number, gives that number to the constant, and that number differs from the value of the constant. A sentence gives a number to a constant when the number follows the constant name with `=` or `is`. A number after `to` is a new value that the change sets, so the check does not compare it with the staged value. A candidate number is a whole number, and it can hold the `_` digit separators of a Python integer literal, such as `6_500`.
+The plan check SHALL refuse a plan when a sentence names one known module-level integer constant of the staged tree, holds one candidate decimal number, gives that number to the constant, and that number differs from the value of the constant. A sentence gives a number to a constant when the number follows the constant name with `=` or `is`. A candidate number is a whole integer literal, with its `_` digit separators.
 
 #### Scenario: Summary bound mismatch
 - **WHEN** A spec scenario says `SUMMARY_MAX_CHARS` is 40, and the staged tree sets `SUMMARY_MAX_CHARS = 60`.
