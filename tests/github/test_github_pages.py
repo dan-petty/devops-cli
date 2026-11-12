@@ -139,109 +139,104 @@ def test_request_pages_build_triggers_deployment(process_fake: ProcessFake) -> N
     assert ok is True
 
 
+SITE_SETTINGS = (
+    "[project]\n"
+    'site_name = "My Project"\n'
+    'site_url = "https://example.github.io/test/"\n'
+    'repo_url = "https://github.com/example/test"\n'
+)
+
+
 def test_verify_pages_configuration_valid(tmp_path: Path) -> None:
-    """Verify that a docs/_config.yml with the required site settings passes."""
+    """Verify that a zensical.toml with the required site settings passes."""
+    (tmp_path / "zensical.toml").write_text(SITE_SETTINGS, encoding="utf-8")
     docs_dir = tmp_path / "docs"
     docs_dir.mkdir()
-    config_file = docs_dir / "_config.yml"
-    config_file.write_text(
-        "title: My Project\ndescription: Test\nurl: https://example.github.io\nbaseurl: /test\nmarkdown: kramdown\nplugins:\n  - jekyll-seo-tag\n",
-        encoding="utf-8",
-    )
     (docs_dir / "index.md").write_text("# Hello World\n", encoding="utf-8")
 
     valid, diagnostics = verify_pages_configuration(tmp_path)
-    assert valid is True
-    assert any("Jekyll configuration valid" in d for d in diagnostics)
+
+    assert (valid, diagnostics[0]) == (
+        True,
+        "✓ Zensical configuration valid (site_name='My Project', "
+        "site_url='https://example.github.io/test/')",
+    )
 
 
 def test_verify_pages_configuration_missing_config(tmp_path: Path) -> None:
-    """Verify that the check fails and names _config.yml when docs/ has no _config.yml."""
+    """Verify that the check fails and names zensical.toml when the root has no zensical.toml."""
     valid, diagnostics = verify_pages_configuration(tmp_path)
-    assert valid is False
-    assert any("Missing _config.yml in docs/" in d for d in diagnostics)
+
+    assert (valid, diagnostics[0]) == (False, "Missing zensical.toml at the repository root.")
 
 
-def test_verify_pages_configuration_reads_only_the_file_jekyll_reads(tmp_path: Path) -> None:
-    """Verify that site settings in a file other than docs/_config.yml do not pass the check.
+def test_verify_pages_configuration_reads_only_the_file_the_site_build_reads(
+    tmp_path: Path,
+) -> None:
+    """Verify that site settings in a file other than zensical.toml do not pass the check.
 
-    The Pages builder runs Jekyll with no `--config` option, so Jekyll reads `_config.yml` in the
-    source directory only. A second file with valid settings has no effect on the site.
+    `devops docs site build` reads `zensical.toml` only, so the settings of a `mkdocs.yml` have no
+    effect on the site (#5152).
     """
+    (tmp_path / "mkdocs.yml").write_text(
+        "site_name: My Project\nsite_url: https://example.github.io/test/\n", encoding="utf-8"
+    )
     docs_dir = tmp_path / "docs"
     docs_dir.mkdir()
-    (docs_dir / "github-pages.config.yaml").write_text(
-        "title: My Project\nurl: https://example.github.io\nbaseurl: /test\nmarkdown: kramdown\n",
-        encoding="utf-8",
-    )
     (docs_dir / "index.md").write_text("# Hello World\n", encoding="utf-8")
 
     valid, diagnostics = verify_pages_configuration(tmp_path)
-    assert valid is False
-    assert any("Missing _config.yml in docs/" in d for d in diagnostics)
+
+    assert (valid, diagnostics[0]) == (False, "Missing zensical.toml at the repository root.")
 
 
 def test_verify_pages_configuration_missing_keys(tmp_path: Path) -> None:
-    """Verify that the check fails when docs/_config.yml has no url, baseurl or markdown."""
-    docs_dir = tmp_path / "docs"
-    docs_dir.mkdir()
-    config_file = docs_dir / "_config.yml"
-    config_file.write_text("title: Only Title\n", encoding="utf-8")
-    (docs_dir / "index.md").write_text("# Hello World\n", encoding="utf-8")
+    """Verify that the check fails when zensical.toml has no site_url or repo_url."""
+    (tmp_path / "zensical.toml").write_text('[project]\nsite_name = "Only"\n', encoding="utf-8")
 
     valid, diagnostics = verify_pages_configuration(tmp_path)
-    assert valid is False
-    assert any("Missing required Jekyll config keys" in d for d in diagnostics)
+
+    assert (valid, diagnostics[0]) == (
+        False,
+        "Missing required Zensical settings in zensical.toml: site_url, repo_url",
+    )
 
 
-def test_the_repository_site_settings_are_in_the_one_file_jekyll_reads() -> None:
-    """Verify that docs/_config.yml of this repository passes the check and is the only YAML
-    file at the top of docs/.
+def test_verify_pages_configuration_invalid_toml(tmp_path: Path) -> None:
+    """Verify that the check fails and names the file when zensical.toml is not valid TOML."""
+    (tmp_path / "zensical.toml").write_text("[project\n", encoding="utf-8")
 
-    GitHub Pages builds `main:/docs`, and Jekyll reads `docs/_config.yml` only. A second YAML file
-    there is published as a static file, and its settings have no effect (#2001).
-    """
-    docs_dir = REPO_ROOT / "docs"
-    assert sorted(path.name for path in docs_dir.glob("*.y*ml")) == ["_config.yml"]
+    valid, diagnostics = verify_pages_configuration(tmp_path)
 
+    assert (valid, diagnostics[0].startswith("Invalid TOML syntax in zensical.toml:")) == (
+        False,
+        True,
+    )
+
+
+def test_the_repository_site_settings_pass_the_check() -> None:
+    """Verify that zensical.toml of this repository passes the check, and that docs/ holds no
+    settings file of the Jekyll build that the site no longer uses (#5152)."""
     valid, diagnostics = verify_pages_configuration(REPO_ROOT)
-    assert valid is True, diagnostics
+
+    assert (valid, sorted(path.name for path in (REPO_ROOT / "docs").glob("*.y*ml"))) == (
+        True,
+        [],
+    ), diagnostics
+
+
+def test_the_repository_site_has_readme_as_its_home_page() -> None:
+    """Verify that the first nav tab of the site is README.md, which holds the command matrix
+    (#5152)."""
+    nav = yaml.safe_load((REPO_ROOT / ".nav.yml").read_text(encoding="utf-8"))["nav"]
+
+    assert nav[0] == {"Home": "README.md"}
 
 
 def test_the_repository_documentation_has_an_index_home_page() -> None:
-    """Verify that docs/index.md exists and is a non-empty home page routing to main docs (#2070).
-
-    GitHub Pages returns 404 on the root URL when docs/ has no index.md.
-    """
+    """Verify that docs/index.md exists and is a non-empty page that routes to the main docs
+    (#2070). The site shows it as the Overview page of the Guides tab (#5152)."""
     index_file = REPO_ROOT / "docs" / "index.md"
-    assert index_file.is_file(), "docs/index.md must exist as the documentation site home page"
+    assert index_file.is_file(), "docs/index.md must exist as the overview page of the guides"
     content = index_file.read_text(encoding="utf-8").strip()
     assert len(content) > 0, "docs/index.md must not be empty"
-
-
-def test_the_repository_site_settings_remove_source_markdown() -> None:
-    """Verify that docs/_config.yml configures optional_front_matter to remove source markdown (#2070).
-
-    Pages publishes each source .md file next to its .html page unless remove_originals is true.
-    """
-    config_file = REPO_ROOT / "docs" / "_config.yml"
-    assert config_file.is_file()
-    data = yaml.safe_load(config_file.read_text(encoding="utf-8")) or {}
-    optional_front_matter = data.get("optional_front_matter", {})
-    assert optional_front_matter.get("remove_originals") is True, (
-        "docs/_config.yml must set optional_front_matter.remove_originals: true"
-    )
-
-
-def test_the_default_layout_links_only_to_built_pages() -> None:
-    """Verify that docs/_layouts/default.html contains no broken /ARCHITECTURE.html link (#2070).
-
-    ARCHITECTURE.md is at the repository root, not in docs/, so linking to /ARCHITECTURE.html
-    returns 404 on the published site.
-    """
-    layout_file = REPO_ROOT / "docs" / "_layouts" / "default.html"
-    assert layout_file.is_file()
-    layout_html = layout_file.read_text(encoding="utf-8")
-    assert "/ARCHITECTURE.html" not in layout_html, (
-        "docs/_layouts/default.html must not link to /ARCHITECTURE.html"
-    )

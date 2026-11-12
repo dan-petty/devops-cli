@@ -1,8 +1,9 @@
-# Builds docs/ and deploys it to GitHub Pages (#4656). The workflow runs on a push to main that
-# changes docs/ or this file, and on a manual run, so a merge that changes no site file starts no
-# Pages job. The Pages source of the repository is GitHub Actions; the legacy branch build of
-# main:/docs ran on each push to main. The Docs Site Build check of docs-site.yml builds docs/ on
-# the pull request first, with the same builder version (v1.0.13).
+# Builds the docs site with Zensical and deploys it to GitHub Pages (#4656, #5152). The Pages
+# source of the repository is GitHub Actions, so this workflow is the one deploy path. It runs on a
+# push to main that changes a site source, and on a manual run, so a merge that changes no site
+# file starts no Pages job. A release changes CHANGELOG.md and pyproject.toml, so each release
+# builds the site with its new version. The Docs Site Build check of docs-site.yml runs the same
+# build command on the pull request first.
 name: Pages
 
 on:
@@ -10,6 +11,19 @@ on:
     branches: [main]
     paths:
       - "docs/**"
+      - "README.md"
+      - "ARCHITECTURE.md"
+      - "CONTRIBUTING.md"
+      - "SECURITY.md"
+      - "RELEASE_CYCLE.md"
+      - "CONTEXT.md"
+      - "AGENTS.md"
+      - "CHANGELOG.md"
+      - ".nav.yml"
+      - "zensical.toml"
+      - "overrides/**"
+      - "pyproject.toml"
+      - "src/devops_cli/docs/site.py"
       - ".github/workflows/pages.yml"
   workflow_dispatch:
 
@@ -21,6 +35,12 @@ concurrency:
   group: pages
   cancel-in-progress: false
 
+env:
+  # No tool the job runs reports usage.
+  DO_NOT_TRACK: "1"
+  # uv runs only its own CPython builds, never the runner image's Python (#1494).
+  UV_MANAGED_PYTHON: "1"
+
 jobs:
   build:
     name: Build Site
@@ -28,7 +48,7 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: read
-      pages: read # configure-pages and the GitHub metadata plugin read the Pages site
+      pages: read # configure-pages reads the Pages site
 
     steps:
       - name: Check out repository
@@ -39,14 +59,23 @@ jobs:
       - name: Configure Pages
         uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
 
-      - name: Build the Site with the GitHub Pages Builder
-        uses: actions/jekyll-build-pages@44a6e6beabd48582f863aeeb6cb2151cc1716697 # v1.0.13
+      # The CI jobs of the same push save the uv cache, so this job only restores it.
+      - name: Set up uv toolchain
+        uses: ./.github/actions/setup-toolchain
         with:
-          source: ./docs
-          destination: ./_site
+          cache-suffix: pages
+          tooling-cache-paths: ""
+          save-uv-cache: "false"
+
+      # The command stages the site in .data/site-src/ and builds it into .data/site-src/site/.
+      # `--strict` fails on a broken link or anchor, and on a page that no nav tab lists.
+      - name: Build the Site with Zensical
+        run: uv run devops docs site build --strict
 
       - name: Upload Pages Artifact
         uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: .data/site-src/site
 
   deploy:
     name: Deploy Site

@@ -19,12 +19,20 @@ from devops_cli.config.defaults import (
 from devops_cli.core.cli import new_typer
 from devops_cli.dry_run.decorator import dry_run_class
 from devops_cli.lang import HELP, MESSAGES
-from devops_cli.output import print_error, print_info, print_success, write_text_file
+from devops_cli.output import (
+    print_error,
+    print_info,
+    print_success,
+    print_warning,
+    write_text_file,
+)
 
 app = new_typer(
     help=HELP.docs.app,
     no_args_is_help=True,
 )
+site_app = new_typer(help=HELP.docs.site_app, no_args_is_help=True)
+app.add_typer(site_app, name="site")
 
 
 # =============================================================================
@@ -205,3 +213,39 @@ def sync_readme_cmd(
     else:
         print_error(f"Failed to synchronize README Command Matrix in {target}", prefix=False)
         raise typer.Exit(1)
+
+
+# =============================================================================
+# Command: site build
+# =============================================================================
+
+
+@site_app.command(name="build", help=HELP.docs.site_build)
+@dry_run_class("no-external-request")
+def site_build(
+    strict: Annotated[bool, typer.Option("--strict", help=HELP.docs.site_strict)] = False,
+    serve: Annotated[bool, typer.Option("--serve", help=HELP.docs.site_serve)] = False,
+    root: Annotated[Path, typer.Option("--root", "-r", help=HELP.docs.site_root)] = Path("."),
+) -> None:
+    """Build the docs site with Zensical, with the version, the commit and the build time."""
+    from datetime import UTC, datetime
+
+    from devops_cli.docs.site import build_site
+
+    report = build_site(root.resolve(), strict=strict, serve=serve, built_at=datetime.now(UTC))
+    if report.defects is None:
+        return
+    for page in report.defects.outside_nav:
+        print_warning(MESSAGES.docs.site_outside_nav.format(page=page))
+    for page in report.defects.without_build_commit:
+        print_warning(MESSAGES.docs.site_without_build_commit.format(page=page))
+    print_success(
+        MESSAGES.docs.site_built.format(
+            pages=report.built_pages,
+            site_dir=report.staged.site_dir,
+            version=report.build.version,
+            commit=report.build.short_commit,
+            links=report.staged.rewritten_links,
+        ),
+        prefix=False,
+    )

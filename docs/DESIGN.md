@@ -36,7 +36,7 @@ Style Dictionary, at the version of its lock, builds the tokens. `make design-to
 | `dark.json` | `dark.tokens.json` | `@media (prefers-color-scheme: dark)` with `:root:not([data-theme="light"])` | `tokens-dark.css`, `tokens-dark.json` |
 | `dark-explicit.json` | `dark.tokens.json` | `:root[data-theme="dark"]` | `tokens-dark-explicit.css` |
 
-The build writes each CSS file to `docs/assets/css/` for the docs site, because Jekyll cannot run the build. It writes each CSS file and each JSON file to `src/devops_cli/design/` as package data. `src/devops_cli/design/css/` holds the hand-written CSS of the package, which reads only token variables. The outputs are in git. Do not edit an output by hand. The build gives 88 CSS variables: 50 base and 38 for each theme.
+The build writes each CSS file to `docs/assets/css/` for the docs site, because the site build does not run Style Dictionary. It writes each CSS file and each JSON file to `src/devops_cli/design/` as package data. `src/devops_cli/design/css/` holds the hand-written CSS of the package, which reads only token variables. The outputs are in git. Do not edit an output by hand. The build gives 88 CSS variables: 50 base and 38 for each theme.
 
 A page selects its theme with the CSS files: `tokens-light.css` on `:root`, `tokens-dark.css` when the system theme is dark and the page sets no `data-theme="light"`, and `tokens-dark-explicit.css` when the page sets `data-theme="dark"`. Set `color-scheme` with the theme, so that form controls and scroll bars agree.
 
@@ -252,7 +252,7 @@ Each item applies the spec to its target. The rules of a target are in force whe
 
 | Target | Rules | Item |
 | :--- | :--- | :--- |
-| Docs site | Link the token CSS of `docs/assets/css/`. `style.css` reads only token variables. The system theme applies until the reader selects a theme. The Source faces replace the current fonts. Add `:focus-visible`. Map the syntax classes of Rouge to the syntax roles of the palette. The breakpoints are 40rem and 75rem. One SVG favicon. | #4745 |
+| Docs site | Map the token CSS variables of `docs/assets/css/` to the theme variables of Zensical in `extra_css`. The system theme applies until the reader selects a theme (`zensical.toml` has the palette toggle). The Source faces replace the current fonts, through `theme.font`. Add `:focus-visible`. Map the syntax classes of Pygments to the syntax roles of the palette. The breakpoints are 40rem and 75rem. One SVG favicon. | #4745 |
 | Mermaid | On github.com: no `init` directive, `classDef`, `style` or hex value, because GitHub draws its own light and dark themes. Use `flowchart`, labels in sentence case, 15 nodes or fewer and one direction. On the docs site: the theme `base`, with the theme variables read from the token CSS variables, drawn again when the theme changes. | #4755 |
 | README, docs, issues and pull requests | Headings in sentence case. Table rules T5, T8 and T9. Captions as C3 says. Charts as `<picture>` with a light and a dark SVG source and alt text. GitHub alerts `NOTE`, `WARNING` and `CAUTION` for callouts. Static badges in `5f5f59`. `CHANGELOG.md` stays with release-please. | #4605 |
 | Labels | One color for each label family, from the light token hex: priority p0 `color.status.error`, p1 `color.status.warn`, p2 `color.accent`, p3 `color.fg-muted`; the types `cat.1`, `cat.2`, `cat.3` and grays; other families gray. No brand colors. A test checks each label color against the light tokens. | #4652 (done) |

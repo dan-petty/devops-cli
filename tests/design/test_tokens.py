@@ -81,8 +81,8 @@ def test_the_hex_of_each_source_color_is_the_color_of_its_components() -> None:
 
 
 def test_the_docs_site_and_the_package_hold_the_same_token_css() -> None:
-    """Jekyll cannot run the build, so the build writes each CSS file twice: one copy for the
-    docs site and one as package data."""
+    """The site build does not run Style Dictionary, so the build writes each CSS file twice: one
+    copy for the docs site and one as package data."""
     assert [
         file
         for file in CSS_FILES

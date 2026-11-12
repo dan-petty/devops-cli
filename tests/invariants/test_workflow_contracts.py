@@ -66,7 +66,7 @@ JOB_LIMIT_MINUTES = {
     ("service-image-test.yml", "service-image-test"): 20,  # 678 s
     ("devcontainer-image.yml", "devcontainer"): 20,  # 416 s; a build with no cache takes longer
     ("rule-pack.yml", "rule-pack"): 5,  # 35 s on 2026-10-17; no rule changed after it
-    ("docs-site.yml", "docs-site"): 5,  # 35 s
+    ("docs-site.yml", "docs-site"): 5,  # 38 s with Zensical on 2026-11-12 (#5152)
     ("image-pins.yml", "image-pins"): 5,  # 74 s
     ("third-party-image-scan.yml", "third-party-image-scan"): 5,  # 47 s
 }
@@ -1581,15 +1581,27 @@ def test_the_devcontainer_smoke_action_starts_the_pushed_digest_as_vscode() -> N
 
 PATHS_FILTER = "dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d"
 CHECKOUT = "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
-PAGES_BUILDER = (
-    "ghcr.io/actions/jekyll-build-pages"
-    "@sha256:6791ebfd912185ed59bfb5fb102664fa872496b79f87ff8b9cfba292a7345041"
-)
-LYCHEE = (
-    "lycheeverse/lychee@sha256:eaff3e0a13603c9a701accfcc84f44158bb77bf36ecfa4622b626056c3463892"
-)
+SITE_BUILD_STEP = {
+    "name": "Build the Site with Zensical",
+    "run": "uv run devops docs site build --strict",
+}
+# The site sources of the docs site (#5152): `docs/`, the root documents that it publishes, the
+# nav, the settings, the theme overrides and the build code.
+SITE_SOURCES = [
+    "docs/**",
+    "README.md",
+    "ARCHITECTURE.md",
+    "CONTRIBUTING.md",
+    "SECURITY.md",
+    "RELEASE_CYCLE.md",
+    "CONTEXT.md",
+    "AGENTS.md",
+    ".nav.yml",
+    "zensical.toml",
+    "overrides/**",
+]
 
-# ── The path checks (#4653) ───────────────────────────────────────────────────
+# ── The path checks (#4653)───────────────────────────────────────────────────
 
 # Each check that does work only for some paths has a workflow of its own: the file, its one job
 # and the job name, and the `paths` filter of its `pull_request` trigger.
@@ -1602,7 +1614,13 @@ PATH_CHECKS: dict[str, tuple[str, str, list[str]]] = {
     "docs-site.yml": (
         "docs-site",
         "Docs Site Build",
-        ["docs/**", ".github/workflows/docs-site.yml"],
+        [
+            *SITE_SOURCES,
+            "pyproject.toml",
+            "uv.lock",
+            "src/devops_cli/docs/site.py",
+            ".github/workflows/docs-site.yml",
+        ],
     ),
     "image-pins.yml": (
         "image-pins",
@@ -1628,10 +1646,14 @@ def test_a_path_check_is_a_workflow_that_only_its_paths_start(name: str) -> None
     most 20 hosted jobs at one time. The native `paths` filter decides before a runner starts, so
     each path check is a workflow of its own with one job that keeps its check name. No step
     filters the paths again, and `ci.yml` holds no copy of the job. A newer push cancels the run
-    of the older head (#4653)."""
+    of the older head (#4653). A check whose paths hold a file that release-please changes skips
+    the release pull request, and has no other condition (#5152)."""
     job_id, check, paths = PATH_CHECKS[name]
     workflow = _load_workflow(WORKFLOWS_DIR / name)
     job = workflow["jobs"][job_id]
+    release_skip = (
+        RELEASE_PULL_REQUEST_SKIP if any(_starts_on(paths, path) for path in RELEASE_FILES) else ""
+    )
 
     assert (
         workflow["on"],
@@ -1640,7 +1662,7 @@ def test_a_path_check_is_a_workflow_that_only_its_paths_start(name: str) -> None
         workflow["env"]["DO_NOT_TRACK"],
         list(workflow["jobs"]),
         job["name"],
-        "if" in job,
+        " ".join(str(job.get("if", "")).split()),
         [step for step in job["steps"] if "if" in step or "paths-filter" in step.get("uses", "")],
         job_id in _load_workflow(WORKFLOWS_DIR / "ci.yml")["jobs"],
     ) == (
@@ -1656,7 +1678,7 @@ def test_a_path_check_is_a_workflow_that_only_its_paths_start(name: str) -> None
         "1",
         [job_id],
         check,
-        False,
+        release_skip,
         [],
         False,
     )
@@ -1667,7 +1689,11 @@ def test_a_path_check_is_a_workflow_that_only_its_paths_start(name: str) -> None
     [
         ("src/devops_cli/review/rules/k8s-networkpolicy-ingress-any.yaml", ["rule-pack.yml"]),
         ("docs/SDLC.md", ["docs-site.yml"]),
-        ("docs/_config.yml", ["docs-site.yml"]),
+        ("zensical.toml", ["docs-site.yml"]),
+        ("overrides/partials/copyright.html", ["docs-site.yml"]),
+        ("src/devops_cli/docs/site.py", ["docs-site.yml"]),
+        ("uv.lock", ["docs-site.yml"]),
+        ("CHANGELOG.md", []),
         ("k8s/monitoring/grafana-values.yaml", ["image-pins.yml"]),
         ("src/devops_cli/k8s/image_pins.py", ["image-pins.yml"]),
         ("src/devops_cli/commands/k8s/image_pins.py", ["image-pins.yml"]),
@@ -1678,7 +1704,7 @@ def test_a_path_check_is_a_workflow_that_only_its_paths_start(name: str) -> None
         (".github/workflows/ci.yml", []),
         ("src/devops_cli/review/admission.py", []),
         ("openspec/changes/4653-move-the-four-path-checks-into/proposal.md", []),
-        ("README.md", []),
+        ("README.md", ["docs-site.yml"]),
         ("tests/invariants/test_workflow_contracts.py", []),
     ],
 )
@@ -1781,77 +1807,74 @@ def test_a_push_to_the_release_pull_request_starts_only_the_required_checks() ->
     )
 
 
-def test_a_pull_request_that_changes_the_site_builds_it_with_the_pages_builder() -> None:
-    """GitHub Pages publishes `main:/docs` when a pull request merges, so a Liquid or Jekyll error
-    in `docs/` breaks the site at the merge. The `docs-site` job builds `docs/` on the pull request
-    first, with the image that `actions/jekyll-build-pages` v1.0.13 runs, by digest, because the
-    action names its image by a tag. Its workflow runs only for a pull request that changes
-    `docs/` or the workflow (#4653). It holds no write scope. The container has no network and
-    mounts `docs/` read-only, so the build needs no token and writes nothing to the checkout. Its
-    resolver is loopback: the GitHub metadata plugin then gets a failed DNS lookup, which it
-    catches, and builds without metadata. The runner's own resolver is unreachable without a
-    network, which raises an error that the plugin does not catch (#1651)."""
+def test_a_pull_request_that_changes_the_site_builds_it_as_the_pages_workflow_does() -> None:
+    """The `docs-site` job runs the build command of `pages.yml` with `--strict` on the pull
+    request, so a broken link or anchor, a page that no nav tab lists or a Zensical update that
+    breaks the build fails before the merge. The job holds no write scope, and checks that the
+    built site has a home page and no source Markdown file (#1651, #2070, #5152)."""
     job = _load_workflow(WORKFLOWS_DIR / "docs-site.yml")["jobs"]["docs-site"]
 
     assert (
         job["permissions"],
         job["timeout-minutes"],
-        job["steps"],
+        [step.get("name") for step in job["steps"]],
+        SITE_BUILD_STEP in job["steps"],
+        _step_named(job, "Set up uv toolchain")["with"],
     ) == (
         {"contents": "read"},
         5,
         [
-            {
-                "name": "Check out repository",
-                "uses": CHECKOUT,
-                "with": {"persist-credentials": False},
-            },
-            {
-                "name": "Build the Site with the GitHub Pages Builder",
-                "env": {"PAGES_BUILDER": PAGES_BUILDER},
-                "run": 'mkdir -p "$GITHUB_WORKSPACE/_site"\n'
-                "docker run --rm --network none --dns 127.0.0.1 \\\n"
-                '  --volume "$GITHUB_WORKSPACE/docs:/github/workspace/docs:ro" \\\n'
-                '  --volume "$GITHUB_WORKSPACE/_site:/github/site" \\\n'
-                "  --env GITHUB_WORKSPACE=/github/workspace \\\n"
-                "  --env GITHUB_REPOSITORY \\\n"
-                "  --env GITHUB_API_URL \\\n"
-                "  --env INPUT_SOURCE=docs \\\n"
-                "  --env INPUT_DESTINATION=../site \\\n"
-                '  --env INPUT_BUILD_REVISION="$GITHUB_SHA" \\\n'
-                "  --env INPUT_VERBOSE=true \\\n"
-                "  --env INPUT_FUTURE=false \\\n"
-                "  --env DO_NOT_TRACK=1 \\\n"
-                '  "$PAGES_BUILDER"\n',
-            },
-            {
-                "name": "Verify Built Site Pages and Links",
-                "env": {"LYCHEE": LYCHEE},
-                "run": 'test -f "$GITHUB_WORKSPACE/_site/index.html" || {\n'
-                '  echo "::error::Built site is missing index.html at root"\n'
-                "  exit 1\n"
-                "}\n"
-                'if [ -n "$(find "$GITHUB_WORKSPACE/_site" -name \'*.md\')" ]; then\n'
-                '  echo "::error::Built site contains source markdown (.md) files"\n'
-                "  find \"$GITHUB_WORKSPACE/_site\" -name '*.md'\n"
-                "  exit 1\n"
-                "fi\n"
-                "docker run --rm --network none \\\n"
-                '  --volume "$GITHUB_WORKSPACE/_site:/site/devops-cli:ro" \\\n'
-                '  "$LYCHEE" \\\n'
-                "  --offline \\\n"
-                "  --root-dir /site \\\n"
-                "  --exclude '^file:///[^s]' \\\n"
-                "  --exclude '^file:///s[^i]' \\\n"
-                "  --exclude '^file:///si[^t]' \\\n"
-                "  --exclude '^file:///sit[^e]' \\\n"
-                "  --exclude '^file:///site[^/]' \\\n"
-                "  --exclude '\\.(md|yaml|py)(#.*)?$' \\\n"
-                "  --exclude '/src/' \\\n"
-                "  --exclude '/lang/en' \\\n"
-                '  "/site/devops-cli/**/*.html"\n',
-            },
+            "Check out repository",
+            "Set up uv toolchain",
+            "Build the Site with Zensical",
+            "Verify Built Site Pages",
         ],
+        True,
+        {"cache-suffix": "docs-site", "tooling-cache-paths": "", "save-uv-cache": "false"},
+    )
+
+
+def test_a_push_that_changes_the_site_builds_and_deploys_it_with_zensical() -> None:
+    """GitHub Pages takes the site from `pages.yml` only (Pages source: GitHub Actions). A push to
+    main that changes a site source, `pyproject.toml` (the version of a release) or the workflow
+    builds the site with the strict build command, uploads `.data/site-src/site` and deploys it
+    (#4656, #5152)."""
+    workflow = _load_workflow(WORKFLOWS_DIR / "pages.yml")
+    build = workflow["jobs"]["build"]
+
+    assert (
+        workflow["on"],
+        build["permissions"],
+        [step.get("name") for step in build["steps"]],
+        SITE_BUILD_STEP in build["steps"],
+        _step_named(build, "Upload Pages Artifact")["with"],
+        workflow["jobs"]["deploy"]["needs"],
+    ) == (
+        {
+            "push": {
+                "branches": ["main"],
+                "paths": [
+                    *SITE_SOURCES[:8],
+                    "CHANGELOG.md",
+                    *SITE_SOURCES[8:],
+                    "pyproject.toml",
+                    "src/devops_cli/docs/site.py",
+                    ".github/workflows/pages.yml",
+                ],
+            },
+            "workflow_dispatch": None,
+        },
+        {"contents": "read", "pages": "read"},
+        [
+            "Check out repository",
+            "Configure Pages",
+            "Set up uv toolchain",
+            "Build the Site with Zensical",
+            "Upload Pages Artifact",
+        ],
+        True,
+        {"path": ".data/site-src/site"},
+        "build",
     )
 
 

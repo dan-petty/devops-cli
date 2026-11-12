@@ -1150,6 +1150,26 @@ class DocsMessages:
     unsupported_format: str = (
         "Unsupported documentation format: {format}. Supported: markdown, json"
     )
+    # `devops docs site build` (#5152).
+    site_config_missing: str = "The site settings file {path} does not exist."
+    site_setting_missing: str = "The site settings file {path} has no value for '{setting}'."
+    site_commit_unread: str = (
+        "git cannot read the commit of the checkout, so the site has no build data."
+    )
+    site_documents_missing: str = "The docs site publishes these root documents, but the repository does not hold them: {names}."
+    site_build_failed: str = (
+        "Zensical stopped with exit code {code}. Its output above names each problem."
+    )
+    site_defects: str = (
+        "The built site has defects. Pages with no nav link: {outside_nav}. "
+        "Pages without the build commit: {without_build_commit}."
+    )
+    site_built: str = (
+        "✓ Built {pages} pages into {site_dir} (version {version}, commit {commit}). "
+        "{links} links to repository files go to GitHub."
+    )
+    site_outside_nav: str = "The nav lists no link to the page {page}. Add it to .nav.yml."
+    site_without_build_commit: str = "The page {page} does not hold the build commit."
 
 
 @dataclass(frozen=True)

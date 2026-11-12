@@ -1,0 +1,13 @@
+{#- The footer line of each page of the docs site (#5152): the version, the commit and its date,
+    and the build time in UTC. `devops docs site build` writes `config.extra.build`. -#}
+{% set build = config.extra.build %}
+<div class="md-copyright">
+  <div class="md-copyright__highlight">
+    devops-cli {{ build.version }} ·
+    commit <a href="{{ build.commit_url }}"><code>{{ build.short_commit }}</code></a>
+    of <time datetime="{{ build.commit_date }}">{{ build.commit_date }}</time> ·
+    built <time datetime="{{ build.built_at }}">{{ build.built_at | replace("T", " ") | replace("Z", " UTC") }}</time>
+  </div>
+  Made with
+  <a href="https://zensical.org/" target="_blank" rel="noopener">Zensical</a>
+</div>

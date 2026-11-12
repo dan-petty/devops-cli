@@ -1,0 +1,42 @@
+# The nav tabs of the docs site (#5152). The awesome-nav plugin of Zensical reads this file at
+# the root of the staged pages, which keep their repository paths. A glob adds a new page with no
+# edit. `devops docs site build --strict` fails when a built page is in no tab, so add a new page
+# of `docs/` that no glob covers to a tab here.
+nav:
+  - Home: README.md
+  - Guides:
+      - Overview: docs/index.md
+      - docs/SDLC.md
+      - docs/ROADMAP_WORKFLOW.md
+      - docs/ROUTINE_TASKS.md
+      - docs/TESTING.md
+      - docs/SELF_IMPROVEMENT.md
+      - docs/DEVCONTAINER_USAGE.md
+      - docs/DESIGN.md
+      - docs/DASHBOARD_TABS_AUDIT.md
+      - docs/VISION.md
+      - docs/KNOWN_ISSUES.md
+      - Roadmap jobs:
+          - "docs/roadmap/*.md"
+      - Cheatsheets:
+          - "docs/cheatsheets/*.md"
+  - CLI reference:
+      - "docs/commands/*.md"
+      - All commands on one page: docs/CLI_REFERENCE.md
+  - Reference:
+      - docs/CONFIGURATION.md
+      - docs/ENV_VARS.md
+      - docs/ERRORS.md
+      - docs/TELEMETRY.md
+      - docs/MCP_TOOLS.md
+      - docs/KNOWLEDGE_BASE.md
+  - Decisions:
+      - "docs/adr/*.md"
+  - Project:
+      - ARCHITECTURE.md
+      - CONTRIBUTING.md
+      - SECURITY.md
+      - RELEASE_CYCLE.md
+      - CONTEXT.md
+      - AGENTS.md
+  - Releases: CHANGELOG.md

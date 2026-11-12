@@ -635,7 +635,8 @@ class DocGenerator:
         ]
 
         for tool in sorted(tools, key=lambda t: t.name):
-            anchor = tool.name.replace("_", "-")
+            # The heading id that GitHub writes for "### `ai_ask_jev`" keeps the underscores.
+            anchor = tool.name
             summary = " ".join(tool.description.splitlines()).strip()
             hint_cell = (
                 f"`{str(tool.read_only_hint).lower()}`" if tool.read_only_hint is not None else "-"

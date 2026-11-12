@@ -128,6 +128,10 @@ dev = [
     "cel-expr-python==0.1.4",
     "coloraide==8.14.1",
 ]
+# The docs site builder (#5152). Zensical is a beta from 0.1.0, so the pin is exact.
+docs = [
+    "zensical==0.1.1",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/devops_cli"]
