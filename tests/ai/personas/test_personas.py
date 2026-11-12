@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
+import pytest
+
 from devops_cli.ai.personas import PERSONAS, Persona
+from tests.support.paths import REPO_ROOT
 
 
 def test_qa_persona_is_registered() -> None:
@@ -106,3 +111,29 @@ def test_the_review_prompt_still_carries_every_rule() -> None:
         [rule for rule in _REVIEW_PROMPT_RULES if rule not in prompt],
         [rule for rule in _REMOVED_REVIEW_PROMPT_RULES if rule in prompt],
     ) == ([], [])
+
+
+# =============================================================================
+# Chat prompt
+# =============================================================================
+
+_PERSONA_FILES = REPO_ROOT / "src" / "devops_cli" / "ai" / "personas"
+
+
+def _text(path: Path) -> str:
+    return path.read_text(encoding="utf-8").rstrip()
+
+
+@pytest.mark.parametrize("persona", list(Persona))
+def test_chat_prompt_holds_the_role_the_chat_task_and_the_persona_prompt(
+    persona: Persona,
+) -> None:
+    """Chat sends the persona prompt too, so the challenger debate rules reach chat (#4824)."""
+    persona_dir = _PERSONA_FILES / persona.value
+    assert PERSONAS[persona].chat_prompt == "\n\n".join(
+        (
+            _text(persona_dir / "role.md"),
+            _text(_PERSONA_FILES.parent / "tasks" / "chat.md"),
+            _text(persona_dir / "prompt.md"),
+        )
+    )

@@ -61,10 +61,10 @@ def get_default_tools() -> list[Any]:
     return native + get_mcp_agent_tools()
 
 
-def _build_persona_tool_map(mcp_module: Any) -> dict[str, list[Any]]:
-    """Build mapping of persona names to their dedicated toolsets."""
+def _build_persona_tool_map(mcp_module: Any) -> dict[Persona, list[Any]]:
+    """Build the mapping of each persona to its own tool set."""
     return {
-        "devsecops": [
+        Persona.DEVSECOPS: [
             read_file,
             list_files,
             git_diff,
@@ -87,7 +87,7 @@ def _build_persona_tool_map(mcp_module: Any) -> dict[str, list[Any]]:
             mcp_module.security_intel_network,
             mcp_module.review_findings,
         ],
-        "architect": [
+        Persona.ARCHITECT: [
             read_file,
             list_files,
             search_code,
@@ -107,7 +107,7 @@ def _build_persona_tool_map(mcp_module: Any) -> dict[str, list[Any]]:
             mcp_module.tf_output,
             mcp_module.docker_images,
         ],
-        "qa": [
+        Persona.QA: [
             read_file,
             list_files,
             search_code,
@@ -120,7 +120,7 @@ def _build_persona_tool_map(mcp_module: Any) -> dict[str, list[Any]]:
             mcp_module.review_stats,
             mcp_module.review_findings,
         ],
-        "auditor": [
+        Persona.AUDITOR: [
             read_file,
             list_files,
             git_diff,
@@ -135,7 +135,7 @@ def _build_persona_tool_map(mcp_module: Any) -> dict[str, list[Any]]:
             mcp_module.config_show,
             mcp_module.review_export_feedback,
         ],
-        "pm": [
+        Persona.PM: [
             read_file,
             list_files,
             git_status,
@@ -144,13 +144,21 @@ def _build_persona_tool_map(mcp_module: Any) -> dict[str, list[Any]]:
             mcp_module.repos_list,
             mcp_module.branches_list,
         ],
+        # Challenger argues against a claim and names the evidence that settles it: it reads and
+        # searches, and runs no scanner, cluster or MCP tool.
+        Persona.CHALLENGER: [
+            read_file,
+            list_files,
+            search_code,
+            git_diff,
+            git_status,
+            rag_search,
+        ],
     }
 
 
 def get_persona_tools(persona: str | Persona) -> list[Any]:
-    """Return curated tool selection tailored to a specific reviewer persona."""
+    """Return the tool set of a persona. A name that is not a `Persona` raises `ValueError`."""
     from devops_cli.ai.mcp import server as mcp_module
 
-    p_str = persona.value if isinstance(persona, Persona) else str(persona).lower()
-    tool_map = _build_persona_tool_map(mcp_module)
-    return tool_map.get(p_str, get_default_tools())
+    return _build_persona_tool_map(mcp_module)[Persona(persona)]

@@ -31,8 +31,8 @@ class PersonaDefinition(BaseModel):
 
     name: str
     title: str
-    system_prompt: str  # tasks/review.md + prompt.md
-    chat_prompt: str  # role.md + tasks/chat.md
+    system_prompt: str  # role.md + tasks/review.md + prompt.md
+    chat_prompt: str  # role.md + tasks/chat.md + prompt.md
 
 
 def _load(path: Path) -> str:
@@ -66,7 +66,7 @@ def _load_persona(persona: Persona) -> PersonaDefinition:
         name=persona.value,
         title=names[persona],
         system_prompt=role + "\n\n" + _get_task_review() + "\n\n" + domain,
-        chat_prompt=role + "\n\n" + _get_task_chat(),
+        chat_prompt=role + "\n\n" + _get_task_chat() + "\n\n" + domain,
     )
 
 
