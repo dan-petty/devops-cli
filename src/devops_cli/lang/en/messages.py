@@ -2836,8 +2836,8 @@ class RoadmapMessages:
     )
     # An item that changed since the read, which the next round reads again (#5299).
     refine_item_changed: str = (
-        "Refine wrote nothing for #{number} in {repo}: the item changed since the read. The next "
-        "round reads it again."
+        "Refine did not write #{number} in {repo}: the item changed since the read. The next round "
+        "reads it again."
     )
     refine_write_failed: str = "refine could not write {count} item(s), and went on: {items}"
     # `devops roadmap alternatives` (#2650).

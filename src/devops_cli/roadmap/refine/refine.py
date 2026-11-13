@@ -536,7 +536,7 @@ class RefinePlan:
 @dataclass(frozen=True)
 class RefineApplied:
     """The counts of the writes of refine. `changed_count` counts the items that changed since
-    the read: refine wrote nothing for them, and the next round reads them again (#5299)."""
+    the read: refine did not write them, and the next round reads them again (#5299)."""
 
     refined_count: int = 0
     readied_count: int = 0
@@ -3365,8 +3365,8 @@ class RefineWriter:
     `plan_refine` gives it the count of candidates and the result of each item. A stop of the
     Service then ends the round and loses at most the item in progress, and the next round takes
     the items that are not yet written. A write that fails is logged and counted, and the next
-    item still runs. An item that changed since the read is no failure: refine writes nothing for
-    it (ADR 0002), logs no result line for it, as an alternatives check does, and the next round
+    item still runs. An item that changed since the read is no failure: refine does not write it
+    (ADR 0002), logs no result line for it, as an alternatives check does, and the next round
     reads it again (#5299). Rejected GitHub credentials and the stop of the Service end the round.
     """
 

@@ -29,7 +29,7 @@ None.
 - Code: `src/devops_cli/roadmap/refine/refine.py`, `src/devops_cli/lang/en/messages.py`.
 - Tests: `tests/roadmap/refine/test_roadmap_refine_round.py`.
 - Documents: `docs/roadmap/job-success.md`, `docs/ROADMAP_WORKFLOW.md`.
-- Metrics: refine writes fewer result lines, one less for each race. The dashboard and the grade report count the lines, so no query changes. The INFO line `Refine wrote nothing for #N ...: the item changed since the read.` shows each race in Loki.
+- Metrics: refine writes fewer result lines, one less for each race. The dashboard and the grade report count the lines, so no query changes. The INFO line `Refine did not write #N ...: the item changed since the read.` shows each race in Loki.
 - Release: the Service runs this code, so the fix reaches the Service only with a release and a new image.
 - Cost: no new request.
 

@@ -3,8 +3,7 @@
 A Service stop ends the round and loses at most the item in progress. A write that fails costs the
 other items nothing, and the round logs its start and its end with the counts of items taken,
 written and failed. An item that changed since the read is skipped: it fails nothing and writes
-no result line (#5299).
-`plan_refine` writes nothing unless the caller gives it a writer.
+no result line (#5299). `plan_refine` writes nothing unless the caller gives it a writer.
 
 The roadmap is the in-memory store, the model edge is the fake, and git runs on a temporary
 repository.

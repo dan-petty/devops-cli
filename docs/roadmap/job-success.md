@@ -40,7 +40,7 @@ Some attempts write no line:
 
 - A stop of the Service ends the round, and the attempt in progress writes no line.
 - An alternatives check whose body a person changed since the read writes no line. The next round checks the item again.
-- A refine item that a person or another job changed since the read writes no line. Refine writes nothing for it, the round does not fail, and the next round reads the item again.
+- A refine item that a person or another job changed since the read writes no line. Refine does not write the item, the round does not fail, and the next round reads the item again.
 
 A change that adds a cap extension to a job adds the count `extensions` to the line of that job.
 
