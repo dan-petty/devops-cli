@@ -255,7 +255,9 @@ def test_a_plan_with_no_terminal_passes_the_fresh_check_of_its_apply_in_a_color_
     ]
     runner = str(lab.bin_dir / "ansible-runner")
     runs = [call for call in lab.process_fake.calls if call.argv[0] == runner]
-    assert [(call.env or {}).get("ANSIBLE_NOCOLOR") for call in runs] == ["True"] * 3
+    no_color = {"ANSIBLE_NOCOLOR": "True", "ANSIBLE_FORCE_COLOR": "False"}
+    settings = [{name: (call.env or {}).get(name) for name in no_color} for call in runs]
+    assert settings == [no_color] * 3
 
 
 def test_a_task_that_changed_and_is_not_in_the_plan_stops_the_apply(

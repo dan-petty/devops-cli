@@ -12,5 +12,7 @@ Kind: behavior. Reads: `src/devops_cli/infra/plan.py`, `src/devops_cli/core/proc
   - Verification: `$ uv run devops ci test tests/infra/test_plan.py` passes on the base and after the change
 - [x] 1.4 Add `ANSIBLE_NOCOLOR=True` to `_PLAN_ENV` in `src/devops_cli/infra/plan.py`, and say why in the docstrings of the module and of `runner_env`
   - Verification: `$ uv run devops ci test tests/commands/test_infra_plan.py tests/commands/test_infra_apply.py tests/infra/test_plan.py` passes
+- [x] 1.5 Expect `ANSIBLE_FORCE_COLOR=False` beside `ANSIBLE_NOCOLOR=True` in the tests of 1.1 and 1.2, then add it to `_PLAN_ENV`, so a `force_color` of the repo's `ansible.cfg` does not turn the color on again
+  - Verification: `$ uv run devops ci test tests/commands/test_infra_plan.py tests/commands/test_infra_apply.py` fails before the change of `_PLAN_ENV` and passes after it
 
 - Pending a person: review the diff in tuicr (tuicr -r origin/main..HEAD).
