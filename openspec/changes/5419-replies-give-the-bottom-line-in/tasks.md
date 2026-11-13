@@ -12,4 +12,5 @@ Kind: behavior. Reads: `src/devops_cli/ai/client/style_request.py`. Changes: `sr
 ## Workflow follow-up
 
 - #5146 corrects the snapshot command of `docs/TESTING.md`: syrupy 7.0.0 has no option `--snapshot-file-lock`, and it locks the snapshot file by itself under xdist.
+- #5424 adds the style request to the pydantic-ai agent runs (`devops ai chat`, `investigate` and the implement step), which send none, so they get this rule too.
 - Pending a person: review the diff in tuicr (tuicr -r origin/main..HEAD).
