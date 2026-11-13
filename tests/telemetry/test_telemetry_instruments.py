@@ -652,6 +652,35 @@ def test_the_telemetry_document_lists_each_roadmap_tool_instrument_with_its_kind
     assert (len(rows), [row for row in rows if row not in document]) == (4, [])
 
 
+DECISION_POINT_INSTRUMENT_NAMES = (
+    "devops_cli_decision_point_duration_seconds",
+    "devops_cli_decision_point_failed_total",
+)
+
+
+def test_the_decision_point_duration_and_failed_instruments_are_declared() -> None:
+    """The chain times each decision and counts each failed request (#5272): a histogram of the
+    duration by point and resolver, and a counter of the failures by point and class. Both are
+    declared, both are listed in the telemetry document, and each states the bound of its series."""
+    declared = {instrument.name: instrument for instrument in INSTRUMENTS}
+    assert [name for name in DECISION_POINT_INSTRUMENT_NAMES if name not in declared] == []
+
+    duration, failed = (declared[name] for name in DECISION_POINT_INSTRUMENT_NAMES)
+    assert (duration.kind, duration.unit) == (InstrumentKind.HISTOGRAM, "s")
+    assert (failed.kind, failed.unit) == (InstrumentKind.COUNTER, "1")
+    assert all(label in duration.description for label in ("point", "resolver"))
+    assert all(label in failed.description for label in ("point", "error"))
+    assert "3 series" in duration.description
+    assert "7 series" in failed.description
+
+    document = (REPO_ROOT / "docs" / "TELEMETRY.md").read_text(encoding="utf-8")
+    rows = [
+        f"| `{instrument.name}` | {instrument.kind.value.title()} | `{instrument.unit}` |"
+        for instrument in (duration, failed)
+    ]
+    assert [row for row in rows if row not in document] == []
+
+
 def test_the_dashboards_chart_latency_errors_reviews_and_findings_devops_cli_sends() -> None:
     """Verify each series sent but never charted is summed by the label asked for.
 

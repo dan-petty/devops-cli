@@ -384,6 +384,22 @@ DECISION_POINT_TOTAL = Instrument(
     "decision record and the outcome record of each decision are log lines that share an "
     "identifier, and their join gives the false-clear rate of a point",
 )
+DECISION_POINT_DURATION = Instrument(
+    "devops_cli_decision_point_duration_seconds",
+    InstrumentKind.HISTOGRAM,
+    "s",
+    "Seconds from the request of a decision to its answer, by point and resolver (rule, model or "
+    "fallback). One observation for each decision of a point in the modes shadow and on. A point "
+    "adds at most 3 series, one for each resolver of its chain",
+)
+DECISION_POINT_FAILED_TOTAL = Instrument(
+    "devops_cli_decision_point_failed_total",
+    InstrumentKind.COUNTER,
+    "1",
+    "Requests of a decision point that failed, by point and error: timeout, model_error, parse, "
+    "secret, no_cuts, model_mismatch or other. One count for each failed request. A point adds at "
+    "most 7 series",
+)
 ROADMAP_TOOL_CALLS_TOTAL = Instrument(
     "devops_cli_roadmap_tool_calls_total",
     InstrumentKind.COUNTER,
@@ -819,6 +835,8 @@ INSTRUMENTS: tuple[Instrument, ...] = (
     ROADMAP_PAGE_FETCHES_TOTAL,
     ROADMAP_STAGE_PLAN_RECORD_TOTAL,
     DECISION_POINT_TOTAL,
+    DECISION_POINT_DURATION,
+    DECISION_POINT_FAILED_TOTAL,
     ROADMAP_STAGE_TOTAL,
     ROADMAP_FIX_PLAN_TOTAL,
     ROADMAP_TOOL_CALLS_TOTAL,
@@ -932,6 +950,8 @@ __all__ = [
     "COMMAND_DURATION",
     "COMMAND_TOTAL",
     "CRAWL4AI_FETCHES_TOTAL",
+    "DECISION_POINT_DURATION",
+    "DECISION_POINT_FAILED_TOTAL",
     "DECISION_POINT_TOTAL",
     "EMBEDDING_CACHE_LOOKUPS_TOTAL",
     "EMBEDDING_CACHE_SIZE",

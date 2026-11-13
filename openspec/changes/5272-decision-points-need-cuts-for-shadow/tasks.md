@@ -22,11 +22,11 @@ Kind: behavior. Reads: `src/devops_cli/config/settings.py`, `tests/config/test_d
 
 Kind: behavior. Reads: `src/devops_cli/telemetry/instruments.py`, `docs/TELEMETRY.md`, `tests/telemetry/test_telemetry_instruments.py`. Changes: `src/devops_cli/telemetry/instruments.py`, `docs/TELEMETRY.md`, `tests/telemetry/test_telemetry_instruments.py`.
 
-- [ ] 3.1 Add `test_the_decision_point_duration_and_failed_instruments_are_declared` to `tests/telemetry/test_telemetry_instruments.py`: it asserts that both metrics are in `INSTRUMENTS` with their kind and unit and that `docs/TELEMETRY.md` lists both
+- [x] 3.1 Add `test_the_decision_point_duration_and_failed_instruments_are_declared` to `tests/telemetry/test_telemetry_instruments.py`: it asserts that both metrics are in `INSTRUMENTS` with their kind and unit and that `docs/TELEMETRY.md` lists both
   - Verification: `$ uv run devops ci test tests/telemetry/test_telemetry_instruments.py` fails on the base
-- [ ] 3.2 Add `DECISION_POINT_DURATION`, a histogram of the unit `s` with the labels `point` and `resolver` and the bound of 3 series, and `DECISION_POINT_FAILED_TOTAL`, a counter of the unit `1` with the labels `point` and `error`, the seven classes and the bound of 7 series, to `src/devops_cli/telemetry/instruments.py` and to its export list
+- [x] 3.2 Add `DECISION_POINT_DURATION`, a histogram of the unit `s` with the labels `point` and `resolver` and the bound of 3 series, and `DECISION_POINT_FAILED_TOTAL`, a counter of the unit `1` with the labels `point` and `error`, the seven classes and the bound of 7 series, to `src/devops_cli/telemetry/instruments.py` and to its export list
   - Verification: `$ uv run devops ci test tests/telemetry/test_telemetry_instruments.py` passes
-- [ ] 3.3 Edit `docs/TELEMETRY.md` to add a row for each of the two new instruments, with its kind, its unit, its labels and its series bound
+- [x] 3.3 Edit `docs/TELEMETRY.md` to add a row for each of the two new instruments, with its kind, its unit, its labels and its series bound
   - Verification: `$ uv run devops ci docs` passes
 
 ## 4. Send the decision requests on the Jev portal
