@@ -657,6 +657,10 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
     "DEFAULT_ROADMAP_RELEASE_COMMENTS_INTERVAL_MINUTES": ("other", "a schedule"),
     "DEFAULT_ROADMAP_PR_CONFLICTS_INTERVAL_MINUTES": ("other", "a schedule"),
     "DEFAULT_ROADMAP_FIX_PLAN_INTERVAL_MINUTES": ("other", "a schedule"),
+    "DEFAULT_ROADMAP_FIX_PLAN_TIME_BUDGET_SECONDS": (
+        "setting",
+        "new (#5363); under the deadline of the Job with a margin for one more model run",
+    ),
     "CONST_ROADMAP_FIX_PLAN_HEAD_ATTEMPTS": (
         "kept",
         "the model spend on one head of a plan pull request: a third try of the same input "

@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from devops_cli.config.constants import CONST_ROADMAP_FIX_PLAN_COMMENT_MARKER
+from devops_cli.core import clock as clock_seam
 from devops_cli.roadmap.failure import FailureClass
 from devops_cli.roadmap.stage.stage_eval_cases import DefectType
 from devops_cli.roadmap.stage.stage_toolbox import ToolboxModel
@@ -39,7 +40,6 @@ if TYPE_CHECKING:
     from collections.abc import Callable
     from pathlib import Path
 
-    from tests.support.fakes.clock import ClockFake
     from tests.support.fakes.github import GitHubApiFake
     from tests.support.fakes.openspec import OpenSpecFake
 
@@ -48,6 +48,30 @@ pytestmark = pytest.mark.usefixtures("keyring_store")
 NOW = datetime(2026, 11, 13, 4, 0, tzinfo=UTC)
 BUDGET = 600
 PROGRESS = "fix-plan progress:"
+
+
+class StepClock:
+    """The monotonic reading of the clock seam, moved only by the test.
+
+    The `clock` fixture also routes `time.sleep`, which the wait for each git child process calls
+    in a loop, so its reading moves with the real time of each git command. This reading moves
+    only when a model answer of the test shifts it, so the budget ends where the test says."""
+
+    def __init__(self) -> None:
+        self._now = 0.0
+
+    def monotonic(self) -> float:
+        return self._now
+
+    def shift(self, seconds: float) -> None:
+        self._now += seconds
+
+
+@pytest.fixture
+def step_clock(monkeypatch: pytest.MonkeyPatch) -> StepClock:
+    fake = StepClock()
+    monkeypatch.setattr(clock_seam, "monotonic", fake.monotonic)
+    return fake
 
 
 @pytest.fixture
@@ -96,7 +120,7 @@ def test_a_spent_budget_ends_the_attempt_with_a_timeout_comment_and_no_push(
     model_fake: ModelFake,
     verifier: ModelFake,
     github_api: GitHubApiFake,
-    clock: ClockFake,
+    step_clock: StepClock,
     config: Callable[..., Path],
     caplog: pytest.LogCaptureFixture,
 ) -> None:
@@ -105,7 +129,7 @@ def test_a_spent_budget_ends_the_attempt_with_a_timeout_comment_and_no_push(
     open_finding = finding(DefectType.CRITERION_DROPPED)
 
     def slow_review(_prompt: str) -> Verification:
-        clock.shift(BUDGET)
+        step_clock.shift(BUDGET)
         return Verification(findings=[open_finding])
 
     verifier.answer(slow_review)
@@ -154,7 +178,7 @@ def test_a_budget_that_ends_after_the_plan_run_pushes_no_revision(
     model_fake: ModelFake,
     verifier: ModelFake,
     github_api: GitHubApiFake,
-    clock: ClockFake,
+    step_clock: StepClock,
     config: Callable[..., Path],
     caplog: pytest.LogCaptureFixture,
 ) -> None:
@@ -165,7 +189,7 @@ def test_a_budget_that_ends_after_the_plan_run_pushes_no_revision(
     verifier.answer(Verification(findings=[finding(DefectType.CRITERION_DROPPED)]))
 
     def slow_plan(_prompt: str) -> object:
-        clock.shift(BUDGET)
+        step_clock.shift(BUDGET)
         return make_stage_proposal(why=REPAIRED_WHY)
 
     model_fake.answer(slow_plan)
@@ -190,6 +214,7 @@ def test_a_budget_that_ends_after_the_plan_run_pushes_no_revision(
     )
 
 
+@pytest.mark.usefixtures("step_clock")
 def test_each_review_of_an_attempt_logs_one_progress_line(
     store: InMemoryRoadmapStore,
     stage_repo: StageRepo,
