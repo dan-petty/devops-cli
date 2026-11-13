@@ -2185,6 +2185,19 @@ class CIMessages:
     job_time_dry_run_heading: str = (
         "Would read the time of {job} in the last runs of {workflow} on {branch}"
     )
+    job_time_issue_filed: str = "Filed the P0 issue https://github.com/{repo}/issues/{number}."
+    job_time_issue_commented: str = (
+        "Commented on the open P0 issue https://github.com/{repo}/issues/{number}."
+    )
+    durations_written: str = (
+        "Wrote the mean seconds of {modules} test modules from {runs} runs to {path}."
+    )
+    durations_none: str = (
+        "No run of {workflow} on {branch} holds a shard report, so no durations were written."
+    )
+    durations_dry_run_heading: str = (
+        "Would write {path} from the shard reports of the last runs of {workflow} on {branch}"
+    )
     coverage_index_tree_changed: str = (
         "Files changed during the run; index not saved:\n{files}\n"
         "Re-run `devops ci coverage --build-index` on a clean working tree."

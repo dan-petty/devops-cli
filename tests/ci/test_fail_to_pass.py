@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib
+import os
 import shlex
 import shutil
 import subprocess
@@ -1356,7 +1357,8 @@ def head_source_interpreter(
     of #5306 does, and changes a check module of the gate row `probe`. The gate row runs for real,
     with an interpreter that finds `devops_cli` in the `src/` of the head, as the editable install
     of the checkout does: PYTHONPATH holds that `src/`, after the folder that the row runs in and
-    before `site-packages`. Returns the checkout."""
+    before `site-packages`. The PYTHONPATH of the test run follows it: in the Service image, its
+    `sitecustomize` gives the row pytest (`service-image-test.yml`). Returns the checkout."""
     repo = tmp_path / "repo"
     (repo / ".git").mkdir(parents=True)
     runner_source = (REPO_ROOT / "tests" / "gate" / "runner.py").read_text(encoding="utf-8")
@@ -1373,7 +1375,11 @@ def head_source_interpreter(
     replay_state.base_files = {"src/devops_cli/__init__.py": 'MANIFESTS = ("a.yaml",)\n'}
     replay_state.base_files["k8s/a.yaml"] = ""
     replay_state.changed_test_files = ("src/devops_cli/__init__.py", "k8s/b.yaml", ADDED_CHECK)
-    head_source = {"PYTHONPATH": str(repo / "src")}
+    head_source = {
+        "PYTHONPATH": os.pathsep.join(
+            filter(None, [str(repo / "src"), os.environ.get("PYTHONPATH")])
+        )
+    }
 
     def run_for_real(call: ProcessCall) -> subprocess.CompletedProcess[str]:
         env = build_subprocess_env(

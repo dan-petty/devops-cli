@@ -18,5 +18,6 @@ uv.lock linguist-generated
 **/package-lock.json linguist-generated
 CHANGELOG.md linguist-generated
 .release-please-manifest.json linguist-generated
+tests/module_durations.json linguist-generated
 docs/CLI_REFERENCE.md linguist-generated
 docs/commands/*.md linguist-generated

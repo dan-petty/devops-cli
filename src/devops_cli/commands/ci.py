@@ -25,12 +25,14 @@ from devops_cli.config.commands import build_npm_audit_cmd
 from devops_cli.config.constants import (
     CONST_AST_GREP_SCAN_ARGS,
     CONST_BANDIT_INI_NAME,
+    CONST_CI_JOB_TIME_LIMIT_SECONDS,
     CONST_CI_RUN_STOP_SIGNAL_NAMES,
     CONST_CI_SHARD_JUNIT_PATH,
     CONST_CI_SHARD_SUMMARY_CHARS,
     CONST_CI_SLOWEST_TESTS_SHOWN,
     CONST_CI_SUBCOMMAND_SHOWS_HELP_META_KEY,
     CONST_CI_TEST_BUDGET_SECONDS,
+    CONST_CI_TEST_DURATIONS_PATH,
     CONST_CI_TEST_JOB_NAME,
     CONST_CI_WORKFLOW_FILE,
     CONST_EXIT_CANCELLED,
@@ -76,7 +78,7 @@ from devops_cli.telemetry import trace_span
 from devops_cli.telemetry.instruments import CI_CHECKS_TOTAL, CI_GATE_SLOT_WAIT, emit
 
 if TYPE_CHECKING:
-    from devops_cli.ci.job_time import JobTimeReport
+    from devops_cli.ci.job_time import Alarm, JobTimeReport
     from devops_cli.ci.mutate import MutationTarget
     from devops_cli.core.test_selection import SuiteImports
 
@@ -2558,10 +2560,14 @@ def job_time(
     ] = DEFAULT_CI_JOB_TIME_RUNS,
     limit: Annotated[
         float, typer.Option("--limit", min=1, help=HELP.ci.job_time_limit)
-    ] = CONST_CI_TEST_BUDGET_SECONDS,
+    ] = CONST_CI_JOB_TIME_LIMIT_SECONDS,
+    file_issue: Annotated[
+        bool, typer.Option("--file-issue", help=HELP.ci.job_time_file_issue)
+    ] = False,
     dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
 ) -> None:
-    """Fail when the last runs of a CI job averaged more than the limit (#2699)."""
+    """Fail when the last runs of a CI job averaged more than the limit (#2699), and with
+    `--file-issue` comment on or file its P0 issue (#5247)."""
     from devops_cli.core.repo import find_repo_root, get_repo_origin_name
 
     target = repo or get_repo_origin_name(find_repo_root(Path.cwd()))
@@ -2569,13 +2575,16 @@ def job_time(
         print_error(MESSAGES.ci.job_time_no_repo)
         raise typer.Exit(1)
     if dry_run or is_dry_run():
-        _render_job_time_plan(target, workflow=workflow, branch=branch, job=job, runs=runs)
+        _render_job_time_plan(
+            target, workflow=workflow, branch=branch, job=job, runs=runs, file_issue=file_issue
+        )
         return
-    from devops_cli.ci.job_time import check_job_time
+    from devops_cli.ci.job_time import check_job_time, raise_alarm
     from devops_cli.github.session import get_github_session
 
+    client = get_github_session().client
     report = check_job_time(
-        get_github_session().client,
+        client,
         target,
         workflow=workflow,
         branch=branch,
@@ -2584,21 +2593,142 @@ def job_time(
         limit_seconds=limit,
     )
     _print_job_time_report(report, workflow=workflow, branch=branch)
+    if file_issue and report.complete and not report.passes:
+        alarm = raise_alarm(client, target, report, workflow=workflow, branch=branch)
+        _print_alarm(alarm, repo=target)
     if not report.passes:
         raise typer.Exit(1)
 
 
-def _render_job_time_plan(repo: str, *, workflow: str, branch: str, job: str, runs: int) -> None:
+def _print_alarm(alarm: Alarm, *, repo: str) -> None:
+    """Say which issue now holds the breach, and whether this run filed it."""
+    said = MESSAGES.ci.job_time_issue_filed if alarm.filed else MESSAGES.ci.job_time_issue_commented
+    print_info(said.format(repo=repo, number=alarm.number), safe=True)
+
+
+def _render_job_time_plan(
+    repo: str, *, workflow: str, branch: str, job: str, runs: int, file_issue: bool
+) -> None:
     """List the requests of `job-time` without making them (#412)."""
     base = f"/repos/{repo}/actions"
-    render_request_plan(
-        MESSAGES.ci.job_time_dry_run_heading.format(job=job, workflow=workflow, branch=branch),
-        [
-            PlannedRequest(method="GET", target=f"{base}/workflows/{workflow}/runs"),
+    planned = [
+        PlannedRequest(method="GET", target=f"{base}/workflows/{workflow}/runs"),
+        PlannedRequest(
+            method="GET",
+            target=f"{base}/runs/<run_id>/jobs",
+            repeat=f"for each run, until {runs} runs hold an ended {job}",
+        ),
+    ]
+    if file_issue:
+        from devops_cli.ci.job_time import ALARM_MARKER
+
+        over = "the mean is over the limit"
+        planned += [
             PlannedRequest(
                 method="GET",
-                target=f"{base}/runs/<run_id>/jobs",
-                repeat=f"for each run, until {runs} runs hold an ended {job}",
+                target=f'/search/issues?q="{ALARM_MARKER}" in:body is:issue repo:{repo}',
+                condition=over,
+            ),
+            PlannedRequest(
+                method="POST",
+                target=f"/repos/{repo}/issues/<number>/comments",
+                condition=f"{over} and an open issue holds the alarm of {job}",
+            ),
+            PlannedRequest(
+                method="POST",
+                target=f"/repos/{repo}/issues",
+                condition=f"{over} and no open issue holds the alarm of {job}",
+            ),
+        ]
+    render_request_plan(
+        MESSAGES.ci.job_time_dry_run_heading.format(job=job, workflow=workflow, branch=branch),
+        planned,
+    )
+
+
+@app.command(name="durations", help=HELP.ci.durations)
+@dry_run_class("request-plan")
+def durations(
+    repo: Annotated[str | None, typer.Option("--repo", "-R", help=HELP.ci.job_time_repo)] = None,
+    workflow: Annotated[
+        str, typer.Option("--workflow", help=HELP.ci.job_time_workflow)
+    ] = CONST_CI_WORKFLOW_FILE,
+    branch: Annotated[
+        str, typer.Option("--branch", "-b", help=HELP.ci.job_time_branch)
+    ] = CONST_GIT_MAIN_BRANCH,
+    runs: Annotated[
+        int, typer.Option("--runs", min=1, help=HELP.ci.durations_runs)
+    ] = DEFAULT_CI_JOB_TIME_RUNS,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
+) -> None:
+    """Write the recorded seconds of each test module from the shard reports of CI (#5247)."""
+    from devops_cli.core.repo import find_repo_root, get_repo_origin_name
+
+    root = _get_project_root()
+    target = repo or get_repo_origin_name(find_repo_root(Path.cwd()))
+    if target is None:
+        print_error(MESSAGES.ci.job_time_no_repo)
+        raise typer.Exit(1)
+    if dry_run or is_dry_run():
+        _render_durations_plan(target, workflow=workflow, branch=branch, runs=runs)
+        return
+    from devops_cli.ci.durations import record_durations, write_durations
+    from devops_cli.core.test_selection import directory_modules
+    from devops_cli.github.session import get_github_session
+
+    record = record_durations(
+        get_github_session().client,
+        target,
+        workflow=workflow,
+        branch=branch,
+        job=CONST_CI_TEST_JOB_NAME,
+        runs=runs,
+        modules=frozenset(directory_modules(CONST_TESTS_ROOT_DIR, root)),
+    )
+    if not record.runs:
+        print_error(MESSAGES.ci.durations_none.format(workflow=workflow, branch=branch))
+        raise typer.Exit(1)
+    write_durations(root, record.durations)
+    print_success(
+        MESSAGES.ci.durations_written.format(
+            modules=len(record.durations),
+            runs=len(record.runs),
+            path=CONST_CI_TEST_DURATIONS_PATH,
+        )
+    )
+
+
+def _render_durations_plan(repo: str, *, workflow: str, branch: str, runs: int) -> None:
+    """List the requests of `durations` without making them (#412)."""
+    from devops_cli.ci.durations import SHARD_ARTIFACT_PREFIX
+
+    base = f"/repos/{repo}/actions"
+    each = f"for each of the last {runs} runs that hold an ended {CONST_CI_TEST_JOB_NAME}"
+    render_request_plan(
+        MESSAGES.ci.durations_dry_run_heading.format(
+            workflow=workflow, branch=branch, path=CONST_CI_TEST_DURATIONS_PATH
+        ),
+        [
+            PlannedRequest(method="GET", target=f"{base}/workflows/{workflow}/runs"),
+            PlannedRequest(method="GET", target=f"{base}/runs/<run_id>/jobs", repeat=each),
+            PlannedRequest(method="GET", target=f"{base}/runs/<run_id>/artifacts", repeat=each),
+            PlannedRequest(
+                method="RUN",
+                target="gh run download",
+                argv=(
+                    "gh",
+                    "run",
+                    "download",
+                    "<run_id>",
+                    "--repo",
+                    repo,
+                    "--dir",
+                    "<temporary folder>",
+                    "--pattern",
+                    f"{SHARD_ARTIFACT_PREFIX}*",
+                ),
+                condition="the run still holds a shard artifact",
+                repeat=each,
             ),
         ],
     )

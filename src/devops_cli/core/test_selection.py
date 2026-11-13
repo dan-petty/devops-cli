@@ -10,6 +10,7 @@ whereas missing the one test that covers a change gives a false green.
 from __future__ import annotations
 
 import ast
+import math
 import os
 import re
 from collections.abc import Callable, Iterable, Mapping, Sequence
@@ -17,7 +18,10 @@ from dataclasses import dataclass, field
 from functools import cached_property, partial
 from pathlib import Path
 
+from pydantic import NonNegativeFloat, TypeAdapter
+
 from devops_cli.config.constants import (
+    CONST_CI_TEST_DURATIONS_PATH,
     CONST_CONFTEST_FILENAME,
     CONST_FULL_RUN_TRIGGER_NAMES,
     CONST_PYTEST_FIXTURE_NAME,
@@ -28,6 +32,9 @@ from devops_cli.config.constants import (
     CONST_TESTS_ROOT_DIR,
 )
 from devops_cli.core.import_graph import build_import_graph, module_name
+
+# The record of `CONST_CI_TEST_DURATIONS_PATH`: the path of each test module and its seconds.
+_DURATIONS: TypeAdapter[dict[str, float]] = TypeAdapter(dict[str, NonNegativeFloat])
 
 
 @dataclass
@@ -335,27 +342,48 @@ def directory_modules(directory: str, root: Path) -> list[str]:
     )
 
 
+def recorded_durations(root: Path) -> dict[str, float]:
+    """The recorded seconds of each test module, as paths from the repository root, from the file
+    `CONST_CI_TEST_DURATIONS_PATH` under `root` that `devops ci durations` writes (#5247); none
+    when the tree holds no such file. A file that is no map of paths to seconds raises
+    `pydantic.ValidationError`."""
+    path = root / CONST_CI_TEST_DURATIONS_PATH
+    if not path.is_file():
+        return {}
+    return _DURATIONS.validate_json(path.read_bytes())
+
+
 def shard_test_files(shard: int, shards: int, root: Path) -> list[str]:
     """The sorted repo-relative paths of the test modules of shard `shard` of `shards` (#2371).
 
-    The modules go one by one, heaviest first (most lines, then path), to the shard with the fewest
-    lines so far, and a tie goes to the lower shard. The split reads only the tree, so every runner
-    computes the same lists and no stored data can go out of date.
+    A module weighs its recorded seconds (`recorded_durations`, #5247). A module that the record
+    does not hold weighs its lines at the seconds per line of the recorded modules, and with no
+    recorded module every module weighs its lines. The modules go one by one, heaviest first
+    (then by path), to the shard with the least weight so far, and a tie goes to the lower shard.
+    Every runner reads the same tree and the same record, so every runner computes the same lists.
+    A stale record only unbalances the shards: each module of the tree is in one shard, and a
+    recorded module that the tree no longer holds is in none.
     """
 
     def line_count(module: str) -> int:
         with (root / module).open("rb") as handle:
             return sum(1 for _ in handle)
 
+    lines = {module: line_count(module) for module in directory_modules(CONST_TESTS_ROOT_DIR, root)}
+    recorded = {
+        module: seconds for module, seconds in recorded_durations(root).items() if module in lines
+    }
+    recorded_lines = sum(lines[module] for module in recorded)
+    rate = math.fsum(recorded.values()) / recorded_lines if recorded_lines else 1.0
     weighted = sorted(
-        ((line_count(module), module) for module in directory_modules(CONST_TESTS_ROOT_DIR, root)),
+        ((recorded.get(module, count * rate), module) for module, count in lines.items()),
         key=lambda item: (-item[0], item[1]),
     )
-    weights = [0] * shards
+    weights = [0.0] * shards
     parts: list[list[str]] = [[] for _ in range(shards)]
-    for lines, module in weighted:
+    for weight, module in weighted:
         lightest = weights.index(min(weights))
-        weights[lightest] += lines
+        weights[lightest] += weight
         parts[lightest].append(module)
     return sorted(parts[shard - 1])
 

@@ -9,15 +9,18 @@ and command over answers that the test gives. The recorded runs and jobs are tho
 from __future__ import annotations
 
 import json
+import time
 from typing import TYPE_CHECKING, Any
+from urllib.parse import urlencode
 
 import pytest
 import yaml
 
 from devops_cli.ci.job_time import JobTimeReport, check_job_time
 from devops_cli.github.client import JobRunTime
+from devops_cli.github.rate_limiter import get_github_rate_limiter
 from devops_cli.github.session import get_github_session
-from tests.support.fakes.github import github_json, next_page
+from tests.support.fakes.github import github_json, next_page, quota_headers
 from tests.support.paths import FIXTURES, REPO_ROOT
 
 if TYPE_CHECKING:
@@ -274,7 +277,7 @@ def test_the_check_reads_the_runs_through_the_client(github_api: GitHubApiFake) 
 def test_the_command_exits_0_and_names_the_mean_when_the_job_is_inside_the_limit(
     github_api: GitHubApiFake, cli: Callable[..., Any]
 ) -> None:
-    """Twenty runs of 100 s average 100 s, well inside the default limit of 300 s."""
+    """Twenty runs of 100 s average 100 s, well inside the default limit of 360 s."""
     _route_runs(github_api, [100.0] * 20)
 
     result = cli("ci", "job-time", "--repo", _REPO)
@@ -282,8 +285,28 @@ def test_the_command_exits_0_and_names_the_mean_when_the_job_is_inside_the_limit
     assert (
         result.exit_code,
         "took 100 s on average" in _said(result),
-        "limit is 300 s" in _said(result),
+        "limit is 360 s" in _said(result),
     ) == (0, True, True)
+
+
+@pytest.mark.parametrize(
+    ("seconds", "exit_code"),
+    [
+        pytest.param(330.0, 0, id="over-the-target-inside-the-tolerance"),
+        pytest.param(360.0, 0, id="on-the-limit"),
+        pytest.param(361.0, 1, id="over-the-tolerance"),
+    ],
+)
+def test_the_default_limit_is_the_target_of_300_s_and_60_s_of_tolerance(
+    github_api: GitHubApiFake, cli: Callable[..., Any], seconds: float, exit_code: int
+) -> None:
+    """The owner allows 1 minute over the 5 minutes of AGENTS.md rule 5 for the variation of the
+    runners (2026-10-23), so the alarm fails only above 360 s (#5247)."""
+    _route_runs(github_api, [seconds] * 20)
+
+    result = cli("ci", "job-time", "--repo", _REPO)
+
+    assert (result.exit_code, "limit is 360 s" in _said(result)) == (exit_code, True)
 
 
 def test_the_command_exits_1_and_names_the_mean_when_the_job_is_over_the_limit(
@@ -485,11 +508,144 @@ def test_a_dry_run_lists_the_requests_and_makes_none(
     )
 
 
+_ALARM_SEARCH = "/search/issues?" + urlencode(
+    {"q": f'"devops-ci-job-time" in:body is:issue repo:{_REPO}', "per_page": 100, "page": 1}
+)
+_ALARM_LINE = "<!-- devops-ci-job-time: Tests & Coverage of ci.yml on main -->"
+
+
+def _route_alarm_search(api: GitHubApiFake, *issues: dict[str, Any]) -> None:
+    """Answer the issue search for the alarm marker with `issues`."""
+    get_github_rate_limiter().update_quota(
+        "search", remaining=30, limit=30, reset_epoch=time.time() + 60.0
+    )
+    payload = {"total_count": len(issues), "incomplete_results": False, "items": list(issues)}
+    api.route(
+        "GET",
+        _ALARM_SEARCH,
+        github_json(payload, headers=quota_headers(29, resource="search", limit=30)),
+    )
+
+
+def _issue(number: int, state: str, body: str) -> dict[str, Any]:
+    return {"number": number, "state": state, "state_reason": None, "body": body}
+
+
+def _posted(api: GitHubApiFake) -> list[tuple[str, dict[str, Any]]]:
+    """The path and the JSON body of each POST that the API received."""
+    return [
+        (request.url.path, json.loads(request.content))
+        for request in api.sent
+        if request.method == "POST"
+    ]
+
+
+def test_a_mean_over_the_limit_files_one_p0_issue_when_none_is_open(
+    github_api: GitHubApiFake, cli: Callable[..., Any]
+) -> None:
+    """No open issue holds the alarm of the check, so the run files one with the priority P0 and
+    the Status New, which refine reads, as intake gives a new item. Its body names the mean, the
+    limit and each run, and ends with the line that finds it the next day (#5247)."""
+    _route_runs(github_api, [400.0] * 20)
+    _route_alarm_search(github_api, _issue(7, "closed", f"Fixed.\n{_ALARM_LINE}"))
+    github_api.route("POST", f"/repos/{_REPO}/issues", github_json({"number": 42}, status=201))
+
+    result = cli("ci", "job-time", "--repo", _REPO, "--file-issue")
+
+    [(path, issue)] = _posted(github_api)
+    assert (
+        result.exit_code,
+        path,
+        issue["title"],
+        issue["labels"],
+        "took 400 s on average. The limit is 360 s." in issue["body"],
+        "actions/runs/100) | 400 | 0 |" in issue["body"],
+        issue["body"].endswith(f"{_ALARM_LINE}\n"),
+        f"https://github.com/{_REPO}/issues/42" in _said(result),
+    ) == (
+        1,
+        f"/repos/{_REPO}/issues",
+        "fix(ci): Tests & Coverage averages 400 s, over the 360 s limit",
+        ["type/bug", "scope/ci", "status/new", "priority/p0-critical"],
+        True,
+        True,
+        True,
+        True,
+    )
+
+
+def test_a_mean_over_the_limit_comments_on_the_open_issue_and_files_no_second_one(
+    github_api: GitHubApiFake, cli: Callable[..., Any]
+) -> None:
+    """Issue 12 holds the alarm of the check and is open, so the run comments on it. Issue 9
+    holds the alarm of another check, and issue 13 holds the word in other text: neither
+    counts."""
+    _route_runs(github_api, [400.0] * 20)
+    other = "<!-- devops-ci-job-time: Service Image Tests of service-image-test.yml on main -->"
+    _route_alarm_search(
+        github_api,
+        _issue(9, "open", other),
+        _issue(13, "open", "The devops-ci-job-time alarm is noisy."),
+        _issue(12, "open", f"Renamed by a person.\n{_ALARM_LINE}"),
+    )
+    github_api.route(
+        "POST", f"/repos/{_REPO}/issues/12/comments", github_json({"id": 1}, status=201)
+    )
+
+    result = cli("ci", "job-time", "--repo", _REPO, "--file-issue")
+
+    [(path, comment)] = _posted(github_api)
+    assert (
+        result.exit_code,
+        path,
+        "took 400 s on average" in comment["body"],
+        f"https://github.com/{_REPO}/issues/12" in _said(result),
+    ) == (1, f"/repos/{_REPO}/issues/12/comments", True, True)
+
+
+@pytest.mark.parametrize(
+    "seconds",
+    [
+        pytest.param([100.0] * 20, id="inside-the-limit"),
+        pytest.param([400.0] * 3, id="short-read"),
+    ],
+)
+def test_no_issue_is_searched_or_filed_without_a_full_read_over_the_limit(
+    github_api: GitHubApiFake, cli: Callable[..., Any], seconds: list[float]
+) -> None:
+    """A mean inside the limit is no breach, and the mean of 3 of 20 runs says nothing yet, so
+    the run searches no issue and writes nothing."""
+    _route_runs(github_api, seconds)
+
+    cli("ci", "job-time", "--repo", _REPO, "--file-issue")
+
+    assert (
+        [line for line in github_api.requested if "search" in line],
+        _posted(github_api),
+    ) == ([], [])
+
+
+def test_a_dry_run_with_the_issue_lists_the_search_and_both_writes_and_makes_none(
+    github_api: GitHubApiFake, cli: Callable[..., Any]
+) -> None:
+    """The plan lists the issue search, the comment and the new issue, each with its condition."""
+    result = cli("ci", "job-time", "--repo", _REPO, "--file-issue", "--dry-run")
+
+    said = _said(result)
+    assert (
+        result.exit_code,
+        github_api.requested,
+        "/search/issues" in said,
+        f"POST /repos/{_REPO}/issues/<number>/comments" in said,
+        f"POST /repos/{_REPO}/issues " in said,
+    ) == (0, [], True, True, True)
+
+
 def test_the_workflow_runs_the_check_on_the_schedule_and_by_hand_and_no_job_waits_for_it() -> None:
     """The job reads main's history, which no run of a push or a pull request changes. It runs on
     the daily schedule and on a manual run only, so no push run of main turns red for the mean of
-    other runs (#4634). It reads with a token that can read the Actions runs and nothing else, and
-    is the `needs` of no other job."""
+    other runs (#4634). Its token can read the Actions runs and write issues, so it files or
+    comments on the P0 issue of a breach (#5247), and it is the `needs` of no other job."""
     workflow = yaml.safe_load((REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text("utf-8"))
     job = workflow["jobs"]["job-time"]
     waiting = [
@@ -503,8 +659,8 @@ def test_the_workflow_runs_the_check_on_the_schedule_and_by_hand_and_no_job_wait
         waiting,
     ) == (
         "github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'",
-        {"contents": "read", "actions": "read"},
-        ['uv run devops ci job-time --repo "$GITHUB_REPOSITORY"'],
+        {"contents": "read", "actions": "read", "issues": "write"},
+        ['uv run devops ci job-time --repo "$GITHUB_REPOSITORY" --file-issue'],
         [],
     )
 

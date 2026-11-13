@@ -984,7 +984,23 @@ class CICommandHelp:
     job_time_workflow: str = "Workflow file that holds the job."
     job_time_branch: str = "Branch whose push runs are read."
     job_time_runs: str = "How many of the last runs the mean covers."
-    job_time_limit: str = "Most seconds the mean of the runs may be."
+    job_time_limit: str = (
+        "Most seconds the mean of the runs may be. Default: the 300 s of AGENTS.md rule 5 and "
+        "the 60 s of tolerance that the owner allows for the variation of the runners."
+    )
+    job_time_file_issue: str = (
+        "When the mean is over the limit, comment on the open issue of the check, or file one "
+        "with the priority P0 when none is open. The search for the open issue reads the line "
+        "that the command writes in the body of the issue, so a changed title or label files no "
+        "second issue."
+    )
+    durations: str = (
+        "Write the mean seconds of each test module to tests/module_durations.json, from the JUnit "
+        "reports of the test shards of the last push runs of a workflow on a branch. The split "
+        "of the test shards weighs each module by these seconds. gh downloads the artifacts of "
+        "each run. A run whose artifacts GitHub no longer holds is left out."
+    )
+    durations_runs: str = "How many of the last runs with an ended Tests & Coverage check to read."
 
 
 @dataclass(frozen=True)
