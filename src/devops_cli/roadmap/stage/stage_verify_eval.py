@@ -342,17 +342,30 @@ class _StoredReport(BaseModel):
     cases: tuple[CaseOutcome, ...]
 
 
-def resumed_outcomes(path: Path, model: str) -> tuple[CaseOutcome, ...]:
-    """The case outcomes of the report in `path`, which `verify_json` wrote for `model`. A file
-    that is not such a report, or a report of another model, raises `ConfigurationError`, as the
-    scores of two models must not mix."""
+def _stored_report(path: Path) -> _StoredReport:
+    """The report in `path`, which `verify_json` wrote. A file that is not such a report raises
+    `ConfigurationError`. A report from before #5410 is not one: its findings name their place as
+    text."""
     try:
-        stored = _StoredReport.model_validate_json(path.read_text(encoding="utf-8"))
+        return _StoredReport.model_validate_json(path.read_text(encoding="utf-8"))
     except ValidationError as exc:
         raise ConfigurationError(
             MESSAGES.roadmap.verify_eval_resume_unread.format(path=path),
             details={"path": str(path), "errors": exc.error_count()},
         ) from exc
+
+
+def stored_cases(path: Path) -> tuple[CaseOutcome, ...]:
+    """The case outcomes of the report in `path`, which `verify_json` wrote. A file that is not
+    such a report raises `ConfigurationError`."""
+    return _stored_report(path).cases
+
+
+def resumed_outcomes(path: Path, model: str) -> tuple[CaseOutcome, ...]:
+    """The case outcomes of the report in `path`, which `verify_json` wrote for `model`. A file
+    that is not such a report, or a report of another model, raises `ConfigurationError`, as the
+    scores of two models must not mix."""
+    stored = _stored_report(path)
     if stored.model != model:
         raise ConfigurationError(
             MESSAGES.roadmap.verify_eval_resume_model.format(

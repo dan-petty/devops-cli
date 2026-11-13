@@ -4,6 +4,7 @@ report makes none either. The scoring is tested in
 
 from __future__ import annotations
 
+import json
 from typing import TYPE_CHECKING
 
 from devops_cli.roadmap.stage.stage_eval_cases import CASES_DIRECTORY, load_cases
@@ -62,4 +63,29 @@ def test_a_fit_from_a_report_makes_no_request(
     assert f"No screen can skip more than 0 of {len(names)} reviews" in " ".join(
         result.output.split()
     )
+    assert jev.requests == []
+
+
+def test_a_reviewer_report_in_an_old_form_exits_1_and_makes_no_request(
+    cli: Callable[..., Any], jev: JevFake, tmp_path: Path
+) -> None:
+    """A report of `devops roadmap eval verify` from before #5410 names the place of a finding as
+    text, so the command cannot read its findings."""
+    finding = {"type": "other", "where": "group 2", "problem": "The plan is wrong.", "quote": ""}
+    case = {
+        "name": "a",
+        "good": False,
+        "labeled": 1,
+        "found": 0,
+        "findings": [finding],
+        "returning": 0,
+        "error": "",
+    }
+    report = tmp_path / "verify.json"
+    report.write_text(json.dumps({"model": "m-1", "cases": [case]}), encoding="utf-8")
+
+    result = cli("roadmap", "eval", "screen", "--reviewer", str(report))
+
+    assert result.exit_code == 1
+    assert str(report) in " ".join(result.output.split())
     assert jev.requests == []

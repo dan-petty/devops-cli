@@ -43,7 +43,7 @@ from devops_cli.roadmap.refine.refine_investigation import task_window
 from devops_cli.roadmap.stage.stage_eval_cases import Severity, StageCase, Verdict
 from devops_cli.roadmap.stage.stage_jev_screen import VERIFY_SCREEN, request_of
 from devops_cli.roadmap.stage.stage_verify import Finding, VerificationInput
-from devops_cli.roadmap.stage.stage_verify_eval import matched_defects
+from devops_cli.roadmap.stage.stage_verify_eval import matched_defects, stored_cases
 
 SPLIT_FILE: Final[str] = "split.json"
 _OPERATION: Final[str] = "roadmap.eval.screen"
@@ -305,12 +305,13 @@ def screen_json(
 
 def _reviewer_findings(reports: Sequence[Path]) -> dict[str, list[Finding]]:
     """The findings of each case that the stored reports of the reviewer alone verified. A case
-    that failed in a report has none. A later report wins over an earlier one."""
+    that failed in a report has none. A later report wins over an earlier one. A file that is not
+    a report of `devops roadmap eval verify` raises `ConfigurationError` (`stored_cases`)."""
     found: dict[str, list[Finding]] = {}
     for path in reports:
-        for case in json.loads(path.read_text(encoding="utf-8"))["cases"]:
-            if not case["error"]:
-                found[case["name"]] = [Finding.model_validate(item) for item in case["findings"]]
+        for case in stored_cases(path):
+            if not case.error:
+                found[case.name] = list(case.findings)
     return found
 
 

@@ -18,7 +18,13 @@ from devops_cli.roadmap.stage.stage import (
 )
 from devops_cli.roadmap.stage.stage_eval_cases import DefectType
 from devops_cli.roadmap.stage.stage_toolbox import ToolboxModel
-from devops_cli.roadmap.stage.stage_verify import PLAN_NEEDS_FIX_LABEL, Finding, Verification
+from devops_cli.roadmap.stage.stage_verify import (
+    PLAN_NEEDS_FIX_LABEL,
+    Finding,
+    Locator,
+    PlanPart,
+    Verification,
+)
 from tests.support.builders import make_stage_proposal
 from tests.support.fakes.github import API, github_json
 from tests.support.fakes.model import ModelFake, ModelFakeReplies
@@ -73,7 +79,11 @@ def verifier() -> ModelFake:
     return ModelFake()
 
 
-def _finding(kind: DefectType, quote: str = "", where: str = "group 1") -> Finding:
+# The first task group of the plan: a place that the plan holds (#5410).
+GROUP_1 = Locator(part=PlanPart.TASKS, section="1")
+
+
+def _finding(kind: DefectType, quote: str = "", where: Locator = GROUP_1) -> Finding:
     return Finding(type=kind, where=where, problem=f"Problem of {kind.value}.", quote=quote)
 
 
@@ -217,7 +227,7 @@ def test_a_placeholder_finding_returns_the_plan_to_the_planner(
 ) -> None:
     store = _placeholder_store()
     model_fake.answer(make_stage_proposal(), make_stage_proposal(summary="Repaired plan"))
-    placeholder = _finding(DefectType.OTHER, "placeholder", where="tasks.md")
+    placeholder = _finding(DefectType.OTHER, "placeholder")
     verifier.answer(Verification(findings=[placeholder]), later_review(GONE))
 
     plan = _plan(store, stage_repo, verifier)
@@ -272,6 +282,22 @@ def test_a_finding_whose_quote_is_not_in_the_input_goes_to_the_comment_and_retur
     (change,) = plan.ready
     assert (model_fake.call_count, verifier.call_count) == (1, 1)
     assert change.findings == (invented,)
+
+
+def test_a_finding_whose_place_the_plan_does_not_hold_goes_to_the_comment_and_returns_nothing(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo, model_fake: ModelFake, verifier: ModelFake
+) -> None:
+    model_fake.answer(make_stage_proposal())
+    elsewhere = _finding(
+        DefectType.FALSE_PREMISE, ISSUE_QUOTE, Locator(part=PlanPart.PROPOSAL, section="no_key")
+    )
+    verifier.answer(Verification(findings=[elsewhere]))
+
+    plan = _plan(store, stage_repo, verifier)
+
+    (change,) = plan.ready
+    assert (model_fake.call_count, verifier.call_count) == (1, 1)
+    assert (change.findings, change.open_findings) == ((elsewhere,), ())
 
 
 def test_a_mixed_first_round_lists_every_finding_and_tells_the_planner_the_open_ones(
@@ -468,9 +494,7 @@ def test_a_contrived_test_finding_is_in_the_comment_and_the_draft_opens_and_stay
         github_json({"number": 5, "html_url": "https://example.com/pull/5"}, status=201),
     )
     model_fake.answer(make_stage_proposal())
-    verifier.answer(
-        Verification(findings=[_finding(DefectType.CONTRIVED_TEST, SAMPLE_QUOTE, where="group 1")])
-    )
+    verifier.answer(Verification(findings=[_finding(DefectType.CONTRIVED_TEST, SAMPLE_QUOTE)]))
 
     applied = apply_stage(store, _plan(store, stage_repo, verifier), source=stage_repo.clone)
 
@@ -531,7 +555,7 @@ def test_a_placeholder_finding_keeps_the_draft_and_applies_the_label(
         github_json({"number": 5, "html_url": "https://example.com/pull/5"}, status=201),
     )
     _seed_pull_5(store)
-    placeholder = _finding(DefectType.OTHER, "placeholder", where="tasks.md")
+    placeholder = _finding(DefectType.OTHER, "placeholder")
     model_fake.answer(make_stage_proposal())
     verifier.answer(Verification(findings=[placeholder]), later_review(HOLDS))
 

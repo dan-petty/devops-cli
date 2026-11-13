@@ -28,7 +28,13 @@ from devops_cli.roadmap.stage.stage_eval_cases import (
     load_cases,
 )
 from devops_cli.roadmap.stage.stage_toolbox import ToolboxModel
-from devops_cli.roadmap.stage.stage_verify import Finding, Verification, VerificationInput
+from devops_cli.roadmap.stage.stage_verify import (
+    Finding,
+    Locator,
+    PlanPart,
+    Verification,
+    VerificationInput,
+)
 from devops_cli.roadmap.stage.stage_verify_eval import (
     VerifyScore,
     evaluate_cases,
@@ -107,7 +113,12 @@ def _defect(kind: DefectType, severity: Severity = Severity.MAJOR) -> Defect:
 
 
 def _finding(kind: DefectType) -> Finding:
-    return Finding(type=kind, where="group 1", problem="The plan is wrong.", quote=SAMPLE_QUOTE)
+    return Finding(
+        type=kind,
+        where=Locator(part=PlanPart.TASKS, section="1"),
+        problem="The plan is wrong.",
+        quote=SAMPLE_QUOTE,
+    )
 
 
 @pytest.fixture(scope="module")

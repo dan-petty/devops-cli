@@ -18,7 +18,7 @@ from devops_cli.roadmap.stage.stage import StagePlan, parse_filters, plan_stage
 from devops_cli.roadmap.stage.stage_eval_cases import DefectType
 from devops_cli.roadmap.stage.stage_plan_record import RefusedRecord, refused_record_path
 from devops_cli.roadmap.stage.stage_toolbox import ToolboxModel
-from devops_cli.roadmap.stage.stage_verify import Finding, Verification
+from devops_cli.roadmap.stage.stage_verify import Finding, Locator, PlanPart, Verification
 from tests.support.builders import make_stage_proposal
 from tests.support.fakes.model import ModelFake
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
@@ -81,7 +81,7 @@ def _returns_plan() -> Verification:
         findings=[
             Finding(
                 type=DefectType.FALSE_PREMISE,
-                where="group 1",
+                where=Locator(part=PlanPart.TASKS, section="1"),
                 problem="The premise is wrong.",
                 quote=ISSUE_QUOTE,
             )

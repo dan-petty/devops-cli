@@ -130,6 +130,8 @@ from devops_cli.roadmap.stage.stage_eval_cases import DefectType
 from devops_cli.roadmap.stage.stage_verify import (
     PLAN_NEEDS_FIX_LABEL,
     Finding,
+    Locator,
+    PlanPart,
     finding_line,
     open_findings_section,
 )
@@ -159,10 +161,15 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _GIT_OPERATION: Final[str] = "roadmap.fix_plan"
-# One line of `finding_line`: "- `<type>` at <where>: <problem>", and ' Evidence: "<quote>"' after it
-# when the finding has a quote.
+# One line of `finding_line`: "- `<type>` at <part> (<section>): <problem>", with the capability of
+# a requirement after the part (#5410), and ' Evidence: "<quote>"' after it when the finding has a
+# quote. A capability holds no space and no bracket (`Locator`). The section ends at the first `): `
+# outside a pair of brackets in it, so `what_changes (item 2)` and `The row runs (fast): yes` read
+# back whole. A section with a bracket that has no pair ends at the first `): `.
 _FINDING_LINE: Final[re.Pattern[str]] = re.compile(
-    r'- `(?P<type>[a-z_]+)` at (?P<where>.+?): (?P<problem>.+?)(?: Evidence: "(?P<quote>.*)")?'
+    r"- `(?P<type>[a-z_]+)` at (?P<part>[a-z]+)(?: (?P<capability>[^\s()]+))? "
+    r"\((?P<section>(?:[^()]|\([^()]*\))+?|.+?)\): "
+    r'(?P<problem>.+?)(?: Evidence: "(?P<quote>.*)")?'
 )
 # The comments that list the open findings of a plan: the stage comment and this step's comment.
 _PLAN_MARKERS: Final[tuple[str, ...]] = (
@@ -274,15 +281,19 @@ def _time(text: str | None) -> datetime | None:
 
 
 def _finding_of(line: str) -> Finding | None:
-    """The finding that one line of `finding_line` holds, or None for a line of another form or a
-    type that the review does not name."""
+    """The finding that one line of `finding_line` holds, or None for a line of another form, or
+    for a type or a part that the review does not name."""
     found = _FINDING_LINE.fullmatch(line)
     if found is None:
         return None
     try:
         return Finding(
             type=DefectType(found["type"]),
-            where=found["where"],
+            where=Locator(
+                part=PlanPart(found["part"]),
+                section=found["section"],
+                capability=found["capability"] or "",
+            ),
             problem=found["problem"],
             quote=found["quote"] or "",
         )

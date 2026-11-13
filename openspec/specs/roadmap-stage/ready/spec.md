@@ -82,7 +82,7 @@ The row SHALL read the pull request again before it marks, and SHALL leave a dra
 - **THEN** the round marks no pull request
 
 ### Requirement: An open finding keeps the plan in draft
-When the last review of a plan returns a finding that has a quote in its input or in a tool answer of the run and a defect type of `missing_path`, `false_premise`, `ignores_existing_code`, `task_order`, `verify_form`, `spec_delta_wrong` or `criterion_dropped`, or a finding that reports a placeholder with a quote in its request, the stage SHALL keep the plan pull request in draft, apply the label `plan/needs-fix` to it, and put those findings at the top of the stage comment.
+When the last review of a plan returns a finding on a place that the plan or the issue holds, with a quote in its input or in a tool answer of the run and a type of `missing_path`, `false_premise`, `ignores_existing_code`, `task_order`, `verify_form`, `spec_delta_wrong` or `criterion_dropped`, or with a placeholder that its request holds, the stage SHALL keep the plan pull request in draft, apply the label `plan/needs-fix` to it, and put those findings at the top of the stage comment.
 
 #### Scenario: A placeholder finding from a fake client
 - **WHEN** The fake verification client returns a placeholder finding whose quote is in the input.
@@ -115,6 +115,10 @@ When the last review of a plan returns a finding that has a quote in its input o
 #### Scenario: A test-only group with no code
 - **WHEN** A group of a plan changes only a fixture file and a test file, no group changes the code that its criterion needs, and the verification reply holds a `criterion_dropped` finding that quotes the criterion of the issue.
 - **THEN** `open_findings` returns the finding, and the finding returns the plan to the planner while a repair round remains.
+
+#### Scenario: A finding on a requirement that the plan does not change
+- **WHEN** The last review returns a `spec_delta_wrong` finding that quotes a base spec from a tool answer and names a requirement that the spec delta of the plan does not hold.
+- **THEN** `open_findings` returns no finding.
 
 ### Requirement: A plan with an open finding is a failed attempt
 An item whose plan carries an open finding SHALL NOT count as a staged plan in the round budget of the Service, and its result SHALL be recorded as a failed attempt of failure class `plan_defect`.

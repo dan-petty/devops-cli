@@ -309,7 +309,7 @@ def _repository_path(path: str) -> str:
     return path
 
 
-def _capability_name(name: str) -> str:
+def capability_name(name: str) -> str:
     """`name` when it names a capability: a slug, or slugs that a slash joins for a nested
     capability `<area>/<name>` (#4622)."""
     if not all(is_valid_slug(part) for part in name.split("/")):
@@ -447,7 +447,7 @@ class StageRemoval(_Reply):
 class StageSpec(_Reply):
     """The delta of one capability. `purpose` is set for a new capability only."""
 
-    capability: Annotated[str, AfterValidator(_capability_name)]
+    capability: Annotated[str, AfterValidator(capability_name)]
     purpose: LineStart | None = None
     added: list[StageRequirement] = Field(default_factory=list)
     modified: list[StageRequirement] = Field(default_factory=list)

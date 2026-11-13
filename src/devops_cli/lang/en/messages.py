@@ -4108,6 +4108,10 @@ class RoadmapMessages:
     # The model review of the plan (#3153): a finding, its evidence, what goes back to the planner,
     # and the section of the comment.
     stage_finding: str = "- `{type}` at {where}: {problem}{quote}"
+    # The place of a finding (#5410): its part and its section, with the capability of a
+    # requirement after the part.
+    stage_finding_where: str = "{part} ({section})"
+    stage_finding_where_capability: str = "{part} {capability} ({section})"
     stage_finding_quote: str = ' Evidence: "{quote}"'
     stage_verify_return: str = (
         "A model review of the plan found these defects. Fix each one, or show with a quote "
@@ -5800,7 +5804,8 @@ class RoadmapMessages:
         "this file to --resume."
     )
     verify_eval_resume_unread: str = (
-        "The file {path} is not a report of devops roadmap eval verify."
+        "The file {path} is not a report of devops roadmap eval verify in the form of this "
+        "version. Run the eval again to get one."
     )
     verify_eval_resume_model: str = (
         "The report {path} is of the model {stored}, not of {model}. The scores of two models must "
