@@ -176,14 +176,10 @@ def test_verify_pages_configuration_invalid_toml(tmp_path: Path) -> None:
 
 
 def test_the_repository_site_settings_pass_the_check() -> None:
-    """Verify that zensical.toml of this repository passes the check, and that docs/ holds no
-    settings file of the Jekyll build that the site no longer uses (#5152)."""
+    """Verify that zensical.toml of this repository passes the check (#5152)."""
     valid, diagnostics = verify_pages_configuration(REPO_ROOT)
 
-    assert (valid, sorted(path.name for path in (REPO_ROOT / "docs").glob("*.y*ml"))) == (
-        True,
-        [],
-    ), diagnostics
+    assert valid, diagnostics
 
 
 def test_the_repository_site_has_readme_as_its_home_page() -> None:

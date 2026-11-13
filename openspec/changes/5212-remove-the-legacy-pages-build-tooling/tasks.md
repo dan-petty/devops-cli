@@ -22,7 +22,7 @@ Kind: behavior. Reads: `src/devops_cli/commands/gh.py`, `src/devops_cli/config/c
 
 Kind: other. Changes: `tests/github/test_github_pages.py`.
 
-- [ ] 3.1 Remove the `docs/*.y*ml` assertion and the Jekyll sentence of `test_the_repository_site_settings_pass_the_check`, and keep its check of `zensical.toml`
+- [x] 3.1 Remove the `docs/*.y*ml` assertion and the Jekyll sentence of `test_the_repository_site_settings_pass_the_check`, and keep its check of `zensical.toml`
   - Verification: `$ uv run devops ci test tests/github/test_github_pages.py`
 
 ## 4. Correct the text
