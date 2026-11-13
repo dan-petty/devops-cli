@@ -11,6 +11,7 @@ rule (#412):
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -226,6 +227,21 @@ def test_request_plan_commands_run_cleanly(name: str, callback: Any, argv: list[
     assert "Plan for" in result.output, (
         f"Expected 'Plan for' header in {name} output, got: {result.output}"
     )
+
+
+def test_review_path_dry_run_names_the_unset_gateway_url(
+    cli: Callable[..., Any], config: Callable[..., Path]
+) -> None:
+    """A review dry run with no `ai.gateway_url` names the setting as the target of its model request."""
+    config(ai={"provider": "gateway", "gateway_url": None})
+
+    result = cli("review", "path", "src", "--dry-run")
+
+    assert result.exit_code == 0, result.output
+    assert result.output.splitlines()[:2] == [
+        "Plan for review path",
+        "  1. POST <ai.gateway_url>/chat/completions",
+    ]
 
 
 def test_review_json_dry_run_formats() -> None:
