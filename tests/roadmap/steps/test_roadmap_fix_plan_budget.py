@@ -34,7 +34,7 @@ from tests.support.roadmap_fix_plan import (
     valid_changes,
 )
 from tests.support.roadmap_job_result import result_fields
-from tests.support.roadmap_stage import STAGE_REPO, StageRepo
+from tests.support.roadmap_stage import GONE, STAGE_REPO, StageRepo, later_review
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -226,7 +226,9 @@ def test_each_review_of_an_attempt_logs_one_progress_line(
 ) -> None:
     config(roadmap={"fix_plan": {"time_budget_seconds": BUDGET}})
     needs_fix_plan(store, stage_repo, github_api)
-    verifier.answer(Verification(findings=[finding(DefectType.CRITERION_DROPPED)]), Verification())
+    verifier.answer(
+        Verification(findings=[finding(DefectType.CRITERION_DROPPED)]), later_review(GONE)
+    )
     model_fake.answer(make_stage_proposal(why=REPAIRED_WHY))
 
     with caplog.at_level(logging.INFO):

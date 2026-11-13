@@ -1,9 +1,11 @@
 """`devops roadmap stage`: the repair rounds of the model review are the setting
-`roadmap.stage.verify_repair_rounds`, and one more round follows while the count of open findings
-drops, up to a hard ceiling and never in a drain of the Service (#5066)."""
+`roadmap.stage.verify_repair_rounds`, and one more round follows while the last review fixes more
+earlier findings than it adds, up to a hard ceiling and never in a drain of the Service (#5066,
+#5409). A later review gets the earlier open findings and the text that the revision changed."""
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import TYPE_CHECKING, Any, cast
 
@@ -22,9 +24,12 @@ from tests.support.builders import make_stage_proposal
 from tests.support.fakes.model import ModelFake
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.roadmap_stage import (
+    GONE,
+    HOLDS,
     STAGE_REPO,
     VALID_REPORT,
     StageRepo,
+    later_review,
     seed_stageable,
     validate_args,
 )
@@ -39,6 +44,9 @@ if TYPE_CHECKING:
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
 ISSUE_QUOTE = "The job drops the last comment of a thread."
+# The `why` of a revision of the plan, and of a second revision.
+REVISED_WHY = "Issue #1: the job drops the last comment of a thread, and the repair keeps it."
+SECOND_WHY = "Issue #1: the job drops the last comment of a thread, and the second repair keeps it."
 
 
 @pytest.fixture
@@ -108,7 +116,7 @@ def test_the_setting_sets_the_repair_rounds_of_the_review(
 ) -> None:
     config(roadmap={"stage": {"verify_repair_rounds": 1}})
     model_fake.answer(make_stage_proposal())
-    verifier.answer(_review(1))
+    verifier.answer(_review(1), later_review(HOLDS))
 
     (change,) = _plan(store, stage_repo, model_fake, verifier).ready
 
@@ -123,7 +131,7 @@ def test_a_repair_rounds_value_over_the_ceiling_fails_the_settings_load() -> Non
         RoadmapStageConfig(verify_repair_rounds=ceiling + 1)
 
 
-def test_a_review_whose_open_count_drops_after_the_last_round_gets_one_more_round(
+def test_a_review_that_fixes_a_finding_after_the_last_round_gets_one_more_round(
     store: InMemoryRoadmapStore,
     stage_repo: StageRepo,
     model_fake: ModelFake,
@@ -131,7 +139,13 @@ def test_a_review_whose_open_count_drops_after_the_last_round_gets_one_more_roun
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     model_fake.answer(make_stage_proposal())
-    verifier.answer(_review(3), _review(3), _review(2), Verification())
+    holds, gone = HOLDS, GONE
+    verifier.answer(
+        _review(3),
+        later_review(holds, holds, holds),
+        later_review(gone, holds, holds),
+        later_review(gone, gone),
+    )
 
     with caplog.at_level(logging.INFO):
         plan = _plan(store, stage_repo, model_fake, verifier)
@@ -143,26 +157,63 @@ def test_a_review_whose_open_count_drops_after_the_last_round_gets_one_more_roun
     # counts no plan run.
     assert attempt.verify_rounds == 4
     assert _lines(caplog, "stage review extended") == [
-        f"repo={STAGE_REPO} item=#1 round=3 before=3 open=2"
+        f"repo={STAGE_REPO} item=#1 round=3 fixed=1 added=0"
     ]
     assert len(_lines(caplog, "stage review round")) == 4
 
 
-def test_a_review_whose_open_count_stays_gets_no_round_after_the_setting(
+def test_a_review_that_fixes_as_many_findings_as_it_adds_gets_no_round_after_the_setting(
     store: InMemoryRoadmapStore,
     stage_repo: StageRepo,
     model_fake: ModelFake,
     verifier: ModelFake,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    model_fake.answer(make_stage_proposal())
-    verifier.answer(_review(3), _review(2), _review(2))
+    model_fake.answer(
+        make_stage_proposal(),
+        make_stage_proposal(why=REVISED_WHY),
+        make_stage_proposal(why=SECOND_WHY),
+    )
+    added = Finding(
+        type=DefectType.FALSE_PREMISE,
+        where="why",
+        problem="The second repair names no test.",
+        quote="the second repair keeps it",
+    )
+    holds, gone = HOLDS, GONE
+    verifier.answer(
+        _review(3), later_review(gone, holds, holds), later_review(gone, holds, findings=(added,))
+    )
 
     with caplog.at_level(logging.INFO):
         (change,) = _plan(store, stage_repo, model_fake, verifier).ready
 
     assert (model_fake.call_count, verifier.call_count, len(change.open_findings)) == (3, 3, 2)
+    assert added in change.open_findings
     assert _lines(caplog, "stage review extended") == []
+
+
+def test_a_repair_round_sends_the_earlier_findings_and_the_answer(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo, model_fake: ModelFake, verifier: ModelFake
+) -> None:
+    model_fake.answer(make_stage_proposal(), make_stage_proposal(why=REVISED_WHY))
+    first_review = _review(1)
+    unchanged = Finding(
+        type=DefectType.FALSE_PREMISE,
+        where="group 1",
+        problem="The group reads the wrong file.",
+        quote=ISSUE_QUOTE,
+    )
+    verifier.answer(first_review, later_review(GONE, findings=(unchanged,)))
+
+    (change,) = _plan(store, stage_repo, model_fake, verifier).ready
+
+    first, later = (json.loads(call.prompt) for call in verifier.calls)
+    assert ("earlier" in first, "answer" in first) == (False, False)
+    assert later["earlier"] == [{"number": 1, **first_review.findings[0].model_dump(mode="json")}]
+    assert later["answer"] == [REVISED_WHY]
+    # The new finding quotes the issue, a text that the revision did not change: it is advice.
+    assert (change.open_findings, unchanged in change.findings) == ((), True)
 
 
 def test_no_item_gets_more_repair_rounds_than_the_ceiling(
@@ -170,7 +221,7 @@ def test_no_item_gets_more_repair_rounds_than_the_ceiling(
 ) -> None:
     ceiling = CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS_CEILING
     model_fake.answer(make_stage_proposal())
-    verifier.answer(*(_review(count) for count in range(ceiling + 3, 0, -1)))
+    verifier.answer(_review(ceiling + 3), later_review(GONE))
 
     (change,) = _plan(store, stage_repo, model_fake, verifier).ready
 

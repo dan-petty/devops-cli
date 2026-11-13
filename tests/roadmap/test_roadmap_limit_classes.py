@@ -285,7 +285,7 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
     ),
     "DEFAULT_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS": (
         "setting",
-        "planner calls that repair one plan that the review returns; one more round follows while the open findings drop (#5066)",
+        "planner calls that repair one plan that the review returns; one more round follows while a review fixes more findings than it adds (#5066, #5409)",
     ),
     "DEFAULT_ROADMAP_STAGE_PLANNED_LIMIT": (
         "setting",

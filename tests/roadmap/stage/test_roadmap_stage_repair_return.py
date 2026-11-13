@@ -23,9 +23,11 @@ from tests.support.builders import make_stage_proposal
 from tests.support.fakes.model import ModelFake
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.roadmap_stage import (
+    GONE,
     STAGE_REPO,
     VALID_REPORT,
     StageRepo,
+    later_review,
     seed_stageable,
     validate_args,
 )
@@ -110,7 +112,7 @@ def test_a_revision_that_the_gates_refuse_once_goes_back_and_the_second_revision
 ) -> None:
     refused = _refused()
     model_fake.answer(make_stage_proposal(), refused, make_stage_proposal(summary="Repaired"))
-    verifier.answer(_returns_plan(), Verification())
+    verifier.answer(_returns_plan(), later_review(GONE))
 
     plan = _plan(store, stage_repo, model_fake, verifier)
 
@@ -130,7 +132,7 @@ def test_a_revision_that_the_gates_accept_gets_no_return(
     store: InMemoryRoadmapStore, stage_repo: StageRepo, model_fake: ModelFake, verifier: ModelFake
 ) -> None:
     model_fake.answer(make_stage_proposal(), make_stage_proposal(summary="Repaired"))
-    verifier.answer(_returns_plan(), Verification())
+    verifier.answer(_returns_plan(), later_review(GONE))
 
     plan = _plan(store, stage_repo, model_fake, verifier)
 
@@ -141,7 +143,7 @@ def test_a_revision_that_the_gates_refuse_after_each_return_ends_the_item_with_t
     store: InMemoryRoadmapStore, stage_repo: StageRepo, model_fake: ModelFake, verifier: ModelFake
 ) -> None:
     model_fake.answer(make_stage_proposal(), _refused())
-    verifier.answer(_returns_plan(), Verification())
+    verifier.answer(_returns_plan(), later_review(GONE))
 
     plan = _plan(store, stage_repo, model_fake, verifier)
 
@@ -159,7 +161,7 @@ def test_a_refused_revision_gets_three_returns_by_default(
     """The default of `roadmap.stage.gate_returns` is 3: in 8 of 10 sampled refused items the
     returned reply had fewer problems, so one return stopped a run that made progress (#4802)."""
     model_fake.answer(make_stage_proposal(), _refused())
-    verifier.answer(_returns_plan(), Verification())
+    verifier.answer(_returns_plan(), later_review(GONE))
 
     _plan(store, stage_repo, model_fake, verifier)
 
@@ -178,7 +180,7 @@ def test_the_returns_of_one_round_follow_the_setting_and_no_more(
     them in the ConfigMap (#4802)."""
     config(roadmap={"stage": {"gate_returns": 2}})
     model_fake.answer(make_stage_proposal(), _refused())
-    verifier.answer(_returns_plan(), Verification())
+    verifier.answer(_returns_plan(), later_review(GONE))
 
     _plan(store, stage_repo, model_fake, verifier)
 
@@ -220,7 +222,7 @@ def test_a_revision_that_stays_refused_is_kept_with_its_problem_beside_the_earli
     revision = _refused("The revision")
     returned = [_refused(f"Returned revision {n}") for n in range(1, 4)]
     model_fake.answer(first, make_stage_proposal(), revision, *returned)
-    verifier.answer(_returns_plan(), Verification())
+    verifier.answer(_returns_plan(), later_review(GONE))
 
     plan = _plan(store, stage_repo, model_fake, verifier)
 
@@ -238,7 +240,7 @@ def test_a_revision_that_the_gates_accept_after_a_return_leaves_the_kept_replies
     store: InMemoryRoadmapStore, stage_repo: StageRepo, model_fake: ModelFake, verifier: ModelFake
 ) -> None:
     model_fake.answer(make_stage_proposal(), _refused(), make_stage_proposal(summary="Repaired"))
-    verifier.answer(_returns_plan(), Verification())
+    verifier.answer(_returns_plan(), later_review(GONE))
 
     plan = _plan(store, stage_repo, model_fake, verifier)
 
@@ -253,7 +255,7 @@ def test_each_refused_revision_logs_one_line(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     model_fake.answer(make_stage_proposal(), _refused())
-    verifier.answer(_returns_plan(), Verification())
+    verifier.answer(_returns_plan(), later_review(GONE))
 
     with caplog.at_level(logging.WARNING):
         _plan(store, stage_repo, model_fake, verifier)
@@ -279,7 +281,7 @@ def test_a_review_round_and_a_pass_after_a_return_each_log_one_line_with_counts(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     model_fake.answer(make_stage_proposal(), _refused(), make_stage_proposal(summary="Repaired"))
-    verifier.answer(_returns_plan(), Verification())
+    verifier.answer(_returns_plan(), later_review(GONE))
 
     with caplog.at_level(logging.INFO):
         _plan(store, stage_repo, model_fake, verifier)
@@ -302,7 +304,7 @@ def test_a_revision_that_stays_refused_logs_its_returns_as_refused(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     model_fake.answer(make_stage_proposal(), _refused(), _refused())
-    verifier.answer(_returns_plan(), Verification())
+    verifier.answer(_returns_plan(), later_review(GONE))
 
     with caplog.at_level(logging.INFO):
         _plan(store, stage_repo, model_fake, verifier)

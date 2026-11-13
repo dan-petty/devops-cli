@@ -29,8 +29,11 @@ step writes the attempt marks and gives the plan to `revise_plan` at the default
 adds or changes, because the gate of the run that wrote the head passed each sentence of it
 (#5391). The review of the plan that passed the checks counts its open findings
 (`before`), the planner gets the plan with those findings and the open findings of the last plan
-comment, and the review judges the revision with the normal repair rounds (`after`). An earlier
-review wrote the comment, so the count of the comment (`comment`) is only reported (#5150).
+comment, and the review judges the revision with the normal repair rounds (`after`). The first
+review of the revision is a later review: it says for each open finding of the head whether it
+still holds, and opens a new finding only in the text that the revision changed (#5409). An
+earlier review wrote the comment, so the count of the comment (`comment`) is only reported
+(#5150).
 
 **Results**, in this order:
 
@@ -42,8 +45,9 @@ review wrote the comment, so the count of the comment (`comment`) is only report
 - `failed`: a model call or the checks fail before a gated plan exists, or a step after the checks
   fails and the gated plan is the plan of the head. The label stays.
 - `revised` or `cleared`: the revision of a repair is not the same plan as the gated plan
-  (`same_plan`), and its last review has fewer open findings than the review of the head. The step
-  pushes the revision, and the label goes for `cleared`, when no open finding remains.
+  (`same_plan`), and its reviews fixed more open findings of the head than they added
+  (`PlanRevision.fixed` and `PlanRevision.added`, #5409). The step pushes the revision, and the
+  label goes for `cleared`, when no open finding remains.
 - `regated`: else, the gated plan is not the same plan as the head. The step pushes the gated plan,
   and the label goes only after a review of it with no open finding and no failed step.
 - `dismissed`: else, the review of the head found no open finding. The label goes, and the comment
@@ -544,7 +548,9 @@ def _stop_of(outcome: object) -> FixPlanStop | None:
 
 def _decide(revision: PlanRevision, head: StageProposal) -> _Decision:
     """The result of `revision` of the plan `head`, in the order of the module (#5213). A spent
-    time budget pushes nothing (#5363)."""
+    time budget pushes nothing (#5363). A revision is better when its reviews fixed more open
+    findings of the head than they added: the later reviews judged each finding of the head, so
+    the step compares no counts of two independent reviews (#5409)."""
     outcome, gated = revision.outcome, revision.gated
     if isinstance(outcome, StageFailure) and outcome.failure_class is FailureClass.TIMEOUT:
         return _Decision(FixPlanResult.TIMEOUT)
@@ -557,7 +563,7 @@ def _decide(revision: PlanRevision, head: StageProposal) -> _Decision:
     if (
         repaired is not None
         and not same_plan(repaired.proposal, head if gated is None else gated.proposal)
-        and len(repaired.open_findings) < len(revision.before)
+        and len(revision.fixed) > len(revision.added)
     ):
         after = len(repaired.open_findings)
         result = FixPlanResult.REVISED if after else FixPlanResult.CLEARED

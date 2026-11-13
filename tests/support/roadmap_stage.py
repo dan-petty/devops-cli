@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 import subprocess
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -20,7 +20,7 @@ import pytest
 
 from devops_cli.roadmap.stage.stage import StageApplied, StagePlan
 from devops_cli.roadmap.stage.stage_change import StageGroup
-from devops_cli.roadmap.stage.stage_verify import Verification
+from devops_cli.roadmap.stage.stage_verify import Finding, Verification
 from devops_cli.roadmap.stores.store import ItemField
 from tests.support.builders import make_stage_proposal
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
@@ -244,6 +244,41 @@ def no_findings(fake: ModelFake) -> None:
             return False
 
     fake.route(is_verification, Verification())
+
+
+# The verdicts of a later review of the model review on an earlier finding (#5409).
+HOLDS = "holds"
+GONE = "gone"
+
+
+def later_review(*verdicts: str, findings: Sequence[Finding] = ()) -> str:
+    """The reply of a later review of the model review, as the JSON text of the model (#5409):
+    `verdicts` (`HOLDS` or `GONE`) for the earlier findings 1, 2 and so on, in order, and the new
+    `findings`. The text needs no name of the reply schema, so a test module that uses it also
+    loads on a tree that has no later review."""
+    return json.dumps(
+        {
+            "earlier": [
+                {"number": number, "verdict": verdict} for number, verdict in enumerate(verdicts, 1)
+            ],
+            "findings": [finding.model_dump(mode="json") for finding in findings],
+        }
+    )
+
+
+def route_reviews(fake: ModelFake, first: Verification, later: str) -> None:
+    """Answer each first review of the model review with `first` and each later review with
+    `later`: the request of a later review holds the key `earlier` (#5409). The routes hold for
+    each attempt of a test that runs more than one."""
+
+    def is_later(prompt: str) -> bool:
+        try:
+            return "earlier" in json.loads(prompt)
+        except ValueError:
+            return False
+
+    fake.route(is_later, later)
+    fake.route(lambda prompt: not is_later(prompt), first)
 
 
 def advance_origin(repo: StageRepo, root: Path, files: Mapping[str, str]) -> None:

@@ -59,8 +59,11 @@ of the task `verification` (#3039). A finding is open when it is of the type `mi
 `false_premise`, `ignores_existing_code`, `task_order`, `verify_form`, `spec_delta_wrong` or
 `criterion_dropped` and quotes its evidence, or when it reports a placeholder. An open finding sends
 the plan back to the planner, with each open finding of that round (#5059). It does so
-`roadmap.stage.verify_repair_rounds` times, and once more while the count of open findings drops,
-up to `CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS_CEILING` rounds (#3039, #5066). No round starts
+`roadmap.stage.verify_repair_rounds` times, and once more while a review fixes more earlier findings
+than it adds, up to `CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS_CEILING` rounds (#3039, #5066). Each
+review after a repair is a later review: it gets the open findings of the review before it and the
+text that the revision changed, says for each finding whether it still holds, and opens a new
+finding only in the changed text (#5409). No round starts
 after the Service stops (#4925). If the last review has an open finding, the job keeps the draft
 with the label `plan/needs-fix` and puts the finding first in the comment (#3264). The comment
 lists every other finding of each round (#3039).
@@ -288,14 +291,17 @@ from devops_cli.roadmap.stage.stage_toolbox import (
     ToolboxClient,
     ToolboxModel,
     review,
+    review_later,
     violation_summary,
 )
 from devops_cli.roadmap.stage.stage_validate import restore_omitted_scenarios, validate_change
 from devops_cli.roadmap.stage.stage_verify import (
     PLAN_NEEDS_FIX_LABEL,
     Finding,
+    Judgement,
     VerificationInput,
     findings_section,
+    judge_later,
     open_findings,
     open_findings_section,
     repair_round_due,
@@ -976,6 +982,27 @@ class PlanRevision:
         outcome = self.outcome
         return outcome if self.before and isinstance(outcome, StagedChange) else None
 
+    @property
+    def fixed(self) -> tuple[Finding, ...]:
+        """The open findings of the review of the head that the last review of the revision does
+        not keep open (#5409). Each later review keeps a finding that holds as the same value, so
+        a finding of the head is fixed only when a review of the revision marked it `gone`. Empty
+        when no revision exists."""
+        repaired = self.repaired
+        if repaired is None:
+            return ()
+        return tuple(f for f in self.before if f not in repaired.open_findings)
+
+    @property
+    def added(self) -> tuple[Finding, ...]:
+        """The open findings of the last review of the revision that are no open finding of the
+        review of the head: each one a review opened in text that a repair changed (#5409). Empty
+        when no revision exists."""
+        repaired = self.repaired
+        if repaired is None:
+            return ()
+        return tuple(f for f in repaired.open_findings if f not in self.before)
+
 
 # The change name and the date with which `same_plan` renders two plans.
 _SAME_PLAN_CHANGE: Final[str] = "0-same-plan"
@@ -1287,7 +1314,7 @@ class _Planner:
         (`CONST_ROADMAP_STAGE_GATE_RETURN_EXTENSIONS`, #4851). The model splits the groups at most
         once. With a verifier, the model review of the plan (#3153) follows the checks and may
         return the plan V times (`roadmap.stage.verify_repair_rounds`, #3039, #5066), and more
-        while its count of open findings drops, at most
+        while a review fixes more earlier findings than it adds (#5409), at most
         `CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS_CEILING` (4) times. So an item costs R + 3
         planner calls at most without a verifier (6 at the default of 3), (V + 1)(R + 1) + 2 with
         one (14 at the defaults) and V + 1 calls of the verifier, and with the extensions at most
@@ -1357,8 +1384,10 @@ class _Planner:
         is the baseline of the attempt. A plan with no open finding in that review is the revision
         as it is. Else the planner gets the plan, each open finding of the review and each of
         `findings`, the open findings that the last comment of the plan lists, as in a repair
-        round, and `_verified` reviews the revision with the normal repair rounds. An earlier
-        review wrote the comment, so its findings go to the planner but do not count. The planner
+        round, and `_verified` reviews the revision with the normal repair rounds. Its first review
+        is a later review of the open findings of the head, with the plan that passed the checks
+        as the plan before the repair (#5409). An earlier review wrote the comment, so its findings
+        go to the planner but do not count. The planner
         keeps the step, the gated plan and the findings of the review in `step`, `gated` and
         `head_findings`, so `revise_plan` keeps them when a step fails. No trace of the run that
         made `proposal` is in the process, but the trace gate of that run passed each sentence of
@@ -1380,8 +1409,9 @@ class _Planner:
             return PlanRevision(head)
         self.gated = None if same_plan(head.proposal, proposal) else head
         self.step = StepName.REVIEW
-        seen, before = self._review(target, head, verifier, screen=False)
-        self.head_findings = tuple(before)
+        judged = self._review(target, head, verifier, screen=False)
+        seen, before = judged.findings, judged.open
+        self.head_findings = before
         log_review_round(
             self._pull_repo,
             target.item.number,
@@ -1393,19 +1423,21 @@ class _Planner:
         gated = self.gated
         if not before:
             return PlanRevision(
-                self._traced(replace(head, findings=tuple(seen))), gated=gated, reviewed=True
+                self._traced(replace(head, findings=seen)), gated=gated, reviewed=True
             )
         self.step = StepName.PLAN
         problems = list(dict.fromkeys((*before, *findings)))
         revised = self._repaired(target, request, head, problems, None)
         if isinstance(revised, OverBudget):
-            return PlanRevision(revised, tuple(before), gated=gated, reviewed=True)
-        final = self._verified(target, request, revised, verifier, None)
+            return PlanRevision(revised, before, gated=gated, reviewed=True)
+        final = self._verified(
+            target, request, revised, verifier, None, earlier=before, previous=head.proposal
+        )
         if isinstance(final, StagedChange):
             final = self._traced(
                 replace(final, findings=tuple(dict.fromkeys((*seen, *final.findings))))
             )
-        return PlanRevision(final, tuple(before), gated=gated, reviewed=True)
+        return PlanRevision(final, before, gated=gated, reviewed=True)
 
     def _traced(self, change: StagedChange) -> StagedChange:
         """`change` with the runs of the item so far as its trace, when it has any."""
@@ -1730,50 +1762,62 @@ class _Planner:
         change: StagedChange,
         verifier: ToolboxClient,
         key: str | None,
+        *,
+        earlier: Sequence[Finding] = (),
+        previous: StageProposal | None = None,
     ) -> StagedChange | OverBudget:
         """The change after the model review. An open finding sends the plan back to the planner
         with each open finding of the round (#5059). The revised plan passes the checks and the
         review again, for each round that `repair_round_due` allows (#3039, #5066), and a revision
-        that stays refused stops the item. No round starts after the Service stops (#4925), and a
-        round past the setting logs its extension. Every finding of each round stays on the change
-        for the comment (#3039). The last
-        review judges the last plan, so only its open findings keep the draft with
-        `plan/needs-fix` (#3264). Each review logs one line with its counts (#4535)."""
+        that stays refused stops the item. Each review after a repair is a later review of the
+        open findings of the review before it, with the plan before the repair, so it judges each
+        of them and opens a new finding only in the changed text (#5409). With `earlier` and
+        `previous`, the first review is a later review too: the step `fix-plan` gives the open
+        findings of the review of the head and the plan that passed the checks. No round starts
+        after the Service stops (#4925), and a round past the setting logs its extension. Every
+        finding of each round stays on the change for the comment (#3039). The last review judges
+        the last plan, so only its open findings keep the draft with `plan/needs-fix` (#3264).
+        Each review logs one line with its counts (#4535)."""
         number = target.item.number
-        seen, open_ = self._review(target, change, verifier)
+        judged = self._review(target, change, verifier, earlier=earlier, previous=previous)
         log_review_round(
             self._pull_repo,
             number,
             0,
-            findings=len(seen),
-            returned=len(open_),
-            open_=len(open_),
+            findings=len(judged.findings),
+            returned=len(judged.open),
+            open_=len(judged.open),
         )
-        counts = [len(open_)]
+        seen = list(judged.findings)
         for round_ in range(1, CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS_CEILING + 1):
-            if not open_ or not repair_round_due(round_, self._verify_rounds, counts):
+            if not judged.open or not repair_round_due(round_, self._verify_rounds, judged):
                 break
             raise_if_service_stops(f"review round {round_} of the plan of #{number}")
             if round_ > self._verify_rounds:
                 log_review_extension(
-                    self._pull_repo, number, round_, before=counts[-2], open_=counts[-1]
+                    self._pull_repo,
+                    number,
+                    round_,
+                    fixed=len(judged.fixed),
+                    added=len(judged.added),
                 )
-            revised = self._repaired(target, request, change, open_, key)
+            revised = self._repaired(target, request, change, judged.open, key)
             if isinstance(revised, OverBudget):
                 return revised
-            change = revised
-            findings, open_ = self._review(target, change, verifier)
+            before, change = change, revised
+            judged = self._review(
+                target, change, verifier, earlier=judged.open, previous=before.proposal
+            )
             log_review_round(
                 self._pull_repo,
                 number,
                 round_,
-                findings=len(findings),
-                returned=len(open_),
-                open_=len(open_),
+                findings=len(judged.findings),
+                returned=len(judged.open),
+                open_=len(judged.open),
             )
-            counts.append(len(open_))
-            seen = [*seen, *findings]
-        return replace(change, findings=tuple(dict.fromkeys(seen)), open_findings=tuple(open_))
+            seen = [*seen, *judged.findings]
+        return replace(change, findings=tuple(dict.fromkeys(seen)), open_findings=judged.open)
 
     def _repaired(
         self,
@@ -1797,8 +1841,15 @@ class _Planner:
             target, request, key, floor, revised, MESSAGES.roadmap.stage_invalid_revision
         )
 
-    def _input_of(self, target: StageTarget, change: StagedChange) -> VerificationInput:
-        """The input that the pass reads for `change`."""
+    def _input_of(
+        self,
+        target: StageTarget,
+        change: StagedChange,
+        earlier: Sequence[Finding] = (),
+        previous: StageProposal | None = None,
+    ) -> VerificationInput:
+        """The input that the pass reads for `change`: with `earlier`, the input of a later review
+        of the open findings `earlier` of the plan `previous` (#5409)."""
         item = target.item
         return VerificationInput.of(
             number=item.number,
@@ -1807,6 +1858,8 @@ class _Planner:
             plan=change.proposal.model_dump(mode="json"),
             source=self._source,
             window=self._verify_window,
+            earlier=earlier,
+            previous=None if previous is None else previous.model_dump(mode="json"),
         )
 
     def _check_budget(self, work: str) -> None:
@@ -1822,26 +1875,30 @@ class _Planner:
         verifier: ToolboxClient,
         *,
         screen: bool = True,
-    ) -> tuple[list[Finding], list[Finding]]:
+        earlier: Sequence[Finding] = (),
+        previous: StageProposal | None = None,
+    ) -> Judgement:
         """The review of `_run_review`. No review starts once the time budget is spent, and with a
         budget each review logs one progress line: its number in the item (0 for the first), its
         open findings, the tokens of the runs of the item so far, and the seconds of the budget
         so far (#5363)."""
         self._check_budget(f"the next review of the plan of #{target.item.number}")
-        findings, open_ = self._run_review(target, change, verifier, screen=screen)
+        judged = self._run_review(
+            target, change, verifier, screen=screen, earlier=earlier, previous=previous
+        )
         budget = self._time_budget
         if budget is not None:
             log_fix_plan_progress(
                 self._pull_repo,
                 target.item.number,
                 self._reviews,
-                open_=len(open_),
+                open_=len(judged.open),
                 tokens=sum(trace.input_tokens + trace.output_tokens for trace in self._traces),
                 seconds=round(budget.elapsed()),
                 budget=budget.seconds,
             )
             self._reviews += 1
-        return findings, open_
+        return judged
 
     def _run_review(
         self,
@@ -1850,12 +1907,17 @@ class _Planner:
         verifier: ToolboxClient,
         *,
         screen: bool = True,
-    ) -> tuple[list[Finding], list[Finding]]:
-        """The findings of the model review of `change`, and those that are open: each open
-        finding returns the plan to the planner (#5059). With `screen` false, the screen of
-        `stage.verify_screen` does not decide, and the review runs (#5213)."""
+        earlier: Sequence[Finding] = (),
+        previous: StageProposal | None = None,
+    ) -> Judgement:
+        """The judgement of the model review of `change`: its findings, and those that are open,
+        each of which returns the plan to the planner (#5059). With `earlier`, the open findings of
+        the review of `previous`, the review is a later review (`judge_later`, #5409). With
+        `screen` false, the screen of `stage.verify_screen` does not decide, and the review runs
+        (#5213). A band `continue` of the screen gives no finding, so each earlier finding is
+        fixed."""
         with observe_step(self._pull_repo, _ROW, StepName.REVIEW):
-            given = self._input_of(target, change)
+            given = self._input_of(target, change, earlier, previous)
             decision = (
                 None
                 if self._screen is None or not screen
@@ -1864,12 +1926,17 @@ class _Planner:
                 )
             )
             if decision is not None and decision.acts and decision.band is Band.CONTINUE:
-                return [], []
-            findings, given = review(verifier, given)
-        open_ = open_findings(findings, given)
+                return Judgement((), (), fixed=given.earlier)
+            if given.earlier:
+                reply, given = review_later(verifier, given)
+                judged = judge_later(reply, given)
+            else:
+                findings, given = review(verifier, given)
+                open_ = tuple(open_findings(findings, given))
+                judged = Judgement(tuple(findings), open_, added=open_)
         if decision is not None:
-            record_review(decision, open_)
-        return findings, open_
+            record_review(decision, judged.open)
+        return judged
 
     def _read_fact_file(self, path: str) -> str | None:
         """The text of a runner image fact file: at the staged commit and, when the planner holds

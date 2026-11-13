@@ -3,8 +3,9 @@
 `ToolboxClient` implements `StageClient`, so the planner, the gates and the golden-set run keep
 their code. A call for a `StageProposal` is one agent run with the tools of `StageTools`: the nine of
 the toolset `base`, and with `extended`, the setting `roadmap.stage.toolset`, three more (#3238). A
-call for a `Verification` is one agent run of the same tools, with the pass as its instructions and
-no text or message of the planner (#3039). A call for another schema goes to the inner client, with
+call for a `Verification`, or a `LaterVerification` of a later review (#5409), is one agent run of
+the same tools, with the pass as its instructions and no text or message of the planner (#3039).
+A call for another schema goes to the inner client, with
 no tool. Each run has a new budget of tool calls and requests, ends its tools when the messages
 fill the context window (#3037), and keeps a `RunTrace` of what it did. It sends the counts of the
 run as metrics (`tool_metrics`, #3240). The output tokens have no count of their own (#3206). A run
@@ -45,10 +46,12 @@ from devops_cli.roadmap.stage.stage_github import StageGitHub
 from devops_cli.roadmap.stage.stage_tools import StageTools
 from devops_cli.roadmap.stage.stage_verify import (
     Finding,
+    LaterVerification,
     Verification,
     VerificationInput,
     agent_instructions,
     verify,
+    verify_later,
 )
 from devops_cli.roadmap.tool_metrics import end_run, start_run
 
@@ -58,14 +61,16 @@ if TYPE_CHECKING:
 TOOLS_TASK = "roadmap_stage_tools.md"
 EXTENDED_TOOLS_TASK = "roadmap_stage_tools_extended.md"
 RESEARCH_TOOLS_TASK = "roadmap_stage_tools_research.md"
-# The schemas that one agent run with the tools answers, a plan (#3037) and a verification (#3039),
-# with the job row of each in the metrics of the tool calls (`row` label, #3240). The rows differ,
-# so the reads of the verifier do not hide a tool that the planner does not use.
+# The schemas that one agent run with the tools answers, a plan (#3037) and a verification (#3039)
+# of a first review or of a later review (#5409), with the job row of each in the metrics of the
+# tool calls (`row` label, #3240). The rows differ, so the reads of the verifier do not hide a tool
+# that the planner does not use.
 PLAN_ROW: Final = "stage"
 REVIEW_ROW: Final = "stage_verify"
 _AGENT_ROWS: Final[Mapping[type[BaseModel], str]] = {
     StageProposal: PLAN_ROW,
     Verification: REVIEW_ROW,
+    LaterVerification: REVIEW_ROW,
 }
 # The limits of each plan run and review run when the caller gives none: the loop guard of the
 # stage job (#3206).
@@ -152,8 +157,8 @@ class ToolboxClient:
     def chat_structured[M: BaseModel](
         self, system: str, prompt: str, schema: type[M], *, max_retries: int
     ) -> M:
-        """The reply of one agent run for `StageProposal` or `Verification`, or the inner client's
-        reply for any other schema."""
+        """The reply of one agent run for `StageProposal`, `Verification` or `LaterVerification`,
+        or the inner client's reply for any other schema."""
         if schema not in _AGENT_ROWS:
             return self._inner.chat_structured(system, prompt, schema, max_retries=max_retries)
         # The planner reads the rules of its tools with its plan. A review gets only its own pass
@@ -281,4 +286,13 @@ def review(
     return findings, given.with_reads(client.traces[-1].tool_answers)
 
 
-__all__ = ["ToolboxClient", "ToolboxModel", "review", "violation_summary"]
+def review_later(
+    client: ToolboxClient, given: VerificationInput
+) -> tuple[LaterVerification, VerificationInput]:
+    """The reply of one agent run on the later review `given`, and `given` with the tool answers
+    of that run, as `review` gives them (#5409)."""
+    reply = verify_later(client, given)
+    return reply, given.with_reads(client.traces[-1].tool_answers)
+
+
+__all__ = ["ToolboxClient", "ToolboxModel", "review", "review_later", "violation_summary"]

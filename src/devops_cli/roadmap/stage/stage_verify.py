@@ -12,13 +12,20 @@ of a tool (#3039). The review of refine (`refine_judge`) sends the same request 
 A finding is open when its type is in `OPEN_TYPES` and its `quote` is a text of the input or of
 a tool answer (`VerificationInput.contains`), or when it reports a placeholder that the request
 holds (#3264). Each open finding returns the plan to the planner (#5059). It does so
-`roadmap.stage.verify_repair_rounds` times, and once more for each review that has fewer open
-findings than the review before it, up to `CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS_CEILING`
-rounds (`repair_round_due`, #3039, #5066). An open finding of the last review keeps the plan in
+`roadmap.stage.verify_repair_rounds` times, and once more for each review that fixes more earlier
+findings than it adds, up to `CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS_CEILING` rounds
+(`repair_round_due`, #3039, #5066, #5409). An open finding of the last review keeps the plan in
 draft with the label `plan/needs-fix` (#3264). Every other finding is advice: the job lists it in
-its comment. The pass never merges and never marks a
-pull request ready. `devops roadmap eval verify` scores the pass on the golden set
-(`stage_verify_eval`).
+its comment. The pass never merges and never marks a pull request ready. `devops roadmap eval
+verify` scores the first review of a plan on the golden set (`stage_verify_eval`).
+
+A review after a repair is a later review (#5409). Its request also holds `earlier`, the open
+findings of the review before it, and `answer`, the blocks of lines of the plan that the revision
+added or changed (`changed_texts`): the planner fixes a finding at its place or shows in
+`feasibility` that it is no defect, so the changed text is its answer. Its reply
+(`LaterVerification`) gives each earlier finding the verdict `holds` or `gone`, and a new finding
+is open only when its quote is in a block of `answer` (`judge_later`). A first review keeps the
+request, the prompt and the schema that it had before, so the golden set scores the same pass.
 """
 
 from __future__ import annotations
@@ -27,6 +34,8 @@ import json
 import re
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, replace
+from difflib import SequenceMatcher
+from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final
 
@@ -54,6 +63,10 @@ if TYPE_CHECKING:
 
 _VERIFY_TASK: Final[str] = "roadmap_stage_verify.md"
 _VERIFY_TOOLS_TASK: Final[str] = "roadmap_stage_verify_tools.md"
+# The rules of a later review, which follow the prompt of the pass only in a later review (#5409).
+_VERIFY_LATER_TASK: Final[str] = "roadmap_stage_verify_later.md"
+# The opcodes of `SequenceMatcher` that give lines of the revision that the plan before it lacks.
+_CHANGED_OPCODES: Final[frozenset[str]] = frozenset({"replace", "insert"})
 # The line number that a tool puts before a line of its answer: `12: text` or `src/a.py:12:text`.
 _ANSWER_LINE_PREFIX: Final[re.Pattern[str]] = re.compile(r"^(?:[^\s:]+:)?\d+:\s?", re.MULTILINE)
 # A reply that fails the schema goes back to the model once, as every reply of the stage job does.
@@ -112,6 +125,46 @@ class Verification(BaseModel):
     findings: list[Finding] = Field(default_factory=list)
 
 
+class Verdict(StrEnum):
+    """What a later review says of an earlier open finding: the revision still `holds` the defect,
+    or the defect is `gone` (#5409)."""
+
+    HOLDS = "holds"
+    GONE = "gone"
+
+
+class EarlierVerdict(BaseModel):
+    """The verdict of a later review on the earlier finding with the `number` of `earlier`."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    number: int = Field(ge=1)
+    verdict: Verdict
+
+
+class LaterVerification(BaseModel):
+    """The reply of a later review (#5409): one verdict for each earlier finding, and the new
+    findings. The key `earlier` is required, so a reply with no verdict goes back once."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    earlier: list[EarlierVerdict]
+    findings: list[Finding] = Field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class Judgement:
+    """What one review made of a plan: `findings`, each finding of its reply, and `open`, the
+    findings that return the plan. `fixed` holds the earlier open findings that a later review
+    marked `gone`, and `added` the open findings that are no earlier finding. For a first review,
+    `fixed` is empty and `added` is `open`."""
+
+    findings: tuple[Finding, ...]
+    open: tuple[Finding, ...]
+    fixed: tuple[Finding, ...] = ()
+    added: tuple[Finding, ...] = ()
+
+
 def _folded(text: str) -> str:
     """`text` with each run of white space as one space, so a quote survives a line break."""
     return " ".join(text.split())
@@ -151,6 +204,25 @@ def _read(root: Path, name: str) -> str | None:
     return mask_secrets(truncate_to_token_limit(text, CONST_ROADMAP_STAGE_VERIFY_FILE_MAX_TOKENS))
 
 
+def _plan_lines(plan: Mapping[str, Any]) -> list[str]:
+    """Each line of each text of `plan`, in plan order, with its white space folded, and no empty
+    line."""
+    return [line for text in _strings(plan) for line in map(_folded, text.splitlines()) if line]
+
+
+def changed_texts(previous: Mapping[str, Any], plan: Mapping[str, Any]) -> tuple[str, ...]:
+    """The text of `plan` that the plan `previous` does not hold at its place: each block of
+    lines that a `replace` or an `insert` of `difflib.SequenceMatcher` gives, so a line that moved
+    is changed text, and a pure delete gives none (#5409)."""
+    old, new = _plan_lines(previous), _plan_lines(plan)
+    matcher = SequenceMatcher(None, old, new, autojunk=False)
+    return tuple(
+        "\n".join(new[start:end])
+        for tag, _, _, start, end in matcher.get_opcodes()
+        if tag in _CHANGED_OPCODES
+    )
+
+
 def cited_files(source: Path, plan: Mapping[str, Any]) -> dict[str, str]:
     """The start of each file that `plan` cites and the checkout `source` has, at most
     `CONST_ROADMAP_STAGE_VERIFY_MAX_FILES` of them. A path that is no file inside the checkout is
@@ -169,7 +241,8 @@ def cited_files(source: Path, plan: Mapping[str, Any]) -> dict[str, str]:
 @dataclass(frozen=True)
 class VerificationInput:
     """What the model reads: the issue, the plan and the cited files, and after an agent run,
-    `reads`, the answers of its tools."""
+    `reads`, the answers of its tools. A later review also reads `earlier`, the open findings of
+    the review before it, and `answer`, the text of the plan that the revision changed (#5409)."""
 
     number: int
     title: str
@@ -177,6 +250,8 @@ class VerificationInput:
     plan: Mapping[str, Any]
     files: Mapping[str, str]
     reads: tuple[str, ...] = ()
+    earlier: tuple[Finding, ...] = ()
+    answer: tuple[str, ...] = ()
 
     @classmethod
     def of(
@@ -188,19 +263,25 @@ class VerificationInput:
         plan: Mapping[str, Any],
         source: Path,
         window: int | None = None,
+        earlier: Sequence[Finding] = (),
+        previous: Mapping[str, Any] | None = None,
     ) -> VerificationInput:
         """The input for `plan` of issue `number`, with the cited files read from `source`. With
         `window`, the context window of the model that serves the run in tokens, the request keeps
         the first cited files, in plan order, that leave the tools room to read (#3039): with its
         instructions, the request stays `CONST_ROADMAP_STAGE_TOOL_RESERVE_TOKENS` below the point
-        where the run offers no more tools (`tool_stop`)."""
+        where the run offers no more tools (`tool_stop`). With `earlier`, the open findings of the
+        review of `previous`, the plan before the repair, the input is that of a later review, and
+        `answer` holds the text of `plan` that `previous` does not hold (#5409)."""
         text = truncate_to_token_limit(body, CONST_ROADMAP_STAGE_VERIFY_BODY_MAX_TOKENS)
+        found = tuple(earlier)
+        answer = changed_texts(previous or {}, plan) if found else ()
         files = cited_files(source, plan)
         if window is not None:
-            base = cls(number, title, text, plan, {})
+            base = cls(number, title, text, plan, {}, earlier=found, answer=answer)
             limit = tool_stop(window) - CONST_ROADMAP_STAGE_TOOL_RESERVE_TOKENS
             files = _fitting(files, base, limit)
-        return cls(number, title, text, plan, files)
+        return cls(number, title, text, plan, files, earlier=found, answer=answer)
 
     def with_reads(self, answers: Iterable[str]) -> VerificationInput:
         """This input with the tool `answers` of the run, which a quote may also come from."""
@@ -211,14 +292,33 @@ class VerificationInput:
         return json.dumps(self.payload(), ensure_ascii=False, indent=1)
 
     def payload(self) -> dict[str, Any]:
-        """The request as the JSON document that the prompt describes."""
-        return {
+        """The request as the JSON document that the prompt describes. Only a later review has
+        the keys `earlier`, each earlier open finding with its number, and `answer`."""
+        payload: dict[str, Any] = {
             "number": self.number,
             "title": self.title,
             "body": self.body,
             "plan": dict(self.plan),
             "files": dict(self.files),
         }
+        if self.earlier:
+            payload["earlier"] = [
+                {"number": number, **finding.model_dump(mode="json")}
+                for number, finding in enumerate(self.earlier, 1)
+            ]
+            payload["answer"] = list(self.answer)
+        return payload
+
+    def system(self) -> str:
+        """The system prompt of the review of this input: the pass, and for a later review the
+        rules of a later review after it."""
+        prompt = load_task_prompt(_VERIFY_TASK)
+        return f"{prompt}\n\n{load_task_prompt(_VERIFY_LATER_TASK)}" if self.earlier else prompt
+
+    def in_answer(self, quote: str) -> bool:
+        """Whether `quote`, with white space folded, is in a block of `answer`."""
+        wanted = _folded(quote)
+        return bool(wanted) and any(wanted in _folded(text) for text in self.answer)
 
     def request_texts(self) -> Iterable[str]:
         """The texts of the request."""
@@ -259,7 +359,7 @@ def _request_tokens(given: VerificationInput) -> int:
         [
             ModelRequest(
                 parts=[UserPromptPart(content=given.text())],
-                instructions=agent_instructions(load_task_prompt(_VERIFY_TASK)),
+                instructions=agent_instructions(given.system()),
             )
         ]
     )
@@ -282,12 +382,23 @@ def verify(client: StageClient, given: VerificationInput) -> list[Finding]:
     """The findings of the model for `given`. A reply that fails the schema, such as a finding of
     an unknown type, goes back once, and a second one raises `StructuredOutputValidationError`."""
     reply = client.chat_structured(
-        load_task_prompt(_VERIFY_TASK),
+        given.system(),
         given.text(),
         Verification,
         max_retries=_REPLY_RETURNS,
     )
     return list(reply.findings)
+
+
+def verify_later(client: StageClient, given: VerificationInput) -> LaterVerification:
+    """The reply of the model to the later review `given`: a verdict for each earlier finding and
+    the new findings. A reply that fails the schema goes back once, as in `verify`."""
+    return client.chat_structured(
+        given.system(),
+        given.text(),
+        LaterVerification,
+        max_retries=_REPLY_RETURNS,
+    )
 
 
 def _reports_placeholder(finding: Finding) -> bool:
@@ -313,17 +424,48 @@ def open_findings(
     ]
 
 
-def repair_round_due(round_: int, rounds: int, open_counts: Sequence[int]) -> bool:
-    """Whether repair round `round_` (1 for the first) may start after the reviews whose open
-    findings counted `open_counts`, in order. A round up to `rounds`
-    (`roadmap.stage.verify_repair_rounds`) may start. A later round may start only while the last
-    review has fewer open findings than the review before it: a check of counts with no model
-    call (#5066). No round passes `CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS_CEILING`."""
+def judge_later(
+    reply: LaterVerification,
+    given: VerificationInput,
+    *,
+    types: frozenset[DefectType] = OPEN_TYPES,
+) -> Judgement:
+    """What the later review `reply` made of the plan of `given` (#5409). An earlier finding that
+    the reply marks `holds`, gives no verdict, or reports again as a new finding stays open as it
+    is: the review that opened it checked its quote. Any other earlier finding that it marks
+    `gone` is fixed, but not a finding that it also marks `holds`. So a reply that breaks the
+    rules keeps a finding and never closes one. A new finding is open only when `open_findings`
+    opens it and its quote is in a block of `answer`, the text that the revision changed. Any
+    other new finding is advice, and a new finding that is an earlier one adds nothing."""
+    holds = {entry.number for entry in reply.earlier if entry.verdict is Verdict.HOLDS}
+    gone = {entry.number for entry in reply.earlier if entry.verdict is Verdict.GONE} - holds
+    fixed = tuple(
+        finding
+        for number, finding in enumerate(given.earlier, 1)
+        if number in gone and finding not in reply.findings
+    )
+    held = tuple(finding for finding in given.earlier if finding not in fixed)
+    added = tuple(
+        dict.fromkeys(
+            finding
+            for finding in open_findings(reply.findings, given, types=types)
+            if given.in_answer(finding.quote) and finding not in given.earlier
+        )
+    )
+    return Judgement(tuple(reply.findings), held + added, fixed, added)
+
+
+def repair_round_due(round_: int, rounds: int, last: Judgement) -> bool:
+    """Whether repair round `round_` (1 for the first) may start after the review `last`. A round
+    up to `rounds` (`roadmap.stage.verify_repair_rounds`) may start. A later round may start only
+    while `last` fixed more earlier findings than it added: one review judged both, so the check
+    compares no two independent reviews and makes no model call (#5066, #5409). No round passes
+    `CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS_CEILING`."""
     if round_ > CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS_CEILING:
         return False
     if round_ <= rounds:
         return True
-    return len(open_counts) >= 2 and open_counts[-1] < open_counts[-2]
+    return len(last.fixed) > len(last.added)
 
 
 def finding_line(finding: Finding) -> str:
@@ -368,17 +510,24 @@ def open_findings_section(findings: Sequence[Finding]) -> str:
 __all__ = [
     "OPEN_TYPES",
     "PLAN_NEEDS_FIX_LABEL",
+    "EarlierVerdict",
     "Finding",
+    "Judgement",
+    "LaterVerification",
+    "Verdict",
     "Verification",
     "VerificationInput",
     "agent_instructions",
+    "changed_texts",
     "cited_files",
     "cited_paths",
     "finding_line",
     "findings_section",
+    "judge_later",
     "open_findings",
     "open_findings_section",
     "repair_round_due",
     "return_problem",
     "verify",
+    "verify_later",
 ]

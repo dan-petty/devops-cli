@@ -52,7 +52,16 @@ from tests.support.roadmap_fix_plan import (
 )
 from tests.support.roadmap_implement import merge_plan
 from tests.support.roadmap_job_result import result_fields
-from tests.support.roadmap_stage import STAGE_REPO, StageRepo, advance_origin, heavy_group
+from tests.support.roadmap_stage import (
+    GONE,
+    HOLDS,
+    STAGE_REPO,
+    StageRepo,
+    advance_origin,
+    heavy_group,
+    later_review,
+    route_reviews,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -137,7 +146,7 @@ def test_a_revision_with_no_open_finding_is_pushed_on_the_latest_main_and_clears
     plan = needs_fix_plan(store, stage_repo, github_api)
     advance_origin(stage_repo, tmp_path, {"NEWS.md": "main moved\n"})
     open_finding = finding(DefectType.CRITERION_DROPPED)
-    verifier.answer(Verification(findings=[open_finding]), Verification())
+    verifier.answer(Verification(findings=[open_finding]), later_review(GONE))
     model_fake.answer(make_stage_proposal(why=REPAIRED_WHY))
 
     run = _run(store, stage_repo, verifier)
@@ -177,7 +186,7 @@ def test_the_planner_gets_the_head_plan_as_previous_and_each_open_finding_as_pro
     needs_fix_plan(store, stage_repo, github_api)
     dropped = finding(DefectType.CRITERION_DROPPED)
     order = finding(DefectType.TASK_ORDER, SAMPLE_QUOTE)
-    verifier.answer(Verification(findings=[dropped, order]), Verification())
+    verifier.answer(Verification(findings=[dropped, order]), later_review(GONE, GONE))
     model_fake.answer(make_stage_proposal(why=REPAIRED_WHY))
 
     _run(store, stage_repo, verifier)
@@ -199,7 +208,7 @@ def test_a_revision_with_fewer_open_findings_is_pushed_and_keeps_the_label(
     plan = needs_fix_plan(store, stage_repo, github_api)
     dropped = finding(DefectType.CRITERION_DROPPED)
     order = finding(DefectType.TASK_ORDER, SAMPLE_QUOTE)
-    verifier.answer(Verification(findings=[dropped, order]), Verification(findings=[dropped]))
+    verifier.answer(Verification(findings=[dropped, order]), later_review(HOLDS, GONE))
     model_fake.answer(make_stage_proposal(why=REPAIRED_WHY))
 
     run = _run(store, stage_repo, verifier)
@@ -218,6 +227,40 @@ def test_a_revision_with_fewer_open_findings_is_pushed_and_keeps_the_label(
     assert len(_comments(store)) == 1
 
 
+def test_a_revision_that_fixes_the_head_finding_is_kept(
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    verifier: ModelFake,
+    github_api: GitHubApiFake,
+) -> None:
+    """The case of Job `fix-plan-validate-4917-r2` (#5409): the review of the revision marks the
+    finding of the head `gone` and opens a finding on text that the revision did not change. That
+    finding is advice, so the step keeps the revision and the label goes."""
+    plan = needs_fix_plan(store, stage_repo, github_api)
+    head_finding = finding(DefectType.SPEC_DELTA_WRONG)
+    unchanged = finding(DefectType.FALSE_PREMISE, SAMPLE_QUOTE)
+    verifier.answer(Verification(findings=[head_finding]), later_review(GONE, findings=[unchanged]))
+    model_fake.answer(make_stage_proposal(why=REPAIRED_WHY))
+
+    run = _run(store, stage_repo, verifier)
+
+    assert run.attempt is not None
+    assert (run.attempt.result, run.attempt.before, run.attempt.after) == (
+        FixPlanResult.CLEARED,
+        1,
+        0,
+    )
+    assert stage_repo.origin_git("rev-parse", PLAN_BRANCH) != plan.head
+    assert REPAIRED_WHY in _origin_file(stage_repo, "proposal.md")
+    assert PLAN_NEEDS_FIX_LABEL not in store._roadmap.issues[plan.pull].labels
+    # The review of the revision judged the finding of the head against the changed text.
+    later = json.loads(verifier.calls[1].prompt)
+    assert later["earlier"][0]["type"] == "spec_delta_wrong"
+    assert any(REPAIRED_WHY in block for block in later["answer"])
+    assert not any(SAMPLE_QUOTE in block for block in later["answer"])
+
+
 def test_a_revision_that_is_not_better_writes_nothing_to_github_but_the_record(
     store: InMemoryRoadmapStore,
     stage_repo: StageRepo,
@@ -227,7 +270,7 @@ def test_a_revision_that_is_not_better_writes_nothing_to_github_but_the_record(
 ) -> None:
     plan = needs_fix_plan(store, stage_repo, github_api)
     dropped = finding(DefectType.CRITERION_DROPPED)
-    verifier.answer(Verification(findings=[dropped]))
+    verifier.answer(Verification(findings=[dropped]), later_review(HOLDS))
     model_fake.answer(make_stage_proposal(why=REPAIRED_WHY))
 
     run = _run(store, stage_repo, verifier)
@@ -472,7 +515,9 @@ def test_each_attempt_logs_one_result_line_and_counts_its_result(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     needs_fix_plan(store, stage_repo, github_api)
-    verifier.answer(Verification(findings=[finding(DefectType.CRITERION_DROPPED)]), Verification())
+    verifier.answer(
+        Verification(findings=[finding(DefectType.CRITERION_DROPPED)]), later_review(GONE)
+    )
     model_fake.answer(make_stage_proposal(why=REPAIRED_WHY))
 
     with caplog.at_level(logging.INFO):
@@ -532,7 +577,11 @@ def test_the_record_counts_a_second_attempt_on_the_same_head(
     github_api: GitHubApiFake,
 ) -> None:
     plan = needs_fix_plan(store, stage_repo, github_api)
-    verifier.answer(Verification(findings=[finding(DefectType.CRITERION_DROPPED)]))
+    route_reviews(
+        verifier,
+        Verification(findings=[finding(DefectType.CRITERION_DROPPED)]),
+        later_review(HOLDS),
+    )
     model_fake.answer(make_stage_proposal(why=REPAIRED_WHY))
 
     _run(store, stage_repo, verifier)
@@ -896,7 +945,9 @@ def test_a_repair_that_returns_the_same_plan_is_unchanged(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     plan = needs_fix_plan(store, stage_repo, github_api)
-    verifier.answer(Verification(findings=[finding(DefectType.CRITERION_DROPPED)]), Verification())
+    verifier.answer(
+        Verification(findings=[finding(DefectType.CRITERION_DROPPED)]), later_review(GONE)
+    )
     model_fake.answer(make_stage_proposal())
 
     with caplog.at_level(logging.INFO):
