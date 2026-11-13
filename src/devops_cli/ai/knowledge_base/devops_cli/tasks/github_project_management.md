@@ -18,7 +18,7 @@ GitHub project governance in `devops-cli` standardizes repository metadata acros
 graph TD
     A[Declarative Schemas<br/>.github/labels.yml & project-template.json] -->|devops gh label sync| B[Remote GitHub Labels]
     E[Issues placed by devops roadmap intake] -->|devops gh project sync| F[GitHub Projects v2 Items]
-    G[zensical.toml] -->|pages.yml: devops docs site build --strict| H[GitHub Pages Deployment]
+    G[zensical.toml] -->|"pages.yml: devops docs site build --strict"| H[GitHub Pages Deployment]
     I[Open Issues Queue] -->|devops gh issue triage| J[Triage Audit & Taxonomies]
     B --> K[devops gh label audit]
     D[Remote GitHub Milestones<br/>planning buckets set by a person] --> L[devops gh milestones list]
