@@ -20,6 +20,7 @@ from typing import Any
 import yaml
 
 from devops_cli.config.constants import (
+    CONST_GIT_GITHUB_CREDENTIAL_CONFIG,
     CONST_GIT_NONINTERACTIVE_ENV,
     CONST_GIT_NONINTERACTIVE_SSH_CONFIG,
     CONST_K8S_ARGOCD_FETCH_TIMEOUT_SECONDS,
@@ -89,7 +90,9 @@ def render_at_revision(source: ApplicationSource, workdir: Path, run: Run) -> st
     from what Argo CD builds whichever branch the caller has checked out. The repository and
     revision come from the cluster or the command line, so git reads them after
     ``--end-of-options`` and can never take one for an option. The fetch gets the SSH option as
-    ``git -c``, because the guard of ``build_subprocess_env`` refuses ``GIT_SSH_COMMAND``.
+    ``git -c``, because the guard of ``build_subprocess_env`` refuses ``GIT_SSH_COMMAND``. It also
+    gets the ``git -c`` values of ``CONST_GIT_GITHUB_CREDENTIAL_CONFIG``, so git reads a private
+    repository on github.com with the credential of the GitHub session (#5294).
     """
     checkout = workdir / "checkout"
     git = ["git", "-C", str(checkout)]
@@ -97,6 +100,7 @@ def render_at_revision(source: ApplicationSource, workdir: Path, run: Run) -> st
     fetch = [
         "-c",
         CONST_GIT_NONINTERACTIVE_SSH_CONFIG,
+        *(word for value in CONST_GIT_GITHUB_CREDENTIAL_CONFIG for word in ("-c", value)),
         "fetch",
         "--quiet",
         "--depth",

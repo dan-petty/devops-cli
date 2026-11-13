@@ -10,7 +10,7 @@ import pytest
 import yaml
 from syrupy.assertion import SnapshotAssertion
 
-from devops_cli.core.process import run_subprocess
+from devops_cli.core.process import git_reaches_remote, run_subprocess
 from devops_cli.exceptions.k8s import KubernetesContextError
 from devops_cli.k8s.argocd_overrides import (
     ApplicationSource,
@@ -286,12 +286,10 @@ def test_an_application_renders_what_its_revision_holds(tmp_path: Path, git_fake
     ]
 
 
-def test_only_the_fetch_gets_the_ssh_option_and_every_command_gets_only_the_prompt_switch(
-    tmp_path: Path,
-) -> None:
-    """The SSH option is an argument of `git fetch`, the one command that opens an SSH
-    connection, and the environment of each command holds `GIT_TERMINAL_PROMPT=0` and no other
-    key (#2483)."""
+def _started_commands(
+    source: ApplicationSource, workdir: Path
+) -> list[tuple[list[str], dict[str, str] | None]]:
+    """Each command that `render_at_revision` starts for `source`, with its environment."""
     started: list[tuple[list[str], dict[str, str] | None]] = []
 
     def record(
@@ -300,22 +298,64 @@ def test_only_the_fetch_gets_the_ssh_option_and_every_command_gets_only_the_prom
         started.append((cmd, env))
         return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
 
+    render_at_revision(source, workdir, record)
+    return started
+
+
+def _config_before_subcommand(cmd: list[str], subcommand: str) -> list[str]:
+    """The `-c` values of `cmd` before its git subcommand, in order."""
+    before = cmd[: cmd.index(subcommand)]
+    return [before[at + 1] for at, word in enumerate(before) if word == "-c"]
+
+
+def test_only_the_fetch_gets_git_options_and_every_command_gets_only_the_prompt_switch(
+    tmp_path: Path,
+) -> None:
+    """The SSH option and the credential helpers of github.com are arguments of `git fetch`, the
+    one command that reaches a remote, and the environment of each command holds
+    `GIT_TERMINAL_PROMPT=0` and no other key (#2483, #5294)."""
     source = ApplicationSource("ssh://git@example.com/repository.git", "main", "k8s/app")
-    render_at_revision(source, tmp_path / "work", record)
+    started = _started_commands(source, tmp_path / "work")
 
     fetch = next(cmd for cmd, _ in started if "fetch" in cmd)
-    before_subcommand = fetch[: fetch.index("fetch")]
     assert (
-        [fetch[at + 1] for at, word in enumerate(fetch) if word == "-c"],
-        "-c" in before_subcommand,
+        _config_before_subcommand(fetch, "fetch"),
+        fetch.count("-c"),
         [cmd for cmd, _ in started if "-c" in cmd] == [fetch],
         [env for _, env in started],
     ) == (
-        ["core.sshCommand=ssh -o BatchMode=yes"],
-        True,
+        [
+            "core.sshCommand=ssh -o BatchMode=yes",
+            "credential.https://github.com.helper=",
+            "credential.https://github.com.helper=!gh auth git-credential",
+        ],
+        3,
         True,
         [{"GIT_TERMINAL_PROMPT": "0"}] * len(started),
     )
+
+
+def test_a_private_github_repository_is_fetched_with_the_credential_of_the_github_session(
+    tmp_path: Path,
+) -> None:
+    """An Application can name a private repository on github.com (#5294). The fetch names gh as
+    the only credential helper of github.com: the empty value first clears the helpers of the
+    config files. The fetch reaches a remote, so the process runner gives it the session's token
+    as GH_TOKEN, which `gh auth git-credential` reads."""
+    source = ApplicationSource("https://github.com/example/private-repository", "main", "k8s/app")
+    started = _started_commands(source, tmp_path / "work")
+
+    fetch = next(cmd for cmd, _ in started if "fetch" in cmd)
+    helper = "credential.https://github.com.helper="
+    assert (
+        [
+            value.removeprefix(helper)
+            for value in _config_before_subcommand(fetch, "fetch")
+            if value.startswith(helper)
+        ],
+        git_reaches_remote(fetch[1:]),
+        fetch[-2:],
+    ) == (["", "!gh auth git-credential"], True, [source.repo_url, source.revision])
 
 
 @pytest.mark.parametrize(
