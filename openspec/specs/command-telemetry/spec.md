@@ -78,7 +78,7 @@ The Grafana Loki datasource in `k8s/monitoring/grafana-values.yaml` SHALL config
 - **AND** it contains a label entry targeting `datasourceUid` `tempo` whose `matcherRegex` matches `trace_id`
 
 ### Requirement: devops-cli dashboard includes an error stream panel
-The `k8s/monitoring/dashboards/devops-cli.json` dashboard SHALL include a logs panel that shows the log records of `devops-cli` in Loki at the levels error, critical and fatal, and no warnings.
+The `k8s/devops/dashboards/devops-cli.json` dashboard SHALL include a logs panel that shows the log records of `devops-cli` in Loki at the levels error, critical and fatal, and no warnings.
 
 #### Scenario: Error stream panel is present in the dashboard
 - **WHEN** the panels of `devops-cli.json` are read
@@ -117,7 +117,7 @@ The telemetry client SHALL start a span, with no `vcs.*` attribute and no except
 - **THEN** the span holds that branch in `vcs.ref.name` and `vcs.branch`, and that revision in `vcs.revision_id` and `vcs.commit`
 
 ### Requirement: The devops-cli dashboard filters by job
-The dashboard `k8s/monitoring/dashboards/devops-cli.json` SHALL have the multi-value query variable `job`, with All, as its first variable. It SHALL read its values with `label_values({__name__=~"devops_cli_command_total|devops_cli_github_requests_total"}, job)`. Each Prometheus query of the dashboard SHALL filter each `devops_cli_*` series with the matcher `job=~"$job"` first in its selector.
+The dashboard `k8s/devops/dashboards/devops-cli.json` SHALL have the multi-value query variable `job`, with All, as its first variable. It SHALL read its values with `label_values({__name__=~"devops_cli_command_total|devops_cli_github_requests_total"}, job)`. Each Prometheus query of the dashboard SHALL filter each `devops_cli_*` series with the matcher `job=~"$job"` first in its selector.
 
 #### Scenario: The job variable is a query
 - **WHEN** the dashboard file is read
@@ -197,7 +197,7 @@ The caller of a usage-error record SHALL be `mcp` for an MCP tool call, else `ag
 - **THEN** the ledger line has the caller `person` and no agent tool
 
 ### Requirement: The devops-cli dashboard lists each sub-command of its series in one table
-The `command` variable of `k8s/monitoring/dashboards/devops-cli.json` SHALL read its values with `label_values(devops_cli_command_total{job=~"$job"}, command)`. The multi-value variable `sub_command`, with All, SHALL read its values with `label_values(devops_cli_subcommand_duration_seconds{job=~"$job",command=~"$command"}, sub_command)`. The row "Sub-commands" SHALL hold one table and no panel that repeats.
+The `command` variable of `k8s/devops/dashboards/devops-cli.json` SHALL read its values with `label_values(devops_cli_command_total{job=~"$job"}, command)`. The multi-value variable `sub_command`, with All, SHALL read its values with `label_values(devops_cli_subcommand_duration_seconds{job=~"$job",command=~"$command"}, sub_command)`. The row "Sub-commands" SHALL hold one table and no panel that repeats.
 
 #### Scenario: The variables are queries
 - **WHEN** the dashboard file is read

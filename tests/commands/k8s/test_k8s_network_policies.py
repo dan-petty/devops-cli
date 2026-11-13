@@ -402,7 +402,8 @@ def test_loki_otel_peer_names_the_collector_release_the_stack_installs() -> None
         for release in releases
         if release["chart"] == "open-telemetry/opentelemetry-collector"
     ]
-    values = yaml.safe_load(Path(collectors[0]["values"]).read_text("utf-8")) or {}
+    (values_file,) = collectors[0]["values"]
+    values = yaml.safe_load(Path(values_file).read_text("utf-8")) or {}
     labels = OTEL_COLLECTOR_PEER["podSelector"]["matchLabels"]
 
     assert [(c["namespace"], c["name"]) for c in collectors] == [

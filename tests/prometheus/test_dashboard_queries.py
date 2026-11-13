@@ -1,7 +1,8 @@
 """The queries of the Grafana dashboard panels, evaluated on fixture series with promtool (#4680).
 
 Each file `tests/fixtures/dashboard_queries/<dashboard>.yaml` holds the cases of the panels of
-`k8s/monitoring/dashboards/<dashboard>.json`. A file is a promtool unit test file with no rule
+`<dashboard>.json` in `k8s/devops/dashboards/` (the product dashboards) or in
+`k8s/monitoring/dashboards/` (#5292). A file is a promtool unit test file with no rule
 file (`promtool test rules`), with these keys added:
 
 - `shape` of a test group names the series shape that its input series model, one of `SHAPES`.
@@ -16,8 +17,8 @@ file (`promtool test rules`), with these keys added:
   `total`.
 
 A file with the key `spec` holds the cases of the dashboard that the SRE template of
-`devops_cli.grafana.service_dashboard` builds from that spec (#5184), not of a file in
-`k8s/monitoring/dashboards/`. Its cases cover the queries of the template for an SLO that no
+`devops_cli.grafana.service_dashboard` builds from that spec (#5184), not of a committed
+file. Its cases cover the queries of the template for an SLO that no
 committed spec has.
 
 The test replaces the variables as Grafana does, removes the added keys, writes one promtool
@@ -41,7 +42,11 @@ from devops_cli.prometheus.client import parse_duration
 from tests.support.paths import FIXTURES, REPO_ROOT
 from tests.support.promtool import promtool
 
-DASHBOARDS = REPO_ROOT / "k8s" / "monitoring" / "dashboards"
+# The folders of the committed dashboards: the product dashboards first (#5292).
+DASHBOARD_DIRS = (
+    REPO_ROOT / "k8s" / "devops" / "dashboards",
+    REPO_ROOT / "k8s" / "monitoring" / "dashboards",
+)
 GRAFANA_VALUES = REPO_ROOT / "k8s" / "monitoring" / "grafana-values.yaml"
 CASE_FILES = sorted((FIXTURES / "dashboard_queries").glob("*.yaml"))
 CASE_IDS = [path.stem for path in CASE_FILES]
@@ -150,9 +155,8 @@ def _targets(dashboard: dict[str, Any]) -> dict[tuple[str, str], list[dict[str, 
 
 
 def _dashboard(name: str) -> dict[str, Any]:
-    dashboard: dict[str, Any] = json.loads(
-        (DASHBOARDS / f"{name}.json").read_text(encoding="utf-8")
-    )
+    (path,) = [d / f"{name}.json" for d in DASHBOARD_DIRS if (d / f"{name}.json").is_file()]
+    dashboard: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
     return dashboard
 
 

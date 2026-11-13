@@ -80,7 +80,7 @@ def test_tempo_stack_contract_and_datasource_links() -> None:
             "name": "tempo",
             "chart": "grafana-community/tempo",
             "namespace": "otel",
-            "values": str(DEFAULT_K8S_DIR / "otel" / "tempo-values.yaml"),
+            "values": [str(DEFAULT_K8S_DIR / "otel" / "tempo-values.yaml")],
             "version": "3.2.1",
         },
         "local-path",

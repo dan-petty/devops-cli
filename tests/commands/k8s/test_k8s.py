@@ -369,13 +369,13 @@ def test_helm_version_older_than_minimum_fails(
 
 def test_build_helm_upgrade_cmd_carries_take_ownership() -> None:
     """Every helm upgrade --install argv carries --take-ownership (#1438)."""
-    from devops_cli.commands.k8s.stack_lifecycle import _build_helm_upgrade_cmd
+    from devops_cli.commands.k8s.stack_lifecycle import StackRelease, _build_helm_upgrade_cmd
 
-    rel = {
+    rel: StackRelease = {
         "name": "argocd",
         "chart": "argo/argo-cd",
         "namespace": "argocd",
-        "values": "k8s/argocd/values.yaml",
+        "values": ["k8s/argocd/values.yaml"],
         "version": "5.51.6",
     }
     cmd_v3 = _build_helm_upgrade_cmd(
@@ -389,6 +389,30 @@ def test_build_helm_upgrade_cmd_carries_take_ownership() -> None:
     )
     assert "--take-ownership" in cmd_v4
     assert "--force-conflicts" in cmd_v4
+
+
+def test_deploy_stack_gives_the_prometheus_chart_the_environment_values_then_the_product_rules(
+    cli: Callable[..., Any],
+) -> None:
+    """The helm command of the prometheus release names each values file in the order of the
+    Application `prometheus`: the environment values, then the product alert rules (#5292)."""
+    res = cli("k8s", "deploy-stack", "--stack", "infra", "--k8s-dir", "k8s", "--dry-run")
+    (upgrade,) = [
+        cmd
+        for cmd in _dry_run_details(res.output)["helm_commands"]
+        if cmd[:3] == ["helm", "upgrade", "--install"] and cmd[4] == "prometheus"
+    ]
+
+    assert (
+        res.exit_code,
+        [upgrade[i + 1] for i, arg in enumerate(upgrade) if arg == "--values"],
+    ) == (
+        0,
+        [
+            str(Path("k8s") / "monitoring" / "prometheus-values.yaml"),
+            str(Path("k8s") / "devops" / "monitoring" / "prometheus-rules-values.yaml"),
+        ],
+    )
 
 
 def test_deploy_stack_installs_each_chart_at_the_version_that_its_application_pins() -> None:
@@ -1493,7 +1517,8 @@ def test_pyroscope_helm_release_and_grafana_datasource() -> None:
     )
     assert pyro_release is not None
 
-    values_path = Path(pyro_release["values"])
+    (values_file,) = pyro_release["values"]
+    values_path = Path(values_file)
     assert values_path.is_file()
     pyro_values = yaml.safe_load(values_path.read_text(encoding="utf-8"))
 

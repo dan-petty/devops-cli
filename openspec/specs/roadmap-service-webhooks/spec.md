@@ -35,7 +35,7 @@ The webhook route SHALL read the body of a delivery with a signature header and 
 - **THEN** the route reads the body and answers 401 with `{"error": "invalid signature"}`
 
 ### Requirement: Traefik limits the deliveries of the webhook route
-The Traefik Middleware `devops/roadmap-service-rate-limit` SHALL set a `rateLimit` of 60 requests a minute with a burst of 60, counted in one bucket for the request host. Each Ingress `devops/roadmap-service` that Argo CD or deploy-stack applies SHALL name it in `traefik.ingress.kubernetes.io/router.middlewares` as `devops-roadmap-service-rate-limit@kubernetescrd`.
+The Traefik Middleware `devops/roadmap-service-rate-limit` SHALL set a `rateLimit` of 60 requests a minute with a burst of 60, counted in one bucket for the request host. Each Ingress `devops/roadmap-service` that Argo CD or deploy-stack applies SHALL name it in `traefik.ingress.kubernetes.io/router.middlewares` as `devops-roadmap-service-rate-limit@kubernetescrd`. Only `k8s/devops/roadmap-service/ingress.yaml` SHALL hold the Ingress.
 
 #### Scenario: Argo CD renders the devops Application
 - **WHEN** `kubectl kustomize k8s/overlays/homelab/devops` renders the objects of Application `devops`
@@ -43,9 +43,13 @@ The Traefik Middleware `devops/roadmap-service-rate-limit` SHALL set a `rateLimi
 - **AND** the Ingress `devops/roadmap-service` of the render names `devops-roadmap-service-rate-limit@kubernetescrd`
 
 #### Scenario: deploy-stack applies the Ingress
-- **WHEN** a test reads the Ingress `devops/roadmap-service` in `k8s/devops/roadmap-service/ingress.yaml` and in `k8s/ingress/ingress-routes.yaml`
-- **THEN** each names `devops-roadmap-service-rate-limit@kubernetescrd`
+- **WHEN** a test reads the Ingress `devops/roadmap-service` in `k8s/devops/roadmap-service/ingress.yaml`
+- **THEN** it names `devops-roadmap-service-rate-limit@kubernetescrd`
 - **AND** the native `devops` stack applies `middleware.yaml` before `ingress.yaml`
+
+#### Scenario: The environment routes hold no copy
+- **WHEN** a test reads the Ingresses of `k8s/ingress/ingress-routes.yaml`
+- **THEN** none of them is in namespace `devops`
 
 ### Requirement: The runbook counts each answer of the route, the 429 of the rate limit included
 The subsection Webhook route of `k8s/README.md` SHALL count the answers of the route with `traefik_router_requests_total`, which Traefik counts before the middlewares of the router, so that the count includes each HTTP 429 of the rate limit.

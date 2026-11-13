@@ -1,11 +1,11 @@
 # promtool rule unit tests of the alert RoadmapServiceAlternativesNotSearching of the alert group
-# roadmap-service-activity in k8s/monitoring/prometheus-values.yaml (#2950). Its ranges are 3 and
-# 7 days, so its cases run for 150 or 200 hours with one sample each hour. promtool evaluates the
-# rules of the group once each `evaluation_interval` from 0 to the last `eval_time` of a case, so
-# these cases are in their own file with an interval of 1 hour: at the 1 minute of
+# roadmap-service-activity in k8s/devops/monitoring/prometheus-rules-values.yaml (#2950). Its ranges
+# are 3 and 7 days, so its cases run for 150 or 200 hours with one sample each hour. promtool
+# evaluates the rules of the group once each `evaluation_interval` from 0 to the last `eval_time` of
+# a case, so these cases are in their own file with an interval of 1 hour: at the 1 minute of
 # roadmap_service_activity_tests.yaml, one case made 12,000 rounds of the group's 4 rules (#4456).
-# The wait of the rule is 1 hour, so an alert fires at the first evaluation after its condition
-# held for 1 hour.
+# The wait of the rule is 1 hour, so an alert fires at the first evaluation after its condition held
+# for 1 hour.
 #
 # tests/prometheus/test_k8s_monitoring_alerting.py writes the group to the file that `rule_files`
 # names, beside a copy of this file, and runs `promtool test rules` on the copy.

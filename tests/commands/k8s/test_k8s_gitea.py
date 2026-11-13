@@ -120,7 +120,7 @@ def test_the_gitea_application_runs_the_pinned_chart_that_deploy_stack_installs(
             "name": "gitea",
             "chart": "gitea-charts/gitea",
             "namespace": "gitea",
-            "values": str(DEFAULT_K8S_DIR / "gitea" / "values.yaml"),
+            "values": [str(DEFAULT_K8S_DIR / "gitea" / "values.yaml")],
             "version": CHART_VERSION,
         },
         {"gitea-charts": CHART_REPO},

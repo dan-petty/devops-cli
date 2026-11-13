@@ -1,9 +1,9 @@
 # promtool rule unit tests of the alert group roadmap-service-tools in
-# k8s/monitoring/prometheus-values.yaml (#3240). The alert fires for a tool of a toolset when the
-# tool had no call in 7 days, its series is older than 7 days, and the Service made plan runs of the
-# same row and toolset in the same 7 days. Each plan run adds 0 to the call counter for every tool
-# of its toolset, so a tool that no run calls keeps a series. The plan runs are the observations of
-# the native histogram of the calls per run.
+# k8s/devops/monitoring/prometheus-rules-values.yaml (#3240). The alert fires for a tool of a
+# toolset when the tool had no call in 7 days, its series is older than 7 days, and the Service made
+# plan runs of the same row and toolset in the same 7 days. Each plan run adds 0 to the call counter
+# for every tool of its toolset, so a tool that no run calls keeps a series. The plan runs are the
+# observations of the native histogram of the calls per run.
 #
 # tests/prometheus/test_k8s_monitoring_alerting.py writes the group to the file that `rule_files`
 # names, beside a copy of this file, and runs `promtool test rules` on the copy. promtool starts each

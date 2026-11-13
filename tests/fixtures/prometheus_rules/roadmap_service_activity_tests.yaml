@@ -1,7 +1,7 @@
 # promtool rule unit tests of the alert group roadmap-service-activity in
-# k8s/monitoring/prometheus-values.yaml (#2475). Each alert fires on a sample series and stays
-# quiet on a normal one. The series of another job (a workstation as job="devops-cli", or the
-# server's old kubernetes-pods job) are in each normal case, and the rules must not count them.
+# k8s/devops/monitoring/prometheus-rules-values.yaml (#2475). Each alert fires on a sample series
+# and stays quiet on a normal one. The series of another job (a workstation as job="devops-cli", or
+# the server's old kubernetes-pods job) are in each normal case, and the rules must not count them.
 #
 # The cases of RoadmapServiceAlternativesNotSearching run for days, so they are in
 # roadmap_service_activity_hourly_tests.yaml, which promtool evaluates once each hour.

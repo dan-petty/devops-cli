@@ -31,6 +31,13 @@ from tests.support.paths import REPO_ROOT
 runner = CliRunner()
 
 _REPO_DASHBOARDS = REPO_ROOT / "k8s" / "monitoring" / "dashboards"
+# The product dashboards of devops-cli (#5292).
+_PRODUCT_DASHBOARDS = REPO_ROOT / "k8s" / "devops" / "dashboards"
+_REPO_DASHBOARD_FILES = sorted(
+    path
+    for directory in (_REPO_DASHBOARDS, _PRODUCT_DASHBOARDS)
+    for path in directory.glob("*.json")
+)
 _SERIES_WITH_NO_JOB_MATCHER = re.compile(r'devops_cli_[a-z0-9_]+\b(?!\{job=~"\$job")')
 _JOB_VALUES = (
     'label_values({__name__=~"devops_cli_command_total|devops_cli_github_requests_total"}, job)'
@@ -169,9 +176,7 @@ def test_row_is_not_a_visualisation() -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-@pytest.mark.parametrize(
-    "dashboard_file", sorted(_REPO_DASHBOARDS.glob("*.json")), ids=lambda p: p.name
-)
+@pytest.mark.parametrize("dashboard_file", _REPO_DASHBOARD_FILES, ids=lambda p: p.name)
 def test_repository_dashboards_lint_clean(dashboard_file: Path) -> None:
     """The dashboards actually shipped in this repository must lint without errors.
 
@@ -365,10 +370,27 @@ def test_non_object_dashboard_reports_an_error(tmp_path: Path) -> None:
 
 
 def test_cli_lints_the_repository_dashboards() -> None:
-    """The lint command reports a clean run over the shipped dashboards."""
-    result = runner.invoke(grafana_app, ["dashboards", "lint", str(_REPO_DASHBOARDS)])
+    """The lint command reports a clean run over the shipped dashboards of both folders."""
+    result = runner.invoke(
+        grafana_app, ["dashboards", "lint", str(_REPO_DASHBOARDS), str(_PRODUCT_DASHBOARDS)]
+    )
     assert result.exit_code == 0
     assert "0 error(s)" in result.output
+
+
+def test_cli_with_no_path_lints_the_environment_and_the_product_dashboards(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """With no path, the lint command reads `k8s/monitoring/dashboards` and
+    `k8s/devops/dashboards` of the current directory, so a uid that two folders share is an
+    error too (#5292)."""
+    monkeypatch.chdir(REPO_ROOT)
+    result = runner.invoke(grafana_app, ["dashboards", "lint", "--json"])
+
+    assert (
+        result.exit_code,
+        sorted(report["source_file"] for report in json.loads(result.output)),
+    ) == (0, sorted(path.name for path in _REPO_DASHBOARD_FILES))
 
 
 def test_cli_exits_non_zero_on_errors(tmp_path: Path) -> None:
@@ -638,12 +660,12 @@ def test_dashboards_contain_properly_labeled_sum_and_average_lines() -> None:
 
 def test_enhanced_dashboard_panels_and_visualizations() -> None:
     """Verify newly enhanced panels in AI spend, LLM, Ingress, and DevOps CLI dashboards."""
-    ai_dash = json.loads((_REPO_DASHBOARDS / "ai-spend.json").read_text(encoding="utf-8"))
+    ai_dash = json.loads((_PRODUCT_DASHBOARDS / "ai-spend.json").read_text(encoding="utf-8"))
     llm_dash = json.loads((_REPO_DASHBOARDS / "llm-stack.json").read_text(encoding="utf-8"))
     ingress_dash = json.loads(
         (_REPO_DASHBOARDS / "ingress-tunnel.json").read_text(encoding="utf-8")
     )
-    cli_dash = json.loads((_REPO_DASHBOARDS / "devops-cli.json").read_text(encoding="utf-8"))
+    cli_dash = json.loads((_PRODUCT_DASHBOARDS / "devops-cli.json").read_text(encoding="utf-8"))
 
     ai_projections = [p["title"] for p in ai_dash["panels"] if "Projected" in p.get("title", "")]
     savings_panel = next(
@@ -682,10 +704,12 @@ def test_enhanced_dashboard_panels_and_visualizations() -> None:
 
 def test_grafana_dashboard_projections_and_dcgm_grid_layout() -> None:
     """Verify aggregated rolling averages, dynamic projections, TTFT, and DCGM 2x2 grid."""
-    ai_dash = json.loads((_REPO_DASHBOARDS / "ai-spend.json").read_text(encoding="utf-8"))
+    ai_dash = json.loads((_PRODUCT_DASHBOARDS / "ai-spend.json").read_text(encoding="utf-8"))
     llm_dash = json.loads((_REPO_DASHBOARDS / "llm-stack.json").read_text(encoding="utf-8"))
     dcgm_dash = json.loads((_REPO_DASHBOARDS / "nvidia-dcgm.json").read_text(encoding="utf-8"))
-    proj_dash = json.loads((_REPO_DASHBOARDS / "project-metrics.json").read_text(encoding="utf-8"))
+    proj_dash = json.loads(
+        (_PRODUCT_DASHBOARDS / "project-metrics.json").read_text(encoding="utf-8")
+    )
 
     ai_panels = {p["id"]: p for p in ai_dash.get("panels", [])}
     dcgm_panels = {p["id"]: p for p in dcgm_dash.get("panels", [])}
@@ -890,7 +914,7 @@ def test_cli_dashboard_finds_each_command_and_sub_command_from_its_series() -> N
     """The `command` and `sub_command` variables of devops-cli.json read their values from the
     series that devops-cli sends, so a new command or sub-command shows with no change to the
     dashboard. `sub_command` holds only the sub-commands of the commands selected (#2700)."""
-    cli_dash = json.loads((_REPO_DASHBOARDS / "devops-cli.json").read_text(encoding="utf-8"))
+    cli_dash = json.loads((_PRODUCT_DASHBOARDS / "devops-cli.json").read_text(encoding="utf-8"))
     variables = {v["name"]: v for v in cli_dash.get("templating", {}).get("list", [])}
 
     assert [
@@ -937,7 +961,7 @@ def test_cli_dashboard_finds_each_command_and_sub_command_from_its_series() -> N
 
 def _cli_dashboard_prometheus_queries() -> list[str]:
     """Each Prometheus query of the panels of devops-cli.json."""
-    cli_dash = json.loads((_REPO_DASHBOARDS / "devops-cli.json").read_text(encoding="utf-8"))
+    cli_dash = json.loads((_PRODUCT_DASHBOARDS / "devops-cli.json").read_text(encoding="utf-8"))
     return [
         target["expr"]
         for panel in cli_dash["panels"]
@@ -951,7 +975,7 @@ def test_cli_dashboard_finds_each_job_from_its_series() -> None:
     before it. The list follows the time range, and the Service adds to the command series only
     when it exits, so the variable also reads the GitHub requests that it sends as it works (#2479).
     """
-    cli_dash = json.loads((_REPO_DASHBOARDS / "devops-cli.json").read_text(encoding="utf-8"))
+    cli_dash = json.loads((_PRODUCT_DASHBOARDS / "devops-cli.json").read_text(encoding="utf-8"))
     first = cli_dash["templating"]["list"][0]
 
     assert (
@@ -992,7 +1016,7 @@ def test_each_prometheus_query_of_the_cli_dashboard_filters_by_job() -> None:
 
 def _cli_dashboard_row(title: str) -> list[dict[str, Any]]:
     """The panels of the row `title` of devops-cli.json, in the order of the file."""
-    cli_dash = json.loads((_REPO_DASHBOARDS / "devops-cli.json").read_text(encoding="utf-8"))
+    cli_dash = json.loads((_PRODUCT_DASHBOARDS / "devops-cli.json").read_text(encoding="utf-8"))
     panels: list[dict[str, Any]] = cli_dash["panels"]
     start = next(i for i, p in enumerate(panels) if p.get("type") == "row" and p["title"] == title)
     end = next(
@@ -1096,7 +1120,7 @@ def test_cli_dashboard_service_row_reads_each_series_of_the_service() -> None:
 def test_cli_dashboard_panels_do_not_overlap() -> None:
     """The panels fill a grid of 24 columns, and no two panels hold the same cell, so the row
     "Roadmap Service" keeps its place below the row before it (#2479)."""
-    cli_dash = json.loads((_REPO_DASHBOARDS / "devops-cli.json").read_text(encoding="utf-8"))
+    cli_dash = json.loads((_PRODUCT_DASHBOARDS / "devops-cli.json").read_text(encoding="utf-8"))
     cells: list[tuple[int, int]] = []
     for panel in cli_dash["panels"]:
         grid = panel["gridPos"]
@@ -1174,7 +1198,7 @@ def test_loki_datasource_derived_field_links_to_tempo() -> None:
 def test_devops_cli_dashboard_includes_error_stream_panel() -> None:
     """Verify devops-cli dashboard includes a Loki logs panel of the error records only: the
     levels error, critical and fatal, and no warnings (#813, #4707)."""
-    cli_dash = json.loads((_REPO_DASHBOARDS / "devops-cli.json").read_text(encoding="utf-8"))
+    cli_dash = json.loads((_PRODUCT_DASHBOARDS / "devops-cli.json").read_text(encoding="utf-8"))
     (error_panel,) = [p for p in cli_dash["panels"] if p.get("type") == "logs"]
 
     assert (

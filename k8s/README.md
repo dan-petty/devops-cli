@@ -289,13 +289,13 @@ cloudflared, Traefik, Alertmanager, roadmap-service, the three cert-manager pods
 
 ## Grafana Dashboards
 
-Dashboards live in `monitoring/dashboards/`. Its `kustomization.yaml` generates six ConfigMaps labelled `grafana_dashboard: "1"`, and the Grafana dashboard sidecar (`monitoring/grafana-values.yaml`) loads every ConfigMap with that label:
+The environment dashboards live in `monitoring/dashboards/`, and the product dashboards of devops-cli, which read the `devops_cli_*` series, live in `devops/dashboards/` (#5292). The `kustomization.yaml` of `monitoring/dashboards/` generates five ConfigMaps and lists `../../devops/dashboards`, whose `kustomization.yaml` generates the sixth ConfigMap with the same options. Each ConfigMap has the label `grafana_dashboard: "1"`, and the Grafana dashboard sidecar (`monitoring/grafana-values.yaml`) loads every ConfigMap with that label:
 
 | ConfigMap | Dashboards |
 | :--- | :--- |
 | `grafana-k8s-global-dashboards` | `k8s-views-global.json`, `k8s-views-pods.json` |
 | `grafana-k8s-node-dashboards` | `k8s-views-nodes.json`, `k8s-views-namespaces.json` |
-| `grafana-devops-cli-dashboards` | `devops-cli.json`, `ai-spend.json`, `project-metrics.json` |
+| `grafana-devops-cli-dashboards` | `devops-cli.json`, `ai-spend.json`, `project-metrics.json`, in `devops/dashboards/` |
 | `grafana-service-dashboards` | `devops-roadmap-service.json`, `devops-sre-service.json` |
 | `grafana-stack-dashboards` | `ingress-tunnel.json`, `llm-stack.json`, `otel-collector.json`, `prometheus-server.json`, `pyroscope.json`, `nvidia-dcgm.json`, `coredns.json` |
 | `grafana-database-dashboards` | `cloudnative-pg.json` |
@@ -304,7 +304,7 @@ The service dashboards are generated. `make dashboards` builds each `[[service]]
 
 `cloudnative-pg.json` is the upstream dashboard of [cloudnative-pg/grafana-dashboards](https://github.com/cloudnative-pg/grafana-dashboards) (Apache-2.0) at commit `7dd1bc255b52`, with two changes: its indentation is one space, not two, so its ConfigMap stays under the annotation limit below, and the empty query of its replication lag stat is removed, which `devops grafana dashboards lint` refuses. The operator chart can also write this dashboard, but to `cnpg-system`, where the sidecar does not look, so `monitoring.grafanaDashboard.create` is `false` in `mattermost/cloudnative-pg-values.yaml`. To update the copy, take the file of a newer commit and make the same two changes.
 
-On a cluster Argo CD manages, its `monitoring` Application applies them; the root kustomization leaves them out, so the `base` Application does not own them as well. Without Argo CD, `devops k8s deploy-stack --stack infra` (or `all`) applies the `monitoring` kustomization, which lists the namespace's perimeter and `dashboards`, right after the root kustomization creates the `monitoring` namespace, and `teardown-stack` removes them with that namespace. Grafana holds these dashboards as provisioned and refuses to save over them, so change the JSON file and deploy again. To provision another dashboard, add it to a generator entry; each ConfigMap must stay under the 262,144 bytes kubectl's last-applied annotation allows.
+On a cluster Argo CD manages, its `monitoring` Application applies them; the root kustomization leaves them out, so the `base` Application does not own them as well. For the same reason, `devops/kustomization.yaml` does not list `dashboards`: then the `devops` Application takes the ConfigMap `grafana-devops-cli-dashboards` too, and `tests/prometheus/test_k8s_monitoring_dashboards.py` fails. Without Argo CD, `devops k8s deploy-stack --stack infra` (or `all`) applies the `monitoring` kustomization, which lists the namespace's perimeter and `dashboards`, right after the root kustomization creates the `monitoring` namespace, and `teardown-stack` removes them with that namespace. Grafana holds these dashboards as provisioned and refuses to save over them, so change the JSON file and deploy again. To provision another dashboard, add it to a generator entry; each ConfigMap must stay under the 262,144 bytes kubectl's last-applied annotation allows.
 
 The AI spend dashboard (`ai-spend.json`) prices local savings in Prometheus. It multiplies the tokens that a local model ran (`devops_cli_ai_tokens_total{local="true"}`) by its hidden constant `reference_price_usd_per_token`, a PromQL vector of one price for each operation and token type. Each price is genai-prices' price of the default reference model of its operation (`gpt-4o` for chat, `text-embedding-3-small` for embeddings), so every process that sends tokens, and every time range in the retention window, is priced at one reference. A recording rule has samples only from its first evaluation, so the dashboard holds the prices and Prometheus records none. The savings queries also count the series from before the `local` label (#1672) that the gateway served, because the gateway serves only local models, and they count a series without the `operation` label as chat. Remove that mapping when `count(last_over_time(devops_cli_ai_tokens_total{local=""}[30d]))` is empty. `tests/prometheus/test_k8s_monitoring_dashboards.py` fails when a price of the dashboard differs from genai-prices.
 
@@ -324,8 +324,8 @@ The stack dashboards chart the cluster workloads and infrastructure services:
 | `cloudnative-pg.json`, "CloudNativePG" (`cloudnative-pg`) | The CloudNativePG metrics exporter of each instance on port 9187 (`cnpg_*`), and the operator's `controller_runtime_*` | The PodMonitors `llm-gateway-db` (`llm/gateway-db.yaml`) and `mattermost-db` (`mattermost/podmonitor.yaml`), and the operator's chart PodMonitor (`monitoring.podMonitorEnabled` in `mattermost/cloudnative-pg-values.yaml`), run by Alloy. Select the database with the `namespace` and `cluster` variables (#4994) |
 
 ```bash
-devops grafana dashboards lint k8s/monitoring/dashboards  # also catches a uid two files share
-devops grafana dashboards sync                            # posts every file in the directory
+devops grafana dashboards lint  # both folders; also catches a uid two files share
+devops grafana dashboards sync  # posts every file of both folders
 ```
 `sync` exits 1 if any dashboard failed. It reports the provisioned dashboards as skipped, not failed.
 
@@ -510,7 +510,7 @@ node_systemd_unit_state{state="failed"} == 1                               # Pro
 
 ## Alerting
 
-Alertmanager runs from the prometheus chart (`alertmanager` in `monitoring/prometheus-values.yaml`), and Grafana reads it as the `Alertmanager` datasource. The rules are in the same file, under `serverFiles.alerting_rules.yml`; `tests/prometheus/test_k8s_monitoring_alerting.py` pins them and checks that each selects only series that a scrape or the OpenTelemetry collector in `k8s/` serves. No rule watches the controller manager, scheduler or proxy: k3s runs them inside its server process, so nothing scrapes them and such a rule would fire on the missing target.
+Alertmanager runs from the prometheus chart (`alertmanager` in `monitoring/prometheus-values.yaml`), and Grafana reads it as the `Alertmanager` datasource. The environment rules are in the same file, under `serverFiles.alerting_rules.yml`. The product rules, the groups that select a `devops_cli_*` series, are in `devops/monitoring/prometheus-rules-values.yaml`, under `serverFiles.devops_cli_alerting_rules.yml` (#5292). The `prometheus` Application gives the chart this file as its second values file, and `devops k8s deploy-stack` gives `helm upgrade` both files. The chart writes each key of `serverFiles` to the ConfigMap `prometheus-server`, and `serverFiles.prometheus.yml.rule_files` of the environment values names the 4 rule files of the chart and the product file. `tests/prometheus/test_k8s_monitoring_alerting.py` pins the rules and checks that each selects only series that a scrape or the OpenTelemetry collector in `k8s/` serves. No rule watches the controller manager, scheduler or proxy: k3s runs them inside its server process, so nothing scrapes them and such a rule would fire on the missing target.
 
 | Alert | Fires when | For | Severity |
 | :--- | :--- | :--- | :--- |
@@ -789,7 +789,7 @@ The `/roadmap` slash command in Mattermost inspects each repository's roadmap se
 
 #### Alerts
 
-The rule group `roadmap-service` in `monitoring/prometheus-values.yaml` watches the Service (#2472), and the rule group `roadmap-service-webhooks` watches its webhook route (#2476). Each description of a rule points to this section. Each `devops_cli_` series is selected with `job="roadmap-service"`: the scrape of the pod's `/metrics` and the OTLP export both give the Service's series that job, so the same series of a workstation (`job="devops-cli"`) does not count. The failed jobs and the GitHub and model requests of the last hour count a series that starts in the hour from zero, so they also count its first sample (#2505). kube-state-metrics gives the restarts and the replicas.
+The rule group `roadmap-service` in `devops/monitoring/prometheus-rules-values.yaml` watches the Service (#2472), and the rule group `roadmap-service-webhooks` watches its webhook route (#2476). Each description of a rule points to this section. Each `devops_cli_` series is selected with `job="roadmap-service"`: the scrape of the pod's `/metrics` and the OTLP export both give the Service's series that job, so the same series of a workstation (`job="devops-cli"`) does not count. The failed jobs and the GitHub and model requests of the last hour count a series that starts in the hour from zero, so they also count its first sample (#2505). kube-state-metrics gives the restarts and the replicas.
 
 | Alert | Fires when | For | Severity | Do this |
 | :--- | :--- | :--- | :--- | :--- |
@@ -886,7 +886,7 @@ Do not restart the pod to clear a halt before you know its cause. A restart clea
 
 #### Alerts
 
-The rule group `crawl4ai` in `monitoring/prometheus-values.yaml` watches the page fetches of the roadmap Service and the Deployment (#3893). The rules read the counter `devops_cli_crawl4ai_fetches_total` of the Service (`job="roadmap-service"`), not the `/metrics` of Crawl4AI, which needs the token. A fetch from a workstation (`devops ai fetch-page`) has another job and never counts. With no `crawl4ai.url` the Service sends no fetch, so the counter has no series and the first rule stays quiet. Like all alerts, they leave the cluster only when the Secret `monitoring/alertmanager-mattermost` exists.
+The rule group `crawl4ai` in `devops/monitoring/prometheus-rules-values.yaml` watches the page fetches of the roadmap Service and the Deployment (#3893). The rules read the counter `devops_cli_crawl4ai_fetches_total` of the Service (`job="roadmap-service"`), not the `/metrics` of Crawl4AI, which needs the token. A fetch from a workstation (`devops ai fetch-page`) has another job and never counts. With no `crawl4ai.url` the Service sends no fetch, so the counter has no series and the first rule stays quiet. Like all alerts, they leave the cluster only when the Secret `monitoring/alertmanager-mattermost` exists.
 
 | Alert | Fires when | For | Severity | Do this |
 | :--- | :--- | :--- | :--- | :--- |
@@ -1491,6 +1491,13 @@ k8s/
 │   ├── networkpolicy.yaml    # Default-deny perimeter: DNS, the gateway and public HTTPS out; skips the crawl4ai and searxng pods
 │   ├── networkpolicy-rag-ingest.yaml # Lets the rag-ingest pods reach Qdrant on TCP 6333
 │   ├── workflowtemplate-rag-ingest.yaml # WorkflowTemplate rag-ingest: keeps the RAG index current
+│   ├── dashboards/           # The product dashboards; Application monitoring applies them, so the kustomization above does not list this folder
+│   │   ├── kustomization.yaml # configMapGenerator: ConfigMap grafana-devops-cli-dashboards in namespace monitoring
+│   │   ├── devops-cli.json   # devops-cli commands, reviews, RAG, spend and the roadmap Service
+│   │   ├── ai-spend.json     # AI spend and LLM usage
+│   │   └── project-metrics.json # Project & engineering velocity, release cadence and CI pass rates
+│   ├── monitoring/
+│   │   └── prometheus-rules-values.yaml # Second Helm values file of prometheus-community/prometheus: the product alert rules
 │   ├── crawl4ai/             # Crawl4AI page-text service: Deployment, Service and the NetworkPolicies of the pod and of its one client
 │   │   ├── kustomization.yaml
 │   │   ├── deployment.yaml
@@ -1537,7 +1544,7 @@ k8s/
 │       └── projects.yaml     # AppProjects: homelab and homelab-system
 ├── overlays/
 │   └── homelab/              # Homelab overlays the Applications devops and ingress render; hosts stay under example.com
-│       ├── ingress/          # Application ingress: k8s/ingress without the roadmap-service Ingress
+│       ├── ingress/          # Application ingress: k8s/ingress
 │       └── devops/           # Application devops: k8s/devops
 ├── monitoring/
 │   ├── kustomization.yaml    # Kustomize overlay for monitoring: NetworkPolicy and dashboards
@@ -1546,14 +1553,11 @@ k8s/
 │   ├── grafana-values.yaml   # Helm values for grafana-community/grafana (datasources, dashboard sidecar)
 │   ├── k8s-monitoring-values.yaml # Helm values for grafana/k8s-monitoring (Alloy, kube-state-metrics, node-exporter, node journals, annotation autodiscovery, CoreDNS, profiling, and the Alloy, Grafana, Loki, Tempo and DCGM integrations)
 │   ├── prometheus-operator-crds-values.yaml # Helm values for prometheus-community/prometheus-operator-crds (ServiceMonitor and other monitoring.coreos.com CRDs)
-│   ├── prometheus-values.yaml # Helm values for prometheus-community/prometheus (server, Alertmanager and alert rules)
+│   ├── prometheus-values.yaml # Helm values for prometheus-community/prometheus (server, Alertmanager, the environment alert rules and rule_files)
 │   └── dashboards/
-│       ├── kustomization.yaml # configMapGenerator: sidecar-labelled ConfigMaps for four dashboard groups
+│       ├── kustomization.yaml # configMapGenerator: sidecar-labelled ConfigMaps for the environment dashboard groups; lists ../../devops/dashboards
 │       ├── k8s-views-global.json, k8s-views-pods.json # ConfigMap grafana-k8s-global-dashboards
 │       ├── k8s-views-nodes.json, k8s-views-namespaces.json # ConfigMap grafana-k8s-node-dashboards
-│       ├── devops-cli.json   # devops-cli commands, reviews, RAG, spend and the roadmap Service (grafana-devops-cli-dashboards)
-│       ├── ai-spend.json     # AI spend and LLM usage (grafana-devops-cli-dashboards)
-│       ├── project-metrics.json # Project & engineering velocity, release cadence and CI pass rates (grafana-devops-cli-dashboards)
 │       ├── coredns.json      # CoreDNS traffic, latency, forwarders and cache; provisioned in grafana-stack-dashboards
 │       ├── llm-stack.json    # LiteLLM gateway, GPUs and Qdrant; provisioned in grafana-stack-dashboards
 │       ├── otel-collector.json # The collector's own telemetry; provisioned in grafana-stack-dashboards

@@ -131,7 +131,7 @@ When a gateway reply contains a model in its reply body that differs from the re
 - **THEN** the spend-ledger row records model `devops-review`, served_by with the backend header value, and served_model `gpt-oss:20b`
 
 ### Requirement: The AI spend dashboard holds the reference prices
-The hidden constant `reference_price_usd_per_token` of `k8s/monitoring/dashboards/ai-spend.json` SHALL hold, for each operation and token type, genai-prices' price of the default reference model of the operation. The default chat reference model SHALL be `gpt-4o`. No Prometheus recording rule SHALL hold a reference price.
+The hidden constant `reference_price_usd_per_token` of `k8s/devops/dashboards/ai-spend.json` SHALL hold, for each operation and token type, genai-prices' price of the default reference model of the operation. The default chat reference model SHALL be `gpt-4o`. No Prometheus recording rule SHALL hold a reference price.
 
 #### Scenario: The dashboard holds genai-prices' price of the default references
 - **WHEN** the dashboard and the Prometheus values are read

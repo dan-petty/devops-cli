@@ -1,7 +1,7 @@
 # project-metrics-dashboard Specification
 
 ## Purpose
-How the Project & Engineering Velocity dashboard (`k8s/monitoring/dashboards/project-metrics.json`) reads the project metrics that the roadmap Service sends as snapshots, and how devops-cli names its gauges and counters so that each consumer reads them by their kind.
+How the Project & Engineering Velocity dashboard (`k8s/devops/dashboards/project-metrics.json`) reads the project metrics that the roadmap Service sends as snapshots, and how devops-cli names its gauges and counters so that each consumer reads them by their kind.
 
 ## Requirements
 

@@ -66,15 +66,36 @@ def pinned_charts() -> frozenset[tuple[str, str]]:
     )
 
 
+def _value_files(source: dict[str, Any]) -> list[str]:
+    """The values files of a chart source, relative to the repository, in their order."""
+    return [
+        value_file.removeprefix(VALUES_PREFIX)
+        for value_file in source.get("helm", {}).get("valueFiles", [])
+    ]
+
+
+def _merged(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+    """`override` over `base`, as Helm merges two values files: a map by key, and any other value
+    in place of the earlier one."""
+    merged = dict(base)
+    for key, value in override.items():
+        earlier = merged.get(key)
+        both_maps = isinstance(value, dict) and isinstance(earlier, dict)
+        merged[key] = _merged(earlier, value) if both_maps else value
+    return merged
+
+
 def chart_values() -> Iterator[tuple[str, str, dict[str, Any]]]:
-    """Each chart an Application installs, its values file and the values, in file order."""
+    """Each chart an Application installs, its first values file and the values that the chart
+    gets: each values file of the source over the one before it (#5292), in file order."""
     for source in application_sources():
-        if "chart" not in source:
+        if "chart" not in source or not (files := _value_files(source)):
             continue
-        for value_file in source.get("helm", {}).get("valueFiles", []):
-            relative = value_file.removeprefix(VALUES_PREFIX)
-            (values,) = yaml_documents(REPO_ROOT / relative)
-            yield source["chart"], relative, values
+        values: dict[str, Any] = {}
+        for relative in files:
+            (document,) = yaml_documents(REPO_ROOT / relative)
+            values = _merged(values, document)
+        yield source["chart"], files[0], values
 
 
 def manifests() -> Iterator[tuple[str, dict[str, Any]]]:
@@ -82,7 +103,12 @@ def manifests() -> Iterator[tuple[str, dict[str, Any]]]:
 
     A values file that an Application names is not a manifest, so its mappings are left out.
     """
-    values = frozenset(relative for _, relative, _ in chart_values())
+    values = frozenset(
+        relative
+        for source in application_sources()
+        if "chart" in source
+        for relative in _value_files(source)
+    )
     for path in sorted(K8S.rglob("*.y*ml")):
         relative = path.relative_to(REPO_ROOT).as_posix()
         if relative in values:

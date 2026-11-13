@@ -9,10 +9,16 @@
 # the old one behind for the sidecar to load twice. Each ConfigMap stays under kubectl's
 # 262,144-byte last-applied annotation, which is why the dashboards are partitioned across
 # focused ConfigMaps. All stack, Kubernetes view, CLI, and service dashboards are provisioned.
+# The product dashboards of devops-cli (ConfigMap grafana-devops-cli-dashboards) have their own
+# generator in k8s/devops/dashboards, which this kustomization lists, so this Application stays
+# their owner (#5292).
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
 namespace: monitoring
+
+resources:
+  - ../../devops/dashboards
 
 generatorOptions:
   disableNameSuffixHash: true
@@ -30,11 +36,6 @@ configMapGenerator:
     files:
       - k8s-views-nodes.json
       - k8s-views-namespaces.json
-  - name: grafana-devops-cli-dashboards
-    files:
-      - devops-cli.json
-      - ai-spend.json
-      - project-metrics.json
   # The service dashboards that `make dashboards` builds from services.toml with the SRE template
   # (#5184). Do not edit them: change services.toml and run `make dashboards`.
   - name: grafana-service-dashboards

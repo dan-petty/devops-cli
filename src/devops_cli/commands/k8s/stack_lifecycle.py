@@ -9,7 +9,7 @@ import tempfile
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, Any, Final, assert_never
+from typing import TYPE_CHECKING, Annotated, Any, Final, TypedDict, assert_never
 
 import typer
 from packaging.version import InvalidVersion, Version
@@ -107,7 +107,19 @@ _HELM_REPOS: dict[str, str] = {
 }
 
 
-HELM_RELEASES_BY_STACK: dict[str, list[dict[str, str]]] = {
+class StackRelease(TypedDict):
+    """One Helm release that deploy-stack installs, as the Argo CD Application of the chart does."""
+
+    name: str
+    chart: str
+    namespace: str
+    # The values files, in the order of the `valueFiles` of the Application: a later file
+    # overrides an earlier one.
+    values: list[str]
+    version: str
+
+
+HELM_RELEASES_BY_STACK: dict[str, list[StackRelease]] = {
     "infra": [
         # First: argocd's metrics.serviceMonitor, argo-workflows' controller.serviceMonitor,
         # pyroscope's serviceMonitor, qdrant's metrics.serviceMonitor and
@@ -117,7 +129,9 @@ HELM_RELEASES_BY_STACK: dict[str, list[dict[str, str]]] = {
             "name": "prometheus-operator-crds",
             "chart": "prometheus-community/prometheus-operator-crds",
             "namespace": "monitoring",
-            "values": str(DEFAULT_K8S_DIR / "monitoring" / "prometheus-operator-crds-values.yaml"),
+            "values": [
+                str(DEFAULT_K8S_DIR / "monitoring" / "prometheus-operator-crds-values.yaml")
+            ],
             "version": "33.0.2",
         },
         # The database operator of every stack that holds a CloudNativePG Cluster: the gateway
@@ -126,7 +140,7 @@ HELM_RELEASES_BY_STACK: dict[str, list[dict[str, str]]] = {
             "name": "cloudnative-pg",
             "chart": "cloudnative-pg/cloudnative-pg",
             "namespace": "cnpg-system",
-            "values": str(DEFAULT_K8S_DIR / "mattermost" / "cloudnative-pg-values.yaml"),
+            "values": [str(DEFAULT_K8S_DIR / "mattermost" / "cloudnative-pg-values.yaml")],
             "version": "0.29.1",
         },
         # The TLS certificates of the Barman Cloud plugin. Its start-up check Job holds `--wait`
@@ -135,7 +149,7 @@ HELM_RELEASES_BY_STACK: dict[str, list[dict[str, str]]] = {
             "name": "cert-manager",
             "chart": "jetstack/cert-manager",
             "namespace": "cert-manager",
-            "values": str(DEFAULT_K8S_DIR / "cert-manager" / "values.yaml"),
+            "values": [str(DEFAULT_K8S_DIR / "cert-manager" / "values.yaml")],
             "version": "v1.21.3",
         },
         # The backup plugin of CloudNativePG runs in the operator's namespace, and its chart renders
@@ -144,49 +158,53 @@ HELM_RELEASES_BY_STACK: dict[str, list[dict[str, str]]] = {
             "name": "plugin-barman-cloud",
             "chart": "cloudnative-pg/plugin-barman-cloud",
             "namespace": "cnpg-system",
-            "values": str(DEFAULT_K8S_DIR / "cnpg-system" / "plugin-barman-cloud-values.yaml"),
+            "values": [str(DEFAULT_K8S_DIR / "cnpg-system" / "plugin-barman-cloud-values.yaml")],
             "version": "0.9.0",
         },
         {
             "name": "argocd",
             "chart": "argo/argo-cd",
             "namespace": "argocd",
-            "values": str(DEFAULT_K8S_DIR / "argocd" / "values.yaml"),
+            "values": [str(DEFAULT_K8S_DIR / "argocd" / "values.yaml")],
             "version": "10.18.0",
         },
         {
             "name": "argo-workflows",
             "chart": "argo/argo-workflows",
             "namespace": "argo-workflows",
-            "values": str(DEFAULT_K8S_DIR / "argo-workflows" / "values.yaml"),
+            "values": [str(DEFAULT_K8S_DIR / "argo-workflows" / "values.yaml")],
             "version": "2.0.18",
         },
         {
             "name": "k8s-monitoring",
             "chart": "grafana/k8s-monitoring",
             "namespace": "monitoring",
-            "values": str(DEFAULT_K8S_DIR / "monitoring" / "k8s-monitoring-values.yaml"),
+            "values": [str(DEFAULT_K8S_DIR / "monitoring" / "k8s-monitoring-values.yaml")],
             "version": "4.6.0",
         },
         {
             "name": "prometheus",
             "chart": "prometheus-community/prometheus",
             "namespace": "monitoring",
-            "values": str(DEFAULT_K8S_DIR / "monitoring" / "prometheus-values.yaml"),
+            # The environment values, then the alert rules of devops-cli (#5292).
+            "values": [
+                str(DEFAULT_K8S_DIR / "monitoring" / "prometheus-values.yaml"),
+                str(DEFAULT_K8S_DIR / "devops" / "monitoring" / "prometheus-rules-values.yaml"),
+            ],
             "version": "29.47.2",
         },
         {
             "name": "grafana",
             "chart": "grafana-community/grafana",
             "namespace": "monitoring",
-            "values": str(DEFAULT_K8S_DIR / "monitoring" / "grafana-values.yaml"),
+            "values": [str(DEFAULT_K8S_DIR / "monitoring" / "grafana-values.yaml")],
             "version": "14.4.1",
         },
         {
             "name": "dcgm-exporter",
             "chart": "nvidia-dcgm/dcgm-exporter",
             "namespace": "monitoring",
-            "values": str(DEFAULT_K8S_DIR / "monitoring" / "dcgm-exporter-values.yaml"),
+            "values": [str(DEFAULT_K8S_DIR / "monitoring" / "dcgm-exporter-values.yaml")],
             "version": "4.8.4",
         },
         # tempo first: the collector's trace exporter has a Tempo to reach when it starts (#409)
@@ -194,28 +212,28 @@ HELM_RELEASES_BY_STACK: dict[str, list[dict[str, str]]] = {
             "name": "tempo",
             "chart": "grafana-community/tempo",
             "namespace": "otel",
-            "values": str(DEFAULT_K8S_DIR / "otel" / "tempo-values.yaml"),
+            "values": [str(DEFAULT_K8S_DIR / "otel" / "tempo-values.yaml")],
             "version": "3.2.1",
         },
         {
             "name": "otel-collector",
             "chart": "open-telemetry/opentelemetry-collector",
             "namespace": "otel",
-            "values": str(DEFAULT_K8S_DIR / "otel" / "values.yaml"),
+            "values": [str(DEFAULT_K8S_DIR / "otel" / "values.yaml")],
             "version": "0.178.3",
         },
         {
             "name": "pyroscope",
             "chart": "grafana/pyroscope",
             "namespace": "monitoring",
-            "values": str(DEFAULT_K8S_DIR / "monitoring" / "pyroscope-values.yaml"),
+            "values": [str(DEFAULT_K8S_DIR / "monitoring" / "pyroscope-values.yaml")],
             "version": "2.4.3",
         },
         {
             "name": "traefik",
             "chart": "traefik/traefik",
             "namespace": "kube-system",
-            "values": str(DEFAULT_K8S_DIR / "ingress" / "traefik-values.yaml"),
+            "values": [str(DEFAULT_K8S_DIR / "ingress" / "traefik-values.yaml")],
             "version": "42.3.2",
         },
     ],
@@ -224,14 +242,14 @@ HELM_RELEASES_BY_STACK: dict[str, list[dict[str, str]]] = {
             "name": "open-webui",
             "chart": "open-webui/open-webui",
             "namespace": "llm",
-            "values": str(DEFAULT_K8S_DIR / "llm" / "values-open-webui.yaml"),
+            "values": [str(DEFAULT_K8S_DIR / "llm" / "values-open-webui.yaml")],
             "version": "18.3.0",
         },
         {
             "name": "qdrant",
             "chart": "qdrant/qdrant",
             "namespace": "llm",
-            "values": str(DEFAULT_K8S_DIR / "llm" / "values-qdrant.yaml"),
+            "values": [str(DEFAULT_K8S_DIR / "llm" / "values-qdrant.yaml")],
             "version": "1.20.0",
         },
     ],
@@ -240,7 +258,7 @@ HELM_RELEASES_BY_STACK: dict[str, list[dict[str, str]]] = {
             "name": "loki",
             "chart": "grafana-community/loki",
             "namespace": "logging",
-            "values": str(DEFAULT_K8S_DIR / "logging" / "loki-values.yaml"),
+            "values": [str(DEFAULT_K8S_DIR / "logging" / "loki-values.yaml")],
             "version": "21.2.1",
         },
     ],
@@ -251,7 +269,7 @@ HELM_RELEASES_BY_STACK: dict[str, list[dict[str, str]]] = {
             "name": "gitea",
             "chart": "gitea-charts/gitea",
             "namespace": "gitea",
-            "values": str(DEFAULT_K8S_DIR / "gitea" / "values.yaml"),
+            "values": [str(DEFAULT_K8S_DIR / "gitea" / "values.yaml")],
             "version": "12.7.0",
         },
     ],
@@ -260,13 +278,13 @@ HELM_RELEASES_BY_STACK: dict[str, list[dict[str, str]]] = {
             "name": "mattermost-operator",
             "chart": "mattermost/mattermost-operator",
             "namespace": "mattermost-operator",
-            "values": str(DEFAULT_K8S_DIR / "mattermost" / "mattermost-operator-values.yaml"),
+            "values": [str(DEFAULT_K8S_DIR / "mattermost" / "mattermost-operator-values.yaml")],
             "version": "1.0.5",
         },
     ],
 }
 
-_HELM_RELEASES: list[dict[str, str]] = HELM_RELEASES_BY_STACK["infra"]
+_HELM_RELEASES: list[StackRelease] = HELM_RELEASES_BY_STACK["infra"]
 
 # Paths applied right after the Secret push, before any chart: a directory with `kubectl apply -k`
 # and a file with `kubectl apply -f`, in order, and deleted in reverse order before the charts
@@ -609,7 +627,7 @@ def _require_helm_version() -> Version:
     return ver
 
 
-def _check_helm_version_for_deploy(all_releases: Sequence[dict[str, str]]) -> bool:
+def _check_helm_version_for_deploy(all_releases: Sequence[StackRelease]) -> bool:
     """Verify Helm meets minimum version if releases are deployed, returning if Helm is v4+."""
     if not all_releases:
         return False
@@ -637,7 +655,7 @@ def _is_helm_v4_or_newer() -> bool:
 
 
 def _build_helm_upgrade_cmd(
-    release: dict[str, str],
+    release: StackRelease,
     helm_ctx: list[str],
     wait: bool,
     timeout: str,
@@ -654,16 +672,11 @@ def _build_helm_upgrade_cmd(
             release["chart"],
         ]
     )
-    if release.get("version"):
+    if release["version"]:
         helm_cmd.extend(["--version", release["version"]])
-    helm_cmd.extend(
-        [
-            "--namespace",
-            release["namespace"],
-            "--values",
-            release["values"],
-        ]
-    )
+    helm_cmd.extend(["--namespace", release["namespace"]])
+    for values in release["values"]:
+        helm_cmd.extend(["--values", values])
     helm_cmd.extend(helm_ctx)
     if wait:
         helm_cmd.extend(["--wait", "--timeout", timeout])
@@ -753,7 +766,7 @@ def _apply_manifest_files(
 
 
 def _install_single_release(
-    release: dict[str, str],
+    release: StackRelease,
     effective_context: str | None,
     helm_ctx: list[str],
     wait: bool,
@@ -1168,9 +1181,9 @@ def _delete_post_helm_paths(paths: Sequence[Path], kubectl_ctx: list[str]) -> No
 
 def _collect_deploy_targets(
     selected_stacks: Sequence[str], k8s_dir: Path
-) -> tuple[list[dict[str, str]], list[str], list[Path], list[Path]]:
+) -> tuple[list[StackRelease], list[str], list[Path], list[Path]]:
     """Collect Helm releases, pre-Helm manifests, kustomizations, and post-Helm paths for stacks."""
-    all_releases: list[dict[str, str]] = []
+    all_releases: list[StackRelease] = []
     all_manifests: list[str] = []
     all_kustomizations: list[Path] = []
     all_post_helm: list[Path] = []
@@ -1184,9 +1197,9 @@ def _collect_deploy_targets(
 
 def _collect_teardown_targets(
     selected_stacks: Sequence[str], k8s_dir: Path
-) -> tuple[list[dict[str, str]], list[Path], list[str]]:
+) -> tuple[list[StackRelease], list[Path], list[str]]:
     """Collect Helm uninstalls, post-Helm deletes, and manifest deletes in reverse stack order."""
-    all_uninstalls: list[dict[str, str]] = []
+    all_uninstalls: list[StackRelease] = []
     all_post_helm_deletes: list[Path] = []
     all_manifest_deletes: list[str] = []
     for s_name in reversed(selected_stacks):
@@ -1302,7 +1315,7 @@ def _render_deploy_stack_dry_run(
     port_forward: bool,
     configure_urls: bool,
     push_secrets: bool,
-    all_releases: Sequence[dict[str, str]],
+    all_releases: Sequence[StackRelease],
     all_manifests: Sequence[str],
     all_kustomizations: Sequence[Path],
     all_post_helm: Sequence[Path],

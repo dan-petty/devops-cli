@@ -2,13 +2,16 @@
 the roadmap Service's rules (#2472, #2475), the rule of its webhook route (#2476), the rule
 of a Valkey near its memory bound (#2094) and the rules of the gateway database (#4994).
 
-The rules live in `k8s/monitoring/prometheus-values.yaml` (`serverFiles.alerting_rules.yml`).
-A rule over a series nothing in the stack serves never fires, so every expression may name
-only the series in `SERVED_SERIES`, each served by a scrape or by the OpenTelemetry collector
-that this repository defines. The k3s
-server runs the controller manager, scheduler and proxy in its own process, so no scrape
-targets them and none of their series is listed: a rule over them would fire on the missing
-target, as `KubeControllerManagerDown`, `KubeSchedulerDown` and `KubeProxyDown` did.
+The environment rules live in `k8s/monitoring/prometheus-values.yaml`
+(`serverFiles.alerting_rules.yml`). The product rules, which watch the `devops_cli_` series, live
+in `k8s/devops/monitoring/prometheus-rules-values.yaml`
+(`serverFiles.devops_cli_alerting_rules.yml`), the second values file of the chart (#5292). The
+server loads each file that `rule_files` of the environment values names. A rule over a series
+nothing in the stack serves never fires, so every expression may name only the series in
+`SERVED_SERIES`, each served by a scrape or by the OpenTelemetry collector that this repository
+defines. The k3s server runs the controller manager, scheduler and proxy in its own process, so
+no scrape targets them and none of their series is listed: a rule over them would fire on the
+missing target, as `KubeControllerManagerDown`, `KubeSchedulerDown` and `KubeProxyDown` did.
 
 The checks read files only, except the two that run the pinned promtool (`tools.lock`):
 `promtool check rules` over every rule, and `promtool test rules` over each group that has unit
@@ -61,6 +64,30 @@ from tests.support.promtool import promtool
 K8S = REPO_ROOT / "k8s"
 K8S_README = K8S / "README.md"
 PROMETHEUS_VALUES = K8S / "monitoring" / "prometheus-values.yaml"
+PRODUCT_RULES_VALUES = K8S / "devops" / "monitoring" / "prometheus-rules-values.yaml"
+# The key of `serverFiles` that holds the product rules. The chart writes each key to the
+# ConfigMap of the server, which it mounts at /etc/config.
+PRODUCT_RULE_FILE = "devops_cli_alerting_rules.yml"
+# The default `rule_files` of the chart (prometheus 29.47.2, `serverFiles.prometheus.yml`). The
+# environment values replace the list, so they name these files again.
+CHART_RULE_FILES = (
+    "/etc/config/recording_rules.yml",
+    "/etc/config/alerting_rules.yml",
+    "/etc/config/rules",
+    "/etc/config/alerts",
+)
+# The rule groups of the product file, in file order.
+PRODUCT_GROUPS = (
+    "roadmap-service",
+    "roadmap-service-webhooks",
+    "roadmap-service-activity",
+    "roadmap-service-items",
+    "roadmap-service-tools",
+    "crawl4ai",
+    "research",
+    "ai-spend",
+    "rag-ingest",
+)
 GRAFANA_VALUES = K8S / "monitoring" / "grafana-values.yaml"
 K8S_MONITORING_VALUES = K8S / "monitoring" / "k8s-monitoring-values.yaml"
 PYROSCOPE_VALUES = K8S / "monitoring" / "pyroscope-values.yaml"
@@ -283,17 +310,84 @@ def _yaml(path: Path) -> dict[str, Any]:
     return loaded
 
 
+def _server_files() -> dict[str, Any]:
+    """The `serverFiles` of the chart: the environment values, then the product values."""
+    return {
+        **_yaml(PROMETHEUS_VALUES)["serverFiles"],
+        **_yaml(PRODUCT_RULES_VALUES)["serverFiles"],
+    }
+
+
+def _rule_files() -> dict[str, dict[str, Any]]:
+    """Each rule file that the server loads and that holds groups, by its key of `serverFiles`."""
+    server_files = _server_files()
+    keys = [PurePosixPath(path).name for path in server_files["prometheus.yml"]["rule_files"]]
+    return {key: server_files[key] for key in keys if (server_files.get(key) or {}).get("groups")}
+
+
+def _groups() -> list[dict[str, Any]]:
+    """Every rule group that the server loads, in the order of `rule_files`."""
+    return [group for rules in _rule_files().values() for group in rules["groups"]]
+
+
 def _rules() -> list[dict[str, Any]]:
     """Every alerting rule the Prometheus server loads."""
-    groups = _yaml(PROMETHEUS_VALUES)["serverFiles"]["alerting_rules.yml"]["groups"]
-    return [rule for group in groups for rule in group["rules"]]
+    return [rule for group in _groups() for rule in group["rules"]]
 
 
 def _group(name: str) -> list[dict[str, Any]]:
     """The alerting rules of one group, in file order."""
-    groups = _yaml(PROMETHEUS_VALUES)["serverFiles"]["alerting_rules.yml"]["groups"]
-    (rules,) = [group["rules"] for group in groups if group["name"] == name]
+    (rules,) = [group["rules"] for group in _groups() if group["name"] == name]
     return list(rules)
+
+
+def test_the_server_loads_the_rule_files_of_the_chart_and_the_product_rule_file() -> None:
+    """The environment values name the 4 rule files of the chart and the product rule file in
+    `rule_files`, and the product values hold only the product rule file (#5292)."""
+    environment = _yaml(PROMETHEUS_VALUES)["serverFiles"]
+    product = _yaml(PRODUCT_RULES_VALUES)
+
+    assert (
+        environment["prometheus.yml"]["rule_files"],
+        list(product),
+        list(product["serverFiles"]),
+        PRODUCT_RULE_FILE in environment,
+        list(_rule_files()),
+    ) == (
+        [*CHART_RULE_FILES, f"/etc/config/{PRODUCT_RULE_FILE}"],
+        ["serverFiles"],
+        [PRODUCT_RULE_FILE],
+        False,
+        ["alerting_rules.yml", PRODUCT_RULE_FILE],
+    )
+
+
+def _devops_cli_series(group: dict[str, Any]) -> list[str]:
+    """The `devops_cli_` metrics that the rules of a group select."""
+    return sorted(
+        {
+            selector.metric
+            for rule in group["rules"]
+            for selector in selectors(rule["expr"])
+            if (selector.metric or "").startswith("devops_cli_")
+        }
+    )
+
+
+def test_the_product_rule_file_holds_each_group_that_watches_a_devops_cli_series() -> None:
+    """A group that selects a `devops_cli_` series is product content: it is in the product rule
+    file, and no group of the environment rule file selects one (#5292). Each group name is
+    unique over the files that the server loads."""
+    environment = _yaml(PROMETHEUS_VALUES)["serverFiles"]["alerting_rules.yml"]["groups"]
+    product = _yaml(PRODUCT_RULES_VALUES)["serverFiles"][PRODUCT_RULE_FILE]["groups"]
+    names = [group["name"] for group in _groups()]
+
+    assert (
+        tuple(group["name"] for group in product),
+        [group["name"] for group in product if not _devops_cli_series(group)],
+        {group["name"]: series for group in environment if (series := _devops_cli_series(group))},
+        sorted(name for name in set(names) if names.count(name) > 1),
+    ) == (PRODUCT_GROUPS, [], {}, [])
 
 
 def _unserved(expression: str) -> list[str]:
@@ -687,10 +781,7 @@ def _allow_list(path: Path) -> tuple[str, frozenset[str]]:
 def test_alloy_grafana_and_pyroscope_are_scraped_and_pipeline_drops_alert() -> None:
     """The Alloy collectors, Grafana and Pyroscope are scraped, and dropped samples or log
     entries alert (#1131)."""
-    groups = {
-        group["name"]: group["rules"]
-        for group in _yaml(PROMETHEUS_VALUES)["serverFiles"]["alerting_rules.yml"]["groups"]
-    }
+    groups = {group["name"]: group["rules"] for group in _groups()}
     drop_alerts = {"AlloyRemoteWriteSamplesFailed", "AlloyLogEntriesDropped"}
     pipeline_rules = [
         (rule["alert"], rule["expr"], rule["for"], rule["labels"]["severity"])
@@ -740,10 +831,7 @@ def test_alloy_grafana_and_pyroscope_are_scraped_and_pipeline_drops_alert() -> N
 def test_pod_logs_not_shipped_alerts_with_node_from_pod_info() -> None:
     """`PodLogsNotShipped` alerts when an `alloy-logs` pod sends no entries to Loki for 30m,
     joining `node` from `kube_pod_info` so a node-maintenance silence covers it (#890)."""
-    groups = {
-        group["name"]: group["rules"]
-        for group in _yaml(PROMETHEUS_VALUES)["serverFiles"]["alerting_rules.yml"]["groups"]
-    }
+    groups = {group["name"]: group["rules"] for group in _groups()}
     (rule,) = [
         rule
         for rule in groups["homelab-telemetry-pipeline"]
@@ -777,10 +865,7 @@ def test_telemetry_pipeline_rules_use_metrics_in_the_alloy_integration_allow_lis
         if release["name"] == "k8s-monitoring"
     ]
     fixture_version, allow_list = _allow_list(ALLOY_ALLOW_LIST)
-    groups = {
-        group["name"]: group["rules"]
-        for group in _yaml(PROMETHEUS_VALUES)["serverFiles"]["alerting_rules.yml"]["groups"]
-    }
+    groups = {group["name"]: group["rules"] for group in _groups()}
     rule_metrics = {
         selector.metric
         for rule in groups["homelab-telemetry-pipeline"]
@@ -819,10 +904,7 @@ def test_pyroscope_query_errors_alerts_on_5xx_rate() -> None:
 def test_homelab_services_rules_cover_argocd_tunnel_coredns_and_valkey_health() -> None:
     """`homelab-services` alerts on Argo CD sync/health, Cloudflare Tunnel HA connections,
     CoreDNS SERVFAIL rate (#822), and Valkey cache errors (#551)."""
-    groups = {
-        group["name"]: group["rules"]
-        for group in _yaml(PROMETHEUS_VALUES)["serverFiles"]["alerting_rules.yml"]["groups"]
-    }
+    groups = {group["name"]: group["rules"] for group in _groups()}
     rules = [
         (r["alert"], r["expr"], r["for"], r["labels"]["severity"])
         for r in groups["homelab-services"]
@@ -1588,15 +1670,15 @@ def test_each_ai_spend_alert_has_a_row_with_the_first_step_in_the_readme() -> No
 
 @pytest.mark.live("promtool")
 def test_promtool_accepts_every_alert_rule(tmp_path: Path) -> None:
-    """`promtool check rules` accepts the rule file the server loads, with each expression and
-    each annotation template (#2472)."""
-    rules = tmp_path / "alerting_rules.yml"
-    rules.write_text(
-        yaml.safe_dump(_yaml(PROMETHEUS_VALUES)["serverFiles"]["alerting_rules.yml"]),
-        encoding="utf-8",
-    )
-    result = promtool("check", "rules", rules)
-    assert result.returncode == 0, result.stdout + result.stderr
+    """`promtool check rules` accepts each rule file the server loads, with each expression and
+    each annotation template (#2472, #5292)."""
+    paths = []
+    for key, rules in _rule_files().items():
+        path = tmp_path / key
+        path.write_text(yaml.safe_dump(rules), encoding="utf-8")
+        paths.append(path)
+    result = promtool("check", "rules", *paths)
+    assert (len(paths), result.returncode) == (2, 0), result.stdout + result.stderr
 
 
 def _tested_alerts(rule_tests: Path) -> set[str]:
@@ -1654,7 +1736,7 @@ def test_each_unit_tested_rule_fires_on_a_sample_and_stays_quiet_on_a_normal_ser
     """
     unit_tests = yaml.safe_load(rule_tests.read_text(encoding="utf-8"))
     (rule_file,) = unit_tests["rule_files"]
-    groups = _yaml(PROMETHEUS_VALUES)["serverFiles"]["alerting_rules.yml"]["groups"]
+    groups = _groups()
     (tmp_path / rule_file).write_text(
         yaml.safe_dump({"groups": [g for g in groups if g["name"] == group]}),
         encoding="utf-8",

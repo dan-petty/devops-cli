@@ -1,5 +1,5 @@
 # The answers of the live Prometheus to the query of the "Local Cloud Savings in Range" panel of
-# k8s/monitoring/dashboards/ai-spend.json, and the token series that it read (#2194).
+# k8s/devops/dashboards/ai-spend.json, and the token series that it read (#2194).
 # tests/test_k8s_monitoring_dashboards.py checks that `expr` is the query of the panel, and that the
 # `result` of each record is the total of its `series`, priced at the prices of the dashboard.
 #
