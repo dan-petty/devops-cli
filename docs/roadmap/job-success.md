@@ -18,9 +18,9 @@ roadmap job result: job=<job> repo=<owner/repo> item=#<n> result=<result> succes
 - `success` is `true` when the result is the intended result of the job (table below).
 - `class` is the failure class of `roadmap/failure.py`, or `none`.
 - `infra` is `true` for a class that a cut of the infrastructure gives: `provider`, `ci_infra`, `oom` and `limit_reached`. The ratio of the dashboard counts these attempts as failures and shows their share apart. The job grade leaves them out of `p`.
+- The counts and the names of the job follow, and the devops-cli version ends the line, so a query can compare two images.
 
 The Service logs the line as JSON on stdout, with the line in the field `message`. A Job pod logs the plain line on stderr: `devops roadmap stage --job-item` and `devops roadmap step fix-plan` write it there, because a CLI process has no handler for the `INFO` records of `roadmap/job_result.py` (#5363, #5556).
-- The counts and the names of the job follow, and the devops-cli version ends the line, so a query can compare two images.
 
 A line holds no text of an issue, of a model or of a log. Each value is a number or a fixed name. The writer changes a value with another character than a letter, a digit, `_`, `-` or `.` to `other`. `src/devops_cli/roadmap/job_result.py` holds the form and the table below.
 
@@ -28,7 +28,7 @@ A line holds no text of an issue, of a model or of a log. Each value is a number
 
 | Job | Where the line comes from | Results | Intended result | Counts and names |
 | :--- | :--- | :--- | :--- | :--- |
-| `stage` | Each item that a round tried. A left-out item writes no line. | `staged`, `needs_split`, `failed`, `degenerate` | `staged`: the plan pull request is open. | `plan_calls`, `gate_returns`, `verify_rounds`, `tokens`, `seconds`. `plan_calls` counts the plan calls that the attempt made to the model, also with a client that keeps no trace. An attempt that starts from a kept plan has no `plan_calls`, also when the checks refuse the kept plan and the attempt asks for a new plan: an earlier attempt made the first calls, so the attempt cannot count all of them (#5166). |
+| `stage` | Each item that a stage Job or a round tried. A stage Job writes the line after its check-in, and the Service writes the line of each failed end that it recovers. A left-out item writes no line. | `staged`, `needs_split`, `failed`, `degenerate` | `staged`: the plan pull request is open. | `plan_calls`, `gate_returns`, `verify_rounds`, `tokens`, `seconds`. `plan_calls` counts the plan calls that the attempt made to the model, also with a client that keeps no trace. An attempt that starts from a kept plan has no `plan_calls`, also when the checks refuse the kept plan and the attempt asks for a new plan: an earlier attempt made the first calls, so the attempt cannot count all of them (#5166). |
 | `implement` | Each runner Job that ended, when the `implement` row reports it. | `ready`, `yielded`, `returned`, `stopped` | `ready`: the pull request is ready. | `repair_rounds`, `tokens`, `seconds` |
 | `refine` | Each item that a round refined. | The next step of the item, or `error` for a failed model call or write | `ready`, `person`, `split` or `blocked` | none |
 | `refine_judge` | Each review of the proposal for an item that a bot opened that calls the model. A kept approval writes no line. | `approved`, `refused` | `approved` | `findings` |

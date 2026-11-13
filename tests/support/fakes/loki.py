@@ -20,9 +20,10 @@ other form:
 
 A regular expression is fully anchored in a stream selector and a label filter, and unanchored in a
 line filter and in `regexp`, as in Loki. A name of `regexp` that the stream has gets the suffix
-`_extracted`, and a line that `regexp` does not match keeps its labels and counts. A line counts in a range when its age is less than the
-range. A real Loki needs a container that the test run does not start, and no maintained Python
-package evaluates LogQL.
+`_extracted`, and a line that `regexp` does not match keeps its labels and counts. A line counts
+in a range when its age is less than the range. A real Loki needs a container that the test run
+does not start, and no maintained Python package evaluates LogQL, so the fake has no contract
+suite yet (`docs/TESTING.md`).
 """
 
 from __future__ import annotations
