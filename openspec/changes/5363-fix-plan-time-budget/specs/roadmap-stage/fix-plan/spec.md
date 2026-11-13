@@ -7,6 +7,10 @@ The setting `roadmap.fix_plan.time_budget_seconds` SHALL start with each call of
 - **WHEN** the budget is 600 seconds and the review of the head ends at 600 seconds with one open finding
 - **THEN** the planner gets no request, the head of the branch does not change, the pull request keeps `plan/needs-fix`, and `fix_plan.result` is `timeout`
 
+#### Scenario: The budget ends after a plan run
+- **WHEN** the budget of 600 seconds ends while the planner writes a revision of the plan
+- **THEN** no review of the revision starts, the step pushes no revision, the head of the branch does not change, and the result line holds `result=timeout`, `class=timeout` and `step=plan`
+
 ### Requirement: An attempt that ends at the budget comments and logs its result
 An attempt that ends `timeout` SHALL post one comment with the marker `<!-- devops roadmap fix-plan -->` on the issue. The comment SHALL name the budget, the step in which it ended and the counts of the attempt, and SHALL list the open findings that keep the label. The result line SHALL hold `result=timeout`, `success=false`, `class=timeout` and the step.
 

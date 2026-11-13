@@ -148,6 +148,48 @@ def test_a_spent_budget_ends_the_attempt_with_a_timeout_comment_and_no_push(
     assert "after" not in line
 
 
+def test_a_budget_that_ends_after_the_plan_run_pushes_no_revision(
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    verifier: ModelFake,
+    github_api: GitHubApiFake,
+    clock: ClockFake,
+    config: Callable[..., Path],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The planner wrote a revision, but the budget ends before its review: the step pushes no
+    half revision, and the branch stays at its head."""
+    config(roadmap={"fix_plan": {"time_budget_seconds": BUDGET}})
+    plan = needs_fix_plan(store, stage_repo, github_api)
+    verifier.answer(Verification(findings=[finding(DefectType.CRITERION_DROPPED)]))
+
+    def slow_plan(_prompt: str) -> object:
+        clock.shift(BUDGET)
+        return make_stage_proposal(why=REPAIRED_WHY)
+
+    model_fake.answer(slow_plan)
+
+    with caplog.at_level(logging.INFO):
+        run = _run(store, stage_repo, verifier)
+
+    assert run.attempt is not None
+    assert (run.attempt.result, run.attempt.failure, run.attempt.after) == (
+        FixPlanResult.TIMEOUT,
+        FailureClass.TIMEOUT,
+        None,
+    )
+    assert (model_fake.call_count, verifier.call_count) == (1, 1)
+    assert stage_repo.origin_git("rev-parse", PLAN_BRANCH) == plan.head
+    assert PLAN_NEEDS_FIX_LABEL in store._roadmap.issues[plan.pull].labels
+    (line,) = result_fields(caplog)
+    assert (line.get("result"), line.get("class"), line.get("step")) == (
+        "timeout",
+        "timeout",
+        "plan",
+    )
+
+
 def test_each_review_of_an_attempt_logs_one_progress_line(
     store: InMemoryRoadmapStore,
     stage_repo: StageRepo,
