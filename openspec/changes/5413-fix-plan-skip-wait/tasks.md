@@ -22,7 +22,7 @@ Kind: behavior. Reads: `src/devops_cli/roadmap/time_budget.py`, `src/devops_cli/
 
 Kind: other. Reads: `docs/roadmap/stage.md`. Changes: `docs/roadmap/stage.md`, `docs/roadmap/job-success.md`, `docs/CLUSTER.md`, `docs/ROADMAP_WORKFLOW.md`, the ADR 0021 status history, `docs/commands/roadmap.md`, `docs/TELEMETRY.md`.
 
-- [ ] 3.1 Write `--skip-wait`, the extra attempt, `fix_plan.version`, `fix_plan.evicted` and the kill classes in `docs/roadmap/stage.md`, the fix-plan row of `docs/roadmap/job-success.md`, the row `fix_plan` of `docs/CLUSTER.md` and the fix-plan keys of `docs/ROADMAP_WORKFLOW.md`, add a dated line to the status history of ADR 0021, and regenerate the documents of the commands and of the metrics
+- [x] 3.1 Write `--skip-wait`, the extra attempt, `fix_plan.version`, `fix_plan.evicted` and the kill classes in `docs/roadmap/stage.md`, the fix-plan row of `docs/roadmap/job-success.md`, the row `fix_plan` of `docs/CLUSTER.md` and the fix-plan keys of `docs/ROADMAP_WORKFLOW.md`, add a dated line to the status history of ADR 0021, and regenerate the documents of the commands and of the metrics
   - Verification: `$ uv run devops docs generate`
 
 ## Criteria
