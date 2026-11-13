@@ -35,7 +35,7 @@ None.
 - Code: `src/devops_cli/ai/spend/ledger.py`, `src/devops_cli/ai/spend/models.py`, `src/devops_cli/ai/spend/pricing.py`, `src/devops_cli/ai/client/factory.py`, `src/devops_cli/ai/client/openai.py`, `src/devops_cli/ai/client/models.py`, `src/devops_cli/ai/client/network.py`, `src/devops_cli/ai/client/unified.py`, `src/devops_cli/roadmap/agent_run.py`. The ledger change takes effect with the next release.
 - Tests: `tests/ai/benchmark/test_k8s_llm_gateway.py`, `tests/ai/spend/test_hosted_group_prices.py`, `tests/ai/spend/test_ai_spend_ledger_cache_tokens.py` (new), `tests/ai/spend/test_ai_spend_dispatch.py`, `tests/ai/client/test_agent_factory.py`, `tests/ai/client/test_roadmap_agent_run.py`.
 - Documents: `k8s/README.md`.
-- Overlap: the open pull request of #5564 (DeepSeek fallback) also edits `k8s/llm/gateway/config.yaml`, `tests/ai/benchmark/test_k8s_llm_gateway.py`, `k8s/README.md` and the spec `ai-gateway-routing`. This change edits the Claude entries, a different line of `k8s/README.md` and a requirement that #5564 does not change, so the two merge in either order.
+- Overlap: the DeepSeek fallback of #5564 edits the same gateway config, gateway test, `k8s/README.md` paragraph area and spec `ai-gateway-routing`. This change is on top of it. It edits only the Claude entries of the config and a requirement that #5564 does not change, and no DeepSeek, Gemini or OpenRouter group.
 - Cost: at the Sonnet 5.5 prices, a request that reads a 100,000-token prefix from the cache costs 0.01 USD for that prefix, against 0.20 USD with no cache. The first request of a prefix costs 0.25 USD for it (the write premium of 25%). Two requests within 5 minutes pay back the write.
 
 ## Feasibility
