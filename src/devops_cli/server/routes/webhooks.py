@@ -283,6 +283,7 @@ def roadmap_consumer(service_manager: ServiceManager) -> WebhookConsumer:
             SCOPED_UPDATES,
             WebhookDelivery,
             lane_of_row,
+            lanes_to_wake,
             run_scoped_update,
             scoped_update_wakes_lanes,
         )
@@ -303,16 +304,16 @@ def roadmap_consumer(service_manager: ServiceManager) -> WebhookConsumer:
                 data_dir = state_dir.parent if state_dir else None
                 outcome = run_scoped_update(delivery, store, data_dir=data_dir, lane=lane)
                 if scoped_update_wakes_lanes(delivery, outcome):
-                    for other in service_manager.jobs:
-                        if other != lane:
-                            service_manager.enqueue_trigger(
-                                repo,
-                                CONST_SERVICE_SOURCE_WEBHOOK,
-                                event,
-                                action,
-                                lane=other,
-                                subject=subject,
-                            )
+                    groups = service_manager.config.lanes
+                    for woken in lanes_to_wake(scoped.job, service_manager.jobs, groups):
+                        service_manager.enqueue_trigger(
+                            repo,
+                            CONST_SERVICE_SOURCE_WEBHOOK,
+                            event,
+                            action,
+                            lane=woken,
+                            subject=subject,
+                        )
 
             if service_manager.enqueue_scoped(repo, lane, run_scoped):
                 return

@@ -20,14 +20,18 @@ The roadmap consumer of the Service SHALL hand each subscribed webhook event tha
 - **THEN** the Service enqueues a trigger on each lane as a whole-round hint
 
 ### Requirement: An edit of an Item wakes the other lanes
-After the scoped update of an `issues` `edited` delivery, the Service SHALL enqueue the trigger `("webhook", "issues", "edited")`, with the issue as its subject, on each lane of the repository but the lane of the update. The `refine` and `retitle` rows SHALL declare that key.
+After the scoped update of an `issues` `edited` delivery, the Service SHALL enqueue the trigger `("webhook", "issues", "edited")`, with the issue as its subject, on each lane of the repository but the lane of the update. When `service.lanes` puts another row into the lane of the update, the Service SHALL also enqueue the trigger on that lane. The `refine` and `retitle` rows SHALL declare that key.
 
 #### Scenario: An edit of an issue that holds a priority label
 - **WHEN** a signed `issues` `edited` delivery names an open issue with the label `priority/p2-medium`, and the scoped intake writes nothing
 - **THEN** the lanes of `refine` and `retitle` run a round in which their row is due, each other lane but the lane `intake` runs a round with no due row, and the lane `intake` runs no round
 
+#### Scenario: An edit when intake shares its lane
+- **WHEN** `service.lanes` is `{model: [intake, refine]}`, and a signed `issues` `edited` delivery names an open issue
+- **THEN** the scoped update runs on the lane `model`, and then the lane `model` and each other lane get the trigger with the issue as its subject
+
 ### Requirement: A critical placement wakes the other lanes
-After a scoped update that places a critical fix or a P0 item, the Service SHALL enqueue the delivery's key, with the issue as its subject, on each lane of the repository but the lane of the update, so the lane of `refine` runs `refine` from `refine_due`.
+After a scoped update that places a critical fix or a P0 item, the Service SHALL enqueue the delivery's key, with the issue as its subject, on each lane of the repository but the lane of the update, so the lane of `refine` runs `refine` from `refine_due`. When `service.lanes` puts another row into the lane of the update, the Service SHALL also enqueue the key on that lane.
 
 #### Scenario: An opened issue that intake places as a P0 item
 - **WHEN** a signed `issues` `opened` delivery names an issue that the scoped intake places as a P0 item

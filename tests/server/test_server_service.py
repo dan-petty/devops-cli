@@ -98,12 +98,15 @@ def _make_settings(
     repos: list[str] | None = None,
     app_slug: str | None = "bot-account",
     poll_interval: int = 300,
+    lanes: dict[str, list[str]] | None = None,
 ) -> Settings:
-    """Helper creating Settings with configured ServiceConfig; the App's bot is `<slug>[bot]`."""
+    """Helper creating Settings with configured ServiceConfig; the App's bot is `<slug>[bot]`.
+    `lanes` is the setting `service.lanes`."""
     service_conf = ServiceConfig(
         repos=repos or ["example-org/repo1", "example-org/repo2"],
         github_app=GitHubAppConfig(app_id=1001, installation_id=42, slug=app_slug),
         poll_interval_seconds=poll_interval,
+        lanes=lanes or {},
     )
     return Settings(service=service_conf)
 
@@ -2044,6 +2047,37 @@ def test_a_critical_placement_wakes_each_other_lane_and_not_the_lane_of_intake(
             MODEL_LANE: [("webhook", "issues", action)],
         },
         {STATUS_LANE: {42}, TRIAGE_LANE: set(), MODEL_LANE: {42}},
+    )
+
+
+@pytest.mark.parametrize("action", ["edited", "opened"])
+def test_a_wake_reaches_the_rows_that_share_the_lane_of_the_scoped_update(
+    action: str, monkeypatch: pytest.MonkeyPatch, roadmap_store: Any
+) -> None:
+    """With `service.lanes` `{model: [intake, refine]}`, the scoped update runs on the lane
+    `model`. An edit, or a critical placement, then wakes that lane too, because `refine` shares
+    it, and each other lane, as with the default lanes (#4412, #5553)."""
+    monkeypatch.setattr(
+        "devops_cli.roadmap.run.run_scoped_update",
+        lambda delivery, store, **kwargs: JobOutcome(placed_critical_or_p0=action == "opened"),
+    )
+    lanes = _unblocked_lanes((STATUS_LANE, "model"))
+    app = create_service_app(
+        jobs=lanes.jobs(),
+        settings=_make_settings(repos=[REPO_A], lanes={"model": ["intake", "refine"]}),
+        secrets={REPO_A: "secret-1"},
+    )
+    with TestClient(app) as client:
+        response = _github_post(
+            client, "issues", _event_payload(action, issue={"number": 42}), f"shared-{action}"
+        )
+        settled = _lanes_settled(app)
+    key = ("webhook", "issues", action)
+    assert (response.status_code, settled, _webhook_keys(lanes), _subjects(lanes)) == (
+        202,
+        True,
+        {STATUS_LANE: [key], "model": [key]},
+        {STATUS_LANE: {42}, "model": {42}},
     )
 
 

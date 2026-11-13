@@ -53,7 +53,7 @@ import shutil
 import subprocess
 import threading
 from collections import deque
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from functools import cache, partial
@@ -1158,11 +1158,24 @@ is not here keeps its delivery a hint that makes a whole round due."""
 
 
 def scoped_update_wakes_lanes(delivery: WebhookDelivery, outcome: JobOutcome | None) -> bool:
-    """Whether the other lanes of the repository run a round after the scoped update of
+    """Whether the lanes of `lanes_to_wake` run a round after the scoped update of
     `delivery` (#4412, #5553): after an edit, which changes the text that refine and retitle
     read, and after a placement of a critical fix or a P0 item, which stamps `refine_due`. A lane
     whose rows the trigger does not make due runs a round that sends no request."""
     return delivery.action == "edited" or (outcome is not None and outcome.placed_critical_or_p0)
+
+
+def lanes_to_wake(
+    job: str, lanes: Iterable[str], groups: Mapping[str, Sequence[str]] | None = None
+) -> tuple[str, ...]:
+    """The lanes of `lanes` that the wake after a scoped update of `job` reaches (#4412, #5553):
+    each lane but the lane that ran the update, so that `intake` does not run a whole round for
+    the same delivery. When `groups`, the setting `service.lanes`, puts other rows into the lane
+    of `job`, such as `refine`, the wake reaches that lane too, because the wake is for those
+    rows."""
+    own = lane_of_row(job, groups)
+    shared = len(service_lanes(groups).get(own, ())) > 1
+    return tuple(lane for lane in lanes if lane != own or shared)
 
 
 def run_scoped_update(
@@ -2038,6 +2051,7 @@ __all__ = [
     "identity_refused",
     "lane_clone_dirname",
     "lane_of_row",
+    "lanes_to_wake",
     "model_clone",
     "parse_due_tuple",
     "retire_lane_state",

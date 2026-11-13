@@ -12,6 +12,7 @@ from devops_cli.exceptions import ConfigurationError
 from devops_cli.roadmap.run import (
     DEFAULT_DUE_TABLE,
     lane_of_row,
+    lanes_to_wake,
     service_jobs,
     service_lanes,
 )
@@ -79,6 +80,20 @@ def test_the_lane_of_a_row_follows_the_groups() -> None:
         "intake",
         "model",
         "intake",
+    )
+
+
+def test_the_wake_after_a_scoped_intake_skips_its_lane_only_when_intake_is_alone_there() -> None:
+    """With the default lanes, the wake reaches each lane but `intake`. When `service.lanes` puts
+    `refine` into the lane of `intake`, the wake reaches that lane too (#4412, #5553)."""
+    groups = {"model": ["intake", "refine"]}
+
+    assert (
+        lanes_to_wake("intake", ROW_NAMES),
+        lanes_to_wake("intake", ["metrics", "model"], groups),
+    ) == (
+        tuple(name for name in ROW_NAMES if name != "intake"),
+        ("metrics", "model"),
     )
 
 
