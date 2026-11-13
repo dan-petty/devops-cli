@@ -145,6 +145,9 @@ data:
         planned_limit: 20
         step_tokens: 64000
         toolset: extended
+        # The stage Jobs that run at once in the cluster, for every repository together (#4559).
+        # Each Job plans one item in a pod of its own, with one model call in flight.
+        jobs: 1
       # What TypeSafe Jev does in intake (#4395, ADR 0019): `off` makes no request, `shadow` keeps
       # the triage model for every label and records the Jev answers in the job record of each
       # issue (`devops roadmap eval jev --from-shadow` reads them), `on` lets Jev decide. Jev

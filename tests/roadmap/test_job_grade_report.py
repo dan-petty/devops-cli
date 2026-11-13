@@ -273,6 +273,19 @@ def test_a_repository_filter_reaches_each_query() -> None:
     ] == []
 
 
+def test_each_query_reads_the_service_and_the_stage_job_pods_and_no_runner_pod() -> None:
+    """A stage Job logs the result line of its item in its own pod (#4559). A runner pod has the
+    same name label, and its container `runner` stays out."""
+    selector = (
+        '{namespace="devops", app_kubernetes_io_name=~"roadmap-service|devops-cli-job", '
+        'container=~"service|stage"}'
+    )
+
+    assert [
+        query.key for query in plan_grade_queries(GradeWindow.D7) if selector not in query.expr
+    ] == []
+
+
 def test_a_refused_query_raises_the_loki_error(web: WebFake) -> None:
     """A query that Loki refuses stops the report with the status of the reply."""
     web.serve(lambda _request: httpx2.Response(400, text="parse error at line 1"))

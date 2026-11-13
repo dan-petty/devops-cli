@@ -193,7 +193,13 @@ def test_a_round_after_the_marks_write_fails_removes_the_orphan_and_plans_the_it
     assert github_api.requested == [closing]
     assert json.loads(github_api.sent[-1].content) == {"state": "closed"}
     assert _pushed(stage_repo) == ["main"]
-    assert _record(staging) == {}
+    # The removal clears the plan and keeps the failure ledger of the item (#4559).
+    assert sorted(_record(staging)) == [
+        "stage.failed_at",
+        "stage.failed_class",
+        "stage.failed_error",
+        "stage.failed_step",
+    ]
 
     github_api.sent.clear()
 

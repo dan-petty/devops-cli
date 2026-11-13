@@ -40,6 +40,7 @@ Each exception class declares its `error_code` and `exit_code`. A command that a
 | `CloudflareAuthError` | `CLOUDFLARE_AUTH_ERROR` | `1` | Cloudflare | Raised when Cloudflare authentication or token verification fails. |
 | `CloudflareError` | `CLOUDFLARE_ERROR` | `1` | Cloudflare | Base exception for Cloudflare domain errors. |
 | `ClusterJobError` | `K8S_CLUSTER_JOB_ERROR` | `1` | K8s | Raised when a devops-cli Job cannot be created or followed in the cluster. |
+| `ClusterJobExistsError` | `K8S_CLUSTER_JOB_EXISTS` | `1` | K8s | Raised when the create of a Job gets 409: a Job of that name exists already. |
 | `ClusterSecretPushError` | `K8S_SECRET_PUSH_ERROR` | `1` | K8s | Raised when cluster Secrets cannot be pushed from the keyring; nothing was written. |
 | `ClusterSecretWriteError` | `K8S_SECRET_PUSH_ERROR` | `1` | K8s | Raised when writing a planned push fails part-way; `completed` names what was written. |
 | `ConfigurationError` | `CONFIGURATION_ERROR` | `1` | Config | Base exception for configuration loading, validation, and serialization errors. |

@@ -62,6 +62,8 @@ first refusal. A pod loses a count that it makes before its first scrape, becaus
 `devops_cli_service_implement_failures_total` are `class` and `repo`. The labels of
 `devops_cli_service_jobs_total` are `repo`, `lane`, `row` and `result`.
 The labels of `devops_cli_service_implement_jobs_total` are `repo`, `item_class` and `result`.
+The labels of `devops_cli_service_stage_jobs_total` are `repo`, `result` and `class`
+(#4559). A stage Job sends its own series with the job `roadmap-stage`.
 The labels of `devops_cli_service_implement_repair_rounds_total` and
 `devops_cli_service_implement_tokens_total` are `repo` and `item_class`.
 

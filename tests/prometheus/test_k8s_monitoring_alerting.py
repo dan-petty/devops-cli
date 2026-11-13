@@ -126,6 +126,25 @@ METRIC_STREAMS_RULE_TESTS = FIXTURES / "prometheus_rules" / "metric_streams_test
 
 # The job of every series the roadmap Service sends, by the scrape and by OTLP alike (#2472).
 ROADMAP_SERVICE_JOB = "roadmap-service"
+# The matcher of a rule that reads a series that a stage Job sends too (#4559): the planner runs in
+# the stage Jobs, whose telemetry has the job roadmap-stage.
+SERVICE_AND_STAGE = 'job=~"roadmap-service|roadmap-stage"'
+# The job of the series of a stage Job (#4559).
+ROADMAP_STAGE_JOB = "roadmap-stage"
+# The alerts that read the series of the stage Jobs with the series of the Service, and the
+# metric that each one reads. The GitHub request budget alert of the Service reads the Service
+# alone: each stage Job counts its requests in a budget of its own, which
+# RoadmapStageGitHubRequestsHigh watches.
+STAGE_SERIES_ALERTS = {
+    "RoadmapServiceGitHubThrottled": ("devops_cli_github_throttle_wait_seconds",),
+    "RoadmapServiceModelRequestsHigh": ("devops_cli_ai_requests_total",),
+    "RoadmapServiceGitHubWritesHigh": ("devops_cli_github_requests_total",),
+    "RoadmapServiceWebSearchRefused": ("devops_cli_web_searches_total",),
+    "RoadmapServiceToolUnused": (
+        "devops_cli_roadmap_tool_calls_total",
+        "devops_cli_roadmap_tool_calls_per_run",
+    ),
+}
 ROADMAP_SERVICE_GROUP = "roadmap-service"
 # The group of the Service's webhook route, apart from the Service's group (#2476).
 ROADMAP_SERVICE_WEBHOOKS_GROUP = "roadmap-service-webhooks"
@@ -512,6 +531,7 @@ def test_the_baseline_rule_set() -> None:
         ("RoadmapServiceWebSearchRefused", "warning"),
         ("RoadmapServiceWebhookDeliveriesFailed", "warning"),
         ("RoadmapServiceWebhooksRejected", "warning"),
+        ("RoadmapStageGitHubRequestsHigh", "warning"),
         ("TargetDown", "warning"),
         ("ValkeyCacheErrors", "warning"),
         ("ValkeyMemoryNearBound", "warning"),
@@ -1038,7 +1058,7 @@ ROADMAP_SERVICE_RULES = [
     (
         "RoadmapServiceGitHubThrottled",
         "sum by (resource) ("
-        'count_over_time(devops_cli_github_throttle_wait_seconds{job="roadmap-service"}[15m])'
+        f"count_over_time(devops_cli_github_throttle_wait_seconds{{{SERVICE_AND_STAGE}}}[15m])"
         ") > 0",
         "0m",
         "critical",
@@ -1096,9 +1116,21 @@ ROADMAP_SERVICE_RULES = [
         "warning",
     ),
     (
+        "RoadmapStageGitHubRequestsHigh",
+        "sum( "
+        + _window_count(
+            'devops_cli_github_requests_total{job="roadmap-stage", status!="304"}', "1h"
+        )
+        + f' ) > on() 0.9 * max({CONST_SERVICE_METRIC_BUDGET_LIMIT}{{job="roadmap-stage"}})',
+        "0m",
+        "warning",
+    ),
+    (
         "RoadmapServiceModelRequestsHigh",
         "sum( "
-        + _window_count('devops_cli_ai_requests_total{job="roadmap-service", cached!="true"}', "1h")
+        + _window_count(
+            f'devops_cli_ai_requests_total{{{SERVICE_AND_STAGE}, cached!="true"}}', "1h"
+        )
         + " ) > 352",
         "0m",
         "warning",
@@ -1122,7 +1154,7 @@ ROADMAP_SERVICE_ACTIVITY_RULES = [
         "RoadmapServiceGitHubWritesHigh",
         "sum( "
         + _window_count(
-            'devops_cli_github_requests_total{job="roadmap-service", '
+            f"devops_cli_github_requests_total{{{SERVICE_AND_STAGE}, "
             'method=~"POST|PUT|PATCH|DELETE", resource!="graphql"}',
             "1h",
         )
@@ -1140,7 +1172,7 @@ ROADMAP_SERVICE_ACTIVITY_RULES = [
         "RoadmapServiceWebSearchRefused",
         "sum by (backend, result) ( "
         + _window_count(
-            'devops_cli_web_searches_total{job="roadmap-service", result=~"402|429"}',
+            f'devops_cli_web_searches_total{{{SERVICE_AND_STAGE}, result=~"402|429"}}',
             "1h",
         )
         + " ) > 0",
@@ -1268,6 +1300,28 @@ def test_the_write_rule_names_each_write_method_of_the_request_classifier() -> N
     ] == [CONST_GH_MUTATION_HTTP_METHODS] * 3
 
 
+def test_each_rule_that_reads_a_series_of_the_stage_jobs_selects_the_service_and_the_stage_job() -> (
+    None
+):
+    """A stage Job plans an item in a pod of its own, and its series have the job roadmap-stage
+    (#4559). Each rule that reads its GitHub, model, web search or tool series selects
+    `job=~"roadmap-service|roadmap-stage"`, so the move of the planner out of the Service pod
+    keeps the rule whole."""
+    rules = {
+        rule["alert"]: rule["expr"] for group in ROADMAP_SERVICE_GROUPS for rule in _group(group)
+    }
+    read = {
+        (alert, metric, SERVICE_AND_STAGE in matchers)
+        for alert, metrics in STAGE_SERIES_ALERTS.items()
+        for metric, matchers in _SELECTOR_MATCHERS.findall(rules[alert])
+        if metric in metrics
+    }
+    assert {(alert, metric) for alert, metric, _ in read} == {
+        (alert, metric) for alert, metrics in STAGE_SERIES_ALERTS.items() for metric in metrics
+    }
+    assert [(alert, metric) for alert, metric, widened in read if not widened] == []
+
+
 @pytest.mark.parametrize("group", ROADMAP_SERVICE_GROUPS)
 def test_each_roadmap_service_rule_selects_only_the_service(group: str) -> None:
     """Each `devops_cli_` selector filters the Service's job, and each kube-state-metrics
@@ -1281,7 +1335,7 @@ def test_each_roadmap_service_rule_selects_only_the_service(group: str) -> None:
         for rule in _group(group)
         for metric, matchers in _SELECTOR_MATCHERS.findall(rule["expr"])
     ]
-    service = f'job="{ROADMAP_SERVICE_JOB}"'
+    service = {f'job="{ROADMAP_SERVICE_JOB}"', f'job="{ROADMAP_STAGE_JOB}"', SERVICE_AND_STAGE}
     owned = {'deployment="roadmap-service"', 'pod=~"roadmap-service-.+"'}
     assert (
         [metric for metric, _ in found],
@@ -1289,7 +1343,7 @@ def test_each_roadmap_service_rule_selects_only_the_service(group: str) -> None:
             metric
             for metric, matchers in found
             if not (
-                service in matchers
+                bool(service & matchers)
                 if metric.startswith("devops_cli_")
                 else 'namespace="devops"' in matchers and bool(owned & matchers)
             )

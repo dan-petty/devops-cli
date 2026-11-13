@@ -504,6 +504,7 @@ DEFAULT_JOB_NAMES = (
     "metrics",
     "implement",
     "stage_ready",
+    "stage",
     "release_comments",
     "github_status",
     "cloudflare_status",

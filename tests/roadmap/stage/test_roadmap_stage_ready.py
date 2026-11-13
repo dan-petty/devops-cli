@@ -408,6 +408,7 @@ def test_the_row_follows_implement_on_the_status_lane_needs_no_clone_and_is_due_
             "metrics",
             "implement",
             "stage_ready",
+            "stage",
             "release_comments",
             "github_status",
             "cloudflare_status",

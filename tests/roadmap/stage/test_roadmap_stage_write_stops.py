@@ -1,8 +1,8 @@
 """A stop of the Service after each write of the stage job leaves the next round no second
 comment to post (ADR 0021, #4793).
 
-The roadmap is the in-memory store, the GitHub session is the fake, and the round is the `stage`
-row of the Service's model lane.
+The roadmap is the in-memory store, the GitHub session is the fake, and the run is the stage Job
+of the item (#4559).
 """
 
 from __future__ import annotations
@@ -13,7 +13,6 @@ from typing import TYPE_CHECKING
 import pytest
 
 from devops_cli.github.rate_limiter import get_github_rate_limiter
-from devops_cli.roadmap.run import MODEL_LANE_ROWS
 from devops_cli.roadmap.stores.store import ItemField
 from tests.support.fakes.github import github_json
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
@@ -22,6 +21,7 @@ from tests.support.roadmap_stage import (
     STAGE_REPO,
     VALID_REPORT,
     StageRepo,
+    run_stage_jobs,
     seed_stageable,
     validate_args,
 )
@@ -34,7 +34,6 @@ if TYPE_CHECKING:
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
-STAGE_ROW = next(row for row in MODEL_LANE_ROWS if row.name == "stage")
 NEW_MODULE = "src/devops_cli/roadmap/stage_constants.py"
 OPEN_PLAN = f"""\
 # Tasks
@@ -84,12 +83,9 @@ def test_a_stop_after_each_write_of_a_dependency_return_posts_no_second_comment(
         fields={ItemField.STATUS: "Planned", ItemField.PRIORITY: "P1-High"},
     )
     merge_plan(stage_repo, open_plan, tasks=OPEN_PLAN)
-    seed_stageable(store, body=f"The job needs `{NEW_MODULE}`.")
+    number = seed_stageable(store, body=f"The job needs `{NEW_MODULE}`.")
 
-    replay = stop_after_each_write(
-        store,
-        lambda copied: STAGE_ROW.runner(store=copied, repo=STAGE_REPO, clone_path=stage_repo.clone),
-    )
+    replay = stop_after_each_write(store, lambda copied: run_stage_jobs(copied, stage_repo, number))
 
     assert (
         replay.whole,

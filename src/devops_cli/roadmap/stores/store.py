@@ -251,7 +251,9 @@ class StageRecordKey(StrEnum):
     `stage.job_deadline` the time at which the deadline of the Job ends. At its end the Job checks
     in: it writes `stage.job_result`, the Job, its result and the time as JSON, and clears the
     check-out, in one write. These four keys belong to the check-out, so no write of a plan, a
-    removal or a rejection clears them (`STAGE_JOB_KEYS`)."""
+    removal or a rejection clears them (`STAGE_JOB_KEYS`). The stage row of the Service checks in
+    for a Job that ended with no check-in (#4559), and records each eviction that it frees in
+    `stage.evictions`, the hash of the body and the count as JSON."""
 
     BRANCH = "stage.branch"
     PR = "stage.pr"
@@ -275,6 +277,7 @@ class StageRecordKey(StrEnum):
     JOB_AT = "stage.job_at"
     JOB_DEADLINE = "stage.job_deadline"
     JOB_RESULT = "stage.job_result"
+    EVICTIONS = "stage.evictions"
 
 
 # The keys of the check-out and the check-in of a stage Job (#5483).
@@ -286,10 +289,30 @@ STAGE_JOB_KEYS: Final[frozenset[StageRecordKey]] = frozenset(
         StageRecordKey.JOB_RESULT,
     }
 )
-# The keys of the plan of an item: a removal of its staged branch and a rejection of its plan
-# clear them, and keep the keys of the check-out.
+# The keys of the plan of an item: a rejection of its plan clears them, and keeps the keys of the
+# check-out.
 STAGE_PLAN_KEYS: Final[tuple[StageRecordKey, ...]] = tuple(
     key for key in StageRecordKey if key not in STAGE_JOB_KEYS
+)
+# The failure ledger of an item (#4559): its last failure, its count toward
+# `roadmap.stage.plan_defect_limit` and its free evictions. A removal of a staged branch or an
+# orphan keeps them, so the item waits for its class and the count grows. A publish clears the
+# failure and the count.
+STAGE_LEDGER_KEYS: Final[frozenset[StageRecordKey]] = frozenset(
+    {
+        StageRecordKey.FAILED_AT,
+        StageRecordKey.FAILED_ERROR,
+        StageRecordKey.FAILED_STEP,
+        StageRecordKey.FAILED_CLASS,
+        StageRecordKey.PLAN_DEFECTS,
+        StageRecordKey.PLAN_DEFECTS_BODY,
+        StageRecordKey.EVICTIONS,
+    }
+)
+# The keys that a removal of a staged branch or an orphan clears: the keys of the plan but the
+# failure ledger.
+STAGE_REMOVAL_KEYS: Final[tuple[StageRecordKey, ...]] = tuple(
+    key for key in STAGE_PLAN_KEYS if key not in STAGE_LEDGER_KEYS
 )
 
 
@@ -1215,7 +1238,9 @@ def get_roadmap_store(
 __all__ = [
     "FIELD_VALUES",
     "STAGE_JOB_KEYS",
+    "STAGE_LEDGER_KEYS",
     "STAGE_PLAN_KEYS",
+    "STAGE_REMOVAL_KEYS",
     "AlternativesRecordKey",
     "Candidate",
     "Change",

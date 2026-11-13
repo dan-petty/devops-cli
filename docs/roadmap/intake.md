@@ -130,7 +130,7 @@ The issue events report no opened issue, so the poll reads the newest issue from
 - It leaves a title that someone changed after the last comment of a job. It reads the title changes on the timeline of the item. When that title has an unlisted type, it comments once with the type, because the stage job cannot take the item.
 - When it leaves an item (a person's edit, no plan title, no usable reply of the model, or a type with no correction), it writes the mark `retitle.skipped` once. It also writes one warning log line with the reason key: `invalid-title-type` for an unlisted type, else `long-title`. The value of the mark is a hash of the title, the body and the `stage.pr` mark. The selection leaves the item out while the hash holds, so a later round reads nothing of it and makes no model request for it. A change to the title, the body or `stage.pr` selects it again. A comment does not.
 - Without `--confirm` it prints the new titles and writes nothing. With `--confirm` it writes each title and one comment with the marker `<!-- devops roadmap retitle -->`. `--dry-run` makes no request.
-- The Service runs the job as the row `retitle` of the model lane. The row is due on a first run and every 61 minutes. It runs just before `stage`, so the stage job reads the new titles in the same round. Each run takes at most 25 items and writes as `--confirm` does. The row needs no clone.
+- The Service runs the job as the row `retitle` of the model lane. The row is due on a first run and every 61 minutes. The stage Jobs that the status lane submits read the new titles. Each run takes at most 25 items and writes as `--confirm` does. The row needs no clone.
 
 ## Where the rules are
 

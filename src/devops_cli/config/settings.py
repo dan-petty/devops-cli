@@ -156,6 +156,7 @@ from devops_cli.config.defaults import (
     DEFAULT_ROADMAP_STAGE_GATE_RETURNS,
     DEFAULT_ROADMAP_STAGE_GITHUB_REQUESTS_PER_HOUR,
     DEFAULT_ROADMAP_STAGE_INTERVAL_MINUTES,
+    DEFAULT_ROADMAP_STAGE_JOBS,
     DEFAULT_ROADMAP_STAGE_LIMIT,
     DEFAULT_ROADMAP_STAGE_MAX_REQUESTS,
     DEFAULT_ROADMAP_STAGE_MAX_TOOL_CALLS,
@@ -1146,7 +1147,7 @@ class RoadmapStageConfig(RowCadenceConfig):
         min_length=1,
     )
     limit: Annotated[int, Variable()] = Field(
-        description="The most items that one run of the stage job takes",
+        description="The most items that one run of `devops roadmap stage` by a person takes. The stage row of the Service takes the free slots of `roadmap.stage.jobs` and plans each item in a stage Job of its own",
         default=DEFAULT_ROADMAP_STAGE_LIMIT,
         ge=1,
     )
@@ -1180,7 +1181,7 @@ class RoadmapStageConfig(RowCadenceConfig):
         le=CONST_ROADMAP_LIMIT_CEILING_FACTOR * DEFAULT_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS_CEILING,
     )
     plan_defect_limit: Annotated[int, Variable()] = Field(
-        description="How many `plan_defect` failures of one item on the same body the stage job counts. The failure that reaches this count returns the item to New with one comment that lists the problems of the last plan. The settings load refuses a value above 4 times the default",
+        description="How many failures of one item on the same body the stage job counts before it asks for a split: the `plan_defect` failures of a plan, and the ends of a stage Job with the class `timeout` or `plan_defect`. An outage of the provider, of GitHub or of the cluster does not count. The failure that reaches this count returns the item to New with one comment that lists the problems of the last plan, or that asks refine to split the item after the last Job. The settings load refuses a value above 4 times the default",
         default=DEFAULT_ROADMAP_STAGE_PLAN_DEFECT_LIMIT,
         ge=1,
         le=CONST_ROADMAP_LIMIT_CEILING_FACTOR * DEFAULT_ROADMAP_STAGE_PLAN_DEFECT_LIMIT,
@@ -1237,6 +1238,11 @@ class RoadmapStageConfig(RowCadenceConfig):
     jev_completeness: Annotated[bool, Variable()] = Field(
         description="Whether the stage_ready row asks TypeSafe Jev if a green plan draft delivers each acceptance criterion of its issue, before it marks the draft ready. A criterion in doubt, a weak test score or an error of Jev keeps the draft a draft and posts one note; the check never marks a draft ready, merges or closes",
         default=False,
+    )
+    jobs: Annotated[int, Variable()] = Field(
+        description="The most stage Jobs that run at once in the cluster, for every repository together: each Job holds a model call slot of the one model tier and a GitHub request budget of its own. The stage row of the Service lists the stage Jobs by their component label, and creates a Job for each Ready item that the selection takes, up to this count less the Jobs that run. Every stage pod sends the one telemetry instance `roadmap-stage`, which holds while one pod runs at a time",
+        default=DEFAULT_ROADMAP_STAGE_JOBS,
+        ge=1,
     )
     time_budget_seconds: Annotated[int, Variable()] = Field(
         description="The most seconds that a stage Job (`devops roadmap stage --job-item`) may plan its item, counted from its start. The planner compares the time with the budget before each model run, so a run that started before the end goes on. The Job cuts the budget to the deadline of the Job less 1800 seconds, for one more model run and the publish. SIGTERM after the end of the budget is the deadline of the Job: the Job records the class and checks in. The value must be above `roadmap.mcp.timeout_seconds` and at most 9000, the deadline of CronJob roadmap-stage less the margin",

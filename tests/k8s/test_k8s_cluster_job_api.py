@@ -463,3 +463,46 @@ def test_a_refused_delete_is_an_error_that_names_the_action_and_the_status(
 
     with pytest.raises(ClusterJobError, match="delete Job in namespace devops: HTTP 403 Forbidden"):
         ClusterJobs().delete_job("devops-cli-runner-a")
+
+
+def test_a_create_of_a_job_that_exists_raises_the_exists_error_and_keeps_the_job(
+    kube: FakeCluster,
+) -> None:
+    """The name of a stage Job comes from its inputs, so a second create of it gets 409 (#4559)."""
+    from devops_cli.exceptions.k8s import ClusterJobExistsError
+
+    jobs = ClusterJobs()
+    jobs.create(["--version"], template=RUNNER_TEMPLATE, name="devops-cli-stage-a-1-0123456789")
+
+    with pytest.raises(ClusterJobExistsError, match="exists already"):
+        jobs.create(["--version"], template=RUNNER_TEMPLATE, name="devops-cli-stage-a-1-0123456789")
+    assert len(kube.custom_objects.objects[JOBS]) == 1
+
+
+def test_a_listed_job_carries_its_labels_and_the_reason_and_message_of_its_failure(
+    kube: FakeCluster,
+) -> None:
+    """The Service reads the item of a stage Job from its labels, and the end of a failed Job
+    from the reason and the message of its condition Failed (#4559)."""
+    failed = _job("devops-cli-stage-a-1-0123456789", {"roadmap.devops-cli/item": "1"})
+    failed["status"]["conditions"] = [
+        {"type": "FailureTarget", "status": "True", "reason": "DeadlineExceeded"},
+        {
+            "type": "Failed",
+            "status": "True",
+            "reason": "DeadlineExceeded",
+            "message": "Job was active longer than specified deadline",
+        },
+    ]
+    kube.custom_objects.objects[JOBS] = [failed, _job("devops-cli-stage-a-2-0123456789")]
+
+    listed = ClusterJobs().list_jobs({})
+
+    assert [(job.labels, job.reason, job.message) for job in listed] == [
+        (
+            {"roadmap.devops-cli/item": "1"},
+            "DeadlineExceeded",
+            "Job was active longer than specified deadline",
+        ),
+        ({}, "", ""),
+    ]

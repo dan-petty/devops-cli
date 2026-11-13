@@ -1,9 +1,11 @@
 """Roadmap job evaluation, scheduling, checkout management, and execution.
 
-The due table runs the status lane's rows, metrics, implement, stage_ready, release_comments,
-github_status, cloudflare_status and pr_conflicts, before the model lane's, intake, retitle, stage,
-fix_plan, refine and alternatives, so a burst of candidates never holds back the metrics (#1360), and a slow model never holds back the implement or stage_ready row
-(#2757, #2865). The row stage_ready marks a green stage draft pull request ready. The row
+The due table runs the status lane's rows, metrics, implement, stage_ready, stage,
+release_comments, github_status, cloudflare_status and pr_conflicts, before the model lane's,
+intake, retitle, fix_plan, refine and alternatives, so a burst of candidates never holds back the
+metrics (#1360), and a slow model never holds back the implement, stage_ready or stage row
+(#2757, #2865, #4559). The row stage_ready marks a green stage draft pull request ready. The row
+stage submits one stage Job for each Ready item (`stage_submit.py`): the Job plans the item. The row
 release_comments comments the version, and the time it runs, on the issues of a release (#2917).
 The row pr_conflicts comments once on a ready delivery pull request with merge conflicts (#4027).
 The row fix_plan runs the step fix-plan in the mode of `roadmap.fix_plan.mode`: it repairs at most
@@ -16,18 +18,18 @@ Each row is due by its interval, by a webhook hint in the batch, or by its due r
 judges the changes made since the row last succeeded: intake's is an issue reopened, or a fresh
 candidate its last round left (`IntakeRecord`, kept beside `schedule.json`). A round's intake
 decides at most `DEFAULT_ROADMAP_INTAKE_LIMIT` candidates. Refine is due every 17 minutes by default, on
-a first run, and in a round where intake placed a critical fix or a P0 item (#1515). Stage, the row
-before refine, is due every 37 minutes by default, on a first run, and after a round in which refine
-set an item Ready (#2659): that round stamps `stage_due` in `schedule.json`. Stage runs before refine,
-so the first round of a new pod stages before refine takes its items (#4796).
+a first run, and in a round where intake placed a critical fix or a P0 item (#1515). Stage is due
+every 37 minutes by default, on a first run, and after a round in which refine set an item Ready
+(#2659): that round stamps `stage_due` in `schedule.json`, and the next round of the status lane
+submits the Job of the item.
 The rows intake, stage, fix_plan, refine and alternatives read their interval at each round from
 `roadmap.<row>.interval_minutes`, and use `roadmap.<row>.backlog_interval_minutes` while the queue
 that their last round counted holds `roadmap.<row>.backlog_threshold` or more items (#5470). Each
 runner counts its queue from the listing that its round reads, and the round keeps it in
 `queues.json` beside `schedule.json`.
-Retitle, the row before stage, is due every 61 minutes and on a first run. It examines at most
+Retitle is due every 61 minutes and on a first run. It examines at most
 `DEFAULT_ROADMAP_RETITLE_LIMIT` items: it shortens a long title summary (#3535) and corrects a title
-type that the branch types do not list (#4508), so stage reads the new titles.
+type that the branch types do not list (#4508).
 The alternatives row is due every 719 minutes by default and on a first run, and checks at most
 `roadmap.alternatives.first_pass_limit` items while an item has no check, else
 `roadmap.alternatives.limit` items after (#2652). Every clone tracks origin's default branch.
@@ -148,23 +150,15 @@ from devops_cli.roadmap.release_comments import comment_releases
 from devops_cli.roadmap.release_feed import GitHubReleaseFeed
 from devops_cli.roadmap.release_roll import cluster_digests
 from devops_cli.roadmap.retitle import apply_retitle, build_retitle_model, plan_retitle
-from devops_cli.roadmap.round_log import log_failed_item
 from devops_cli.roadmap.service_stop import service_stopping, stop_before
 
 # `stage` imports the model client, which imports pydantic_ai too: import it here for the same
 # reason (#2659).
-from devops_cli.roadmap.stage.stage import (
-    StageWriter,
-    emit_stage_results,
-    parse_filters,
-    plan_stage,
-    raise_for_failed,
-    raise_for_failed_round,
-)
+from devops_cli.roadmap.stage.stage import raise_for_failed
 from devops_cli.roadmap.stage.stage_ready import mark_stage_ready
+from devops_cli.roadmap.stage.stage_submit import run_stage_round
 from devops_cli.roadmap.stage.stage_toolbox import ToolboxModel
 from devops_cli.roadmap.stage.stage_verify import PLAN_NEEDS_FIX_LABEL
-from devops_cli.roadmap.status_sync import sync_statuses
 from devops_cli.roadmap.steps.fix_plan import run_fix_plan
 from devops_cli.roadmap.stores.listing_snapshot import (
     IncrementalListing,
@@ -540,15 +534,17 @@ def ensure_checkout(
     return clone_dir
 
 
-def model_clone(repo: str, *, blobless: bool = False) -> Path:
-    """The model lane's clone of `repo`, cloned or updated: the clone the stage job works in when
-    a person gives no `--source` (#2654). A stage Job asks for a `blobless` clone (#5483)."""
-    return ensure_checkout(
-        repo,
-        _resolve_data_dir(),
-        dirname=CONST_ROADMAP_RUN_MODEL_CLONE_DIRNAME,
-        blobless=blobless,
-    )
+def model_clone(repo: str) -> Path:
+    """The model lane's clone of `repo`, cloned or updated: the clone that the commands of the
+    model-lane jobs work in when a person gives no `--source` (#2654)."""
+    return ensure_checkout(repo, _resolve_data_dir(), dirname=CONST_ROADMAP_RUN_MODEL_CLONE_DIRNAME)
+
+
+def status_clone(repo: str, *, blobless: bool = False) -> Path:
+    """The status lane's clone of `repo`, cloned or updated: the clone of the stage row, and the
+    clone that `devops roadmap stage` works in when a person gives no `--source` (#4559). A stage
+    Job asks for a `blobless` clone in its own pod (#5483)."""
+    return ensure_checkout(repo, _resolve_data_dir(), blobless=blobless)
 
 
 def _intake_due(check: DueCheck) -> bool:
@@ -757,37 +753,24 @@ def _run_stage_adapter(
     clone_path: Path | None = None,
     **_: Any,
 ) -> JobOutcome:
-    """Run the stage job as `devops roadmap stage --confirm` runs it, with the filter, the limit
-    and the step budget of the settings: stage the Ready items they name in the job's clone and
-    count each item by its result (#2659). An item that failed is recorded in its job record and
-    waits for the wait of its failure class (`RETRY_AFTER`); the job fails, once the others are written, only
-    when it tried items and handled none (#3493). A failure that no item explains, such as an
-    outage, ends the run at once. Each item is written when it is planned, so a stop of the
-    Service loses at most the item in progress (#4034). The outcome names the project files that
-    the default branch lacks, such as `openspec/config.yaml`, for onboarding (#4629), and the open
-    items that the filter names as the queue of the row (#5470)."""
-    source = _job_clone("stage", clone_path)
-    writer = StageWriter(store, source)
-    plan = plan_stage(
-        store,
-        repo=repo,
-        source=source,
-        filters=parse_filters(()),
-        model=ToolboxModel(get_task_model("stage")),
-        verifier=ToolboxModel(get_task_model("verification")),
-        writer=writer,
+    """Submit one stage Job for each Ready item that the selection takes, up to
+    `roadmap.stage.jobs`, and recover the check-out of each stage Job that ended with no check-in
+    (`stage_submit.py`). The Service plans no item: the stage Job does, so a rollout of the
+    Service stops no plan (#4559). The row fails for a Status that it could not set. The outcome
+    names the project files that the default branch lacks, such as `openspec/config.yaml`, for
+    onboarding (#4629), and the open items that the filter names as the queue of the row (#5470)."""
+    result = run_stage_round(store, repo=repo, source=_job_clone("stage", clone_path))
+    logger.info(
+        MESSAGES.roadmap.stage_round_log,
+        repo,
+        ",".join(f"#{found.number}:{found.end}" for found in result.recovered) or "none",
+        ",".join(result.created) or "none",
+        ",".join(result.existed) or "none",
+        ",".join(result.deleted) or "none",
+        result.running,
     )
-    applied = writer.applied()
-    emit_stage_results(plan, applied, repo=repo)
-    for failure in (*plan.failed, *applied.failed):
-        log_failed_item(repo, failure.number, failure.step.value, failure.failure_class.value)
-    synced = (
-        sync_statuses(store, repo=repo, planned=plan.planned) if plan.planned is not None else None
-    )
-    raise_for_failed_round(plan, applied)
-    if synced is not None:
-        raise_for_failed(synced.failed, summary=MESSAGES.roadmap.status_sync_failed)
-    return JobOutcome(missing=plan.missing, queue=plan.queue)
+    raise_for_failed(result.status_failed, summary=MESSAGES.roadmap.status_sync_failed)
+    return JobOutcome(missing=result.plan.missing, queue=result.plan.queue)
 
 
 def _run_fix_plan_adapter(
@@ -1003,6 +986,14 @@ STATUS_LANE_ROWS: tuple[JobRow, ...] = (
         first_run_due=True,
     ),
     JobRow(
+        name="stage",
+        cadence=attrgetter("stage"),
+        batch_keys=CONST_ROADMAP_STAGE_BATCH_KEYS,
+        runner=_run_stage_adapter,
+        needs_clone=True,
+        first_run_due=True,
+    ),
+    JobRow(
         name="release_comments",
         interval=timedelta(minutes=DEFAULT_ROADMAP_RELEASE_COMMENTS_INTERVAL_MINUTES),
         runner=_run_release_comments_adapter,
@@ -1028,16 +1019,18 @@ STATUS_LANE_ROWS: tuple[JobRow, ...] = (
     ),
 )
 """The rows that call no model: the one that refreshes the metrics, the one that submits the
-implement Job, which only talks to the Kubernetes API and GitHub, and the one that marks a green
-stage pull request ready, which only talks to GitHub, and the one that comments a release on its
+implement Job, which only talks to the Kubernetes API and GitHub, the one that marks a green
+stage pull request ready, which only talks to GitHub, the one that submits the stage Jobs, which
+talks to the Kubernetes API and GitHub and reads the clone (#4559), and the one that comments a release on its
 issues, which talks to GitHub, the registry and the Kubernetes API, the two that read the GitHub
 and the Cloudflare status page, one row each, so a failed read fails its own row (#4052), and the
 one that comments on a ready delivery pull request with merge conflicts, which only talks to GitHub
 (#4027). The model runs in the Job, so a model-lane
 round that is still running never delays the rows (#2757, #2865). `stage_ready` follows
 `implement`, so a Staged item with a green draft gets its Job first, and the row leaves a pull
-request that a Job works on alone. `release_comments`, the two status reads and `pr_conflicts`
-come last: they wait for no other row, and a slow read delays no other row."""
+request that a Job works on alone. `stage` follows `stage_ready`. `release_comments`, the two
+status reads and `pr_conflicts` come last: they wait for no other row, and a slow read delays no
+other row."""
 
 TRIAGE_LANE_ROWS: tuple[JobRow, ...] = (
     JobRow(
@@ -1057,14 +1050,6 @@ MODEL_LANE_ROWS: tuple[JobRow, ...] = (
         interval=timedelta(minutes=DEFAULT_ROADMAP_RETITLE_INTERVAL_MINUTES),
         batch_keys=CONST_ROADMAP_RETITLE_BATCH_KEYS,
         runner=_run_retitle_adapter,
-        first_run_due=True,
-    ),
-    JobRow(
-        name="stage",
-        cadence=attrgetter("stage"),
-        batch_keys=CONST_ROADMAP_STAGE_BATCH_KEYS,
-        runner=_run_stage_adapter,
-        needs_clone=True,
         first_run_due=True,
     ),
     JobRow(
@@ -1091,11 +1076,10 @@ MODEL_LANE_ROWS: tuple[JobRow, ...] = (
         first_run_due=True,
     ),
 )
-"""The rows that call the model, which answers one call at a time: intake, retitle, stage,
-fix_plan, refine and the daily check for alternative tools (#2652). fix_plan follows stage and
-repairs at most one plan pull request with `plan/needs-fix` in a round (#5061). Stage runs before refine: a round of 7 refine
-items takes 35 to 65 minutes and refine is due again when it ends, so with refine first the first
-round of each new pod held the lane before stage had a turn (#4796)."""
+"""The rows that call the model, which answers one call at a time: retitle, fix_plan, refine and
+the daily check for alternative tools (#2652). fix_plan repairs at most one plan pull request with
+`plan/needs-fix` in a round (#5061). A stage Job plans in a pod of its own, so stage holds no
+place on this lane (#4559)."""
 
 DEFAULT_DUE_TABLE: tuple[JobRow, ...] = (*STATUS_LANE_ROWS, *TRIAGE_LANE_ROWS, *MODEL_LANE_ROWS)
 """Every row, the status lane's first: what `devops roadmap run` runs in one round."""

@@ -310,6 +310,7 @@ from devops_cli.roadmap.step_files import code_spans
 from devops_cli.roadmap.step_metrics import observe_step
 from devops_cli.roadmap.stores.store import (
     STAGE_PLAN_KEYS,
+    STAGE_REMOVAL_KEYS,
     GitHubState,
     Item,
     RefineRecordKey,
@@ -547,6 +548,8 @@ class _Judge:
         now: datetime,
         rejected: Mapping[int, RejectedPlan],
         missing: tuple[str, ...] = (),
+        busy: Mapping[int, str] | None = None,
+        job: str | None = None,
     ) -> None:
         self._store = store
         self._holder_of = holder_of
@@ -555,6 +558,8 @@ class _Judge:
         self._now = now
         self._rejected_now = rejected
         self._missing = missing
+        self._busy = busy or {}
+        self._job = job
 
     def reason(self, item: Item, *, named: bool) -> tuple[LeftOutKind, str] | None:
         """The kind and the text of the reason the job leaves `item` out, or None when it may
@@ -577,6 +582,7 @@ class _Judge:
             (kind.PLANNED, self._planned_on_default),
             *([] if named else [(kind.REJECTED, self._rejected)]),
             (kind.HELD, self._held),
+            (kind.STAGE_JOB, self._stage_job),
             (kind.REDACTED, self._secret),
         ]
         if not named:
@@ -701,6 +707,15 @@ class _Judge:
     def _held(self, item: Item) -> str | None:
         return self._holder_of(item.number, _target_of(item).branch)
 
+    def _stage_job(self, item: Item) -> str | None:
+        """A stage Job works on the item (#4559): the list of the Jobs of the Service shows one
+        that runs, or the check-out of the item names a Job that is not the Job of this pod. The
+        Job list is the lock, so a person's `--item` keeps the rule too."""
+        held = self._busy.get(item.number) or item.job_record.get(StageRecordKey.JOB)
+        if held is None or held == self._job:
+            return None
+        return MESSAGES.roadmap.stage_left_stage_job.format(job=held)
+
     def _secret(self, item: Item) -> str | None:
         looks_secret = any(redact_text(text) != text for text in (item.title, item.body))
         return MESSAGES.roadmap.stage_left_secret if looks_secret else None
@@ -803,6 +818,8 @@ def select_stageable(
     rejected: Mapping[int, RejectedPlan] | None = None,
     missing: tuple[str, ...] = (),
     named: bool = True,
+    busy: Mapping[int, str] | None = None,
+    job: str | None = None,
 ) -> StageSelection:
     """The items to stage, up to `limit`, and those the filter names that the job leaves out.
 
@@ -815,7 +832,9 @@ def select_stageable(
     names; `rejected` holds the rejections of this run that the record does not hold yet (#3503).
     `missing` holds the project files that the default branch lacks: with no
     `openspec/config.yaml` the job takes no item (#4629). With `named` false, the item of
-    `item_number` keeps every rule of a round, as a stage Job selects it (#5483).
+    `item_number` keeps every rule of a round, as a stage Job selects it (#5483). `busy` names
+    the stage Job of each item that a Job works on, and `job` is the stage Job of this pod: an
+    item that another stage Job works on stays out (#4559).
     """
     opened = _open_items(store)
     judge = _Judge(
@@ -826,6 +845,8 @@ def select_stageable(
         now or datetime.now(UTC),
         rejected or {},
         missing,
+        busy,
+        job,
     )
     if item_number is not None:
         return _named_item(judge, store, item_number, named=named)
@@ -2508,18 +2529,21 @@ def _orphans(
     *,
     only: int | None = None,
     job: str | None = None,
+    freed: Collection[int] = (),
 ) -> tuple[tuple[Removal, ...], tuple[KeptBranch, ...]]:
     """Judge the orphan of each open item that holds the intent mark `stage.pending` and no
     pull request, when the mark is old enough (#4051). The branch is the one the mark names. It is
     removed when it is gone or every commit past the default branch is the clone identity's, else
     kept. A pushed branch with no mark is never judged. With `only`, a stage Job judges that item
     and no other; the mark of an item that the check-out gives to the Job `job` is judged at any
-    age, because no other run publishes that item (#5483)."""
+    age, because no other run publishes that item (#5483), and so is the mark of an item of
+    `freed`, whose Job ended with no check-in (#4559)."""
     pushed = set(remote_branches(remote_heads))
     removals: list[Removal] = []
     kept: list[KeptBranch] = []
     for item in _items_of(store, only):
-        if (pending := orphan_mark(item, now, job=job)) is None:
+        mark = orphan_mark(item, now, job=job, freed=item.number in freed)
+        if (pending := mark) is None:
             continue
         branch = pending.branch
         if branch not in pushed:
@@ -2540,16 +2564,15 @@ def _items_of(store: RoadmapStore, only: int | None) -> list[Item]:
     return [] if found is None else [found]
 
 
-def _own_orphans(removals: Iterable[Removal], job: str | None) -> list[str]:
-    """The branches of the orphans in `removals` whose item the check-out gives to the Job `job`.
-    The writer removes them before the plan, so the selection of the same run does not hold the
-    item by them (#5483)."""
-    if job is None:
-        return []
+def _own_orphans(removals: Iterable[Removal], job: str | None, *, every: bool = False) -> list[str]:
+    """The branches of the orphans in `removals` whose item the check-out gives to the Job `job`,
+    or of every orphan with `every`. The writer removes them before the plan or the submit, so the
+    selection of the same run does not hold the item by them (#5483, #4559)."""
     return [
         removal.branch
         for removal in removals
-        if removal.orphan and removal.item.job_record.get(StageRecordKey.JOB) == job
+        if removal.orphan
+        and (every or (job is not None and removal.item.job_record.get(StageRecordKey.JOB) == job))
     ]
 
 
@@ -2630,6 +2653,8 @@ def read_stage_selection(
     now: datetime | None = None,
     rejected: Mapping[int, RejectedPlan] | None = None,
     named: bool = True,
+    busy: Mapping[int, str] | None = None,
+    job: str | None = None,
 ) -> StageRead:
     """Select the items to stage in the clone `source`, with no model call and no write to git or
     to GitHub. `plan_stage` and `devops roadmap explain` read the selection through this one
@@ -2656,8 +2681,92 @@ def read_stage_selection(
         rejected=rejected,
         missing=missing,
         named=named,
+        busy=busy,
+        job=job,
     )
     return StageRead(sha, heads, planned, selection, missing)
+
+
+@dataclass(frozen=True)
+class StageRound:
+    """What a stage round reads before its first write (#4559): the plan with the cleanup and the
+    reasons of the items left out, the plans on the default branch, and the selected targets.
+    `plan_stage` plans the targets, and the stage row of the Service submits a stage Job for each
+    one."""
+
+    plan: StagePlan
+    planned: PlannedChanges
+    selected: tuple[StageTarget, ...]
+
+
+def read_stage_round(
+    store: RoadmapStore,
+    *,
+    repo: str,
+    source: Path,
+    filters: StageFilter,
+    limit: int,
+    item_number: int | None = None,
+    why: bool = False,
+    now: datetime | None = None,
+    named: bool = True,
+    job: str | None = None,
+    busy: Mapping[int, str] | None = None,
+    freed: Collection[int] = (),
+    every_orphan: bool = False,
+) -> StageRound:
+    """The reads of a stage round, with no model call and no write: the plans that a person
+    closed with no merge, the staged branches of closed items, the orphans, and the selection of
+    up to `limit` items. The writer of the round then removes and rejects what the plan holds.
+
+    `named`, `item_number`, `job` and `why` are those of `plan_stage`. `busy` names the stage Job
+    of each item that a Job works on, which the selection leaves out. The marks of the items of
+    `freed`, whose stage Job ended with no check-in, are judged at any age. With `every_orphan`,
+    the selection reads the heads without the branch of each orphan that the writer removes, so
+    the item of an orphan is free in the same round: the stage row of the Service (#4559)."""
+    inspect_checkout(source, repo)  # refuses a clone whose origin is not `repo`
+    heads = read_remote_heads(source)
+    planned = read_planned_changes(source, operation=_GIT_OPERATION)
+    rejections = _rejections(store, repo, source, heads, planned, item_number)
+    heads = _heads_after(heads, (found.branch for found in rejections.found))
+    only = None if named else item_number
+    removals, kept = _reconcile(store, source, heads, only)
+    orphans, orphans_kept = _orphans(
+        store, source, heads, now or datetime.now(UTC), only=only, job=job, freed=freed
+    )
+    settings = load_settings().roadmap.stage
+    with observe_step(repo, _ROW, StepName.SELECT):
+        sha, _, planned, selection, missing = read_stage_selection(
+            store,
+            repo=repo,
+            source=source,
+            filters=filters,
+            limit=limit,
+            planned_limit=settings.planned_limit,
+            item_number=item_number,
+            heads=_heads_after(heads, _own_orphans(orphans, job, every=every_orphan)),
+            planned=planned,
+            now=now,
+            rejected={found.number: found.plan for found in rejections.found},
+            named=named,
+            busy=busy,
+            job=job,
+        )
+    unmatched = unmatched_items(store, filters) if why and item_number is None else ()
+    plan = StagePlan(
+        repo,
+        sha,
+        left_out=selection.left_out,
+        removals=(*removals, *orphans),
+        kept=(*kept, *orphans_kept, *rejections.kept),
+        planned=planned,
+        unmatched=unmatched,
+        failed=tuple(_write_failure(f.item, f.error) for f in rejections.failures),
+        rejections=rejections.found,
+        missing=missing,
+        queue=selection.queue,
+    )
+    return StageRound(plan, planned, selection.selected)
 
 
 def plan_stage(
@@ -2705,50 +2814,23 @@ def plan_stage(
     """
     checkout = Path(source)
     settings = load_settings()
-    inspect_checkout(checkout, repo)  # refuses a clone whose origin is not `repo`
-    heads = read_remote_heads(checkout)
-    planned = read_planned_changes(checkout, operation=_GIT_OPERATION)
-    rejections = _rejections(store, repo, checkout, heads, planned, item_number)
-    heads = _heads_after(heads, (found.branch for found in rejections.found))
-    only = None if named else item_number
-    removals, kept = _reconcile(store, checkout, heads, only)
-    orphans, orphans_kept = _orphans(
-        store, checkout, heads, now or datetime.now(UTC), only=only, job=job
+    read = read_stage_round(
+        store,
+        repo=repo,
+        source=checkout,
+        filters=filters,
+        limit=limit or settings.roadmap.stage.limit,
+        item_number=item_number,
+        why=why,
+        now=now,
+        named=named,
+        job=job,
     )
-    with observe_step(repo, _ROW, StepName.SELECT):
-        sha, _, planned, selection, missing = read_stage_selection(
-            store,
-            repo=repo,
-            source=checkout,
-            filters=filters,
-            limit=limit or settings.roadmap.stage.limit,
-            planned_limit=settings.roadmap.stage.planned_limit,
-            item_number=item_number,
-            heads=_heads_after(heads, _own_orphans(orphans, job)),
-            planned=planned,
-            now=now,
-            rejected={found.number: found.plan for found in rejections.found},
-            named=named,
-        )
-    budget = step_tokens or settings.roadmap.stage.step_tokens
-    unmatched = unmatched_items(store, filters) if why and item_number is None else ()
-    plan = StagePlan(
-        repo,
-        sha,
-        budget,
-        left_out=selection.left_out,
-        removals=(*removals, *orphans),
-        kept=(*kept, *orphans_kept, *rejections.kept),
-        planned=planned,
-        unmatched=unmatched,
-        failed=tuple(_write_failure(f.item, f.error) for f in rejections.failures),
-        rejections=rejections.found,
-        missing=missing,
-        queue=selection.queue,
-    )
+    plan = replace(read.plan, budget=step_tokens or settings.roadmap.stage.step_tokens)
+    budget, sha, planned = plan.budget, plan.sha, read.planned
     if writer is not None:
-        writer.begin(plan, {target.item.number for target in selection.selected})
-    if not selection.selected:
+        writer.begin(plan, {target.item.number for target in read.selected})
+    if not read.selected:
         return plan
     _move_clone(checkout, sha)
     toolbox = model if isinstance(model, ToolboxModel) else None
@@ -2775,12 +2857,12 @@ def plan_stage(
             open_creates=creators,
             gate_returns=settings.roadmap.stage.gate_returns,
             rejected={
-                **{found.number: stage_comment_text(found.comment) for found in rejections.found},
-                **reasons_of(store, (target.item for target in selection.selected)),
+                **{found.number: stage_comment_text(found.comment) for found in plan.rejections},
+                **reasons_of(store, (target.item for target in read.selected)),
             },
             time_budget=time_budget,
         )
-        ready, stopped, failed, blocked, premise = _plan_each(planner, selection.selected, writer)
+        ready, stopped, failed, blocked, premise = _plan_each(planner, read.selected, writer)
     return replace(
         plan,
         ready=tuple(ready),
@@ -3367,13 +3449,14 @@ def _write_failure(item: Item, exc: DevOpsCLIError) -> StageFailure:
 
 def _remove_staged(store: RoadmapStore, repo: str, source: Path, removal: Removal) -> None:
     """Close the draft of a closed item and delete its branch, then clear the keys of the plan of
-    the item (`STAGE_PLAN_KEYS`), which keeps the check-out of a stage Job. A branch that is gone
-    needs only the record cleared."""
+    the item but its failure ledger (`STAGE_REMOVAL_KEYS`), which keeps the check-out of a stage
+    Job, the failure marks, the count toward the split and the free evictions (#4559). A branch
+    that is gone needs only the record cleared."""
     if not removal.gone:
         if removal.pull is not None:
             get_github_session().client.close_pull(repo, removal.pull)
         _git(source, "push", "origin", "--delete", removal.branch)
-    store.set_marks(removal.item, dict.fromkeys(STAGE_PLAN_KEYS))
+    store.set_marks(removal.item, dict.fromkeys(STAGE_REMOVAL_KEYS))
 
 
 def _delete_rejected_branch(source: Path, branch: str, tip: str) -> None:
@@ -3494,7 +3577,7 @@ def _record_failures(store: RoadmapStore, failures: Sequence[StageFailure], now:
         if failure.failure_class is not FailureClass.PLAN_DEFECT:
             store.set_marks(item, marks)
             continue
-        count, body = _plan_defects(item)
+        count, body = plan_defects(item)
         if count >= limit:
             _return_plan_defects(store, item, failure, count, marks, limit)
             continue
@@ -3502,12 +3585,19 @@ def _record_failures(store: RoadmapStore, failures: Sequence[StageFailure], now:
         store.set_marks(item, marks)
 
 
-def _plan_defects(item: Item) -> tuple[int, str]:
-    """The count of the `plan_defect` failures of `item` with one more, and the hash of the body
-    that they failed on (#4491). The hash covers the body without the block of the alternatives
-    job, so an edit of a person or of refine starts a new count. A count that is no number counts
-    as none."""
-    body = hash_text(without_alternatives(item.body))
+def plan_body_hash(item: Item) -> str:
+    """The hash of the body of `item` that its plans come from (#4491): the body without the block
+    of the alternatives job, so only an edit of a person or of refine changes it. The stage row
+    names a stage Job by it (#4559)."""
+    return hash_text(without_alternatives(item.body))
+
+
+def plan_defects(item: Item) -> tuple[int, str]:
+    """The count of the failures of `item` that count toward `roadmap.stage.plan_defect_limit`,
+    with one more, and the hash of the body that they failed on (#4491): the `plan_defect`
+    failures, and the ends of a stage Job that count (#4559). An edit of the body starts a new
+    count. A count that is no number counts as none."""
+    body = plan_body_hash(item)
     record = item.job_record
     if record.get(StageRecordKey.PLAN_DEFECTS_BODY) != body:
         return 1, body
@@ -3915,16 +4005,6 @@ def raise_for_failed(failures: Sequence[StageFailure], *, summary: str | None = 
     )
 
 
-def raise_for_failed_round(plan: StagePlan, applied: StageApplied) -> None:
-    """Fail the row's round only when it tried items and handled none: no item was staged, stopped
-    on the budget (#3493). An item that failed while another was handled is
-    recorded in its own job record and waits for the wait of its failure class, so it does not
-    count against the repository. A round that tried no item does not fail."""
-    if applied.staged or applied.stopped:
-        return
-    raise_for_failed([*plan.failed, *applied.failed])
-
-
 __all__ = [
     "KeptBranch",
     "LeftOut",
@@ -3939,6 +4019,7 @@ __all__ = [
     "StagePlan",
     "StageRead",
     "StageResult",
+    "StageRound",
     "StageSelection",
     "StageTarget",
     "StageWriter",
@@ -3949,10 +4030,12 @@ __all__ = [
     "named_items",
     "openspec_tool",
     "parse_filters",
+    "plan_body_hash",
+    "plan_defects",
     "plan_stage",
     "priority_order",
     "raise_for_failed",
-    "raise_for_failed_round",
+    "read_stage_round",
     "read_stage_selection",
     "render_stage_plan",
     "revise_plan",

@@ -153,6 +153,7 @@ def test_a_suspended_implement_row_runs_again_on_a_later_poll_round_when_the_fau
             "metrics",
             "implement",
             "stage_ready",
+            "stage",
             "release_comments",
             "github_status",
             "cloudflare_status",

@@ -364,10 +364,11 @@ def _use_model(monkeypatch: pytest.MonkeyPatch, model: FakeModel) -> None:
     monkeypatch.setattr("devops_cli.roadmap.run.build_retitle_model", lambda: model)
 
 
-def test_the_retitle_row_comes_just_before_stage_of_the_model_lane() -> None:
+def test_the_retitle_row_is_the_first_row_of_the_model_lane() -> None:
+    """Stage left the model lane for the status lane (#4559), so retitle comes first."""
     names = [row.name for row in MODEL_LANE_ROWS]
 
-    assert names.index("stage") - 1 == names.index("retitle")
+    assert names.index("retitle") == 0
     assert any(row.name == "retitle" for row in DEFAULT_DUE_TABLE)
 
 

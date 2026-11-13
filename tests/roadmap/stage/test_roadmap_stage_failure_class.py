@@ -19,7 +19,6 @@ from devops_cli.exceptions import GitHubOperationError
 from devops_cli.exceptions.roadmap import RoadmapItemChangedError
 from devops_cli.roadmap import failure as failure_module
 from devops_cli.roadmap.failure import FailureClass
-from devops_cli.roadmap.run import _run_stage_adapter
 from devops_cli.roadmap.stage.stage import (
     StageApplied,
     StageFailure,
@@ -40,6 +39,7 @@ from tests.support.roadmap_stage import (
     heavy_group,
     no_findings,
     seed_stageable,
+    stage_round,
     validate_args,
 )
 
@@ -139,7 +139,7 @@ def _failure_of(store: InMemoryRoadmapStore, number: int) -> tuple[str | None, .
 
 
 def _round(store: InMemoryRoadmapStore, repo: StageRepo) -> Any:
-    return _run_stage_adapter(store, repo=STAGE_REPO, clone_path=repo.clone)
+    return stage_round(store, repo)
 
 
 def _plan_answers(model_fake: ModelFake, failing: Exception | None = None, **proposal: Any) -> None:

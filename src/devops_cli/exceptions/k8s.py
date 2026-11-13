@@ -191,6 +191,12 @@ class ClusterJobError(KubernetesError, RuntimeError):
     error_code = "K8S_CLUSTER_JOB_ERROR"
 
 
+class ClusterJobExistsError(ClusterJobError):
+    """Raised when the create of a Job gets 409: a Job of that name exists already."""
+
+    error_code = "K8S_CLUSTER_JOB_EXISTS"
+
+
 class VolumeReclaimError(KubernetesError, RuntimeError):
     """Raised when volume reclaim fails or is refused due to active claims or mounts."""
 

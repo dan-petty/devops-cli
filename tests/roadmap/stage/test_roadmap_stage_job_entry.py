@@ -407,6 +407,7 @@ def test_sigterm_after_the_budget_exits_143_records_the_deadline_and_checks_in(
         _check_out_marks(store),
         record["stage.failed_class"],
         record["stage.failed_at"],
+        record["stage.plan_defects"],
     ) == (
         StageJobExit.DEADLINE,
         AttemptKill.DEADLINE,
@@ -414,6 +415,7 @@ def test_sigterm_after_the_budget_exits_143_records_the_deadline_and_checks_in(
         [],
         "timeout",
         NOW.isoformat(),
+        "1",
     )
 
 

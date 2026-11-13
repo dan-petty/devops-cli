@@ -8,7 +8,8 @@ an agent, is never an orphan. A mark younger than `CONST_ROADMAP_STAGE_ORPHAN_AG
 alone, since another run can be in the middle of its publish. The one exception is the mark of an
 item that the check-out of the Service gives to a stage Job (`stage.job`, #5483): only that Job
 publishes the item, so the pod that the Job controller runs again judges the mark of the pod
-before it at once.
+before it at once. The stage row of the Service judges at once the mark of an item whose Job it
+found ended with no check-in (`freed`, #4559): no run publishes that item any more.
 """
 
 from __future__ import annotations
@@ -51,16 +52,18 @@ def recorded_pending(item: Item) -> PendingStage | None:
         return None
 
 
-def orphan_mark(item: Item, now: datetime, *, job: str | None = None) -> PendingStage | None:
+def orphan_mark(
+    item: Item, now: datetime, *, job: str | None = None, freed: bool = False
+) -> PendingStage | None:
     """The mark of `item` when the item can hold an orphan: it is open, its record holds no
     pull request, and the mark is at least as old as the age limit at `now`, or the check-out of
-    the item names the stage Job `job` of this pod."""
+    the item names the stage Job `job` of this pod, or the Job of the item ended (`freed`)."""
     if item.state is not GitHubState.OPEN or item.job_record.get(StageRecordKey.PR):
         return None
     pending = recorded_pending(item)
     if pending is None:
         return None
-    if job is not None and item.job_record.get(StageRecordKey.JOB) == job:
+    if freed or (job is not None and item.job_record.get(StageRecordKey.JOB) == job):
         return pending
     if now - pending.time < timedelta(seconds=CONST_ROADMAP_STAGE_ORPHAN_AGE_SECONDS):
         return None

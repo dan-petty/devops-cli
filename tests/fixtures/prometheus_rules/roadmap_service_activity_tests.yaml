@@ -41,6 +41,24 @@ tests:
               summary: "The roadmap Service sent 360 GitHub writes in the last hour"
               description: "The roadmap Service sent more than 300 GitHub writes, such as comments, labels and issue edits, in one hour (docs/CLUSTER.md, Roadmap service)."
 
+  - name: The REST writes of the stage Jobs count with the writes of the Service
+    interval: 1m
+    input_series:
+      # A stage Job sends its telemetry as job="roadmap-stage" (#4559): 180 writes of each.
+      - series: 'devops_cli_github_requests_total{job="roadmap-service", resource="core", method="POST", repo="example/app", row="refine"}'
+        values: '0+3x90'
+      - series: 'devops_cli_github_requests_total{job="roadmap-stage", instance="roadmap-stage", resource="core", method="POST", repo="example/app", row="stage"}'
+        values: '0+3x90'
+    alert_rule_test:
+      - eval_time: 90m
+        alertname: RoadmapServiceGitHubWritesHigh
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: "The roadmap Service sent 360 GitHub writes in the last hour"
+              description: "The roadmap Service sent more than 300 GitHub writes, such as comments, labels and issue edits, in one hour (docs/CLUSTER.md, Roadmap service)."
+
   - name: A write stream that starts in the hour counts its first flush
     interval: 5m
     input_series:

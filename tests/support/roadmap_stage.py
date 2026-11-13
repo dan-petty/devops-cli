@@ -14,7 +14,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
@@ -329,3 +329,56 @@ def apply_stage(
     for stopped in plan.over_budget:
         writer.settle(stopped.target, stopped)
     return writer.applied()
+
+
+def run_stage_jobs(
+    store: InMemoryRoadmapStore, repo: StageRepo, *numbers: int, now: datetime | None = None
+) -> list[Any]:
+    """Run the stage Job of each item of `numbers`, in order, in the clone of `repo`, as the pod of
+    each stage Job of the Service runs it (#4559), with the models of the tasks `stage` and
+    `verification` as `devops roadmap stage --job-item` takes them. The run of each Job."""
+    # Imported here, as `apply_stage` imports the writer.
+    from devops_cli.ai.client.factory import get_task_model
+    from devops_cli.roadmap.stage.stage_job import run_stage_job
+    from devops_cli.roadmap.stage.stage_toolbox import ToolboxModel
+
+    return [
+        run_stage_job(
+            store,
+            repo=STAGE_REPO,
+            item=number,
+            source=repo.clone,
+            model=ToolboxModel(get_task_model("stage")),
+            verifier=ToolboxModel(get_task_model("verification")),
+            now=now,
+        )
+        for number in numbers
+    ]
+
+
+def stage_round(store: InMemoryRoadmapStore, repo: StageRepo) -> StageApplied:
+    """One round of `devops roadmap stage --confirm` in the clone of `repo`: the plan of each
+    item that the settings select, written as each item ends, with the models of the tasks `stage`
+    and `verification`, and the count of each item. What the round wrote."""
+    from devops_cli.ai.client.factory import get_task_model
+    from devops_cli.roadmap.stage.stage import (
+        StageWriter,
+        emit_stage_results,
+        parse_filters,
+        plan_stage,
+    )
+    from devops_cli.roadmap.stage.stage_toolbox import ToolboxModel
+
+    writer = StageWriter(store, repo.clone)
+    plan = plan_stage(
+        store,
+        repo=STAGE_REPO,
+        source=repo.clone,
+        filters=parse_filters(()),
+        model=ToolboxModel(get_task_model("stage")),
+        verifier=ToolboxModel(get_task_model("verification")),
+        writer=writer,
+    )
+    applied = writer.applied()
+    emit_stage_results(plan, applied, repo=STAGE_REPO)
+    return applied
