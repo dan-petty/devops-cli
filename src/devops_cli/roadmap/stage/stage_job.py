@@ -11,7 +11,10 @@ its own. The pod:
 - plans in a time budget: `roadmap.stage.time_budget_seconds`, cut to the deadline of the Job less
   `CONST_ROADMAP_STAGE_JOB_MARGIN_SECONDS`, so a tool call ends before the plan and the plan ends
   before the deadline of the Job;
-- makes the first SIGTERM a kill with a class (`sigterm_raises`, `attempt_kill.py`).
+- makes the first SIGTERM a kill with a class (`sigterm_raises`, `attempt_kill.py`);
+- refuses to run, before a clone or a model call, when it acts as the GitHub App with a token that
+  is not limited to its repository (`service.github_app.token_repository`), as the implement
+  runner does (#2667). A person who runs it with their own token runs it locally.
 
 The selection is the selection of a round, narrowed to the item: an item with a rejected plan, in
 the wait of its failure class or with a recorded split stays out, with the reason of a round. The
@@ -51,8 +54,10 @@ from pydantic import AwareDatetime, BaseModel, ConfigDict
 from devops_cli.ai.client.network import set_model_call_limit
 from devops_cli.config.constants import CONST_ROADMAP_STAGE_JOB_MARGIN_SECONDS
 from devops_cli.config.settings import load_settings
-from devops_cli.exceptions import RoadmapTimeBudgetError
+from devops_cli.core.process import acts_as_github_app
+from devops_cli.exceptions import RoadmapStageError, RoadmapTimeBudgetError
 from devops_cli.github.rate_limiter import set_request_gate
+from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.attempt_kill import AttemptKill, AttemptKilled, kill_of, sigterm_raises
 from devops_cli.roadmap.failure import FailureClass, StepName
 from devops_cli.roadmap.round_log import log_failed_item
@@ -144,6 +149,22 @@ def job_time_budget(seconds: int, deadline: datetime | None, now: datetime) -> i
     return max(0, min(seconds, left))
 
 
+def require_job_token_scope(repo: str) -> None:
+    """Raise `RoadmapStageError` when the process acts as the GitHub App and its token is not
+    limited to `repo` by `service.github_app.token_repository`: a Job that sets no such repository,
+    or another one, would plan with a token for every repository of the installation (#2667). A
+    process that does not act as the App uses the token of its person, and passes."""
+    if not acts_as_github_app():
+        return
+    scoped = load_settings().service.github_app.token_repository
+    if (scoped or "").casefold() != repo.casefold():
+        raise RoadmapStageError(
+            MESSAGES.roadmap.stage_job_token_scope_refused.format(
+                repo=repo, scoped=scoped or "unset"
+            )
+        )
+
+
 def install_request_budget(limit: int) -> RequestBudget:
     """Make every GitHub request of the process take a place in a budget of `limit` requests in
     any one hour, and return the budget. A request that the hour has no room for waits."""
@@ -216,8 +237,11 @@ def run_stage_job(
     clone to work in; without it, the Job makes a blobless clone. `model` and `verifier` are the
     models of `plan_stage`. `now` is the time of the records, the time of the system without it.
 
-    Raises the errors of `plan_stage` that no item explains, and the errors of the check-in.
+    Raises `RoadmapStageError` before any clone or request when the token of the App is not
+    limited to `repo`, the errors of `plan_stage` that no item explains, and the errors of the
+    check-in.
     """
+    require_job_token_scope(repo)
     settings = load_settings().roadmap.stage
     set_model_call_limit(1)
     budget = install_request_budget(settings.github_requests_per_hour)
@@ -271,5 +295,6 @@ __all__ = [
     "install_request_budget",
     "job_time_budget",
     "recorded_check_in",
+    "require_job_token_scope",
     "run_stage_job",
 ]

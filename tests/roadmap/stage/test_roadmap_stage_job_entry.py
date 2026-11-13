@@ -21,8 +21,10 @@ import pytest
 from pydantic import ValidationError
 
 from devops_cli.ai.client import network
+from devops_cli.config.constants import CONST_GITHUB_APP_PRIVATE_KEY_ENV
 from devops_cli.config.settings import RoadmapConfig
 from devops_cli.core import clock as clock_seam
+from devops_cli.exceptions import RoadmapStageError
 from devops_cli.roadmap.attempt_kill import AttemptKill, AttemptKilled
 from devops_cli.roadmap.body_hash import body_hashes
 from devops_cli.roadmap.planned import PlannedChanges
@@ -299,6 +301,52 @@ def test_the_entry_holds_one_model_call_slot(
     slots = network.get_model_call_limit()
     assert slots is not None
     assert (slots.acquire(blocking=False), slots.acquire(blocking=False)) == (True, False)
+
+
+@pytest.mark.parametrize(
+    "scoped",
+    [pytest.param(None, id="no-token-repository"), pytest.param("example/other", id="other-repo")],
+)
+def test_a_job_that_acts_as_the_app_without_a_token_for_its_repository_runs_nothing(
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    stageable: int,
+    config: Callable[..., Path],
+    monkeypatch: pytest.MonkeyPatch,
+    scoped: str | None,
+) -> None:
+    """A pod that holds the private key of the App plans only with a token for the one repository
+    of the item: else the token covers every repository of the installation (#2667)."""
+    monkeypatch.setenv(CONST_GITHUB_APP_PRIVATE_KEY_ENV, "app-key")
+    config(service={"github_app": {"token_repository": scoped}})
+    model_fake.answer(make_stage_proposal())
+
+    with pytest.raises(RoadmapStageError, match=r"service\.github_app\.token_repository"):
+        run_stage_job(store, repo=STAGE_REPO, item=stageable, source=stage_repo.clone, now=NOW)
+
+    assert (model_fake.call_count, _check_out_marks(store)) == (
+        0,
+        ["stage.job", "stage.job_at", "stage.job_deadline"],
+    )
+
+
+def test_a_token_for_the_repository_of_the_job_passes_in_any_case(
+    config: Callable[..., Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv(CONST_GITHUB_APP_PRIVATE_KEY_ENV, "app-key")
+    config(service={"github_app": {"token_repository": STAGE_REPO.upper()}})
+
+    assert stage_job.require_job_token_scope(STAGE_REPO) is None
+
+
+def test_a_person_without_the_app_key_runs_with_their_own_token(
+    config: Callable[..., Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv(CONST_GITHUB_APP_PRIVATE_KEY_ENV, raising=False)
+    config(service={"github_app": {"token_repository": None}})
+
+    assert stage_job.require_job_token_scope(STAGE_REPO) is None
 
 
 @pytest.mark.usefixtures("step_clock")

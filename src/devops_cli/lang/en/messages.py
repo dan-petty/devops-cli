@@ -4251,6 +4251,12 @@ class RoadmapMessages:
     fix_plan_sigterm: str = "SIGTERM ended fix-plan. The class of the kill: {kill}."
     # The stage Job of one item (#5483).
     stage_job_item_needs: str = "--job-item needs --confirm and no --item."
+    stage_job_token_scope_refused: str = (
+        "The stage Job for {repo} acts as the GitHub App and needs a token for that one "
+        "repository. Set service.github_app.token_repository to {repo}; it is now {scoped}. "
+        "Without it the token covers every repository of the installation. The Job planned "
+        "nothing."
+    )
     stage_job_ended: str = (
         "The stage Job of item #{number} ended: {result}, exit code {code}. The pod sent "
         "{requests} GitHub requests in its budget of {limit} an hour."
