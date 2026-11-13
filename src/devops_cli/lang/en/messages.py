@@ -415,6 +415,14 @@ class InstallMessages:
     at_pin: str = "at pin"
     not_installed: str = "not installed"
     check_off_pin: str = "{name} {version}: {installed}"
+    check_version_differs: str = (
+        "{name} {locked}: the command at {path} prints {version}. "
+        "Install the locked version: uv run devops install-tools --tool {name}"
+    )
+    check_version_unreadable: str = (
+        "Cannot read the version of {path}: `{name} --version` printed no version line."
+    )
+    check_version_at_pin: str = "{name} {version}: {path}"
     check_all_pinned: str = "All {count} tools are linked at their locked versions in {path}."
     npm_missing_hint: str = (
         "A Node tool installs with npm, and the installer provisions no runtime: install Node.js at "
