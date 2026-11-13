@@ -531,11 +531,15 @@ def test_two_tracers_with_one_instance_send_equal_metric_resources(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The metric Resource holds only the stable attributes, so the two pods of one workload
-    send one metric stream (#4697)."""
+    send one metric stream (#4697). Each pod also names itself in `OTEL_RESOURCE_ATTRIBUTES`, and
+    the filter of the metric Resource keeps those keys out (#5338)."""
     monkeypatch.delenv("OTEL_SERVICE_NAME", raising=False)
-    monkeypatch.setenv("OTEL_RESOURCE_ATTRIBUTES", "service.instance.id=devops-cli-job")
     resources = []
     for pod in ("devops-cli-job-abcde", "devops-cli-job-fghij"):
+        monkeypatch.setenv(
+            "OTEL_RESOURCE_ATTRIBUTES",
+            f"service.instance.id=devops-cli-job,host.name={pod},k8s.pod.name={pod}",
+        )
         monkeypatch.setattr("platform.node", lambda pod=pod: pod)
         collector = FakeCollector()
         client = collector.client(service_name="devops-cli-job")
@@ -547,6 +551,29 @@ def test_two_tracers_with_one_instance_send_equal_metric_resources(
     assert {
         key for key in resources[0] if not key.startswith("telemetry.sdk.")
     } <= METRIC_RESOURCE_KEYS
+
+
+def test_a_workstation_metric_resource_names_its_host_as_the_instance(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """With no `OTEL_RESOURCE_ATTRIBUTES`, the instance is the host name, which every command on
+    the host shares, so the commands of a workstation send one metric stream (#1629, #5338). A
+    constant or a value for each process would join the hosts or split the commands."""
+    monkeypatch.delenv("OTEL_SERVICE_NAME", raising=False)
+    monkeypatch.delenv("OTEL_RESOURCE_ATTRIBUTES", raising=False)
+    monkeypatch.setattr("platform.node", lambda: "workstation-1")
+    monkeypatch.setattr("platform.system", lambda: "Linux")
+    collector = FakeCollector()
+    client = collector.client(service_name="devops-cli")
+    client.increment_counter("devops_cli_command_total", 1, attributes={})
+
+    assert _metric_resource(collector) == {
+        "service.name": "devops-cli",
+        "service.instance.id": "workstation-1",
+        "os.type": "linux",
+        "telemetry.sdk.name": "devops-cli-otel",
+        "telemetry.sdk.language": "python",
+    }
 
 
 def test_a_span_resource_names_the_host_while_the_metric_resource_does_not(

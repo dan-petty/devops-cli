@@ -24,7 +24,12 @@ A job row is the `row` attribute. The metric Resource holds `service.name`,
 only (#4697). The collector keys a metric stream by every resource attribute, while
 Prometheus keeps only `job` and `instance`, so a resource attribute such as
 `host.name`, the pod name, would split one series into a stream that starts at zero
-again. The span and log Resource also holds `host.name`, which finds the pod of a
+again. A devops-cli build from before #4697 still sends `host.name`, so the collector
+deletes it from the metric Resource of the `devops-cli-otel` SDK before
+`deltatocumulative` (`transform/metric_resource` in `k8s/otel/values.yaml`, #5338).
+An old and a new build of one workload then send one stream, and the alert
+`DevopsCliMetricStreamsShareSeries` shows a second stream that remains.
+The span and log Resource also holds `host.name`, which finds the pod of a
 trace or a log line and splits no metric stream.
 The standard `OTEL_RESOURCE_ATTRIBUTES` sets `service.instance.id`, and the metric
 Resource keeps the value. Without that variable, `service.instance.id` is the host
@@ -32,7 +37,11 @@ name, which every command on the host shares. roadmap-service sets
 `service.instance.id=roadmap-service`, so on the OTLP path a new pod continues the
 series of the pod before it. Both CronJob templates set
 `service.instance.id=devops-cli-job`, so the Job pods of the workload share one stream
-and the series of `devops-cli-job` continues across them. The `/metrics` scrape adds the
+and the series of `devops-cli-job` continues across them. Job pods that run at the
+same time send into that one stream, so the collector drops a delta whose start time is
+before the start of the stream, or that is not later than the last point of the stream.
+`otelcol_deltatocumulative_datapoints{error!=""}` counts the dropped points.
+The `/metrics` scrape adds the
 label `pod`, so each pod has its own series there. A running total that starts again from
 zero, for a new pod or for a stream that gets no delta for `max_stale` (`1h` in
 `k8s/otel/values.yaml`), is a counter reset to `rate()` and `increase()`.

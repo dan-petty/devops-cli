@@ -74,6 +74,21 @@ config:
     deltatocumulative:
       max_stale: 1h
 
+    # deltatocumulative keys a stream by every resource attribute, while Prometheus keeps only
+    # job and instance. A devops-cli build from before #4697 still sends `host.name` in its metric
+    # Resource and a new build does not, so the two builds of one workload wrote two running
+    # totals into one series, and its counts were wrong (#5338). This deletes `host.name` from the
+    # metric Resource of each devops-cli build before deltatocumulative, so every build sends one
+    # stream. Spans and logs keep `host.name`, and the Resource of another SDK stays as it is.
+    # A failed statement sends the batch on unchanged (ignore): a dropped batch would lose the
+    # counts of every workload. Function: delete_key of OTTL (contrib v0.163.2).
+    transform/metric_resource:
+      error_mode: ignore
+      metric_statements:
+        - context: resource
+          statements:
+            - delete_key(resource.attributes, "host.name") where resource.attributes["telemetry.sdk.name"] == "devops-cli-otel"
+
     # Prometheus adds no external label to the series that its OTLP receiver writes. So each
     # metric point gets the `cluster` label that Alloy gives the other series (#4684).
     transform/cluster:
@@ -141,7 +156,7 @@ config:
 
       metrics:
         receivers: [otlp]
-        processors: [memory_limiter, deltatocumulative, transform/cluster, batch]
+        processors: [memory_limiter, transform/metric_resource, deltatocumulative, transform/cluster, batch]
         exporters: [otlp_http/prometheus]
 
       logs:
