@@ -31,6 +31,10 @@ None.
 - Code: `pyproject.toml`, `uv.lock`, `typings/pytrec_eval.pyi`, `src/devops_cli/ai/benchmark/retrieval_metrics.py`, `src/devops_cli/ai/benchmark/embedding_runner.py`, `.github/workflows/ci.yml`, `.github/workflows/release.yml`
 - Tests: `tests/invariants/test_declared_dependencies.py`, `tests/ai/benchmark/test_retrieval_metrics.py`, `tests/ai/benchmark/test_ai_benchmark.py`, `tests/ai/benchmark/test_embedding_benchmark.py`, `tests/ai/client/test_ai_client_providers_and_embeddings.py`, `tests/commands/test_ci.py`
 
+## Weakened checks
+
+- **`tests/ai/benchmark/test_embedding_benchmark.py::test_compute_ndcg_and_report_rendering`**: Stopped: a change that gives nDCG at 5 a gain for a target past rank 5, or a gain other than 1 for a target at rank 1. Safeguard: Group 3 deletes compute_ndcg_at_k, so task 3.2 keeps the report part of the test as `test_report_rendering`, and `tests/ai/benchmark/test_retrieval_metrics.py::test_metrics_match_fixed_expected_values` asserts ndcg_at_5 from pytrec_eval on a fixed fixture.
+
 ## Feasibility
 
 - The probe lines of the staging commit, quoted word for word: ``The path `src/devops_cli/ai/benchmark/embedding_runner.py` is a file of the staging commit.``
