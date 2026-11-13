@@ -3916,7 +3916,7 @@
     }
   },
   "pr_monitor": {
-    "description": "Wait until the checks of a PR settle, then name every blocker of its merge.\n\nWhile a check runs or a Copilot review is active, it waits. Then it reports the blockers of\nthe merge-readiness verdict and of its review gate (requested changes, Copilot's review, an\napproval of the head with --require-reviews). Exit 0: ready; 1: a check failed or could not\nbe read; 2: another blocker; 3: the timeout passed first.",
+    "description": "Wait until the checks of a PR settle, then name every blocker of its merge.\n\nWhile a check runs or a Copilot review is active, it waits. Then it reports the blockers of\nthe merge-readiness verdict and of its review gate (requested changes, Copilot's review, an\napproval of the head with --require-reviews). A merged or closed PR stops the wait at once.\nExit 0: ready, or merged; 1: a check failed or could not be read; 2: another blocker, or\nclosed without a merge; 3: the timeout passed first.",
     "input_schema": {
       "additionalProperties": false,
       "properties": {

@@ -37,7 +37,7 @@ None.
 
 - Code: `src/devops_cli/config/constants.py`, `src/devops_cli/github/client.py`, `src/devops_cli/github/merge_readiness.py`, `src/devops_cli/roadmap/grounding.py`, `src/devops_cli/lang/en/messages.py`, `src/devops_cli/roadmap/implement/implement_pull.py`, `src/devops_cli/github/pr_monitor.py`, `src/devops_cli/commands/pr.py`, `src/devops_cli/github/pr_plans.py`
 - Docs: `docs/commands/pr.md`, `docs/commands/gh.md` and `docs/MCP_TOOLS.md`, generated from the help of `devops pr monitor`
-- Tests: `tests/github/test_github_client.py`, `tests/github/test_merge_readiness.py`, `tests/support/fakes/github.py`, `tests/commands/test_pr.py`, `tests/roadmap/test_roadmap_draft_readiness.py`, `tests/github/test_github_pr_monitor.py`, `tests/commands/test_pr_cmd.py`, `tests/commands/test_pr_dry_run.py`, `tests/github/test_item_grounding.py`, `tests/roadmap/implement/test_roadmap_implement_pull.py`, `tests/support/roadmap_implement.py`
+- Tests: `tests/github/test_github_client.py`, `tests/github/test_merge_readiness.py`, `tests/support/fakes/github.py`, `tests/commands/test_pr.py`, `tests/roadmap/test_roadmap_draft_readiness.py`, `tests/github/test_github_pr_monitor.py`, `tests/commands/test_pr_cmd.py`, `tests/commands/test_pr_dry_run.py`, `tests/github/test_item_grounding.py`, `tests/roadmap/implement/test_roadmap_implement_pull.py`, `tests/support/roadmap_implement.py`, `tests/roadmap/test_grounding.py`, the MCP tool listing snapshot of `tests/ai/mcp/`
 
 ## Feasibility
 
