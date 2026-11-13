@@ -90,6 +90,13 @@ metadata:
 spec:
   instances: 1
   imageName: ghcr.io/cloudnative-pg/postgresql:17.11
+  # The operator stops the instance first with a smart shutdown, which refuses new connections
+  # and waits for each open session, and then with a fast shutdown. The old gateway pod keeps
+  # its idle sessions open, so the default of 180 s refused the new gateway pod for 3 minutes,
+  # and the pod stopped after its 4 tries of the migration check (#5301). With 15 s, a restart
+  # takes seconds. The instance manager reads this value from the Cluster at each stop, so a
+  # change does not restart the instance.
+  smartShutdownTimeout: 15
   storage:
     storageClass: local-path
     size: 5Gi

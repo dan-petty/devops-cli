@@ -20,6 +20,12 @@ spec:
         app.kubernetes.io/part-of: devops-cli-stack
     spec:
       automountServiceAccountToken: false
+      # On SIGTERM, uvicorn stops to accept connections and waits for each open call. LiteLLM sets
+      # no timeout_graceful_shutdown, so only the kubelet ends the wait. The default of 30 s cut
+      # calls that run for minutes (#5301). 600 s covers a normal long call and is shorter than
+      # the router timeout of config.yaml. The rolling update starts the new pod first, so the
+      # old pod only finishes its calls and writes its spend queue in this time. No preStop hook.
+      terminationGracePeriodSeconds: 600
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000
@@ -127,21 +133,25 @@ spec:
             limits:
               cpu: 1000m
               memory: 4Gi
-          # The proxy opens its port only after it has applied the migrations, which take longer
-          # on an empty database. This probe holds the other two back for up to ten minutes, so
-          # the kubelet does not kill a pod that is still migrating.
+          # One uvicorn worker answers each probe. One slow request, such as the unpaginated v1
+          # /spend/logs, holds it for some seconds, so each probe waits 5 s, not the default 1 s
+          # (#5301). The proxy opens its port only after it has applied the migrations, which take
+          # longer on an empty database. The startup probe holds the other two back for up to ten
+          # minutes, so the kubelet does not kill a pod that is still migrating.
           startupProbe:
             httpGet:
               path: /health/liveliness
               port: 4000
             periodSeconds: 10
             failureThreshold: 60
+            timeoutSeconds: 5
           livenessProbe:
             httpGet:
               path: /health/liveliness
               port: 4000
             initialDelaySeconds: 15
             periodSeconds: 15
+            timeoutSeconds: 5
           # Readiness does not depend on the database: /health/readiness answers 503 while the
           # database is down, and Kubernetes would then remove every gateway pod from the Service,
           # also for clients of the master key. The liveliness path keeps the gateway in the
@@ -152,6 +162,7 @@ spec:
               port: 4000
             initialDelaySeconds: 10
             periodSeconds: 10
+            timeoutSeconds: 5
 
       volumes:
         # kustomization.yaml generates this ConfigMap from config.yaml and writes its name here,
