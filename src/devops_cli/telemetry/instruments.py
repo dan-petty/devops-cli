@@ -452,9 +452,10 @@ ROADMAP_ROW_SECONDS = Instrument(
     InstrumentKind.HISTOGRAM,
     "s",
     "Seconds that a roadmap row took to run, one sample for each run, by repo, row and result: "
-    "success, error or stopped. A row that is not due, that the failure ledger suspends, or "
-    "that a clone failure keeps from running adds no sample. One repository adds at most 39 "
-    "series: 13 rows and 3 results",
+    "success, error or stopped, and by lane in a round of the Service. A row that is not due, "
+    "that the failure ledger suspends, or that a clone failure keeps from running adds no "
+    "sample. One repository adds at most 39 series: 13 rows and 3 results, because the default "
+    "lane of a row has the name of the row",
 )
 ROADMAP_ROW_QUEUE_ITEMS = Instrument(
     "devops_cli_roadmap_row_queue_items",

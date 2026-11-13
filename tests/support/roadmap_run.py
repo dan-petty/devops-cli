@@ -95,6 +95,15 @@ class SimulatedGit:
         self._commit_counter += 1
         return sha
 
+    def serve_as(self, url: str, bare: Path) -> None:
+        """Answer a clone or a fetch of `url`, such as the GitHub URL that a Service lane clones,
+        with the bare remote `bare`."""
+        self.remotes[url] = self.remotes[str(bare)]
+
+    def _reachable(self, url: str) -> bool:
+        """Whether a clone or a fetch reaches `url`: a served URL, or a bare remote that exists."""
+        return url in self.remotes and (url.startswith("https://") or Path(url).exists())
+
     def make_bare_remote(self, tmp_path: Path, *, other_branch: str | None = None) -> Path:
         bare = tmp_path / "remote.git"
         bare.mkdir(parents=True, exist_ok=True)
@@ -161,7 +170,7 @@ class SimulatedGit:
     def _op_clone(self, subcmd: list[str]) -> ProcessAnswer:
         url, target = (arg for arg in subcmd[1:] if not arg.startswith("-"))
         clone_dir = Path(target)
-        if not Path(url).exists() or url not in self.remotes:
+        if not self._reachable(url):
             return ProcessAnswer(
                 returncode=128,
                 stderr=f"fatal: repository '{url}' does not exist\n",
@@ -184,7 +193,7 @@ class SimulatedGit:
         if not clone_info:
             return ProcessAnswer(returncode=0)
         remote_url = clone_info["remote_url"]
-        if not Path(remote_url).exists() or remote_url not in self.remotes:
+        if not self._reachable(remote_url):
             return ProcessAnswer(
                 returncode=128,
                 stderr=f"fatal: '{remote_url}' does not appear to be a git repository\nfatal: Could not read from remote repository.\n",
@@ -332,6 +341,10 @@ def git_in(cwd: Path, *args: str) -> str:
 
 def bare_remote(tmp_path: Path, *, other_branch: str | None = None) -> Path:
     return CURRENT_SIM[0].make_bare_remote(tmp_path, other_branch=other_branch)
+
+
+def serve_as(url: str, bare: Path) -> None:
+    CURRENT_SIM[0].serve_as(url, bare)
 
 
 def commit_to_bare(bare: Path, branch: str, content: str, *, parent: str | None = None) -> str:

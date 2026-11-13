@@ -35,7 +35,6 @@ from devops_cli.config.constants import (
     CONST_SERVICE_CHAT_RESULT_USAGE,
     CONST_SERVICE_DELIVERY_LRU_CAPACITY,
     CONST_SERVICE_EVENT_OTHER,
-    CONST_SERVICE_LANE_MODEL,
     CONST_SERVICE_MAX_BODY_BYTES,
     CONST_SERVICE_METRIC_CHAT_COMMANDS,
     CONST_SERVICE_METRIC_TRIGGERS,
@@ -266,8 +265,9 @@ WEBHOOK_PROVIDERS: Final[Mapping[WebhookProviderName, WebhookProvider]] = {
 def roadmap_consumer(service_manager: ServiceManager) -> WebhookConsumer:
     """The roadmap jobs' consumer: each event their batch keys name runs a round in every lane of
     its repository, except the writes of the GitHub App's own bot. A subscribed event that can be
-    scoped runs its scoped update on the lane that the table names; another event stays a hint
-    (ADR 0017)."""
+    scoped runs its scoped update on the lane of its job (`lane_of_row`); another event stays a
+    hint (ADR 0017). Each trigger names the issue of the delivery as its subject (#5553). The
+    handler only adds to the queues of the lanes and returns."""
 
     def deliver(
         repo: str,
@@ -282,46 +282,44 @@ def roadmap_consumer(service_manager: ServiceManager) -> WebhookConsumer:
         from devops_cli.roadmap.run import (
             SCOPED_UPDATES,
             WebhookDelivery,
+            lane_of_row,
             run_scoped_update,
-            scoped_update_wakes_model_lane,
+            scoped_update_wakes_lanes,
         )
         from devops_cli.roadmap.stores.listing_snapshot import intake_listing
         from devops_cli.roadmap.stores.store import get_roadmap_store
 
+        subject = payload.issue.number if payload is not None and payload.issue else None
         scoped = SCOPED_UPDATES.get((event, action))
-        if (
-            scoped is not None
-            and payload is not None
-            and payload.issue is not None
-            and payload.issue.number is not None
-        ):
-            delivery = WebhookDelivery(
-                repo=repo,
-                event=event,
-                action=action,
-                number=payload.issue.number,
-            )
+        if scoped is not None and subject is not None:
+            delivery = WebhookDelivery(repo=repo, event=event, action=action, number=subject)
+            lane = lane_of_row(scoped.job, service_manager.config.lanes)
 
             def run_scoped() -> None:
-                # The scoped intake reads every issue through the snapshot that the triage
-                # lane's intake keeps in the state directory (#3670).
+                # The scoped intake reads every issue through the snapshot that the intake
+                # rounds of the same lane keep in the state directory (#3670).
                 state_dir = service_manager.state_dir
                 store = get_roadmap_store(repo, listing=intake_listing(state_dir))
                 data_dir = state_dir.parent if state_dir else None
-                outcome = run_scoped_update(delivery, store, data_dir=data_dir)
-                if scoped_update_wakes_model_lane(delivery, outcome):
-                    service_manager.enqueue_trigger(
-                        repo,
-                        CONST_SERVICE_SOURCE_WEBHOOK,
-                        event,
-                        action,
-                        lane=CONST_SERVICE_LANE_MODEL,
-                    )
+                outcome = run_scoped_update(delivery, store, data_dir=data_dir, lane=lane)
+                if scoped_update_wakes_lanes(delivery, outcome):
+                    for other in service_manager.jobs:
+                        if other != lane:
+                            service_manager.enqueue_trigger(
+                                repo,
+                                CONST_SERVICE_SOURCE_WEBHOOK,
+                                event,
+                                action,
+                                lane=other,
+                                subject=subject,
+                            )
 
-            if service_manager.enqueue_scoped(repo, scoped.lane, run_scoped):
+            if service_manager.enqueue_scoped(repo, lane, run_scoped):
                 return
 
-        service_manager.enqueue_trigger(repo, CONST_SERVICE_SOURCE_WEBHOOK, event, action)
+        service_manager.enqueue_trigger(
+            repo, CONST_SERVICE_SOURCE_WEBHOOK, event, action, subject=subject
+        )
 
     def refuse_own_write(payload: GitHubWebhookPayload) -> str | None:
         bot, sender = service_manager.bot_login, payload.sender

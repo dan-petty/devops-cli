@@ -103,16 +103,16 @@ def _round(
 def test_a_round_emits_one_row_seconds_sample_for_each_row_that_ran(
     seeded_store: InMemoryRoadmapStore, tmp_path: Path, clock: ClockFake, otlp: FakeCollector
 ) -> None:
-    """Each row that ran adds one sample of its own seconds under `repo`, `row` and `result`, and
-    no other label: the collector sets `job` from the resource and would lose a label of that
-    name."""
+    """Each row that ran adds one sample of its own seconds under `repo`, `row`, `result` and the
+    `lane` of the round (#5553), and no other label: the collector sets `job` from the resource
+    and would lose a label of that name."""
     table = (_row("metrics", _takes(clock, 2.5)), _row("implement", _takes(clock, 7.0)))
 
     _round(seeded_store, tmp_path, table)
 
     assert _samples(otlp) == [
-        ({"repo": REPO, "row": "implement", "result": "success"}, 1, 7.0),
-        ({"repo": REPO, "row": "metrics", "result": "success"}, 1, 2.5),
+        ({"repo": REPO, "lane": "status", "row": "implement", "result": "success"}, 1, 7.0),
+        ({"repo": REPO, "lane": "status", "row": "metrics", "result": "success"}, 1, 2.5),
     ]
 
 
@@ -125,7 +125,9 @@ def test_a_row_that_runs_in_two_rounds_adds_a_sample_for_each_round(
     _round(seeded_store, tmp_path, table)
     _round(seeded_store, tmp_path, table)
 
-    assert _samples(otlp) == [({"repo": REPO, "row": "metrics", "result": "success"}, 2, 3.0)]
+    assert _samples(otlp) == [
+        ({"repo": REPO, "lane": "status", "row": "metrics", "result": "success"}, 2, 3.0)
+    ]
 
 
 def test_not_run_a_row_that_is_not_due_adds_no_row_seconds_sample(
@@ -157,8 +159,8 @@ def test_not_run_a_row_that_the_ledger_suspends_adds_no_row_seconds_sample(
         _round(seeded_store, tmp_path, table, failures=ledger)
 
     assert _samples(otlp) == [
-        ({"repo": REPO, "row": "implement", "result": "error"}, 2, 8.0),
-        ({"repo": REPO, "row": "metrics", "result": "success"}, 3, 3.0),
+        ({"repo": REPO, "lane": "status", "row": "implement", "result": "error"}, 2, 8.0),
+        ({"repo": REPO, "lane": "status", "row": "metrics", "result": "success"}, 3, 3.0),
     ]
 
 
@@ -220,14 +222,16 @@ def test_a_row_that_raises_adds_a_row_seconds_sample_with_the_result_of_its_erro
 
     _round(seeded_store, tmp_path, table)
 
-    assert _samples(otlp) == [({"repo": REPO, "row": "implement", "result": result}, 1, 4.0)]
+    assert _samples(otlp) == [
+        ({"repo": REPO, "lane": "status", "row": "implement", "result": result}, 1, 4.0)
+    ]
 
 
 def test_a_run_with_no_lane_adds_the_row_seconds_sample_too(
     seeded_store: InMemoryRoadmapStore, tmp_path: Path, clock: ClockFake, otlp: FakeCollector
 ) -> None:
     """The seconds of a row do not depend on the lane, so a run of the command line, which has no
-    lane and counts no job, adds the sample."""
+    lane and counts no job, adds the sample, with no attribute `lane` (#5553)."""
     table = (_row("metrics", _takes(clock, 2.0)),)
 
     run_due_jobs(

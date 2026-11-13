@@ -11,10 +11,6 @@ from typing import Any
 
 import pytest
 
-from devops_cli.config.constants import (
-    CONST_ROADMAP_RUN_CLONE_DIRNAME,
-    CONST_ROADMAP_RUN_TRIAGE_CLONE_DIRNAME,
-)
 from devops_cli.exceptions import (
     ConfigurationError,
     GitOperationError,
@@ -220,7 +216,7 @@ def test_a_service_round_needs_no_roadmap_file(
     service_job(
         batch,
         table=lane_table(STATUS_LANE_ROWS, metrics=recorded(ran, "metrics")),
-        clone_dirname=CONST_ROADMAP_RUN_CLONE_DIRNAME,
+        lane="metrics",
     )
     assert (ran, roadmap_store_repos) == (["metrics"], ["example/repo"])
 
@@ -229,15 +225,13 @@ def test_a_service_round_needs_no_roadmap_file(
 def test_service_job_unreadable_github_roadmap_propagates_unchanged(
     unreadable_github_roadmap: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A triage-lane round whose read of the changes GitHub cannot answer (HTTP 503) raises
-    GitHubOperationError unchanged (#1365, #1534)."""
+    """A round of the lane of intake whose read of the changes GitHub cannot answer (HTTP 503)
+    raises GitHubOperationError unchanged (#1365, #1534)."""
     monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path))
     batch = TriggerBatch(repo="example/repo", counts={OPENED: 1}, first_at=NOW, last_at=NOW)
 
     with pytest.raises(GitHubOperationError) as exc_info:
-        service_job(
-            batch, table=TRIAGE_LANE_ROWS, clone_dirname=CONST_ROADMAP_RUN_TRIAGE_CLONE_DIRNAME
-        )
+        service_job(batch, table=TRIAGE_LANE_ROWS, lane="intake")
 
     assert not isinstance(exc_info.value, ConfigurationError)
 

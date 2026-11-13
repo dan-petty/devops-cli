@@ -7,6 +7,7 @@ import json
 import logging
 import operator
 import os
+import re
 import stat
 import threading
 import time
@@ -47,6 +48,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_SIZE_OPTIONS,
     CONST_ROADMAP_STAGE_JOB_DEADLINE_SECONDS,
     CONST_ROADMAP_STAGE_JOB_MARGIN_SECONDS,
+    CONST_SERVICE_LANE_NAME_PATTERN,
     CONST_SETTINGS_CACHE_SETTLE_SECONDS,
 )
 from devops_cli.config.constants import (
@@ -1588,6 +1590,33 @@ class ServiceConfig(BaseModel):
         default=DEFAULT_SERVICE_MAX_FAILED_ROUNDS,
         ge=1,
     )
+    lanes: dict[str, list[str]] = Field(
+        description="Lanes that each run more than one roadmap job, as a map of a lane name to the jobs (rows of the due table) that the lane runs, such as {model: [stage, refine]}. Each job that no lane names runs in a lane of its own, named after the job. The jobs of a lane run one after the other in the order of the due table; two lanes never wait for each other. The Service reads this setting when it starts, so a change needs a restart",
+        default_factory=dict,
+    )
+
+    @field_validator("lanes")
+    @classmethod
+    def _lanes_hold_each_row_once(cls, lanes: dict[str, list[str]]) -> dict[str, list[str]]:
+        """Each lane name and each row name is a lowercase name, each lane names at least one
+        row, and no row is in two lanes (#5553). The due table checks the row names when the
+        Service builds its lanes."""
+        owner: dict[str, str] = {}
+        for lane, rows in lanes.items():
+            for name in (lane, *rows):
+                if not re.fullmatch(CONST_SERVICE_LANE_NAME_PATTERN, name):
+                    raise ValueError(ERRORS.config.service_lane_name_invalid.format(value=name))
+            if not rows:
+                raise ValueError(ERRORS.config.service_lane_empty.format(lane=lane))
+            for row in rows:
+                if row in owner:
+                    raise ValueError(
+                        ERRORS.config.service_lane_row_repeated.format(
+                            row=row, first=owner[row], second=lane
+                        )
+                    )
+                owner[row] = lane
+        return lanes
 
     @field_validator("repos", mode="before")
     @classmethod

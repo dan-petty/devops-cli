@@ -225,6 +225,19 @@ def lane_listing(state_dir: Path, lane: str) -> IncrementalListing:
     return IncrementalListing(FileSnapshotStore(state_dir / f"{_SNAPSHOT_DIRNAME}-{lane}"))
 
 
+def lane_snapshot_dirs(state_dir: Path) -> dict[str, Path]:
+    """The snapshot directory `listing-<lane>` of each lane that `state_dir` holds, by the name of
+    the lane (#5553). The snapshot of intake, `listing`, is not one of them."""
+    prefix = f"{_SNAPSHOT_DIRNAME}-"
+    if not state_dir.is_dir():
+        return {}
+    return {
+        path.name.removeprefix(prefix): path
+        for path in state_dir.iterdir()
+        if path.is_dir() and path.name.startswith(prefix)
+    }
+
+
 def merged(held: Sequence[IssueRecord], changed: Sequence[IssueRecord]) -> dict[int, IssueRecord]:
     """The issues of `held` with each issue of `changed` in place of its record, the highest
     number first, as the full listing gives them.
@@ -261,6 +274,7 @@ __all__ = [
     "changed_listing",
     "intake_listing",
     "lane_listing",
+    "lane_snapshot_dirs",
     "merged",
     "snapshot_root",
 ]

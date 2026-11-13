@@ -73,7 +73,8 @@ logger = logging.getLogger(__name__)
 
 
 class TriggerBatch(BaseModel):
-    """Immutable batch of coalesced repository trigger events."""
+    """Immutable batch of coalesced repository trigger events, with the subjects that the
+    triggers name: the numbers of the issues that their events are about (#5553)."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -81,6 +82,7 @@ class TriggerBatch(BaseModel):
     counts: dict[tuple[str, str, str], int]
     first_at: datetime
     last_at: datetime
+    subjects: frozenset[int] = frozenset()
 
 
 class WorkerRound(BaseModel):
@@ -112,7 +114,9 @@ IdentityReader = Callable[[Exception], bool]
 """Reads whether a failed round's error says GitHub refused the Service's identity."""
 
 LaneJob = Callable[[TriggerBatch], None]
-"""What one lane of a repository runs for each batch of its triggers."""
+"""What one lane of a repository runs for each batch of its triggers. A lane is one worker with
+its trigger queue for each repository; the roadmap Service runs one lane for each row of its due
+table by default (#5553)."""
 
 
 def default_service_job(batch: TriggerBatch) -> None:
@@ -480,6 +484,7 @@ class RepoWorker:
         self._stop_event = threading.Event()
         self._is_active = False
         self._pending_counts: dict[tuple[str, str, str], int] = {}
+        self._pending_subjects: set[int] = set()
         self._pending_scoped: deque[Callable[[], None]] = deque()
         self._first_at: datetime | None = None
         self._last_at: datetime | None = None
@@ -513,8 +518,9 @@ class RepoWorker:
         )
         self._thread.start()
 
-    def enqueue(self, source: str, event: str, action: str) -> None:
-        """Enqueue an incoming trigger event, coalescing into the pending batch."""
+    def enqueue(self, source: str, event: str, action: str, subject: int | None = None) -> None:
+        """Enqueue an incoming trigger event, coalescing into the pending batch. A `subject`, the
+        number of the issue that the event is about, joins the subjects of the batch (#5553)."""
         key = (source, event, action)
         now = self.clock()
         with self._cond:
@@ -522,6 +528,8 @@ class RepoWorker:
                 self._first_at = now
             self._last_at = now
             self._pending_counts[key] = self._pending_counts.get(key, 0) + 1
+            if subject is not None:
+                self._pending_subjects.add(subject)
             GLOBAL_METRICS.set_gauge(CONST_SERVICE_METRIC_QUEUE_DEPTH, 1.0, labels=self._labels)
             self._cond.notify()
 
@@ -572,7 +580,11 @@ class RepoWorker:
 
     def _wait_for_next_batch(
         self,
-    ) -> tuple[dict[tuple[str, str, str], int], datetime, datetime] | Callable[[], None] | None:
+    ) -> (
+        tuple[dict[tuple[str, str, str], int], datetime, datetime, frozenset[int]]
+        | Callable[[], None]
+        | None
+    ):
         """Wait for pending events or scoped tasks the pause lets run and pop them. Once the
         worker is told to stop, it pops nothing, so no new round starts: the next pod's first
         poll reads the changes that the pending triggers were for (#4485)."""
@@ -590,9 +602,11 @@ class RepoWorker:
                 )
                 return scoped
             counts = dict(self._pending_counts)
+            subjects = frozenset(self._pending_subjects)
             first_at = self._first_at or self.clock()
             last_at = self._last_at or self.clock()
             self._pending_counts.clear()
+            self._pending_subjects.clear()
             self._first_at = None
             self._last_at = None
             self._is_active = True
@@ -600,7 +614,7 @@ class RepoWorker:
             GLOBAL_METRICS.set_gauge(
                 CONST_SERVICE_METRIC_QUEUE_DEPTH, 1.0 if remaining else 0.0, labels=self._labels
             )
-            return counts, first_at, last_at
+            return counts, first_at, last_at, subjects
 
     def _end_in_stop(self) -> str:
         """Log the end of a round that the stop of the Service ends, and give its result. Such a
@@ -740,12 +754,13 @@ class RepoWorker:
                 if callable(work):
                     self._execute_scoped(work)
                     continue
-                counts, first_at, last_at = work
+                counts, first_at, last_at, subjects = work
                 batch = TriggerBatch(
                     repo=self.repo,
                     counts=counts,
                     first_at=first_at,
                     last_at=last_at,
+                    subjects=subjects,
                 )
                 self._execute_batch(batch)
         except Exception as exc:
@@ -762,7 +777,7 @@ class RepoWorker:
 class ServiceManager:
     """Coordinates the background workers, one per lane of each repository, the polling loop,
     and the lifecycle. Every trigger goes to each lane of its repository, so a round in one lane
-    never waits for another lane's (#1532). With a `state_dir`, the halt and the budget window
+    never waits for another lane's (#1532, #5553). With a `state_dir`, the halt and the budget window
     are kept there, and a restart reads them back (#2474). A stop waits up to `drain_seconds` for
     the rounds in flight, then up to `cut_seconds` once the budget refuses their requests
     (#4485)."""
@@ -812,7 +827,7 @@ class ServiceManager:
             for repo in config.repos
             for lane, job in jobs.items()
         }
-        prime_service_counters(config.repos)
+        prime_service_counters(config.repos, config.lanes)
         self._stop_event = threading.Event()
         self._ready = False
         self._draining = False
@@ -853,14 +868,24 @@ class ServiceManager:
             )
 
     def enqueue_trigger(
-        self, repo: str, source: str, event: str, action: str, *, lane: str | None = None
+        self,
+        repo: str,
+        source: str,
+        event: str,
+        action: str,
+        *,
+        lane: str | None = None,
+        subject: int | None = None,
     ) -> bool:
         """Enqueue a trigger on every lane of the repository, or on `lane` alone; False for an
-        unmanaged repository or an unknown lane."""
+        unmanaged repository or an unknown lane. `subject` is the number of the issue that the
+        event is about, which the batch of the lane keeps (#5553)."""
         if repo not in self.managed_repos or (lane is not None and lane not in self.jobs):
             return False
         for name in self.jobs if lane is None else (lane,):
-            self.workers[(repo, name)].enqueue(source=source, event=event, action=action)
+            self.workers[(repo, name)].enqueue(
+                source=source, event=event, action=action, subject=subject
+            )
         return True
 
     def enqueue_scoped(self, repo: str, lane: str, scoped_func: Callable[[], None]) -> bool:

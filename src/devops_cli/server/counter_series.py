@@ -7,7 +7,7 @@ its `/metrics`. A label set that a new pod counts later still starts at zero in 
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping, Sequence
 
 from devops_cli.config.constants import (
     CONST_BRANCH_TYPES,
@@ -19,9 +19,6 @@ from devops_cli.config.constants import (
     CONST_SERVICE_JOB_RESULT_ERROR,
     CONST_SERVICE_JOB_RESULT_STOPPED,
     CONST_SERVICE_JOB_RESULT_SUCCESS,
-    CONST_SERVICE_LANE_MODEL,
-    CONST_SERVICE_LANE_STATUS,
-    CONST_SERVICE_LANE_TRIAGE,
     CONST_SERVICE_METRIC_BUDGET_HOLDS,
     CONST_SERVICE_METRIC_CHAT_COMMANDS,
     CONST_SERVICE_METRIC_IMPLEMENT_FAILURES,
@@ -70,21 +67,20 @@ _SERVICE_CHAT_RESULTS = (
 them."""
 
 
-def prime_service_counters(repos: Iterable[str]) -> None:
+def prime_service_counters(
+    repos: Iterable[str], lanes: Mapping[str, Sequence[str]] | None = None
+) -> None:
     """Create the bounded label sets of the Service counters at zero for the repositories
     `repos`: each failure class for each repository on the failure counter, each repository,
     lane, row and result on the job counter, each repository and lane on the job seconds, each
     repository and source on the trigger counter, each result of the chat command, and the one
-    series of the budget holds, which has no label."""
-    # The roadmap run imports the Service, so the lane tables are read when the counters are
+    series of the budget holds, which has no label. The lanes are those that `lanes`, the setting
+    `service.lanes`, gives (`service_lanes`, #5553)."""
+    # The roadmap run imports the Service, so the lane table is read when the counters are
     # primed, not when this module is imported.
-    from devops_cli.roadmap.run import MODEL_LANE_ROWS, STATUS_LANE_ROWS, TRIAGE_LANE_ROWS
+    from devops_cli.roadmap.run import service_lanes
 
-    lane_rows = (
-        (CONST_SERVICE_LANE_STATUS, STATUS_LANE_ROWS),
-        (CONST_SERVICE_LANE_TRIAGE, TRIAGE_LANE_ROWS),
-        (CONST_SERVICE_LANE_MODEL, MODEL_LANE_ROWS),
-    )
+    lane_rows = tuple(service_lanes(lanes).items())
     repo_names = list(repos)
     GLOBAL_METRICS.prime_counter(
         CONST_SERVICE_METRIC_IMPLEMENT_FAILURES,

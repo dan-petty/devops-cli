@@ -30,9 +30,6 @@ from devops_cli.config.constants import (
     CONST_GRAPHQL_REFUSAL_RESET_KEY,
     CONST_MAX_ERROR_DETAIL_LENGTH,
     CONST_SERVICE_LANE_DEFAULT,
-    CONST_SERVICE_LANE_MODEL,
-    CONST_SERVICE_LANE_STATUS,
-    CONST_SERVICE_LANE_TRIAGE,
     CONST_SERVICE_MAX_BODY_BYTES,
     CONST_SERVICE_METRIC_JOB_SECONDS,
     CONST_SERVICE_METRIC_JOB_START_TIMESTAMP,
@@ -928,6 +925,33 @@ def test_repo_worker_executes_batch_with_span(monkeypatch: pytest.MonkeyPatch) -
     )
 
 
+def test_a_batch_holds_the_subjects_of_the_triggers_that_it_coalesces() -> None:
+    """Test first for #5553: two triggers with the subjects 12 and 14 and a poll, queued before a
+    round, make one batch with both subjects. A later poll alone makes a batch with no subject."""
+    batches: list[TriggerBatch] = []
+    worker = RepoWorker(
+        repo="example-org/repo1",
+        lane="refine",
+        job_func=batches.append,
+        clock=lambda: datetime.now(UTC),
+    )
+    worker.enqueue("webhook", "issues", "edited", subject=12)
+    worker.enqueue("webhook", "issues", "labeled", subject=14)
+    worker.enqueue("poll", "", "")
+    worker.start()
+    first_ended = worker.wait_active(THREAD_HANDOFF_BOUND_SECONDS)
+    worker.enqueue("poll", "", "")
+    second_ended = worker.wait_active(THREAD_HANDOFF_BOUND_SECONDS)
+    worker.stop()
+
+    assert (
+        first_ended,
+        second_ended,
+        worker.join(THREAD_HANDOFF_BOUND_SECONDS),
+        [batch.subjects for batch in batches],
+    ) == (True, True, True, [frozenset({12, 14}), frozenset()])
+
+
 def test_a_worker_sets_its_lanes_job_start_to_its_own_start_before_its_first_job() -> None:
     """A worker sets the job start of its lane to the time that it starts. A lane of a new pod
     then has a series before its first job, so `RoadmapServiceLaneStalled` fires when the lane
@@ -935,7 +959,7 @@ def test_a_worker_sets_its_lanes_job_start_to_its_own_start_before_its_first_job
     started = datetime(2026, 10, 28, 12, 0, tzinfo=UTC)
     worker = RepoWorker(
         repo="example-org/repo1",
-        lane=CONST_SERVICE_LANE_MODEL,
+        lane="refine",
         job_func=lambda batch: None,
         clock=lambda: started,
     )
@@ -952,7 +976,7 @@ def test_a_worker_sets_its_lanes_job_start_to_its_own_start_before_its_first_job
         [(sample.labels, sample.value) for sample in family.samples] if family else [],
     ) == (
         True,
-        [({"lane": CONST_SERVICE_LANE_MODEL, "repo": "example-org/repo1"}, started.timestamp())],
+        [({"lane": "refine", "repo": "example-org/repo1"}, started.timestamp())],
     )
 
 
@@ -1549,13 +1573,11 @@ def test_a_pause_reader_that_fails_holds_nothing_and_the_worker_carries_on(
     )
 
 
-# ── A status-lane round never waits for a model-lane round (#1532) ────────────
+# ── A round of one lane never waits for a round of another lane (#1532, #5553) ──
 
-STATUS_LANE, TRIAGE_LANE, MODEL_LANE = (
-    CONST_SERVICE_LANE_STATUS,
-    CONST_SERVICE_LANE_TRIAGE,
-    CONST_SERVICE_LANE_MODEL,
-)
+STATUS_LANE, TRIAGE_LANE, MODEL_LANE = ("metrics", "intake", "refine")
+"""Three default lanes: one of a row that calls no model, the lane of intake, which runs the
+scoped updates, and one of a row that calls the model."""
 
 
 class _Lanes:
@@ -1685,12 +1707,12 @@ def test_metrics_show_a_stalled_model_lane_by_its_queue_depth() -> None:
         return any(line.startswith(f"{metric}{{{labels}}} ") for line in exported)
 
     assert (
-        f'{CONST_SERVICE_METRIC_QUEUE_DEPTH}{{lane="model",{repo}}} 1.0' in exported,
-        f'{CONST_SERVICE_METRIC_QUEUE_DEPTH}{{lane="status",{repo}}} 0.0' in exported,
-        exported_as(CONST_SERVICE_METRIC_JOBS, f'lane="status",{repo},result="success"'),
-        exported_as(CONST_SERVICE_METRIC_JOB_SECONDS, f'lane="status",{repo}'),
-        exported_as(CONST_SERVICE_METRIC_JOB_START_TIMESTAMP, f'lane="model",{repo}'),
-        exported_as(CONST_SERVICE_METRIC_JOBS, f'lane="model",{repo},result="success"'),
+        f'{CONST_SERVICE_METRIC_QUEUE_DEPTH}{{lane="{MODEL_LANE}",{repo}}} 1.0' in exported,
+        f'{CONST_SERVICE_METRIC_QUEUE_DEPTH}{{lane="{STATUS_LANE}",{repo}}} 0.0' in exported,
+        exported_as(CONST_SERVICE_METRIC_JOBS, f'lane="{STATUS_LANE}",{repo},result="success"'),
+        exported_as(CONST_SERVICE_METRIC_JOB_SECONDS, f'lane="{STATUS_LANE}",{repo}'),
+        exported_as(CONST_SERVICE_METRIC_JOB_START_TIMESTAMP, f'lane="{MODEL_LANE}",{repo}'),
+        exported_as(CONST_SERVICE_METRIC_JOBS, f'lane="{MODEL_LANE}",{repo},result="success"'),
         lanes.model_released,
     ) == (True, True, False, True, True, False, True)
 
@@ -1811,6 +1833,14 @@ def _webhook_keys(lanes: _Lanes) -> dict[str, list[tuple[str, str, str]]]:
     }
 
 
+def _subjects(lanes: _Lanes) -> dict[str, set[int]]:
+    """The subjects of the triggers of each lane's rounds (#5553)."""
+    return {
+        lane: {subject for batch in batches for subject in batch.subjects}
+        for lane, batches in lanes.batches.items()
+    }
+
+
 def _unblocked_lanes(
     lane_names: Sequence[str] = (STATUS_LANE, TRIAGE_LANE, MODEL_LANE),
 ) -> _Lanes:
@@ -1883,13 +1913,29 @@ def test_the_roadmap_consumer_takes_the_events_its_jobs_read_into_all_three_lane
     )
 
 
+def test_a_webhook_trigger_names_the_issue_of_its_delivery_as_its_subject() -> None:
+    """Test first for #5553: a delivery about issue 42 reaches each lane as a trigger whose
+    subject is 42, so a later router can send it to the lanes of that issue (#5555)."""
+    lanes = _unblocked_lanes()
+    app = _lanes_app(lanes)
+    with TestClient(app) as client:
+        payload = _event_payload("labeled", issue={"number": 42})
+        response = _github_post(client, "issues", payload, "subject-1")
+        settled = _lanes_settled(app)
+    assert (response.status_code, settled, _subjects(lanes)) == (
+        202,
+        True,
+        {STATUS_LANE: {42}, TRIAGE_LANE: {42}, MODEL_LANE: {42}},
+    )
+
+
 @pytest.mark.parametrize("action", ["opened", "edited", "reopened"])
 def test_a_subscribed_issues_delivery_runs_its_scoped_update_and_queues_no_full_round(
     action: str, monkeypatch: pytest.MonkeyPatch, roadmap_store: Any
 ) -> None:
     """A delivery of `issues` opened, edited or reopened with an issue number runs its scoped update
-    on the triage lane worker, and queues no full round on any lane; an edit wakes the model lane
-    alone (ADR 0017, #1533, #1534, #4412)."""
+    on the worker of the lane of intake, and queues no full round on any lane; an edit wakes each
+    other lane (ADR 0017, #1533, #1534, #4412, #5553)."""
     ran_updates: list[tuple[Any, str]] = []
 
     def fake_scoped(delivery: Any, store: Any, **kwargs: Any) -> Any:
@@ -1916,7 +1962,7 @@ def test_a_subscribed_issues_delivery_runs_its_scoped_update_and_queues_no_full_
         {"status": "accepted"},
         True,
         {
-            STATUS_LANE: [],
+            STATUS_LANE: [("webhook", "issues", action)] * (action == "edited"),
             TRIAGE_LANE: [],
             MODEL_LANE: [("webhook", "issues", action)] * (action == "edited"),
         },
@@ -1972,11 +2018,12 @@ def test_a_scoped_update_reads_every_issue_through_the_snapshot_in_the_state_dir
 
 
 @pytest.mark.parametrize("action", ["opened", "reopened"])
-def test_a_critical_placement_wakes_the_model_lane_alone(
+def test_a_critical_placement_wakes_each_other_lane_and_not_the_lane_of_intake(
     action: str, monkeypatch: pytest.MonkeyPatch, roadmap_store: Any
 ) -> None:
-    """A scoped update that places a critical fix or a P0 item enqueues the delivery's key on the
-    model lane, and on no other lane (#4412)."""
+    """A scoped update that places a critical fix or a P0 item enqueues the delivery's key, with
+    the issue as its subject, on each other lane, and not on the lane of intake, which would run
+    a whole round for the same delivery (#4412, #5553)."""
     monkeypatch.setattr(
         "devops_cli.roadmap.run.run_scoped_update",
         lambda delivery, store, **kwargs: JobOutcome(placed_critical_or_p0=True),
@@ -1988,10 +2035,15 @@ def test_a_critical_placement_wakes_the_model_lane_alone(
             client, "issues", _event_payload(action, issue={"number": 42}), f"critical-{action}"
         )
         settled = _lanes_settled(app)
-    assert (response.status_code, settled, _webhook_keys(lanes)) == (
+    assert (response.status_code, settled, _webhook_keys(lanes), _subjects(lanes)) == (
         202,
         True,
-        {STATUS_LANE: [], TRIAGE_LANE: [], MODEL_LANE: [("webhook", "issues", action)]},
+        {
+            STATUS_LANE: [("webhook", "issues", action)],
+            TRIAGE_LANE: [],
+            MODEL_LANE: [("webhook", "issues", action)],
+        },
+        {STATUS_LANE: {42}, TRIAGE_LANE: set(), MODEL_LANE: {42}},
     )
 
 

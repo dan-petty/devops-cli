@@ -1803,14 +1803,13 @@ CONST_SERVICE_CONSECUTIVE_FAILURES_FILENAME: Final[str] = "service-consecutive-f
 # The cause the log line that suspends a job gives for a failed round that an earlier process
 # counted: the file keeps the count and not the cause (#2753).
 CONST_SERVICE_CAUSE_UNKNOWN: Final[str] = "unknown"
-# The Service's lanes (#1532): each repository has one worker per lane. The status lane runs the
-# jobs that call no model (the metrics and the submission of the implement Job, #2757). The model
-# lane runs the jobs that call the model, so a status-lane round never waits for a model-lane
-# round. A service app given no jobs runs its logging job in the default lane.
-CONST_SERVICE_LANE_STATUS: Final[str] = "status"
-CONST_SERVICE_LANE_TRIAGE: Final[str] = "triage"
-CONST_SERVICE_LANE_MODEL: Final[str] = "model"
+# A lane of the Service is one worker and one trigger queue for each repository (#1532). Each row
+# of the due table runs in a lane of its own, named after the row, unless `service.lanes` puts it
+# into a shared lane (#5553). A service app given no jobs runs its logging job in the default lane.
 CONST_SERVICE_LANE_DEFAULT: Final[str] = "default"
+# The form of a lane name and of a row name in `service.lanes`: the name is a path segment of the
+# clone and the snapshot of the lane, and a label of the metrics (#5553).
+CONST_SERVICE_LANE_NAME_PATTERN: Final[str] = r"[a-z][a-z0-9_]*"
 CONST_SERVICE_PROBE_PATHS: Final[frozenset[str]] = frozenset(
     {
         "/healthz",
@@ -3695,12 +3694,20 @@ CONST_ROADMAP_RELEASE_IMAGE_GRACE_MINUTES: Final[int] = 20
 # The Deployment of the Service and the container in it that run the Service image (#2917).
 CONST_ROADMAP_SERVICE_DEPLOYMENT: Final[str] = "roadmap-service"
 CONST_ROADMAP_SERVICE_CONTAINER: Final[str] = "service"
+# The clone of `devops roadmap run` in the repository directory.
 CONST_ROADMAP_RUN_CLONE_DIRNAME: Final[str] = "clone"
-# The triage lane's clone beside it, so the triage lane's checkout never touches another lane's clone (#1534).
-CONST_ROADMAP_RUN_TRIAGE_CLONE_DIRNAME: Final[str] = "triage-clone"
-# The model lane's own clone beside it, so the model lane's checkout never touches the status
-# lane's `clone` (#1532).
+# The clone of the commands of the model rows when a person gives no `--source` (#2654).
 CONST_ROADMAP_RUN_MODEL_CLONE_DIRNAME: Final[str] = "model-clone"
+# The folder of the clone of each Service lane, `lanes/<lane>`, so no two lanes share a working
+# tree (#5553).
+CONST_ROADMAP_RUN_LANES_DIRNAME: Final[str] = "lanes"
+# The clones of the three lanes that the Service ran before each row had a lane of its own. The
+# Service removes them when it starts (#5553).
+CONST_ROADMAP_RUN_RETIRED_CLONE_DIRNAMES: Final[tuple[str, ...]] = (
+    "clone",
+    "model-clone",
+    "triage-clone",
+)
 CONST_ROADMAP_REFINE_DUE_STAMP: Final[str] = "refine_due"
 # The key in `schedule.json` of the time of a round in which refine set an item Ready. The stage
 # row runs before refine on the model lane, so this stamp makes it due in the next round (#2659,

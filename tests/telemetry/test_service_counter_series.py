@@ -39,11 +39,14 @@ from devops_cli.telemetry.metrics import GLOBAL_METRICS
 REPOS = ["example/app", "example/tools"]
 
 
-def _manager(repos: list[str]) -> ServiceManager:
-    """A Service manager with two lanes of dummy jobs, which starts no thread. The registry of
-    the process starts empty, so a series that another test counted is not read here."""
+def _manager(repos: list[str], lanes: dict[str, list[str]] | None = None) -> ServiceManager:
+    """A Service manager with two lanes of dummy jobs, which starts no thread, and the setting
+    `service.lanes` at `lanes`. The registry of the process starts empty, so a series that another
+    test counted is not read here."""
     GLOBAL_METRICS.reset()
-    config = ServiceConfig(repos=repos, github_app=GitHubAppConfig(bot_login="test-bot[bot]"))
+    config = ServiceConfig(
+        repos=repos, github_app=GitHubAppConfig(bot_login="test-bot[bot]"), lanes=lanes or {}
+    )
     now = datetime(2026, 11, 5, 12, 0, 0, tzinfo=UTC)
     return ServiceManager(
         config=config,
@@ -128,9 +131,29 @@ def test_jobs_total_carries_row_label() -> None:
     label_sets = [dict(key) for key in _series(CONST_SERVICE_METRIC_JOBS)]
 
     assert all(set(labels) == {"repo", "lane", "row", "result"} for labels in label_sets)
-    assert {"repo": "example/app", "lane": "status", "row": "metrics", "result": "success"} in (
+    assert {"repo": "example/app", "lane": "metrics", "row": "metrics", "result": "success"} in (
         label_sets
     )
+
+
+def test_jobs_total_exists_at_zero_under_the_lane_that_the_setting_gives_a_row() -> None:
+    """Test first for #5553: by default the series of a row has the lane of the row's name. With
+    `service.lanes` `{model: [stage, refine]}`, the series of `refine` has the lane `model`."""
+    _manager(REPOS)
+    default = {
+        (labels["lane"], labels["row"]) for labels in map(dict, _series(CONST_SERVICE_METRIC_JOBS))
+    }
+    _manager(REPOS, {"model": ["stage", "refine"]})
+    grouped = {
+        (labels["lane"], labels["row"]) for labels in map(dict, _series(CONST_SERVICE_METRIC_JOBS))
+    }
+
+    assert (
+        ("refine", "refine") in default,
+        ("model", "refine") in grouped,
+        ("refine", "refine") in grouped,
+        ("intake", "intake") in grouped,
+    ) == (True, True, False, True)
 
 
 def test_jobs_total_exists_at_zero_for_each_result_of_a_row() -> None:
@@ -139,7 +162,7 @@ def test_jobs_total_exists_at_zero_for_each_result_of_a_row() -> None:
     series = _series(CONST_SERVICE_METRIC_JOBS)
     expected = {
         frozenset(
-            {("repo", "example/app"), ("lane", "status"), ("row", "metrics"), ("result", result)}
+            {("repo", "example/app"), ("lane", "metrics"), ("row", "metrics"), ("result", result)}
         )
         for result in ("success", "error", "stopped")
     }

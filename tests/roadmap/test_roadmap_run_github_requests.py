@@ -11,9 +11,6 @@ from typing import Any
 
 import pytest
 
-from devops_cli.config.constants import (
-    CONST_ROADMAP_RUN_MODEL_CLONE_DIRNAME,
-)
 from devops_cli.roadmap.run import (
     service_job,
 )
@@ -94,11 +91,7 @@ def test_a_service_round_that_places_a_candidate_sends_no_projects_request(
     serve_over(tmp_path, monkeypatch, github)
     github.install(process_fake)
     model, ran = IntakeModel(), []
-    lane = partial(
-        service_job,
-        table=intake_table(model, ran),
-        clone_dirname=CONST_ROADMAP_RUN_MODEL_CLONE_DIRNAME,
-    )
+    lane = partial(service_job, table=intake_table(model, ran), lane="intake")
     lane(POLL)
     assert (ran, github.project_calls(), sorted(github.labels(4))) == (
         ["intake"],

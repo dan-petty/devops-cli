@@ -9,11 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from devops_cli.config.constants import (
-    CONST_SERVICE_LANE_STATUS,
-    CONST_SERVICE_LANE_TRIAGE,
-    CONST_SERVICE_METRIC_JOBS,
-)
+from devops_cli.config.constants import CONST_SERVICE_METRIC_JOBS
 from devops_cli.exceptions import (
     RoadmapRunError,
     ServiceStoppingError,
@@ -41,6 +37,9 @@ from tests.support.roadmap_run import (
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
+LANE = "metrics"
+"""The lane of the row `metrics`, whose job the tests run with a table of two rows (#5553)."""
+
 
 def _job_count(lane: str, row: str, result: str) -> float:
     """The value of the job counter of the row `row` of `lane` under `result`."""
@@ -65,12 +64,12 @@ def test_each_row_of_a_lane_counts_its_own_job(
 
     table = build_stub_table({"metrics": lambda **_: JobOutcome(), "implement": fails})
     with pytest.raises(RoadmapRunError) as raised:
-        service_jobs(tmp_path)[CONST_SERVICE_LANE_STATUS](POLL, table=table)
+        service_jobs(tmp_path)[LANE](POLL, table=table)
     assert list(raised.value.failed_jobs) == ["implement"]
 
     assert (
-        _job_count(CONST_SERVICE_LANE_STATUS, "metrics", "success"),
-        _job_count(CONST_SERVICE_LANE_STATUS, "implement", "error"),
+        _job_count(LANE, "metrics", "success"),
+        _job_count(LANE, "implement", "error"),
     ) == (1, 1)
 
 
@@ -89,12 +88,12 @@ def test_a_row_that_the_stop_of_the_service_ends_counts_as_stopped(
 
     table = build_stub_table({"metrics": lambda **_: JobOutcome(), "implement": stops})
     with pytest.raises(RoadmapRunError) as ended:
-        service_jobs(tmp_path)[CONST_SERVICE_LANE_STATUS](POLL, table=table)
+        service_jobs(tmp_path)[LANE](POLL, table=table)
 
     assert (
         list(ended.value.failed_jobs),
-        _job_count(CONST_SERVICE_LANE_STATUS, "implement", "stopped"),
-        _job_count(CONST_SERVICE_LANE_STATUS, "implement", "error"),
+        _job_count(LANE, "implement", "stopped"),
+        _job_count(LANE, "implement", "error"),
     ) == (["implement"], 1, 0)
 
 
@@ -121,13 +120,10 @@ def test_no_row_starts_once_the_service_stops_and_the_next_round_runs_it(
 
     table = build_stub_table({"metrics": stops, "implement": implement})
     with pytest.raises(ServiceStoppingError) as ended:
-        service_jobs(tmp_path)[CONST_SERVICE_LANE_STATUS](POLL, table=table)
-    counted = [
-        _job_count(CONST_SERVICE_LANE_STATUS, "implement", result)
-        for result in ("success", "error", "stopped")
-    ]
+        service_jobs(tmp_path)[LANE](POLL, table=table)
+    counted = [_job_count(LANE, "implement", result) for result in ("success", "error", "stopped")]
     reset_service_stop()
-    service_jobs(tmp_path)[CONST_SERVICE_LANE_STATUS](POLL, table=table)
+    service_jobs(tmp_path)[LANE](POLL, table=table)
 
     assert (ended_by_stop(ended.value), counted, ran) == (
         True,
@@ -159,4 +155,4 @@ def test_a_scoped_update_that_raises_counts_under_the_result_of_its_error(
             webhook_delivery("opened", 1), store, data_dir=tmp_path, now=NOW, model=RaisingModel()
         )
 
-    assert (ended.value, _job_count(CONST_SERVICE_LANE_TRIAGE, "intake", result)) == (raised, 1)
+    assert (ended.value, _job_count("intake", "intake", result)) == (raised, 1)

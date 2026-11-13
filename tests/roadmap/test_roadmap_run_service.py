@@ -14,19 +14,11 @@ import pytest
 
 from devops_cli.ai.mcp.server import roadmap_run
 from devops_cli.config.constants import (
-    CONST_ROADMAP_RUN_CLONE_DIRNAME,
-    CONST_ROADMAP_RUN_MODEL_CLONE_DIRNAME,
-    CONST_ROADMAP_RUN_TRIAGE_CLONE_DIRNAME,
     CONST_SERVICE_BUDGET_FILENAME,
     CONST_SERVICE_HALT_FILENAME,
-    CONST_SERVICE_LANE_MODEL,
-    CONST_SERVICE_LANE_STATUS,
-    CONST_SERVICE_LANE_TRIAGE,
 )
 from devops_cli.roadmap.run import (
-    MODEL_LANE_ROWS,
-    STATUS_LANE_ROWS,
-    TRIAGE_LANE_ROWS,
+    DEFAULT_DUE_TABLE,
     service_state_dir,
 )
 from devops_cli.server.service import TriggerBatch, no_round_pause
@@ -53,9 +45,12 @@ def test_service_wiring(
     roadmap_store_repos: list[str],
     cli: Callable[..., Any],
 ) -> None:
-    """`devops serve --service` passes the three lanes' jobs to create_service_app, with no
+    """`devops serve --service` passes one job for each row to create_service_app, with no
     reader of a round pause: no roadmap read has a budget refusal that names one (ADR 0016).
-    Each lane's job opens the store and runs its own rows in its own clone (#1532, #1534)."""
+    Each lane's job opens the store and runs its own row in its own clone `lanes/<lane>`
+    (#1532, #5553). The start removes the clone of an earlier lane."""
+    retired = service_state_dir() / REPO / "model-clone"
+    retired.mkdir(parents=True)
     with patch("uvicorn.run") as mock_uvicorn:
         res = cli(["serve", "--service"])
         fastapi_app = mock_uvicorn.call_args[0][0]()
@@ -66,7 +61,7 @@ def test_service_wiring(
             lane_job(batch)
 
     lanes = [
-        (call.args[0], call.kwargs["table"], call.kwargs["clone_dirname"])
+        (call.args[0], call.kwargs["table"], call.kwargs["clone_dirname"], call.kwargs["lane"])
         for call in mock_run.call_args_list
     ]
     assert (
@@ -75,34 +70,28 @@ def test_service_wiring(
         fastapi_app.state.pause_until is no_round_pause,
         REPO in roadmap_store_repos,
         lanes,
-        [
-            [row.name for row in rows]
-            for rows in (STATUS_LANE_ROWS, TRIAGE_LANE_ROWS, MODEL_LANE_ROWS)
-        ],
+        retired.exists(),
     ) == (
         0,
-        [CONST_SERVICE_LANE_STATUS, CONST_SERVICE_LANE_TRIAGE, CONST_SERVICE_LANE_MODEL],
+        [
+            "metrics",
+            "implement",
+            "stage_ready",
+            "stage",
+            "release_comments",
+            "github_status",
+            "cloudflare_status",
+            "pr_conflicts",
+            "intake",
+            "retitle",
+            "fix_plan",
+            "refine",
+            "alternatives",
+        ],
         True,
         True,
-        [
-            (REPO, STATUS_LANE_ROWS, CONST_ROADMAP_RUN_CLONE_DIRNAME),
-            (REPO, TRIAGE_LANE_ROWS, CONST_ROADMAP_RUN_TRIAGE_CLONE_DIRNAME),
-            (REPO, MODEL_LANE_ROWS, CONST_ROADMAP_RUN_MODEL_CLONE_DIRNAME),
-        ],
-        [
-            [
-                "metrics",
-                "implement",
-                "stage_ready",
-                "stage",
-                "release_comments",
-                "github_status",
-                "cloudflare_status",
-                "pr_conflicts",
-            ],
-            ["intake"],
-            ["retitle", "fix_plan", "refine", "alternatives"],
-        ],
+        [(REPO, (row,), f"lanes/{row.name}", row.name) for row in DEFAULT_DUE_TABLE],
+        False,
     )
 
 
