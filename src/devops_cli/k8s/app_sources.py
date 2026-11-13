@@ -4,8 +4,9 @@ A source of the repository that holds the tree, its `origin`, reads the local ch
 another repository is fetched once for each repository and revision, at the `targetRevision` of
 the source, into a work folder: `git init`, a shallow `git fetch` and a checkout of `FETCH_HEAD`,
 as `render_at_revision` fetches the revision of an Application. Only an `https` repository is
-fetched, with no credential, so a public repository resolves and a private one fails with git's
-error. A dry run fetches nothing: it records each fetch command.
+fetched. The fetch adds no credential of its own, so a public repository resolves, and a private
+one resolves only where the git configuration of the host gives a credential (#5294). A dry run
+fetches nothing: it records each fetch command.
 
 A value file `$<ref>/<path>` of a chart source names a file of the source whose `ref` is `<ref>`,
 which can be the origin or another repository. Argo CD reads it the same way.

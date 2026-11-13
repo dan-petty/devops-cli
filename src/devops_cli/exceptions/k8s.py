@@ -55,8 +55,10 @@ class ServiceProbeError(KubernetesError):
 
 
 class ApplicationSourceError(KubernetesError):
-    """Raised when a git source of an Argo CD Application cannot be read: its repository is not
-    an https URL, a `$ref` names no source, or the fetch of its revision fails (#5131)."""
+    """Raised when a git source of an Argo CD Application cannot be read (#5131).
+
+    Its repository is not an https URL, a `$ref` names no source, or the fetch of its revision fails.
+    """
 
     error_code = "K8S_APPLICATION_SOURCE_ERROR"
 
