@@ -699,6 +699,16 @@ uv run keyring del devops-cli qdrant_api_key                  # or: drop it, and
 ```
 To rotate a generated value, store a new one at a hidden prompt with `uv run keyring set devops-cli <keyring key>`, then push with `--rotate`.
 
+## gVisor Runtime
+
+`runtimeclass-gvisor.yaml` declares RuntimeClass `gvisor` with handler `runsc`. The root kustomization lists it, so Argo CD's `base` Application applies it on the homelab, and `devops k8s deploy-stack` applies it on a cluster with no Argo CD. gVisor (`runsc`) is a user-space kernel. A pod of this class runs on that kernel and reaches the host kernel only through a small, filtered set of system calls of the gVisor Sentry, so most defects of the host kernel are out of its reach ([ADR 0018](../docs/adr/0018-a-sandboxed-read-only-run-tool-for-the-planner.md)). The class is for pods that run code that a model writes, such as the runner Jobs, the run Job of the planner and the in-cluster browser. No workload uses the class yet.
+
+- **Node label.** The class sets `scheduling.nodeSelector` to `node-restriction.kubernetes.io/gvisor: "true"`. Admission adds this selector to each pod of the class, so such a pod runs only on a node with the label. When no node has the label, the pod stays Pending. It never runs on a node without `runsc`. The NodeRestriction admission plugin of k3s stops a kubelet from setting a label under `node-restriction.kubernetes.io/`, so only an admin sets it, and a node cannot label itself to attract the pods of the class.
+- **Node setup.** k3s finds some runtimes on a node by itself, but not `runsc`. The infra repository installs a pinned `runsc` on a node and adds the `runsc` runtime to the containerd config template of k3s. Then it sets the node label. The label comes last, so a node gets a pod of the class only after containerd has `runsc` there. The infra repository does not start a sandbox, so the first pod of the class on a node is a canary.
+- **Use.** A pod sets `runtimeClassName: gvisor`. In such a pod, `uname -r` prints `4.4.0`, the kernel version that gVisor reports, and not the kernel of the host.
+- **Seccomp.** Under `runsc`, the node does not load the seccomp profile of the pod (`RuntimeDefault`) into the sandbox, because the `runsc` option `oci-seccomp` is off. The seccomp filter of the gVisor Sentry on the host applies in its place. So the seccomp control of ADR 0018 has a different meaning in a pod of this class.
+- **Limits.** Before a workload uses the class, the measurement of `runc` against `runsc` ([#5434](https://github.com/dan-petty/devops-cli/issues/5434)) must show that the CPU and memory limits of the pod hold under `runsc`, and it must set `overhead.podFixed` of the class. Until then, the scheduler does not count the memory and CPU of the Sentry and the gofer.
+
 ## Agent sessions
 
 `k8s/agents/` defines read-only identity and boundaries for autonomous AI agent sessions running against the cluster:
@@ -1217,8 +1227,9 @@ Off the home network, `kubectl` reaches the API server through the tunnel as a T
 
 ```
 k8s/
-├── kustomization.yaml        # Root kustomize: applies namespaces, cloudflared, and the perimeters of cert-manager and cnpg-system
+├── kustomization.yaml        # Root kustomize: applies namespaces, RuntimeClass gvisor, cloudflared, and the perimeters of cert-manager and cnpg-system
 ├── namespaces.yaml           # Namespace definitions with Prune=false,Delete=false
+├── runtimeclass-gvisor.yaml  # RuntimeClass gvisor (handler runsc) for the nodes with label node-restriction.kubernetes.io/gvisor=true
 ├── agents/                   # Agent sessions: read-only ServiceAccount and view ClusterRoleBinding under restricted Pod Security
 │   ├── kustomization.yaml
 │   ├── serviceaccount.yaml   # ServiceAccount devops-agent in namespace agents with automount disabled

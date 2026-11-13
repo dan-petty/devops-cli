@@ -125,3 +125,5 @@ Four issues build the tool. Each one names this record and lists #3242 as a depe
 ## Status History
 
 The merge of the pull request that adds this record is the approval of this record. The record holds no approving person, no comment URL and no SHA: a file cannot hold the SHA of the merge that adds it. `git log --follow -- docs/adr/0018-a-sandboxed-read-only-run-tool-for-the-planner.md` names that merge commit on the default branch, and the merge commit is the record of the approval. A person asks for a change in the review of that pull request, and a merge follows a review that approves. The follow-up issues of this record are filed only after that merge, so no agent builds the tool before the approval.
+
+2026-11-13: Fact out of date: the cluster declares RuntimeClass `gvisor` for `runsc`, on the nodes with the label `node-restriction.kubernetes.io/gvisor=true` (#5431).

@@ -904,6 +904,19 @@ def test_mattermost_operator_limitrange() -> None:
     assert container_limit["default"] == {"cpu": "500m", "memory": "256Mi"}
 
 
+def test_the_gvisor_runtime_class_runs_pods_only_on_labelled_nodes() -> None:
+    """The root kustomization declares RuntimeClass gvisor for the runsc nodes (#5431)."""
+    kust = _load_yaml(K8S_DIR / "kustomization.yaml")
+    assert "runtimeclass-gvisor.yaml" in kust.get("resources", [])
+    doc = _load_yaml(K8S_DIR / "runtimeclass-gvisor.yaml")
+    assert doc.get("apiVersion") == "node.k8s.io/v1"
+    assert doc.get("kind") == "RuntimeClass"
+    assert doc["metadata"]["name"] == "gvisor"
+    assert doc.get("handler") == "runsc"
+    assert doc["scheduling"]["nodeSelector"] == {"node-restriction.kubernetes.io/gvisor": "true"}
+    assert "tolerations" not in doc["scheduling"]
+
+
 def test_mattermost_operator_run_as_user() -> None:
     """k8s/mattermost/mattermost-operator-values.yaml sets numeric runAsUser and runAsGroup (#2932)."""
     values = _load_yaml(K8S_DIR / "mattermost" / "mattermost-operator-values.yaml")
