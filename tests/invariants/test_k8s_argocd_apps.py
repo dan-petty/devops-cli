@@ -239,7 +239,7 @@ def test_every_application_in_argocd_apps_maps_to_deploy_stack_counterpart() -> 
 
     Each chart maps to a release with the same version and values file, and each path maps
     to a deploy-stack manifest list or kustomization. argocd-image-updater is the only allowed
-    exception (k8s/README.md Service Image Updates; task-1485).
+    exception (docs/CLUSTER.md, Service Image Updates; task-1485).
     """
     helm_releases_map: dict[str, StackRelease] = {
         r["name"]: r for releases in HELM_RELEASES_BY_STACK.values() for r in releases

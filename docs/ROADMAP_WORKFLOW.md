@@ -6,7 +6,7 @@ This page is the one place that names the steps of an issue's life, from the fir
 
 An issue that the roadmap tracks is an Item ([CONTEXT.md](../CONTEXT.md)). Three kinds of actor move an Item through the same eight steps:
 
-- **Service job**: a row of the roadmap Service ([k8s/README.md](../k8s/README.md), Roadmap service), or the runner Job that the Service makes.
+- **Service job**: a row of the roadmap Service ([docs/CLUSTER.md](CLUSTER.md#roadmap-service), Roadmap service), or the runner Job that the Service makes.
 - **Agentic coder**: an AI agent that works in a worktree of this repository.
 - **Person**: a human developer or the owner.
 
@@ -160,7 +160,7 @@ These are all the keys of the job record, by the job that writes them:
 
 ## The stop and retry path
 
-The log comment, the suspension of a row and the other details are in [k8s/README.md](../k8s/README.md), Roadmap service step 16, and Runner Jobs.
+The log comment, the suspension of a row and the other details are in [docs/CLUSTER.md](CLUSTER.md#roadmap-service), Roadmap service step 16, and Runner Jobs.
 
 1. A step stops, a conflict arises, a command fails, or a check fails twice. The runner Job pushes the commits that passed, except after a rebase conflict, and comments the stop on the issue.
 2. The Job sets `status/blocked` and records the step in `implement.stopped` and the class of the failure in `implement.failure`. The Status function of the Service derives Blocked from that record, so the runner and the Service name the Status in one place.
@@ -248,7 +248,7 @@ A pull request of the Service waits at G2 for an independent review with evidenc
 
 ## The manual path
 
-A person can run the work of the Service for one Item. The Item must be Staged or Planned, and nobody may hold its claim. A Blocked Item is not startable: comment `implement: retry`, and the next round of row `implement` clears the stop. The command `devops k8s run-job --template runner` makes the Job. Its options, and the rule for `--repo`, are in [k8s/README.md](../k8s/README.md), Runner Jobs. The same stop and retry path applies.
+A person can run the work of the Service for one Item. The Item must be Staged or Planned, and nobody may hold its claim. A Blocked Item is not startable: comment `implement: retry`, and the next round of row `implement` clears the stop. The command `devops k8s run-job --template runner` makes the Job. Its options, and the rule for `--repo`, are in [docs/CLUSTER.md](CLUSTER.md#runner-jobs), Runner Jobs. The same stop and retry path applies.
 
 ## The diagram
 
@@ -411,7 +411,7 @@ The runner Job runs the checks that a person runs in the devcontainer, from the 
 
 Tests hold the drift: each local hook runs a tool that the runner image holds, each scoped row is a row of `devops ci`, and the branches of the Job pass the branch-name hook.
 
-A change that removes, renames or tightens a setting that `k8s/devops/configmap.example.yaml` or the live ConfigMap names says in its OpenSpec proposal and in a comment on its pull request how the live ConfigMap changes first ([Go-live check](../k8s/README.md#go-live-check)).
+A change that removes, renames or tightens a setting that `k8s/devops/configmap.example.yaml` or the live ConfigMap names says in its OpenSpec proposal and in a comment on its pull request how the live ConfigMap changes first ([Go-live check](CLUSTER.md#go-live-check)).
 
 ## Measure the implement job
 

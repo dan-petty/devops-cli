@@ -33,11 +33,11 @@ devops-cli is a Python command-line tool, `devops`, that automates workstation, 
 | write code: errors, subprocesses, HTTP, models, prompts, constants | [ARCHITECTURE.md](ARCHITECTURE.md), [CONTRIBUTING.md](CONTRIBUTING.md) |
 | style an artifact | [docs/DESIGN.md](docs/DESIGN.md) |
 | handle secrets, egress, private data, sandboxes or telemetry | [SECURITY.md](SECURITY.md) |
-| take an issue to release, or a pull request to merge | [docs/ROADMAP_WORKFLOW.md](docs/ROADMAP_WORKFLOW.md), [docs/SDLC.md](docs/SDLC.md) Phase 6 |
+| take an issue to release, or a pull request to merge | [roadmap](docs/ROADMAP_WORKFLOW.md), [docs/SDLC.md](docs/SDLC.md) Phase 6 |
 | plan and record each item as an OpenSpec change | [openspec/config.yaml](openspec/config.yaml) |
 | file an issue | `devops roadmap intake`, in the shape of [bug_report.yml](.github/ISSUE_TEMPLATE/bug_report.yml) or [feature_request.yml](.github/ISSUE_TEMPLATE/feature_request.yml) |
 | run a routine task or audit | [docs/ROUTINE_TASKS.md](docs/ROUTINE_TASKS.md) |
 | use a project term, or need the reason for a decision | [CONTEXT.md](CONTEXT.md), [docs/adr/](docs/adr/) |
 | run a review, or work on verdicts | [docs/SELF_IMPROVEMENT.md](docs/SELF_IMPROVEMENT.md) |
-| change a manifest, the cluster or OpenTofu | [k8s/README.md](k8s/README.md), [tf/README.md](tf/README.md) |
+| change a manifest, the cluster or OpenTofu | [k8s](k8s/README.md), [cluster](docs/CLUSTER.md), [tf](tf/README.md) |
 | learn a subsystem, library or tool | [knowledge base](src/devops_cli/ai/knowledge_base/README.md) |

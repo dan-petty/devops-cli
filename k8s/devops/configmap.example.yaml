@@ -124,7 +124,7 @@ data:
         app_id: 1
         installation_id: 1
         slug: devops-cli-service
-    # The stage job of the Service (k8s/README.md, Roadmap service): it stages the Ready items
+    # The stage job of the Service (docs/CLUSTER.md, Roadmap service): it stages the Ready items
     # that this filter names, at most `limit` in a round, in task groups that each fit
     # `step_tokens`. At `planned_limit` open Planned items it plans only items with the priority
     # P0-Critical or P1-High. A repository's ConfigMap changes the filter; an entry is

@@ -40,7 +40,7 @@ tests:
               severity: warning
             exp_annotations:
               summary: "The roadmap Service rejected 25 webhook deliveries in the last 15 minutes"
-              description: "The webhook route of the roadmap Service rejected more than 20 deliveries in 15 minutes: a hook whose secret is wrong, or forged deliveries. Check the last response of each hook (k8s/README.md, Roadmap service)."
+              description: "The webhook route of the roadmap Service rejected more than 20 deliveries in 15 minutes: a hook whose secret is wrong, or forged deliveries. Check the last response of each hook (docs/CLUSTER.md, Roadmap service)."
 
   - name: A few rejected deliveries of an older label set stay quiet; a burst of them fires
     interval: 1m
@@ -64,7 +64,7 @@ tests:
               severity: warning
             exp_annotations:
               summary: "The roadmap Service rejected 45 webhook deliveries in the last 15 minutes"
-              description: "The webhook route of the roadmap Service rejected more than 20 deliveries in 15 minutes: a hook whose secret is wrong, or forged deliveries. Check the last response of each hook (k8s/README.md, Roadmap service)."
+              description: "The webhook route of the roadmap Service rejected more than 20 deliveries in 15 minutes: a hook whose secret is wrong, or forged deliveries. Check the last response of each hook (docs/CLUSTER.md, Roadmap service)."
 
   - name: A label set that counted before is quiet for 40 minutes, then one more rejected delivery stays quiet
     interval: 1m
@@ -112,7 +112,7 @@ tests:
               repo: example/app
             exp_annotations:
               summary: "GitHub could not deliver 6 webhook deliveries of example/app in 15 minutes"
-              description: "More than 5 deliveries of the hooks of example/app got no 2xx answer in 15 minutes, as GitHub records them. GitHub does not send a failed delivery again. A 403 with the header Server: cloudflare comes from the Cloudflare edge, which RoadmapServiceWebhooksRejected cannot see. Read the failed deliveries of each hook (k8s/README.md, Roadmap service)."
+              description: "More than 5 deliveries of the hooks of example/app got no 2xx answer in 15 minutes, as GitHub records them. GitHub does not send a failed delivery again. A 403 with the header Server: cloudflare comes from the Cloudflare edge, which RoadmapServiceWebhooksRejected cannot see. Read the failed deliveries of each hook (docs/CLUSTER.md, Roadmap service)."
 
   - name: A read that sets the code to 0 ends the alert
     interval: 1m
@@ -129,7 +129,7 @@ tests:
               repo: example/app
             exp_annotations:
               summary: "GitHub could not deliver 8 webhook deliveries of example/app in 15 minutes"
-              description: "More than 5 deliveries of the hooks of example/app got no 2xx answer in 15 minutes, as GitHub records them. GitHub does not send a failed delivery again. A 403 with the header Server: cloudflare comes from the Cloudflare edge, which RoadmapServiceWebhooksRejected cannot see. Read the failed deliveries of each hook (k8s/README.md, Roadmap service)."
+              description: "More than 5 deliveries of the hooks of example/app got no 2xx answer in 15 minutes, as GitHub records them. GitHub does not send a failed delivery again. A 403 with the header Server: cloudflare comes from the Cloudflare edge, which RoadmapServiceWebhooksRejected cannot see. Read the failed deliveries of each hook (docs/CLUSTER.md, Roadmap service)."
       - eval_time: 15m
         alertname: RoadmapServiceWebhookDeliveriesFailed
         exp_alerts: []

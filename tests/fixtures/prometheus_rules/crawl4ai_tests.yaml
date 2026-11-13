@@ -33,7 +33,7 @@ tests:
               severity: warning
             exp_annotations:
               summary: "Crawl4AI failed 66.67% of the page fetches of the roadmap Service in the last hour"
-              description: "At least 5 page fetches of the roadmap Service through Crawl4AI failed in the last hour, and more than half of its fetches failed. The label `result` of devops_cli_crawl4ai_fetches_total tells why: 401 for a wrong token, 429 at the rate limit of the service, 504 when a page took too long, error when the service gave no answer or no page text. Read the warnings with kubectl -n devops logs deployment/roadmap-service, and the service with kubectl -n devops logs deployment/crawl4ai (k8s/README.md, Crawl4AI)."
+              description: "At least 5 page fetches of the roadmap Service through Crawl4AI failed in the last hour, and more than half of its fetches failed. The label `result` of devops_cli_crawl4ai_fetches_total tells why: 401 for a wrong token, 429 at the rate limit of the service, 504 when a page took too long, error when the service gave no answer or no page text. Read the warnings with kubectl -n devops logs deployment/roadmap-service, and the service with kubectl -n devops logs deployment/crawl4ai (docs/CLUSTER.md, Crawl4AI)."
 
   - name: Failures that start in the hour count from their first value
     interval: 1m
@@ -51,7 +51,7 @@ tests:
               severity: warning
             exp_annotations:
               summary: "Crawl4AI failed 80% of the page fetches of the roadmap Service in the last hour"
-              description: "At least 5 page fetches of the roadmap Service through Crawl4AI failed in the last hour, and more than half of its fetches failed. The label `result` of devops_cli_crawl4ai_fetches_total tells why: 401 for a wrong token, 429 at the rate limit of the service, 504 when a page took too long, error when the service gave no answer or no page text. Read the warnings with kubectl -n devops logs deployment/roadmap-service, and the service with kubectl -n devops logs deployment/crawl4ai (k8s/README.md, Crawl4AI)."
+              description: "At least 5 page fetches of the roadmap Service through Crawl4AI failed in the last hour, and more than half of its fetches failed. The label `result` of devops_cli_crawl4ai_fetches_total tells why: 401 for a wrong token, 429 at the rate limit of the service, 504 when a page took too long, error when the service gave no answer or no page text. Read the warnings with kubectl -n devops logs deployment/roadmap-service, and the service with kubectl -n devops logs deployment/crawl4ai (docs/CLUSTER.md, Crawl4AI)."
       # The hour after the last sample holds no new fetch, so the alert ends.
       - eval_time: 155m
         alertname: Crawl4AIFetchesFailing
@@ -114,7 +114,7 @@ tests:
               deployment: crawl4ai
             exp_annotations:
               summary: "Crawl4AI has no available replica"
-              description: "Deployment devops/crawl4ai wants a replica and has had none available for 15 minutes, so the roadmap Service cannot read page text. Read the events with kubectl -n devops describe deployment/crawl4ai, and the log with kubectl -n devops logs deployment/crawl4ai (k8s/README.md, Crawl4AI)."
+              description: "Deployment devops/crawl4ai wants a replica and has had none available for 15 minutes, so the roadmap Service cannot read page text. Read the events with kubectl -n devops describe deployment/crawl4ai, and the log with kubectl -n devops logs deployment/crawl4ai (docs/CLUSTER.md, Crawl4AI)."
 
   - name: A replica that came back, a Deployment set to 0 replicas, and another Deployment stay quiet
     interval: 1m

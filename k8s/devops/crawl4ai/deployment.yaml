@@ -3,7 +3,7 @@
 # root, the six tmpfs paths as volumes, 1 Gi of shared memory, and 4 Gi of memory. The pod reaches
 # only DNS and public web pages (networkpolicy.yaml), and only the roadmap Service calls it.
 # The image is a pin: Renovate bumps the tag and the digest together. Read the advisories of the
-# project before a bump (k8s/README.md, "Crawl4AI").
+# project before a bump (docs/CLUSTER.md, "Crawl4AI").
 apiVersion: apps/v1
 kind: Deployment
 metadata:

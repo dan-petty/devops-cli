@@ -40,7 +40,7 @@ serverFiles:
               severity: critical
             annotations:
               summary: "GitHub refused the identity {{ $labels.identity }} of the roadmap Service"
-              description: "The roadmap Service stopped all rounds and starts no round, also after a restart, until a person removes its halt record. Its health check stays healthy. Repair the GitHub App, remove the halt record, then restart the Service (k8s/README.md, Roadmap service)."
+              description: "The roadmap Service stopped all rounds and starts no round, also after a restart, until a person removes its halt record. Its health check stays healthy. Repair the GitHub App, remove the halt record, then restart the Service (docs/CLUSTER.md, Roadmap service)."
           # Each sample is a throttle, so one sample in 15 minutes fires. increase() needs two
           # samples in its window and does not see one throttle alone.
           - alert: RoadmapServiceGitHubThrottled
@@ -50,7 +50,7 @@ serverFiles:
               severity: critical
             annotations:
               summary: "GitHub throttled {{ $labels.resource }} requests of the roadmap Service"
-              description: "In the last 15 minutes GitHub refused a {{ $labels.resource }} request of the roadmap Service with a rate limit, or gave a 5xx for a read. The Service waited and sent the request again (k8s/README.md, Roadmap service)."
+              description: "In the last 15 minutes GitHub refused a {{ $labels.resource }} request of the roadmap Service with a rate limit, or gave a 5xx for a read. The Service waited and sent the request again (docs/CLUSTER.md, Roadmap service)."
           # When all jobs of one row of a repository fail in one hour, alert after 30 minutes. A
           # round counts each of its rows, so a join on the lane hides a row that fails while
           # another row of its lane succeeds (#3495).
@@ -64,7 +64,7 @@ serverFiles:
               severity: warning
             annotations:
               summary: "All {{ $labels.row }} jobs of {{ $labels.repo }} failed in the last hour, on the {{ $labels.lane }} lane"
-              description: '{namespace="devops"} | json | repo="{{ $labels.repo }}" | lane="{{ $labels.lane }}" (k8s/README.md, Roadmap service)'
+              description: '{namespace="devops"} | json | repo="{{ $labels.repo }}" | lane="{{ $labels.lane }}" (docs/CLUSTER.md, Roadmap service)'
           # Each poll starts a round on every lane, every 5 minutes by default. A worker sets the
           # job start of its lane when it starts, so a lane of a new pod that starts no job also
           # fires (#2505). A replica that is not available starts no job, and
@@ -78,7 +78,7 @@ serverFiles:
               severity: warning
             annotations:
               summary: "No {{ $labels.lane }} job of {{ $labels.repo }} started for {{ $value | humanizeDuration }}"
-              description: "The roadmap Service has an available replica, but no {{ $labels.lane }} job of {{ $labels.repo }} started for over 2 hours (k8s/README.md, Roadmap service)."
+              description: "The roadmap Service has an available replica, but no {{ $labels.lane }} job of {{ $labels.repo }} started for over 2 hours (docs/CLUSTER.md, Roadmap service)."
           - alert: RoadmapServiceRestarted
             expr: max by (namespace, pod, container) (increase(kube_pod_container_status_restarts_total{namespace="devops", pod=~"roadmap-service-.+", container="service"}[1h])) > 0
             for: 0m
@@ -86,7 +86,7 @@ serverFiles:
               severity: warning
             annotations:
               summary: "The roadmap Service container in {{ $labels.pod }} restarted"
-              description: 'The restart count of container {{ $labels.container }} of pod {{ $labels.namespace }}/{{ $labels.pod }} increased by {{ printf "%.0f" $value }} in the last hour (k8s/README.md, Roadmap service).'
+              description: 'The restart count of container {{ $labels.container }} of pod {{ $labels.namespace }}/{{ $labels.pod }} increased by {{ printf "%.0f" $value }} in the last hour (docs/CLUSTER.md, Roadmap service).'
           # The kernel kills the container at its memory limit, and RoadmapServiceRestarted fires
           # only after that. The working set grew 100 to 150 MiB each hour before the kill (#4116).
           # The two series come from the kubelet and kube-state-metrics, so max by drops their
@@ -101,7 +101,7 @@ serverFiles:
               severity: warning
             annotations:
               summary: 'The roadmap Service container in {{ $labels.pod }} uses {{ $value | humanizePercentage }} of its memory limit'
-              description: 'The working set of container service of pod {{ $labels.namespace }}/{{ $labels.pod }} has been above 85% of its memory limit for 10 minutes, and the kernel kills the container at 100% (k8s/README.md, Roadmap service).'
+              description: 'The working set of container service of pod {{ $labels.namespace }}/{{ $labels.pod }} has been above 85% of its memory limit for 10 minutes, and the kernel kills the container at 100% (docs/CLUSTER.md, Roadmap service).'
           # The Recreate strategy stops the old pod before it starts the new one, so a rollout
           # has no available replica for a few minutes.
           - alert: RoadmapServiceUnavailable
@@ -111,7 +111,7 @@ serverFiles:
               severity: warning
             annotations:
               summary: "The roadmap Service has an unavailable replica"
-              description: "Deployment {{ $labels.namespace }}/{{ $labels.deployment }} has had an unavailable replica for 10 minutes (k8s/README.md, Roadmap service)."
+              description: "Deployment {{ $labels.namespace }}/{{ $labels.deployment }} has had an unavailable replica for 10 minutes (docs/CLUSTER.md, Roadmap service)."
           # 90% of the hourly budget that the Service reports (service.github_requests_per_hour,
           # 500 by default). The Service holds its requests at the budget: a request waits when
           # the hour has no room. The request counter comes over OTLP and the limit from the
@@ -131,7 +131,7 @@ serverFiles:
               severity: warning
             annotations:
               summary: 'The roadmap Service sent {{ printf "%.0f" $value }} GitHub requests in the last hour'
-              description: "The roadmap Service sent more than 90% of its hourly GitHub request budget in one hour (k8s/README.md, Roadmap service)."
+              description: "The roadmap Service sent more than 90% of its hourly GitHub request budget in one hour (docs/CLUSTER.md, Roadmap service)."
           # A request that the cache answered does not go to a model.
           - alert: RoadmapServiceModelRequestsHigh
             expr: >-
@@ -145,7 +145,7 @@ serverFiles:
               severity: warning
             annotations:
               summary: 'The roadmap Service sent {{ printf "%.0f" $value }} model requests in the last hour'
-              description: "The roadmap Service sent more than 352 model requests in one hour (k8s/README.md, Roadmap service)."
+              description: "The roadmap Service sent more than 352 model requests in one hour (docs/CLUSTER.md, Roadmap service)."
           # The Service keeps three records on its volume: the budget, the halt and the failure ledger.
           # A write error is one log line, and the Service goes on with memory only (#2474). The gauge is
           # 1 after a write error and 0 after the next good write, by record (#4048). The rule waits 15
@@ -157,7 +157,7 @@ serverFiles:
               severity: warning
             annotations:
               summary: "The roadmap Service could not write its {{ $labels.record }} record"
-              description: "The roadmap Service could not write its {{ $labels.record }} record to its volume, so a restart loses what the record holds. The Service goes on with memory only. Check the free space and the permissions of the volume, and the log line that starts with Could not write (k8s/README.md, Roadmap service)."
+              description: "The roadmap Service could not write its {{ $labels.record }} record to its volume, so a restart loses what the record holds. The Service goes on with memory only. Check the free space and the permissions of the volume, and the log line that starts with Could not write (docs/CLUSTER.md, Roadmap service)."
           # A row that failed its limit of rounds in a row waits for its retry time or for new input
           # (#4065). The gauge is 1 while it waits, by repo, row and class, and the series of an old
           # class is set to 0. The rule waits 3 hours: a wait of 1 hour that the first probe round
@@ -169,7 +169,7 @@ serverFiles:
               severity: warning
             annotations:
               summary: "The row {{ $labels.row }} of {{ $labels.repo }} stays suspended after a {{ $labels.class }} failure"
-              description: "The roadmap Service did not run the row {{ $labels.row }} of {{ $labels.repo }} for 3 hours, because it failed its limit of rounds in a row (setting service.max_failed_rounds) with the failure class {{ $labels.class }}. The row runs one probe round when its retry time comes, or at once when its input changes. The gauge devops_cli_service_job_retry_after_seconds shows the seconds before the next probe round (k8s/README.md, Roadmap service)."
+              description: "The roadmap Service did not run the row {{ $labels.row }} of {{ $labels.repo }} for 3 hours, because it failed its limit of rounds in a row (setting service.max_failed_rounds) with the failure class {{ $labels.class }}. The row runs one probe round when its retry time comes, or at once when its input changes. The gauge devops_cli_service_job_retry_after_seconds shows the seconds before the next probe round (docs/CLUSTER.md, Roadmap service)."
       # The webhook route of the roadmap Service (#2476), in a group apart from roadmap-service.
       # The route counts each delivery that it refuses under outcome="rejected": unsigned, signed
       # with no secret of a managed repository, too large, not JSON, or without its event name or
@@ -186,7 +186,7 @@ serverFiles:
               severity: warning
             annotations:
               summary: 'The roadmap Service rejected {{ printf "%.0f" $value }} webhook deliveries in the last 15 minutes'
-              description: "The webhook route of the roadmap Service rejected more than 20 deliveries in 15 minutes: a hook whose secret is wrong, or forged deliveries. Check the last response of each hook (k8s/README.md, Roadmap service)."
+              description: "The webhook route of the roadmap Service rejected more than 20 deliveries in 15 minutes: a hook whose secret is wrong, or forged deliveries. Check the last response of each hook (docs/CLUSTER.md, Roadmap service)."
           # GitHub's record of the deliveries of the hooks (#5017). A refusal at the Cloudflare
           # edge answers before Traefik and the route, so the counter above cannot see it. The
           # metrics row of the Service sets the gauge, by repo and code, to the deliveries of the
@@ -199,7 +199,7 @@ serverFiles:
               severity: warning
             annotations:
               summary: 'GitHub could not deliver {{ printf "%.0f" $value }} webhook deliveries of {{ $labels.repo }} in 15 minutes'
-              description: "More than 5 deliveries of the hooks of {{ $labels.repo }} got no 2xx answer in 15 minutes, as GitHub records them. GitHub does not send a failed delivery again. A 403 with the header Server: cloudflare comes from the Cloudflare edge, which RoadmapServiceWebhooksRejected cannot see. Read the failed deliveries of each hook (k8s/README.md, Roadmap service)."
+              description: "More than 5 deliveries of the hooks of {{ $labels.repo }} got no 2xx answer in 15 minutes, as GitHub records them. GitHub does not send a failed delivery again. A 403 with the header Server: cloudflare comes from the Cloudflare edge, which RoadmapServiceWebhooksRejected cannot see. Read the failed deliveries of each hook (docs/CLUSTER.md, Roadmap service)."
       # What the roadmap Service writes, the deliveries of its own writes, and its web search
       # (#2475): a burst of comments or label writes, an echo loop with another bot or workflow,
       # and a search provider that refuses for want of credits or at its rate limit. Each count of the last hour
@@ -224,7 +224,7 @@ serverFiles:
               severity: warning
             annotations:
               summary: 'The roadmap Service sent {{ printf "%.0f" $value }} GitHub writes in the last hour'
-              description: "The roadmap Service sent more than 300 GitHub writes, such as comments, labels and issue edits, in one hour (k8s/README.md, Roadmap service)."
+              description: "The roadmap Service sent more than 300 GitHub writes, such as comments, labels and issue edits, in one hour (docs/CLUSTER.md, Roadmap service)."
           # A delivery of the App bot's own write counts as outcome self. Each write of the Service
           # can come back as one delivery, so many of them can be another bot or workflow that
           # answers each write of the Service.
@@ -235,7 +235,7 @@ serverFiles:
               severity: warning
             annotations:
               summary: 'The roadmap Service got {{ printf "%.0f" $value }} deliveries of its own writes in the last hour'
-              description: "The roadmap Service got more than 150 webhook deliveries of its own writes in one hour (k8s/README.md, Roadmap service)."
+              description: "The roadmap Service got more than 150 webhook deliveries of its own writes in one hour (docs/CLUSTER.md, Roadmap service)."
           # A provider answers 402 when its account has no credits and 429 at its rate limit. The
           # search goes on to the next provider, so the alert warns before the chain is spent.
           - alert: RoadmapServiceWebSearchRefused
@@ -250,7 +250,7 @@ serverFiles:
               severity: warning
             annotations:
               summary: 'The provider {{ $labels.backend }} refused web searches of the roadmap Service with HTTP {{ $labels.result }} in the last hour'
-              description: "The provider {{ $labels.backend }} refused a web search of the roadmap Service with HTTP {{ $labels.result }}: 402 when the account has no credits, 429 at its rate limit. The search goes on to the next provider (k8s/README.md, Roadmap service)."
+              description: "The provider {{ $labels.backend }} refused a web search of the roadmap Service with HTTP {{ $labels.result }}: 402 when the account has no credits, 429 at its rate limit. The search goes on to the next provider (docs/CLUSTER.md, Roadmap service)."
           # The alternatives check ran no search in 3 days while open items have no check (#2950).
           # The counter has the labels backend and result and the gauge has the label repo, so each side is
           # summed to one label set before `and on ()` joins them. The counter holds the searches
@@ -272,7 +272,7 @@ serverFiles:
               severity: warning
             annotations:
               summary: 'The alternatives check of {{ $labels.repo }} ran no web search in 3 days, and {{ printf "%.0f" $value }} open items have no check'
-              description: "The roadmap Service made no web search for 3 days, while {{ $labels.repo }} has open items with no alternatives check. A search of refine counts too. The check can be off, suspended or failing (k8s/README.md, Roadmap service)."
+              description: "The roadmap Service made no web search for 3 days, while {{ $labels.repo }} has open items with no alternatives check. A search of refine counts too. The check can be off, suspended or failing (docs/CLUSTER.md, Roadmap service)."
       # The age of the oldest roadmap item in each state (#2919). The metrics row sends the age and
       # the number of the oldest item of each pair of a state and a plan flag once in each round. So
       # a series has a sample in each round, and the rule reads its last sample of the last 30
@@ -294,7 +294,7 @@ serverFiles:
               severity: warning
             annotations:
               summary: 'Item {{ with printf "max by (repo, state, plan) (last_over_time(devops_cli_roadmap_oldest_item_number{job=\"roadmap-service\", repo=%q, state=%q, plan=%q}[30m]))" $labels.repo $labels.state $labels.plan | query }}#{{ . | first | value | printf "%.0f" }} {{ end }}of {{ $labels.repo }} has been in state {{ $labels.state }} for {{ $value | humanizeDuration }}'
-              description: "An item of the roadmap stayed in one state for more than 24 hours. Run devops roadmap inbox to see the item (k8s/README.md, Roadmap service)."
+              description: "An item of the roadmap stayed in one state for more than 24 hours. Run devops roadmap inbox to see the item (docs/CLUSTER.md, Roadmap service)."
       # The tools of the stage planner that no run called (#3240). Each plan run adds 0 to the call
       # counter for every tool of its toolset, so a tool has a series before a run calls it, and
       # the rule needs no list of tool names. The call count of 7 days sums the outcomes of a tool.
@@ -316,7 +316,7 @@ serverFiles:
               severity: warning
             annotations:
               summary: "Tool {{ $labels.tool }} of the toolset {{ $labels.toolset }} had no call in 7 days"
-              description: "No run of the row {{ $labels.row }} called the tool {{ $labels.tool }} of the toolset {{ $labels.toolset }} in 7 days, and the Service made runs of that row in that time. Read the Planner Tools row of the devops-cli Telemetry dashboard, and decide to change the tool description or to remove the tool (k8s/README.md, Roadmap service)."
+              description: "No run of the row {{ $labels.row }} called the tool {{ $labels.tool }} of the toolset {{ $labels.toolset }} in 7 days, and the Service made runs of that row in that time. Read the Planner Tools row of the devops-cli Telemetry dashboard, and decide to change the tool description or to remove the tool (docs/CLUSTER.md, Roadmap service)."
       # The Crawl4AI page-text service (#3893). The Service counts each fetch that reaches
       # Crawl4AI in devops_cli_crawl4ai_fetches_total{result} (ok, an HTTP status, or error), so
       # the alert reads that counter and not the /metrics of Crawl4AI, which needs the token. The
@@ -349,7 +349,7 @@ serverFiles:
               severity: warning
             annotations:
               summary: 'Crawl4AI failed {{ $value | humanizePercentage }} of the page fetches of the roadmap Service in the last hour'
-              description: "At least 5 page fetches of the roadmap Service through Crawl4AI failed in the last hour, and more than half of its fetches failed. The label `result` of devops_cli_crawl4ai_fetches_total tells why: 401 for a wrong token, 429 at the rate limit of the service, 504 when a page took too long, error when the service gave no answer or no page text. Read the warnings with kubectl -n devops logs deployment/roadmap-service, and the service with kubectl -n devops logs deployment/crawl4ai (k8s/README.md, Crawl4AI)."
+              description: "At least 5 page fetches of the roadmap Service through Crawl4AI failed in the last hour, and more than half of its fetches failed. The label `result` of devops_cli_crawl4ai_fetches_total tells why: 401 for a wrong token, 429 at the rate limit of the service, 504 when a page took too long, error when the service gave no answer or no page text. Read the warnings with kubectl -n devops logs deployment/roadmap-service, and the service with kubectl -n devops logs deployment/crawl4ai (docs/CLUSTER.md, Crawl4AI)."
           # A Deployment that a person set to 0 replicas wants none, so it stays quiet. A first start
           # pulls an image of 2.3 GB, which the wait of 15 minutes covers.
           - alert: Crawl4AIUnavailable
@@ -362,7 +362,7 @@ serverFiles:
               severity: warning
             annotations:
               summary: "Crawl4AI has no available replica"
-              description: "Deployment {{ $labels.namespace }}/{{ $labels.deployment }} wants a replica and has had none available for 15 minutes, so the roadmap Service cannot read page text. Read the events with kubectl -n devops describe deployment/crawl4ai, and the log with kubectl -n devops logs deployment/crawl4ai (k8s/README.md, Crawl4AI)."
+              description: "Deployment {{ $labels.namespace }}/{{ $labels.deployment }} wants a replica and has had none available for 15 minutes, so the roadmap Service cannot read page text. Read the events with kubectl -n devops describe deployment/crawl4ai, and the log with kubectl -n devops logs deployment/crawl4ai (docs/CLUSTER.md, Crawl4AI)."
       # The open findings of `devops research sweep` (#3899). The command sets one value for each
       # severity each time it runs, and runs when a person starts it, so the rule reads the last
       # value of the last 7 days. A sweep that finds no critical finding sets zero, and the rule

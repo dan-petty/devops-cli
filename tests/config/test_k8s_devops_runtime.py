@@ -225,7 +225,7 @@ def test_the_comment_above_the_analysis_slot_names_the_decision_the_cost_and_the
 
 
 def test_every_step_class_of_the_implement_ladder_has_the_one_deepseek_tier() -> None:
-    """The cluster ConfigMap has one tier for `edit` and for `repair`, and the README says that a
+    """The cluster ConfigMap has one tier for `edit` and for `repair`, and docs/CLUSTER.md says that a
     step has one tier (#4371). The template says the same, so a render does not add a tier that
     sends the prompts of a step to Anthropic. The support for more tiers stays in the code."""
     template = _doc("configmap.example.yaml")["data"]["devops-cli.yaml"]
