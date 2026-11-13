@@ -4,9 +4,9 @@
 
 Kind: behavior. Reads: `src/devops_cli/roadmap/decision_table.py`, `src/devops_cli/lang/en/messages.py`, `tests/roadmap/test_roadmap_decision_table.py`. Changes: `src/devops_cli/roadmap/decision_table.py`, `src/devops_cli/lang/en/messages.py`, `tests/roadmap/test_roadmap_decision_table.py`.
 
-- [ ] 1.1 Rewrite `test_on_is_refused_for_a_point_with_no_cuts_file_and_shadow_is_not` in `tests/roadmap/test_roadmap_decision_table.py` as `test_shadow_and_on_are_refused_for_a_point_with_no_cuts_file`: it asserts that each of the two modes raises a `ValueError` that names the point and the path
+- [x] 1.1 Rewrite `test_on_is_refused_for_a_point_with_no_cuts_file_and_shadow_is_not` in `tests/roadmap/test_roadmap_decision_table.py` as `test_shadow_and_on_are_refused_for_a_point_with_no_cuts_file`: it asserts that each of the two modes raises a `ValueError` that names the point and the path
   - Verification: `$ uv run devops ci test tests/roadmap/test_roadmap_decision_table.py` fails on the base
-- [ ] 1.2 Refuse the mode `shadow` and the mode `on` in `check_modes` when `cuts[name].is_file()` is false, and say so in its docstring. Reword `decision_point_unfitted` so that it names both modes and says that `off` is the mode that runs with no cuts file
+- [x] 1.2 Refuse the mode `shadow` and the mode `on` in `check_modes` when `cuts[name].is_file()` is false, and say so in its docstring. Reword `decision_point_unfitted` so that it names both modes and says that `off` is the mode that runs with no cuts file
   - Verification: `$ uv run devops ci test tests/roadmap/test_roadmap_decision_table.py` passes
 
 ## 2. Name the shadow rule in the setting description

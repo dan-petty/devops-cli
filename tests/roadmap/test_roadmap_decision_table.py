@@ -23,12 +23,17 @@ def test_a_key_that_names_no_point_is_refused_and_the_points_are_named(tmp_path:
         check_modes({"demo.typo": "shadow"}, {"demo.point": tmp_path / "cuts.json"})
 
 
-def test_on_is_refused_for_a_point_with_no_cuts_file_and_shadow_is_not(tmp_path: Path) -> None:
+@pytest.mark.parametrize("mode", ("on", "shadow"))
+def test_on_is_refused_for_a_point_with_no_cuts_file_and_shadow_is_not(
+    tmp_path: Path, mode: str
+) -> None:
+    """Both fitted modes need a cuts file (#5272). The name records the rule of the base commit,
+    where `shadow` needed none, and the case pins the rule of the change: a point with no cuts file
+    takes neither mode, and only `off` runs without one."""
     cuts = {"stage.unfitted": tmp_path / "not_fitted.json"}
 
     with pytest.raises(ValueError, match=r"stage\.unfitted.*not_fitted\.json"):
-        check_modes({"stage.unfitted": "on"}, cuts)
-    check_modes({"stage.unfitted": "shadow"}, cuts)
+        check_modes({"stage.unfitted": mode}, cuts)
 
 
 def test_each_point_of_the_table_has_its_cuts_file_so_it_takes_on() -> None:
