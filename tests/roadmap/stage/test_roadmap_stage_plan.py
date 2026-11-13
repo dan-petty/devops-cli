@@ -706,13 +706,14 @@ def test_a_created_file_adds_32_tokens_for_each_estimated_line(stage_repo: Stage
 
 def _half(heavy: StageGroup, title: str) -> StageGroup:
     """One group of a split: it reads no file, and its test and task are its own, as the content
-    gate of a split requires (#4040)."""
+    gate of a split requires (#4040). Its task names the file that it changes, so the step packs
+    it (#4725)."""
     return heavy.model_copy(
         update={
             "title": title,
             **NO_FILES,
             "test": f"Write `test_{title.lower().replace(' ', '_')}` in `tests/test_sample.py`",
-            "implementation": f"Keep the last comment for the step {title}",
+            "implementation": f"Keep the last comment in `src/devops_cli/sample.py` for the step {title}",
         }
     )
 
@@ -2120,9 +2121,11 @@ NO_SPEC_PROBLEM = (
 def _changed(title: str, *paths: str) -> StageGroup:
     """A group that changes only `paths`: a behavior group when one is source code, else an other
     group that a command proves. Each group states its own work, as a plan states the work of a
-    task once (#3456)."""
+    task once (#3456). A task names each test file that the group changes, so the step packs it
+    (#4725)."""
+    named = ", ".join(f"`{path}`" for path in paths)
     implementation = (
-        f"Update `test_sample` for the {title.lower()} change"
+        f"Update `test_sample` in {named} for the {title.lower()} change"
         if all(path.startswith("tests/") for path in paths)
         else f"Keep the {title.lower()} comment in `src/devops_cli/sample.py`"
     )

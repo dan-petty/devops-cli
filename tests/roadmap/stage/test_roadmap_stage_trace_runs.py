@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from devops_cli.roadmap.agent_run import RunTrace, ToolCallRecord
 from devops_cli.roadmap.stage.stage import StageTarget, _Planner
@@ -16,6 +16,9 @@ from devops_cli.roadmap.stage.stage_specs import BaseSpec
 from devops_cli.roadmap.stage.stage_toolbox import ToolboxClient
 from devops_cli.roadmap.stores.store import Item
 from tests.support.builders import make_stage_proposal
+
+if TYPE_CHECKING:
+    from tests.support.roadmap_stage import StageRepo
 
 # The job rows of a plan run and a review run, as the metrics of the stage job name them.
 PLAN_ROW = "stage"
@@ -44,11 +47,13 @@ class _ScriptedToolbox(ToolboxClient):
         return proposal
 
 
-def _planner(client: ToolboxClient) -> _Planner:
+def _planner(client: ToolboxClient, source: Path) -> _Planner:
+    """A planner on the checkout `source`, which holds the file `src/devops_cli/sample.py` of its
+    tree: the plan check measures the groups on it (#4725)."""
     specs = {"comment-thread": BaseSpec(purpose="Defines thread comments.", requirements=())}
     return _Planner(
         client=client,
-        source=Path("."),
+        source=source,
         sha="",
         specs=specs,
         tree=StagedTree(["src/devops_cli/sample.py", PATH]),
@@ -75,7 +80,11 @@ def _plan(*, security: str) -> StageProposal:
     group = (
         make_stage_proposal()
         .groups[0]
-        .model_copy(update={"implementation": "Store the credential in the keyring"})
+        .model_copy(
+            update={
+                "implementation": "Store the credential in the keyring from `src/devops_cli/sample.py`"
+            }
+        )
     )
     return make_stage_proposal(
         groups=[group],
@@ -84,7 +93,7 @@ def _plan(*, security: str) -> StageProposal:
     )
 
 
-def test_a_claim_of_the_first_run_holds_after_the_return() -> None:
+def test_a_claim_of_the_first_run_holds_after_the_return(stage_repo: StageRepo) -> None:
     # The first run read the path and its reply was refused for the missing security text. The
     # second run, which makes the corrected reply, reads nothing (#4257).
     client = _ScriptedToolbox(
@@ -92,27 +101,27 @@ def test_a_claim_of_the_first_run_holds_after_the_return() -> None:
     )
     target, request = _target_and_request()
 
-    change = _planner(client)._gated(target, request)
+    change = _planner(client, stage_repo.clone)._gated(target, request)
 
     assert change.proposal.security == SECURITY
 
 
-def test_the_facts_hold_the_calls_of_every_planner_run() -> None:
+def test_the_facts_hold_the_calls_of_every_planner_run(stage_repo: StageRepo) -> None:
     client = _ScriptedToolbox([])
     client.traces = [_read(PATH), RunTrace(row=PLAN_ROW)]
 
-    facts = _planner(client)._trace_facts()
+    facts = _planner(client, stage_repo.clone)._trace_facts()
 
     assert facts is not None
     assert facts.paths == {PATH}
     assert facts.tools == {"read_file"}
 
 
-def test_a_read_of_the_review_supports_no_claim_of_the_planner() -> None:
+def test_a_read_of_the_review_supports_no_claim_of_the_planner(stage_repo: StageRepo) -> None:
     client = _ScriptedToolbox([])
     client.traces = [RunTrace(row=PLAN_ROW), _read(PATH, row=REVIEW_ROW)]
 
-    facts = _planner(client)._trace_facts()
+    facts = _planner(client, stage_repo.clone)._trace_facts()
 
     assert facts is not None
     assert facts.paths == frozenset()

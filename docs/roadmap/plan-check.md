@@ -17,9 +17,10 @@ issue that the body plans, for its acceptance criteria and for the text of the i
 measure counts. The command takes the body of the issue with no record block of the jobs, as the
 stage job reads it. It builds no model client.
 
-To measure the groups, the command makes a detached worktree of the head commit in a temporary
-folder and removes it when the measure ends. The files that the tasks name are the files of the head
-commit, whatever the working tree of the checkout holds.
+The command makes a detached worktree of the head commit in a temporary folder and removes it when
+the check ends. It reads the change folder from that worktree, with the end of each file as the
+stage job wrote it, and it measures the groups on it. The files that the tasks name are the files of
+the head commit, whatever the working tree of the checkout holds.
 
 ## What it checks
 
@@ -128,6 +129,18 @@ request, no recorded search and no plan of another open item, and it measures no
 needs one of these has no hits in `plan-recheck`. The rule of a changed manifest needs a search, and
 the command runs it at the ref that it judges, so a manifest plan gets the same refusal there. [The
 plan-recheck page](plan-recheck.md) lists the rest.
+
+## The same rules before the push
+
+The stage job runs the rules of this command that need no pull request before it pushes a plan
+(#4725): the title, the body, the read, the stage gates and the size of each group.
+`staged_problems` in `src/devops_cli/roadmap/plan_check.py` takes the change folder in memory
+(`PlanFolder`) with the checkout of the staged commit, and the command calls the same functions on
+the worktree of the head. A plan that these rules refuse goes back to the model as a gate return,
+with the line that this command prints for each problem. So the job pushes no plan that `Plan
+Check` refuses for these rules. Three rules need the pull request and run only here: the check
+`Semantic PR title`, a base spec that moved after the plan commit, and an open issue that the plan
+depends on. [The stage job page](stage.md) tells how the returns work.
 
 ## Where the rules are
 

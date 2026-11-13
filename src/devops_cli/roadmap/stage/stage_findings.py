@@ -7,7 +7,7 @@ template, and each field matches any text. When two templates match, the templat
 literal text is the code. A template with less than `_LEAST_LITERAL` characters of literal text,
 such as `{reference}`, matches almost any text, so it gives no code. A text that no template
 matches has the code `uncoded`. A refusal that no gate of `check_gates` makes has the code of its
-check, which is also its gate: `title`, `body` or `validate`.
+check, which is also its gate: `title`, `body`, `validate` or `plan-check` (#4725).
 
 `return_counts` compares the findings of a refused reply with the findings of the next reply. A
 finding stays (it is stuck) when the next reply has a finding with the same gate and the same
@@ -52,6 +52,8 @@ UNCODED: Final[str] = "uncoded"
 TITLE_GATE: Final[str] = "title"
 BODY_GATE: Final[str] = "body"
 VALIDATE_GATE: Final[str] = "validate"
+# The rules of `devops roadmap plan-check` that the job runs before the push (#4725).
+PLAN_CHECK_GATE: Final[str] = "plan-check"
 # A template needs this many characters of literal text to give a code.
 _LEAST_LITERAL: Final[int] = 12
 _TEMPLATE_PREFIX: Final[str] = "stage_"
@@ -364,6 +366,7 @@ def gate_extension(
 __all__ = [
     "BODY_GATE",
     "CLASSES_FILE",
+    "PLAN_CHECK_GATE",
     "TITLE_GATE",
     "UNCODED",
     "VALIDATE_GATE",

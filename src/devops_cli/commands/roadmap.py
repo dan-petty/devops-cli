@@ -873,12 +873,7 @@ def plan_check_cmd(
         write_stdout(json.dumps([problem.as_dict() for problem in result.problems]) + "\n")
     else:
         for problem in result.problems:
-            write_stdout(
-                MESSAGES.roadmap.plan_check_line.format(
-                    path=problem.path, rule=problem.rule, message=problem.message
-                )
-                + "\n"
-            )
+            write_stdout(problem.line + "\n")
     if not result.ok:
         raise typer.Exit(1)
 

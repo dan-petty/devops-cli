@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
@@ -25,6 +25,9 @@ from devops_cli.roadmap.stage.stage_specs import BaseSpec
 from devops_cli.roadmap.stage.stage_toolbox import ToolboxClient
 from devops_cli.roadmap.stores.store import Item
 from tests.support.builders import make_stage_proposal
+
+if TYPE_CHECKING:
+    from tests.support.roadmap_stage import StageRepo
 
 PLAN_ROW = "stage"
 REPO = "example/repo"
@@ -60,11 +63,13 @@ class _StubbedPlanner(_Planner):
         return _request()
 
 
-def _planner(client: ToolboxClient, *, model: str = "model-a") -> _Planner:
+def _planner(client: ToolboxClient, source: Path, *, model: str = "model-a") -> _Planner:
+    """A planner on the checkout `source`, which holds the file `src/devops_cli/sample.py` of its
+    tree: the plan check measures the groups on it (#4725)."""
     specs = {"comment-thread": BaseSpec(purpose="Defines thread comments.", requirements=())}
     return _StubbedPlanner(
         client=client,
-        source=Path("."),
+        source=source,
         sha="",
         specs=specs,
         tree=StagedTree(["src/devops_cli/sample.py"]),
@@ -104,20 +109,22 @@ def _file() -> Path:
     return plan_record_path(REPO, 1)
 
 
-def _kept_by_a_run_that_called_read_issue() -> Any:
+def _kept_by_a_run_that_called_read_issue(source: Path) -> Any:
     """Run a planner whose one plan run calls `read_issue` and whose plan cites it: the file it
     keeps is the one under test."""
     run = RunTrace(tool_calls=[_call("read_issue", number=7)], row=PLAN_ROW)
     client = _ScriptedToolbox([(_plan(), run)])
-    planner = _planner(client)
+    planner = _planner(client, source)
 
     planner.plan(_target())
 
     return _file()
 
 
-def test_a_plan_kept_after_a_run_that_called_a_tool_holds_the_tool_in_its_facts() -> None:
-    path = _kept_by_a_run_that_called_read_issue()
+def test_a_plan_kept_after_a_run_that_called_a_tool_holds_the_tool_in_its_facts(
+    stage_repo: StageRepo,
+) -> None:
+    path = _kept_by_a_run_that_called_read_issue(stage_repo.clone)
 
     data = json.loads(path.read_text(encoding="utf-8"))
 
@@ -135,11 +142,13 @@ def _write_record(proposal: StageProposal, facts: dict[str, list[str]] | None) -
     _file().write_text(json.dumps(data), encoding="utf-8")
 
 
-def test_a_revision_of_a_kept_plan_keeps_the_claims_of_the_run_that_made_it() -> None:
+def test_a_revision_of_a_kept_plan_keeps_the_claims_of_the_run_that_made_it(
+    stage_repo: StageRepo,
+) -> None:
     # In a new process the commit has moved: the kept plan lists a file that the tree lacks, the
     # gates refuse it, and the revision of the planner calls no tool.
     _write_record(_plan(unknown_file=True), {"tools": ["read_issue"], "paths": []})
-    fresh = _planner(_ScriptedToolbox([(_plan(), RunTrace(row=PLAN_ROW))]))
+    fresh = _planner(_ScriptedToolbox([(_plan(), RunTrace(row=PLAN_ROW))]), stage_repo.clone)
 
     change = fresh.plan(_target())
 
@@ -147,24 +156,26 @@ def test_a_revision_of_a_kept_plan_keeps_the_claims_of_the_run_that_made_it() ->
     assert change.proposal.feasibility == [CLAIM]
 
 
-def test_a_kept_plan_is_gated_with_its_facts_and_not_skipped() -> None:
+def test_a_kept_plan_is_gated_with_its_facts_and_not_skipped(stage_repo: StageRepo) -> None:
     _write_record(_plan(), {"tools": [], "paths": []})
     # The kept plan, the new first reply and each reply of its returns cite a read that no run
     # made. The refused kept plan uses no return (#4950).
     replies = 1 + RoadmapStageConfig().gate_returns
-    fresh = _planner(_ScriptedToolbox([(_plan(), RunTrace(row=PLAN_ROW))] * replies))
+    fresh = _planner(
+        _ScriptedToolbox([(_plan(), RunTrace(row=PLAN_ROW))] * replies), stage_repo.clone
+    )
 
     with pytest.raises(RoadmapStageError, match="read_issue"):
         fresh.plan(_target())
 
 
-def test_a_record_in_the_old_format_loads_and_is_planned_again() -> None:
+def test_a_record_in_the_old_format_loads_and_is_planned_again(stage_repo: StageRepo) -> None:
     _write_record(_plan(), None)
     key = PlanFiles(REPO, "model-a", TOOLSET).key(_target().item)
     assert read_plan_record(_file(), key) is not None
     run = RunTrace(tool_calls=[_call("read_issue", number=7)], row=PLAN_ROW)
     client = _ScriptedToolbox([(_plan(), run)])
-    fresh = _planner(client)
+    fresh = _planner(client, stage_repo.clone)
 
     fresh.plan(_target())
 
@@ -172,13 +183,13 @@ def test_a_record_in_the_old_format_loads_and_is_planned_again() -> None:
     assert json.loads(_file().read_text(encoding="utf-8"))["facts"]["tools"] == ["read_issue"]
 
 
-def test_the_facts_hold_only_the_paths_that_the_feasibility_cites() -> None:
+def test_the_facts_hold_only_the_paths_that_the_feasibility_cites(stage_repo: StageRepo) -> None:
     cited, other = "src/devops_cli/sample.py", "src/devops_cli/other.py"
     run = RunTrace(
         tool_calls=[_call("read_file", path=cited), _call("read_file", path=other)], row=PLAN_ROW
     )
     plan = _plan(feasibility=[f"The run read `{cited}` and found the function."])
-    planner = _planner(_ScriptedToolbox([(plan, run)]))
+    planner = _planner(_ScriptedToolbox([(plan, run)]), stage_repo.clone)
 
     planner.plan(_target())
 
@@ -186,11 +197,11 @@ def test_the_facts_hold_only_the_paths_that_the_feasibility_cites() -> None:
     assert data["facts"] == {"tools": ["read_file"], "paths": [cited], "lines": []}
 
 
-def test_a_new_planner_model_is_a_miss() -> None:
-    path = _kept_by_a_run_that_called_read_issue()
+def test_a_new_planner_model_is_a_miss(stage_repo: StageRepo) -> None:
+    path = _kept_by_a_run_that_called_read_issue(stage_repo.clone)
     run = RunTrace(tool_calls=[_call("read_issue", number=7)], row=PLAN_ROW)
     client = _ScriptedToolbox([(_plan(), run)])
-    other = _planner(client, model="model-b")
+    other = _planner(client, stage_repo.clone, model="model-b")
 
     other.plan(_target())
 
@@ -198,7 +209,9 @@ def test_a_new_planner_model_is_a_miss() -> None:
     assert path.is_file()
 
 
-def test_the_facts_hold_the_search_match_lines_that_the_feasibility_cites() -> None:
+def test_the_facts_hold_the_search_match_lines_that_the_feasibility_cites(
+    stage_repo: StageRepo,
+) -> None:
     cited, other = "src/devops_cli/sample.py:12", "src/devops_cli/other.py:3"
     run = RunTrace(
         tool_calls=[
@@ -207,7 +220,7 @@ def test_the_facts_hold_the_search_match_lines_that_the_feasibility_cites() -> N
         row=PLAN_ROW,
     )
     plan = _plan(feasibility=[f"`search_code` showed `{cited}`, the line of the value."])
-    planner = _planner(_ScriptedToolbox([(plan, run)]))
+    planner = _planner(_ScriptedToolbox([(plan, run)]), stage_repo.clone)
 
     planner.plan(_target())
 
@@ -215,14 +228,18 @@ def test_the_facts_hold_the_search_match_lines_that_the_feasibility_cites() -> N
     assert data["facts"] == {"tools": ["search_code"], "paths": [], "lines": [cited]}
 
 
-def test_a_revision_of_a_kept_plan_keeps_the_search_match_lines_of_its_run() -> None:
+def test_a_revision_of_a_kept_plan_keeps_the_search_match_lines_of_its_run(
+    stage_repo: StageRepo,
+) -> None:
     line = "src/devops_cli/sample.py:12"
     claim = f"The run read `{line}` in the search answer."
     _write_record(
         _plan(unknown_file=True, feasibility=[claim]),
         {"tools": ["search_code"], "paths": [], "lines": [line]},
     )
-    fresh = _planner(_ScriptedToolbox([(_plan(feasibility=[claim]), RunTrace(row=PLAN_ROW))]))
+    fresh = _planner(
+        _ScriptedToolbox([(_plan(feasibility=[claim]), RunTrace(row=PLAN_ROW))]), stage_repo.clone
+    )
 
     change = fresh.plan(_target())
 
