@@ -174,24 +174,19 @@ def _scaffold_with_every_routed_document(root: Path) -> Path:
 
 def test_agents_md_stays_within_character_budget(tmp_path: Path) -> None:
     """AGENTS.md is a router that every agent reads in full, so it, and the AGENTS.md that
-    `devops ai agents` writes with every routed document, fit a cap of at most 6,500 characters
-    (#1961)."""
+    `devops ai agents` writes with every routed document, fit a cap of at most 4,500 characters
+    (#1961, #5421)."""
     generated = _scaffold_with_every_routed_document(tmp_path).read_text(encoding="utf-8")
     assert (
-        CONST_AGENTS_MD_MAX_CHARS <= 6_500,
+        CONST_AGENTS_MD_MAX_CHARS <= 4_500,
         len((REPO_ROOT / "AGENTS.md").read_text(encoding="utf-8")) <= CONST_AGENTS_MD_MAX_CHARS,
         len(generated) <= CONST_AGENTS_MD_MAX_CHARS,
     ) == (True, True, True)
 
 
 # The rules of AGENTS.md that only devops-cli has, so the template of `devops ai agents` does
-# not hold them: its writing standard (owner decision D2 of #1961) and its decision model, Jev.
-CONST_DEVOPS_CLI_ONLY_RULES: Final[frozenset[str]] = frozenset(
-    {
-        "Write prose in ASD-STE100",
-        "Use a decision model for a closed choice, a generative model for text",
-    }
-)
+# not hold them: its writing standard (owner decision D2 of #1961).
+CONST_DEVOPS_CLI_ONLY_RULES: Final[frozenset[str]] = frozenset({"Write prose in ASD-STE100"})
 
 
 def _bold_start(inline: Token) -> str | None:
@@ -249,14 +244,11 @@ def test_a_rule_title_added_only_to_agents_md_is_reported() -> None:
     assert _rule_drift(agents_md, generated) == (["Pin every tool"], ["Back up"])
 
 
-def test_agents_md_premise_rule_closes_superseded_issues() -> None:
-    """Verify AGENTS.md instructs agents to close issues as rejected if their functionality has
-    been superseded by newer issues or code changes."""
-    content = (REPO_ROOT / "AGENTS.md").read_text(encoding="utf-8")
-    assert (
-        "Close issues as rejected if their functionality has been superseded by newer issues or code changes."
-        in content
-    )
+def test_the_sdlc_closes_an_item_that_a_newer_direction_replaces() -> None:
+    """The triage rules of docs/SDLC.md, not AGENTS.md, tell an agent to close an item that a
+    newer direction replaces as not planned (#5421)."""
+    content = (REPO_ROOT / "docs" / "SDLC.md").read_text(encoding="utf-8")
+    assert "Close an item that a newer direction replaces as not planned" in content
 
 
 def test_agents_md_asks_for_small_tool_output_and_keeps_the_facts_the_reader_needs() -> None:
@@ -295,6 +287,17 @@ def test_agents_md_routes_each_kind_of_task_to_a_document_that_exists() -> None:
             if not (_AGENTS_MD.parent / unquote(urlsplit(href).path)).exists()
         ],
     ) == (True, [], [])
+
+
+def test_agents_md_routes_a_closed_model_question_to_the_ask_jev_skill() -> None:
+    """The decision model rule left the rules of AGENTS.md: a row routes a closed question for a
+    model to the `ask-jev` skill, and the skill tells an agent to ask only when no file or
+    deterministic check can answer (#5421)."""
+    skill = (REPO_ROOT / ".agents" / "skills" / "ask-jev" / "SKILL.md").read_text(encoding="utf-8")
+    assert (
+        where_to_look(_AGENTS_MD).get("ask a model a closed question"),
+        "no file or deterministic check can answer" in skill,
+    ) == ([".agents/skills/ask-jev/SKILL.md"], True)
 
 
 def test_a_generated_agents_md_routes_only_to_documents_that_exist(tmp_path: Path) -> None:

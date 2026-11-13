@@ -36,6 +36,8 @@ The three kinds:
 
 ## When to Ask a Decision Model
 
+Ask a model only when no file or deterministic check can answer. Then ask a decision model for one of these:
+
 - A cheap yes/no with a probability that you can compare with a threshold.
 - A pick of one of N options.
 - A score against a rubric.
