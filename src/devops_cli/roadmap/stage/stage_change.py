@@ -774,9 +774,10 @@ def _duplicate_problems(spec: StageSpec, requirements: Mapping[str, Collection[s
 
 def _base_name_problems(spec: StageSpec, requirements: Mapping[str, Collection[str]]) -> list[str]:
     """One problem for each `from_name` and each removed `name` of `spec` that the base spec of
-    the capability does not have, and for each `to_name` that it has (#5340). `openspec validate`
-    does not compare these names with the base spec, and `openspec archive` refuses them. A caller
-    that gives no names for the capability skips the check."""
+    the capability does not have, and for each `to_name` that it has (#5340). `openspec validate
+    --strict` passes these names: it gives only the first rename that `openspec archive` refuses,
+    as an INFO line, and no line for such a removal, which the archive skips with a warning. A
+    caller that gives no names for the capability skips the check."""
     if spec.capability not in requirements:
         return []
     texts = MESSAGES.roadmap

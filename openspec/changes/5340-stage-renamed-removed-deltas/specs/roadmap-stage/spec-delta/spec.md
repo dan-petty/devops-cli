@@ -16,7 +16,7 @@
 - **THEN** the spec delta holds no RENAMED section and no REMOVED section
 
 ### Requirement: Refuse a rename or a removal that the base spec does not allow
-`check_proposal` SHALL refuse a `renamed` or a `removed` entry on a capability that is not in `openspec/specs/`. When the caller gives the requirement names of the capability, it SHALL refuse a `from_name` and a removed `name` that the base spec does not have, and a `to_name` that the base spec has already. `openspec validate` does not compare these names with the base spec, and `openspec archive` refuses them.
+`check_proposal` SHALL refuse a `renamed` or a `removed` entry on a capability that is not in `openspec/specs/`. When the caller gives the requirement names of the capability, it SHALL refuse a `from_name` and a removed `name` that the base spec does not have, and a `to_name` that the base spec has already. `openspec validate --strict` passes these names. `openspec archive` refuses such a rename and skips such a removal.
 
 #### Scenario: A rename of a requirement that the base spec does not have
 - **WHEN** a plan renames `The job stages two items` and the base spec of the capability has no requirement of that name

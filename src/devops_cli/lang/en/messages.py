@@ -4611,7 +4611,8 @@ class RoadmapMessages:
         "openspec/specs/{capability}/spec.md already has it. Change it with modified, or give "
         "the new requirement another name."
     )
-    # A rename or a removal that `openspec archive` refuses, and `openspec validate` passes (#5340).
+    # A rename that `openspec archive` refuses, or a removal that it skips, and that `openspec
+    # validate --strict` passes (#5340).
     stage_problem_rename_unknown: str = (
         "The renamed requirement {requirement} is not in openspec/specs/{capability}/spec.md. "
         "Give the exact name of a requirement of that spec as from_name."
