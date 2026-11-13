@@ -22,9 +22,9 @@ Kind: other. Reads: `tests/telemetry/test_telemetry_instruments.py`, `tests/supp
 
 Kind: other. Reads: `CONTRIBUTING.md`. Changes: `CONTRIBUTING.md`.
 
-- [ ] 3.1 Rewrite point 3 of the shell notes in `CONTRIBUTING.md`, at the line that says JSON from `uv run devops gh api` breaks in two ways: remove the sentence that says the command writes an `Elapsed:` line to stderr and every word that refers to it, name the uv `Bytecode compiled` line as the remaining stderr cause, keep the zsh `echo` escape warning and the wrong `2>&1` example with a comment that names the uv line only
+- [x] 3.1 Rewrite point 3 of the shell notes in `CONTRIBUTING.md`, at the line that says JSON from `uv run devops gh api` breaks in two ways: remove the sentence that says the command writes an `Elapsed:` line to stderr and every word that refers to it, name the uv `Bytecode compiled` line as the remaining stderr cause, keep the zsh `echo` escape warning and the wrong `2>&1` example with a comment that names the uv line only
   - Verification: `$ ! git grep -n -F Elapsed: CONTRIBUTING.md` passes
-- [ ] 3.2 Edit `CONTRIBUTING.md` to remove the elapsed-line cause from its JSON section and keep the uv bytecode and zsh echo warnings
+- [x] 3.2 Edit `CONTRIBUTING.md` to remove the elapsed-line cause from its JSON section and keep the uv bytecode and zsh echo warnings
   - Verification: `$ uv run devops ci docs` passes
 
 ## Criteria
