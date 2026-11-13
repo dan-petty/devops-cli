@@ -18,16 +18,23 @@ from devops_cli.roadmap.stage.stage import (
 )
 from devops_cli.roadmap.stage.stage_eval_cases import DefectType
 from devops_cli.roadmap.stage.stage_toolbox import ToolboxModel
-from devops_cli.roadmap.stage.stage_verify import PLAN_NEEDS_FIX_LABEL, Finding, Verification
+from devops_cli.roadmap.stage.stage_verify import (
+    PLAN_NEEDS_FIX_LABEL,
+    Finding,
+    Verification,
+)
 from tests.support.builders import make_stage_proposal
 from tests.support.fakes.github import API, github_json
 from tests.support.fakes.model import ModelFake, ModelFakeReplies
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.roadmap_stage import (
+    GONE,
+    HOLDS,
     STAGE_REPO,
     VALID_REPORT,
     StageRepo,
     apply_stage,
+    later_review,
     seed_stageable,
     validate_args,
 )
@@ -159,7 +166,7 @@ def test_a_false_premise_with_a_quote_returns_the_plan_to_the_planner_once(
     revised = make_stage_proposal(summary="Keep the last comment of a thread")
     model_fake.answer(make_stage_proposal(), revised)
     returned = _finding(DefectType.FALSE_PREMISE, SAMPLE_QUOTE)
-    verifier.answer(Verification(findings=[returned]), Verification())
+    verifier.answer(Verification(findings=[returned]), later_review(GONE))
 
     plan = _plan(store, stage_repo, verifier)
 
@@ -194,7 +201,7 @@ def test_a_quoted_open_finding_of_any_open_type_returns_the_plan_to_the_planner(
     fix it before the draft opens (#5059)."""
     model_fake.answer(make_stage_proposal(), make_stage_proposal(summary="Repaired plan"))
     found = _finding(kind, ISSUE_QUOTE)
-    verifier.answer(Verification(findings=[found]), Verification())
+    verifier.answer(Verification(findings=[found]), later_review(GONE))
 
     plan = _plan(store, stage_repo, verifier)
 
@@ -215,7 +222,7 @@ def test_a_placeholder_finding_returns_the_plan_to_the_planner(
     store = _placeholder_store()
     model_fake.answer(make_stage_proposal(), make_stage_proposal(summary="Repaired plan"))
     placeholder = _finding(DefectType.OTHER, "placeholder", where="tasks.md")
-    verifier.answer(Verification(findings=[placeholder]), Verification())
+    verifier.answer(Verification(findings=[placeholder]), later_review(GONE))
 
     plan = _plan(store, stage_repo, verifier)
 
@@ -278,7 +285,10 @@ def test_a_mixed_first_round_lists_every_finding_and_tells_the_planner_the_open_
     returned = _finding(DefectType.FALSE_PREMISE, SAMPLE_QUOTE)
     spec = _finding(DefectType.SPEC_DELTA_WRONG, SAMPLE_QUOTE)
     advice = _finding(DefectType.CONTRIVED_TEST, SAMPLE_QUOTE)
-    verifier.answer(Verification(findings=[returned, spec, advice]), Verification())
+    verifier.answer(
+        Verification(findings=[returned, spec, advice]),
+        later_review(GONE, GONE),
+    )
 
     plan = _plan(store, stage_repo, verifier)
 
@@ -304,7 +314,7 @@ def test_an_open_task_order_finding_keeps_the_draft_with_the_label(
     _seed_pull_5(store)
     finding = _finding(DefectType.TASK_ORDER, SAMPLE_QUOTE)
     model_fake.answer(make_stage_proposal())
-    verifier.answer(Verification(findings=[finding]))
+    verifier.answer(Verification(findings=[finding]), later_review(HOLDS))
 
     plan = _plan(store, stage_repo, verifier)
     apply_stage(store, plan, source=stage_repo.clone)
@@ -330,7 +340,7 @@ def test_a_quote_of_a_file_that_the_verifier_read_past_the_cap_returns_the_plan(
     reads = Script(
         call("read_file", path="src/devops_cli/sample.py", start_line=4000),
         Verification(findings=[finding]),
-        Verification(),
+        later_review(GONE),
     )
 
     plan = plan_stage(
@@ -397,12 +407,13 @@ def test_the_plan_is_returned_twice_then_stays_in_draft(
         make_stage_proposal(summary="Second repair of the plan"),
     )
     first = _finding(DefectType.FALSE_PREMISE, SAMPLE_QUOTE)
-    second = _finding(DefectType.TASK_ORDER, ISSUE_QUOTE)
-    last = _finding(DefectType.MISSING_PATH, ISSUE_QUOTE)
+    # A later review opens a new finding only in the text that the revision changed (#5409).
+    second = _finding(DefectType.TASK_ORDER, "First repair of the plan")
+    last = _finding(DefectType.MISSING_PATH, "Second repair of the plan")
     verifier.answer(
         Verification(findings=[first]),
-        Verification(findings=[second]),
-        Verification(findings=[last]),
+        later_review(GONE, findings=[second]),
+        later_review(GONE, findings=[last]),
     )
 
     plan = _plan(store, stage_repo, verifier)
@@ -431,7 +442,7 @@ def test_the_comment_lists_the_findings_of_each_repair_round_and_each_verifier_r
     reads = Script(
         call("read_file", path="src/devops_cli/sample.py"),
         Verification(findings=[_finding(DefectType.FALSE_PREMISE, SAMPLE_QUOTE)]),
-        Verification(),
+        later_review(GONE),
     )
 
     plan = plan_stage(
@@ -526,7 +537,7 @@ def test_a_placeholder_finding_keeps_the_draft_and_applies_the_label(
     _seed_pull_5(store)
     placeholder = _finding(DefectType.OTHER, "placeholder", where="tasks.md")
     model_fake.answer(make_stage_proposal())
-    verifier.answer(Verification(findings=[placeholder]))
+    verifier.answer(Verification(findings=[placeholder]), later_review(HOLDS))
 
     plan = _plan(store, stage_repo, verifier)
     applied = apply_stage(store, plan, source=stage_repo.clone)

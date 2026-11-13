@@ -123,17 +123,17 @@ def log_review_round(
     )
 
 
-def log_review_extension(repo: str, item: int, round_: int, *, before: int, open_: int) -> None:
+def log_review_extension(repo: str, item: int, round_: int, *, fixed: int, added: int) -> None:
     """Log one repair round of the model review past `roadmap.stage.verify_repair_rounds`: the
-    count of open findings dropped from `before` to `open_` in the last two reviews (#5066). The
-    review of the round logs its own `stage review round:` line."""
+    last review marked `fixed` earlier findings `gone` and opened `added` new findings, fewer than
+    it fixed (#5066, #5409). The review of the round logs its own `stage review round:` line."""
     logger.info(
-        "stage review extended: repo=%s item=#%d round=%d before=%d open=%d version=%s",
+        "stage review extended: repo=%s item=#%d round=%d fixed=%d added=%d version=%s",
         repo or "none",
         item,
         round_,
-        before,
-        open_,
+        fixed,
+        added,
         __version__,
     )
 

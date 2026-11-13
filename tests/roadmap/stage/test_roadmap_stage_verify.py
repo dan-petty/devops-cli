@@ -6,6 +6,7 @@ import json
 import re
 import subprocess
 from pathlib import Path
+from typing import TYPE_CHECKING, cast
 
 import pytest
 from pydantic import ValidationError
@@ -18,6 +19,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_STAGE_TOOL_RESERVE_TOKENS,
     CONST_ROADMAP_STAGE_VERIFY_FILE_MAX_TOKENS,
     CONST_ROADMAP_STAGE_VERIFY_MAX_FILES,
+    CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS_CEILING,
 )
 from devops_cli.exceptions.roadmap import RoadmapStageError
 from devops_cli.roadmap.refine.refine_investigation import tool_stop
@@ -35,11 +37,15 @@ from devops_cli.roadmap.stage.stage_verify import (
     findings_section,
     open_findings,
     open_findings_section,
+    repair_round_due,
     return_problem,
     verify,
 )
 from devops_cli.roadmap.stage.stage_verify import Verification as VerificationReply
 from tests.support.scripted_model import Script, call
+
+if TYPE_CHECKING:
+    from devops_cli.roadmap.stage.stage import StageClient
 
 PLAN = {
     "summary": "Stop the job dropping a comment",
@@ -351,6 +357,205 @@ def test_the_findings_section_puts_each_finding_on_one_line_without_a_ping() -> 
     assert "@octocat" not in line.replace("`@octocat`", "")
     assert "group 2" in line
     assert "\n" not in line
+
+
+# The `why` of a revision of `PLAN`: the planner changed one text in answer to a finding.
+REVISED_WHY = "The job keeps the last comment of a thread."
+
+
+def _later_input(earlier: list[Finding]) -> VerificationInput:
+    """The input of the review of a revision of `PLAN` that changes only its `why`, after a
+    review whose open findings were `earlier`."""
+    return VerificationInput.of(
+        number=7,
+        title="fix(roadmap): the job drops a comment",
+        body="The job drops the last comment.\nIt happens on a long thread.",
+        plan={**PLAN, "why": REVISED_WHY},
+        source=Path("/nonexistent"),
+        earlier=earlier,
+        previous=PLAN,
+    )
+
+
+class _Recorder:
+    """A stage client that records the system prompt, the request and the schema of each
+    structured call, and answers `reply`."""
+
+    def __init__(self, reply: object) -> None:
+        self.reply = reply
+        self.calls: list[tuple[str, str, type[object]]] = []
+
+    def chat_structured(
+        self, system: str, prompt: str, schema: type[object], *, max_retries: int
+    ) -> object:
+        self.calls.append((system, prompt, schema))
+        return self.reply
+
+
+def test_a_later_review_gets_the_earlier_findings_and_the_answer() -> None:
+    earlier = [
+        _finding(DefectType.FALSE_PREMISE, "The job drops the last comment"),
+        Finding(
+            type=DefectType.TASK_ORDER,
+            where="group 2",
+            problem="The test comes last.",
+            quote="Keep the last comment",
+        ),
+    ]
+
+    payload = _later_input(earlier).payload()
+
+    assert payload["earlier"] == [
+        {
+            "number": 1,
+            "type": "false_premise",
+            "where": "group 1",
+            "problem": "The plan is wrong.",
+            "quote": "The job drops the last comment",
+        },
+        {
+            "number": 2,
+            "type": "task_order",
+            "where": "group 2",
+            "problem": "The test comes last.",
+            "quote": "Keep the last comment",
+        },
+    ]
+    assert payload["answer"] == [REVISED_WHY]
+    assert payload["plan"]["why"] == REVISED_WHY
+
+
+def test_a_new_finding_outside_the_changed_text_is_advice() -> None:
+    from devops_cli.roadmap.stage.stage_verify import (
+        EarlierVerdict,
+        Judgement,
+        LaterVerification,
+        Verdict,
+        judge_later,
+    )
+
+    earlier = [_finding(DefectType.FALSE_PREMISE, "The job drops the last comment")]
+    given = _later_input(earlier)
+    unchanged = _finding(DefectType.FALSE_PREMISE, "It happens on a long thread.")
+    changed = _finding(DefectType.MISSING_PATH, "keeps the last   comment")
+    reply = LaterVerification(
+        earlier=[EarlierVerdict(number=1, verdict=Verdict.GONE)], findings=[unchanged, changed]
+    )
+
+    judged = judge_later(reply, given)
+
+    assert given.contains(unchanged.quote)
+    assert judged == Judgement(
+        findings=(unchanged, changed), open=(changed,), fixed=(earlier[0],), added=(changed,)
+    )
+
+
+def test_an_earlier_finding_with_no_verdict_holds() -> None:
+    from devops_cli.roadmap.stage.stage_verify import (
+        EarlierVerdict,
+        LaterVerification,
+        Verdict,
+        judge_later,
+    )
+
+    earlier = [
+        _finding(DefectType.FALSE_PREMISE, "The job drops the last comment"),
+        _finding(DefectType.TASK_ORDER, "Keep the last comment"),
+    ]
+    reply = LaterVerification(
+        earlier=[
+            EarlierVerdict(number=1, verdict=Verdict.GONE),
+            EarlierVerdict(number=9, verdict=Verdict.GONE),
+        ],
+        findings=[earlier[1]],
+    )
+
+    judged = judge_later(reply, _later_input(earlier))
+
+    assert (judged.open, judged.fixed, judged.added) == ((earlier[1],), (earlier[0],), ())
+
+
+def test_an_earlier_finding_that_holds_or_comes_again_stays_open() -> None:
+    from devops_cli.roadmap.stage.stage_verify import (
+        EarlierVerdict,
+        LaterVerification,
+        Verdict,
+        judge_later,
+    )
+
+    earlier = [
+        _finding(DefectType.FALSE_PREMISE, "The job drops the last comment"),
+        _finding(DefectType.TASK_ORDER, "Keep the last comment"),
+    ]
+    reply = LaterVerification(
+        earlier=[
+            EarlierVerdict(number=1, verdict=Verdict.HOLDS),
+            EarlierVerdict(number=2, verdict=Verdict.GONE),
+        ],
+        findings=[earlier[1]],
+    )
+
+    judged = judge_later(reply, _later_input(earlier))
+
+    # The reply marks the second finding `gone` and reports it again: it stays open, and the
+    # repeat adds no finding.
+    assert (judged.open, judged.fixed, judged.added) == (tuple(earlier), (), ())
+
+
+def test_a_first_review_keeps_its_request_and_its_prompt() -> None:
+    from devops_cli.roadmap.stage.stage_verify import LaterVerification, verify_later
+
+    given = _input()
+    first = _Recorder(VerificationReply())
+    later = _Recorder(LaterVerification(earlier=[]))
+    after = _later_input([_finding(DefectType.FALSE_PREMISE, "The job drops the last comment")])
+
+    verify(cast("StageClient", first), given)
+    verify_later(cast("StageClient", later), after)
+
+    prompt = load_task_prompt("roadmap_stage_verify.md")
+    assert set(json.loads(given.text())) == {"number", "title", "body", "plan", "files"}
+    assert first.calls == [(prompt, given.text(), Verification)]
+    (system, request, schema) = later.calls[0]
+    assert system == f"{prompt}\n\n{load_task_prompt('roadmap_stage_verify_later.md')}"
+    assert (request, schema) == (after.text(), LaterVerification)
+
+
+def test_a_later_reply_with_no_verdict_list_fails_the_schema() -> None:
+    from devops_cli.roadmap.stage.stage_verify import LaterVerification
+
+    with pytest.raises(ValidationError, match="earlier"):
+        LaterVerification.model_validate({"findings": []})
+
+
+def test_the_changed_text_is_each_block_of_new_or_moved_lines() -> None:
+    from devops_cli.roadmap.stage.stage_verify import changed_texts
+
+    before = {"why": "Keep it.", "groups": [{"title": "A", "tasks": ["one", "two", "three"]}]}
+    after = {
+        "why": "Keep it.",
+        "groups": [{"title": "A", "tasks": ["two", "one", "three", "four\n  words"]}],
+    }
+
+    assert changed_texts(before, after) == ("two", "four\nwords")
+    assert changed_texts(before, before) == ()
+
+
+def test_a_round_past_the_setting_needs_more_fixed_than_added_findings() -> None:
+    from devops_cli.roadmap.stage.stage_verify import Judgement
+
+    fixed = _finding(DefectType.FALSE_PREMISE, "fixed")
+    added = _finding(DefectType.MISSING_PATH, "added")
+    progress = Judgement(findings=(), open=(), fixed=(fixed,), added=())
+    even = Judgement(findings=(added,), open=(added,), fixed=(fixed,), added=(added,))
+    ceiling = CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS_CEILING
+
+    assert [
+        repair_round_due(1, 2, even),
+        repair_round_due(3, 2, progress),
+        repair_round_due(3, 2, even),
+        repair_round_due(ceiling + 1, ceiling + 1, progress),
+    ] == [True, True, False, False]
 
 
 # The nine read tools of the toolset `base` (#3039): a verification run offers exactly these.

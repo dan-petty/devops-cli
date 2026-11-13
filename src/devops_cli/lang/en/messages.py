@@ -4358,7 +4358,7 @@ class RoadmapMessages:
             "open_plans": "the premise of the item cites a path that the default branch does not have",
             "review": "the plan reader reads the plan of the head, and the checks pass it or a new plan",
             "repair": "the review of the head plan has an open finding",
-            "push": "revised or cleared: the revision is not the same plan as the gated plan and has fewer open findings than the review of the head; or regated: the plan that the checks pass is not the same plan as the head",
+            "push": "revised or cleared: the revision is not the same plan as the gated plan, and its reviews fixed more open findings of the head than they added; or regated: the plan that the checks pass is not the same plan as the head",
             "validate": "the openspec binary is on PATH",
             "update_pull": "the title or the body of the pushed plan differs",
             "unlabel": "cleared (no open finding remains), dismissed (the review of the head found none), or regated after a review of the new plan with no open finding and no failed step",

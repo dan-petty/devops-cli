@@ -1067,7 +1067,7 @@ class RoadmapStageConfig(BaseModel):
         le=CONST_ROADMAP_STAGE_GATE_RETURNS_CEILING,
     )
     verify_repair_rounds: Annotated[int, Variable()] = Field(
-        description="How many times the model review of a stage plan sends the plan back to the planner while the review has an open finding. After the last of these rounds, one more round follows while the count of open findings of the last review is lower than that of the review before it. No item gets more than 4 repair rounds, so the value is at most 4. After the Service stops, no round starts",
+        description="How many times the model review of a stage plan sends the plan back to the planner while the review has an open finding. After the last of these rounds, one more round follows while the last review marks more earlier findings `gone` than it opens new findings. No item gets more than 4 repair rounds, so the value is at most 4. After the Service stops, no round starts",
         default=DEFAULT_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS,
         ge=0,
         le=CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS_CEILING,

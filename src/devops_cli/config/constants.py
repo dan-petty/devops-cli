@@ -3463,8 +3463,8 @@ CONST_ROADMAP_STAGE_VERIFY_BODY_MAX_TOKENS: Final[int] = 6000
 CONST_ROADMAP_STAGE_VERIFY_FILE_MAX_TOKENS: Final[int] = 1500
 CONST_ROADMAP_STAGE_VERIFY_MAX_FILES: Final[int] = 30
 # The hard ceiling of the repair rounds of a plan that the model review returns (#5066): of the
-# setting `roadmap.stage.verify_repair_rounds`, and of the rounds that follow it while the count of
-# open findings drops. A plan costs at most 5 review runs at this ceiling. Each round is one more
+# setting `roadmap.stage.verify_repair_rounds`, and of the rounds that follow it while the last
+# review fixes more earlier findings than it adds (#5409). A plan costs at most 5 review runs at this ceiling. Each round is one more
 # plan run with its gate returns (R), so one item makes at most 5R + 6 plan runs: 21 at both
 # ceilings, about 4.2 hours at the p90 of 728 s of 2026-11-11. The settings load refuses a value
 # above it.

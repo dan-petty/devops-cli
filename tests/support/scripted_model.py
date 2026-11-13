@@ -65,14 +65,19 @@ class _ReportingModel(FunctionModel):
 class Script:
     """A `FunctionModel` callback that answers the nth request with the nth response, and the
     last response after that, or `without_tools` once the request offers no function tool. A
-    pydantic model answers as the call of the output tool, and a function answers with the model
-    response or pydantic model that it returns for the request's messages. With `reports_input`,
+    pydantic model, or the JSON text of one, answers as the call of the output tool, and a
+    function answers with the model response or pydantic model that it returns for the request's
+    messages. With `reports_input`,
     the replies report the input of their request, as a provider does. It keeps the messages of each request
     and the names of the function tools each one offered."""
 
     def __init__(
         self,
-        *responses: ModelResponse | BaseModel | Exception | Callable[[list[ModelMessage]], Any],
+        *responses: ModelResponse
+        | BaseModel
+        | str
+        | Exception
+        | Callable[[list[ModelMessage]], Any],
         without_tools: BaseModel | None = None,
         reports_input: bool = False,
     ) -> None:
@@ -100,6 +105,9 @@ class Script:
             return ModelResponse(
                 parts=[ToolCallPart(tool_name=output_tool, args=answer.model_dump())]
             )
+        if isinstance(answer, str):
+            output_tool = info.output_tools[0].name
+            return ModelResponse(parts=[ToolCallPart(tool_name=output_tool, args=answer)])
         return answer
 
     async def stream(

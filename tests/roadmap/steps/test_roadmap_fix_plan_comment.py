@@ -43,7 +43,7 @@ from tests.support.roadmap_fix_plan import (
     valid_changes,
 )
 from tests.support.roadmap_job_result import result_fields
-from tests.support.roadmap_stage import STAGE_REPO, StageRepo
+from tests.support.roadmap_stage import GONE, HOLDS, STAGE_REPO, StageRepo, later_review
 
 if TYPE_CHECKING:
     from tests.support.fakes.github import GitHubApiFake
@@ -123,7 +123,7 @@ def test_the_revision_is_compared_with_a_review_of_the_head_and_not_with_the_com
     store.seed_comment(plan.number, _real_comment(plan.pull))
     dropped = finding(DefectType.CRITERION_DROPPED)
     order = finding(DefectType.TASK_ORDER, SAMPLE_QUOTE)
-    verifier.answer(Verification(findings=[dropped, order]), Verification(findings=[dropped]))
+    verifier.answer(Verification(findings=[dropped, order]), later_review(HOLDS, GONE))
     model_fake.answer(make_stage_proposal(why=REPAIRED_WHY))
 
     with caplog.at_level(logging.INFO):
@@ -153,7 +153,7 @@ def test_the_planner_gets_the_open_findings_of_the_comment_and_of_the_review_of_
     plan = needs_fix_plan(store, stage_repo, github_api)
     store.seed_comment(plan.number, _real_comment(plan.pull))
     order = finding(DefectType.TASK_ORDER, SAMPLE_QUOTE)
-    verifier.answer(Verification(findings=[order]), Verification())
+    verifier.answer(Verification(findings=[order]), later_review(GONE))
     model_fake.answer(make_stage_proposal(why=REPAIRED_WHY))
 
     run = _run(store, stage_repo, verifier)
@@ -212,7 +212,10 @@ def test_a_comment_of_another_pull_request_or_an_untrusted_author_is_not_read(
         stage_comment(pull, [finding(DefectType.CRITERION_DROPPED)]),
         author_association=association,
     )
-    verifier.answer(Verification(findings=[finding(DefectType.TASK_ORDER, SAMPLE_QUOTE)]))
+    verifier.answer(
+        Verification(findings=[finding(DefectType.TASK_ORDER, SAMPLE_QUOTE)]),
+        later_review(HOLDS),
+    )
     model_fake.answer(make_stage_proposal(why=REPAIRED_WHY))
 
     run = _run(store, stage_repo, verifier)

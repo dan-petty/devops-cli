@@ -894,9 +894,10 @@ DEFAULT_ROADMAP_STAGE_LIMIT: int = 3
 # returned reply had fewer problems; a plan with problems in two modules needs a third reply.
 DEFAULT_ROADMAP_STAGE_GATE_RETURNS: int = 3
 # The repair rounds of a plan that the model review returns (#3039, #5066): the planner revises the
-# plan this many times while the review has an open finding, and one more time while the count of
-# open findings drops, up to `CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS_CEILING`. On 2026-11-12, 2 of
-# 7 plans used both rounds while the plan still improved.
+# plan this many times while the review has an open finding, and one more time while the last review
+# fixes more earlier findings than it adds (#5409), up to
+# `CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS_CEILING`. On 2026-11-12, 2 of 7 plans used both rounds
+# while the plan still improved.
 DEFAULT_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS: int = 2
 # The most Planned items before the stage job plans only P0 and P1 items (#3487, #3692). The
 # Service delivers about two items a day, so 20 items wait about ten days: a plan that waits longer
