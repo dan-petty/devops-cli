@@ -348,3 +348,10 @@ The job SHALL fetch `origin/<default>` before each push of the item branch, and 
 #### Scenario: A conflict during a step
 - **WHEN** `main` of a Planned item gains a commit that conflicts with the first `wip:` commit, and the step then stops
 - **THEN** `origin` has no item branch, the log holds the text of the rebase conflict, and no rebase stays in progress
+
+### Requirement: The watch stops the item on a merged or closed pull request
+The implement job watch SHALL stop the item when the pull request is merged or closed without a merge, and MUST NOT report such a pull request as ready.
+
+#### Scenario: Closed while the job runs
+- **WHEN** the watch reads the pull request as closed and not merged
+- **THEN** the watch stops the item with the reason "The pull request was merged or closed while the job ran."
