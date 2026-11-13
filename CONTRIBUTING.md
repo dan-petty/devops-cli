@@ -148,7 +148,7 @@ In bash, `${=F}`, `${(f)...}` and `print -r --` fail. The forms `printf '%s'`, `
 
 ## 4. Git Hygiene & Branch Management
 
-- **Branch Naming**: [Section 5](#5-naming) gives the form of a branch name. The `no-commit-to-branch` pre-commit hook refuses a commit on a branch that breaks it.
+- **Branch Naming**: [Section 5](#5-naming) gives the accepted forms of a branch name. The `no-commit-to-branch` pre-commit hook refuses a commit on a branch that breaks either form.
 - **Branch Targeting**: Every topic branch targets `main`. A maintainer squash-merges the pull request.
 - **Drafts First**:
   - Open every pull request with `devops pr create`. It always opens a draft.
@@ -193,7 +193,7 @@ This table holds the naming rules of the project. Each rule names the check that
 
 | Artifact | Form | Check |
 | :--- | :--- | :--- |
-| Branch | `<type>/<issue>-<slug>` | The `no-commit-to-branch` pre-commit hook refuses a commit on a branch that breaks the form. `devops repos worktrees add` makes a branch in this form. |
+| Branch | `<type>/<issue>-<slug>` | The `no-commit-to-branch` pre-commit hook refuses a commit on a branch that is outside this form and outside the `copilot/<slug>` form, which GitHub gives the Copilot cloud agent and the agent cannot rename. `devops repos worktrees add` makes a branch in this form. |
 | Pull request title and commit subject | `<type>(<scope>): <summary>`, with a summary of at most 60 characters (an emoji counts as two) | The `Semantic PR title` check for the title: its form, its scope and the length of its summary. `devops pr create` checks the same rules before it opens the pull request. None for a commit on a branch. |
 | Change folder | `<issue>-<slug>`, archived as `<YYYY-MM-DD>-<issue>-<slug>` | `devops openspec check` and `tests/invariants/test_change_folders.py`. |
 | Python module, class, function and variable | PEP 8 | Ruff `N`. |

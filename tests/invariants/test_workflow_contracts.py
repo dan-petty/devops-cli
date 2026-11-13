@@ -830,13 +830,20 @@ def _branch_name_pattern() -> str:
 
 def test_a_commit_on_a_branch_that_breaks_the_naming_form_is_refused() -> None:
     """The hook refuses a commit when its pattern matches the branch name (`re.match`), so the
-    pattern matches each name that is not `<type>/<issue>-<slug>`: one of the types that
-    release-please reads, the number of the issue, and a slug of lowercase words and digits
-    (#2292)."""
+    pattern matches each name that is neither `<type>/<issue>-<slug>` nor `copilot/<slug>`: one
+    of the types that release-please reads, the number of the issue, and a slug of lowercase
+    words and digits (#2292). GitHub gives the Copilot cloud agent a `copilot/` branch, and the
+    agent cannot rename it (#5136)."""
     sections = json.loads(Path("release-please-config.json").read_text(encoding="utf-8"))
     types = [section["type"] for section in sections["changelog-sections"]]
     pattern = _branch_name_pattern()
-    accepted = [f"{kind}/2292-naming-section" for kind in types] + ["fix/1-a", "docs/2292-a1-b2"]
+    accepted = [f"{kind}/2292-naming-section" for kind in types] + [
+        "fix/1-a",
+        "docs/2292-a1-b2",
+        "copilot/fix-login-bug",
+        "copilot/sub-pr-12",
+        "copilot/fix-4773",
+    ]
     refused = [
         "main",
         "implement_issue_1388",
@@ -848,6 +855,10 @@ def test_a_commit_on_a_branch_that_breaks_the_naming_form_is_refused() -> None:
         "fix/12-a/b",
         "Fix/12-a",
         "fix/x12-a",
+        "copilot/",
+        "copilot/Fix-login",
+        "copilot/fix_login",
+        "Copilot/fix-login",
         "feature/12-widget",
         "wip/12-widget",
     ]
@@ -1387,7 +1398,8 @@ def test_copilot_setup_steps_installs_the_pinned_openspec_with_the_opt_outs() ->
     agent starts. The file is written by hand, since `openspec init --copilot-cloud` writes a
     workflow that runs an unpinned checkout and `npm install -g`: here every action is pinned
     (the workflow contract tests check each), nothing installs globally, and the job asks for
-    no more than to read the repository."""
+    no more than to read the repository. The step `Install the git hooks` installs the hooks of
+    `.pre-commit-config.yaml`, so the commits of the agent run them (#5136)."""
     path = WORKFLOWS_DIR / "copilot-setup-steps.yml"
     workflow = yaml.safe_load(path.read_text(encoding="utf-8"))
     job = workflow["jobs"]["copilot-setup-steps"]
@@ -1420,6 +1432,9 @@ def test_copilot_setup_steps_installs_the_pinned_openspec_with_the_opt_outs() ->
             "uv run pre-commit install --install-hooks",
         ],
     )
+    assert [
+        str(step["run"]) for step in job["steps"] if step.get("name") == "Install the git hooks"
+    ] == ["uv run pre-commit install --install-hooks"]
     code = "\n".join(
         line for line in path.read_text(encoding="utf-8").splitlines() if not line.startswith("#")
     )
