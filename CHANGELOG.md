@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.128.0](https://github.com/dan-petty/devops-cli/compare/v0.127.1...v0.128.0) (2026-11-13)
+
+
+### Features
+
+* **roadmap:** extend stage gate returns while the plan improves ([#5389](https://github.com/dan-petty/devops-cli/issues/5389)) ([6d3f954](https://github.com/dan-petty/devops-cli/commit/6d3f9541860dbfc9684eb21dd55117c169dab89b))
+
+
+### Bug Fixes
+
+* **roadmap:** fix-plan keeps the citations that the run of the head read ([#5400](https://github.com/dan-petty/devops-cli/issues/5400)) ([7f4054f](https://github.com/dan-petty/devops-cli/commit/7f4054fdccdd69e4fab0761e16c668bac6501d02)), closes [#5391](https://github.com/dan-petty/devops-cli/issues/5391)
+
 ## [0.127.1](https://github.com/dan-petty/devops-cli/compare/v0.127.0...v0.127.1) (2026-11-13)
 
 
