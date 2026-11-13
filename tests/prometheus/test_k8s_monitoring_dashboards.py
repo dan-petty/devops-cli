@@ -32,6 +32,7 @@ from devops_cli.config.defaults import (
     DEFAULT_AI_REFERENCE_PROVIDER,
 )
 from devops_cli.prometheus.promql import falls_back_to_constant, grouping_labels, selectors
+from devops_cli.roadmap.job_result import LINE_PREFIX
 from tests.support.paths import FIXTURES, REPO_ROOT
 
 K8S_DIR = REPO_ROOT / "k8s"
@@ -961,3 +962,21 @@ def test_the_cli_dashboard_opens_on_a_day_and_refreshes_each_minute() -> None:
     refreshes each minute (#4707)."""
     dashboard = _cli_dashboard()
     assert (dashboard["time"], dashboard["refresh"]) == ({"from": "now-24h", "to": "now"}, "1m")
+
+
+def test_each_count_of_the_result_lines_starts_with_the_base_of_the_job_grades() -> None:
+    """The panels of the row `Roadmap Job Success` and `devops roadmap eval grades` read the same
+    result lines: the streams of the Service and of the Job pods, and both forms of a line. Each
+    count of the dashboard starts with the one base of the report (#5556)."""
+    from devops_cli.roadmap.job_grade_report import RESULT_LINES
+
+    dashboard = json.loads(CLI_DASHBOARD.read_text(encoding="utf-8"))
+    counts = [
+        count
+        for expr in _expressions(dashboard)
+        if LINE_PREFIX in expr
+        for count in expr.split("count_over_time(")[1:]
+    ]
+
+    assert len(counts) > 0
+    assert [count for count in counts if not count.startswith(f"{RESULT_LINES} | regexp ")] == []

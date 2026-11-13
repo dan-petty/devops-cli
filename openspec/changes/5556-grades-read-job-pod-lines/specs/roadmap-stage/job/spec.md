@@ -22,4 +22,4 @@ The job grade report and the panels of the job grades SHALL read the result line
 
 #### Scenario: The check-in fails
 - **WHEN** the write of the check-in fails
-- **THEN** the Job writes no result line, and the recovery of the Service writes the line of the `failed` end
+- **THEN** the Job writes no result line, and the check-out stays, so the recovery of the Service checks in for the `failed` end and writes its line

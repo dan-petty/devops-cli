@@ -22,14 +22,14 @@ Kind: behavior.
 
 Kind: manifest.
 
-- [ ] 3.1 Add the test that each query of the row `Roadmap Job Success` starts with `RESULT_LINES`, and change the four queries of `k8s/devops/dashboards/devops-cli.json`
+- [x] 3.1 Add the test that each query of the row `Roadmap Job Success` starts with `RESULT_LINES`, and change the four queries of `k8s/devops/dashboards/devops-cli.json`
   - Verification: `$ uv run devops ci test tests/prometheus/test_k8s_monitoring_dashboards.py tests/grafana`
 
 ## 4. Documents
 
 Kind: documents.
 
-- [ ] 4.1 Update the query, the two forms of a line and the attempts that write no line in `docs/roadmap/job-success.md`, and the end of the stage Job in `docs/roadmap/stage.md` and `docs/CLUSTER.md`
+- [x] 4.1 Update the query, the two forms of a line and the attempts that write no line in `docs/roadmap/job-success.md`, and the end of the stage Job in `docs/roadmap/stage.md` and `docs/CLUSTER.md`
   - Verification: `$ uv run devops ci docs`
 
 ## Workflow follow-up
