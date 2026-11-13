@@ -20,9 +20,9 @@ Kind: other. Reads: `tests/commands/test_ci.py`, `tests/commands/test_ci_repeat.
 
 Kind: other. Reads: `docs/TESTING.md`, `docs/commands/ci.md`, `src/devops_cli/lang/en/help.py`. Changes: `docs/TESTING.md`, `docs/commands/ci.md`.
 
-- [ ] 3.1 Replace the file-count sentence of `docs/TESTING.md` with the collected-test rule: the collection command, the threshold of 50 collected tests, the `-k` filter, an empty collection, the fallback on a failure with its 13-file example, and the runs that make no collection call. State that a test that drives the command answers the collection through the process edge it already doubles. Then regenerate the command pages with `uv run devops docs generate`, which rewrites `docs/commands/ci.md` from the changed help text
+- [x] 3.1 Replace the file-count sentence of `docs/TESTING.md` with the collected-test rule: the collection command, the threshold of 50 collected tests, the `-k` filter, an empty collection, the fallback on a failure with its 13-file example, and the runs that make no collection call. State that a test that drives the command answers the collection through the process edge it already doubles. Then regenerate the command pages with `uv run devops docs generate`, which rewrites `docs/commands/ci.md` from the changed help text
   - Verification: `$ uv run devops ci docs` passes
-- [ ] 3.2 Edit `docs/TESTING.md` and regenerate `docs/commands/ci.md` with `uv run devops docs generate`
+- [x] 3.2 Edit `docs/TESTING.md` and regenerate `docs/commands/ci.md` with `uv run devops docs generate`
   - Verification: `$ uv run devops ci docs` passes
 
 ## Workflow follow-up
