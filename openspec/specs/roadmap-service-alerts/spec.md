@@ -7,7 +7,7 @@ Defines the Prometheus alerts that watch the roadmap Service: a refused identity
 
 ### Requirement: The roadmap Service has its own alert group
 
-The rule group `roadmap-service` in `k8s/monitoring/prometheus-values.yaml` SHALL hold the critical alerts `RoadmapServiceIdentityRefused` and `RoadmapServiceGitHubThrottled`, and the warning alerts `RoadmapServiceJobsFailing`, `RoadmapServiceLaneStalled`, `RoadmapServiceRestarted`, `RoadmapServiceUnavailable`, `RoadmapServiceGitHubRequestsHigh` and `RoadmapServiceModelRequestsHigh`, and promtool SHALL accept them.
+The rule group `roadmap-service` in `k8s/devops/monitoring/prometheus-rules-values.yaml` SHALL hold the critical alerts `RoadmapServiceIdentityRefused` and `RoadmapServiceGitHubThrottled`, and the warning alerts `RoadmapServiceJobsFailing`, `RoadmapServiceLaneStalled`, `RoadmapServiceRestarted`, `RoadmapServiceUnavailable`, `RoadmapServiceGitHubRequestsHigh` and `RoadmapServiceModelRequestsHigh`, and promtool SHALL accept them.
 
 #### Scenario: promtool reads the rules
 
@@ -143,7 +143,7 @@ Each description in the group SHALL end with `(k8s/README.md, Roadmap service)`,
 - **THEN** `RoadmapServiceGitHubRequestsHigh` stays quiet
 
 ### Requirement: The webhook route has its own alert group
-The rule group `roadmap-service-webhooks` in `k8s/monitoring/prometheus-values.yaml`, separate from the group `roadmap-service`, SHALL hold the warning alert `RoadmapServiceWebhooksRejected`. Its description SHALL end with `(k8s/README.md, Roadmap service)`, and that section SHALL name the alert.
+The rule group `roadmap-service-webhooks` in `k8s/devops/monitoring/prometheus-rules-values.yaml`, separate from the group `roadmap-service`, SHALL hold the warning alert `RoadmapServiceWebhooksRejected`. Its description SHALL end with `(k8s/README.md, Roadmap service)`, and that section SHALL name the alert.
 
 #### Scenario: The rule names the Service
 - **WHEN** a test reads the selectors of the group
@@ -173,7 +173,7 @@ The rule group `roadmap-service-webhooks` in `k8s/monitoring/prometheus-values.y
 - **THEN** `RoadmapServiceWebhooksRejected` stays quiet
 
 ### Requirement: The Service's activity has its own alert group
-The rule group `roadmap-service-activity` in `k8s/monitoring/prometheus-values.yaml`, apart from the group `roadmap-service`, SHALL hold the warning alerts `RoadmapServiceGitHubWritesHigh`, `RoadmapServiceSelfDeliveriesHigh`, `RoadmapServiceWebSearchRefused` and `RoadmapServiceAlternativesNotSearching`. promtool SHALL accept them. Each SHALL select only the Service's job and point to the section "Roadmap service" of `k8s/README.md`.
+The rule group `roadmap-service-activity` in `k8s/devops/monitoring/prometheus-rules-values.yaml`, apart from the group `roadmap-service`, SHALL hold the warning alerts `RoadmapServiceGitHubWritesHigh`, `RoadmapServiceSelfDeliveriesHigh`, `RoadmapServiceWebSearchRefused` and `RoadmapServiceAlternativesNotSearching`. promtool SHALL accept them. Each SHALL select only the Service's job and point to the section "Roadmap service" of `k8s/README.md`.
 
 #### Scenario: The selectors of the group
 - **WHEN** a test reads the selectors of the group
@@ -218,7 +218,7 @@ The rule group `roadmap-service-activity` in `k8s/monitoring/prometheus-values.y
 - **THEN** `RoadmapServiceWebSearchRefused` stays quiet
 
 ### Requirement: The item ages have their own alert group
-The rule group `roadmap-service-items` in `k8s/monitoring/prometheus-values.yaml` SHALL hold the warning alert `RoadmapServiceItemStuck`. promtool SHALL accept it. Each `devops_cli_` selector of the group SHALL have `job="roadmap-service"`. The description SHALL point to the section "Roadmap service" of `k8s/README.md`. That section SHALL say what to do.
+The rule group `roadmap-service-items` in `k8s/devops/monitoring/prometheus-rules-values.yaml` SHALL hold the warning alert `RoadmapServiceItemStuck`. promtool SHALL accept it. Each `devops_cli_` selector of the group SHALL have `job="roadmap-service"`. The description SHALL point to the section "Roadmap service" of `k8s/README.md`. That section SHALL say what to do.
 
 #### Scenario: The selectors of the group
 - **WHEN** a test reads the selectors of the group
@@ -248,7 +248,7 @@ The rule group `roadmap-service-items` in `k8s/monitoring/prometheus-values.yaml
 - **THEN** the alert stays quiet
 
 ### Requirement: The planner tools have their own alert group
-The rule group `roadmap-service-tools` in `k8s/monitoring/prometheus-values.yaml`, apart from the other groups of the Service, SHALL hold the warning alert `RoadmapServiceToolUnused`. Each `devops_cli_` selector of the group SHALL have `job="roadmap-service"`. Its description SHALL end with `(k8s/README.md, Roadmap service)`, and that section SHALL name the alert. promtool SHALL accept the rule.
+The rule group `roadmap-service-tools` in `k8s/devops/monitoring/prometheus-rules-values.yaml`, apart from the other groups of the Service, SHALL hold the warning alert `RoadmapServiceToolUnused`. Each `devops_cli_` selector of the group SHALL have `job="roadmap-service"`. Its description SHALL end with `(k8s/README.md, Roadmap service)`, and that section SHALL name the alert. promtool SHALL accept the rule.
 
 #### Scenario: The selectors of the group
 - **WHEN** a test reads the selectors of the group

@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: deploy-stack dry run lists the Helm upgrade commands
-The dry run of `devops k8s deploy-stack` SHALL list, in `details.helm_commands` after the repository commands, one `helm upgrade --install` command for each release of the selected stacks, in the order of the real run. Each command SHALL carry the release name, the chart, the version, the namespace and each values file of the release after its own `--values`, in the order of the `valueFiles` of the Argo CD Application of the chart. It SHALL carry `--kube-context <context>` when a context is set, and `--wait --timeout <timeout>` when the run waits.
+The dry run of `devops k8s deploy-stack` SHALL list, in `details.helm_commands` after the repository commands, one `helm upgrade --install` command for each release of the selected stacks, in the order of the real run. Each command SHALL carry the release name, the chart, the version, the namespace and `--values <file>` for each values file, in the order of the Application. It SHALL carry `--kube-context <context>` when a context is set, and `--wait --timeout <timeout>` when the run waits.
 
 #### Scenario: The logging stack dry run lists the loki upgrade with chart and version
 - **WHEN** `devops k8s deploy-stack --stack logging --context ctx-example --dry-run` runs

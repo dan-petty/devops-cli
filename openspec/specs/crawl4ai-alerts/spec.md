@@ -6,7 +6,7 @@ The alert rules that tell an operator when the roadmap Service cannot read page 
 ## Requirements
 
 ### Requirement: The Crawl4AI alerts have their own rule group
-The rule group `crawl4ai` in `k8s/monitoring/prometheus-values.yaml` SHALL hold the warning alerts `Crawl4AIFetchesFailing` and `Crawl4AIUnavailable`. promtool SHALL accept them. Each description SHALL point to the section "Crawl4AI" of `k8s/README.md`, and that section SHALL list each alert.
+The rule group `crawl4ai` in `k8s/devops/monitoring/prometheus-rules-values.yaml` SHALL hold the warning alerts `Crawl4AIFetchesFailing` and `Crawl4AIUnavailable`. promtool SHALL accept them. Each description SHALL point to the section "Crawl4AI" of `k8s/README.md`, and that section SHALL list each alert.
 
 #### Scenario: The group and the README
 - **WHEN** a test reads the group and the section "Crawl4AI" of `k8s/README.md`
