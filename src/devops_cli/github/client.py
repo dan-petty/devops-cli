@@ -303,25 +303,22 @@ class _FileContents(BaseModel):
     content: str = ""
 
 
-class _Comparison(BaseModel):
-    """What the compare endpoint says of two commits that devops-cli reads: their merge base."""
+class _CompareFiles(BaseModel):
+    """What the compare endpoint says of two commits: the merge base it compares from, and each
+    file their diff changes. An answer with no `files` is no answer, and not an empty diff."""
 
     merge_base: str = Field(validation_alias=AliasPath("merge_base_commit", "sha"))
-
-
-class _CompareFiles(BaseModel):
-    """What the compare endpoint says of the files of two commits: each file their diff changes.
-    An answer with no `files` is no answer, and not an empty diff."""
-
     files: list[PullRequestFile]
 
 
 class CompareFiles(NamedTuple):
-    """The files a compare answer lists, and whether the answer held GitHub's limit of
-    `CONST_GITHUB_COMPARE_FILES_LIMIT` files, so the list may be truncated."""
+    """The files a compare answer lists, whether the answer held GitHub's limit of
+    `CONST_GITHUB_COMPARE_FILES_LIMIT` files, so the list may be truncated, and the merge base
+    commit that GitHub compared from."""
 
     files: list[PullRequestFile]
     truncated: bool
+    merge_base: str
 
 
 def _read_as[M: BaseModel](model: type[M], answer: Any, *, path: str) -> M:
@@ -458,11 +455,6 @@ class GitHubClient:
         path = _repo_path(repo, f"pulls/{number}")
         self._session.rest("PATCH", path, body={"state": "closed"})
 
-    def get_pull_files(self, repo: str, number: int) -> list[PullRequestFile]:
-        """Every file the pull request changes, read page by linked page."""
-        path = _repo_path(repo, f"pulls/{number}/files?per_page={DEFAULT_GH_REST_PER_PAGE}")
-        return [_read_as(PullRequestFile, item, path=path) for item in self._session.paginate(path)]
-
     def get_file_at(self, repo: str, path: str, ref: str) -> str | None:
         """A file's text at a commit; None when it is absent, binary or too large to fetch.
 
@@ -490,32 +482,33 @@ class GitHubClient:
                 details={"path": endpoint[:CONST_MAX_ERROR_DETAIL_LENGTH]},
             ) from exc
 
-    def get_merge_base(self, repo: str, base: str, head: str) -> str | None:
-        """The merge base of two commits from the compare endpoint; None when GitHub has none.
-
-        A pull request's `base.sha` is a tip of the base branch that GitHub recorded earlier. It
-        can be ahead of the merge base, and GitHub does not move it when a merge commit moves the
-        merge base (#2530). So it is neither the merge base nor the current tip of the branch.
-        Only a 404 reads as None: any other failure raises the session's error.
-        """
-        endpoint = _repo_path(repo, f"compare/{quote(base)}...{quote(head)}?per_page=1")
-        try:
-            comparison = self._session.rest("GET", endpoint)
-        except GitHubNotFoundError:
-            return None
-        return _read_as(_Comparison, comparison, path=endpoint).merge_base
-
     def get_compare_files(self, repo: str, base: str, head: str) -> CompareFiles:
-        """The files that `head` changes since its merge base with `base`, from the compare endpoint.
+        """The files that `head` changes since its merge base with `base`, and that merge base,
+        from the compare endpoint.
 
         `base` is a branch or a commit. GitHub compares from the merge base of the two, so with the
-        tip of a pull request's base branch this is the diff a squash merge applies (#2530). GitHub
-        lists at most `CONST_GITHUB_COMPARE_FILES_LIMIT` files of one comparison, so a list of that
-        length reads as possibly truncated.
+        tip of a pull request's base branch this is the diff a squash merge applies (#2530). A pull
+        request's `base.sha` is a tip of the base branch that GitHub recorded earlier: GitHub does
+        not move it when a merge commit moves the merge base, and the pull request's own file list
+        and diff keep that stale base too. GitHub lists at most `CONST_GITHUB_COMPARE_FILES_LIMIT`
+        files of one comparison, so a list of that length reads as possibly truncated. A 404, for
+        two commits GitHub cannot compare, raises the session's not-found error.
         """
         endpoint = _repo_path(repo, f"compare/{quote(base)}...{quote(head)}?per_page=1")
-        files = _read_as(_CompareFiles, self._session.rest("GET", endpoint), path=endpoint).files
-        return CompareFiles(files=files, truncated=len(files) >= CONST_GITHUB_COMPARE_FILES_LIMIT)
+        compared = _read_as(_CompareFiles, self._session.rest("GET", endpoint), path=endpoint)
+        return CompareFiles(
+            files=compared.files,
+            truncated=len(compared.files) >= CONST_GITHUB_COMPARE_FILES_LIMIT,
+            merge_base=compared.merge_base,
+        )
+
+    def get_compare_diff(self, repo: str, base: str, head: str) -> str:
+        """The unified diff of `head` since its merge base with `base`, from the compare endpoint.
+
+        With the merge base that `get_compare_files` gives, this is the diff of the files it lists
+        (#5346). GitHub sends a diff as text; any other answer raises `GitHubUnreadError`.
+        """
+        return self._read_diff(_repo_path(repo, f"compare/{quote(base)}...{quote(head)}"))
 
     def get_commit_pulls(self, repo: str, sha: str) -> list[CommitPull]:
         """Every pull request that GitHub associates with the commit `sha`, merged or not.
@@ -690,7 +683,11 @@ class GitHubClient:
         GitHub sends a diff as text; any other answer, JSON or a body without a content type,
         raises `GitHubUnreadError`. A pull request with no changes returns an empty string.
         """
-        path = _repo_path(repo, f"pulls/{number}")
+        return self._read_diff(_repo_path(repo, f"pulls/{number}"))
+
+    def _read_diff(self, path: str) -> str:
+        """The diff GitHub serves at `path` in the diff media type, raising `GitHubUnreadError`
+        for an answer that is not text."""
         diff = self._session.rest("GET", path, accept=CONST_GITHUB_DIFF_MEDIA_TYPE)
         if not isinstance(diff, str):
             raise GitHubUnreadError(

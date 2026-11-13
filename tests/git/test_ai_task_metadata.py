@@ -18,6 +18,7 @@ from tests.support.fakes.github import (
     pull_request_file_payload,
     pull_request_payload,
     route_pull_request,
+    route_pull_request_changes,
 )
 
 if TYPE_CHECKING:
@@ -141,12 +142,10 @@ def test_metadata_task_model_override_used_by_analyze_branch_and_pr(
     src_dir.mkdir()
     worker_file = src_dir / "worker.py"
     worker_file.write_text("def do_work(): pass\n", encoding="utf-8")
-    route_pull_request(
-        github_api,
-        "org/repo",
-        42,
-        pull_request_payload(title="Add worker"),
-        files=[pull_request_file_payload("src/worker.py")],
+    pull = pull_request_payload(title="Add worker", base_repo="org/repo")
+    route_pull_request(github_api, "org/repo", 42, pull)
+    route_pull_request_changes(
+        github_api, pull, pull_request_file_payload("src/worker.py"), merge_base="merge789"
     )
 
     recorded_configs: list[AIConfig] = []

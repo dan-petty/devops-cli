@@ -29,9 +29,9 @@ over the fake and over `RecordedGitHubApi`, which answers with GitHub's own answ
 (`run_gh` and the quota refresh).
 
 `pull_request_payload`, `pull_request_file_payload`, `route_pull_request`, `route_file`,
-`route_merge_base` and `route_compare_files` give a test a pull request to read: the fields
-devops-cli reads of one, and the routes that answer the reads a review or an analysis makes of it
-(#891, #2530).
+`route_compare_files`, `route_compare_diff` and `route_pull_request_changes` give a test a pull
+request to read: the fields devops-cli reads of one, and the routes that answer the reads a
+review or an analysis makes of it (#891, #2530, #5346).
 
 `RunnerSession` is a session whose listings a scripted gh runner answers, for the roadmap store
 tests that script gh for the board as well.
@@ -200,15 +200,6 @@ def route_file(api: GitHubApiFake, repo: str, path: str, ref: str, text: str) ->
     )
 
 
-def route_merge_base(api: GitHubApiFake, repo: str, base: str, head: str, sha: str) -> None:
-    """Answer the comparison of `base` and `head` in `repo` with `sha` as their merge base."""
-    api.route(
-        "GET",
-        f"/repos/{repo}/compare/{base}...{head}?per_page=1",
-        github_json({"merge_base_commit": {"sha": sha}}),
-    )
-
-
 def route_compare_files(
     api: GitHubApiFake,
     repo: str,
@@ -224,6 +215,32 @@ def route_compare_files(
         f"/repos/{repo}/compare/{quote(base)}...{quote(head)}?per_page=1",
         github_json({"merge_base_commit": {"sha": merge_base}, "files": list(files)}),
     )
+
+
+def route_compare_diff(api: GitHubApiFake, repo: str, base: str, head: str, diff: str) -> None:
+    """Answer the diff of `head` since its merge base with `base` in `repo` with `diff`, as the
+    compare endpoint sends it in the diff media type."""
+    api.route(
+        "GET",
+        f"/repos/{repo}/compare/{quote(base)}...{quote(head)}",
+        github_text(diff, media_type=CONST_GITHUB_DIFF_MEDIA_TYPE),
+    )
+
+
+def route_pull_request_changes(
+    api: GitHubApiFake,
+    pull: Mapping[str, Any],
+    *files: Mapping[str, Any],
+    merge_base: str,
+    diff: str = "",
+) -> None:
+    """Answer the reads of the changes of `pull`, a `pull_request_payload`, in its base
+    repository: the compare of its base branch and its head commit with `files` and
+    `merge_base`, and `diff` as the diff of the head since `merge_base` (#5346)."""
+    repo = pull["base"]["repo"]["full_name"]
+    head = pull["head"]["sha"]
+    route_compare_files(api, repo, pull["base"]["ref"], head, *files, merge_base=merge_base)
+    route_compare_diff(api, repo, merge_base, head, diff)
 
 
 def route_installation_repositories(api: GitHubApiFake, repos: Sequence[str]) -> None:

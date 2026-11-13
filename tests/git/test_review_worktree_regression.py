@@ -304,8 +304,6 @@ def test_run_pr_review_workflow_partial_context(tmp_path: Path) -> None:
 
     from devops_cli.commands.review import _run_pr_review_workflow
 
-    pull = MagicMock()
-    pull.base.sha = "base-sha"
     head_dir = tmp_path / "head_dir"
     head_dir.mkdir()
 
@@ -316,7 +314,6 @@ def test_run_pr_review_workflow_partial_context(tmp_path: Path) -> None:
         result = _run_pr_review_workflow(
             pages=["page1"],
             title="PR #42: Test",
-            pull=pull,
             number=42,
             head_dir=head_dir,
             base_revision=None,
@@ -337,14 +334,15 @@ def test_run_pr_review_workflow_partial_context(tmp_path: Path) -> None:
 
 
 def test_run_pr_review_workflow_with_worktree(tmp_path: Path) -> None:
-    """When fetch_pr_head succeeds, review runs against detached worktree with partial_context=False."""
+    """When fetch_pr_head succeeds, review runs against detached worktree with partial_context=False,
+    and the base worktree is at the merge base that the base revision names (#5346)."""
     from unittest.mock import MagicMock, patch
 
+    from devops_cli.ai.analyze.symbols import BaseRevision
     from devops_cli.commands.review import _run_pr_review_workflow
     from devops_cli.git.worktree import ReviewWorktrees
 
-    pull = MagicMock()
-    pull.base.sha = "base-sha"
+    base_revision = BaseRevision(changes=(), read=lambda _path: None, revision="merge-sha")
     head_dir = tmp_path / "head_dir"
     head_dir.mkdir()
     wt_dir = tmp_path / "commit_wt"
@@ -361,10 +359,9 @@ def test_run_pr_review_workflow_with_worktree(tmp_path: Path) -> None:
         result = _run_pr_review_workflow(
             pages=["page1"],
             title="PR #42: Test",
-            pull=pull,
             number=42,
             head_dir=head_dir,
-            base_revision=None,
+            base_revision=base_revision,
             summary=False,
             clients=MagicMock(),
             stage_flags=MagicMock(),
@@ -378,4 +375,8 @@ def test_run_pr_review_workflow_with_worktree(tmp_path: Path) -> None:
         assert result == []
         mock_exec.assert_called_once()
         _, kwargs = mock_exec.call_args
-        assert (kwargs["partial_context"], kwargs["target_dir"]) == (False, wt_dir)
+        assert (
+            kwargs["partial_context"],
+            kwargs["target_dir"],
+            mock_ctx.call_args.kwargs["base_rev"],
+        ) == (False, wt_dir, "merge-sha")

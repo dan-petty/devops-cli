@@ -15,6 +15,7 @@ from tests.support.fakes.github import (
     pull_request_file_payload,
     pull_request_payload,
     route_pull_request,
+    route_pull_request_changes,
 )
 
 if TYPE_CHECKING:
@@ -162,16 +163,11 @@ def test_comment_with_findings_renders_findings_and_model_notes() -> None:
 def _route_the_pull_request(
     api: GitHubApiFake, *, files: list[dict[str, Any]], diff: str, comments: bool
 ) -> None:
-    """Serve pull request 42 of org/repo, with `files` and `diff`; with `comments`, GitHub also
-    accepts a comment on it."""
-    route_pull_request(
-        api,
-        "org/repo",
-        42,
-        pull_request_payload(title="Test PR", head_repo="org/repo", base_repo="org/repo"),
-        files=files,
-        diff=diff,
-    )
+    """Serve pull request 42 of org/repo, whose compare with its base branch holds `files` and
+    `diff`; with `comments`, GitHub also accepts a comment on it."""
+    pull = pull_request_payload(title="Test PR", head_repo="org/repo", base_repo="org/repo")
+    route_pull_request(api, "org/repo", 42, pull)
+    route_pull_request_changes(api, pull, *files, merge_base="merge789", diff=diff)
     if comments:
         api.route("POST", "/repos/org/repo/issues/42/comments", github_json({"id": 1}, status=201))
 
@@ -271,39 +267,11 @@ def _post_the_review_without_a_model(cli: Callable[..., Any]) -> Any:
     return cli("review", "pr", "42", "--repo", "org/repo", "--post", "--no-group-analysis")
 
 
-def test_devops_review_pr_post_stops_when_the_files_of_the_pull_request_cannot_be_read(
-    cli: Callable[..., Any], github_api: GitHubApiFake
-) -> None:
-    """A diff of routed files names no file, so the comment lists the pull request's files. When
-    GitHub fails that second read, the command exits 1 and posts nothing: a comment that names
-    no file would look like a review of an empty change."""
-    _route_the_pull_request(
-        github_api,
-        files=[pull_request_file_payload("openspec/changes/1-x/tasks.md", "added")],
-        diff="diff --git a/openspec/changes/1-x/tasks.md b/openspec/changes/1-x/tasks.md\n+- [x] Done.\n",
-        comments=True,
-    )
-    files = "/repos/org/repo/pulls/42/files?per_page=100"
-    github_api.route(
-        "GET",
-        files,
-        github_json([pull_request_file_payload("openspec/changes/1-x/tasks.md", "added")]),
-        github_json({"message": "Server Error"}, status=500),
-    )
-
-    result = _post_the_review_without_a_model(cli)
-
-    assert result.exit_code == 1
-    assert isinstance(result.exception, SystemExit)
-    assert _posted(github_api) == []
-    assert "(HTTP 500)" in result.output
-
-
 def test_devops_review_pr_post_names_the_files_the_pull_request_leaves_in_place(
     cli: Callable[..., Any], github_api: GitHubApiFake
 ) -> None:
-    """A diff of routed files names no file, so the comment lists the pull request's files, and a
-    file the pull request removes is not one of the files checked."""
+    """A diff of routed files names no file, so the comment lists the files of the compare that
+    the review read, and a file the pull request removes is not one of the files checked."""
     _route_the_pull_request(
         github_api,
         files=[

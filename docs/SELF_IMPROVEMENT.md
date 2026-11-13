@@ -742,7 +742,8 @@ project enforces, the inputs the project trusts, or house rules for its document
 A change is reviewed under the conventions it started from, so it cannot loosen its own review
 (#946). `devops review branch` reads conventions with git at the merge base of the branch and its
 base (at `HEAD` for uncommitted changes), not from the working tree, and `devops review pr` reads
-them from the pull request's base. A base with no local branch, as in a CI checkout of a feature,
+them at the merge base of the pull request's head commit and the tip of its base branch, the base
+of the diff that the squash merge applies (#5346). A base with no local branch, as in a CI checkout of a feature,
 is `origin/<base>`, and the checked-out branch is never its own base: with no base at all the diff
 fails. The lookup also stops at a defect corpus's root, which its manifest marks, read at the same
 revision. It reads only regular files: a conventions file that is a link is skipped, on disk and

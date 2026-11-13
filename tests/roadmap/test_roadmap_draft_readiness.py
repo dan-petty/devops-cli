@@ -293,6 +293,7 @@ def test_read_draft_with_active_change_and_no_pull_arg() -> None:
             ),
         ],
         truncated=False,
+        merge_base="base123",
     )
     client.get_file_at.return_value = _COMPLETE_TASKS
 
@@ -424,6 +425,7 @@ def test_read_draft_implement_kind_with_no_change_folder_in_files() -> None:
     client.get_compare_files.return_value = CompareFiles(
         files=[PullRequestFile(filename="src/main.py", status="modified")],
         truncated=False,
+        merge_base="base123",
     )
 
     draft = read_draft("dan-petty/devops-cli", 335, pull=pull, store=store, client=client)

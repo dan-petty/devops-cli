@@ -17,7 +17,11 @@ from devops_cli.ai.analyze.cache import (
 )
 from devops_cli.ai.analyze.scanner import detect_language, sanitize_reference
 from devops_cli.ai.client import LLMClient
-from devops_cli.config.constants import CONST_GIT_MAIN_BRANCH, CONST_MAX_FILE_SIZE_BYTES
+from devops_cli.config.constants import (
+    CONST_GIT_MAIN_BRANCH,
+    CONST_GITHUB_COMPARE_FILES_LIMIT,
+    CONST_MAX_FILE_SIZE_BYTES,
+)
 from devops_cli.config.defaults import (
     DEFAULT_CURRENT_PATH,
     DEFAULT_MATCH_ALL_PATTERN,
@@ -33,7 +37,7 @@ from devops_cli.dry_run import dry_run_class, is_dry_run
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.models.ai import AnalysisMetadata, FileAnalysisMeta
 from devops_cli.models.git import ChangedFile
-from devops_cli.output.console import print_error, print_info
+from devops_cli.output.console import print_error, print_info, print_warning
 
 app = new_typer(
     help=HELP.analyze.app,
@@ -534,7 +538,20 @@ def analyze_pr(  # noqa: C901
         raise typer.Exit(1)
 
     pull = session.client.get_pull(repo_name, pr_number)
-    pull_files = session.client.get_pull_files(repo_name, pr_number)
+    # The files of the compare of the base branch and the head commit, which a squash merge
+    # applies: the pulls files endpoint keeps a stale base after a merge commit moves the merge
+    # base (#5346).
+    compared = session.client.get_compare_files(
+        pull.base.repository or repo_name, pull.base.ref, pull.head.sha
+    )
+    if compared.truncated:
+        print_warning(
+            MESSAGES.analyze.pr_compare_at_file_limit.format(
+                number=pr_number, limit=CONST_GITHUB_COMPARE_FILES_LIMIT
+            ),
+            prefix=False,
+        )
+    pull_files = compared.files
     file_metas: list[FileAnalysisMeta] = []
 
     for f_file in pull_files:
