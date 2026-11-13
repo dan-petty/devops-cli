@@ -20,7 +20,7 @@ Kind: other. Reads: `tests/invariants/test_workflow_contracts.py`, `.pre-commit-
 
 Kind: other. Reads: `CONTRIBUTING.md`, `.pre-commit-config.yaml`. Changes: `CONTRIBUTING.md`.
 
-- [ ] 3.1 Rewrite the Branch row of the Naming table so it gives both accepted forms: `<type>/<issue>-<slug>` for a person and for the implement job, and `copilot/<slug>` for the branch that GitHub gives the Copilot cloud agent and that the agent cannot rename. Keep the `no-commit-to-branch` hook as the check and keep the sentence about `devops repos worktrees add`
+- [x] 3.1 Rewrite the Branch row of the Naming table so it gives both accepted forms: `<type>/<issue>-<slug>` for a person and for the implement job, and `copilot/<slug>` for the branch that GitHub gives the Copilot cloud agent and that the agent cannot rename. Keep the `no-commit-to-branch` hook as the check and keep the sentence about `devops repos worktrees add`
   - Verification: `$ uv run devops ci docs` passes
-- [ ] 3.2 Edit `CONTRIBUTING.md` section 5 so the Branch row of the Naming table names both accepted branch forms and the hook that refuses each other name
+- [x] 3.2 Edit `CONTRIBUTING.md` section 5 so the Branch row of the Naming table names both accepted branch forms and the hook that refuses each other name
   - Verification: `$ uv run devops ci docs` passes
