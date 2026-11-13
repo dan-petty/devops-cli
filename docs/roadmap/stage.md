@@ -134,6 +134,8 @@ In each run the job judges an open item that holds the mark and no `stage.pr`. A
 
 A pushed branch with no mark is never an orphan, because a person or another agent can own it. A retitle between the failure and the next round does not matter, because the job uses the branch of the mark and not the slug of the title. A closed item that holds the mark is not judged. A bad value of the mark counts as no mark.
 
+A stage Job judges the mark of its own item at any age when the check-out of the item (`stage.job`) names the Job: no other run publishes that item. So the pod that the Job controller runs again after an eviction removes the branch of the pod before it, and plans and stages the item in the same run ([The stage Job](#the-stage-job)).
+
 ### The verify screen
 
 The verify screen is the decision point `stage.verify_screen` of [ADR 0020](../adr/0020-a-decision-point-is-a-unit-of-a-workflow-with-a-resolver-chain-and-a-rule-goes-before-a-decision-model.md), before the model review of the stage job. It is pilot 1 of the decision steps of [ADR 0019](../adr/0019-a-decision-step-asks-jev-short-closed-questions-about-evidence-that-tools-extract.md). Code builds a digest of the plan: the criteria of the issue, the groups, the paths that the repository does not hold, and whether the verify command of a group names a test file. One request asks the decision model nine yes/no questions about it, one for each defect type. The cuts of the questions are data, in `src/devops_cli/roadmap/stage/jev_screen_cuts.json`, with the model, the day and the numbers of their fit. The point has no rule, because no rule is proven on the golden set.
@@ -167,6 +169,10 @@ Refine reads the comment as `stage_return`, because it is a comment of the stage
 | `--plan` (the default) | Reads GitHub and calls the model. It prints the changes that `--confirm` writes. It makes no GitHub write and no git write, and keeps each plan that passes the checks as one local file (see [The kept plan](#the-kept-plan)). |
 | `--confirm` | Plans as `--plan` does (it reads a kept plan file when the key matches), and makes the writes in git and on GitHub for each item as soon as the item is planned. |
 | `--dry-run` | Makes no request. It prints the requests and the git commands that a run makes, with placeholders. |
+
+## The stage Job
+
+`--job-item <n>` runs the stage job of item `n` as a stage Job, the pod of a Job from CronJob `roadmap-stage` ([Stage Jobs](../CLUSTER.md#stage-jobs), #5483). It needs `--confirm` and no `--item`. Unlike `--item`, it keeps every rule of a round: a rejected plan, the wait of a failure class, a recorded split and the queue limit leave the item out with the reason of a round. The run reads and writes item `n` alone: its rejection, its orphan and its result. It holds one model call slot, a GitHub request budget of `roadmap.stage.github_requests_per_hour`, and the time budget `roadmap.stage.time_budget_seconds`, cut to the deadline of the Job (`roadmap.stage.job_deadline`) less 1800 s. The exit code is the end of the Job: 0 for a result, 1 for a failure of the item, 75 for a SIGTERM before the time budget ends (`evicted`: the Job controller runs the pod again), and 143 for a SIGTERM after it or a budget that ends before a model call (`deadline`). At its end the Job checks in: when `stage.job` names the Job (`roadmap.stage.job`), it writes `stage.job_result` and clears `stage.job`, `stage.job_at` and `stage.job_deadline` in one write. A `deadline` end also records the failure with the class `timeout`. An `evicted` end keeps the check-out. The command prints the GitHub requests of the pod at its end.
 
 ## The kept plan
 

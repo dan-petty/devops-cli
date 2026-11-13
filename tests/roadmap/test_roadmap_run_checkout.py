@@ -347,3 +347,18 @@ def test_a_job_that_reads_the_clone_fails_without_one_rather_than_reading_the_cw
         True,
         True,
     )
+
+
+def test_a_blobless_checkout_clones_with_no_blobs_and_the_default_clone_takes_them_all(
+    tmp_path: Path, main_remote: Path, child_argvs: list[list[str]]
+) -> None:
+    """A stage Job reads only the staged commit, whose blobs its checkout fetches in one batch, so
+    its clone leaves out the blobs of the history (#5483, ADR 0021 section 6)."""
+    ensure_checkout(REPO, tmp_path / "job", remote_url=str(main_remote), blobless=True)
+    ensure_checkout(REPO, tmp_path / "pod", remote_url=str(main_remote))
+
+    clones = [argv[1:] for argv in child_argvs if argv[1:2] == ["clone"]]
+    assert [argv[:2] for argv in clones] == [
+        ["clone", "--filter=blob:none"],
+        ["clone", str(main_remote)],
+    ]

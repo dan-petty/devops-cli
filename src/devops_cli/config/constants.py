@@ -3796,6 +3796,25 @@ CONST_ROADMAP_STAGE_COMMENT_MARKERS: Final[tuple[str, ...]] = (
 # The age at which the stage job judges its intent mark `stage.pending` (#4051): a mark younger
 # than this is left alone, since another run can be in the middle of its publish.
 CONST_ROADMAP_STAGE_ORPHAN_AGE_SECONDS: Final[int] = 3600
+# The stage Job (#5483): the `activeDeadlineSeconds` of CronJob roadmap-stage, which a gate check
+# holds equal to the manifest, and the margin between the end of the time budget of the Job and
+# its deadline. The margin holds one more model run and the publish: the longest model run of an
+# attempt took 757 s (2026-11-13). The deadline counts across the pods of the Job, so a pod that
+# runs again gets the time that is left.
+CONST_ROADMAP_STAGE_JOB_DEADLINE_SECONDS: Final[int] = 10800
+CONST_ROADMAP_STAGE_JOB_MARGIN_SECONDS: Final[int] = 1800
+# The keys of Secret devops-cli that a stage Job reads, each in the variable of its name: the
+# private key of the App, the key of the gateway and the token of the stage role of the MCP
+# server. The admission policy `roadmap-service-jobs` admits these keys and no other.
+CONST_ROADMAP_STAGE_JOB_SECRET_KEYS: Final[tuple[str, ...]] = (
+    "DEVOPS_CLI_SERVICE_GITHUB_APP_PRIVATE_KEY",
+    "DEVOPS_CLI_AI_API_KEY",
+    "DEVOPS_CLI_MCP_STAGE_TOKEN",
+)
+# The settings whose variables the Service sets on a stage Job: the name of the Job and the time
+# at which its deadline ends.
+CONST_ROADMAP_STAGE_JOB_SETTING: Final[str] = "roadmap.stage.job"
+CONST_ROADMAP_STAGE_JOB_DEADLINE_SETTING: Final[str] = "roadmap.stage.job_deadline"
 # The comment marker of `devops roadmap retitle` (#3486).
 CONST_ROADMAP_RETITLE_COMMENT_MARKER: Final[str] = "<!-- devops roadmap retitle -->"
 # The step `fix-plan` (#5061): the marker of its comment and the hours between two attempts of one

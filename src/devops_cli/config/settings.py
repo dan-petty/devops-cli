@@ -20,6 +20,7 @@ import httpx2
 from pydantic import (
     AfterValidator,
     AnyHttpUrl,
+    AwareDatetime,
     BaseModel,
     ConfigDict,
     Field,
@@ -44,6 +45,8 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_IMPLEMENT_STEP_CLASSES,
     CONST_ROADMAP_LIMIT_CEILING_FACTOR,
     CONST_ROADMAP_SIZE_OPTIONS,
+    CONST_ROADMAP_STAGE_JOB_DEADLINE_SECONDS,
+    CONST_ROADMAP_STAGE_JOB_MARGIN_SECONDS,
     CONST_SETTINGS_CACHE_SETTLE_SECONDS,
 )
 from devops_cli.config.constants import (
@@ -151,6 +154,7 @@ from devops_cli.config.defaults import (
     DEFAULT_ROADMAP_STAGE_FILTER,
     DEFAULT_ROADMAP_STAGE_GATE_RETURN_EXTENSIONS,
     DEFAULT_ROADMAP_STAGE_GATE_RETURNS,
+    DEFAULT_ROADMAP_STAGE_GITHUB_REQUESTS_PER_HOUR,
     DEFAULT_ROADMAP_STAGE_INTERVAL_MINUTES,
     DEFAULT_ROADMAP_STAGE_LIMIT,
     DEFAULT_ROADMAP_STAGE_MAX_REQUESTS,
@@ -162,6 +166,7 @@ from devops_cli.config.defaults import (
     DEFAULT_ROADMAP_STAGE_REVIEW_CALLS_ADVISED,
     DEFAULT_ROADMAP_STAGE_REVIEW_CALLS_NOTICE,
     DEFAULT_ROADMAP_STAGE_STEP_TOKENS,
+    DEFAULT_ROADMAP_STAGE_TIME_BUDGET_SECONDS,
     DEFAULT_ROADMAP_STAGE_TOOLSET,
     DEFAULT_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS,
     DEFAULT_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS_CEILING,
@@ -1233,6 +1238,25 @@ class RoadmapStageConfig(RowCadenceConfig):
         description="Whether the stage_ready row asks TypeSafe Jev if a green plan draft delivers each acceptance criterion of its issue, before it marks the draft ready. A criterion in doubt, a weak test score or an error of Jev keeps the draft a draft and posts one note; the check never marks a draft ready, merges or closes",
         default=False,
     )
+    time_budget_seconds: Annotated[int, Variable()] = Field(
+        description="The most seconds that a stage Job (`devops roadmap stage --job-item`) may plan its item, counted from its start. The planner compares the time with the budget before each model run, so a run that started before the end goes on. The Job cuts the budget to the deadline of the Job less 1800 seconds, for one more model run and the publish. SIGTERM after the end of the budget is the deadline of the Job: the Job records the class and checks in. The value must be above `roadmap.mcp.timeout_seconds` and at most 9000, the deadline of CronJob roadmap-stage less the margin",
+        default=DEFAULT_ROADMAP_STAGE_TIME_BUDGET_SECONDS,
+        ge=1,
+        le=CONST_ROADMAP_STAGE_JOB_DEADLINE_SECONDS - CONST_ROADMAP_STAGE_JOB_MARGIN_SECONDS,
+    )
+    github_requests_per_hour: Annotated[int, Variable()] = Field(
+        description="The most GitHub requests that one stage Job sends in any one hour. A request that the hour has no room for waits. The Job counts its own requests, apart from the budget of the Service (`service.github_requests_per_hour`)",
+        default=DEFAULT_ROADMAP_STAGE_GITHUB_REQUESTS_PER_HOUR,
+        ge=1,
+    )
+    job: Annotated[str | None, Variable()] = Field(
+        description="The name of the stage Job that this process is the pod of. The Service sets it on each stage Job, and no other process sets it. At its end the Job writes its result to the job record of its item, and clears the check-out of the Service, only when the check-out names this Job. A pod that runs again in the same Job removes the branch that its own intent mark names at once",
+        default=None,
+    )
+    job_deadline: Annotated[AwareDatetime | None, Variable()] = Field(
+        description="The time at which the deadline of the stage Job of this pod ends, as an ISO 8601 time with its offset. The Service sets it on each stage Job. The Job cuts `time_budget_seconds` to this time less 1800 seconds",
+        default=None,
+    )
 
     @field_validator("filter")
     @classmethod
@@ -1760,6 +1784,16 @@ class RoadmapConfig(BaseModel):
         default_factory=dict,
         description='The mode of each decision point of the roadmap jobs (ADR 0020), by the name of the point, as a JSON object such as `{"stage.verify_screen": "shadow"}`. `off` runs nothing. `shadow` runs the resolver chain (a proven rule, then the model of `ai.decision_model`, then the current behavior), records its band and the real result, and changes nothing. `on` lets the band act. A point that is not in the mapping is off. A key that names no registered point stops the settings from loading, and so does `on` for a point whose fitted cuts file is not in the repository',
     )
+
+    @model_validator(mode="after")
+    def _stage_job_timeouts_nest(self) -> RoadmapConfig:
+        """tool < step < Job deadline (#5483): a call of an MCP tool ends before the time budget of
+        a stage Job, and the field bound keeps the budget and the margin inside the deadline."""
+        if self.stage.time_budget_seconds <= self.mcp.timeout_seconds:
+            raise ValueError(
+                "roadmap.stage.time_budget_seconds must be above roadmap.mcp.timeout_seconds"
+            )
+        return self
 
     @field_validator("decisions", mode="before")
     @classmethod

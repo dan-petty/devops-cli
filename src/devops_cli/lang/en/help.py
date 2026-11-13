@@ -403,13 +403,19 @@ class K8sCommandHelp:
     run_job_template: str = (
         "The CronJob whose template makes the Job: default is CronJob devops-cli, runner is "
         "CronJob devops-cli-runner, the pod of the implement job (it sets "
-        "roadmap.implement.in_runner)."
+        "roadmap.implement.in_runner), and stage is CronJob roadmap-stage, the pod of the stage "
+        "job of one item."
     )
     run_job_repo: str = (
-        "owner/name of the one repository the runner Job may use. The Job's GitHub token names "
-        "only that repository. Required with --template runner, and used with no other template. "
-        "The Job carries a label of the repository, and the command creates no Job while another "
-        "runner Job of the repository has not ended."
+        "owner/name of the one repository the runner Job or the stage Job may use. The Job's "
+        "GitHub token names only that repository. Required with --template runner and --template "
+        "stage, and used with no other template. The Job carries labels of the repository, and "
+        "the command creates no Job while another Job with the same labels has not ended."
+    )
+    run_job_item: str = (
+        "The issue number of a stage Job: the label roadmap.devops-cli/item of the Job. Required "
+        "with --template stage, and used with no other template. Pass the same number to "
+        "`roadmap stage --job-item`."
     )
     run_job_args: str = "The devops arguments the Job runs, after `--`."
     run_job_wait: str = (
@@ -1792,6 +1798,12 @@ class RoadmapCommandHelp:
     stage_item: str = (
         "Stage the one issue this number names, when it is open and Ready, and ignore the filter "
         "and the limit."
+    )
+    stage_job_item: str = (
+        "Run as the stage Job of the one issue this number names: keep every rule of a round, "
+        "plan and write that issue alone, and end with the exit code of the Job (0 result, "
+        "1 failure, 75 evicted, 143 deadline). Needs --confirm and no --item. The pod of a Job "
+        "from CronJob roadmap-stage runs it. Details: docs/roadmap/stage.md."
     )
     stage_filter: str = (
         "A label filter in the form family=value, over the families status, priority, type, "

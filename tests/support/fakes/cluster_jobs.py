@@ -37,12 +37,20 @@ def runner_cronjob_manifest() -> dict[str, Any]:
     return cronjob
 
 
+STAGE_CRONJOB = yaml.safe_load(
+    (REPO_ROOT / "k8s" / "devops" / "cronjob-stage.yaml").read_text(encoding="utf-8")
+)
+
+
 @dataclass
 class FakeJobs:
     """kubectl in namespace devops: the CronJob, the created Job's pod phase and exit code."""
 
     cronjob: dict[str, Any] | None = field(default_factory=lambda: copy.deepcopy(CRONJOB))
     runner_cronjob: dict[str, Any] | None = field(default_factory=runner_cronjob_manifest)
+    stage_cronjob: dict[str, Any] | None = field(
+        default_factory=lambda: copy.deepcopy(STAGE_CRONJOB)
+    )
     phases: list[str] = field(default_factory=lambda: ["Pending", "Running"])
     exit_code: str = "0"
     listed: list[dict[str, Any]] = field(default_factory=list)
@@ -59,7 +67,10 @@ class FakeJobs:
     def _answer(self, argv: list[str], stdin: str | None) -> str:
         verb = argv[3:5]
         if verb == ["get", "cronjob"]:
-            held = self.runner_cronjob if argv[5] == "devops-cli-runner" else self.cronjob
+            held = {
+                "devops-cli-runner": self.runner_cronjob,
+                "roadmap-stage": self.stage_cronjob,
+            }.get(argv[5], self.cronjob)
             return json.dumps(held) if held else ""
         if verb == ["get", "jobs"]:
             return json.dumps({"items": self._matching(argv)})

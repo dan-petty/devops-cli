@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import copy
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
@@ -503,3 +503,81 @@ def test_the_dry_run_of_the_runner_template_lists_exactly_the_requests_a_run_the
         0,
         [[a for a in argv if a not in ("--context", "test-ctx")] for argv in expected],
     )
+
+
+# ── The stage template (#5483) ────────────────────────────────────────────────
+
+STAGE_ARGS = ("roadmap", "stage", "--repo", REPO, "--job-item", "7", "--confirm")
+
+
+def test_a_stage_job_carries_the_labels_of_its_item_and_names_itself_and_its_deadline(
+    cluster_jobs: FakeJobs,
+) -> None:
+    before = datetime.now(UTC)
+
+    result = _run("--template", "stage", "--repo", REPO, "--item", "7", "--", *STAGE_ARGS)
+
+    (job,) = cluster_jobs.created
+    (container,) = job["spec"]["template"]["spec"]["containers"]
+    env = {entry["name"]: entry.get("value") for entry in container["env"]}
+    deadline = datetime.fromisoformat(env["DEVOPS_CLI_ROADMAP_STAGE_JOB_DEADLINE"])
+    labels = job["spec"]["template"]["metadata"]["labels"]
+    assert result.exit_code == 0, result.output
+    assert (
+        job["metadata"]["name"].startswith("devops-cli-stage-roadmap-7-"),
+        container["name"],
+        container["args"],
+        env["DEVOPS_CLI_ROADMAP_STAGE_JOB"],
+        env[REPO_ENV],
+        deadline >= before + timedelta(seconds=10800),
+        labels["roadmap.devops-cli/item"],
+        labels["app.kubernetes.io/component"],
+    ) == (
+        True,
+        "stage",
+        list(STAGE_ARGS),
+        job["metadata"]["name"],
+        REPO,
+        True,
+        "7",
+        "roadmap-stage",
+    )
+
+
+def test_a_running_stage_job_of_the_item_blocks_a_second_one(cluster_jobs: FakeJobs) -> None:
+    from devops_cli.github.repo_ref import RepoRef
+    from devops_cli.k8s.cluster_job import stage_job_labels
+
+    cluster_jobs.listed = [
+        {"metadata": {"name": "devops-cli-stage-a", "labels": stage_job_labels(RepoRef(REPO), 7)}}
+    ]
+
+    result = _run("--template", "stage", "--repo", REPO, "--item", "7", "--", *STAGE_ARGS)
+
+    assert (result.exit_code, cluster_jobs.created) == (1, [])
+    assert "devops-cli-stage-a" in result.output
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        pytest.param(("--template", "stage", "--repo", REPO), id="stage-without-item"),
+        pytest.param(("--template", "stage", "--item", "7"), id="stage-without-repo"),
+        pytest.param(("--template", "runner", "--repo", REPO, "--item", "7"), id="item-on-runner"),
+        pytest.param(("--item", "7"), id="item-on-default"),
+    ],
+)
+def test_the_item_goes_with_the_stage_template_and_its_repository(
+    cluster_jobs: FakeJobs, args: tuple[str, ...]
+) -> None:
+    result = _run(*args, "--", *STAGE_ARGS)
+
+    assert (result.exit_code, cluster_jobs.calls) == (1, [])
+
+
+def test_the_dry_run_of_the_stage_template_names_its_cronjob_and_its_labels() -> None:
+    result = _run("--template", "stage", "--repo", REPO, "--item", "7", "--dry-run", "--", "x")
+
+    assert result.exit_code == 0, result.output
+    assert "cronjob roadmap-stage" in result.output
+    assert "roadmap.devops-cli/item=7" in result.output

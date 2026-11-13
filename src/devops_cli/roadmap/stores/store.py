@@ -245,7 +245,13 @@ class StageRecordKey(StrEnum):
     text that the plan came from, the time of the close and the files that the reason names. The
     job writes `stage.pending`, the branch name and the time as JSON, before it pushes the branch
     and clears it in the record after the draft (#4051): an open item with the mark, a pushed
-    branch and no `stage.pr` is an orphan that a later round removes."""
+    branch and no `stage.pr` is an orphan that a later round removes. A stage Job runs one item in
+    a pod of its own (#5483). Before the Service creates the Job, it checks the item out:
+    `stage.job` names the Job, `stage.job_at` holds the time of the check-out and
+    `stage.job_deadline` the time at which the deadline of the Job ends. At its end the Job checks
+    in: it writes `stage.job_result`, the Job, its result and the time as JSON, and clears the
+    check-out, in one write. These four keys belong to the check-out, so no write of a plan, a
+    removal or a rejection clears them (`STAGE_JOB_KEYS`)."""
 
     BRANCH = "stage.branch"
     PR = "stage.pr"
@@ -265,6 +271,26 @@ class StageRecordKey(StrEnum):
     TEXT_HASH = "stage.text_hash"
     REJECTED = "stage.rejected"
     PENDING = "stage.pending"
+    JOB = "stage.job"
+    JOB_AT = "stage.job_at"
+    JOB_DEADLINE = "stage.job_deadline"
+    JOB_RESULT = "stage.job_result"
+
+
+# The keys of the check-out and the check-in of a stage Job (#5483).
+STAGE_JOB_KEYS: Final[frozenset[StageRecordKey]] = frozenset(
+    {
+        StageRecordKey.JOB,
+        StageRecordKey.JOB_AT,
+        StageRecordKey.JOB_DEADLINE,
+        StageRecordKey.JOB_RESULT,
+    }
+)
+# The keys of the plan of an item: a removal of its staged branch and a rejection of its plan
+# clear them, and keep the keys of the check-out.
+STAGE_PLAN_KEYS: Final[tuple[StageRecordKey, ...]] = tuple(
+    key for key in StageRecordKey if key not in STAGE_JOB_KEYS
+)
 
 
 class FixPlanRecordKey(StrEnum):
@@ -1188,6 +1214,8 @@ def get_roadmap_store(
 
 __all__ = [
     "FIELD_VALUES",
+    "STAGE_JOB_KEYS",
+    "STAGE_PLAN_KEYS",
     "AlternativesRecordKey",
     "Candidate",
     "Change",

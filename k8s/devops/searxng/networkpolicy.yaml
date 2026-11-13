@@ -1,6 +1,6 @@
 # The perimeter of the SearXNG pod (#3924). It has no limiter and no login, so this policy is the
-# access control: only the roadmap Service reaches the pod, and the pod reaches DNS and public
-# HTTPS pages only. `devops-default-perimeter` skips this pod, so it also gets no path to the
+# access control: only the roadmap Service and the pod of a stage Job (#5483) reach the pod, and
+# the pod reaches DNS and public HTTPS pages only. `devops-default-perimeter` skips this pod, so it also gets no path to the
 # gateway or to the cache Valkey.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -17,12 +17,16 @@ spec:
     - Ingress
     - Egress
   ingress:
-    # Only the roadmap Service calls the pod. A pod selector peer alone: kube-router refused a
-    # namespace and pod selector peer paired with `ports`.
+    # Only the roadmap Service and the pod of a stage Job call the pod. Pod selector peers alone:
+    # kube-router refused a namespace and pod selector peer paired with `ports`.
     - from:
         - podSelector:
             matchLabels:
               app.kubernetes.io/name: roadmap-service
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: devops-cli-job
+              app.kubernetes.io/component: roadmap-stage
       ports:
         - protocol: TCP
           port: 8080

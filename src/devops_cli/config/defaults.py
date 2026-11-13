@@ -893,6 +893,14 @@ DEFAULT_ROADMAP_STAGE_LIMIT: int = 3
 # 2026-11-11, one return ended 66 of about 110 failed stage rounds, and in 8 of 10 sampled items the
 # returned reply had fewer problems; a plan with problems in two modules needs a third reply.
 DEFAULT_ROADMAP_STAGE_GATE_RETURNS: int = 3
+# The time budget of a stage Job (#5483): the p99 of a stage round of the Service was 6,547 s
+# (2026-11-13), and the budget with the margin of `CONST_ROADMAP_STAGE_JOB_MARGIN_SECONDS` ends at
+# the deadline of the Job, 10,800 s.
+DEFAULT_ROADMAP_STAGE_TIME_BUDGET_SECONDS: int = 9000
+# The GitHub requests that one stage Job may send in an hour (#5483). The stage row of the Service
+# sent 3,357 requests a day (about 140 an hour) on 2026-11-13; a Job starts with an empty cache.
+# The measure of the first live Job sets the value.
+DEFAULT_ROADMAP_STAGE_GITHUB_REQUESTS_PER_HOUR: int = 1000
 # The repair rounds of a plan that the model review returns (#3039, #5066): the planner revises the
 # plan this many times while the review has an open finding, and one more time while the last review
 # fixes more earlier findings than it adds (#5409), up to

@@ -904,12 +904,20 @@ class K8sMessages:
         "token then names only that repository. No Job was created."
     )
     job_repo_needs_runner: str = (
-        "--repo sets the repository of a runner Job. Use it with --template runner. No Job was "
+        "--repo sets the repository of a runner Job or a stage Job. Use it with --template runner "
+        "or --template stage. No Job was created."
+    )
+    job_stage_needs_item: str = (
+        "A stage Job needs the repository and the item it plans. Pass --repo owner/name and "
+        "--item <number>, and give the same number to `roadmap stage --job-item`. No Job was "
         "created."
     )
+    job_item_needs_stage: str = (
+        "--item sets the item of a stage Job. Use it with --template stage. No Job was created."
+    )
     job_runner_running: str = (
-        "A runner Job of {repo} has not ended: {names}. A second runner Job for the repository "
-        "could push to the same branch. Wait for the Job to end, or follow it with: "
+        "A Job of {repo} with the same labels has not ended: {names}. A second Job could push to "
+        "the same branch. Wait for the Job to end, or follow it with: "
         "kubectl -n devops logs -f job/<name>. No Job was created."
     )
     job_deployment_missing: str = "Deployment devops/{deployment} not found."
@@ -4241,6 +4249,12 @@ class RoadmapMessages:
         "#{number}. The attempt counts as attempt {count} on head {head}."
     )
     fix_plan_sigterm: str = "SIGTERM ended fix-plan. The class of the kill: {kill}."
+    # The stage Job of one item (#5483).
+    stage_job_item_needs: str = "--job-item needs --confirm and no --item."
+    stage_job_ended: str = (
+        "The stage Job of item #{number} ended: {result}, exit code {code}. The pod sent "
+        "{requests} GitHub requests in its budget of {limit} an hour."
+    )
     fix_plan_left_branch: str = (
         "The branch {branch} of pull request #{pull} does not name the item."
     )

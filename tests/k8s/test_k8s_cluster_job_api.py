@@ -428,3 +428,38 @@ def test_a_refused_read_of_a_deployment_raises(
 
     with pytest.raises(ClusterJobError, match="read Deployment in namespace devops: HTTP 403"):
         ClusterJobs().deployment_digest("roadmap-service", "service")
+
+
+def test_a_delete_removes_the_job_and_lets_the_garbage_collector_remove_its_pods(
+    kube: FakeCluster,
+) -> None:
+    kube.custom_objects.objects[JOBS] = [_job("devops-cli-stage-a"), _job("devops-cli-stage-b")]
+
+    ClusterJobs().delete_job("devops-cli-stage-a")
+
+    (call,) = [c for c in kube.custom_objects.calls if c[0] == "delete_namespaced_custom_object"]
+    assert (
+        [job["metadata"]["name"] for job in kube.custom_objects.objects[JOBS]],
+        call[1]["name"],
+        call[1]["plural"],
+        call[1]["namespace"],
+        call[1]["propagation_policy"],
+    ) == (["devops-cli-stage-b"], "devops-cli-stage-a", "jobs", "devops", "Background")
+
+
+def test_a_delete_of_a_job_that_is_gone_is_no_error(kube: FakeCluster) -> None:
+    ClusterJobs().delete_job("devops-cli-stage-gone")
+
+    assert [c[0] for c in kube.custom_objects.calls] == ["delete_namespaced_custom_object"]
+
+
+def test_a_refused_delete_is_an_error_that_names_the_action_and_the_status(
+    kube: FakeCluster, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def refuse(*_: Any, **__: Any) -> Any:
+        raise api_exception(403, "Forbidden")
+
+    monkeypatch.setattr(kube.custom_objects, "delete_namespaced_custom_object", refuse)
+
+    with pytest.raises(ClusterJobError, match="delete Job in namespace devops: HTTP 403 Forbidden"):
+        ClusterJobs().delete_job("devops-cli-runner-a")

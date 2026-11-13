@@ -130,6 +130,7 @@ devops roadmap stage [OPTIONS]
 | `--repo`, `-R` | `string` | - | Repository as owner/name (default: this checkout's origin). |
 | `--source` | `path` | - | Path to a clone of the repository at its default branch. Without it, the job clones the repository into its own model clone, updates it, and uses it. |
 | `--item` | `integer` | - | Stage the one issue this number names, when it is open and Ready, and ignore the filter and the limit. |
+| `--job-item` | `integer` | - | Run as the stage Job of the one issue this number names: keep every rule of a round, plan and write that issue alone, and end with the exit code of the Job (0 result, 1 failure, 75 evicted, 143 deadline). Needs --confirm and no --item. The pod of a Job from CronJob roadmap-stage runs it. Details: docs/roadmap/stage.md. |
 | `--filter` | `string` | - | A label filter in the form family=value, over the families status, priority, type, value and effort. Repeat the option: the values of one family are alternatives, and the families all apply. The default is the setting roadmap.stage.filter. |
 | `--limit` | `integer` | - | Maximum number of items to stage in this run. The default is the setting roadmap.stage.limit. |
 | `--step-tokens` | `integer` | - | Most tokens that the inputs of one implementation step may hold. The default is the setting roadmap.stage.step_tokens. |
