@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.132.0](https://github.com/dan-petty/devops-cli/compare/v0.131.0...v0.132.0) (2026-11-13)
+
+
+### Features
+
+* **k8s:** set the pod overhead of RuntimeClass gvisor ([#5530](https://github.com/dan-petty/devops-cli/issues/5530)) ([6eae498](https://github.com/dan-petty/devops-cli/commit/6eae498088b2ff86a06883638e50b1a4fe3ad11a))
+* **roadmap:** add the stage Job template and one-item entry point ([#5545](https://github.com/dan-petty/devops-cli/issues/5545)) ([28db551](https://github.com/dan-petty/devops-cli/commit/28db551f603760a1e59e4165ef6003fc700e1515))
+
+
+### Bug Fixes
+
+* **roadmap:** leave out changed intake candidates and count plan calls ([#5540](https://github.com/dan-petty/devops-cli/issues/5540)) ([d44b9fa](https://github.com/dan-petty/devops-cli/commit/d44b9fa4e44f3731e1269736dc4f921489e46de2))
+
 ## [0.131.0](https://github.com/dan-petty/devops-cli/compare/v0.130.0...v0.131.0) (2026-11-13)
 
 
