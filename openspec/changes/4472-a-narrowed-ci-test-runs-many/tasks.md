@@ -1,0 +1,30 @@
+# Tasks
+
+## 1. Choose a narrowed run's workers from the collected tests
+
+Kind: behavior. Reads: `src/devops_cli/commands/ci.py`, `src/devops_cli/config/defaults.py`, `src/devops_cli/lang/en/messages.py`, `src/devops_cli/lang/en/help.py`, `src/devops_cli/roadmap/implement/implement_test_form.py`, `tests/commands/test_test_selection.py`, `tests/support/fakes/process.py`, `tests/support/session_spawns.py`. Changes: `src/devops_cli/commands/ci.py`, `src/devops_cli/config/defaults.py`, `src/devops_cli/lang/en/messages.py`, `src/devops_cli/lang/en/help.py`, `tests/commands/test_test_selection.py`.
+
+- [ ] 1.1 Add the failing case `tests/commands/test_test_selection.py::test_a_selection_past_the_collected_test_limit_runs_on_the_capped_workers` and replace `tests/commands/test_test_selection.py::test_a_selection_past_the_serial_limit_runs_on_the_capped_workers` with it, because the file count no longer decides alone
+  - Verification: `$ uv run devops ci test tests/commands/test_test_selection.py` fails on the base
+- [ ] 1.2 Write the failing cases first in `tests/commands/test_test_selection.py`: import `DEFAULT_CI_TEST_SERIAL_MAX_TESTS` and `ProcessAnswer`, make `_pytest_runs` and `_started_runs` skip a child that holds `--collect-only`, and answer the collection with `process_fake.answer` and a matcher on `--collect-only` whose `ProcessAnswer` stdout holds one test id on each line. A collection of `DEFAULT_CI_TEST_SERIAL_MAX_TESTS + 1` ids runs on `DEFAULT_CI_TEST_NARROWED_WORKERS`; a collection of `DEFAULT_CI_TEST_SERIAL_MAX_TESTS` ids runs serially; a collection that exits 5 runs serially and prints no warning; a collection that exits 3 over 13 target files prints the warning and runs on `DEFAULT_CI_TEST_NARROWED_WORKERS`, because the file-count rule gives 4 workers above 12 files while a count of zero gives `-n 0`; a `-k slow` selection passes `-k slow` to the collection and to the run; a given `-n` and a run with no paths make no collection call. Then add `DEFAULT_CI_TEST_SERIAL_MAX_TESTS: Final[int] = 50` beside the file-count constant with a comment that states the rule, add the collection-failure warning to the CI messages beside `repeat_seed_unavailable`, and rewrite the `-n` help text to say that the collected tests choose the workers. Add `_collection_cmd(targets, keyword)`, which returns `[*_build_test_cmd("0", False, keyword, False, None), "--collect-only", "-q", *targets]`, and `_collected_test_count(targets, keyword)`, which returns None in a dry run, starts the command with `asyncio.run(_run_in_own_session(cmd, _get_project_root(), DEFAULT_SUBPROCESS_TIMEOUT_SECONDS, True, None))`, returns 0 on exit 5, returns None with the warning on `subprocess.TimeoutExpired` or any other non-zero exit, re-raises `asyncio.CancelledError` as `typer.Exit(CONST_EXIT_CANCELLED)`, and otherwise returns `collected_items(stdout)`. Give `_narrowed_workers(targets, collected)` the collected count and keep the count of test modules for the None case
+  - Verification: `$ uv run devops ci test tests/commands/test_test_selection.py` passes
+
+## 2. Skip the collection in the tests that read the pytest run
+
+Kind: other. Reads: `tests/commands/test_ci.py`, `tests/commands/test_ci_repeat.py`, `tests/support/session_spawns.py`, `src/devops_cli/commands/ci.py`. Changes: `tests/commands/test_ci.py`, `tests/commands/test_ci_repeat.py`.
+
+- [ ] 2.1 In `tests/commands/test_ci.py`, update `test_staged_sources_select_the_worktrees_tests` so that its `runs` list drops a child that holds `--collect-only`, because the collection is now the first pytest child. Give `-n 2` to `test_a_test_run_past_its_timeout_fails_naming_its_command_and_timeout` and to the invocation that `_run_recording_handlers` makes, which serves `test_a_run_takes_over_ctrl_c_sigterm_and_sighup_and_hands_them_back`, `test_a_run_off_the_main_thread_sets_no_signal_handler` and `test_an_ignored_hangup_stays_ignored_through_a_run`. Add `-n 2` to the default argv of `_devops_ci_test`, which serves `test_a_signal_to_devops_ci_test_lets_pytest_tear_down_then_stops_its_group` and `test_a_second_signal_to_devops_ci_test_cannot_skip_the_sigkill`, so their fake `uv` is the child that waits for the signal. In `tests/commands/test_ci_repeat.py`, drop a call that holds `--collect-only` from what `_invoke` returns, so `test_the_gate_and_a_plain_run_stay_in_file_order` keeps the one run that it compares
+  - Verification: `$ uv run devops ci test tests/commands/test_ci.py tests/commands/test_ci_repeat.py` passes
+
+## 3. Describe the collected-test worker rule in the docs
+
+Kind: other. Reads: `docs/TESTING.md`, `docs/commands/ci.md`, `src/devops_cli/lang/en/help.py`. Changes: `docs/TESTING.md`, `docs/commands/ci.md`.
+
+- [ ] 3.1 Replace the file-count sentence of `docs/TESTING.md` with the collected-test rule: the collection command, the threshold of 50 collected tests, the `-k` filter, an empty collection, the fallback on a failure with its 13-file example, and the runs that make no collection call. State that a test that drives the command answers the collection through the process edge it already doubles. Then regenerate the command pages with `uv run devops docs generate`, which rewrites `docs/commands/ci.md` from the changed help text
+  - Verification: `$ uv run devops ci docs` passes
+- [ ] 3.2 Edit `docs/TESTING.md` and regenerate `docs/commands/ci.md` with `uv run devops docs generate`
+  - Verification: `$ uv run devops ci docs` passes
+
+## Workflow follow-up
+
+- Pending a person: review the diff in tuicr (tuicr -r <base>..HEAD).
