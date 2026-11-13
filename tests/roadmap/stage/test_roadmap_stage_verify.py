@@ -589,7 +589,7 @@ def test_a_later_review_gets_the_earlier_findings_and_the_answer() -> None:
         _finding(DefectType.FALSE_PREMISE, "The job drops the last comment"),
         Finding(
             type=DefectType.TASK_ORDER,
-            where="group 2",
+            where=place("tasks", "2"),
             problem="The test comes last.",
             quote="Keep the last comment",
         ),
@@ -601,14 +601,14 @@ def test_a_later_review_gets_the_earlier_findings_and_the_answer() -> None:
         {
             "number": 1,
             "type": "false_premise",
-            "where": "group 1",
+            "where": {"part": "tasks", "section": "1", "capability": ""},
             "problem": "The plan is wrong.",
             "quote": "The job drops the last comment",
         },
         {
             "number": 2,
             "type": "task_order",
-            "where": "group 2",
+            "where": {"part": "tasks", "section": "2", "capability": ""},
             "problem": "The test comes last.",
             "quote": "Keep the last comment",
         },
@@ -713,6 +713,67 @@ def test_an_earlier_finding_with_both_verdicts_holds() -> None:
     judged = judge_later(reply, _later_input(earlier))
 
     assert (judged.open, judged.fixed) == (tuple(earlier), ())
+
+
+def test_a_new_finding_of_a_later_review_on_a_place_that_the_plan_does_not_hold_is_advice() -> None:
+    """The place rule of #5410 holds for a new finding of a later review too: a requirement that
+    the spec delta of the revision does not hold makes it advice, also with a quote in the
+    changed text."""
+    from devops_cli.roadmap.stage.stage_verify import (
+        EarlierVerdict,
+        Judgement,
+        LaterVerification,
+        Verdict,
+        judge_later,
+    )
+
+    earlier = [_finding(DefectType.FALSE_PREMISE, "The job drops the last comment")]
+    given = _later_input(earlier)
+    outside = Finding(
+        type=DefectType.SPEC_DELTA_WRONG,
+        where=place("spec", "The job reads each comment once", "comment-thread"),
+        problem="The requirement repeats a rule of the base spec.",
+        quote=REVISED_WHY,
+    )
+    reply = LaterVerification(
+        earlier=[EarlierVerdict(number=1, verdict=Verdict.GONE)], findings=[outside]
+    )
+
+    judged = judge_later(reply, given)
+
+    assert (given.in_answer(outside.quote), given.holds(outside.where)) == (True, False)
+    assert judged == Judgement(findings=(outside,), open=(), fixed=(earlier[0],), added=())
+
+
+def test_an_earlier_finding_that_holds_keeps_its_place_when_the_revision_drops_it() -> None:
+    """A later review does not judge the place of an earlier finding again: the review that
+    opened the finding checked its place. A finding that the reply marks `holds` stays open with
+    its locator, also when the revision has no such group now, so a broken reply closes no
+    finding."""
+    from devops_cli.roadmap.stage.stage_verify import (
+        EarlierVerdict,
+        LaterVerification,
+        Verdict,
+        judge_later,
+    )
+
+    second = _finding(DefectType.TASK_ORDER, "Keep the last comment", where=place("tasks", "2"))
+    revision = {**PLAN, "groups": PLAN["groups"][:1]}
+    given = VerificationInput.of(
+        number=7,
+        title="fix(roadmap): the job drops a comment",
+        body="The job drops the last comment.\nIt happens on a long thread.",
+        plan=revision,
+        source=Path("/nonexistent"),
+        earlier=[second],
+        previous=PLAN,
+    )
+    reply = LaterVerification(earlier=[EarlierVerdict(number=1, verdict=Verdict.HOLDS)])
+
+    judged = judge_later(reply, given)
+
+    assert given.holds(second.where) is False
+    assert (judged.open, judged.fixed, judged.added) == ((second,), (), ())
 
 
 def test_a_first_review_keeps_its_request_and_its_prompt() -> None:

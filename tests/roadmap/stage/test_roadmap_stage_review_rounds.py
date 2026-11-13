@@ -176,7 +176,7 @@ def test_a_review_that_fixes_as_many_findings_as_it_adds_gets_no_round_after_the
     )
     added = Finding(
         type=DefectType.FALSE_PREMISE,
-        where="why",
+        where=Locator(part=PlanPart.PROPOSAL, section="why"),
         problem="The second repair names no test.",
         quote="the second repair keeps it",
     )
@@ -200,7 +200,7 @@ def test_a_repair_round_sends_the_earlier_findings_and_the_answer(
     first_review = _review(1)
     unchanged = Finding(
         type=DefectType.FALSE_PREMISE,
-        where="group 1",
+        where=Locator(part=PlanPart.TASKS, section="1"),
         problem="The group reads the wrong file.",
         quote=ISSUE_QUOTE,
     )
@@ -214,6 +214,35 @@ def test_a_repair_round_sends_the_earlier_findings_and_the_answer(
     assert later["answer"] == [REVISED_WHY]
     # The new finding quotes the issue, a text that the revision did not change: it is advice.
     assert (change.open_findings, unchanged in change.findings) == ((), True)
+
+
+def test_a_later_finding_on_a_requirement_that_the_plan_does_not_hold_keeps_the_revision(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo, model_fake: ModelFake, verifier: ModelFake
+) -> None:
+    """A new finding of a later review follows the place rule of #5410: on a requirement that
+    the spec delta of the revision does not hold, it is advice, also with a quote in the changed
+    text. So the stage keeps the revision and returns no plan."""
+    model_fake.answer(make_stage_proposal(), make_stage_proposal(why=REVISED_WHY))
+    outside = Finding(
+        type=DefectType.SPEC_DELTA_WRONG,
+        where=Locator(
+            part=PlanPart.SPEC,
+            section="The job reads each comment once",
+            capability="comment-thread",
+        ),
+        problem="The requirement repeats a rule of the base spec.",
+        quote=REVISED_WHY,
+    )
+    verifier.answer(_review(1), later_review(GONE, findings=(outside,)))
+
+    (change,) = _plan(store, stage_repo, model_fake, verifier).ready
+
+    assert (model_fake.call_count, verifier.call_count) == (2, 2)
+    assert (change.proposal.why, change.open_findings, outside in change.findings) == (
+        REVISED_WHY,
+        (),
+        True,
+    )
 
 
 def test_no_item_gets_more_repair_rounds_than_the_ceiling(

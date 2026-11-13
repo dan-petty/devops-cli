@@ -29,7 +29,8 @@ findings of the review before it, and `answer`, the blocks of lines of the plan 
 added or changed (`changed_texts`): the planner fixes a finding at its place or shows in
 `feasibility` that it is no defect, so the changed text is its answer. Its reply
 (`LaterVerification`) gives each earlier finding the verdict `holds` or `gone`, and a new finding
-is open only when its quote is in a block of `answer` (`judge_later`). A first review keeps the
+is open only when the revision holds its place and its quote is in a block of `answer`
+(`judge_later`). An earlier finding keeps its locator. A first review keeps the
 request, the prompt and the schema that it had before, so the golden set scores the same pass.
 """
 
@@ -579,11 +580,12 @@ def judge_later(
 ) -> Judgement:
     """What the later review `reply` made of the plan of `given` (#5409). An earlier finding that
     the reply marks `holds`, gives no verdict, or reports again as a new finding stays open as it
-    is: the review that opened it checked its quote. Any other earlier finding that it marks
-    `gone` is fixed, but not a finding that it also marks `holds`. So a reply that breaks the
-    rules keeps a finding and never closes one. A new finding is open only when `open_findings`
-    opens it and its quote is in a block of `answer`, the text that the revision changed. Any
-    other new finding is advice, and a new finding that is an earlier one adds nothing."""
+    is, with its locator: the review that opened it checked its quote and its place (#5410). Any
+    other earlier finding that it marks `gone` is fixed, but not a finding that it also marks
+    `holds`. So a reply that breaks the rules keeps a finding and never closes one. A new finding
+    is open only when `open_findings` opens it, so the revision holds its place, and its quote is
+    in a block of `answer`, the text that the revision changed. Any other new finding is advice,
+    and a new finding that is an earlier one adds nothing."""
     holds = {entry.number for entry in reply.earlier if entry.verdict is Verdict.HOLDS}
     gone = {entry.number for entry in reply.earlier if entry.verdict is Verdict.GONE} - holds
     fixed = tuple(

@@ -12,7 +12,7 @@ Each finding of the verification reply SHALL name its place in `where` with a `p
 - **THEN** its line starts with "- `spec_delta_wrong` at spec roadmap-item-claim (A release keeps a Status): "
 
 ### Requirement: A finding on a place that the plan does not hold is advice
-A finding whose place the plan or the issue of the request does not hold SHALL be advice, whatever its type and its quote. A text of a tool answer SHALL NOT make a place that the plan holds.
+A finding whose place the plan or the issue of the request does not hold SHALL be advice, whatever its type and its quote. A text of a tool answer SHALL NOT make a place that the plan holds. In a later review, the rule SHALL apply to each new finding on the revision, and an earlier finding that the review marks `holds` SHALL stay open with its place.
 
 #### Scenario: A finding on a requirement that the plan does not hold
 - **WHEN** the review of the plan of pull request #5350 at head ccfbab2e9586, whose spec delta changes three requirements of `roadmap-item-claim`, returns a `spec_delta_wrong` finding on a fourth requirement with a quote from a `read_spec` answer
@@ -26,10 +26,18 @@ A finding whose place the plan or the issue of the request does not hold SHALL b
 - **WHEN** the review of a plan with two task groups returns a `missing_path` finding on group 3 with a quote of the plan
 - **THEN** `open_findings` returns no finding
 
+#### Scenario: A later review opens a finding on a requirement that the revision does not hold
+- **WHEN** a later review marks the earlier finding `gone` and opens a `spec_delta_wrong` finding whose quote is in a block of `answer` and whose place is a requirement that the spec delta of the revision does not hold
+- **THEN** the finding is advice, the planner gets no third request, and the staged change holds the revision with no open finding
+
+#### Scenario: An earlier finding that holds keeps its place
+- **WHEN** a later review marks `holds` an earlier finding on group 2, and the revision has one group
+- **THEN** the finding stays open
+
 ## MODIFIED Requirements
 
 ### Requirement: An evidence-backed finding returns the plan for the set repair rounds
-A finding of type `missing_path`, `false_premise`, `ignores_existing_code`, `task_order`, `verify_form`, `spec_delta_wrong` or `criterion_dropped` whose quote is in the issue, the plan, a cited file or a tool answer of the run, and whose place the plan or the issue holds, SHALL return the plan to the planner, with each open finding of the round as the problem. The revised plan SHALL pass the gates and the verification again, at most `roadmap.stage.verify_repair_rounds` times, which is two by default, and for each extra round that the rule of the extension allows.
+A finding of type `missing_path`, `false_premise`, `ignores_existing_code`, `task_order`, `verify_form`, `spec_delta_wrong` or `criterion_dropped` that quotes its input or a tool answer of the run, on a place of the plan or the issue, SHALL return the plan to the planner with each open finding of the round as the problem. The revision SHALL pass the gates and the review again, at most `roadmap.stage.verify_repair_rounds` times (two by default), and for each extra round of the extension.
 
 #### Scenario: A false premise with a quote
 - **WHEN** the verifier returns a `false_premise` finding whose quote is in the issue

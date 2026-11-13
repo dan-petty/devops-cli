@@ -34,11 +34,21 @@ Kind: behavior. Reads: `src/devops_cli/commands/roadmap_eval_screen.py`. Changes
 - [x] 4.2 Read each `--reviewer` report through `stored_cases`, which `resumed_outcomes` shares, so a report in the old form raises `ConfigurationError` with the name of the file; say in the message and in `docs/ROADMAP_WORKFLOW.md` that a new run gives a report in the new form
   - Verification: `$ uv run devops ci test tests/commands/test_roadmap_eval_screen.py tests/roadmap/stage/test_roadmap_stage_verify_eval.py`
 
+## 5. Apply the place rule in a later review
+
+Kind: behavior. Reads: `src/devops_cli/roadmap/stage/stage.py`. Changes: `src/devops_cli/roadmap/stage/stage_verify.py`, `tests/roadmap/stage/test_roadmap_stage_verify.py`, `tests/roadmap/stage/test_roadmap_stage_review_rounds.py`, `docs/roadmap/stage.md`.
+
+- [x] 5.1 Write `test_a_new_finding_of_a_later_review_on_a_place_that_the_plan_does_not_hold_is_advice` and `test_an_earlier_finding_that_holds_keeps_its_place_when_the_revision_drops_it` in `tests/roadmap/stage/test_roadmap_stage_verify.py`, and `test_a_later_finding_on_a_requirement_that_the_plan_does_not_hold_keeps_the_revision` in `tests/roadmap/stage/test_roadmap_stage_review_rounds.py`
+  - Verification: `$ uv run devops ci test tests/roadmap/stage/test_roadmap_stage_verify.py tests/roadmap/stage/test_roadmap_stage_review_rounds.py`
+- [x] 5.2 Say in the docstring of `judge_later` and in `docs/roadmap/stage.md` that a new finding of a later review follows the place rule and that an earlier finding keeps its locator
+  - Verification: `$ uv run devops docs check`
+
 ## Criteria
 
 - Group 1: `uv run devops ci fail-to-pass --base origin/main` shows that `test_a_finding_on_a_requirement_that_the_plan_does_not_hold_is_advice` fails on the base and passes on the head.
 - Group 2: the replays of fix-plan read the open findings of the stage comment fixtures.
 - Group 3: `uv run devops docs check` passes.
 - Group 4: `devops roadmap eval screen --reviewer` with a report in the old form exits 1 and names the file.
-- Pending a person: run `uv run devops roadmap eval verify` on the base and on the head with the same cases and model, and compare the recall of the blocker and major defects. The base does not reach `CONST_ROADMAP_VERIFY_RECALL_FLOOR`, so the comparison shows only whether the prompt lowers the recall.
+- Group 5: `uv run devops ci fail-to-pass --base origin/main` shows that `test_a_new_finding_of_a_later_review_on_a_place_that_the_plan_does_not_hold_is_advice` fails on the base and passes on the head.
+- The eval: `uv run devops roadmap eval verify --case 2166 --case 2169 --model deepseek-v4.1-flash-1017` gives on the head a recall that is not lower than on the base, and the pull request comment gives both numbers. The base does not reach `CONST_ROADMAP_VERIFY_RECALL_FLOOR`, so the comparison shows only whether the prompt lowers the recall.
 - Pending a person: review the diff in tuicr (tuicr -r <base>..HEAD).

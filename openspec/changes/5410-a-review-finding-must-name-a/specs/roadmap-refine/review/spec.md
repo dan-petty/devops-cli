@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: A refusal of the review is a job failure that a later round fixes
-A finding of the type `missing_path`, `false_premise`, `ignores_existing_code` or `spec_delta_wrong`, or a placeholder, with a quote that the input holds and a place that the proposal or the issue holds, SHALL be an open finding. With an open finding, refine SHALL keep the item New, record `refine.judge` `refused`, the failed check `judge_refused` and the open findings in `refine.judge_findings`, and write no comment. The next request SHALL give them as `judge_findings`. Another finding SHALL be advice.
+A finding of the type `missing_path`, `false_premise`, `ignores_existing_code` or `spec_delta_wrong`, or a placeholder, that quotes the input and names a place of the proposal or the issue SHALL be an open finding. With an open finding, refine SHALL keep the item New, record `refine.judge` `refused`, the failed check `judge_refused` and the open findings in `refine.judge_findings`, and write no comment. The next request SHALL give them as `judge_findings`. Another finding SHALL be advice.
 
 #### Scenario: The review refuses
 - **WHEN** the review finds a `false_premise` that quotes the problem statement, and a `contrived_test` with no quote
