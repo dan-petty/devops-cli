@@ -1944,7 +1944,11 @@ def test_staged_sources_select_the_worktrees_tests(
 
     result = runner.invoke(app, ["test", "src/pkg/widget.py"])
 
-    runs = [call for call in process_fake.calls if "pytest" in call.argv]
+    runs = [
+        call
+        for call in process_fake.calls
+        if "pytest" in call.argv and "--collect-only" not in call.argv
+    ]
     assert (
         result.exit_code,
         [("tests/test_widget.py" in call.argv, call.cwd) for call in runs],
@@ -2532,7 +2536,7 @@ def test_a_test_run_past_its_timeout_fails_naming_its_command_and_timeout(
         raise TimeoutError
 
     spawns = record_spawns(monkeypatch, on_communicate=outlive_the_timeout)
-    result = runner.invoke(app, ["test", "tests/test_x.py"])
+    result = runner.invoke(app, ["test", "-n", "2", "tests/test_x.py"])
 
     timed_out = MESSAGES.ci.run_timed_out.format(
         command=shlex.join(spawns[0].argv), timeout=f"{DEFAULT_SUBPROCESS_TIMEOUT_SECONDS:g}s"
@@ -2565,7 +2569,7 @@ def _run_recording_handlers(
             raise OSError("the run's output could not be read")
 
     record_spawns(monkeypatch, on_communicate=record_handlers)
-    return runner.invoke(app, ["test", "tests/test_x.py"]).exit_code, during
+    return runner.invoke(app, ["test", "-n", "2", "tests/test_x.py"]).exit_code, during
 
 
 @pytest.mark.usefixtures("narrowed_project", "default_signal_dispositions")
@@ -2624,9 +2628,12 @@ def test_an_ignored_hangup_stays_ignored_through_a_run(monkeypatch: pytest.Monke
 
 
 def _devops_ci_test(
-    project: Path, fake_uv: Path, log: Path, args: tuple[str, ...] = ("test", "tests/test_x.py")
+    project: Path,
+    fake_uv: Path,
+    log: Path,
+    args: tuple[str, ...] = ("test", "-n", "2", "tests/test_x.py"),
 ) -> subprocess.Popen[bytes]:
-    """`devops ci` with `args`, `test tests/test_x.py` by default, the real command in a process
+    """`devops ci` with `args`, `test -n 2 tests/test_x.py` by default, the real command in a process
     of its own, with `fake_uv` first on PATH and telemetry off, so it opens no socket; its output
     goes to `log`. The tree under test's `src` leads its PYTHONPATH, so it runs that tree's
     devops-cli, not whichever the console script's install points at, as a replay on another tree

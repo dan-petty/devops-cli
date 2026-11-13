@@ -492,6 +492,11 @@ DEFAULT_CI_TEST_REPEAT_RUNS: Final[int] = 0
 # about the same CPU. A source module selects a median of 3 test modules and a p90 of 12; 90%
 # select at most 12.
 DEFAULT_CI_TEST_SERIAL_MAX_FILES: Final[int] = 12
+# The collected tests below which a narrowed run given no `-n` runs serially (#4472): the issue's
+# selection of 7 test modules held 399 slow tests, which ran serially past the 1800 s timeout.
+# The count is the run's own collection, narrowed by its `-k` filter; the file count above decides
+# only when that collection fails.
+DEFAULT_CI_TEST_SERIAL_MAX_TESTS: Final[int] = 50
 DEFAULT_CI_TEST_NARROWED_WORKERS: Final[int] = 4
 # `devops ci job-time` (#2699): how many of the last runs of the test job its mean covers. The
 # issue #3050 states the mean over 20 runs of `main`.

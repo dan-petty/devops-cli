@@ -21,6 +21,7 @@ from devops_cli.config.constants import (
 from devops_cli.config.defaults import (
     DEFAULT_CI_TEST_NARROWED_WORKERS,
     DEFAULT_CI_TEST_SERIAL_MAX_FILES,
+    DEFAULT_CI_TEST_SERIAL_MAX_TESTS,
 )
 from devops_cli.core.coverage_index import CoverageIndex, save_index
 from devops_cli.core.test_selection import (
@@ -30,7 +31,7 @@ from devops_cli.core.test_selection import (
     select_tests_for_sources,
 )
 from tests.support.ci_root import tracked_blobs
-from tests.support.fakes.process import ProcessFake
+from tests.support.fakes.process import ProcessAnswer, ProcessFake
 from tests.support.paths import REPO_ROOT, TESTS_ROOT
 from tests.support.session_spawns import RecordedSpawn, record_spawns
 from tests.support.trees import parse_python_file
@@ -38,6 +39,11 @@ from tests.support.trees import parse_python_file
 pytestmark = pytest.mark.usefixtures("refuse_nested_test_runs")
 
 runner = CliRunner()
+
+# The option that tells the collection which chooses the workers from the pytest run itself.
+_COLLECTION_MARK = "--collect-only"
+# The opening words of the warning that a failed collection prints.
+_COLLECTION_WARNING = "Could not collect the selected tests"
 
 
 @pytest.fixture
@@ -68,8 +74,27 @@ def project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 
 def _pytest_runs(process_fake: ProcessFake) -> list[list[str]]:
-    """The command line of each pytest run the command started, in order."""
-    return [list(call.argv) for call in process_fake.calls if "pytest" in call.argv]
+    """The command line of each pytest run the command started, in order; the collection that
+    chooses the workers is no run."""
+    return [
+        list(call.argv)
+        for call in process_fake.calls
+        if "pytest" in call.argv and _COLLECTION_MARK not in call.argv
+    ]
+
+
+def _collection_calls(process_fake: ProcessFake) -> list[list[str]]:
+    """The command line of each pytest collection the command started, in order."""
+    return [list(call.argv) for call in process_fake.calls if _COLLECTION_MARK in call.argv]
+
+
+def _answer_collection(process_fake: ProcessFake, tests: int, *, returncode: int = 0) -> None:
+    """Answer the collection with `tests` collected test ids, or with `returncode` and no id."""
+    ids = "".join(f"tests/test_selected_{number}.py::test_noop\n" for number in range(tests))
+    process_fake.answer(
+        lambda call: _COLLECTION_MARK in call.argv,
+        ProcessAnswer(returncode=returncode, stdout=ids if returncode == 0 else ""),
+    )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -529,15 +554,21 @@ def _worker_options(argv: list[str]) -> list[list[str]]:
     return [argv[at : at + 2] for at, arg in enumerate(argv) if arg in ("-n", "--numprocesses")]
 
 
+def _keyword_options(argv: list[str]) -> list[str]:
+    """The values of the `-k` options of a command line."""
+    return [argv[at + 1] for at, arg in enumerate(argv) if arg == "-k"]
+
+
 def _started_runs(
     monkeypatch: pytest.MonkeyPatch, project: Path, *args: str
 ) -> tuple[int, list[RecordedSpawn]]:
-    """`devops ci test <args>` run from the project, its exit code and the children it started,
-    doubled at `asyncio.create_subprocess_exec`, so none of them is real."""
+    """`devops ci test <args>` run from the project, its exit code and the pytest children it
+    started, doubled at `asyncio.create_subprocess_exec`, so none of them is real; the collection
+    that chooses the workers is no run."""
     monkeypatch.chdir(project)
     spawns = record_spawns(monkeypatch)
     result = runner.invoke(ci_app, ["test", *args])
-    return result.exit_code, spawns
+    return result.exit_code, [spawn for spawn in spawns if _COLLECTION_MARK not in spawn.argv]
 
 
 def _test_modules(project: Path, count: int) -> list[str]:
@@ -569,21 +600,100 @@ def test_a_narrowed_run_chooses_its_workers_and_the_full_suite_keeps_addopts(
     assert (exit_code, [_worker_options(spawn.argv) for spawn in spawns]) == (0, [workers])
 
 
-def test_a_selection_past_the_serial_limit_runs_on_the_capped_workers(
-    monkeypatch: pytest.MonkeyPatch, project: Path
+def test_a_selection_past_the_collected_test_limit_runs_on_the_capped_workers(
+    process_fake: ProcessFake, project: Path
 ) -> None:
-    """A selection of up to DEFAULT_CI_TEST_SERIAL_MAX_FILES test modules runs serially, where
-    starting workers costs more than it saves; one module more runs on
-    DEFAULT_CI_TEST_NARROWED_WORKERS workers, never on every logical CPU (#1669)."""
+    """A selection that collects more than DEFAULT_CI_TEST_SERIAL_MAX_TESTS tests runs on
+    DEFAULT_CI_TEST_NARROWED_WORKERS workers, never on every logical CPU, and one that collects
+    no more runs serially, where starting workers costs more than it saves; the 13 test modules
+    of the selection would give the capped workers by the file count alone (#1669, #4472)."""
     modules = _test_modules(project, DEFAULT_CI_TEST_SERIAL_MAX_FILES + 1)
 
-    _code, at_limit = _started_runs(monkeypatch, project, *modules[:-1])
-    _code, past_limit = _started_runs(monkeypatch, project, *modules)
+    _answer_collection(process_fake, DEFAULT_CI_TEST_SERIAL_MAX_TESTS + 1)
+    past_exit_code = runner.invoke(ci_app, ["test", *modules]).exit_code
+    _answer_collection(process_fake, DEFAULT_CI_TEST_SERIAL_MAX_TESTS)
+    at_limit_exit_code = runner.invoke(ci_app, ["test", *modules]).exit_code
 
-    assert [_worker_options(spawn.argv) for spawn in at_limit + past_limit] == [
-        [["-n", "0"]],
-        [["-n", str(DEFAULT_CI_TEST_NARROWED_WORKERS)]],
-    ]
+    assert (
+        past_exit_code,
+        at_limit_exit_code,
+        [_worker_options(argv) for argv in _pytest_runs(process_fake)],
+    ) == (
+        0,
+        0,
+        [[["-n", str(DEFAULT_CI_TEST_NARROWED_WORKERS)]], [["-n", "0"]]],
+    )
+
+
+def test_the_collection_repeats_the_targets_and_the_keyword_of_the_run(
+    process_fake: ProcessFake, project: Path
+) -> None:
+    """The collection collects the same targets and the same `-k` filter as the run, so it counts
+    the tests the run would collect (#4472)."""
+    _answer_collection(process_fake, 5)
+
+    result = runner.invoke(
+        ci_app, ["test", "-k", "slow", "tests/test_secrets.py", "tests/test_unrelated.py"]
+    )
+
+    collection = _collection_calls(process_fake)[0]
+    assert (
+        result.exit_code,
+        _keyword_options(collection),
+        sorted(arg for arg in collection if arg.startswith("tests/")),
+        _keyword_options(_pytest_runs(process_fake)[0]),
+    ) == (0, ["slow"], ["tests/test_secrets.py", "tests/test_unrelated.py"], ["slow"])
+
+
+def test_a_collection_that_matches_no_test_runs_serially_without_a_warning(
+    process_fake: ProcessFake, project: Path
+) -> None:
+    """pytest exits 5 when the selection collects no test, as a `-k` filter that matches none
+    gives; that is a count of zero, so the run is serial and no warning names a failure (#4472)."""
+    _answer_collection(process_fake, 0, returncode=5)
+
+    result = runner.invoke(ci_app, ["test", "-k", "no-such-test", "tests/test_secrets.py"])
+
+    assert (result.exit_code, [_worker_options(argv) for argv in _pytest_runs(process_fake)]) == (
+        0,
+        [[["-n", "0"]]],
+    )
+    assert _COLLECTION_WARNING not in result.output
+
+
+def test_a_failed_collection_falls_back_to_the_file_count_with_a_warning(
+    process_fake: ProcessFake, project: Path
+) -> None:
+    """A collection that fails prints a warning that names it and keeps the file-count rule: 13
+    test modules are more than DEFAULT_CI_TEST_SERIAL_MAX_FILES, so the run takes
+    DEFAULT_CI_TEST_NARROWED_WORKERS workers, where a count of zero would run serially (#4472)."""
+    modules = _test_modules(project, DEFAULT_CI_TEST_SERIAL_MAX_FILES + 1)
+    _answer_collection(process_fake, 0, returncode=3)
+
+    result = runner.invoke(ci_app, ["test", *modules])
+
+    assert (result.exit_code, [_worker_options(argv) for argv in _pytest_runs(process_fake)]) == (
+        0,
+        [[["-n", str(DEFAULT_CI_TEST_NARROWED_WORKERS)]]],
+    )
+    assert _COLLECTION_WARNING in " ".join(result.output.split())
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        pytest.param((), id="full-suite"),
+        pytest.param(("-n", "2", "tests/test_secrets.py"), id="workers-given"),
+    ],
+)
+def test_a_run_that_chooses_its_workers_by_other_means_makes_no_collection(
+    process_fake: ProcessFake, project: Path, args: tuple[str, ...]
+) -> None:
+    """A run with no paths keeps addopts' `-n logical`, and a given `-n` is kept as it is, so
+    neither starts a collection (#4472)."""
+    result = runner.invoke(ci_app, ["test", *args])
+
+    assert (result.exit_code, _collection_calls(process_fake)) == (0, [])
 
 
 def test_the_test_run_starts_pytest_in_a_session_of_its_own(

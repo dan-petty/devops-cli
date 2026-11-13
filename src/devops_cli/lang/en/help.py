@@ -896,8 +896,9 @@ class CICommandHelp:
     filter_keyword: str = "Filter tests by keyword expression."
     stop_fail: str = "Stop after first failure."
     num_workers: str = (
-        "Number of parallel worker processes. Unset, a run narrowed to a few test files runs "
-        "serially, a larger selection on a few workers, and the full suite on every logical CPU."
+        "Number of parallel worker processes. Unset, a run narrowed to the tests that it selects "
+        "runs serially up to 50 collected tests and on a few workers above them, and the full "
+        "suite on every logical CPU."
     )
     test_paths: str = (
         "Source or test files, or directories of src/ or tests/, to verify. Narrows the run to "

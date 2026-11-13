@@ -68,7 +68,11 @@ def _invoke(
     with pytest.MonkeyPatch.context() as monkeypatch:
         record_spawns(monkeypatch, on_communicate=record_in_session)
         result = runner.invoke(CI, ["test", *args])
-    ran = [(list(call.argv), call.cwd) for call in process_fake.calls]
+    ran = [
+        (list(call.argv), call.cwd)
+        for call in process_fake.calls
+        if "--collect-only" not in call.argv
+    ]
     return result, [*ran, *spawned]
 
 

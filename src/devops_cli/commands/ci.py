@@ -52,6 +52,7 @@ from devops_cli.config.defaults import (
     DEFAULT_CI_TEST_NARROWED_WORKERS,
     DEFAULT_CI_TEST_REPEAT_RUNS,
     DEFAULT_CI_TEST_SERIAL_MAX_FILES,
+    DEFAULT_CI_TEST_SERIAL_MAX_TESTS,
     DEFAULT_PYTHON_VERSION,
     DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
 )
@@ -1930,13 +1931,54 @@ def _build_test_cmd(
     return cmd
 
 
-def _narrowed_workers(targets: list[str] | None) -> str | None:
+def _collection_cmd(targets: list[str], keyword: str | None) -> list[str]:
+    """The command that collects the tests the run selects: the run's own command, serially and
+    quiet, with the same targets and `-k` filter, so the count follows what the run would run."""
+    return [*_build_test_cmd("0", False, keyword, False, None), "--collect-only", "-q", *targets]
+
+
+def _collected_test_count(targets: list[str], keyword: str | None) -> int | None:
+    """The number of tests that the selection collects, which chooses the workers; None when a
+    dry run collects nothing, or when the collection timed out or failed, so that the file count
+    decides (#4472). pytest's exit 5 is a collection of no test, as a `-k` filter that matches
+    none gives, and so a count of zero."""
+    if is_dry_run():
+        return None
+    cmd = _collection_cmd(targets, keyword)
+    try:
+        result = asyncio.run(
+            _run_in_own_session(
+                cmd, _get_project_root(), DEFAULT_SUBPROCESS_TIMEOUT_SECONDS, True, None
+            )
+        )
+    except subprocess.TimeoutExpired:
+        reason = f"a timeout after {DEFAULT_SUBPROCESS_TIMEOUT_SECONDS:g}s"
+    except asyncio.CancelledError:
+        raise typer.Exit(CONST_EXIT_CANCELLED) from None
+    else:
+        if result.returncode == 0:
+            from devops_cli.roadmap.implement.implement_test_form import collected_items
+
+            return collected_items(result.stdout or "")
+        if result.returncode == 5:
+            return 0
+        reason = f"exit code {result.returncode}"
+    print_warning(MESSAGES.ci.test_collection_failed.format(command=shlex.join(cmd), reason=reason))
+    return None
+
+
+def _narrowed_workers(targets: list[str] | None, collected: int | None = None) -> str | None:
     """The `-n` of a run given none (#1669): none for the full suite, so addopts' `-n logical`
-    applies; serial for a selection of up to DEFAULT_CI_TEST_SERIAL_MAX_FILES test modules,
-    where each xdist worker's start-up and collection cost more than it saves; and
-    DEFAULT_CI_TEST_NARROWED_WORKERS workers above that."""
+    applies; serial for a selection of no more than DEFAULT_CI_TEST_SERIAL_MAX_TESTS collected
+    tests, where each xdist worker's start-up and collection cost more than it saves; and
+    DEFAULT_CI_TEST_NARROWED_WORKERS workers above that. When the collection gave no count, the
+    number of test modules decides, up to DEFAULT_CI_TEST_SERIAL_MAX_FILES (#4472)."""
     if targets is None:
         return None
+    if collected is not None:
+        if collected <= DEFAULT_CI_TEST_SERIAL_MAX_TESTS:
+            return "0"
+        return str(DEFAULT_CI_TEST_NARROWED_WORKERS)
     if len(targets) <= DEFAULT_CI_TEST_SERIAL_MAX_FILES:
         return "0"
     return str(DEFAULT_CI_TEST_NARROWED_WORKERS)
@@ -2017,7 +2059,10 @@ def test(
         _run_shuffled_repeats(_build_test_cmd("0", verbose, k, x, None), targets, repeat, seed)
         return
 
-    workers = numprocesses if numprocesses is not None else _narrowed_workers(targets)
+    workers = numprocesses
+    if workers is None:
+        collected = _collected_test_count(targets, k) if targets else None
+        workers = _narrowed_workers(targets, collected)
     cmd = _build_test_cmd(workers, verbose, k, x, targets)
     with _gate_slot(workers is None):
         passed = _run(cmd, own_session=True)
