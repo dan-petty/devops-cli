@@ -4162,6 +4162,10 @@ class RoadmapMessages:
         "`plan/needs-fix`, because the model review of its plan found an open finding. Fix the "
         "plan, or remove the label when the finding is no defect."
     )
+    # The time budget of a step (#5363).
+    time_budget_spent: str = (
+        "The time budget of {seconds} seconds ({setting}) is spent, so {work} does not start."
+    )
     # The step fix-plan (#5061).
     fix_plan_no_review: str = (
         "The step fix-plan needs the model review of the verification task, and the planner has "
@@ -4275,6 +4279,12 @@ class RoadmapMessages:
         "The pull request keeps the label `plan/needs-fix`, and the step does not return the item "
         "to New: a person decides. {evidence}{findings}"
     )
+    fix_plan_comment_timeout: str = (
+        "{marker}\nThe time budget of the step fix-plan ({budget} seconds, "
+        "`roadmap.fix_plan.time_budget_seconds`) ended in the step `{step}` of the attempt on "
+        "the plan of #{pull} ({head}). The step pushed nothing, and the pull request keeps the label "
+        "`plan/needs-fix`. The attempt made {counts}.{findings}"
+    )
     fix_plan_stop_premise: str = (
         "The body of the item says that a class field is absent, and the default branch defines "
         "it: {evidence}"
@@ -4325,7 +4335,7 @@ class RoadmapMessages:
             "validate": "the openspec binary is on PATH",
             "update_pull": "the title or the body of the pushed plan differs",
             "unlabel": "cleared (no open finding remains), dismissed (the review of the head found none), or regated after a review of the new plan with no open finding and no failed step",
-            "comment": "the result is revised, cleared, regated, dismissed or stopped",
+            "comment": "the result is revised, cleared, regated, dismissed, stopped or timeout",
         }
     )
     jev_completeness_question_plan: str = (

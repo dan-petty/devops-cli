@@ -66,6 +66,30 @@ def test_confirm_with_item_runs_the_attempt(
     assert PLAN_NEEDS_FIX_LABEL not in roadmap_store._roadmap.issues[plan.pull].labels
 
 
+def test_confirm_writes_the_progress_and_the_result_lines_to_stderr(
+    cli: Cli,
+    roadmap_store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    github_api: GitHubApiFake,
+    openspec_fake: OpenSpecFake,
+) -> None:
+    """A Job runs the command, and its log is what the command writes, so the lines of each round
+    and the result line are in the log also when the deadline of the Job stops the pod (#5363)."""
+    valid_changes(openspec_fake)
+    plan = needs_fix_plan(roadmap_store, stage_repo, github_api)
+    model_fake.answer(Verification())
+
+    result = _fix_plan(cli, stage_repo, "--confirm", "--item", str(plan.number))
+
+    assert result.exit_code == 0, result.output
+    lines = result.stderr.splitlines()
+    progress = [line for line in lines if line.startswith("fix-plan progress: ")]
+    results = [line for line in lines if line.startswith("roadmap job result: job=fix_plan ")]
+    assert (len(progress), len(results)) == (1, 1)
+    assert "result=dismissed" in results[0]
+
+
 def test_the_dry_run_makes_no_request_and_lists_the_reads_and_the_writes(
     cli: Cli,
     github_api: GitHubApiFake,
