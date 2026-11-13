@@ -13,9 +13,9 @@ Kind: behavior. Reads: `src/devops_cli/roadmap/decision_table.py`, `src/devops_c
 
 Kind: behavior. Reads: `src/devops_cli/config/settings.py`, `tests/config/test_decision_point_settings.py`. Changes: `src/devops_cli/config/settings.py`, `tests/config/test_decision_point_settings.py`.
 
-- [ ] 2.1 Add `test_the_decisions_description_names_the_shadow_rule` to `tests/config/test_decision_point_settings.py`: it reads the description of the field `RoadmapConfig.decisions` and asserts that it names `shadow` and a cuts file in the repository
+- [x] 2.1 Add `test_the_decisions_description_names_the_shadow_rule` to `tests/config/test_decision_point_settings.py`: it reads the description of the field `RoadmapConfig.decisions` and asserts that it names `shadow` and a cuts file in the repository
   - Verification: `$ uv run devops ci test tests/config/test_decision_point_settings.py` fails on the base
-- [ ] 2.2 Extend the `description` of the field `decisions` of `RoadmapConfig` so that it states that a point in `shadow` or in `on` needs a cuts file in the repository, and that the load stops when the file is absent
+- [x] 2.2 Extend the `description` of the field `decisions` of `RoadmapConfig` so that it states that a point in `shadow` or in `on` needs a cuts file in the repository, and that the load stops when the file is absent
   - Verification: `$ uv run devops ci test tests/config/test_decision_point_settings.py` passes
 
 ## 3. Declare the duration histogram and the failed counter
