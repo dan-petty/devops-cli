@@ -12,6 +12,8 @@ An issue that the roadmap tracks is an Item ([CONTEXT.md](../CONTEXT.md)). Three
 
 A comment of a Service job or of an agent on an issue gives evidence and its sources. It does not repeat the issue, and it comes once for each change of the facts.
 
+[docs/AGENTIC_WORKFLOWS.md](AGENTIC_WORKFLOWS.md) sets how the project builds, measures and tunes the agentic jobs of these steps.
+
 The state of an Item is in labels on its issue ([ADR 0016](adr/0016-labels-hold-the-roadmap-items-fields.md)). Each actor reads the same labels. Each actor follows the same steps. A person makes the three decisions that no other actor makes: the gates.
 
 ## The eight steps
@@ -355,7 +357,7 @@ A plan is acceptable when a person merges it without rework. The golden set meas
 
 - **Recall.** After the gates and the verification pass, the job finds at least 90% of the known defects of the severities `blocker` and `major`. `devops roadmap eval verify` prints this recall and the floor, which is `CONST_ROADMAP_VERIFY_RECALL_FLOOR` (0.9), and states whether the recall reaches it. The verification pass returns a plan `roadmap.stage.verify_repair_rounds` repair rounds (default 2, #3039), and one more round while the last review fixes more earlier findings than it adds, up to `roadmap.stage.verify_repair_rounds_ceiling` rounds (default 4, #5066, #5409, #5440).
 - **Good plans.** The verification pass makes no finding on the good plans of the golden set. `devops roadmap eval verify` prints the mean of the findings that would return a good plan to the planner, for each good plan that it verified, and the ceiling, which is `CONST_ROADMAP_VERIFY_GOOD_RETURNING_CEILING`, and states whether the mean passes it (#5411). Only a blocker or a major finding returns a plan, so a minor or a nit finding does not count. A pass that finds more defects must not get there by returning good plans.
-- **Live plans.** At least 80% of the plan pull requests that the job opens in a period are merged without a hold. A person reads the pull requests and records the share.
+- **Live plans.** At least 80% of the plan pull requests that the job opens in 28 days are merged without a hold. A person reads the pull requests and records the share.
 
 A cheaper model or a lower cap must keep the score of the baseline on the same eval. The score of the current model is no bar, because that model fails the live plans that a person reviewed on 2026-11-02.
 

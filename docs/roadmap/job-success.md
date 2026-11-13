@@ -1,6 +1,6 @@
 # The success of the roadmap jobs
 
-Each roadmap job gets a job grade from its measured success, and each grade has one action. The owner tunes the caps and the limits of a roadmap job only after the job holds 80% success. This page gives the measure of each job, the log line that counts it, the queries that read it, the job grades and the 80% rule. The rules that a test checks are in the specs named at the end of this page.
+Each roadmap job gets a job grade from its measured success, and each grade has one action. A job under 80% success gets larger limits, and only a job that holds 80% success gets smaller limits for cost ([the tuning loop](../AGENTIC_WORKFLOWS.md#the-tuning-loop)). This page gives the measure of each job, the log line that counts it, the queries that read it, the job grades and the 80% rule. The rules that a test checks are in the specs named at the end of this page.
 
 ## Why a log line and not a counter
 
@@ -104,7 +104,7 @@ The ratio `p` is the successes divided by the attempts with `infra=false`. An in
 
 ### The 80% rule
 
-A job holds 80% when, at 3 daily checks in a row, its 7-day ratio is 0.80 or more and it has 30 attempts or more in the 7 days. Only then does the owner tune the caps of the job from its real performance. Under 30 attempts, the ratio is too few to judge, and the job does not hold 80%.
+A job holds 80% when, at 3 daily checks in a row, its 7-day ratio is 0.80 or more and it has 30 attempts or more in the 7 days. Only then do the caps of the job go down for cost, from its real performance ([the tuning loop](../AGENTIC_WORKFLOWS.md#the-tuning-loop)). Under 30 attempts, the ratio is too few to judge, and the job does not hold 80%.
 
 A job that holds 80% keeps it until the evidence is clear that it fell. At each daily check, compute the Wilson upper bound of the 7-day ratio with z = 1.96 (95%), for `s` successes in `n` attempts and `p = s / n`:
 
