@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.130.0](https://github.com/dan-petty/devops-cli/compare/v0.129.1...v0.130.0) (2026-11-13)
+
+
+### Features
+
+* **k8s:** add RuntimeClass gvisor for the runsc nodes ([#5436](https://github.com/dan-petty/devops-cli/issues/5436)) ([0d9ffa1](https://github.com/dan-petty/devops-cli/commit/0d9ffa1e3cd7535d7823e4ffa381b67463f632eb))
+* **roadmap:** make the attempt limits of the failing jobs settings ([#5490](https://github.com/dan-petty/devops-cli/issues/5490)) ([a13e520](https://github.com/dan-petty/devops-cli/commit/a13e520302142ffc02eaf0e0c7b7c4409cc16c96)), closes [#5440](https://github.com/dan-petty/devops-cli/issues/5440)
+
+
+### Bug Fixes
+
+* **infra:** a plan shows a skip by a check-mode when as unchecked ([#5442](https://github.com/dan-petty/devops-cli/issues/5442)) ([499b42c](https://github.com/dan-petty/devops-cli/commit/499b42cb67f07daafeac3c5298c7eccf4154d85c))
+* **infra:** the apply gate leaves out alerts of offline nodes ([#5478](https://github.com/dan-petty/devops-cli/issues/5478)) ([3f0d0f0](https://github.com/dan-petty/devops-cli/commit/3f0d0f06159ed1e8f72c72dfb6d5e3f57081acdc))
+* **roadmap:** a named fix-plan run can skip the 6-hour wait ([#5459](https://github.com/dan-petty/devops-cli/issues/5459)) ([94a1999](https://github.com/dan-petty/devops-cli/commit/94a1999eaf0e9f8d7c6e8caad9c296ef80bcd483)), closes [#5413](https://github.com/dan-petty/devops-cli/issues/5413)
+* **roadmap:** a review finding must name a part of the plan ([#5418](https://github.com/dan-petty/devops-cli/issues/5418)) ([34cdf12](https://github.com/dan-petty/devops-cli/commit/34cdf12d79d5139d1c8c46573468ef6711183f77))
+* **roadmap:** the stage gate log names each refused finding ([#5441](https://github.com/dan-petty/devops-cli/issues/5441)) ([47b1ec5](https://github.com/dan-petty/devops-cli/commit/47b1ec55362f5f557fa4b8bbc3704170cfdab64e))
+
 ## [0.129.1](https://github.com/dan-petty/devops-cli/compare/v0.129.0...v0.129.1) (2026-11-13)
 
 
