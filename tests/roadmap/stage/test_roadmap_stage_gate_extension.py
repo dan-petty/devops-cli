@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, Any, Final
 
 import pytest
 
-from devops_cli.config.constants import CONST_ROADMAP_STAGE_GATE_RETURN_EXTENSIONS
+from devops_cli.config.defaults import DEFAULT_ROADMAP_STAGE_GATE_RETURN_EXTENSIONS
 from devops_cli.exceptions import ServiceStoppingError, ended_by_stop
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.service_stop import begin_service_stop
@@ -94,9 +94,15 @@ ITEM_5136: Final[tuple[tuple[StageFinding, ...], ...]] = (
 
 
 def _decide(
-    before: Sequence[StageFinding] | None, after: Sequence[StageFinding], *, used: int = 0
+    before: Sequence[StageFinding] | None,
+    after: Sequence[StageFinding],
+    *,
+    used: int = 0,
+    limit: int = DEFAULT_ROADMAP_STAGE_GATE_RETURN_EXTENSIONS,
 ) -> GateExtension:
-    return gate_extension(before, after, used=used, classes=load_finding_classes()).result
+    return gate_extension(
+        before, after, used=used, limit=limit, classes=load_finding_classes()
+    ).result
 
 
 # ── The rule ──────────────────────────────────────────────────────────────────
@@ -111,13 +117,17 @@ def test_the_5136_fixture_has_the_counts_of_its_log_lines() -> None:
 def test_the_last_reply_of_5136_gets_one_more_return() -> None:
     """Each finding of the reply before is gone, and the new finding has a fix class that a
     return fixes."""
-    decision = gate_extension(ITEM_5136[2], ITEM_5136[3], used=0, classes=load_finding_classes())
+    decision = gate_extension(
+        ITEM_5136[2], ITEM_5136[3], used=0, limit=1, classes=load_finding_classes()
+    )
 
     assert (decision.result, decision.gates) == (GateExtension.EXTENDED, ())
 
 
 def test_a_finding_that_stays_from_the_reply_before_stops_the_reply() -> None:
-    decision = gate_extension(ITEM_5136[1], ITEM_5136[2], used=0, classes=load_finding_classes())
+    decision = gate_extension(
+        ITEM_5136[1], ITEM_5136[2], used=0, limit=1, classes=load_finding_classes()
+    )
 
     assert (decision.result, decision.gates) == (GateExtension.STUCK, ("trace",))
 
@@ -128,6 +138,7 @@ def test_a_finding_whose_code_no_return_fixed_stops_the_reply() -> None:
         [_missing_test("tests/test_a.py")],
         [_missing_test("tests/test_b.py")],
         used=0,
+        limit=1,
         classes=load_finding_classes(),
     )
 
@@ -143,9 +154,17 @@ def test_the_same_stale_test_path_again_stops_the_reply_as_stuck() -> None:
 
 def test_an_item_that_used_its_extension_gets_no_other() -> None:
     assert (
-        _decide(ITEM_5136[2], ITEM_5136[3], used=CONST_ROADMAP_STAGE_GATE_RETURN_EXTENSIONS)
+        _decide(ITEM_5136[2], ITEM_5136[3], used=DEFAULT_ROADMAP_STAGE_GATE_RETURN_EXTENSIONS)
         is GateExtension.USED
     )
+
+
+def test_a_higher_limit_gives_an_item_that_used_its_extension_another() -> None:
+    assert (
+        _decide(ITEM_5136[2], ITEM_5136[3], used=1, limit=2),
+        _decide(ITEM_5136[2], ITEM_5136[3], used=2, limit=2),
+        _decide(ITEM_5136[2], ITEM_5136[3], used=0, limit=0),
+    ) == (GateExtension.EXTENDED, GateExtension.USED, GateExtension.USED)
 
 
 def test_a_reply_with_no_reply_before_it_gets_no_extension() -> None:
@@ -167,7 +186,7 @@ def test_the_dry_run_of_the_eval_counts_the_extra_plan_run() -> None:
     (request,) = planned_calls([case], "https://gateway.example.com", toolbox=False)
 
     assert request.repeat == TEXTS.stage_eval_dry_run_repeat.format(
-        count=1 + 3 + CONST_ROADMAP_STAGE_GATE_RETURN_EXTENSIONS + 1
+        count=1 + 3 + DEFAULT_ROADMAP_STAGE_GATE_RETURN_EXTENSIONS + 1
     )
 
 
@@ -279,7 +298,7 @@ def test_no_reply_gets_more_planner_requests_than_the_setting_and_one_extension(
         plan = _plan(store, stage_repo)
 
     (failure,) = plan.failed
-    assert model_fake.call_count == 1 + 3 + CONST_ROADMAP_STAGE_GATE_RETURN_EXTENSIONS
+    assert model_fake.call_count == 1 + 3 + DEFAULT_ROADMAP_STAGE_GATE_RETURN_EXTENSIONS
     assert failure.reason.startswith(
         TEXTS.stage_invalid.format(returns=4, stop=TEXTS.stage_gate_stop_used, problem="")
     )
@@ -295,6 +314,25 @@ def test_no_reply_gets_more_planner_requests_than_the_setting_and_one_extension(
         (EXTENSION_ENDS, "refused"),
         (EXTENSION_TOTAL, "used"),
     ]
+
+
+def test_the_setting_gives_an_item_more_extra_returns(
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    config: Callable[..., Path],
+) -> None:
+    """The planner reads `roadmap.stage.gate_return_extensions` for each round (#5440)."""
+    config(roadmap={"stage": {"gate_return_extensions": 2}})
+    model_fake.answer(*(_missing(f"tests/test_{name}.py") for name in "abcdefgh"))
+
+    plan = _plan(store, stage_repo)
+
+    (failure,) = plan.failed
+    assert model_fake.call_count == 1 + 3 + 2
+    assert failure.reason.startswith(
+        TEXTS.stage_invalid.format(returns=5, stop=TEXTS.stage_gate_stop_used, problem="")
+    )
 
 
 def test_a_finding_that_stays_ends_the_reply_at_the_setting_and_the_failure_names_the_gate(

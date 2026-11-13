@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any, cast
 import pytest
 from pydantic import ValidationError
 
-from devops_cli.config.constants import CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS_CEILING
+from devops_cli.config.defaults import DEFAULT_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS_CEILING
 from devops_cli.config.settings import RoadmapStageConfig
 from devops_cli.exceptions import ServiceStoppingError, ended_by_stop
 from devops_cli.roadmap.service_stop import begin_service_stop
@@ -125,7 +125,7 @@ def test_the_setting_sets_the_repair_rounds_of_the_review(
 
 
 def test_a_repair_rounds_value_over_the_ceiling_fails_the_settings_load() -> None:
-    ceiling = CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS_CEILING
+    ceiling = DEFAULT_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS_CEILING
     assert RoadmapStageConfig(verify_repair_rounds=ceiling).verify_repair_rounds == ceiling
     with pytest.raises(ValidationError, match="verify_repair_rounds"):
         RoadmapStageConfig(verify_repair_rounds=ceiling + 1)
@@ -248,13 +248,31 @@ def test_a_later_finding_on_a_requirement_that_the_plan_does_not_hold_keeps_the_
 def test_no_item_gets_more_repair_rounds_than_the_ceiling(
     store: InMemoryRoadmapStore, stage_repo: StageRepo, model_fake: ModelFake, verifier: ModelFake
 ) -> None:
-    ceiling = CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS_CEILING
+    ceiling = DEFAULT_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS_CEILING
     model_fake.answer(make_stage_proposal())
     verifier.answer(_review(ceiling + 3), later_review(GONE))
 
     (change,) = _plan(store, stage_repo, model_fake, verifier).ready
 
     assert (model_fake.call_count, verifier.call_count) == (1 + ceiling, 1 + ceiling)
+    assert len(change.open_findings) == 3
+
+
+def test_the_setting_raises_the_ceiling_of_the_repair_rounds(
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    verifier: ModelFake,
+    config: Callable[..., Path],
+) -> None:
+    """The planner reads `roadmap.stage.verify_repair_rounds_ceiling` for each round (#5440)."""
+    config(roadmap={"stage": {"verify_repair_rounds_ceiling": 6}})
+    model_fake.answer(make_stage_proposal())
+    verifier.answer(_review(9), later_review(GONE))
+
+    (change,) = _plan(store, stage_repo, model_fake, verifier).ready
+
+    assert (model_fake.call_count, verifier.call_count) == (1 + 6, 1 + 6)
     assert len(change.open_findings) == 3
 
 

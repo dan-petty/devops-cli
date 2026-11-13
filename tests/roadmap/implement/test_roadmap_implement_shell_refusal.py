@@ -8,17 +8,18 @@ agent is the real agent of a step, with the real shell of the harness.
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
 from pydantic_ai.messages import RetryPromptPart, ToolReturnPart
 
 from devops_cli.ai.task_loader import load_task_prompt
-from devops_cli.config.constants import (
-    CONST_ROADMAP_IMPLEMENT_MAX_CONSECUTIVE_REFUSALS,
-    CONST_ROADMAP_IMPLEMENT_MAX_REFUSALS,
-    CONST_ROADMAP_IMPLEMENT_TOOL_RETRIES,
-    CONST_ROADMAP_RUN_ERROR_CHARS,
+from devops_cli.config.constants import CONST_ROADMAP_RUN_ERROR_CHARS
+from devops_cli.config.defaults import (
+    DEFAULT_ROADMAP_IMPLEMENT_MAX_CONSECUTIVE_REFUSALS,
+    DEFAULT_ROADMAP_IMPLEMENT_MAX_REFUSALS,
+    DEFAULT_ROADMAP_IMPLEMENT_TOOL_RETRIES,
 )
 from devops_cli.roadmap.failure import FailureClass, FailureEvidence, classify_failure
 from devops_cli.roadmap.implement.implement_shell_policy import (
@@ -224,11 +225,11 @@ def test_a_refusal_comes_back_as_a_tool_result_and_not_as_a_retry(
 def test_more_refusals_than_the_retry_limit_do_not_stop_the_run(
     store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
 ) -> None:
-    """The refusals of one step are many more than `CONST_ROADMAP_IMPLEMENT_TOOL_RETRIES`, and the
+    """The refusals of one step are many more than `DEFAULT_ROADMAP_IMPLEMENT_TOOL_RETRIES`, and the
     model then ends its reply (#3271). The step has no change to commit, so it stops for that
     reason and not for the retries. An accepted call in each reply keeps the refusals from being
     consecutive (#4043)."""
-    refusals = CONST_ROADMAP_IMPLEMENT_TOOL_RETRIES * 3
+    refusals = DEFAULT_ROADMAP_IMPLEMENT_TOOL_RETRIES * 3
     script = ModelScript(*[refused_between_reads("python -V")] * refusals, say("Done."))
 
     outcome = _step(store, checkout, script)
@@ -243,7 +244,7 @@ def test_a_real_failure_of_a_tool_still_counts_as_a_retry(
 ) -> None:
     script = ModelScript(
         *[tool_call("run_command", command="python -V")] * 2,
-        *[tool_call("read_file")] * (CONST_ROADMAP_IMPLEMENT_TOOL_RETRIES + 1),
+        *[tool_call("read_file")] * (DEFAULT_ROADMAP_IMPLEMENT_TOOL_RETRIES + 1),
     )
 
     outcome = _step(store, checkout, script)
@@ -253,14 +254,14 @@ def test_a_real_failure_of_a_tool_still_counts_as_a_retry(
 
 
 def test_the_limit_of_consecutive_refusals_is_3() -> None:
-    assert CONST_ROADMAP_IMPLEMENT_MAX_CONSECUTIVE_REFUSALS == 3
+    assert DEFAULT_ROADMAP_IMPLEMENT_MAX_CONSECUTIVE_REFUSALS == 3
 
 
 def test_a_model_that_repeats_a_refused_command_stops_at_the_consecutive_limit(
     store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
 ) -> None:
     head = git(checkout, "rev-parse", "HEAD")
-    limit = CONST_ROADMAP_IMPLEMENT_MAX_CONSECUTIVE_REFUSALS
+    limit = DEFAULT_ROADMAP_IMPLEMENT_MAX_CONSECUTIVE_REFUSALS
     script = ModelScript(tool_call("run_command", command="python -V"))
 
     outcome = _step(store, checkout, script)
@@ -283,7 +284,7 @@ def test_a_model_that_is_refused_between_accepted_calls_stops_at_the_total_limit
     store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
 ) -> None:
     head = git(checkout, "rev-parse", "HEAD")
-    limit = CONST_ROADMAP_IMPLEMENT_MAX_REFUSALS
+    limit = DEFAULT_ROADMAP_IMPLEMENT_MAX_REFUSALS
     script = ModelScript(refused_between_reads("python -V"))
 
     outcome = _step(store, checkout, script)
@@ -297,6 +298,31 @@ def test_a_model_that_is_refused_between_accepted_calls_stops_at_the_total_limit
         "UnexpectedModelBehavior: Too many commands refused by policy in one step: the limit is "
         f"{limit}.\nRefused commands: python {limit + 1}. Other retries: 0."
     )
+
+
+def test_the_settings_set_the_limits_of_the_refusals_and_of_the_failures_of_a_tool(
+    store: InMemoryRoadmapStore,
+    checkout: Path,
+    programs: ProcessFake,
+    config: Callable[..., Path],
+) -> None:
+    """The step reads `roadmap.implement.max_consecutive_refusals`, `max_refusals` and
+    `tool_retries` when it starts (#5440), so a changed ConfigMap needs no restart."""
+    config(
+        roadmap={"implement": {"max_consecutive_refusals": 5, "max_refusals": 7, "tool_retries": 2}}
+    )
+    in_a_row = ModelScript(tool_call("run_command", command="python -V"))
+    between = ModelScript(refused_between_reads("python -V"))
+    failing = ModelScript(
+        tool_call("run_command", command="python -V"), *[tool_call("read_file")] * 3
+    )
+
+    outcomes = [_step(store, checkout, script) for script in (in_a_row, between, failing)]
+
+    assert [outcome.requests for outcome in outcomes[:2]] == [5, 7 + 1]
+    assert "the limit is 5." in outcomes[0].reason
+    assert "the limit is 7." in outcomes[1].reason
+    assert "Tool 'read_file' exceeded max retries count of 2" in outcomes[2].reason
 
 
 def test_an_accepted_call_resets_the_count_of_consecutive_refusals(

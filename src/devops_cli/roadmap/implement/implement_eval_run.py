@@ -26,10 +26,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict
 
 from devops_cli.config.commands import BIN_GIT
-from devops_cli.config.constants import (
-    CONST_ROADMAP_EVAL_IMPLEMENT_REPORTS,
-    CONST_ROADMAP_IMPLEMENT_MAX_REQUESTS,
-)
+from devops_cli.config.constants import CONST_ROADMAP_EVAL_IMPLEMENT_REPORTS
 from devops_cli.core.process import run_subprocess
 from devops_cli.exceptions import GitOperationError
 from devops_cli.exceptions.roadmap import ImplementEvalError, RoadmapImplementError
@@ -461,10 +458,13 @@ def write_report(report: RunReport, directory: Path, moment: datetime) -> Path:
 
 
 def render_dry_run(cases: Sequence[LoadedCase], *, model: str) -> str:
-    """What a run does, making no request: the steps, and the model requests of each."""
+    """What a run does, making no request: the steps, and the model requests of each, at most
+    `roadmap.implement.max_requests` for a step."""
+    from devops_cli.config.settings import load_settings
     from devops_cli.dry_run.requests import PlannedRequest
 
     texts = MESSAGES.roadmap
+    limit = load_settings().roadmap.implement.max_requests
     steps = [
         texts.eval_implement_dry_step.format(
             name=c.name, issue=c.case.issue, group=c.case.group, sha=c.case.base[:12]
@@ -477,7 +477,7 @@ def render_dry_run(cases: Sequence[LoadedCase], *, model: str) -> str:
             target=texts.eval_implement_model_target.format(
                 model=model, group=c.case.group, issue=c.case.issue, name=c.name
             ),
-            repeat=texts.implement_model_repeat.format(limit=CONST_ROADMAP_IMPLEMENT_MAX_REQUESTS),
+            repeat=texts.implement_model_repeat.format(limit=limit),
         ).line()
         for c in cases
     ]

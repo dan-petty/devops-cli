@@ -62,6 +62,7 @@ from pydantic_ai.settings import ModelSettings
 from pydantic_ai.toolsets import AbstractToolset
 from pydantic_ai.usage import RunUsage, UsageLimits
 from pydantic_ai_harness.compaction import ClearToolResults, WarnNearLimits
+from pydantic_ai_harness.filesystem import FileSystem
 from pydantic_ai_harness.shell import Shell
 from pydantic_ai_harness.tool_output_limits import Band, ToolOutputLimits, Truncate
 
@@ -85,9 +86,6 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_IMPLEMENT_DIFF_READ_CHARS,
     CONST_ROADMAP_IMPLEMENT_FIX_GROUP,
     CONST_ROADMAP_IMPLEMENT_LOG_CHARS,
-    CONST_ROADMAP_IMPLEMENT_MAX_REQUESTS,
-    CONST_ROADMAP_IMPLEMENT_MAX_TOOL_CALLS,
-    CONST_ROADMAP_IMPLEMENT_MODEL_RESENDS,
     CONST_ROADMAP_IMPLEMENT_OUTPUT_TAIL_LINES,
     CONST_ROADMAP_IMPLEMENT_OUTPUT_WINDOW_SHARE,
     CONST_ROADMAP_IMPLEMENT_PROBLEM_HEADINGS,
@@ -95,11 +93,10 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_IMPLEMENT_REASON_PATHS,
     CONST_ROADMAP_IMPLEMENT_REASON_TESTS,
     CONST_ROADMAP_IMPLEMENT_TOOL_MAX_CHARS,
-    CONST_ROADMAP_IMPLEMENT_TOOL_RETRIES,
     CONST_ROADMAP_IMPLEMENT_TURN_RESERVE_TOKENS,
     CONST_ROADMAP_IMPLEMENT_VERIFY_CHARS,
 )
-from devops_cli.config.settings import load_settings
+from devops_cli.config.settings import RoadmapImplementConfig, load_settings
 from devops_cli.core.process import run_subprocess
 from devops_cli.core.process_hardening import end_leftover_processes
 from devops_cli.exceptions.ai_pydantic import LimitReached, OutputCapReached
@@ -181,11 +178,14 @@ _PROMPT = "roadmap_implement_step.md"
 _REQUIREMENT_PREFIX = "requirement:"
 # The start of an HTML comment, such as a marker of a job in an issue body.
 _COMMENT_OPEN = "<!--"
-# The limits of the run of a step when the caller gives none: the loop guard of the job (#3206).
-_STEP_LIMITS: Final = UsageLimits(
-    request_limit=CONST_ROADMAP_IMPLEMENT_MAX_REQUESTS,
-    tool_calls_limit=CONST_ROADMAP_IMPLEMENT_MAX_TOOL_CALLS,
-)
+
+
+def step_usage_limits(implement: RoadmapImplementConfig | None = None) -> UsageLimits:
+    """The limits of the run of a step when the caller gives none: the loop guard of the job
+    (#3206), `roadmap.implement.max_requests` and `max_tool_calls` of `implement`, or of the
+    settings as they are now (#5440)."""
+    limits = implement or load_settings().roadmap.implement
+    return UsageLimits(request_limit=limits.max_requests, tool_calls_limit=limits.max_tool_calls)
 
 
 class StepClass(StrEnum):
@@ -558,11 +558,16 @@ def shell_environment(home: Path) -> dict[str, str]:
 
 
 def _tune(
-    capability: AbstractCapability[None], window: int, home: Path, command_timeout: float
+    capability: AbstractCapability[None],
+    window: int,
+    home: Path,
+    command_timeout: float,
+    tool_retries: int,
 ) -> AbstractCapability[None]:
     """One part of `Coder`, changed for a step: the shell takes the allowlist, the scratch home
     and the refusal of the operators that start a second command (the pipe is read by `ShellRefusal`),
-    the tool results get the cap of
+    the file tools take the failures in a row of `roadmap.implement.tool_retries` (#5440) in place
+    of the 5 of `Coder`, the tool results get the cap of
     a step, and the context controls get the window of the task, in place of the registry's. The
     shell is the tool `run_command`, which waits until its command ends, up to `command_timeout`
     seconds, and then kills it. The persistent tool `shell` of `Coder` returned after 270 s with a
@@ -579,6 +584,8 @@ def _tune(
             allow_interactive=False,
             env=shell_environment(home),
         )
+    if isinstance(capability, FileSystem):
+        return replace(capability, max_retries=tool_retries)
     if isinstance(capability, ClearToolResults | WarnNearLimits):
         return replace(capability, context_window=window)
     if isinstance(capability, ToolOutputLimits):
@@ -669,14 +676,16 @@ def build_agent(
     # The visitor replaces leaves and removes none, so the tree is never empty.
     tuned = cast(
         AbstractCapability[None],
-        coder.visit_and_replace(lambda leaf: _tune(leaf, window, home, command_timeout)),
+        coder.visit_and_replace(
+            lambda leaf: _tune(leaf, window, home, command_timeout, log.limits.tool_retries)
+        ),
     )
     toolsets = [mcp_toolset] if mcp_toolset is not None else None
     return Agent(
         model,
         output_type=str,
         toolsets=toolsets,
-        retries={"tools": CONST_ROADMAP_IMPLEMENT_TOOL_RETRIES},
+        retries={"tools": log.limits.tool_retries},
         model_settings=ModelSettings(
             max_tokens=output_cap(window),
             request_timeout=request_timeout_seconds(),
@@ -855,7 +864,7 @@ def _run_agent(
     usage_limits: UsageLimits,
 ) -> _Run:
     """One turn of the agent, and each send again of a request that failed inside a stream (#2794).
-    A request is sent again at most `CONST_ROADMAP_IMPLEMENT_MODEL_RESENDS` times in a row. A send
+    A request is sent again at most `roadmap.implement.model_resends` times in a row. A send
     that gets a reply gives the next failed request its own resends. The request limit of
     `usage_limits` ends the loop. The turn ends with the last send.
 
@@ -864,7 +873,7 @@ def _run_agent(
     the turn with no resend, and the step stops with class `parser` (#3053). A tier is a new
     conversation, so the tier loop of `run_step` starts the count again."""
     run = _run_turn(agent, model, log, message, conversation, usage_limits=usage_limits)
-    resends = CONST_ROADMAP_IMPLEMENT_MODEL_RESENDS
+    resends = most = log.limits.model_resends
     while run.resend is not None and resends > 0:
         sent = run.resend
         if run.failure_class is FailureClass.PARSER:
@@ -876,7 +885,7 @@ def _run_agent(
             log.trace.retry(run.reason)
         later = _run_turn(agent, model, log, None, sent, usage_limits=usage_limits)
         stalled = later.resend is not None and len(later.resend.messages) <= len(sent.messages)
-        resends = resends - 1 if stalled else CONST_ROADMAP_IMPLEMENT_MODEL_RESENDS
+        resends = resends - 1 if stalled else most
         run = run.then(later)
     return run
 
@@ -2137,7 +2146,7 @@ def run_step(
     recorded_tests: frozenset[str] = frozenset(),
     mcp_toolset: AbstractToolset[Any] | None = None,
     earlier: EarlierStop | None = None,
-    usage_limits: UsageLimits = _STEP_LIMITS,
+    usage_limits: UsageLimits | None = None,
 ) -> StepOutcome:
     """Run group `group` of item `item` in the checkout `source`, with the pydantic-ai `model`.
 
@@ -2171,8 +2180,8 @@ def run_step(
     reads it from a text that the agent cannot edit. With no value, each lost test stops the step.
     `earlier` holds the stop of the earlier Job, which only the first step of a run gets (#4071).
     `usage_limits` holds the requests and the tool calls of a run of the agent: the loop guard of
-    the job, `CONST_ROADMAP_IMPLEMENT_MAX_REQUESTS` and `CONST_ROADMAP_IMPLEMENT_MAX_TOOL_CALLS`,
-    when the caller gives none (#4688).
+    the job, `roadmap.implement.max_requests` and `max_tool_calls`, when the caller gives none
+    (#4688, #5440). The step reads its limits of `roadmap.implement` once, when it starts.
     """
     inputs = replace(
         build_step_inputs(
@@ -2200,7 +2209,7 @@ def run_step(
             model_for_tier=model_for_tier,
             tier_health=tier_health or _gateway_tier_health,
             limits=StepBudget(spend, progress=log.progress),
-            usage_limits=usage_limits,
+            usage_limits=usage_limits or step_usage_limits(log.limits),
             trace=trace,
             mcp_toolset=mcp_toolset,
         )
@@ -2226,7 +2235,7 @@ def run_fix_step(
     trace: ImplementTrace | None = None,
     spend: ItemSpend | None = None,
     recorded_tests: frozenset[str] = frozenset(),
-    usage_limits: UsageLimits = _STEP_LIMITS,
+    usage_limits: UsageLimits | None = None,
 ) -> StepOutcome:
     """Run the fix of the failed check `fix` for item `item` in the checkout `source`: a step
     whose group is "Make check <name> pass". It commits with the type and the scope of the item,
@@ -2258,7 +2267,7 @@ def run_fix_step(
 
 def dry_run_step(repo: str, *, item: int, group: int, model: str) -> StepOutcome:
     """The outcome of a dry run: the requests a step makes, and no request made. A step reads the
-    item once, and then asks `model` up to `CONST_ROADMAP_IMPLEMENT_MAX_REQUESTS` times."""
+    item once, and then asks `model` up to `roadmap.implement.max_requests` times."""
     from devops_cli.dry_run.requests import PlannedRequest
     from devops_cli.roadmap.request_plan import StoreRequests
 
@@ -2266,7 +2275,9 @@ def dry_run_step(repo: str, *, item: int, group: int, model: str) -> StepOutcome
     asked = PlannedRequest(
         method=texts.implement_model_request,
         target=texts.implement_model_target.format(model=model, group=group, item=item),
-        repeat=texts.implement_model_repeat.format(limit=CONST_ROADMAP_IMPLEMENT_MAX_REQUESTS),
+        repeat=texts.implement_model_repeat.format(
+            limit=load_settings().roadmap.implement.max_requests
+        ),
     )
     planned = (*StoreRequests(repo).issue(f"#{item}"), asked)
     return StepOutcome(

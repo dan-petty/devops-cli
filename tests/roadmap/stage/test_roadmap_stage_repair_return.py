@@ -188,11 +188,12 @@ def test_the_returns_of_one_round_follow_the_setting_and_no_more(
 
 
 def test_a_gate_returns_value_over_the_ceiling_fails_the_settings_load() -> None:
-    """`roadmap.stage.gate_returns` has a hard ceiling of 3: each return is one more planner run,
-    so a ConfigMap value cannot give an item more planner calls than the measured cap (#4900)."""
-    assert RoadmapStageConfig(gate_returns=3).gate_returns == 3
+    """`roadmap.stage.gate_returns` has a ceiling of 4 times its default, 12: each return is one
+    more planner run, so a ConfigMap value cannot give an item unbounded planner calls (#4900,
+    #5440)."""
+    assert RoadmapStageConfig(gate_returns=12).gate_returns == 12
     with pytest.raises(ValidationError, match="gate_returns"):
-        RoadmapStageConfig(gate_returns=4)
+        RoadmapStageConfig(gate_returns=13)
 
 
 def test_a_refused_reply_gets_no_return_once_the_service_stops(

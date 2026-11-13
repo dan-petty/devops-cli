@@ -26,7 +26,7 @@ items, highest priority first. `--item` takes the one item it names when that it
 Ready.
 
 **Refused plans.** The job counts the `plan_defect` failures of an item on the same body
-(`stage.plan_defects`, #4491). The failure that reaches `CONST_ROADMAP_STAGE_PLAN_DEFECT_LIMIT`
+(`stage.plan_defects`, #4491). The failure that reaches `roadmap.stage.plan_defect_limit` (#5440)
 returns the item to New with one comment that lists the problems of the last plan, so the model
 lane goes to the other Ready items. A body edit starts a new count, and a failure of another
 class leaves the count as it is.
@@ -60,7 +60,7 @@ of the task `verification` (#3039). A finding is open when it is of the type `mi
 `criterion_dropped` and quotes its evidence, or when it reports a placeholder. An open finding sends
 the plan back to the planner, with each open finding of that round (#5059). It does so
 `roadmap.stage.verify_repair_rounds` times, and once more while a review fixes more earlier findings
-than it adds, up to `CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS_CEILING` rounds (#3039, #5066). Each
+than it adds, up to `roadmap.stage.verify_repair_rounds_ceiling` rounds (#3039, #5066). Each
 review after a repair is a later review: it gets the open findings of the review before it and the
 text that the revision changed, says for each finding whether it still holds, and opens a new
 finding only in the changed text (#5409). No round starts
@@ -117,9 +117,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_STAGE_BODY_MAX_TOKENS,
     CONST_ROADMAP_STAGE_COMMENT_MARKER,
     CONST_ROADMAP_STAGE_CONTEXT_MAX_TOKENS,
-    CONST_ROADMAP_STAGE_PLAN_DEFECT_LIMIT,
     CONST_ROADMAP_STAGE_REFUSED_PROBLEM_MAX_CHARS,
-    CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS_CEILING,
     CONST_ROADMAP_STATUS_READY,
 )
 from devops_cli.config.settings import load_settings
@@ -1209,12 +1207,14 @@ class _Planner:
         self._time_budget = time_budget
         self._reviews = 0
         self._facts_source = facts_source
+        stage = load_settings().roadmap.stage
         # The returns of a refused reply: `roadmap.stage.gate_returns` when none is given (#4802).
-        self._gate_returns = (
-            load_settings().roadmap.stage.gate_returns if gate_returns is None else gate_returns
-        )
-        # The repair rounds of the model review: `roadmap.stage.verify_repair_rounds` (#5066).
-        self._verify_rounds = load_settings().roadmap.stage.verify_repair_rounds
+        self._gate_returns = stage.gate_returns if gate_returns is None else gate_returns
+        # The extra returns of an item past them (#4851, #5440).
+        self._extension_limit = stage.gate_return_extensions
+        # The repair rounds of the model review and their ceiling (#5066, #5440).
+        self._verify_rounds = stage.verify_repair_rounds
+        self._verify_ceiling = stage.verify_repair_rounds_ceiling
         self._plan_files = plan_files
         self._toolbox = toolbox or (client if isinstance(client, ToolboxClient) else None)
         self._verifier = verifier
@@ -1310,17 +1310,17 @@ class _Planner:
         """The change of `target`, or the group that stops it. A reply the checks refuse goes back
         to the model `roadmap.stage.gate_returns` times (R), with the problem, and so does the
         revision of each repair round (#4348, #4802). A reply that stays refused at the last return
-        gets one more return while the rule `gate_extension` sees progress, once for each item
-        (`CONST_ROADMAP_STAGE_GATE_RETURN_EXTENSIONS`, #4851). The model splits the groups at most
+        gets one more return while the rule `gate_extension` sees progress, E times for each item
+        (`roadmap.stage.gate_return_extensions`, #4851, #5440). The model splits the groups at most
         once. With a verifier, the model review of the plan (#3153) follows the checks and may
         return the plan V times (`roadmap.stage.verify_repair_rounds`, #3039, #5066), and more
-        while a review fixes more earlier findings than it adds (#5409), at most
-        `CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS_CEILING` (4) times. So an item costs R + 3
-        planner calls at most without a verifier (6 at the default of 3), (V + 1)(R + 1) + 2 with
-        one (14 at the defaults) and V + 1 calls of the verifier, and with the extensions at most
-        5R + 7 planner calls and 5 calls of the verifier. R is at most
-        `CONST_ROADMAP_STAGE_GATE_RETURNS_CEILING` (3), so 22 planner calls is the hard ceiling of
-        an item (#4900, #5066, #4851)."""
+        while a review fixes more earlier findings than it adds (#5409), at most C times
+        (`roadmap.stage.verify_repair_rounds_ceiling`). So an item costs R + E + 2 planner calls
+        at most without a verifier (6 at the defaults of 3 and 1), (V + 1)(R + 1) + 2 with one (14
+        at the defaults) and V + 1 calls of the verifier, and with the extensions at most
+        (C + 1)(R + 1) + E + 1 planner calls and C + 1 calls of the verifier: 22 at the defaults
+        (#4900, #5066, #4851). The settings load refuses a value of R, E or C above 4 times its
+        default."""
         self._start_item()
         kept, key = self._kept(target)
         # A plain client has no trace and its gate is off, on a hit as on a miss.
@@ -1608,7 +1608,11 @@ class _Planner:
         extra return, or the text that names the stop."""
         after = self._last_findings()
         decision = gate_extension(
-            before, after, used=self._extensions, classes=load_finding_classes()
+            before,
+            after,
+            used=self._extensions,
+            limit=self._extension_limit,
+            classes=load_finding_classes(),
         )
         log_gate_extension(
             self._pull_repo,
@@ -1789,8 +1793,10 @@ class _Planner:
             open_=len(judged.open),
         )
         seen = list(judged.findings)
-        for round_ in range(1, CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS_CEILING + 1):
-            if not judged.open or not repair_round_due(round_, self._verify_rounds, judged):
+        for round_ in range(1, self._verify_ceiling + 1):
+            if not judged.open or not repair_round_due(
+                round_, self._verify_rounds, judged, ceiling=self._verify_ceiling
+            ):
                 break
             raise_if_service_stops(f"review round {round_} of the plan of #{number}")
             if round_ > self._verify_rounds:
@@ -3397,8 +3403,9 @@ def _record_failures(store: RoadmapStore, failures: Sequence[StageFailure], now:
     """Record each failure in the job record of its item: the time, the type of the error (#3493),
     the step and the failure class (#4056), in one write. The item waits for the wait of its class, and the job goes on with the others. A
     `plan_defect` failure also writes its count on the body (#4491), and the failure that reaches
-    `CONST_ROADMAP_STAGE_PLAN_DEFECT_LIMIT` returns the item to New in place of that write. A
+    `roadmap.stage.plan_defect_limit` returns the item to New in place of that write. A
     write that fails here is no failure of an item: it ends the run, and the round counts it."""
+    limit = load_settings().roadmap.stage.plan_defect_limit
     for failure in failures:
         item = failure.item
         if item is None:
@@ -3413,8 +3420,8 @@ def _record_failures(store: RoadmapStore, failures: Sequence[StageFailure], now:
             store.set_marks(item, marks)
             continue
         count, body = _plan_defects(item)
-        if count >= CONST_ROADMAP_STAGE_PLAN_DEFECT_LIMIT:
-            _return_plan_defects(store, item, failure, count, marks)
+        if count >= limit:
+            _return_plan_defects(store, item, failure, count, marks, limit)
             continue
         marks |= {StageRecordKey.PLAN_DEFECTS: str(count), StageRecordKey.PLAN_DEFECTS_BODY: body}
         store.set_marks(item, marks)
@@ -3439,9 +3446,10 @@ def _return_plan_defects(
     failure: StageFailure,
     count: int,
     marks: Mapping[StageRecordKey, str | None],
+    limit: int,
 ) -> None:
-    """Return `item` to New after its `count`th refused plan on the same body
-    (#4491): post the problems of the last plan in order, then set New with the failure `marks`
+    """Return `item` to New after its `count`th refused plan on the same body, at `limit`
+    (#4491, #5440): post the problems of the last plan in order, then set New with the failure `marks`
     and no count. The problems are those of the refused replies, and then the reason of the
     failure, unless the checks refused the last reply and the reason only repeats its problem. The
     comment goes first, so a failed write never leaves a return that no one was told about. Refine
@@ -3455,7 +3463,7 @@ def _return_plan_defects(
         f"{CONST_ROADMAP_STAGE_COMMENT_MARKER}\n\n"
         + texts.stage_returned_plan_defects.format(
             count=count,
-            limit=CONST_ROADMAP_STAGE_PLAN_DEFECT_LIMIT,
+            limit=limit,
             problems="\n".join(f"- {safe_text(problem)}" for problem in problems),
         ),
     )
@@ -3473,7 +3481,7 @@ def _return_plan_defects(
         texts.stage_returned_plan_defects_log,
         item.number,
         count,
-        CONST_ROADMAP_STAGE_PLAN_DEFECT_LIMIT,
+        limit,
     )
 
 

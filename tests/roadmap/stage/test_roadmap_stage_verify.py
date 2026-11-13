@@ -15,11 +15,13 @@ from pydantic_ai.messages import ModelResponse, ToolCallPart
 from devops_cli.ai.context_budget import count_tokens
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config.constants import (
-    CONST_ROADMAP_STAGE_TOOL_MAX_CALLS,
     CONST_ROADMAP_STAGE_TOOL_RESERVE_TOKENS,
     CONST_ROADMAP_STAGE_VERIFY_FILE_MAX_TOKENS,
     CONST_ROADMAP_STAGE_VERIFY_MAX_FILES,
-    CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS_CEILING,
+)
+from devops_cli.config.defaults import (
+    DEFAULT_ROADMAP_STAGE_MAX_TOOL_CALLS,
+    DEFAULT_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS_CEILING,
 )
 from devops_cli.exceptions.roadmap import RoadmapStageError
 from devops_cli.roadmap.plan_read import read_change
@@ -921,14 +923,15 @@ def test_a_round_past_the_setting_needs_more_fixed_than_added_findings() -> None
     added = _finding(DefectType.MISSING_PATH, "added")
     progress = Judgement(findings=(), open=(), fixed=(fixed,), added=())
     even = Judgement(findings=(added,), open=(added,), fixed=(fixed,), added=(added,))
-    ceiling = CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS_CEILING
+    ceiling = DEFAULT_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS_CEILING
 
     assert [
-        repair_round_due(1, 2, even),
-        repair_round_due(3, 2, progress),
-        repair_round_due(3, 2, even),
-        repair_round_due(ceiling + 1, ceiling + 1, progress),
-    ] == [True, True, False, False]
+        repair_round_due(1, 2, even, ceiling=ceiling),
+        repair_round_due(3, 2, progress, ceiling=ceiling),
+        repair_round_due(3, 2, even, ceiling=ceiling),
+        repair_round_due(ceiling + 1, ceiling + 1, progress, ceiling=ceiling),
+        repair_round_due(ceiling + 1, ceiling + 1, progress, ceiling=ceiling + 1),
+    ] == [True, True, False, False, True]
 
 
 # The nine read tools of the toolset `base` (#3039): a verification run offers exactly these.
@@ -1033,7 +1036,7 @@ def test_a_verify_run_that_hits_a_limit_names_the_verification_run(
     calls = ModelResponse(
         parts=[
             ToolCallPart(tool_name="list_files", args={})
-            for _ in range(CONST_ROADMAP_STAGE_TOOL_MAX_CALLS + 1)
+            for _ in range(DEFAULT_ROADMAP_STAGE_MAX_TOOL_CALLS + 1)
         ]
     )
     client = ToolboxClient(Script(calls).model(), _NoInner(), source, sha, toolset="base")

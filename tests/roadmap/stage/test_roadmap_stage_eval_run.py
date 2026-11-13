@@ -16,7 +16,7 @@ from devops_cli.ai.client.models import (
     AICredentialsError,
     StructuredOutputValidationError,
 )
-from devops_cli.config.constants import CONST_ROADMAP_STAGE_TOOL_MAX_CALLS
+from devops_cli.config.defaults import DEFAULT_ROADMAP_STAGE_MAX_TOOL_CALLS
 from devops_cli.exceptions import GitOperationError
 from devops_cli.roadmap.clone_git import checkout_at
 from devops_cli.roadmap.stage.stage import StagedChange, plan_item
@@ -146,7 +146,7 @@ def test_a_plan_run_that_spends_its_budget_ends_the_case_refused_with_the_limit(
 ) -> None:
     case = _live_case(cases, stage_repo)
     read = ToolCallPart("read_file", {"path": "src/devops_cli/sample.py"})
-    script = Script(ModelResponse(parts=[read] * (CONST_ROADMAP_STAGE_TOOL_MAX_CALLS + 1)))
+    script = Script(ModelResponse(parts=[read] * (DEFAULT_ROADMAP_STAGE_MAX_TOOL_CALLS + 1)))
 
     run = run_case(case, _client(model_fake), stage_repo.clone, toolbox=script.model())
 

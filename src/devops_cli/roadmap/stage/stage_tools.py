@@ -41,7 +41,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_STAGE_SPEC_MAX_CHARS,
 )
 from devops_cli.config.defaults import StageToolset
-from devops_cli.config.settings import load_settings
+from devops_cli.config.settings import RoadmapStageConfig, load_settings
 from devops_cli.exceptions.ai import SearchFailed, SearchQueryRefused
 from devops_cli.lang import MESSAGES
 from devops_cli.openspec.tool import OpenSpecTool
@@ -77,6 +77,24 @@ _NO_GITHUB: Final[str] = "GitHub is not available to this run."
 
 def _outside(text: str) -> ToolReturn:
     return error_answer(f"The path {text} is outside the repository.")
+
+
+# The placeholders of the call budget in the prompts of a plan run and of a review run (#5440).
+_CALL_BUDGET_PLACEHOLDERS: Final[tuple[str, ...]] = (
+    "plan_calls_advised",
+    "plan_calls_notice",
+    "review_calls_advised",
+    "review_calls_notice",
+)
+
+
+def with_call_budget(prompt: str, stage: RoadmapStageConfig | None = None) -> str:
+    """`prompt` with the call budget of `stage` (`roadmap.stage` as the settings hold it now, when
+    none is given) in place of each `{{<setting>}}` placeholder of the budget (#4346, #5440)."""
+    budget = stage or load_settings().roadmap.stage
+    for name in _CALL_BUDGET_PLACEHOLDERS:
+        prompt = prompt.replace(f"{{{{{name}}}}}", str(getattr(budget, name)))
+    return prompt
 
 
 @dataclass

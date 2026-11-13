@@ -97,7 +97,7 @@ When a model call fails with a `ModelHTTPError` of the status 400 inside an open
 - **THEN** the reason holds no such line
 
 ### Requirement: An error of the generation inside a stream is sent again
-When a model call fails with a `ModelHTTPError` of the status 400 inside an open stream that is no context window error, the step SHALL send the request again, at most `CONST_ROADMAP_IMPLEMENT_MODEL_RESENDS` times in a row. The first such failure on a tier SHALL add a message that asks for a smaller edit to the request. The next one on the same tier SHALL end the turn with no send. After the last send, the step SHALL stop with the reason of the failed call and the class `parser`.
+When a model call fails with a `ModelHTTPError` of the status 400 inside an open stream that is no context window error, the step SHALL send the request again, at most `roadmap.implement.model_resends` times in a row. The first such failure on a tier SHALL add a message that asks for a smaller edit to the request. The next one on the same tier SHALL end the turn with no send. After the last send, the step SHALL stop with the reason of the failed call and the class `parser`.
 
 #### Scenario: Two separate failures
 - **WHEN** a model request fails with a 400 inside a stream, a good reply follows, and a later request fails the same way
@@ -113,7 +113,7 @@ When a model call fails with a `ModelHTTPError` of the status 400 inside an open
 
 #### Scenario: Every send fails
 - **WHEN** every model request fails with a 400 inside a stream with the body "XML syntax error on line 75: unexpected EOF"
-- **THEN** the step stops with the class `parser`, the reason holds the body, and the model got `CONST_ROADMAP_IMPLEMENT_MODEL_RESENDS` plus one requests, the last one with the smaller-edit message
+- **THEN** the step stops with the class `parser`, the reason holds the body, and the model got `roadmap.implement.model_resends` plus one requests, the last one with the smaller-edit message
 
 #### Scenario: The work of the group stays
 - **WHEN** the agent ticks the first task of a group and the verification of it passes, then two requests fail with a 400 inside a stream
@@ -124,7 +124,7 @@ When a model call fails with a `ModelHTTPError` of the status 400 inside an open
 - **THEN** the model gets no second request, and the step stops
 
 #### Scenario: The failed send counts in the limit
-- **WHEN** the replies and the failed send reach `CONST_ROADMAP_IMPLEMENT_MAX_REQUESTS`
+- **WHEN** the replies and the failed send reach `roadmap.implement.max_requests`
 - **THEN** the model gets no more than that many requests, and the step stops with the reason of the request limit
 
 #### Scenario: A failure in the extra turn

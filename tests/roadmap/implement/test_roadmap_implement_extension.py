@@ -22,7 +22,7 @@ import yaml
 from pydantic import ValidationError
 
 from devops_cli.config import constants, env
-from devops_cli.config.settings import load_settings
+from devops_cli.config.settings import load_settings, setting_default
 from devops_cli.roadmap.failure import FailureClass
 from devops_cli.roadmap.implement.implement_limits import (
     BudgetExtension,
@@ -31,7 +31,11 @@ from devops_cli.roadmap.implement.implement_limits import (
     StepBudget,
 )
 from devops_cli.roadmap.implement.implement_step import StepOutcome, StepStatus, run_step
-from devops_cli.roadmap.implement.implement_tool_log import ToolOutcome, progress_digest
+from devops_cli.roadmap.implement.implement_tool_log import (
+    ToolCallLog,
+    ToolOutcome,
+    progress_digest,
+)
 from tests.support.fakes.process import ProcessFake
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.implement_step import WINDOW, the_whole_group
@@ -185,11 +189,30 @@ def test_a_ceiling_below_the_step_budget_is_refused(config: Callable[..., Path])
 
 def test_the_rule_extends_by_half_the_budget_for_one_edit_and_at_most_three_refusals() -> None:
     assert (
-        constants.CONST_ROADMAP_IMPLEMENT_EXTENSION_CALLS,
+        setting_default("roadmap.implement.extension_calls"),
         constants.CONST_ROADMAP_IMPLEMENT_EXTENSION_MIN_EDITS,
-        constants.CONST_ROADMAP_IMPLEMENT_EXTENSION_MAX_REFUSED,
+        setting_default("roadmap.implement.extension_max_refused"),
         constants.CONST_ROADMAP_IMPLEMENT_EXTENSION_PERCENT,
     ) == (20, 1, 3, 50)
+
+
+def test_the_settings_set_the_window_and_the_refused_commands_of_the_rule(
+    config: Callable[..., Path], counted: list[tuple[str, float]]
+) -> None:
+    """The step reads `roadmap.implement.extension_calls` and `extension_max_refused` when it
+    starts (#5440)."""
+    config(roadmap={"implement": {"extension_calls": 10, "extension_max_refused": 5}})
+    log = ToolCallLog()
+    for _ in range(12):
+        log.recent.append(("write_file", ToolOutcome.OK))
+    budget = _budget(config, ProgressDigest(calls=10, edits=1, refused=5))
+    budget.add(50)
+
+    assert (log.progress(), budget.spent()) == (
+        ProgressDigest(calls=10, edits=10, refused=0),
+        None,
+    )
+    assert budget.extension is not None
 
 
 # ── The digest of the tool log ────────────────────────────────────────────────────────────
@@ -208,11 +231,11 @@ def test_the_digest_counts_the_successful_edits_and_the_refused_commands_of_the_
         ("shell", ToolOutcome.REFUSED),
     ]
 
-    assert progress_digest(calls) == ProgressDigest(calls=20, edits=1, refused=2)
+    assert progress_digest(calls, 20) == ProgressDigest(calls=20, edits=1, refused=2)
 
 
 def test_a_log_with_fewer_calls_than_the_window_gives_no_digest() -> None:
-    assert progress_digest([("write_file", ToolOutcome.OK)] * 19) is None
+    assert progress_digest([("write_file", ToolOutcome.OK)] * 19, 20) is None
 
 
 # ── The rule, on the shapes of pilot 3 ────────────────────────────────────────────────────

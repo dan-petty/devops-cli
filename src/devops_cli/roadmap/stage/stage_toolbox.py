@@ -26,11 +26,7 @@ from pydantic_ai.usage import UsageLimits
 from devops_cli.ai.client.models import StructuredOutputValidationError
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config.constants import (
-    CONST_ROADMAP_STAGE_MAX_REQUESTS,
     CONST_ROADMAP_STAGE_MIN_TOOL_CALLS,
-    CONST_ROADMAP_STAGE_PLAN_CALLS_NOTICE,
-    CONST_ROADMAP_STAGE_REVIEW_CALLS_NOTICE,
-    CONST_ROADMAP_STAGE_TOOL_MAX_CALLS,
     CONST_ROADMAP_STAGE_VIOLATIONS_SHOWN,
 )
 from devops_cli.config.defaults import StageToolset
@@ -43,7 +39,7 @@ from devops_cli.roadmap.mcp import ROLE_PLANNING, RoadmapMcpToolset, build_roadm
 from devops_cli.roadmap.refine.refine_investigation import InvestigationStopped, investigate
 from devops_cli.roadmap.stage.stage_change import StageProposal
 from devops_cli.roadmap.stage.stage_github import StageGitHub
-from devops_cli.roadmap.stage.stage_tools import StageTools
+from devops_cli.roadmap.stage.stage_tools import StageTools, with_call_budget
 from devops_cli.roadmap.stage.stage_verify import (
     Finding,
     LaterVerification,
@@ -72,12 +68,14 @@ _AGENT_ROWS: Final[Mapping[type[BaseModel], str]] = {
     Verification: REVIEW_ROW,
     LaterVerification: REVIEW_ROW,
 }
-# The limits of each plan run and review run when the caller gives none: the loop guard of the
-# stage job (#3206).
-_RUN_LIMITS: Final = UsageLimits(
-    request_limit=CONST_ROADMAP_STAGE_MAX_REQUESTS,
-    tool_calls_limit=CONST_ROADMAP_STAGE_TOOL_MAX_CALLS,
-)
+
+
+def run_limits() -> UsageLimits:
+    """The limits of each plan run and review run when the caller gives none: the loop guard of
+    the stage job (#3206), `roadmap.stage.max_requests` and `max_tool_calls` as the settings hold
+    them now (#5440)."""
+    stage = load_settings().roadmap.stage
+    return UsageLimits(request_limit=stage.max_requests, tool_calls_limit=stage.max_tool_calls)
 
 
 @dataclass(frozen=True)
@@ -100,8 +98,8 @@ class ToolboxClient:
     `base`, `extended` or `research`; without it the setting `roadmap.stage.toolset` decides. `github` serves
     `read_issue` and `find_issues` of `extended` and `research`; the Service passes it, and a run without it
     answers that GitHub is not available. `usage_limits` holds the requests and the tool calls of
-    each run: `CONST_ROADMAP_STAGE_MAX_REQUESTS` and `CONST_ROADMAP_STAGE_TOOL_MAX_CALLS` when the
-    caller gives none (#4688).
+    each run: `run_limits` when the caller gives none (#4688, #5440). The client reads the call
+    budget of each run from `roadmap.stage` when it is made, so each round reads the settings.
 
     Raises `RoadmapStageError` when the checkout is not the commit `sha` with no change, because
     three tools read its files and the others read the commit.
@@ -120,17 +118,22 @@ class ToolboxClient:
         github: StageGitHub | None = None,
         traces: list[RunTrace] | None = None,
         mcp_toolset: RoadmapMcpToolset | None = None,
-        usage_limits: UsageLimits = _RUN_LIMITS,
+        usage_limits: UsageLimits | None = None,
     ) -> None:
         self._model = model
-        self._usage_limits = usage_limits
+        self._usage_limits = usage_limits or run_limits()
         self._inner = inner
         settings = load_settings()
+        self._notices: dict[type[BaseModel], int] = {
+            StageProposal: settings.roadmap.stage.plan_calls_notice,
+            Verification: settings.roadmap.stage.review_calls_notice,
+            LaterVerification: settings.roadmap.stage.review_calls_notice,
+        }
         chosen = toolset or settings.roadmap.stage.toolset
         self._tools = StageTools(
             source=source, sha=sha, openspec=openspec, toolset=chosen, github=github
         )
-        self._instructions = load_task_prompt(TOOLS_TASK)
+        self._instructions = with_call_budget(load_task_prompt(TOOLS_TASK), settings.roadmap.stage)
         if chosen in ("extended", "research"):
             self._instructions += f"\n\n{load_task_prompt(EXTENDED_TOOLS_TASK)}"
         if chosen == "research":
@@ -170,11 +173,7 @@ class ToolboxClient:
         )
         row = _AGENT_ROWS[schema]
         # A plan run and a review run have their own call budgets (#4346).
-        self._tools.begin_run(
-            CONST_ROADMAP_STAGE_PLAN_CALLS_NOTICE
-            if schema is StageProposal
-            else CONST_ROADMAP_STAGE_REVIEW_CALLS_NOTICE
-        )
+        self._tools.begin_run(self._notices[schema])
         trace = RunTrace(row=row)
         self.traces.append(trace)
         start_run(self._tool_names, row=row, toolset=self._toolset)
