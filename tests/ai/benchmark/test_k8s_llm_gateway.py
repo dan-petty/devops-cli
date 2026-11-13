@@ -124,6 +124,11 @@ HOSTED_GROUPS = (
     "deepseek-v4.1-flash",
 )
 HOSTED_SECRET = "llm-gateway-secrets"
+# The LiteLLM injection points of a Claude group (#3658): the system messages, and the last message.
+CLAUDE_SYSTEM_CACHE_POINT = {"location": "message", "role": "system"}
+CLAUDE_HISTORY_CACHE_POINT = {"location": "message", "index": -1}
+# Anthropic refuses a request with more than 4 `cache_control` breakpoints.
+ANTHROPIC_MAX_CACHE_BREAKPOINTS = 4
 
 
 def _full_gateway_config() -> dict[str, Any]:
@@ -2072,6 +2077,11 @@ def _hosted_violations(config: dict[str, Any], deployment: dict[str, Any]) -> li
     without the key. A group sets its window and, where the cost map of the pinned image lacks the
     model, its prices. A Claude group drops the sampling parameters that its API refuses. No pool, fallback or routing group names a hosted group, so a prompt leaves
     the cluster only when its caller names the group.
+
+    A Claude group asks Anthropic to cache its prefix (#3658): one injection point on the system
+    messages caches the tools and the system prompt, and one on the last message caches the
+    history of an agent run. It sets at most the 4 breakpoints that Anthropic allows. No other
+    group sets an injection point.
     """
     entries = [m for m in config["model_list"] if m["model_name"] in HOSTED_GROUPS]
     env = {
@@ -2137,6 +2147,27 @@ def _hosted_violations(config: dict[str, Any], deployment: dict[str, Any]) -> li
             params.get("additional_drop_params") or ()
         ) != {"temperature", "top_p", "top_k"}:
             problems.append(f"{name} does not drop the sampling parameters that the API refuses")
+    return problems + _cache_point_violations(config)
+
+
+def _cache_point_violations(config: dict[str, Any]) -> list[str]:
+    """Return every way the groups of `config` break the cache rules (#3658): a Claude group
+    sets the system point and the last-message point and at most the 4 breakpoints of Anthropic,
+    and no other group sets an injection point."""
+    problems: list[str] = []
+    for model in config["model_list"]:
+        name, params = model["model_name"], model["litellm_params"]
+        points = params.get("cache_control_injection_points") or []
+        if not params["model"].startswith("anthropic/"):
+            if "cache_control_injection_points" in params:
+                problems.append(f"{name} sets cache points, which only a Claude group sets")
+            continue
+        if CLAUDE_SYSTEM_CACHE_POINT not in points:
+            problems.append(f"{name} caches no system prompt")
+        if CLAUDE_HISTORY_CACHE_POINT not in points:
+            problems.append(f"{name} caches no history of an agent run")
+        if len(points) > ANTHROPIC_MAX_CACHE_BREAKPOINTS:
+            problems.append(f"{name} sets more cache points than Anthropic allows")
     return problems
 
 
@@ -2256,6 +2287,40 @@ def test_the_hosted_groups_call_providers_with_optional_keys_and_join_no_pool() 
             )["litellm_params"].pop("additional_drop_params"),
             "claude-sonnet-5-5 does not drop the sampling parameters that the API refuses",
             id="sampling-parameters-reach-the-api",
+        ),
+        pytest.param(
+            lambda config, deployment: next(
+                m for m in config["model_list"] if m["model_name"] == "claude-sonnet-5-5"
+            )["litellm_params"].pop("cache_control_injection_points"),
+            "claude-sonnet-5-5 caches no system prompt",
+            id="claude-group-without-cache-points",
+        ),
+        pytest.param(
+            lambda config, deployment: next(
+                m for m in config["model_list"] if m["model_name"] == "claude-haiku-5-5"
+            )["litellm_params"]["cache_control_injection_points"].remove(
+                CLAUDE_HISTORY_CACHE_POINT
+            ),
+            "claude-haiku-5-5 caches no history of an agent run",
+            id="claude-group-without-the-last-message-point",
+        ),
+        pytest.param(
+            lambda config, deployment: next(
+                m for m in config["model_list"] if m["model_name"] == "claude-haiku-5-5"
+            )["litellm_params"]["cache_control_injection_points"].extend(
+                [{"location": "message", "index": i} for i in (0, 1, 2)]
+            ),
+            "claude-haiku-5-5 sets more cache points than Anthropic allows",
+            id="claude-group-over-the-breakpoint-limit",
+        ),
+        pytest.param(
+            lambda config, deployment: next(
+                m for m in config["model_list"] if m["model_name"] == "deepseek-v4.1-flash-1017"
+            )["litellm_params"].update(
+                cache_control_injection_points=[dict(CLAUDE_SYSTEM_CACHE_POINT)]
+            ),
+            "deepseek-v4.1-flash-1017 sets cache points, which only a Claude group sets",
+            id="cache-points-on-a-group-that-is-not-claude",
         ),
     ],
 )

@@ -593,3 +593,54 @@ def test_a_chat_call_on_the_deepseek_group_costs_its_cached_and_new_input_and_it
             " ORDER BY id"
         ).fetchall()
     assert recorded == rows
+
+
+# ── Cache writes of a chat call on a Claude group, at the cache write rate (#3658) ──────────────
+
+_SONNET = "claude-sonnet-5-5"
+# The usage that the gateway gives for a Claude reply: the cache reads and the cache writes are
+# parts of the prompt tokens.
+_CLAUDE_CACHE_USAGE = {
+    "prompt_tokens": 2_000_000,
+    "completion_tokens": 0,
+    "total_tokens": 2_000_000,
+    "prompt_tokens_details": {"cached_tokens": 1_000_000, "cache_write_tokens": 1_000_000},
+}
+
+
+@pytest.mark.parametrize(
+    ("call", "request_type"),
+    [(_chat, "chat_dispatch"), (_stream, "stream")],
+    ids=["chat", "stream"],
+)
+def test_a_chat_call_on_a_claude_group_records_and_prices_its_cache_writes(
+    call: Callable[[LLMClient], None],
+    request_type: str,
+    spend_ledger: SpendLedger,
+    config: Callable[..., Any],
+    web: WebFake,
+) -> None:
+    """A chat call, blocking or streamed, gives the ledger the cache reads and the cache writes
+    that the gateway usage names. Of 2,000,000 prompt tokens on Sonnet 5.5, 1,000,000 cache reads
+    at 0.10 USD and 1,000,000 cache writes at 2.50 USD per million make 2.60 USD."""
+    config(ai={"gateway_url": _GATEWAY_URL})
+    client = LLMClient(
+        AIConfig(provider="gateway", model=_SONNET, gateway_url=_GATEWAY_URL),
+        api_key="sk-test",
+        cache_enabled=False,
+    )
+    body = {
+        "model": _SONNET,
+        "usage": _CLAUDE_CACHE_USAGE,
+        "choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}],
+    }
+    serve_llm(web, lambda request: httpx2.Response(200, json=body))
+
+    call(client)
+
+    with contextlib.closing(sqlite3.connect(spend_ledger.db_path)) as conn:
+        recorded = conn.execute(
+            "SELECT request_type, cache_read_tokens, cache_write_tokens, round(cost_usd, 6)"
+            " FROM ai_spend_records"
+        ).fetchall()
+    assert recorded == [(request_type, 1_000_000, 1_000_000, 2.6)]

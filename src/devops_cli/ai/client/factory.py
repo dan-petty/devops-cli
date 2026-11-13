@@ -224,6 +224,7 @@ def _spend_capability(request_type: str, stage: str | None) -> Any:
             completion_tokens=getattr(response.usage, "output_tokens", 0),
             reasoning_tokens=getattr(response.usage, "output_reasoning_tokens", 0),
             cache_read_tokens=getattr(response.usage, "cache_read_tokens", 0),
+            cache_write_tokens=getattr(response.usage, "cache_write_tokens", 0),
             request_type=request_type,
             duration_seconds=duration_seconds,
             stage=stage,

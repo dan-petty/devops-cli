@@ -140,6 +140,13 @@ model_list:
   # call unless its model map says that the model supports native structured output, so each
   # Claude group sets `supports_native_structured_output` and `supports_response_schema` and
   # LiteLLM sends the schema as Anthropic `output_format` (#3140).
+  # Each Claude group asks Anthropic to cache its prefix (#3658). LiteLLM writes the marker
+  # `cache_control: {type: ephemeral}` (5-minute TTL) on two points: the system messages, which
+  # caches the tools and the system prompt that many calls share, and the last message, which
+  # caches the history of an agent run for its next request. Anthropic allows 4 such markers. A
+  # cache read costs 0.05 (Sonnet) or 0.1 (Haiku) times the input price, a cache write 1.25
+  # times. The reply gives the counts in `usage.prompt_tokens_details` (`cached_tokens`,
+  # `cache_write_tokens`), and devops-cli prices both at the cache rates of genai-prices.
   - model_name: gemini-3.8-flash
     litellm_params:
       model: gemini/gemini-3.8-flash
@@ -151,6 +158,11 @@ model_list:
       model: anthropic/claude-sonnet-5-5
       api_key: os.environ/ANTHROPIC_API_KEY
       additional_drop_params: [temperature, top_p, top_k]
+      cache_control_injection_points:
+        - location: message
+          role: system
+        - location: message
+          index: -1
     model_info:
       max_input_tokens: 1000000
       supports_native_structured_output: true
@@ -167,6 +179,11 @@ model_list:
       model: anthropic/claude-haiku-5-5
       api_key: os.environ/ANTHROPIC_API_KEY
       additional_drop_params: [temperature, top_p, top_k]
+      cache_control_injection_points:
+        - location: message
+          role: system
+        - location: message
+          index: -1
     model_info:
       max_input_tokens: 1000000
       supports_native_structured_output: true

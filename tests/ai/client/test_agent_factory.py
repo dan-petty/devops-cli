@@ -132,6 +132,35 @@ def test_a_request_on_the_deepseek_group_costs_its_cached_and_new_input_and_its_
     assert round(cost, 6) == 0.033477
 
 
+def test_a_request_on_a_claude_group_costs_its_cache_reads_and_writes_at_the_cache_rates(
+    spend_ledger: SpendLedger, config: Callable[..., Any]
+) -> None:
+    """The spend hook gives the ledger the cache reads and the cache writes of a reply (#3658).
+    Of 2,000,000 prompt tokens on Sonnet 5.5, 1,000,000 are cache reads at 0.10 USD and 1,000,000
+    are cache writes at 2.50 USD per million: 2.60 USD, not 4.00 USD at the input price."""
+    sonnet = "claude-sonnet-5-5"
+    config(k8s={"domain": "example.com"}, ai={"gateway_url": _GATEWAY_URL})
+
+    def reply(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        return ModelResponse(
+            parts=[TextPart("ok")],
+            usage=RequestUsage(
+                input_tokens=2_000_000, cache_read_tokens=1_000_000, cache_write_tokens=1_000_000
+            ),
+            model_name=sonnet,
+        )
+
+    model = FunctionModel(reply, model_name=sonnet)
+    setattr(model, "served_by", _GATEWAY_URL)
+    build_agent(model).run_sync("Hi")
+
+    with contextlib.closing(sqlite3.connect(spend_ledger.db_path)) as conn:
+        row = conn.execute(
+            "SELECT cache_read_tokens, cache_write_tokens, round(cost_usd, 6) FROM ai_spend_records"
+        ).fetchone()
+    assert row == (1_000_000, 1_000_000, 2.6)
+
+
 def _durations(ledger: SpendLedger) -> list[float]:
     with contextlib.closing(sqlite3.connect(ledger.db_path)) as conn:
         rows = conn.execute("SELECT duration_seconds FROM ai_spend_records ORDER BY id").fetchall()

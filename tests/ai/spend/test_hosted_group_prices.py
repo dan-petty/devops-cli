@@ -29,8 +29,9 @@ _GATEWAY_CALL: dict[str, Any] = {
     "server": "llm-gateway.llm.svc.cluster.local:4000",
     "provider": "gateway",
 }
-# Below the 100,000-token tier of Claude Haiku 5.5, which the gateway does not price.
-_PROMPT, _CACHED, _COMPLETION = 10_000, 6_000, 1_000
+# Below the 100,000-token tier of Claude Haiku 5.5, which the gateway does not price. Of the
+# prompt tokens, 6,000 are cache reads and 2,000 are cache writes (#3658).
+_PROMPT, _CACHED, _WRITTEN, _COMPLETION = 10_000, 6_000, 2_000, 1_000
 
 
 @pytest.fixture(autouse=True)
@@ -124,9 +125,10 @@ def test_every_model_of_the_service_template_is_a_gateway_group_that_is_priced_o
 def test_the_client_price_of_a_hosted_group_is_the_price_in_the_gateway_config(
     tmp_path: Path,
 ) -> None:
-    """The gateway config sets the input, cached input and output price of a group that the cost
-    map of LiteLLM does not price right. The client prices a call of the group at the same three
-    rates, so the spend of the client and the spend of the gateway agree."""
+    """The gateway config sets the input, cached input, cache write and output price of a group
+    that the cost map of LiteLLM does not price right. The client prices a call of the group at
+    the same rates, so the spend of the client and the spend of the gateway agree. A group that
+    sets no cache write price costs a cache write at the input price (#3658)."""
     registry = PricingRegistry(data_dir=tmp_path)
     priced = [
         (group, deployment)
@@ -136,9 +138,13 @@ def test_the_client_price_of_a_hosted_group_is_the_price_in_the_gateway_config(
 
     def gateway_cost(info: dict[str, Any]) -> float:
         cached_rate = float(info.get("cache_read_input_token_cost", info["input_cost_per_token"]))
+        write_rate = float(
+            info.get("cache_creation_input_token_cost", info["input_cost_per_token"])
+        )
         return round(
-            (_PROMPT - _CACHED) * float(info["input_cost_per_token"])
+            (_PROMPT - _CACHED - _WRITTEN) * float(info["input_cost_per_token"])
             + _CACHED * cached_rate
+            + _WRITTEN * write_rate
             + _COMPLETION * float(info["output_cost_per_token"]),
             6,
         )
@@ -150,6 +156,7 @@ def test_the_client_price_of_a_hosted_group_is_the_price_in_the_gateway_config(
                 _PROMPT,
                 _COMPLETION,
                 cache_read_tokens=_CACHED,
+                cache_write_tokens=_WRITTEN,
                 served_model=deployment["litellm_params"]["model"],
                 **_GATEWAY_CALL,
             ).cost_usd,
@@ -159,7 +166,7 @@ def test_the_client_price_of_a_hosted_group_is_the_price_in_the_gateway_config(
     }
 
     assert (
-        "deepseek-v4.1-flash-1017" in costs,
+        {"deepseek-v4.1-flash-1017", "claude-sonnet-5-5", "claude-haiku-5-5"} <= costs.keys(),
         {group: pair for group, pair in costs.items() if pair[0] != pytest.approx(pair[1])},
     ) == (True, {})
 
