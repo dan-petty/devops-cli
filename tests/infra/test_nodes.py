@@ -109,9 +109,9 @@ def test_a_critical_alert_that_fires_is_a_problem(
     config(prometheus={"url": "http://prometheus.example.com:9090"})
     web.serve(lambda request: httpx2.Response(200, json=_ALERTS))
 
-    problems = critical_alerts(load_settings())
+    alerts = critical_alerts(load_settings())
 
-    assert problems == ["the critical alert KubeNodeNotReady fires"]
+    assert alerts.problems == ["the critical alert KubeNodeNotReady fires"]
     [request] = web.sent
     assert request.url.params["query"] == 'ALERTS{alertstate="firing",severity="critical"}'
 
@@ -122,9 +122,101 @@ def test_a_prometheus_that_does_not_answer_is_a_problem(
     config(prometheus={"url": "http://prometheus.example.com:9090"})
     web.serve(lambda request: httpx2.Response(503, text="unavailable"))
 
-    [problem] = critical_alerts(load_settings())
+    [problem] = critical_alerts(load_settings()).problems
 
     assert problem.startswith("Prometheus did not answer the query of the critical alerts")
+
+
+def _firing(*labels: dict[str, str]) -> dict[str, object]:
+    """The answer of the alert query: one critical alert that fires for each set of `labels`."""
+    result = [{"metric": {"severity": "critical", **each}} for each in labels]
+    return {"status": "success", "data": {"resultType": "vector", "result": result}}
+
+
+_LEFT_OUT = (
+    "The health gate left out the critical alert NodeNotReady: its node node-5 is out of service"
+)
+
+
+@pytest.mark.parametrize(
+    ("labels", "problems", "left_out"),
+    [
+        pytest.param(
+            {"alertname": "NodeNotReady", "node": "node-5"}, [], [_LEFT_OUT], id="offline-node"
+        ),
+        pytest.param(
+            {"alertname": "NodeNotReady", "instance": "node-5"},
+            [],
+            [_LEFT_OUT],
+            id="offline-instance",
+        ),
+        pytest.param(
+            {"alertname": "NodeNotReady", "node": "node-2"},
+            ["the critical alert NodeNotReady fires"],
+            [],
+            id="node-in-service",
+        ),
+        pytest.param(
+            {"alertname": "NodeNotReady", "node": "node-2", "instance": "node-5"},
+            ["the critical alert NodeNotReady fires"],
+            [],
+            id="node-label-first",
+        ),
+        pytest.param(
+            {"alertname": "ClusterMetricsMissing"},
+            ["the critical alert ClusterMetricsMissing fires"],
+            [],
+            id="no-node-label",
+        ),
+    ],
+)
+def test_the_alert_gate_leaves_out_only_an_alert_of_a_node_out_of_service(
+    web: WebFake,
+    config: Callable[..., Path],
+    labels: dict[str, str],
+    problems: list[str],
+    left_out: list[str],
+) -> None:
+    """A parked node in the offline group keeps its NodeNotReady alert; the gate does not stop for
+    it, as it does not read the node itself (#5455)."""
+    config(prometheus={"url": "http://prometheus.example.com:9090"})
+    web.serve(lambda request: httpx2.Response(200, json=_firing(labels)))
+
+    alerts = critical_alerts(load_settings(), frozenset({"node-5"}))
+
+    assert (alerts.problems, alerts.left_out) == (problems, left_out)
+
+
+def test_the_health_gate_and_the_alert_wait_name_each_alert_that_they_leave_out(
+    cluster: FakeCluster, web: WebFake, config: Callable[..., Path], clock: ClockFake
+) -> None:
+    """The alert of the node out of service does not stop the gate and does not hold the wait
+    after a host until its bound; each read gives one line for the alert that it left out."""
+    config(prometheus={"url": "http://prometheus.example.com:9090"})
+    answer = _firing({"alertname": "NodeNotReady", "node": "node-5"})
+    web.serve(lambda request: httpx2.Response(200, json=answer))
+    lines: list[str] = []
+    nodes = Cluster(KUBE_CONTEXT, load_settings(), frozenset({"node-5"}), lines.append)
+
+    assert (nodes.health(), nodes.wait_alerts_clear()) == ([], [])
+    assert lines == [_LEFT_OUT] * 3
+    assert clock.waits == [10.0] * 2
+
+
+def test_the_health_gate_stops_for_an_alert_of_a_node_in_service_next_to_one_it_leaves_out(
+    cluster: FakeCluster, web: WebFake, config: Callable[..., Path]
+) -> None:
+    config(prometheus={"url": "http://prometheus.example.com:9090"})
+    answer = _firing(
+        {"alertname": "NodeNotReady", "node": "node-5"},
+        {"alertname": "NodeNotReady", "node": "node-2"},
+    )
+    web.serve(lambda request: httpx2.Response(200, json=answer))
+    lines: list[str] = []
+
+    health = Cluster(KUBE_CONTEXT, load_settings(), frozenset({"node-5"}), lines.append).health()
+
+    assert (health, lines) == (["the critical alert NodeNotReady fires"], [_LEFT_OUT])
 
 
 @pytest.mark.parametrize(

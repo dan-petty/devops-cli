@@ -366,6 +366,11 @@ class ApplyReport(BaseModel):
     result: ApplyResult = Field(description="How the apply ended")
     reason: str | None = Field(default=None, description="Why the apply did not end ok")
     hosts: tuple[HostApply, ...] = Field(default=(), description="One entry for each host")
+    left_out_alerts: tuple[str, ...] = Field(
+        default=(),
+        description="One line for each critical alert that fired and that the health gate left "
+        "out, because its node is the node of a host out of service",
+    )
     started: datetime = Field(description="When the apply started, in UTC")
     duration_seconds: float = Field(description="How long the apply took")
     folder: str | None = Field(

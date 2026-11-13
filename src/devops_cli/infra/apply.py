@@ -333,6 +333,13 @@ class _Progress:
     folder: Path | None = None
     hosts: list[HostApply] = field(default_factory=list)
     changing: bool = False
+    left_out_alerts: list[str] = field(default_factory=list)
+
+    def leave_out(self, line: str) -> None:
+        """Keep the line of an alert that the health gate left out, once: each read of the gate
+        and of the waits gives it again."""
+        if line not in self.left_out_alerts:
+            self.left_out_alerts.append(line)
 
 
 @dataclass(frozen=True)
@@ -390,6 +397,7 @@ def apply_saved_plan(
             result=result,
             reason=reason,
             hosts=tuple(progress.hosts),
+            left_out_alerts=tuple(progress.left_out_alerts),
             started=started,
             duration_seconds=round(clock.monotonic() - start, 3),
             folder=str(progress.folder) if progress.folder else None,
@@ -448,7 +456,7 @@ def _apply(
     project = folder / PROJECT_FOLDER
     try:
         export_tree(target.path, project, plan.commit)
-        context = _prepare(target, entry, settings, plan, caller, folder, tool)
+        context = _prepare(target, entry, settings, plan, caller, folder, tool, progress.leave_out)
         return _apply_hosts(context, progress)
     finally:
         shutil.rmtree(project, ignore_errors=True)
@@ -462,9 +470,10 @@ def _prepare(
     caller: Caller,
     folder: Path,
     tool: AnsibleTool,
+    on_left_out: Callable[[str], None],
 ) -> _Context:
     """Read the export, check the host keys for an agent and the health of the cluster, and give
-    what each step uses.
+    what each step uses. Each alert that the health gate leaves out goes to `on_left_out`.
 
     Raises:
         InfraApplyRefusedError: an agent applies with host key checks off, or the cluster is not
@@ -489,6 +498,7 @@ def _prepare(
         offline_nodes=frozenset(
             node_name(host, inventory.hostvars.get(host, {})) for host in offline
         ),
+        on_left_out=on_left_out,
     )
     problems = cluster.health()
     if problems:
@@ -678,8 +688,9 @@ def _settle(context: _Context, work: _HostRun) -> _Stop | None:
 
 
 def audit_details(report: ApplyReport) -> dict[str, Any]:
-    """The details of the audit record of an apply: who, at which level, what, and each host with
-    its result. No path of a key and no output of a task."""
+    """The details of the audit record of an apply: who, at which level, what, each host with its
+    result, and each alert that the health gate left out. No path of a key and no output of a
+    task."""
     return {
         "id": report.id,
         "caller": report.caller,
@@ -707,6 +718,7 @@ def audit_details(report: ApplyReport) -> dict[str, Any]:
             }
             for host in report.hosts
         ],
+        "left_out_alerts": list(report.left_out_alerts),
         "duration_seconds": report.duration_seconds,
     }
 
@@ -781,12 +793,14 @@ def apply_table(report: ApplyReport) -> tuple[list[str], list[list[str]]]:
 
 
 def render_apply_footer(report: ApplyReport) -> list[str]:
-    """The lines under the table: the result, the folder, and the next step of a stop."""
+    """The lines under the table: the result, each alert that the health gate left out, the
+    folder, and the next step of a stop."""
     texts = MESSAGES.infra
     lines = [
         texts.apply_done.format(
             id=report.id, result=report.result.value, seconds=report.duration_seconds
-        )
+        ),
+        *report.left_out_alerts,
     ]
     lines += [
         texts.apply_down.format(host=host.host, workloads=", ".join(host.down_during_apply))
