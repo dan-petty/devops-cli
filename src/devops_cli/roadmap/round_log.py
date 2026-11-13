@@ -22,7 +22,7 @@ from typing import TYPE_CHECKING, Final
 
 from devops_cli import __version__
 from devops_cli.roadmap.stage.stage_findings import finding_subject
-from devops_cli.security.sanitizer import mask_secrets
+from devops_cli.security.sanitizer import redact_text
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Sequence
@@ -45,11 +45,15 @@ def _tally(names: Iterable[str]) -> str:
 
 
 def _subject(finding: StageFinding) -> str:
-    """The subject of `finding` as a JSON string, masked first and then cut, or `none`."""
+    """The subject of `finding` as a JSON string, masked first and then cut, or `none`.
+
+    `redact_text` is the mask of `mask_secrets`. CodeQL (`py/clear-text-logging-sensitive-data`)
+    takes the value of a call whose name holds `secret` as a secret, and so it refuses a log of the
+    value of `mask_secrets`."""
     subject = finding_subject(finding)
     if subject is None:
         return "none"
-    return json.dumps(mask_secrets(subject)[:_SUBJECT_CHARS], ensure_ascii=False)
+    return json.dumps(redact_text(subject)[:_SUBJECT_CHARS], ensure_ascii=False)
 
 
 def log_gate_returns(

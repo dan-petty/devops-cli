@@ -21,7 +21,7 @@ from devops_cli.roadmap.stage.stage_findings import (
     check_findings,
     stage_finding,
 )
-from devops_cli.security.sanitizer import mask_secrets
+from devops_cli.security.sanitizer import redact_text
 from tests.support.builders import make_stage_proposal
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.github_token_samples import installation_token
@@ -169,12 +169,12 @@ def test_a_subject_longer_than_200_characters_is_cut(caplog: pytest.LogCaptureFi
 def test_a_secret_in_a_subject_is_masked(caplog: pytest.LogCaptureFixture) -> None:
     token = installation_token()
     path = f"docs/{token}.md"
-    assert mask_secrets(path) != path
+    assert redact_text(path) != path
 
     with caplog.at_level(logging.INFO):
         _log([_trace(path)])
 
-    assert _subjects(caplog) == [mask_secrets(path)]
+    assert _subjects(caplog) == [redact_text(path)]
     assert token not in caplog.text
 
 
@@ -184,12 +184,12 @@ def test_a_secret_across_the_cut_is_masked_before_the_cut(
     """A cut first would keep the start of the token, which the mask no longer finds."""
     token = installation_token()
     path = "d" * 189 + "/" + token
-    assert mask_secrets(path)[:200] != mask_secrets(path[:200])
+    assert redact_text(path)[:200] != redact_text(path[:200])
 
     with caplog.at_level(logging.INFO):
         _log([_trace(path)])
 
-    assert _subjects(caplog) == [mask_secrets(path)[:200]]
+    assert _subjects(caplog) == [redact_text(path)[:200]]
 
 
 def test_a_finding_logs_the_tool_or_the_command_that_its_message_names(

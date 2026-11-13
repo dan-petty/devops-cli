@@ -14,7 +14,7 @@ After the `stage gate returns` line, the stage job SHALL log one `stage gate ref
 
 ### Requirement: The subject of a finding is masked and cut
 
-The subject SHALL be the value of the field `path`, `tool` or `command` of the template of the code, in that order, or `none`. The line SHALL mask the subject with `mask_secrets` before it keeps the first 200 characters, and SHALL hold no other text of the plan, of the finding or of the model.
+The subject SHALL be the value of the field `path`, `tool` or `command` of the template of the code, in that order, or `none`. The line SHALL mask the subject with `redact_text`, the mask of `mask_secrets`, before it keeps the first 200 characters, and SHALL hold no other text of the plan, of the finding or of the model.
 
 #### Scenario: A subject holds a token
 - **WHEN** the path of a finding holds a GitHub token, and the token goes past character 200

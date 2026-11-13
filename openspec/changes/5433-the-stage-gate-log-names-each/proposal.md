@@ -7,7 +7,7 @@ Issue #5433: when the checks refuse a stage plan, the Service logs only the coun
 ## What Changes
 
 - After the unchanged `stage gate returns:` line, `log_gate_returns` logs one `stage gate refused finding:` line for each of the first 20 findings of the last refused reply: the repository, the item, the returns, the result, the place of the finding and the count of all findings (`finding=<place>/<count>`), the gate, the code and the subject.
-- The subject is the path, the tool or the command that the message of the finding names: the field `path`, `tool` or `command` of its `MESSAGES.roadmap` template, in that order (`finding_subject` in `src/devops_cli/roadmap/stage/stage_findings.py`). `mask_secrets` masks it, the line keeps its first 200 characters, and the line writes it as a JSON string. A finding with no such field logs `subject=none`.
+- The subject is the path, the tool or the command that the message of the finding names: the field `path`, `tool` or `command` of its `MESSAGES.roadmap` template, in that order (`finding_subject` in `src/devops_cli/roadmap/stage/stage_findings.py`). `redact_text` (the mask of `mask_secrets`) masks it, the line keeps its first 200 characters, and the line writes it as a JSON string. A finding with no such field logs `subject=none`.
 - No plan text, no finding text and no model text goes into the log, only the subject that the gate names.
 - The line is an observable log line, so the change has a spec delta in `roadmap-stage-findings`.
 
@@ -32,5 +32,5 @@ Issue #5433: when the checks refuse a stage plan, the Service logs only the coun
 
 ## Existing Tool Considered
 
-- The standard `logging` module, `json.dumps` for the quoted value and `mask_secrets` (`src/devops_cli/security/sanitizer.py`), which the project already uses. No new library.
+- The standard `logging` module, `json.dumps` for the quoted value and `redact_text`, the mask of `mask_secrets` (`src/devops_cli/security/sanitizer.py`), which the project already uses. No new library.
 - Cost: about 0.2M tokens and one hour to build, as the issue estimates.
