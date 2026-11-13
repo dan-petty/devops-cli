@@ -30,11 +30,11 @@ Each selector of a `devops_cli_` series in the group SHALL have `job="roadmap-se
 
 ### Requirement: Each alert points to its runbook step
 
-Each description in the group SHALL end with `(k8s/README.md, Roadmap service)`, and that section SHALL say what to do for each alert.
+Each description in the group SHALL end with `(docs/CLUSTER.md, Roadmap service)`, and that section SHALL say what to do for each alert.
 
 #### Scenario: The README section
 
-- **WHEN** a test reads the descriptions and "Roadmap service" in `k8s/README.md`
+- **WHEN** a test reads the descriptions and "Roadmap service" in `docs/CLUSTER.md`
 - **THEN** each description points to the section, and the section names each alert
 
 ### Requirement: A refused identity and a throttle are critical
@@ -143,14 +143,14 @@ Each description in the group SHALL end with `(k8s/README.md, Roadmap service)`,
 - **THEN** `RoadmapServiceGitHubRequestsHigh` stays quiet
 
 ### Requirement: The webhook route has its own alert group
-The rule group `roadmap-service-webhooks` in `k8s/devops/monitoring/prometheus-rules-values.yaml`, separate from the group `roadmap-service`, SHALL hold the warning alert `RoadmapServiceWebhooksRejected`. Its description SHALL end with `(k8s/README.md, Roadmap service)`, and that section SHALL name the alert.
+The rule group `roadmap-service-webhooks` in `k8s/devops/monitoring/prometheus-rules-values.yaml`, separate from the group `roadmap-service`, SHALL hold the warning alert `RoadmapServiceWebhooksRejected`. Its description SHALL end with `(docs/CLUSTER.md, Roadmap service)`, and that section SHALL name the alert.
 
 #### Scenario: The rule names the Service
 - **WHEN** a test reads the selectors of the group
 - **THEN** each selector of `devops_cli_service_webhook_deliveries_total` has `job="roadmap-service"` and `outcome="rejected"`
 
 #### Scenario: The README section
-- **WHEN** a test reads the description of the alert and "Roadmap service" in `k8s/README.md`
+- **WHEN** a test reads the description of the alert and "Roadmap service" in `docs/CLUSTER.md`
 - **THEN** the description points to the section, and the section names the alert
 
 ### Requirement: A burst of rejected webhook deliveries warns
@@ -173,7 +173,7 @@ The rule group `roadmap-service-webhooks` in `k8s/devops/monitoring/prometheus-r
 - **THEN** `RoadmapServiceWebhooksRejected` stays quiet
 
 ### Requirement: The Service's activity has its own alert group
-The rule group `roadmap-service-activity` in `k8s/devops/monitoring/prometheus-rules-values.yaml`, apart from the group `roadmap-service`, SHALL hold the warning alerts `RoadmapServiceGitHubWritesHigh`, `RoadmapServiceSelfDeliveriesHigh`, `RoadmapServiceWebSearchRefused` and `RoadmapServiceAlternativesNotSearching`. promtool SHALL accept them. Each SHALL select only the Service's job and point to the section "Roadmap service" of `k8s/README.md`.
+The rule group `roadmap-service-activity` in `k8s/devops/monitoring/prometheus-rules-values.yaml`, apart from the group `roadmap-service`, SHALL hold the warning alerts `RoadmapServiceGitHubWritesHigh`, `RoadmapServiceSelfDeliveriesHigh`, `RoadmapServiceWebSearchRefused` and `RoadmapServiceAlternativesNotSearching`. promtool SHALL accept them. Each SHALL select only the Service's job and point to the section "Roadmap service" of `docs/CLUSTER.md`.
 
 #### Scenario: The selectors of the group
 - **WHEN** a test reads the selectors of the group
@@ -218,7 +218,7 @@ The rule group `roadmap-service-activity` in `k8s/devops/monitoring/prometheus-r
 - **THEN** `RoadmapServiceWebSearchRefused` stays quiet
 
 ### Requirement: The item ages have their own alert group
-The rule group `roadmap-service-items` in `k8s/devops/monitoring/prometheus-rules-values.yaml` SHALL hold the warning alert `RoadmapServiceItemStuck`. promtool SHALL accept it. Each `devops_cli_` selector of the group SHALL have `job="roadmap-service"`. The description SHALL point to the section "Roadmap service" of `k8s/README.md`. That section SHALL say what to do.
+The rule group `roadmap-service-items` in `k8s/devops/monitoring/prometheus-rules-values.yaml` SHALL hold the warning alert `RoadmapServiceItemStuck`. promtool SHALL accept it. Each `devops_cli_` selector of the group SHALL have `job="roadmap-service"`. The description SHALL point to the section "Roadmap service" of `docs/CLUSTER.md`. That section SHALL say what to do.
 
 #### Scenario: The selectors of the group
 - **WHEN** a test reads the selectors of the group
@@ -248,14 +248,14 @@ The rule group `roadmap-service-items` in `k8s/devops/monitoring/prometheus-rule
 - **THEN** the alert stays quiet
 
 ### Requirement: The planner tools have their own alert group
-The rule group `roadmap-service-tools` in `k8s/devops/monitoring/prometheus-rules-values.yaml`, apart from the other groups of the Service, SHALL hold the warning alert `RoadmapServiceToolUnused`. Each `devops_cli_` selector of the group SHALL have `job="roadmap-service"`. Its description SHALL end with `(k8s/README.md, Roadmap service)`, and that section SHALL name the alert. promtool SHALL accept the rule.
+The rule group `roadmap-service-tools` in `k8s/devops/monitoring/prometheus-rules-values.yaml`, apart from the other groups of the Service, SHALL hold the warning alert `RoadmapServiceToolUnused`. Each `devops_cli_` selector of the group SHALL have `job="roadmap-service"`. Its description SHALL end with `(docs/CLUSTER.md, Roadmap service)`, and that section SHALL name the alert. promtool SHALL accept the rule.
 
 #### Scenario: The selectors of the group
 - **WHEN** a test reads the selectors of the group
 - **THEN** each `devops_cli_` selector has `job="roadmap-service"`
 
 #### Scenario: The README section
-- **WHEN** a test reads the description of the alert and "Roadmap service" in `k8s/README.md`
+- **WHEN** a test reads the description of the alert and "Roadmap service" in `docs/CLUSTER.md`
 - **THEN** the description points to the section, and the section names the alert
 
 ### Requirement: A tool that no run called in 7 days warns
@@ -325,7 +325,7 @@ The rule group `roadmap-service-tools` in `k8s/devops/monitoring/prometheus-rule
 - **THEN** the alert stays quiet, and it fires when the last sample is 100 hours old
 
 ### Requirement: A state record that stays unwritten warns
-`RoadmapServiceStateUnkept` SHALL be an alert of the group `roadmap-service` with warning severity. It SHALL fire after 15 minutes while `devops_cli_service_state_unkept` of the job `roadmap-service` is above 0 for a `record`, and its summary and description SHALL name the record. Its description SHALL end with `(k8s/README.md, Roadmap service)`, and that section SHALL name the alert and say what to check.
+`RoadmapServiceStateUnkept` SHALL be an alert of the group `roadmap-service` with warning severity. It SHALL fire after 15 minutes while `devops_cli_service_state_unkept` of the job `roadmap-service` is above 0 for a `record`, and its summary and description SHALL name the record. Its description SHALL end with `(docs/CLUSTER.md, Roadmap service)`, and that section SHALL name the alert and say what to check.
 
 #### Scenario: A record that stays unwritten
 - **WHEN** `promtool test rules` evaluates the gauge of the record `ledger` at 1 for more than 15 minutes
@@ -340,7 +340,7 @@ The rule group `roadmap-service-tools` in `k8s/devops/monitoring/prometheus-rule
 - **THEN** no alert counts it
 
 ### Requirement: The memory alert warns before the limit
-The rule group `roadmap-service` SHALL hold the warning alert `RoadmapServiceMemoryNearLimit`. It SHALL fire after 10 minutes when the working set of container `service` of a pod `roadmap-service-.+` in namespace `devops` is above 85% of the memory limit of that container. Its description SHALL end with `(k8s/README.md, Roadmap service)`, and that section SHALL name the alert and say what to do.
+The rule group `roadmap-service` SHALL hold the warning alert `RoadmapServiceMemoryNearLimit`. It SHALL fire after 10 minutes when the working set of container `service` of a pod `roadmap-service-.+` in namespace `devops` is above 85% of the memory limit of that container. Its description SHALL end with `(docs/CLUSTER.md, Roadmap service)`, and that section SHALL name the alert and say what to do.
 
 #### Scenario: The working set stays above 85% of the limit
 - **WHEN** `promtool test rules` evaluates a working set at 90% of the limit for 20 minutes
@@ -351,7 +351,7 @@ The rule group `roadmap-service` SHALL hold the warning alert `RoadmapServiceMem
 - **THEN** no alert fires for it.
 
 ### Requirement: A row that stays suspended warns
-`RoadmapServiceRowSuspended` SHALL be an alert of the group `roadmap-service` with warning severity. It SHALL fire after 3 hours while `devops_cli_service_job_suspended` of the job `roadmap-service` is above 0 for a `repo`, a `row` and a `class`, and its summary and description SHALL name the row, the repository and the class. Its description SHALL end with `(k8s/README.md, Roadmap service)`, and that section SHALL name the alert and say what to check.
+`RoadmapServiceRowSuspended` SHALL be an alert of the group `roadmap-service` with warning severity. It SHALL fire after 3 hours while `devops_cli_service_job_suspended` of the job `roadmap-service` is above 0 for a `repo`, a `row` and a `class`, and its summary and description SHALL name the row, the repository and the class. Its description SHALL end with `(docs/CLUSTER.md, Roadmap service)`, and that section SHALL name the alert and say what to check.
 
 #### Scenario: A row that stays suspended
 - **WHEN** `promtool test rules` evaluates the gauge of the row `intake` with `class="provider"` at 1 for more than 3 hours
@@ -403,7 +403,7 @@ An installation token that names no repository, as the Service mints, SHALL ask 
 - **THEN** the token request asks for the permissions of the roadmap jobs and holds no `repository_hooks`
 
 ### Requirement: Failed deliveries of the hooks warn
-The rule group `roadmap-service-webhooks` SHALL hold the warning alert `RoadmapServiceWebhookDeliveriesFailed`. It SHALL fire when `devops_cli_service_webhook_delivery_failures` of the job `roadmap-service`, added by `repo`, is more than 5. Its summary and its description SHALL name the repository, and its description SHALL end with `(k8s/README.md, Roadmap service)`. It SHALL NOT count the series of another job.
+The rule group `roadmap-service-webhooks` SHALL hold the warning alert `RoadmapServiceWebhookDeliveriesFailed`. It SHALL fire when `devops_cli_service_webhook_delivery_failures` of the job `roadmap-service`, added by `repo`, is more than 5. Its summary and its description SHALL name the repository, and its description SHALL end with `(docs/CLUSTER.md, Roadmap service)`. It SHALL NOT count the series of another job.
 
 #### Scenario: More than 5 failed deliveries of one repository
 - **WHEN** `promtool test rules` evaluates 5 failed deliveries of one repository, then 6
