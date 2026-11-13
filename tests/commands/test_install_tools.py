@@ -410,17 +410,25 @@ class NpmRun:
 
 
 def _record_npm(
-    monkeypatch: pytest.MonkeyPatch, *, ci_fails: bool = False, npm_installed: bool = True
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    ci_fails: bool = False,
+    npm_installed: bool = True,
+    version: str | None = None,
 ) -> list[NpmRun]:
     """Stand in for npm at the stdlib, as `run_subprocess` starts it: `shutil.which` finds npm, and
     `subprocess.run` records each command. A successful `npm ci` writes the tree npm makes for
     the OpenSpec lockfile, a package and its `.bin` link; a failed one answers with the real
-    tool's recorded integrity failure, after the partial `node_modules` it leaves."""
+    tool's recorded integrity failure, after the partial `node_modules` it leaves. A `--version`
+    run answers `version`, the lock's OpenSpec version by default, and is not recorded."""
     runs: list[NpmRun] = []
+    printed = load_tools_lock().npm["openspec"].version if version is None else version
 
     def run(
         cmd: list[str], *, cwd: Path, env: dict[str, str], **_: object
     ) -> subprocess.CompletedProcess[str]:
+        if cmd[1:] == ["--version"]:
+            return subprocess.CompletedProcess(cmd, 0, f"{printed}\n", "")
         runs.append(
             NpmRun(
                 cmd,
@@ -600,9 +608,10 @@ def test_install_tools_installs_a_node_tool_and_check_finds_it_at_its_pin(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, isolate_user_data_root: Path
 ) -> None:
     """`devops install-tools --tool openspec` installs the pin from the lockfile and links
-    `openspec`, and `--check` then reports it at the pin."""
+    `openspec`, and `--check` then reports the version and the path of the command on PATH."""
     _record_npm(monkeypatch)
     target = tmp_path / "bin"
+    openspec = load_tools_lock().npm["openspec"]
 
     installed = runner.invoke(
         install_tools_app, ["--tool", "openspec", "--target-dir", str(target)]
@@ -611,11 +620,12 @@ def test_install_tools_installs_a_node_tool_and_check_finds_it_at_its_pin(
         install_tools_app, ["--check", "--tool", "openspec", "--target-dir", str(target)]
     )
 
-    assert (installed.exit_code, checked.exit_code, "All 1 tools are linked" in checked.output) == (
-        0,
-        0,
-        True,
-    )
+    assert (
+        installed.exit_code,
+        checked.exit_code,
+        f"openspec {openspec.version}: /usr/bin/openspec" in checked.output,
+        "All 1 tools are linked" in checked.output,
+    ) == (0, 0, True, True)
 
 
 def test_install_tools_without_npm_exits_1_naming_npm(
@@ -681,6 +691,83 @@ def test_check_passes_only_when_every_tool_is_at_its_pin(
         0,
         [],
     )
+
+
+def test_check_prints_the_version_and_the_path_of_the_locked_command(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, isolate_user_data_root: Path
+) -> None:
+    """The check reads the version of the command that PATH resolves, and prints it with the path
+    of that command when it prints the locked version."""
+    _record_npm(monkeypatch)
+    target = tmp_path / "bin"
+    openspec = load_tools_lock().npm["openspec"]
+    runner.invoke(install_tools_app, ["--tool", "openspec", "--target-dir", str(target)])
+
+    checked = runner.invoke(
+        install_tools_app, ["--check", "--tool", "openspec", "--target-dir", str(target)]
+    )
+
+    assert (
+        checked.exit_code,
+        f"openspec {openspec.version}: /usr/bin/openspec" in checked.output,
+    ) == (0, True)
+
+
+def test_check_fails_naming_the_version_the_binary_prints(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, isolate_user_data_root: Path
+) -> None:
+    """A command on PATH that prints another version than the lock's fails the check, and the line
+    names the path, the version it prints and the locked version."""
+    _record_npm(monkeypatch, version="1.14.3")
+    target = tmp_path / "bin"
+    openspec = load_tools_lock().npm["openspec"]
+    runner.invoke(install_tools_app, ["--tool", "openspec", "--target-dir", str(target)])
+
+    checked = runner.invoke(
+        install_tools_app, ["--check", "--tool", "openspec", "--target-dir", str(target)]
+    )
+
+    assert (
+        checked.exit_code,
+        all(part in checked.output for part in ("/usr/bin/openspec", "1.14.3", openspec.version)),
+        "All 1 tools are linked" in checked.output,
+    ) == (1, True, False)
+
+
+def test_check_fails_when_the_binary_prints_no_version(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, isolate_user_data_root: Path
+) -> None:
+    """A command on PATH that prints no version cannot be shown to be the lock's: the check fails
+    and names the path."""
+    _record_npm(monkeypatch, version="")
+    target = tmp_path / "bin"
+    runner.invoke(install_tools_app, ["--tool", "openspec", "--target-dir", str(target)])
+
+    checked = runner.invoke(
+        install_tools_app, ["--check", "--tool", "openspec", "--target-dir", str(target)]
+    )
+
+    assert (
+        checked.exit_code,
+        "/usr/bin/openspec" in checked.output,
+        "All 1 tools are linked" in checked.output,
+    ) == (1, True, False)
+
+
+def test_only_missing_installs_openspec_when_the_binary_on_path_prints_another_version(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, isolate_user_data_root: Path
+) -> None:
+    """A link at the pin hides nothing: `--only-missing` installs the locked version when the
+    command that PATH resolves prints another one."""
+    runs = _record_npm(monkeypatch, version="1.14.3")
+    target = tmp_path / "bin"
+    link_at_pin("openspec", target)
+
+    installed = runner.invoke(
+        install_tools_app, ["--tool", "openspec", "--only-missing", "--target-dir", str(target)]
+    )
+
+    assert (installed.exit_code, [run.argv[1] for run in runs]) == (0, ["ci"])
 
 
 @pytest.mark.parametrize(

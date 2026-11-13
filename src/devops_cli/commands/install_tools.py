@@ -30,7 +30,7 @@ from typing import Annotated, Any, Final
 import httpx2
 import typer
 
-from devops_cli.config.commands import BIN_NPM, build_npm_ci_cmd
+from devops_cli.config.commands import BIN_NPM, BIN_OPENSPEC, build_npm_ci_cmd
 from devops_cli.config.constants import CONST_NPM_PROJECT_FILES, CONST_PERM_EXEC
 from devops_cli.config.defaults import DEFAULT_HTTP_TIMEOUT_SECONDS, DEFAULT_LOCAL_BIN_DIR
 from devops_cli.core.binaries import require_binary
@@ -62,6 +62,7 @@ from devops_cli.tools_lock import (
     load_tools_lock,
     tool_install_dir,
 )
+from devops_cli.tools_lock.versions import path_version
 
 app = new_typer(help=HELP.install.app, no_args_is_help=True)
 
@@ -369,8 +370,14 @@ def _at_pin(name: str, entry: LockedTool, target_dir: Path) -> bool:
 
 
 def _off_pin(tools: dict[str, LockedTool], target_dir: Path) -> dict[str, LockedTool]:
-    """The tools whose commands in `target_dir` do not link to their locked versions."""
-    return {name: entry for name, entry in tools.items() if not _at_pin(name, entry, target_dir)}
+    """The tools whose commands in `target_dir` do not link to their locked versions, and the
+    tools whose command on PATH prints another version than the lock's."""
+    return {
+        name: entry
+        for name, entry in tools.items()
+        if _version_problem(name, entry, _version_state(name, entry)) is not None
+        or not _at_pin(name, entry, target_dir)
+    }
 
 
 def _installed(name: str, entry: LockedTool, target_dir: Path) -> str:
@@ -380,6 +387,66 @@ def _installed(name: str, entry: LockedTool, target_dir: Path) -> str:
     search_path = os.pathsep.join((str(target_dir), os.environ.get("PATH", "")))
     found = shutil.which(entry.commands[0], path=search_path)
     return found or MESSAGES.install.not_installed
+
+
+def _version_state(name: str, entry: LockedTool) -> tuple[str, str | None] | None:
+    """The path and the printed version of the command PATH resolves for `name`, or None.
+
+    Only the `openspec` Node tool writes a committed file, so the check reads the version of no
+    other tool. None means that PATH resolves no command, and the link check alone then decides.
+    """
+    if name != BIN_OPENSPEC or not isinstance(entry, NpmTool):
+        return None
+    return path_version(BIN_OPENSPEC)
+
+
+def _version_problem(
+    name: str, entry: LockedTool, state: tuple[str, str | None] | None
+) -> str | None:
+    """The line that reports a version other than the lock's, or one that no run printed."""
+    if state is None:
+        return None
+    path, version = state
+    if version is None:
+        return MESSAGES.install.check_version_unreadable.format(name=name, path=path)
+    if version != entry.version:
+        return MESSAGES.install.check_version_differs.format(
+            name=name, version=version, locked=entry.version, path=path
+        )
+    return None
+
+
+def _version_line(name: str, entry: LockedTool, state: tuple[str, str | None] | None) -> str | None:
+    """The line that names the command on PATH and its version, when that is the lock's version."""
+    if state is None or state[1] != entry.version:
+        return None
+    return MESSAGES.install.check_version_at_pin.format(
+        name=name, version=entry.version, path=state[0]
+    )
+
+
+def _problems(targets: dict[str, LockedTool], target_dir: Path) -> tuple[list[str], list[str]]:
+    """Each tool's problem, and the version line of each tool whose command is at its pin.
+
+    A tool whose command on PATH prints another version than the lock's gets that line alone: the
+    links cannot show what the binary the gate runs will write.
+    """
+    problems: list[str] = []
+    version_lines: list[str] = []
+    for name, entry in targets.items():
+        state = _version_state(name, entry)
+        problem = _version_problem(name, entry, state)
+        if problem is None and not _at_pin(name, entry, target_dir):
+            problem = MESSAGES.install.check_off_pin.format(
+                name=name, version=entry.version, installed=_installed(name, entry, target_dir)
+            )
+        if problem is not None:
+            problems.append(problem)
+            continue
+        line = _version_line(name, entry, state)
+        if line is not None:
+            version_lines.append(line)
+    return problems, version_lines
 
 
 # =============================================================================
@@ -414,17 +481,13 @@ def _install_single_target(name: str, entry: LockedTool, target_dir: Path) -> bo
 
 def _check_pins(targets: dict[str, LockedTool], target_dir: Path) -> None:
     """Print each tool not at its pin and exit 1, or confirm that every tool is."""
-    off_pin = _off_pin(targets, target_dir)
-    for name, entry in off_pin.items():
-        installed = _installed(name, entry, target_dir)
-        print_error(
-            MESSAGES.install.check_off_pin.format(
-                name=name, version=entry.version, installed=installed
-            ),
-            prefix=False,
-        )
-    if off_pin:
+    problems, version_lines = _problems(targets, target_dir)
+    for problem in problems:
+        print_error(problem, prefix=False)
+    if problems:
         raise typer.Exit(1)
+    for line in version_lines:
+        print_success(line)
     print_success(MESSAGES.install.check_all_pinned.format(count=len(targets), path=target_dir))
 
 

@@ -1,8 +1,9 @@
 """The OpenSpec gate: what keeps a change folder valid and its tooling as committed (ADR 0010).
 
 OpenSpec's own `validate` passes two changes that rewrite one requirement. Its configuration fails
-quietly. So `devops openspec check` runs the pinned tool five ways and reports every problem it
-finds:
+quietly. So `devops openspec check` runs the pinned tool and reports every problem it finds. It
+reads the version that the command on PATH prints first: a binary other than the tools lock's
+writes other skill text, so no other check runs. Then:
 
 1. `openspec validate --all --strict`, which fails an unknown key in a change's `.openspec.yaml`.
 2. `openspec validate --archived`, a separate run because `--archived` replaces `--all`, which
@@ -23,6 +24,7 @@ check vacuously.
 
 from __future__ import annotations
 
+import shutil
 import subprocess
 import tempfile
 from dataclasses import dataclass
@@ -52,6 +54,8 @@ from devops_cli.openspec.tool import (
     output_of,
     settings_args,
 )
+from devops_cli.tools_lock import load_tools_lock
+from devops_cli.tools_lock.versions import version_line
 
 CONFIG_PATH = Path(CONST_OPENSPEC_DIR) / CONST_OPENSPEC_CONFIG_FILENAME
 # The directories a dry run names in place of the real ones: the scratch configuration, the
@@ -61,6 +65,8 @@ CHECKOUT_PLACEHOLDER = "<checkout>"
 SKILLS_COPY_PLACEHOLDER = "<skills-copy>"
 PROBE_PLACEHOLDER = "<probe>"
 CHANGE_PLACEHOLDER = "<change>"
+# The arguments of the run that prints the version of the command on PATH.
+VERSION_ARGS: tuple[str, ...] = ("--version",)
 # The arguments of the run that makes the probe change.
 _PROBE_ARGS: tuple[str, ...] = ("new", "change", CONST_OPENSPEC_PROBE_CHANGE)
 
@@ -69,6 +75,7 @@ class GateCheck(StrEnum):
     """The checks the gate runs, as a finding names them."""
 
     CONFIGURATION = "configuration"
+    VERSION = "version"
     VALIDATE = "validate"
     VALIDATE_ARCHIVED = "validate --archived"
     SKILLS = "skills"
@@ -99,6 +106,29 @@ _VALIDATION_ARGS: dict[GateCheck, tuple[str, ...]] = {
 def _instruction_args(artifact: str) -> tuple[str, ...]:
     """The arguments of the run that renders the instructions of `artifact` for the probe."""
     return ("instructions", artifact, "--change", CONST_OPENSPEC_PROBE_CHANGE, "--json")
+
+
+def _version_finding(tool: OpenSpecTool, root: Path) -> GateFinding | None:
+    """The problem of a command on PATH that is not the tools lock's version: the version it
+    prints, or that it printed none. None when it prints the locked version."""
+    printed = version_line(tool.run(VERSION_ARGS, root).stdout)
+    locked = load_tools_lock().tools()[BIN_OPENSPEC].version
+    path = shutil.which(BIN_OPENSPEC) or BIN_OPENSPEC
+    if printed is None:
+        return GateFinding(
+            GateCheck.VERSION,
+            MESSAGES.openspec.version_unreadable.format(
+                path=path, locked=locked, hint=MESSAGES.openspec.missing_hint
+            ),
+        )
+    if printed != locked:
+        return GateFinding(
+            GateCheck.VERSION,
+            MESSAGES.openspec.version_differs.format(
+                path=path, version=printed, locked=locked, hint=MESSAGES.openspec.missing_hint
+            ),
+        )
+    return None
 
 
 def _validation_findings(tool: OpenSpecTool, root: Path) -> list[GateFinding]:
@@ -196,6 +226,9 @@ def check_openspec(root: Path) -> list[GateFinding]:
         missing = MESSAGES.openspec.config_missing.format(path=CONFIG_PATH.as_posix())
         return [GateFinding(GateCheck.CONFIGURATION, missing)]
     with isolated_openspec() as tool:
+        version_problem = _version_finding(tool, root)
+        if version_problem is not None:
+            return [version_problem]
         changes = active_changes(tool, root)
         return [
             *_validation_findings(tool, root),
@@ -224,6 +257,7 @@ def plan_check() -> list[PlannedRequest]:
     named placeholder. The `show` command of the overlap check runs once for each active change."""
     return [
         *(_planned(args, CONFIG_HOME_PLACEHOLDER) for args in settings_args()),
+        _planned(VERSION_ARGS, CHECKOUT_PLACEHOLDER),
         _planned(LIST_ARGS, CHECKOUT_PLACEHOLDER),
         *(_planned(args, CHECKOUT_PLACEHOLDER) for args in _VALIDATION_ARGS.values()),
         _planned(UPDATE_ARGS, SKILLS_COPY_PLACEHOLDER),
