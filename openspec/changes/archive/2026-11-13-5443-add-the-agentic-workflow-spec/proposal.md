@@ -13,7 +13,7 @@ The first draft of this change was a spec with the measured state of the roadmap
 - Add principle P10 and rule AW-J7: an event or a schedule starts each job, no caller waits for it, a reconcile pass finds the work of a lost event, and a unit name from the input makes a repeated event start no second run.
 - Remove the baseline (the grades, the tokens, the spend, the tool calls, the configuration in force, the eval set sizes and the queries) and the gap table. `devops roadmap eval grades`, the devops-cli Telemetry dashboard, `docs/CONFIGURATION.md`, `devops roadmap eval <set> --dry-run` and the project review give these values.
 - Add the section "Agentic jobs in devops-cli" to `docs/ROADMAP_WORKFLOW.md`: the programs that give the values, the targets that devops-cli adds, the document or the code that applies each rule, and a link to gap tracker #5543. It holds no gap row.
-- Add `docs/guidelines/index.md` with the line of this guideline, the "Guidelines" tab of `.nav.yml`, and the guideline test `tests/invariants/test_guidelines.py`, as PR #5492 adds them, so this change builds alone. The first of the two pull requests to merge adds them, and the second keeps its own line of the index.
+- Add the line of this guideline to `docs/guidelines/index.md`. PR #5567 added the index, the "Guidelines" tab of `.nav.yml` and the guideline test `tests/invariants/test_guidelines.py` first, with the same bytes as this change, so this change keeps their `main` versions. PR #5492 adds its own line of the index.
 - Fix the stale text of the first draft: the closed duplicate #5474 becomes tracker #5482, the branch runs point to #5533, the ceilings that #5440 made settings are no longer constants, the eval set sizes go, and `devops roadmap explain --trace` shows only the trace of the implement job.
 - Point the links to `docs/AGENTIC_WORKFLOWS.md` at the guideline: `CONTEXT.md` (term **Branch run**), `docs/ROADMAP_WORKFLOW.md`, `docs/roadmap/job-success.md` and the docstring of `src/devops_cli/roadmap/job_result.py`.
 - Carry no spec delta: the change moves documents and adds a test of documents. No command, option, message or manifest changes.
@@ -30,9 +30,9 @@ None.
 
 ## Impact
 
-- Documents: `docs/guidelines/agentic-jobs.md` (moved from `docs/AGENTIC_WORKFLOWS.md`), `docs/guidelines/index.md` (new), `docs/roadmap/job-success.md`, `docs/ROADMAP_WORKFLOW.md`, `docs/TESTING.md`, `.nav.yml`, `CONTEXT.md`.
+- Documents: `docs/guidelines/agentic-jobs.md` (moved from `docs/AGENTIC_WORKFLOWS.md`), `docs/guidelines/index.md` (one line), `docs/roadmap/job-success.md`, `docs/ROADMAP_WORKFLOW.md`, `CONTEXT.md`.
 - Code: the docstring of `src/devops_cli/roadmap/job_result.py`. No behavior changes.
-- Tests: `tests/invariants/test_guidelines.py` (new, the same file as PR #5492).
+- Tests: none. `tests/invariants/test_guidelines.py` of PR #5567 checks the guideline.
 - Gaps: tracker #5543 holds the gaps of the first draft as sub-issues and reference lines.
 
 ## Feasibility
