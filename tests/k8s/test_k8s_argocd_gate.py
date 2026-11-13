@@ -137,7 +137,11 @@ def test_a_kustomization_that_lists_a_missing_file_fails(tmp_path: Path) -> None
     assert ("broken" in err, "nonexistent.yaml" in err) == (True, True)
 
 
-def test_a_placeholder_in_a_configmap_of_devops_fails(tmp_path: Path) -> None:
+def test_a_placeholder_in_a_configmap_of_devops_fails_only_outside_its_data_values(
+    tmp_path: Path,
+) -> None:
+    """deploy-stack sets the configured domain in a data value of a homelab ConfigMap, so the
+    gate allows the placeholder there and refuses it in each other field (#5306)."""
     _write_app(tmp_path, "devops", path="k8s/overlays/homelab/devops")
     devops_dir = tmp_path / "k8s" / "overlays" / "homelab" / "devops"
     devops_dir.mkdir(parents=True)
@@ -153,6 +157,8 @@ def test_a_placeholder_in_a_configmap_of_devops_fails(tmp_path: Path) -> None:
         "kind: ConfigMap\n"
         "metadata:\n"
         "  name: devops-config\n"
+        "  annotations:\n"
+        "    note: start.example.com\n"
         "data:\n"
         "  endpoint: http://example.com\n",
         encoding="utf-8",
@@ -161,12 +167,12 @@ def test_a_placeholder_in_a_configmap_of_devops_fails(tmp_path: Path) -> None:
     with pytest.raises(ArgoCDGateError) as exc_info:
         check_argocd_gate(_env(tmp_path))
 
-    err = str(exc_info.value)
-    assert ("devops" in err, "ConfigMap/devops-config" in err, "/data/endpoint" in err) == (
-        True,
-        True,
-        True,
-    )
+    assert exc_info.value.failures == {
+        "devops": [
+            "Placeholder domain value 'start.example.com' at ConfigMap/devops-config "
+            "/metadata/annotations/note is not permitted in application 'devops'"
+        ]
+    }
 
 
 def test_a_placeholder_ingress_host_in_a_non_homelab_application_fails(tmp_path: Path) -> None:

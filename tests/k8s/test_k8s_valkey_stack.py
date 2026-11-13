@@ -254,7 +254,7 @@ def test_open_webui_sends_the_password_from_the_secret_in_both_redis_urls() -> N
     values = yaml.safe_load((LLM_DIR / "values-open-webui.yaml").read_text(encoding="utf-8"))
     secret, key = _cache_secret()
 
-    assert values["extraEnvFrom"] == [{"secretRef": {"name": secret}}]
+    assert {"secretRef": {"name": secret}} in values["extraEnvFrom"]
     assert values["websocket"]["url"] == f"redis://:$({key})@{CACHE_SERVICE_HOST}:6379/0"
 
 

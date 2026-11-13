@@ -173,6 +173,53 @@ def test_a_deployment_whose_env_values_hold_no_placeholder_gets_no_patch() -> No
     assert host_patches(plain, DOMAIN) == []
 
 
+ORIGINS = """\
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: open-webui-origins
+  namespace: llm
+  annotations:
+    note: chat.example.com
+data:
+  CORS_ALLOW_ORIGIN: https://chat.example.com;https://homelab.example.com
+  MODE: strict
+binaryData:
+  logo: Y2hhdC5leGFtcGxlLmNvbQ==
+"""
+
+
+def test_each_placeholder_configmap_data_value_is_checked_then_set_to_the_configured_domain() -> (
+    None
+):
+    """Only the data values of a ConfigMap that hold the placeholder change: not a value without
+    it, not binary data, and not the placeholder in an annotation (#5306)."""
+    cors = "/data/CORS_ALLOW_ORIGIN"
+    assert _decoded(host_patches(ORIGINS, DOMAIN)) == [
+        (
+            {
+                "group": "",
+                "version": "v1",
+                "kind": "ConfigMap",
+                "name": "open-webui-origins",
+                "namespace": "llm",
+            },
+            [
+                {
+                    "op": "test",
+                    "path": cors,
+                    "value": "https://chat.example.com;https://homelab.example.com",
+                },
+                {
+                    "op": "replace",
+                    "path": cors,
+                    "value": "https://chat.example.org;https://homelab.example.org",
+                },
+            ],
+        )
+    ]
+
+
 def test_a_domain_that_is_not_a_hostname_is_refused() -> None:
     with pytest.raises(KubernetesContextError, match="Invalid domain name"):
         host_patches(RENDERED, "not a domain")
