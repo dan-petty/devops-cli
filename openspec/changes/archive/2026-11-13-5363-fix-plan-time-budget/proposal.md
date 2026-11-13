@@ -28,7 +28,7 @@ None.
 ## Impact
 
 - Code: `src/devops_cli/roadmap/steps/fix_plan.py`, `src/devops_cli/roadmap/stage/stage.py` (`_Planner`, `_planner_of`, `revise_plan`), `src/devops_cli/roadmap/time_budget.py` (new), `src/devops_cli/roadmap/round_log.py`, `src/devops_cli/roadmap/job_result.py` (comment), `src/devops_cli/exceptions/roadmap.py`, `src/devops_cli/config/defaults.py`, `src/devops_cli/config/settings.py`, `src/devops_cli/commands/roadmap_step_fix_plan.py`, `src/devops_cli/lang/en/messages.py`, `src/devops_cli/telemetry/instruments.py`.
-- Tests: `tests/roadmap/steps/test_roadmap_fix_plan_budget.py` (new), `tests/commands/test_roadmap_step_fix_plan.py`, `tests/invariants/test_k8s_manifests.py`.
+- Tests: `tests/roadmap/steps/test_roadmap_fix_plan_budget.py` (new), `tests/commands/test_roadmap_step_fix_plan.py`, `tests/invariants/test_k8s_manifests.py`, and the tables of `tests/roadmap/test_roadmap_limit_classes.py` and `tests/security/test_config_declarations.py`.
 - Documents: `docs/roadmap/stage.md`, `docs/roadmap/job-success.md`, `docs/ROADMAP_WORKFLOW.md`, `docs/CLUSTER.md` item 23, and the generated `docs/CONFIGURATION.md`, `docs/ENV_VARS.md`, `docs/ERRORS.md` and `docs/TELEMETRY.md`.
 - No manifest under `k8s/` changes. The default of the new setting applies with no ConfigMap change.
 - Release: the Service runs the row `fix_plan` from its image, and a Job runs the command from the same image, so the fix needs a release and a roll of the image.
