@@ -21,6 +21,8 @@ from devops_cli.exceptions import ServiceStoppingError, ended_by_stop
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.service_stop import begin_service_stop
 from devops_cli.roadmap.stage.stage import StagePlan, parse_filters, plan_stage
+from devops_cli.roadmap.stage.stage_eval_cases import CASES_DIRECTORY, load_cases
+from devops_cli.roadmap.stage.stage_eval_render import planned_calls
 from devops_cli.roadmap.stage.stage_findings import (
     GateExtension,
     StageFinding,
@@ -31,6 +33,7 @@ from devops_cli.roadmap.stage.stage_findings import (
 )
 from tests.support.builders import make_stage_proposal
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
+from tests.support.paths import REPO_ROOT
 from tests.support.roadmap_stage import (
     STAGE_REPO,
     VALID_REPORT,
@@ -154,6 +157,18 @@ def test_a_code_that_the_data_file_does_not_hold_does_not_stop_the_reply() -> No
     uncoded = [stage_finding("paths", "A text that no template gives.")]
 
     assert _decide(ITEM_5136[2], uncoded) is GateExtension.EXTENDED
+
+
+def test_the_dry_run_of_the_eval_counts_the_extra_plan_run() -> None:
+    """`devops roadmap eval stage --dry-run` lists the requests of a case: the first plan run, its
+    3 returns, the extra return and the split."""
+    (case,) = load_cases(REPO_ROOT / CASES_DIRECTORY)[:1]
+
+    (request,) = planned_calls([case], "https://gateway.example.com", toolbox=False)
+
+    assert request.repeat == TEXTS.stage_eval_dry_run_repeat.format(
+        count=1 + 3 + CONST_ROADMAP_STAGE_GATE_RETURN_EXTENSIONS + 1
+    )
 
 
 # ── The stage job ─────────────────────────────────────────────────────────────

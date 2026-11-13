@@ -2688,9 +2688,9 @@ def plan_item(
     """Plans `item` as the job does, in the checkout at `sha`, and writes nothing (#3028).
 
     The golden set of the stage job runs this on each case. A reply the checks refuse goes back to
-    the model `roadmap.stage.gate_returns` times, as in a run, and a reply that stays refused raises
-    `RoadmapStageError`. `step_tokens`
-    overrides `roadmap.stage.step_tokens`. A `client` that is a `ToolboxClient` plans with the
+    the model `roadmap.stage.gate_returns` times, and once more when the rule `gate_extension` sees
+    progress (#4851), as in a run, and a reply that stays refused raises `RoadmapStageError`.
+    `step_tokens` overrides `roadmap.stage.step_tokens`. A `client` that is a `ToolboxClient` plans with the
     read-only tools (#3037); the golden set builds it for the case checkout. This planner reads no
     open plan, so it finds no dependency. A dependency that the type still allows raises
     `RoadmapStageError`, which the golden set counts as refused (#3418). The cases are frozen at old

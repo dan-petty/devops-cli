@@ -13,7 +13,8 @@ A reply that the stage checks refuse goes back to the planner `roadmap.stage.gat
 - Each extra return logs `stage gate extension end: repo=<owner/repo> item=#<n> returns=<n> result=<passed|refused|ended> version=<version>` and adds 1 to the new counter `devops_cli_roadmap_stage_gate_extension_ends_total{result}` (3 series). These lines are the labelled outcomes for a later fit of a decision model.
 - The failure text of a reply that stays refused names its return and the stop, for example `The change still fails its checks after return 3 (no extra return: a finding of the gate paths stays from the reply before): ...`.
 - The description of `roadmap.stage.gate_returns`, `docs/roadmap/stage.md`, `docs/CLUSTER.md` and the generated `docs/ENV_VARS.md` and `docs/TELEMETRY.md` state the rule, the lines and the counters.
-- The stage job behavior changes, so the change has a spec delta in `roadmap-stage/returns`.
+- The description of `devops_cli_roadmap_stage_gate_problems` counts the reply of the extra return: at most `roadmap.stage.gate_returns` + 2 replies, so 5 series for each repository.
+- The stage job behavior changes, so the change has a spec delta in `roadmap-stage/returns`. The requirements of `roadmap-stage/spec-delta`, `roadmap-stage/plan-text` and `roadmap-stage/verification` that bound a return to `roadmap.stage.gate_returns` also name the extra return.
 
 ## Capabilities
 
@@ -24,11 +25,14 @@ None.
 ### Modified Capabilities
 
 - `roadmap-stage/returns`: A refused reply that makes progress gets one extra return.
+- `roadmap-stage/spec-delta`: A failed validation also gets the extra return.
+- `roadmap-stage/plan-text`: A title problem also gets the extra return.
+- `roadmap-stage/verification`: A refused revision of a repair round also gets the extra return.
 
 ## Impact
 
 - Code: `src/devops_cli/config/constants.py`, `src/devops_cli/config/settings.py`, `src/devops_cli/lang/en/messages.py`, `src/devops_cli/roadmap/round_log.py`, `src/devops_cli/roadmap/stage/stage.py`, `src/devops_cli/roadmap/stage/stage_eval_render.py` (the dry run of `devops roadmap eval stage` counts the extra plan run), `src/devops_cli/roadmap/stage/stage_findings.py`, `src/devops_cli/telemetry/instruments.py`.
-- Tests: `tests/roadmap/stage/test_roadmap_stage_gate_extension.py` (new), `tests/roadmap/stage/test_roadmap_stage_plan.py`, `tests/roadmap/test_roadmap_limit_classes.py`.
+- Tests: `tests/roadmap/stage/test_roadmap_stage_gate_extension.py` (new), `tests/roadmap/stage/test_roadmap_stage_plan.py`, `tests/roadmap/stage/test_roadmap_stage_plan_defect_limit.py`, `tests/roadmap/test_roadmap_limit_classes.py`.
 - Documents: `docs/roadmap/stage.md`, `docs/CLUSTER.md`, `docs/ENV_VARS.md` and `docs/TELEMETRY.md` (generated).
 - Cost: an extended item makes one more plan run (about 728 s at p90 on 2026-11-11). No setting, no ConfigMap key and no manifest changes. The Service gets the rule with the next release image.
 

@@ -53,7 +53,10 @@ def _limit() -> int:
     return constants.CONST_ROADMAP_STAGE_PLAN_DEFECT_LIMIT
 
 
-REASON = "The change fails its checks, also after a second try: Group 1 names no test."
+REASON = (
+    "The change still fails its checks after return 3 (no extra return: a finding of the gate "
+    "paths stays from the reply before): Group 1 names no test."
+)
 PROBLEMS = (
     "Group 1 changes `src/devops_cli/lang/en/messages.py` and names no existing test of that module.",
     "The Feasibility section names the tool `references`, but the run did not call it.",
@@ -301,7 +304,7 @@ def test_a_round_returns_an_item_whose_plan_the_checks_refuse_at_the_limit(
     problems = _bullets(comment)
     assert problems
     assert all("closing keyword" in line for line in problems)
-    assert "also after a second try" not in comment
+    assert "still fails its checks" not in comment
     assert StageRecordKey.BRANCH.value in _record(store, 2)
 
 

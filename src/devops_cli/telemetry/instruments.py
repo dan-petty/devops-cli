@@ -536,8 +536,8 @@ ROADMAP_STAGE_GATE_PROBLEMS = Instrument(
     "1",
     "Findings of the stage checks in one reply of a plan, one observation for each reply that the "
     "checks judged, by repo and reply: 0 for the first reply of a plan run and 1 more for each "
-    "return, so at most roadmap.stage.gate_returns plus 1. A reply that passes the checks "
-    "observes 0. One repository adds at most 4 series",
+    "return, so at most roadmap.stage.gate_returns plus 2 with the extra return of an item "
+    "(#4851). A reply that passes the checks observes 0. One repository adds at most 5 series",
 )
 ROADMAP_STAGE_GATE_EXTENSION_TOTAL = Instrument(
     "devops_cli_roadmap_stage_gate_extension_total",
