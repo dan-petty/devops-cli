@@ -59,8 +59,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`gh_milestones_close`](#gh_milestones_close) | `false` | Close the milestone with this title or number. |
 | [`gh_milestones_edit`](#gh_milestones_edit) | `false` | Edit a milestone's title, description, state, or due date; fields left out stay as they are. |
 | [`gh_milestones_list`](#gh_milestones_list) | `true` | List every milestone, by due date and then by number, with its issue completion rate. |
-| [`gh_pages_build`](#gh_pages_build) | `false` | Trigger a new deployment build for GitHub Pages. |
-| [`gh_pages_status`](#gh_pages_status) | `true` | Inspect GitHub Pages deployment status, URL, branch, and HTTPS enforcement. |
+| [`gh_pages_status`](#gh_pages_status) | `true` | Inspect GitHub Pages deployment status, URL, build type, and HTTPS enforcement. |
 | [`gh_pages_verify`](#gh_pages_verify) | `true` | Verify that zensical.toml has the settings of the docs site and that docs/ holds Markdown pages. |
 | [`gh_project_audit`](#gh_project_audit) | `true` | Audit the project board's views against the template. |
 | [`gh_project_list`](#gh_project_list) | `true` | List available GitHub Projects v2 boards for user or organization. |
@@ -993,22 +992,9 @@ List every milestone, by due date and then by number, with its issue completion 
 | `repo` | `string` | No | - | Target repository |
 | `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
-### `gh_pages_build`
-
-Trigger a new deployment build for GitHub Pages.
-
-**Annotations:** `readOnlyHint: false`
-
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `repo` | `string` | No | - | Target repository |
-| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
-
 ### `gh_pages_status`
 
-Inspect GitHub Pages deployment status, URL, branch, and HTTPS enforcement.
+Inspect GitHub Pages deployment status, URL, build type, and HTTPS enforcement.
 
 **Annotations:** `readOnlyHint: true`
 

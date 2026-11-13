@@ -459,41 +459,10 @@ devops gh pages COMMAND [ARGS]...
 
 ### `devops gh pages status`
 
-**Inspect GitHub Pages deployment status, URL, branch, and HTTPS enforcement.**
+**Inspect GitHub Pages deployment status, URL, build type, and HTTPS enforcement.**
 
 ```bash
 devops gh pages status [OPTIONS]
-```
-
-**Options:**
-
-| Option / Flag | Type | Default | Description |
-|---|---|---|---|
-| `--repo`, `-R` | `string` | - | Target repository |
-| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
-
-### `devops gh pages builds`
-
-**List recent GitHub Pages build history and durations.**
-
-```bash
-devops gh pages builds [OPTIONS]
-```
-
-**Options:**
-
-| Option / Flag | Type | Default | Description |
-|---|---|---|---|
-| `--repo`, `-R` | `string` | - | Target repository |
-| `--limit`, `-l` | `integer` | `5` | Number of builds to retrieve |
-| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
-
-### `devops gh pages build`
-
-**Trigger a new deployment build for GitHub Pages.**
-
-```bash
-devops gh pages build [OPTIONS]
 ```
 
 **Options:**

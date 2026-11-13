@@ -187,7 +187,7 @@ def get_logfire_resource() -> str:
 # resource returns its error, not the timeout of the dispatch (#4678).
 @mcp.resource("resource://gh/pages/status")
 def get_gh_pages_resource() -> str:
-    """Return live GitHub Pages publishing status, custom domain, and build health."""
+    """Return live GitHub Pages publishing status, build type, and custom domain."""
     return _run_mcp_cmd(
         ["uv", "run", "devops", "gh", "pages", "status"],
         timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS,
@@ -454,9 +454,10 @@ def _is_advertised(name: str) -> bool:
 class DomainGateMiddleware(Middleware):
     """Advertise only the eager domains until a caller hydrates the rest.
 
-    The server registers 151 tools. Their names and summaries alone cost roughly 2,700
-    tokens in every request, before the per-parameter JSON Schema the protocol adds on top,
-    and a model choosing among 151 tools chooses worse than one choosing among a few dozen.
+    The server registers more than a hundred tools. Their names and summaries alone cost
+    thousands of tokens in every request, before the per-parameter JSON Schema the protocol adds
+    on top, and a model choosing among that many tools chooses worse than one choosing among a
+    few dozen.
 
     Calling a withheld tool still works; only the listing is filtered. A client that
     already knows a tool's name is not forced through a hydration round trip to use it.

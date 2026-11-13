@@ -11,11 +11,8 @@ import pytest
 import yaml
 
 from devops_cli.github.pages import (
-    GitHubPagesBuildInfo,
     GitHubPagesInfo,
-    get_pages_builds,
     get_pages_status,
-    request_pages_build,
     verify_pages_configuration,
 )
 from tests.support.fakes.process import ProcessAnswer
@@ -56,22 +53,6 @@ def test_github_pages_info_model() -> None:
     assert info.html_url == "https://dan-petty.github.io/devops-cli/"
     assert (info.build_type, info.branch, info.path) == ("workflow", None, None)
     assert info.https_enforced is True
-
-
-def test_github_pages_build_info_model() -> None:
-    """GitHubPagesBuildInfo model parses correctly."""
-    build = GitHubPagesBuildInfo(
-        status="built",
-        commit="b861fc4b957de816aec9b5a650f049efe0251381",
-        duration_ms=45802,
-        error_message=None,
-        created_at="2026-09-09T14:25:58Z",
-        updated_at="2026-09-09T14:26:43Z",
-    )
-    assert build.status == "built"
-    assert build.commit.startswith("b861fc4")
-    assert build.duration_ms == 45802
-    assert build.error_message is None
 
 
 def test_get_pages_status_parses_status_payload(process_fake: ProcessFake) -> None:
@@ -117,38 +98,6 @@ def test_get_pages_status_returns_none_when_disabled(process_fake: ProcessFake) 
     )
     res = get_pages_status("dan-petty/no-pages")
     assert res is None
-
-
-def test_get_pages_builds_returns_history_records(process_fake: ProcessFake) -> None:
-    """get_pages_builds parses build history records."""
-    builds_payload = [
-        {
-            "status": "built",
-            "commit": "b861fc4b957de816aec9b5a650f049efe0251381",
-            "duration": 45802,
-            "error": {"message": None},
-            "created_at": "2026-09-09T14:25:58Z",
-            "updated_at": "2026-09-09T14:26:43Z",
-        }
-    ]
-    process_fake.answer(
-        ["gh", "api", "repos/dan-petty/devops-cli/pages/builds?per_page=5"],
-        ProcessAnswer(returncode=0, stdout=json.dumps(builds_payload)),
-    )
-    builds = get_pages_builds("dan-petty/devops-cli")
-    assert len(builds) == 1
-    assert builds[0].status == "built"
-    assert builds[0].duration_ms == 45802
-
-
-def test_request_pages_build_triggers_deployment(process_fake: ProcessFake) -> None:
-    """request_pages_build calls GitHub API to request a build."""
-    process_fake.answer(
-        ["gh", "api", "-X", "POST", "repos/dan-petty/devops-cli/pages/builds"],
-        ProcessAnswer(returncode=0, stdout="{}"),
-    )
-    ok = request_pages_build("dan-petty/devops-cli")
-    assert ok is True
 
 
 SITE_SETTINGS = (

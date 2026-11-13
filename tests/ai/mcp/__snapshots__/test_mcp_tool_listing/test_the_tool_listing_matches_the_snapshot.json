@@ -2346,34 +2346,8 @@
       "type": "object"
     }
   },
-  "gh_pages_build": {
-    "description": "Trigger a new deployment build for GitHub Pages.",
-    "input_schema": {
-      "additionalProperties": false,
-      "properties": {
-        "dry_run": {
-          "default": false,
-          "description": "Preview execution plan without mutating external state.",
-          "type": "boolean"
-        },
-        "repo": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Target repository"
-        }
-      },
-      "type": "object"
-    }
-  },
   "gh_pages_status": {
-    "description": "Inspect GitHub Pages deployment status, URL, branch, and HTTPS enforcement.",
+    "description": "Inspect GitHub Pages deployment status, URL, build type, and HTTPS enforcement.",
     "input_schema": {
       "additionalProperties": false,
       "properties": {

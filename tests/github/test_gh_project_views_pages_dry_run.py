@@ -21,8 +21,6 @@ from devops_cli.commands.gh import (
     list_project_workflows,
     list_projects,
     list_views,
-    pages_build_cmd,
-    pages_builds_cmd,
     pages_status_cmd,
     pages_verify_cmd,
     show_template,
@@ -35,8 +33,6 @@ from devops_cli.dry_run import get_dry_run_class
 from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
 
 REQUEST_PLAN_COMMANDS = [
-    ("pages_build", pages_build_cmd, ["gh", "pages", "build"]),
-    ("pages_builds", pages_builds_cmd, ["gh", "pages", "builds"]),
     ("pages_status", pages_status_cmd, ["gh", "pages", "status"]),
     ("project_audit", audit_project, ["gh", "project", "audit"]),
     ("project_link", link_project, ["gh", "project", "link", "1"]),
@@ -161,8 +157,6 @@ def test_dry_run_plans_match_dispatched_calls(
         args = list(call.argv)
         if "rate_limit" in args:
             out = json.dumps({"resources": {"core": fresh_quota, "graphql": fresh_quota}})
-        elif any("pages/builds" in a for a in args):
-            out = "[]"
         elif any("pages" in a for a in args):
             out = json.dumps(
                 {"status": "built", "html_url": "https://dan-petty.github.io/devops-cli"}
@@ -182,14 +176,6 @@ def test_dry_run_plans_match_dispatched_calls(
         (
             ["gh", "pages", "status", "--repo", "dan-petty/devops-cli"],
             pages.pages_status_requests("dan-petty/devops-cli"),
-        ),
-        (
-            ["gh", "pages", "builds", "--repo", "dan-petty/devops-cli", "--limit", "10"],
-            pages.pages_builds_requests("dan-petty/devops-cli", limit=10),
-        ),
-        (
-            ["gh", "pages", "build", "--repo", "dan-petty/devops-cli"],
-            pages.pages_build_requests("dan-petty/devops-cli"),
         ),
         (
             ["gh", "project", "link", "42", "--repo", "dan-petty/devops-cli"],

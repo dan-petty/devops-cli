@@ -14,7 +14,7 @@ from fastmcp.exceptions import ToolError
 from typer.testing import CliRunner, Result
 
 from devops_cli.ai.mcp.server import gh_project_reconcile
-from devops_cli.commands.gh import app, milestones_app
+from devops_cli.commands.gh import app, milestones_app, pages_app
 from devops_cli.github.projects import load_project_template
 from devops_cli.roadmap.stores.store import GitHubState, ItemField
 from devops_cli.telemetry.instruments import GITHUB_REQUESTS_TOTAL
@@ -167,23 +167,13 @@ def test_gh_pages_status_of_a_legacy_build_names_the_source_branch(gh_edge: Proc
     assert "GitHub Actions workflow" not in result.output
 
 
-def test_gh_pages_builds(gh_edge: ProcessFake) -> None:
-    """devops gh pages builds lists build history records."""
-    builds = [
-        {
-            "status": "built",
-            "commit": "b861fc4b957de816aec9b5a650f049efe0251381",
-            "duration": 45802,
-            "error": {"message": None},
-            "created_at": "2026-09-09T14:25:58Z",
-            "updated_at": "2026-09-09T14:26:43Z",
-        }
+def test_the_pages_group_has_status_and_verify_only() -> None:
+    """devops gh pages holds no command of the legacy build: a manual run of pages.yml requests a
+    deploy, and the runs of pages.yml are its history (#5212)."""
+    assert sorted(command.name or "" for command in pages_app.registered_commands) == [
+        "status",
+        "verify",
     ]
-    gh_edge.answer(mentions("pages/builds"), ProcessAnswer(stdout=json.dumps(builds)))
-    result = runner.invoke(app, ["pages", "builds", "--repo", "dan-petty/devops-cli"])
-    assert result.exit_code == 0
-    assert "BUILT" in result.output
-    assert "b861fc4" in result.output
 
 
 def test_gh_pages_verify(tmp_path: Path) -> None:

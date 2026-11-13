@@ -43,10 +43,10 @@ None.
 
 ## Weakened checks
 
-- **`tests/github/test_github_pages.py::test_github_pages_build_info_model`**: Stopped: a change of the model `GitHubPagesBuildInfo`. Safeguard: the model is deleted, and `test_the_pages_group_has_status_and_verify_only` fails when a build command returns.
+- **`tests/github/test_github_pages.py::test_github_pages_build_info_model`**: Stopped: a change of the model `GitHubPagesBuildInfo`. Safeguard: the model is deleted, and `tests/commands/test_gh_cmd.py::test_the_pages_group_has_status_and_verify_only` fails when a build command returns.
 - **`tests/github/test_github_pages.py::test_get_pages_builds_returns_history_records`**: Stopped: a change of the read of `/pages/builds`. Safeguard: the read is deleted, and the grep of acceptance criterion 2 of #5212 finds no caller.
-- **`tests/github/test_github_pages.py::test_request_pages_build_triggers_deployment`**: Stopped: a change of the build request. Safeguard: the request is deleted, and the MCP registry test and the listing snapshot fail when `gh_pages_build` returns.
-- **`tests/commands/test_gh_cmd.py::test_gh_pages_builds`**: Stopped: a change of the output of `devops gh pages builds`. Safeguard: the command is deleted, and `test_the_pages_group_has_status_and_verify_only` fails when it returns.
+- **`tests/github/test_github_pages.py::test_request_pages_build_triggers_deployment`**: Stopped: a change of the build request. Safeguard: the request is deleted, and `tests/ai/mcp/test_mcp_tool_registry.py::test_the_pages_tools_are_status_and_verify` and the listing snapshot fail when `gh_pages_build` returns.
+- **`tests/commands/test_gh_cmd.py::test_gh_pages_builds`**: Stopped: a change of the output of `devops gh pages builds`. Safeguard: the command is deleted, and `tests/commands/test_gh_cmd.py::test_the_pages_group_has_status_and_verify_only` fails when it returns.
 - **`tests/github/test_github_pages.py::test_the_repository_site_settings_pass_the_check`**: Stopped: a YAML file in `docs/`, which the assertion refused as a guard against a Jekyll settings file. Safeguard: the test keeps the check of `zensical.toml`. AGENTS.md rule 11 allows a guard only when an outside constraint blocks the fix, and no constraint applies. The glob also refused a correct `docs/.nav.yml`.
 
 ## Feasibility
