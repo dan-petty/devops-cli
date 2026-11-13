@@ -4,9 +4,9 @@
 
 Kind: behavior.
 
-- [ ] 1.1 Add the fake Loki `tests/support/fakes/loki.py`, and the tests of the report on one JSON line of the Service, one plain line of a fix-plan Job, one plain line of a stage Job and one line of a runner pod
+- [x] 1.1 Add the fake Loki `tests/support/fakes/loki.py`, and the tests of the report on one JSON line of the Service, one plain line of a fix-plan Job, one plain line of a stage Job and one line of a runner pod
   - Verification: `$ uv run devops ci test tests/roadmap/test_job_grade_report.py` fails on the base
-- [ ] 1.2 Put the selector and the parse of both forms in `RESULT_LINES` of `job_grade_report.py`, and start each query with it
+- [x] 1.2 Put the selector and the parse of both forms in `RESULT_LINES` of `job_grade_report.py`, and start each query with it
   - Verification: `$ uv run devops ci test tests/roadmap/test_job_grade_report.py tests/commands/test_roadmap_eval_grades.py`
 
 ## 2. The stage Job writes one result line after its check-in

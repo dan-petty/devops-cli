@@ -84,12 +84,21 @@ _BROKEN_ATTEMPTS: Final = 5
 _INFRA_ATTEMPTS: Final = 10
 _INFRA_SHARE: Final = 0.20
 
-# The streams of the result lines (`docs/roadmap/job-success.md`): the Service, and the pod of each
-# stage Job, which logs the line of its item (#4559). A runner pod has the name label of a Job too,
-# and its container `runner` stays out.
-_SELECTOR: Final = (
-    '{namespace="devops", app_kubernetes_io_name=~"roadmap-service|devops-cli-job", '
-    'container=~"service|stage"}'
+# The streams of the result lines (`docs/roadmap/job-success.md`), by the container of each unit
+# that writes them: the Service, a stage Job (#4559) and a fix-plan Job (#5363). A runner pod and
+# the other pods that run a coding agent stay out, because their logs hold the output of tests. A
+# stream that OpenTelemetry exports has no label `namespace`, so no line counts twice (#5556).
+RESULT_LINE_SELECTOR: Final = '{namespace="devops", container=~"service|stage|fix-plan"}'
+# The base of each query that reads the result lines, also on the dashboard: the Service logs a
+# line as JSON with the line in `message`, and a Job pod logs the plain line. `json` gives the
+# message, or an error label for a plain line, which `drop` removes so that Loki does not refuse
+# the query. `line_format` then gives the message, or the full line, and the filter keeps only a
+# line that starts with the prefix: a line that the field parse does not match still counts.
+RESULT_LINES: Final = (
+    f'{RESULT_LINE_SELECTOR} |= "{LINE_PREFIX}" | json message '
+    "| drop __error__, __error_details__ "
+    '| line_format "{{ or .message __line__ }}" '
+    f'|~ "^{LINE_PREFIX} "'
 )
 # The fixed fields of a result line, and its version at the end.
 _FIELDS: Final = (
@@ -207,10 +216,7 @@ class GradeReport(BaseModel):
 
 def _lines(repo: RepoRef | None) -> str:
     """The log pipeline of the result lines, with the fields as labels."""
-    pipeline = (
-        f'{_SELECTOR} |= "{LINE_PREFIX}" | json message | line_format "{{{{.message}}}}" '
-        f"| regexp `{_FIELDS}`"
-    )
+    pipeline = f"{RESULT_LINES} | regexp `{_FIELDS}`"
     if repo is not None:
         pipeline += f" | repo=~`(?i){re.escape(repo.display)}`"
     return pipeline
@@ -639,6 +645,8 @@ def render_grade_report(report: GradeReport) -> str:
 
 
 __all__ = [
+    "RESULT_LINES",
+    "RESULT_LINE_SELECTOR",
     "TREND_WINDOWS",
     "ClassCount",
     "Efficiency",
