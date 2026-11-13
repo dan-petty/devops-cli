@@ -31,9 +31,9 @@ Kind: behavior. Reads: `src/devops_cli/github/client.py`, `src/devops_cli/roadma
 
 Kind: behavior. Reads: `src/devops_cli/github/pr_monitor.py`, `tests/github/test_github_pr_monitor.py`, `tests/commands/test_pr.py`. Changes: `src/devops_cli/github/pr_monitor.py`, `tests/github/test_github_pr_monitor.py`, `tests/commands/test_pr.py`.
 
-- [ ] 4.1 `tests/commands/test_pr.py::test_a_closed_pull_request_stops_the_monitor_with_exit_2` fails: it scripts a closed pull request payload, asserts one poll read and exit 2, and the monitor judges the closed pull request as ready
+- [x] 4.1 `tests/commands/test_pr.py::test_a_closed_pull_request_stops_the_monitor_with_exit_2` fails: it scripts a closed pull request payload, asserts one poll read and exit 2, and the monitor judges the closed pull request as ready
   - Verification: `$ uv run devops ci test tests/github/test_github_pr_monitor.py tests/commands/test_pr.py` fails on the base
-- [ ] 4.2 Add `state` to `PRMonitorStatus` and set it from the state of the payload in `get_pr_monitoring_status` of `src/devops_cli/github/pr_monitor.py`. Return the status before `assess_merge_readiness` when the state is `closed`. Stop the poll of `monitor_pr` on a status that is merged or closed at `src/devops_cli/github/pr_monitor.py:655:if latest_status.merged or (`. In `_settled_result`, return the closed result with exit code 2 and the message `PR #<number> is closed.` after the merged result
+- [x] 4.2 Add `state` to `PRMonitorStatus` and set it from the state of the payload in `get_pr_monitoring_status` of `src/devops_cli/github/pr_monitor.py`. Return the status before `assess_merge_readiness` when the state is `closed`. Stop the poll of `monitor_pr` on a status that is merged or closed at `src/devops_cli/github/pr_monitor.py:655:if latest_status.merged or (`. In `_settled_result`, return the closed result with exit code 2 and the message `PR #<number> is closed.` after the merged result
   - Verification: `$ uv run devops ci test tests/github/test_github_pr_monitor.py tests/commands/test_pr.py` passes
 
 ## 5. Print a terminal monitor result with no check count
