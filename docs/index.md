@@ -14,6 +14,7 @@
 - [SDLC Workflow](SDLC.md) — Software development lifecycle and branch governance policies.
 - [Testing Guide](TESTING.md) — Testing vocabulary, test doubles, and quality gate standards.
 - [Design Spec](DESIGN.md) — The design tokens, their build, and the palette, type, layout, chart and table rules of each artifact.
+- [SRE Spec](SRE.md) — The service catalog, the SLOs and error budgets, the alerts, the incidents, the change safety, the backups and the gaps with their issues.
 - [AI and RAG Cheatsheet](cheatsheets/ai_and_rag.md) — Managed repository ingestion and semantic search reference.
 - [Dashboard Tabs Audit](DASHBOARD_TABS_AUDIT.md) — Audit of five dashboard tabs against open terminal tools.
 

@@ -514,6 +514,8 @@ node_systemd_unit_state{state="failed"} == 1                               # Pro
 
 ## Alerting
 
+[docs/SRE.md](../docs/SRE.md) sets the SLOs, the burn-rate alerts, the page and ticket targets and the incident steps. This section holds the rules and the receiver.
+
 Alertmanager runs from the prometheus chart (`alertmanager` in `monitoring/prometheus-values.yaml`), and Grafana reads it as the `Alertmanager` datasource. The environment rules are in the same file, under `serverFiles.alerting_rules.yml`. The product rules, the groups that select a `devops_cli_*` series, are in `devops/monitoring/prometheus-rules-values.yaml`, under `serverFiles.devops_cli_alerting_rules.yml` (#5292). The `prometheus` Application gives the chart this file as its second values file, and `devops k8s deploy-stack` gives `helm upgrade` both files. The chart writes each key of `serverFiles` to the ConfigMap `prometheus-server`, and `serverFiles.prometheus.yml.rule_files` of the environment values names the 4 rule files of the chart and the product file. `tests/prometheus/test_k8s_monitoring_alerting.py` pins the rules and checks that each selects only series that a scrape or the OpenTelemetry collector in `k8s/` serves. No rule watches the controller manager, scheduler or proxy: k3s runs them inside its server process, so nothing scrapes them and such a rule would fire on the missing target.
 
 | Alert | Fires when | For | Severity |
@@ -630,7 +632,7 @@ In Grafana, Alerting > Silences with the `Alertmanager` datasource selected does
 
 ## Cluster Secrets
 
-Every Secret the stacks read comes from the workstation's OS keyring. `devops k8s push-secrets` writes them (workstation keyring → cluster, the reverse of `devops k8s sync-secrets`), and `devops k8s deploy-stack` runs the same push right after the namespaces, before any manifest or Helm release. One table in `src/devops_cli/k8s/cluster_secrets.py` lists them, and a test fails on any Secret a manifest or values file here references without a row. Add a new secret as a row with a generator, so that `push-secrets` makes its value: an agent writes no secret value, and a person runs `uv run devops k8s push-secrets` after the merge. The table:
+Every Secret the stacks read comes from the workstation's OS keyring. `devops k8s push-secrets` writes them (workstation keyring → cluster, the reverse of `devops k8s sync-secrets`), and `devops k8s deploy-stack` runs the same push right after the namespaces, before any manifest or Helm release. One table in `src/devops_cli/k8s/cluster_secrets.py` lists them, and a test fails on any Secret a manifest or values file here references without a row. Add a new secret as a row with a generator, so that `push-secrets` makes its value: an agent writes no secret value. Argo CD applies a manifest when it merges, and a pod that reads a missing Secret does not start. So a person runs `uv run devops k8s push-secrets --only <namespace>/<name>` from the branch of the pull request before the merge of the manifest that reads the new Secret. Make the reference `optional: true` when the pod can start without it. Check the pods after the merge. The table:
 
 | Secret | Key | Source | Required | When the keyring has no value | Stack | Restarted when it changes |
 |---|---|---|---|---|---|---|
