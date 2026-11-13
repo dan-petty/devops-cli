@@ -1,7 +1,7 @@
 """One result line for each attempt of a roadmap job (#4845).
 
 Only a roadmap job that holds 80% success gets smaller caps for cost (`docs/roadmap/job-success.md`,
-`docs/AGENTIC_WORKFLOWS.md`). The counters of the jobs give no common ratio, and a metric label
+`docs/guidelines/agentic-jobs.md`). The counters of the jobs give no common ratio, and a metric label
 cannot hold the counts of each attempt. So each job logs one line for each attempt, and a Loki
 `count_over_time` query counts the lines:
 

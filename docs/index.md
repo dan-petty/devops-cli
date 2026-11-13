@@ -14,7 +14,6 @@
 - [Routine Tasks](ROUTINE_TASKS.md) — Operational task matrix, cadences, and engineering methodology.
 - [SDLC Workflow](SDLC.md) — Software development lifecycle and branch governance policies.
 - [Testing Guide](TESTING.md) — Testing vocabulary, test doubles, and quality gate standards.
-- [Agentic Workflow Spec](AGENTIC_WORKFLOWS.md) — How the project builds, measures and tunes its agentic jobs: the target, the measured state, the tuning loop, the rules and the gaps.
 - [Design Spec](DESIGN.md) — The design tokens, their build, and the palette, type, layout, chart and table rules of each artifact.
 - [AI and RAG Cheatsheet](cheatsheets/ai_and_rag.md) — Managed repository ingestion and semantic search reference.
 - [Dashboard Tabs Audit](DASHBOARD_TABS_AUDIT.md) — Audit of five dashboard tabs against open terminal tools.

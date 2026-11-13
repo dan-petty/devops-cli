@@ -171,7 +171,7 @@ A unit of work whose pod runs one roadmap step alone for one pull request: `fix-
 _Avoid_: fix job, step pod
 
 **Branch run**:
-One of the runs of one roadmap job for one item. A job has one branch run by default, on the base branch `<type>/<issue>-<slug>`, with no judge. With more than one, the runs work at the same time, each on its branch `<type>/<issue>-<slug>-<n>`, with no pull request. A judge then writes one result to the base branch and its one pull request (#5474, [docs/AGENTIC_WORKFLOWS.md](docs/AGENTIC_WORKFLOWS.md#the-job-model)).
+One of the runs of one roadmap job for one item. A job has one branch run by default, on the base branch `<type>/<issue>-<slug>`, with no judge. With more than one, the runs work at the same time, each on its branch `<type>/<issue>-<slug>-<n>`, with no pull request. A judge then writes one result to the base branch and its one pull request ([the agentic jobs guideline](docs/guidelines/agentic-jobs.md#the-job-model); #5533 builds the runs and the judge).
 _Avoid_: candidate (a candidate is an issue that intake has not placed), variant
 
 **Project brain**:
