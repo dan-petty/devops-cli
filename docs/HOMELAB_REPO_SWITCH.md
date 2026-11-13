@@ -74,11 +74,11 @@ kubectl config set-context --current --namespace argocd
      | jq --arg t '<switch-time>' '[.items[] | select(.status.operationState.startedAt >= $t) | .status.operationState.syncResult.resources[]? | select(.status == "Pruned" or .status == "PruneSkipped")] | length'
    ```
 
-7. **devops-cli sources.** Each git source and `$values` ref that names devops-cli, as the Application name and the path or the ref.
+7. **devops-cli paths.** Each path that an Application reads from devops-cli, as the Application name and the path: the `path` of a git source, and each Helm value file that starts with the `$` ref of a devops-cli source.
 
    ```bash
    kubectl -n argocd get applications -o json \
-     | jq -r '.items[] | .metadata.name as $n | (.spec.sources // [.spec.source])[] | select(.repoURL == "https://github.com/dan-petty/devops-cli") | "\($n) \(.path // ("$" + .ref))"'
+     | jq -r --arg repo https://github.com/dan-petty/devops-cli '.items[] | .metadata.name as $n | (.spec.sources // [.spec.source]) as $s | [$s[] | select(.repoURL == $repo and .ref != null) | "$" + .ref + "/"] as $refs | ($s[] | select(.repoURL == $repo and .path != null) | "\($n) \(.path)"), ($s[] | .helm.valueFiles[]? | select(. as $f | any($refs[]; . as $r | $f | startswith($r))) | "\($n) \(.)")'
    ```
 
 8. **Name sets.** The Application names of the homelab files and of the cluster. `diff` must print nothing. `kubectl create --dry-run=client` reads the files only.
@@ -151,7 +151,7 @@ Do these steps:
 
 Check:
 
-- Shared check 7 names only Application `devops` with `k8s/devops` and one `$values` ref of Application `prometheus`. Every other source names homelab.
+- Shared check 7 prints only 2 lines: Application `devops` with `k8s/devops`, and Application `prometheus` with its value file `k8s/devops/monitoring/prometheus-rules-values.yaml` after the `$` ref. Every other source names homelab.
 - Shared check 1 equals the baseline.
 - Shared check 5 gives exit code 0 for all 34 Applications.
 - Shared check 6 gives 0.
@@ -173,9 +173,11 @@ Who: an agent. A person merges the pull request.
 
 Check:
 
-- Each Application with a GitHub deployment subscription that synced a homelab revision in the soak has a deployment on a homelab commit. Application `devops` has deployments on devops-cli commits. Argo CD makes a deployment only after a sync, so an Application with no change in the soak has no new deployment.
+- Each Application with a GitHub deployment subscription that synced a homelab revision in the soak has a deployment on a homelab commit. Application `devops` has deployments on devops-cli commits. Argo CD makes a deployment only after a sync, so an Application with no change in the soak has no new deployment. The first command lists the Applications with the subscription. The second gives the count of deployments of one of them.
 
   ```bash
+  kubectl -n argocd get applications -o json \
+    | jq -r '.items[] | select(.metadata.annotations["notifications.argoproj.io/subscribe.on-deployed.github"] != null) | .metadata.name'
   uv run devops gh api 'repos/dan-petty/homelab/deployments?environment=<application>&per_page=1' --jq 'length'
   ```
 
@@ -235,12 +237,12 @@ Revert: `git revert` of the homelab pull request. The live patches stay, because
 
 Who: an agent. A person merges the pull request.
 
-In one devops-cli pull request, delete the override path of #1290: the constant `CONST_K8S_ARGOCD_HOMELAB_APPLICATIONS`, the override functions, `src/devops_cli/k8s/argocd_overrides.py`, the gate modules `tests/gate/k8s_checks/argocd_overrides.py` and `tests/gate/k8s_checks/host_overrides.py`, their tests, and the section Homelab Values at Deploy Time of `k8s/README.md`. `devops k8s deploy-stack` then writes no override. Close #1291 as superseded.
+In one devops-cli pull request, delete the override path of #1290: the constants `CONST_K8S_ARGOCD_HOMELAB_APPLICATIONS` and `CONST_K8S_ARGOCD_HOMELAB_APPLICATIONS_BY_STACK`, the override functions, `src/devops_cli/k8s/argocd_overrides.py`, the gate modules `tests/gate/k8s_checks/argocd_overrides.py` and `tests/gate/k8s_checks/host_overrides.py`, their tests, and the section Homelab Values at Deploy Time of `k8s/README.md`. `devops k8s deploy-stack` then writes no override. Close #1291 as superseded.
 
 Check:
 
 - `git grep -n CONST_K8S_ARGOCD_HOMELAB_APPLICATIONS -- src tests` finds nothing.
-- `uv run devops k8s deploy-stack --stack infra --dry-run` lists no Application patch.
+- The result of `uv run devops k8s deploy-stack --stack all --dry-run` has no `argocd_overrides` entry. The stacks `infra`, `devops`, `gitea` and `chat` wrote the overrides, so the check reads all stacks.
 - `uv run devops ci` passes.
 
 Revert: `git revert` of the devops-cli pull request.
@@ -269,7 +271,7 @@ In one devops-cli pull request, delete the environment files of the path list, t
 
 Check:
 
-- Shared check 7 names only Application `devops` with `k8s/devops` and the `$values` ref of Application `prometheus`, so no live source names a deleted path.
+- Shared check 7 prints only `k8s/devops` of Application `devops` and `k8s/devops/monitoring/prometheus-rules-values.yaml` of Application `prometheus`, so no live source names a deleted path.
 - `git grep` finds no file of the path list.
 - `uv run devops ci` passes.
 - All 34 Applications stay Synced.
@@ -289,4 +291,4 @@ Use this revert from step 11 until step 17.
    uv run devops argo cd apps bootstrap-gitops --root-app <temp-dir>/bootstrap.yaml
    ```
 
-Check: Shared checks 1, 3, 4 and 9 equal the baseline, and shared check 5 gives exit code 0 for all 34 Applications. The patches and the digests stay, because the field managers `kubectl-patch` and Image Updater also own them.
+Check: Shared checks 1, 3 and 4 equal the baseline, shared check 9 gives 0 and 0, and shared check 5 gives exit code 0 for all 34 Applications. The patches and the digests stay, because the field managers `kubectl-patch` and Image Updater also own them.

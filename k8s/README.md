@@ -936,7 +936,7 @@ Teardown leaves the `prometheus-operator-crds` release's CRDs in the cluster. De
 Argo CD maintains the declared state of the homelab cluster directly from this repository. A two-level application topology decouples cluster bootstrap from leaf applications:
 
 1. **`bootstrap` (`k8s/argocd/bootstrap/bootstrap.yaml`)**: Tracks `main`. Syncs the root `cluster` Application.
-2. **`cluster` (`k8s/argocd/bootstrap/cluster.yaml`)**: Tracks `main`. Syncs project RBAC boundaries (`k8s/argocd/apps/projects.yaml`) and all 27 leaf Applications (11 raw leaf applications and 16 multi-source Helm applications).
+2. **`cluster` (`k8s/argocd/bootstrap/cluster.yaml`)**: Tracks `main`. Syncs project RBAC boundaries (`k8s/argocd/apps/projects.yaml`) and every leaf Application of `k8s/argocd/apps/`: a raw leaf Application has one source, and a Helm leaf Application has several sources.
 
 The private repository dan-petty/homelab receives a copy of the environment (dan-petty/homelab#23). The AppProjects `homelab` and `homelab-system` admit it as a source, and they keep this repository. Argo CD reads the homelab repository with the repository credential Secret `repo-homelab` in namespace `argocd`. The owner makes that Secret, and it never goes into git, so project `homelab` ignores it as an orphan. [docs/HOMELAB_REPO_SWITCH.md](../docs/HOMELAB_REPO_SWITCH.md) gives the steps that move the Applications to the homelab repository, with the check and the revert of each step.
 
@@ -1097,7 +1097,7 @@ The notifications controller reads the derived URL from `argocd/argocd-notificat
 - **GitHub deployments**: Each Application under `k8s/argocd/apps/` that has one `spec.source` on github.com carries the annotation `notifications.argoproj.io/subscribe.on-deployed.github: ""`.
   - When such an Application finishes a sync and reaches Healthy status (`on-deployed`), the notifier `service.github` writes a GitHub deployment for the synced commit. The environment is the Application name, and the status is `success`.
   - The trigger fires once for each value of `operationState.syncResult.revision`. This is the revision that the notifier reads. The `status.sync.revision` value moves to a new commit before its sync runs, so the trigger does not use it.
-  - The notifier acts as the GitHub App `devops-cli-argocd`. It reads the keys `$github-appID`, `$github-installationID` and `$github-privateKey` of `argocd/argocd-notifications-secret` (see Cluster Secrets). The App needs only the repository permission Deployments (read and write).
+  - The notifier acts as the GitHub App `devops-cli-argocd`. It reads the keys `$github-appID`, `$github-installationID` and `$github-privateKey` of `argocd/argocd-notifications-secret` (see Cluster Secrets). The notifier needs only the repository permission Deployments (read and write). The repository credential `argocd/repo-homelab` uses the same App with the permission Contents (read) on the homelab repository (see GitOps).
   - The deployment sets `autoMerge: false` and no required check. So GitHub reads no commit status and writes no branch.
   - A multi-source Application sets neither `spec.source` nor `syncResult.revision`, so it carries no annotation.
   - The notification posts to `api.github.com` on TCP port 443. The perimeter network policy allows it.
@@ -1301,7 +1301,7 @@ k8s/
 │   ├── bootstrap/            # Two-level bootstrap applications
 │   │   ├── bootstrap.yaml    # Root app tracking main, reconciles cluster app
 │   │   └── cluster.yaml      # Cluster app tracking main, reconciles projects & leaf apps
-│   └── apps/                 # AppProjects and 27 leaf Applications (11 raw + 16 Helm)
+│   └── apps/                 # AppProjects and the leaf Applications (raw and Helm)
 │       └── projects.yaml     # AppProjects: homelab and homelab-system
 ├── overlays/
 │   └── homelab/              # Homelab overlays the Applications devops and ingress render; hosts stay under example.com
