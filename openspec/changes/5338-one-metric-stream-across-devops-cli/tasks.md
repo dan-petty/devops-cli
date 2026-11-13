@@ -2,11 +2,11 @@
 
 ## 1. Delete the host name of devops-cli metrics in the collector
 
-Kind: behavior. Reads: `k8s/otel/values.yaml`, `src/devops_cli/telemetry/tracer.py`, `tests/telemetry/test_telemetry_instruments.py`. Changes: `k8s/otel/values.yaml`, `tests/telemetry/test_telemetry_instruments.py`.
+Kind: behavior. Reads: `k8s/otel/values.yaml`, `src/devops_cli/telemetry/tracer.py`, `tests/telemetry/test_telemetry_instruments.py`. Changes: `k8s/otel/values.yaml`, `tests/telemetry/test_telemetry_instruments.py`, `tests/commands/k8s/test_k8s_monitoring_integration.py`.
 
-- [ ] 1.1 Add `test_the_collector_deletes_the_host_name_of_devops_cli_metrics_before_it_adds_them_up` to `tests/telemetry/test_telemetry_instruments.py`: the processors before `deltatocumulative` are `memory_limiter` and `transform/metric_resource`, and its one resource statement deletes `host.name` where `telemetry.sdk.name` equals the SDK name of an exported metric
+- [x] 1.1 Add `test_the_collector_deletes_the_host_name_of_devops_cli_metrics_before_it_adds_them_up` to `tests/telemetry/test_telemetry_instruments.py`: the processors before `deltatocumulative` are `memory_limiter` and `transform/metric_resource`, and its one resource statement deletes `host.name` where `telemetry.sdk.name` equals the SDK name of an exported metric
   - Verification: `$ uv run devops ci test tests/telemetry/test_telemetry_instruments.py` fails on the base
-- [ ] 1.2 Add `transform/metric_resource` with `error_mode: ignore` to `k8s/otel/values.yaml` and put it in the metrics pipeline after `memory_limiter` and before `deltatocumulative`. Rename `test_counters_are_monotonic_deltas_from_the_host_not_the_process` to `test_counters_are_monotonic_deltas_from_the_workload_not_the_process`
+- [x] 1.2 Add `transform/metric_resource` with `error_mode: ignore` to `k8s/otel/values.yaml` and put it in the metrics pipeline after `memory_limiter` and before `deltatocumulative`. Rename `test_counters_are_monotonic_deltas_from_the_host_not_the_process` to `test_counters_are_monotonic_deltas_from_the_workload_not_the_process`
   - Verification: `$ uv run devops ci test tests/telemetry/test_telemetry_instruments.py` passes
 
 ## 2. Guard the metric Resource of the tracer

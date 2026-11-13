@@ -592,7 +592,8 @@ def test_otel_collector_sends_metrics_to_the_prometheus_otlp_receiver() -> None:
     with open(K8S_DIR / "monitoring" / "prometheus-values.yaml", encoding="utf-8") as f:
         prom = yaml.safe_load(f)
 
-    # 1. one otlp_http exporter to the OTLP path of the server, and the cluster attribute
+    # 1. one otlp_http exporter to the OTLP path of the server, and the cluster attribute of each
+    # point. The resource statement of the pipeline is tested in test_telemetry_instruments.py.
     pipeline = otel["config"]["service"]["pipelines"]["metrics"]
     (exporter_id,) = pipeline["exporters"]
     endpoint = urlsplit(otel["config"]["exporters"][exporter_id]["metrics_endpoint"])
@@ -602,6 +603,7 @@ def test_otel_collector_sends_metrics_to_the_prometheus_otlp_receiver() -> None:
         for name in pipeline["processors"]
         if name.split("/")[0] == "transform"
         for group in otel["config"]["processors"][name].get("metric_statements", [])
+        if group["context"] == "datapoint"
         for statement in group["statements"]
     ]
     assert (

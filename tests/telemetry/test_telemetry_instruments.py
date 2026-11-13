@@ -940,7 +940,7 @@ def test_each_table_of_quantiles_states_the_count_of_its_calls() -> None:
     assert (len(tables), len(duration_panels), misplaced) == (4, 5, [])
 
 
-def test_counters_are_monotonic_deltas_from_the_host_not_the_process(
+def test_counters_are_monotonic_deltas_from_the_workload_not_the_process(
     otlp: FakeCollector, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Verify a counter is a delta sum whose resource names the workload and no process, so the
@@ -1365,6 +1365,49 @@ def test_the_collector_adds_up_deltas_before_prometheus() -> None:
         "deltatocumulative" in config["processors"],
         processors.index("deltatocumulative") < processors.index("batch"),
     ) == (True, True)
+
+
+def test_the_collector_deletes_the_host_name_of_devops_cli_metrics_before_it_adds_them_up(
+    otlp: FakeCollector,
+) -> None:
+    """A devops-cli build from before #4697 sends `host.name` in its metric Resource, and a new
+    build does not. `deltatocumulative` keys a stream by every resource attribute, while
+    Prometheus keeps only `job` and `instance`, so the two builds of one workload write two
+    running totals into one series (#5338). A transform processor before `deltatocumulative`
+    deletes `host.name` where `telemetry.sdk.name` is the SDK name that the tracer sends, so
+    every build sends one stream and the Resource of another SDK stays as it is."""
+    tracer_module.get_tracer().increment_counter("devops_cli_command_total", 1, attributes={})
+    resource = {
+        a["key"]: a["value"]["stringValue"]
+        for a in otlp.payloads(OtlpSignal.METRICS)[0]["resourceMetrics"][0]["resource"][
+            "attributes"
+        ]
+    }
+    config = yaml.safe_load(
+        (REPO_ROOT / "k8s" / "otel" / "values.yaml").read_text(encoding="utf-8")
+    )["config"]
+    processors = config["service"]["pipelines"]["metrics"]["processors"]
+    sdk_condition = (
+        f'resource.attributes["telemetry.sdk.name"] == "{resource["telemetry.sdk.name"]}"'
+    )
+
+    assert (
+        processors[: processors.index("deltatocumulative")],
+        config["processors"].get("transform/metric_resource"),
+    ) == (
+        ["memory_limiter", "transform/metric_resource"],
+        {
+            "error_mode": "ignore",
+            "metric_statements": [
+                {
+                    "context": "resource",
+                    "statements": [
+                        f'delete_key(resource.attributes, "host.name") where {sdk_condition}'
+                    ],
+                }
+            ],
+        },
+    )
 
 
 def test_a_stream_with_no_delta_for_an_hour_starts_again_from_zero() -> None:
