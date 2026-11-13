@@ -28,7 +28,7 @@ None.
 
 ## Impact
 
-- Code: `src/devops_cli/github/client.py`, `src/devops_cli/ai/review/runner.py`, `src/devops_cli/commands/review.py`, `src/devops_cli/commands/analyze.py`, `src/devops_cli/lang/en/messages.py`
+- Code: `src/devops_cli/github/client.py`, `src/devops_cli/ai/review/runner.py`, `src/devops_cli/commands/review.py`, `src/devops_cli/commands/analyze.py`, `src/devops_cli/lang/en/messages.py`, `src/devops_cli/ai/analyze/symbols.py` (the docstring of `BaseRevision.revision`), `src/devops_cli/config/constants.py` (the comment of `CONST_GITHUB_DIFF_MEDIA_TYPE`)
 - Docs: `docs/SELF_IMPROVEMENT.md`, `src/devops_cli/ai/knowledge_base/devops_cli/python_packages.md`
 - Tests: `tests/github/test_github_client.py`, `tests/commands/test_review_scope.py`, `tests/commands/test_review_pr_post.py`, `tests/commands/test_analyze.py`, `tests/ai/review/test_review_runner.py`, `tests/ai/review/test_review_path_routing.py`, `tests/ai/client/test_batch_2_review_defects.py`, `tests/git/test_review_worktree_regression.py`, `tests/git/test_ai_task_metadata.py`, `tests/roadmap/test_roadmap_draft_readiness.py`, `tests/support/fakes/github.py`, `tests/fixtures/github/hello_world_pull_request.json`
 

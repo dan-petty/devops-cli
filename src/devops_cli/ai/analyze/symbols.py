@@ -33,8 +33,10 @@ class BaseRevision:
     on disk: a branch that is not checked out, or one whose checkout has uncommitted edits the
     diff leaves out. Without it the reviewed files on disk are the head.
 
-    `revision` names the base in the local repository, when `read` reads it there; a pull
-    request's base, read from its repository on GitHub, has none.
+    `revision` names the base in the local repository: the revision that `read` reads there, or
+    the merge base of a pull request, which `read` reads from its repository on GitHub and the
+    fetch of the pull request head brings to the local repository (#5346). Without it, the base
+    has no local name.
     """
 
     changes: tuple[ChangedFile, ...]

@@ -271,7 +271,8 @@ def test_devops_review_pr_post_names_the_files_the_pull_request_leaves_in_place(
     cli: Callable[..., Any], github_api: GitHubApiFake
 ) -> None:
     """A diff of routed files names no file, so the comment lists the files of the compare that
-    the review read, and a file the pull request removes is not one of the files checked."""
+    the review read, and a file the pull request removes is not one of the files checked. The
+    command reads the file list one time only (#5346)."""
     _route_the_pull_request(
         github_api,
         files=[
@@ -285,5 +286,6 @@ def test_devops_review_pr_post_names_the_files_the_pull_request_leaves_in_place(
     result = _post_the_review_without_a_model(cli)
 
     posted = _posted(github_api)
-    assert (result.exit_code, len(posted)) == (0, 1)
+    file_lists = [r for r in github_api.requested if "/compare/main...abc123?per_page=1" in r]
+    assert (result.exit_code, len(posted), len(file_lists)) == (0, 1, 1)
     assert "- **Files checked:** `openspec/changes/1-x/tasks.md`\n" in posted[0][1]["body"]
