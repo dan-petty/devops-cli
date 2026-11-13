@@ -43,7 +43,7 @@ An attempt with `infra=true` SHALL count in the all-attempts ratio and in the in
 
 #### Scenario: Loki refuses a query
 - **WHEN** Loki answers a query with HTTP 400
-- **THEN** the report stops with `KubernetesLoggingError` and the status 400
+- **THEN** the report stops with `ServiceRequestError` and the status 400
 
 ### Requirement: The report gives the measures of each workflow and repository
 For each workflow and repository the report SHALL give the counts, `p`, the interval and the grades, the first-pass ratio, the infrastructure share, the 3 largest failure classes, the action of the grade, the efficiency measures for a line with `tokens` and `seconds`, each version with 10 attempts or more, and the counts of 24 h and 6 h with the signals `broken` and `infra`. A job with no line SHALL get one row with no attempts.

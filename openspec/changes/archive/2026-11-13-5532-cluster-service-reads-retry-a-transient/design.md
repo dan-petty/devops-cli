@@ -9,7 +9,7 @@
 | --- | --- | --- |
 | `attempts` | 4 | The issue asks for a small count. Three waits cover a restart of some seconds. |
 | `first_wait_seconds` | 1.0 | The first wait is 1 s to 2 s. |
-| `max_wait_seconds` | 8.0 | No single backoff is longer than 8 s plus the jitter. |
+| `max_wait_seconds` | 8.0 | No single backoff is longer than 8 s, the jitter included. |
 | `jitter_seconds` | 1.0 | `wait_exponential_jitter` adds 0 s to 1 s, so two commands do not try again at the same time. |
 | `budget_seconds` | 20.0 | No attempt starts after 20 s. The shortest command timeout around a CLI call is the MCP fast timeout, 30 s. A test holds the policy below it. |
 
