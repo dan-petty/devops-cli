@@ -2,7 +2,7 @@
 
 ### Requirement: The gh pages group reads the site status and checks the local settings
 
-The group `devops gh pages` SHALL hold the commands `status` and `verify` only. The MCP server SHALL expose the Pages tools `gh_pages_status` and `gh_pages_verify` only. No command SHALL request a build from the branch source or read the legacy build list `/pages/builds`.
+The group `devops gh pages` SHALL hold the commands `status` and `verify` only. The MCP server SHALL expose the Pages tools `gh_pages_status` and `gh_pages_verify` only. No command SHALL request a build from the branch source or read the list of legacy builds.
 
 #### Scenario: The group lists status and verify
 
