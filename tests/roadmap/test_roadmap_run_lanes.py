@@ -236,53 +236,62 @@ def test_a_blocked_model_lane_holds_back_none_of_the_status_lanes_rounds(
     ) == (True, ["metrics", "implement"], [True], True, True)
 
 
-def test_a_blocked_stage_round_holds_back_no_refine_round_of_the_same_repository(
-    seeded_store: InMemoryRoadmapStore, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize(
+    ("blocked", "other"),
+    [("stage", "refine"), ("refine", "alternatives")],
+    ids=["stage-refine", "refine-alternatives"],
+)
+def test_a_blocked_round_of_one_row_holds_back_no_round_of_another_row_of_the_same_repository(
+    blocked: str,
+    other: str,
+    seeded_store: InMemoryRoadmapStore,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Test first for #5553: the lanes that `service_jobs` builds keep `stage` and `refine` apart.
-    A stage round blocks on a slow model, and a poll makes `refine` due for the same repository:
-    a refine round runs and ends while the stage round still runs."""
+    """Test first for #5553: the lanes that `service_jobs` builds keep each row apart. A round of
+    `blocked` waits on a slow model, and a poll makes `other` due for the same repository: a round
+    of `other` runs and ends while the round of `blocked` still runs. A stage round held back
+    refine before #4559 moved stage, and a refine round still held back alternatives in the one
+    model lane."""
     monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path))
-    staging, model_answers, refined = threading.Event(), threading.Event(), threading.Event()
-    stage_released: list[bool] = []
+    waiting, model_answers, other_ran = threading.Event(), threading.Event(), threading.Event()
+    released: list[bool] = []
 
-    def stage(**_: Any) -> JobOutcome:
-        staging.set()
+    def slow(**_: Any) -> JobOutcome:
+        waiting.set()
         # Records that the test, not the bound, ended the wait on the slow model.
-        stage_released.append(model_answers.wait(timeout=THREAD_HANDOFF_BOUND_SECONDS))
+        released.append(model_answers.wait(timeout=THREAD_HANDOFF_BOUND_SECONDS))
         return JobOutcome()
 
-    def refine(**_: Any) -> JobOutcome:
-        refined.set()
+    def quick(**_: Any) -> JobOutcome:
+        other_ran.set()
         return JobOutcome()
 
     built = service_jobs(tmp_path)
     tables = {lane: job.keywords["table"] for lane, job in built.items()}
+    runners = {blocked: slow, other: quick}
     lanes = {
-        lane: partial(job, table=lane_table(tables[lane], stage=stage, refine=refine))
-        for lane, job in built.items()
+        lane: partial(job, table=lane_table(tables[lane], **runners)) for lane, job in built.items()
     }
     manager = ServiceManager(
         ServiceConfig(repos=[REPO]), {}, lanes, lambda: datetime.now(UTC), asyncio.sleep
     )
-    (stage_lane,) = (lane for lane, rows in tables.items() if "stage" in {r.name for r in rows})
-    (refine_lane,) = (lane for lane, rows in tables.items() if "refine" in {r.name for r in rows})
     for worker in manager.workers.values():
         worker.start()
     manager.enqueue_trigger(REPO, "poll", "", "")
-    assert staging.wait(timeout=THREAD_HANDOFF_BOUND_SECONDS)
-    refine_ran = refined.wait(timeout=THREAD_HANDOFF_BOUND_SECONDS)
-    refine_round_ended = manager.workers[(REPO, refine_lane)].wait_active(
+    assert waiting.wait(timeout=THREAD_HANDOFF_BOUND_SECONDS)
+    ran = other_ran.wait(timeout=THREAD_HANDOFF_BOUND_SECONDS)
+    other_round_ended = manager.workers[(REPO, _lane_of(built, other))].wait_active(
         THREAD_HANDOFF_BOUND_SECONDS
     )
-    stage_still_running = manager.workers[(REPO, stage_lane)].is_active()
+    blocked_still_running = manager.workers[(REPO, _lane_of(built, blocked))].is_active()
     model_answers.set()
     asyncio.run(manager.drain_and_stop())
     assert (
-        refine_ran,
-        refine_round_ended,
-        stage_still_running,
-        bool(stage_released) and all(stage_released),
+        ran,
+        other_round_ended,
+        blocked_still_running,
+        bool(released) and all(released),
     ) == (True, True, True, True)
 
 
@@ -458,16 +467,23 @@ def test_each_lanes_success_stays_in_schedule_json_when_their_rounds_interleave(
     )
 
 
+@pytest.mark.parametrize(
+    ("first", "second"),
+    [("stage", "refine"), ("refine", "alternatives")],
+    ids=["stage-refine", "refine-alternatives"],
+)
 def test_two_lanes_never_use_the_same_working_tree(
+    first: str,
+    second: str,
     seeded_store: InMemoryRoadmapStore,
     tmp_path: Path,
     child_argvs: list[list[str]],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Test first for #5553: the lanes of `stage` and `refine`, which `service_jobs` builds, each
-    work in a clone of their own at origin's tip of the default branch. A round of the lane of
-    `refine` leaves a change in the clone of `stage` alone, where a checkout of that clone would
-    discard it."""
+    """Test first for #5553: the lanes of two rows that need files, which `service_jobs` builds,
+    each work in a clone of their own at origin's tip of the default branch. A round of the lane
+    of `second` leaves a change in the clone of `first` alone, where a checkout of that clone
+    would discard it. `refine` and `alternatives` shared the clone of the one model lane before."""
     data_dir = tmp_path / "data"
     monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(data_dir))
     bare = bare_remote(tmp_path)
@@ -493,18 +509,18 @@ def test_two_lanes_never_use_the_same_working_tree(
                 **{row: record(row)},
             ),
         )
-        for row in ("stage", "refine")
+        for row in (first, second)
     }
     batch = TriggerBatch(repo=REPO, counts={OPENED: 1}, first_at=NOW, last_at=NOW)
-    lanes["stage"](batch)
-    in_progress = seen["stage"][0] / "f.txt"
+    lanes[first](batch)
+    in_progress = seen[first][0] / "f.txt"
     in_progress.write_text("work in progress\n")
-    lanes["refine"](batch)
-    stage_tree, refine_tree = seen["stage"][0], seen["refine"][0]
+    lanes[second](batch)
+    first_tree, second_tree = seen[first][0], seen[second][0]
     assert (
-        stage_tree != refine_tree,
-        stage_tree.parent == refine_tree.parent,
-        seen["stage"][1][0],
-        seen["refine"][1][0],
+        first_tree != second_tree,
+        first_tree.parent == second_tree.parent,
+        seen[first][1][0],
+        seen[second][1][0],
         in_progress.read_text(),
     ) == (True, True, main_tip, main_tip, "work in progress\n")
