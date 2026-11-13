@@ -53,12 +53,12 @@ The shell tool SHALL run a command only when its first word is a program of `SHE
 - **THEN** the refusal says that `cd` is not needed because every command runs in the checkout
 
 #### Scenario: The retry limit is unchanged
-- **WHEN** the model calls the shell tool with `python -V` in more replies than `CONST_ROADMAP_IMPLEMENT_TOOL_RETRIES`, and then ends its run
-- **THEN** each call returns the refusal with its hint as a tool result and not as a retry, the run is not stopped for retries, and the limit of `CONST_ROADMAP_IMPLEMENT_TOOL_RETRIES` still holds for the failures of a tool
+- **WHEN** the model calls the shell tool with `python -V` in more replies than `roadmap.implement.tool_retries`, and then ends its run
+- **THEN** each call returns the refusal with its hint as a tool result and not as a retry, the run is not stopped for retries, and the limit of `roadmap.implement.tool_retries` still holds for the failures of a tool
 
 #### Scenario: A real failure of a tool still counts
-- **WHEN** the model calls `read_file` without its `path` argument in more replies than `CONST_ROADMAP_IMPLEMENT_TOOL_RETRIES`
-- **THEN** the run ends stopped with the tool retry limit as before
+- **WHEN** the model calls `read_file` without its `path` argument in more replies than `roadmap.implement.tool_retries`
+- **THEN** the run ends stopped with the tool retry limit as before, and the file tools of the harness take the limit of the setting
 
 #### Scenario: The prompt and the table agree
 - **WHEN** the prompt of the step is built, the shell is configured, or `docs/ROADMAP_WORKFLOW.md` is read
@@ -150,7 +150,7 @@ The implement prompt SHALL state that the shell refuses a new line, a heredoc, a
 - **THEN** The prompt names a heredoc, `python -c`, a new line, a `;`, `.data/agent/scratch/` and `uv run python <file>`, and the shell refuses a new line and a `;`
 
 ### Requirement: Consecutive refusals stop the step
-The implement step SHALL end the run as stopped when the shell policy refuses `CONST_ROADMAP_IMPLEMENT_MAX_CONSECUTIVE_REFUSALS` commands in a row, and the checkout SHALL reset. Any tool call that is not refused SHALL reset the count to 0. The stop SHALL use the failure class `refused_tool`. The constant `CONST_ROADMAP_IMPLEMENT_MAX_CONSECUTIVE_REFUSALS` SHALL be 3.
+The implement step SHALL end the run as stopped when the shell policy refuses `roadmap.implement.max_consecutive_refusals` commands in a row, and the checkout SHALL reset. Any tool call that is not refused SHALL reset the count to 0. The stop SHALL use the failure class `refused_tool`. The setting `roadmap.implement.max_consecutive_refusals` SHALL have the default 3, and the settings load SHALL refuse a value above `roadmap.implement.max_refusals`.
 
 #### Scenario: Three refusals in a row
 - **WHEN** the shell policy refuses 3 commands in a row and no tool call is accepted between them

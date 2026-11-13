@@ -6,14 +6,14 @@ The limits of a plan run and their measures: the budget, the call budget and the
 ## Requirements
 
 ### Requirement: A plan run has a budget
-A plan run of the toolbox SHALL make at most `CONST_ROADMAP_STAGE_TOOL_MAX_CALLS` tool calls and `CONST_ROADMAP_STAGE_MAX_REQUESTS` model requests. It SHALL set no count of output tokens: the context window ends the tools of a run. The run SHALL offer no tool to a request when fewer than 4 tool calls are left, so the model gives its plan. A run that passes a limit SHALL fail the item with a reason. The job SHALL plan the other items, and SHALL open no draft pull request for the failed item.
+A plan run of the toolbox SHALL make at most `roadmap.stage.max_tool_calls` tool calls and `roadmap.stage.max_requests` model requests. It SHALL set no count of output tokens: the context window ends the tools of a run. The run SHALL offer no tool to a request when fewer than 4 tool calls are left, so the model gives its plan. A run that passes a limit SHALL fail the item with a reason. The job SHALL plan the other items, and SHALL open no draft pull request for the failed item.
 
 #### Scenario: The tool call limit
-- **WHEN** one reply of the model in a plan run holds one more parallel tool call than `CONST_ROADMAP_STAGE_TOOL_MAX_CALLS`
+- **WHEN** one reply of the model in a plan run holds one more parallel tool call than `roadmap.stage.max_tool_calls`
 - **THEN** the item fails, and the reason names `tool_calls_limit`
 
 #### Scenario: The tools are gone near the limit
-- **WHEN** the model has made `CONST_ROADMAP_STAGE_TOOL_MAX_CALLS` minus 3 tool calls, one in each turn
+- **WHEN** the model has made `roadmap.stage.max_tool_calls` minus 3 tool calls, one in each turn
 - **THEN** the next request offers no tool, and a valid plan in the reply stages the item
 
 #### Scenario: The output token limit
@@ -64,7 +64,7 @@ A plan run SHALL offer no tool to a request when the tokens of its messages, wit
 - **THEN** the return names `final_result` as the tool that is available
 
 ### Requirement: The budget is for each plan run
-A plan run SHALL be one model call for a plan. The budget of a plan run SHALL be for that run, not for the item. The planner can make a second plan run for one item, when the checks of the job refuse the first plan. That second run SHALL start with a new budget, so one item can use twice `CONST_ROADMAP_STAGE_TOOL_MAX_CALLS` tool calls at most. The model call that splits the groups of an item SHALL use no tool and SHALL have no tool budget.
+A plan run SHALL be one model call for a plan. The budget of a plan run SHALL be for that run, not for the item. The planner can make a second plan run for one item, when the checks of the job refuse the first plan. That second run SHALL start with a new budget, so one item can use twice `roadmap.stage.max_tool_calls` tool calls at most. The model call that splits the groups of an item SHALL use no tool and SHALL have no tool budget.
 
 #### Scenario: The budget is for each plan run
 - **WHEN** the first plan run of an item makes 20 tool calls, the checks refuse its plan, and the second plan run makes 20 tool calls
@@ -203,7 +203,7 @@ A plan run that ends with a plan or a stop SHALL observe `devops_cli_roadmap_too
 - **THEN** the limit counter holds one point with `limit` `window`
 
 #### Scenario: One reply over the call limit
-- **WHEN** one reply of the model holds one more parallel tool call than `CONST_ROADMAP_STAGE_TOOL_MAX_CALLS`
+- **WHEN** one reply of the model holds one more parallel tool call than `roadmap.stage.max_tool_calls`
 - **THEN** the run fails, and the limit counter holds one point with `limit` `calls`
 
 #### Scenario: A run whose model call fails
@@ -251,7 +251,7 @@ A verification run SHALL send the metrics of its tool calls with the label `row`
 When a verification run ends with no reply, the failure of the item SHALL name the verification run and SHALL NOT say that no plan was given.
 
 #### Scenario: A verification run hits a limit
-- **WHEN** the replies of a verification run pass `CONST_ROADMAP_STAGE_TOOL_MAX_CALLS`
+- **WHEN** the replies of a verification run pass `roadmap.stage.max_tool_calls`
 - **THEN** the job raises `RoadmapStageError` with the message of a stopped verification run
 
 ### Requirement: The comment states that the model chose no tool
@@ -299,7 +299,7 @@ The context window of the task `verification` in `k8s/devops/configmap.example.y
 - **THEN** the point where the run ends its tools is at least the tokens of the first review request plus the tokens of the least number of long tool answers, and the default window of 32768 tokens is below that point
 
 ### Requirement: A run has a call budget
-From call `CONST_ROADMAP_STAGE_PLAN_CALLS_NOTICE` of a stage plan run, and from call `CONST_ROADMAP_STAGE_REVIEW_CALLS_NOTICE` of a review run, the answer of each tool SHALL end with a notice that names the call number and tells the model to read no more and give its reply. The tools SHALL stay on, and each run SHALL start its count at zero.
+From call `roadmap.stage.plan_calls_notice` of a stage plan run, and from call `roadmap.stage.review_calls_notice` of a review run, the answer of each tool SHALL end with a notice that names the call number and tells the model to read no more and give its reply. The tools SHALL stay on, and each run SHALL start its count at zero.
 
 #### Scenario: A plan run past its budget
 - **WHEN** a plan run makes three calls and the budget of a plan run is 2
@@ -314,8 +314,34 @@ From call `CONST_ROADMAP_STAGE_PLAN_CALLS_NOTICE` of a stage plan run, and from 
 - **THEN** the first answers of the second run have no notice
 
 ### Requirement: The prompts of a run name its call budget
-The prompt of a stage plan run SHALL say that a plan needs about `CONST_ROADMAP_STAGE_PLAN_CALLS_ADVISED` tool calls, and the prompt of a review run SHALL say that a review needs about `CONST_ROADMAP_STAGE_REVIEW_CALLS_ADVISED`. Each prompt SHALL name the call from which the answers carry the notice. The prompt of a plan run SHALL say that a request with `problem` needs a tool call only to check what the problem names.
+The prompt of a stage plan run SHALL say that a plan needs about `roadmap.stage.plan_calls_advised` tool calls, and the prompt of a review run SHALL say that a review needs about `roadmap.stage.review_calls_advised`. Each prompt SHALL name the call from which the answers carry the notice. The prompt of a plan run SHALL say that a request with `problem` needs a tool call only to check what the problem names.
 
 #### Scenario: The prompts
 - **WHEN** the prompts of the plan run and the review run are read
-- **THEN** they name the advised calls and the call of the notice that the constants hold
+- **THEN** they name the advised calls and the call of the notice that the settings hold, and no placeholder stays
+
+### Requirement: The limits that end a stage attempt are settings
+The stage job SHALL read each limit that ends an attempt from `roadmap.stage` when a round starts. The default of each new setting SHALL be the value of the constant that it replaces, so a run with no configuration does not change.
+
+#### Scenario: No configuration
+- **WHEN** no source sets `gate_return_extensions`, `verify_repair_rounds_ceiling`, `plan_defect_limit`, `max_requests`, `max_tool_calls`, `plan_calls_advised`, `plan_calls_notice`, `review_calls_advised` and `review_calls_notice`
+- **THEN** they are 1, 4, 3, 250, 200, 30, 40, 40 and 60, the values of the constants that they replace
+
+#### Scenario: The call limit of a run
+- **WHEN** `roadmap.stage.max_tool_calls` is 5 and one reply of a plan run holds 6 tool calls
+- **THEN** the item fails, and the reason names `tool_calls_limit`
+
+### Requirement: A stage limit has a ceiling and an order
+The settings load SHALL refuse a value of a stage limit above 4 times its default (`CONST_ROADMAP_LIMIT_CEILING_FACTOR`) with an error that names the setting. It SHALL refuse an advice above its notice, and a notice above `max_tool_calls`, with an error that names both settings.
+
+#### Scenario: A value above the ceiling
+- **WHEN** `roadmap.stage.plan_defect_limit` is 13
+- **THEN** the settings load fails with an error that names `roadmap.stage.plan_defect_limit`
+
+#### Scenario: A notice above the tool calls
+- **WHEN** `roadmap.stage.max_tool_calls` is 50 and the notices keep their defaults
+- **THEN** the settings load fails with the error `review_calls_notice must not be above max_tool_calls`
+
+#### Scenario: The doubled values
+- **WHEN** each new setting is twice its default and `roadmap.stage.gate_returns` is 6
+- **THEN** the settings load gives these values

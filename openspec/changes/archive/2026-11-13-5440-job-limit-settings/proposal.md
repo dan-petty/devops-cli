@@ -31,8 +31,8 @@ None.
 
 ## Impact
 
-- Code: `src/devops_cli/config/settings.py`, `defaults.py` and `constants.py`; `src/devops_cli/roadmap/stage/stage.py`, `stage_toolbox.py`, `stage_tools.py`, `stage_verify.py`, `stage_findings.py` and `stage_eval_render.py`; `src/devops_cli/roadmap/implement/implement_step.py`, `implement_tool_log.py`, `implement_limits.py`, `implement_eval_run.py` and `implement_shell_refusal.py`; `src/devops_cli/roadmap/steps/fix_plan.py`; the prompts `roadmap_stage_tools.md` and `roadmap_stage_verify_tools.md`; the description of `devops_cli_roadmap_stage_gate_problems`.
-- Documents: `docs/CLUSTER.md`, `docs/ROADMAP_WORKFLOW.md`, `docs/roadmap/stage.md`, `docs/roadmap/implement.md`, one Status History line of ADR 0021, and the generated `docs/CONFIGURATION.md`, `docs/ENV_VARS.md` and `docs/TELEMETRY.md`.
+- Code: `src/devops_cli/config/settings.py`, `defaults.py` and `constants.py`; `src/devops_cli/roadmap/stage/stage.py`, `stage_toolbox.py`, `stage_tools.py`, `stage_verify.py`, `stage_findings.py` and `stage_eval_render.py`; `src/devops_cli/roadmap/implement/implement_step.py`, `implement_tool_log.py`, `implement_limits.py`, `implement_eval_run.py` and `implement_shell_refusal.py`; `src/devops_cli/roadmap/steps/fix_plan.py`; the help of `--skip-wait` in `src/devops_cli/lang/en/help.py`; the prompts `roadmap_stage_tools.md` and `roadmap_stage_verify_tools.md`; the description of `devops_cli_roadmap_stage_gate_problems`.
+- Documents: `docs/CLUSTER.md`, `docs/ROADMAP_WORKFLOW.md`, `docs/roadmap/stage.md`, `docs/roadmap/implement.md`, one Status History line of ADR 0021, and the generated `docs/CONFIGURATION.md`, `docs/ENV_VARS.md`, `docs/TELEMETRY.md` and `docs/commands/roadmap.md`.
 - With no configuration, no job changes. The plan cache key holds the prompts with their placeholders, so the change of the prompt text makes the cached plans new once.
 - The Service and the runner image read the settings, so the change needs a release. After the release, a person or an agent sets the doubled values of the new settings in the ConfigMap `devops-cli-config`.
 
@@ -49,4 +49,4 @@ The pydantic settings of the project (`Field` with `ge` and `le`, and a `model_v
 
 ## Dependencies
 
-#5413 changes `src/devops_cli/roadmap/steps/fix_plan.py` in parallel (attempt classes, `fix_plan.version`, `--skip-wait`). This change touches only the two lines that read the bounds and the module docstring there, so the pull request that merges second rebases with a small conflict at most.
+#5413 merged first. It added `--skip-wait`, `fix_plan.version` and the attempt classes to `src/devops_cli/roadmap/steps/fix_plan.py`. This change reads `roadmap.fix_plan.head_attempts` in the cap check of `_pull_reason` and in `_extra`, the reason of the extra attempt of a named run. The help of `--skip-wait` and `docs/commands/roadmap.md` name the two settings.

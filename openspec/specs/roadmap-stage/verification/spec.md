@@ -207,18 +207,18 @@ The planner prompt `src/devops_cli/ai/tasks/roadmap_stage_change.md` SHALL say t
 - **THEN** it names the open findings of a model review, `criterion_dropped` and `spec_delta_wrong` in the text that explains `problem`
 
 ### Requirement: The repair rounds of the review are a setting with a hard ceiling
-The setting `roadmap.stage.verify_repair_rounds` SHALL set the repair rounds of the model review, with a default of 2. The settings load SHALL refuse a value above `CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS_CEILING`, which is 4.
+The setting `roadmap.stage.verify_repair_rounds` SHALL set the repair rounds of the model review, with a default of 2. The setting `roadmap.stage.verify_repair_rounds_ceiling` SHALL set the most repair rounds of an item, with a default of 4. The settings load SHALL refuse a value of `verify_repair_rounds` above `verify_repair_rounds_ceiling` with an error that names both settings, and a value of either setting above 16, 4 times the default of the ceiling.
 
 #### Scenario: The setting sets the rounds
 - **WHEN** `roadmap.stage.verify_repair_rounds` is 1 and each review returns the plan
 - **THEN** the planner gets 2 requests and the verifier gets 2 requests
 
 #### Scenario: A value over the ceiling
-- **WHEN** the settings load reads `roadmap.stage.verify_repair_rounds` of 5
+- **WHEN** the settings load reads `roadmap.stage.verify_repair_rounds` of 5 with no ceiling set, or of 17
 - **THEN** the load fails with an error that names `verify_repair_rounds`
 
 ### Requirement: One more repair round follows while a review fixes more findings than it adds
-After the last repair round of the setting, the stage SHALL start one more round only while the last review marked more earlier findings `gone` than it opened new findings, with no model call. No item SHALL get more repair rounds than `CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS_CEILING`, and no round SHALL start after the Service stops. Each round past the setting SHALL log `stage review extended:` with the round and the counts of fixed and added findings.
+After the last repair round of the setting, the stage SHALL start one more round only while the last review marked more earlier findings `gone` than it opened new findings, with no model call. No item SHALL get more repair rounds than `roadmap.stage.verify_repair_rounds_ceiling`, and no round SHALL start after the Service stops. Each round past the setting SHALL log `stage review extended:` with the round and the counts of fixed and added findings.
 
 #### Scenario: A review fixes an earlier finding after the last round
 - **WHEN** the setting is 2, the first review opens 3 findings, the second review marks each of them `holds`, the third review marks one `gone` and opens no new finding, and the fourth review marks each finding `gone`
@@ -230,7 +230,7 @@ After the last repair round of the setting, the stage SHALL start one more round
 
 #### Scenario: No round past the ceiling
 - **WHEN** the setting is 2 and each later review marks one earlier finding `gone` and opens no new finding
-- **THEN** the planner gets 1 + `CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS_CEILING` requests
+- **THEN** the planner gets 1 + `roadmap.stage.verify_repair_rounds_ceiling` requests: 5 at the default ceiling, and 7 when the ceiling is 6
 
 #### Scenario: No round in a drain
 - **WHEN** the Service stops during the first review, and the review returns the plan
