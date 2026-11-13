@@ -10,7 +10,7 @@ each wait return at once.
 from __future__ import annotations
 
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
 
@@ -21,6 +21,7 @@ from tests.support.fakes.clock import ClockFake
 from tests.support.fakes.github import GitHubApiFake, github_json
 from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
 from tests.support.infra import (
+    COLOR_TERM,
     KUBE_CONTEXT,
     ORIGIN_COMMIT,
     SSH_KEY_NAME,
@@ -34,6 +35,7 @@ from tests.support.infra import (
     limit_hosts,
     recorded_read,
     site_events,
+    terminal_events,
 )
 
 REPO = "example-org/infra"
@@ -64,23 +66,39 @@ class Lab:
         self.steps = steps
         self.bin_dir = bin_dir
 
-    def plan(self, limit: str, *extra: str) -> dict[str, Any]:
-        """Plan the playbook on `limit` at the level full, and give the plan record."""
+    def plan(
+        self, limit: str, *extra: str, env: Mapping[str, str | None] | None = None
+    ) -> dict[str, Any]:
+        """Plan the playbook on `limit` at the level full, and give the plan record. `env` changes
+        the environment of the person, such as the terminal."""
         self.write_entry("full")
-        result = self.cli("infra", "plan", REPO, PLAYBOOK, "--limit", limit, *extra, "-f", "json")
+        result = self.cli(
+            "infra", "plan", REPO, PLAYBOOK, "--limit", limit, *extra, "-f", "json", env=env
+        )
         assert result.exit_code == 0, result.output
         self.steps.clear()
         return dict(json.loads(result.output))
 
-    def apply(self, plan: dict[str, Any], *extra: str, level: str = "full") -> Any:
+    def apply(
+        self,
+        plan: dict[str, Any],
+        *extra: str,
+        level: str = "full",
+        env: Mapping[str, str | None] | None = None,
+    ) -> Any:
         self.write_entry(level)
         limit = ("--limit", plan["limit"]) if plan["limit"] else ()
-        return self.cli(
-            "infra", "apply", REPO, PLAYBOOK, "--plan", plan["id"], *limit, *extra, "--auto-approve"
-        )
+        argv = ("infra", "apply", REPO, PLAYBOOK, "--plan", plan["id"], *limit, *extra)
+        return self.cli(*argv, "--auto-approve", env=env)
 
-    def apply_json(self, plan: dict[str, Any], *extra: str, level: str = "full") -> Any:
-        return self.apply(plan, *extra, "-f", "json", level=level)
+    def apply_json(
+        self,
+        plan: dict[str, Any],
+        *extra: str,
+        level: str = "full",
+        env: Mapping[str, str | None] | None = None,
+    ) -> Any:
+        return self.apply(plan, *extra, "-f", "json", level=level, env=env)
 
     def runs(self, events: Callable[[ProcessCall, Path], list[dict[str, Any]]]) -> None:
         """Answer the next runs with `events`."""
@@ -214,6 +232,32 @@ def test_a_fresh_check_that_differs_stops_before_the_run_of_the_host(
     assert f"{NODE_3} stopped at the step fresh check" in result.output
     assert "changed tasks: the plan has Deploy K3s agent configuration file" in result.output
     assert lab.cluster.nodes["node-3"].cordoned
+
+
+def test_a_plan_with_no_terminal_passes_the_fresh_check_of_its_apply_in_a_color_terminal(
+    lab: Lab, person_caller: None
+) -> None:
+    """In a color terminal the callback puts color codes around the skip of node-3 by a false
+    `when`, and the plan reads such a skip as unchecked. Every run turns the color off, so the
+    fresh check equals the plan (#5352)."""
+    lab.runs(terminal_events)
+    plan = lab.plan(NODE_3, env={"TERM": None})
+
+    result = lab.apply_json(plan, env={"TERM": COLOR_TERM})
+
+    assert result.exit_code == 0, result.output
+    assert lab.steps == [
+        "drain check node-3",
+        "drain node-3",
+        f"check {NODE_3}",
+        f"run {NODE_3}",
+        "uncordon node-3",
+    ]
+    runner = str(lab.bin_dir / "ansible-runner")
+    runs = [call for call in lab.process_fake.calls if call.argv[0] == runner]
+    no_color = {"ANSIBLE_NOCOLOR": "True", "ANSIBLE_FORCE_COLOR": "False"}
+    settings = [{name: (call.env or {}).get(name) for name in no_color} for call in runs]
+    assert settings == [no_color] * 3
 
 
 def test_a_task_that_changed_and_is_not_in_the_plan_stops_the_apply(

@@ -148,6 +148,8 @@ def test_the_run_is_check_mode_on_the_limit_without_offline_hosts_with_the_key(
             "ANSIBLE_INJECT_INVOCATION",
             "ANSIBLE_CALLBACK_RESULT_FORMAT",
             "ANSIBLE_DISPLAY_SKIPPED_HOSTS",
+            "ANSIBLE_NOCOLOR",
+            "ANSIBLE_FORCE_COLOR",
         )
     } == {
         "ANSIBLE_HOST_KEY_CHECKING": "True",
@@ -155,6 +157,8 @@ def test_the_run_is_check_mode_on_the_limit_without_offline_hosts_with_the_key(
         "ANSIBLE_INJECT_INVOCATION": "True",
         "ANSIBLE_CALLBACK_RESULT_FORMAT": "json",
         "ANSIBLE_DISPLAY_SKIPPED_HOSTS": "True",
+        "ANSIBLE_NOCOLOR": "True",
+        "ANSIBLE_FORCE_COLOR": "False",
     }
     collections = Path(run.env["ANSIBLE_COLLECTIONS_PATH"])
     assert collections.parent == Path(_option(galaxy.argv, "-p")).parent

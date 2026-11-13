@@ -31,6 +31,12 @@ with only `HOME`, `LANG` and the environment of `runner_env` set, and `probe/bin
 Then put `{project}` in place of `<scratch>/project`, `/srv/example` in place of `<scratch>/state`,
 and `/root` in place of the home folder and its user.
 
+`site_color` is the run `site` in a color terminal before #5352 (`--limit all:!offline`, exit code 2,
+status `failed`): record it as above with `TERM=xterm-256color` and with no `ANSIBLE_NOCOLOR` in the
+environment of `runner_env`. ansible-runner gives the run a pseudo-terminal, so the default
+callback puts color codes around the text of each event. `terminal_events` answers a run with this
+recording when the environment of the run is the environment of the recording.
+
 An apply (#5125) runs the playbook on a few hosts at a time. `answer_runs` answers each run with
 the recorded events of `site` of the hosts of its `--limit` only (`site_events`), with no failure,
 and `FakeCluster` answers `kubectl` from a set of nodes: the reads, the drain check, the drain and
@@ -50,6 +56,7 @@ from typing import Any, Final
 
 import pytest
 
+from devops_cli.core.process import build_subprocess_env
 from devops_cli.tools_lock import load_tools_lock, tool_install_dir
 from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
 from tests.support.paths import FIXTURES
@@ -61,7 +68,11 @@ RUNNER_EVENTS: Final[Path] = INFRA_FIXTURES / "runner_events"
 RECORDED_RUNS: Final[dict[str, tuple[int, str]]] = {
     "agent": (0, "successful"),
     "site": (2, "failed"),
+    "site_color": (2, "failed"),
 }
+# The `TERM` of the recorded run `site_color`: a color terminal.
+COLOR_TERM: Final[str] = "xterm-256color"
+_NOCOLOR: Final[str] = "ANSIBLE_NOCOLOR"
 _PROJECT_MARK: Final[str] = "{project}"
 INFRA_REPO_SHAPE: Final[Path] = INFRA_FIXTURES / "homelab_shape"
 KUBE_CONTEXT: Final[str] = "homelab-example"
@@ -250,15 +261,28 @@ def ssh_key_dir(tmp_path: Path) -> Path:
     return key_dir
 
 
-def site_events(project: Path, hosts: Collection[str]) -> list[dict[str, Any]]:
-    """The job events of the recorded run `site` of `hosts` only, without the failed task of
-    node-4, so the run ends successful."""
+def site_events(project: Path, hosts: Collection[str], run: str = "site") -> list[dict[str, Any]]:
+    """The job events of the recorded run `run` of all hosts (`site` or `site_color`) of `hosts`
+    only, without the failed task of node-4, so the run ends successful."""
     events = []
-    for event in recorded_events("site", project):
+    for event in recorded_events(run, project):
         host = (event.get("event_data") or {}).get("host")
         if event["event"] != "runner_on_failed" and (host is None or host in hosts):
             events.append(event)
     return events
+
+
+def terminal_events(call: ProcessCall, project: Path) -> list[dict[str, Any]]:
+    """The job events of the hosts of the limit of `call` as the terminal of the run gives them:
+    the recorded run `site_color` when the environment of the run is the environment of that
+    recording (the `TERM` of a color terminal and no `ANSIBLE_NOCOLOR`), else the run `site`. The
+    environment is the one that the process runner gives the child, with the `TERM` of the
+    person."""
+    env = build_subprocess_env(
+        call.env, isolate_env=call.isolate_env, extra_allowed_keys=call.extra_allowed_env
+    )
+    color = env.get("TERM") == COLOR_TERM and _NOCOLOR not in env
+    return site_events(project, limit_hosts(call), "site_color" if color else "site")
 
 
 def limit_hosts(call: ProcessCall) -> tuple[str, ...]:
