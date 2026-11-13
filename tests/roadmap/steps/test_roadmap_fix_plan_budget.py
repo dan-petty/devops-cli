@@ -20,11 +20,7 @@ from devops_cli.core import clock as clock_seam
 from devops_cli.roadmap.failure import FailureClass
 from devops_cli.roadmap.stage.stage_eval_cases import DefectType
 from devops_cli.roadmap.stage.stage_toolbox import ToolboxModel
-from devops_cli.roadmap.stage.stage_verify import (
-    PLAN_NEEDS_FIX_LABEL,
-    Verification,
-    finding_line,
-)
+from devops_cli.roadmap.stage.stage_verify import PLAN_NEEDS_FIX_LABEL, Verification, finding_line
 from devops_cli.roadmap.steps.fix_plan import FixPlanResult, FixPlanRun, run_fix_plan
 from devops_cli.roadmap.stores.store import FixPlanRecordKey
 from tests.support.builders import make_stage_proposal

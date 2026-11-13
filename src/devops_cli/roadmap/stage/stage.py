@@ -986,8 +986,8 @@ class PlanRevision:
     def fixed(self) -> tuple[Finding, ...]:
         """The open findings of the review of the head that the last review of the revision does
         not keep open (#5409). Each later review keeps a finding that holds as the same value, so
-        a finding of the head is fixed only when a review of the revision marked it `gone`. None
-        with no revision."""
+        a finding of the head is fixed only when a review of the revision marked it `gone`. Empty
+        when no revision exists."""
         repaired = self.repaired
         if repaired is None:
             return ()
@@ -996,8 +996,8 @@ class PlanRevision:
     @property
     def added(self) -> tuple[Finding, ...]:
         """The open findings of the last review of the revision that are no open finding of the
-        review of the head: each one a review opened in text that a repair changed (#5409). None
-        with no revision."""
+        review of the head: each one a review opened in text that a repair changed (#5409). Empty
+        when no revision exists."""
         repaired = self.repaired
         if repaired is None:
             return ()

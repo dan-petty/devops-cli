@@ -10,4 +10,4 @@ Give one verdict for each finding of `earlier`:
 
 Then report new defects. Report a new defect only in a text of `answer`, and copy its `quote` from that text, also for a `criterion_dropped` defect. A defect in a text that the revision did not change is not a new defect of this review: the earlier review judged that text. Do not report an earlier finding again as a new finding.
 
-The reply has the keys `earlier` and `findings` and no other key. The value of `earlier` is a list of objects with the keys `number` (the number of the finding in `earlier`) and `verdict` (`holds` or `gone`), one for each earlier finding. The value of `findings` is the list of new findings, in the form above, or an empty list.
+In a later review, this rule replaces the rule of the reply above: the reply has the keys `earlier` and `findings` and no other key. The value of `earlier` is a list of objects with the keys `number` (the number of the finding in `earlier`) and `verdict` (`holds` or `gone`), one for each earlier finding. The value of `findings` is the list of new findings, in the form above, or an empty list.

@@ -433,11 +433,12 @@ def judge_later(
     """What the later review `reply` made of the plan of `given` (#5409). An earlier finding that
     the reply marks `holds`, gives no verdict, or reports again as a new finding stays open as it
     is: the review that opened it checked its quote. Any other earlier finding that it marks
-    `gone` is fixed. So a reply that breaks the rules keeps a finding and never closes one. A new
-    finding is open only when `open_findings` opens it and its quote is in a block of `answer`,
-    the text that the revision changed. Any other new finding is advice, and a new finding that is
-    an earlier one adds nothing."""
-    gone = {entry.number for entry in reply.earlier if entry.verdict is Verdict.GONE}
+    `gone` is fixed, but not a finding that it also marks `holds`. So a reply that breaks the
+    rules keeps a finding and never closes one. A new finding is open only when `open_findings`
+    opens it and its quote is in a block of `answer`, the text that the revision changed. Any
+    other new finding is advice, and a new finding that is an earlier one adds nothing."""
+    holds = {entry.number for entry in reply.earlier if entry.verdict is Verdict.HOLDS}
+    gone = {entry.number for entry in reply.earlier if entry.verdict is Verdict.GONE} - holds
     fixed = tuple(
         finding
         for number, finding in enumerate(given.earlier, 1)

@@ -502,6 +502,27 @@ def test_an_earlier_finding_that_holds_or_comes_again_stays_open() -> None:
     assert (judged.open, judged.fixed, judged.added) == (tuple(earlier), (), ())
 
 
+def test_an_earlier_finding_with_both_verdicts_holds() -> None:
+    from devops_cli.roadmap.stage.stage_verify import (
+        EarlierVerdict,
+        LaterVerification,
+        Verdict,
+        judge_later,
+    )
+
+    earlier = [_finding(DefectType.FALSE_PREMISE, "The job drops the last comment")]
+    reply = LaterVerification(
+        earlier=[
+            EarlierVerdict(number=1, verdict=Verdict.GONE),
+            EarlierVerdict(number=1, verdict=Verdict.HOLDS),
+        ]
+    )
+
+    judged = judge_later(reply, _later_input(earlier))
+
+    assert (judged.open, judged.fixed) == (tuple(earlier), ())
+
+
 def test_a_first_review_keeps_its_request_and_its_prompt() -> None:
     from devops_cli.roadmap.stage.stage_verify import LaterVerification, verify_later
 

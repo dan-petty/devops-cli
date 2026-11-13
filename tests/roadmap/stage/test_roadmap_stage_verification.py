@@ -18,11 +18,7 @@ from devops_cli.roadmap.stage.stage import (
 )
 from devops_cli.roadmap.stage.stage_eval_cases import DefectType
 from devops_cli.roadmap.stage.stage_toolbox import ToolboxModel
-from devops_cli.roadmap.stage.stage_verify import (
-    PLAN_NEEDS_FIX_LABEL,
-    Finding,
-    Verification,
-)
+from devops_cli.roadmap.stage.stage_verify import PLAN_NEEDS_FIX_LABEL, Finding, Verification
 from tests.support.builders import make_stage_proposal
 from tests.support.fakes.github import API, github_json
 from tests.support.fakes.model import ModelFake, ModelFakeReplies
