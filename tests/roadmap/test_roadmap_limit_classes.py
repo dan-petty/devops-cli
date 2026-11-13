@@ -318,6 +318,10 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
         "other",
         "the recall that the verify eval must reach; a score bar, not a limit of a job",
     ),
+    "CONST_ROADMAP_VERIFY_GOOD_RETURNING_CEILING": (
+        "other",
+        "the mean of the findings that return a good plan in the verify eval; a score bar, not a limit of a job (#5411)",
+    ),
     "DEFAULT_ROADMAP_STAGE_STEP_TOKENS": ("window", "was 40,000; half of the implement window"),
     "DEFAULT_ROADMAP_STAGE_LIMIT": ("setting", "items of one stage round; already a setting"),
     "DEFAULT_ROADMAP_STAGE_GATE_RETURNS": (
