@@ -183,6 +183,7 @@ from devops_cli.roadmap.stage.stage_change import (
     delivery_title,
     group_text,
     measure_groups,
+    plan_summary,
     safe_text,
 )
 from devops_cli.roadmap.stage.stage_criteria import StageCriterion, criterion_problems
@@ -1419,12 +1420,29 @@ class _ItemRun:
         self.store.set_marks(self._fresh(), {ImplementRecordKey.PR: str(created.number)})
         return created.number
 
+    def _plan_summary(self) -> str | None:
+        """The summary of the plan of the item (#5341), from the subject of the newest commit of
+        the branch that adds the `proposal.md` of its change folder: the commit of the stage job
+        on a staged branch, or the squash commit of the plan pull request on the default branch.
+        None when that subject holds no plan title of the item, or no commit adds the file."""
+        proposal = f":(glob){CONST_OPENSPEC_CHANGES_DIR}/{self.number}-*/proposal.md"
+        subject = self._git("log", "-1", "--diff-filter=A", "--format=%s", "HEAD", "--", proposal)
+        return plan_summary(subject, self.number)
+
     def _delivery_title(self) -> str:
-        """The title of the pull request: the title of the issue, with a scope that
-        `.github/labels.yml` declares on the default branch and no other (#2800). The check
-        `Semantic PR title` counts the summary in UTF-16 units, so a long summary stops the item
-        before the job writes a title that the check refuses (#3292)."""
+        """The title of the pull request: the type of the title of the issue, with a scope that
+        `.github/labels.yml` declares on the default branch and no other (#2800), and the summary
+        of the plan, which names the change that the branch makes (#5341). The summary of the
+        title of the issue stands in when the item has no plan title, or when the form refuses the
+        title with the summary of the plan. The check `Semantic PR title` counts the summary in
+        UTF-16 units, so a long summary stops the item before the job writes a title that the
+        check refuses (#3292)."""
         declared = declared_labels(self.store, ref=None)
+        summary = self._plan_summary()
+        if summary is not None:
+            title = delivery_title(self.target.item.title, declared, summary)
+            if not title_problems(title, declared):
+                return title
         title = delivery_title(self.target.item.title, declared)
         problems = title_problems(title, declared)
         if problems:
@@ -1474,9 +1492,10 @@ class _ItemRun:
             ) from exc
 
     def _pull_request(self, pull: int) -> None:
-        """Set the title and the body of the pull request. The title is the one of the issue: the
-        staging pull request of a Staged item has the type `docs(openspec)` (#2714). The body is
-        built with `build_body`, so a body that breaks the form stops the item (#3215)."""
+        """Set the title and the body of the pull request. The title has the type of the issue and
+        the summary of the plan (`_delivery_title`): the staging pull request of a Staged item has
+        the type `docs(openspec)` (#2714). The body is built with `build_body`, so a body that
+        breaks the form stops the item (#3215)."""
         self.step = MESSAGES.roadmap.implement_step_names["pull_request"]
         texts = MESSAGES.roadmap
         archived = self._archived_name()

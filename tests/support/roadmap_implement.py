@@ -152,10 +152,12 @@ def push_staged_branch(
     number: int = 1,
     slug: str = "the-job-drops-a-comment",
     files: Mapping[str, str] | None = None,
+    subject: str | None = None,
 ) -> None:
     """Push the branch of item `number` with one commit by `author` that adds the change and the
     `files` of `files`, as the stage job does; the clone stays on `main` with no local branch.
-    `slug` names the branch and the change folder."""
+    `slug` names the branch and the change folder. `subject` is the subject of the commit, which
+    holds no plan title unless a test gives one."""
     branch = branch_of(number, slug)
     repo.git("switch", "-q", "-c", branch)
     write_change(repo.clone, tasks, number, slug=slug)
@@ -163,7 +165,8 @@ def push_staged_branch(
         (repo.clone / name).parent.mkdir(parents=True, exist_ok=True)
         (repo.clone / name).write_text(text, encoding="utf-8")
     repo.git("add", "-A")
-    repo.git("-c", f"user.name={author}", "commit", "-q", "-m", "fix(roadmap): plan")
+    message = subject or "fix(roadmap): plan"
+    repo.git("-c", f"user.name={author}", "commit", "-q", "-m", message)
     repo.git("push", "-q", "origin", branch)
     repo.git("switch", "-q", "main")
     repo.git("branch", "-q", "-D", branch)
@@ -176,12 +179,14 @@ def merge_plan(
     tasks: str = TASKS,
     slug: str = "the-job-drops-a-comment",
     archived: bool = False,
+    subject: str | None = None,
 ) -> None:
     """Merge the change of item `number` into `main` of `origin`, as the merge of its staging
-    pull request does: one commit on `main`, and no branch."""
+    pull request does: one commit on `main`, and no branch. `subject` is the subject of the
+    commit, which holds no summary of the plan unless a test gives one."""
     write_change(repo.clone, tasks, number, slug=slug, archived=archived)
     repo.git("add", "-A")
-    repo.git("commit", "-q", "-m", f"docs(openspec): plan #{number}")
+    repo.git("commit", "-q", "-m", subject or f"docs(openspec): plan #{number}")
     repo.git("push", "-q", "origin", "main")
 
 
@@ -257,11 +262,23 @@ def staged_files() -> dict[str, str]:
 
 
 @pytest.fixture
+def plan_subject() -> str | None:
+    """The subject of the commit that adds the change folder: the commit of the staged branch, or
+    the merge of the plan into `main`. None keeps a subject with no summary of the plan. A test
+    parametrizes it to give a plan title (#5341)."""
+    return None
+
+
+@pytest.fixture
 def staged_repo(
-    stage_repo: StageRepo, app_slug: None, staged_tasks: str, staged_files: dict[str, str]
+    stage_repo: StageRepo,
+    app_slug: None,
+    staged_tasks: str,
+    staged_files: dict[str, str],
+    plan_subject: str | None,
 ) -> StageRepo:
     """`stage_repo` with the staged branch pushed."""
-    push_staged_branch(stage_repo, tasks=staged_tasks, files=staged_files)
+    push_staged_branch(stage_repo, tasks=staged_tasks, files=staged_files, subject=plan_subject)
     return stage_repo
 
 
@@ -672,6 +689,7 @@ def planned_world(
     stage_repo: StageRepo,
     app_slug: None,
     planned_tasks: str,
+    plan_subject: str | None,
     github_api_and_gh: tuple[GitHubApiFake, ProcessFake],
     config: Callable[..., Path],
     clock: ClockFake,
@@ -680,7 +698,7 @@ def planned_world(
 ) -> JobWorld:
     """The job in a runner with a Planned item: the change is on `main`, and no branch and no
     pull request exist."""
-    merge_plan(stage_repo, tasks=planned_tasks)
+    merge_plan(stage_repo, tasks=planned_tasks, subject=plan_subject)
     return _world(
         stage_repo, github_api_and_gh, config, clock, roadmap_store, monkeypatch, planned=True
     )
