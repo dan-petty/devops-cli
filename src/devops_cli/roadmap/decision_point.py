@@ -12,7 +12,7 @@ A `ResolverChain` resolves a point in this order and stops at the first resolver
    cuts of the point (`decision_step.band_of`) for the band;
 3. the fallback: no band, and the workflow does what it did before the point. An error of the
    request, a missing answer or cut, or a digest that holds a secret gives the fallback, and the
-   log names the cause.
+   log names the cause. The failed counter counts the class of the error.
 
 `ResolverChain.decide` sends the request on the one blocking portal of the process, so a caller
 that runs an event loop may call it. `ResolverChain.adecide` awaits the same request on the loop of
@@ -50,17 +50,21 @@ from devops_cli.config.constants import CONST_ROADMAP_DECISION_POINT_MAX_SERIES
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.decision_fit import FitCase
 from devops_cli.roadmap.decision_step import (
-    FAILED,
     Band,
-    DecisionStepError,
+    SecretInDigestError,
     Thresholds,
     adecide_all,
     band_of,
     decide_all,
+    failure_class,
     probabilities_of,
 )
 from devops_cli.security.sanitizer import mask_secrets
-from devops_cli.telemetry.instruments import DECISION_POINT_TOTAL, emit
+from devops_cli.telemetry.instruments import (
+    DECISION_POINT_FAILED_TOTAL,
+    DECISION_POINT_TOTAL,
+    emit,
+)
 
 if TYPE_CHECKING:
     from pydantic_ai.models.decision import DecisionModel
@@ -151,11 +155,13 @@ class DecisionPoint[T]:
 
     def request(self, state: dict[str, Any]) -> DecisionRequest:
         """The one request of the point: the digest `state` and the questions. A digest that holds
-        a secret raises `DecisionStepError`, because the request leaves the cluster for the hosted
+        a secret raises `SecretInDigestError`, because the request leaves the cluster for the hosted
         model (SECURITY.md)."""
         text = json.dumps(state, ensure_ascii=False, default=str)
         if mask_secrets(text) != text:
-            raise DecisionStepError(MESSAGES.roadmap.decision_point_secret.format(point=self.name))
+            raise SecretInDigestError(
+                MESSAGES.roadmap.decision_point_secret.format(point=self.name)
+            )
         return DecisionRequest(state=state, questions=dict(self.questions))
 
 
@@ -254,7 +260,7 @@ class ResolverChain[T]:
         try:
             state = self.point.evidence(given)
             resolved = self._resolve(state, answers)
-        except FAILED as exc:
+        except Exception as exc:
             resolved = self._failed(subject, exc)
         return self._counted(subject, state, resolved, answers)
 
@@ -267,18 +273,24 @@ class ResolverChain[T]:
         try:
             state = self.point.evidence(given)
             resolved = await self._aresolve(state, answers)
-        except FAILED as exc:
+        except Exception as exc:
             resolved = self._failed(subject, exc)
         return self._counted(subject, state, resolved, answers)
 
     def _failed(self, subject: object, exc: BaseException) -> _Resolved:
-        """The fallback of an error of the chain, with its cause in the log."""
+        """The fallback of an error of the chain, with its cause in the log and its class in the
+        failed counter."""
         logger.warning(
             MESSAGES.roadmap.decision_point_failed.format(
                 point=self.point.name,
                 subject=subject,
                 error=f"{type(exc).__name__}: {exc}"[:_ERROR_CHARS],
             )
+        )
+        emit(
+            DECISION_POINT_FAILED_TOTAL,
+            1,
+            {"point": self.point.name, "error": failure_class(exc).value},
         )
         return _Resolved(Resolver.FALLBACK)
 

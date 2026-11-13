@@ -63,6 +63,43 @@ class DecisionStepError(ValueError):
     """The answers of Jev do not give a band: a question has no answer or no cut."""
 
 
+class SecretInDigestError(DecisionStepError):
+    """The digest of a decision point holds a secret, so no request goes to the decision model."""
+
+
+class FailureClass(StrEnum):
+    """The class of a failed request of a decision point. The value is a label of the metric."""
+
+    TIMEOUT = "timeout"
+    MODEL_ERROR = "model_error"
+    PARSE = "parse"
+    SECRET = "secret"
+    NO_CUTS = "no_cuts"
+    MODEL_MISMATCH = "model_mismatch"
+    OTHER = "other"
+
+
+# The class of an error of a decision point, read by `isinstance` from the first entry that matches.
+# A subclass comes before its parent, so a secret keeps its own class and not the class `parse` of
+# `DecisionStepError`. An error that no entry names is `other`.
+CLASS_BY_ERROR: Final[tuple[tuple[type[BaseException], FailureClass], ...]] = (
+    (SecretInDigestError, FailureClass.SECRET),
+    (TimeoutError, FailureClass.TIMEOUT),
+    (ModelAPIError, FailureClass.MODEL_ERROR),
+    (UnexpectedModelBehavior, FailureClass.PARSE),
+    (DecisionStepError, FailureClass.PARSE),
+    (FileNotFoundError, FailureClass.NO_CUTS),
+)
+
+
+def failure_class(error: BaseException) -> FailureClass:
+    """The class of `error`, from the first entry of `CLASS_BY_ERROR` that it is an instance of.
+    Pure: it reads the type, never the text. An error that no entry names is `other`."""
+    return next(
+        (klass for kind, klass in CLASS_BY_ERROR if isinstance(error, kind)), FailureClass.OTHER
+    )
+
+
 # The errors of a Jev request that make a step fail open.
 FAILED: Final[tuple[type[BaseException], ...]] = (
     ModelAPIError,
@@ -232,9 +269,12 @@ __all__ = [
     "Band",
     "Cut",
     "DecisionStepError",
+    "FailureClass",
+    "SecretInDigestError",
     "Thresholds",
     "adecide_all",
     "band_of",
     "decide_all",
+    "failure_class",
     "probabilities_of",
 ]

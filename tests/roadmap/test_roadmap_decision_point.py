@@ -40,6 +40,7 @@ if TYPE_CHECKING:
     from tests.support.fakes.otlp import FakeCollector
 
 COUNTER = "devops_cli_decision_point_total"
+FAILED_COUNTER = "devops_cli_decision_point_failed_total"
 BANDS = {Band.CONTINUE: "skip the costly path", Band.REVIEW: "run it", Band.FLAG: "run it, log"}
 SECRET = "ghp_" + "a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8"
 
@@ -71,6 +72,7 @@ def _point(
     rule: Rule | None = None,
     asks_model: bool = True,
     counts_only: bool = False,
+    timeout: float = 30.0,
 ) -> DecisionPoint[dict[str, Any]]:
     return DecisionPoint(
         name=name,
@@ -84,6 +86,7 @@ def _point(
         rule=rule,
         asks_model=asks_model,
         counts_only=counts_only,
+        timeout=timeout,
     )
 
 
@@ -219,6 +222,42 @@ def test_a_model_error_falls_back_and_names_the_error(
     assert otlp.points(COUNTER) == [
         ({"point": "demo.point", "resolver": "fallback", "band": "none", "mode": "on"}, 1)
     ]
+
+
+def test_a_failed_request_gives_the_fallback_and_counts_its_class(
+    tmp_path: Path, jev: JevFake, otlp: FakeCollector
+) -> None:
+    """A model that raises an error no class of `FAILED` names gives the fallback, and the failed
+    counter holds the class `other`. A request that the timeout ends counts the class `timeout`
+    (#5272)."""
+    jev.unreachable(RuntimeError("the decision model broke"))
+
+    broken = _chain(_point(_cuts(tmp_path)), jev).decide({"text": "a plan"}, subject=7)
+
+    assert (broken.resolver, broken.band) == (Resolver.FALLBACK, None)
+    assert otlp.points(FAILED_COUNTER) == [({"point": "demo.point", "error": "other"}, 1)]
+
+    otlp.clear()
+    jev.error = None
+    jev.hold()
+    slow = _chain(_point(_cuts(tmp_path), timeout=0.01), jev).decide({"text": "a plan"}, subject=7)
+
+    assert (slow.resolver, slow.band) == (Resolver.FALLBACK, None)
+    assert otlp.points(FAILED_COUNTER) == [({"point": "demo.point", "error": "timeout"}, 1)]
+
+
+def test_the_failure_classes_are_seven() -> None:
+    from devops_cli.roadmap.decision_step import FailureClass
+
+    assert {klass.value for klass in FailureClass} == {
+        "timeout",
+        "model_error",
+        "parse",
+        "secret",
+        "no_cuts",
+        "model_mismatch",
+        "other",
+    }
 
 
 def test_a_question_with_no_answer_falls_back_and_keeps_the_answers(
