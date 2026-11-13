@@ -1,4 +1,9 @@
-"""Deterministic offline build gate and validation for Argo CD applications (#1343)."""
+"""Deterministic offline build gate and validation for Argo CD applications (#1343).
+
+The gate reads the Applications of an environment tree (#5131). A git source of the repository that
+holds the tree reads the checkout, and a source of another public repository is fetched at its
+revision (`devops_cli.k8s.app_sources`).
+"""
 
 from __future__ import annotations
 
@@ -6,49 +11,27 @@ import io
 import shutil
 import tarfile
 import tempfile
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlsplit
 
 import yaml
 
-from devops_cli.config.constants import (
-    CONST_CANONICAL_OCI_SOURCE,
-    CONST_K8S_ARGOCD_APPLICATION_DIRS,
-    CONST_K8S_ARGOCD_HOMELAB_APPLICATIONS,
-)
+from devops_cli.config.constants import CONST_K8S_ARGOCD_HOMELAB_APPLICATIONS
 from devops_cli.config.defaults import DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
 from devops_cli.core.process import run_subprocess
-from devops_cli.exceptions.k8s import ArgoCDGateError, KubernetesError
+from devops_cli.exceptions.k8s import ApplicationSourceError, ArgoCDGateError, KubernetesError
+from devops_cli.k8s.app_sources import (
+    SourceTrees,
+    application_sources,
+    normalize_git_url,
+    ref_sources,
+    repository_origin,
+    source_revision,
+)
 from devops_cli.k8s.argocd_overrides import _host_fields
+from devops_cli.k8s.environment import EnvironmentTree
 from devops_cli.k8s.template import build_manifest_path, holds_template_domain_value
-
-
-def _normalize_git_url(url: str) -> str:
-    """Normalize git URLs for origin comparison."""
-    norm = url.strip().rstrip("/")
-    if norm.endswith(".git"):
-        norm = norm[:-4]
-    if norm.startswith("git@github.com:"):
-        return f"https://github.com/{norm[len('git@github.com:') :]}"
-    parsed = urlsplit(norm)
-    if parsed.scheme == "ssh" and parsed.netloc == "git@github.com":
-        path = parsed.path.lstrip("/")
-        return f"https://github.com/{path}"
-    return norm
-
-
-def _get_repo_origin(root: Path) -> str:
-    """Determine expected origin URL from git config, falling back to canonical source."""
-    proc = run_subprocess(
-        ["git", "-C", str(root), "config", "--get", "remote.origin.url"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if proc.returncode == 0 and proc.stdout and proc.stdout.strip():
-        return _normalize_git_url(proc.stdout.strip())
-    return _normalize_git_url(CONST_CANONICAL_OCI_SOURCE)
 
 
 def _load_applications_from_file(file_path: Path) -> list[tuple[str, dict[str, Any]]]:
@@ -69,11 +52,11 @@ def _load_applications_from_file(file_path: Path) -> list[tuple[str, dict[str, A
     return apps
 
 
-def discover_argocd_applications(repo_root: Path) -> dict[str, dict[str, Any]]:
-    """Discover every kind: Application in k8s/argocd/apps and k8s/argocd/bootstrap."""
+def discover_argocd_applications(application_dirs: Iterable[Path]) -> dict[str, dict[str, Any]]:
+    """Discover every kind: Application in the folders of the Applications of a tree
+    (`EnvironmentTree.application_dirs`)."""
     apps: dict[str, dict[str, Any]] = {}
-    for rel_dir in CONST_K8S_ARGOCD_APPLICATION_DIRS:
-        target_dir = repo_root / rel_dir
+    for target_dir in application_dirs:
         if not target_dir.is_dir():
             continue
         for file_path in sorted(target_dir.iterdir()):
@@ -82,9 +65,12 @@ def discover_argocd_applications(repo_root: Path) -> dict[str, dict[str, Any]]:
     return apps
 
 
-def discover_path_applications(repo_root: Path, apps_dir: Path | None = None) -> dict[str, Path]:
-    """Discover applications with a git source path, optionally filtered by directory."""
-    all_apps = discover_argocd_applications(repo_root)
+def discover_path_applications(
+    env: EnvironmentTree, apps_dir: Path | None = None
+) -> dict[str, Path]:
+    """Discover applications with a git source path, optionally filtered by directory. The path is
+    under the repository that holds the tree."""
+    all_apps = discover_argocd_applications(env.application_dirs)
     result: dict[str, Path] = {}
     for name, doc in all_apps.items():
         spec = doc.get("spec", {})
@@ -92,7 +78,7 @@ def discover_path_applications(repo_root: Path, apps_dir: Path | None = None) ->
         path_str = source.get("path")
         if not path_str:
             continue
-        target_path = repo_root / path_str
+        target_path = env.repo / path_str
         if apps_dir is not None:
             source_file = apps_dir / f"{name}.yaml"
             if not source_file.is_file():
@@ -129,7 +115,9 @@ def find_template_domain_occurrences(obj: Any, pointer: str = "") -> list[tuple[
     return occurrences
 
 
-def _check_helm_source(app_name: str, helm_source: dict[str, Any], root: Path) -> list[str]:
+def _check_helm_source(
+    helm_source: dict[str, Any], trees: SourceTrees, refs: dict[str, Any]
+) -> list[str]:
     """Check value files of a Helm chart source for existence, YAML syntax, and placeholders."""
     errors: list[str] = []
     helm_conf = helm_source.get("helm", {})
@@ -137,7 +125,11 @@ def _check_helm_source(app_name: str, helm_source: dict[str, Any], root: Path) -
 
     for vf in value_files:
         rel_path = vf.split("/", 1)[1] if vf.startswith("$") else vf
-        val_path = root / rel_path
+        try:
+            val_path = trees.value_file(str(vf), refs)
+        except ApplicationSourceError as exc:
+            errors.append(exc.message)
+            continue
         if not val_path.is_file():
             errors.append(f"Helm value file '{rel_path}' does not exist")
             continue
@@ -180,10 +172,15 @@ def _check_rendered_doc_placeholders(app_name: str, doc: dict[str, Any]) -> list
     return errors
 
 
-def _check_path_source(app_name: str, source: dict[str, Any], root: Path) -> list[str]:
-    """Validate and build an application path source with kustomize or yaml parsing."""
+def _check_path_source(app_name: str, source: dict[str, Any], trees: SourceTrees) -> list[str]:
+    """Validate and build an application path source with kustomize or yaml parsing, in the
+    folder of its repository at its revision."""
     errors: list[str] = []
     path_str = source.get("path", "")
+    try:
+        root = trees.tree(str(source.get("repoURL") or trees.origin), source_revision(source)).root
+    except ApplicationSourceError as exc:
+        return [exc.message]
     target_path = (root / path_str).resolve()
     root_resolved = root.resolve()
 
@@ -212,37 +209,24 @@ def _check_path_source(app_name: str, source: dict[str, Any], root: Path) -> lis
     return errors
 
 
-def _check_application(
-    name: str, doc: dict[str, Any], root: Path, expected_origin: str
-) -> list[str]:
+def _check_application(name: str, doc: dict[str, Any], trees: SourceTrees) -> list[str]:
     """Check a single Argo CD Application's sources and manifests."""
     errors: list[str] = []
-    spec = doc.get("spec", {})
-    sources: list[dict[str, Any]] = (
-        spec.get("sources", []) if "sources" in spec else [spec.get("source", {})]
-    )
+    sources = application_sources(doc)
+    refs = ref_sources(sources)
 
     for s in sources:
-        if not isinstance(s, dict):
-            continue
-        repo_url = s.get("repoURL")
-        if "chart" not in s and repo_url:
-            norm_repo = _normalize_git_url(repo_url)
-            if norm_repo != expected_origin:
-                errors.append(
-                    f"Git source repoURL '{repo_url}' is not repository origin '{expected_origin}'"
-                )
         if "chart" in s:
-            errors.extend(_check_helm_source(name, s, root))
+            errors.extend(_check_helm_source(s, trees, refs))
         if "path" in s:
-            errors.extend(_check_path_source(name, s, root))
+            errors.extend(_check_path_source(name, s, trees))
 
     return errors
 
 
-def _check_tree(tree_root: Path, *, origin_url: str | None = None) -> list[str]:
-    """Execute offline Argo CD gate over a repository filesystem tree."""
-    apps = discover_argocd_applications(tree_root)
+def _check_tree(env: EnvironmentTree, *, origin_url: str) -> list[str]:
+    """Execute offline Argo CD gate over the Applications of an environment tree."""
+    apps = discover_argocd_applications(env.application_dirs)
     if not apps:
         return []
 
@@ -252,13 +236,13 @@ def _check_tree(tree_root: Path, *, origin_url: str | None = None) -> list[str]:
             "Run 'devops install-tools --tool kubectl'."
         )
 
-    expected_origin = origin_url or _get_repo_origin(tree_root)
     failures: dict[str, list[str]] = {}
-
-    for name, doc in sorted(apps.items()):
-        app_errors = _check_application(name, doc, tree_root, expected_origin)
-        if app_errors:
-            failures[name] = app_errors
+    with tempfile.TemporaryDirectory(prefix="argocd-gate-") as workdir:
+        trees = SourceTrees(env.repo, normalize_git_url(origin_url), Path(workdir))
+        for name, doc in sorted(apps.items()):
+            app_errors = _check_application(name, doc, trees)
+            if app_errors:
+                failures[name] = app_errors
 
     if failures:
         lines = [f"Argo CD gate failed for {len(failures)} application(s):"]
@@ -271,24 +255,27 @@ def _check_tree(tree_root: Path, *, origin_url: str | None = None) -> list[str]:
 
 
 def check_argocd_gate(
-    root: Path,
+    env: EnvironmentTree,
     *,
     ref: str | None = None,
     origin_url: str | None = None,
 ) -> list[str]:
-    """Check that every Argo CD application builds offline and adheres to placeholder invariants (#1343).
+    """Check that every Argo CD application of the environment tree `env` builds and adheres to
+    placeholder invariants (#1343). A git source of the origin of `env.repo` (or `origin_url`)
+    reads the checkout, and a source of another public repository is fetched at its revision.
 
-    If `ref` is provided, exports `git archive <ref>` into a clean temporary directory first
-    so gitignored or uncommitted local files never reach the build.
+    If `ref` is provided, exports `git archive <ref>` of `env.repo` into a clean temporary
+    directory first so gitignored or uncommitted local files never reach the build.
     """
-    has_local_dirs = any((root / d).is_dir() for d in CONST_K8S_ARGOCD_APPLICATION_DIRS)
+    root = env.repo
+    has_local_dirs = any(d.is_dir() for d in env.application_dirs)
     if not has_local_dirs and not (root / ".git").exists() and not (root / ".git").is_file():
         return []
 
+    expected_origin = origin_url or repository_origin(root)
     if ref is None:
-        return _check_tree(root, origin_url=origin_url)
+        return _check_tree(env, origin_url=expected_origin)
 
-    expected_origin = origin_url or _get_repo_origin(root)
     proc = run_subprocess(
         ["git", "-C", str(root), "archive", ref],
         capture_output=True,
@@ -313,4 +300,5 @@ def check_argocd_gate(
         )
         with tarfile.open(fileobj=io.BytesIO(raw_bytes)) as tar:
             tar.extractall(path=tmp_path, filter="data")
-        return _check_tree(tmp_path, origin_url=expected_origin)
+        exported = EnvironmentTree(tmp_path / env.root.resolve().relative_to(root), tmp_path)
+        return _check_tree(exported, origin_url=expected_origin)

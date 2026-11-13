@@ -10,7 +10,7 @@ from typing import Any
 import pytest
 import yaml
 
-from devops_cli.commands.k8s.stack_lifecycle import MANIFESTS_BY_STACK
+from devops_cli.commands.k8s.stack_lifecycle import PRODUCT_MANIFESTS_BY_STACK
 from devops_cli.k8s.cluster_secrets import CLUSTER_SECRETS
 from devops_cli.k8s.image_pins import names_latest
 from devops_cli.k8s.searxng_check import OFF_ENGINES
@@ -348,7 +348,7 @@ def test_every_file_of_the_service_is_in_both_kustomizations_and_the_deploy_stac
     inner = yaml.safe_load((SEARXNG_DIR / "kustomization.yaml").read_text(encoding="utf-8"))
     outer = yaml.safe_load((K8S / "devops" / "kustomization.yaml").read_text(encoding="utf-8"))
     stack = sorted(
-        path.name for path in MANIFESTS_BY_STACK["devops"] if path.parent.name == "searxng"
+        path.name for path in PRODUCT_MANIFESTS_BY_STACK["devops"] if path.parent.name == "searxng"
     )
 
     assert (sorted(inner["resources"]), "searxng" in outer["resources"], stack) == (

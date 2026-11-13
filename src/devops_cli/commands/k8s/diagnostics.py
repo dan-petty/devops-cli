@@ -524,14 +524,16 @@ def _render_stack_checks(report: Any) -> None:
 
 def _run_stack_doctor(context: str | None, resolved_fmt: str, *, dry_run: bool) -> None:
     """Run the checks of the Gitea stack, or list their requests in a dry run; exit 2 on a failed check."""
+    from devops_cli.config.settings import load_settings
     from devops_cli.dry_run.requests import render_request_plan
     from devops_cli.k8s.context import resolve_context
     from devops_cli.k8s.gitea_doctor import plan_gitea_requests, run_gitea_checks
     from devops_cli.models.k8s import DoctorReport
 
     target_context = resolve_context(context)
+    applications = load_settings().gitea.applications
     if dry_run:
-        requests = plan_gitea_requests(target_context)
+        requests = plan_gitea_requests(target_context, applications)
         if resolved_fmt != CONST_OUTPUT_FORMAT_TABLE:
             plan = DoctorReport(context=target_context or "", requests=requests)
             emit_serialized(plan.model_dump(), resolved_fmt)
@@ -539,7 +541,7 @@ def _run_stack_doctor(context: str | None, resolved_fmt: str, *, dry_run: bool) 
             render_request_plan(CONST_K8S_DOCTOR_GITEA_PLAN_HEADING, requests)
         return
 
-    checks = run_gitea_checks(target_context)
+    checks = run_gitea_checks(target_context, applications)
     failed = sum(not check.passed for check in checks)
     report = DoctorReport(
         context=target_context or "",

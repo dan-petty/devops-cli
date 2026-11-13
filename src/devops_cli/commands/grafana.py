@@ -15,7 +15,6 @@ from devops_cli.config.constants import (
     CONST_OUTPUT_FORMAT_TABLE,
 )
 from devops_cli.config.defaults import (
-    DEFAULT_GRAFANA_DASHBOARDS_DIRS,
     DEFAULT_GRAFANA_FOLDER_ID,
     DEFAULT_TABLE_FORMAT,
 )
@@ -283,6 +282,17 @@ def _report_sync(result: DashboardSyncResult) -> DashboardSyncOutcome:
     return result.outcome
 
 
+def _default_dashboard_dirs(k8s_dir: Path | None) -> tuple[Path, ...]:
+    """The dashboard folders of a sync or a lint with no folder (#5131): the environment
+    dashboards of the tree, then the product dashboards `dashboards` of the product base, when
+    the current repository holds the product base."""
+    from devops_cli.k8s.environment import resolve_environment, resolve_product_root
+
+    environment = resolve_environment(k8s_dir).dashboards
+    product = resolve_product_root() / "dashboards"
+    return (environment, product) if product.is_dir() else (environment,)
+
+
 @dashboards_app.command("sync")
 @dry_run_class("request-plan")
 def dashboards_sync(
@@ -290,6 +300,7 @@ def dashboards_sync(
         Path | None,
         typer.Option("--dir", "-d", help=HELP.grafana.dashboards_dir),
     ] = None,
+    k8s_dir: Annotated[Path | None, typer.Option("--k8s-dir", help=HELP.k8s.k8s_dir)] = None,
     dry_run: Annotated[
         bool,
         typer.Option("--dry-run", help=HELP.options.dry_run),
@@ -301,7 +312,7 @@ def dashboards_sync(
     Tries every file, then exits 1 if any failed. A dashboard Grafana holds as provisioned,
     such as one the dashboard sidecar loads from a ConfigMap, is skipped rather than failed.
     """
-    search_dirs = (dir_path,) if dir_path else DEFAULT_GRAFANA_DASHBOARDS_DIRS
+    search_dirs = (dir_path,) if dir_path else _default_dashboard_dirs(k8s_dir)
     json_files = [
         path
         for search_dir in search_dirs
@@ -400,6 +411,7 @@ def dashboards_lint(
     paths: Annotated[
         list[Path] | None, typer.Argument(help=HELP.grafana.lint_path, show_default=False)
     ] = None,
+    k8s_dir: Annotated[Path | None, typer.Option("--k8s-dir", help=HELP.k8s.k8s_dir)] = None,
     output_format: Annotated[
         str,
         typer.Option("--format", "-f", help=HELP.options.format_type),
@@ -415,7 +427,7 @@ def dashboards_lint(
     """
     from devops_cli.grafana import lint_dashboard_files
 
-    targets = paths or list(DEFAULT_GRAFANA_DASHBOARDS_DIRS)
+    targets = paths or list(_default_dashboard_dirs(k8s_dir))
     files: list[Path] = []
     for path in targets:
         target = path.resolve()

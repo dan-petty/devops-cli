@@ -1,0 +1,5 @@
+# The project profile of devops-cli: the facts of its files that devops reads (CONTEXT.md,
+# "Project profile"). The environment tree of the homelab is in k8s/ until it moves to the
+# infra repo (#5120).
+[kubernetes]
+dir = "k8s"

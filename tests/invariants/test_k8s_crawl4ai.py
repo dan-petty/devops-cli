@@ -9,7 +9,7 @@ from typing import Any
 import pytest
 import yaml
 
-from devops_cli.commands.k8s.stack_lifecycle import MANIFESTS_BY_STACK
+from devops_cli.commands.k8s.stack_lifecycle import PRODUCT_MANIFESTS_BY_STACK
 from devops_cli.k8s.image_pins import names_latest
 from tests.support.k8s_tree import K8S, manifests, pod_spec
 from tests.support.paths import REPO_ROOT
@@ -215,7 +215,7 @@ def test_every_file_of_the_service_is_in_both_kustomizations_and_the_deploy_stac
     inner = yaml.safe_load((CRAWL4AI_DIR / "kustomization.yaml").read_text(encoding="utf-8"))
     outer = yaml.safe_load((K8S / "devops" / "kustomization.yaml").read_text(encoding="utf-8"))
     stack = sorted(
-        path.name for path in MANIFESTS_BY_STACK["devops"] if path.parent.name == "crawl4ai"
+        path.name for path in PRODUCT_MANIFESTS_BY_STACK["devops"] if path.parent.name == "crawl4ai"
     )
 
     assert (sorted(inner["resources"]), "crawl4ai" in outer["resources"], stack) == (

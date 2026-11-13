@@ -10,16 +10,12 @@ import typer
 
 from devops_cli.commands.k8s.cluster_runtime import _run_cmd
 from devops_cli.config.constants import CONST_K8S_OLLAMA_PRUNE_HEADING
-from devops_cli.config.defaults import (
-    DEFAULT_LLM_GATEWAY_CONFIG_PATH,
-    DEFAULT_LLM_NAMESPACE,
-    DEFAULT_LLM_SERVICES_PATH,
-)
+from devops_cli.config.defaults import DEFAULT_LLM_NAMESPACE
 from devops_cli.core.cli import new_typer
-from devops_cli.core.repo import find_repo_root
 from devops_cli.dry_run import dry_run_class, is_dry_run
 from devops_cli.dry_run.requests import render_request_plan
 from devops_cli.k8s.doctor import get_k8s_client
+from devops_cli.k8s.environment import resolve_environment
 from devops_cli.k8s.ollama_prune import (
     NodePrune,
     OllamaPod,
@@ -108,11 +104,13 @@ def ollama_prune_cmd(
     context: Annotated[
         str | None, typer.Option("--context", "-c", help=HELP.k8s.ollama_prune_context)
     ] = None,
+    k8s_dir: Annotated[Path | None, typer.Option("--k8s-dir", help=HELP.k8s.k8s_dir)] = None,
 ) -> None:
-    """Remove Ollama models that no tier of a node serves."""
-    repo_root = find_repo_root(Path.cwd())
-    gateway_path = repo_root / DEFAULT_LLM_GATEWAY_CONFIG_PATH
-    services_path = repo_root / DEFAULT_LLM_SERVICES_PATH
+    """Remove Ollama models that no tier of a node serves. The tiers are those of the gateway
+    config and the Services of the environment tree."""
+    env = resolve_environment(k8s_dir)
+    gateway_path = env.gateway_config
+    services_path = env.llm_services
 
     if dry_run or is_dry_run():
         gateway_text = gateway_path.read_text(encoding="utf-8")

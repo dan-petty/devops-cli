@@ -1,8 +1,11 @@
 """The image pins of the Argo CD Applications, resolved in their registries before a merge (#1994).
 
-Each Application under `k8s/argocd/` is rendered as Argo CD renders it: a path source with the
-builder of the Argo CD gate (`kubectl kustomize`), a chart source with `helm template` and the
-value files of the repository. Helm's output then passes through `kubectl kustomize` too, which
+Each Application of the environment tree (`devops_cli.k8s.environment`, #5131) is rendered as
+Argo CD renders it: a path source with the builder of the Argo CD gate (`kubectl kustomize`), a
+chart source with `helm template` and the value files that its `$ref` sources name. A git source of
+the repository that holds the tree reads the checkout, and a source of another public repository is
+fetched at its revision (`devops_cli.k8s.app_sources`). A kustomization folder, such as the product
+base `k8s/devops`, renders the same way in place of the Applications. Helm's output then passes through `kubectl kustomize` too, which
 reads YAML as Kubernetes does: a chart can write YAML that PyYAML refuses, such as a tab after a
 value (the Alertmanager StatefulSet of the `prometheus` chart). The chart render leaves out the
 chart's test manifests (`--skip-tests`): Argo CD does not apply a Helm test hook, so the image of a
@@ -28,7 +31,7 @@ import ipaddress
 import tempfile
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
@@ -44,7 +47,16 @@ from devops_cli.docker.registry import image_reference, tag_digest
 from devops_cli.exceptions.docker import RegistryReadError
 from devops_cli.exceptions.k8s import ImagePinError
 from devops_cli.exceptions.security import SSRFBlockedError
+from devops_cli.k8s.app_sources import (
+    SourceTrees,
+    application_sources,
+    normalize_git_url,
+    ref_sources,
+    repository_origin,
+    source_revision,
+)
 from devops_cli.k8s.argocd_gate import discover_argocd_applications
+from devops_cli.k8s.environment import EnvironmentTree
 from devops_cli.k8s.template import build_manifest_path
 
 # The tag of a reference that names none.
@@ -55,6 +67,7 @@ _LOCAL_REGISTRY_DOMAINS = tuple(
     dns.name.from_text(domain) for domain in ("svc", "cluster.local", "local")
 )
 _UPDATER_KIND = "ImageUpdater"
+_KUSTOMIZE = ("kubectl", "kustomize")
 # Applications rendered, and images resolved, at the same time: each render or resolve waits on
 # the network for most of its time.
 _WORKERS = 8
@@ -180,12 +193,13 @@ def updater_repositories(rendered: str) -> list[str]:
     return repositories
 
 
-def _value_file(root: Path, value_file: str) -> Path:
-    # `$values/<path>` names a file of the repository that the `values` ref source checks out.
-    return root / (value_file.split("/", 1)[1] if value_file.startswith("$") else value_file)
-
-
-def _chart_command(root: Path, name: str, source: dict[str, Any], namespace: str) -> list[str]:
+def _chart_command(
+    trees: SourceTrees,
+    name: str,
+    source: dict[str, Any],
+    namespace: str,
+    refs: dict[str, Any],
+) -> list[str]:
     helm = source.get("helm") or {}
     repo = str(source["repoURL"])
     if not urlsplit(repo).scheme:
@@ -205,7 +219,7 @@ def _chart_command(root: Path, name: str, source: dict[str, Any], namespace: str
         "--skip-tests",
     ]
     for value_file in helm.get("valueFiles") or []:
-        command += ["--values", str(_value_file(root, str(value_file)))]
+        command += ["--values", str(trees.value_file(str(value_file), refs))]
     return command
 
 
@@ -229,20 +243,22 @@ def _render_chart(command: list[str], workdir: Path) -> str:
 
 
 def _application_renders(
-    root: Path, name: str, doc: dict[str, Any], workdir: Path
+    trees: SourceTrees, name: str, doc: dict[str, Any], workdir: Path
 ) -> Iterator[tuple[str, list[str] | None]]:
-    """Each rendered source of an Application, with the chart command that rendered it."""
+    """Each rendered source of an Application, with the chart command that rendered it. A dry run
+    renders no path source of another repository, because it fetches nothing."""
     spec = doc.get("spec") or {}
     namespace = str((spec.get("destination") or {}).get("namespace") or "default")
-    sources = spec.get("sources") or [spec.get("source") or {}]
+    sources = application_sources(doc)
+    refs = ref_sources(sources)
     for index, source in enumerate(sources):
-        if not isinstance(source, dict):
-            continue
         if "chart" in source:
-            command = _chart_command(root, name, source, namespace)
+            command = _chart_command(trees, name, source, namespace, refs)
             yield _render_chart(command, workdir / f"{name}-{index}"), command
         elif "path" in source:
-            yield build_manifest_path((root / str(source["path"])).resolve()), None
+            tree = trees.tree(str(source.get("repoURL") or trees.origin), source_revision(source))
+            if not tree.planned:
+                yield build_manifest_path((tree.root / str(source["path"])).resolve()), None
 
 
 @dataclass(frozen=True)
@@ -255,11 +271,13 @@ class _Render:
     planned: tuple[tuple[str, ...], ...]
 
 
-def _render_application(root: Path, name: str, doc: dict[str, Any], workdir: Path) -> _Render:
+def _render_application(
+    trees: SourceTrees, name: str, doc: dict[str, Any], workdir: Path
+) -> _Render:
     images: list[str] = []
     managed: list[str] = []
     planned: list[tuple[str, ...]] = []
-    for rendered, command in _application_renders(root, name, doc, workdir):
+    for rendered, command in _application_renders(trees, name, doc, workdir):
         if command is not None and not rendered:
             planned.append(tuple(command))
         images.extend(image_values(rendered))
@@ -267,19 +285,46 @@ def _render_application(root: Path, name: str, doc: dict[str, Any], workdir: Pat
     return _Render(name, tuple(images), tuple(managed), tuple(planned))
 
 
-def collect_image_pins(root: Path) -> ImagePins:
-    """Render every Argo CD Application of `root`, a few at a time, and sort the images they name."""
+def collect_image_pins(env: EnvironmentTree, *, origin_url: str | None = None) -> ImagePins:
+    """Render every Argo CD Application of the environment tree `env`, a few at a time, and sort
+    the images they name. A git source of the origin of `env.repo` (or `origin_url`) reads the
+    checkout."""
+    documents = sorted(discover_argocd_applications(env.application_dirs).items())
+    origin = normalize_git_url(origin_url or repository_origin(env.repo))
+    with tempfile.TemporaryDirectory(prefix="image-pins-") as tmp:
+        trees = SourceTrees(env.repo, origin, Path(tmp) / "sources")
+        with ThreadPoolExecutor(max_workers=_WORKERS) as pool:
+            renders = list(
+                pool.map(
+                    lambda item: _render_application(trees, item[0], item[1], Path(tmp)),
+                    documents,
+                )
+            )
+    pins = _sorted_pins(renders)
+    return replace(pins, planned=(*trees.planned, *pins.planned))
+
+
+def collect_kustomization_pins(path: Path) -> ImagePins:
+    """Build the kustomization folder `path`, such as the product base `k8s/devops`, as a path
+    source of an Application builds, and sort the images it names. The folder is the name of the
+    Application in the result."""
+    target = path.resolve()
+    rendered = build_manifest_path(target)
+    planned = () if rendered else ((*_KUSTOMIZE, str(target)),)
+    render = _Render(
+        str(path),
+        tuple(image_values(rendered)),
+        tuple(updater_repositories(rendered)),
+        planned,
+    )
+    return _sorted_pins([render])
+
+
+def _sorted_pins(renders: list[_Render]) -> ImagePins:
+    """The images of the renders, sorted: managed, `latest`, local and pinned."""
     named: dict[str, set[str]] = {}
     managed: set[str] = set()
     planned: list[tuple[str, ...]] = []
-    documents = sorted(discover_argocd_applications(root).items())
-    with (
-        tempfile.TemporaryDirectory(prefix="image-pins-") as tmp,
-        ThreadPoolExecutor(max_workers=_WORKERS) as pool,
-    ):
-        renders = list(
-            pool.map(lambda item: _render_application(root, item[0], item[1], Path(tmp)), documents)
-        )
     for render in renders:
         for image in render.images:
             named.setdefault(image, set()).add(render.name)

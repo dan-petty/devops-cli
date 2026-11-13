@@ -351,12 +351,12 @@ def _push_cluster_secrets(effective_context: str | None) -> None:
 @dry_run_class("request-plan")
 def bootstrap_mattermost(
     team: Annotated[
-        str,
+        str | None,
         typer.Option(
             "--team",
-            help="Mattermost team name.",
+            help="Mattermost team name (default: the setting mattermost.team).",
         ),
-    ] = "homelab",
+    ] = None,
     admin_user: Annotated[
         str | None,
         typer.Option(
@@ -385,6 +385,10 @@ def bootstrap_mattermost(
     ] = False,
 ) -> None:
     """Bootstrap Mattermost teams, channels, webhooks, and slash commands in Kubernetes."""
+    if team is None:
+        from devops_cli.config.settings import load_settings
+
+        team = load_settings().mattermost.team
     effective_context = runtime.resolve_effective_context(context)
     if effective_context:
         runtime._validate_kubeconfig_context_name(effective_context, "context")

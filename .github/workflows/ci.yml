@@ -806,7 +806,6 @@ jobs:
               - 'src/devops_cli/tools_lock/style-dictionary/**'
               - 'src/devops_cli/design/**'
               - 'docs/assets/css/**'
-              - 'k8s/startpage/**'
               - 'k8s/monitoring/dashboards/**'
               - 'src/devops_cli/grafana/service_dashboard.py'
               - '.github/labels.yml'

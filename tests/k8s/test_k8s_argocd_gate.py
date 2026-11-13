@@ -15,6 +15,7 @@ import yaml
 
 from devops_cli.exceptions.k8s import ArgoCDGateError
 from devops_cli.k8s.argocd_gate import check_argocd_gate
+from devops_cli.k8s.environment import EnvironmentTree
 from tests.support.fakes.git import GitFake
 from tests.support.fakes.process import ProcessAnswer, ProcessCall
 
@@ -61,6 +62,11 @@ def _stub_git(git_fake: GitFake, monkeypatch: pytest.MonkeyPatch) -> GitFake:
         ProcessAnswer(side_effect=_handle_kubectl),
     )
     return git_fake
+
+
+def _env(root: Path) -> EnvironmentTree:
+    """The environment tree `k8s` of the repository at `root`."""
+    return EnvironmentTree(root / "k8s", root)
 
 
 def _write_app(
@@ -125,7 +131,7 @@ def test_a_kustomization_that_lists_a_missing_file_fails(tmp_path: Path) -> None
     )
 
     with pytest.raises(ArgoCDGateError) as exc_info:
-        check_argocd_gate(tmp_path)
+        check_argocd_gate(_env(tmp_path))
 
     err = str(exc_info.value)
     assert ("broken" in err, "nonexistent.yaml" in err) == (True, True)
@@ -153,7 +159,7 @@ def test_a_placeholder_in_a_configmap_of_devops_fails(tmp_path: Path) -> None:
     )
 
     with pytest.raises(ArgoCDGateError) as exc_info:
-        check_argocd_gate(tmp_path)
+        check_argocd_gate(_env(tmp_path))
 
     err = str(exc_info.value)
     assert ("devops" in err, "ConfigMap/devops-config" in err, "/data/endpoint" in err) == (
@@ -186,7 +192,7 @@ def test_a_placeholder_ingress_host_in_a_non_homelab_application_fails(tmp_path:
     )
 
     with pytest.raises(ArgoCDGateError) as exc_info:
-        check_argocd_gate(tmp_path)
+        check_argocd_gate(_env(tmp_path))
 
     err = str(exc_info.value)
     assert ("monitoring" in err, "Ingress/grafana-ingress" in err, "/spec/rules/0/host" in err) == (
@@ -234,7 +240,7 @@ def test_a_placeholder_in_a_devops_deployment_fails_only_outside_its_env_values(
     )
 
     with pytest.raises(ArgoCDGateError) as exc_info:
-        check_argocd_gate(tmp_path)
+        check_argocd_gate(_env(tmp_path))
 
     assert exc_info.value.failures == {
         "devops": [
@@ -258,7 +264,7 @@ def test_a_placeholder_in_a_helm_value_file_fails(tmp_path: Path) -> None:
     )
 
     with pytest.raises(ArgoCDGateError) as exc_info:
-        check_argocd_gate(tmp_path)
+        check_argocd_gate(_env(tmp_path))
 
     err = str(exc_info.value)
     assert ("loki" in err, "loki-values.yaml" in err, "/external_url" in err) == (
@@ -277,7 +283,7 @@ def test_a_missing_value_file_fails(tmp_path: Path) -> None:
     )
 
     with pytest.raises(ArgoCDGateError) as exc_info:
-        check_argocd_gate(tmp_path)
+        check_argocd_gate(_env(tmp_path))
 
     err = str(exc_info.value)
     assert ("loki" in err, "missing-values.yaml" in err) == (True, True)
@@ -292,31 +298,96 @@ def test_a_path_holding_chart_yaml_fails(tmp_path: Path) -> None:
     )
 
     with pytest.raises(ArgoCDGateError) as exc_info:
-        check_argocd_gate(tmp_path)
+        check_argocd_gate(_env(tmp_path))
 
     err = str(exc_info.value)
     assert ("custom" in err, "Chart.yaml" in err) == (True, True)
 
 
-def test_a_git_source_with_another_repourl_fails(tmp_path: Path) -> None:
+def _serve_repository(git_fake: GitFake, files: dict[str, str], *, error: str = "") -> None:
+    """git fetches another repository: `git init` makes the folder, and the fetch writes `files`
+    into it, or fails with `error`."""
+
+    def init(call: ProcessCall) -> subprocess.CompletedProcess[str]:
+        Path(call.argv[-1]).mkdir(parents=True)
+        return subprocess.CompletedProcess(list(call.argv), 0, "", "")
+
+    def fetch(call: ProcessCall) -> subprocess.CompletedProcess[str]:
+        if error:
+            return subprocess.CompletedProcess(list(call.argv), 128, "", error)
+        for name, text in files.items():
+            target = Path(call.argv[2]) / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(text, encoding="utf-8")
+        return subprocess.CompletedProcess(list(call.argv), 0, "", "")
+
+    git_fake.answer(lambda call: call.argv[:2] == ("git", "init"), ProcessAnswer(side_effect=init))
+    git_fake.answer(
+        lambda call: call.argv[:1] == ("git",) and "fetch" in call.argv,
+        ProcessAnswer(side_effect=fetch),
+    )
+    git_fake.answer(lambda call: "FETCH_HEAD" in call.argv, ProcessAnswer())
+
+
+_PRODUCT = "https://github.com/example/product"
+
+
+def test_the_sources_of_another_public_repository_build_at_their_revision(
+    tmp_path: Path, git_fake: GitFake
+) -> None:
+    """An infra repo whose Application `devops` names the product base of another repository, and
+    whose Application `prometheus` has a second ref on it, passes the gate (#5131)."""
+    _write_app(tmp_path, "devops", path="k8s/devops", repo_url=_PRODUCT)
     _write_app(
         tmp_path,
-        "foreign",
-        path="k8s/foreign",
-        repo_url="https://github.com/different-org/different-repo",
+        "prometheus",
+        chart="prometheus",
+        value_files=[
+            "$values/k8s/monitoring/prometheus-values.yaml",
+            "$product/k8s/devops/monitoring/rules-values.yaml",
+        ],
     )
-    foreign_dir = tmp_path / "k8s" / "foreign"
-    foreign_dir.mkdir(parents=True)
-    (foreign_dir / "manifest.yaml").write_text(
-        "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: foreign-cm\n",
-        encoding="utf-8",
+    app = tmp_path / "k8s" / "argocd" / "apps" / "prometheus.yaml"
+    doc = yaml.safe_load(app.read_text(encoding="utf-8"))
+    doc["spec"]["sources"].append({"repoURL": _PRODUCT, "targetRevision": "main", "ref": "product"})
+    app.write_text(yaml.dump(doc), encoding="utf-8")
+    (tmp_path / "k8s" / "monitoring").mkdir(parents=True)
+    (tmp_path / "k8s" / "monitoring" / "prometheus-values.yaml").write_text(
+        "server: {}\n", encoding="utf-8"
     )
+    _serve_repository(
+        git_fake,
+        {
+            "k8s/devops/kustomization.yaml": "resources:\n  - cm.yaml\n",
+            "k8s/devops/cm.yaml": "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: product\n",
+            "k8s/devops/monitoring/rules-values.yaml": "serverFiles: {}\n",
+        },
+    )
+
+    built = check_argocd_gate(_env(tmp_path))
+
+    fetches = [call.argv for call in git_fake.calls if "fetch" in call.argv]
+    assert (built, [argv[-3:] for argv in fetches]) == (
+        ["devops", "prometheus"],
+        [("--end-of-options", _PRODUCT, "main")],
+    )
+
+
+def test_a_source_of_another_repository_that_does_not_fetch_fails(
+    tmp_path: Path, git_fake: GitFake
+) -> None:
+    _write_app(tmp_path, "foreign", path="k8s/foreign", repo_url=_PRODUCT)
+    _serve_repository(git_fake, {}, error="fatal: could not read Username for 'https://github.com'")
 
     with pytest.raises(ArgoCDGateError) as exc_info:
-        check_argocd_gate(tmp_path)
+        check_argocd_gate(_env(tmp_path))
 
-    err = str(exc_info.value)
-    assert ("foreign" in err, "different-org/different-repo" in err) == (True, True)
+    assert exc_info.value.failures == {
+        "foreign": [
+            f"The fetch of {_PRODUCT} at main failed: fatal: could not read Username for "
+            "'https://github.com'"
+        ]
+    }
 
 
 def test_a_clean_tree_passes_and_names_each_application_it_built(tmp_path: Path) -> None:
@@ -343,12 +414,12 @@ def test_a_clean_tree_passes_and_names_each_application_it_built(tmp_path: Path)
     )
     (tmp_path / "k8s" / "my-values.yaml").write_text("replicas: 2\n", encoding="utf-8")
 
-    built = check_argocd_gate(tmp_path)
+    built = check_argocd_gate(_env(tmp_path))
     assert built == ["app-a", "app-b"]
 
 
 def test_a_tree_with_no_k8s_argocd_passes(tmp_path: Path) -> None:
-    built = check_argocd_gate(tmp_path)
+    built = check_argocd_gate(_env(tmp_path))
     assert built == []
 
 
@@ -363,7 +434,7 @@ def test_a_missing_kubectl_fails_naming_devops_install_tools(tmp_path: Path) -> 
 
     with patch("shutil.which", return_value=None):
         with pytest.raises(ArgoCDGateError) as exc_info:
-            check_argocd_gate(tmp_path)
+            check_argocd_gate(_env(tmp_path))
 
     err = str(exc_info.value)
     assert "devops install-tools --tool kubectl" in err
@@ -413,7 +484,7 @@ def test_a_file_in_working_tree_but_not_in_commit_does_not_reach_the_build(
 
     # Building from HEAD via git archive will not see uncommitted.yaml:
     with pytest.raises(ArgoCDGateError) as exc_info:
-        check_argocd_gate(repo, ref="HEAD")
+        check_argocd_gate(_env(repo), ref="HEAD")
 
     err = str(exc_info.value)
     assert ("tested-app" in err, "uncommitted.yaml" in err) == (True, True)

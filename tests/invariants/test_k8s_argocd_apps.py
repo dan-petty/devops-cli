@@ -19,6 +19,7 @@ from devops_cli.commands.k8s.stack_lifecycle import (
     StackRelease,
 )
 from devops_cli.k8s.cluster_secrets import CLUSTER_SECRETS
+from tests.support.k8s_tree import TREE, release_values
 from tests.support.paths import REPO_ROOT
 
 K8S_DIR = REPO_ROOT / "k8s"
@@ -199,11 +200,9 @@ def _assert_helm_app_matches_release(app: dict[str, Any], release: StackRelease,
 
     # The chart gets the same values files in the same order from Argo CD and from deploy-stack.
     value_files = h.get("helm", {}).get("valueFiles", [])
-    expected = []
-    for raw in release["values"]:
-        raw_val = Path(raw)
-        rel_val = raw_val.relative_to(REPO_ROOT) if raw_val.is_absolute() else raw_val
-        expected.append(f"$values/{rel_val.as_posix()}")
+    expected = [
+        f"$values/{value.relative_to(REPO_ROOT).as_posix()}" for value in release_values(release)
+    ]
     assert value_files == expected, name
 
 
@@ -248,7 +247,12 @@ def test_every_application_in_argocd_apps_maps_to_deploy_stack_counterpart() -> 
         stack_lifecycle, "POST_HELM_BY_STACK", {}
     )
     post_helm = [
-        (REPO_ROOT / "k8s" / p).resolve() for paths in post_helm_by_stack.values() for p in paths
+        *(TREE.path(p).resolve() for paths in post_helm_by_stack.values() for p in paths),
+        *(
+            (TREE.path("devops") / p).resolve()
+            for paths in stack_lifecycle.PRODUCT_POST_HELM_BY_STACK.values()
+            for p in paths
+        ),
     ]
     deploy_stack_kustomizations = {
         (REPO_ROOT / "k8s").resolve(),
@@ -256,9 +260,12 @@ def test_every_application_in_argocd_apps_maps_to_deploy_stack_counterpart() -> 
         *(p for p in post_helm if p.is_dir()),
     }
     manifest_paths = [
-        (REPO_ROOT / p if not p.is_absolute() else p).resolve()
-        for ms in MANIFESTS_BY_STACK.values()
-        for p in ms
+        *(TREE.path(p).resolve() for ms in MANIFESTS_BY_STACK.values() for p in ms),
+        *(
+            (TREE.path("devops") / p).resolve()
+            for ms in stack_lifecycle.PRODUCT_MANIFESTS_BY_STACK.values()
+            for p in ms
+        ),
     ]
     # A manifest path that is a directory is applied with `kubectl apply -k`, so it applies the
     # files its kustomization lists.

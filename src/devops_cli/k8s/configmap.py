@@ -8,7 +8,6 @@ from typing import Any
 
 import yaml
 
-from devops_cli.config.defaults import DEFAULT_K8S_DIR
 from devops_cli.config.settings import GitHubAppConfig, Settings, load_settings
 from devops_cli.config.yaml_errors import parse_config_yaml
 from devops_cli.exceptions.k8s import KubernetesContextError
@@ -123,16 +122,16 @@ def _configured_app(settings: Settings) -> GitHubAppConfig:
 
 
 def render_active_devops_configmap(
-    k8s_dir: Path | None = None,
+    product_dir: Path,
     settings: Settings | None = None,
 ) -> str:
-    """ConfigMap devops-cli-config rendered in memory from the active config.
+    """ConfigMap devops-cli-config rendered in memory from the active config and the template
+    `configmap.example.yaml` of the product base `product_dir` (`k8s/devops`).
 
     The repository holds only its template, so the homelab's repositories and App never enter
     git; a deploy applies this rendering and refuses when a setting it needs is unset.
     """
-    base_dir = k8s_dir or DEFAULT_K8S_DIR
-    template_path = base_dir / "devops" / "configmap.example.yaml"
+    template_path = product_dir / "configmap.example.yaml"
 
     if not template_path.is_file():
         raise FileNotFoundError(

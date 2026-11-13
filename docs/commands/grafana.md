@@ -133,7 +133,8 @@ devops grafana dashboards sync [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--dir`, `-d` | `path` | - | Directory of dashboard JSON files. Default: k8s/monitoring/dashboards and k8s/devops/dashboards. |
+| `--dir`, `-d` | `path` | - | Directory of dashboard JSON files. Default: monitoring/dashboards of the environment tree, and dashboards of the product base k8s/devops when the current repository holds it. |
+| `--k8s-dir` | `path` | - | The environment tree: the Kubernetes folder of the infra repo. Default: kubernetes.dir of the project profile of the current repository, else of the one infra repo that gives it. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops grafana dashboards lint`
@@ -155,12 +156,13 @@ devops grafana dashboards lint [OPTIONS] <paths>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<paths>` | `path` | No | Dashboard JSON files or directories to lint. Default: k8s/monitoring/dashboards and k8s/devops/dashboards. |
+| `<paths>` | `path` | No | Dashboard JSON files or directories to lint. Default: monitoring/dashboards of the environment tree, and dashboards of the product base k8s/devops when the current repository holds it. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
+| `--k8s-dir` | `path` | - | The environment tree: the Kubernetes folder of the infra repo. Default: kubernetes.dir of the project profile of the current repository, else of the one infra repo that gives it. |
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 

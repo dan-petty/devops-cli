@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import subprocess
 from collections.abc import Callable, Iterator
 from importlib.resources import files
 from pathlib import Path
@@ -12,11 +13,13 @@ import pytest
 import yaml
 
 from devops_cli.dry_run.state import set_dry_run
-from devops_cli.exceptions.k8s import ImagePinError
+from devops_cli.exceptions.k8s import ApplicationSourceError, ImagePinError
 from devops_cli.http.egress import EgressLevel
 from devops_cli.http.entry import http_client
+from devops_cli.k8s.environment import EnvironmentTree
 from devops_cli.k8s.image_pins import (
     collect_image_pins,
+    collect_kustomization_pins,
     image_values,
     is_local_registry,
     names_latest,
@@ -32,6 +35,7 @@ _LOCAL = "registry.example.svc:5000/team/tool:1.0"
 _ALERTMANAGER = "quay.io/example/alertmanager:v1.0.0"
 _CLOUDFLARED = "cloudflare/cloudflared:2026.10.4"
 _HUB = "registry-1.docker.io"
+_ORIGIN = "https://github.com/example/repo"
 _DIGEST = "sha256:" + "a" * 64
 _CRAWL4AI = "unclecode/crawl4ai"
 _CRAWL4AI_DIGEST = "sha256:0b05666882bfb67f45d559a5b827839c54127b74aedd723f8ab338a3571b5fc9"
@@ -89,7 +93,15 @@ def _kustomize_answers(process_fake: ProcessFake) -> Iterator[None]:
     """`kubectl kustomize` answers from the files of the tree, and helm answers from a test. The
     `image-pins` workflow runs the real kubectl and helm over the committed Applications (#5132)."""
     process_fake.answer(("kubectl", "kustomize"), _kustomize)
+    process_fake.answer(
+        lambda call: "remote.origin.url" in call.argv, ProcessAnswer(stdout=f"{_ORIGIN}.git\n")
+    )
     yield
+
+
+def _env(root: Path) -> EnvironmentTree:
+    """The environment tree `k8s` of the repository at `root`."""
+    return EnvironmentTree(root / "k8s", root)
 
 
 def _tree(root: Path, *images: str) -> Path:
@@ -266,7 +278,7 @@ def test_the_pins_are_the_rendered_images_less_the_managed_and_the_local_ones(
     root = _tree(tmp_path, "cloudflare/cloudflared:2026.10.4", _SERVICE, _LOCAL)
     _chart_answers(process_fake)
 
-    pins = collect_image_pins(root)
+    pins = collect_image_pins(_env(root))
 
     helm = [call.argv for call in process_fake.calls if call.argv[:2] == ("helm", "template")]
     assert (pins.pinned, pins.managed, pins.local, pins.latest, helm) == (
@@ -301,7 +313,7 @@ def test_an_image_on_the_latest_tag_is_not_a_pin(tmp_path: Path, process_fake: P
     root = _tree(tmp_path, "example/app:latest", "example/plain", _SERVICE, local_latest)
     _chart_answers(process_fake)
 
-    pins = collect_image_pins(root)
+    pins = collect_image_pins(_env(root))
 
     assert (pins.latest, pins.pinned, pins.local) == (
         {"example/app:latest": ("web",), "example/plain": ("web",), local_latest: ("web",)},
@@ -318,7 +330,7 @@ def test_a_value_file_that_sets_the_latest_tag_names_a_latest_image(
     root = _tree(tmp_path, "cloudflare/cloudflared:2026.10.4")
     _chart_answers(process_fake, alertmanager="quay.io/example/alertmanager:latest")
 
-    pins = collect_image_pins(root)
+    pins = collect_image_pins(_env(root))
 
     assert (pins.latest, pins.pinned) == (
         {"quay.io/example/alertmanager:latest": ("monitoring",)},
@@ -334,7 +346,7 @@ def test_a_chart_that_does_not_render_stops_the_check_with_helms_error(
     _chart_answers(process_fake, returncode=1, stderr="Error: chart example 1.2.3 not found\n")
 
     with pytest.raises(ImagePinError) as caught:
-        collect_image_pins(root)
+        collect_image_pins(_env(root))
 
     assert caught.value.message == (
         "helm template monitoring failed: Error: chart example 1.2.3 not found"
@@ -354,7 +366,7 @@ def test_an_oci_chart_repository_stops_the_check(tmp_path: Path, process_fake: P
     )
 
     with pytest.raises(ImagePinError) as caught:
-        collect_image_pins(root)
+        collect_image_pins(_env(root))
 
     assert caught.value.message == (
         "Application monitoring names an OCI chart repository, which the check does not render: "
@@ -417,7 +429,7 @@ def test_an_image_with_a_tag_and_a_digest_is_a_pin_that_resolves_by_its_digest(
     _chart_answers(process_fake)
     web.serve(RegistryFake({f"{_HUB}/{_CRAWL4AI}:{_CRAWL4AI_DIGEST}": _CRAWL4AI_DIGEST}, host=_HUB))
 
-    pins = collect_image_pins(_tree(tmp_path, image))
+    pins = collect_image_pins(_env(_tree(tmp_path, image)))
 
     assert (pins.pinned[image], pins.latest, _resolve(image)) == (
         ("web",),
@@ -435,7 +447,7 @@ def test_an_image_with_a_registry_host_a_date_tag_and_a_digest_resolves_by_its_d
     _chart_answers(process_fake)
     web.serve(RegistryFake({f"{_HUB}/{_SEARXNG}:{_SEARXNG_DIGEST}": _SEARXNG_DIGEST}, host=_HUB))
 
-    pins = collect_image_pins(_tree(tmp_path, image))
+    pins = collect_image_pins(_env(_tree(tmp_path, image)))
 
     assert (pins.pinned[image], pins.latest, _resolve(image)) == (
         ("web",),
@@ -501,7 +513,7 @@ def test_the_command_reports_each_pin_and_passes_when_each_resolves(
     _chart_answers(process_fake)
     _serve_registries(web)
 
-    result = cli("k8s", "image-pins", str(root))
+    result = cli("k8s", "image-pins", "--k8s-dir", str(root / "k8s"))
 
     manifests = [r for r in web.sent if "/manifests/" in r.url.path]
     assert (
@@ -538,7 +550,7 @@ def test_the_command_follows_the_redirect_of_a_registry_to_its_storage(
         headers={"docker-content-digest": _DIGEST},
     )
 
-    result = cli("k8s", "image-pins", str(root))
+    result = cli("k8s", "image-pins", "--k8s-dir", str(root / "k8s"))
 
     assert (result.exit_code, f"registry.k8s.io  {_DIGEST}" in result.output) == (0, True)
 
@@ -555,7 +567,7 @@ def test_the_command_fails_on_an_image_that_its_registry_does_not_hold(
     web.serve(RegistryFake({}, host=_HUB))
     web.serve(RegistryFake({_ALERTMANAGER: _DIGEST}, host="quay.io"))
 
-    result = cli("k8s", "image-pins", str(root))
+    result = cli("k8s", "image-pins", "--k8s-dir", str(root / "k8s"))
 
     assert (
         result.exit_code,
@@ -577,7 +589,7 @@ def test_the_command_refuses_an_image_on_the_latest_tag_and_resolves_nothing(
     root = _tree(tmp_path, "example/app:latest", _CLOUDFLARED)
     _chart_answers(process_fake)
 
-    result = cli("k8s", "image-pins", str(root))
+    result = cli("k8s", "image-pins", "--k8s-dir", str(root / "k8s"))
 
     assert (
         result.exit_code,
@@ -600,7 +612,7 @@ def test_a_dry_run_renders_and_resolves_nothing(
     _chart_answers(process_fake)
 
     try:
-        result = cli("k8s", "image-pins", str(root), "--dry-run")
+        result = cli("k8s", "image-pins", "--k8s-dir", str(root / "k8s"), "--dry-run")
     finally:
         set_dry_run(False)
 
@@ -610,3 +622,185 @@ def test_a_dry_run_renders_and_resolves_nothing(
         "HEAD https://<registry>/v2/<repository>/manifests/<reference>"
         in " ".join(result.output.split()),
     ) == (0, [], True)
+
+
+_PRODUCT = "https://github.com/example/product"
+
+_FOREIGN_PATH_APPLICATION = f"""apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: devops
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: {_PRODUCT}
+    targetRevision: main
+    path: k8s/devops
+  destination:
+    namespace: devops
+"""
+
+_TWO_REF_APPLICATION = f"""apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: monitoring
+  namespace: argocd
+spec:
+  project: default
+  sources:
+    - repoURL: https://charts.example.com
+      chart: example
+      targetRevision: 1.2.3
+      helm:
+        valueFiles:
+          - $values/k8s/example/values.yaml
+          - $product/k8s/devops/monitoring/rules-values.yaml
+    - repoURL: {_ORIGIN}
+      targetRevision: main
+      ref: values
+    - repoURL: {_PRODUCT}.git
+      targetRevision: main
+      ref: product
+  destination:
+    namespace: monitoring
+"""
+
+
+def _product_files(checkout: Path, image: str) -> None:
+    """The files of the product repository at its revision: a kustomization of one Deployment,
+    and a values file of the rules."""
+    base = checkout / "k8s" / "devops"
+    (base / "monitoring").mkdir(parents=True)
+    (base / "kustomization.yaml").write_text("resources:\n- deployment.yaml\n", encoding="utf-8")
+    (base / "deployment.yaml").write_text(
+        f"apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: service\nspec:\n  template:\n"
+        f"    spec:\n      containers:\n        - name: service\n          image: {image}\n",
+        encoding="utf-8",
+    )
+    (base / "monitoring" / "rules-values.yaml").write_text("rules: {}\n", encoding="utf-8")
+
+
+def _serve_product(process_fake: ProcessFake, image: str) -> list[ProcessCall]:
+    """git fetches the product repository: `git init` makes the folder and the fetch writes its
+    files. The fetch calls are returned as the fake records them."""
+    fetches: list[ProcessCall] = []
+
+    def fetch(call: ProcessCall) -> subprocess.CompletedProcess[str]:
+        fetches.append(call)
+        _product_files(Path(call.argv[2]), image)
+        return subprocess.CompletedProcess(list(call.argv), 0, "", "")
+
+    def init(call: ProcessCall) -> subprocess.CompletedProcess[str]:
+        Path(call.argv[-1]).mkdir(parents=True)
+        return subprocess.CompletedProcess(list(call.argv), 0, "", "")
+
+    process_fake.answer(("git", "init"), ProcessAnswer(side_effect=init))
+    process_fake.answer(
+        lambda call: call.argv[:1] == ("git",) and "fetch" in call.argv,
+        ProcessAnswer(side_effect=fetch),
+    )
+    return fetches
+
+
+def test_a_source_of_another_public_repository_is_fetched_once_at_its_revision(
+    tmp_path: Path, process_fake: ProcessFake
+) -> None:
+    """An infra repo names the product base of another repository and a second ref on it, as
+    Application `devops` and Application `prometheus` do in the infra repo (#5131). The origin reads
+    the checkout, and the other repository is fetched once, at `main`, after `--end-of-options`."""
+    root = _tree(tmp_path, _CLOUDFLARED)
+    apps = root / "k8s" / "argocd" / "apps"
+    (apps / "devops.yaml").write_text(_FOREIGN_PATH_APPLICATION, encoding="utf-8")
+    (apps / "monitoring.yaml").write_text(_TWO_REF_APPLICATION, encoding="utf-8")
+    _chart_answers(process_fake)
+    fetches = _serve_product(process_fake, "ghcr.io/example/product:2.0")
+
+    pins = collect_image_pins(_env(root))
+
+    [helm] = [call.argv for call in process_fake.calls if call.argv[:2] == ("helm", "template")]
+    [fetch] = fetches
+    checkout = Path(fetch.argv[2])
+    assert (
+        pins.pinned,
+        fetch.argv[-3:],
+        helm[-4:],
+    ) == (
+        {
+            _CLOUDFLARED: ("web",),
+            _ALERTMANAGER: ("monitoring",),
+            "ghcr.io/example/product:2.0": ("devops",),
+        },
+        ("--end-of-options", _PRODUCT, "main"),
+        (
+            "--values",
+            str(root / "k8s" / "example" / "values.yaml"),
+            "--values",
+            str(checkout / "k8s" / "devops" / "monitoring" / "rules-values.yaml"),
+        ),
+    )
+
+
+def test_a_source_that_is_not_an_https_repository_is_not_fetched(
+    tmp_path: Path, process_fake: ProcessFake
+) -> None:
+    """Only an https repository is fetched: a `file://` or an `ext::` URL could read the host or
+    run a command."""
+    root = _tree(tmp_path, _CLOUDFLARED)
+    apps = root / "k8s" / "argocd" / "apps"
+    (apps / "devops.yaml").write_text(
+        _FOREIGN_PATH_APPLICATION.replace(_PRODUCT, "file:///srv/product"), encoding="utf-8"
+    )
+    _chart_answers(process_fake)
+
+    with pytest.raises(ApplicationSourceError) as caught:
+        collect_image_pins(_env(root))
+
+    assert (caught.value.message, [c for c in process_fake.calls if "fetch" in c.argv]) == (
+        f"The git source file:///srv/product is not the origin {_ORIGIN} and not an https "
+        "repository, so it is not fetched.",
+        [],
+    )
+
+
+def test_a_dry_run_lists_the_fetch_of_another_repository_and_runs_none(
+    tmp_path: Path, process_fake: ProcessFake
+) -> None:
+    root = _tree(tmp_path, _CLOUDFLARED)
+    (root / "k8s" / "argocd" / "apps" / "devops.yaml").write_text(
+        _FOREIGN_PATH_APPLICATION, encoding="utf-8"
+    )
+    _chart_answers(process_fake)
+
+    set_dry_run(True)
+    try:
+        pins = collect_image_pins(_env(root))
+    finally:
+        set_dry_run(False)
+
+    fetches = [command for command in pins.planned if "fetch" in command]
+    assert (
+        [command[-3:] for command in fetches],
+        [c.argv for c in process_fake.calls if c.argv[:1] == ("git",) and "fetch" in c.argv],
+        "devops" in {app for apps in pins.pinned.values() for app in apps},
+    ) == ([("--end-of-options", _PRODUCT, "main")], [], False)
+
+
+def test_a_kustomization_folder_renders_in_place_of_the_applications(
+    tmp_path: Path,
+    web: WebFake,
+    cli: Callable[..., Any],
+) -> None:
+    """`devops k8s image-pins k8s/devops` renders the product base alone, with no Application and
+    no environment tree, and names the folder as the Application of each image."""
+    _product_files(tmp_path, "ghcr.io/example/product:2.0")
+    web.serve(RegistryFake({"ghcr.io/example/product:2.0": _DIGEST}))
+    base = tmp_path / "k8s" / "devops"
+
+    result = cli("k8s", "image-pins", str(base))
+
+    assert (
+        result.exit_code,
+        "Each of the 1 image(s) that the Argo CD Applications pin resolves" in result.output,
+        collect_kustomization_pins(base).pinned,
+    ) == (0, True, {"ghcr.io/example/product:2.0": (str(base),)})

@@ -150,7 +150,7 @@ devops k8s bootstrap [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--dir`, `-d` | `path` | `k8s` | Directory containing Kubernetes manifests. |
+| `--dir`, `-d` | `path` | - | The environment tree: the Kubernetes folder of the infra repo (default: kubernetes.dir of the project profile). |
 | `--auto-start` / `--no-auto-start` | `boolean` | `True` | Auto-start minikube if stopped. |
 | `--stack`, `-s` | `string` | `all` | Stack to operate on: infra | llm | logging | devops | gitea | chat | all. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
@@ -190,7 +190,7 @@ devops k8s bootstrap-mattermost [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--team` | `string` | `homelab` | Mattermost team name. |
+| `--team` | `string` | - | Mattermost team name (default: the setting mattermost.team). |
 | `--admin-user` | `string` | - | Administrator username or ID to own integrations. |
 | `--push-secrets` / `--no-push-secrets` | `boolean` | `True` | Push updated cluster secrets after saving tokens to keyring. |
 | `--context`, `-c` | `string` | - | Kubernetes context to target (defaults to config default or active). |
@@ -214,7 +214,8 @@ devops k8s deploy-stack [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--k8s-dir` | `path` | `k8s` | Path to k8s/ config directory. |
+| `--k8s-dir` | `path` | - | The environment tree: the Kubernetes folder of the infra repo. Default: kubernetes.dir of the project profile of the current repository, else of the one infra repo that gives it. |
+| `--product-dir` | `path` | - | The product base that devops-cli ships (default: k8s/devops of the current repository). |
 | `--stack`, `-s` | `string` | `infra` | Stack to operate on: infra | llm | logging | devops | gitea | chat | all. |
 | `--context`, `-c` | `string` | - | Kubernetes cluster context name. |
 | `--domain`, `-d` | `string` | - | Domain to substitute for template (defaults to k8s.domain in config.yaml). |
@@ -420,7 +421,8 @@ devops k8s teardown-stack [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--k8s-dir` | `path` | `k8s` | Path to k8s/ config directory. |
+| `--k8s-dir` | `path` | - | The environment tree: the Kubernetes folder of the infra repo. Default: kubernetes.dir of the project profile of the current repository, else of the one infra repo that gives it. |
+| `--product-dir` | `path` | - | The product base that devops-cli ships (default: k8s/devops of the current repository). |
 | `--stack`, `-s` | `string` | `infra` | Stack to operate on: infra | llm | logging | devops | gitea | chat | all. |
 | `--context`, `-c` | `string` | - | Kubernetes cluster context name. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
@@ -456,7 +458,7 @@ devops k8s lint [OPTIONS] <target>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<target>` | `path` | No | Target K8s manifest file or directory to lint. |
+| `<target>` | `path` | No | Target K8s manifest file or directory to lint (default: the environment tree). |
 
 **Options:**
 
@@ -494,7 +496,7 @@ devops k8s check-deprecated [OPTIONS] <target>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<target>` | `path` | No | Target manifest file or directory to scan for deprecated APIs. |
+| `<target>` | `path` | No | Target manifest file or directory to scan for deprecated APIs (default: the environment tree). |
 
 **Options:**
 
@@ -506,27 +508,30 @@ devops k8s check-deprecated [OPTIONS] <target>
 
 ## `devops k8s image-pins`
 
-**Render each Argo CD Application of the repository and resolve each image it pins in its
-registry, as an anonymous client, without pulling it: a HEAD request of its manifest, which
-Docker Hub does not count against the anonymous allowance of the network's public address.
-Exits 1, before it resolves an image, when an image has no digest and the latest tag or no tag,
-unless Image Updater moves it. Exits 1 when a registry does not hold an image or refuses the
-read. The CI job `image-pins` runs the check on a pull request that changes k8s/.**
+**Render each Argo CD Application of the environment tree, or the kustomization folder
+TARGET, and resolve each image it pins in its registry, as an anonymous client, without pulling
+it: a HEAD request of its manifest, which Docker Hub does not count against the anonymous
+allowance of the network's public address. A git source of another public repository is
+fetched at its revision. Exits 1, before it resolves an image, when an image has no digest and
+the latest tag or no tag, unless Image Updater moves it. Exits 1 when a registry does not hold
+an image or refuses the read. The CI job `image-pins` runs the check on a pull request that
+changes k8s/.**
 
 ```bash
-devops k8s image-pins [OPTIONS] <root>
+devops k8s image-pins [OPTIONS] <target>
 ```
 
 **Arguments:**
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<root>` | `path` | No | Repository root whose Argo CD Applications in k8s/argocd/ are rendered. |
+| `<target>` | `path` | No | A kustomization folder to render in place of the Argo CD Applications of the environment tree, such as k8s/devops. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
+| `--k8s-dir` | `path` | - | The environment tree: the Kubernetes folder of the infra repo. Default: kubernetes.dir of the project profile of the current repository, else of the one infra repo that gives it. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
@@ -871,6 +876,7 @@ devops k8s ollama prune [OPTIONS]
 | `--plan` | `boolean` | - | Print the models that each node would lose, and remove none. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 | `--context`, `-c` | `string` | - | Kubernetes context to target. |
+| `--k8s-dir` | `path` | - | The environment tree: the Kubernetes folder of the infra repo. Default: kubernetes.dir of the project profile of the current repository, else of the one infra repo that gives it. |
 
 ---
 

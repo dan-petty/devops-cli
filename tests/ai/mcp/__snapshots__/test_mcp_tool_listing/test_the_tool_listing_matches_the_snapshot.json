@@ -2841,9 +2841,16 @@
           "type": "boolean"
         },
         "k8s_dir": {
-          "default": "k8s",
-          "description": "Directory containing Kubernetes manifests.",
-          "type": "string"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The environment tree: the Kubernetes folder of the infra repo (default: kubernetes.dir of the project profile)."
         },
         "stack": {
           "default": "all",
@@ -2988,14 +2995,33 @@
           "type": "boolean"
         },
         "k8s_dir": {
-          "default": "k8s",
-          "description": "Path to k8s/ config directory.",
-          "type": "string"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The environment tree: the Kubernetes folder of the infra repo. Default: kubernetes.dir of the project profile of the current repository, else of the one infra repo that gives it."
         },
         "port_forward": {
           "default": false,
           "description": "Start background port-forwarding daemons for deployed services.",
           "type": "boolean"
+        },
+        "product_dir": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The product base that devops-cli ships (default: k8s/devops of the current repository)."
         },
         "push_secrets": {
           "default": true,
@@ -3181,9 +3207,16 @@
           "type": "boolean"
         },
         "target": {
-          "default": ".",
-          "description": "Target K8s manifest file or directory to lint.",
-          "type": "string"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Target K8s manifest file or directory to lint (default: the environment tree)."
         }
       },
       "type": "object"
@@ -3431,9 +3464,28 @@
           "type": "boolean"
         },
         "k8s_dir": {
-          "default": "k8s",
-          "description": "Path to k8s/ config directory.",
-          "type": "string"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The environment tree: the Kubernetes folder of the infra repo. Default: kubernetes.dir of the project profile of the current repository, else of the one infra repo that gives it."
+        },
+        "product_dir": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The product base that devops-cli ships (default: k8s/devops of the current repository)."
         },
         "stack": {
           "default": "infra",

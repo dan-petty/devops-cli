@@ -19,6 +19,7 @@ from devops_cli.config.defaults import DEFAULT_OLLAMA_PORT
 from devops_cli.config.settings import Settings
 from devops_cli.k8s.service import KubernetesService
 from tests.gate.k8s_render import applied_documents
+from tests.support.k8s_tree import TREE
 
 
 def check_llm_stack_forwards_ollama_through_a_service_deploy_stack_creates() -> None:
@@ -33,7 +34,7 @@ def check_llm_stack_forwards_ollama_through_a_service_deploy_stack_creates() -> 
     manifests = {
         (doc["metadata"]["namespace"], doc["metadata"]["name"]): doc
         for path in MANIFESTS_BY_STACK["llm"]
-        for doc in applied_documents(path)
+        for doc in applied_documents(TREE.path(path))
         if doc.get("kind") == "Service"
     }
     # A Helm release's Service carries the release name.

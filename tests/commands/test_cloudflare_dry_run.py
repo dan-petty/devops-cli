@@ -241,6 +241,7 @@ def test_dry_run_plans_match_client_calls() -> None:
         plan_cloudflare_tunnel_sync,
     )
     from devops_cli.config.constants import CONST_URL_CLOUDFLARE_API_BASE
+    from devops_cli.models.cloudflare import AccessNames
 
     # 1. status
     p_status = plan_cloudflare_status(account_id="acc-1", zone_id="zone-1")
@@ -320,6 +321,11 @@ def test_dry_run_plans_match_client_calls() -> None:
         allowed_emails=["u@example.com"],
         bypass_ips=["1.2.3.4"],
         account_id="acc-1",
+        names=AccessNames(
+            application="Example Ingress",
+            allow_policy="Allow example authorized emails",
+            bypass_policy="example-public-ip-bypass",
+        ),
     )
     assert p_async[0].method == "GET"
     assert any(r.method == "POST" and "accounts/acc-1/access/apps" in r.target for r in p_async)

@@ -36,6 +36,7 @@ from tests.support.k8s_tree import (
     manifests,
     pinned_charts,
     pod_spec,
+    release_values,
     value_at,
 )
 from tests.support.paths import REPO_ROOT
@@ -896,10 +897,10 @@ def _secret_references(node: Any) -> Iterator[str]:
 
 def _values_namespaces() -> dict[str, str]:
     return {
-        str(Path(value).resolve()): release["namespace"]
+        str(value.resolve()): release["namespace"]
         for releases in HELM_RELEASES_BY_STACK.values()
         for release in releases
-        for value in release["values"]
+        for value in release_values(release)
     }
 
 

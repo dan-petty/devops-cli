@@ -11,11 +11,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from devops_cli.config.defaults import (
-    DEFAULT_LLM_GATEWAY_CONFIG_PATH,
-    DEFAULT_LLM_SERVICES_PATH,
-)
-from tests.support.paths import REPO_ROOT
+from tests.support.k8s_tree import TREE
 
 if TYPE_CHECKING:
     from devops_cli.k8s.ollama_prune import OllamaPod
@@ -247,8 +243,8 @@ def test_the_tracked_gateway_routes_name_a_service_of_the_stack() -> None:
     set of each is the model that its tiers load."""
     from devops_cli.k8s.ollama_prune import gateway_targets, service_selectors
 
-    gateway = (REPO_ROOT / DEFAULT_LLM_GATEWAY_CONFIG_PATH).read_text(encoding="utf-8")
-    services = (REPO_ROOT / DEFAULT_LLM_SERVICES_PATH).read_text(encoding="utf-8")
+    gateway = TREE.gateway_config.read_text(encoding="utf-8")
+    services = TREE.llm_services.read_text(encoding="utf-8")
 
     assert gateway_targets(gateway) == {
         "ollama-24gib-embed-gpu0": frozenset({"qwen3-embedding:0.6b"}),

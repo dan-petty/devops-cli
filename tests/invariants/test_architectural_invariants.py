@@ -33,6 +33,7 @@ from devops_cli.docs.inventory import hand_written_documents
 from devops_cli.exceptions.base import DevOpsCLIError
 from tests.gate.ruff_selection import ruff_enforces
 from tests.support.dockerfile import stages as _dockerfile_stages
+from tests.support.k8s_tree import TREE
 from tests.support.paths import FIXTURES, GOLDEN, REPO_ROOT, TESTS_ROOT
 from tests.support.trees import (
     parse_count,
@@ -954,44 +955,48 @@ def test_a_git_project_leaves_the_repository_of_a_commit_hook_alone(
 
 
 def _missing_stack_lifecycle_paths(
-    manifests_by_stack: Mapping[str, Sequence[Path]],
-    post_helm_by_stack: Mapping[str, Sequence[Path]],
-    k8s_dir: Path,
+    tables: Sequence[tuple[Mapping[str, Sequence[Path]], Path]],
 ) -> list[str]:
-    """Return stack:path entries missing from MANIFESTS_BY_STACK or POST_HELM_BY_STACK."""
-    missing_manifests = [
-        f"{stack_name}:{path}"
-        for stack_name, paths in manifests_by_stack.items()
+    """Return stack:path entries of the tables, each under its root, that do not exist. A manifest
+    path with an `.example` copy of its own counts as present."""
+    return [
+        f"{stack_name}:{root / path}"
+        for table, root in tables
+        for stack_name, paths in table.items()
         for path in paths
-        if not (path.exists() or (path.parent / f"{path.stem}.example{path.suffix}").exists())
+        if not (
+            (root / path).exists()
+            or (root / path.parent / f"{path.stem}.example{path.suffix}").exists()
+        )
     ]
-    missing_post_helm = [
-        f"{stack_name}:{k8s_dir / path}"
-        for stack_name, paths in post_helm_by_stack.items()
-        for path in paths
-        if not (k8s_dir / path).exists()
-    ]
-    return [*missing_manifests, *missing_post_helm]
 
 
 def test_manifests_by_stack_files_exist() -> None:
-    """Every Kubernetes manifest or post-Helm path declared in stack_lifecycle must exist on disk."""
+    """Every Kubernetes manifest or post-Helm path declared in stack_lifecycle must exist on disk:
+    the environment paths under the tree, and the product paths under `k8s/devops` (#5131)."""
     from devops_cli.commands.k8s.stack_lifecycle import (
-        DEFAULT_K8S_DIR,
         MANIFESTS_BY_STACK,
         POST_HELM_BY_STACK,
+        PRODUCT_MANIFESTS_BY_STACK,
+        PRODUCT_POST_HELM_BY_STACK,
     )
 
+    product = TREE.path("devops")
     assert (
-        _missing_stack_lifecycle_paths(MANIFESTS_BY_STACK, POST_HELM_BY_STACK, DEFAULT_K8S_DIR),
         _missing_stack_lifecycle_paths(
-            {},
-            {"llm": (Path("llm", "gateway", "nonexistent-monitor.yaml"),)},
-            DEFAULT_K8S_DIR,
+            [
+                (MANIFESTS_BY_STACK, TREE.root),
+                (POST_HELM_BY_STACK, TREE.root),
+                (PRODUCT_MANIFESTS_BY_STACK, product),
+                (PRODUCT_POST_HELM_BY_STACK, product),
+            ]
+        ),
+        _missing_stack_lifecycle_paths(
+            [({"llm": (Path("llm", "gateway", "nonexistent-monitor.yaml"),)}, TREE.root)]
         ),
     ) == (
         [],
-        [f"llm:{DEFAULT_K8S_DIR / 'llm' / 'gateway' / 'nonexistent-monitor.yaml'}"],
+        [f"llm:{TREE.root / 'llm' / 'gateway' / 'nonexistent-monitor.yaml'}"],
     )
 
 

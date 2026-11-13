@@ -580,7 +580,7 @@ def test_the_notifier_values_are_two_settings_and_a_managed_credential() -> None
     assert (
         [(e.key, e.source, e.required, e.generator) for e in notifier.entries],
         notifier.restarts,
-        sorted(set(ArgoCDConfig.model_fields) - {"url"}),
+        sorted(set(ArgoCDConfig.model_fields) - {"url", "root_applications"}),
         option_env_vars()["argocd.github_app_id"],
         option_env_vars()["argocd.github_app_installation_id"],
         option_env_vars()["argocd.github_app_private_key"],

@@ -10,6 +10,7 @@ import pytest
 import yaml
 
 from devops_cli.commands.k8s.networking import _PROXY_TARGETS_INFRA
+from tests.support.k8s_tree import TREE
 from tests.support.paths import REPO_ROOT
 
 K8S_DIR = REPO_ROOT / "k8s"
@@ -403,7 +404,7 @@ def test_loki_otel_peer_names_the_collector_release_the_stack_installs() -> None
         if release["chart"] == "open-telemetry/opentelemetry-collector"
     ]
     (values_file,) = collectors[0]["values"]
-    values = yaml.safe_load(Path(values_file).read_text("utf-8")) or {}
+    values = yaml.safe_load(TREE.path(values_file).read_text("utf-8")) or {}
     labels = OTEL_COLLECTOR_PEER["podSelector"]["matchLabels"]
 
     assert [(c["namespace"], c["name"]) for c in collectors] == [

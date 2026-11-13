@@ -35,6 +35,7 @@ from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
 
 CONTEXT = "test-ctx"
 NAMESPACE = "monitoring"
+PARENTS = ("bootstrap", "cluster")
 CLAIM = "grafana"
 OLD_VOLUME = "pvc-old"
 NEW_VOLUME = "pvc-new"
@@ -367,7 +368,7 @@ def cluster(process_fake: ProcessFake) -> Cluster:
 
 
 def _plan(**options: Any) -> VolumeMovePlan:
-    return plan_volume_move(NAMESPACE, CLAIM, context=CONTEXT, **options)
+    return plan_volume_move(NAMESPACE, CLAIM, parents=PARENTS, context=CONTEXT, **options)
 
 
 def _move(tmp_path: Path, progress: list[str] | None = None) -> Any:
@@ -892,7 +893,7 @@ def test_a_pod_off_the_target_node_after_the_move_leaves_argo_cd_paused(
 def test_the_dry_run_makes_no_request_and_lists_the_writes_in_order(
     process_fake: ProcessFake,
 ) -> None:
-    requests = dry_run_volume_move(NAMESPACE, CLAIM, context=CONTEXT)
+    requests = dry_run_volume_move(NAMESPACE, CLAIM, parents=PARENTS, context=CONTEXT)
 
     assert process_fake.calls == []
     argvs = [request.argv for request in requests]

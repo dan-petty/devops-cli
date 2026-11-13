@@ -74,11 +74,16 @@ from devops_cli.config.defaults import (
     DEFAULT_AI_TEMPERATURE,
     DEFAULT_AI_TOP_P,
     DEFAULT_ANALYSIS_DATA_DIR,
+    DEFAULT_ARGOCD_ROOT_APPLICATIONS,
     DEFAULT_AUDIT_LOG_PATH,
     DEFAULT_BENCHMARKS_DATA_DIR,
     DEFAULT_CACHE_DATA_DIR,
+    DEFAULT_CLOUDFLARE_ACCESS_ALLOW_POLICY_NAME,
+    DEFAULT_CLOUDFLARE_ACCESS_APPLICATION_NAME,
+    DEFAULT_CLOUDFLARE_ACCESS_BYPASS_POLICY_NAME,
     DEFAULT_DATA_DIR,
     DEFAULT_FEEDBACK_DATASET_PATH,
+    DEFAULT_GITEA_APPLICATIONS,
     DEFAULT_HTTP_TIMEOUT_SECONDS,
     DEFAULT_INFRA_DRAIN_TIMEOUT_SECONDS,
     DEFAULT_INFRA_NODE_READY_TIMEOUT_SECONDS,
@@ -88,6 +93,7 @@ from devops_cli.config.defaults import (
     DEFAULT_LLM_CACHE_MAX_ENTRIES,
     DEFAULT_LLM_CACHE_TTL_SECONDS,
     DEFAULT_LOGS_DATA_DIR,
+    DEFAULT_MATTERMOST_TEAM,
     DEFAULT_MODELS_DATA_DIR,
     DEFAULT_OLLAMA_MAX_PARALLEL,
     DEFAULT_OTEL_ENDPOINT,
@@ -323,6 +329,32 @@ class ArgoCDConfig(BaseModel):
         gt=0,
         description="ID of the installation of Argo CD's notifier App on the managed repositories",
     )
+    root_applications: Annotated[list[str], Variable()] = Field(
+        default_factory=lambda: list(DEFAULT_ARGOCD_ROOT_APPLICATIONS),
+        min_length=1,
+        description="The Argo CD Applications that sync the other Applications (app of apps), the outer one first. A volume move pauses them before the Applications of the claim, and the last one is the Application that 'devops argo gitops watch' and 'sync' sync when no --app-name is given",
+    )
+
+
+class GiteaConfig(BaseModel):
+    """The Gitea stack of the cluster (#5131)."""
+
+    model_config = ConfigDict(frozen=False, validate_assignment=True, hide_input_in_errors=True)
+    applications: Annotated[list[str], Variable()] = Field(
+        default_factory=lambda: list(DEFAULT_GITEA_APPLICATIONS),
+        description="The Argo CD Applications of the Gitea stack, which 'devops k8s doctor --stack gitea' checks",
+    )
+
+
+class MattermostConfig(BaseModel):
+    """The Mattermost server of the cluster (#5131)."""
+
+    model_config = ConfigDict(frozen=False, validate_assignment=True, hide_input_in_errors=True)
+    team: Annotated[str, Variable()] = Field(
+        default=DEFAULT_MATTERMOST_TEAM,
+        min_length=1,
+        description="The Mattermost team that 'devops k8s bootstrap-mattermost' makes or reuses when no --team is given",
+    )
 
 
 class QdrantConfig(BaseModel):
@@ -508,6 +540,21 @@ class CloudflareAccessConfig(BaseModel):
     public_ip_bypass: Annotated[str | None, Variable()] = Field(
         default=None,
         description="Homelab public IP address or CIDR block permitted to bypass Cloudflare Access authentication",
+    )
+    application_name: Annotated[str, Variable()] = Field(
+        default=DEFAULT_CLOUDFLARE_ACCESS_APPLICATION_NAME,
+        min_length=1,
+        description="The name that 'devops cloudflare access sync' gives a new Access application. The sync finds an existing application by its domain",
+    )
+    allow_policy_name: Annotated[str, Variable()] = Field(
+        default=DEFAULT_CLOUDFLARE_ACCESS_ALLOW_POLICY_NAME,
+        min_length=1,
+        description="The name of the Access policy that allows the authorized emails. The sync finds the policy by this name",
+    )
+    bypass_policy_name: Annotated[str, Variable()] = Field(
+        default=DEFAULT_CLOUDFLARE_ACCESS_BYPASS_POLICY_NAME,
+        min_length=1,
+        description="The name of the Access policy that lets the public IP addresses bypass the login. The sync finds the policy by this name",
     )
 
 
@@ -1693,6 +1740,8 @@ class Settings(BaseSettings):
     grafana: GrafanaConfig = GrafanaConfig()
     prometheus: PrometheusConfig = PrometheusConfig()
     argocd: ArgoCDConfig = ArgoCDConfig()
+    gitea: GiteaConfig = GiteaConfig()
+    mattermost: MattermostConfig = MattermostConfig()
     qdrant: QdrantConfig = QdrantConfig()
     valkey: ValkeyConfig = ValkeyConfig()
     runs: RunsConfig = RunsConfig()

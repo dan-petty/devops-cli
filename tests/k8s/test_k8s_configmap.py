@@ -16,6 +16,8 @@ from devops_cli.k8s.configmap import (
 )
 from tests.support.paths import REPO_ROOT
 
+PRODUCT = REPO_ROOT / "k8s" / "devops"
+
 SAMPLE_TEMPLATE = """apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -137,7 +139,7 @@ def test_render_active_devops_configmap_produces_valid_yaml(tmp_path: Path) -> N
         )
     )
 
-    rendered = render_active_devops_configmap(k8s_dir=tmp_path, settings=settings)
+    rendered = render_active_devops_configmap(devops_dir, settings=settings)
     inner = yaml.safe_load(yaml.safe_load(rendered)["data"]["devops-cli.yaml"])
 
     assert (inner["service"], (devops_dir / "configmap.yaml").exists()) == (
@@ -155,7 +157,7 @@ def _rendered_service(tmp_path: Path, service: ServiceConfig) -> dict[str, objec
     devops_dir = tmp_path / "devops"
     devops_dir.mkdir(parents=True)
     (devops_dir / "configmap.example.yaml").write_text(SAMPLE_TEMPLATE, encoding="utf-8")
-    rendered = render_active_devops_configmap(k8s_dir=tmp_path, settings=Settings(service=service))
+    rendered = render_active_devops_configmap(devops_dir, settings=Settings(service=service))
     inner = yaml.safe_load(yaml.safe_load(rendered)["data"]["devops-cli.yaml"])
     section: dict[str, object] = inner["service"]
     return section
@@ -214,7 +216,7 @@ def test_a_token_repository_of_the_active_config_is_not_rendered_into_the_servic
     scoped = APP.model_copy(update={"token_repository": "active/repo"})
     settings = Settings(service=ServiceConfig(repos=["active/repo"], github_app=scoped))
 
-    rendered = render_active_devops_configmap(k8s_dir=tmp_path, settings=settings)
+    rendered = render_active_devops_configmap(devops_dir, settings=settings)
     inner = yaml.safe_load(yaml.safe_load(rendered)["data"]["devops-cli.yaml"])
 
     assert inner["service"]["github_app"] == {
@@ -226,9 +228,7 @@ def test_a_token_repository_of_the_active_config_is_not_rendered_into_the_servic
 
 def test_the_repository_template_renders_one_model_retry_for_the_cluster() -> None:
     """Each model call of the Service and the cluster Jobs is sent at most two times (#2494)."""
-    rendered = render_active_devops_configmap(
-        k8s_dir=REPO_ROOT / "k8s", settings=_settings(["owner/repo"], APP)
-    )
+    rendered = render_active_devops_configmap(PRODUCT, settings=_settings(["owner/repo"], APP))
     inner = yaml.safe_load(yaml.safe_load(rendered)["data"]["devops-cli.yaml"])
 
     assert Settings.model_validate(inner).ai.max_retries == 1
@@ -239,9 +239,7 @@ def test_every_chat_model_slot_of_the_rendered_template_names_one_hosted_group()
     (#4369) after the Sonnet trial of 2026-11-09 (#4204). Every task of `ai.tasks` and the default
     `ai.model` resolve to the one model. The embedding slot is the embedding model, because a chat
     model cannot embed."""
-    rendered = render_active_devops_configmap(
-        k8s_dir=REPO_ROOT / "k8s", settings=_settings(["owner/repo"], APP)
-    )
+    rendered = render_active_devops_configmap(PRODUCT, settings=_settings(["owner/repo"], APP))
     inner = yaml.safe_load(yaml.safe_load(rendered)["data"]["devops-cli.yaml"])
     ai = Settings.model_validate(inner).ai
     chat_slots = {
@@ -262,9 +260,7 @@ def test_the_rendered_template_names_the_reference_models_of_the_spend_reports()
     Without the two names, a deploy removes them from the cluster, and the Service reports value
     local tokens at the defaults `gpt-4o` and `text-embedding-3-small` again.
     """
-    rendered = render_active_devops_configmap(
-        k8s_dir=REPO_ROOT / "k8s", settings=_settings(["owner/repo"], APP)
-    )
+    rendered = render_active_devops_configmap(PRODUCT, settings=_settings(["owner/repo"], APP))
     inner = yaml.safe_load(yaml.safe_load(rendered)["data"]["devops-cli.yaml"])
     ai = Settings.model_validate(inner).ai
 
@@ -276,9 +272,7 @@ def test_the_rendered_template_names_the_reference_models_of_the_spend_reports()
 
 def test_the_template_prices_both_reference_models() -> None:
     """The repository owns the two prices of the owner decision of 2026-11-09 (#4242)."""
-    rendered = render_active_devops_configmap(
-        k8s_dir=REPO_ROOT / "k8s", settings=_settings(["owner/repo"], APP)
-    )
+    rendered = render_active_devops_configmap(PRODUCT, settings=_settings(["owner/repo"], APP))
     inner = yaml.safe_load(yaml.safe_load(rendered)["data"]["devops-cli.yaml"])
     prices = Settings.model_validate(inner).ai.price_overrides
 
@@ -310,14 +304,14 @@ def test_render_active_devops_configmap_missing_template_raises(tmp_path: Path) 
     with pytest.raises(
         FileNotFoundError, match=r"Ensure k8s/devops/configmap\.example\.yaml exists"
     ):
-        render_active_devops_configmap(k8s_dir=tmp_path)
+        render_active_devops_configmap(tmp_path)
 
 
 def _template_dir(tmp_path: Path) -> Path:
     devops_dir = tmp_path / "devops"
     devops_dir.mkdir(parents=True)
     (devops_dir / "configmap.example.yaml").write_text(SAMPLE_TEMPLATE, encoding="utf-8")
-    return tmp_path
+    return devops_dir
 
 
 def _settings(repos: list[str], github_app: GitHubAppConfig) -> Settings:
@@ -329,7 +323,7 @@ def test_the_active_config_map_without_repositories_is_refused_naming_the_settin
 ) -> None:
     """A deploy never ships the template's placeholder repository."""
     with pytest.raises(KubernetesContextError, match=r"service\.repos"):
-        render_active_devops_configmap(k8s_dir=_template_dir(tmp_path), settings=_settings([], APP))
+        render_active_devops_configmap(_template_dir(tmp_path), settings=_settings([], APP))
 
 
 def test_the_active_config_map_without_the_github_app_is_refused_naming_each_setting(
@@ -338,7 +332,7 @@ def test_the_active_config_map_without_the_github_app_is_refused_naming_each_set
     """A deploy never ships the template's placeholder App."""
     with pytest.raises(KubernetesContextError) as raised:
         render_active_devops_configmap(
-            k8s_dir=_template_dir(tmp_path),
+            _template_dir(tmp_path),
             settings=_settings(["owner/repo"], GitHubAppConfig(slug="devops-roadmap")),
         )
     assert raised.value.message == (

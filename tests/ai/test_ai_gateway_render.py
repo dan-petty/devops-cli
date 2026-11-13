@@ -14,9 +14,7 @@ from devops_cli.ai.gateway_render import (
     render_gateway_config,
 )
 from devops_cli.commands.ai_gateway import app as ai_gateway_app
-from devops_cli.config.defaults import (
-    DEFAULT_LLM_PROFILES_PATH,
-)
+from tests.support.k8s_tree import TREE
 
 runner = CliRunner()
 
@@ -204,7 +202,7 @@ def test_load_tier_context_lengths_extracts_env_lengths(tmp_path: Path) -> None:
 
 def test_load_tier_context_lengths_against_repository_profiles() -> None:
     """Verify context lengths from actual repository profiles match expected hardware tiers."""
-    lengths = load_tier_context_lengths(DEFAULT_LLM_PROFILES_PATH)
+    lengths = load_tier_context_lengths(TREE.ollama_profiles)
 
     assert (
         lengths.get("ollama-16gib"),

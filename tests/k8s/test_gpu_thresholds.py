@@ -11,13 +11,6 @@ from typer.testing import CliRunner
 
 from devops_cli.commands.ai_gateway import app as ai_gateway_app
 from devops_cli.config.constants import CONST_RAG_MAX_CHUNK_TOKENS
-from devops_cli.config.defaults import (
-    DEFAULT_LLM_GATEWAY_CONFIG_PATH,
-    DEFAULT_LLM_GPU_THRESHOLDS_PATH,
-    DEFAULT_LLM_PROFILES_PATH,
-    DEFAULT_LLM_SERVICES_PATH,
-    DEFAULT_LLM_TIER_TEMPLATES_PATH,
-)
 from devops_cli.exceptions.k8s import KubernetesDeployError
 from devops_cli.k8s.gpu_thresholds import (
     GpuThresholds,
@@ -26,6 +19,7 @@ from devops_cli.k8s.gpu_thresholds import (
     load_tier_templates,
     render_tier_manifests,
 )
+from tests.support.k8s_tree import TREE
 
 runner = CliRunner()
 
@@ -336,16 +330,16 @@ def test_the_tracked_manifests_are_the_output_of_the_render() -> None:
     """The tracked thresholds and templates give exactly the tracked manifests, so a hand edit of
     a rendered region or a changed threshold with no render fails here."""
     tracked = TierManifests(
-        profiles=DEFAULT_LLM_PROFILES_PATH.read_text(encoding="utf-8"),
-        services=DEFAULT_LLM_SERVICES_PATH.read_text(encoding="utf-8"),
-        gateway=DEFAULT_LLM_GATEWAY_CONFIG_PATH.read_text(encoding="utf-8"),
+        profiles=TREE.ollama_profiles.read_text(encoding="utf-8"),
+        services=TREE.llm_services.read_text(encoding="utf-8"),
+        gateway=TREE.gateway_config.read_text(encoding="utf-8"),
     )
 
     assert (
         render_tier_manifests(
             tracked,
-            load_gpu_thresholds(DEFAULT_LLM_GPU_THRESHOLDS_PATH),
-            load_tier_templates(DEFAULT_LLM_TIER_TEMPLATES_PATH),
+            load_gpu_thresholds(TREE.gpu_thresholds),
+            load_tier_templates(TREE.tier_templates),
         )
         == tracked
     )
@@ -353,7 +347,7 @@ def test_the_tracked_manifests_are_the_output_of_the_render() -> None:
 
 def test_the_default_thresholds_are_pascal() -> None:
     """The tracked file sets both thresholds to pascal."""
-    assert load_gpu_thresholds(DEFAULT_LLM_GPU_THRESHOLDS_PATH) == GpuThresholds(
+    assert load_gpu_thresholds(TREE.gpu_thresholds) == GpuThresholds(
         embedding_only="pascal", per_gpu="pascal"
     )
 

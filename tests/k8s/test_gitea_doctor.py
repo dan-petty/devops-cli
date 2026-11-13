@@ -29,6 +29,7 @@ HOST = "example.com"
 PASSWORD = "gitea-admin-password-0001"
 IN_CLUSTER_HOST = "gitea-http.gitea.svc.cluster.local"
 VOLUME = "pvc-0001"
+APPLICATIONS = ("gitea", "gitea-manifests")
 EGRESS_PROBE = (
     "kubectl",
     "exec",
@@ -207,7 +208,7 @@ def _run(
     gitea = server or GiteaServer()
     (cluster or Cluster()).install(process_fake)
     web.serve(gitea)
-    return run_gitea_checks(context=None), gitea
+    return run_gitea_checks(context=None, applications=APPLICATIONS), gitea
 
 
 def _repository(web: WebFake) -> str:
@@ -405,7 +406,7 @@ def test_a_kubectl_failure_fails_its_check_with_kubectl_s_error(
         ProcessAnswer(returncode=1, stderr=not_found),
     )
 
-    checks = run_gitea_checks(context=None)
+    checks = run_gitea_checks(context=None, applications=APPLICATIONS)
 
     assert _failures(checks) == {"application-gitea-manifests": not_found}
 
@@ -435,7 +436,7 @@ def test_a_kubectl_read_with_no_object_fails_its_check(
     web.serve(GiteaServer())
     process_fake.answer(("kubectl", "get", "persistentvolumeclaim"), answer)
 
-    checks = run_gitea_checks(context=None)
+    checks = run_gitea_checks(context=None, applications=APPLICATIONS)
 
     assert _failures(checks) == {"volume-retained": expected}
 
