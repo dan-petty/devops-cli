@@ -262,8 +262,13 @@ ENV PYTHONUNBUFFERED=1 \
     TIKTOKEN_CACHE_DIR=/usr/local/share/tiktoken
 
 # Install Python 3.14 runtime, symlinks, root certificates, and the gnome-keyring Secret Service
-# (dbus-x11 satisfies its session-bus dependency without pulling in systemd) with BuildKit apt
-# cache mounts. /run/user/1000 holds the container-local session bus; /tmp is shared.
+# (dbus-x11 satisfies its session-bus dependency) with BuildKit apt cache mounts. /run/user/1000
+# holds the container-local session bus; /tmp is shared.
+# The network diagnostics tools are ping, tracepath, traceroute, mtr, nc and tcpdump (#5343).
+# ping opens an ICMP echo socket, and the --sysctl run argument of devcontainer.json lets the
+# group of vscode open one. The mtr-tiny package gives mtr-packet the cap_net_raw file capability.
+# tcpdump needs root, so use sudo. tcpdump depends on systemd, as openssh-client of the
+# common-utils feature does.
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     apt-get update && apt-get install -y --no-install-recommends \
@@ -275,6 +280,12 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     dbus-x11 \
     bubblewrap \
     socat \
+    iputils-ping \
+    iputils-tracepath \
+    traceroute \
+    mtr-tiny \
+    netcat-openbsd \
+    tcpdump \
     && install -d -m 0700 -o 1000 -g 1000 /run/user/1000 \
     && sed -i 's/VERSION_CODENAME=forky/VERSION_CODENAME=trixie/' /etc/os-release \
     && rm -rf /var/lib/apt/lists/*

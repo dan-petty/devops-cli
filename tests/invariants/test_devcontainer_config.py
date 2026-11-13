@@ -186,3 +186,62 @@ def test_the_image_puts_the_locked_style_dictionary_on_path() -> None:
         )
         if line not in dockerfile
     ] == []
+
+
+# The Debian packages of the network diagnostics tools (#5343): ping, tracepath, traceroute, mtr,
+# nc and tcpdump. A feature of the image configuration installs dig and nslookup already.
+NETWORK_DIAGNOSTICS_PACKAGES = (
+    "iputils-ping",
+    "iputils-tracepath",
+    "traceroute",
+    "mtr-tiny",
+    "netcat-openbsd",
+    "tcpdump",
+)
+
+
+def _system_packages(dockerfile: str) -> set[str]:
+    """Return the packages of the first `apt-get install` step of the last stage."""
+    last_stage = dockerfile.rpartition("\nFROM ")[2].replace("\\\n", " ")
+    install = last_stage.partition("apt-get install -y --no-install-recommends")[2]
+    return set(install.partition("&&")[0].split())
+
+
+def test_the_image_installs_the_network_diagnostics_tools_with_the_system_packages() -> None:
+    """The step that installs the system packages of the image also installs the network
+    diagnostics tools, so a person can find the cause of a network fault in the container
+    (#5343)."""
+    packages = _system_packages((DEVCONTAINER / "Dockerfile").read_text(encoding="utf-8"))
+
+    assert {"socat", *NETWORK_DIAGNOSTICS_PACKAGES} - packages == set()
+
+
+# Only the group of the user vscode (gid 1000) may open an ICMP echo socket (#5343). Under
+# rootless Podman with keep-id, the kernel compares host group IDs, and gid 1000 maps to a host ID
+# below the host IDs of the other groups of the container, so the range starts at 1000. A bound
+# that the user namespace does not map, such as 2147483647, stops the container at its start.
+PING_GROUP_RANGE = "--sysctl=net.ipv4.ping_group_range=1000 1000"
+
+
+def test_the_user_vscode_can_ping_in_the_workspace_and_in_a_scaffolded_devcontainer() -> None:
+    """Debian's ping opens an ICMP echo socket and has no file capability, and Podman lets only
+    group 0 open one. The workspace and the files that `devops devcontainer init` writes start
+    the container with the same run arguments, and these let the group of vscode open the socket
+    (#5343)."""
+    from devops_cli.core.templating import render_json_template
+
+    workspace, _image = _workspace_and_image_configs()
+    scaffolded = json.loads(
+        render_json_template(
+            "devcontainer.json.j2",
+            project_name="demo",
+            python_version="3.14",
+            image=None,
+            published=True,
+            home_volume=None,
+            minikube=False,
+        )
+    )
+
+    assert PING_GROUP_RANGE in workspace["runArgs"]
+    assert scaffolded["runArgs"] == workspace["runArgs"]
