@@ -23,7 +23,10 @@ judgement of whether the work is complete.
 
 With the setting `roadmap.stage.jev_completeness` on, a green draft without the label also goes to
 the Jev completeness check (#4308). It asks TypeSafe Jev whether the plan delivers each acceptance
-criterion of the issue. A criterion in doubt, a weak test score or an error of Jev keeps the draft
+criterion of the issue. Jev reads the diff of the head commit since its merge base with the base
+branch, from the compare endpoint. The diff of the pulls endpoint is not used: GitHub can keep a
+stale `base.sha` after the merge base moved, and then that diff holds files of other changes
+(#5388). A criterion in doubt, a weak test score or an error of Jev keeps the draft
 a draft. The round posts one note and records `stage.jev` with the head commit, so it asks again
 only for a new head commit, or after an error. The check only holds: a pass leaves the decision to
 the checks above, and the check never marks a draft ready, merges or closes.
@@ -44,6 +47,7 @@ from functools import partial
 from devops_cli.config.settings import load_settings
 from devops_cli.exceptions import GitHubRateLimitError
 from devops_cli.github.check_verdict import read_check_runs
+from devops_cli.github.client import PullStatus
 from devops_cli.github.session import get_github_session
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.implement.implement_pull import (
@@ -100,19 +104,20 @@ def _recorded_pull(item: Item) -> int | None:
     return int(recorded)
 
 
-def _jev_holds(store: RoadmapStore, repo: str, item: Item, number: int, head: str) -> bool:
+def _jev_holds(store: RoadmapStore, repo: str, item: Item, number: int, status: PullStatus) -> bool:
     """Whether the Jev completeness check keeps draft `number` a draft (#4308). It asks Jev when
-    the setting is on and the record holds no `held` mark for `head`. A hold posts one note and
-    records the head; an error posts its note once for the head and asks again in the next round."""
+    the setting is on and the record holds no `held` mark for the head. A hold posts one note and
+    records the head; an error posts its note once for the head and asks again in the next round.
+    The diff is the compare of the base branch and the head commit (#5388)."""
     if not load_settings().roadmap.stage.jev_completeness:
         return False
+    head = status.head_sha
     mark = item.job_record.get(StageRecordKey.JEV) or ""
     if mark == f"{head}:{CompletenessOutcome.HELD}":
         return True
     client = get_github_session().client
-    result = check_completeness(
-        acceptance_criteria(item.body), client.get_pr_diff(repo, number), "plan"
-    )
+    diff = client.get_compare_diff(repo, status.base_ref, head)
+    result = check_completeness(acceptance_criteria(item.body), diff, "plan")
     if not result.holds:
         if mark:
             store.set_marks(item, {StageRecordKey.JEV: None})
@@ -147,7 +152,7 @@ def _settle(store: RoadmapStore, repo: str, item: Item, number: int) -> _Outcome
         return _Outcome.WAITING
     if item.job_record.get(StageRecordKey.NEEDS_FIX):
         store.set_marks(item, {StageRecordKey.NEEDS_FIX: None})
-    if _jev_holds(store, repo, item, number, status.head_sha):
+    if _jev_holds(store, repo, item, number, status):
         return _Outcome.WAITING
     again = client.get_pull_status(repo, number)
     if not again.is_open_draft or again.head_sha != status.head_sha:

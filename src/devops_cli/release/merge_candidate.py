@@ -12,6 +12,11 @@ the label `hold-release`; its title is `chore(main): release <version>`; it chan
 that release-please writes; every check that the rules of `main` require passed on its head, and no
 other check failed there; no required check failed on the head of `main`; GitHub reports it as
 mergeable. It looks at the first pull request, by number, that passes, so a run picks at most one.
+
+The files are the compare of the base branch and the head commit: the diff that the squash merge
+applies. When release-please updates the pull request, it force-pushes a new commit onto the tip of
+`main`, so the merge base moves. The pick does not read the pulls files list: GitHub can keep a
+stale `base.sha` after the merge base moved, and then that list holds files of `main` (#5388).
 """
 
 from __future__ import annotations
@@ -33,7 +38,7 @@ from devops_cli.github.check_verdict import (
     read_check_runs,
     read_required_check_names,
 )
-from devops_cli.github.client import PullRequestFile
+from devops_cli.github.client import GitHubClient, PullRequestFile
 from devops_cli.github.session import get_github_session
 from devops_cli.lang import MESSAGES
 from devops_cli.output.console import write_stderr, write_stdout
@@ -208,6 +213,9 @@ def refusals(facts: ReleaseFacts) -> list[str]:
 class RestSession(Protocol):
     """The reads of the GitHub session that the pick makes."""
 
+    @property
+    def client(self) -> GitHubClient: ...
+
     def rest(
         self, method: str, path: str, *, accept: str | None = None, body: Any = None
     ) -> Any: ...
@@ -237,13 +245,13 @@ def _release_numbers(session: RestSession, repository: str) -> list[int]:
 
 
 def _changed_files(
-    session: RestSession, repository: str, number: int
+    session: RestSession, repository: str, pull: ReleasePull
 ) -> tuple[PullRequestFile, ...]:
-    """Every file the pull request changes, read page by linked page."""
-    listing = session.paginate(
-        f"/repos/{repository}/pulls/{number}/files?per_page={DEFAULT_GH_REST_PER_PAGE}"
-    )
-    return tuple(PullRequestFile.model_validate(item) for item in listing)
+    """Every file the head commit of `pull` changes since its merge base with the base branch
+    (#5388). A list at GitHub's limit of 300 files holds paths outside the four release files, so
+    the file guard refuses it."""
+    compared = session.client.get_compare_files(repository, pull.base_ref, pull.head_sha)
+    return tuple(compared.files)
 
 
 def pick(
@@ -272,7 +280,7 @@ def pick(
             pull=pull,
             repository=repository,
             app_login=app_login,
-            files=_changed_files(session, repository, number),
+            files=_changed_files(session, repository, pull),
             required_checks=required,
             pull_checks=read_check_runs(owner, name, pull.head_sha, session=session),
             base_checks=base_checks,

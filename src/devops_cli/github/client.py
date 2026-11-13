@@ -517,6 +517,16 @@ class GitHubClient:
         files = _read_as(_CompareFiles, self._session.rest("GET", endpoint), path=endpoint).files
         return CompareFiles(files=files, truncated=len(files) >= CONST_GITHUB_COMPARE_FILES_LIMIT)
 
+    def get_compare_diff(self, repo: str, base: str, head: str) -> str:
+        """The unified diff of `head` since its merge base with `base`, from the compare endpoint.
+
+        With the tip of a pull request's base branch as `base`, this is the diff of the files that
+        `get_compare_files` lists, and not the diff of the pulls endpoint, which can keep a stale
+        `base.sha` after a merge commit moved the merge base (#5388). GitHub sends a diff as text;
+        any other answer raises `GitHubUnreadError`.
+        """
+        return self._read_diff(_repo_path(repo, f"compare/{quote(base)}...{quote(head)}"))
+
     def get_commit_pulls(self, repo: str, sha: str) -> list[CommitPull]:
         """Every pull request that GitHub associates with the commit `sha`, merged or not.
 
@@ -690,7 +700,11 @@ class GitHubClient:
         GitHub sends a diff as text; any other answer, JSON or a body without a content type,
         raises `GitHubUnreadError`. A pull request with no changes returns an empty string.
         """
-        path = _repo_path(repo, f"pulls/{number}")
+        return self._read_diff(_repo_path(repo, f"pulls/{number}"))
+
+    def _read_diff(self, path: str) -> str:
+        """The diff GitHub serves at `path` in the diff media type, raising `GitHubUnreadError`
+        for an answer that is not text."""
         diff = self._session.rest("GET", path, accept=CONST_GITHUB_DIFF_MEDIA_TYPE)
         if not isinstance(diff, str):
             raise GitHubUnreadError(
