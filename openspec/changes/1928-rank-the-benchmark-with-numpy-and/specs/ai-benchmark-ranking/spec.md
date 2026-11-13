@@ -8,7 +8,7 @@ The embedding benchmark SHALL rank each query against the corpus with one numpy 
 
 #### Scenario: Ranking matches pairwise cosine
 - **WHEN** The ranking helper scores a fixed fixture of 2 queries and 4 chunks whose vectors are not unit length.
-- **THEN** Each score equals cosine_similarity for that query and chunk within 1e-9, and the helper makes one matrix product call.
+- **THEN** The helper returns the score of each query and chunk pair and the ranked chunk indices of each query, each score equals cosine_similarity for that query and chunk within 1e-9, and the helper makes one matrix product call.
 
 #### Scenario: A zero-norm row keeps a zero score
 - **WHEN** The ranking helper scores a fixture that holds one all-zero query vector.
@@ -26,11 +26,11 @@ The embedding benchmark SHALL compute recall_at_1, recall_at_3, recall_at_5, mrr
 - **THEN** The reciprocal rank and the nDCG of that query are 0.0 and the query still counts in the means.
 
 ### Requirement: Remove compute_ndcg_at_k
-The benchmark module SHALL hold no `compute_ndcg_at_k` helper, and no test SHALL import it.
+The source and test trees SHALL hold no `compute_ndcg_at_k` helper and no reference to it, and the benchmark SHALL take nDCG at 5 from pytrec_eval.
 
 #### Scenario: No remaining reference
-- **WHEN** The benchmark module is inspected and its test suite runs.
-- **THEN** The module defines no `compute_ndcg_at_k`, no test imports it, and the benchmark test suite passes.
+- **WHEN** The source and test trees are searched for `compute_ndcg_at_k`.
+- **THEN** `git grep -n compute_ndcg_at_k -- src tests` finds no match, and the benchmark test suite passes.
 
 ### Requirement: Remove C901 marker
 The benchmark evaluation function SHALL pass the Ruff C901 check at the cap of 10 with no C901 suppression marker.
