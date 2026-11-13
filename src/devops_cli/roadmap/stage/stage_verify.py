@@ -18,8 +18,8 @@ finding on a requirement, a group or a key that the plan does not hold is advice
 quote: a reviewer can quote a base spec that the plan does not change. Each open finding returns
 the plan to the planner (#5059). It does so `roadmap.stage.verify_repair_rounds` times, and once
 more for each review that fixes more earlier findings than it adds, up to
-`CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS_CEILING` rounds (`repair_round_due`, #3039, #5066,
-#5409). An open finding of the last review keeps the plan in
+`roadmap.stage.verify_repair_rounds_ceiling` rounds (`repair_round_due`, #3039, #5066, #5409,
+#5440). An open finding of the last review keeps the plan in
 draft with the label `plan/needs-fix` (#3264). Every other finding is advice: the job lists it in
 its comment. The pass never merges and never marks a pull request ready. `devops roadmap eval
 verify` scores the first review of a plan on the golden set (`stage_verify_eval`).
@@ -55,13 +55,13 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_STAGE_VERIFY_BODY_MAX_TOKENS,
     CONST_ROADMAP_STAGE_VERIFY_FILE_MAX_TOKENS,
     CONST_ROADMAP_STAGE_VERIFY_MAX_FILES,
-    CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS_CEILING,
 )
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.pull_form import is_placeholder
 from devops_cli.roadmap.refine.refine_investigation import tokens_of, tool_stop
 from devops_cli.roadmap.stage.stage_change import capability_name, safe_text
 from devops_cli.roadmap.stage.stage_eval_cases import DefectType
+from devops_cli.roadmap.stage.stage_tools import with_call_budget
 from devops_cli.security.sanitizer import mask_secrets
 
 if TYPE_CHECKING:
@@ -541,8 +541,9 @@ class VerificationInput:
 
 def agent_instructions(system: str) -> str:
     """The instructions of an agent run of the pass: `system`, the pass, and the rules of a run
-    that has the read tools. They hold no text of the planner."""
-    return f"{system}\n\n{load_task_prompt(_VERIFY_TOOLS_TASK)}"
+    that has the read tools, with the call budget of `roadmap.stage` (#5440). They hold no text of
+    the planner."""
+    return f"{system}\n\n{with_call_budget(load_task_prompt(_VERIFY_TOOLS_TASK))}"
 
 
 def _request_tokens(given: VerificationInput) -> int:
@@ -652,13 +653,13 @@ def judge_later(
     return Judgement(tuple(reply.findings), held + added, fixed, added)
 
 
-def repair_round_due(round_: int, rounds: int, last: Judgement) -> bool:
+def repair_round_due(round_: int, rounds: int, last: Judgement, *, ceiling: int) -> bool:
     """Whether repair round `round_` (1 for the first) may start after the review `last`. A round
     up to `rounds` (`roadmap.stage.verify_repair_rounds`) may start. A later round may start only
     while `last` fixed more earlier findings than it added: one review judged both, so the check
     compares no two independent reviews and makes no model call (#5066, #5409). No round passes
-    `CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS_CEILING`."""
-    if round_ > CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS_CEILING:
+    `ceiling` (`roadmap.stage.verify_repair_rounds_ceiling`, #5440)."""
+    if round_ > ceiling:
         return False
     if round_ <= rounds:
         return True

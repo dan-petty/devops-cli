@@ -40,7 +40,6 @@ from typing import TYPE_CHECKING, Final, NamedTuple
 
 from pydantic import BaseModel, ConfigDict
 
-from devops_cli.config.constants import CONST_ROADMAP_STAGE_GATE_RETURN_EXTENSIONS
 from devops_cli.lang import MESSAGES
 
 if TYPE_CHECKING:
@@ -357,11 +356,12 @@ def gate_extension(
     after: Sequence[StageFinding],
     *,
     used: int,
+    limit: int,
     classes: FindingClasses,
 ) -> ExtensionDecision:
     """Whether a reply that the checks refused at the last gate return gets one more return. The
-    guard comes first: an item that used `CONST_ROADMAP_STAGE_GATE_RETURN_EXTENSIONS` extra
-    returns gets no other. Then the rule reads the findings of the reply before (`before`, None
+    guard comes first: an item that used `limit` extra returns
+    (`roadmap.stage.gate_return_extensions`, #5440) gets no other. Then the rule reads the findings of the reply before (`before`, None
     when no return compares two replies) and of the last reply (`after`): no finding of `before`
     stays, and no finding of `after` has the fix class `never` in `classes`. With no finding that
     stays, each finding of the reply before is gone. A code that `classes` does not hold is no
@@ -372,7 +372,7 @@ def gate_extension(
         if (seed := classes.codes.get(finding.code)) is not None
         and seed.fix_class is FixClass.NEVER
     ]
-    if used >= CONST_ROADMAP_STAGE_GATE_RETURN_EXTENSIONS:
+    if used >= limit:
         return ExtensionDecision(GateExtension.USED, never=len(never))
     if before is None:
         return ExtensionDecision(GateExtension.FIRST, never=len(never))

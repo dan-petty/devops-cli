@@ -610,6 +610,6 @@ devops roadmap step fix-plan [OPTIONS]
 | `--pull` | `integer` | - | Judge the one item whose record holds this plan pull request number in stage.pr. |
 | `--dry-run` | `boolean` | - | Make no request: print the requests, the git commands and the writes of a run, with placeholders. |
 | `--confirm` | `boolean` | - | Run the attempt: call the models, push a better revision, and write the label, the comment and the record. It acts in every mode of roadmap.fix_plan.mode. |
-| `--skip-wait` | `boolean` | - | Leave out the wait of 6 hours after the last attempt, for the one item that --item or --pull names. Needs --confirm. The limits of 2 attempts on the head and 3 revisions stay, but a head whose counted attempts ran on an older release gets one more attempt. The Service never uses it. |
+| `--skip-wait` | `boolean` | - | Leave out the wait of 6 hours after the last attempt, for the one item that --item or --pull names. Needs --confirm. The limits of roadmap.fix_plan.head_attempts on the head and roadmap.fix_plan.revisions stay, but a head whose counted attempts ran on an older release gets one more attempt. The Service never uses it. |
 
 ---

@@ -33,11 +33,11 @@ from devops_cli.ai.spend.ledger import SpendLedger
 from devops_cli.config import constants
 from devops_cli.config.constants import (
     CONST_ROADMAP_IMPLEMENT_LOG_CHARS,
-    CONST_ROADMAP_IMPLEMENT_MAX_CONSECUTIVE_REFUSALS,
     CONST_ROADMAP_IMPLEMENT_TOOL_MAX_CHARS,
     CONST_ROADMAP_IMPLEMENT_TURN_RESERVE_TOKENS,
 )
-from devops_cli.config.settings import load_settings
+from devops_cli.config.defaults import DEFAULT_ROADMAP_IMPLEMENT_MAX_CONSECUTIVE_REFUSALS
+from devops_cli.config.settings import load_settings, setting_default
 from devops_cli.exceptions.roadmap import RoadmapImplementError
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.failure import FailureClass
@@ -1251,7 +1251,7 @@ RETRY_LIMIT_MESSAGE = (
 
 REFUSAL_LIMIT_MESSAGE = (
     "Too many consecutive commands refused by policy: the limit is "
-    f"{CONST_ROADMAP_IMPLEMENT_MAX_CONSECUTIVE_REFUSALS}."
+    f"{DEFAULT_ROADMAP_IMPLEMENT_MAX_CONSECUTIVE_REFUSALS}."
 )
 BROKE = UnexpectedModelBehavior("The reply broke the rules.")
 
@@ -1269,9 +1269,9 @@ def test_a_model_that_keeps_calling_a_refused_program_stops_with_the_message_and
     assert (outcome.status, outcome.reason, outcome.requests, is_clean_at(checkout, head)) == (
         StepStatus.STOPPED,
         f"UnexpectedModelBehavior: {REFUSAL_LIMIT_MESSAGE}\n"
-        f"Refused commands: pytest {CONST_ROADMAP_IMPLEMENT_MAX_CONSECUTIVE_REFUSALS}. "
+        f"Refused commands: pytest {DEFAULT_ROADMAP_IMPLEMENT_MAX_CONSECUTIVE_REFUSALS}. "
         "Other retries: 0.",
-        CONST_ROADMAP_IMPLEMENT_MAX_CONSECUTIVE_REFUSALS,
+        DEFAULT_ROADMAP_IMPLEMENT_MAX_CONSECUTIVE_REFUSALS,
         True,
     )
 
@@ -1506,7 +1506,7 @@ def test_the_counts_cover_the_repair_turn(
     outcome = _step(store, checkout, script)
 
     assert outcome.reason.endswith(
-        f"\nRefused commands: pytest {CONST_ROADMAP_IMPLEMENT_MAX_CONSECUTIVE_REFUSALS + 1}. "
+        f"\nRefused commands: pytest {DEFAULT_ROADMAP_IMPLEMENT_MAX_CONSECUTIVE_REFUSALS + 1}. "
         "Other retries: 0."
     )
 
@@ -1905,7 +1905,7 @@ def test_a_400_inside_a_stream_on_every_send_stops_the_step_with_the_body(
         True,
     )
     assert "tool call parsing failed" in named
-    assert len(script.seen) == 1 + 1 + constants.CONST_ROADMAP_IMPLEMENT_MODEL_RESENDS
+    assert len(script.seen) == 1 + 1 + setting_default("roadmap.implement.model_resends")
     assert outcome.failure_class is FailureClass.PARSER
     assert "diff --git a/src/sample.py b/src/sample.py" in outcome.diff
 
@@ -1984,6 +1984,25 @@ def test_a_failure_after_a_good_reply_stops_without_a_second_smaller_edit(
     assert outcome.status == StepStatus.STOPPED
     assert f"body: {XML_ERROR}" in outcome.reason
     assert len(script.seen) == 3
+
+
+def test_the_settings_set_the_resends_and_the_request_limit_of_a_step(
+    store: InMemoryRoadmapStore,
+    checkout: Path,
+    programs: ProcessFake,
+    config: Callable[..., Path],
+) -> None:
+    """A step reads `roadmap.implement.model_resends` and `max_requests` when it starts (#5440)."""
+    config(roadmap={"implement": {"model_resends": 0, "max_requests": 2}})
+    not_sent_again = ModelScript(_in_stream_400(), tool_calls(*the_whole_group()), say("Done."))
+    read = tool_call("read_file", path="docs/SAMPLE.md")
+    reads = ModelScript(read, read, read, say("Done."))
+
+    outcomes = [_step(store, checkout, script) for script in (not_sent_again, reads)]
+
+    assert (len(not_sent_again.seen), outcomes[0].status) == (1, StepStatus.STOPPED)
+    assert (len(reads.seen), outcomes[1].status) == (2, StepStatus.STOPPED)
+    assert "request_limit of 2" in outcomes[1].reason
 
 
 def test_the_replies_before_a_send_again_count_against_the_request_limit(

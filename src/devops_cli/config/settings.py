@@ -42,9 +42,8 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_IMPLEMENT_CEILING_FACTOR,
     CONST_ROADMAP_IMPLEMENT_DEADLINE_CAP_SECONDS,
     CONST_ROADMAP_IMPLEMENT_STEP_CLASSES,
+    CONST_ROADMAP_LIMIT_CEILING_FACTOR,
     CONST_ROADMAP_SIZE_OPTIONS,
-    CONST_ROADMAP_STAGE_GATE_RETURNS_CEILING,
-    CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS_CEILING,
     CONST_SETTINGS_CACHE_SETTLE_SECONDS,
 )
 from devops_cli.config.constants import (
@@ -112,7 +111,9 @@ from devops_cli.config.defaults import (
     DEFAULT_ROADMAP_ALTERNATIVES_LIMIT,
     DEFAULT_ROADMAP_ALTERNATIVES_RECHECK_DAYS,
     DEFAULT_ROADMAP_ALTERNATIVES_RETRY_DAYS,
+    DEFAULT_ROADMAP_FIX_PLAN_HEAD_ATTEMPTS,
     DEFAULT_ROADMAP_FIX_PLAN_MODE,
+    DEFAULT_ROADMAP_FIX_PLAN_REVISIONS,
     DEFAULT_ROADMAP_FIX_PLAN_TIME_BUDGET_SECONDS,
     DEFAULT_ROADMAP_IMPLEMENT_COMMAND_TIMEOUT_SECONDS,
     DEFAULT_ROADMAP_IMPLEMENT_CONTINUATIONS_PER_ITEM,
@@ -122,26 +123,43 @@ from devops_cli.config.defaults import (
     DEFAULT_ROADMAP_IMPLEMENT_DIGEST_CLEARS_PER_CLASS,
     DEFAULT_ROADMAP_IMPLEMENT_DIGEST_CLEARS_PER_ITEM,
     DEFAULT_ROADMAP_IMPLEMENT_EFFORT,
+    DEFAULT_ROADMAP_IMPLEMENT_EXTENSION_CALLS,
+    DEFAULT_ROADMAP_IMPLEMENT_EXTENSION_MAX_REFUSED,
     DEFAULT_ROADMAP_IMPLEMENT_ITEM_TIME_LIMIT_SECONDS,
     DEFAULT_ROADMAP_IMPLEMENT_ITEM_TOKEN_BUDGET,
     DEFAULT_ROADMAP_IMPLEMENT_LADDER_TIERS,
+    DEFAULT_ROADMAP_IMPLEMENT_MAX_CONSECUTIVE_REFUSALS,
     DEFAULT_ROADMAP_IMPLEMENT_MAX_MEMORY_LIMIT,
+    DEFAULT_ROADMAP_IMPLEMENT_MAX_REFUSALS,
+    DEFAULT_ROADMAP_IMPLEMENT_MAX_REQUESTS,
+    DEFAULT_ROADMAP_IMPLEMENT_MAX_TOOL_CALLS,
+    DEFAULT_ROADMAP_IMPLEMENT_MODEL_RESENDS,
     DEFAULT_ROADMAP_IMPLEMENT_MONITOR_TIMEOUT_SECONDS,
     DEFAULT_ROADMAP_IMPLEMENT_REPAIR_ROUNDS,
     DEFAULT_ROADMAP_IMPLEMENT_REQUEST_TIMEOUT_SECONDS,
     DEFAULT_ROADMAP_IMPLEMENT_STEP_TIME_LIMIT_SECONDS,
     DEFAULT_ROADMAP_IMPLEMENT_STEP_TOKEN_BUDGET,
+    DEFAULT_ROADMAP_IMPLEMENT_TOOL_RETRIES,
     DEFAULT_ROADMAP_INBOX_DRAFT_DAYS,
     DEFAULT_ROADMAP_INBOX_WAIT_DAYS,
     DEFAULT_ROADMAP_INTAKE_JEV,
     DEFAULT_ROADMAP_MCP_TIMEOUT_SECONDS,
     DEFAULT_ROADMAP_STAGE_FILTER,
+    DEFAULT_ROADMAP_STAGE_GATE_RETURN_EXTENSIONS,
     DEFAULT_ROADMAP_STAGE_GATE_RETURNS,
     DEFAULT_ROADMAP_STAGE_LIMIT,
+    DEFAULT_ROADMAP_STAGE_MAX_REQUESTS,
+    DEFAULT_ROADMAP_STAGE_MAX_TOOL_CALLS,
+    DEFAULT_ROADMAP_STAGE_PLAN_CALLS_ADVISED,
+    DEFAULT_ROADMAP_STAGE_PLAN_CALLS_NOTICE,
+    DEFAULT_ROADMAP_STAGE_PLAN_DEFECT_LIMIT,
     DEFAULT_ROADMAP_STAGE_PLANNED_LIMIT,
+    DEFAULT_ROADMAP_STAGE_REVIEW_CALLS_ADVISED,
+    DEFAULT_ROADMAP_STAGE_REVIEW_CALLS_NOTICE,
     DEFAULT_ROADMAP_STAGE_STEP_TOKENS,
     DEFAULT_ROADMAP_STAGE_TOOLSET,
     DEFAULT_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS,
+    DEFAULT_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS_CEILING,
     DEFAULT_RUNS_DATA_DIR,
     DEFAULT_SAMPLES_DATA_DIR,
     DEFAULT_SANDBOX_EXCLUDE_HOME,
@@ -1042,6 +1060,12 @@ class GitHubAppConfig(BaseModel):
         return f"{self.slug}[bot]" if self.slug else None
 
 
+def _check_nested(inner: tuple[int, str], outer: tuple[int, str]) -> None:
+    """Refuse an inner limit above its outer limit, with the names of both settings (#5440)."""
+    if inner[0] > outer[0]:
+        raise ValueError(f"{inner[1]} must not be above {outer[1]}")
+
+
 class RoadmapStageConfig(BaseModel):
     model_config = ConfigDict(extra="ignore", validate_assignment=True, hide_input_in_errors=True)
 
@@ -1061,16 +1085,70 @@ class RoadmapStageConfig(BaseModel):
         ge=1,
     )
     gate_returns: Annotated[int, Variable()] = Field(
-        description="How many times a plan run sends a reply that the stage checks refuse back to the planner with its problem, for the first reply and for the revision of each repair round. A reply that the checks refuse at the last return gets one more return when no finding of the reply before stays and no finding has a code that no saved return fixed, once for each item; a reply that is refused after that ends the item with the class plan_defect. Each return is one more plan run, so the value is at most 3. After the Service stops, no return starts",
+        description="How many times a plan run sends a reply that the stage checks refuse back to the planner with its problem, for the first reply and for the revision of each repair round. A reply that the checks refuse at the last return gets one more return when no finding of the reply before stays and no finding has a code that no saved return fixed, at most `gate_return_extensions` times for each item; a reply that is refused after that ends the item with the class plan_defect. Each return is one more plan run, so the settings load refuses a value above 4 times the default. After the Service stops, no return starts",
         default=DEFAULT_ROADMAP_STAGE_GATE_RETURNS,
         ge=0,
-        le=CONST_ROADMAP_STAGE_GATE_RETURNS_CEILING,
+        le=CONST_ROADMAP_LIMIT_CEILING_FACTOR * DEFAULT_ROADMAP_STAGE_GATE_RETURNS,
+    )
+    gate_return_extensions: Annotated[int, Variable()] = Field(
+        description="The most extra returns past `gate_returns` that one item gets, each for a reply that the checks refuse at the last return while its findings go down. Each extra return is one more plan run. 0 gives no extra return. The settings load refuses a value above 4 times the default",
+        default=DEFAULT_ROADMAP_STAGE_GATE_RETURN_EXTENSIONS,
+        ge=0,
+        le=CONST_ROADMAP_LIMIT_CEILING_FACTOR * DEFAULT_ROADMAP_STAGE_GATE_RETURN_EXTENSIONS,
     )
     verify_repair_rounds: Annotated[int, Variable()] = Field(
-        description="How many times the model review of a stage plan sends the plan back to the planner while the review has an open finding. After the last of these rounds, one more round follows while the last review marks more earlier findings `gone` than it opens new findings. No item gets more than 4 repair rounds, so the value is at most 4. After the Service stops, no round starts",
+        description="How many times the model review of a stage plan sends the plan back to the planner while the review has an open finding. After the last of these rounds, one more round follows while the last review marks more earlier findings `gone` than it opens new findings. No item gets more repair rounds than `verify_repair_rounds_ceiling`, so the value must not be above it. After the Service stops, no round starts",
         default=DEFAULT_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS,
         ge=0,
-        le=CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS_CEILING,
+        le=CONST_ROADMAP_LIMIT_CEILING_FACTOR * DEFAULT_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS_CEILING,
+    )
+    verify_repair_rounds_ceiling: Annotated[int, Variable()] = Field(
+        description="The most repair rounds of the model review of one stage plan: the rounds of `verify_repair_rounds` and the rounds that follow them while a review fixes more earlier findings than it adds. Each round is one more plan run and one more review run. The settings load refuses a value above 4 times the default",
+        default=DEFAULT_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS_CEILING,
+        ge=0,
+        le=CONST_ROADMAP_LIMIT_CEILING_FACTOR * DEFAULT_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS_CEILING,
+    )
+    plan_defect_limit: Annotated[int, Variable()] = Field(
+        description="How many `plan_defect` failures of one item on the same body the stage job counts. The failure that reaches this count returns the item to New with one comment that lists the problems of the last plan. The settings load refuses a value above 4 times the default",
+        default=DEFAULT_ROADMAP_STAGE_PLAN_DEFECT_LIMIT,
+        ge=1,
+        le=CONST_ROADMAP_LIMIT_CEILING_FACTOR * DEFAULT_ROADMAP_STAGE_PLAN_DEFECT_LIMIT,
+    )
+    max_requests: Annotated[int, Variable()] = Field(
+        description="The most model requests of one plan run or review run of the stage job with the tools: the loop guard of the run. A run that reaches it fails the item. The settings load refuses a value above 4 times the default",
+        default=DEFAULT_ROADMAP_STAGE_MAX_REQUESTS,
+        ge=1,
+        le=CONST_ROADMAP_LIMIT_CEILING_FACTOR * DEFAULT_ROADMAP_STAGE_MAX_REQUESTS,
+    )
+    max_tool_calls: Annotated[int, Variable()] = Field(
+        description="The most tool calls of one plan run or review run of the stage job: the loop guard of the run. A run that passes it fails the item. It must not be below `plan_calls_notice` and `review_calls_notice`. The settings load refuses a value above 4 times the default",
+        default=DEFAULT_ROADMAP_STAGE_MAX_TOOL_CALLS,
+        ge=1,
+        le=CONST_ROADMAP_LIMIT_CEILING_FACTOR * DEFAULT_ROADMAP_STAGE_MAX_TOOL_CALLS,
+    )
+    plan_calls_advised: Annotated[int, Variable()] = Field(
+        description="The tool calls that the prompt of a plan run says a plan needs. It must not be above `plan_calls_notice`. The settings load refuses a value above 4 times the default",
+        default=DEFAULT_ROADMAP_STAGE_PLAN_CALLS_ADVISED,
+        ge=1,
+        le=CONST_ROADMAP_LIMIT_CEILING_FACTOR * DEFAULT_ROADMAP_STAGE_PLAN_CALLS_ADVISED,
+    )
+    plan_calls_notice: Annotated[int, Variable()] = Field(
+        description="The tool call of a plan run from which each tool answer ends with a notice to give the plan, with the tools still on. It must not be above `max_tool_calls`. The settings load refuses a value above 4 times the default",
+        default=DEFAULT_ROADMAP_STAGE_PLAN_CALLS_NOTICE,
+        ge=1,
+        le=CONST_ROADMAP_LIMIT_CEILING_FACTOR * DEFAULT_ROADMAP_STAGE_PLAN_CALLS_NOTICE,
+    )
+    review_calls_advised: Annotated[int, Variable()] = Field(
+        description="The tool calls that the prompt of a review run says a review needs. It must not be above `review_calls_notice`. The settings load refuses a value above 4 times the default",
+        default=DEFAULT_ROADMAP_STAGE_REVIEW_CALLS_ADVISED,
+        ge=1,
+        le=CONST_ROADMAP_LIMIT_CEILING_FACTOR * DEFAULT_ROADMAP_STAGE_REVIEW_CALLS_ADVISED,
+    )
+    review_calls_notice: Annotated[int, Variable()] = Field(
+        description="The tool call of a review run from which each tool answer ends with a notice to give the findings, with the tools still on. It must not be above `max_tool_calls`. The settings load refuses a value above 4 times the default",
+        default=DEFAULT_ROADMAP_STAGE_REVIEW_CALLS_NOTICE,
+        ge=1,
+        le=CONST_ROADMAP_LIMIT_CEILING_FACTOR * DEFAULT_ROADMAP_STAGE_REVIEW_CALLS_NOTICE,
     )
     step_tokens: Annotated[int, Variable()] = Field(
         description="The most tokens that the inputs of one implementation step may hold: the step's instructions, the AGENTS.md of the repository and the documents it routes the group to, the item, the change folder and the packed files of one task group; `devops roadmap stage` splits a task group over it",
@@ -1097,6 +1175,27 @@ class RoadmapStageConfig(BaseModel):
             split_filter_entry(entry)
         return entries
 
+    @model_validator(mode="after")
+    def _limits_nest(self) -> RoadmapStageConfig:
+        """Each inner limit is not above its outer limit (#5440): the repair rounds of the setting
+        are not above their ceiling, the advice of a run is not above its notice, and a notice is
+        not above the tool calls of a run. The error names both settings."""
+        _check_nested(
+            (self.verify_repair_rounds, "verify_repair_rounds"),
+            (self.verify_repair_rounds_ceiling, "verify_repair_rounds_ceiling"),
+        )
+        _check_nested(
+            (self.plan_calls_advised, "plan_calls_advised"),
+            (self.plan_calls_notice, "plan_calls_notice"),
+        )
+        _check_nested(
+            (self.review_calls_advised, "review_calls_advised"),
+            (self.review_calls_notice, "review_calls_notice"),
+        )
+        for notice in ("plan_calls_notice", "review_calls_notice"):
+            _check_nested((getattr(self, notice), notice), (self.max_tool_calls, "max_tool_calls"))
+        return self
+
 
 class RoadmapImplementConfig(BaseModel):
     model_config = ConfigDict(extra="ignore", validate_assignment=True, hide_input_in_errors=True)
@@ -1114,6 +1213,54 @@ class RoadmapImplementConfig(BaseModel):
         description="The most extra turns that one implementation step gives the agent after its first run: one for each failed `ruff`, `mypy` or hook of the project. A missing tick takes no round, because the job ticks the group when its checks pass. The same number bounds the fix steps that the scoped checks before a push cause. When no round is left, the step or the item stops. 0 gives the agent no extra turn",
         default=DEFAULT_ROADMAP_IMPLEMENT_REPAIR_ROUNDS,
         ge=0,
+    )
+    max_requests: Annotated[int, Variable()] = Field(
+        description="The most model requests of the run of one implementation step, extra turns included: the loop guard of the step. A run that reaches it ends the step as stopped. The settings load refuses a value above 4 times the default",
+        default=DEFAULT_ROADMAP_IMPLEMENT_MAX_REQUESTS,
+        ge=1,
+        le=CONST_ROADMAP_LIMIT_CEILING_FACTOR * DEFAULT_ROADMAP_IMPLEMENT_MAX_REQUESTS,
+    )
+    max_tool_calls: Annotated[int, Variable()] = Field(
+        description="The most tool calls of the run of one implementation step, extra turns included: the loop guard of the step. A run that passes it ends the step as stopped. The settings load refuses a value above 4 times the default",
+        default=DEFAULT_ROADMAP_IMPLEMENT_MAX_TOOL_CALLS,
+        ge=1,
+        le=CONST_ROADMAP_LIMIT_CEILING_FACTOR * DEFAULT_ROADMAP_IMPLEMENT_MAX_TOOL_CALLS,
+    )
+    tool_retries: Annotated[int, Variable()] = Field(
+        description="The failures in a row that one tool of an implementation step may answer before the run ends, such as an `edit_file` whose text is not found. A successful call resets the count, and a refusal of the shell by policy is no failure. The settings load refuses a value above 4 times the default",
+        default=DEFAULT_ROADMAP_IMPLEMENT_TOOL_RETRIES,
+        ge=0,
+        le=CONST_ROADMAP_LIMIT_CEILING_FACTOR * DEFAULT_ROADMAP_IMPLEMENT_TOOL_RETRIES,
+    )
+    max_refusals: Annotated[int, Variable()] = Field(
+        description="The most commands that the shell of one implementation step may refuse by policy, extra turns included. The next refusal ends the run. The settings load refuses a value above 4 times the default",
+        default=DEFAULT_ROADMAP_IMPLEMENT_MAX_REFUSALS,
+        ge=1,
+        le=CONST_ROADMAP_LIMIT_CEILING_FACTOR * DEFAULT_ROADMAP_IMPLEMENT_MAX_REFUSALS,
+    )
+    max_consecutive_refusals: Annotated[int, Variable()] = Field(
+        description="The commands that the shell of one implementation step may refuse in a row, with no accepted tool call between them. The refusal that reaches it ends the run. It must not be above `max_refusals`. The settings load refuses a value above 4 times the default",
+        default=DEFAULT_ROADMAP_IMPLEMENT_MAX_CONSECUTIVE_REFUSALS,
+        ge=1,
+        le=CONST_ROADMAP_LIMIT_CEILING_FACTOR * DEFAULT_ROADMAP_IMPLEMENT_MAX_CONSECUTIVE_REFUSALS,
+    )
+    model_resends: Annotated[int, Variable()] = Field(
+        description="How many times in a row an implementation step sends a model request again when the provider fails it inside an open stream with the status 400. A send that gets a reply starts the count again. 0 sends no request again. The settings load refuses a value above 4 times the default",
+        default=DEFAULT_ROADMAP_IMPLEMENT_MODEL_RESENDS,
+        ge=0,
+        le=CONST_ROADMAP_LIMIT_CEILING_FACTOR * DEFAULT_ROADMAP_IMPLEMENT_MODEL_RESENDS,
+    )
+    extension_calls: Annotated[int, Variable()] = Field(
+        description="The last tool calls of an implementation step that the rule `implement.extension` reads when the step reaches `step_token_budget`. A step with fewer calls gets no extension. The settings load refuses a value above 4 times the default",
+        default=DEFAULT_ROADMAP_IMPLEMENT_EXTENSION_CALLS,
+        ge=1,
+        le=CONST_ROADMAP_LIMIT_CEILING_FACTOR * DEFAULT_ROADMAP_IMPLEMENT_EXTENSION_CALLS,
+    )
+    extension_max_refused: Annotated[int, Variable()] = Field(
+        description="The most refused commands in the last `extension_calls` tool calls of a step that still gets the extension of the rule `implement.extension`. It must not be above `extension_calls`. The settings load refuses a value above 4 times the default",
+        default=DEFAULT_ROADMAP_IMPLEMENT_EXTENSION_MAX_REFUSED,
+        ge=0,
+        le=CONST_ROADMAP_LIMIT_CEILING_FACTOR * DEFAULT_ROADMAP_IMPLEMENT_EXTENSION_MAX_REFUSED,
     )
     step_token_budget: Annotated[int, Variable()] = Field(
         description="The most new tokens that the replies of one implementation step may report, summed over all its requests, its repair rounds and its tiers. The new tokens of a reply are its input tokens that the provider did not read from its cache, and its output tokens. Before each request the step compares its count with this budget. A step that has spent it gets one extension when its last tool calls show progress (see `step_token_ceiling`). Otherwise, and at the end of the extension, it stops with the class `limit_reached`, and the stop names this setting",
@@ -1269,6 +1416,20 @@ class RoadmapImplementConfig(BaseModel):
             )
         if self.item_time_limit_seconds > self.deadline_ceiling_seconds:
             raise ValueError("item_time_limit_seconds must not be above deadline_ceiling_seconds")
+        return self
+
+    @model_validator(mode="after")
+    def _limits_nest(self) -> RoadmapImplementConfig:
+        """The refusals in a row are not above all refusals, and the refused commands of the rule
+        of the extension are not above its window (#5440). The error names both settings."""
+        _check_nested(
+            (self.max_consecutive_refusals, "max_consecutive_refusals"),
+            (self.max_refusals, "max_refusals"),
+        )
+        _check_nested(
+            (self.extension_max_refused, "extension_max_refused"),
+            (self.extension_calls, "extension_calls"),
+        )
         return self
 
     @model_validator(mode="after")
@@ -1464,6 +1625,18 @@ class RoadmapFixPlanConfig(BaseModel):
         description="The most seconds that one call of the step fix-plan may run, counted from its start. The step compares the time with the budget before each plan run and each review run, so a run that started before the end goes on. When the budget is spent, the attempt makes no more model calls, pushes nothing, keeps the label plan/needs-fix, comments the open findings and the counts, and logs the result line with the result and the class `timeout`. Keep it below the deadline of the Job that runs the command, with a margin for one more model run and the push",
         default=DEFAULT_ROADMAP_FIX_PLAN_TIME_BUDGET_SECONDS,
         ge=1,
+    )
+    head_attempts: Annotated[int, Variable()] = Field(
+        description="The most attempts of the step fix-plan on one head of a plan pull request. A plan with this many attempts on its head waits for a new head. The settings load refuses a value above 4 times the default",
+        default=DEFAULT_ROADMAP_FIX_PLAN_HEAD_ATTEMPTS,
+        ge=1,
+        le=CONST_ROADMAP_LIMIT_CEILING_FACTOR * DEFAULT_ROADMAP_FIX_PLAN_HEAD_ATTEMPTS,
+    )
+    revisions: Annotated[int, Variable()] = Field(
+        description="The most revisions that the step fix-plan pushes to one plan pull request. A plan with this many revisions gets no other attempt. The settings load refuses a value above 4 times the default",
+        default=DEFAULT_ROADMAP_FIX_PLAN_REVISIONS,
+        ge=1,
+        le=CONST_ROADMAP_LIMIT_CEILING_FACTOR * DEFAULT_ROADMAP_FIX_PLAN_REVISIONS,
     )
 
 

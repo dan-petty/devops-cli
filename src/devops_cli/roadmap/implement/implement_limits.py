@@ -25,7 +25,7 @@ A step that reaches `step_token_budget` gets one extension when it makes progres
 the decision point `implement.extension` of ADR 0020, and its resolver is a rule: the digest of the
 last tool calls of the step (`ProgressDigest`, from the step's `ToolCallLog`) holds at least
 `CONST_ROADMAP_IMPLEMENT_EXTENSION_MIN_EDITS` successful edits and at most
-`CONST_ROADMAP_IMPLEMENT_EXTENSION_MAX_REFUSED` refused commands. The extension adds
+`roadmap.implement.extension_max_refused` refused commands (#5440). The extension adds
 `CONST_ROADMAP_IMPLEMENT_EXTENSION_PERCENT` percent of the budget, up to `step_token_ceiling`. A
 missing digest, a digest that fails the rule, a ceiling that leaves no room and a second arrival at
 the limit all stop the step as before. No decision model takes part. The item budget and the time
@@ -47,8 +47,6 @@ from pydantic_ai.messages import ModelResponse
 from pydantic_ai.models import ModelRequestContext
 
 from devops_cli.config.constants import (
-    CONST_ROADMAP_IMPLEMENT_EXTENSION_CALLS,
-    CONST_ROADMAP_IMPLEMENT_EXTENSION_MAX_REFUSED,
     CONST_ROADMAP_IMPLEMENT_EXTENSION_MIN_EDITS,
     CONST_ROADMAP_IMPLEMENT_EXTENSION_PERCENT,
 )
@@ -126,14 +124,15 @@ class _Decision(StrEnum):
     HALTED = "halted"
 
 
-def extends(digest: ProgressDigest | None) -> TypeGuard[ProgressDigest]:
+def extends(digest: ProgressDigest | None, max_refused: int) -> TypeGuard[ProgressDigest]:
     """Whether the rule of `implement.extension` extends a step whose last calls give `digest`:
-    at least one successful edit and at most three refused commands. No digest, as for a log with
-    fewer calls than the window, never extends."""
+    at least one successful edit and at most `max_refused` refused commands
+    (`roadmap.implement.extension_max_refused`). No digest, as for a log with fewer calls than the
+    window, never extends."""
     return (
         digest is not None
         and digest.edits >= CONST_ROADMAP_IMPLEMENT_EXTENSION_MIN_EDITS
-        and digest.refused <= CONST_ROADMAP_IMPLEMENT_EXTENSION_MAX_REFUSED
+        and digest.refused <= max_refused
     )
 
 
@@ -175,6 +174,8 @@ class StepBudget:
         self._progress = progress
         self._budget = limits.step_token_budget
         self._ceiling = limits.token_ceiling
+        self._window = limits.extension_calls
+        self._max_refused = limits.extension_max_refused
         self._step_limit = self._budget
         # The reason of the stop at the token budget of the step, once the rule has halted.
         self._stop: str | None = None
@@ -231,7 +232,7 @@ class StepBudget:
         digest = self._progress() if self.extension is None else None
         wanted = self._budget + self._budget * CONST_ROADMAP_IMPLEMENT_EXTENSION_PERCENT // 100
         target = min(wanted, self._ceiling)
-        if extends(digest) and target > self.used:
+        if extends(digest, self._max_refused) and target > self.used:
             self.extension = BudgetExtension(
                 limit=self._budget,
                 budget=target,
@@ -263,14 +264,12 @@ class StepBudget:
                     **named, ceiling=_CEILING, budget=extension.budget
                 )
             return texts.implement_stop_limit_extended.format(**named, budget=extension.budget)
-        if extends(digest):
+        if extends(digest, self._max_refused):
             return texts.implement_stop_limit_no_room.format(
                 **named, used=self.used, ceiling=_CEILING, budget=self._ceiling
             )
         if digest is None:
-            return texts.implement_stop_limit_unclear.format(
-                **named, calls=CONST_ROADMAP_IMPLEMENT_EXTENSION_CALLS
-            )
+            return texts.implement_stop_limit_unclear.format(**named, calls=self._window)
         return texts.implement_stop_limit_halted.format(
             **named, edits=digest.edits, refused=digest.refused, calls=digest.calls
         )

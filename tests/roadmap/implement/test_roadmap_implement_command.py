@@ -11,7 +11,7 @@ from typing import Any
 import pytest
 
 from devops_cli.ai.client import factory
-from devops_cli.config.constants import CONST_ROADMAP_IMPLEMENT_MAX_REQUESTS
+from devops_cli.config.defaults import DEFAULT_ROADMAP_IMPLEMENT_MAX_REQUESTS
 from devops_cli.roadmap.implement.implement_step import StepOutcome, StepStatus, render_outcome
 from devops_cli.roadmap.stores.store import ImplementRecordKey, ItemField
 from tests.support.fakes.otlp import FakeCollector
@@ -188,7 +188,7 @@ def test_a_dry_run_makes_no_request_and_lists_the_item_read_and_the_model_reques
         [
             f"gh api repos/{REPO}/issues/1",
             "model request devops-coder for group 1 of item #1  "
-            f"[repeated up to {CONST_ROADMAP_IMPLEMENT_MAX_REQUESTS} times]",
+            f"[repeated up to {DEFAULT_ROADMAP_IMPLEMENT_MAX_REQUESTS} times]",
         ],
         [],
         [],

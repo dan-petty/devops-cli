@@ -25,10 +25,10 @@ from devops_cli.ai.context_budget import count_tokens
 from devops_cli.ai.context_packer import ContextPacker
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config import settings
-from devops_cli.config.constants import (
-    CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS,
-    CONST_ROADMAP_STAGE_GATE_RETURN_EXTENSIONS,
-    CONST_ROADMAP_STAGE_TOOL_MAX_CALLS,
+from devops_cli.config.constants import CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS
+from devops_cli.config.defaults import (
+    DEFAULT_ROADMAP_STAGE_GATE_RETURN_EXTENSIONS,
+    DEFAULT_ROADMAP_STAGE_MAX_TOOL_CALLS,
 )
 from devops_cli.exceptions.git import GitOperationError
 from devops_cli.exceptions.roadmap import RoadmapStageError
@@ -1703,7 +1703,7 @@ def test_a_failed_validation_after_the_last_return_stops_the_item(
 
     (failure,) = plan.failed
     assert plan.ready == ()
-    assert model_fake.call_count == 1 + 3 + CONST_ROADMAP_STAGE_GATE_RETURN_EXTENSIONS
+    assert model_fake.call_count == 1 + 3 + DEFAULT_ROADMAP_STAGE_GATE_RETURN_EXTENSIONS
     assert MESSAGES.roadmap.stage_gate_stop_used in failure.reason
     assert "ERROR: last" in failure.reason
     assert "ERROR: first" not in failure.reason
@@ -2036,7 +2036,7 @@ def test_a_plan_run_that_spends_its_budget_fails_its_item_and_the_others_are_pla
         assert isinstance(first, ModelRequest)
         text = next(str(p.content) for p in first.parts if isinstance(p, UserPromptPart))
         if json.loads(text)["number"] == item:
-            return ModelResponse(parts=[read] * (CONST_ROADMAP_STAGE_TOOL_MAX_CALLS + 1))
+            return ModelResponse(parts=[read] * (DEFAULT_ROADMAP_STAGE_MAX_TOOL_CALLS + 1))
         return make_stage_proposal()
 
     plan = _toolbox_plan(store, stage_repo, Script(reply))

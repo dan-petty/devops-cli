@@ -31,11 +31,8 @@ from devops_cli.ai.client.models import (
 )
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config import constants, settings
-from devops_cli.config.constants import (
-    CONST_ROADMAP_REFINE_INVESTIGATION_TURN_CALLS,
-    CONST_ROADMAP_STAGE_TOOL_MAX_CALLS,
-)
-from devops_cli.config.defaults import StageToolset
+from devops_cli.config.constants import CONST_ROADMAP_REFINE_INVESTIGATION_TURN_CALLS
+from devops_cli.config.defaults import DEFAULT_ROADMAP_STAGE_MAX_TOOL_CALLS, StageToolset
 from devops_cli.config.settings import (
     RoadmapConfig,
     RoadmapMcpConfig,
@@ -46,10 +43,9 @@ from devops_cli.exceptions.roadmap import RoadmapStageError
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.agent_run import RunLimit, RunTrace, ToolCallRecord, ToolOutcome
 from devops_cli.roadmap.refine.refine_investigation import tokens_of
-from devops_cli.roadmap.stage import stage_toolbox
 from devops_cli.roadmap.stage.stage_change import StageProposal, StageSplit
 from devops_cli.roadmap.stage.stage_toolbox import ToolboxClient
-from devops_cli.roadmap.stage.stage_tools import StageTools
+from devops_cli.roadmap.stage.stage_tools import StageTools, with_call_budget
 from devops_cli.roadmap.stage.stage_verify import Verification
 from devops_cli.roadmap.tool_metrics import end_run
 from devops_cli.telemetry.instruments import (
@@ -63,6 +59,8 @@ from tests.support.length_stop import length_stopped_model
 from tests.support.scripted_model import Script, call
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from tests.support.fakes.http import WebFake
     from tests.support.fakes.otlp import FakeCollector
 
@@ -174,7 +172,7 @@ def test_one_reply_over_the_call_limit_fails_the_run_and_names_the_limit(
 ) -> None:
     too_many = ModelResponse(
         parts=[ToolCallPart("read_file", {"path": "src/sample.py"})]
-        * (CONST_ROADMAP_STAGE_TOOL_MAX_CALLS + 1)
+        * (DEFAULT_ROADMAP_STAGE_MAX_TOOL_CALLS + 1)
     )
 
     with pytest.raises(RoadmapStageError, match="tool_calls_limit"):
@@ -323,7 +321,7 @@ def test_the_system_text_holds_the_tools_prompt_and_it_names_every_tool(
 
     request = script.seen[0][-1]
     assert isinstance(request, ModelRequest)
-    prompt = load_task_prompt("roadmap_stage_tools.md")
+    prompt = with_call_budget(load_task_prompt("roadmap_stage_tools.md"))
     assert (
         (request.instructions or "").startswith("System."),
         prompt in (request.instructions or ""),
@@ -819,7 +817,7 @@ def test_a_run_that_fails_on_one_reply_over_the_call_limit_counts_one_hit_and_on
 ) -> None:
     too_many = ModelResponse(
         parts=[ToolCallPart("read_file", {"path": "src/sample.py"})]
-        * (CONST_ROADMAP_STAGE_TOOL_MAX_CALLS + 1)
+        * (DEFAULT_ROADMAP_STAGE_MAX_TOOL_CALLS + 1)
     )
     client = _client(checkout, Script(too_many))
 
@@ -828,7 +826,7 @@ def test_a_run_that_fails_on_one_reply_over_the_call_limit_counts_one_hit_and_on
 
     assert [a["limit"] for a, _ in otlp.points(ROADMAP_TOOL_LIMIT_HITS_TOTAL.name)] == ["calls"]
     assert [value for _, value in otlp.points(ROADMAP_TOOL_CALLS_PER_RUN.name)] == [
-        float(CONST_ROADMAP_STAGE_TOOL_MAX_CALLS + 1)
+        float(DEFAULT_ROADMAP_STAGE_MAX_TOOL_CALLS + 1)
     ]
     assert client.traces[0].limit is RunLimit.CALLS
 
@@ -1041,10 +1039,25 @@ def _noticed(returns: list[str]) -> list[bool]:
     ]
 
 
+def _call_budget(config: Callable[..., Path], plan: int, review: int = 60) -> None:
+    """Set the notice of a plan run at call `plan` and of a review run at call `review`, with the
+    advice at the same calls."""
+    config(
+        roadmap={
+            "stage": {
+                "plan_calls_advised": plan,
+                "plan_calls_notice": plan,
+                "review_calls_advised": review,
+                "review_calls_notice": review,
+            }
+        }
+    )
+
+
 def test_the_answers_from_the_call_budget_of_a_plan_run_end_with_a_notice(
-    checkout: tuple[Path, str], monkeypatch: pytest.MonkeyPatch
+    checkout: tuple[Path, str], config: Callable[..., Path]
 ) -> None:
-    monkeypatch.setattr(stage_toolbox, "CONST_ROADMAP_STAGE_PLAN_CALLS_NOTICE", 2)
+    _call_budget(config, 2)
     script = Script(_read(), _read(), _read(), _PLAN)
 
     _plan(_client(checkout, script))
@@ -1053,10 +1066,9 @@ def test_the_answers_from_the_call_budget_of_a_plan_run_end_with_a_notice(
 
 
 def test_the_review_run_has_its_own_call_budget(
-    checkout: tuple[Path, str], monkeypatch: pytest.MonkeyPatch
+    checkout: tuple[Path, str], config: Callable[..., Path]
 ) -> None:
-    monkeypatch.setattr(stage_toolbox, "CONST_ROADMAP_STAGE_PLAN_CALLS_NOTICE", 1)
-    monkeypatch.setattr(stage_toolbox, "CONST_ROADMAP_STAGE_REVIEW_CALLS_NOTICE", 3)
+    _call_budget(config, 1, 3)
     script = Script(_read(), _read(), _read(), Verification(findings=[]))
 
     _client(checkout, script).chat_structured("System.", "{}", Verification, max_retries=1)
@@ -1065,9 +1077,9 @@ def test_the_review_run_has_its_own_call_budget(
 
 
 def test_a_new_run_starts_its_count_at_zero(
-    checkout: tuple[Path, str], monkeypatch: pytest.MonkeyPatch
+    checkout: tuple[Path, str], config: Callable[..., Path]
 ) -> None:
-    monkeypatch.setattr(stage_toolbox, "CONST_ROADMAP_STAGE_PLAN_CALLS_NOTICE", 2)
+    _call_budget(config, 2)
     first = Script(_read(), _read(), _PLAN)
     client = _client(checkout, first)
     _plan(client)
@@ -1082,12 +1094,49 @@ def test_a_new_run_starts_its_count_at_zero(
     )
 
 
-def test_the_prompts_name_the_budgets_of_the_constants() -> None:
-    plan = load_task_prompt("roadmap_stage_tools.md")
-    review = load_task_prompt("roadmap_stage_verify_tools.md")
+def test_the_prompts_name_the_budgets_of_the_settings(config: Callable[..., Path]) -> None:
+    """The plan prompt and the review prompt name the call budget of `roadmap.stage` that the run
+    reads (#4346, #5440)."""
+    defaults = (
+        with_call_budget(load_task_prompt("roadmap_stage_tools.md")),
+        with_call_budget(load_task_prompt("roadmap_stage_verify_tools.md")),
+    )
+    config(
+        roadmap={
+            "stage": {
+                "plan_calls_advised": 61,
+                "plan_calls_notice": 81,
+                "review_calls_advised": 82,
+                "review_calls_notice": 121,
+            }
+        }
+    )
+    plan = with_call_budget(load_task_prompt("roadmap_stage_tools.md"))
+    review = with_call_budget(load_task_prompt("roadmap_stage_verify_tools.md"))
 
-    assert f"about {constants.CONST_ROADMAP_STAGE_PLAN_CALLS_ADVISED} tool calls" in plan
-    assert f"from the {constants.CONST_ROADMAP_STAGE_PLAN_CALLS_NOTICE}th call" in plan.lower()
+    assert ["about 30 tool calls" in defaults[0], "From call number 40," in defaults[0]] == [
+        True,
+        True,
+    ]
+    assert ["about 40 tool calls" in defaults[1], "From call number 60," in defaults[1]] == [
+        True,
+        True,
+    ]
+    assert "about 61 tool calls" in plan
+    assert "From call number 81," in plan
     assert "call a tool only to check what the problem names" in plan
-    assert f"about {constants.CONST_ROADMAP_STAGE_REVIEW_CALLS_ADVISED} tool calls" in review
-    assert f"from the {constants.CONST_ROADMAP_STAGE_REVIEW_CALLS_NOTICE}th call" in review.lower()
+    assert "about 82 tool calls" in review
+    assert "From call number 121," in review
+    assert "{{" not in plan + review
+
+
+def test_a_toolbox_run_reads_its_call_limit_from_the_settings(
+    checkout: tuple[Path, str], config: Callable[..., Path]
+) -> None:
+    """The client reads `roadmap.stage.max_tool_calls` when the round makes it (#5440)."""
+    _call_budget(config, 5, 5)
+    config(roadmap={"stage": {"max_tool_calls": 5}})
+    too_many = ModelResponse(parts=[ToolCallPart("read_file", {"path": "src/sample.py"})] * 6)
+
+    with pytest.raises(RoadmapStageError, match="tool_calls_limit"):
+        _plan(_client(checkout, Script(too_many)))

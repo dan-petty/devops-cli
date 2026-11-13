@@ -1517,9 +1517,9 @@ class RoadmapCommandHelp:
     )
     step_fix_plan_skip_wait: str = (
         "Leave out the wait of 6 hours after the last attempt, for the one item that --item or "
-        "--pull names. Needs --confirm. The limits of 2 attempts on the head and 3 revisions stay, "
-        "but a head whose counted attempts ran on an older release gets one more attempt. The "
-        "Service never uses it."
+        "--pull names. Needs --confirm. The limits of roadmap.fix_plan.head_attempts on the head "
+        "and roadmap.fix_plan.revisions stay, but a head whose counted attempts ran on an older "
+        "release gets one more attempt. The Service never uses it."
     )
     eval_app: str = (
         "Score the roadmap jobs. grades reads the live result lines of each job in Loki. Each "

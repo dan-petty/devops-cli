@@ -325,3 +325,5 @@ The naming record of #4533 owns the object names, the labels, the Valkey key for
 2026-11-12: Fact out of date: section 8, row `fix-plan`, Work and Marker. [The fix-plan step](../roadmap/stage.md#the-fix-plan-step) holds the results and the read before the marks (#5213).
 
 2026-11-13: Fact out of date: section 8, row `fix-plan`, Marker. [The fix-plan step](../roadmap/stage.md#the-fix-plan-step) holds the keys `fix_plan.version` and `fix_plan.evicted` and the kill classes (#5413).
+
+2026-11-13: Fact out of date: section 8, row `fix-plan`, Bounds. The attempts on a head and the revisions are settings with these defaults (#5440).

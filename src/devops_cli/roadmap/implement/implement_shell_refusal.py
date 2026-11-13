@@ -13,7 +13,7 @@ words hold a refused argument, such as `find -exec` (#3072). It adds only text f
 `IMPLEMENT_SHELL_REPLACEMENTS` and from the messages, never a word of the command. It cuts the text
 of the shell to `CONST_ROADMAP_RUN_ERROR_CHARS`, as the text echoes the first word of the command,
 or the whole command for an interactive one, with no limit. It tells the log of the step about
-each refusal, and the log counts it and ends the step at `CONST_ROADMAP_IMPLEMENT_MAX_REFUSALS`.
+each refusal, and the log counts it and ends the step at `roadmap.implement.max_refusals`.
 
 It also sets the wait of each call of the shell tool to the command limit of the step (#4493). The
 tool takes a wait from the model, and its description gives 30 s as the default. A short wait kills

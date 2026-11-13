@@ -32,8 +32,13 @@ from devops_cli.config.defaults import (
     DEFAULT_ROADMAP_IMPLEMENT_REQUEST_TIMEOUT_SECONDS,
     DEFAULT_ROADMAP_STAGE_STEP_TOKENS,
 )
-from devops_cli.roadmap.implement.implement_step import output_cap, run_fix_step, run_step
-from devops_cli.roadmap.stage.stage_toolbox import ToolboxClient
+from devops_cli.roadmap.implement.implement_step import (
+    output_cap,
+    run_fix_step,
+    run_step,
+    step_usage_limits,
+)
+from devops_cli.roadmap.stage.stage_toolbox import ToolboxClient, run_limits
 from tests.support.paths import REPO_ROOT
 
 CLASSES: Final = frozenset({"raised", "guard", "window", "setting", "kept", "other"})
@@ -59,6 +64,28 @@ REMOVED: Final[tuple[str, ...]] = (
     "CONST_ROADMAP_STAGE_GATE_RETURNS",
     # The repair rounds of the review are a setting: `DEFAULT_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS`.
     "CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS",
+    # The limits that end an attempt are settings (#5440): `DEFAULT_ROADMAP_*` of the same job. The
+    # ceiling of a setting is `CONST_ROADMAP_LIMIT_CEILING_FACTOR` times its default.
+    "CONST_ROADMAP_STAGE_GATE_RETURNS_CEILING",
+    "CONST_ROADMAP_STAGE_GATE_RETURN_EXTENSIONS",
+    "CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS_CEILING",
+    "CONST_ROADMAP_STAGE_PLAN_DEFECT_LIMIT",
+    "CONST_ROADMAP_STAGE_MAX_REQUESTS",
+    "CONST_ROADMAP_STAGE_TOOL_MAX_CALLS",
+    "CONST_ROADMAP_STAGE_PLAN_CALLS_ADVISED",
+    "CONST_ROADMAP_STAGE_PLAN_CALLS_NOTICE",
+    "CONST_ROADMAP_STAGE_REVIEW_CALLS_ADVISED",
+    "CONST_ROADMAP_STAGE_REVIEW_CALLS_NOTICE",
+    "CONST_ROADMAP_IMPLEMENT_MAX_REQUESTS",
+    "CONST_ROADMAP_IMPLEMENT_MAX_TOOL_CALLS",
+    "CONST_ROADMAP_IMPLEMENT_MAX_REFUSALS",
+    "CONST_ROADMAP_IMPLEMENT_MAX_CONSECUTIVE_REFUSALS",
+    "CONST_ROADMAP_IMPLEMENT_TOOL_RETRIES",
+    "CONST_ROADMAP_IMPLEMENT_MODEL_RESENDS",
+    "CONST_ROADMAP_IMPLEMENT_EXTENSION_CALLS",
+    "CONST_ROADMAP_IMPLEMENT_EXTENSION_MAX_REFUSED",
+    "CONST_ROADMAP_FIX_PLAN_HEAD_ATTEMPTS",
+    "CONST_ROADMAP_FIX_PLAN_REVISIONS",
 )
 
 LIMITS: Final[dict[str, tuple[str, str]]] = {
@@ -79,9 +106,9 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
         "kept",
         "retries for a reply that breaks the schema; a stuck model fails again",
     ),
-    "CONST_ROADMAP_STAGE_PLAN_DEFECT_LIMIT": (
-        "kept",
-        "stops a stage job that refuses the plan of one body again and again, so the item returns to New and the model lane goes to the other items",
+    "DEFAULT_ROADMAP_STAGE_PLAN_DEFECT_LIMIT": (
+        "setting",
+        "stops a stage job that refuses the plan of one body again and again, so the item returns to New and the model lane goes to the other items; a setting since #5440",
     ),
     "CONST_ROADMAP_STAGE_REFUSED_REPLY_MAX_BYTES": (
         "kept",
@@ -164,15 +191,21 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
         "protects the job record of the issue from a long list of findings of the review",
     ),
     # ── Stage ─────────────────────────────────────────────────────────────────────────────
-    "CONST_ROADMAP_STAGE_TOOL_MAX_CALLS": ("guard", "was 30; the window ends the run first"),
-    "CONST_ROADMAP_STAGE_MAX_REQUESTS": ("guard", "was 40; the window ends the run first"),
-    "CONST_ROADMAP_STAGE_GATE_RETURNS_CEILING": (
-        "guard",
-        "the hard ceiling of `roadmap.stage.gate_returns`; 13 plan runs of an item at most (#4900)",
+    "DEFAULT_ROADMAP_STAGE_MAX_TOOL_CALLS": (
+        "setting",
+        "was 30; the loop guard of a run, which the window ends first; a setting since #5440",
     ),
-    "CONST_ROADMAP_STAGE_GATE_RETURN_EXTENSIONS": (
-        "guard",
-        "the extra returns of one item past `roadmap.stage.gate_returns` while the rule sees progress; 22 plan runs of an item at most (#4851)",
+    "DEFAULT_ROADMAP_STAGE_MAX_REQUESTS": (
+        "setting",
+        "was 40; the loop guard of a run, which the window ends first; a setting since #5440",
+    ),
+    "CONST_ROADMAP_LIMIT_CEILING_FACTOR": (
+        "other",
+        "the ceiling of each setting that ends an attempt, as a factor of its default (#5440); it bounds a setting, no run is cut by it",
+    ),
+    "DEFAULT_ROADMAP_STAGE_GATE_RETURN_EXTENSIONS": (
+        "setting",
+        "the extra returns of one item past `roadmap.stage.gate_returns` while the rule sees progress; 22 plan runs of an item at the defaults (#4851, #5440)",
     ),
     "CONST_ROADMAP_STAGE_LOG_MAX_COUNT": ("raised", "was 20; commits of one `git_log` answer"),
     "CONST_ROADMAP_STAGE_MAP_MAX_FILES": ("raised", "was 20; files of one `repo_map` answer"),
@@ -193,21 +226,21 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
         "window",
         "room that the first plan request leaves below the limit of the tools for their answers",
     ),
-    "CONST_ROADMAP_STAGE_PLAN_CALLS_ADVISED": (
-        "guard",
-        "the calls that the prompt of a plan run names; the notice follows 10 calls later",
+    "DEFAULT_ROADMAP_STAGE_PLAN_CALLS_ADVISED": (
+        "setting",
+        "the calls that the prompt of a plan run names; the notice follows 10 calls later; a setting since #5440",
     ),
-    "CONST_ROADMAP_STAGE_PLAN_CALLS_NOTICE": (
-        "guard",
-        "the call from which each answer of a plan run tells the model to give the plan",
+    "DEFAULT_ROADMAP_STAGE_PLAN_CALLS_NOTICE": (
+        "setting",
+        "the call from which each answer of a plan run tells the model to give the plan; a setting since #5440",
     ),
-    "CONST_ROADMAP_STAGE_REVIEW_CALLS_ADVISED": (
-        "guard",
-        "the calls that the prompt of a review run names; the notice follows 20 calls later",
+    "DEFAULT_ROADMAP_STAGE_REVIEW_CALLS_ADVISED": (
+        "setting",
+        "the calls that the prompt of a review run names; the notice follows 20 calls later; a setting since #5440",
     ),
-    "CONST_ROADMAP_STAGE_REVIEW_CALLS_NOTICE": (
-        "guard",
-        "the call from which each answer of a review run tells the model to give its findings",
+    "DEFAULT_ROADMAP_STAGE_REVIEW_CALLS_NOTICE": (
+        "setting",
+        "the call from which each answer of a review run tells the model to give its findings; a setting since #5440",
     ),
     "CONST_ROADMAP_STAGE_MIN_TOOL_CALLS": (
         "window",
@@ -265,9 +298,9 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
     ),
     "CONST_ROADMAP_STAGE_VERIFY_FILE_MAX_TOKENS": ("kept", "same reason as the body cap"),
     "CONST_ROADMAP_STAGE_VERIFY_MAX_FILES": ("kept", "same reason as the body cap"),
-    "CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS_CEILING": (
-        "guard",
-        "the hard ceiling of `roadmap.stage.verify_repair_rounds` and of its extension; 5 review runs and 21 plan runs of an item at most before the gate return extension (#5066)",
+    "DEFAULT_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS_CEILING": (
+        "setting",
+        "the most repair rounds of the review, of the setting and of its extension; 5 review runs and 21 plan runs of an item at the defaults before the gate return extension (#5066, #5440)",
     ),
     "CONST_ROADMAP_STAGE_ORPHAN_AGE_SECONDS": (
         "kept",
@@ -331,49 +364,49 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
     ),
     "DEFAULT_ROADMAP_ALTERNATIVES_INTERVAL_MINUTES": ("other", "a schedule"),
     # ── Implement ─────────────────────────────────────────────────────────────────────────
-    "CONST_ROADMAP_IMPLEMENT_MAX_REQUESTS": (
-        "guard",
-        "was 80; the Job deadline is the only other stop of a looping model",
+    "DEFAULT_ROADMAP_IMPLEMENT_MAX_REQUESTS": (
+        "setting",
+        "was 80; the loop guard of a step, with the Job deadline as the only other stop of a looping model; a setting since #5440",
     ),
-    "CONST_ROADMAP_IMPLEMENT_MAX_TOOL_CALLS": (
-        "guard",
-        "was 240; the Job deadline is the only other stop of a looping model",
+    "DEFAULT_ROADMAP_IMPLEMENT_MAX_TOOL_CALLS": (
+        "setting",
+        "was 240; the loop guard of a step, with the Job deadline as the only other stop of a looping model; a setting since #5440",
     ),
     "CONST_ROADMAP_IMPLEMENT_TOOL_MAX_CHARS": (
         "raised",
         "was 16,000; one tool result, a twelfth of the window",
     ),
-    "CONST_ROADMAP_IMPLEMENT_TOOL_RETRIES": (
-        "kept",
-        "failures of a tool in a row before the run ends; a shell refusal is no failure (#3271)",
+    "DEFAULT_ROADMAP_IMPLEMENT_TOOL_RETRIES": (
+        "setting",
+        "failures of a tool in a row before the run ends; a shell refusal is no failure (#3271); a setting since #5440",
     ),
-    "CONST_ROADMAP_IMPLEMENT_MAX_REFUSALS": (
-        "guard",
-        "refused shell commands of one step; a refusal counts no tool retry, so this ends a loop",
+    "DEFAULT_ROADMAP_IMPLEMENT_MAX_REFUSALS": (
+        "setting",
+        "refused shell commands of one step; a refusal counts no tool retry, so this ends a loop; a setting since #5440",
     ),
-    "CONST_ROADMAP_IMPLEMENT_MAX_CONSECUTIVE_REFUSALS": (
-        "guard",
-        "refused shell commands in a row, with no accepted tool call between them (#4043); this ends a tight loop early",
+    "DEFAULT_ROADMAP_IMPLEMENT_MAX_CONSECUTIVE_REFUSALS": (
+        "setting",
+        "refused shell commands in a row, with no accepted tool call between them (#4043); this ends a tight loop early; a setting since #5440",
     ),
-    "CONST_ROADMAP_IMPLEMENT_EXTENSION_CALLS": (
-        "other",
-        "the tool calls that the rule implement.extension reads (#4394); it gives room, no run is cut by it",
+    "DEFAULT_ROADMAP_IMPLEMENT_EXTENSION_CALLS": (
+        "setting",
+        "the tool calls that the rule implement.extension reads (#4394); it gives room, no run is cut by it; a setting since #5440",
     ),
     "CONST_ROADMAP_IMPLEMENT_EXTENSION_MIN_EDITS": (
         "other",
         "the edits that the rule implement.extension asks for (#4394); no run is cut by it",
     ),
-    "CONST_ROADMAP_IMPLEMENT_EXTENSION_MAX_REFUSED": (
-        "other",
-        "the refused commands that the rule implement.extension allows (#4394); no run is cut by it",
+    "DEFAULT_ROADMAP_IMPLEMENT_EXTENSION_MAX_REFUSED": (
+        "setting",
+        "the refused commands that the rule implement.extension allows (#4394); a setting since #5440",
     ),
     "CONST_ROADMAP_IMPLEMENT_EXTENSION_PERCENT": (
         "other",
         "the size of the one extension of a step budget (#4394); the ceiling bounds it, no run is cut by it",
     ),
-    "CONST_ROADMAP_IMPLEMENT_MODEL_RESENDS": (
-        "kept",
-        "resends of a request that the provider failed with the status 400",
+    "DEFAULT_ROADMAP_IMPLEMENT_MODEL_RESENDS": (
+        "setting",
+        "resends of a request that the provider failed with the status 400; a setting since #5440",
     ),
     "CONST_ROADMAP_IMPLEMENT_TURN_RESERVE_TOKENS": (
         "window",
@@ -665,18 +698,18 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
         "setting",
         "new (#5363); under the deadline of the Job with a margin for one more model run",
     ),
-    "CONST_ROADMAP_FIX_PLAN_HEAD_ATTEMPTS": (
-        "kept",
+    "DEFAULT_ROADMAP_FIX_PLAN_HEAD_ATTEMPTS": (
+        "setting",
         "the model spend on one head of a plan pull request: a third try of the same input "
-        "seldom gives a better plan",
+        "seldom gives a better plan; a setting since #5440",
     ),
     "CONST_ROADMAP_FIX_PLAN_WAIT_HOURS": (
         "kept",
         "the time between two attempts of one plan, so the model lane serves the other rows",
     ),
-    "CONST_ROADMAP_FIX_PLAN_REVISIONS": (
-        "kept",
-        "the heads that a fix step pushes to one pull request (ADR 0021 section 8)",
+    "DEFAULT_ROADMAP_FIX_PLAN_REVISIONS": (
+        "setting",
+        "the heads that a fix step pushes to one pull request (ADR 0021 section 8); a setting since #5440",
     ),
 }
 
@@ -721,20 +754,21 @@ def test_a_removed_limit_does_not_come_back(name: str) -> None:
 
 def test_a_step_and_a_toolbox_run_default_to_the_guards_of_their_jobs() -> None:
     """The tests that reach a limit pass small limits, so that a run reaches them in a few
-    requests (#4688). The jobs give none, and run at the guards."""
+    requests (#4688). The jobs give none, and run at the guards that the settings hold (#5440)."""
     step = UsageLimits(
-        request_limit=constants.CONST_ROADMAP_IMPLEMENT_MAX_REQUESTS,
-        tool_calls_limit=constants.CONST_ROADMAP_IMPLEMENT_MAX_TOOL_CALLS,
+        request_limit=defaults.DEFAULT_ROADMAP_IMPLEMENT_MAX_REQUESTS,
+        tool_calls_limit=defaults.DEFAULT_ROADMAP_IMPLEMENT_MAX_TOOL_CALLS,
     )
     toolbox_run = UsageLimits(
-        request_limit=constants.CONST_ROADMAP_STAGE_MAX_REQUESTS,
-        tool_calls_limit=constants.CONST_ROADMAP_STAGE_TOOL_MAX_CALLS,
+        request_limit=defaults.DEFAULT_ROADMAP_STAGE_MAX_REQUESTS,
+        tool_calls_limit=defaults.DEFAULT_ROADMAP_STAGE_MAX_TOOL_CALLS,
     )
 
     assert [
         inspect.signature(caller).parameters["usage_limits"].default
         for caller in (run_step, run_fix_step, ToolboxClient)
-    ] == [step, step, toolbox_run]
+    ] == [None, None, None]
+    assert (step_usage_limits(), run_limits()) == (step, toolbox_run)
 
 
 # ── The limits fit the windows ────────────────────────────────────────────────────────────

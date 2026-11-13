@@ -896,15 +896,88 @@ DEFAULT_ROADMAP_STAGE_GATE_RETURNS: int = 3
 # The repair rounds of a plan that the model review returns (#3039, #5066): the planner revises the
 # plan this many times while the review has an open finding, and one more time while the last review
 # fixes more earlier findings than it adds (#5409), up to
-# `CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS_CEILING`. On 2026-11-12, 2 of 7 plans used both rounds
+# `DEFAULT_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS_CEILING`. On 2026-11-12, 2 of 7 plans used both rounds
 # while the plan still improved.
 DEFAULT_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS: int = 2
+# The limits that end an attempt of the stage, implement and fix-plan jobs are settings (#5440), so
+# a person can change them in the ConfigMap with no release. Each default is the value of the
+# constant that the setting replaced, so no configuration gives the same behavior. The settings
+# load refuses a value above `CONST_ROADMAP_LIMIT_CEILING_FACTOR` times the default.
+#
+# The most repair rounds of a plan that the model review returns (#5066): of the setting
+# `roadmap.stage.verify_repair_rounds`, and of the rounds that follow it while the last review
+# fixes more earlier findings than it adds (#5409). A plan costs at most 5 review runs at this
+# value. Each round is one more plan run with its gate returns (R), so one item makes at most
+# 5R + 6 plan runs: 21 at the defaults, about 4.2 hours at the p90 of 728 s of 2026-11-11.
+DEFAULT_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS_CEILING: int = 4
+# The extra returns of one item past `roadmap.stage.gate_returns` (#4851). A reply that the checks
+# refuse at the last return gets one more return when no finding of the reply before it stays and
+# no finding has the fix class `never`. Each extra return is one plan run, so one reply gets at
+# most R + 2 planner requests, and an item 5R + 7 plan runs at most: 22 at the defaults. On
+# 2026-11-13, #5136 stopped at its third return while its findings went from 3 to 1 to 1 new one.
+DEFAULT_ROADMAP_STAGE_GATE_RETURN_EXTENSIONS: int = 1
+# The `plan_defect` failures of one item on the same body (#4491): the failure that reaches this
+# count returns the item to New with the problems of its refused replies. In 48 hours, 5 of the 6
+# plans that staged came after 2 refused plans, and 27 items failed more than 2 times.
+DEFAULT_ROADMAP_STAGE_PLAN_DEFECT_LIMIT: int = 3
+# The tool calls and the model requests of one plan run or review run of the stage job (#3037).
+# The window of the model ends the run before the counts do
+# (`CONST_ROADMAP_INVESTIGATION_REPLY_WINDOW_SHARE`), and the output tokens of the run have no count
+# of their own: they are in the messages, which the window holds (#3206). The counts are the loop
+# guard of the job, 6 to 7 times the old counts. The requests are a few more than the calls, for
+# the tool-free turn near the limit and the retries of a reply.
+DEFAULT_ROADMAP_STAGE_MAX_TOOL_CALLS: int = 200
+DEFAULT_ROADMAP_STAGE_MAX_REQUESTS: int = 250
+# The call budget of a stage run (#4346). The prompt of a run says how many tool calls it needs
+# (`*_calls_advised`), and from the call `*_calls_notice` each tool answer ends with a notice to give
+# the reply, with the tools still on. A plan run needs about 30 calls and a review run about 40: the
+# runs of 7 days made 33 (plan) and 53 (review) calls in the middle and 43 and 107 at the 90th
+# percentile, and a plan run of 113 calls filled the window of 256,000 tokens (2026-11-10). Each
+# request sends the whole context again, so a run that reads on costs the sum of its contexts.
+DEFAULT_ROADMAP_STAGE_PLAN_CALLS_ADVISED: int = 30
+DEFAULT_ROADMAP_STAGE_PLAN_CALLS_NOTICE: int = 40
+DEFAULT_ROADMAP_STAGE_REVIEW_CALLS_ADVISED: int = 40
+DEFAULT_ROADMAP_STAGE_REVIEW_CALLS_NOTICE: int = 60
 # The most Planned items before the stage job plans only P0 and P1 items (#3487, #3692). The
 # Service delivers about two items a day, so 20 items wait about ten days: a plan that waits longer
 # meets a changed default branch, and `messages.py` and `stage_change.py` appear in most plans.
 DEFAULT_ROADMAP_STAGE_PLANNED_LIMIT: int = 20
 # The most extra turns of an implement step (#3043): each fixes a failed check or asks for ticks.
 DEFAULT_ROADMAP_IMPLEMENT_REPAIR_ROUNDS: int = 3
+# The model requests and the tool calls of the run of one implement step (#2664). They are the loop
+# guard of the job (#3206): 500 requests and 1,500 calls are 6 times the old counts, and without
+# them the Job deadline would be the only stop of a model that loops.
+DEFAULT_ROADMAP_IMPLEMENT_MAX_REQUESTS: int = 500
+DEFAULT_ROADMAP_IMPLEMENT_MAX_TOOL_CALLS: int = 1500
+# The consecutive failures that a tool may answer before the run ends, such as an `edit_file` whose
+# text is not found. A successful call of a tool resets its count (`pydantic_ai/tool_manager.py`),
+# so the count is of failures in a row. A refusal of the shell by policy is a tool result, not a
+# failure, so it adds nothing to this count (#3271). A failure is the model's to correct, as the
+# harness's own file tools allow five.
+DEFAULT_ROADMAP_IMPLEMENT_TOOL_RETRIES: int = 5
+# The commands that the shell of a step may refuse by policy before the run ends (#3271). The
+# refusals count no tool retry, so this total is the stop of a model that loops on a refused
+# command. A step of one item keeps one count across its extra turns.
+DEFAULT_ROADMAP_IMPLEMENT_MAX_REFUSALS: int = 30
+# The commands that the shell may refuse in a row, with no accepted tool call between them, before
+# the run ends (#4043). A model that repeats a refused command asks again in every reply, and each
+# reply holds the whole history: one run spent 8,022,108 tokens in 77 requests on 4 refused
+# commands. The count spans the step, extra turns included, and any tool call that is not refused
+# resets it. The total limit above still stops a model that alternates refused and accepted calls.
+DEFAULT_ROADMAP_IMPLEMENT_MAX_CONSECUTIVE_REFUSALS: int = 3
+# The window and the refused commands of the rule `implement.extension` (ADR 0020, #4394), with
+# `CONST_ROADMAP_IMPLEMENT_EXTENSION_MIN_EDITS`. Pilot 3 gave the numbers: the Job logs of 14 days
+# (2026-10-27 to 2026-11-10), 33 labelled checkpoints from 28 items. In the last 20 calls before the
+# stop, each of the 16 stops that a person finished later held at least 1 successful edit and at
+# most 3 refused commands, and the stops that repeated refused commands held 4 or more.
+DEFAULT_ROADMAP_IMPLEMENT_EXTENSION_CALLS: int = 20
+DEFAULT_ROADMAP_IMPLEMENT_EXTENSION_MAX_REFUSED: int = 3
+# How many times in a row a step sends a model request again when the provider fails it inside an
+# open stream with the status 400 (#2794): a tool call that the model ended early, which the next
+# sample can make whole. The resend adds to the retries of the client (`ai.max_retries`, #2500).
+# The client retries only 5xx, 429 and connection errors, and the step only this 400, so a call
+# gets at most (1 + `ai.max_retries`) * (1 + this value) sends.
+DEFAULT_ROADMAP_IMPLEMENT_MODEL_RESENDS: int = 1
 # The budgets of an implement step and of a run of an item (#3053). The tokens are the new tokens
 # of the replies (#4387): the input tokens that the provider did not read from its cache, and the
 # output tokens, summed over all requests of a step. A route that reports no cache reads, such as
@@ -985,6 +1058,11 @@ DEFAULT_ROADMAP_FIX_PLAN_INTERVAL_MINUTES: int = 53
 # fix-plan Jobs had 5400 s, so the budget, one more run, the push and the result line end before
 # both. The attempts that repaired a plan took 2387 s to 3016 s (2026-11-12).
 DEFAULT_ROADMAP_FIX_PLAN_TIME_BUDGET_SECONDS: int = 3600
+# The attempts of the step fix-plan on one head of a plan pull request, and the revisions that it
+# pushes to one pull request (#5061). ADR 0021 gives a fix unit at most 3 heads of one pull request
+# by default.
+DEFAULT_ROADMAP_FIX_PLAN_HEAD_ATTEMPTS: int = 2
+DEFAULT_ROADMAP_FIX_PLAN_REVISIONS: int = 3
 # How often the stage_ready row is due on its own, besides its first run (#2865). A round with no
 # recorded draft sends no request; a draft that waits for its checks costs two requests a round.
 DEFAULT_ROADMAP_STAGE_READY_INTERVAL_MINUTES: int = 3

@@ -3,7 +3,7 @@
 The job counts the `plan_defect` failures of an item on the same body in `stage.plan_defects`, with
 the hash of that body in `stage.plan_defects_body`. A body edit starts a new count, and a failure
 of another class leaves the count as it is. The failure that reaches
-`CONST_ROADMAP_STAGE_PLAN_DEFECT_LIMIT` returns the item to New with one comment that lists the
+`roadmap.stage.plan_defect_limit` (#5440) returns the item to New with one comment that lists the
 problems of the last plan: the problem of each refused reply, and then the reason of the failure
 when the checks did not refuse the last reply. It clears the count. A staged item clears the count
 too.
@@ -17,8 +17,8 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
-from devops_cli.config import constants
 from devops_cli.config.constants import CONST_ROADMAP_STAGE_COMMENT_MARKER
+from devops_cli.config.settings import load_settings
 from devops_cli.exceptions import RoadmapStageError
 from devops_cli.roadmap.failure import FailureClass, StepName
 from devops_cli.roadmap.run import _run_stage_adapter
@@ -38,6 +38,9 @@ from tests.support.roadmap_stage import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+    from pathlib import Path
+
     from tests.support.fakes.github import GitHubApiFake
     from tests.support.fakes.model import ModelFake
     from tests.support.fakes.openspec import OpenSpecFake
@@ -49,8 +52,8 @@ NOW = datetime(2026, 11, 1, 12, 0, tzinfo=UTC)
 
 
 def _limit() -> int:
-    """The limit of refused plans. It is new, so a test reads it when it runs."""
-    return constants.CONST_ROADMAP_STAGE_PLAN_DEFECT_LIMIT
+    """The limit of refused plans: the setting, which a test reads when it runs."""
+    return load_settings().roadmap.stage.plan_defect_limit
 
 
 REASON = (
@@ -204,6 +207,22 @@ def test_the_refused_plan_at_the_limit_returns_the_item_to_new_with_its_problems
     [comment] = _stage_comments(store, number)
     assert f"{_limit()} times" in comment
     assert _bullets(comment) == [f"- {problem}" for problem in PROBLEMS]
+
+
+def test_the_setting_moves_the_limit_of_refused_plans(config: Callable[..., Path]) -> None:
+    """The job reads `roadmap.stage.plan_defect_limit` at each failure (#5440)."""
+    config(roadmap={"stage": {"plan_defect_limit": 5}})
+    store = InMemoryRoadmapStore(repo=STAGE_REPO)
+    number = seed_stageable(store)
+
+    for _ in range(4):
+        _fail(store, number)
+    held = (_status(store, number), _count(store, number))
+    _fail(store, number)
+
+    assert (held, _status(store, number)) == (("Ready", "4"), "New")
+    [comment] = _stage_comments(store, number)
+    assert "5 times" in comment
 
 
 def test_a_failure_after_the_refused_replies_gives_its_reason_after_their_problems() -> None:

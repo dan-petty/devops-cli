@@ -25,12 +25,12 @@ tool result and adds no tool retry (#3271), so `ShellRefusal` tells the log of e
 (`refuse`) and the line of the call says `refused`. A refusal of a file tool, such as a path outside
 the root, is an other retry. The reason of a stopped step holds both counts, so a person sees at
 once which program the model kept asking for. The step ends when the refusals pass
-`CONST_ROADMAP_IMPLEMENT_MAX_REFUSALS`, or at
-`CONST_ROADMAP_IMPLEMENT_MAX_CONSECUTIVE_REFUSALS` refusals in a row (#4043): a call that is not refused
-resets that count.
+`roadmap.implement.max_refusals`, or at `roadmap.implement.max_consecutive_refusals` refusals in a
+row (#4043): a call that is not refused resets that count. The log reads these settings when it is
+made, once for each step (#5440).
 
-The log keeps the tool name and the outcome of the last `CONST_ROADMAP_IMPLEMENT_EXTENSION_CALLS`
-calls (#4394). `progress` gives their counts, the digest that the rule of the extension of the
+The log keeps the tool name and the outcome of the last `roadmap.implement.extension_calls` calls
+(#4394). `progress` gives their counts, the digest that the rule of the extension of the
 step budget reads: the successful edits and the refused commands. The digest holds counts only.
 
 The line goes to the console stream, not to `logging`: a `devops` process has no handler for the
@@ -66,17 +66,15 @@ from pydantic_ai.models import ModelRequestContext
 from pydantic_ai.tools import ToolDefinition
 
 from devops_cli.config.constants import (
-    CONST_ROADMAP_IMPLEMENT_EXTENSION_CALLS,
     CONST_ROADMAP_IMPLEMENT_LOG_COMMAND_CHARS,
     CONST_ROADMAP_IMPLEMENT_LOG_COMMAND_READ_CHARS,
     CONST_ROADMAP_IMPLEMENT_LOG_COMMAND_WORDS,
     CONST_ROADMAP_IMPLEMENT_LOG_REASON_CHARS,
-    CONST_ROADMAP_IMPLEMENT_MAX_CONSECUTIVE_REFUSALS,
-    CONST_ROADMAP_IMPLEMENT_MAX_REFUSALS,
     CONST_ROADMAP_IMPLEMENT_REASON_PATHS,
     CONST_ROADMAP_IMPLEMENT_REFUSED_PROGRAMS,
     CONST_ROADMAP_IMPLEMENT_STOP_REASONS,
 )
+from devops_cli.config.settings import RoadmapImplementConfig, load_settings
 from devops_cli.lang import MESSAGES
 from devops_cli.output import print_muted
 from devops_cli.roadmap.agent_run import bounded_text
@@ -126,12 +124,12 @@ class ToolOutcome(StrEnum):
     FAILED = "failed"
 
 
-def progress_digest(calls: Sequence[tuple[str, ToolOutcome]]) -> ProgressDigest | None:
-    """The counts of the last `CONST_ROADMAP_IMPLEMENT_EXTENSION_CALLS` of `calls`, each a tool name
-    and an outcome: the successful edits and the refused commands (#4394). None when there are
+def progress_digest(calls: Sequence[tuple[str, ToolOutcome]], size: int) -> ProgressDigest | None:
+    """The counts of the last `size` (`roadmap.implement.extension_calls`) of `calls`, each a tool
+    name and an outcome: the successful edits and the refused commands (#4394). None when there are
     fewer calls than that, as the counts of a short window say little."""
-    window = calls[-CONST_ROADMAP_IMPLEMENT_EXTENSION_CALLS:]
-    if len(window) < CONST_ROADMAP_IMPLEMENT_EXTENSION_CALLS:
+    window = calls[-size:]
+    if len(window) < size:
         return None
     return ProgressDigest(
         calls=len(window),
@@ -347,13 +345,18 @@ class ToolCallLog:
     parser_failures: int = 0
     replied: set[int] = field(default_factory=set[int])
     asked: float = 0.0
-    recent: deque[tuple[str, ToolOutcome]] = field(
-        default_factory=lambda: deque(maxlen=CONST_ROADMAP_IMPLEMENT_EXTENSION_CALLS)
+    recent: deque[tuple[str, ToolOutcome]] = field(default_factory=deque[tuple[str, ToolOutcome]])
+    limits: RoadmapImplementConfig = field(
+        default_factory=lambda: load_settings().roadmap.implement
     )
+
+    def __post_init__(self) -> None:
+        """Keep only the last calls that the rule of the extension reads (#4394, #5440)."""
+        self.recent = deque(self.recent, maxlen=self.limits.extension_calls)
 
     def progress(self) -> ProgressDigest | None:
         """The digest of the last calls of the step, or None when it made too few (#4394)."""
-        return progress_digest(tuple(self.recent))
+        return progress_digest(tuple(self.recent), self.limits.extension_calls)
 
     def refuse(self, tool_call_id: str | None) -> None:
         """Note that the shell refused the call with this id and returned the refusal as a result.
@@ -500,17 +503,14 @@ class ToolCallLog:
         shell = call.tool_name == IMPLEMENT_SHELL_TOOL
         status = shell_exit_status(result) if shell and not refused else None
         self._note(call.tool_name, program, outcome, digest=argument_digest(call), status=status)
-        if refused and self.refused_run >= CONST_ROADMAP_IMPLEMENT_MAX_CONSECUTIVE_REFUSALS:
+        in_a_row = self.limits.max_consecutive_refusals
+        if refused and self.refused_run >= in_a_row:
             raise UnexpectedModelBehavior(
-                MESSAGES.roadmap.implement_refusal_consecutive_limit.format(
-                    limit=CONST_ROADMAP_IMPLEMENT_MAX_CONSECUTIVE_REFUSALS
-                )
+                MESSAGES.roadmap.implement_refusal_consecutive_limit.format(limit=in_a_row)
             )
-        if refused and sum(self.refused.values()) > CONST_ROADMAP_IMPLEMENT_MAX_REFUSALS:
+        if refused and sum(self.refused.values()) > self.limits.max_refusals:
             raise UnexpectedModelBehavior(
-                MESSAGES.roadmap.implement_refusal_limit.format(
-                    limit=CONST_ROADMAP_IMPLEMENT_MAX_REFUSALS
-                )
+                MESSAGES.roadmap.implement_refusal_limit.format(limit=self.limits.max_refusals)
             )
         return result
 

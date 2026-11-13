@@ -14,7 +14,7 @@ from typing import Any
 
 import pytest
 
-from devops_cli.config.constants import CONST_ROADMAP_IMPLEMENT_MAX_REQUESTS
+from devops_cli.config.defaults import DEFAULT_ROADMAP_IMPLEMENT_MAX_REQUESTS
 from devops_cli.exceptions.roadmap import ImplementEvalError
 from devops_cli.roadmap.implement.implement_eval import LoadedCase, load_case
 from devops_cli.roadmap.implement.implement_eval_run import (
@@ -418,7 +418,7 @@ def test_a_dry_run_lists_the_steps_and_their_model_requests(tmp_path: Path) -> N
         "- sample: issue #1, group 1, base 0123456789ab",
         "",
         "The model requests of a run:",
-        f"1. model request example-model for group 1 of item #1 (fixture sample)  [repeated up to {CONST_ROADMAP_IMPLEMENT_MAX_REQUESTS} times]",
+        f"1. model request example-model for group 1 of item #1 (fixture sample)  [repeated up to {DEFAULT_ROADMAP_IMPLEMENT_MAX_REQUESTS} times]",
     ]
 
 

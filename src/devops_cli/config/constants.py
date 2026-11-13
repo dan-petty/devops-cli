@@ -3364,39 +3364,17 @@ CONST_ROADMAP_PAGE_FETCH_RESULT_ERROR: Final[str] = "error"
 # window (#3037). The bytes bound the memory of one tool answer; the lines bound its text.
 CONST_ROADMAP_INVESTIGATION_MAX_BLOB_BYTES: Final[int] = 2_000_000
 CONST_ROADMAP_INVESTIGATION_REPLY_WINDOW_SHARE: Final[int] = 4
-# The plan run of the stage job (#3037): the tool calls and the model requests of one run, the
-# commits `git_log` lists, the files `repo_map` maps and the characters of each of its lines (40
-# lines of 180 characters fit one tool answer), and the characters of the answer of `read_spec`,
-# which a whole requirement can pass the limit of the other tools. The window of the model ends
-# the run before the counts do (`CONST_ROADMAP_INVESTIGATION_REPLY_WINDOW_SHARE`), and the output
-# tokens of the run have no count of their own: they are in the messages, which the window holds
-# (#3206). The counts are the loop guard of the job, 6 to 7 times the old counts. The requests are a
-# few more than the calls, for the tool-free turn near the limit and the retries of a reply.
-CONST_ROADMAP_STAGE_TOOL_MAX_CALLS: Final[int] = 200
-CONST_ROADMAP_STAGE_MAX_REQUESTS: Final[int] = 250
-# The hard ceiling of `roadmap.stage.gate_returns` (#4900). Each return is one more plan run with
-# the counts above, so one item with a review of the default 2 repair rounds makes 3R + 4 plan runs
-# at most: 13 at this ceiling. A plan run took about 728 s at p90 on 2026-11-11, so 13 runs are
-# about 2.6 hours, and a value of 10 would give 34 runs. The settings load refuses a value above it.
-# The ceiling of the review rounds below gives 5R + 6 plan runs at most: 21 (#5066). The extra
-# return of an item below adds one more plan run (#4851).
-CONST_ROADMAP_STAGE_GATE_RETURNS_CEILING: Final[int] = 3
-# The extra returns of one item past `roadmap.stage.gate_returns` (#4851). A reply that the checks
-# refuse at the last return gets one more return when no finding of the reply before it stays and
-# no finding has the fix class `never`. Each extra return is one plan run, so one reply gets at
-# most R + 2 planner requests, and an item 5R + 7 plan runs at most: 22 at the ceiling above. On
-# 2026-11-13, #5136 stopped at its third return while its findings went from 3 to 1 to 1 new one.
-CONST_ROADMAP_STAGE_GATE_RETURN_EXTENSIONS: Final[int] = 1
-# The call budget of a stage run (#4346). The prompt of a run says how many tool calls it needs
-# (`*_CALLS_ADVISED`), and from the call `*_CALLS_NOTICE` each tool answer ends with a notice to give
-# the reply, with the tools still on. A plan run needs about 30 calls and a review run about 40: the
-# runs of 7 days made 33 (plan) and 53 (review) calls in the middle and 43 and 107 at the 90th
-# percentile, and a plan run of 113 calls filled the window of 256,000 tokens (2026-11-10). Each
-# request sends the whole context again, so a run that reads on costs the sum of its contexts.
-CONST_ROADMAP_STAGE_PLAN_CALLS_ADVISED: Final[int] = 30
-CONST_ROADMAP_STAGE_PLAN_CALLS_NOTICE: Final[int] = 40
-CONST_ROADMAP_STAGE_REVIEW_CALLS_ADVISED: Final[int] = 40
-CONST_ROADMAP_STAGE_REVIEW_CALLS_NOTICE: Final[int] = 60
+# The ceiling of a setting that ends an attempt of a roadmap job (#5440): the settings load refuses
+# a value above this many times the default. The owner asked on 2026-11-13 to double the limits of
+# the jobs below 80 % success and to try values until one works, so a person can go to 4 times the
+# default with no release. The Job deadline has its own cap,
+# `CONST_ROADMAP_IMPLEMENT_DEADLINE_CAP_SECONDS`, which the admission policy sets.
+CONST_ROADMAP_LIMIT_CEILING_FACTOR: Final[int] = 4
+# The plan run of the stage job (#3037): the commits `git_log` lists, the files `repo_map` maps and
+# the characters of each of its lines (40 lines of 180 characters fit one tool answer), and the
+# characters of the answer of `read_spec`, which a whole requirement can pass the limit of the other
+# tools. The tool calls and the model requests of a run are settings (`roadmap.stage.max_tool_calls`
+# and `roadmap.stage.max_requests`, #5440).
 CONST_ROADMAP_STAGE_LOG_MAX_COUNT: Final[int] = 40
 CONST_ROADMAP_STAGE_MAP_MAX_FILES: Final[int] = 40
 CONST_ROADMAP_STAGE_MAP_LINE_CHARS: Final[int] = 180
@@ -3463,17 +3441,6 @@ CONST_ROADMAP_DEFINITION_READ_FILES: Final[int] = 20
 CONST_ROADMAP_STAGE_VERIFY_BODY_MAX_TOKENS: Final[int] = 6000
 CONST_ROADMAP_STAGE_VERIFY_FILE_MAX_TOKENS: Final[int] = 1500
 CONST_ROADMAP_STAGE_VERIFY_MAX_FILES: Final[int] = 30
-# The hard ceiling of the repair rounds of a plan that the model review returns (#5066): of the
-# setting `roadmap.stage.verify_repair_rounds`, and of the rounds that follow it while the last
-# review fixes more earlier findings than it adds (#5409). A plan costs at most 5 review runs at
-# this ceiling. Each round is one more plan run with its gate returns (R), so one item makes at
-# most 5R + 6 plan runs: 21 at both ceilings, about 4.2 hours at the p90 of 728 s of 2026-11-11.
-# The settings load refuses a value above it.
-CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS_CEILING: Final[int] = 4
-# The `plan_defect` failures of one item on the same body (#4491): the failure that reaches this
-# count returns the item to New with the problems of its refused replies. In 48 hours, 5 of the 6
-# plans that staged came after 2 refused plans, and 27 items failed more than 2 times.
-CONST_ROADMAP_STAGE_PLAN_DEFECT_LIMIT: Final[int] = 3
 # The recall floor of the verification pass (#3039, #3207): the share of the blocker and major
 # defects of the golden set that the pass must find. `docs/ROADMAP_WORKFLOW.md` states the same floor.
 CONST_ROADMAP_VERIFY_RECALL_FLOOR: Final[float] = 0.9
@@ -3505,59 +3472,31 @@ CONST_ROADMAP_ALTERNATIVES_MAX_ADR_TOKENS: Final[int] = 8192
 # The class of error that the job records for a reply it refused (#2949): a refusal raises no
 # exception, so it has no class of its own.
 CONST_ROADMAP_ALTERNATIVES_REFUSED_ERROR: Final[str] = "RefusedReply"
-# The budget of one step of `devops roadmap implement` (#2664): the model requests and tool calls
-# of its run, the characters of one tool result, and the tokens of the window that the inputs
-# leave to the turns of the run. The window is `ai.tasks.implement.context_window`. The requests
-# and the calls are the loop guard of the job (#3206): 500 requests and 1,500 calls are 6 times the
-# old counts, and without them the Job deadline would be the only stop of a model that loops. A
-# tool result of 40,000 characters is about 10,000 tokens, under a twelfth of the default window of
-# 128,000 tokens.
-CONST_ROADMAP_IMPLEMENT_MAX_REQUESTS: Final[int] = 500
-CONST_ROADMAP_IMPLEMENT_MAX_TOOL_CALLS: Final[int] = 1500
+# The budget of one step of `devops roadmap implement` (#2664): the characters of one tool result,
+# and the tokens of the window that the inputs leave to the turns of the run. The window is
+# `ai.tasks.implement.context_window`. The model requests and the tool calls of the run are
+# settings (`roadmap.implement.max_requests` and `max_tool_calls`, #5440). A tool result of 40,000
+# characters is about 10,000 tokens, under a twelfth of the default window of 128,000 tokens.
 CONST_ROADMAP_IMPLEMENT_TOOL_MAX_CHARS: Final[int] = 40000
 # The step classes of the model ladder of `roadmap.implement.ladder` (#3060). Each class has one
 # ordered list of tiers, one tier per attempt. A step of a group is `edit`, and a fix step is
 # `repair`.
 CONST_ROADMAP_IMPLEMENT_STEP_CLASSES: Final[tuple[str, ...]] = ("edit", "repair")
-# The consecutive failures that a tool may answer before the run ends, such as an `edit_file` whose
-# text is not found. A successful call of a tool resets its count (`pydantic_ai/tool_manager.py`),
-# so the count is of failures in a row. A refusal of the shell by policy is a tool result, not a
-# failure, so it adds nothing to this count (#3271). A failure is the model's to correct, as the
-# harness's own file tools allow five.
-CONST_ROADMAP_IMPLEMENT_TOOL_RETRIES: Final[int] = 5
-# The commands that the shell of a step may refuse by policy before the run ends (#3271). The
-# refusals count no tool retry, so this total is the stop of a model that loops on a refused
-# command. A step of one item keeps one count across its extra turns.
-CONST_ROADMAP_IMPLEMENT_MAX_REFUSALS: Final[int] = 30
-# The commands that the shell may refuse in a row, with no accepted tool call between them, before
-# the run ends (#4043). A model that repeats a refused command asks again in every reply, and each
-# reply holds the whole history: one run spent 8,022,108 tokens in 77 requests on 4 refused
-# commands. The count spans the step, extra turns included, and any tool call that is not refused
-# resets it. The total limit above still stops a model that alternates refused and accepted calls.
-CONST_ROADMAP_IMPLEMENT_MAX_CONSECUTIVE_REFUSALS: Final[int] = 3
 # The rule of the decision point `implement.extension` (ADR 0020, #4394). A step that reaches
 # `roadmap.implement.step_token_budget` gets one extension of this percent of the budget, up to
-# `roadmap.implement.step_token_ceiling`, when its last tool calls hold at least the edits and at
-# most the refused commands below. Pilot 3 gave the numbers: the Job logs of 14 days (2026-10-27
-# to 2026-11-10), 33 labelled checkpoints from 28 items. In the last 20 calls before the stop, each
-# of the 16 stops that a person finished later held at least 1 successful edit and at most 3
-# refused commands, and the stops that repeated refused commands held 4 or more. The rule makes no
-# error on the 16 (the 95% upper bound of the error rate is about 19%). One stop needed 3.7% more
-# tokens to finish; half of the budget gives room for a step that is further from its end.
-CONST_ROADMAP_IMPLEMENT_EXTENSION_CALLS: Final[int] = 20
+# `roadmap.implement.step_token_ceiling`, when its last tool calls
+# (`roadmap.implement.extension_calls`) hold at least these edits and at most
+# `roadmap.implement.extension_max_refused` refused commands. Pilot 3 gave the numbers: the Job
+# logs of 14 days (2026-10-27 to 2026-11-10), 33 labelled checkpoints from 28 items. The rule makes
+# no error on the 16 stops that a person finished later (the 95% upper bound of the error rate is
+# about 19%). One stop needed 3.7% more tokens to finish; half of the budget gives room for a step
+# that is further from its end.
 CONST_ROADMAP_IMPLEMENT_EXTENSION_MIN_EDITS: Final[int] = 1
-CONST_ROADMAP_IMPLEMENT_EXTENSION_MAX_REFUSED: Final[int] = 3
 CONST_ROADMAP_IMPLEMENT_EXTENSION_PERCENT: Final[int] = 50
 # When no config file and no variable sets `roadmap.implement.step_token_ceiling`, the ceiling is
 # this many times the loaded `step_token_budget` (#4505). Twice the budget leaves room for the whole
 # extension of half the budget, whatever budget a person sets.
 CONST_ROADMAP_IMPLEMENT_CEILING_FACTOR: Final[int] = 2
-# How many times in a row a step sends a model request again when the provider fails it inside an
-# open stream with the status 400 (#2794): a tool call that the model ended early, which the next
-# sample can make whole. The resend adds to the retries of the client (`ai.max_retries`, #2500).
-# The client retries only 5xx, 429 and connection errors, and the step only this 400, so a call
-# gets at most (1 + `ai.max_retries`) * (1 + this value) sends.
-CONST_ROADMAP_IMPLEMENT_MODEL_RESENDS: Final[int] = 1
 CONST_ROADMAP_IMPLEMENT_TURN_RESERVE_TOKENS: Final[int] = 40000
 # The output cap of one model reply of a step (#2869) is this share of the window of the task: the
 # window divided by this number, in tokens. It goes to the agent as the model setting `max_tokens`,
@@ -3856,13 +3795,11 @@ CONST_ROADMAP_STAGE_COMMENT_MARKERS: Final[tuple[str, ...]] = (
 CONST_ROADMAP_STAGE_ORPHAN_AGE_SECONDS: Final[int] = 3600
 # The comment marker of `devops roadmap retitle` (#3486).
 CONST_ROADMAP_RETITLE_COMMENT_MARKER: Final[str] = "<!-- devops roadmap retitle -->"
-# The step `fix-plan` (#5061): the marker of its comment, the attempts on one head of a plan pull
-# request, the hours between two attempts of one item, and the revisions that it pushes to one
-# pull request. ADR 0021 gives a fix unit at most 3 heads of one pull request.
+# The step `fix-plan` (#5061): the marker of its comment and the hours between two attempts of one
+# item. The attempts on one head and the revisions of one pull request are settings
+# (`roadmap.fix_plan.head_attempts` and `revisions`, #5440).
 CONST_ROADMAP_FIX_PLAN_COMMENT_MARKER: Final[str] = "<!-- devops roadmap fix-plan -->"
-CONST_ROADMAP_FIX_PLAN_HEAD_ATTEMPTS: Final[int] = 2
 CONST_ROADMAP_FIX_PLAN_WAIT_HOURS: Final[int] = 6
-CONST_ROADMAP_FIX_PLAN_REVISIONS: Final[int] = 3
 # The marker of every roadmap job's comment: a comment that holds none of them is a person's.
 CONST_ROADMAP_JOB_COMMENT_MARKERS: Final[tuple[str, ...]] = (
     CONST_ROADMAP_RETITLE_COMMENT_MARKER,

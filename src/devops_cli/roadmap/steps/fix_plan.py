@@ -10,9 +10,9 @@ the stage planner and of the verification pass call a model.
 **Selection.** An open item with the Status Ready whose record holds `stage.pr` (a Staged item),
 with no `implement.job` and no claim of an agent or a person (`claimed_by`). Its pull request is
 an open draft that holds `plan/needs-fix`. The item has fewer than
-`CONST_ROADMAP_FIX_PLAN_HEAD_ATTEMPTS` attempts on the head of the pull request, no attempt in the
-last `CONST_ROADMAP_FIX_PLAN_WAIT_HOURS` hours, and fewer than `CONST_ROADMAP_FIX_PLAN_REVISIONS`
-revisions that the step pushed to the pull request. The highest priority goes first
+`roadmap.fix_plan.head_attempts` attempts on the head of the pull request, no attempt in the
+last `CONST_ROADMAP_FIX_PLAN_WAIT_HOURS` hours, and fewer than `roadmap.fix_plan.revisions`
+revisions that the step pushed to the pull request (#5440). The highest priority goes first
 (`priority_order`), and a call takes at most one plan. The record rules cost no request. Each
 other item costs one read of its pull request, until one qualifies. `--item` judges one item.
 A run with `skip_wait` (`--skip-wait`, which the command allows only for a named item and with
@@ -105,8 +105,6 @@ from devops_cli import __version__
 from devops_cli.config.constants import (
     CONST_OPENSPEC_CHANGES_DIR,
     CONST_ROADMAP_FIX_PLAN_COMMENT_MARKER,
-    CONST_ROADMAP_FIX_PLAN_HEAD_ATTEMPTS,
-    CONST_ROADMAP_FIX_PLAN_REVISIONS,
     CONST_ROADMAP_FIX_PLAN_WAIT_HOURS,
     CONST_ROADMAP_STAGE_COMMENT_MARKER,
     CONST_ROADMAP_STATUS_READY,
@@ -439,7 +437,7 @@ def _record_reason(
         return texts.fix_plan_left_recent.format(
             at=marks.at.isoformat(), hours=CONST_ROADMAP_FIX_PLAN_WAIT_HOURS
         )
-    if (count := marks.revisions_on(pull)) >= CONST_ROADMAP_FIX_PLAN_REVISIONS:
+    if (count := marks.revisions_on(pull)) >= load_settings().roadmap.fix_plan.revisions:
         return texts.fix_plan_left_revisions.format(count=count, pull=pull)
     return None
 
@@ -456,7 +454,7 @@ def _pull_reason(
         return texts.fix_plan_left_not_draft.format(pull=pull)
     if PLAN_NEEDS_FIX_LABEL not in status.labels:
         return texts.fix_plan_left_no_label.format(pull=pull)
-    if count >= CONST_ROADMAP_FIX_PLAN_HEAD_ATTEMPTS and not (
+    if count >= load_settings().roadmap.fix_plan.head_attempts and not (
         skip_wait and _older_release(marks.version)
     ):
         head = status.head_sha[:_SHORT]
@@ -469,7 +467,7 @@ def _extra(item: Item, pull: int, status: PullStatus) -> str:
     cap, or an empty text for a head under the cap."""
     marks = _Marks.of(item.job_record)
     count = marks.attempts_on(pull, status.head_sha)
-    if count < CONST_ROADMAP_FIX_PLAN_HEAD_ATTEMPTS:
+    if count < load_settings().roadmap.fix_plan.head_attempts:
         return ""
     return MESSAGES.roadmap.fix_plan_extra_attempt.format(
         head=status.head_sha[:_SHORT],
