@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.125.2](https://github.com/dan-petty/devops-cli/compare/v0.125.1...v0.125.2) (2026-11-13)
+
+
+### Code Refactoring
+
+* **k8s:** split the product dashboards and rules in place ([#5309](https://github.com/dan-petty/devops-cli/issues/5309)) ([f31dc56](https://github.com/dan-petty/devops-cli/commit/f31dc561f911c664779943b83dbb31413f2e4894))
+
 ## [0.125.1](https://github.com/dan-petty/devops-cli/compare/v0.125.0...v0.125.1) (2026-11-13)
 
 
