@@ -6,8 +6,8 @@ before the first plan call, a rejection of a selected item between its plan and 
 the moved paths of an item are read just before its publish. A plan with `--plan` writes nothing.
 
 The roadmap is the in-memory store, the model edge is the fake, GitHub is answered at its HTTP edge
-and git runs on a temporary repository. The rounds run through the row of the Service
-(`_run_stage_adapter`) and the commands, so no test names a writer.
+and git runs on a temporary repository. The rounds run as `devops roadmap stage --confirm` runs
+them (`stage_round`) and through the commands, so no test names a writer.
 """
 
 from __future__ import annotations
@@ -26,7 +26,6 @@ from devops_cli.config.constants import (
 from devops_cli.exceptions import RoadmapStageError, ServiceStoppingError, ended_by_stop
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.body_hash import body_hashes
-from devops_cli.roadmap.run import _run_stage_adapter
 from devops_cli.roadmap.service_stop import begin_service_stop
 from devops_cli.roadmap.stores.store import CloseReason, ItemField, StageRecordKey
 from tests.support.builders import make_stage_proposal
@@ -40,6 +39,7 @@ from tests.support.roadmap_stage import (
     advance_origin,
     no_findings,
     seed_stageable,
+    stage_round,
     validate_args,
 )
 from tests.support.service_stop import stop_error
@@ -104,7 +104,7 @@ def _roadmap(count: int, openspec: OpenSpecFake, api: GitHubApiFake) -> InMemory
 
 
 def _round(store: InMemoryRoadmapStore, repo: StageRepo) -> Any:
-    return _run_stage_adapter(store, repo=STAGE_REPO, clone_path=repo.clone)
+    return stage_round(store, repo)
 
 
 def _number_of(prompt: str) -> int | None:

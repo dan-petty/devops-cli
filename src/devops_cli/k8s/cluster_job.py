@@ -105,6 +105,16 @@ def stage_job_labels(repo: RepoRef, item: int) -> dict[str, str]:
     }
 
 
+def stage_jobs_selector(repo: RepoRef) -> dict[str, str]:
+    """The labels that select each stage Job of `repo` and no other Job: the labels of
+    `stage_job_labels` but the item. The stage row of the Service lists its Jobs by them (#4559)."""
+    return {
+        COMPONENT_LABEL: STAGE_COMPONENT,
+        OWNER_LABEL: repo.owner_label,
+        REPO_LABEL: repo.repo_label,
+    }
+
+
 def stage_job_env(repo: RepoRef, name: str, deadline: datetime) -> dict[str, str]:
     """The plain environment values of the stage Job `name`: the repository of its GitHub token,
     the name of the Job, and the time at which the deadline of the Job ends. The admission policy

@@ -33,10 +33,11 @@ def openspec(openspec_fake: OpenSpecFake) -> OpenSpecFake:
     return openspec_fake
 
 
-def test_the_row_follows_stage_needs_a_clone_and_is_due_on_a_first_run() -> None:
+def test_the_row_follows_retitle_needs_a_clone_and_is_due_on_a_first_run() -> None:
+    """Stage left the model lane for the status lane (#4559), so fix_plan follows retitle."""
     names = [row.name for row in MODEL_LANE_ROWS]
 
-    assert names[names.index("stage") + 1] == "fix_plan"
+    assert names[names.index("retitle") + 1] == "fix_plan"
     assert (FIX_PLAN_ROW.needs_clone, FIX_PLAN_ROW.first_run_due) == (True, True)
 
 

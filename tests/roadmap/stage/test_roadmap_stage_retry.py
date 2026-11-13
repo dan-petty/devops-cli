@@ -6,7 +6,6 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from devops_cli.exceptions import RoadmapStageError
 from devops_cli.roadmap import failure as failure_module
 from devops_cli.roadmap.explain import JobVerdict, explain_item
 from devops_cli.roadmap.failure import FailureClass
@@ -17,7 +16,6 @@ from devops_cli.roadmap.stage.stage import (
     StageFailure,
     StagePlan,
     parse_filters,
-    raise_for_failed_round,
     select_stageable,
 )
 from devops_cli.roadmap.stores.store import ItemField, StageRecordKey
@@ -178,49 +176,3 @@ def test_explain_reports_an_item_that_the_job_holds_from_the_record_on_github(
         f"The last plan or write of the item failed (AIClientError). "
         f"The job takes the item again after {until} UTC.",
     )
-
-
-def _failed_plan() -> StagePlan:
-    failure = StageFailure(
-        1,
-        "fix(roadmap): a",
-        "AIClientError",
-        failure_class=FailureClass.PROVIDER,
-        step=failure_module.StepName.PLAN,
-    )
-    return StagePlan(STAGE_REPO, failed=(failure,))
-
-
-def _raised(plan: StagePlan, applied: StageApplied) -> list[int] | None:
-    """The numbers of the failed items that the round raises, or None when it does not fail."""
-    try:
-        raise_for_failed_round(plan, applied)
-    except RoadmapStageError as exc:
-        return list(exc.failed_items)
-    return None
-
-
-def test_a_round_with_a_failed_item_and_a_handled_item_does_not_fail() -> None:
-    plan = _failed_plan()
-
-    assert (
-        _raised(plan, StageApplied(staged=(2,))),
-        _raised(plan, StageApplied(stopped=(2,))),
-    ) == (None, None)
-
-
-def test_a_round_that_tried_items_and_handled_none_fails_naming_them() -> None:
-    failure = StageFailure(
-        2,
-        "fix(roadmap): b",
-        "GitHubOperationError",
-        failure_class=FailureClass.CI_INFRA,
-        step=failure_module.StepName.APPLY,
-    )
-    applied = StageApplied(failed=(failure,))
-
-    assert _raised(_failed_plan(), applied) == [1, 2]
-
-
-def test_a_round_that_tried_no_item_does_not_fail() -> None:
-    assert _raised(StagePlan(STAGE_REPO), StageApplied()) is None

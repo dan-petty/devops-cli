@@ -1,5 +1,4 @@
-"""The `stage` row of the Service logs one line with counts for each item that its round failed
-(#4535), and one line for each finding of the last refused reply of a plan, with its gate, its
+"""The stage Job of an item logs one line with counts for the item when it failed (#4535, #4559), and one line for each finding of the last refused reply of a plan, with its gate, its
 code and the subject that its message names, masked and cut (#5433)."""
 
 from __future__ import annotations
@@ -11,16 +10,15 @@ from typing import TYPE_CHECKING, Final
 import pytest
 
 from devops_cli.config.settings import RoadmapStageConfig
-from devops_cli.exceptions import RoadmapStageError
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.round_log import log_gate_returns
-from devops_cli.roadmap.run import MODEL_LANE_ROWS
 from devops_cli.roadmap.stage.stage_findings import (
     TITLE_GATE,
     StageFinding,
     check_findings,
     stage_finding,
 )
+from devops_cli.roadmap.stage.stage_job import StageJobExit
 from devops_cli.security.sanitizer import redact_text
 from tests.support.builders import make_stage_proposal
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
@@ -29,6 +27,7 @@ from tests.support.roadmap_stage import (
     STAGE_REPO,
     VALID_REPORT,
     StageRepo,
+    run_stage_jobs,
     seed_stageable,
     validate_args,
 )
@@ -39,7 +38,6 @@ if TYPE_CHECKING:
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
-STAGE_ROW = next(row for row in MODEL_LANE_ROWS if row.name == "stage")
 TEXTS = MESSAGES.roadmap
 MISSING: Final[str] = "tests/test_missing.py"
 FINDING_EVENT: Final[str] = "stage gate refused finding: "
@@ -74,7 +72,7 @@ def _log(findings: list[StageFinding], *, returns: int = 3, passed: bool = False
     log_gate_returns(STAGE_REPO, 1976, returns, passed=passed, findings=findings)
 
 
-def test_each_item_that_a_round_failed_logs_one_line_with_its_step_and_class(
+def test_the_job_of_a_failed_item_logs_one_line_with_its_step_and_class(
     stage_repo: StageRepo, model_fake: ModelFake, caplog: pytest.LogCaptureFixture
 ) -> None:
     store = InMemoryRoadmapStore(repo=STAGE_REPO)
@@ -85,10 +83,10 @@ def test_each_item_that_a_round_failed_logs_one_line_with_its_step_and_class(
     )
     model_fake.answer(missing, missing)
 
-    with caplog.at_level(logging.INFO), pytest.raises(RoadmapStageError) as raised:
-        STAGE_ROW.runner(store=store, repo=STAGE_REPO, clone_path=stage_repo.clone)
+    with caplog.at_level(logging.INFO):
+        (run,) = run_stage_jobs(store, stage_repo, number)
 
-    assert raised.value.failed_items == (number,)
+    assert run.exit_code is StageJobExit.FAILURE
     lines = [
         r.getMessage() for r in caplog.records if r.getMessage().startswith("stage item failed")
     ]
@@ -109,11 +107,11 @@ def test_a_failed_item_logs_the_path_of_each_finding_of_its_last_refused_reply(
     )
     model_fake.answer(missing, missing)
 
-    with caplog.at_level(logging.INFO), pytest.raises(RoadmapStageError) as raised:
-        STAGE_ROW.runner(store=store, repo=STAGE_REPO, clone_path=stage_repo.clone)
+    with caplog.at_level(logging.INFO):
+        (run,) = run_stage_jobs(store, stage_repo, number)
 
     returns = RoadmapStageConfig().gate_returns
-    assert raised.value.failed_items == (number,)
+    assert run.exit_code is StageJobExit.FAILURE
     assert _lines(caplog, COUNTS_EVENT) == [
         f"repo={STAGE_REPO} item=#{number} returns={returns} result=refused"
         " gates=paths:1 codes=stage_problem_path:1"

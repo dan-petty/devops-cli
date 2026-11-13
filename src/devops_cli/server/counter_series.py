@@ -30,6 +30,7 @@ from devops_cli.config.constants import (
     CONST_SERVICE_METRIC_IMPLEMENT_TOKENS,
     CONST_SERVICE_METRIC_JOB_SECONDS,
     CONST_SERVICE_METRIC_JOBS,
+    CONST_SERVICE_METRIC_STAGE_JOBS,
     CONST_SERVICE_METRIC_TRIGGERS,
     CONST_SERVICE_SOURCE_POLL,
     CONST_SERVICE_SOURCE_WEBHOOK,
@@ -43,6 +44,18 @@ _SERVICE_JOB_RESULTS = (
     CONST_SERVICE_JOB_RESULT_STOPPED,
 )
 """The value of the label `result` of a job that ended, as the roadmap run counts it."""
+
+_STAGE_JOB_SERIES = (
+    ("created", "none"),
+    ("existed", "none"),
+    ("evicted", "none"),
+    ("evicted", FailureClass.CI_INFRA.value),
+    ("deadline", FailureClass.TIMEOUT.value),
+    ("succeeded", "none"),
+    *(("failed", klass.value) for klass in FailureClass),
+)
+"""The values of the labels `result` and `class` of the stage Jobs that the stage row counts
+(#4559)."""
 
 _SERVICE_TRIGGER_SOURCES = (CONST_SERVICE_SOURCE_WEBHOOK, CONST_SERVICE_SOURCE_POLL)
 """The values of the label `source` of a trigger, as the Service enqueues it."""
@@ -100,6 +113,14 @@ def prime_service_counters(repos: Iterable[str]) -> None:
             {"repo": repo, "item_class": item_class}
             for repo in repo_names
             for item_class in CONST_BRANCH_TYPES
+        ),
+    )
+    GLOBAL_METRICS.prime_counter(
+        CONST_SERVICE_METRIC_STAGE_JOBS,
+        (
+            {"repo": repo, "result": result, "class": klass}
+            for repo in repo_names
+            for result, klass in _STAGE_JOB_SERIES
         ),
     )
     GLOBAL_METRICS.prime_counter(

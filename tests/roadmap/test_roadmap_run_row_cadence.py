@@ -160,7 +160,7 @@ def test_a_success_records_its_queue_and_the_next_round_uses_it(
 ) -> None:
     """A first round runs stage, which gives a queue of 177: the record holds it, and stage is due
     again 13 minutes later, not 12. The intake stub gives no queue, so the record holds none for
-    it."""
+    it. Stage is a row of the status lane, which runs before the triage lane (#4559)."""
     ran: list[str] = []
     table = build_stub_table({"stage": recorded(ran, "stage", lambda **_: JobOutcome(queue=177))})
 
@@ -170,7 +170,7 @@ def test_a_success_records_its_queue_and_the_next_round_uses_it(
     at_13 = _round(seeded_store, tmp_path, table, now=NOW + timedelta(minutes=13))
 
     assert (first, recorded_queues, at_12, at_13) == (
-        ("intake", "stage"),
+        ("stage", "intake"),
         {"stage": 177},
         (),
         ("stage",),

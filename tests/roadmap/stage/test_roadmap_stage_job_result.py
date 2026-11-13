@@ -1,4 +1,4 @@
-"""The `stage` row logs one result line for each item that its round tried (#4845)."""
+"""The stage Job of each item logs one result line for the item that it tried (#4845, #4559)."""
 
 from __future__ import annotations
 
@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from devops_cli.roadmap.run import MODEL_LANE_ROWS
 from devops_cli.roadmap.stage.stage import emit_stage_results, parse_filters, plan_stage
 from devops_cli.roadmap.stage.stage_change import StageSplit
 from tests.support.builders import make_stage_proposal
@@ -21,6 +20,7 @@ from tests.support.roadmap_stage import (
     apply_stage,
     heavy_group,
     no_findings,
+    run_stage_jobs,
     seed_stageable,
     validate_args,
 )
@@ -36,7 +36,6 @@ if TYPE_CHECKING:
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
-STAGE_ROW = next(row for row in MODEL_LANE_ROWS if row.name == "stage")
 OPENED = github_json({"number": 5, "html_url": "https://example.com/pull/5"}, status=201)
 HEAD = ("job", "repo", "item", "result", "success", "class", "infra")
 COUNTS = ("plan_calls", "gate_returns", "verify_rounds", "tokens", "seconds")
@@ -49,7 +48,7 @@ def valid_openspec(openspec_fake: OpenSpecFake) -> OpenSpecFake:
     return openspec_fake
 
 
-def test_a_round_of_three_tried_items_and_one_left_out_logs_three_result_lines(
+def test_the_jobs_of_three_tried_items_and_one_left_out_log_three_result_lines(
     stage_repo: StageRepo,
     model_fake: ModelFake,
     github_api: GitHubApiFake,
@@ -78,7 +77,7 @@ def test_a_round_of_three_tried_items_and_one_left_out_logs_three_result_lines(
     config(roadmap={"stage": {"step_tokens": 6000, "limit": 4, "gate_returns": 1}})
 
     with caplog.at_level(logging.INFO):
-        STAGE_ROW.runner(store=store, repo=STAGE_REPO, clone_path=stage_repo.clone)
+        run_stage_jobs(store, stage_repo, 1, 2, 3, 4)
 
     fields = result_fields(caplog)
     assert [{key: line[key] for key in HEAD} for line in fields] == [

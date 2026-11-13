@@ -36,6 +36,7 @@ class LeftOutKind(StrEnum):
     PLANNED = "planned"
     REJECTED = "rejected"
     HELD = "held"
+    STAGE_JOB = "stage_job"
     REDACTED = "redacted"
     RECORDED_SPLIT = "recorded_split"
     FAILED_LATELY = "failed_lately"

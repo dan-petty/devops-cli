@@ -1,9 +1,13 @@
-"""The `stage` row of the Service's model lane: a round plans with the settings, writes, counts
-each item once by its result, and fails for the items that failed (#2659)."""
+"""The `stage` row of the Service's status lane and the stage Job of each item (#2659, #4559).
+
+A round of the row submits one stage Job for each Ready item and counts the items that it leaves
+out. The stage Job of an item plans it, writes it, and counts it once by its result. Git runs for
+real on a clone with an `origin`, GitHub and the Kubernetes API are faked at their edges.
+"""
 
 from __future__ import annotations
 
-import json
+import copy
 import logging
 import re
 import time
@@ -11,23 +15,23 @@ from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 import pytest
+import yaml
 
-from devops_cli.ai.client.models import AIClientError
 from devops_cli.config.constants import CONST_ROADMAP_STATUS_NEW
-from devops_cli.config.settings import RoadmapConfig
 from devops_cli.exceptions import GitOperationError
 from devops_cli.github.rate_limiter import get_github_rate_limiter
 from devops_cli.roadmap import run
 from devops_cli.roadmap.refine.refine import NextStep
-from devops_cli.roadmap.run import MODEL_LANE_ROWS, FailureLedger, JobOutcome, run_due_jobs
+from devops_cli.roadmap.run import STATUS_LANE_ROWS, FailureLedger, JobOutcome, run_due_jobs
 from devops_cli.roadmap.stage.stage import LeftOut, StageApplied, StagePlan, emit_stage_results
 from devops_cli.roadmap.stage.stage_change import StageSplit
-from devops_cli.roadmap.stage.stage_verify import Verification
+from devops_cli.roadmap.stage.stage_job import StageJobExit
 from devops_cli.roadmap.stores.store import ItemField, RefineRecordKey, StageRecordKey
 from devops_cli.telemetry.instruments import ROADMAP_STAGE_TOTAL
 from tests.support.builders import make_stage_proposal
 from tests.support.fakes.github import github_json
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
+from tests.support.paths import REPO_ROOT
 from tests.support.roadmap_implement import merge_plan
 from tests.support.roadmap_stage import (
     STAGE_REPO,
@@ -35,21 +39,24 @@ from tests.support.roadmap_stage import (
     StageRepo,
     heavy_group,
     no_findings,
+    run_stage_jobs,
     seed_stageable,
     validate_args,
 )
-from tests.support.scripted_model import Script, call
 
 if TYPE_CHECKING:
     from tests.support.fakes.github import GitHubApiFake
+    from tests.support.fakes.kubernetes import FakeCluster
     from tests.support.fakes.model import ModelFake
     from tests.support.fakes.openspec import OpenSpecFake
     from tests.support.fakes.otlp import FakeCollector
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
-STAGE_ROW = next(row for row in MODEL_LANE_ROWS if row.name == "stage")
+STAGE_ROW = next(row for row in STATUS_LANE_ROWS if row.name == "stage")
 OPENED = github_json({"number": 5, "html_url": "https://example.com/pull/5"}, status=201)
+CRONJOBS = ("batch", "v1", "cronjobs")
+JOBS = ("batch", "v1", "jobs")
 
 
 @pytest.fixture
@@ -64,9 +71,25 @@ def valid_openspec(openspec_fake: OpenSpecFake) -> OpenSpecFake:
     return openspec_fake
 
 
+@pytest.fixture
+def kube(cluster: FakeCluster) -> FakeCluster:
+    """The fake cluster with CronJob roadmap-stage of the committed manifest."""
+    manifest = yaml.safe_load((REPO_ROOT / "k8s/devops/cronjob-stage.yaml").read_text("utf-8"))
+    cluster.custom_objects.objects[CRONJOBS] = [copy.deepcopy(manifest)]
+    return cluster
+
+
 def _round(store: InMemoryRoadmapStore, repo: StageRepo) -> JobOutcome:
-    """One round of the row, as the Service runs it in its model clone."""
+    """One round of the row, as the Service runs it in its status clone."""
     return STAGE_ROW.runner(store=store, repo=STAGE_REPO, clone_path=repo.clone)
+
+
+def _job_items(kube: FakeCluster) -> list[str]:
+    """The item of each stage Job that the rounds created."""
+    return [
+        job["metadata"]["labels"]["roadmap.devops-cli/item"]
+        for job in kube.custom_objects.objects.get(JOBS, [])
+    ]
 
 
 def _counted(otlp: FakeCollector) -> list[tuple[str, float]]:
@@ -80,34 +103,15 @@ def _pushed(repo: StageRepo) -> list[str]:
     return repo.origin_git("branch", "--format=%(refname:short)").split()
 
 
-def test_the_row_follows_retitle_before_refine_runs_on_a_clone_and_is_due_every_37_minutes() -> (
-    None
-):
-    """The stage row runs after retitle and before refine, so a new pod's first round stages
-    first; a refine that set an item Ready makes it due through `stage_due`, not in the same
-    round (#2659, #4796). Only the row fix_plan is between stage and refine (#5061). Its interval
-    is the setting `roadmap.stage.interval_minutes`, 37 minutes by default (#5470)."""
-    names = [row.name for row in MODEL_LANE_ROWS]
-    cadence = STAGE_ROW.cadence
-    assert (
-        names[names.index("retitle") + 1],
-        names[names.index("stage") + 1 : names.index("refine")],
-        STAGE_ROW.needs_clone,
-        STAGE_ROW.first_run_due,
-        None if cadence is None else cadence(RoadmapConfig()).interval_minutes,
-        STAGE_ROW.cross_job_predicate,
-    ) == ("stage", ["fix_plan"], True, True, 37, None)
+# ── The row ───────────────────────────────────────────────────────────────────
 
 
-def test_a_round_stages_the_items_the_settings_name_and_counts_each_once(
+def test_a_round_submits_the_job_of_the_item_that_the_settings_name(
     store: InMemoryRoadmapStore,
     stage_repo: StageRepo,
-    model_fake: ModelFake,
-    github_api: GitHubApiFake,
-    otlp: FakeCollector,
+    kube: FakeCluster,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    github_api.route("POST", f"/repos/{STAGE_REPO}/pulls", OPENED)
     seed_stageable(store)
     store.seed_issue(
         "feat(roadmap): the job drops a label",
@@ -115,72 +119,109 @@ def test_a_round_stages_the_items_the_settings_name_and_counts_each_once(
         fields={ItemField.STATUS: "Ready", ItemField.PRIORITY: "P1-High"},
     )
     monkeypatch.setenv("DEVOPS_CLI_ROADMAP_STAGE_FILTER", "status=ready,type=feature")
-    monkeypatch.setenv("DEVOPS_CLI_ROADMAP_STAGE_LIMIT", "1")
-    no_findings(model_fake)
-    model_fake.answer(make_stage_proposal())
 
     outcome = _round(store, stage_repo)
 
-    assert outcome == JobOutcome(queue=1)
-    assert _pushed(stage_repo) == ["feat/2-the-job-drops-a-label", "main"]
-    assert _counted(otlp) == [("staged", 1.0)]
+    assert (outcome, _job_items(kube), _pushed(stage_repo)) == (
+        JobOutcome(queue=1),
+        ["2"],
+        ["main"],
+    )
 
 
-def test_stage_total_metric_carries_repo_attribute(
+def test_a_round_with_nothing_to_stage_counts_nothing(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo, kube: FakeCluster, otlp: FakeCollector
+) -> None:
+    assert _round(store, stage_repo) == JobOutcome(queue=0)
+    assert (_counted(otlp), _job_items(kube)) == ([], [])
+
+
+def test_a_round_sets_planned_for_an_item_whose_plan_is_on_the_default_branch(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo, kube: FakeCluster
+) -> None:
+    """The round reads the plans once for its selection and for the Status of the items (#2920)."""
+    number = seed_stageable(store)
+    item = store.item(number)
+    assert item is not None
+    store.set_field(item, ItemField.STATUS, "Ready")
+    merge_plan(stage_repo, number)
+
+    outcome = _round(store, stage_repo)
+
+    held = store.item(number)
+    assert held is not None
+    assert (outcome, held.status, _job_items(kube)) == (JobOutcome(queue=1), "Planned", [])
+
+
+def test_a_round_without_a_clone_fails_naming_the_job(store: InMemoryRoadmapStore) -> None:
+    with pytest.raises(GitOperationError, match="stage"):
+        STAGE_ROW.runner(store=store, repo=STAGE_REPO, clone_path=None)
+
+
+POLL_KEY = ("poll", "", "")
+FIRST_ROUND = datetime(2026, 11, 4, 12, 0, tzinfo=UTC)
+
+
+def test_three_rounds_that_fail_outside_any_item_suspend_the_row(
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Any,
+) -> None:
+    seed_stageable(store)
+
+    def outage(*_: Any, **__: Any) -> Any:
+        raise GitOperationError("origin is down", operation="fetch")
+
+    monkeypatch.setattr(run, "run_stage_round", outage)
+    monkeypatch.setattr(run, "ensure_checkout", lambda *_, **__: stage_repo.clone)
+    ledger = FailureLedger()
+    outcomes: list[str] = []
+    for index in range(3):
+        try:
+            run_due_jobs(
+                STAGE_REPO,
+                store,
+                batch={POLL_KEY: 1},
+                table=(STAGE_ROW,),
+                data_dir=tmp_path,
+                remote_url=str(stage_repo.origin),
+                clone_dirname="clone",
+                now=FIRST_ROUND + timedelta(hours=index),
+                failures=ledger,
+            )
+            outcomes.append("ok")
+        except Exception as exc:
+            outcomes.append(type(exc).__name__)
+
+    assert outcomes == ["RoadmapRunError"] * 3
+    assert ledger.causes(STAGE_REPO, "stage") == ("ci_infra",) * 3
+
+
+# ── The stage Job of each item ────────────────────────────────────────────────
+
+
+def test_the_job_counts_its_item_with_the_repository(
     store: InMemoryRoadmapStore,
     stage_repo: StageRepo,
     model_fake: ModelFake,
     github_api: GitHubApiFake,
-    monkeypatch: pytest.MonkeyPatch,
     otlp: FakeCollector,
 ) -> None:
     github_api.route("POST", f"/repos/{STAGE_REPO}/pulls", OPENED)
-    seed_stageable(store)
+    number = seed_stageable(store)
     no_findings(model_fake)
     model_fake.answer(make_stage_proposal())
 
-    _round(store, stage_repo)
+    run_stage_jobs(store, stage_repo, number)
 
     points = otlp.points(ROADMAP_STAGE_TOTAL.name)
     assert len(points) == 1
     attrs, value = points[0]
-    assert attrs["repo"] == STAGE_REPO
-    assert attrs["result"] == "staged"
-    assert value == 1.0
+    assert (attrs["repo"], attrs["result"], value) == (STAGE_REPO, "staged", 1.0)
 
 
-def test_a_round_plans_with_the_model_of_the_stage_task_as_a_toolbox_model(
-    store: InMemoryRoadmapStore,
-    stage_repo: StageRepo,
-    model_fake: ModelFake,
-    github_api: GitHubApiFake,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    github_api.route("POST", f"/repos/{STAGE_REPO}/pulls", OPENED)
-    seed_stageable(store)
-    script = Script(call("read_file", path="src/devops_cli/sample.py"), make_stage_proposal())
-    review = Script(Verification())
-    models = {"stage": script, "verification": review}
-    tasks: list[str] = []
-
-    def task_model(task: str) -> Any:
-        tasks.append(task)
-        return models[task].model()
-
-    monkeypatch.setattr(run, "get_task_model", task_model)
-
-    outcome = _round(store, stage_repo)
-
-    assert (outcome, tasks, script.tools_offered[0][:2], review.tools_offered[0][:1]) == (
-        JobOutcome(queue=1),
-        ["stage", "verification"],
-        ["list_files", "read_file"],
-        ["list_files"],
-    )
-    assert _pushed(stage_repo) == ["fix/1-the-job-drops-a-comment", "main"]
-
-
-def test_a_round_counts_staged_needs_split_failed_and_skipped_items_once_each(
+def test_the_jobs_count_staged_needs_split_failed_and_skipped_items_once_each(
     store: InMemoryRoadmapStore,
     stage_repo: StageRepo,
     model_fake: ModelFake,
@@ -203,14 +244,16 @@ def test_a_round_counts_staged_needs_split_failed_and_skipped_items_once_each(
         make_stage_proposal(pull_request_body="Closes #12 when it merges."),
     )
     monkeypatch.setenv("DEVOPS_CLI_ROADMAP_STAGE_STEP_TOKENS", "6000")
-    monkeypatch.setenv("DEVOPS_CLI_ROADMAP_STAGE_LIMIT", "4")
 
-    outcome = _round(store, stage_repo)
+    runs = run_stage_jobs(store, stage_repo, 1, 2, 3, 4)
 
     failed = store.item(3)
     assert failed is not None
-    assert (outcome, failed.job_record[StageRecordKey.FAILED_ERROR]) == (
-        JobOutcome(queue=4),
+    assert (
+        [run.exit_code for run in runs],
+        failed.job_record[StageRecordKey.FAILED_ERROR],
+    ) == (
+        [StageJobExit.RESULT, StageJobExit.RESULT, StageJobExit.FAILURE, StageJobExit.RESULT],
         "RoadmapStageError",
     )
     assert _pushed(stage_repo) == ["fix/1-the-job-drops-a-comment", "main"]
@@ -220,169 +263,6 @@ def test_a_round_counts_staged_needs_split_failed_and_skipped_items_once_each(
         ("skipped", 1.0),
         ("staged", 1.0),
     ]
-
-
-def test_a_round_with_nothing_to_stage_counts_nothing(
-    store: InMemoryRoadmapStore, stage_repo: StageRepo, otlp: FakeCollector
-) -> None:
-    assert _round(store, stage_repo) == JobOutcome(queue=0)
-    assert _counted(otlp) == []
-
-
-def test_a_round_sets_planned_for_an_item_whose_plan_is_on_the_default_branch(
-    store: InMemoryRoadmapStore, stage_repo: StageRepo
-) -> None:
-    """The round reads the plans once for its selection and for the Status of the items (#2920)."""
-    number = seed_stageable(store)
-    item = store.item(number)
-    assert item is not None
-    store.set_field(item, ItemField.STATUS, "Ready")
-    merge_plan(stage_repo, number)
-
-    outcome = _round(store, stage_repo)
-
-    held = store.item(number)
-    assert held is not None
-    assert (outcome, held.status) == (JobOutcome(queue=1), "Planned")
-
-
-def test_a_round_without_a_clone_fails_naming_the_job(store: InMemoryRoadmapStore) -> None:
-    with pytest.raises(GitOperationError, match="stage"):
-        STAGE_ROW.runner(store=store, repo=STAGE_REPO, clone_path=None)
-
-
-# ── The ledger of the row (#3493) ─────────────────────────────────────────────
-
-POLL_KEY = ("poll", "", "")
-FIRST_ROUND = datetime(2026, 11, 4, 12, 0, tzinfo=UTC)
-LABELS = ("comment", "label", "tag", "note", "mark", "flag")
-
-
-def _seed_six(store: InMemoryRoadmapStore, openspec: OpenSpecFake) -> None:
-    """Six Ready items, #1 to #6, and the valid validation of each change."""
-    for word in LABELS:
-        number = seed_stageable(store, f"fix(roadmap): the job drops a {word}")
-        openspec.script_sequence(
-            validate_args(f"{number}-the-job-drops-a-{word}"), (0, VALID_REPORT)
-        )
-
-
-def _about(number: int) -> Any:
-    return lambda prompt: _item_number(prompt) == number
-
-
-def _item_number(prompt: str) -> int | None:
-    try:
-        return json.loads(prompt).get("number")
-    except ValueError:
-        return None
-
-
-def _rounds(
-    store: InMemoryRoadmapStore,
-    repo: StageRepo,
-    ledger: FailureLedger,
-    data_dir: Any,
-    count: int,
-    monkeypatch: pytest.MonkeyPatch,
-) -> list[str]:
-    """Run `count` rounds of the row as the Service does, in order; the outcome of each:
-    `ok` or the class of its error. The clone of the row is the repository's clone."""
-    outcomes: list[str] = []
-    monkeypatch.setattr(run, "ensure_checkout", lambda *_, **__: repo.clone)
-    for index in range(count):
-        try:
-            run_due_jobs(
-                STAGE_REPO,
-                store,
-                batch={POLL_KEY: 1},
-                table=(STAGE_ROW,),
-                data_dir=data_dir,
-                remote_url=str(repo.origin),
-                clone_dirname="model-clone",
-                now=FIRST_ROUND + timedelta(hours=index),
-                failures=ledger,
-            )
-            outcomes.append("ok")
-        except Exception as exc:
-            outcomes.append(type(exc).__name__)
-    return outcomes
-
-
-def test_three_rounds_that_fail_one_item_while_another_stages_do_not_suspend_the_row(
-    store: InMemoryRoadmapStore,
-    stage_repo: StageRepo,
-    model_fake: ModelFake,
-    github_api: GitHubApiFake,
-    openspec_fake: OpenSpecFake,
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Any,
-) -> None:
-    github_api.route("POST", f"/repos/{STAGE_REPO}/pulls", OPENED)
-    _seed_six(store, openspec_fake)
-    monkeypatch.setenv("DEVOPS_CLI_ROADMAP_STAGE_LIMIT", "2")
-    no_findings(model_fake)
-    for number in (1, 3, 5):
-        model_fake.route_error(_about(number), AIClientError("the model is down"))
-    for number in (2, 4, 6):
-        model_fake.route(_about(number), make_stage_proposal())
-    ledger = FailureLedger()
-
-    outcomes = _rounds(store, stage_repo, ledger, tmp_path, 3, monkeypatch)
-
-    assert (
-        outcomes,
-        ledger.suspended(STAGE_REPO, "stage", "any", FIRST_ROUND),
-        ledger.causes(STAGE_REPO, "stage"),
-    ) == (
-        ["ok"] * 3,
-        False,
-        (),
-    )
-    held = [store.item(number) for number in (1, 3, 5)]
-    assert [item.job_record[StageRecordKey.FAILED_ERROR] for item in held if item] == [
-        "AIClientError"
-    ] * 3
-
-
-def test_three_rounds_that_try_items_and_plan_none_suspend_the_row(
-    store: InMemoryRoadmapStore,
-    stage_repo: StageRepo,
-    model_fake: ModelFake,
-    openspec_fake: OpenSpecFake,
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Any,
-) -> None:
-    _seed_six(store, openspec_fake)
-    monkeypatch.setenv("DEVOPS_CLI_ROADMAP_STAGE_LIMIT", "1")
-    model_fake.answer(AIClientError("the model is down"))
-    ledger = FailureLedger(limit=3)
-
-    outcomes = _rounds(store, stage_repo, ledger, tmp_path, 3, monkeypatch)
-
-    assert outcomes == ["RoadmapRunError"] * 3
-    assert ledger.causes(STAGE_REPO, "stage") == ("plan_defect",) * 3
-
-
-def test_three_rounds_that_fail_outside_any_item_suspend_the_row(
-    store: InMemoryRoadmapStore,
-    stage_repo: StageRepo,
-    openspec_fake: OpenSpecFake,
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Any,
-) -> None:
-    _seed_six(store, openspec_fake)
-
-    def outage(*_: Any, **__: Any) -> Any:
-        raise GitOperationError("origin is down", operation="fetch")
-
-    monkeypatch.setattr(run, "plan_stage", outage)
-    ledger = FailureLedger()
-
-    outcomes = _rounds(store, stage_repo, ledger, tmp_path, 3, monkeypatch)
-
-    assert outcomes == ["RoadmapRunError"] * 3
-    assert ledger.causes(STAGE_REPO, "stage") == ("ci_infra",) * 3
 
 
 NEW_MODULE = "src/devops_cli/roadmap/stage_constants.py"
@@ -434,7 +314,7 @@ def test_dependency_returns_item_without_model_call(
     merge_plan(stage_repo, open_plan, tasks=OPEN_PLAN)
     target = seed_stageable(store, body=f"The job needs `{NEW_MODULE}`.")
 
-    _round(store, stage_repo)
+    run_stage_jobs(store, stage_repo, target)
 
     held = store.item(target)
     assert held is not None
@@ -457,7 +337,7 @@ def test_a_false_field_absence_returns_the_item_without_model_call(
     )
     target = seed_stageable(store, body="The class `PullStatus` defines no `labels`.")
 
-    _round(store, stage_repo)
+    run_stage_jobs(store, stage_repo, target)
 
     held = store.item(target)
     assert held is not None
@@ -497,6 +377,7 @@ def test_a_skipped_item_counts_under_the_kind_of_its_reason(otlp: FakeCollector)
 def test_a_round_logs_the_reason_of_a_left_out_item_once_until_it_changes(
     store: InMemoryRoadmapStore,
     stage_repo: StageRepo,
+    kube: FakeCluster,
     otlp: FakeCollector,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
@@ -521,13 +402,14 @@ def test_a_round_logs_the_reason_of_a_left_out_item_once_until_it_changes(
 def test_a_round_in_a_repository_without_openspec_holds_each_item_and_reports_the_file(
     store: InMemoryRoadmapStore,
     stage_repo: StageRepo,
+    kube: FakeCluster,
     model_fake: ModelFake,
     otlp: FakeCollector,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """A default branch with no `openspec/config.yaml` gets no plan (#4629): the round pushes no
-    branch and calls no model, it records the hold of each item, and its outcome names the file
-    for onboarding."""
+    """A default branch with no `openspec/config.yaml` gets no plan (#4629): the round creates no
+    stage Job, pushes no branch and calls no model, it records the hold of each item, and its
+    outcome names the file for onboarding."""
     stage_repo.untrack("openspec/config.yaml")
     number = seed_stageable(store)
 
@@ -536,7 +418,7 @@ def test_a_round_in_a_repository_without_openspec_holds_each_item_and_reports_th
 
     lines = [r.getMessage() for r in caplog.records if r.getMessage().startswith("stage left out")]
     assert outcome == JobOutcome(missing=("openspec/config.yaml",), queue=1)
-    assert _pushed(stage_repo) == ["main"]
+    assert (_pushed(stage_repo), _job_items(kube)) == (["main"], [])
     assert model_fake.calls == []
     assert _labelled(otlp) == [("skipped", "no_openspec", 1.0)]
     assert [re.findall(r"(?:item|reason)=(\S+)", line) for line in lines] == [

@@ -118,13 +118,15 @@ serverFiles:
           # scrape of the pod, so their instance labels differ and on() joins the two sums. A
           # Service that is down reports no limit: RoadmapServiceUnavailable covers that case.
           # The sums leave out status 304: GitHub does not count such an answer against its rate
-          # limit, and the budget does not count it either (#3939).
+          # limit, and the budget does not count it either (#3939). The sums hold the requests of
+          # the stage Jobs (job roadmap-stage, #4559): they act as the same GitHub App, and each
+          # Job counts its requests in a budget of its own.
           - alert: RoadmapServiceGitHubRequestsHigh
             expr: >-
               sum(
-              (last_over_time(devops_cli_github_requests_total{job="roadmap-service", status!="304"}[1h])
-              unless last_over_time(devops_cli_github_requests_total{job="roadmap-service", status!="304"}[1h] offset 1h))
-              or increase(devops_cli_github_requests_total{job="roadmap-service", status!="304"}[1h])
+              (last_over_time(devops_cli_github_requests_total{job=~"roadmap-service|roadmap-stage", status!="304"}[1h])
+              unless last_over_time(devops_cli_github_requests_total{job=~"roadmap-service|roadmap-stage", status!="304"}[1h] offset 1h))
+              or increase(devops_cli_github_requests_total{job=~"roadmap-service|roadmap-stage", status!="304"}[1h])
               ) > on() 0.9 * max(devops_cli_service_budget_limit_requests{job="roadmap-service"})
             for: 0m
             labels:
@@ -132,13 +134,14 @@ serverFiles:
             annotations:
               summary: 'The roadmap Service sent {{ printf "%.0f" $value }} GitHub requests in the last hour'
               description: "The roadmap Service sent more than 90% of its hourly GitHub request budget in one hour (docs/CLUSTER.md, Roadmap service)."
-          # A request that the cache answered does not go to a model.
+          # A request that the cache answered does not go to a model. The stage Jobs (job
+          # roadmap-stage, #4559) plan with the same models, so their requests count.
           - alert: RoadmapServiceModelRequestsHigh
             expr: >-
               sum(
-              (last_over_time(devops_cli_ai_requests_total{job="roadmap-service", cached!="true"}[1h])
-              unless last_over_time(devops_cli_ai_requests_total{job="roadmap-service", cached!="true"}[1h] offset 1h))
-              or increase(devops_cli_ai_requests_total{job="roadmap-service", cached!="true"}[1h])
+              (last_over_time(devops_cli_ai_requests_total{job=~"roadmap-service|roadmap-stage", cached!="true"}[1h])
+              unless last_over_time(devops_cli_ai_requests_total{job=~"roadmap-service|roadmap-stage", cached!="true"}[1h] offset 1h))
+              or increase(devops_cli_ai_requests_total{job=~"roadmap-service|roadmap-stage", cached!="true"}[1h])
               ) > 352
             for: 0m
             labels:
@@ -211,13 +214,14 @@ serverFiles:
           # through REST, so the rule counts the REST requests with a write method. It names each
           # write method of the request classifier: PromQL reads an absent label as the empty
           # string, so a matcher such as method!="GET" counts each request of a series with no
-          # method label, such as one of an older image, as a write (#2574).
+          # method label, such as one of an older image, as a write (#2574). The writes of the stage
+          # Jobs (job roadmap-stage, #4559) count.
           - alert: RoadmapServiceGitHubWritesHigh
             expr: >-
               sum(
-              (last_over_time(devops_cli_github_requests_total{job="roadmap-service", method=~"POST|PUT|PATCH|DELETE", resource!="graphql"}[1h])
-              unless last_over_time(devops_cli_github_requests_total{job="roadmap-service", method=~"POST|PUT|PATCH|DELETE", resource!="graphql"}[1h] offset 1h))
-              or increase(devops_cli_github_requests_total{job="roadmap-service", method=~"POST|PUT|PATCH|DELETE", resource!="graphql"}[1h])
+              (last_over_time(devops_cli_github_requests_total{job=~"roadmap-service|roadmap-stage", method=~"POST|PUT|PATCH|DELETE", resource!="graphql"}[1h])
+              unless last_over_time(devops_cli_github_requests_total{job=~"roadmap-service|roadmap-stage", method=~"POST|PUT|PATCH|DELETE", resource!="graphql"}[1h] offset 1h))
+              or increase(devops_cli_github_requests_total{job=~"roadmap-service|roadmap-stage", method=~"POST|PUT|PATCH|DELETE", resource!="graphql"}[1h])
               ) > 300
             for: 0m
             labels:
@@ -237,13 +241,14 @@ serverFiles:
               summary: 'The roadmap Service got {{ printf "%.0f" $value }} deliveries of its own writes in the last hour'
               description: "The roadmap Service got more than 150 webhook deliveries of its own writes in one hour (docs/CLUSTER.md, Roadmap service)."
           # A provider answers 402 when its account has no credits and 429 at its rate limit. The
-          # search goes on to the next provider, so the alert warns before the chain is spent.
+          # search goes on to the next provider, so the alert warns before the chain is spent. The
+          # planner of a stage Job (job roadmap-stage, #4559) searches too.
           - alert: RoadmapServiceWebSearchRefused
             expr: >-
               sum by (backend, result) (
-              (last_over_time(devops_cli_web_searches_total{job="roadmap-service", result=~"402|429"}[1h])
-              unless last_over_time(devops_cli_web_searches_total{job="roadmap-service", result=~"402|429"}[1h] offset 1h))
-              or increase(devops_cli_web_searches_total{job="roadmap-service", result=~"402|429"}[1h])
+              (last_over_time(devops_cli_web_searches_total{job=~"roadmap-service|roadmap-stage", result=~"402|429"}[1h])
+              unless last_over_time(devops_cli_web_searches_total{job=~"roadmap-service|roadmap-stage", result=~"402|429"}[1h] offset 1h))
+              or increase(devops_cli_web_searches_total{job=~"roadmap-service|roadmap-stage", result=~"402|429"}[1h])
               ) > 0
             for: 0m
             labels:
@@ -301,16 +306,17 @@ serverFiles:
       # A series that is younger than 7 days has no sample before the window, so it stays quiet: a
       # new tool gets 7 days. The runs are the observations of the native histogram of the
       # calls per run, of the same row and toolset. A tool that leaves the toolset keeps its alert
-      # until its series leaves the 7 days.
+      # until its series leaves the 7 days. The planner runs in the stage Jobs, whose series have
+      # the job roadmap-stage (#4559).
       - name: roadmap-service-tools
         rules:
           - alert: RoadmapServiceToolUnused
             expr: >-
-              sum by (row, tool, toolset) (increase(devops_cli_roadmap_tool_calls_total{job="roadmap-service"}[7d])) == 0
+              sum by (row, tool, toolset) (increase(devops_cli_roadmap_tool_calls_total{job=~"roadmap-service|roadmap-stage"}[7d])) == 0
               and on (row, tool, toolset)
-              count by (row, tool, toolset) (count_over_time(devops_cli_roadmap_tool_calls_total{job="roadmap-service"}[7d] offset 7d)) > 0
+              count by (row, tool, toolset) (count_over_time(devops_cli_roadmap_tool_calls_total{job=~"roadmap-service|roadmap-stage"}[7d] offset 7d)) > 0
               and on (row, toolset)
-              sum by (row, toolset) (histogram_count(increase(devops_cli_roadmap_tool_calls_per_run{job="roadmap-service"}[7d]))) > 0
+              sum by (row, toolset) (histogram_count(increase(devops_cli_roadmap_tool_calls_per_run{job=~"roadmap-service|roadmap-stage"}[7d]))) > 0
             for: 0m
             labels:
               severity: warning

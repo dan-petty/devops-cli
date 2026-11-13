@@ -38,7 +38,8 @@ A `stage` item that is staged with an open finding of the review is `failed` wit
 
 Some attempts write no line:
 
-- A stop of the Service ends the round, and the attempt in progress writes no line.
+- A stop of the Service ends the round, and the attempt in progress writes no line. A stage Job runs outside the Service, so a stop of the Service ends no stage attempt (#4559).
+- A stage Job that ends with no check-in writes no line. The row `stage` of the Service writes the line `failed` for it, with the class `timeout` for a `deadline` end, the class of the exit code or the log for a `failed` end, and `ci_infra` for an eviction past the free count. A free eviction and a lost check-in of a Job that succeeded write no line.
 - An alternatives check whose body a person changed since the read writes no line. The next round checks the item again.
 - A refine item that a person or another job changed since the read writes no line. Refine does not write the item, the round does not fail, and the next round reads the item again.
 - An intake candidate that another writer changed between the plan and the write writes no line, for example an issue that `devops roadmap intake` in an agent session placed itself. Intake writes nothing for the candidate, the round does not fail, and the next plan decides the candidate again. The candidate still adds 1 to `devops_cli_roadmap_intake_candidates_total` with `result=skipped` (#5166).
@@ -50,12 +51,12 @@ A change that adds a cap extension to a job adds the count `extensions` to the l
 The dashboard `devops-cli Telemetry` has the row `Roadmap Job Success`. It shows the 7-day ratio of each job against the line at 0.80, the attempts of each job with `too few` under 30, the share of the infrastructure cuts, and the ratio at each daily check. Each panel reads the result lines with this base:
 
 ```logql
-{namespace="devops", app_kubernetes_io_name="roadmap-service"} |= "roadmap job result:"
+{namespace="devops", app_kubernetes_io_name=~"roadmap-service|devops-cli-job", container=~"service|stage"} |= "roadmap job result:"
   | json message | line_format "{{.message}}"
   | regexp `^roadmap job result: job=(?P<roadmap_job>\S+) repo=\S+ item=\S+ result=(?P<result>\S+) success=(?P<success>\S+) class=(?P<failure_class>\S+) infra=(?P<infra>\S+)`
 ```
 
-The label is `roadmap_job`, because the stream already has the label `job`. The ratio of the last 7 days is:
+The selector reads the stream of the Service and the stream of the pod of each stage Job, which logs the line of its item (#4559). A runner pod has the name label `devops-cli-job` too, and the matcher of the container leaves it out. The label is `roadmap_job`, because the stream already has the label `job`. The ratio of the last 7 days is:
 
 ```logql
 (

@@ -1757,6 +1757,10 @@ CONST_SERVICE_METRIC_WEBHOOK_DELIVERY_FAILURES: Final[str] = (
 CONST_SERVICE_METRIC_IMPLEMENT_FAILURES: Final[str] = "devops_cli_service_implement_failures_total"
 # Counts the runner Jobs that the implement row reports, by `repo`, `item_class` and `result` (#3069).
 CONST_SERVICE_METRIC_IMPLEMENT_JOBS: Final[str] = "devops_cli_service_implement_jobs_total"
+# Counts the stage Jobs of the stage row, by `repo`, `result` and `class` (#4559): `created` and
+# `existed` (a create that got 409) with the class `none`, and the end of a Job that the row
+# recovered, `evicted`, `deadline`, `failed` or `succeeded`, with the failure class or `none`.
+CONST_SERVICE_METRIC_STAGE_JOBS: Final[str] = "devops_cli_service_stage_jobs_total"
 # Counts the repair rounds of reported implement steps, by `repo` and `item_class` (#3069).
 CONST_SERVICE_METRIC_IMPLEMENT_REPAIR_ROUNDS: Final[str] = (
     "devops_cli_service_implement_repair_rounds_total"
@@ -3815,6 +3819,12 @@ CONST_ROADMAP_STAGE_JOB_SECRET_KEYS: Final[tuple[str, ...]] = (
 # at which its deadline ends.
 CONST_ROADMAP_STAGE_JOB_SETTING: Final[str] = "roadmap.stage.job"
 CONST_ROADMAP_STAGE_JOB_DEADLINE_SETTING: Final[str] = "roadmap.stage.job_deadline"
+# The stage row of the Service (#4559). The Job controller ends a Job at its deadline, and its pod
+# checks in within the grace period of the pod: the row deletes a Job that still runs this long
+# after the deadline that the check-out records. The row frees an evicted Job this many times on
+# one body with no failure mark; a later eviction counts as a failure.
+CONST_ROADMAP_STAGE_JOB_OVERRUN_SECONDS: Final[int] = 600
+CONST_ROADMAP_STAGE_FREE_EVICTIONS: Final[int] = 3
 # The comment marker of `devops roadmap retitle` (#3486).
 CONST_ROADMAP_RETITLE_COMMENT_MARKER: Final[str] = "<!-- devops roadmap retitle -->"
 # The step `fix-plan` (#5061): the marker of its comment and the hours between two attempts of one

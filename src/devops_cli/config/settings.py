@@ -156,6 +156,7 @@ from devops_cli.config.defaults import (
     DEFAULT_ROADMAP_STAGE_GATE_RETURNS,
     DEFAULT_ROADMAP_STAGE_GITHUB_REQUESTS_PER_HOUR,
     DEFAULT_ROADMAP_STAGE_INTERVAL_MINUTES,
+    DEFAULT_ROADMAP_STAGE_JOBS,
     DEFAULT_ROADMAP_STAGE_LIMIT,
     DEFAULT_ROADMAP_STAGE_MAX_REQUESTS,
     DEFAULT_ROADMAP_STAGE_MAX_TOOL_CALLS,
@@ -1237,6 +1238,11 @@ class RoadmapStageConfig(RowCadenceConfig):
     jev_completeness: Annotated[bool, Variable()] = Field(
         description="Whether the stage_ready row asks TypeSafe Jev if a green plan draft delivers each acceptance criterion of its issue, before it marks the draft ready. A criterion in doubt, a weak test score or an error of Jev keeps the draft a draft and posts one note; the check never marks a draft ready, merges or closes",
         default=False,
+    )
+    jobs: Annotated[int, Variable()] = Field(
+        description="The most stage Jobs of a repository that run at once. The stage row of the Service creates a Job for each Ready item that the selection takes, up to this count, and lists the stage Jobs of the repository to count them",
+        default=DEFAULT_ROADMAP_STAGE_JOBS,
+        ge=1,
     )
     time_budget_seconds: Annotated[int, Variable()] = Field(
         description="The most seconds that a stage Job (`devops roadmap stage --job-item`) may plan its item, counted from its start. The planner compares the time with the budget before each model run, so a run that started before the end goes on. The Job cuts the budget to the deadline of the Job less 1800 seconds, for one more model run and the publish. SIGTERM after the end of the budget is the deadline of the Job: the Job records the class and checks in. The value must be above `roadmap.mcp.timeout_seconds` and at most 9000, the deadline of CronJob roadmap-stage less the margin",

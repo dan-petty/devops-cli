@@ -314,6 +314,14 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
         "kept",
         "the time between the end of the time budget of a stage Job and its deadline, for one more model run and the publish (#5483)",
     ),
+    "CONST_ROADMAP_STAGE_JOB_OVERRUN_SECONDS": (
+        "kept",
+        "the time past the recorded deadline before the stage row deletes a stage Job that still runs; the Job controller and the check-in of the pod come first (#4559)",
+    ),
+    "CONST_ROADMAP_STAGE_FREE_EVICTIONS": (
+        "kept",
+        "the evicted stage Jobs on one body that cost no failure wait; a later eviction counts toward the split of the item (#4559)",
+    ),
     "CONST_ROADMAP_VERIFY_RECALL_FLOOR": (
         "other",
         "the recall that the verify eval must reach; a score bar, not a limit of a job",
@@ -713,6 +721,10 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
     "DEFAULT_ROADMAP_STAGE_GITHUB_REQUESTS_PER_HOUR": (
         "setting",
         "new (#5483); the request budget of one stage Job, until the measure of the first live Job",
+    ),
+    "DEFAULT_ROADMAP_STAGE_JOBS": (
+        "setting",
+        "new (#4559); one stage Job at a time keeps one model call in flight and one request budget",
     ),
     "DEFAULT_ROADMAP_FIX_PLAN_HEAD_ATTEMPTS": (
         "setting",

@@ -468,6 +468,44 @@ tests:
         alertname: RoadmapServiceGitHubRequestsHigh
         exp_alerts: []
 
+  - name: The GitHub requests of the stage Jobs count with the requests of the Service
+    interval: 1m
+    input_series:
+      # A stage Job sends its telemetry as job="roadmap-stage" (#4559): 300 requests of the
+      # Service and 300 of the stage Jobs in the hour.
+      - series: 'devops_cli_github_requests_total{job="roadmap-service", resource="graphql"}'
+        values: '0+5x90'
+      - series: 'devops_cli_github_requests_total{job="roadmap-stage", instance="roadmap-stage", resource="core", status="200"}'
+        values: '0+5x90'
+      - series: 'devops_cli_service_budget_limit_requests{job="roadmap-service", instance="192.0.2.10:8000", namespace="devops", pod="roadmap-service-5d9c7b8f4-x2k7q", container="service"}'
+        values: '500x120'
+    alert_rule_test:
+      - eval_time: 90m
+        alertname: RoadmapServiceGitHubRequestsHigh
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: "The roadmap Service sent 600 GitHub requests in the last hour"
+              description: "The roadmap Service sent more than 90% of its hourly GitHub request budget in one hour (docs/CLUSTER.md, Roadmap service)."
+
+  - name: The model requests of the stage Jobs count with the requests of the Service
+    interval: 1m
+    input_series:
+      - series: 'devops_cli_ai_requests_total{job="roadmap-service", operation="chat", cached="false"}'
+        values: '0+4x90'
+      - series: 'devops_cli_ai_requests_total{job="roadmap-stage", instance="roadmap-stage", operation="chat", cached="false"}'
+        values: '0+3x90'
+    alert_rule_test:
+      - eval_time: 90m
+        alertname: RoadmapServiceModelRequestsHigh
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: "The roadmap Service sent 420 model requests in the last hour"
+              description: "The roadmap Service sent more than 352 model requests in one hour (docs/CLUSTER.md, Roadmap service)."
+
   - name: 420 model requests in an hour fire
     interval: 1m
     input_series:

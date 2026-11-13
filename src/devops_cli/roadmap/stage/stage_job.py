@@ -21,10 +21,16 @@ the wait of its failure class or with a recorded split stays out, with the reaso
 plan reads and writes the item alone: its rejection, its orphan and its result.
 
 **Check-out and check-in.** Before the Service creates the Job, it writes the check-out on the item:
-`stage.job`, `stage.job_at` and `stage.job_deadline`. At its end the Job checks in: it writes
-`stage.job_result` and clears the check-out in one write, only when `stage.job` names this Job
-(`roadmap.stage.job`). A Job that no check-out names, such as a Job that a person starts, writes
-no check-in.
+`stage.job`, `stage.job_at` and `stage.job_deadline`, with the claim `owner/service`. At its end
+the Job checks in: it writes `stage.job_result`, clears the check-out and releases the claim in one
+write, only when `stage.job` names this Job (`roadmap.stage.job`). A Job that no check-out names,
+such as a Job that a person starts, writes no check-in. The stage row of the Service checks in for
+a Job that ended with no check-in (`stage_submit.py`, #4559).
+
+**Ends that count.** A `deadline` end, and an end that the Service recovers as `failed`, record
+the failure marks and count toward `roadmap.stage.plan_defect_limit` on one body, as a refused plan
+does. The end that reaches the limit returns the item to New with a comment that asks refine to
+split it: a plan that keeps failing is too large for one Job (owner rule, 2026-11-13).
 
 **Ends.** The exit code of the command is the end of the Job:
 
@@ -45,23 +51,28 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from enum import IntEnum
+from enum import IntEnum, StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING, Final
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict
 
 from devops_cli.ai.client.network import set_model_call_limit
-from devops_cli.config.constants import CONST_ROADMAP_STAGE_JOB_MARGIN_SECONDS
+from devops_cli.config.constants import (
+    CONST_ROADMAP_OWNER_SERVICE,
+    CONST_ROADMAP_STAGE_COMMENT_MARKER,
+    CONST_ROADMAP_STAGE_JOB_MARGIN_SECONDS,
+)
 from devops_cli.config.settings import load_settings
 from devops_cli.core.process import acts_as_github_app
 from devops_cli.exceptions import RoadmapStageError, RoadmapTimeBudgetError
 from devops_cli.github.rate_limiter import set_request_gate
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.attempt_kill import AttemptKill, AttemptKilled, kill_of, sigterm_raises
+from devops_cli.roadmap.claim import service_release
 from devops_cli.roadmap.failure import FailureClass, StepName
+from devops_cli.roadmap.job_result import RoadmapJob, log_job_result
 from devops_cli.roadmap.round_log import log_failed_item
-from devops_cli.roadmap.run import model_clone
 from devops_cli.roadmap.stage.stage import (
     StageApplied,
     StagePlan,
@@ -69,9 +80,11 @@ from devops_cli.roadmap.stage.stage import (
     StageWriter,
     emit_stage_results,
     parse_filters,
+    plan_defects,
     plan_stage,
     stage_results,
 )
+from devops_cli.roadmap.status_sync import StatusFacts, write_status
 from devops_cli.roadmap.stores.store import Item, RoadmapStore, StageRecordKey
 from devops_cli.roadmap.time_budget import TimeBudget
 from devops_cli.server.service import RequestBudget
@@ -86,6 +99,16 @@ _BUDGET_SETTING: Final[str] = "roadmap.stage.time_budget_seconds"
 # The result of the check-in of a Job that the deadline ended.
 DEADLINE_RESULT: Final[str] = "deadline"
 _FAILED: Final[frozenset[StageResult]] = frozenset({StageResult.FAILED, StageResult.DEGENERATE})
+
+
+class StageJobEnd(StrEnum):
+    """How the stage row of the Service found a Job that ended with no check-in (#4559): gone
+    from the cluster, ended by its deadline, failed, or succeeded with a lost check-in."""
+
+    EVICTED = "evicted"
+    DEADLINE = "deadline"
+    FAILED = "failed"
+    SUCCEEDED = "succeeded"
 
 
 class StageJobExit(IntEnum):
@@ -177,50 +200,108 @@ def check_in(
     store: RoadmapStore,
     number: int,
     *,
+    repo: str,
     job: str | None,
     result: str,
     now: datetime,
-    marks: dict[StageRecordKey, str] | None = None,
+    failure: FailureClass | None = None,
+    marks: dict[StageRecordKey, str | None] | None = None,
 ) -> bool:
     """Write the check-in of the Job `job` on item `number`: its result and `marks`, with the
-    check-out cleared, in one write. Nothing is written, and the answer is False, when no
+    check-out cleared and the claim of the Service released, in one write. With `failure`, the
+    end counts: the check-in records the failure marks, counts the end toward
+    `roadmap.stage.plan_defect_limit` and logs the result line of the attempt, and the end that
+    reaches the limit returns the item to New. Nothing is written, and the answer is False, when no
     check-out names the Job."""
     if job is None:
         return False
     item = store.item(number)
     if item is None or item.job_record.get(StageRecordKey.JOB) != job:
         return False
-    store.set_marks(
-        item,
-        {
-            StageRecordKey.JOB_RESULT: JobCheckIn(job=job, result=result, time=now).record,
-            StageRecordKey.JOB: None,
-            StageRecordKey.JOB_AT: None,
-            StageRecordKey.JOB_DEADLINE: None,
-            **(marks or {}),
-        },
-    )
+    written: dict[StageRecordKey, str | None] = {
+        StageRecordKey.JOB_RESULT: JobCheckIn(job=job, result=result, time=now).record,
+        StageRecordKey.JOB: None,
+        StageRecordKey.JOB_AT: None,
+        StageRecordKey.JOB_DEADLINE: None,
+        **(marks or {}),
+    }
+    if failure is None:
+        service_release(store, number, written)
+        return True
+    written |= {
+        StageRecordKey.FAILED_AT: now.isoformat(),
+        StageRecordKey.FAILED_ERROR: result,
+        StageRecordKey.FAILED_STEP: StepName.PLAN.value,
+        StageRecordKey.FAILED_CLASS: failure.value,
+    }
+    count, body = plan_defects(item)
+    limit = load_settings().roadmap.stage.plan_defect_limit
+    if count >= limit:
+        _return_for_split(store, item, result, count, limit, written)
+    else:
+        written |= {StageRecordKey.PLAN_DEFECTS: str(count), StageRecordKey.PLAN_DEFECTS_BODY: body}
+        service_release(store, number, written)
+    log_job_result(RoadmapJob.STAGE, repo, number, StageResult.FAILED.value, failure=failure)
     return True
+
+
+def _return_for_split(
+    store: RoadmapStore,
+    item: Item,
+    result: str,
+    count: int,
+    limit: int,
+    marks: dict[StageRecordKey, str | None],
+) -> None:
+    """Return `item` to New after the `count`th counted end on one body, at `limit`: post the
+    comment that asks refine to split it, set New with `marks` and no count, then release the
+    claim of the Service. The comment goes first, so a failed write never leaves a return that no
+    one was told about. The item is too large for one plan, so it is divided, not tried again."""
+    store.comment(
+        item.number,
+        f"{CONST_ROADMAP_STAGE_COMMENT_MARKER}\n\n"
+        + MESSAGES.roadmap.stage_returned_job_ends.format(result=result, count=count, limit=limit),
+    )
+    write_status(
+        store,
+        item,
+        StatusFacts(needs_refine=True),
+        marks={**marks, StageRecordKey.PLAN_DEFECTS: None, StageRecordKey.PLAN_DEFECTS_BODY: None},
+    )
+    held = store.item(item.number)
+    if held is not None and held.owner == CONST_ROADMAP_OWNER_SERVICE:
+        service_release(store, item.number, {})
 
 
 def _deadline_end(
     store: RoadmapStore,
+    repo: str,
     number: int,
     job: str | None,
     budget: RequestBudget,
     kill: AttemptKill | None,
     now: datetime | None,
 ) -> StageJobRun:
-    """Record the failure of a Job that the deadline ended and check in."""
+    """Check in with the failure of a Job that the deadline ended. The end counts."""
     at = now or datetime.now(UTC)
-    marks = {
-        StageRecordKey.FAILED_AT: at.isoformat(),
-        StageRecordKey.FAILED_ERROR: DEADLINE_RESULT,
-        StageRecordKey.FAILED_STEP: StepName.PLAN.value,
-        StageRecordKey.FAILED_CLASS: FailureClass.TIMEOUT.value,
-    }
-    check_in(store, number, job=job, result=DEADLINE_RESULT, now=at, marks=marks)
+    check_in(
+        store,
+        number,
+        repo=repo,
+        job=job,
+        result=DEADLINE_RESULT,
+        now=at,
+        failure=FailureClass.TIMEOUT,
+    )
     return StageJobRun(StageJobExit.DEADLINE, DEADLINE_RESULT, budget, kill=kill)
+
+
+def _clone(repo: str) -> Path:
+    """The blobless clone of `repo` in the status clone directory of the pod. The roadmap run
+    imports the stage row, which imports this module, so the run is imported here."""
+    from devops_cli.roadmap.run import status_clone
+
+    return status_clone(repo, blobless=True)
 
 
 def run_stage_job(
@@ -249,11 +330,11 @@ def run_stage_job(
         settings.time_budget_seconds, settings.job_deadline, now or datetime.now(UTC)
     )
     if seconds <= 0:
-        return _deadline_end(store, item, settings.job, budget, None, now)
+        return _deadline_end(store, repo, item, settings.job, budget, None, now)
     time_budget = TimeBudget.start(seconds, _BUDGET_SETTING)
     try:
         with sigterm_raises():
-            clone = Path(source) if source is not None else model_clone(repo, blobless=True)
+            clone = Path(source) if source is not None else _clone(repo)
             writer = StageWriter(store, clone, now=now)
             plan = plan_stage(
                 store,
@@ -273,15 +354,16 @@ def run_stage_job(
         kill = kill_of(time_budget, killed)
         if kill is AttemptKill.EVICTED:
             return StageJobRun(StageJobExit.EVICTED, kill.value, budget, kill=kill)
-        return _deadline_end(store, item, settings.job, budget, kill, now)
+        return _deadline_end(store, repo, item, settings.job, budget, kill, now)
     except RoadmapTimeBudgetError:
-        return _deadline_end(store, item, settings.job, budget, None, now)
+        return _deadline_end(store, repo, item, settings.job, budget, None, now)
     applied = writer.applied()
     emit_stage_results(plan, applied, repo=repo)
     for failure in (*plan.failed, *applied.failed):
         log_failed_item(repo, failure.number, failure.step.value, failure.failure_class.value)
     result = stage_results(plan, applied).get(item, StageResult.SKIPPED)
-    check_in(store, item, job=settings.job, result=result.value, now=now or datetime.now(UTC))
+    at = now or datetime.now(UTC)
+    check_in(store, item, repo=repo, job=settings.job, result=result.value, now=at)
     exit_code = StageJobExit.FAILURE if result in _FAILED else StageJobExit.RESULT
     return StageJobRun(exit_code, result.value, budget, plan=plan, applied=applied)
 
@@ -289,6 +371,7 @@ def run_stage_job(
 __all__ = [
     "DEADLINE_RESULT",
     "JobCheckIn",
+    "StageJobEnd",
     "StageJobExit",
     "StageJobRun",
     "check_in",

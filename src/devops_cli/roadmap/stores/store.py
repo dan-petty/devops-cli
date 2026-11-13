@@ -251,7 +251,9 @@ class StageRecordKey(StrEnum):
     `stage.job_deadline` the time at which the deadline of the Job ends. At its end the Job checks
     in: it writes `stage.job_result`, the Job, its result and the time as JSON, and clears the
     check-out, in one write. These four keys belong to the check-out, so no write of a plan, a
-    removal or a rejection clears them (`STAGE_JOB_KEYS`)."""
+    removal or a rejection clears them (`STAGE_JOB_KEYS`). The stage row of the Service checks in
+    for a Job that ended with no check-in (#4559), and records each eviction that it frees in
+    `stage.evictions`, the hash of the body and the count as JSON."""
 
     BRANCH = "stage.branch"
     PR = "stage.pr"
@@ -275,6 +277,7 @@ class StageRecordKey(StrEnum):
     JOB_AT = "stage.job_at"
     JOB_DEADLINE = "stage.job_deadline"
     JOB_RESULT = "stage.job_result"
+    EVICTIONS = "stage.evictions"
 
 
 # The keys of the check-out and the check-in of a stage Job (#5483).

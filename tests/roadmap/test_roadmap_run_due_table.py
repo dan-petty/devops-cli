@@ -98,11 +98,11 @@ def _stamp_the_default_table(
 
 
 def test_the_table_runs_the_lanes_in_order_and_names_no_release_job() -> None:
-    """The status lane's metrics, implement, stage_ready, release_comments, github_status,
+    """The status lane's metrics, implement, stage_ready, stage, release_comments, github_status,
     cloudflare_status and pr_conflicts rows run first, then
-    the triage lane's intake row, then the model lane's retitle, stage, fix_plan, refine and
+    the triage lane's intake row, then the model lane's retitle, fix_plan, refine and
     alternatives rows; no row closes items, cuts or starts a release
-    (#1360, #1534, #2652, #2659, #2667, #2757, #2865, #3535, #4796, #5061)."""
+    (#1360, #1534, #2652, #2659, #2667, #2757, #2865, #3535, #4559, #5061)."""
     assert (
         [row.name for row in DEFAULT_DUE_TABLE],
         DEFAULT_DUE_TABLE == (*STATUS_LANE_ROWS, *TRIAGE_LANE_ROWS, *MODEL_LANE_ROWS),
@@ -112,13 +112,13 @@ def test_the_table_runs_the_lanes_in_order_and_names_no_release_job() -> None:
             "metrics",
             "implement",
             "stage_ready",
+            "stage",
             "release_comments",
             "github_status",
             "cloudflare_status",
             "pr_conflicts",
             "intake",
             "retitle",
-            "stage",
             "fix_plan",
             "refine",
             "alternatives",
@@ -286,7 +286,7 @@ def test_stage_is_due_at_its_interval_after_its_last_success_on_a_first_run_and_
     cli: Callable[..., Any],
 ) -> None:
     """The stage row is due 37 min after its last success, not at 36, and on a first run; the
-    CLI's dry run lists it before refine (#2659, #4796)."""
+    CLI's dry run lists it with the status lane, before intake and refine (#2659, #4559)."""
     table = build_stub_table(include_refine=True, include_stage=True)
 
     def due(stage_age: timedelta | None) -> tuple[str, ...]:
@@ -311,7 +311,7 @@ def test_stage_is_due_at_its_interval_after_its_last_success_on_a_first_run_and_
         at_36,
         first,
         result.exit_code,
-        "Due: intake, stage, refine\n" in result.output,
+        "Due: stage, intake, refine\n" in result.output,
     ) == (
         ("stage",),
         (),

@@ -1674,7 +1674,7 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "The GitHub core requests in each hour that cost quota, by job, beside the answers 304 that cost no quota (free (304)) and the hourly budget of the Service (Service budget limit, dashed). Only the requests of roadmap-service count in this budget. The Service and the cluster Jobs act as one GitHub App and share the rate limit of its installation, and a workstation (job devops-cli) uses the token of its person. Each attempt counts, and each retry counts again. Each bar is the hour before its time (Min interval 1h). Metric: devops_cli_github_requests_total, resource core. Approximate: increase() needs two samples of a series inside its window, and delta points from one process can arrive out of order (#792), so a count can come out low.",
+      "description": "The GitHub core requests in each hour that cost quota, by job, beside the answers 304 that cost no quota (free (304)) and the hourly budget of the Service (Service budget limit, dashed). Only the requests of roadmap-service count in this budget. A stage Job (job roadmap-stage) counts its requests in a budget of its own, roadmap.stage.github_requests_per_hour (#4559). The Service and the cluster Jobs act as one GitHub App and share the rate limit of its installation, and a workstation (job devops-cli) uses the token of its person. Each attempt counts, and each retry counts again. Each bar is the hour before its time (Min interval 1h). Metric: devops_cli_github_requests_total, resource core. Approximate: increase() needs two samples of a series inside its window, and delta points from one process can arrive out of order (#792), so a count can come out low.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -2124,7 +2124,7 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "Tool calls of the stage planner in the last hour, by tool and outcome (ok, empty or error), on the left axis, and the mean size of the answers of each tool in characters, after the cut of the tool, on the right axis. Approximate, and low for sparse series: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing. Delta points from one process can arrive out of order, and totals then come out low (#792). A tool that no run calls shows a line at 0.",
+      "description": "Tool calls of the stage planner in the last hour, by tool and outcome (ok, empty or error), on the left axis, and the mean size of the answers of each tool in characters, after the cut of the tool, on the right axis. The planner runs in the stage Jobs, whose series have the job roadmap-stage (#4559). Approximate, and low for sparse series: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing. Delta points from one process can arrive out of order, and totals then come out low (#792). A tool that no run calls shows a line at 0.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -2929,12 +2929,57 @@
       ]
     },
     {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "The stage Jobs of the stage row in the last hour, by result: created, existed (a create that got 409), and the end of a Job that ended with no check-in, which the row recovered: evicted, deadline, failed or succeeded (#4559). A Job that checks in at its end counts its own result in devops_cli_roadmap_stage_total.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "drawStyle": "line"
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 157
+      },
+      "id": 67,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "title": "Service Stage Jobs by Result",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (result) (increase(devops_cli_service_stage_jobs_total{job=~\"$job\"}[1h]))",
+          "legendFormat": "{{result}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
       "collapsed": false,
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 157
+        "y": 165
       },
       "id": 49,
       "title": "Alternatives Check",
@@ -2962,7 +3007,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 158
+        "y": 166
       },
       "id": 50,
       "options": {
@@ -3007,7 +3052,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 158
+        "y": 166
       },
       "id": 51,
       "options": {
@@ -3052,7 +3097,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 158
+        "y": 166
       },
       "id": 52,
       "options": {
@@ -3090,7 +3135,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 166
+        "y": 174
       },
       "id": 55,
       "title": "Roadmap Job Success",
@@ -3101,7 +3146,7 @@
         "type": "loki",
         "uid": "loki"
       },
-      "description": "The share of the attempts of each roadmap job in the last 7 days that ended with the intended result of the job, from the 'roadmap job result' log lines (#4845). A job with fewer than 30 attempts shows no bar: see Job Attempts. A job with 30 attempts or more and no success shows a bar at 0. The 80% rule (docs/roadmap/job-success.md): a job holds 80% when the ratio is 0.80 or more with 30 attempts or more at 3 daily checks in a row.",
+      "description": "The share of the attempts of each roadmap job in the last 7 days that ended with the intended result of the job, from the 'roadmap job result' log lines of the Service and of the pods of the stage Jobs (#4845, #4559). A job with fewer than 30 attempts shows no bar: see Job Attempts. A job with 30 attempts or more and no success shows a bar at 0. The 80% rule (docs/roadmap/job-success.md): a job holds 80% when the ratio is 0.80 or more with 30 attempts or more at 3 daily checks in a row.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -3130,7 +3175,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 167
+        "y": 175
       },
       "id": 56,
       "options": {
@@ -3154,7 +3199,7 @@
             "type": "loki",
             "uid": "loki"
           },
-          "expr": "((sum by (roadmap_job) (count_over_time({namespace=\"devops\", app_kubernetes_io_name=\"roadmap-service\"} |= \"roadmap job result:\" | json message | line_format \"{{.message}}\" | regexp `^roadmap job result: job=(?P<roadmap_job>\\S+) repo=\\S+ item=\\S+ result=(?P<result>\\S+) success=(?P<success>\\S+) class=(?P<failure_class>\\S+) infra=(?P<infra>\\S+)` | success=\"true\" [7d])) or on (roadmap_job) (sum by (roadmap_job) (count_over_time({namespace=\"devops\", app_kubernetes_io_name=\"roadmap-service\"} |= \"roadmap job result:\" | json message | line_format \"{{.message}}\" | regexp `^roadmap job result: job=(?P<roadmap_job>\\S+) repo=\\S+ item=\\S+ result=(?P<result>\\S+) success=(?P<success>\\S+) class=(?P<failure_class>\\S+) infra=(?P<infra>\\S+)` [7d])) * 0)) / sum by (roadmap_job) (count_over_time({namespace=\"devops\", app_kubernetes_io_name=\"roadmap-service\"} |= \"roadmap job result:\" | json message | line_format \"{{.message}}\" | regexp `^roadmap job result: job=(?P<roadmap_job>\\S+) repo=\\S+ item=\\S+ result=(?P<result>\\S+) success=(?P<success>\\S+) class=(?P<failure_class>\\S+) infra=(?P<infra>\\S+)` [7d]))) and on (roadmap_job) (sum by (roadmap_job) (count_over_time({namespace=\"devops\", app_kubernetes_io_name=\"roadmap-service\"} |= \"roadmap job result:\" | json message | line_format \"{{.message}}\" | regexp `^roadmap job result: job=(?P<roadmap_job>\\S+) repo=\\S+ item=\\S+ result=(?P<result>\\S+) success=(?P<success>\\S+) class=(?P<failure_class>\\S+) infra=(?P<infra>\\S+)` [7d])) >= 30)",
+          "expr": "((sum by (roadmap_job) (count_over_time({namespace=\"devops\", app_kubernetes_io_name=~\"roadmap-service|devops-cli-job\", container=~\"service|stage\"} |= \"roadmap job result:\" | json message | line_format \"{{.message}}\" | regexp `^roadmap job result: job=(?P<roadmap_job>\\S+) repo=\\S+ item=\\S+ result=(?P<result>\\S+) success=(?P<success>\\S+) class=(?P<failure_class>\\S+) infra=(?P<infra>\\S+)` | success=\"true\" [7d])) or on (roadmap_job) (sum by (roadmap_job) (count_over_time({namespace=\"devops\", app_kubernetes_io_name=~\"roadmap-service|devops-cli-job\", container=~\"service|stage\"} |= \"roadmap job result:\" | json message | line_format \"{{.message}}\" | regexp `^roadmap job result: job=(?P<roadmap_job>\\S+) repo=\\S+ item=\\S+ result=(?P<result>\\S+) success=(?P<success>\\S+) class=(?P<failure_class>\\S+) infra=(?P<infra>\\S+)` [7d])) * 0)) / sum by (roadmap_job) (count_over_time({namespace=\"devops\", app_kubernetes_io_name=~\"roadmap-service|devops-cli-job\", container=~\"service|stage\"} |= \"roadmap job result:\" | json message | line_format \"{{.message}}\" | regexp `^roadmap job result: job=(?P<roadmap_job>\\S+) repo=\\S+ item=\\S+ result=(?P<result>\\S+) success=(?P<success>\\S+) class=(?P<failure_class>\\S+) infra=(?P<infra>\\S+)` [7d]))) and on (roadmap_job) (sum by (roadmap_job) (count_over_time({namespace=\"devops\", app_kubernetes_io_name=~\"roadmap-service|devops-cli-job\", container=~\"service|stage\"} |= \"roadmap job result:\" | json message | line_format \"{{.message}}\" | regexp `^roadmap job result: job=(?P<roadmap_job>\\S+) repo=\\S+ item=\\S+ result=(?P<result>\\S+) success=(?P<success>\\S+) class=(?P<failure_class>\\S+) infra=(?P<infra>\\S+)` [7d])) >= 30)",
           "legendFormat": "{{roadmap_job}}",
           "refId": "A",
           "queryType": "instant"
@@ -3166,7 +3211,7 @@
         "type": "loki",
         "uid": "loki"
       },
-      "description": "The attempts of each roadmap job in the last 7 days: one 'roadmap job result' log line for each attempt (#4845). Under 30 attempts the ratio is too few to judge.",
+      "description": "The attempts of each roadmap job in the last 7 days: one 'roadmap job result' log line for each attempt, in the log of the Service or of a stage Job pod (#4845, #4559). Under 30 attempts the ratio is too few to judge.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -3206,7 +3251,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 167
+        "y": 175
       },
       "id": 57,
       "options": {
@@ -3231,7 +3276,7 @@
             "type": "loki",
             "uid": "loki"
           },
-          "expr": "sum by (roadmap_job) (count_over_time({namespace=\"devops\", app_kubernetes_io_name=\"roadmap-service\"} |= \"roadmap job result:\" | json message | line_format \"{{.message}}\" | regexp `^roadmap job result: job=(?P<roadmap_job>\\S+) repo=\\S+ item=\\S+ result=(?P<result>\\S+) success=(?P<success>\\S+) class=(?P<failure_class>\\S+) infra=(?P<infra>\\S+)` [7d]))",
+          "expr": "sum by (roadmap_job) (count_over_time({namespace=\"devops\", app_kubernetes_io_name=~\"roadmap-service|devops-cli-job\", container=~\"service|stage\"} |= \"roadmap job result:\" | json message | line_format \"{{.message}}\" | regexp `^roadmap job result: job=(?P<roadmap_job>\\S+) repo=\\S+ item=\\S+ result=(?P<result>\\S+) success=(?P<success>\\S+) class=(?P<failure_class>\\S+) infra=(?P<infra>\\S+)` [7d]))",
           "legendFormat": "{{roadmap_job}}",
           "refId": "A",
           "queryType": "instant"
@@ -3272,7 +3317,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 167
+        "y": 175
       },
       "id": 58,
       "options": {
@@ -3296,7 +3341,7 @@
             "type": "loki",
             "uid": "loki"
           },
-          "expr": "(sum by (roadmap_job) (count_over_time({namespace=\"devops\", app_kubernetes_io_name=\"roadmap-service\"} |= \"roadmap job result:\" | json message | line_format \"{{.message}}\" | regexp `^roadmap job result: job=(?P<roadmap_job>\\S+) repo=\\S+ item=\\S+ result=(?P<result>\\S+) success=(?P<success>\\S+) class=(?P<failure_class>\\S+) infra=(?P<infra>\\S+)` | infra=\"true\" [7d])) / sum by (roadmap_job) (count_over_time({namespace=\"devops\", app_kubernetes_io_name=\"roadmap-service\"} |= \"roadmap job result:\" | json message | line_format \"{{.message}}\" | regexp `^roadmap job result: job=(?P<roadmap_job>\\S+) repo=\\S+ item=\\S+ result=(?P<result>\\S+) success=(?P<success>\\S+) class=(?P<failure_class>\\S+) infra=(?P<infra>\\S+)` [7d]))) or on (roadmap_job) (sum by (roadmap_job) (count_over_time({namespace=\"devops\", app_kubernetes_io_name=\"roadmap-service\"} |= \"roadmap job result:\" | json message | line_format \"{{.message}}\" | regexp `^roadmap job result: job=(?P<roadmap_job>\\S+) repo=\\S+ item=\\S+ result=(?P<result>\\S+) success=(?P<success>\\S+) class=(?P<failure_class>\\S+) infra=(?P<infra>\\S+)` [7d])) * 0)",
+          "expr": "(sum by (roadmap_job) (count_over_time({namespace=\"devops\", app_kubernetes_io_name=~\"roadmap-service|devops-cli-job\", container=~\"service|stage\"} |= \"roadmap job result:\" | json message | line_format \"{{.message}}\" | regexp `^roadmap job result: job=(?P<roadmap_job>\\S+) repo=\\S+ item=\\S+ result=(?P<result>\\S+) success=(?P<success>\\S+) class=(?P<failure_class>\\S+) infra=(?P<infra>\\S+)` | infra=\"true\" [7d])) / sum by (roadmap_job) (count_over_time({namespace=\"devops\", app_kubernetes_io_name=~\"roadmap-service|devops-cli-job\", container=~\"service|stage\"} |= \"roadmap job result:\" | json message | line_format \"{{.message}}\" | regexp `^roadmap job result: job=(?P<roadmap_job>\\S+) repo=\\S+ item=\\S+ result=(?P<result>\\S+) success=(?P<success>\\S+) class=(?P<failure_class>\\S+) infra=(?P<infra>\\S+)` [7d]))) or on (roadmap_job) (sum by (roadmap_job) (count_over_time({namespace=\"devops\", app_kubernetes_io_name=~\"roadmap-service|devops-cli-job\", container=~\"service|stage\"} |= \"roadmap job result:\" | json message | line_format \"{{.message}}\" | regexp `^roadmap job result: job=(?P<roadmap_job>\\S+) repo=\\S+ item=\\S+ result=(?P<result>\\S+) success=(?P<success>\\S+) class=(?P<failure_class>\\S+) infra=(?P<infra>\\S+)` [7d])) * 0)",
           "legendFormat": "{{roadmap_job}}",
           "refId": "A",
           "queryType": "instant"
@@ -3343,7 +3388,7 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 175
+        "y": 183
       },
       "id": 59,
       "interval": "1d",
@@ -3361,7 +3406,7 @@
             "type": "loki",
             "uid": "loki"
           },
-          "expr": "((sum by (roadmap_job) (count_over_time({namespace=\"devops\", app_kubernetes_io_name=\"roadmap-service\"} |= \"roadmap job result:\" | json message | line_format \"{{.message}}\" | regexp `^roadmap job result: job=(?P<roadmap_job>\\S+) repo=\\S+ item=\\S+ result=(?P<result>\\S+) success=(?P<success>\\S+) class=(?P<failure_class>\\S+) infra=(?P<infra>\\S+)` | success=\"true\" [7d])) or on (roadmap_job) (sum by (roadmap_job) (count_over_time({namespace=\"devops\", app_kubernetes_io_name=\"roadmap-service\"} |= \"roadmap job result:\" | json message | line_format \"{{.message}}\" | regexp `^roadmap job result: job=(?P<roadmap_job>\\S+) repo=\\S+ item=\\S+ result=(?P<result>\\S+) success=(?P<success>\\S+) class=(?P<failure_class>\\S+) infra=(?P<infra>\\S+)` [7d])) * 0)) / sum by (roadmap_job) (count_over_time({namespace=\"devops\", app_kubernetes_io_name=\"roadmap-service\"} |= \"roadmap job result:\" | json message | line_format \"{{.message}}\" | regexp `^roadmap job result: job=(?P<roadmap_job>\\S+) repo=\\S+ item=\\S+ result=(?P<result>\\S+) success=(?P<success>\\S+) class=(?P<failure_class>\\S+) infra=(?P<infra>\\S+)` [7d])))",
+          "expr": "((sum by (roadmap_job) (count_over_time({namespace=\"devops\", app_kubernetes_io_name=~\"roadmap-service|devops-cli-job\", container=~\"service|stage\"} |= \"roadmap job result:\" | json message | line_format \"{{.message}}\" | regexp `^roadmap job result: job=(?P<roadmap_job>\\S+) repo=\\S+ item=\\S+ result=(?P<result>\\S+) success=(?P<success>\\S+) class=(?P<failure_class>\\S+) infra=(?P<infra>\\S+)` | success=\"true\" [7d])) or on (roadmap_job) (sum by (roadmap_job) (count_over_time({namespace=\"devops\", app_kubernetes_io_name=~\"roadmap-service|devops-cli-job\", container=~\"service|stage\"} |= \"roadmap job result:\" | json message | line_format \"{{.message}}\" | regexp `^roadmap job result: job=(?P<roadmap_job>\\S+) repo=\\S+ item=\\S+ result=(?P<result>\\S+) success=(?P<success>\\S+) class=(?P<failure_class>\\S+) infra=(?P<infra>\\S+)` [7d])) * 0)) / sum by (roadmap_job) (count_over_time({namespace=\"devops\", app_kubernetes_io_name=~\"roadmap-service|devops-cli-job\", container=~\"service|stage\"} |= \"roadmap job result:\" | json message | line_format \"{{.message}}\" | regexp `^roadmap job result: job=(?P<roadmap_job>\\S+) repo=\\S+ item=\\S+ result=(?P<result>\\S+) success=(?P<success>\\S+) class=(?P<failure_class>\\S+) infra=(?P<infra>\\S+)` [7d])))",
           "legendFormat": "{{roadmap_job}}",
           "refId": "A",
           "queryType": "range"

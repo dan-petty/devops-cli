@@ -1089,6 +1089,9 @@ def test_cli_dashboard_service_row_charts_the_state_of_the_service() -> None:
             "max by (repo, code) "
             f"(last_over_time(devops_cli_service_webhook_delivery_failures{selector}[5m]))"
         ],
+        "Service Stage Jobs by Result": [
+            f"sum by (result) (increase(devops_cli_service_stage_jobs_total{selector}[1h]))"
+        ],
     }
 
 

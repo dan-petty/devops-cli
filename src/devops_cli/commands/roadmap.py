@@ -482,12 +482,12 @@ def stage_cmd(
     if not (plan_only or confirm):
         print_info(MESSAGES.roadmap.stage_plain_note)
     from devops_cli.ai.client.factory import get_task_model
-    from devops_cli.roadmap.run import model_clone
+    from devops_cli.roadmap.run import status_clone
     from devops_cli.roadmap.stage.stage_toolbox import ToolboxModel
 
     with _exit_on_failure("Could not plan staging"):
         _, store = _open_store(target)
-        clone = source or model_clone(target)
+        clone = source or status_clone(target)
         writer = StageWriter(store, clone) if confirm else None
         plan = plan_stage(
             store,

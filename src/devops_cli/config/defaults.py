@@ -897,6 +897,9 @@ DEFAULT_ROADMAP_STAGE_GATE_RETURNS: int = 3
 # (2026-11-13), and the budget with the margin of `CONST_ROADMAP_STAGE_JOB_MARGIN_SECONDS` ends at
 # the deadline of the Job, 10,800 s.
 DEFAULT_ROADMAP_STAGE_TIME_BUDGET_SECONDS: int = 9000
+# The stage Jobs that run at once (#4559): one keeps one model call in flight, as the model tier
+# serves one call at a time, and keeps the GitHub requests of the stage Jobs in one budget.
+DEFAULT_ROADMAP_STAGE_JOBS: int = 1
 # The GitHub requests that one stage Job may send in an hour (#5483). The stage row of the Service
 # sent 3,357 requests a day (about 140 an hour) on 2026-11-13; a Job starts with an empty cache.
 # The measure of the first live Job sets the value.

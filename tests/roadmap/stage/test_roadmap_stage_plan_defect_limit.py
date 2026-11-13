@@ -21,7 +21,6 @@ from devops_cli.config.constants import CONST_ROADMAP_STAGE_COMMENT_MARKER
 from devops_cli.config.settings import load_settings
 from devops_cli.exceptions import RoadmapStageError
 from devops_cli.roadmap.failure import FailureClass, StepName
-from devops_cli.roadmap.run import _run_stage_adapter
 from devops_cli.roadmap.stage.stage import StageFailure, StagePlan
 from devops_cli.roadmap.stores.store import StageRecordKey
 from tests.support.builders import make_stage_proposal
@@ -34,6 +33,7 @@ from tests.support.roadmap_stage import (
     apply_stage,
     no_findings,
     seed_stageable,
+    stage_round,
     validate_args,
 )
 
@@ -315,7 +315,7 @@ def test_a_round_returns_an_item_whose_plan_the_checks_refuse_at_the_limit(
     _fail_to_the_limit(store, 1, less=1)
     _plan_answers(model_fake, pull_request_body="Fixes #4 now.")
 
-    _run_stage_adapter(store, repo=STAGE_REPO, clone_path=stage_repo.clone)
+    stage_round(store, stage_repo)
 
     assert _status(store, 1) == "New"
     [comment] = _stage_comments(store, 1)
@@ -350,7 +350,7 @@ def test_a_round_gives_the_reason_of_a_plan_run_that_stops_after_a_refused_reply
     no_findings(model_fake)
     model_fake.answer(plan)
 
-    _run_stage_adapter(store, repo=STAGE_REPO, clone_path=stage_repo.clone)
+    stage_round(store, stage_repo)
 
     assert _status(store, 1) == "New"
     [comment] = _stage_comments(store, 1)
@@ -369,7 +369,7 @@ def test_a_staged_item_clears_its_count(
     _fail_to_the_limit(store, 1, less=1)
     _plan_answers(model_fake)
 
-    _run_stage_adapter(store, repo=STAGE_REPO, clone_path=stage_repo.clone)
+    stage_round(store, stage_repo)
 
     record = _record(store, 1)
     assert StageRecordKey.BRANCH.value in record

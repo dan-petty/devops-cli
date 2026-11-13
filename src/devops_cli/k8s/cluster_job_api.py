@@ -16,7 +16,7 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Any
 
-from devops_cli.exceptions.k8s import ClusterJobError
+from devops_cli.exceptions.k8s import ClusterJobError, ClusterJobExistsError
 from devops_cli.k8s.api import api_error_type
 from devops_cli.k8s.cluster_job import (
     DEFAULT_TEMPLATE,
@@ -33,6 +33,7 @@ from devops_cli.lang import MESSAGES
 _BATCH = ("batch", "v1")
 _APPS = ("apps", "v1")
 _NOT_FOUND = 404
+_CONFLICT = 409
 # The conditions of a Job that ended.
 _END_CONDITIONS = frozenset({"Complete", "Failed"})
 
@@ -49,8 +50,10 @@ class JobState(StrEnum):
 class ClusterJob:
     """A Job of namespace `devops` as the API lists it: its state, the time its pod started (None
     until the Job controller sets it), the `activeDeadlineSeconds` in force (None when it sets
-    none), its annotations, and the time it got the condition Complete or Failed (None until it
-    ends, #4845)."""
+    none), its annotations, the time it got the condition Complete or Failed (None until it
+    ends, #4845), its labels, and the reason and the message of its condition Failed, such as
+    `DeadlineExceeded`, `BackoffLimitExceeded` or `PodFailurePolicy` (empty until it fails,
+    #4559)."""
 
     name: str
     state: JobState
@@ -58,6 +61,9 @@ class ClusterJob:
     deadline: int | None = None
     annotations: Mapping[str, str] = field(default_factory=dict[str, str])
     ended: datetime | None = None
+    labels: Mapping[str, str] = field(default_factory=dict[str, str])
+    reason: str = ""
+    message: str = ""
 
 
 def _started(job: Mapping[str, Any]) -> datetime | None:
@@ -76,7 +82,17 @@ def _ended(job: Mapping[str, Any]) -> datetime | None:
     return None
 
 
+def _failed(job: Mapping[str, Any]) -> Mapping[str, Any]:
+    """The condition Failed of a Job when it is True, else an empty mapping."""
+    for condition in ((job.get("status") or {}).get("conditions")) or []:
+        if condition.get("type") == "Failed" and condition.get("status") == "True":
+            found: Mapping[str, Any] = condition
+            return found
+    return {}
+
+
 def _listed(job: Mapping[str, Any]) -> ClusterJob:
+    failed = _failed(job)
     return ClusterJob(
         job["metadata"]["name"],
         job_state(job),
@@ -84,6 +100,9 @@ def _listed(job: Mapping[str, Any]) -> ClusterJob:
         deadline=(job.get("spec") or {}).get("activeDeadlineSeconds"),
         annotations=dict(job["metadata"].get("annotations") or {}),
         ended=_ended(job),
+        labels=dict(job["metadata"].get("labels") or {}),
+        reason=str(failed.get("reason") or ""),
+        message=str(failed.get("message") or ""),
     )
 
 
@@ -122,7 +141,8 @@ class ClusterJobs:
         caller that records the digest of the image passes the `cronjob` that it read with
         `cronjob()`, so the record and the Job come from one read.
 
-        Raises ClusterJobError when the CronJob is missing or the API refuses a call.
+        Raises ClusterJobExistsError when a Job of the name exists (409), and ClusterJobError when
+        the CronJob is missing or the API refuses a call.
         """
         cronjob = cronjob or self.cronjob(template)
         name = name or job_name(template=template)
@@ -142,6 +162,8 @@ class ClusterJobs:
                 *_BATCH, JOB_NAMESPACE, "jobs", job
             )
         except api_error_type() as error:
+            if getattr(error, "status", None) == _CONFLICT:
+                raise ClusterJobExistsError(MESSAGES.k8s.job_exists.format(name=name)) from error
             raise self._refused("create Job", error) from error
         return name
 

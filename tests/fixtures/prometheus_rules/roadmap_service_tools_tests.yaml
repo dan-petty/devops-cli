@@ -131,3 +131,26 @@ tests:
       - eval_time: 390h
         alertname: RoadmapServiceToolUnused
         exp_alerts: []
+
+  - name: The tool calls and the runs of the stage Jobs count
+    interval: 1h
+    input_series:
+      # The planner runs in a stage Job, which sends its telemetry as job="roadmap-stage" (#4559).
+      - series: 'devops_cli_roadmap_tool_calls_total{job="roadmap-stage", instance="roadmap-stage", row="stage", toolset="base", tool="repo_map", outcome="ok"}'
+        values: '0x400'
+      - series: 'devops_cli_roadmap_tool_calls_total{job="roadmap-stage", instance="roadmap-stage", row="stage", toolset="base", tool="read_file", outcome="ok"}'
+        values: '0+1x400'
+      - series: 'devops_cli_roadmap_tool_calls_per_run{job="roadmap-stage", instance="roadmap-stage", row="stage", toolset="base"}'
+        values: '{{schema:0 sum:0 count:1 buckets:[1]}}+{{schema:0 sum:3 count:1 buckets:[1]}}x400'
+    alert_rule_test:
+      - eval_time: 390h
+        alertname: RoadmapServiceToolUnused
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              row: stage
+              toolset: base
+              tool: repo_map
+            exp_annotations:
+              summary: "Tool repo_map of the toolset base had no call in 7 days"
+              description: "No run of the row stage called the tool repo_map of the toolset base in 7 days, and the Service made runs of that row in that time. Read the Planner Tools row of the devops-cli Telemetry dashboard, and decide to change the tool description or to remove the tool (docs/CLUSTER.md, Roadmap service)."

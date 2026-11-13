@@ -930,6 +930,7 @@ class K8sMessages:
         "The Kubernetes API refused to {action} in namespace devops: HTTP {status} {reason}"
     )
     job_created: str = "Created Job {name}. Follow it with: kubectl -n devops logs -f job/{name}"
+    job_exists: str = "Job devops/{name} exists already. No second Job was created."
     job_dry_run_heading: str = (
         "Dry run: no request was made. run-job would make these requests, in order:"
     )
@@ -4260,6 +4261,19 @@ class RoadmapMessages:
     stage_job_ended: str = (
         "The stage Job of item #{number} ended: {result}, exit code {code}. The pod sent "
         "{requests} GitHub requests in its budget of {limit} an hour."
+    )
+    # The stage row of the Service submits the stage Jobs (#4559).
+    stage_left_stage_job: str = "Stage Job {job} works on the item."
+    stage_round_no_repo: str = (
+        "The stage row has no repository, so it lists no stage Job and creates none."
+    )
+    stage_returned_job_ends: str = (
+        "The stage Job of this item ended `{result}` {count} times on the same body, and the "
+        "limit is {limit}. The stage job returns the item to New and starts no other Job for it. "
+        "The item is too large for one plan: refine, split it into smaller items."
+    )
+    stage_round_log: str = (
+        "stage row: repo=%s recovered=%s created=%s existed=%s deleted=%s running=%d"
     )
     fix_plan_left_branch: str = (
         "The branch {branch} of pull request #{pull} does not name the item."

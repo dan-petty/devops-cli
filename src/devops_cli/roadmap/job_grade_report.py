@@ -84,8 +84,13 @@ _BROKEN_ATTEMPTS: Final = 5
 _INFRA_ATTEMPTS: Final = 10
 _INFRA_SHARE: Final = 0.20
 
-# The stream of the Service, where the result lines are today (`docs/roadmap/job-success.md`).
-_SELECTOR: Final = '{namespace="devops", app_kubernetes_io_name="roadmap-service"}'
+# The streams of the result lines (`docs/roadmap/job-success.md`): the Service, and the pod of each
+# stage Job, which logs the line of its item (#4559). A runner pod has the name label of a Job too,
+# and its container `runner` stays out.
+_SELECTOR: Final = (
+    '{namespace="devops", app_kubernetes_io_name=~"roadmap-service|devops-cli-job", '
+    'container=~"service|stage"}'
+)
 # The fixed fields of a result line, and its version at the end.
 _FIELDS: Final = (
     rf"^{LINE_PREFIX} job=(?P<roadmap_job>\S+) repo=(?P<repo>\S+) item=\S+ "
