@@ -193,7 +193,7 @@ This table holds the naming rules of the project. Each rule names the check that
 
 | Artifact | Form | Check |
 | :--- | :--- | :--- |
-| Branch | `<type>/<issue>-<slug>` for a person and for the implement job, or `copilot/<slug>` for the branch that GitHub gives the Copilot cloud agent and that the agent cannot rename | The `no-commit-to-branch` pre-commit hook refuses a commit on a branch that breaks either form. `devops repos worktrees add` makes a branch in the `<type>/<issue>-<slug>` form. |
+| Branch | `<type>/<issue>-<slug>` | The `no-commit-to-branch` pre-commit hook refuses a commit on a branch that is outside this form and outside the `copilot/<slug>` form, which GitHub gives the Copilot cloud agent and the agent cannot rename. `devops repos worktrees add` makes a branch in this form. |
 | Pull request title and commit subject | `<type>(<scope>): <summary>`, with a summary of at most 60 characters (an emoji counts as two) | The `Semantic PR title` check for the title: its form, its scope and the length of its summary. `devops pr create` checks the same rules before it opens the pull request. None for a commit on a branch. |
 | Change folder | `<issue>-<slug>`, archived as `<YYYY-MM-DD>-<issue>-<slug>` | `devops openspec check` and `tests/invariants/test_change_folders.py`. |
 | Python module, class, function and variable | PEP 8 | Ruff `N`. |
