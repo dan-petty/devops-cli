@@ -244,11 +244,21 @@ def test_a_rule_title_added_only_to_agents_md_is_reported() -> None:
     assert _rule_drift(agents_md, generated) == (["Pin every tool"], ["Back up"])
 
 
-def test_the_sdlc_closes_an_item_that_a_newer_direction_replaces() -> None:
-    """The triage rules of docs/SDLC.md, not AGENTS.md, tell an agent to close an item that a
-    newer direction replaces as not planned (#5421)."""
-    content = (REPO_ROOT / "docs" / "SDLC.md").read_text(encoding="utf-8")
-    assert "Close an item that a newer direction replaces as not planned" in content
+def _rule(number: int) -> str:
+    """The line of rule `number` of AGENTS.md."""
+    lines = _AGENTS_MD.read_text(encoding="utf-8").splitlines()
+    return next(line for line in lines if line.startswith(f"{number}. "))
+
+
+def test_the_premise_rule_closes_an_item_that_newer_issues_or_code_replace() -> None:
+    """The premise check of every task closes an item that newer issues or code replace, and the
+    triage rules of docs/SDLC.md give the same cases with the command (#2413, #5421)."""
+    sdlc = (REPO_ROOT / "docs" / "SDLC.md").read_text(encoding="utf-8")
+    assert (
+        "If newer issues or code replace the item, close it as not planned." in _rule(2),
+        "Close an item that a newer direction, newer issues or newer code replace as not planned"
+        in sdlc,
+    ) == (True, True)
 
 
 def test_agents_md_asks_for_small_tool_output_and_keeps_the_facts_the_reader_needs() -> None:
@@ -289,15 +299,41 @@ def test_agents_md_routes_each_kind_of_task_to_a_document_that_exists() -> None:
     ) == (True, [], [])
 
 
-def test_agents_md_routes_a_closed_model_question_to_the_ask_jev_skill() -> None:
-    """The decision model rule left the rules of AGENTS.md: a row routes a closed question for a
-    model to the `ask-jev` skill, and the skill tells an agent to ask only when no file or
-    deterministic check can answer (#5421)."""
-    skill = (REPO_ROOT / ".agents" / "skills" / "ask-jev" / "SKILL.md").read_text(encoding="utf-8")
-    assert (
-        where_to_look(_AGENTS_MD).get("ask a model a closed question"),
-        "no file or deterministic check can answer" in skill,
-    ) == ([".agents/skills/ask-jev/SKILL.md"], True)
+def test_the_model_call_rule_limits_every_call_and_links_the_ask_jev_skill() -> None:
+    """Rule 7 limits every `devops ai` call, generative or not, to a question that no file or
+    deterministic check can answer, and links the `ask-jev` skill, which owns the choice of the
+    model kind (#5421)."""
+    assert [
+        needle
+        for needle in (
+            "Run one `devops ai` call at a time",
+            "only when no file or deterministic check can answer",
+            "](.agents/skills/ask-jev/SKILL.md)",
+        )
+        if needle not in _rule(7)
+    ] == []
+
+
+def test_agents_md_keeps_the_safety_rules_inline() -> None:
+    """The safety rules stay in AGENTS.md, which every session and every implement step reads in
+    full, also when their detail moves to the document that owns it (#5421)."""
+    assert [
+        needle
+        for needle in (
+            "Never commit or push to `main`",
+            "Never use `--no-verify`",
+            "Never lower a security or quality threshold",
+            "Never run bare `gh`",
+            "**Only a person** merges pull requests",
+            "changes secrets, repository settings and hardware",
+            "Never commit a secret, a gitignored file, an internal hostname, a private address or "
+            "registry, or a device path",
+            "`example.com`",
+            "RFC 5737",
+            "`<storage-node>`",
+        )
+        if needle not in _AGENTS_MD.read_text(encoding="utf-8")
+    ] == []
 
 
 def test_a_generated_agents_md_routes_only_to_documents_that_exist(tmp_path: Path) -> None:

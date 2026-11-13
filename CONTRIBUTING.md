@@ -207,6 +207,7 @@ This table holds the naming rules of the project. Each rule names the check that
 | Decision record | `docs/adr/<NNNN>-<slug>.md`, with the front matter and the limits of [docs/adr/README.md](docs/adr/README.md) | `tests/invariants/test_adr_records.py`. |
 | Release tag | `v<major>.<minor>.<patch>` | release-please writes it. Nobody tags by hand. |
 | Agent file, worktree and scratch script | Under `.data/agent/`. The worktree of an issue is `.data/agent/worktrees/w-<issue>`. | `.gitignore`. `devops repos worktrees add` makes the worktree, or takes over the staged branch of the issue. |
+| Copy of a file outside the workspace, made before an agent edits it | `<path>.bak-<YYYYMMDD-HHMMSS>`, the form that `devops config set` uses | None. |
 
 The parts of a branch name:
 
