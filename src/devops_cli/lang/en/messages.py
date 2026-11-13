@@ -6017,8 +6017,8 @@ class RoadmapMessages:
         "others; the next run tries them again: {items}"
     )
     intake_item_changed: str = (
-        "Intake did not place {name}: a person changed its Item since the plan, so nothing was "
-        "written. The next run decides it again."
+        "Intake did not place {name}: another writer, such as a person or another intake run, "
+        "changed its Item since the plan, so nothing was written. The next run decides it again."
     )
     intake_failed_item: str = "{name} ({error})"
     intake_failed_new: str = '"{title}"'

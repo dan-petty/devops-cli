@@ -1437,11 +1437,18 @@ def start_candidate_counts(repo: str) -> None:
 
 
 def _count_candidate(
-    repo: str, result: CandidateResult, number: int | None, failure: FailureClass | None = None
+    repo: str,
+    result: CandidateResult,
+    number: int | None,
+    failure: FailureClass | None = None,
+    *,
+    logged: bool = True,
 ) -> None:
-    """Count the result of one candidate, and log its result line (#4845)."""
+    """Count the result of one candidate, and log its result line (#4845) unless `logged` is
+    False."""
     emit(ROADMAP_INTAKE_CANDIDATES_TOTAL, 1, {"repo": repo, "result": result.value})
-    log_job_result(RoadmapJob.INTAKE, repo, number, result.value, failure=failure)
+    if logged:
+        log_job_result(RoadmapJob.INTAKE, repo, number, result.value, failure=failure)
 
 
 def _written_result(decision: IntakeDecision) -> CandidateResult:
@@ -1480,7 +1487,9 @@ def apply_intake(
     since every later write would be refused too (#983). Each candidate adds 1 to
     `devops_cli_roadmap_intake_candidates_total` for `repo` under its result (#4067), and logs
     one result line with the number of its issue (#4845); the candidate whose write ends the
-    round counts nothing."""
+    round counts nothing. A changed Item counts as `skipped` and logs no result line: another
+    writer, such as `devops roadmap intake` in an agent session, placed it, so intake did not fail
+    (#5166)."""
     written: list[IntakeApplied] = []
     failed: list[PlacementFailure] = []
     for decision in plan.decisions:
@@ -1491,7 +1500,7 @@ def apply_intake(
             raise
         except RoadmapItemChangedError:
             logger.info(MESSAGES.roadmap.intake_item_changed.format(name=decision.subject.name))
-            _count_candidate(repo, CandidateResult.SKIPPED, number, FailureClass.HEAD_MOVED)
+            _count_candidate(repo, CandidateResult.SKIPPED, number, logged=False)
         except GitHubOperationError as exc:
             failure = _failed_placement(decision.subject, exc)
             failed.append(failure)

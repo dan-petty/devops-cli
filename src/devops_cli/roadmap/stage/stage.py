@@ -913,21 +913,27 @@ class FalsePremise:
 
 @dataclass(frozen=True)
 class StageAttempt:
-    """The counts of one item that a round tried (#4845): the plan runs and the review runs of
-    the model, the replies that the checks sent back, the input and output tokens of the runs,
-    and the seconds of the plan. A plan that a client with no trace makes counts no run."""
+    """The counts of one item that a round tried (#4845): the plan calls that the attempt made to
+    the model, the review runs of the model, the replies that the checks sent back, the input and
+    output tokens of the runs, and the seconds of the plan. The planner counts each plan call
+    itself, so a client with no trace counts its calls too. An attempt that starts from a kept
+    plan has no count of plan calls (None), also when the checks refuse the kept plan and the
+    attempt asks for a new plan: an earlier attempt made the first calls, so the line leaves
+    `plan_calls` out and does not write 0 (#5166). A review run of a client with no trace counts
+    no run and no token."""
 
     number: int
-    plan_calls: int = 0
+    plan_calls: int | None = 0
     gate_returns: int = 0
     verify_rounds: int = 0
     tokens: int = 0
     seconds: int = 0
 
     def counts(self) -> dict[str, int]:
-        """The counts of the result line, in its order."""
+        """The counts of the result line, in its order, with no `plan_calls` when it is None."""
+        plan_calls = {} if self.plan_calls is None else {"plan_calls": self.plan_calls}
         return {
-            "plan_calls": self.plan_calls,
+            **plan_calls,
             "gate_returns": self.gate_returns,
             "verify_rounds": self.verify_rounds,
             "tokens": self.tokens,
@@ -1275,6 +1281,10 @@ class _Planner:
         self._stopped_by_checks = False
         # The replies of the item in hand that the checks sent back to the model (#4845).
         self._returns = 0
+        # The plan calls of the item in hand to the model, and whether the item started from a
+        # kept plan, whose calls an earlier attempt made (#5166).
+        self._plan_calls = 0
+        self._kept_start = False
         # The extra returns of the item in hand past `roadmap.stage.gate_returns` (#4851).
         self._extensions = 0
         # The counts of each item that the planner tried, in order (#4845).
@@ -1303,7 +1313,7 @@ class _Planner:
         self.attempts.append(
             StageAttempt(
                 number,
-                plan_calls=sum(1 for trace in self._traces if trace.row == PLAN_ROW),
+                plan_calls=None if self._kept_start else self._plan_calls,
                 gate_returns=self._returns,
                 verify_rounds=sum(1 for trace in self._traces if trace.row == REVIEW_ROW),
                 tokens=sum(trace.input_tokens + trace.output_tokens for trace in self._traces),
@@ -1328,6 +1338,7 @@ class _Planner:
         default."""
         self._start_item()
         kept, key = self._kept(target)
+        self._kept_start = kept is not None
         # A plain client has no trace and its gate is off, on a hit as on a miss.
         self._kept_facts = (
             kept.facts.trace()
@@ -1370,6 +1381,8 @@ class _Planner:
         self._stopped_by_checks = False
         self._returns = 0
         self._extensions = 0
+        self._plan_calls = 0
+        self._kept_start = False
         self.step = StepName.GATE
         self.gated = None
         self.head_findings = None
@@ -1658,8 +1671,10 @@ class _Planner:
         """The plan reply for `request`. A reply that breaks the schema past its retries never
         reaches the checks, so it is logged here with its violations, and kept in the refused file
         beside the replies that the checks refused before it (#4269). No plan run starts once the
-        time budget is spent (#5363)."""
+        time budget is spent (#5363). Each call that starts adds 1 to the plan calls of the item in
+        hand, also a call that fails (#5166)."""
         self._check_budget(f"the next plan run of #{target.item.number}")
+        self._plan_calls += 1
         try:
             return self._ask(StageProposal, CHANGE_TASK, request)
         except StructuredOutputValidationError as exc:
