@@ -16,9 +16,9 @@ keeps the schema keeps the snapshot.
 
 `SnapshotStore` is the seam of the place that keeps the snapshots. `FileSnapshotStore` keeps them
 in the state directory of the roadmap: under the data directory for `devops roadmap intake`, and on
-the Service's volume for the intake of the triage lane and the scoped intake of a delivery. The
-status lane of the Service keeps its own snapshots beside them (`lane_listing`, #4854), so each
-file has one writer. A shared store for the pods of the Service can plug in later (#4517).
+the Service's volume for the intake of the lane of `intake` and the scoped intake of a delivery.
+Each other lane of the Service keeps its own snapshots beside them (`lane_listing`, #4854, #5553),
+so each file has one writer. A shared store for the pods of the Service can plug in later (#4517).
 """
 
 from __future__ import annotations
@@ -213,8 +213,8 @@ class IncrementalListing:
 def intake_listing(state_dir: Path | None = None, *, full: bool = False) -> IncrementalListing:
     """How intake reads every issue: the snapshot that `state_dir` keeps, see `snapshot_root`, and
     the issues changed since its watermark, or the whole listing on `full`. `devops roadmap
-    intake`, the triage lane of the Service and the scoped intake of a delivery read through it
-    (#4448, #3670)."""
+    intake`, the lane of `intake` in the Service and the scoped intake of a delivery read through
+    it (#4448, #3670)."""
     return IncrementalListing(FileSnapshotStore(snapshot_root(state_dir)), full=full)
 
 

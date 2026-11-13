@@ -23,8 +23,8 @@ the issue holds then and a field a person changed since the store read it raises
 labels and its body, which holds the record block: GitHub takes both in one request, so the
 field and its record never disagree. GitHub has no conditional write of an issue, so a person's
 edit between the two requests is lost; within one process, `_JOB_RECORD_LOCK` holds each write
-from its read to its `PATCH`, so the Service's two lanes, which open a store each, never write
-back a record the other has changed since it was read (#1532). The only GraphQL reads are an
+from its read to its `PATCH`, so the Service's lanes, which open a store each, never write
+back a record that another lane changed since it was read (#1532). The only GraphQL reads are an
 issue's closes and reopens and the repository's visibility; no request reaches a project board.
 """
 

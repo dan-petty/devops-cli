@@ -3710,14 +3710,14 @@ CONST_ROADMAP_RUN_RETIRED_CLONE_DIRNAMES: Final[tuple[str, ...]] = (
 )
 CONST_ROADMAP_REFINE_DUE_STAMP: Final[str] = "refine_due"
 # The key in `schedule.json` of the time of a round in which refine set an item Ready. The stage
-# row runs before refine on the model lane, so this stamp makes it due in the next round (#2659,
+# row comes before refine in the table, so this stamp makes it due in its next round (#2659,
 # #4796).
 CONST_ROADMAP_STAGE_DUE_STAMP: Final[str] = "stage_due"
 CONST_ROADMAP_INTAKE_BATCH_KEYS: Final[tuple[tuple[str, str, str], ...]] = (
     ("webhook", "issues", "opened"),
     ("webhook", "issues", "reopened"),
 )
-# The webhook keys that make the model lane's and the implement rows due (#4412): an edit changes
+# The webhook keys that make the model rows and the implement row due (#4412): an edit changes
 # the text that refine and retitle read, a label change changes the set that refine, stage and
 # implement act on, and a close frees a `planned_limit` slot.
 CONST_ROADMAP_REFINE_BATCH_KEYS: Final[tuple[tuple[str, str, str], ...]] = (
