@@ -82,7 +82,7 @@ The command reads every issue of the repository (GitHub reads, no model request,
 
 ## The issue listing
 
-Intake compares each candidate with every item and with every issue closed as not planned, so each run needs every issue of the repository. Intake keeps a snapshot of the issue listing in `roadmap/listing/<owner>/<name>.json` under the data directory: `devops roadmap intake` on a workstation, and the intake rounds of the triage lane and the scoped intake of each delivery in the Service, on its volume. The snapshot holds the parsed record of each issue and pull request, the schema key of the records, the time of its last full read and a watermark. The schema key is the first 16 hex characters of the sha256 of the JSON schema of `IssueRecord`, so a release that keeps the record schema keeps the snapshot.
+Intake compares each candidate with every item and with every issue closed as not planned, so each run needs every issue of the repository. Intake keeps a snapshot of the issue listing in `roadmap/listing/<owner>/<name>.json` under the data directory: `devops roadmap intake` on a workstation, and the intake rounds of the lane of `intake` and the scoped intake of each delivery in the Service, on its volume. The snapshot holds the parsed record of each issue and pull request, the schema key of the records, the time of its last full read and a watermark. The schema key is the first 16 hex characters of the sha256 of the JSON schema of `IssueRecord`, so a release that keeps the record schema keeps the snapshot.
 
 - A run reads only the issues and pull requests that changed since the watermark: `state=all`, `sort=updated`, `direction=desc` and `since=<watermark>`. Each changed issue replaces its record, so intake parses only the bodies of the changed issues. When 100 or fewer issues changed, the read is one request.
 - The new watermark is the earlier of the start of the read and the newest `updated_at` that GitHub gave, less 60 seconds. Thus a local clock ahead of GitHub's clock skips no change.
@@ -90,7 +90,7 @@ Intake compares each candidate with every item and with every issue closed as no
 - A run reads the whole listing and writes a new snapshot when no snapshot is kept, when the snapshot cannot be read, when its schema key is not the current one, when its last full read is 24 hours old or older, and on `--full`. The full read removes an issue that left the repository.
 - The snapshot is a copy of GitHub, which stays the source of truth. A snapshot that intake cannot read or write gives a warning. A failed write keeps the earlier file, because intake writes a temporary file and renames it.
 
-In the Service, the triage lane runs its intake rounds and the scoped intake of each delivery one at a time, so one writer keeps the snapshot of each repository. Thus a scoped round with a kept snapshot sends one listing request when 100 or fewer issues changed. The poll still reconciles each change that moved an `updated_at` (ADR 0017), and the full read of each day removes an issue that left the repository. The status lane reads every issue through a snapshot of its own, in `listing-status` of the state directory, which only its worker writes (#4854). The model lane reads the whole listing. `SnapshotStore` in `src/devops_cli/roadmap/stores/listing_snapshot.py` is the seam for a store that the pods of the Service can share (#4517).
+In the Service, the lane of `intake` runs its intake rounds and the scoped intake of each delivery one at a time, so one writer keeps the snapshot of each repository. Thus a scoped round with a kept snapshot sends one listing request when 100 or fewer issues changed. The poll still reconciles each change that moved an `updated_at` (ADR 0017), and the full read of each day removes an issue that left the repository. Each other lane reads every issue through a snapshot of its own, in `listing-<lane>` of the state directory, which only its worker writes (#4854, #5553). `SnapshotStore` in `src/devops_cli/roadmap/stores/listing_snapshot.py` is the seam for a store that the pods of the Service can share (#4517).
 
 ## A failed write
 
@@ -100,7 +100,7 @@ The Service keeps the failure in its intake record, beside `schedule.json`, and 
 
 ## When the Service runs intake
 
-The Service runs intake as the row `intake` of the triage lane. A webhook delivery of `issues` `opened`, `edited` or `reopened` runs intake of its one issue at once (ADR 0017). The poll runs the whole job when one of these is true:
+The Service runs intake as the row `intake`, in a lane of its own. A webhook delivery of `issues` `opened`, `edited` or `reopened` runs intake of its one issue at once (ADR 0017). The poll runs the whole job when one of these is true:
 
 - The last run is as old as its interval or older: `roadmap.intake.interval_minutes`, 29 minutes by default, or `roadmap.intake.backlog_interval_minutes` while the last run counted `roadmap.intake.backlog_threshold` or more candidates (#5470).
 - An issue reopened since the last run.
@@ -130,7 +130,7 @@ The issue events report no opened issue, so the poll reads the newest issue from
 - It leaves a title that someone changed after the last comment of a job. It reads the title changes on the timeline of the item. When that title has an unlisted type, it comments once with the type, because the stage job cannot take the item.
 - When it leaves an item (a person's edit, no plan title, no usable reply of the model, or a type with no correction), it writes the mark `retitle.skipped` once. It also writes one warning log line with the reason key: `invalid-title-type` for an unlisted type, else `long-title`. The value of the mark is a hash of the title, the body and the `stage.pr` mark. The selection leaves the item out while the hash holds, so a later round reads nothing of it and makes no model request for it. A change to the title, the body or `stage.pr` selects it again. A comment does not.
 - Without `--confirm` it prints the new titles and writes nothing. With `--confirm` it writes each title and one comment with the marker `<!-- devops roadmap retitle -->`. `--dry-run` makes no request.
-- The Service runs the job as the row `retitle` of the model lane. The row is due on a first run and every 61 minutes. The stage Jobs that the status lane submits read the new titles. Each run takes at most 25 items and writes as `--confirm` does. The row needs no clone.
+- The Service runs the job as the row `retitle`, in a lane of its own. The row is due on a first run and every 61 minutes. The stage Jobs that the lane of `stage` submits read the new titles. Each run takes at most 25 items and writes as `--confirm` does. The row needs no clone.
 
 ## Where the rules are
 

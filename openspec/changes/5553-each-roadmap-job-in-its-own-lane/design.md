@@ -69,6 +69,8 @@ Threads: 14 lanes for each of 7 repositories make 98 worker threads in place of 
 
 The branch `feat/4559-run-each-stage-item-in-its-own-job` moves the row `stage` from `MODEL_LANE_ROWS` to `STATUS_LANE_ROWS` and changes `_run_stage_adapter`, `model_clone` and the module docstring of `run.py`. This change keeps `_run_stage_adapter`, `model_clone` and the three row tuples. It changes the module docstring and `service_jobs`. With one lane for each row, the move of `stage` changes only the order of `DEFAULT_DUE_TABLE`. #5411 changes the review gate of `stage.py`, not the lanes.
 
+The specs that name the status lane or the model lane for the order of rows (`roadmap-retitle`, `roadmap-stage/round`, `roadmap-stage/fix-plan`, `roadmap-stage/ready`, `roadmap-pr-conflicts`) mean the row groups `STATUS_LANE_ROWS` and `MODEL_LANE_ROWS` of the table, which keep their names. #4559 part 2 changes two of those specs, so this change leaves them; the follow-up that renames the row groups also changes their wording.
+
 ## Rejected alternatives
 
 - **One clone and a `git worktree` for each lane**: rejected by the fetch test of D2. Concurrent fetches into the shared `refs/remotes/origin/*` fail by compare-and-swap, also with the git lock timeouts, and the rows fetch inside their rounds.

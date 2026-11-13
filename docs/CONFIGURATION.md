@@ -286,6 +286,7 @@ In-cluster webhook receiver and background job runner settings.
 | `github_requests_per_hour` | `int` | `500` | `DEVOPS_CLI_SERVICE_GITHUB_REQUESTS_PER_HOUR` | The most GitHub requests the Service sends in one hour, not counting those that GitHub answers with 304, as GitHub does not count them against its rate limit; a request that the last hour has no room for waits. The alert RoadmapServiceGitHubRequestsHigh follows this limit |
 | `model_call_concurrency` | `int` | `1` | `DEVOPS_CLI_SERVICE_MODEL_CALL_CONCURRENCY` | The most model calls the Service keeps in flight at once; a lane that waits does so in the Service, where no stall timer runs |
 | `max_failed_rounds` | `int` | `6` | `DEVOPS_CLI_SERVICE_MAX_FAILED_ROUNDS` | How many rounds in a row a roadmap job may fail before the Service suspends it until its input changes or its retry time comes; the retry time is the last failed round plus the wait of its failure class |
+| `lanes` | `dict` | `{}` | - | Lanes that each run more than one roadmap job, as a map of a lane name to the jobs (rows of the due table) that the lane runs, such as {model: [stage, refine]}. Each job that no lane names runs in a lane of its own, named after the job. The jobs of a lane run one after the other in the order of the due table; two lanes never wait for each other. The Service reads this setting when it starts, so a change needs a restart |
 
 ## Roadmap Configuration (`roadmap`)
 

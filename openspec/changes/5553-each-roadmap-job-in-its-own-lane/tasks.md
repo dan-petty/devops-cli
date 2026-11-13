@@ -23,7 +23,7 @@
 
 ## 4. Documents
 
-- [ ] 4.1 Update the lanes in `CONTEXT.md`, `docs/CLUSTER.md`, `docs/roadmap/intake.md`, `docs/roadmap/stage.md`, `docs/roadmap/alternatives.md` and ADR 0017, and regenerate the generated documents
+- [x] 4.1 Update the lanes in `CONTEXT.md`, `docs/CLUSTER.md`, `docs/roadmap/intake.md`, `docs/roadmap/stage.md`, `docs/roadmap/alternatives.md` and ADR 0017, and regenerate the generated documents
   - Verification: `$ uv run devops docs generate && uv run devops ci docs`
 
 ## Workflow follow-up

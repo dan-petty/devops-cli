@@ -69,10 +69,3 @@ A trigger SHALL carry an optional subject, the number of the issue that its even
 #### Scenario: A poll has no subject
 - **WHEN** a lane gets only a poll trigger
 - **THEN** the batch of the round holds no subject
-
-### Requirement: A scoped update runs on the lane of its row
-The webhook consumer SHALL run a scoped update on the lane that holds its row. When the update wakes other rows, the consumer SHALL send its trigger to each other lane of the repository, and not to the lane of the update.
-
-#### Scenario: An edited issue
-- **WHEN** a delivery says that issue 7 was edited, and the Service runs the default lanes
-- **THEN** the scoped intake of issue 7 runs on the lane `intake`, and each other lane of the repository gets a trigger with the subject 7

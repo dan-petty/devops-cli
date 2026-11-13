@@ -183,7 +183,7 @@ The long-running devops-cli deployment that runs the roadmap jobs when they are 
 _Avoid_: runner, bot, daemon, worker
 
 **Lane**:
-One of the Service's three paths for a repository's jobs, each running one round at a time: the triage lane, the model lane and the status lane. [docs/CLUSTER.md](docs/CLUSTER.md#roadmap-service), Roadmap service step 17, lists the rows of each lane.
+One worker of the Service with its trigger queue, its clone and its listing snapshot, for each repository. It runs one round at a time. Each row of the due table has a lane of its own, named after the row, unless the setting `service.lanes` puts rows into a shared lane. Lanes do not wait for each other. [docs/CLUSTER.md](docs/CLUSTER.md#roadmap-service), Roadmap service step 17, tells how.
 _Avoid_: queue, track, worker
 
 ## Code review

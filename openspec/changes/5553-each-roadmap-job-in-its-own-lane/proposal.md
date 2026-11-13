@@ -28,6 +28,7 @@ The owner asked on 2026-11-13 for a lane for each Service job, and for jobs that
 
 - `roadmap-implement-job/runner-job`: a round of another lane does not delay the row `implement`.
 - `roadmap-intake-listing`: each lane reads through a snapshot of its own.
+- `roadmap-scoped-updates`: a scoped update runs on the lane of its row and wakes each other lane.
 - `metric-instruments`: the row seconds histogram carries the lane in a Service round.
 
 ## Impact
