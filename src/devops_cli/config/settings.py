@@ -1147,7 +1147,7 @@ class RoadmapStageConfig(RowCadenceConfig):
         min_length=1,
     )
     limit: Annotated[int, Variable()] = Field(
-        description="The most items that one run of the stage job takes",
+        description="The most items that one run of `devops roadmap stage` by a person takes. The stage row of the Service takes the free slots of `roadmap.stage.jobs` and plans each item in a stage Job of its own",
         default=DEFAULT_ROADMAP_STAGE_LIMIT,
         ge=1,
     )
@@ -1181,7 +1181,7 @@ class RoadmapStageConfig(RowCadenceConfig):
         le=CONST_ROADMAP_LIMIT_CEILING_FACTOR * DEFAULT_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS_CEILING,
     )
     plan_defect_limit: Annotated[int, Variable()] = Field(
-        description="How many `plan_defect` failures of one item on the same body the stage job counts. The failure that reaches this count returns the item to New with one comment that lists the problems of the last plan. The settings load refuses a value above 4 times the default",
+        description="How many failures of one item on the same body the stage job counts before it asks for a split: the `plan_defect` failures of a plan, and the ends of a stage Job with the class `timeout` or `plan_defect`. An outage of the provider, of GitHub or of the cluster does not count. The failure that reaches this count returns the item to New with one comment that lists the problems of the last plan, or that asks refine to split the item after the last Job. The settings load refuses a value above 4 times the default",
         default=DEFAULT_ROADMAP_STAGE_PLAN_DEFECT_LIMIT,
         ge=1,
         le=CONST_ROADMAP_LIMIT_CEILING_FACTOR * DEFAULT_ROADMAP_STAGE_PLAN_DEFECT_LIMIT,
@@ -1240,7 +1240,7 @@ class RoadmapStageConfig(RowCadenceConfig):
         default=False,
     )
     jobs: Annotated[int, Variable()] = Field(
-        description="The most stage Jobs of a repository that run at once. The stage row of the Service creates a Job for each Ready item that the selection takes, up to this count, and lists the stage Jobs of the repository to count them",
+        description="The most stage Jobs that run at once in the cluster, for every repository together: each Job holds a model call slot of the one model tier and a GitHub request budget of its own. The stage row of the Service lists the stage Jobs by their component label, and creates a Job for each Ready item that the selection takes, up to this count less the Jobs that run. Every stage pod sends the one telemetry instance `roadmap-stage`, which holds while one pod runs at a time",
         default=DEFAULT_ROADMAP_STAGE_JOBS,
         ge=1,
     )

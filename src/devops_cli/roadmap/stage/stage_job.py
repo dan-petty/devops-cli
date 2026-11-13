@@ -27,10 +27,17 @@ write, only when `stage.job` names this Job (`roadmap.stage.job`). A Job that no
 such as a Job that a person starts, writes no check-in. The stage row of the Service checks in for
 a Job that ended with no check-in (`stage_submit.py`, #4559).
 
-**Ends that count.** A `deadline` end, and an end that the Service recovers as `failed`, record
-the failure marks and count toward `roadmap.stage.plan_defect_limit` on one body, as a refused plan
-does. The end that reaches the limit returns the item to New with a comment that asks refine to
-split it: a plan that keeps failing is too large for one Job (owner rule, 2026-11-13).
+**Ends that fail.** A `deadline` end, and an end that the Service recovers as `failed` or as an
+eviction past the free ones, record the failure marks, and the item waits for the wait of its
+class. Only an end whose class points at the size of the plan (`SPLIT_CLASSES`: `timeout` and
+`plan_defect`) counts toward `roadmap.stage.plan_defect_limit` on one body, as a refused plan does.
+The end that reaches the limit returns the item to New with a comment that asks refine to split it:
+a plan that keeps failing is too large for one Job (owner rule, 2026-11-13). An outage of the
+provider, of GitHub or of the cluster does not count: a split does not help it.
+
+**A published item.** An item whose record holds its draft (`stage.pr`) at the check-in was
+published by this Job before its end, such as a pod that a SIGTERM ended during the check-in write.
+Its end is `succeeded`, with no failure.
 
 **Ends.** The exit code of the command is the end of the Job:
 
@@ -99,6 +106,10 @@ _BUDGET_SETTING: Final[str] = "roadmap.stage.time_budget_seconds"
 # The result of the check-in of a Job that the deadline ended.
 DEADLINE_RESULT: Final[str] = "deadline"
 _FAILED: Final[frozenset[StageResult]] = frozenset({StageResult.FAILED, StageResult.DEGENERATE})
+# The classes of an end that point at the size of the plan, so they count toward the split.
+SPLIT_CLASSES: Final[frozenset[FailureClass]] = frozenset(
+    {FailureClass.TIMEOUT, FailureClass.PLAN_DEFECT}
+)
 
 
 class StageJobEnd(StrEnum):
@@ -146,6 +157,15 @@ def recorded_check_in(item: Item) -> JobCheckIn | None:
     except ValueError:
         logger.warning("The stage Job result recorded on #%d is not a check-in.", item.number)
         return None
+
+
+@dataclass(frozen=True)
+class CheckedIn:
+    """What a check-in wrote: the result of the Job, and the class of the failure that its end
+    counts as, or None for an end that is no failure."""
+
+    result: str
+    failure: FailureClass | None = None
 
 
 @dataclass(frozen=True)
@@ -206,18 +226,24 @@ def check_in(
     now: datetime,
     failure: FailureClass | None = None,
     marks: dict[StageRecordKey, str | None] | None = None,
-) -> bool:
+) -> CheckedIn | None:
     """Write the check-in of the Job `job` on item `number`: its result and `marks`, with the
-    check-out cleared and the claim of the Service released, in one write. With `failure`, the
-    end counts: the check-in records the failure marks, counts the end toward
-    `roadmap.stage.plan_defect_limit` and logs the result line of the attempt, and the end that
-    reaches the limit returns the item to New. Nothing is written, and the answer is False, when no
-    check-out names the Job."""
+    check-out cleared and the claim of the Service released, in one write, and return what it
+    wrote. With `failure`, the end fails: the check-in records the failure marks and logs the
+    result line of the attempt, and a class of `SPLIT_CLASSES` counts toward
+    `roadmap.stage.plan_defect_limit`, where the end that reaches the limit returns the item to New.
+    An item that holds its draft was published by the Job: the end is `succeeded`, with no failure
+    and no `marks`. Nothing is written, and the answer is None, when no check-out names the Job, as
+    the item reads now."""
     if job is None:
-        return False
+        return None
     item = store.item(number)
     if item is None or item.job_record.get(StageRecordKey.JOB) != job:
-        return False
+        return None
+    if item.job_record.get(StageRecordKey.PR) and (
+        failure is not None or result == StageJobEnd.EVICTED
+    ):
+        result, failure, marks = StageJobEnd.SUCCEEDED.value, None, None
     written: dict[StageRecordKey, str | None] = {
         StageRecordKey.JOB_RESULT: JobCheckIn(job=job, result=result, time=now).record,
         StageRecordKey.JOB: None,
@@ -227,7 +253,7 @@ def check_in(
     }
     if failure is None:
         service_release(store, number, written)
-        return True
+        return CheckedIn(result)
     written |= {
         StageRecordKey.FAILED_AT: now.isoformat(),
         StageRecordKey.FAILED_ERROR: result,
@@ -236,13 +262,17 @@ def check_in(
     }
     count, body = plan_defects(item)
     limit = load_settings().roadmap.stage.plan_defect_limit
-    if count >= limit:
+    if failure in SPLIT_CLASSES and count >= limit:
         _return_for_split(store, item, result, count, limit, written)
     else:
-        written |= {StageRecordKey.PLAN_DEFECTS: str(count), StageRecordKey.PLAN_DEFECTS_BODY: body}
+        if failure in SPLIT_CLASSES:
+            written |= {
+                StageRecordKey.PLAN_DEFECTS: str(count),
+                StageRecordKey.PLAN_DEFECTS_BODY: body,
+            }
         service_release(store, number, written)
     log_job_result(RoadmapJob.STAGE, repo, number, StageResult.FAILED.value, failure=failure)
-    return True
+    return CheckedIn(result, failure)
 
 
 def _return_for_split(
@@ -370,6 +400,8 @@ def run_stage_job(
 
 __all__ = [
     "DEADLINE_RESULT",
+    "SPLIT_CLASSES",
+    "CheckedIn",
     "JobCheckIn",
     "StageJobEnd",
     "StageJobExit",

@@ -2,27 +2,34 @@
 
 The Service plans no item. A round of its `stage` row talks to the Kubernetes API and GitHub, in
 four moves, as the `implement` row does (`implement_submit.py`). The Job list is the lock: the
-round lists the stage Jobs of the repository by their labels (ADR 0022), so a restart of the
-Service loses nothing.
+round lists the stage Jobs of every repository by their component label (ADR 0022), so a restart
+of the Service loses nothing.
 
 **Recover.** An item whose record holds a check-out (`stage.job`) has a Job that has not checked
 in. The round compares the check-out with the Job that the list holds, and checks in for the Job
-that ended with no check-in (`stage_job.check_in`):
+that ended with no check-in (`stage_job.check_in`). The record is text of the issue, which its
+author can edit, so the round acts on a listed Job only when the item label of the Job, which the
+Service sets, names the item. The round reads its items before it lists the Jobs, so a Job can
+check in between the two: `check_in` reads the item again, and an item that no check-out names now
+is no recovery. Recovery runs only when the stage row runs, until the poll of #5524.
 
 - `evicted`: the Job is gone, such as a Job that a person or a drain deleted. The item is due at
   once, and the round records the count of these ends on the body in `stage.evictions`. The
   ends after `CONST_ROADMAP_STAGE_FREE_EVICTIONS` on one body count as `ci_infra` failures.
 - `deadline`: the Job failed with `DeadlineExceeded`, or it still runs
   `CONST_ROADMAP_STAGE_JOB_OVERRUN_SECONDS` after the deadline of the check-out, and the round
-  deletes it. The class is `timeout`.
+  deletes it. The class is `timeout` when its pod ran, and `ci_infra` when its pod has no log,
+  such as a pod that waited for its image or a node until the deadline.
 - `failed`: the Job failed by its pod failure policy or its backoff limit. The class comes from
   the exit code in the message of the condition and the tail of the log of its pod.
 - `succeeded`: the Job completed and its check-in was lost. The item is free, with no failure.
 
-An end that counts gets the failure marks and waits for the wait of its class (`RETRY_AFTER`),
-and counts toward `roadmap.stage.plan_defect_limit`: the end that reaches the limit returns the
-item to New and asks refine to split it. The pod of the Job writes the marks of a recovered item
-when the item is due again, so the round judges its orphan at any age.
+An end that fails gets the failure marks and waits for the wait of its class (`RETRY_AFTER`).
+Only a class of `SPLIT_CLASSES` counts toward `roadmap.stage.plan_defect_limit`: the end that
+reaches the limit returns the item to New and asks refine to split it. An item that holds its
+draft is `succeeded`. No pod of the Job writes the record of a recovered item any more, so the
+round judges its orphan at any age. The removal of an orphan keeps the failure marks, the count
+and `stage.evictions`.
 
 **Clean.** The round removes the staged branches of closed items and the orphans, and writes the
 rejections of the items that it does not submit, with the writer of a stage round, before any
@@ -30,7 +37,8 @@ create. The selection then reads the heads without the branches of the orphans, 
 orphan gets its Job in the same round.
 
 **Submit.** The selection is the normal one (`read_stage_round`), with each item that a running
-stage Job works on left out, up to `roadmap.stage.jobs` less the Jobs that run. For each item that
+stage Job works on left out, up to `roadmap.stage.jobs` less the stage Jobs that run in the
+cluster, for every repository: each one holds a model call slot of the one model tier. For each item that
 it takes, the round writes the check-out with the claim `owner/service` first, then creates the Job
 from CronJob `roadmap-stage`, named `RepoRef.unit_name` of the item and the hash of its body. A
 create that gets 409 finds the Job of the same item and body: the check-out names it. A Job of
@@ -66,6 +74,8 @@ from devops_cli.exceptions.k8s import ClusterJobError, ClusterJobExistsError
 from devops_cli.github.repo_ref import RepoRef
 from devops_cli.k8s.cluster_job import (
     ITEM_LABEL,
+    OWNER_LABEL,
+    REPO_LABEL,
     STAGE_TEMPLATE,
     stage_job_env,
     stage_job_labels,
@@ -202,12 +212,14 @@ def _log_tail(api: ClusterJobs, name: str) -> str:
 def _failure_of(
     api: ClusterJobs, job: ClusterJob | None, end: StageJobEnd, evictions: Evictions
 ) -> FailureClass | None:
-    """The class of the failure that `end` counts as, or None for an end that does not count."""
+    """The class of the failure that `end` is, or None for an end that is no failure. A
+    `deadline` end of a pod that has no log is `ci_infra`: the pod never ran."""
     if end is StageJobEnd.EVICTED:
         free = evictions.count <= CONST_ROADMAP_STAGE_FREE_EVICTIONS
         return None if free else FailureClass.CI_INFRA
     if end is StageJobEnd.DEADLINE:
-        return FailureClass.TIMEOUT
+        ran = job is not None and _log_tail(api, job.name).strip()
+        return FailureClass.TIMEOUT if ran else FailureClass.CI_INFRA
     if end is StageJobEnd.FAILED and job is not None:
         code = _EXIT_CODE.search(job.message)
         evidence = FailureEvidence(
@@ -225,22 +237,28 @@ def _recover(
     now: datetime,
 ) -> tuple[list[Recovered], list[str]]:
     """Check in for each Job of a check-out that ended with no check-in, as the module says. The
-    recovered items, and the Jobs that the round deleted."""
+    recovered items, and the Jobs that the round deleted. A listed Job whose item label is not the
+    item of the check-out is not the Job of that item: the round leaves it and the item alone."""
     recovered: list[Recovered] = []
     deleted: list[str] = []
     for item in store.items():
         name = item.job_record.get(StageRecordKey.JOB)
-        if not name or (end := _end_of(job := held.get(name), item, now)) is None:
+        if not name:
             continue
+        job = held.get(name)
+        if job is not None and job.labels.get(ITEM_LABEL) != str(item.number):
+            continue
+        if (end := _end_of(job, item, now)) is None:
+            continue
+        evictions = _evictions(item)
+        failure = _failure_of(api, job, end, evictions)
         if job is not None and job.state is JobState.RUNNING:
             api.delete_job(name)
             deleted.append(name)
-        evictions = _evictions(item)
-        failure = _failure_of(api, job, end, evictions)
         marks: dict[StageRecordKey, str | None] = {}
         if end is StageJobEnd.EVICTED and failure is None:
             marks[StageRecordKey.EVICTIONS] = evictions.record
-        check_in(
+        written = check_in(
             store,
             item.number,
             repo=repo,
@@ -250,9 +268,17 @@ def _recover(
             failure=failure,
             marks=marks,
         )
-        _count(repo, end.value, failure)
-        recovered.append(Recovered(item.number, name, end, failure))
+        if written is None:
+            continue
+        _count(repo, written.result, written.failure)
+        recovered.append(Recovered(item.number, name, StageJobEnd(written.result), written.failure))
     return recovered, deleted
+
+
+def _of_repo(job: ClusterJob, ref: RepoRef) -> bool:
+    """Whether stage Job `job` works on an item of `ref`, by its owner and repository labels."""
+    labels = job.labels
+    return labels.get(OWNER_LABEL) == ref.owner_label and labels.get(REPO_LABEL) == ref.repo_label
 
 
 def _busy(running: Iterable[ClusterJob]) -> dict[int, str]:
@@ -322,12 +348,15 @@ def run_stage_round(
         raise RoadmapStageError(MESSAGES.roadmap.stage_round_no_repo)
     api = jobs or ClusterJobs()
     at = now or datetime.now(UTC)
-    held = {job.name: job for job in api.list_jobs(stage_jobs_selector(RepoRef(repo)))}
+    ref = RepoRef(repo)
+    listed = api.list_jobs(stage_jobs_selector())
+    held = {job.name: job for job in listed if _of_repo(job, ref)}
     recovered, deleted = _recover(store, api, held, repo, at)
     running = [
         job for job in held.values() if job.state is JobState.RUNNING and job.name not in deleted
     ]
-    slots = max(load_settings().roadmap.stage.jobs - len(running), 0)
+    elsewhere = sum(1 for job in listed if job.state is JobState.RUNNING and job.name not in held)
+    slots = max(load_settings().roadmap.stage.jobs - len(running) - elsewhere, 0)
     freed: Collection[int] = {found.number for found in recovered}
     read = read_stage_round(
         store,
@@ -366,7 +395,7 @@ def run_stage_round(
         created=tuple(created),
         existed=tuple(existed),
         deleted=tuple(deleted),
-        running=len(running) + len(created) + len(existed),
+        running=elsewhere + len(running) + len(created) + len(existed),
         status_failed=tuple(swept),
     )
 

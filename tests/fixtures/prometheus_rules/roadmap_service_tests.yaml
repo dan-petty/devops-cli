@@ -54,11 +54,27 @@ tests:
               severity: critical
               resource: graphql
             exp_annotations:
-              summary: "GitHub throttled graphql requests of the roadmap Service"
-              description: "In the last 15 minutes GitHub refused a graphql request of the roadmap Service with a rate limit, or gave a 5xx for a read. The Service waited and sent the request again (docs/CLUSTER.md, Roadmap service)."
+              summary: "GitHub throttled graphql requests of the roadmap Service or a stage Job"
+              description: "In the last 15 minutes GitHub refused a graphql request of the roadmap Service or a stage Job with a rate limit, or gave a 5xx for a read. The process waited and sent the request again (docs/CLUSTER.md, Roadmap service)."
       - eval_time: 20m
         alertname: RoadmapServiceGitHubThrottled
         exp_alerts: []
+
+  - name: A throttle of a stage Job fires
+    interval: 1m
+    input_series:
+      - series: 'devops_cli_github_throttle_wait_seconds{job="roadmap-stage", instance="roadmap-stage", resource="core"}'
+        values: '{{schema:0 sum:30 count:1 buckets:[1] offset:5}}'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: RoadmapServiceGitHubThrottled
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              resource: core
+            exp_annotations:
+              summary: "GitHub throttled core requests of the roadmap Service or a stage Job"
+              description: "In the last 15 minutes GitHub refused a core request of the roadmap Service or a stage Job with a rate limit, or gave a 5xx for a read. The process waited and sent the request again (docs/CLUSTER.md, Roadmap service)."
 
   - name: A row whose new error series reaches 3 fires; one more error of an older series does not
     interval: 1m
@@ -468,26 +484,49 @@ tests:
         alertname: RoadmapServiceGitHubRequestsHigh
         exp_alerts: []
 
-  - name: The GitHub requests of the stage Jobs count with the requests of the Service
+  - name: The GitHub requests of the stage Jobs do not count in the budget of the Service
     interval: 1m
     input_series:
-      # A stage Job sends its telemetry as job="roadmap-stage" (#4559): 300 requests of the
-      # Service and 300 of the stage Jobs in the hour.
+      # A stage Job sends its telemetry as job="roadmap-stage" (#4559) and counts its requests in
+      # a budget of its own: 300 requests of the Service and 300 of a stage Job in the hour.
       - series: 'devops_cli_github_requests_total{job="roadmap-service", resource="graphql"}'
         values: '0+5x90'
       - series: 'devops_cli_github_requests_total{job="roadmap-stage", instance="roadmap-stage", resource="core", status="200"}'
         values: '0+5x90'
       - series: 'devops_cli_service_budget_limit_requests{job="roadmap-service", instance="192.0.2.10:8000", namespace="devops", pod="roadmap-service-5d9c7b8f4-x2k7q", container="service"}'
         values: '500x120'
+      - series: 'devops_cli_service_budget_limit_requests{job="roadmap-stage", instance="roadmap-stage"}'
+        values: '1000x120'
     alert_rule_test:
       - eval_time: 90m
         alertname: RoadmapServiceGitHubRequestsHigh
+        exp_alerts: []
+      - eval_time: 90m
+        alertname: RoadmapStageGitHubRequestsHigh
+        exp_alerts: []
+
+  - name: A stage Job over 90% of its own budget fires
+    interval: 1m
+    input_series:
+      # 960 requests of a stage Job in the hour, against its budget of 1000.
+      - series: 'devops_cli_github_requests_total{job="roadmap-stage", instance="roadmap-stage", resource="core", status="200"}'
+        values: '0+16x90'
+      - series: 'devops_cli_service_budget_limit_requests{job="roadmap-stage", instance="roadmap-stage"}'
+        values: '1000x120'
+      - series: 'devops_cli_service_budget_limit_requests{job="roadmap-service", instance="192.0.2.10:8000", namespace="devops", pod="roadmap-service-5d9c7b8f4-x2k7q", container="service"}'
+        values: '500x120'
+    alert_rule_test:
+      - eval_time: 90m
+        alertname: RoadmapStageGitHubRequestsHigh
         exp_alerts:
           - exp_labels:
               severity: warning
             exp_annotations:
-              summary: "The roadmap Service sent 600 GitHub requests in the last hour"
-              description: "The roadmap Service sent more than 90% of its hourly GitHub request budget in one hour (docs/CLUSTER.md, Roadmap service)."
+              summary: "The stage Jobs sent 960 GitHub requests in the last hour"
+              description: "The stage Jobs sent more than 90% of the hourly GitHub request budget of a stage Job (roadmap.stage.github_requests_per_hour) in one hour (docs/CLUSTER.md, Roadmap service)."
+      - eval_time: 90m
+        alertname: RoadmapServiceGitHubRequestsHigh
+        exp_alerts: []
 
   - name: The model requests of the stage Jobs count with the requests of the Service
     interval: 1m

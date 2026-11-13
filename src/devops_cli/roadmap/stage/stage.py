@@ -310,6 +310,7 @@ from devops_cli.roadmap.step_files import code_spans
 from devops_cli.roadmap.step_metrics import observe_step
 from devops_cli.roadmap.stores.store import (
     STAGE_PLAN_KEYS,
+    STAGE_REMOVAL_KEYS,
     GitHubState,
     Item,
     RefineRecordKey,
@@ -3448,13 +3449,14 @@ def _write_failure(item: Item, exc: DevOpsCLIError) -> StageFailure:
 
 def _remove_staged(store: RoadmapStore, repo: str, source: Path, removal: Removal) -> None:
     """Close the draft of a closed item and delete its branch, then clear the keys of the plan of
-    the item (`STAGE_PLAN_KEYS`), which keeps the check-out of a stage Job. A branch that is gone
-    needs only the record cleared."""
+    the item but its failure ledger (`STAGE_REMOVAL_KEYS`), which keeps the check-out of a stage
+    Job, the failure marks, the count toward the split and the free evictions (#4559). A branch
+    that is gone needs only the record cleared."""
     if not removal.gone:
         if removal.pull is not None:
             get_github_session().client.close_pull(repo, removal.pull)
         _git(source, "push", "origin", "--delete", removal.branch)
-    store.set_marks(removal.item, dict.fromkeys(STAGE_PLAN_KEYS))
+    store.set_marks(removal.item, dict.fromkeys(STAGE_REMOVAL_KEYS))
 
 
 def _delete_rejected_branch(source: Path, branch: str, tip: str) -> None:

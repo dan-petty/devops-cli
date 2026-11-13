@@ -105,14 +105,12 @@ def stage_job_labels(repo: RepoRef, item: int) -> dict[str, str]:
     }
 
 
-def stage_jobs_selector(repo: RepoRef) -> dict[str, str]:
-    """The labels that select each stage Job of `repo` and no other Job: the labels of
-    `stage_job_labels` but the item. The stage row of the Service lists its Jobs by them (#4559)."""
-    return {
-        COMPONENT_LABEL: STAGE_COMPONENT,
-        OWNER_LABEL: repo.owner_label,
-        REPO_LABEL: repo.repo_label,
-    }
+def stage_jobs_selector() -> dict[str, str]:
+    """The label that selects each stage Job of every repository and no other Job: the component
+    of `stage_job_labels`. The stage row of the Service lists its Jobs by it, counts them against
+    `roadmap.stage.jobs`, and takes the Jobs of its repository by their owner and repository labels
+    (#4559)."""
+    return {COMPONENT_LABEL: STAGE_COMPONENT}
 
 
 def stage_job_env(repo: RepoRef, name: str, deadline: datetime) -> dict[str, str]:

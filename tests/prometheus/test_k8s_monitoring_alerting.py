@@ -129,9 +129,14 @@ ROADMAP_SERVICE_JOB = "roadmap-service"
 # The matcher of a rule that reads a series that a stage Job sends too (#4559): the planner runs in
 # the stage Jobs, whose telemetry has the job roadmap-stage.
 SERVICE_AND_STAGE = 'job=~"roadmap-service|roadmap-stage"'
-# The alerts that read the series of the stage Jobs, and the metric that each one reads.
+# The job of the series of a stage Job (#4559).
+ROADMAP_STAGE_JOB = "roadmap-stage"
+# The alerts that read the series of the stage Jobs with the series of the Service, and the
+# metric that each one reads. The GitHub request budget alert of the Service reads the Service
+# alone: each stage Job counts its requests in a budget of its own, which
+# RoadmapStageGitHubRequestsHigh watches.
 STAGE_SERIES_ALERTS = {
-    "RoadmapServiceGitHubRequestsHigh": ("devops_cli_github_requests_total",),
+    "RoadmapServiceGitHubThrottled": ("devops_cli_github_throttle_wait_seconds",),
     "RoadmapServiceModelRequestsHigh": ("devops_cli_ai_requests_total",),
     "RoadmapServiceGitHubWritesHigh": ("devops_cli_github_requests_total",),
     "RoadmapServiceWebSearchRefused": ("devops_cli_web_searches_total",),
@@ -526,6 +531,7 @@ def test_the_baseline_rule_set() -> None:
         ("RoadmapServiceWebSearchRefused", "warning"),
         ("RoadmapServiceWebhookDeliveriesFailed", "warning"),
         ("RoadmapServiceWebhooksRejected", "warning"),
+        ("RoadmapStageGitHubRequestsHigh", "warning"),
         ("TargetDown", "warning"),
         ("ValkeyCacheErrors", "warning"),
         ("ValkeyMemoryNearBound", "warning"),
@@ -1052,7 +1058,7 @@ ROADMAP_SERVICE_RULES = [
     (
         "RoadmapServiceGitHubThrottled",
         "sum by (resource) ("
-        'count_over_time(devops_cli_github_throttle_wait_seconds{job="roadmap-service"}[15m])'
+        f"count_over_time(devops_cli_github_throttle_wait_seconds{{{SERVICE_AND_STAGE}}}[15m])"
         ") > 0",
         "0m",
         "critical",
@@ -1103,9 +1109,19 @@ ROADMAP_SERVICE_RULES = [
         "RoadmapServiceGitHubRequestsHigh",
         "sum( "
         + _window_count(
-            f'devops_cli_github_requests_total{{{SERVICE_AND_STAGE}, status!="304"}}', "1h"
+            'devops_cli_github_requests_total{job="roadmap-service", status!="304"}', "1h"
         )
         + f' ) > on() 0.9 * max({CONST_SERVICE_METRIC_BUDGET_LIMIT}{{job="roadmap-service"}})',
+        "0m",
+        "warning",
+    ),
+    (
+        "RoadmapStageGitHubRequestsHigh",
+        "sum( "
+        + _window_count(
+            'devops_cli_github_requests_total{job="roadmap-stage", status!="304"}', "1h"
+        )
+        + f' ) > on() 0.9 * max({CONST_SERVICE_METRIC_BUDGET_LIMIT}{{job="roadmap-stage"}})',
         "0m",
         "warning",
     ),
@@ -1319,7 +1335,7 @@ def test_each_roadmap_service_rule_selects_only_the_service(group: str) -> None:
         for rule in _group(group)
         for metric, matchers in _SELECTOR_MATCHERS.findall(rule["expr"])
     ]
-    service = {f'job="{ROADMAP_SERVICE_JOB}"', SERVICE_AND_STAGE}
+    service = {f'job="{ROADMAP_SERVICE_JOB}"', f'job="{ROADMAP_STAGE_JOB}"', SERVICE_AND_STAGE}
     owned = {'deployment="roadmap-service"', 'pod=~"roadmap-service-.+"'}
     assert (
         [metric for metric, _ in found],
