@@ -95,3 +95,5 @@ ADR 0004 said that the rulesets require `Static Analysis` and `Tests & Coverage`
 ## Status History
 
 ADR 0014 amends [ADR 0004](0004-ci-is-the-authoritative-gate.md). It replaces what ADR 0004 says about the rulesets, the Copilot review and the local runs. ADR 0004 still holds that CI is the authoritative gate, and that the aggregate jobs `Static Analysis` and `Tests & Coverage` are the names that the ruleset reads.
+
+2026-11-13: Fact out of date: the pre-push hook also runs the `domain` row of `devops ci`, a fast check of the commits of the branch (#5295).

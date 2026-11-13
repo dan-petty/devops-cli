@@ -33,7 +33,7 @@ graph TD
 
 - **Progressive Verification Philosophy**:
   - **Iterative Feedback Loop**: During active development, run isolated checks on modified files to keep developer feedback loops under 2 seconds.
-  - **The Fast Checks Before a Push**: The pre-push hook runs only the fast static checks (ruff lint, ruff format, actionlint and zizmor). A push goes only when they pass.
+  - **The Fast Checks Before a Push**: The pre-push hook runs only the fast static checks (ruff lint, ruff format, the `domain` row of `devops ci`, actionlint and zizmor). A push goes only when they pass.
   - **The Full Gate**: The required checks of CI run `devops ci` before a merge, and `uv run devops ci` runs it by hand (#1752).
 - **The Gate**: every check that `devops ci` runs ([docs/SDLC.md](../../../../../../docs/SDLC.md), Phase 4, lists them).
 

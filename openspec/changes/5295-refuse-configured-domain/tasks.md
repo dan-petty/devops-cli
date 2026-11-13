@@ -20,9 +20,9 @@ Kind: other. Changes: `.pre-commit-config.yaml`, `tests/commands/test_instructio
 
 Kind: other. Changes: `SECURITY.md`, `CONTRIBUTING.md`, `docs/TESTING.md`, `docs/SDLC.md`, `docs/adr/0014-required-checks-gate-the-merge-and-the-pre-push-hook-runs-the-fast-static-checks.md`, `src/devops_cli/ai/knowledge_base/devops_cli/tasks/ci_quality_gate.md`, `src/devops_cli/ai/knowledge_base/it_domains/topics/continuous_integration_and_progressive_verification.md`.
 
-- [ ] 3.1 Say in SECURITY.md rule 8 how the row reads the configured domains and that public evidence holds exit codes and counts only; add the row to the pre-push hooks of CONTRIBUTING.md, docs/SDLC.md and the knowledge base, and to the rows and the invariant test files of docs/TESTING.md
+- [x] 3.1 Say in SECURITY.md rule 8 how the row reads the configured domains and that public evidence holds exit codes and counts only; add the row to the pre-push hooks of CONTRIBUTING.md, docs/SDLC.md and the knowledge base, and to the rows and the invariant test files of docs/TESTING.md
   - Verification: `$ uv run devops ci docs`
-- [ ] 3.2 Add a `Fact out of date` line to the Status History of ADR 0014, whose pre-push hook now also runs the `domain` row
+- [x] 3.2 Add a `Fact out of date` line to the Status History of ADR 0014, whose pre-push hook now also runs the `domain` row
   - Verification: `$ uv run devops ci test tests/invariants/test_adr_records.py`
 
 - Pending a person: review the diff in tuicr (tuicr -r origin/main..HEAD).
