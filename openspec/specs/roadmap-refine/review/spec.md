@@ -24,7 +24,7 @@ The review of an item SHALL run with a plain client that has no tool, and its pr
 - **THEN** the client has no tool, and the instructions of the review name no tool and no repair round
 
 ### Requirement: A refusal of the review is a job failure that a later round fixes
-A finding of the type `missing_path`, `false_premise`, `ignores_existing_code` or `spec_delta_wrong`, or a placeholder, with a quote that the input holds, SHALL be an open finding. With an open finding, refine SHALL keep the item New, record `refine.judge` `refused`, the failed check `judge_refused` and the open findings in `refine.judge_findings`, and write no comment. The next request SHALL give them as `judge_findings`. Another finding SHALL be advice.
+A finding of the type `missing_path`, `false_premise`, `ignores_existing_code` or `spec_delta_wrong`, or a placeholder, that quotes the input and names a place of the proposal or the issue SHALL be an open finding. With an open finding, refine SHALL keep the item New, record `refine.judge` `refused`, the failed check `judge_refused` and the open findings in `refine.judge_findings`, and write no comment. The next request SHALL give them as `judge_findings`. Another finding SHALL be advice.
 
 #### Scenario: The review refuses
 - **WHEN** the review finds a `false_premise` that quotes the problem statement, and a `contrived_test` with no quote
@@ -49,6 +49,14 @@ A finding of the type `missing_path`, `false_premise`, `ignores_existing_code` o
 #### Scenario: A finding about tasks
 - **WHEN** the review finds a `task_order` or a `verify_form` finding that quotes the input
 - **THEN** the finding is advice, because a proposal holds no task group, and the item is Ready with `refine.judge` `approved`
+
+#### Scenario: A finding on a key that the proposal does not have
+- **WHEN** the review finds a `false_premise` that quotes the problem statement and names a task group as its place
+- **THEN** the finding is advice, because a proposal holds no task group, and the item is Ready with `refine.judge` `approved`
+
+#### Scenario: A finding on a criterion of the proposal
+- **WHEN** the review finds a `false_premise` that quotes the problem statement and names the part `issue` with the text of an acceptance criterion of the proposal
+- **THEN** the item stays New and its job record holds `refine.judge` `refused`
 
 ### Requirement: The review keeps the approval of an unchanged body
 Refine SHALL make no review call for an item that holds `refine.judge` `approved` with an unchanged body. A body edit SHALL end the approval, and the next round SHALL review the new proposal.
