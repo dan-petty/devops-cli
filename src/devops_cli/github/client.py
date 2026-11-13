@@ -5,7 +5,7 @@ from __future__ import annotations
 import base64
 import binascii
 import json
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from datetime import datetime
 from http import HTTPStatus
 from typing import TYPE_CHECKING, Any, NamedTuple
@@ -292,6 +292,20 @@ class _RunJobs(BaseModel):
     """What the jobs endpoint says of a run."""
 
     jobs: list[_JobTiming]
+
+
+class _RunArtifact(BaseModel):
+    """One artifact of a run: its name, and whether GitHub deleted its files at the end of its
+    retention."""
+
+    name: str
+    expired: bool = False
+
+
+class _CreatedIssue(BaseModel):
+    """What GitHub says of an issue that it made: its number."""
+
+    number: int
 
 
 class _FileContents(BaseModel):
@@ -624,6 +638,18 @@ class GitHubClient:
         span = (last.completed_at - first).total_seconds()
         return JobRunTime(run_id=run_id, seconds=seconds, queue_seconds=span - seconds)
 
+    def get_run_artifact_names(self, repo: str, run_id: int) -> list[str]:
+        """The names of the artifacts of the workflow run `run_id` that GitHub still holds: an
+        artifact past its retention is left out (#5247)."""
+        path = _repo_path(
+            repo, f"actions/runs/{run_id}/artifacts?per_page={DEFAULT_GH_REST_PER_PAGE}"
+        )
+        artifacts = (
+            _read_as(_RunArtifact, item, path=path)
+            for item in self._session.paginate(path, iterable_key="artifacts")
+        )
+        return [artifact.name for artifact in artifacts if not artifact.expired]
+
     # ── Issue reads of the stage planner (#3238) ──────────────────────────────
 
     def get_issue(self, repo: str, number: int) -> IssueView:
@@ -668,6 +694,14 @@ class GitHubClient:
         query = f"{words} repo:{repo} is:open"
         path = f"/search/issues?{urlencode({'q': query, 'per_page': limit})}"
         return _read_as(_OpenItemPage, self._session.rest("GET", path), path=path).items
+
+    def create_issue(self, repo: str, *, title: str, body: str, labels: Sequence[str]) -> int:
+        """File an issue with `title`, `body` and `labels` in `repo`; return its number."""
+        path = _repo_path(repo, "issues")
+        payload = {"title": title, "body": body, "labels": list(labels)}
+        return _read_as(
+            _CreatedIssue, self._session.rest("POST", path, body=payload), path=path
+        ).number
 
     def create_issue_comment(self, repo: str, number: int, body: str) -> None:
         """Post `body` as a comment on the issue or pull request `number`."""

@@ -213,6 +213,7 @@ Exits 1 when a row fails or a pod opens a connection. |
 |  | `devops ci run [OPTIONS]` | Run full CI and return a single pass/fail status. |
 |  | `devops ci mutate [OPTIONS] <paths>` | Mutation-test functions with mutmut and show each mutant no test killed; never a gate. |
 |  | `devops ci job-time [OPTIONS]` | Fail when the last runs of a CI job took more than the limit on average. Reads the job time of the last completed push runs of a workflow on a branch from GitHub's Actions API. A job that passed, failed or timed out counts, whatever the run concluded. Fails too when fewer runs than asked for could be read. |
+|  | `devops ci durations [OPTIONS]` | Write the mean seconds of each test module to tests/module_durations.json, from the JUnit reports of the test shards of the last push runs of a workflow on a branch. The split of the test shards weighs each module by these seconds. gh downloads the artifacts of each run. A run whose artifacts GitHub no longer holds is left out. |
 |  | `devops ci fail-to-pass [OPTIONS]` | Replay added or modified tests against the merge-base tree to prove a defect fix's tests fail unpatched. A changed module under tests/gate/*_checks/ runs its gate row on the base and head trees: a case of that module that fails on base and passes on head proves the fix. |
 | [**uv**](commands/uv.md) | `devops uv sync [OPTIONS]` | Sync project dependencies into the virtual environment. |
 |  | `devops uv lock [OPTIONS]` | Regenerate the uv lockfile. |

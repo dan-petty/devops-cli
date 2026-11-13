@@ -8,6 +8,7 @@ shard passes the paths of its own files to pytest, so it collects no file of ano
 
 from __future__ import annotations
 
+import json
 import re
 import tomllib
 from pathlib import Path
@@ -19,7 +20,8 @@ from typer.testing import CliRunner
 from devops_cli.ci.cache import resolve_ci_cache_path
 from devops_cli.ci.fail_to_pass import parse_junit_xml
 from devops_cli.commands.ci import app, get_check_spec
-from devops_cli.core.test_selection import directory_modules, shard_test_files
+from devops_cli.config.constants import CONST_CI_TEST_DURATIONS_PATH
+from devops_cli.core.test_selection import directory_modules, is_test_module, shard_test_files
 from devops_cli.dry_run import set_dry_run
 from tests.support.fakes.process import ProcessFake
 from tests.support.paths import REPO_ROOT
@@ -179,9 +181,80 @@ def test_the_split_is_the_same_in_every_call_and_in_any_order_of_asking() -> Non
     assert first == [reversed_order[shard] for shard in (1, 2, 3, 4)]
 
 
+def _tree(root: Path, lines: dict[str, int], durations: dict[str, float] | None = None) -> None:
+    """Write test modules of `lines` lines each under `root`, and the recorded seconds of
+    `durations` at the path that the split reads, when given."""
+    for module, count in lines.items():
+        path = root / module
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("x = 1\n" * count)
+    if durations is not None:
+        (root / CONST_CI_TEST_DURATIONS_PATH).write_text(json.dumps(durations), encoding="utf-8")
+
+
+def test_a_short_module_with_a_long_recorded_time_is_alone_in_its_shard(tmp_path: Path) -> None:
+    """A module of 10 lines that took 300 s weighs more than three modules of 500 lines that took
+    10 s each, so it fills one shard and the three others share the second (#5247)."""
+    long_modules = {f"tests/test_{name}.py": 500 for name in "abc"}
+    _tree(
+        tmp_path,
+        {"tests/test_slow.py": 10, **long_modules},
+        {"tests/test_slow.py": 300.0, **dict.fromkeys(long_modules, 10.0)},
+    )
+
+    assert [shard_test_files(shard, 2, tmp_path) for shard in (1, 2)] == [
+        ["tests/test_slow.py"],
+        ["tests/test_a.py", "tests/test_b.py", "tests/test_c.py"],
+    ]
+
+
+def test_a_module_without_a_recorded_time_weighs_its_lines_at_the_recorded_rate(
+    tmp_path: Path,
+) -> None:
+    """The recorded modules hold 200 lines for 110 s, so a new module of 100 lines weighs 55 s:
+    less than the module of 100 s and more than the module of 10 s, so it joins the light one."""
+    _tree(
+        tmp_path,
+        {"tests/test_a.py": 100, "tests/test_b.py": 100, "tests/test_c.py": 100},
+        {"tests/test_a.py": 100.0, "tests/test_b.py": 10.0},
+    )
+
+    assert [shard_test_files(shard, 2, tmp_path) for shard in (1, 2)] == [
+        ["tests/test_a.py"],
+        ["tests/test_b.py", "tests/test_c.py"],
+    ]
+
+
+def test_a_recorded_module_that_the_tree_no_longer_holds_is_ignored(tmp_path: Path) -> None:
+    """The file still names a deleted module: the split gives it to no shard, and its seconds
+    do not change the rate of the lines of a new module."""
+    _tree(
+        tmp_path,
+        {"tests/test_a.py": 10, "tests/test_b.py": 10, "tests/test_c.py": 10},
+        {"tests/test_gone.py": 9000.0, "tests/test_a.py": 30.0, "tests/test_b.py": 20.0},
+    )
+
+    assert [shard_test_files(shard, 2, tmp_path) for shard in (1, 2)] == [
+        ["tests/test_a.py"],
+        ["tests/test_b.py", "tests/test_c.py"],
+    ]
+
+
+def test_the_committed_durations_are_seconds_of_test_modules() -> None:
+    """The committed file maps the path of a test module to the seconds it took, so a typing
+    error fails here and not in the four shards of CI."""
+    recorded = json.loads((REPO_ROOT / CONST_CI_TEST_DURATIONS_PATH).read_text(encoding="utf-8"))
+
+    assert (
+        bool(recorded),
+        [path for path in recorded if not is_test_module(path)],
+        [path for path, seconds in recorded.items() if not isinstance(seconds, (int, float))],
+    ) == (True, [], [])
+
+
 def test_the_split_deals_the_heaviest_file_to_the_lightest_shard(tmp_path: Path) -> None:
-    """Files go heaviest first to the shard with the fewest lines so far, and a tie goes to the
-    lower shard. Lines of the files stand for the cost, so no stored data can go out of date."""
+    """With no recorded seconds, files go heaviest first to the shard with the fewest lines so
+    far, and a tie goes to the lower shard."""
     tests = tmp_path / "tests"
     tests.mkdir()
     for name, lines in {"test_a.py": 5, "test_b.py": 4, "test_c.py": 3, "test_d.py": 3}.items():

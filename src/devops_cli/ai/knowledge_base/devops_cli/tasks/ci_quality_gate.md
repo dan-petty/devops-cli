@@ -80,7 +80,7 @@ devops ci
 
 ## 6. General Standards & Reference Guidelines
 
-- **Gate**: The fast static checks pass before a push, and the required checks of CI pass before a merge. A check that averages more than 5 minutes is a P0 bug.
+- **Gate**: The fast static checks pass before a push, and the required checks of CI pass before a merge. A check that averages over the time limit of AGENTS.md rule 5 is a P0 bug ([docs/TESTING.md](../../../../../../docs/TESTING.md#run-time) gives the limit).
 - **Coverage Floor**: The line coverage of `src/devops_cli/` must stay at or above `fail_under` in `pyproject.toml`. A pull request must also cover most of its changed lines (the `Changed-Line Coverage` step of CI).
 
 ---

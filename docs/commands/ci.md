@@ -383,7 +383,28 @@ devops ci job-time [OPTIONS]
 | `--workflow` | `string` | `ci.yml` | Workflow file that holds the job. |
 | `--branch`, `-b` | `string` | `main` | Branch whose push runs are read. |
 | `--runs` | `integer` | `20` | How many of the last runs the mean covers. |
-| `--limit` | `float` | `300.0` | Most seconds the mean of the runs may be. |
+| `--limit` | `float` | `360.0` | Most seconds the mean of the runs may be. Default: the 300 s of AGENTS.md rule 5 and the 60 s of tolerance that the owner allows for the variation of the runners. |
+| `--file-issue` | `boolean` | - | When the mean is over the limit, comment on the open issue of the check, or file one with the priority P0 when none is open. The search for the open issue reads the line that the command writes in the body of the issue, so a changed title or label files no second issue. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+---
+
+## `devops ci durations`
+
+**Write the mean seconds of each test module to tests/module_durations.json, from the JUnit reports of the test shards of the last push runs of a workflow on a branch. The split of the test shards weighs each module by these seconds. gh downloads the artifacts of each run. A run whose artifacts GitHub no longer holds is left out.**
+
+```bash
+devops ci durations [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--repo`, `-R` | `string` | - | Repository as owner/name. Default: the origin of the current checkout. |
+| `--workflow` | `string` | `ci.yml` | Workflow file that holds the job. |
+| `--branch`, `-b` | `string` | `main` | Branch whose push runs are read. |
+| `--runs` | `integer` | `20` | How many of the last runs with an ended Tests & Coverage check to read. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
