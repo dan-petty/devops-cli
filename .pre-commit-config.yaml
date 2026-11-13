@@ -124,10 +124,11 @@ repos:
       # The runner Job of the implement job runs this stage with `pre-commit run` before it pushes
       # (#3043). coreutils `timeout` ends each check hook at its limit with SIGTERM, and `devops ci`
       # then stops each row with its process group and names it. The limits of this stage add up
-      # to less than the 120 s default limit of the agent shell (#4775).
+      # to less than the 120 s default limit of the agent shell (#4775). The `domain` row reads the
+      # commits of the branch before they go to GitHub, where a domain is configured (#5295).
       - id: devops-ci-pre-push
         name: devops ci (fast static checks before a push)
-        entry: timeout 40 uv run devops ci --check --only lint,format
+        entry: timeout 40 uv run devops ci --check --only lint,format,domain
         language: system
         stages: [pre-push]
         pass_filenames: false

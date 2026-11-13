@@ -13,6 +13,7 @@ _GATE_ROWS = {
     "test-tree": "tree",
     "startup-imports": "startup_imports",
     "swallowed-failures": "swallowed_failures",
+    "domain": "configured_domain",
 }
 
 

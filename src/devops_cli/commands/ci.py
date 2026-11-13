@@ -781,6 +781,15 @@ def _sandbox_host_refusal() -> str | None:
     return SandboxToolExecutor().host_refusal()
 
 
+def _domain_host_refusal() -> str | None:
+    """Why the `domain` row has nothing to read: the config sets neither `k8s.domain` nor
+    `cloudflare.domain` (#5295). None when it sets one."""
+    from devops_cli.config.settings import load_settings
+    from devops_cli.core.dns_names import configured_domains
+
+    return None if configured_domains(load_settings()) else MESSAGES.ci.domain_not_configured
+
+
 def _python_check_cmd(module: str) -> list[str]:
     """The command that runs the `main` of a module of `tests/gate`: a check of committed files and
     tool configuration, which is a row of `devops ci` and no pytest test (#2164)."""
@@ -993,6 +1002,14 @@ def get_check_specs() -> list[CheckSpec]:
             cmd=_python_check_cmd("swallowed_failures"),
             span_name="ci.step.swallowed_failures",
             metric_step="swallowed_failures",
+        ),
+        CheckSpec(
+            name="domain",
+            display_title=MESSAGES.ci.configured_domain,
+            cmd=_python_check_cmd("configured_domain"),
+            span_name="ci.step.domain",
+            metric_step="domain",
+            host_refusal=_domain_host_refusal,
         ),
     ]
 

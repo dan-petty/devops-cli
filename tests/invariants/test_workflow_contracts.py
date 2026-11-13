@@ -870,10 +870,11 @@ def test_the_main_branch_stays_refused_by_name() -> None:
     assert ["--branch", "main"] in args
 
 
-# The fast static checks that a push runs (#1752): rows of the `devops ci` check table. The two
-# workflow checks run only when the push changes a workflow (#3043): the runner image holds no
+# The fast static checks that a push runs (#1752): rows of the `devops ci` check table. `domain`
+# reads the commits of the branch for a configured domain before they go to GitHub (#5295). The
+# two workflow checks run only when the push changes a workflow (#3043): the runner image holds no
 # `actionlint`, and a push that changes no workflow has nothing for the two checks to read.
-FAST_STATIC_CHECKS = ["lint", "format"]
+FAST_STATIC_CHECKS = ["lint", "format", "domain"]
 WORKFLOW_CHECKS = ["actionlint", "zizmor"]
 
 

@@ -363,7 +363,7 @@ def test_devops_cli_renders_the_check_line_of_its_pre_push_hooks() -> None:
     content = generate_agents_md(parse_project_metadata(REPO_ROOT))
     assert (
         "Run these before each push: `branch-current`, "
-        "`timeout 40 uv run devops ci --check --only lint,format`, "
+        "`timeout 40 uv run devops ci --check --only lint,format,domain`, "
         "`timeout 30 uv run devops ci --check --only actionlint,zizmor`." in content
     )
 
