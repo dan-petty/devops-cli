@@ -1024,7 +1024,7 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "The gateway's requests per hour that got a reply, and their tokens on the right axis, by the end user that each request names. devops-cli names its OTel service: devops-cli, devops-cli-job or roadmap-service. A caller that names no end user, such as Open WebUI or an editor extension, shows as unnamed (#1668).",
+      "description": "The gateway's requests per hour that got a reply, and their tokens on the right axis, by the end user that each request names. devops-cli names its OTel service: devops-cli, devops-cli-job, roadmap-service or roadmap-stage. A caller that names no end user, such as Open WebUI or an editor extension, shows as unnamed (#1668).",
       "fieldConfig": {
         "defaults": {
           "color": {

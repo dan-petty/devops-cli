@@ -295,8 +295,9 @@ devops k8s run-job [OPTIONS] <args>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--context`, `-c` | `string` | - | Kubernetes cluster context name. |
-| `--template` | `choice (default|runner)` | `default` | The CronJob whose template makes the Job: default is CronJob devops-cli, runner is CronJob devops-cli-runner, the pod of the implement job (it sets roadmap.implement.in_runner). |
-| `--repo` | `string` | - | owner/name of the one repository the runner Job may use. The Job's GitHub token names only that repository. Required with --template runner, and used with no other template. The Job carries a label of the repository, and the command creates no Job while another runner Job of the repository has not ended. |
+| `--template` | `choice (default|runner|stage)` | `default` | The CronJob whose template makes the Job: default is CronJob devops-cli, runner is CronJob devops-cli-runner, the pod of the implement job (it sets roadmap.implement.in_runner), and stage is CronJob roadmap-stage, the pod of the stage job of one item. |
+| `--repo` | `string` | - | owner/name of the one repository the runner Job or the stage Job may use. The Job's GitHub token names only that repository. Required with --template runner and --template stage, and used with no other template. The Job carries labels of the repository, and the command creates no Job while another Job with the same labels has not ended. |
+| `--item` | `integer` | - | The issue number of a stage Job: the label roadmap.devops-cli/item of the Job. Required with --template stage, and used with no other template. Pass the same number to `roadmap stage --job-item`. |
 | `--wait` / `--no-wait` | `boolean` | `True` | Follow the Job's log and exit with its exit code; --no-wait prints the Job's name. |
 | `--start-timeout` | `float` | `120.0` | Seconds to wait for the Job's pod to leave Pending. |
 | `--dry-run` | `boolean` | - | Make no request, not even the CronJob read: print the kubectl requests a run would make, in order, with the Job's template parts as placeholders. |

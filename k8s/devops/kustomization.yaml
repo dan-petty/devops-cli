@@ -4,6 +4,7 @@ resources:
 - serviceaccount.yaml
 - cronjob.yaml
 - cronjob-runner.yaml
+- cronjob-stage.yaml
 - networkpolicy.yaml
 - networkpolicy-rag-ingest.yaml
 - workflowtemplate-rag-ingest.yaml

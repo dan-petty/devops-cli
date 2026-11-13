@@ -438,6 +438,9 @@ def stage_cmd(
     repo: RepoOption = None,
     source: Annotated[Path | None, typer.Option("--source", help=HELP.roadmap.stage_source)] = None,
     item: Annotated[int | None, typer.Option("--item", min=1, help=HELP.roadmap.stage_item)] = None,
+    job_item: Annotated[
+        int | None, typer.Option("--job-item", min=1, help=HELP.roadmap.stage_job_item)
+    ] = None,
     filters: Annotated[
         list[str] | None, typer.Option("--filter", help=HELP.roadmap.stage_filter)
     ] = None,
@@ -454,6 +457,11 @@ def stage_cmd(
 ) -> None:
     """Make Ready items Staged: a branch, an OpenSpec change in budgeted task groups, and a draft."""
     _one_mode(dry_run=dry_run, plan=plan_only, confirm=confirm)
+    if job_item is not None:
+        if item is not None or not confirm:
+            _refuse(MESSAGES.roadmap.stage_job_item_needs)
+        _stage_job(_target(repo), job_item, source)
+        return
     from devops_cli.roadmap.stage.stage import (
         StageWriter,
         dry_run_stage,
@@ -515,6 +523,38 @@ def stage_cmd(
         print_info(MESSAGES.roadmap.preview_only)
     with _exit_on_failure("Staging incomplete"):
         raise_for_failed(failures)
+
+
+def _stage_job(target: str, number: int, source: Path | None) -> NoReturn:
+    """Run the stage Job of item `number` (`--job-item`), print its plan and its end, and exit
+    with the exit code of the Job (#5483)."""
+    from devops_cli.ai.client.factory import get_task_model
+    from devops_cli.roadmap.stage.stage import render_stage_plan
+    from devops_cli.roadmap.stage.stage_job import run_stage_job
+    from devops_cli.roadmap.stage.stage_toolbox import ToolboxModel
+
+    with _exit_on_failure("Could not run the stage Job"):
+        _, store = _open_store(target)
+        run = run_stage_job(
+            store,
+            repo=target,
+            item=number,
+            source=source,
+            model=ToolboxModel(get_task_model("stage")),
+            verifier=ToolboxModel(get_task_model("verification")),
+        )
+    if run.plan is not None:
+        write_stdout(render_stage_plan(run.plan) + "\n")
+    print_info(
+        MESSAGES.roadmap.stage_job_ended.format(
+            number=number,
+            result=run.result,
+            code=int(run.exit_code),
+            requests=run.budget.spent(),
+            limit=run.budget.limit,
+        )
+    )
+    raise typer.Exit(int(run.exit_code))
 
 
 def _render_roadmap_run_dry_run(target: str) -> None:

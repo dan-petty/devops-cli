@@ -4,14 +4,28 @@ from __future__ import annotations
 
 import copy
 import functools
+import re
 from collections.abc import Callable
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
 from cel_expr_python import cel
 
-from devops_cli.config.constants import CONST_ROADMAP_IMPLEMENT_DEADLINE_CAP_SECONDS
-from devops_cli.k8s.cluster_job import RUNNER_TEMPLATE, build_job
+from devops_cli.config.constants import (
+    CONST_ROADMAP_IMPLEMENT_DEADLINE_CAP_SECONDS,
+    CONST_ROADMAP_STAGE_JOB_DEADLINE_SECONDS,
+    CONST_ROADMAP_STAGE_JOB_SECRET_KEYS,
+)
+from devops_cli.github.repo_ref import RepoRef
+from devops_cli.k8s.cluster_job import (
+    RUNNER_TEMPLATE,
+    STAGE_TEMPLATE,
+    build_job,
+    stage_job_env,
+    stage_job_labels,
+    stage_job_name,
+)
 from devops_cli.roadmap.implement.implement_size import RUNNER_SIZES, WORKERS_VARIABLE, RunnerSize
 from tests.gate.k8s_render import applied_documents
 from tests.support.paths import REPO_ROOT
@@ -20,6 +34,9 @@ DEVOPS_DIR = REPO_ROOT / "k8s" / "devops"
 
 
 POLICY_NAME = "roadmap-service-jobs"
+
+
+DELETE_POLICY_NAME = "roadmap-service-job-deletes"
 
 
 RUNNER_IMAGE = "ghcr.io/dan-petty/devops-cli/runner"
@@ -35,7 +52,14 @@ SERVICE_ENV = {"DEVOPS_CLI_SERVICE_GITHUB_APP_TOKEN_REPOSITORY": "example/projec
 SERVICE_LABELS = {"implement-repo": "0123456789ab"}
 
 
-_CEL = cel.NewEnv(variables={"object": cel.Type.DYN, "request": cel.Type.DYN})
+_CEL = cel.NewEnv(
+    variables={
+        "object": cel.Type.DYN,
+        "oldObject": cel.Type.DYN,
+        "request": cel.Type.DYN,
+        "variables": cel.Type.DYN,
+    }
+)
 
 
 Mutation = Callable[[dict[str, Any]], None]
@@ -63,14 +87,48 @@ def _holds(expression: str, data: dict[str, Any]) -> bool:
     return bool(result.type() == cel.Type.BOOL and result.value() is True)
 
 
-def _refusals(job: dict[str, Any], user: str | None = None) -> list[str]:
-    """The messages of the validations that refuse the Job, or none when the policy does not
-    apply to the user."""
-    spec = _object("ValidatingAdmissionPolicy", POLICY_NAME)["spec"]
-    data = {"object": job, "request": {"userInfo": {"username": user or _service_user()}}}
+def _value(expression: str, data: dict[str, Any]) -> Any:
+    """The value of the expression, or None when it errors."""
+    result = _CEL.compile(expression).eval(data=data)
+    return result.value() if result.type() != cel.Type.ERROR else None
+
+
+def _policy_refusals(
+    name: str,
+    *,
+    job: dict[str, Any] | None,
+    old: dict[str, Any] | None = None,
+    user: str | None = None,
+) -> list[str]:
+    """The messages of the validations of policy `name` that refuse the request, or none when the
+    policy does not apply to the user. Each variable of the policy is computed first, in order,
+    as the API server does, so a validation reads it as `variables.<name>`."""
+    spec = _object("ValidatingAdmissionPolicy", name)["spec"]
+    data: dict[str, Any] = {
+        "object": job,
+        "oldObject": old,
+        "request": {"userInfo": {"username": user or _service_user()}},
+    }
     if not all(_holds(condition["expression"], data) for condition in spec["matchConditions"]):
         return []
+    variables: dict[str, Any] = {}
+    for variable in spec.get("variables", []):
+        variables[variable["name"]] = _value(
+            variable["expression"], {**data, "variables": variables}
+        )
+    data["variables"] = variables
     return [rule["message"] for rule in spec["validations"] if not _holds(rule["expression"], data)]
+
+
+def _refusals(job: dict[str, Any], user: str | None = None) -> list[str]:
+    """The messages of the validations that refuse the create of the Job, or none when the policy
+    does not apply to the user."""
+    return _policy_refusals(POLICY_NAME, job=job, user=user)
+
+
+def _delete_refusals(job: dict[str, Any], user: str | None = None) -> list[str]:
+    """The messages of the validations that refuse the delete of the Job."""
+    return _policy_refusals(DELETE_POLICY_NAME, job=None, old=job, user=user)
 
 
 def _job_of_size(size: RunnerSize | None, memory_limit: str = "8Gi") -> dict[str, Any]:
@@ -379,12 +437,298 @@ def check_the_match_condition_names_the_user_of_the_role_binding() -> None:
     ]
 
 
-def check_the_expressions_use_only_standard_cel() -> None:
+@pytest.mark.parametrize("name", [POLICY_NAME, DELETE_POLICY_NAME])
+def check_the_expressions_use_only_standard_cel(name: str) -> None:
     """The runtime here compiles standard CEL and nothing of the Kubernetes extensions, so an
     expression that it compiles gives the same answer in the API server."""
-    spec = _object("ValidatingAdmissionPolicy", POLICY_NAME)["spec"]
-    expressions = [item["expression"] for item in (*spec["matchConditions"], *spec["validations"])]
+    spec = _object("ValidatingAdmissionPolicy", name)["spec"]
+    expressions = [
+        item["expression"]
+        for item in (*spec["matchConditions"], *spec.get("variables", []), *spec["validations"])
+    ]
 
     assert len(expressions) > 1
     for expression in expressions:
         _CEL.compile(expression)
+
+
+# ── The stage Job (#5483) ─────────────────────────────────────────────────────
+
+SERVICE_IMAGE = "ghcr.io/dan-petty/devops-cli/service"
+
+
+STAGE_REPO = RepoRef("example/project")
+
+
+STAGE_DEADLINE = datetime(2026, 11, 13, 15, 0, tzinfo=UTC)
+
+
+def _stage_job(item: int = 7) -> dict[str, Any]:
+    """The Job that the Service makes from CronJob roadmap-stage for one item."""
+    name = stage_job_name(STAGE_REPO, item, "0123456789abcdef")
+    return build_job(
+        _object("CronJob", STAGE_TEMPLATE.cronjob),
+        ["roadmap", "stage", "--repo", STAGE_REPO.display, "--job-item", str(item), "--confirm"],
+        name,
+        template=STAGE_TEMPLATE,
+        env=stage_job_env(STAGE_REPO, name, STAGE_DEADLINE),
+        labels=stage_job_labels(STAGE_REPO, item),
+    )
+
+
+def _stage_changed(*mutations: Mutation) -> dict[str, Any]:
+    job = _stage_job()
+    for mutate in mutations:
+        mutate(job)
+    return job
+
+
+def _add_secret_key(secret: str, key: str, name: str | None = None) -> Mutation:
+    entry = {"name": name or key, "valueFrom": {"secretKeyRef": {"name": secret, "key": key}}}
+    return lambda job: _container(job)["env"].append(entry)
+
+
+def _add_env_source(source: dict[str, Any]) -> Mutation:
+    return lambda job: _container(job)["env"].append({"name": "OTHER", "valueFrom": source})
+
+
+def _set_env_from(source: dict[str, Any]) -> Mutation:
+    return lambda job: _container(job).update(envFrom=[source])
+
+
+def _set_arg(index: int, value: str) -> Mutation:
+    return lambda job: _container(job)["args"].__setitem__(index, value)
+
+
+def _add_arg(value: str) -> Mutation:
+    return lambda job: _container(job)["args"].append(value)
+
+
+def _set_plain_env(name: str, value: str | None) -> Mutation:
+    """Set the plain environment value `name` of the container, or remove it when `value` is
+    None."""
+
+    def mutate(job: dict[str, Any]) -> None:
+        container = _container(job)
+        container["env"] = [entry for entry in container["env"] if entry["name"] != name]
+        if value is not None:
+            container["env"].append({"name": name, "value": value})
+
+    return mutate
+
+
+TOKEN_REPOSITORY_ENV = "DEVOPS_CLI_SERVICE_GITHUB_APP_TOKEN_REPOSITORY"
+
+
+def _set_component(value: str | None) -> Mutation:
+    def mutate(job: dict[str, Any]) -> None:
+        labels = job["spec"]["template"]["metadata"]["labels"]
+        labels.pop("app.kubernetes.io/component", None)
+        if value is not None:
+            labels["app.kubernetes.io/component"] = value
+
+    return mutate
+
+
+def _stage_retries(job: dict[str, Any]) -> None:
+    """The backoff limit and the pod failure policy of a stage Job, on any Job."""
+    stage = _stage_job()["spec"]
+    job["spec"].update(
+        backoffLimit=stage["backoffLimit"], podFailurePolicy=stage["podFailurePolicy"]
+    )
+
+
+def _ignore_every_exit(job: dict[str, Any]) -> None:
+    job["spec"]["podFailurePolicy"]["rules"].append(
+        {"action": "Ignore", "onExitCodes": {"operator": "NotIn", "values": [0]}}
+    )
+
+
+def check_the_stage_job_from_the_template_passes_in_every_image_form() -> None:
+    forms = (
+        SERVICE_IMAGE,
+        f"{SERVICE_IMAGE}:latest",
+        f"{SERVICE_IMAGE}@{DIGEST}",
+        f"{SERVICE_IMAGE}:latest@{DIGEST}",
+    )
+
+    assert [_refusals(_stage_changed(_set_image(image))) for image in forms] == [[]] * len(forms)
+
+
+@pytest.mark.parametrize(
+    ("mutate", "rule"),
+    [
+        pytest.param(_set_image(RUNNER_IMAGE), "image", id="runner-image"),
+        pytest.param(_set_image(f"{SERVICE_IMAGE}-evil"), "image", id="name-prefix"),
+        pytest.param(
+            _set_env_from({"secretRef": {"name": "devops-cli"}}), "envFrom", id="env-from"
+        ),
+        pytest.param(
+            _add_secret_key("devops-cli", "DEVOPS_CLI_VALKEY_PASSWORD"), "valueFrom", id="3rd-key"
+        ),
+        pytest.param(
+            _add_secret_key("devops-cli", "DEVOPS_CLI_MCP_STAGE_TOKEN"),
+            "valueFrom",
+            id="mcp-token",
+        ),
+        pytest.param(
+            _add_secret_key("other", "DEVOPS_CLI_AI_API_KEY"), "valueFrom", id="other-secret"
+        ),
+        pytest.param(
+            _add_secret_key("devops-cli", "DEVOPS_CLI_AI_API_KEY", "OTHER"),
+            "valueFrom",
+            id="key-in-another-variable",
+        ),
+        pytest.param(
+            _add_env_source({"fieldRef": {"fieldPath": "metadata.namespace"}}),
+            "valueFrom",
+            id="field-ref",
+        ),
+        pytest.param(
+            _add_env_source({"configMapKeyRef": {"name": "devops-cli-config", "key": "x"}}),
+            "valueFrom",
+            id="config-map-key",
+        ),
+        pytest.param(_set_pod(automountServiceAccountToken=True), "token", id="token-mounts"),
+        pytest.param(_set_pod(serviceAccountName="default"), "ServiceAccount", id="other-account"),
+        pytest.param(_drop_spec_field("podFailurePolicy"), "backoffLimit", id="no-failure-policy"),
+        pytest.param(_set_spec(backoffLimit=3), "backoffLimit", id="three-retries"),
+        pytest.param(_ignore_every_exit, "backoffLimit", id="ignore-every-exit"),
+        pytest.param(
+            _set_spec(activeDeadlineSeconds=CONST_ROADMAP_IMPLEMENT_DEADLINE_CAP_SECONDS + 1),
+            "deadline",
+            id="deadline-over-the-cap",
+        ),
+        pytest.param(
+            _set_spec(activeDeadlineSeconds=CONST_ROADMAP_STAGE_JOB_DEADLINE_SECONDS + 1),
+            "deadline",
+            id="deadline-over-the-stage-deadline",
+        ),
+        pytest.param(
+            _set_spec(activeDeadlineSeconds=CONST_ROADMAP_STAGE_JOB_DEADLINE_SECONDS - 1),
+            "deadline",
+            id="deadline-under-the-stage-deadline",
+        ),
+        pytest.param(_set_arg(1, "implement"), "args", id="other-command"),
+        pytest.param(_set_arg(5, "0"), "args", id="item-0"),
+        pytest.param(_set_arg(5, "7 --plan"), "args", id="item-not-a-number"),
+        pytest.param(_add_arg("--plan"), "args", id="extra-arg"),
+        pytest.param(
+            _set_plain_env("DEVOPS_CLI_AI_BASE_URL", "https://example.com"),
+            "plain env",
+            id="extra-plain-env",
+        ),
+        pytest.param(
+            _set_plain_env(TOKEN_REPOSITORY_ENV, "example/other"),
+            "plain env",
+            id="token-for-another-repository",
+        ),
+        pytest.param(_set_plain_env(TOKEN_REPOSITORY_ENV, None), "plain env", id="no-token-repo"),
+        pytest.param(_set_resources(cpu="2"), "size", id="other-cpu"),
+        pytest.param(_set_resources(limit="4Gi"), "size", id="other-memory-limit"),
+        pytest.param(_set_component(None), "label", id="no-component"),
+        pytest.param(_set_component("roadmap-implement"), "label", id="other-component"),
+    ],
+)
+def check_a_stage_job_that_breaks_one_rule_is_refused_by_that_rule(
+    mutate: Mutation, rule: str
+) -> None:
+    refused = _refusals(_stage_changed(mutate))
+
+    assert len(refused) == 1, refused
+    assert rule in refused[0]
+
+
+@pytest.mark.parametrize(
+    ("mutate", "rule"),
+    [
+        pytest.param(_stage_retries, "backoffLimit", id="stage-retries"),
+        pytest.param(_set_spec(backoffLimit=2), "backoffLimit", id="two-retries"),
+        pytest.param(_set_component("roadmap-stage"), "label", id="stage-component"),
+    ],
+)
+def check_a_runner_job_with_a_rule_of_the_stage_job_is_refused(mutate: Mutation, rule: str) -> None:
+    refused = _refusals(_changed(mutate))
+
+    assert len(refused) == 1, refused
+    assert rule in refused[0]
+
+
+def _drop_secret_keys(job: dict[str, Any]) -> None:
+    container = _container(job)
+    container["env"] = [entry for entry in container["env"] if "valueFrom" not in entry]
+
+
+def check_the_stage_job_may_read_exactly_the_keys_of_the_constant() -> None:
+    """The policy admits each key of `CONST_ROADMAP_STAGE_JOB_SECRET_KEYS`, which the template
+    reads, and refuses a key of the Secret that a stage Job does not need, such as an MCP token."""
+    keys = (
+        *CONST_ROADMAP_STAGE_JOB_SECRET_KEYS,
+        "DEVOPS_CLI_MCP_STAGE_TOKEN",
+        "DEVOPS_CLI_MCP_IMPLEMENT_TOKEN",
+    )
+
+    admitted = [
+        key
+        for key in keys
+        if not _refusals(_stage_changed(_drop_secret_keys, _add_secret_key("devops-cli", key)))
+    ]
+
+    assert admitted == list(CONST_ROADMAP_STAGE_JOB_SECRET_KEYS)
+
+
+def check_the_plain_env_names_of_a_stage_job_are_those_of_the_template_and_the_service() -> None:
+    """The policy names each plain environment value that a stage Job may set: those of CronJob
+    roadmap-stage and those of `stage_job_env`. A new value in either place needs a row here."""
+    (rule,) = (
+        item["expression"]
+        for item in _object("ValidatingAdmissionPolicy", POLICY_NAME)["spec"]["validations"]
+        if "plain env" in item["message"]
+    )
+    listed = set(re.findall(r'"([A-Z0-9_]+)"', rule.partition("e.name in")[2]))
+    template = _object("CronJob", STAGE_TEMPLATE.cronjob)
+    (container,) = template["spec"]["jobTemplate"]["spec"]["template"]["spec"]["containers"]
+    plain = {entry["name"] for entry in container["env"] if "valueFrom" not in entry}
+
+    assert listed == plain | set(stage_job_env(STAGE_REPO, "x", STAGE_DEADLINE))
+
+
+def check_the_service_may_delete_a_stage_job_and_no_other_job() -> None:
+    runner = _template_job()
+    stage = _stage_job()
+
+    assert (
+        _delete_refusals(stage),
+        len(_delete_refusals(runner)),
+        _delete_refusals(runner, "kubernetes-admin"),
+    ) == ([], 1, [])
+
+
+def check_the_delete_policy_covers_the_delete_of_jobs_in_namespace_devops_and_fails_closed() -> (
+    None
+):
+    policy = _object("ValidatingAdmissionPolicy", DELETE_POLICY_NAME)["spec"]
+    binding = _object("ValidatingAdmissionPolicyBinding", DELETE_POLICY_NAME)["spec"]
+
+    assert (
+        policy["matchConstraints"]["resourceRules"],
+        policy["failurePolicy"],
+        [condition["expression"] for condition in policy["matchConditions"]],
+        binding["policyName"],
+        binding["validationActions"],
+        binding["matchResources"],
+    ) == (
+        [
+            {
+                "apiGroups": ["batch"],
+                "apiVersions": ["v1"],
+                "operations": ["DELETE"],
+                "resources": ["jobs"],
+            }
+        ],
+        "Fail",
+        [f'request.userInfo.username == "{_service_user()}"'],
+        DELETE_POLICY_NAME,
+        ["Deny", "Audit"],
+        {"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "devops"}}},
+    )

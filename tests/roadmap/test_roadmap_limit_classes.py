@@ -306,6 +306,14 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
         "kept",
         "the age of a pending mark before the stage job judges it; a younger mark can belong to a run that still pushes",
     ),
+    "CONST_ROADMAP_STAGE_JOB_DEADLINE_SECONDS": (
+        "kept",
+        "the activeDeadlineSeconds of CronJob roadmap-stage, which a gate check holds equal; the p99 of a stage round was 6,547 s (#5483)",
+    ),
+    "CONST_ROADMAP_STAGE_JOB_MARGIN_SECONDS": (
+        "kept",
+        "the time between the end of the time budget of a stage Job and its deadline, for one more model run and the publish (#5483)",
+    ),
     "CONST_ROADMAP_VERIFY_RECALL_FLOOR": (
         "other",
         "the recall that the verify eval must reach; a score bar, not a limit of a job",
@@ -697,6 +705,14 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
     "DEFAULT_ROADMAP_FIX_PLAN_TIME_BUDGET_SECONDS": (
         "setting",
         "new (#5363); under the deadline of the Job with a margin for one more model run",
+    ),
+    "DEFAULT_ROADMAP_STAGE_TIME_BUDGET_SECONDS": (
+        "setting",
+        "new (#5483); the deadline of the stage Job less the margin, above the p99 of a stage round",
+    ),
+    "DEFAULT_ROADMAP_STAGE_GITHUB_REQUESTS_PER_HOUR": (
+        "setting",
+        "new (#5483); the request budget of one stage Job, until the measure of the first live Job",
     ),
     "DEFAULT_ROADMAP_FIX_PLAN_HEAD_ATTEMPTS": (
         "setting",

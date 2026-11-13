@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import functools
 from pathlib import Path
 from typing import Any
 
@@ -10,7 +11,15 @@ import yaml
 from devops_cli.commands.k8s import stack_lifecycle
 from devops_cli.commands.k8s.networking import _resolve_stacks
 from devops_cli.commands.k8s.stack_lifecycle import KUSTOMIZATIONS_BY_STACK
-from tests.gate.k8s_render import applied_objects, kustomized_objects, manifest_objects
+from devops_cli.github.repo_ref import RepoRef
+from devops_cli.k8s.cluster_job import (
+    RUNNER_TEMPLATE,
+    STAGE_TEMPLATE,
+    JobTemplate,
+    build_job,
+    stage_job_labels,
+)
+from tests.gate.k8s_render import applied_objects, kustomize, kustomized_objects, manifest_objects
 from tests.support.k8s_tree import deploy_stack_manifests
 from tests.support.paths import REPO_ROOT
 
@@ -112,3 +121,86 @@ def check_every_network_policy_has_a_deploy_stack_path_or_an_owned_exemption() -
             if policy not in manifest_objects(REPO_ROOT / path, "NetworkPolicy")
         ),
     ) == ([], [], [])
+
+
+# ── Who reaches SearXNG (#3924, #5483) ────────────────────────────────────────
+
+SEARXNG_PORT = 8080
+
+
+@functools.cache
+def _devops_documents() -> tuple[dict[str, Any], ...]:
+    rendered = yaml.load_all(kustomize(K8S_DIR / "devops").stdout, Loader=yaml.CSafeLoader)
+    return tuple(document for document in rendered if isinstance(document, dict))
+
+
+def _selects(selector: dict[str, Any], labels: dict[str, str]) -> bool:
+    """Whether a label selector of Kubernetes selects a pod with `labels`."""
+    if not selector.get("matchLabels", {}).items() <= labels.items():
+        return False
+    for expression in selector.get("matchExpressions", []):
+        key, operator, values = expression["key"], expression["operator"], expression.get("values")
+        held = labels.get(key)
+        if operator == "In" and held not in values:
+            return False
+        if operator == "NotIn" and held in values:
+            return False
+        if operator == "Exists" and key not in labels:
+            return False
+        if operator == "DoesNotExist" and key in labels:
+            return False
+    return True
+
+
+def _admits(rules: list[dict[str, Any]], side: str, labels: dict[str, str]) -> bool:
+    """Whether a rule of `rules` admits TCP 8080 for a peer pod with `labels` of namespace devops."""
+    return any(
+        any(_selects(peer.get("podSelector", {}), labels) for peer in rule.get(side, []))
+        and any(port["port"] == SEARXNG_PORT for port in rule.get("ports", []))
+        for rule in rules
+    )
+
+
+def _reaches_searxng(labels: dict[str, str]) -> bool:
+    """Whether a pod of namespace devops with `labels` may send to SearXNG on TCP 8080 and
+    SearXNG admits it: a policy that selects the pod lets it out, and the perimeter of SearXNG
+    lets it in."""
+    policies = [document for document in _devops_documents() if document["kind"] == "NetworkPolicy"]
+    searxng = {"app.kubernetes.io/name": "searxng"}
+    egress = any(
+        _selects(policy["spec"]["podSelector"], labels)
+        and _admits(policy["spec"].get("egress", []), "to", searxng)
+        for policy in policies
+    )
+    ingress = any(
+        _selects(policy["spec"]["podSelector"], searxng)
+        and _admits(policy["spec"].get("ingress", []), "from", labels)
+        for policy in policies
+    )
+    return egress and ingress
+
+
+def _job_pod_labels(template: JobTemplate, labels: dict[str, str] | None = None) -> dict[str, str]:
+    """The labels of the pod of a Job that `build_job` makes from `template`."""
+    (cronjob,) = (
+        document
+        for document in _devops_documents()
+        if document["kind"] == "CronJob" and document["metadata"]["name"] == template.cronjob
+    )
+    job = build_job(cronjob, ["--version"], "probe", template=template, labels=labels)
+    pod_labels: dict[str, str] = job["spec"]["template"]["metadata"]["labels"]
+    return pod_labels
+
+
+def check_the_service_and_the_stage_job_reach_searxng_and_the_runner_job_does_not() -> None:
+    """The stage planner has the tool `search_web`, so the pod of a stage Job reaches SearXNG, as
+    the Service pod does. The pod of a runner Job does not."""
+    stage = _job_pod_labels(STAGE_TEMPLATE, stage_job_labels(RepoRef("example/project"), 7))
+    runner = _job_pod_labels(RUNNER_TEMPLATE)
+    service = {"app.kubernetes.io/name": "roadmap-service"}
+
+    assert (
+        _reaches_searxng(service),
+        _reaches_searxng(stage),
+        _reaches_searxng(runner),
+    ) == (True, True, False)

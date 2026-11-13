@@ -61,7 +61,8 @@ def _named_namespace(entry: dict[str, Any] | None, namespace: str) -> str | None
 def check_each_devops_cli_container_names_the_cluster_and_its_namespace() -> None:
     """Each devops-cli container sets `K8S_CONTEXT` to the cluster name of the monitoring stack,
     and `POD_NAMESPACE` to the namespace of its object: from the Downward API, or as a plain value
-    where the admission policy `roadmap-service-jobs` refuses `valueFrom` (the runner template)."""
+    where the admission policy `roadmap-service-jobs` refuses `valueFrom` (the runner and the stage
+    templates)."""
     monitoring = yaml.safe_load(MONITORING_VALUES.read_text(encoding="utf-8"))
     cluster = monitoring["cluster"]["name"]
     named: dict[tuple[str, str, str], tuple[str | None, str | None]] = {}
@@ -79,6 +80,7 @@ def check_each_devops_cli_container_names_the_cluster_and_its_namespace() -> Non
     assert named == {
         ("CronJob", "devops-cli", "devops-cli"): (cluster, "devops"),
         ("CronJob", "devops-cli-runner", "runner"): (cluster, "devops"),
+        ("CronJob", "roadmap-stage", "stage"): (cluster, "devops"),
         ("Deployment", "mcp-server", "mcp-server"): (cluster, "devops"),
         ("Deployment", "roadmap-service", "service"): (cluster, "devops"),
         ("WorkflowTemplate", "rag-ingest", "ingest"): (cluster, "devops"),

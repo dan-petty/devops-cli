@@ -679,6 +679,31 @@ class FakeCustomObjects(_FakeApi):
         )
         return self._patch(group, version, namespace, plural, name, body)
 
+    def delete_namespaced_custom_object(
+        self,
+        group: str,
+        version: str,
+        namespace: str,
+        plural: str,
+        name: str,
+        **kwargs: Any,
+    ) -> Any:
+        """:rtype: object"""
+        self._record(
+            "delete_namespaced_custom_object",
+            {
+                "group": group,
+                "version": version,
+                "namespace": namespace,
+                "plural": plural,
+                "name": name,
+                **kwargs,
+            },
+        )
+        current = self._find(group, version, namespace, plural, name)
+        self.objects[(group, version, plural)].remove(current)
+        return {"kind": "Status", "status": "Success"}
+
     def patch_namespaced_custom_object_status(
         self,
         group: str,

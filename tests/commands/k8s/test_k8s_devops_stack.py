@@ -62,7 +62,13 @@ def test_devops_stack_manifests_integrity() -> None:
         sorted(
             f"{p.parent.name}/{p.name}"
             for p in manifests
-            if p.name in {"cronjob-runner.yaml", "role.yaml", "networkpolicy-egress.yaml"}
+            if p.name
+            in {
+                "cronjob-runner.yaml",
+                "cronjob-stage.yaml",
+                "role.yaml",
+                "networkpolicy-egress.yaml",
+            }
         ),
         [
             f"{p.parent.name}/{p.name}"
@@ -70,7 +76,7 @@ def test_devops_stack_manifests_integrity() -> None:
             if f"{p.parent.name}/{p.name}" in rate_limit_then_ingress
         ],
     ) == (
-        30,
+        31,
         True,
         True,
         True,
@@ -81,6 +87,7 @@ def test_devops_stack_manifests_integrity() -> None:
         True,
         [
             "devops/cronjob-runner.yaml",
+            "devops/cronjob-stage.yaml",
             "roadmap-service/networkpolicy-egress.yaml",
             "roadmap-service/role.yaml",
         ],

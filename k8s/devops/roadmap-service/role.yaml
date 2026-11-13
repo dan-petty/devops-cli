@@ -1,11 +1,13 @@
 # What the roadmap Service may do in namespace devops: create the implement Job from CronJob
-# devops-cli-runner, list Jobs, patch the deadline and the annotations of a Job while it makes
-# progress (#3063), list their pods, read a pod's log, and read the digest of its own image in
-# Deployment roadmap-service (#2917). `resourceNames` limits `get` only:
-# the name of each Job is new, so `create`, `list` and `patch` cover the namespace. The policy
-# `roadmap-service-jobs` checks a patch as it checks a create. A Job can take Secret
-# `devops-cli` through `envFrom`, which the Service pod holds already, so the Role gives no
-# secret that the Service does not have. It reads no Secret and creates nothing but Jobs.
+# devops-cli-runner and the stage Job from CronJob roadmap-stage (#5483), list Jobs, patch the
+# deadline and the annotations of a Job while it makes progress (#3063), delete a stage Job, list
+# their pods, read a pod's log, and read the digest of its own image in Deployment roadmap-service
+# (#2917). `resourceNames` limits `get` only: the name of each Job is new, so `create`, `delete`,
+# `list` and `patch` cover the namespace. The policy `roadmap-service-jobs` checks a patch as it
+# checks a create, and the policy `roadmap-service-job-deletes` admits the delete of a stage Job
+# and of no other Job. A Job can take Secret `devops-cli`, which the Service pod holds already, so
+# the Role gives no secret that the Service does not have. It reads no Secret and creates nothing
+# but Jobs.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -17,11 +19,11 @@ metadata:
 rules:
   - apiGroups: ["batch"]
     resources: ["jobs"]
-    verbs: ["create", "get", "list", "patch"]
-  # The Job is built from this template.
+    verbs: ["create", "delete", "get", "list", "patch"]
+  # The Jobs are built from these templates.
   - apiGroups: ["batch"]
     resources: ["cronjobs"]
-    resourceNames: ["devops-cli-runner"]
+    resourceNames: ["devops-cli-runner", "roadmap-stage"]
     verbs: ["get"]
   # The Service reads the digest of its own image for the row release_comments, which says when a
   # release runs in the cluster. The Deployment holds no secret value.

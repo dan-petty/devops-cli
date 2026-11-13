@@ -214,12 +214,12 @@ def check_the_role_of_the_service_holds_five_rules_and_one_binding() -> None:
             {
                 "apiGroups": ["batch"],
                 "resources": ["jobs"],
-                "verbs": ["create", "get", "list", "patch"],
+                "verbs": ["create", "delete", "get", "list", "patch"],
             },
             {
                 "apiGroups": ["batch"],
                 "resources": ["cronjobs"],
-                "resourceNames": ["devops-cli-runner"],
+                "resourceNames": ["devops-cli-runner", "roadmap-stage"],
                 "verbs": ["get"],
             },
             {
@@ -286,7 +286,7 @@ def check_only_the_service_pod_may_reach_the_api_server() -> None:
     )
 
 
-@pytest.mark.parametrize("name", ["devops-cli", "devops-cli-runner"])
+@pytest.mark.parametrize("name", ["devops-cli", "devops-cli-runner", "roadmap-stage"])
 def check_the_pods_of_jobs_carry_no_label_that_the_service_policy_selects(name: str) -> None:
     template = _object("CronJob", name)["spec"]["jobTemplate"]["spec"]["template"]
 

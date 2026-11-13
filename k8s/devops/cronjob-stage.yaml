@@ -1,0 +1,154 @@
+# The template of the stage Job, the pod in which the stage job plans one Ready item (#5483). It
+# never runs on a schedule: `devops k8s run-job --template stage` and the roadmap Service create a
+# Job from it with only the container's args, the name, the labels and the plain environment
+# values of the Job changed. The Job runs `devops roadmap stage --job-item <n> --confirm`, so a
+# rollout of the Service does not stop a plan in progress. The pod takes 2 keys of Secret
+# devops-cli and no other value of it: the private key of the App and the key of the gateway. The
+# Job refuses to act as the App unless its token names its one repository, and the admission
+# policy requires that value on a Job of the Service. The pod has no MCP token: the MCP client of
+# the stage job is off (`roadmap.stage.mcp`), and the server accepts one token for every role, so
+# the change that turns the client on adds the key here and in the policy. Its egress is that of
+# `devops-default-perimeter`, and `searxng-stage-clients` adds SearXNG for the tool `search_web`
+# of the planner.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: roadmap-stage
+  namespace: devops
+  labels:
+    app.kubernetes.io/name: roadmap-stage
+    app.kubernetes.io/component: roadmap-stage
+    app.kubernetes.io/part-of: devops-cli-stack
+spec:
+  schedule: "0 0 1 1 *"
+  suspend: true
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    metadata:
+      labels:
+        app.kubernetes.io/component: roadmap-stage
+        app.kubernetes.io/part-of: devops-cli-stack
+    spec:
+      # A pod that an eviction, a node drain or a person ends exits 75 (`evicted` of
+      # src/devops_cli/roadmap/attempt_kill.py), and the Job controller runs the pod again, at most
+      # twice. A pod that a disruption ends does not count. Any other exit ends the Job, and the
+      # Service decides each later attempt. The pod that runs again removes the branch that its
+      # own intent mark names, so a publish never runs twice.
+      backoffLimit: 2
+      podFailurePolicy:
+        rules:
+          - action: Ignore
+            onPodConditions:
+              - type: DisruptionTarget
+          - action: FailJob
+            onExitCodes:
+              containerName: stage
+              operator: NotIn
+              values: [75]
+      ttlSecondsAfterFinished: 86400
+      # `CONST_ROADMAP_STAGE_JOB_DEADLINE_SECONDS`, which a gate check holds equal. The time budget
+      # of the Job (`roadmap.stage.time_budget_seconds`) ends 1800 s before it.
+      activeDeadlineSeconds: 10800
+      template:
+        metadata:
+          labels:
+            # The NetworkPolicies select a Job pod by this name, and `build_job` sets it.
+            app.kubernetes.io/name: devops-cli-job
+            app.kubernetes.io/component: roadmap-stage
+            app.kubernetes.io/part-of: devops-cli-stack
+        spec:
+          restartPolicy: Never
+          # After the time budget, a SIGTERM makes the Job check in with up to 4 GitHub writes in
+          # the request budget of the pod. A SIGKILL that cuts them leaves the check-out, which the
+          # Service recovers at a later round.
+          terminationGracePeriodSeconds: 120
+          serviceAccountName: devops-cli
+          automountServiceAccountToken: false
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: stage
+              image: ghcr.io/dan-petty/devops-cli/service
+              imagePullPolicy: IfNotPresent
+              args: ["--version"]
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop:
+                    - ALL
+              env:
+                - name: DEVOPS_CLI_CONFIG
+                  value: /config/devops-cli.yaml
+                - name: DEVOPS_CLI_DATA_DIR
+                  value: /home/devops/.data
+                # `CONST_ROADMAP_STAGE_JOB_SECRET_KEYS`: the admission policy
+                # `roadmap-service-jobs` admits these keys, each in the variable of its name.
+                - name: DEVOPS_CLI_SERVICE_GITHUB_APP_PRIVATE_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: devops-cli
+                      key: DEVOPS_CLI_SERVICE_GITHUB_APP_PRIVATE_KEY
+                - name: DEVOPS_CLI_AI_API_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: devops-cli
+                      key: DEVOPS_CLI_AI_API_KEY
+                # The telemetry of a stage Job has the `job` roadmap-stage in Prometheus (ADR 0022).
+                - name: OTEL_SERVICE_NAME
+                  value: roadmap-stage
+                # Every stage pod sends this one instance, so its metric stream continues across
+                # the Job pods instead of starting again at zero in the same Prometheus series
+                # (#4697). This holds while one stage pod sends at a time
+                # (`roadmap.stage.jobs` = 1). Two pods at once write one series, and Prometheus
+                # reads a reset; a limit over 1 needs an instance id for each Job.
+                - name: OTEL_RESOURCE_ATTRIBUTES
+                  value: service.instance.id=roadmap-stage
+                # The spans and the log records name the cluster and the namespace from these two
+                # values. The admission policy refuses `fieldRef`, so the namespace is a plain
+                # value.
+                - name: K8S_CONTEXT
+                  value: homelab-k3s
+                - name: POD_NAMESPACE
+                  value: devops
+                - name: DO_NOT_TRACK
+                  value: "1"
+                - name: OPENSPEC_TELEMETRY
+                  value: "0"
+                - name: OPENSPEC_NO_UPDATE_CHECK
+                  value: "1"
+                - name: PYDANTIC_AI_NO_BANNER
+                  value: "1"
+              volumeMounts:
+                - name: tmp
+                  mountPath: /tmp
+                # The blobless clone of the repository and the worktree of the publish.
+                - name: home
+                  mountPath: /home/devops
+                - name: config
+                  mountPath: /config
+                  readOnly: true
+              resources:
+                # The Service pod, which ran every row, peaked at 1.46 GiB in 7 days to 2026-11-13.
+                # The admission policy pins these four values.
+                requests:
+                  cpu: 250m
+                  memory: 1Gi
+                limits:
+                  cpu: "1"
+                  memory: 2Gi
+          volumes:
+            - name: tmp
+              emptyDir:
+                sizeLimit: 1Gi
+            - name: home
+              emptyDir:
+                sizeLimit: 4Gi
+            - name: config
+              configMap:
+                name: devops-cli-config

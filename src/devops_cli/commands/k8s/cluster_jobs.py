@@ -4,9 +4,12 @@
 pod fails the namespace's `restricted` Pod Security or drifts from git, so this command builds
 the Job from a CronJob's template with only the args, name and label changed. `--template`
 chooses the CronJob: `default` is CronJob devops-cli, `runner` is CronJob devops-cli-runner, the
-template of the implement job's runner (#2667). A runner Job carries the label of its repository,
-and none is created while another of that repository has not ended (#2913). `start_job` is the
-body of the command; `devops roadmap implement --item` calls it too.
+template of the implement job's runner (#2667), and `stage` is CronJob roadmap-stage, the template
+of the stage Job of one item (#5483). A runner Job carries the label of its repository, and none
+is created while another of that repository has not ended (#2913). A stage Job carries the labels
+of its repository and its item (ADR 0022), names itself and the end of its deadline in its
+environment, and none is created while another of the item has not ended. `start_job` is the body
+of the command; `devops roadmap implement --item` calls it too.
 `--dry-run` makes no request: it prints the kubectl requests a run would make, in order.
 """
 
@@ -16,6 +19,7 @@ import json
 import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any
 
 import typer
@@ -32,17 +36,21 @@ from devops_cli.config.settings import GitHubAppConfig
 from devops_cli.core.process import run_subprocess
 from devops_cli.dry_run import PlannedRequest, dry_run_class, is_dry_run, render_request_plan
 from devops_cli.exceptions.k8s import ClusterJobError
+from devops_cli.github.repo_ref import RepoRef, ServiceRow
 from devops_cli.k8s.cluster_job import (
     DEFAULT_TEMPLATE,
     JOB_NAME_LABEL,
     JOB_NAME_LABEL_VALUE,
     JOB_NAMESPACE,
     JOB_POD_SELECTOR_LABEL,
+    STAGE_TEMPLATE,
     JobTemplate,
     TemplateName,
     build_job,
     job_name,
     repository_label,
+    stage_job_env,
+    stage_job_labels,
 )
 from devops_cli.k8s.cluster_job_api import JobState, job_state
 from devops_cli.lang import HELP, MESSAGES
@@ -61,6 +69,8 @@ _PHASE_PATH = ".status.phase"
 
 def _name_placeholder(template: JobTemplate) -> str:
     """Where a dry run shows the Job's name, which a run chooses when it creates the Job."""
+    if template == STAGE_TEMPLATE:
+        return "<devops-cli-stage-name-item-xxxxxx>"
     return f"<{template.cronjob}-yyyymmdd-hhmmss-xxxx>"
 
 
@@ -91,9 +101,36 @@ def _kubectl_argv(args: Sequence[str], context: str | None) -> list[str]:
     return ["kubectl", "-n", JOB_NAMESPACE, *args, *(["--context", context] if context else [])]
 
 
-def _repo_labels(repo: str | None) -> dict[str, str]:
-    """The labels of the runner Job of `repo`, the ones the Service lists its Jobs by."""
-    return {CONST_ROADMAP_IMPLEMENT_JOB_LABEL: repository_label(repo)} if repo else {}
+def _repo_labels(
+    repo: str | None, template: JobTemplate = DEFAULT_TEMPLATE, item: int | None = None
+) -> dict[str, str]:
+    """The labels of the runner Job of `repo`, or of the stage Job of `item`: the ones the
+    Service lists its Jobs by."""
+    if repo is None:
+        return {}
+    if template == STAGE_TEMPLATE and item is not None:
+        return stage_job_labels(RepoRef(repo), item)
+    return {CONST_ROADMAP_IMPLEMENT_JOB_LABEL: repository_label(repo)}
+
+
+def _new_name(template: JobTemplate, repo: str | None, item: int | None) -> str:
+    """The name of a new Job: `RepoRef.adhoc_name` for a stage Job that a person starts, so the
+    name starts with the prefix of the stage Jobs (ADR 0022), else `job_name`."""
+    if template == STAGE_TEMPLATE and repo is not None and item is not None:
+        return RepoRef(repo).adhoc_name(ServiceRow.STAGE.value, item)
+    return job_name(template=template)
+
+
+def _stage_env(
+    template: JobTemplate, repo: str | None, name: str, cronjob: Mapping[str, Any]
+) -> dict[str, str]:
+    """The environment of a stage Job: the repository of its token, its name and the end of the
+    deadline of its template from now. The deadline counts from the start of the Job, which comes
+    after now, so the Job ends its work before its deadline. Empty for any other Job."""
+    if template != STAGE_TEMPLATE or repo is None:
+        return {}
+    seconds = cronjob["spec"]["jobTemplate"]["spec"]["activeDeadlineSeconds"]
+    return stage_job_env(RepoRef(repo), name, datetime.now(UTC) + timedelta(seconds=seconds))
 
 
 def _running_args(labels: Mapping[str, str]) -> list[str]:
@@ -244,10 +281,11 @@ def dry_run_job(
     template: JobTemplate = DEFAULT_TEMPLATE,
     env: Mapping[str, str] | None = None,
     repo: str | None = None,
+    item: int | None = None,
 ) -> JobRun:
     """The requests a run would make, in order, making none: not even the CronJob is read."""
     name = _name_placeholder(template)
-    labels = _repo_labels(repo)
+    labels = _repo_labels(repo, template, item)
 
     def kubectl(command: Sequence[str], target: str, **extra: Any) -> PlannedRequest:
         method = f"kubectl {command[0]}"
@@ -300,11 +338,13 @@ def execute_job(
     template: JobTemplate = DEFAULT_TEMPLATE,
     env: Mapping[str, str] | None = None,
     repo: str | None = None,
+    item: int | None = None,
 ) -> JobRun:
     """Create the Job from the CronJob's template and, with `wait`, follow it to its exit code.
     With `repo`, a runner Job's repository, the Job and its pod carry the label that the Service
     lists its Jobs by, and no Job is created while a Job with that label has not ended: a
-    repository has one runner Job at a time, whoever starts it.
+    repository has one runner Job at a time, whoever starts it. A stage Job of `item` carries the
+    labels of its repository and its item, so an item has one stage Job at a time.
 
     Raises ClusterJobError when the CronJob is missing, a Job of the repository has not ended, or
     kubectl fails.
@@ -312,12 +352,13 @@ def execute_job(
     cronjob = _read_cronjob(context, template)
     if cronjob is None:
         raise ClusterJobError(MESSAGES.k8s.job_cronjob_missing.format(cronjob=template.cronjob))
-    labels = _repo_labels(repo)
+    labels = _repo_labels(repo, template, item)
     if labels and (running := _running_jobs(context, labels)):
         raise ClusterJobError(
             MESSAGES.k8s.job_runner_running.format(repo=repo, names=", ".join(running))
         )
-    name = job_name(template=template)
+    name = _new_name(template, repo, item)
+    env = {**(env or {}), **_stage_env(template, repo, name, cronjob)}
     job = build_job(cronjob, list(args), name, template=template, env=env, labels=labels)
     _kubectl(_CREATE_ARGS, context, stdin=json.dumps(job))
     if not wait:
@@ -333,19 +374,32 @@ def check_repo(repo: str) -> None:
         raise typer.BadParameter(repo, param_hint="--repo") from exc
 
 
-def _runner_env(template: TemplateName, repo: str | None) -> dict[str, str] | None:
+def _refused(message: str) -> typer.Exit:
+    print_error(message, prefix=False, safe=True)
+    return typer.Exit(1)
+
+
+def _runner_env(
+    template: TemplateName, repo: str | None, item: int | None = None
+) -> dict[str, str] | None:
     """The environment a runner Job gets so that its GitHub token names one repository: the
     variable of `service.github_app.token_repository`, as the Service sets it on its Jobs. The
     Job refuses to run without it (#2667), so a runner Job with no `--repo` is refused here, before
-    any request. Raises `typer.Exit` after it prints why."""
-    if template is not TemplateName.RUNNER:
+    any request. A stage Job needs `--repo` and `--item`, and gets its environment when the Job is
+    made (`_stage_env`). Raises `typer.Exit` after it prints why."""
+    if item is not None and template is not TemplateName.STAGE:
+        raise _refused(MESSAGES.k8s.job_item_needs_stage)
+    if template is TemplateName.DEFAULT:
         if repo is not None:
-            print_error(MESSAGES.k8s.job_repo_needs_runner, prefix=False, safe=True)
-            raise typer.Exit(1)
+            raise _refused(MESSAGES.k8s.job_repo_needs_runner)
+        return None
+    if template is TemplateName.STAGE:
+        if repo is None or item is None:
+            raise _refused(MESSAGES.k8s.job_stage_needs_item)
+        check_repo(repo)
         return None
     if repo is None:
-        print_error(MESSAGES.k8s.job_runner_needs_repo, prefix=False, safe=True)
-        raise typer.Exit(1)
+        raise _refused(MESSAGES.k8s.job_runner_needs_repo)
     check_repo(repo)
     return {setting_variables()[CONST_GITHUB_APP_TOKEN_REPOSITORY_SETTING]: repo}
 
@@ -360,12 +414,13 @@ def start_job(
     start_timeout: float,
     dry_run: bool,
     before: Sequence[PlannedRequest] = (),
+    item: int | None = None,
 ) -> None:
     """Make the Job of `devops k8s run-job` and follow it, or print the requests of a dry run.
     `devops roadmap implement` calls this too, so the two commands make the same Job. `before` are
     the requests the caller makes first, shown in front of the plan of a dry run. Raises
     `typer.Exit`: with the exit code of the container, or 1 when the Job could not run."""
-    env = _runner_env(template, repo)
+    env = _runner_env(template, repo, item)
     effective_context = runtime.resolve_effective_context(context)
     if effective_context:
         runtime._validate_kubeconfig_context_name(effective_context, "context")
@@ -378,6 +433,7 @@ def start_job(
             template=template.template,
             env=env,
             repo=repo,
+            item=item,
         )
         render_request_plan(
             MESSAGES.k8s.job_dry_run_heading,
@@ -394,6 +450,7 @@ def start_job(
             template=template.template,
             env=env,
             repo=repo,
+            item=item,
         )
     except ClusterJobError as exc:
         print_error(str(exc), prefix=False, safe=True)
@@ -414,6 +471,7 @@ def run_job(
         TemplateName, typer.Option("--template", help=HELP.k8s.run_job_template)
     ] = TemplateName.DEFAULT,
     repo: Annotated[str | None, typer.Option("--repo", help=HELP.k8s.run_job_repo)] = None,
+    item: Annotated[int | None, typer.Option("--item", min=1, help=HELP.k8s.run_job_item)] = None,
     wait: Annotated[bool, typer.Option("--wait/--no-wait", help=HELP.k8s.run_job_wait)] = True,
     start_timeout: Annotated[
         float, typer.Option("--start-timeout", min=0, help=HELP.k8s.run_job_start_timeout)
@@ -429,4 +487,5 @@ def run_job(
         wait=wait,
         start_timeout=start_timeout,
         dry_run=dry_run,
+        item=item,
     )

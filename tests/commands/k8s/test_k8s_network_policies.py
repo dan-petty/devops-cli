@@ -781,10 +781,11 @@ def test_only_the_roadmap_service_may_send_to_port_11235() -> None:
     }
 
 
-def test_the_searxng_perimeter_admits_only_the_roadmap_service_on_8080() -> None:
+def test_the_searxng_perimeter_admits_only_the_service_and_the_stage_job_on_8080() -> None:
     """The service has no limiter and no login, so the policy is its access control: the pods of
-    `roadmap-service` reach TCP 8080 and no other peer does. The peer is a pod selector alone
-    (kube-router refused a namespace and pod selector peer paired with `ports`) (#3924)."""
+    `roadmap-service` and the pod of a stage Job (#5483) reach TCP 8080 and no other peer does.
+    Each peer is a pod selector alone (kube-router refused a namespace and pod selector peer paired
+    with `ports`) (#3924)."""
     spec = _devops_policies()["searxng-perimeter"]
 
     assert (spec["podSelector"], spec["policyTypes"], spec["ingress"]) == (
@@ -793,7 +794,8 @@ def test_the_searxng_perimeter_admits_only_the_roadmap_service_on_8080() -> None
         [
             {
                 "from": [
-                    {"podSelector": {"matchLabels": {"app.kubernetes.io/name": "roadmap-service"}}}
+                    {"podSelector": {"matchLabels": {"app.kubernetes.io/name": "roadmap-service"}}},
+                    {"podSelector": {"matchLabels": STAGE_POD}},
                 ],
                 "ports": [{"protocol": "TCP", "port": 8080}],
             }
@@ -829,10 +831,17 @@ def test_the_searxng_perimeter_reaches_only_dns_and_public_https() -> None:
     )
 
 
-def test_only_the_roadmap_service_may_send_to_port_8080_of_searxng() -> None:
-    """Of the pods in namespace devops, the `roadmap-service` pod alone has an egress rule to the
-    pods of `searxng` on 8080. A Job pod (`devops-cli-job`) keeps no such rule, so it cannot call
-    the search service (#3924)."""
+# The labels of the pod of a stage Job, which the admission policy gives to that pod only (#5483).
+STAGE_POD = {
+    "app.kubernetes.io/name": "devops-cli-job",
+    "app.kubernetes.io/component": "roadmap-stage",
+}
+
+
+def test_only_the_service_and_the_stage_job_may_send_to_port_8080_of_searxng() -> None:
+    """Of the pods in namespace devops, the `roadmap-service` pod and the pod of a stage Job alone
+    have an egress rule to the pods of `searxng` on 8080. Any other Job pod (`devops-cli-job`)
+    keeps no such rule, so it cannot call the search service (#3924, #5483)."""
     senders = {
         name: (spec["podSelector"], [peer["podSelector"] for peer in rule["to"]])
         for name, spec in _devops_policies().items()
@@ -845,7 +854,11 @@ def test_only_the_roadmap_service_may_send_to_port_8080_of_searxng() -> None:
         "searxng-clients": (
             {"matchLabels": {"app.kubernetes.io/name": "roadmap-service"}},
             [{"matchLabels": {"app.kubernetes.io/name": "searxng"}}],
-        )
+        ),
+        "searxng-stage-clients": (
+            {"matchLabels": STAGE_POD},
+            [{"matchLabels": {"app.kubernetes.io/name": "searxng"}}],
+        ),
     }
 
 

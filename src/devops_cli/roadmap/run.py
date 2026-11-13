@@ -489,10 +489,15 @@ def ensure_checkout(
     data_dir: Path,
     remote_url: str | None = None,
     dirname: str = CONST_ROADMAP_RUN_CLONE_DIRNAME,
+    *,
+    blobless: bool = False,
 ) -> Path:
     """Clone the repository to <data dir>/roadmap/<owner>/<name>/<dirname>, update it, return its
     path. `clone` is the status lane's and the CLI's, `model-clone` the Service's model lane's,
-    so one lane's update never touches the other's checkout (#1532).
+    so one lane's update never touches the other's checkout (#1532). With `blobless`, a new clone
+    takes no blob of the history (`--filter=blob:none`, ADR 0021 section 6): the checkout of the
+    default branch fetches the blobs of its commit in one batch, and git fetches an older blob when
+    a command reads it. A stage Job reads only the staged commit, so its clone is blobless (#5483).
 
     The clone rows (`needs_clone`) rely on this contract:
 
@@ -514,7 +519,10 @@ def ensure_checkout(
     url = remote_url or f"https://github.com/{repo}.git"
     try:
         if not (clone_dir / ".git").exists():
-            run_subprocess([CONST_GIT_CLI, "clone", url, str(clone_dir)], check=True, quiet=True)
+            filters = ["--filter=blob:none"] if blobless else []
+            run_subprocess(
+                [CONST_GIT_CLI, "clone", *filters, url, str(clone_dir)], check=True, quiet=True
+            )
         branch = _default_branch(clone_dir)
         name, email = _commit_author()
         for step in (
@@ -532,10 +540,15 @@ def ensure_checkout(
     return clone_dir
 
 
-def model_clone(repo: str) -> Path:
+def model_clone(repo: str, *, blobless: bool = False) -> Path:
     """The model lane's clone of `repo`, cloned or updated: the clone the stage job works in when
-    a person gives no `--source` (#2654)."""
-    return ensure_checkout(repo, _resolve_data_dir(), dirname=CONST_ROADMAP_RUN_MODEL_CLONE_DIRNAME)
+    a person gives no `--source` (#2654). A stage Job asks for a `blobless` clone (#5483)."""
+    return ensure_checkout(
+        repo,
+        _resolve_data_dir(),
+        dirname=CONST_ROADMAP_RUN_MODEL_CLONE_DIRNAME,
+        blobless=blobless,
+    )
 
 
 def _intake_due(check: DueCheck) -> bool:

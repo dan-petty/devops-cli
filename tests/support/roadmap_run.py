@@ -159,8 +159,8 @@ class SimulatedGit:
         return ""
 
     def _op_clone(self, subcmd: list[str]) -> ProcessAnswer:
-        url = subcmd[1]
-        clone_dir = Path(subcmd[2])
+        url, target = (arg for arg in subcmd[1:] if not arg.startswith("-"))
+        clone_dir = Path(target)
         if not Path(url).exists() or url not in self.remotes:
             return ProcessAnswer(
                 returncode=128,

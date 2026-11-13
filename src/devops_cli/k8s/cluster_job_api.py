@@ -1,7 +1,8 @@
 """The Kubernetes API calls of the Jobs that the roadmap Service creates (#2667).
 
 The Service builds a Job from a suspended CronJob's template (`cluster_job.build_job`), creates
-it, lists the Jobs of a repository, and reads the tail of the log of a Job's pod. It uses the
+it, lists the Jobs of a repository, reads the tail of the log of a Job's pod, and deletes a stage
+Job (#5483). It uses the
 process's `KubernetesService`, so a pod connects with its projected service account token and a
 test connects to the fake cluster. The generic `CustomObjectsApi` reaches `batch/v1` `jobs` and
 `cronjobs`, as it reaches the custom resources, and returns the objects as dicts.
@@ -96,7 +97,7 @@ def job_state(job: Mapping[str, Any]) -> JobState:
 
 
 class ClusterJobs:
-    """Create, list and read the Jobs of namespace `devops` through the Kubernetes API."""
+    """Create, list, read and delete the Jobs of namespace `devops` through the Kubernetes API."""
 
     def __init__(self, service: KubernetesService | None = None) -> None:
         self._service = service or KubernetesService.get_instance()
@@ -212,6 +213,22 @@ class ClusterJobs:
             )
         except api_error_type() as error:
             raise self._refused("patch Job", error) from error
+
+    def delete_job(self, name: str) -> None:
+        """Delete Job `name`. The garbage collector deletes its pods after the Job is gone
+        (propagation `Background`). A Job that is gone already is no error. The admission policy
+        `roadmap-service-job-deletes` lets the Service delete a stage Job and no other Job.
+
+        Raises ClusterJobError when the API refuses the delete.
+        """
+        try:
+            self._service.custom_objects_api().delete_namespaced_custom_object(
+                *_BATCH, JOB_NAMESPACE, "jobs", name, propagation_policy="Background"
+            )
+        except api_error_type() as error:
+            if getattr(error, "status", None) == _NOT_FOUND:
+                return
+            raise self._refused("delete Job", error) from error
 
     def log_tail(self, name: str, lines: int) -> str:
         """The last `lines` lines of the log of Job `name`'s pod as text, or "" when the Job has no

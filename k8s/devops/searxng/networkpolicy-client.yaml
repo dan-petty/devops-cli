@@ -1,6 +1,7 @@
 # The roadmap Service calls SearXNG on TCP 8080 (#3924). This policy adds to
-# `devops-default-perimeter`, which gives the Service pod no such port. No policy gives a Job pod
-# (`devops-cli-job`) this port, so a Job cannot call the search service.
+# `devops-default-perimeter`, which gives the Service pod no such port. Of the Job pods
+# (`devops-cli-job`), only the pod of a stage Job gets this port (`searxng-stage-clients`), for
+# the tool `search_web` of the planner (#5483); a runner Job cannot call the search service.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -12,6 +13,31 @@ spec:
   podSelector:
     matchLabels:
       app.kubernetes.io/name: roadmap-service
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: searxng
+      ports:
+        - protocol: TCP
+          port: 8080
+---
+# The pod of a stage Job plans as the Service did (#5483). The admission policy
+# `roadmap-service-jobs` gives the component `roadmap-stage` to the pod of a stage Job only.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: searxng-stage-clients
+  namespace: devops
+  labels:
+    app.kubernetes.io/part-of: devops-cli-stack
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: devops-cli-job
+      app.kubernetes.io/component: roadmap-stage
   policyTypes:
     - Egress
   egress:

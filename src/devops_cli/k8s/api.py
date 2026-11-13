@@ -84,6 +84,10 @@ class CustomObjectsApi(Protocol):
         **kwargs: Any,
     ) -> Any: ...
 
+    def delete_namespaced_custom_object(
+        self, group: str, version: str, namespace: str, plural: str, name: str, **kwargs: Any
+    ) -> Any: ...
+
 
 class VersionApi(Protocol):
     """The call devops-cli makes on the SDK's `VersionApi`."""
