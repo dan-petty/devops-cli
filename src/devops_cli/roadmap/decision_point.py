@@ -11,8 +11,10 @@ A `ResolverChain` resolves a point in this order and stops at the first resolver
 2. the decision model that `ai.decision_model` names, with all questions in one request, and the
    cuts of the point (`decision_step.band_of`) for the band;
 3. the fallback: no band, and the workflow does what it did before the point. An error of the
-   request, a missing answer or cut, or a digest that holds a secret gives the fallback, and the
-   log names the cause. The failed counter counts the class of the error.
+   request, a missing answer or cut, a digest that holds a secret, or a cuts file of another model
+   than the model in use gives the fallback, and the log names the cause. The failed counter counts
+   the class of the error. The chain loads the cuts of the point before the request, so no request
+   goes to a model that the cuts do not cover.
 
 `ResolverChain.decide` sends the request on the one blocking portal of the process, so a caller
 that runs an event loop may call it. `ResolverChain.adecide` awaits the same request on the loop of
@@ -51,6 +53,7 @@ from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.decision_fit import FitCase
 from devops_cli.roadmap.decision_step import (
     Band,
+    CutsModelMismatchError,
     SecretInDigestError,
     Thresholds,
     adecide_all,
@@ -99,6 +102,12 @@ class Resolver(StrEnum):
 
 
 type Rule = Callable[[Mapping[str, Any]], Band | None]
+
+
+def _model_target(name: str) -> str:
+    """The model that a configured name sends its requests to: the name after a provider prefix
+    such as `litellm:`, or the whole name when it has no prefix."""
+    return name.partition(":")[2] or name
 
 
 @dataclass(frozen=True)
@@ -322,6 +331,7 @@ class ResolverChain[T]:
         them."""
         if (started := self._started(state)) is not None:
             return started
+        self._check_cuts_model()
         (response,) = decide_all(
             [self.point.request(state)],
             model=self._model,
@@ -337,6 +347,7 @@ class ResolverChain[T]:
         of a fallback keeps them."""
         if (started := self._started(state)) is not None:
             return started
+        self._check_cuts_model()
         (response,) = await adecide_all(
             [self.point.request(state)],
             model=self._model,
@@ -345,6 +356,19 @@ class ResolverChain[T]:
             timeout=self.point.timeout,
         )
         return self._banded(response, answers)
+
+    def _check_cuts_model(self) -> None:
+        """Refuse the cuts of another model than the model in use, before any request goes to that
+        model. It raises `CutsModelMismatchError`, so the chain gives the fallback with no
+        request."""
+        fitted = self._thresholds
+        target = _model_target(self._model_name)
+        if fitted.model != target:
+            raise CutsModelMismatchError(
+                MESSAGES.roadmap.decision_point_cuts_model.format(
+                    point=self.point.name, cuts=fitted.model, model=target
+                )
+            )
 
     def _started(self, state: dict[str, Any]) -> _Resolved | None:
         """The decision that the rule or the fallback gives, or None when the model answers."""

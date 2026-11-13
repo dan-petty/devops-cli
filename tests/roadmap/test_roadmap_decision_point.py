@@ -15,6 +15,7 @@ from devops_cli.config.constants import (
     CONST_AI_JEV_MODEL,
     CONST_ROADMAP_DECISION_POINT_MAX_SERIES,
 )
+from devops_cli.config.settings import Settings
 from devops_cli.roadmap.decision_fit import FitCase
 from devops_cli.roadmap.decision_point import (
     DecisionPoint,
@@ -47,13 +48,15 @@ SECRET = "ghp_" + "a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8"
 type Rule = Callable[[Mapping[str, Any]], Band | None]
 
 
-def _cuts(directory: Path, names: tuple[str, ...] = ("a", "b")) -> Path:
+def _cuts(
+    directory: Path, names: tuple[str, ...] = ("a", "b"), *, model: str = CONST_AI_JEV_MODEL
+) -> Path:
     path = directory / "cuts.json"
     path.write_text(
         json.dumps(
             {
                 "step": "demo.point",
-                "model": CONST_AI_JEV_MODEL,
+                "model": model,
                 "fitted": "2026-11-10",
                 "cases": 40,
                 "cuts": {name: {"continue_below": 0.3, "flag_at": 0.8} for name in names},
@@ -91,9 +94,13 @@ def _point(
 
 
 def _chain(
-    point: DecisionPoint[dict[str, Any]], jev: JevFake, mode: Mode = Mode.ON
+    point: DecisionPoint[dict[str, Any]],
+    jev: JevFake,
+    mode: Mode = Mode.ON,
+    *,
+    model_name: str = CONST_AI_JEV_MODEL,
 ) -> ResolverChain[dict[str, Any]]:
-    return ResolverChain(point, mode, model_name=CONST_AI_JEV_MODEL, model=jev.model)
+    return ResolverChain(point, mode, model_name=model_name, model=jev.model)
 
 
 def _records(caplog: pytest.LogCaptureFixture) -> list[DecisionRecord | OutcomeRecord]:
@@ -191,6 +198,43 @@ def test_the_record_holds_the_dated_model_that_answered(tmp_path: Path, jev: Jev
 
     assert decision.model == "typesafe/jev-1.14-20261014"
     assert decision.model != CONST_AI_JEV_MODEL
+
+
+def test_cuts_of_another_model_give_the_fallback_and_count_model_mismatch(
+    tmp_path: Path, jev: JevFake, otlp: FakeCollector
+) -> None:
+    """The chain gives the fallback and sends no request when the cuts of the point were fitted for
+    another model than the one `ai.decision_model` names (#5272). A gateway route of the model of
+    the cuts is the same model, so the model answers."""
+    other = tmp_path / "other"
+    other.mkdir()
+    mismatched = _chain(
+        _point(_cuts(other, model="typesafe/jev-1.13")),
+        jev,
+        model_name=Settings(ai={"decision_model": "typesafe/jev-1.14"}).ai.decision_model,
+    )
+
+    decision = mismatched.decide({"text": "a plan"}, subject=7)
+
+    assert (decision.resolver, decision.band) == (Resolver.FALLBACK, None)
+    assert jev.requests == []
+    assert otlp.points(FAILED_COUNTER) == [({"point": "demo.point", "error": "model_mismatch"}, 1)]
+
+    otlp.clear()
+    routed = tmp_path / "routed"
+    routed.mkdir()
+    answered = _chain(
+        _point(_cuts(routed)),
+        jev,
+        model_name=Settings(ai={"decision_model": "litellm:typesafe/jev-1.14"}).ai.decision_model,
+    ).decide({"text": "a plan"}, subject=7)
+
+    assert (answered.resolver, answered.band, answered.cuts) == (
+        Resolver.MODEL,
+        Band.CONTINUE,
+        "2026-11-10",
+    )
+    assert otlp.points(FAILED_COUNTER) == []
 
 
 def test_shadow_records_the_band_and_the_decision_does_not_act(

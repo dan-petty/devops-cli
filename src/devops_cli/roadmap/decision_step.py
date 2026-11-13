@@ -67,6 +67,11 @@ class SecretInDigestError(DecisionStepError):
     """The digest of a decision point holds a secret, so no request goes to the decision model."""
 
 
+class CutsModelMismatchError(DecisionStepError):
+    """The cuts of a decision point were fitted for another model than the model in use, so no
+    request goes to that model."""
+
+
 class FailureClass(StrEnum):
     """The class of a failed request of a decision point. The value is a label of the metric."""
 
@@ -84,6 +89,7 @@ class FailureClass(StrEnum):
 # `DecisionStepError`. An error that no entry names is `other`.
 CLASS_BY_ERROR: Final[tuple[tuple[type[BaseException], FailureClass], ...]] = (
     (SecretInDigestError, FailureClass.SECRET),
+    (CutsModelMismatchError, FailureClass.MODEL_MISMATCH),
     (TimeoutError, FailureClass.TIMEOUT),
     (ModelAPIError, FailureClass.MODEL_ERROR),
     (UnexpectedModelBehavior, FailureClass.PARSE),
@@ -268,6 +274,7 @@ __all__ = [
     "FAILED",
     "Band",
     "Cut",
+    "CutsModelMismatchError",
     "DecisionStepError",
     "FailureClass",
     "SecretInDigestError",
