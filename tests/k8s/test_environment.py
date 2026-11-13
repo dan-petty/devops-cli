@@ -15,6 +15,7 @@ from devops_cli.k8s.environment import (
     resolve_product_root,
     tree_at,
 )
+from tests.support.paths import REPO_ROOT
 
 
 def _checkout(folder: Path, *, project_file: str | None = None) -> Path:
@@ -113,7 +114,7 @@ def test_no_source_names_the_option_and_the_project_file(tmp_path: Path) -> None
 
 def test_this_repository_declares_its_k8s_folder() -> None:
     """devops-cli holds the environment tree of the homelab until it moves to the infra repo."""
-    repo = Path(__file__).resolve().parents[2]
+    repo = REPO_ROOT.resolve()
 
     assert resolve_environment(start=repo) == EnvironmentTree(repo / "k8s", repo)
 

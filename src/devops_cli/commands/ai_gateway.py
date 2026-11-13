@@ -807,7 +807,6 @@ def render_cmd(
     """Render the Ollama tiers of the GPU thresholds and the LLM gateway configuration, showing
     unified diff. Each file that no option names is the file of the environment tree."""
     import sys
-    from functools import cache
 
     from devops_cli.ai.gateway_render import (
         diff_gateway_config,
@@ -815,7 +814,7 @@ def render_cmd(
         service_context_lengths,
         tier_context_lengths,
     )
-    from devops_cli.k8s.environment import EnvironmentTree, resolve_environment
+    from devops_cli.k8s.environment import resolve_environment
     from devops_cli.k8s.gpu_thresholds import (
         TierManifests,
         load_gpu_thresholds,
@@ -823,16 +822,17 @@ def render_cmd(
         render_tier_manifests,
     )
 
-    @cache
-    def env() -> EnvironmentTree:
-        # Resolved once, and only when an option leaves a file to the tree.
-        return resolve_environment(k8s_dir)
-
-    target_config = config_path or env().gateway_config
-    target_prof = profiles_path or env().ollama_profiles
-    target_svc = services_path or env().llm_services
-    target_thresholds = thresholds_path or env().gpu_thresholds
-    target_templates = tier_templates_path or env().tier_templates
+    # The tree is resolved only when an option leaves a file to it.
+    if config_path and profiles_path and services_path and thresholds_path and tier_templates_path:
+        target_config, target_prof, target_svc = config_path, profiles_path, services_path
+        target_thresholds, target_templates = thresholds_path, tier_templates_path
+    else:
+        env = resolve_environment(k8s_dir)
+        target_config = config_path or env.gateway_config
+        target_prof = profiles_path or env.ollama_profiles
+        target_svc = services_path or env.llm_services
+        target_thresholds = thresholds_path or env.gpu_thresholds
+        target_templates = tier_templates_path or env.tier_templates
 
     if not target_config.is_file():
         print_error(f"Gateway config file not found: {target_config}", prefix=False)

@@ -4,7 +4,7 @@ Argo CD Application installs. They read files only and render no chart."""
 from __future__ import annotations
 
 import re
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterable, Iterator, Mapping
 from functools import cache
 from pathlib import Path
 from typing import Any
@@ -78,6 +78,31 @@ def release_values(release: Mapping[str, Any]) -> list[Path]:
     return [
         *(TREE.path(value) for value in release["values"]),
         *(TREE.path("devops") / value for value in release.get("product_values", [])),
+    ]
+
+
+def deploy_stack_manifests(stacks: Iterable[str] | None = None) -> list[Path]:
+    """The manifest paths that deploy-stack applies before the charts, for `stacks` (every stack
+    when None), in its order: the files of the product base `k8s/devops`, then the paths of the
+    environment tree (#5131)."""
+    from devops_cli.commands.k8s.stack_lifecycle import (
+        MANIFESTS_BY_STACK,
+        PRODUCT_MANIFESTS_BY_STACK,
+    )
+
+    product = TREE.path("devops")
+    selected = (
+        list(stacks)
+        if stacks is not None
+        else sorted(MANIFESTS_BY_STACK.keys() | PRODUCT_MANIFESTS_BY_STACK.keys())
+    )
+    return [
+        path
+        for stack in selected
+        for path in (
+            *(product / p for p in PRODUCT_MANIFESTS_BY_STACK.get(stack, [])),
+            *(TREE.path(p) for p in MANIFESTS_BY_STACK.get(stack, [])),
+        )
     ]
 
 

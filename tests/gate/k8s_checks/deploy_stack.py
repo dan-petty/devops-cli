@@ -30,7 +30,7 @@ def check_llm_stack_applies_the_gateway_policy_before_the_gateway_and_deletes_it
     and teardown-stack deletes it (#795). Without Argo CD the gateway ran with no policy, so its
     egress was unrestricted. Both apply the gateway kustomization, whose render puts the policy
     first (#1929). Neither dry run makes a request."""
-    gateway = Path("k8s", "llm", "gateway")
+    gateway = TREE.path(Path("llm", "gateway"))
     deploy = runner.invoke(app, ["deploy-stack", "--stack", "llm", "--dry-run"])
     teardown = runner.invoke(app, ["teardown-stack", "--stack", "llm", "--dry-run"])
     rendered = [
