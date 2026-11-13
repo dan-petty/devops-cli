@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.125.3](https://github.com/dan-petty/devops-cli/compare/v0.125.2...v0.125.3) (2026-11-13)
+
+
+### Bug Fixes
+
+* **k8s:** deploy-stack fetches a private Application repo ([#5331](https://github.com/dan-petty/devops-cli/issues/5331)) ([b0e7c5d](https://github.com/dan-petty/devops-cli/commit/b0e7c5d1b0cb171695e735b7c9bed83394cd8e63))
+* **telemetry:** keep one metric stream per workload ([#5324](https://github.com/dan-petty/devops-cli/issues/5324)) ([0165669](https://github.com/dan-petty/devops-cli/commit/016566993c867fd06fcad88e1651ed93918ec77b))
+
 ## [0.125.2](https://github.com/dan-petty/devops-cli/compare/v0.125.1...v0.125.2) (2026-11-13)
 
 
