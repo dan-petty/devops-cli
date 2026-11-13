@@ -197,8 +197,9 @@ CONST_SETTINGS_CACHE_SETTLE_SECONDS: Final[float] = 2.0
 CONST_VSCODE_CLI = "code"
 CONST_AGENTS_MD_FILENAME = "AGENTS.md"
 # AGENTS.md is a router: the rules every task needs and a table of the documents that own the
-# rest (#1961). Every agent reads it in full at the start of each session, so it stays short.
-CONST_AGENTS_MD_MAX_CHARS: Final[int] = 6_500
+# rest (#1961). Every agent reads it in full at the start of each session, so it stays short. The
+# cap is the size of AGENTS.md plus a small margin, so a test fails when the file grows (#5421).
+CONST_AGENTS_MD_MAX_CHARS: Final[int] = 4_500
 # The documents a generated AGENTS.md can route to, each with the kind of task it owns, in the
 # order of its table. `devops ai agents` writes a row only for a path that exists in the target.
 CONST_AGENTS_MD_ROUTES: Final[tuple[tuple[str, str], ...]] = (

@@ -470,7 +470,7 @@ def test_fail_to_pass_helpers_and_no_ci_stage(tmp_path: Path) -> None:
     """`uv run devops ci` gains no stage, and the helpers parse XML and instructions."""
     outcomes = parse_junit_xml(JUNIT_ONE_FAILURE)
     argv = pytest_replay_argv(tmp_path / "j.xml", ["tests/test_a.py"])
-    agents_md = (REPO_ROOT / "AGENTS.md").read_text(encoding="utf-8")
+    testing_md = (REPO_ROOT / "docs" / "TESTING.md").read_text(encoding="utf-8")
     generated_md = generate_agents_md(
         ProjectMetadata(
             name="devops-cli",
@@ -484,7 +484,7 @@ def test_fail_to_pass_helpers_and_no_ci_stage(tmp_path: Path) -> None:
         "fail-to-pass" in {spec.name for spec in get_check_specs()},
         [(o.test_id, o.status) for o in outcomes],
         ("-o" in argv and "addopts=" in argv and "-p" in argv and "no:cacheprovider" in argv),
-        "devops ci fail-to-pass" in agents_md,
+        "devops ci fail-to-pass" in testing_md,
         "devops ci fail-to-pass" in generated_md,
     ) == (
         False,

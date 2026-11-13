@@ -51,9 +51,8 @@ _PROMPT = load_task_prompt(_CHANGE_PROMPT)
 _CONTRIBUTING = (REPO_ROOT / "CONTRIBUTING.md").read_text("utf-8")
 _TESTING = (REPO_ROOT / "docs" / "TESTING.md").read_text("utf-8")
 _CONFIG = (REPO_ROOT / "openspec" / "config.yaml").read_text("utf-8")
-_AGENTS = (REPO_ROOT / "AGENTS.md").read_text("utf-8")
 _DOCUMENTS = {
-    "AGENTS.md": _AGENTS,
+    "SECURITY.md": (REPO_ROOT / "SECURITY.md").read_text("utf-8"),
     "CONTRIBUTING.md": _CONTRIBUTING,
     "docs/TESTING.md": _TESTING,
     "docs/roadmap/stage.md": (REPO_ROOT / "docs" / "roadmap" / "stage.md").read_text("utf-8"),
@@ -546,10 +545,10 @@ def test_the_stage_prompt_asks_for_the_precondition_of_each_called_function() ->
 # ── The phrases that a document and the prompt keep together ──────────────────
 
 _SHARED = [
-    ("AGENTS.md", "example.com"),
-    ("AGENTS.md", "RFC 5737"),
-    ("AGENTS.md", "<storage-node>"),
-    ("AGENTS.md", "build, keep and fix it"),
+    ("SECURITY.md", "example.com"),
+    ("SECURITY.md", "RFC 5737"),
+    ("SECURITY.md", "<storage-node>"),
+    ("openspec/config.yaml", "build, keep and fix it"),
     ("openspec/config.yaml", "example.com"),
     ("openspec/config.yaml", "RFC 5737"),
     ("openspec/config.yaml", "<storage-node>"),

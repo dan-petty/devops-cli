@@ -9,7 +9,7 @@ context: |
 rules:
   proposal:
     - >-
-      Cite the issue as #<issue> in Why. End the proposal with two sections. "## Feasibility" names how the premise was confirmed against the real system (upstream documentation, library source, or command output with its version); when the premise fails, write no compensating code: state the evidence and propose the re-scope. "## Existing Tool Considered" names the open, maintained tool or library that covers the need; a change that builds instead states the written cost AGENTS.md asks for (the tokens to implement, maintain and fix it until it matches the tool, plus the elapsed time). Either way, list the internal code the change deletes. The cost of changing our own code to fit the tool is not a reason to keep that code.
+      Cite the issue as #<issue> in Why. End the proposal with two sections. "## Feasibility" names how the premise was confirmed against the real system (upstream documentation, library source, or command output with its version); when the premise fails, write no compensating code: state the evidence and propose the re-scope. "## Existing Tool Considered" names the open, maintained tool or library that covers the need; a change that builds instead states the written cost AGENTS.md asks for (the tokens to build, keep and fix it until it matches the tool, and the elapsed time). Either way, list the internal code the change deletes. The cost of changing our own code to fit the tool is not a reason to keep that code.
     - >-
       State whether the change fits one pull request.
     - >-
