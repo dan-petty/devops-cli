@@ -10,6 +10,7 @@ spec:
       kind: '*'
   sourceRepos:
     - https://github.com/dan-petty/devops-cli
+    - https://github.com/dan-petty/homelab
     - https://argoproj.github.io/argo-helm
     - https://prometheus-community.github.io/helm-charts
     - https://grafana.github.io/helm-charts
@@ -99,6 +100,10 @@ spec:
       - group: ''
         kind: Secret
         name: argocd-notifications-secret
+      # The owner makes the repository credential of the homelab repository; it never goes into git.
+      - group: ''
+        kind: Secret
+        name: repo-homelab
       - group: ''
         kind: Secret
         name: gitea-admin
@@ -138,6 +143,7 @@ spec:
       kind: '*'
   sourceRepos:
     - https://github.com/dan-petty/devops-cli
+    - https://github.com/dan-petty/homelab
     - https://argoproj.github.io/argo-helm
     - https://prometheus-community.github.io/helm-charts
     - https://grafana.github.io/helm-charts

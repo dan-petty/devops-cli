@@ -28,6 +28,7 @@ APPS_DIR = ARGOCD_DIR / "apps"
 BOOTSTRAP_DIR = ARGOCD_DIR / "bootstrap"
 FINALIZER = "resources-finalizer.argocd.argoproj.io"
 REPO_URL = "https://github.com/dan-petty/devops-cli"
+HOMELAB_REPO_URL = "https://github.com/dan-petty/homelab"
 _PRE_POST_DELETE_JQ = (
     '.metadata.finalizers[] | select(startswith("pre-delete-finalizer.argocd.argoproj.io") '
     'or startswith("post-delete-finalizer.argocd.argoproj.io"))'
@@ -775,6 +776,39 @@ def test_every_application_source_is_a_repository_its_project_allows() -> None:
     ]
 
     assert refused == []
+
+
+def test_both_projects_admit_this_repository_and_the_homelab_repository() -> None:
+    """The homelab repository holds a copy of the environment, and the switch of #5134 points the
+    Applications at it. So both AppProjects admit it before the switch. They also keep this
+    repository, because Application `devops` reads `k8s/devops` from it after the switch."""
+    source_repos = {
+        doc["metadata"]["name"]: set(doc["spec"]["sourceRepos"])
+        for doc in _load_yaml_all(APPS_DIR / "projects.yaml")
+        if doc.get("kind") == "AppProject"
+    }
+
+    assert {
+        name: {REPO_URL, HOMELAB_REPO_URL} <= repos for name, repos in source_repos.items()
+    } == {
+        "homelab": True,
+        "homelab-system": True,
+    }
+
+
+def test_the_homelab_project_ignores_the_repository_credential_of_the_owner() -> None:
+    """The owner makes the repository Secret `repo-homelab` in namespace `argocd`, with the label
+    `argocd.argoproj.io/secret-type=repository`, and it never goes into git. No Application tracks
+    it. Project `homelab` reports the orphans of namespace `argocd`, so it ignores the Secret."""
+    homelab = next(
+        doc
+        for doc in _load_yaml_all(APPS_DIR / "projects.yaml")
+        if doc["metadata"]["name"] == "homelab"
+    )
+
+    assert {"group": "", "kind": "Secret", "name": "repo-homelab"} in homelab["spec"][
+        "orphanedResources"
+    ]["ignore"]
 
 
 def test_deploy_stack_installs_the_barman_cloud_plugin_after_the_operator_and_cert_manager() -> (
