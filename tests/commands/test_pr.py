@@ -899,6 +899,31 @@ def test_the_monitor_prints_its_result_in_each_format_with_thread_bodies_masked(
     ) == (2, True, False, True), result.output
 
 
+def test_the_markdown_of_a_merged_pull_request_names_it_merged(
+    cli: Callable[..., Any], monitored: _GitHub
+) -> None:
+    """A pull request that merged while the monitor waited can no longer be ready for merging, so
+    the state line of its markdown says merged (#2530)."""
+    monitored.pull(_pr(state="closed", merged=True))
+    result = cli(
+        "pr",
+        "monitor",
+        "335",
+        "--repo",
+        _REPO,
+        "--settle-timeout",
+        "0",
+        "--format",
+        "markdown",
+    )
+    state_line = next(line for line in result.output.splitlines() if line.startswith("**State**"))
+    assert (
+        result.exit_code,
+        "merged" in state_line,
+        "Ready for Merging" in state_line,
+    ) == (0, True, False), result.output
+
+
 def test_the_monitor_finds_the_pull_request_of_the_current_branch(
     cli: Callable[..., Any], monitored: _GitHub
 ) -> None:

@@ -739,6 +739,48 @@ class TestPrCommands:
         assert "No open pull request found for branch 'feat/untracked'" in result.output
         assert "Traceback" not in result.output
 
+    def test_a_merged_pull_request_prints_merged_with_no_check_count(
+        self, runner: CliRunner, gh_edge: ProcessFake
+    ) -> None:
+        """A pull request merged while the monitor waits is reported as merged, not as ready, and
+        no check was read to count (#2530)."""
+        answer_gh(
+            gh_edge,
+            "api",
+            "repos/owner/repo/pulls/9",
+            stdout=json.dumps({"number": 9, "state": "closed", "merged": True}),
+        )
+        result = runner.invoke(
+            app,
+            ["monitor", "9", "--repo", "owner/repo", "--settle-timeout", "0"],
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0, result.output
+        assert "PR #9 is merged." in result.output, result.output
+        assert "Checks:" not in result.output, result.output
+        assert "READY FOR MERGING" not in result.output, result.output
+
+    def test_a_closed_pull_request_prints_closed_with_no_check_count(
+        self, runner: CliRunner, gh_edge: ProcessFake
+    ) -> None:
+        """A pull request closed without a merge can no longer become ready, so the monitor names
+        it closed and exits 2, with no check count and no ready line (#2530)."""
+        answer_gh(
+            gh_edge,
+            "api",
+            "repos/owner/repo/pulls/9",
+            stdout=json.dumps({"number": 9, "state": "closed", "merged": False}),
+        )
+        result = runner.invoke(
+            app,
+            ["monitor", "9", "--repo", "owner/repo", "--settle-timeout", "0"],
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 2, result.output
+        assert "PR #9 is closed." in result.output, result.output
+        assert "Checks:" not in result.output, result.output
+        assert "READY FOR MERGING" not in result.output, result.output
+
     def test_render_threads_table_masks_secrets(
         self, runner: CliRunner, gh_edge: ProcessFake
     ) -> None:
