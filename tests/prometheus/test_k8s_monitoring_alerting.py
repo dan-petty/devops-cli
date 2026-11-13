@@ -6,12 +6,12 @@ The environment rules live in `k8s/monitoring/prometheus-values.yaml`
 (`serverFiles.alerting_rules.yml`). The product rules, which watch the `devops_cli_` series, live
 in `k8s/devops/monitoring/prometheus-rules-values.yaml`
 (`serverFiles.devops_cli_alerting_rules.yml`), the second values file of the chart (#5292). The
-server loads each file that `rule_files` of the environment values names. A rule over a series nothing in the stack serves never fires, so every expression may name
-only the series in `SERVED_SERIES`, each served by a scrape or by the OpenTelemetry collector
-that this repository defines. The k3s
-server runs the controller manager, scheduler and proxy in its own process, so no scrape
-targets them and none of their series is listed: a rule over them would fire on the missing
-target, as `KubeControllerManagerDown`, `KubeSchedulerDown` and `KubeProxyDown` did.
+server loads each file that `rule_files` of the environment values names. A rule over a series
+nothing in the stack serves never fires, so every expression may name only the series in
+`SERVED_SERIES`, each served by a scrape or by the OpenTelemetry collector that this repository
+defines. The k3s server runs the controller manager, scheduler and proxy in its own process, so
+no scrape targets them and none of their series is listed: a rule over them would fire on the
+missing target, as `KubeControllerManagerDown`, `KubeSchedulerDown` and `KubeProxyDown` did.
 
 The checks read files only, except the two that run the pinned promtool (`tools.lock`):
 `promtool check rules` over every rule, and `promtool test rules` over each group that has unit
