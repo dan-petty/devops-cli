@@ -182,6 +182,17 @@ def test_the_model_answers_all_questions_in_one_request_and_the_cuts_give_the_ba
     )
 
 
+def test_the_record_holds_the_dated_model_that_answered(tmp_path: Path, jev: JevFake) -> None:
+    """The record names the dated snapshot that served the request, not the configured name
+    (#5272)."""
+    jev.answered = "typesafe/jev-1.14-20261014"
+
+    decision = _chain(_point(_cuts(tmp_path)), jev).decide({"text": "a plan"}, subject=7)
+
+    assert decision.model == "typesafe/jev-1.14-20261014"
+    assert decision.model != CONST_AI_JEV_MODEL
+
+
 def test_shadow_records_the_band_and_the_decision_does_not_act(
     tmp_path: Path, jev: JevFake, otlp: FakeCollector, caplog: pytest.LogCaptureFixture
 ) -> None:

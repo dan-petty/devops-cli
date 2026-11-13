@@ -60,9 +60,9 @@ Kind: behavior. Reads: `src/devops_cli/roadmap/decision_point.py`, `src/devops_c
 
 Kind: behavior. Reads: `src/devops_cli/roadmap/decision_point.py`, `tests/support/fakes/jev.py`, `tests/roadmap/test_roadmap_decision_point.py`. Changes: `src/devops_cli/roadmap/decision_point.py`, `tests/support/fakes/jev.py`, `tests/roadmap/test_roadmap_decision_point.py`.
 
-- [ ] 7.1 Add `test_the_record_holds_the_dated_model_that_answered` to `tests/roadmap/test_roadmap_decision_point.py`: it sets the answered model of the fake to `typesafe/jev-1.14-20261014` and asserts that the record holds that name and not the configured one
+- [x] 7.1 Add `test_the_record_holds_the_dated_model_that_answered` to `tests/roadmap/test_roadmap_decision_point.py`: it sets the answered model of the fake to `typesafe/jev-1.14-20261014` and asserts that the record holds that name and not the configured one
   - Verification: `$ uv run devops ci test tests/roadmap/test_roadmap_decision_point.py` fails on the base
-- [ ] 7.2 Add `answered` to `JevFake` and use it as the `model` field of its reply, so a test names the dated model. Carry the model name of the response in `_Resolved`, put it in the `model` field of `DecisionRecord`, and keep the configured name only when the response names none
+- [x] 7.2 Add `answered` to `JevFake` and use it as the `model` field of its reply, so a test names the dated model. Carry the model name of the response in `_Resolved`, put it in the `model` field of `DecisionRecord`, and keep the configured name only when the response names none
   - Verification: `$ uv run devops ci test tests/roadmap/test_roadmap_decision_point.py` passes
 
 ## 8. Give the fallback for a cuts file of another model

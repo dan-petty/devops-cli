@@ -215,12 +215,14 @@ class OutcomeRecord(BaseModel):
 
 @dataclass(frozen=True)
 class _Resolved:
-    """What a resolver gave: the resolver, the band, the day of the cuts and the flagged questions."""
+    """What a resolver gave: the resolver, the band, the day of the cuts, the flagged questions and
+    the model name of the answer, which is empty when no model answered."""
 
     resolver: Resolver
     band: Band | None = None
     cuts: str = ""
     flagged: tuple[str, ...] = ()
+    model: str = ""
 
 
 class ResolverChain[T]:
@@ -352,12 +354,13 @@ class ResolverChain[T]:
 
     def _banded(self, response: DecisionResponse, answers: dict[str, float]) -> _Resolved:
         """The decision of the model: its answers go into `answers`, and the cuts of the point give
-        the band and the flagged questions."""
+        the band and the flagged questions. The record names the model of the answer, the dated
+        snapshot that served the request."""
         answers.update(probabilities_of(response))
         fitted = self._thresholds
         band = band_of(answers, fitted.cuts)
         flagged = tuple(name for name, cut in fitted.cuts.items() if answers[name] >= cut.flag_at)
-        return _Resolved(Resolver.MODEL, band, fitted.fitted, flagged)
+        return _Resolved(Resolver.MODEL, band, fitted.fitted, flagged, model=response.model_name)
 
     def _record(
         self,
@@ -368,6 +371,7 @@ class ResolverChain[T]:
         answers: dict[str, float],
     ) -> DecisionRecord:
         text = json.dumps(state, ensure_ascii=False, sort_keys=True, default=str)
+        configured = self._model_name if answers or resolved.resolver is Resolver.MODEL else ""
         return DecisionRecord(
             id=identifier,
             point=self.point.name,
@@ -375,7 +379,7 @@ class ResolverChain[T]:
             mode=self.mode,
             resolver=resolved.resolver,
             band=resolved.band,
-            model=self._model_name if answers or resolved.resolver is Resolver.MODEL else "",
+            model=resolved.model or configured,
             cuts=resolved.cuts,
             answers=answers,
             flagged=list(resolved.flagged),

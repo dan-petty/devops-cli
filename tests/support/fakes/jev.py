@@ -46,13 +46,15 @@ class JevFake:
     """The Jev endpoint. A test sets `picks`: a question name maps to the option a choice picks,
     the level a score picks, or the probability a noul answers. A question with no pick gets the
     first option, level 0, or a clear no. `confidence` is the confidence of every choice and
-    score answer."""
+    score answer. `answered` is the model name of every reply, which a test sets to a dated
+    snapshot such as `typesafe/jev-1.14-20261014`."""
 
     __test__ = False
 
     def __init__(self) -> None:
         self.picks: dict[str, Pick] = {}
         self.confidence: float = _PICK_SHARE
+        self.answered: str = CONST_AI_JEV_MODEL
         self.requests: list[dict[str, Any]] = []
         self.status: int | None = None
         self.error: Exception | None = None
@@ -142,7 +144,7 @@ class JevFake:
             return self.status, {"error": "the fake refuses"}
         answers = {name: self._answer(name, q) for name, q in body["questions"].items()}
         usage = {"input_tokens": 64, "output_tokens": len(answers)}
-        return 200, {"model": CONST_AI_JEV_MODEL, "answers": answers, "usage": usage}
+        return 200, {"model": self.answered, "answers": answers, "usage": usage}
 
     async def _handle(self, request: httpx2.Request) -> httpx2.Response:
         self.loops.append(asyncio.get_running_loop())
