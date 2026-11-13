@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.131.0](https://github.com/dan-petty/devops-cli/compare/v0.130.0...v0.131.0) (2026-11-13)
+
+
+### Features
+
+* **roadmap:** rows with a large backlog run on a shorter loop ([#5523](https://github.com/dan-petty/devops-cli/issues/5523)) ([59d140d](https://github.com/dan-petty/devops-cli/commit/59d140d68c07d1e2e4c11ff6f66dce53a139696e))
+
 ## [0.130.0](https://github.com/dan-petty/devops-cli/compare/v0.129.1...v0.130.0) (2026-11-13)
 
 
