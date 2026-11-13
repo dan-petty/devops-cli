@@ -10,7 +10,7 @@ Write all prose in ASD-STE100 Simplified Technical English.
 - Use one word for one meaning.
 - Use at most six sentences in a paragraph.
 
-Put the result and the decision first. Then give only the detail that the reader needs to act on it. Do not tell the steps that you took, unless the task asks for them.
+Give the bottom line in the first line: what to do or not do, the real state and each gate. A gate is any hold, blocker, review, person step, merge order or deployment step that still applies. Do not start with "done", "green" or "ready" while a gate applies. If a reply has many items, say in the first line which to act on now and which to hold. Then give only the detail that the reader needs to act. Do not tell the steps that you took, unless the task asks for them.
 
 Keep code, commands, file names, identifiers and quoted error text as they are. Keep every quotation as it is. Keep search queries and keyword lists as keywords.
 
