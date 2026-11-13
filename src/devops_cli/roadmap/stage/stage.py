@@ -195,6 +195,7 @@ from devops_cli.roadmap.stage.stage_change import (
     StageProposal,
     check_gates,
     closing_keyword_in,
+    feasibility_sentences,
     measure_groups,
     moved_modules,
     plan_texts,
@@ -1217,6 +1218,10 @@ class _Planner:
         self._pull_requests = 0
         # The trace facts of the kept plan in hand, for the trace gate (#4281).
         self._kept_facts: TraceFacts | None = None
+        # The Feasibility sentences of the plan of an open pull request that `revise` repairs. The
+        # trace gate of the run that wrote that plan passed them, so the gate does not judge them
+        # again (#5391).
+        self._judged: frozenset[str] = frozenset()
         # The findings of each problem text that the checks sent back for the item in hand: the
         # problem is their joined text (#4846).
         self._findings: dict[str, tuple[StageFinding, ...]] = {}
@@ -1319,6 +1324,7 @@ class _Planner:
         self.gated = None
         self.head_findings = None
         self._reviews = 0
+        self._judged = frozenset()
 
     def revise(
         self, target: StageTarget, proposal: StageProposal, findings: Sequence[Finding] = ()
@@ -1337,13 +1343,16 @@ class _Planner:
         review wrote the comment, so its findings go to the planner but do not count. The planner
         keeps the step, the gated plan and the findings of the review in `step`, `gated` and
         `head_findings`, so `revise_plan` keeps them when a step fails. No trace of the run that
-        made `proposal` is in the process, so the trace gate judges only the replies of this
-        repair. The planner reads and writes no plan record."""
+        made `proposal` is in the process, but the trace gate of that run passed each sentence of
+        its Feasibility section. So the trace gate judges only a sentence that a reply of this
+        repair adds or changes, with the facts of the plan runs of this repair (#5391). The planner
+        reads and writes no plan record."""
         verifier = self._verifier
         if verifier is None:
             raise _stage_error(MESSAGES.roadmap.fix_plan_no_review, target)
         self._start_item()
         self._kept_facts = None
+        self._judged = feasibility_sentences(proposal)
         request = self._request(target)
         stop = self._premise or self._dependency
         if stop is not None:
@@ -2042,6 +2051,7 @@ class _Planner:
                 references=references,
                 models=models,
                 trace=trace,
+                judged=self._judged,
             ),
         )
         if self._pull_repo:
