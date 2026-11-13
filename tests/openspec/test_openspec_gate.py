@@ -15,19 +15,23 @@ from devops_cli.config.constants import CONST_OPENSPEC_SCAFFOLD_MARKER
 from devops_cli.exceptions import DependencyError
 from devops_cli.openspec import gate
 from devops_cli.openspec.gate import GateCheck, GateFinding, check_openspec
+from devops_cli.tools_lock import load_tools_lock
 from tests.support.fakes.openspec import OpenSpecFake
 
 Cli = Callable[..., Any]
 
 INSTALL_COMMAND = "uv run devops install-tools --tool openspec --only-missing"
+# A release of OpenSpec other than the one the tools lock pins.
+OLDER_VERSION = "1.14.3"
 # The commands the gate runs over a tree with no change and no spec, in order: the isolated
-# configuration, the change list, the two validations, the regeneration of the skills, the probe
-# change and the instructions of each artifact.
+# configuration, the version of the command on PATH, the change list, the two validations, the
+# regeneration of the skills, the probe change and the instructions of each artifact.
 EMPTY_TREE_COMMANDS = [
     ("config", "set", "telemetry.enabled", "false"),
     ("config", "set", "delivery", "skills"),
     ("config", "set", "profile", "custom"),
     ("config", "set", "workflows", '["propose", "explore", "apply", "update"]'),
+    ("--version",),
     ("list", "--json"),
     ("validate", "--all", "--strict"),
     ("validate", "--archived"),
@@ -145,6 +149,60 @@ def test_a_missing_openspec_names_the_command_that_installs_it(
         INSTALL_COMMAND in missing.value.message,
         openspec_fake.calls,
     ) == (1, "DEPENDENCY_MISSING", True, [])
+
+
+def _locked_version() -> str:
+    """The version of OpenSpec that the tools lock pins."""
+    return load_tools_lock().npm["openspec"].version
+
+
+def test_the_gate_names_the_version_the_binary_prints(openspec_fake: OpenSpecFake) -> None:
+    """A binary other than the lock's writes other skill text, so the gate reports the version it
+    prints and runs no other check: the advice to regenerate would write that text back."""
+    tree = openspec_fake.tree("empty")
+    openspec_fake.version = OLDER_VERSION
+
+    [finding] = check_openspec(tree)
+
+    assert (
+        finding.check,
+        OLDER_VERSION in finding.detail,
+        _locked_version() in finding.detail,
+        INSTALL_COMMAND in finding.detail,
+        str(openspec_fake.bin_dir / "openspec") in finding.detail,
+        "regenerate" in finding.detail,
+        [call.argv for call in openspec_fake.calls if call.argv[0] == "update"],
+    ) == (GateCheck.VERSION, True, True, True, True, False, [])
+
+
+def test_the_locked_binary_keeps_the_skill_finding(openspec_fake: OpenSpecFake) -> None:
+    """The command at the lock's version judges the skills, so an edited skill is the finding and
+    the advice to regenerate it still holds."""
+    tree = openspec_fake.tree("empty")
+    openspec_fake.version = _locked_version()
+    skill = tree / ".claude/skills/openspec-explore/SKILL.md"
+    skill.write_text(skill.read_text(encoding="utf-8") + "A hand edit.\n", encoding="utf-8")
+
+    findings = check_openspec(tree)
+
+    assert [(finding.check, RUN_REGENERATE in finding.detail) for finding in findings] == [
+        (GateCheck.SKILLS, True)
+    ]
+
+
+def test_the_gate_reports_a_binary_that_prints_no_version(openspec_fake: OpenSpecFake) -> None:
+    """A binary that cannot state its version cannot be shown to be the lock's, so the gate fails
+    instead of judging the skills with it."""
+    tree = openspec_fake.tree("empty")
+    openspec_fake.script(("--version",), 1)
+
+    [finding] = check_openspec(tree)
+
+    assert (
+        finding.check,
+        str(openspec_fake.bin_dir / "openspec") in finding.detail,
+        INSTALL_COMMAND in finding.detail,
+    ) == (GateCheck.VERSION, True, True)
 
 
 @pytest.mark.parametrize(

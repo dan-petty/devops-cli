@@ -514,6 +514,13 @@ class OpenSpecMessages:
         "{path} is missing: it carries the planning conventions every agent reads through "
         "`openspec instructions`."
     )
+    version_differs: str = (
+        "The openspec command at {path} prints {version}, and the tools lock pins {locked}. {hint}"
+    )
+    version_unreadable: str = (
+        "The openspec command at {path} printed no version line, and the tools lock pins "
+        "{locked}. {hint}"
+    )
     scaffold_marker_present: str = (
         "{path} still holds the scaffold marker: replace every line that needs author input."
     )

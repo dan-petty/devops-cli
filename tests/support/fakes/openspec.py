@@ -22,7 +22,8 @@ hand-made `openspec-archive-change`). It moves the folder of a change that a rec
 run archives, to the folder that run names, as the real tool does (#4270); a scripted `archive`
 moves nothing unless the test gives it an `effect`. It answers `list --specs --json` from the tree,
 as the real tool does, unless a test scripts it (#4622): the stage job lists the base specs of
-each checkout that it plans, and a record of one tree cannot answer for another.
+each checkout that it plans, and a record of one tree cannot answer for another. It answers
+`--version` with the version it stands for, so a test says which release PATH holds (`version`).
 `calls` holds every command the fake answered, with the
 directory and the OpenSpec environment it was started with.
 """
@@ -52,6 +53,8 @@ _TOOL_ENV_PREFIXES = ("OPENSPEC_", "OPEN_SPEC_", "XDG_CONFIG_HOME", "DO_NOT_TRAC
 _ARCHIVED_AS = re.compile(r"archived as '(?P<folder>[^']+)'")
 # The listing of the capabilities, which the fake answers from the tree.
 LIST_SPECS = ("list", "--specs", "--json")
+# The run that prints the version of the tool, which the fake answers from `version`.
+VERSION_ARGS = ("--version",)
 
 
 @dataclass(frozen=True)
@@ -125,6 +128,18 @@ class OpenSpecFake:
         if Path(os.fsdecode(cmd)).name == _PROGRAM:
             return str(self.bin_dir / _PROGRAM) if self.installed else None
         return self._real_which(cmd, mode, path)
+
+    def _derived(self, arguments: tuple[str, ...], cwd: Path) -> RecordedRun | None:
+        """The run the fake answers from itself, for a command whose answer the record cannot hold:
+        the version the fake stands for, and the listing of the capabilities of the tree. None for
+        every other command, and for a command a test scripted."""
+        if arguments in self._scripted or arguments in self._sequences:
+            return None
+        if arguments == VERSION_ARGS:
+            return RecordedRun(arguments, 0, f"{self.version}\n", "")
+        if arguments == LIST_SPECS:
+            return RecordedRun(arguments, 0, spec_listing(cwd), "")
+        return None
 
     def _recorded(self, argv: tuple[str, ...]) -> RecordedRun:
         """The run scripted for `argv`, else the one recorded in the selected scenario, else in the
@@ -202,13 +217,9 @@ class OpenSpecFake:
             return subprocess.CompletedProcess(
                 argv, 0, "" if as_text else b"", "" if as_text else b""
             )
-        recorded = (
-            RecordedRun(arguments, 0, spec_listing(cwd), "")
-            if arguments == LIST_SPECS
-            and arguments not in self._scripted
-            and arguments not in self._sequences
-            else self._recorded(arguments)
-        )
+        recorded = self._derived(arguments, cwd)
+        if recorded is None:
+            recorded = self._recorded(arguments)
         if arguments == ("update", "--force"):
             self._update(cwd)
         if arguments in self._effects:
