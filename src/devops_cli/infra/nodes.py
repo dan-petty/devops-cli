@@ -19,10 +19,12 @@ process runner with a request bound below its process bound:
 
 The health gate reads every node of the cluster except the nodes of the hosts out of service:
 each is Ready and has no memory, disk or PID pressure. When `prometheus.url` is set, no alert with
-`severity="critical"` fires. After a host, the apply waits for the nodes before the uncordon and
-for the alerts after it, because Prometheus can run on the node of the host. A read that fails is a problem, not an error: the waits read again
-until their time ends, so they go on through the short gap in which the API server of a
-control-plane node restarts.
+`severity="critical"` fires, except an alert whose node is a node out of service: its label `node`,
+else its label `instance`. The gate leaves out such an alert, as it leaves out the node itself, and
+gives one line for it (#5455). After a host, the apply waits for the nodes before the uncordon and
+for the alerts after it, because Prometheus can run on the node of the host. A read that fails is a
+problem, not an error: the waits read again until their time ends, so they go on through the short
+gap in which the API server of a control-plane node restarts.
 """
 
 from __future__ import annotations
@@ -51,6 +53,8 @@ KUBECTL: Final[str] = "kubectl"
 GET_NODES_ARGS: Final[tuple[str, ...]] = ("get", "nodes", "-o", "json")
 # The query of the health gate: the critical alerts that fire.
 CRITICAL_ALERTS_QUERY: Final[str] = 'ALERTS{alertstate="firing",severity="critical"}'
+# The labels of an alert that name its node, in order: node-exporter names its node in `instance`.
+_ALERT_NODE_LABELS: Final[tuple[str, ...]] = ("node", "instance")
 _READY: Final[str] = "Ready"
 _TRUE: Final[str] = "True"
 _UNKNOWN: Final[str] = "Unknown"
@@ -242,13 +246,30 @@ class Read:
 
 
 @dataclass(frozen=True)
+class Alerts:
+    """What the query of the critical alerts gave: the problems that stop the gate, and one line
+    for each alert of a node out of service that the gate left out."""
+
+    problems: list[str]
+    left_out: list[str]
+
+
+def alert_node(labels: Mapping[str, Any]) -> str | None:
+    """The node that an alert names: its label `node`, else its label `instance`; none when it has
+    neither."""
+    return next((str(labels[key]) for key in _ALERT_NODE_LABELS if labels.get(key)), None)
+
+
+@dataclass(frozen=True)
 class Cluster:
     """The cluster of an infra repo: its kube context, the nodes of its hosts out of service,
-    which the health gate does not read, and the settings of the bounds and of Prometheus."""
+    which the health gate does not read, and the settings of the bounds and of Prometheus. The
+    alert reads give each line of an alert that they left out to `on_left_out`."""
 
     context: str
     settings: Settings
     offline_nodes: frozenset[str] = frozenset()
+    on_left_out: Callable[[str], None] | None = None
 
     def _kubectl(self, args: tuple[str, ...], timeout: float) -> Read:
         result = run_subprocess(kubectl_argv(self.context, *args), quiet=True, timeout=timeout)
@@ -271,14 +292,19 @@ class Cluster:
         return self._kubectl(get_node_args(name), DEFAULT_INFRA_KUBECTL_TIMEOUT_SECONDS)
 
     def health(self) -> list[str]:
-        """The problems of the cluster: each node that is not Ready or has pressure, except the
-        nodes out of service, and each critical alert that fires."""
+        """The problems of the cluster: each node that is not Ready or has pressure, and each
+        critical alert that fires, except those of the nodes out of service."""
         problems = self.node_health()
-        return problems if problems else critical_alerts(self.settings)
+        return problems if problems else self.alert_health()
 
     def alert_health(self) -> list[str]:
-        """Each critical alert that fires, or the problem of a query that gets no answer."""
-        return critical_alerts(self.settings)
+        """Each critical alert that fires, except an alert of a node out of service, or the problem
+        of a query that gets no answer. Each alert left out goes to `on_left_out`."""
+        alerts = critical_alerts(self.settings, self.offline_nodes)
+        if self.on_left_out is not None:
+            for line in alerts.left_out:
+                self.on_left_out(line)
+        return alerts.problems
 
     def node_health(self) -> list[str]:
         """Each node that is not Ready or has pressure, except the nodes out of service."""
@@ -373,9 +399,9 @@ class Cluster:
 
     def wait_alerts_clear(self) -> list[str]:
         """Wait until no critical alert fires on two reads one poll interval apart, when
-        `prometheus.url` is set; the problems of the last read when the time ends. A Prometheus
-        that does not answer yet, such as one whose volume only the node of the host mounts, is
-        read again."""
+        `prometheus.url` is set; the problems of the last read when the time ends. An alert of a
+        node out of service does not count. A Prometheus that does not answer yet, such as one
+        whose volume only the node of the host mounts, is read again."""
         if not self.settings.prometheus.url:
             return []
         return self._wait(self.alert_health)
@@ -400,11 +426,13 @@ class Cluster:
                 return problems
 
 
-def critical_alerts(settings: Settings) -> list[str]:
-    """Each critical alert that fires, when `prometheus.url` is set. A query that gets no answer is
-    a problem: the gate does not pass on a read that it could not make."""
+def critical_alerts(settings: Settings, offline_nodes: frozenset[str] = frozenset()) -> Alerts:
+    """Each critical alert that fires, when `prometheus.url` is set. An alert whose node is in
+    `offline_nodes` is left out with one line that says why; every other alert is a problem. A
+    query that gets no answer is a problem: the gate does not pass on a read that it could not
+    make."""
     if not settings.prometheus.url:
-        return []
+        return Alerts([], [])
     import httpx2
 
     from devops_cli.http.egress import configured_level
@@ -417,12 +445,17 @@ def critical_alerts(settings: Settings) -> list[str]:
         with PrometheusClient(base, configured_level(settings.ai)) as client:
             answer = client.query(CRITICAL_ALERTS_QUERY)
     except (httpx2.HTTPError, ValueError) as exc:
-        return [texts.apply_alerts_unread.format(detail=mask_secrets(str(exc)))]
-    series = (answer.get("data") or {}).get("result") or ()
-    return [
-        texts.apply_alert_firing.format(name=(item.get("metric") or {}).get("alertname", "?"))
-        for item in series
-    ]
+        return Alerts([texts.apply_alerts_unread.format(detail=mask_secrets(str(exc)))], [])
+    alerts = Alerts([], [])
+    for item in (answer.get("data") or {}).get("result") or ():
+        labels = item.get("metric") or {}
+        name = labels.get("alertname", "?")
+        node = alert_node(labels)
+        if node is not None and node in offline_nodes:
+            alerts.left_out.append(texts.apply_alert_left_out.format(name=name, node=node))
+        else:
+            alerts.problems.append(texts.apply_alert_firing.format(name=name))
+    return alerts
 
 
 def _last_line(text: str) -> str:
@@ -436,8 +469,10 @@ __all__ = [
     "GET_NODES_ARGS",
     "KUBECTL",
     "VOLUMES_ARGS",
+    "Alerts",
     "Cluster",
     "Read",
+    "alert_node",
     "critical_alerts",
     "drain_args",
     "get_node_args",

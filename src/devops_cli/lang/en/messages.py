@@ -1397,6 +1397,9 @@ class InfraMessages:
     apply_kubectl_failed: str = "kubectl {command} stopped with exit code {code}: {detail}"
     apply_gpu_differs: str = "{node} has {now} GPUs, not the {before} that it had before the run"
     apply_alert_firing: str = "the critical alert {name} fires"
+    apply_alert_left_out: str = (
+        "The health gate left out the critical alert {name}: its node {node} is out of service"
+    )
     apply_alerts_unread: str = (
         "Prometheus did not answer the query of the critical alerts: {detail}"
     )

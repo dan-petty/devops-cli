@@ -14,11 +14,13 @@ from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
 
+import httpx2
 import pytest
 from syrupy.assertion import SnapshotAssertion
 
 from tests.support.fakes.clock import ClockFake
 from tests.support.fakes.github import GitHubApiFake, github_json
+from tests.support.fakes.http import WebFake
 from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
 from tests.support.infra import (
     COLOR_TERM,
@@ -45,6 +47,9 @@ NODE_2 = "node-2.example.com"
 NODE_3 = "node-3.example.com"
 NODE_4 = "node-4.example.com"
 _PR_COMMIT = "0123456789abcdef0123456789abcdef01234567"
+_LEFT_OUT = (
+    "The health gate left out the critical alert NodeNotReady: its node node-5 is out of service"
+)
 
 
 class Lab:
@@ -404,6 +409,48 @@ def test_a_cluster_that_is_not_healthy_before_refuses_the_apply(
     assert lab.steps == []
 
 
+def _node_not_ready(node: str) -> dict[str, Any]:
+    """The answer of the alert query: NodeNotReady fires for `node`."""
+    metric = {"alertname": "NodeNotReady", "severity": "critical", "node": node}
+    return {"status": "success", "data": {"resultType": "vector", "result": [{"metric": metric}]}}
+
+
+def test_the_alert_of_a_node_out_of_service_does_not_stop_the_apply(
+    lab: Lab, person_caller: None, web: WebFake, config: Callable[..., Path]
+) -> None:
+    """node-5 is in the offline group and its NodeNotReady fires through the whole apply: the gate
+    before and the wait after the host leave it out, and the report names it once (#5455)."""
+    from devops_cli.config.settings import load_settings
+    from devops_cli.core.repo import resolve_data_path
+
+    config(prometheus={"url": "http://prometheus.example.com:9090"})
+    web.serve(lambda request: httpx2.Response(200, json=_node_not_ready("node-5")))
+    plan = lab.plan(NODE_3)
+
+    result = lab.apply(plan)
+
+    assert result.exit_code == 0, result.output
+    assert result.output.count(_LEFT_OUT) == 1
+    assert len(web.sent) == 3
+    log = resolve_data_path(load_settings().data.audit_log_path)
+    details = json.loads(log.read_text(encoding="utf-8").splitlines()[-1])["details"]
+    assert details["left_out_alerts"] == [_LEFT_OUT]
+
+
+def test_the_alert_of_a_node_in_service_still_refuses_the_apply(
+    lab: Lab, person_caller: None, web: WebFake, config: Callable[..., Path]
+) -> None:
+    config(prometheus={"url": "http://prometheus.example.com:9090"})
+    web.serve(lambda request: httpx2.Response(200, json=_node_not_ready("node-2")))
+    plan = lab.plan(NODE_3)
+
+    result = lab.apply(plan)
+
+    assert result.exit_code == 1
+    assert "the critical alert NodeNotReady fires" in result.output
+    assert lab.steps == []
+
+
 @pytest.mark.parametrize(
     ("caller", "level", "limit", "refused"),
     [
@@ -590,6 +637,7 @@ def test_the_audit_record_holds_each_field_and_no_secret(
         "result",
         "reason",
         "hosts",
+        "left_out_alerts",
         "duration_seconds",
     }
     assert (details["caller"], details["tool"], details["level"], details["plan_id"]) == (
