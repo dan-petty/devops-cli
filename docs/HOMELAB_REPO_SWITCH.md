@@ -100,18 +100,26 @@ kubectl config set-context --current --namespace argocd
 Who: an agent, on the day of the switch.
 
 1. In `<devops-cli-checkout>`, run `git fetch origin main`.
-2. Compare the environment paths at S with `origin/main`. Use the path list of the metadata file of the homelab copy.
+2. Compare the environment files at S with `origin/main`. The environment files are the files of `k8s` without the 2 product folders `k8s/devops` and `k8s/overlays/homelab/devops`. Use this pathspec, not the path list of the metadata file. The path list holds only the files at S, so it does not show a new environment file that devops-cli adds after S. devops-cli has no copy of the path list, and `git diff` with no path after `--` compares the full repository.
 
    ```bash
-   git diff --stat <S> origin/main -- <environment-paths>
+   git diff --stat <S> origin/main -- k8s ':(exclude)k8s/devops' ':(exclude)k8s/overlays/homelab/devops'
    git diff --quiet <vX> origin/main -- k8s/devops/dashboards; echo $?
    ```
 
-3. If either command shows a change, sync the copy again with a homelab pull request. Then run the checks of dan-petty/homelab#23 again.
+3. If either command shows a change, sync the copy again with a homelab pull request. Then run the checks of dan-petty/homelab#23 again on the branch of that pull request. Run `argocd app diff --local` only on a throwaway export, never on a checkout. `argocd app diff <app> --core --local <folder>` runs `kustomize edit` in the folder: it writes the live overrides of the Application, which hold the real hosts, into the `kustomization.yaml` files of the folder. `git archive` exports the last commit, so commit the sync first. Delete the export after the diff, because it then holds the real hosts.
+
+   ```bash
+   mkdir <temp-dir>/export
+   git -C <homelab-checkout> archive HEAD | tar -x -C <temp-dir>/export
+   argocd app diff <app> --core --local <temp-dir>/export/<path-of-the-app>
+   rm -rf <temp-dir>/export
+   ```
+
 4. Record the baseline in a comment on #5134: shared checks 1, 3 and 4, and the exit counts of check 5.
 5. Run shared check 2.
 
-Check: Both diffs are empty. Shared check 2 gives 0 and 0. On 2026-11-13, the baseline had 34 Applications, `requiresPruning` only on `argocd` (3 objects), the keys `images` and `patches` on `devops`, and `patches` on `ingress` and `mattermost`.
+Check: Both diffs are empty. `git -C <homelab-checkout> status --porcelain` prints nothing, and `<temp-dir>/export` does not exist. Shared check 2 gives 0 and 0. On 2026-11-13, the baseline had 34 Applications, `requiresPruning` only on `argocd` (3 objects), the keys `images` and `patches` on `devops`, and `patches` on `ingress` and `mattermost`.
 
 Revert: None. The step changes nothing.
 
