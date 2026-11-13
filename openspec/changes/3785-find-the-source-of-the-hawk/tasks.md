@@ -11,9 +11,9 @@ Reads: `k8s/monitoring/k8s-monitoring-values.yaml`, `tests/commands/k8s/test_k8s
 
 Reads: `k8s/README.md`. Changes: `k8s/README.md`.
 
-- [ ] 2.1 Delete the last sentence of the row of the dashboard table that names `pyroscope.json`, which says the DaemonSet keeps off one node, and keep the sentence that names `alloy-profiles`, the `profiling` feature and `destinations.localPyroscope`
+- [x] 2.1 Delete the last sentence of the row of the dashboard table that names `pyroscope.json`, which says the DaemonSet keeps off one node, and keep the sentence that names `alloy-profiles`, the `profiling` feature and `destinations.localPyroscope`
   - Verification: `$ uv run devops ci docs` passes
-- [ ] 2.2 Edit the Pyroscope row of `k8s/README.md` so that it states no node exclusion
+- [x] 2.2 Edit the Pyroscope row of `k8s/README.md` so that it states no node exclusion
   - Verification: `$ uv run devops ci docs` passes
 
 ## Criteria
