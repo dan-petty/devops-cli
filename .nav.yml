@@ -15,6 +15,7 @@ nav:
       - docs/SELF_IMPROVEMENT.md
       - docs/DEVCONTAINER_USAGE.md
       - docs/DESIGN.md
+      - docs/SRE.md
       - docs/DASHBOARD_TABS_AUDIT.md
       - docs/VISION.md
       - docs/KNOWN_ISSUES.md
