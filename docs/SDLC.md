@@ -72,7 +72,7 @@ Every significant feature, structural refactoring, or tooling upgrade begins wit
 2. **Roadmap & Backlog Synchronization**:
    - Before you file, search the open issues, and fold the finding into an open item that has the same root cause or the same change surface. File one candidate at a time, and link it to the work that found it. Do not fix it in the current pull request unless it blocks the task.
    - When a study or a report shows a blocker, such as a gap in a measurement, a broken signal or a slow loop, claim its issue and start it at once, under the usual rules: one issue, one draft pull request, no stacked pull request.
-   - Close an item that a newer direction replaces as not planned, with a comment that names the newer direction: `devops gh issue close <n> --reason not-planned --comment-file <file>`.
+   - Close an item that a newer direction, newer issues or newer code replace as not planned, with a comment that names them: `devops gh issue close <n> --reason not-planned --comment-file <file>`.
    - File new work as a candidate with `devops roadmap intake --title "<conventional title>" --body-file <file> --confirm`. Intake files it, gives it its type, Priority, Value and Effort, and puts it in the backlog. When the model judges it a possible duplicate, the report and the reason comment name the possible original, and a person closes one of the two. Never set a milestone or priority on a new issue: intake sets its `priority/*` label, and a person plans the milestones.
    - The Value and Effort intake sets place each item in the **Value vs. Effort Prioritization Matrix** (Quick Wins, Major Projects, Fill-Ins, Reconsider).
 3. **Milestones Are Planning Buckets**:

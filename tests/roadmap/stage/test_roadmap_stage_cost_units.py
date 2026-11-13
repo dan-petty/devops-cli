@@ -1,7 +1,8 @@
 """The cost check of a plan that builds its own code accepts every unit of elapsed time.
 
-Rule 3 of `AGENTS.md` asks for the tokens to build, keep and fix the code, and the elapsed time. A
-plan states the time in hours, in days or in weeks, with a digit or a number word.
+Rule 3 of `AGENTS.md` asks for the cost in tokens and time, and `openspec/config.yaml` defines it:
+the tokens to build, keep and fix the code, and the elapsed time. A plan states the time in hours,
+in days or in weeks, with a digit or a number word.
 """
 
 from __future__ import annotations

@@ -174,24 +174,19 @@ def _scaffold_with_every_routed_document(root: Path) -> Path:
 
 def test_agents_md_stays_within_character_budget(tmp_path: Path) -> None:
     """AGENTS.md is a router that every agent reads in full, so it, and the AGENTS.md that
-    `devops ai agents` writes with every routed document, fit a cap of at most 6,500 characters
-    (#1961)."""
+    `devops ai agents` writes with every routed document, fit a cap of at most 4,500 characters
+    (#1961, #5421)."""
     generated = _scaffold_with_every_routed_document(tmp_path).read_text(encoding="utf-8")
     assert (
-        CONST_AGENTS_MD_MAX_CHARS <= 6_500,
+        CONST_AGENTS_MD_MAX_CHARS <= 4_500,
         len((REPO_ROOT / "AGENTS.md").read_text(encoding="utf-8")) <= CONST_AGENTS_MD_MAX_CHARS,
         len(generated) <= CONST_AGENTS_MD_MAX_CHARS,
     ) == (True, True, True)
 
 
 # The rules of AGENTS.md that only devops-cli has, so the template of `devops ai agents` does
-# not hold them: its writing standard (owner decision D2 of #1961) and its decision model, Jev.
-CONST_DEVOPS_CLI_ONLY_RULES: Final[frozenset[str]] = frozenset(
-    {
-        "Write prose in ASD-STE100",
-        "Use a decision model for a closed choice, a generative model for text",
-    }
-)
+# not hold them: its writing standard (owner decision D2 of #1961).
+CONST_DEVOPS_CLI_ONLY_RULES: Final[frozenset[str]] = frozenset({"Write prose in ASD-STE100"})
 
 
 def _bold_start(inline: Token) -> str | None:
@@ -249,14 +244,21 @@ def test_a_rule_title_added_only_to_agents_md_is_reported() -> None:
     assert _rule_drift(agents_md, generated) == (["Pin every tool"], ["Back up"])
 
 
-def test_agents_md_premise_rule_closes_superseded_issues() -> None:
-    """Verify AGENTS.md instructs agents to close issues as rejected if their functionality has
-    been superseded by newer issues or code changes."""
-    content = (REPO_ROOT / "AGENTS.md").read_text(encoding="utf-8")
+def _rule(number: int) -> str:
+    """The line of rule `number` of AGENTS.md."""
+    lines = _AGENTS_MD.read_text(encoding="utf-8").splitlines()
+    return next(line for line in lines if line.startswith(f"{number}. "))
+
+
+def test_the_premise_rule_closes_an_item_that_newer_issues_or_code_replace() -> None:
+    """The premise check of every task closes an item that newer issues or code replace, and the
+    triage rules of docs/SDLC.md give the same cases with the command (#2413, #5421)."""
+    sdlc = (REPO_ROOT / "docs" / "SDLC.md").read_text(encoding="utf-8")
     assert (
-        "Close issues as rejected if their functionality has been superseded by newer issues or code changes."
-        in content
-    )
+        "If newer issues or code replace the item, close it as not planned." in _rule(2),
+        "Close an item that a newer direction, newer issues or newer code replace as not planned"
+        in sdlc,
+    ) == (True, True)
 
 
 def test_agents_md_asks_for_small_tool_output_and_keeps_the_facts_the_reader_needs() -> None:
@@ -295,6 +297,43 @@ def test_agents_md_routes_each_kind_of_task_to_a_document_that_exists() -> None:
             if not (_AGENTS_MD.parent / unquote(urlsplit(href).path)).exists()
         ],
     ) == (True, [], [])
+
+
+def test_the_model_call_rule_limits_every_call_and_links_the_ask_jev_skill() -> None:
+    """Rule 7 limits every `devops ai` call, generative or not, to a question that no file or
+    deterministic check can answer, and links the `ask-jev` skill, which owns the choice of the
+    model kind (#5421)."""
+    assert [
+        needle
+        for needle in (
+            "Run one `devops ai` call at a time",
+            "only when no file or deterministic check can answer",
+            "](.agents/skills/ask-jev/SKILL.md)",
+        )
+        if needle not in _rule(7)
+    ] == []
+
+
+def test_agents_md_keeps_the_safety_rules_inline() -> None:
+    """The safety rules stay in AGENTS.md, which every session and every implement step reads in
+    full, also when their detail moves to the document that owns it (#5421)."""
+    assert [
+        needle
+        for needle in (
+            "Never commit or push to `main`",
+            "Never use `--no-verify`",
+            "Never lower a security or quality threshold",
+            "Never run bare `gh`",
+            "**Only a person** merges pull requests",
+            "changes secrets, repository settings and hardware",
+            "Never commit a secret, a gitignored file, an internal hostname, a private address or "
+            "registry, or a device path",
+            "`example.com`",
+            "RFC 5737",
+            "`<storage-node>`",
+        )
+        if needle not in _AGENTS_MD.read_text(encoding="utf-8")
+    ] == []
 
 
 def test_a_generated_agents_md_routes_only_to_documents_that_exist(tmp_path: Path) -> None:

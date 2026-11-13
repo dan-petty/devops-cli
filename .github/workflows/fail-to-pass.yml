@@ -1,6 +1,6 @@
 name: Fail-to-Pass Test Replay
 
-# Only a fix must show a proof that fails on its base (rule 4 of AGENTS.md). A change to the code
+# Only a fix must show a proof that fails on its base (docs/TESTING.md). A change to the code
 # under src/ can make a test fail on base, and a changed check module of tests/gate/*_checks/ can
 # make a gate case fail on base and pass on head (#4554). So the workflow runs for a pull request
 # that changes src/ outside the knowledge base or a gate check, and its job runs only for a fix

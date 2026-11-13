@@ -1,6 +1,6 @@
 # Release Cycle — devops-cli
 
-This page is for the person who releases `devops-cli`. [release-please](https://github.com/googleapis/release-please) makes every release from `main`. The workflow `release-merge.yml` merges its pull request every 6 hours when every guard holds ([Scheduled Merge](#scheduled-merge)), and a person can merge it at any time. For an urgent fix, GitHub merges the release pull request when its checks pass ([Urgent Fixes](#urgent-fixes)). release-please writes `CHANGELOG.md`, `.release-please-manifest.json` and the version lines, so nobody edits those by hand. Agents change the release workflow and its configuration through ordinary pull requests ([`AGENTS.md`](AGENTS.md)).
+This page is for the person who releases `devops-cli`. [release-please](https://github.com/googleapis/release-please) makes every release from `main`. The workflow `release-merge.yml` merges its pull request every 6 hours when every guard holds ([Scheduled Merge](#scheduled-merge)), and a person can merge it at any time. For an urgent fix, GitHub merges the release pull request when its checks pass ([Urgent Fixes](#urgent-fixes)). release-please writes `CHANGELOG.md`, `.release-please-manifest.json` and the version lines, so nobody edits those by hand. Agents change the release workflow and its configuration only through ordinary pull requests.
 
 ## How the Release Pull Request Is Made
 
