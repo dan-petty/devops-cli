@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.125.4](https://github.com/dan-petty/devops-cli/compare/v0.125.3...v0.125.4) (2026-11-13)
+
+
+### Bug Fixes
+
+* **k8s:** find the source of the hawk host crashes ([#5336](https://github.com/dan-petty/devops-cli/issues/5336)) ([e6c5216](https://github.com/dan-petty/devops-cli/commit/e6c521624fadf20226e17faf2b39857a76830e90))
+
+
+### Code Refactoring
+
+* **k8s:** read the environment tree from the infra repo ([#5334](https://github.com/dan-petty/devops-cli/issues/5334)) ([c33d78c](https://github.com/dan-petty/devops-cli/commit/c33d78c2bdb04e6f1db457fc9282d7a6f1178b87))
+
 ## [0.125.3](https://github.com/dan-petty/devops-cli/compare/v0.125.2...v0.125.3) (2026-11-13)
 
 
