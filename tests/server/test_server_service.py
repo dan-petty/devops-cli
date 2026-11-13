@@ -1821,10 +1821,12 @@ def _github_post(
 
 
 def _lanes_settled(app: FastAPI) -> bool:
-    """Whether every worker has run what was enqueued for it."""
+    """Whether every worker has run what was enqueued for it. A scoped update enqueues its wake
+    on other workers while its own worker is active, so a worker that the first pass found idle
+    can get a trigger after it: the second pass waits for those triggers too (#5553)."""
+    workers = app.state.service_manager.workers.values()
     return all(
-        worker.wait_active(THREAD_HANDOFF_BOUND_SECONDS)
-        for worker in app.state.service_manager.workers.values()
+        worker.wait_active(THREAD_HANDOFF_BOUND_SECONDS) for _ in range(2) for worker in workers
     )
 
 
