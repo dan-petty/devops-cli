@@ -1,6 +1,8 @@
 """One log line with counts for each fix round and each failed item of the roadmap jobs (#4535).
 
-A line holds numbers, names of steps, states and classes, and never a text of the model. Each
+A line holds numbers, names of steps, states and classes, and never a text of the model. The one
+exception is the subject of a refused finding: the path, the tool or the command that the message
+of a gate names, masked and cut, and no other text of the plan or of the finding (#5433). Each
 line ends with the devops-cli version of the process: the release workflow builds the Service
 image only for a release, so the version names one image. An implement attempt also names the
 digest of the runner image that its Job ran. One Loki query by event and round then gives the
@@ -13,11 +15,14 @@ with no repository writes `repo=none`.
 
 from __future__ import annotations
 
+import json
 import logging
 from collections import Counter
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Final
 
 from devops_cli import __version__
+from devops_cli.roadmap.stage.stage_findings import finding_subject
+from devops_cli.security.sanitizer import redact_text
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Sequence
@@ -26,10 +31,29 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# The findings of one refused reply that `log_gate_returns` names, each on its own line (#5433).
+# The trace gate refused 10 paths of the plan of #1976 on 2026-11-13. Each line gives the count of
+# all the findings, so a reader sees how many findings are past this limit.
+_FINDINGS_LOGGED: Final[int] = 20
+# The characters of a subject that a line keeps, after the mask.
+_SUBJECT_CHARS: Final[int] = 200
+
 
 def _tally(names: Iterable[str]) -> str:
     """Each name with its count, as `name:count` in the order of the names, or `none`."""
     return ",".join(f"{name}:{count}" for name, count in sorted(Counter(names).items())) or "none"
+
+
+def _subject(finding: StageFinding) -> str:
+    """The subject of `finding` as a JSON string, masked first and then cut, or `none`.
+
+    `redact_text` is the mask of `mask_secrets`. CodeQL (`py/clear-text-logging-sensitive-data`)
+    takes the value of a call whose name holds `secret` as a secret, and so it refuses a log of the
+    value of `mask_secrets`."""
+    subject = finding_subject(finding)
+    if subject is None:
+        return "none"
+    return json.dumps(redact_text(subject)[:_SUBJECT_CHARS], ensure_ascii=False)
 
 
 def log_gate_returns(
@@ -37,19 +61,38 @@ def log_gate_returns(
 ) -> None:
     """Log the end of a stage reply that the checks refused at least once: the number of returns,
     whether the last reply passed, and the gates and the codes of the findings of the last refused
-    reply, each with its count (#4846). A reply that passed with no return logs nothing."""
+    reply, each with its count (#4846). Then log one line for each of the first `_FINDINGS_LOGGED`
+    findings of that reply, with its place, its gate, its code and its subject (#5433), so that a
+    reader can tell a fault of the plan from a fault of the gate. A reply that passed with no
+    return logs nothing."""
     if returns == 0:
         return
+    result = "passed" if passed else "refused"
     logger.info(
         "stage gate returns: repo=%s item=#%d returns=%d result=%s gates=%s codes=%s version=%s",
         repo or "none",
         item,
         returns,
-        "passed" if passed else "refused",
+        result,
         _tally(f.gate for f in findings),
         _tally(f.code for f in findings),
         __version__,
     )
+    for place, finding in enumerate(findings[:_FINDINGS_LOGGED], start=1):
+        logger.info(
+            "stage gate refused finding: repo=%s item=#%d returns=%d result=%s finding=%d/%d "
+            "gate=%s code=%s subject=%s version=%s",
+            repo or "none",
+            item,
+            returns,
+            result,
+            place,
+            len(findings),
+            finding.gate,
+            finding.code,
+            _subject(finding),
+            __version__,
+        )
 
 
 def log_gate_findings(repo: str, item: int, return_: int, counts: ReturnCounts) -> None:

@@ -8,6 +8,8 @@ literal text is the code. A template with less than `_LEAST_LITERAL` characters 
 such as `{reference}`, matches almost any text, so it gives no code. A text that no template
 matches has the code `uncoded`. A refusal that no gate of `check_gates` makes has the code of its
 check, which is also its gate: `title`, `body`, `validate` or `plan-check` (#4725).
+`finding_subject` gives the subject that the message of a finding names: the value of its field
+`path`, `tool` or `command` (#5433).
 
 `return_counts` compares the findings of a refused reply with the findings of the next reply. A
 finding stays (it is stuck) when the next reply has a finding with the same gate and the same
@@ -58,6 +60,9 @@ PLAN_CHECK_GATE: Final[str] = "plan-check"
 _LEAST_LITERAL: Final[int] = 12
 _TEMPLATE_PREFIX: Final[str] = "stage_"
 _PATH_FIELD: Final[str] = "path"
+# The fields of a template that name the subject of a problem, in the order of their choice: the
+# log of a refused reply names the subject of each finding and no other text of it (#5433).
+_SUBJECT_FIELDS: Final[tuple[str, ...]] = (_PATH_FIELD, "tool", "command")
 _SPACES: Final[re.Pattern[str]] = re.compile(r"(\s+)")
 _DIGITS: Final[re.Pattern[str]] = re.compile(r"\d+")
 # Fewer samples than this give a code the class `model_fixable`: the job returns such a reply
@@ -152,6 +157,7 @@ class _Template(NamedTuple):
     literal: int
     anchor: str
     path_group: int | None
+    subject_group: int | None
 
 
 def _literal_pattern(text: str) -> str:
@@ -176,7 +182,11 @@ def _template(key: str, text: str) -> _Template | None:
     )
     anchor = max((word for piece in literals for word in piece.split()), key=len)
     path_group = fields.index(_PATH_FIELD) + 1 if _PATH_FIELD in fields else None
-    return _Template(key, re.compile(pattern, re.DOTALL), literal, anchor, path_group)
+    subject = next((name for name in _SUBJECT_FIELDS if name in fields), None)
+    subject_group = fields.index(subject) + 1 if subject is not None else None
+    return _Template(
+        key, re.compile(pattern, re.DOTALL), literal, anchor, path_group, subject_group
+    )
 
 
 @cache
@@ -211,6 +221,19 @@ def stage_finding(gate: str, text: str) -> StageFinding:
     template, match = best
     path = match.group(template.path_group) if template.path_group else None
     return StageFinding(gate=gate, code=template.key, path=path, text=text)
+
+
+def finding_subject(finding: StageFinding) -> str | None:
+    """The subject that the message of `finding` names: the value of the first field of
+    `_SUBJECT_FIELDS` that the template of its code has (#5433). A finding of a check outside
+    `check_gates`, an `uncoded` finding and a template with none of these fields give None."""
+    if finding.path is not None:
+        return finding.path
+    template = next((t for t in _templates() if t.key == finding.code), None)
+    if template is None or template.subject_group is None:
+        return None
+    match = template.pattern.fullmatch(finding.text.strip())
+    return match.group(template.subject_group) if match else None
 
 
 def gate_findings(found: Mapping[ProposalGate, Sequence[str]]) -> list[StageFinding]:
@@ -381,6 +404,7 @@ __all__ = [
     "StageFinding",
     "check_findings",
     "finding_classes",
+    "finding_subject",
     "fix_class",
     "fix_counts",
     "gate_extension",
