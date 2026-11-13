@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: A refused revision of a repair round returns
-A revision of a repair round that the checks refuse SHALL go back to the planner with the refused revision as `previous` and the problem as `problem`, `roadmap.stage.gate_returns` times (default 3) for each repair round, as a refused first reply does. A refused revision at the last return SHALL get the extra return of the item when the rule of `roadmap-stage/returns` grants it (#4851). A revision that the checks accept SHALL cause no extra planner call. A revision that is a placeholder in every text SHALL end the item with no return.
+A revision of a repair round that the checks refuse SHALL go back to the planner with the refused revision as `previous` and the problem as `problem`, as a refused first reply does: `roadmap.stage.gate_returns` times (default 3) for each repair round, and the extra return of the item when `roadmap-stage/returns` grants it (#4851). A revision that the checks accept SHALL cause no extra planner call. A revision that is a placeholder in every text SHALL end the item with no return.
 
 #### Scenario: The first revision is refused and the second passes
 - **WHEN** the checks refuse the first revision of a repair round and accept the second
