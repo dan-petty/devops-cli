@@ -251,9 +251,9 @@ def test_the_smoke_test_of_the_runner_image_is_the_same_in_ci_and_in_the_release
 
 
 def test_the_documented_size_bound_of_the_runner_image_is_the_bound_of_the_smoke_test() -> None:
-    """Verify that `k8s/README.md` states the byte bound that the smoke test enforces (#3072)."""
+    """Verify that `docs/CLUSTER.md` states the byte bound that the smoke test enforces (#3072)."""
     run = _step(_workflow("ci.yml")["jobs"]["runner-image"], RUNNER_STEPS[1])["run"]
     (bound,) = re.findall(r'"\$size" -gt (\d+)', run)
-    readme = (REPO_ROOT / "k8s" / "README.md").read_text(encoding="utf-8")
+    document = (REPO_ROOT / "docs" / "CLUSTER.md").read_text(encoding="utf-8")
 
-    assert f"more than {bound} bytes" in readme
+    assert f"more than {bound} bytes" in document

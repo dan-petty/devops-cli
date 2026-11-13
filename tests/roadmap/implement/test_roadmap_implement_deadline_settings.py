@@ -1,6 +1,6 @@
 """The settings `roadmap.implement.deadline_stall_seconds`, `deadline_extension_seconds` and
 `deadline_ceiling_seconds` (#3063): their defaults, their relations, the bounds that the
-runner sets on them and the values that `k8s/README.md` states for them (#5016)."""
+runner sets on them and the values that `docs/CLUSTER.md` states for them (#5016)."""
 
 from __future__ import annotations
 
@@ -34,7 +34,7 @@ VARIABLES = (
 # What a silent wait of the runner may last beyond the longest wait, so that a slow tick does not
 # end a healthy run.
 MARGIN_SECONDS = 600
-README = REPO_ROOT / "k8s/README.md"
+CLUSTER_DOC = REPO_ROOT / "docs" / "CLUSTER.md"
 
 
 @pytest.fixture(autouse=True)
@@ -167,10 +167,10 @@ def test_the_default_extension_outlasts_the_stall_by_the_delay_of_the_row_and_th
         ),
     ],
 )
-def test_the_kubernetes_readme_states_the_default_deadline_values(
+def test_the_cluster_document_states_the_default_deadline_values(
     pattern: str, expected: int
 ) -> None:
-    stated = {int(value) for value in re.findall(pattern, README.read_text("utf-8"))}
+    stated = {int(value) for value in re.findall(pattern, CLUSTER_DOC.read_text("utf-8"))}
 
     assert stated == {expected}
 

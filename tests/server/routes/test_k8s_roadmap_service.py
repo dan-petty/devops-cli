@@ -25,6 +25,7 @@ from tests.support.paths import FIXTURES, REPO_ROOT
 
 K8S_DIR = REPO_ROOT / "k8s"
 K8S_README = K8S_DIR / "README.md"
+CLUSTER_DOC = REPO_ROOT / "docs" / "CLUSTER.md"
 DEVOPS_DIR = K8S_DIR / "devops"
 ROADMAP_SERVICE_DIR = DEVOPS_DIR / "roadmap-service"
 # The metric families that the deployed Traefik serves, with their label names (#1136).
@@ -346,12 +347,12 @@ def test_the_folder_tree_of_the_readme_lists_each_file_of_the_roadmap_service() 
     )
 
 
-def _readme_subsection(heading: str) -> str:
-    """The text of one `####` subsection of k8s/README.md, up to the next heading."""
-    text = K8S_README.read_text(encoding="utf-8")
-    start = text.index(f"\n#### {heading}\n") + 1
+def _cluster_subsection(heading: str) -> str:
+    """The text of one `###` subsection of docs/CLUSTER.md, up to the next heading."""
+    text = CLUSTER_DOC.read_text(encoding="utf-8")
+    start = text.index(f"\n### {heading}\n") + 1
     ends = [
-        found for found in (text.find("\n### ", start), text.find("\n#### ", start)) if found != -1
+        found for found in (text.find("\n## ", start), text.find("\n### ", start)) if found != -1
     ]
     return text[start : min(ends, default=len(text))]
 
@@ -378,7 +379,7 @@ def test_the_webhook_route_section_counts_the_429_answers_of_the_rate_limit() ->
     families = yaml.safe_load(TRAEFIK_FAMILIES.read_text(encoding="utf-8"))["families"]
     # Each query is a code span with a selector; a code span can also name a metric alone.
     assert (
-        re.findall(r"`([^`]*traefik_[^`]*\{[^`]*)`", _readme_subsection("Webhook route")),
+        re.findall(r"`([^`]*traefik_[^`]*\{[^`]*)`", _cluster_subsection("Webhook route")),
         {"code", "service"} <= set(families["traefik_router_requests_total"]["labels"]),
     ) == (
         [f'sum by (code) (increase(traefik_router_requests_total{{service="{service}"}}[15m]))'],
