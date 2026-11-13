@@ -605,6 +605,22 @@ serverFiles:
             annotations:
               summary: "The {{ $labels.exporter }} queue of the OpenTelemetry collector is {{ $value | humanizePercentage }} full"
               description: "The {{ $labels.exporter }} exporter of the OpenTelemetry collector has kept its {{ $labels.data_type }} queue at 90% or more of its capacity for 15 minutes. When the queue is full, the collector drops new {{ $labels.data_type }}. Its backend is slow or down (k8s/README.md, Alerting)."
+      # Two metric streams that write one Prometheus series (#4697). The OpenTelemetry collector
+      # keys a metric stream by every resource attribute, while Prometheus keeps only job and
+      # instance: a second stream of one job and instance writes its own totals into the same
+      # series, and a total that does not drop is not read as a reset, so its counts are lost.
+      # target_info carries the resource attributes of each stream, so two streams show as two
+      # series before either stream sends its first counter sample.
+      - name: metric-streams
+        rules:
+          - alert: DevopsCliMetricStreamsShareSeries
+            expr: count by (job, instance) (last_over_time(target_info{job=~"devops-cli.*|roadmap-service"}[15m])) > 1
+            for: 30m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Two metric streams write the series {{ $labels.job }} {{ $labels.instance }}"
+              description: "Prometheus holds two target_info series for job {{ $labels.job }} and instance {{ $labels.instance }} for 30 minutes. Each stream carries its own metric Resource attributes, so the totals of both streams start again at zero in one series and their counts are lost. Remove the extra stream: a workload sets one service.instance.id in OTEL_RESOURCE_ATTRIBUTES (k8s/README.md, Alerting)."
       # Argo CD sync and health, Cloudflare Tunnel HA connectivity, Valkey cache health (#551),
       # and CoreDNS SERVFAIL rate (#822).
       - name: homelab-services
