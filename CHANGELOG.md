@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.125.0](https://github.com/dan-petty/devops-cli/compare/v0.124.0...v0.125.0) (2026-11-12)
+
+
+### Features
+
+* **monitoring:** build service dashboards from one SRE template ([#5280](https://github.com/dan-petty/devops-cli/issues/5280)) ([0fe31a6](https://github.com/dan-petty/devops-cli/commit/0fe31a67ba67bb0f29a6ddbd399111de96b94198))
+
+
+### Bug Fixes
+
+* **roadmap:** fix-plan records the true result of each attempt ([#5279](https://github.com/dan-petty/devops-cli/issues/5279)) ([4a5a118](https://github.com/dan-petty/devops-cli/commit/4a5a1180b52bdcc51c9d139b3788fc05665cbc97))
+
 ## [0.124.0](https://github.com/dan-petty/devops-cli/compare/v0.123.1...v0.124.0) (2026-11-12)
 
 
