@@ -737,6 +737,23 @@ def test_pr_monitor_exits_on_the_verdict_once_the_checks_settle(
     assert exit_code == code, output
 
 
+def test_a_closed_pull_request_stops_the_monitor_with_exit_2(
+    cli: Callable[..., Any], monitored: _GitHub
+) -> None:
+    """A pull request closed without a merge can no longer become ready, so the monitor reads its
+    state, makes one poll, and returns the closed result with exit 2 (#2530)."""
+    monitored.pull(_pr(state="closed", merged=False))
+    exit_code, output = _monitor(cli, "--timeout", "600")
+    pull_reads = sum(" ".join(call.argv).endswith(_PULL) for call in monitored.gh.calls)
+    verdict_reads = [
+        request
+        for request in monitored.api.requested
+        if "check-runs" in request or "/reviews" in request
+    ]
+    assert (exit_code, pull_reads) == (2, 1), output
+    assert verdict_reads == [], output
+
+
 def test_the_monitor_waits_for_the_checks_and_names_every_blocker(
     cli: Callable[..., Any], monitored: _GitHub
 ) -> None:
