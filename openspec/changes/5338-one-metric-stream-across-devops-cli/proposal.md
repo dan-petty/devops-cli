@@ -25,6 +25,7 @@ None.
 ### Modified Capabilities
 
 - `command-telemetry`: The metric Resource holds only stable attributes, The metric Resource reads the configured instance, Two metric streams in one Prometheus series fire an alert, One stream and a short overlap stay quiet, The rule set, the case file and the runbook list the alert, and the new requirement The collector deletes the host name of devops-cli metrics before it adds the deltas.
+- `monitoring-collectors`: The OpenTelemetry collector sends metrics to the Prometheus OTLP receiver. The metrics pipeline now has a resource statement and a datapoint statement, so the scenario names the one datapoint statement that sets `cluster`.
 
 ## Impact
 
