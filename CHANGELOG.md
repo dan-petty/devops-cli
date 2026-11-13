@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.127.0](https://github.com/dan-petty/devops-cli/compare/v0.126.1...v0.127.0) (2026-11-13)
+
+
+### Features
+
+* **argocd:** admit the homelab repo in both AppProjects ([#5365](https://github.com/dan-petty/devops-cli/issues/5365)) ([f299667](https://github.com/dan-petty/devops-cli/commit/f299667c9523f3afb8a36bd1176e00bd08a8c43b)), closes [#5364](https://github.com/dan-petty/devops-cli/issues/5364)
+
+
+### Bug Fixes
+
+* **ci:** run each gate row replay on the source of its tree ([#5362](https://github.com/dan-petty/devops-cli/issues/5362)) ([67e7aba](https://github.com/dan-petty/devops-cli/commit/67e7aba582d7d50091d14205acda2ae36c631146))
+
 ## [0.126.1](https://github.com/dan-petty/devops-cli/compare/v0.126.0...v0.126.1) (2026-11-13)
 
 
