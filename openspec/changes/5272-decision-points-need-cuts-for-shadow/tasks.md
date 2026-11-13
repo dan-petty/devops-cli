@@ -127,7 +127,7 @@ Kind: other. Reads: `docs/adr/0020-a-decision-point-is-a-unit-of-a-workflow-with
 - Group 6: With a model that raises `RuntimeError`, `decide` gives the fallback.
 - Group 9: One decision adds one sample to the duration histogram.
 - Group 6: A timeout adds one count with `error="timeout"`.
-- Group 10: A registry of 92 series loads, and a registry of 93 series raises.
+- Group 10: A registry of 92 series loads, and a registry of 94 series raises.
 - Group 8: A cuts file of model A with `ai.decision_model` set to model B gives the fallback, and the failed counter holds `model_mismatch`.
 - Group 7: A reply that names a dated model puts that dated name in the decision record.
 - Group 10: No test holds the number 60 for the bound; each bound test reads the constant.
