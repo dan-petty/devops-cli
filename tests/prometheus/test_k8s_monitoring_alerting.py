@@ -1677,6 +1677,40 @@ def test_each_ai_spend_alert_has_a_row_with_the_first_step_in_the_readme() -> No
     ) == ([], [])
 
 
+def test_the_metric_streams_alert_has_a_row_in_the_readme() -> None:
+    """The alert table of `k8s/README.md` has a row for `DevopsCliMetricStreamsShareSeries`. The
+    row says that two `target_info` series of one `job` and `instance` fire it after 30 minutes at
+    the warning severity, and that the action reads the two series of that job and instance and
+    removes the extra stream (#4697)."""
+    text = K8S_README.read_text(encoding="utf-8")
+    start = text.index("\n## Alerting\n")
+    section = text[start : text.index("\n### ", start)]
+    rows = [
+        line
+        for line in section.splitlines()
+        if line.startswith("| `DevopsCliMetricStreamsShareSeries` |")
+    ]
+    assert len(rows) == 1, rows
+    cells = [cell.strip() for cell in rows[0].strip("|").split(" | ")]
+    assert (
+        cells[0],
+        "target_info" in cells[1],
+        "`job`" in cells[1],
+        "`instance`" in cells[1],
+        cells[2],
+        cells[3],
+        "remove the extra stream" in cells[4],
+    ) == (
+        "`DevopsCliMetricStreamsShareSeries`",
+        True,
+        True,
+        True,
+        "30m",
+        "warning",
+        True,
+    )
+
+
 @pytest.mark.live("promtool")
 def test_promtool_accepts_every_alert_rule(tmp_path: Path) -> None:
     """`promtool check rules` accepts each rule file the server loads, with each expression and

@@ -29,9 +29,9 @@ Kind: manifest. Reads: `k8s/monitoring/prometheus-values.yaml`, `tests/prometheu
 
 Kind: other. Reads: `k8s/README.md`, `tests/prometheus/test_k8s_monitoring_alerting.py`. Changes: `k8s/README.md`, `tests/prometheus/test_k8s_monitoring_alerting.py`.
 
-- [ ] 4.1 Add a row for DevopsCliMetricStreamsShareSeries to the Alerting table of `k8s/README.md`: it fires when two target_info series of one job and instance stay for 30 minutes, it waits 30m, its severity is warning, and its action is to read the two series of that job and instance and remove the extra stream. Add `test_the_metric_streams_alert_has_a_row_in_the_readme` to `tests/prometheus/test_k8s_monitoring_alerting.py`, which reads the row and asserts the job, the instance and the action
+- [x] 4.1 Add a row for DevopsCliMetricStreamsShareSeries to the Alerting table of `k8s/README.md`: it fires when two target_info series of one job and instance stay for 30 minutes, it waits 30m, its severity is warning, and its action is to read the two series of that job and instance and remove the extra stream. Add `test_the_metric_streams_alert_has_a_row_in_the_readme` to `tests/prometheus/test_k8s_monitoring_alerting.py`, which reads the row and asserts the job, the instance and the action
   - Verification: `$ uv run devops ci test tests/prometheus/test_k8s_monitoring_alerting.py` passes
-- [ ] 4.2 Edit the Alerting table of `k8s/README.md` with the row of the new alert and its action
+- [x] 4.2 Edit the Alerting table of `k8s/README.md` with the row of the new alert and its action
   - Verification: `$ uv run devops ci docs` passes
 
 ## 5. Describe the stable metric Resource in the telemetry reference
