@@ -20,11 +20,11 @@ Kind: behavior. Reads: `src/devops_cli/roadmap/stage/stage.py`. Changes: `src/de
 
 ## 3. Gate the findings that return a good plan in the eval
 
-Kind: behavior. Reads: `src/devops_cli/commands/roadmap_eval_verify.py`. Changes: `src/devops_cli/roadmap/stage/stage_verify_eval.py`, `src/devops_cli/config/constants.py`, `src/devops_cli/lang/en/messages.py`, `src/devops_cli/lang/en/help.py`, `tests/roadmap/stage/test_roadmap_stage_verify_eval.py`.
+Kind: behavior. Reads: `src/devops_cli/commands/roadmap_eval_verify.py`. Changes: `src/devops_cli/roadmap/stage/stage_verify_eval.py`, `src/devops_cli/config/constants.py`, `src/devops_cli/lang/en/messages.py`, `src/devops_cli/lang/en/help.py`, `tests/roadmap/stage/test_roadmap_stage_verify_eval.py`, `tests/roadmap/test_roadmap_limit_classes.py`.
 
-- [x] 3.1 Write `test_the_report_gates_good_returning` in `tests/roadmap/stage/test_roadmap_stage_verify_eval.py`
+- [x] 3.1 Write `test_the_report_gates_good_returning` and `test_the_json_report_holds_the_mean_of_the_findings_that_return_a_good_plan` in `tests/roadmap/stage/test_roadmap_stage_verify_eval.py`
   - Verification: `$ uv run devops ci fail-to-pass --base origin/main`
-- [x] 3.2 Add `CONST_ROADMAP_VERIFY_GOOD_RETURNING_CEILING` with the reason of its value, `VerifyScore.good_returning_mean`, the ceiling line after the good line of the report and `good_returning_mean` in the JSON report; name the ceiling in the help of the command
+- [x] 3.2 Add `CONST_ROADMAP_VERIFY_GOOD_RETURNING_CEILING` with the reason of its value and its class in the table of limits, `VerifyScore.good_returning_mean`, the ceiling line after the good line of the report and `good_returning_mean` in the JSON report; name the ceiling in the help of the command
   - Verification: `$ uv run devops ci test tests/roadmap/stage/test_roadmap_stage_verify_eval.py`
 
 ## 4. Describe the severity rule and the ceiling

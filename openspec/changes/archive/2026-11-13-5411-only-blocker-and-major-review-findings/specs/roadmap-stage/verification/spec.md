@@ -36,7 +36,7 @@ The prompt of the pass SHALL describe a `spec_delta_wrong` scenario defect as a 
 ## MODIFIED Requirements
 
 ### Requirement: An evidence-backed finding returns the plan for the set repair rounds
-A finding of the severity `blocker` or `major` and of type `missing_path`, `false_premise`, `ignores_existing_code`, `task_order`, `verify_form`, `spec_delta_wrong` or `criterion_dropped` that quotes its input or a tool answer of the run, on a place of the plan or the issue, SHALL return the plan to the planner with each open finding of the round as the problem. The revision SHALL pass the gates and the review again, at most `roadmap.stage.verify_repair_rounds` times (two by default), and for each extra round of the extension.
+A finding of the severity `blocker` or `major` and of an open type (`OPEN_TYPES`) that quotes its input or a tool answer of the run, on a place of the plan or the issue, SHALL return the plan to the planner with each open finding of the round as the problem. The revision SHALL pass the gates and the review again, at most `roadmap.stage.verify_repair_rounds` times (two by default), and for each extra round of the extension.
 
 #### Scenario: A false premise with a quote
 - **WHEN** the verifier returns a major `false_premise` finding whose quote is in the issue
