@@ -43,6 +43,7 @@ from devops_cli.roadmap.stage.stage_verify_eval import (
     matched_defects,
     planned_verify_calls,
     render_verify,
+    verify_json,
 )
 from tests.support.builders import make_stage_proposal
 from tests.support.fakes.model import ModelFake
@@ -856,6 +857,34 @@ def test_the_report_gates_good_returning() -> None:
     assert f"{head} The mean of 0.00 does not pass it." in met
     assert "the ceiling is not scored" in _good_report()
     assert missed.index("Floor of the blocker") < missed.index("Ceiling of the findings")
+
+
+def test_the_json_report_holds_the_mean_of_the_findings_that_return_a_good_plan() -> None:
+    """The JSON report holds the mean of the findings that return a good plan as
+    `good_returning_mean`, and null for a run that verified no good plan (#5411). A bad plan does
+    not count."""
+    cases = (
+        CaseOutcome("good-1", True, 0, 0, returning=1),
+        CaseOutcome("good-2", True, 0, 0, returning=2),
+        CaseOutcome("bad-1", False, 1, 1, returning=4),
+    )
+    taken = "2026-11-13T00:00:00+00:00"
+
+    scored = json.loads(
+        verify_json(
+            VerifyScore("m-1", (), 1, 1, cases), gateway="https://gateway.example.com", taken=taken
+        )
+    )
+    unscored = json.loads(
+        verify_json(
+            VerifyScore("m-1", (), 1, 1, cases[2:]),
+            gateway="https://gateway.example.com",
+            taken=taken,
+        )
+    )
+
+    assert scored["good_returning_mean"] == 1.5
+    assert unscored["good_returning_mean"] is None
 
 
 def test_the_dry_run_names_an_agent_run_for_each_case() -> None:
